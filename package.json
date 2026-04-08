@@ -1,0 +1,29 @@
+{
+  "name": "maybesitter",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "dev:reliable": "node scripts/with-worker.mjs dev",
+    "dev:worker": "node scripts/reminder-worker.mjs",
+    "build": "next build",
+    "test": "node --no-warnings --loader ./scripts/ts-resolver.mjs --test tests/domain/stateMachine.test.ts tests/extraction/extraction.test.ts tests/responseFormatter.test.ts tests/responseEngineQuality.test.ts tests/responseCompressionService.test.ts tests/captureService.test.ts tests/domainAppSnapshotAdapter.test.ts tests/commitmentReview.test.ts tests/agendaService.test.ts tests/agendaScoring.test.ts tests/agendaActionService.test.ts tests/pressureService.test.ts tests/adaptiveService.test.ts tests/behaviorFeedbackService.test.ts tests/personalityService.test.ts tests/calendarFeedService.test.ts tests/scheduler/scheduler.test.ts",
+    "start": "next start",
+    "start:reliable": "node scripts/with-worker.mjs start",
+    "worker": "node scripts/reminder-worker.mjs"
+  },
+  "dependencies": {
+    "next": "14.2.0",
+    "react": "^18",
+    "react-dom": "^18"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "autoprefixer": "^10",
+    "postcss": "^8",
+    "tailwindcss": "^3",
+    "typescript": "^5"
+  }
+}
