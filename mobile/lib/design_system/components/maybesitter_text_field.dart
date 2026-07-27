@@ -47,16 +47,10 @@ class MaybesitterTextField extends StatelessWidget {
           onChanged: onChanged,
           maxLines: maxLines,
           autofocus: autofocus,
-          style: TextStyle(
-            fontSize: 15,
-            color: colors.textPrimary,
-          ),
+          style: TextStyle(fontSize: 15, color: colors.textPrimary),
           decoration: InputDecoration(
             hintText: hint,
-            hintStyle: TextStyle(
-              fontSize: 15,
-              color: colors.textMuted,
-            ),
+            hintStyle: TextStyle(fontSize: 15, color: colors.textMuted),
             filled: true,
             fillColor: colors.surface,
             prefixIcon: prefixIcon,

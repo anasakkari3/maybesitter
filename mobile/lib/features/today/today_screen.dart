@@ -23,18 +23,27 @@ class TodayScreen extends ConsumerWidget {
     final commitments = ref.watch(todayCommitmentsProvider);
 
     final mustItems = commitments
-        .where((c) => c.priority == CommitmentPriority.must && !c.status.isCompleted)
+        .where(
+          (c) => c.priority == CommitmentPriority.must && !c.status.isCompleted,
+        )
         .toList();
     final shouldItems = commitments
-        .where((c) => c.priority == CommitmentPriority.should && !c.status.isCompleted)
+        .where(
+          (c) =>
+              c.priority == CommitmentPriority.should && !c.status.isCompleted,
+        )
         .toList();
     final niceItems = commitments
-        .where((c) => c.priority == CommitmentPriority.nice && !c.status.isCompleted)
+        .where(
+          (c) => c.priority == CommitmentPriority.nice && !c.status.isCompleted,
+        )
         .toList();
-    final completedItems =
-        commitments.where((c) => c.status.isCompleted).toList();
+    final completedItems = commitments
+        .where((c) => c.status.isCompleted)
+        .toList();
 
-    final totalActive = mustItems.length + shouldItems.length + niceItems.length;
+    final totalActive =
+        mustItems.length + shouldItems.length + niceItems.length;
 
     return MaybesitterScaffold(
       appBar: MaybesitterAppBar(
@@ -114,21 +123,22 @@ class TodayScreen extends ConsumerWidget {
                     ),
                   ),
                   SliverPadding(
-                    padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.md,
+                    ),
                     sliver: SliverList(
-                      delegate: SliverChildBuilderDelegate(
-                        (context, index) {
-                          final c = mustItems[index];
-                          return CommitmentCard(
-                            commitment: c,
-                            onToggleComplete: (_) {
-                              ref.read(commitmentRepositoryProvider).complete(c.id);
-                            },
-                            onTap: () => context.push('/commitments/${c.id}'),
-                          );
-                        },
-                        childCount: mustItems.length,
-                      ),
+                      delegate: SliverChildBuilderDelegate((context, index) {
+                        final c = mustItems[index];
+                        return CommitmentCard(
+                          commitment: c,
+                          onToggleComplete: (_) {
+                            ref
+                                .read(commitmentRepositoryProvider)
+                                .complete(c.id);
+                          },
+                          onTap: () => context.push('/commitments/${c.id}'),
+                        );
+                      }, childCount: mustItems.length),
                     ),
                   ),
                 ],
@@ -142,21 +152,22 @@ class TodayScreen extends ConsumerWidget {
                     ),
                   ),
                   SliverPadding(
-                    padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.md,
+                    ),
                     sliver: SliverList(
-                      delegate: SliverChildBuilderDelegate(
-                        (context, index) {
-                          final c = shouldItems[index];
-                          return CommitmentCard(
-                            commitment: c,
-                            onToggleComplete: (_) {
-                              ref.read(commitmentRepositoryProvider).complete(c.id);
-                            },
-                            onTap: () => context.push('/commitments/${c.id}'),
-                          );
-                        },
-                        childCount: shouldItems.length,
-                      ),
+                      delegate: SliverChildBuilderDelegate((context, index) {
+                        final c = shouldItems[index];
+                        return CommitmentCard(
+                          commitment: c,
+                          onToggleComplete: (_) {
+                            ref
+                                .read(commitmentRepositoryProvider)
+                                .complete(c.id);
+                          },
+                          onTap: () => context.push('/commitments/${c.id}'),
+                        );
+                      }, childCount: shouldItems.length),
                     ),
                   ),
                 ],
@@ -170,21 +181,22 @@ class TodayScreen extends ConsumerWidget {
                     ),
                   ),
                   SliverPadding(
-                    padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.md,
+                    ),
                     sliver: SliverList(
-                      delegate: SliverChildBuilderDelegate(
-                        (context, index) {
-                          final c = niceItems[index];
-                          return CommitmentCard(
-                            commitment: c,
-                            onToggleComplete: (_) {
-                              ref.read(commitmentRepositoryProvider).complete(c.id);
-                            },
-                            onTap: () => context.push('/commitments/${c.id}'),
-                          );
-                        },
-                        childCount: niceItems.length,
-                      ),
+                      delegate: SliverChildBuilderDelegate((context, index) {
+                        final c = niceItems[index];
+                        return CommitmentCard(
+                          commitment: c,
+                          onToggleComplete: (_) {
+                            ref
+                                .read(commitmentRepositoryProvider)
+                                .complete(c.id);
+                          },
+                          onTap: () => context.push('/commitments/${c.id}'),
+                        );
+                      }, childCount: niceItems.length),
                     ),
                   ),
                 ],
@@ -198,24 +210,25 @@ class TodayScreen extends ConsumerWidget {
                     ),
                   ),
                   SliverPadding(
-                    padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.md,
+                    ),
                     sliver: SliverList(
-                      delegate: SliverChildBuilderDelegate(
-                        (context, index) {
-                          final c = completedItems[index];
-                          return CommitmentCard(
-                            commitment: c,
-                            onToggleComplete: (_) {
-                              // Uncheck
-                              ref.read(commitmentRepositoryProvider).update(
-                                    c.copyWith(status: CommitmentStatus.pending),
-                                  );
-                            },
-                            onTap: () => context.push('/commitments/${c.id}'),
-                          );
-                        },
-                        childCount: completedItems.length,
-                      ),
+                      delegate: SliverChildBuilderDelegate((context, index) {
+                        final c = completedItems[index];
+                        return CommitmentCard(
+                          commitment: c,
+                          onToggleComplete: (_) {
+                            // Uncheck
+                            ref
+                                .read(commitmentRepositoryProvider)
+                                .update(
+                                  c.copyWith(status: CommitmentStatus.pending),
+                                );
+                          },
+                          onTap: () => context.push('/commitments/${c.id}'),
+                        );
+                      }, childCount: completedItems.length),
                     ),
                   ),
                 ],

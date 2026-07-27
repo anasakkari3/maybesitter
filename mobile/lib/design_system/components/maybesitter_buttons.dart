@@ -33,9 +33,7 @@ class PrimaryButton extends StatelessWidget {
           horizontal: AppSpacing.lg,
           vertical: AppSpacing.md,
         ),
-        shape: const RoundedRectangleBorder(
-          borderRadius: AppRadius.control,
-        ),
+        shape: const RoundedRectangleBorder(borderRadius: AppRadius.control),
       ),
       child: isLoading
           ? SizedBox(
@@ -47,8 +45,7 @@ class PrimaryButton extends StatelessWidget {
               ),
             )
           : Row(
-              mainAxisSize:
-                  isFullWidth ? MainAxisSize.max : MainAxisSize.min,
+              mainAxisSize: isFullWidth ? MainAxisSize.max : MainAxisSize.min,
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 if (icon != null) ...[
@@ -101,9 +98,7 @@ class SecondaryButton extends StatelessWidget {
           horizontal: AppSpacing.lg,
           vertical: AppSpacing.md,
         ),
-        shape: const RoundedRectangleBorder(
-          borderRadius: AppRadius.control,
-        ),
+        shape: const RoundedRectangleBorder(borderRadius: AppRadius.control),
       ),
       child: Row(
         mainAxisSize: isFullWidth ? MainAxisSize.max : MainAxisSize.min,
@@ -159,9 +154,7 @@ class DestructiveButton extends StatelessWidget {
             horizontal: AppSpacing.lg,
             vertical: AppSpacing.md,
           ),
-          shape: const RoundedRectangleBorder(
-            borderRadius: AppRadius.control,
-          ),
+          shape: const RoundedRectangleBorder(borderRadius: AppRadius.control),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,

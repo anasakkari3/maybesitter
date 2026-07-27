@@ -27,9 +27,10 @@ class _ProcessingIndicatorState extends State<ProcessingIndicator>
       duration: const Duration(seconds: 2),
     )..repeat(reverse: true);
 
-    _pulseAnimation = Tween<double>(begin: 0.8, end: 1.2).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
-    );
+    _pulseAnimation = Tween<double>(
+      begin: 0.8,
+      end: 1.2,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
   }
 
   @override

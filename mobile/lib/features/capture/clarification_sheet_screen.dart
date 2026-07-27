@@ -31,7 +31,8 @@ class ClarificationSheetScreen extends ConsumerWidget {
         child: Column(
           children: [
             ClarificationCard(
-              promptText: captureState.clarificationPrompt ??
+              promptText:
+                  captureState.clarificationPrompt ??
                   'Please select how you would like this plan scheduled:',
               options: captureState.clarificationOptions,
               onSelectOption: (opt) {

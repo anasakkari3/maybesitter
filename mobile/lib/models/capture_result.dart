@@ -10,7 +10,7 @@ enum CaptureStatus {
   extractionFailed,
   saveFailed,
   saved,
-  cancelled;
+  cancelled,
 }
 
 enum ExtractionConfidence {

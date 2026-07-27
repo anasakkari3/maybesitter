@@ -57,10 +57,7 @@ class SuccessPanel extends StatelessWidget {
           Text(
             subtitle,
             textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 14,
-              color: colors.textSecondary,
-            ),
+            style: TextStyle(fontSize: 14, color: colors.textSecondary),
           ),
           const SizedBox(height: AppSpacing.lg),
           // List of saved commitments preview
@@ -126,10 +123,7 @@ class SuccessPanel extends StatelessWidget {
             onPressed: onViewTomorrow,
           ),
           const SizedBox(height: AppSpacing.sm),
-          SecondaryButton(
-            label: 'Done',
-            onPressed: onDone,
-          ),
+          SecondaryButton(label: 'Done', onPressed: onDone),
           if (onUndo != null) ...[
             const SizedBox(height: AppSpacing.sm),
             TextButton(

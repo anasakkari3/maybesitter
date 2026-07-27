@@ -44,17 +44,10 @@ class CommitmentStatusBadge extends StatelessWidget {
         horizontal: AppSpacing.sm,
         vertical: AppSpacing.xs,
       ),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: AppRadius.pillBorder,
-      ),
+      decoration: BoxDecoration(color: bg, borderRadius: AppRadius.pillBorder),
       child: Text(
         label,
-        style: TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-          color: fg,
-        ),
+        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: fg),
       ),
     );
   }

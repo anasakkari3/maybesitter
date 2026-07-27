@@ -14,5 +14,7 @@ abstract class AppRadius {
     topLeft: Radius.circular(xl),
     topRight: Radius.circular(xl),
   );
-  static const BorderRadius pillBorder = BorderRadius.all(Radius.circular(pill));
+  static const BorderRadius pillBorder = BorderRadius.all(
+    Radius.circular(pill),
+  );
 }

@@ -32,7 +32,11 @@ class MaybesitterAppBar extends StatelessWidget implements PreferredSizeWidget {
           Row(
             children: [
               if (showLogo) ...[
-                Icon(Icons.check_circle_outline, color: colors.brandPrimary, size: 22),
+                Icon(
+                  Icons.check_circle_outline,
+                  color: colors.brandPrimary,
+                  size: 22,
+                ),
                 const SizedBox(width: 8),
               ],
               Text(
@@ -56,10 +60,14 @@ class MaybesitterAppBar extends StatelessWidget implements PreferredSizeWidget {
             ),
         ],
       ),
-      actions: actions ??
+      actions:
+          actions ??
           [
             IconButton(
-              icon: Icon(Icons.notifications_outlined, color: colors.textPrimary),
+              icon: Icon(
+                Icons.notifications_outlined,
+                color: colors.textPrimary,
+              ),
               onPressed: () {},
               tooltip: 'Notifications',
             ),

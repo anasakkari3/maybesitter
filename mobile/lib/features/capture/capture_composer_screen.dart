@@ -18,8 +18,7 @@ class CaptureComposerScreen extends ConsumerStatefulWidget {
       _CaptureComposerScreenState();
 }
 
-class _CaptureComposerScreenState
-    extends ConsumerState<CaptureComposerScreen> {
+class _CaptureComposerScreenState extends ConsumerState<CaptureComposerScreen> {
   late TextEditingController _textController;
 
   @override
@@ -212,14 +211,15 @@ class _CaptureComposerScreenState
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.lock_outline, size: 14, color: colors.textMuted),
+                      Icon(
+                        Icons.lock_outline,
+                        size: 14,
+                        color: colors.textMuted,
+                      ),
                       const SizedBox(width: 4),
                       Text(
                         'Your plan is analyzed privately with Quiet Intelligence.',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: colors.textMuted,
-                        ),
+                        style: TextStyle(fontSize: 12, color: colors.textMuted),
                       ),
                     ],
                   ),
@@ -239,10 +239,7 @@ class _CaptureComposerScreenState
                   ExpansionTile(
                     title: Text(
                       'Dev Fixture Previews',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: colors.textMuted,
-                      ),
+                      style: TextStyle(fontSize: 13, color: colors.textMuted),
                     ),
                     children: [
                       Wrap(
@@ -252,7 +249,9 @@ class _CaptureComposerScreenState
                             onPressed: () {
                               ref
                                   .read(captureControllerProvider.notifier)
-                                  .previewState(CaptureStatus.needsConfirmation);
+                                  .previewState(
+                                    CaptureStatus.needsConfirmation,
+                                  );
                               context.push('/capture/review');
                             },
                             child: const Text('2 Items Review'),
@@ -261,7 +260,9 @@ class _CaptureComposerScreenState
                             onPressed: () {
                               ref
                                   .read(captureControllerProvider.notifier)
-                                  .previewState(CaptureStatus.needsClarification);
+                                  .previewState(
+                                    CaptureStatus.needsClarification,
+                                  );
                               context.push('/capture/clarification');
                             },
                             child: const Text('Clarification'),

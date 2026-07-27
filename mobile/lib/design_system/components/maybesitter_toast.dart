@@ -4,7 +4,11 @@ import '../tokens/radius.dart';
 import '../tokens/spacing.dart';
 
 class MaybesitterToast {
-  static void show(BuildContext context, String message, {bool isError = false}) {
+  static void show(
+    BuildContext context,
+    String message, {
+    bool isError = false,
+  }) {
     final colors = context.colors;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(

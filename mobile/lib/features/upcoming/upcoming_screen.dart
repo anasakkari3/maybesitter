@@ -45,17 +45,22 @@ class _UpcomingScreenState extends ConsumerState<UpcomingScreen> {
     }).toList();
 
     // Group by date
-    final tomorrowItems =
-        filtered.where((c) => DateFormatter.isTomorrow(c.scheduledDate)).toList();
+    final tomorrowItems = filtered
+        .where((c) => DateFormatter.isTomorrow(c.scheduledDate))
+        .toList();
     final thisWeekItems = filtered
-        .where((c) =>
-            DateFormatter.isThisWeek(c.scheduledDate) &&
-            !DateFormatter.isTomorrow(c.scheduledDate))
+        .where(
+          (c) =>
+              DateFormatter.isThisWeek(c.scheduledDate) &&
+              !DateFormatter.isTomorrow(c.scheduledDate),
+        )
         .toList();
     final laterItems = filtered
-        .where((c) =>
-            !DateFormatter.isThisWeek(c.scheduledDate) &&
-            !DateFormatter.isTomorrow(c.scheduledDate))
+        .where(
+          (c) =>
+              !DateFormatter.isThisWeek(c.scheduledDate) &&
+              !DateFormatter.isTomorrow(c.scheduledDate),
+        )
         .toList();
 
     return MaybesitterScaffold(
@@ -91,7 +96,8 @@ class _UpcomingScreenState extends ConsumerState<UpcomingScreen> {
                         child: MaybesitterChip(
                           label: f,
                           isSelected: _selectedPriorityFilter == f,
-                          onTap: () => setState(() => _selectedPriorityFilter = f),
+                          onTap: () =>
+                              setState(() => _selectedPriorityFilter = f),
                         ),
                       );
                     }).toList(),
@@ -106,8 +112,7 @@ class _UpcomingScreenState extends ConsumerState<UpcomingScreen> {
                 ? EmptyState(
                     icon: Icons.calendar_month,
                     title: 'No Upcoming Commitments',
-                    description:
-                        'No plans scheduled for the selected filter.',
+                    description: 'No plans scheduled for the selected filter.',
                     actionLabel: 'Capture New Plan',
                     onAction: () => context.push('/capture'),
                   )
@@ -122,21 +127,26 @@ class _UpcomingScreenState extends ConsumerState<UpcomingScreen> {
                           ),
                         ),
                         SliverPadding(
-                          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.md,
+                          ),
                           sliver: SliverList(
-                            delegate: SliverChildBuilderDelegate(
-                              (context, index) {
-                                final c = tomorrowItems[index];
-                                return CommitmentCard(
-                                  commitment: c,
-                                  onToggleComplete: (_) {
-                                    ref.read(commitmentRepositoryProvider).complete(c.id);
-                                  },
-                                  onTap: () => context.push('/commitments/${c.id}'),
-                                );
-                              },
-                              childCount: tomorrowItems.length,
-                            ),
+                            delegate: SliverChildBuilderDelegate((
+                              context,
+                              index,
+                            ) {
+                              final c = tomorrowItems[index];
+                              return CommitmentCard(
+                                commitment: c,
+                                onToggleComplete: (_) {
+                                  ref
+                                      .read(commitmentRepositoryProvider)
+                                      .complete(c.id);
+                                },
+                                onTap: () =>
+                                    context.push('/commitments/${c.id}'),
+                              );
+                            }, childCount: tomorrowItems.length),
                           ),
                         ),
                       ],
@@ -150,21 +160,26 @@ class _UpcomingScreenState extends ConsumerState<UpcomingScreen> {
                           ),
                         ),
                         SliverPadding(
-                          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.md,
+                          ),
                           sliver: SliverList(
-                            delegate: SliverChildBuilderDelegate(
-                              (context, index) {
-                                final c = thisWeekItems[index];
-                                return CommitmentCard(
-                                  commitment: c,
-                                  onToggleComplete: (_) {
-                                    ref.read(commitmentRepositoryProvider).complete(c.id);
-                                  },
-                                  onTap: () => context.push('/commitments/${c.id}'),
-                                );
-                              },
-                              childCount: thisWeekItems.length,
-                            ),
+                            delegate: SliverChildBuilderDelegate((
+                              context,
+                              index,
+                            ) {
+                              final c = thisWeekItems[index];
+                              return CommitmentCard(
+                                commitment: c,
+                                onToggleComplete: (_) {
+                                  ref
+                                      .read(commitmentRepositoryProvider)
+                                      .complete(c.id);
+                                },
+                                onTap: () =>
+                                    context.push('/commitments/${c.id}'),
+                              );
+                            }, childCount: thisWeekItems.length),
                           ),
                         ),
                       ],
@@ -178,21 +193,26 @@ class _UpcomingScreenState extends ConsumerState<UpcomingScreen> {
                           ),
                         ),
                         SliverPadding(
-                          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.md,
+                          ),
                           sliver: SliverList(
-                            delegate: SliverChildBuilderDelegate(
-                              (context, index) {
-                                final c = laterItems[index];
-                                return CommitmentCard(
-                                  commitment: c,
-                                  onToggleComplete: (_) {
-                                    ref.read(commitmentRepositoryProvider).complete(c.id);
-                                  },
-                                  onTap: () => context.push('/commitments/${c.id}'),
-                                );
-                              },
-                              childCount: laterItems.length,
-                            ),
+                            delegate: SliverChildBuilderDelegate((
+                              context,
+                              index,
+                            ) {
+                              final c = laterItems[index];
+                              return CommitmentCard(
+                                commitment: c,
+                                onToggleComplete: (_) {
+                                  ref
+                                      .read(commitmentRepositoryProvider)
+                                      .complete(c.id);
+                                },
+                                onTap: () =>
+                                    context.push('/commitments/${c.id}'),
+                              );
+                            }, childCount: laterItems.length),
                           ),
                         ),
                       ],

@@ -34,15 +34,23 @@ class SettingsScreen extends ConsumerWidget {
               child: Column(
                 children: [
                   ListTile(
-                    leading: Icon(Icons.palette_outlined, color: colors.brandPrimary),
+                    leading: Icon(
+                      Icons.palette_outlined,
+                      color: colors.brandPrimary,
+                    ),
                     title: const Text('Appearance'),
-                    subtitle: Text('Theme: ${settings.themeMode.name.toUpperCase()}'),
+                    subtitle: Text(
+                      'Theme: ${settings.themeMode.name.toUpperCase()}',
+                    ),
                     trailing: const Icon(Icons.chevron_right),
                     onTap: () => context.push('/settings/appearance'),
                   ),
                   const Divider(),
                   ListTile(
-                    leading: Icon(Icons.notifications_none, color: colors.brandPrimary),
+                    leading: Icon(
+                      Icons.notifications_none,
+                      color: colors.brandPrimary,
+                    ),
                     title: const Text('Notifications'),
                     subtitle: Text(
                       settings.notificationsEnabled ? 'Enabled' : 'Disabled',
@@ -52,7 +60,10 @@ class SettingsScreen extends ConsumerWidget {
                   ),
                   const Divider(),
                   ListTile(
-                    leading: Icon(Icons.privacy_tip_outlined, color: colors.brandPrimary),
+                    leading: Icon(
+                      Icons.privacy_tip_outlined,
+                      color: colors.brandPrimary,
+                    ),
                     title: const Text('Privacy & Data'),
                     subtitle: const Text('Local data & telemetry control'),
                     trailing: const Icon(Icons.chevron_right),
@@ -64,10 +75,7 @@ class SettingsScreen extends ConsumerWidget {
             const SizedBox(height: AppSpacing.lg),
             Text(
               'Maybesitter Mobile v1.0.0 (Build 1)',
-              style: TextStyle(
-                fontSize: 12,
-                color: colors.textMuted,
-              ),
+              style: TextStyle(fontSize: 12, color: colors.textMuted),
             ),
           ],
         ),

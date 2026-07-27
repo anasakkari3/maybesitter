@@ -42,7 +42,7 @@ class MaybesitterSegmentedControl<T> extends StatelessWidget {
                           BoxShadow(
                             color: Colors.black.withValues(alpha: 0.1),
                             blurRadius: 4,
-                          )
+                          ),
                         ]
                       : null,
                 ),
@@ -51,10 +51,10 @@ class MaybesitterSegmentedControl<T> extends StatelessWidget {
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 13,
-                    fontWeight:
-                        isSelected ? FontWeight.w700 : FontWeight.w500,
-                    color:
-                        isSelected ? colors.brandPrimary : colors.textSecondary,
+                    fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                    color: isSelected
+                        ? colors.brandPrimary
+                        : colors.textSecondary,
                   ),
                 ),
               ),

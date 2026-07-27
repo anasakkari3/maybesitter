@@ -15,10 +15,12 @@ import '../features/settings/settings_screen.dart';
 import '../features/today/today_screen.dart';
 import '../features/upcoming/upcoming_screen.dart';
 
-final GlobalKey<NavigatorState> _rootNavigatorKey =
-    GlobalKey<NavigatorState>(debugLabel: 'root');
-final GlobalKey<NavigatorState> _shellNavigatorKey =
-    GlobalKey<NavigatorState>(debugLabel: 'shell');
+final GlobalKey<NavigatorState> _rootNavigatorKey = GlobalKey<NavigatorState>(
+  debugLabel: 'root',
+);
+final GlobalKey<NavigatorState> _shellNavigatorKey = GlobalKey<NavigatorState>(
+  debugLabel: 'shell',
+);
 
 final appRouter = GoRouter(
   navigatorKey: _rootNavigatorKey,
@@ -95,7 +97,8 @@ final appRouter = GoRouter(
             GoRoute(
               path: 'notifications',
               parentNavigatorKey: _rootNavigatorKey,
-              builder: (context, state) => const NotificationsPermissionScreen(),
+              builder: (context, state) =>
+                  const NotificationsPermissionScreen(),
             ),
           ],
         ),

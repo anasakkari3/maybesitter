@@ -81,7 +81,8 @@ class _CommitmentCardState extends State<CommitmentCard> {
                             children: [
                               // Completion Checkbox
                               InkWell(
-                                onTap: () => widget.onToggleComplete?.call(!isDone),
+                                onTap: () =>
+                                    widget.onToggleComplete?.call(!isDone),
                                 borderRadius: BorderRadius.circular(20),
                                 child: Container(
                                   width: 24,
@@ -131,7 +132,8 @@ class _CommitmentCardState extends State<CommitmentCard> {
                                       const SizedBox(height: 4),
                                       Row(
                                         children: [
-                                          if (widget.commitment.startTime != null) ...[
+                                          if (widget.commitment.startTime !=
+                                              null) ...[
                                             Icon(
                                               Icons.schedule,
                                               size: 14,
@@ -146,9 +148,12 @@ class _CommitmentCardState extends State<CommitmentCard> {
                                                 fontWeight: FontWeight.w500,
                                               ),
                                             ),
-                                            const SizedBox(width: AppSpacing.sm),
+                                            const SizedBox(
+                                              width: AppSpacing.sm,
+                                            ),
                                           ],
-                                          if (widget.commitment.location != null) ...[
+                                          if (widget.commitment.location !=
+                                              null) ...[
                                             Icon(
                                               Icons.location_on_outlined,
                                               size: 14,
@@ -173,7 +178,9 @@ class _CommitmentCardState extends State<CommitmentCard> {
                                   ],
                                 ),
                               ),
-                              PriorityBadge(priority: widget.commitment.priority),
+                              PriorityBadge(
+                                priority: widget.commitment.priority,
+                              ),
                             ],
                           ),
                           if (widget.commitment.description != null &&

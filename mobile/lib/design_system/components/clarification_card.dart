@@ -24,7 +24,10 @@ class ClarificationCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: colors.surface,
         borderRadius: AppRadius.card,
-        border: Border.all(color: colors.brandSecondary.withValues(alpha: 0.4), width: 1.5),
+        border: Border.all(
+          color: colors.brandSecondary.withValues(alpha: 0.4),
+          width: 1.5,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

@@ -28,7 +28,10 @@ class ExtractionReviewCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: colors.surface,
         borderRadius: AppRadius.card,
-        border: Border.all(color: colors.brandPrimary.withValues(alpha: 0.4), width: 1.5),
+        border: Border.all(
+          color: colors.brandPrimary.withValues(alpha: 0.4),
+          width: 1.5,
+        ),
         boxShadow: [
           BoxShadow(
             color: colors.brandPrimary.withValues(alpha: 0.1),
@@ -79,7 +82,11 @@ class ExtractionReviewCard extends StatelessWidget {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.calendar_today, size: 14, color: colors.brandPrimary),
+                  Icon(
+                    Icons.calendar_today,
+                    size: 14,
+                    color: colors.brandPrimary,
+                  ),
                   const SizedBox(width: 4),
                   Text(
                     'Tomorrow',

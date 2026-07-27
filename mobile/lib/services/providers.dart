@@ -44,7 +44,11 @@ final todayCommitmentsProvider = Provider<List<Commitment>>((ref) {
   final now = DateTime.now();
   final today = DateTime(now.year, now.month, now.day);
   return all.where((c) {
-    final cDate = DateTime(c.scheduledDate.year, c.scheduledDate.month, c.scheduledDate.day);
+    final cDate = DateTime(
+      c.scheduledDate.year,
+      c.scheduledDate.month,
+      c.scheduledDate.day,
+    );
     return cDate.isAtSameMomentAs(today);
   }).toList();
 });
@@ -55,7 +59,11 @@ final upcomingCommitmentsProvider = Provider<List<Commitment>>((ref) {
   final now = DateTime.now();
   final today = DateTime(now.year, now.month, now.day);
   return all.where((c) {
-    final cDate = DateTime(c.scheduledDate.year, c.scheduledDate.month, c.scheduledDate.day);
+    final cDate = DateTime(
+      c.scheduledDate.year,
+      c.scheduledDate.month,
+      c.scheduledDate.day,
+    );
     return cDate.isAfter(today);
   }).toList();
 });
@@ -91,5 +99,5 @@ class AppSettingsNotifier extends StateNotifier<AppSettings> {
 
 final appSettingsProvider =
     StateNotifierProvider<AppSettingsNotifier, AppSettings>((ref) {
-  return AppSettingsNotifier();
-});
+      return AppSettingsNotifier();
+    });

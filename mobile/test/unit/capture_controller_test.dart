@@ -25,7 +25,9 @@ void main() {
     test('Submitting "doctor and work" extracts 2 commitments', () async {
       final notifier = container.read(captureControllerProvider.notifier);
 
-      await notifier.submitIntent('Tomorrow I will go to the doctor and then work.');
+      await notifier.submitIntent(
+        'Tomorrow I will go to the doctor and then work.',
+      );
 
       final state = container.read(captureControllerProvider);
       expect(state.status, CaptureStatus.needsConfirmation);
@@ -36,7 +38,9 @@ void main() {
 
     test('Confirm save persists to repository and sets saved state', () async {
       final notifier = container.read(captureControllerProvider.notifier);
-      await notifier.submitIntent('Tomorrow I will go to the doctor and then work.');
+      await notifier.submitIntent(
+        'Tomorrow I will go to the doctor and then work.',
+      );
 
       final success = await notifier.confirmSave();
       expect(success, isTrue);
@@ -46,10 +50,7 @@ void main() {
 
       final repo = container.read(commitmentRepositoryProvider);
       final upcoming = await repo.getUpcoming();
-      expect(
-        upcoming.any((c) => c.title == 'Go to the doctor'),
-        isTrue,
-      );
+      expect(upcoming.any((c) => c.title == 'Go to the doctor'), isTrue);
     });
   });
 }

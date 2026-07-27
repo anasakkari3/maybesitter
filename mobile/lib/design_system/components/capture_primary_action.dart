@@ -26,7 +26,9 @@ class CapturePrimaryAction extends StatelessWidget {
         backgroundColor: colors.brandPrimary,
         foregroundColor: colors.background,
         elevation: 4,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.pill)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.pill),
+        ),
         icon: const Icon(Icons.auto_awesome, size: 22),
         label: Text(
           label,

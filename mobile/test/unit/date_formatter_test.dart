@@ -13,7 +13,10 @@ void main() {
     });
 
     test('formatTimeRange handles nulls gracefully', () {
-      expect(DateFormatter.formatTimeRange('09:00 AM', '11:00 AM'), '09:00 AM — 11:00 AM');
+      expect(
+        DateFormatter.formatTimeRange('09:00 AM', '11:00 AM'),
+        '09:00 AM — 11:00 AM',
+      );
       expect(DateFormatter.formatTimeRange(null, null), 'Full day');
     });
   });

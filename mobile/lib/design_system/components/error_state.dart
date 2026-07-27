@@ -49,10 +49,7 @@ class ErrorState extends StatelessWidget {
           Text(
             message,
             textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 14,
-              color: colors.textSecondary,
-            ),
+            style: TextStyle(fontSize: 14, color: colors.textSecondary),
           ),
           if (onRetry != null) ...[
             const SizedBox(height: AppSpacing.xl),

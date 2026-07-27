@@ -7,11 +7,7 @@ class UndoBanner extends StatelessWidget {
   final String message;
   final VoidCallback onUndo;
 
-  const UndoBanner({
-    super.key,
-    required this.message,
-    required this.onUndo,
-  });
+  const UndoBanner({super.key, required this.message, required this.onUndo});
 
   @override
   Widget build(BuildContext context) {
@@ -32,10 +28,7 @@ class UndoBanner extends StatelessWidget {
           Expanded(
             child: Text(
               message,
-              style: TextStyle(
-                fontSize: 13,
-                color: colors.textPrimary,
-              ),
+              style: TextStyle(fontSize: 13, color: colors.textPrimary),
             ),
           ),
           TextButton(

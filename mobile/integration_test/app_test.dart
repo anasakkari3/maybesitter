@@ -3,13 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:maybesitter_mobile/app/app.dart';
 
 void main() {
-  testWidgets('Integration Test: Full Capture Demonstration Flow',
-      (WidgetTester tester) async {
-    await tester.pumpWidget(
-      const ProviderScope(
-        child: MaybesitterApp(),
-      ),
-    );
+  testWidgets('Integration Test: Full Capture Demonstration Flow', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const ProviderScope(child: MaybesitterApp()));
     await tester.pumpAndSettle();
 
     // 1. Verify Home screen loads

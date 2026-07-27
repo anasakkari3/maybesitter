@@ -146,7 +146,10 @@ class CommitmentDetailsScreen extends ConsumerWidget {
               child: Column(
                 children: [
                   ListTile(
-                    leading: Icon(Icons.calendar_today, color: colors.brandPrimary),
+                    leading: Icon(
+                      Icons.calendar_today,
+                      color: colors.brandPrimary,
+                    ),
                     title: const Text('Scheduled Date'),
                     subtitle: Text(
                       DateFormatter.formatFullDate(commitment.scheduledDate),
@@ -166,7 +169,10 @@ class CommitmentDetailsScreen extends ConsumerWidget {
                   if (commitment.location != null) ...[
                     const Divider(),
                     ListTile(
-                      leading: Icon(Icons.location_on, color: colors.brandPrimary),
+                      leading: Icon(
+                        Icons.location_on,
+                        color: colors.brandPrimary,
+                      ),
                       title: const Text('Location'),
                       subtitle: Text(commitment.location!),
                     ),
@@ -191,7 +197,9 @@ class CommitmentDetailsScreen extends ConsumerWidget {
               icon: isDone ? Icons.undo : Icons.check_circle_outline,
               onPressed: () {
                 if (isDone) {
-                  ref.read(commitmentRepositoryProvider).update(
+                  ref
+                      .read(commitmentRepositoryProvider)
+                      .update(
                         commitment!.copyWith(status: CommitmentStatus.pending),
                       );
                 } else {

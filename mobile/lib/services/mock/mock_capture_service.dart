@@ -19,7 +19,8 @@ class MockCaptureService implements CaptureService {
         rawInput: request.rawInput,
         status: CaptureStatus.needsConfirmation,
         confidence: ExtractionConfidence.high,
-        analysisNote: 'The AI scanned for dates, times, and specific actions in your plan.',
+        analysisNote:
+            'The AI scanned for dates, times, and specific actions in your plan.',
         extractedCommitments: [
           Commitment(
             id: 'mock-doc-${DateTime.now().millisecondsSinceEpoch}',

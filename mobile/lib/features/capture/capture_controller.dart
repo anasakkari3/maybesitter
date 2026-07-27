@@ -87,8 +87,9 @@ class CaptureNotifier extends StateNotifier<CaptureState> {
   }
 
   void removeCommitment(String id) {
-    final updatedList =
-        state.extractedCommitments.where((c) => c.id != id).toList();
+    final updatedList = state.extractedCommitments
+        .where((c) => c.id != id)
+        .toList();
 
     if (updatedList.isEmpty) {
       state = state.copyWith(
@@ -159,7 +160,8 @@ class CaptureNotifier extends StateNotifier<CaptureState> {
             Commitment(
               id: 'prev-1',
               title: 'Go to the doctor',
-              description: 'Extracted from: "Tomorrow I will go to the doctor..."',
+              description:
+                  'Extracted from: "Tomorrow I will go to the doctor..."',
               scheduledDate: tomorrow,
               startTime: '09:00 AM',
               endTime: '11:00 AM',
@@ -243,5 +245,5 @@ class CaptureNotifier extends StateNotifier<CaptureState> {
 
 final captureControllerProvider =
     StateNotifierProvider<CaptureNotifier, CaptureState>((ref) {
-  return CaptureNotifier(ref);
-});
+      return CaptureNotifier(ref);
+    });

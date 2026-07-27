@@ -4,9 +4,5 @@ import 'app.dart';
 
 Future<void> bootstrap() async {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(
-    const ProviderScope(
-      child: MaybesitterApp(),
-    ),
-  );
+  runApp(const ProviderScope(child: MaybesitterApp()));
 }

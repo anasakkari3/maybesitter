@@ -46,7 +46,8 @@ class ActivityScreen extends ConsumerWidget {
           ? const EmptyState(
               icon: Icons.history,
               title: 'No Recent Activity',
-              description: 'Your extraction and commitment history will appear here.',
+              description:
+                  'Your extraction and commitment history will appear here.',
             )
           : ListView.builder(
               padding: const EdgeInsets.all(AppSpacing.md),
@@ -99,7 +100,9 @@ class ActivityScreen extends ConsumerWidget {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              DateFormat('MMM d, h:mm a').format(event.timestamp),
+                              DateFormat(
+                                'MMM d, h:mm a',
+                              ).format(event.timestamp),
                               style: TextStyle(
                                 fontSize: 11,
                                 color: colors.textMuted,

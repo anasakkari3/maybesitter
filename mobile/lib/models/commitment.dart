@@ -26,12 +26,7 @@ enum CommitmentStatus {
   bool get isCompleted => this == CommitmentStatus.completed;
 }
 
-enum TimeGranularity {
-  exact,
-  timeRange,
-  dateOnly,
-  fullDay;
-}
+enum TimeGranularity { exact, timeRange, dateOnly, fullDay }
 
 @immutable
 class Commitment {

@@ -71,10 +71,7 @@ class PermissionEducationCard extends StatelessWidget {
               onPressed: onSkip,
               child: Text(
                 'Maybe later',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: colors.textMuted,
-                ),
+                style: TextStyle(fontSize: 14, color: colors.textMuted),
               ),
             ),
           ],

@@ -25,11 +25,8 @@ class MaybesitterBottomSheet extends StatelessWidget {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => MaybesitterBottomSheet(
-        title: title,
-        footer: footer,
-        child: child,
-      ),
+      builder: (ctx) =>
+          MaybesitterBottomSheet(title: title, footer: footer, child: child),
     );
   }
 

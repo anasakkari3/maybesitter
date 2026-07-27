@@ -35,10 +35,7 @@ class PriorityBadge extends StatelessWidget {
         horizontal: AppSpacing.sm,
         vertical: AppSpacing.xs,
       ),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: AppRadius.pillBorder,
-      ),
+      decoration: BoxDecoration(color: bg, borderRadius: AppRadius.pillBorder),
       child: Text(
         priority.label,
         style: TextStyle(

@@ -26,7 +26,8 @@ class ExtractionReviewScreen extends ConsumerWidget {
         appBar: AppBar(title: const Text('Extraction Error')),
         body: ErrorState(
           title: 'Could Not Extract Plan',
-          message: captureState.errorMessage ??
+          message:
+              captureState.errorMessage ??
               'The AI was unable to parse your plan. Please try again.',
           onRetry: () => context.pop(),
         ),
@@ -84,7 +85,11 @@ class ExtractionReviewScreen extends ConsumerWidget {
                 children: [
                   Row(
                     children: [
-                      Icon(Icons.psychology, size: 20, color: colors.brandPrimary),
+                      Icon(
+                        Icons.psychology,
+                        size: 20,
+                        color: colors.brandPrimary,
+                      ),
                       const SizedBox(width: AppSpacing.sm),
                       Text(
                         captureState.confidence.label,
@@ -132,8 +137,9 @@ class ExtractionReviewScreen extends ConsumerWidget {
                     showDialog(
                       context: context,
                       builder: (ctx) {
-                        final editController =
-                            TextEditingController(text: item.title);
+                        final editController = TextEditingController(
+                          text: item.title,
+                        );
                         return AlertDialog(
                           title: const Text('Edit Commitment'),
                           content: TextField(

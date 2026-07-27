@@ -109,7 +109,11 @@ class InMemoryCommitmentRepository implements CommitmentRepository {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     return _commitments.where((c) {
-      final cDate = DateTime(c.scheduledDate.year, c.scheduledDate.month, c.scheduledDate.day);
+      final cDate = DateTime(
+        c.scheduledDate.year,
+        c.scheduledDate.month,
+        c.scheduledDate.day,
+      );
       return cDate.isAtSameMomentAs(today);
     }).toList();
   }
@@ -119,7 +123,11 @@ class InMemoryCommitmentRepository implements CommitmentRepository {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     return _commitments.where((c) {
-      final cDate = DateTime(c.scheduledDate.year, c.scheduledDate.month, c.scheduledDate.day);
+      final cDate = DateTime(
+        c.scheduledDate.year,
+        c.scheduledDate.month,
+        c.scheduledDate.day,
+      );
       return cDate.isAfter(today);
     }).toList();
   }

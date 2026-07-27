@@ -6,10 +6,7 @@ import '../../design_system/tokens/spacing.dart';
 class PostponeSheet extends StatelessWidget {
   final ValueChanged<DateTime> onPostponeSelected;
 
-  const PostponeSheet({
-    super.key,
-    required this.onPostponeSelected,
-  });
+  const PostponeSheet({super.key, required this.onPostponeSelected});
 
   static Future<DateTime?> show(BuildContext context) {
     return showModalBottomSheet<DateTime>(
@@ -31,12 +28,9 @@ class PostponeSheet extends StatelessWidget {
       {'label': '3 Hours Later', 'date': now.add(const Duration(hours: 3))},
       {
         'label': 'Tomorrow Morning',
-        'date': DateTime(now.year, now.month, now.day + 1, 9, 0)
+        'date': DateTime(now.year, now.month, now.day + 1, 9, 0),
       },
-      {
-        'label': 'Next Week',
-        'date': now.add(const Duration(days: 7))
-      },
+      {'label': 'Next Week', 'date': now.add(const Duration(days: 7))},
     ];
 
     return MaybesitterBottomSheet(

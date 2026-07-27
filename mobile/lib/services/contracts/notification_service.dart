@@ -1,10 +1,6 @@
 import '../../models/commitment.dart';
 
-enum NotificationPermissionState {
-  granted,
-  denied,
-  notDetermined;
-}
+enum NotificationPermissionState { granted, denied, notDetermined }
 
 abstract interface class NotificationService {
   Future<NotificationPermissionState> permissionState();

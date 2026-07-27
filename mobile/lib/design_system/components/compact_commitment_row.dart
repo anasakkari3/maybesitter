@@ -9,11 +9,7 @@ class CompactCommitmentRow extends StatelessWidget {
   final Commitment commitment;
   final VoidCallback? onTap;
 
-  const CompactCommitmentRow({
-    super.key,
-    required this.commitment,
-    this.onTap,
-  });
+  const CompactCommitmentRow({super.key, required this.commitment, this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -43,10 +39,7 @@ class CompactCommitmentRow extends StatelessWidget {
         subtitle: commitment.startTime != null
             ? Text(
                 commitment.startTime!,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: colors.textSecondary,
-                ),
+                style: TextStyle(fontSize: 12, color: colors.textSecondary),
               )
             : null,
         trailing: PriorityBadge(priority: commitment.priority),

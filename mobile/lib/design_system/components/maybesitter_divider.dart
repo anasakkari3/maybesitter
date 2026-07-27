@@ -7,10 +7,6 @@ class MaybesitterDivider extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    return Divider(
-      color: colors.border,
-      thickness: 1,
-      height: 1,
-    );
+    return Divider(color: colors.border, thickness: 1, height: 1);
   }
 }

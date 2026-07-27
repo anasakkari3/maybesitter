@@ -59,19 +59,13 @@ class MaybesitterDialog extends StatelessWidget {
       ),
       content: Text(
         message,
-        style: TextStyle(
-          fontSize: 14,
-          color: colors.textSecondary,
-        ),
+        style: TextStyle(fontSize: 14, color: colors.textSecondary),
       ),
       actionsPadding: const EdgeInsets.all(AppSpacing.md),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(false),
-          child: Text(
-            cancelLabel,
-            style: TextStyle(color: colors.textMuted),
-          ),
+          child: Text(cancelLabel, style: TextStyle(color: colors.textMuted)),
         ),
         if (isDestructive)
           ElevatedButton(
