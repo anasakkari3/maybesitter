@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:maybesitter_mobile/features/today/today_screen.dart';
+import 'package:maybesitter_mobile/l10n/generated/app_localizations.dart';
 import 'package:maybesitter_mobile/models/commitment.dart';
 import 'package:maybesitter_mobile/services/providers.dart';
 
@@ -27,6 +29,13 @@ void main() {
             todayCommitmentsProvider.overrideWithValue(testCommitments),
           ],
           child: const MaterialApp(
+            supportedLocales: AppLocalizations.supportedLocales,
+            localizationsDelegates: [
+              AppLocalizations.delegate,
+              GlobalMaterialLocalizations.delegate,
+              GlobalWidgetsLocalizations.delegate,
+              GlobalCupertinoLocalizations.delegate,
+            ],
             home: Directionality(
               textDirection: TextDirection.rtl,
               child: TodayScreen(),
@@ -49,6 +58,13 @@ void main() {
             todayCommitmentsProvider.overrideWithValue(testCommitments),
           ],
           child: MaterialApp(
+            supportedLocales: AppLocalizations.supportedLocales,
+            localizationsDelegates: const [
+              AppLocalizations.delegate,
+              GlobalMaterialLocalizations.delegate,
+              GlobalWidgetsLocalizations.delegate,
+              GlobalCupertinoLocalizations.delegate,
+            ],
             builder: (context, child) {
               return MediaQuery(
                 data: MediaQuery.of(

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -10,6 +11,7 @@ import 'package:maybesitter_mobile/features/capture/success_save_screen.dart';
 import 'package:maybesitter_mobile/features/settings/settings_screen.dart';
 import 'package:maybesitter_mobile/features/today/today_screen.dart';
 import 'package:maybesitter_mobile/features/upcoming/upcoming_screen.dart';
+import 'package:maybesitter_mobile/l10n/generated/app_localizations.dart';
 import 'package:maybesitter_mobile/models/capture_result.dart';
 import 'package:maybesitter_mobile/models/commitment.dart';
 import 'package:maybesitter_mobile/services/providers.dart';
@@ -34,7 +36,9 @@ void main() {
   Widget buildTestableWidget({
     required Widget child,
     ThemeMode themeMode = ThemeMode.light,
+    Locale locale = const Locale('en'),
     Size size = const Size(390, 844),
+    double textScaleFactor = 1.0,
     List<Override> overrides = const [],
   }) {
     return ProviderScope(
@@ -48,8 +52,20 @@ void main() {
         theme: AppTheme.lightTheme,
         darkTheme: AppTheme.darkTheme,
         themeMode: themeMode,
+        locale: locale,
+        supportedLocales: AppLocalizations.supportedLocales,
+        localizationsDelegates: const [
+          AppLocalizations.delegate,
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
         home: MediaQuery(
-          data: MediaQueryData(size: size, devicePixelRatio: 1.0),
+          data: MediaQueryData(
+            size: size,
+            devicePixelRatio: 1.0,
+            textScaler: TextScaler.linear(textScaleFactor),
+          ),
           child: SizedBox(
             width: size.width,
             height: size.height,
@@ -99,6 +115,44 @@ void main() {
       );
     });
 
+    testWidgets('Today Arabic RTL Golden', (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+
+      await tester.pumpWidget(
+        buildTestableWidget(
+          child: const TodayScreen(),
+          locale: const Locale('ar'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await expectLater(
+        find.byType(TodayScreen),
+        matchesGoldenFile('goldens/today_arabic.png'),
+      );
+    });
+
+    testWidgets('Today Hebrew RTL Golden', (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+
+      await tester.pumpWidget(
+        buildTestableWidget(
+          child: const TodayScreen(),
+          locale: const Locale('he'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await expectLater(
+        find.byType(TodayScreen),
+        matchesGoldenFile('goldens/today_hebrew.png'),
+      );
+    });
+
     testWidgets('Capture Composer Golden', (WidgetTester tester) async {
       tester.view.physicalSize = const Size(390, 844);
       tester.view.devicePixelRatio = 1.0;
@@ -112,6 +166,25 @@ void main() {
       await expectLater(
         find.byType(CaptureComposerScreen),
         matchesGoldenFile('goldens/capture_composer.png'),
+      );
+    });
+
+    testWidgets('Capture Composer Arabic Golden', (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+
+      await tester.pumpWidget(
+        buildTestableWidget(
+          child: const CaptureComposerScreen(),
+          locale: const Locale('ar'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await expectLater(
+        find.byType(CaptureComposerScreen),
+        matchesGoldenFile('goldens/capture_composer_arabic.png'),
       );
     });
 
@@ -135,6 +208,13 @@ void main() {
           child: MaterialApp(
             debugShowCheckedModeBanner: false,
             theme: AppTheme.lightTheme,
+            localizationsDelegates: const [
+              AppLocalizations.delegate,
+              GlobalMaterialLocalizations.delegate,
+              GlobalWidgetsLocalizations.delegate,
+              GlobalCupertinoLocalizations.delegate,
+            ],
+            supportedLocales: AppLocalizations.supportedLocales,
             home: const ExtractionReviewScreen(),
           ),
         ),
@@ -167,6 +247,13 @@ void main() {
           child: MaterialApp(
             debugShowCheckedModeBanner: false,
             theme: AppTheme.lightTheme,
+            localizationsDelegates: const [
+              AppLocalizations.delegate,
+              GlobalMaterialLocalizations.delegate,
+              GlobalWidgetsLocalizations.delegate,
+              GlobalCupertinoLocalizations.delegate,
+            ],
+            supportedLocales: AppLocalizations.supportedLocales,
             home: const SuccessSaveScreen(),
           ),
         ),
@@ -195,7 +282,9 @@ void main() {
       );
     });
 
-    testWidgets('Settings Golden', (WidgetTester tester) async {
+    testWidgets('Settings Language Selector Golden', (
+      WidgetTester tester,
+    ) async {
       tester.view.physicalSize = const Size(390, 844);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -207,7 +296,47 @@ void main() {
 
       await expectLater(
         find.byType(SettingsScreen),
-        matchesGoldenFile('goldens/settings.png'),
+        matchesGoldenFile('goldens/settings_language_selector.png'),
+      );
+    });
+
+    testWidgets('Arabic Large Text 2.0x Golden', (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+
+      await tester.pumpWidget(
+        buildTestableWidget(
+          child: const TodayScreen(),
+          locale: const Locale('ar'),
+          textScaleFactor: 2.0,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await expectLater(
+        find.byType(TodayScreen),
+        matchesGoldenFile('goldens/arabic_large_text.png'),
+      );
+    });
+
+    testWidgets('Hebrew Large Text 2.0x Golden', (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+
+      await tester.pumpWidget(
+        buildTestableWidget(
+          child: const TodayScreen(),
+          locale: const Locale('he'),
+          textScaleFactor: 2.0,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await expectLater(
+        find.byType(TodayScreen),
+        matchesGoldenFile('goldens/hebrew_large_text.png'),
       );
     });
 

@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:maybesitter_mobile/app/app.dart';
 import 'package:maybesitter_mobile/features/today/today_screen.dart';
+import 'package:maybesitter_mobile/l10n/generated/app_localizations.dart';
 import 'package:maybesitter_mobile/models/commitment.dart';
 import 'package:maybesitter_mobile/services/providers.dart';
 
@@ -28,7 +30,16 @@ void main() {
           overrides: [
             todayCommitmentsProvider.overrideWithValue(testCommitments),
           ],
-          child: const MaterialApp(home: TodayScreen()),
+          child: const MaterialApp(
+            supportedLocales: AppLocalizations.supportedLocales,
+            localizationsDelegates: [
+              AppLocalizations.delegate,
+              GlobalMaterialLocalizations.delegate,
+              GlobalWidgetsLocalizations.delegate,
+              GlobalCupertinoLocalizations.delegate,
+            ],
+            home: TodayScreen(),
+          ),
         ),
       );
       await tester.pumpAndSettle();

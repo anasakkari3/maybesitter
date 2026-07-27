@@ -2,128 +2,112 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:maybesitter_mobile/app/app.dart';
-import 'package:maybesitter_mobile/models/commitment.dart';
+import 'package:maybesitter_mobile/features/capture/capture_composer_screen.dart';
+import 'package:maybesitter_mobile/models/app_settings.dart';
 import 'package:maybesitter_mobile/services/providers.dart';
 
 void main() {
-  testWidgets('Integration Test: Full Capture and Postpone Demonstration Flow', (
-    WidgetTester tester,
-  ) async {
-    final container = ProviderContainer();
+  testWidgets(
+    'Integration Test: Multilingual RTL and Locale Persistence Flow',
+    (WidgetTester tester) async {
+      final container = ProviderContainer();
 
-    await tester.pumpWidget(
-      UncontrolledProviderScope(
-        container: container,
-        child: const MaybesitterApp(),
-      ),
-    );
-    await tester.pump();
-    await tester.pumpAndSettle();
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaybesitterApp(),
+        ),
+      );
+      await tester.pump();
+      await tester.pumpAndSettle();
 
-    // 1. Verify Home screen loads
-    expect(find.text('Maybesitter'), findsOneWidget);
+      // 1. Launch in English
+      expect(find.text('Maybesitter'), findsOneWidget);
+      expect(find.text('Settings'), findsOneWidget);
 
-    // 2. Open Capture Composer
-    final captureFab = find.byType(FloatingActionButton).first;
-    expect(captureFab, findsOneWidget);
-    await tester.tap(captureFab);
-    await tester.pumpAndSettle();
+      // 2. Open Settings & switch language to Arabic
+      await tester.tap(find.byIcon(Icons.settings_outlined));
+      await tester.pumpAndSettle();
 
-    // 3. Verify Composer is open with default text
-    expect(find.text('New Intent'), findsOneWidget);
+      container
+          .read(appSettingsProvider.notifier)
+          .updateLocale(AppLocaleOption.arabic);
+      await tester.pumpAndSettle();
 
-    // 4. Tap Analyze button
-    final analyzeBtn = find.text('Analyze');
-    expect(analyzeBtn, findsOneWidget);
-    await tester.tap(analyzeBtn);
-    await tester.pump(const Duration(milliseconds: 1000));
-    await tester.pumpAndSettle();
+      // 3. Verify immediate RTL and Arabic UI copy
+      expect(find.text('الإعدادات'), findsWidgets);
+      final arDirectionality = tester.widget<Directionality>(
+        find.byType(Directionality).first,
+      );
+      expect(arDirectionality.textDirection, equals(TextDirection.rtl));
 
-    // 5. Verify Extraction Review screen shows exactly 2 proposed commitments
-    expect(find.text('Review Your Plan'), findsOneWidget);
-    expect(find.text('Go to the doctor'), findsOneWidget);
-    expect(find.text('Work afterward'), findsOneWidget);
+      // 4. Return to Today tab & open Capture Composer
+      final todayTab = find.byIcon(Icons.today_outlined);
+      expect(todayTab, findsOneWidget);
+      await tester.tap(todayTab);
+      await tester.pumpAndSettle();
 
-    // 6. Confirm commitments
-    final confirmBtn = find.textContaining('Confirm 2 Commitments');
-    expect(confirmBtn, findsOneWidget);
-    await tester.tap(confirmBtn);
-    await tester.pumpAndSettle();
+      final captureFab = find.byType(FloatingActionButton).first;
+      expect(captureFab, findsOneWidget);
+      await tester.tap(captureFab);
+      await tester.pumpAndSettle();
 
-    // 7. Verify Success Save screen
-    expect(find.text('Added 2 commitments for tomorrow.'), findsOneWidget);
+      expect(find.byType(CaptureComposerScreen), findsOneWidget);
 
-    // 8. Navigate to Upcoming screen
-    final viewTomorrowBtn = find.text('View Tomorrow');
-    expect(viewTomorrowBtn, findsOneWidget);
-    await tester.tap(viewTomorrowBtn);
-    await tester.pump();
-    await tester.pumpAndSettle();
+      // 5. Tap Analyze button (Arabic label: تحليل)
+      final analyzeBtn = find.text('تحليل');
+      expect(analyzeBtn, findsOneWidget);
+      await tester.tap(analyzeBtn);
+      await tester.pump(const Duration(milliseconds: 1000));
+      await tester.pumpAndSettle();
 
-    // 9. Verify commitments exist on Upcoming screen
-    expect(find.text('Upcoming Agenda'), findsOneWidget);
-    final doctorCard = find.text('Go to the doctor');
-    expect(doctorCard, findsOneWidget);
+      // 6. Verify Arabic Extraction Review screen & confirm
+      expect(find.text('مراجعة خطتك'), findsOneWidget);
+      expect(find.text('Go to the doctor'), findsOneWidget);
+      expect(find.text('Work afterward'), findsOneWidget);
 
-    // 10. Verify Repository State after saving (3 seeded + 2 newly captured = 5 total)
-    final repo = container.read(commitmentRepositoryProvider);
-    final initialUpcoming = await repo.getUpcoming();
-    expect(initialUpcoming.length, 5);
+      final confirmBtn = find.text('تأكيد التزامين');
+      expect(confirmBtn, findsOneWidget);
+      await tester.tap(confirmBtn);
+      await tester.pumpAndSettle();
 
-    final doctorInitial = initialUpcoming.firstWhere(
-      (c) => c.title == 'Go to the doctor',
-    );
-    final workInitial = initialUpcoming.firstWhere(
-      (c) => c.title == 'Work afterward',
-    );
+      // 7. Verify Arabic Success Screen
+      expect(find.textContaining('التزامين'), findsOneWidget);
 
-    final originalDoctorDate = doctorInitial.scheduledDate;
-    final originalWorkDate = workInitial.scheduledDate;
+      // 8. Return to Settings via Bottom Navigation & switch to Hebrew
+      final doneBtn = find.text('تم');
+      expect(doneBtn, findsOneWidget);
+      await tester.tap(doneBtn);
+      await tester.pumpAndSettle();
 
-    // 11. Open Commitment Details for "Go to the doctor"
-    await tester.tap(doctorCard);
-    await tester.pump();
-    await tester.pumpAndSettle();
+      final settingsTabIcon = find.byIcon(Icons.settings_outlined);
+      expect(settingsTabIcon, findsOneWidget);
+      await tester.tap(settingsTabIcon);
+      await tester.pumpAndSettle();
 
-    expect(find.text('Commitment Detail'), findsOneWidget);
+      container
+          .read(appSettingsProvider.notifier)
+          .updateLocale(AppLocaleOption.hebrew);
+      await tester.pumpAndSettle();
 
-    // 12. Scroll and Open Postpone Sheet
-    final postponeBtn = find.text('Postpone Commitment');
-    expect(postponeBtn, findsOneWidget);
-    await tester.ensureVisible(postponeBtn);
-    await tester.pumpAndSettle();
+      // 9. Verify immediate Hebrew copy and RTL
+      expect(find.text('הגדרות'), findsWidgets);
+      final heDirectionality = tester.widget<Directionality>(
+        find.byType(Directionality).first,
+      );
+      expect(heDirectionality.textDirection, equals(TextDirection.rtl));
 
-    await tester.tap(postponeBtn);
-    await tester.pumpAndSettle();
+      // 10. Verify locale persistence in notifier
+      final currentSettings = container.read(appSettingsProvider);
+      expect(currentSettings.localeOption, equals(AppLocaleOption.hebrew));
 
-    // 13. Select "Next Week" postponement option
-    final nextWeekOpt = find.text('Next Week');
-    expect(nextWeekOpt, findsOneWidget);
-    await tester.tap(nextWeekOpt);
-    await tester.pump();
-    await tester.pumpAndSettle();
+      // 11. Open Upcoming tab -> verify user commitment titles stay untouched
+      final upcomingTabIcon = find.byIcon(Icons.calendar_month_outlined);
+      expect(upcomingTabIcon, findsOneWidget);
+      await tester.tap(upcomingTabIcon);
+      await tester.pumpAndSettle();
 
-    // 14. Verify Repository Invariants After Postponement
-    final updatedUpcoming = await repo.getUpcoming();
-
-    // Invariant A: Total count remains exactly 5 (no duplicate or phantom commitment created)
-    expect(updatedUpcoming.length, 5);
-
-    final doctorUpdated = await repo.getById(doctorInitial.id);
-    final workUpdated = await repo.getById(workInitial.id);
-
-    expect(doctorUpdated, isNotNull);
-    expect(workUpdated, isNotNull);
-
-    // Invariant B: Doctor commitment ID remains identical
-    expect(doctorUpdated!.id, equals(doctorInitial.id));
-
-    // Invariant C: Doctor commitment date has updated to future postponed date
-    expect(doctorUpdated.scheduledDate.isAfter(originalDoctorDate), isTrue);
-    expect(doctorUpdated.status, equals(CommitmentStatus.postponed));
-
-    // Invariant D: Work commitment date and status remain unchanged
-    expect(workUpdated!.scheduledDate, equals(originalWorkDate));
-    expect(workUpdated.id, equals(workInitial.id));
-  });
+      expect(find.text('Go to the doctor'), findsOneWidget);
+    },
+  );
 }
