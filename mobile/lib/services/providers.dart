@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/app_settings.dart';
 import '../models/commitment.dart';
 import '../models/activity_event.dart';
@@ -74,14 +75,59 @@ final activityStreamProvider = StreamProvider<List<ActivityEvent>>((ref) {
 });
 
 class AppSettingsNotifier extends StateNotifier<AppSettings> {
-  AppSettingsNotifier() : super(const AppSettings());
+  static const String _localeKey = 'locale_option';
+  static const String _themeKey = 'theme_mode';
 
-  void updateThemeMode(AppThemeMode mode) {
-    state = state.copyWith(themeMode: mode);
+  AppSettingsNotifier() : super(const AppSettings()) {
+    _loadSettings();
   }
 
-  void updateLocale(AppLocaleOption option) {
+  Future<void> _loadSettings() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final localeStr = prefs.getString(_localeKey);
+      AppLocaleOption? loadedOption;
+      if (localeStr != null) {
+        switch (localeStr) {
+          case 'en':
+            loadedOption = AppLocaleOption.english;
+            break;
+          case 'ar':
+            loadedOption = AppLocaleOption.arabic;
+            break;
+          case 'he':
+            loadedOption = AppLocaleOption.hebrew;
+            break;
+          case 'system':
+          default:
+            loadedOption = AppLocaleOption.system;
+            break;
+        }
+      }
+
+      if (loadedOption != null) {
+        state = state.copyWith(localeOption: loadedOption);
+      }
+    } catch (_) {
+      // Memory fallback for test environment
+    }
+  }
+
+  Future<void> updateThemeMode(AppThemeMode mode) async {
+    state = state.copyWith(themeMode: mode);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_themeKey, mode.name);
+    } catch (_) {}
+  }
+
+  Future<void> updateLocale(AppLocaleOption option) async {
     state = state.copyWith(localeOption: option);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final val = option.locale?.languageCode ?? 'system';
+      await prefs.setString(_localeKey, val);
+    } catch (_) {}
   }
 
   void toggleNotifications(bool enabled) {
