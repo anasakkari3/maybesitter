@@ -1,26 +1,49 @@
 import 'package:intl/intl.dart';
+import '../../l10n/generated/app_localizations.dart';
 
 class DateFormatter {
-  static String formatHeaderDate(DateTime date) {
+  static String formatHeaderDate(DateTime date, {String? locale}) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final target = DateTime(date.year, date.month, date.day);
 
+    final formattedDate = DateFormat('MMM d', locale).format(date);
+
     if (target == today) {
-      return 'Today, ${DateFormat('MMM d').format(date)}';
+      return 'Today, $formattedDate';
     } else if (target == today.add(const Duration(days: 1))) {
-      return 'Tomorrow, ${DateFormat('MMM d').format(date)}';
+      return 'Tomorrow, $formattedDate';
     } else {
-      return DateFormat('EEEE, MMM d').format(date);
+      return DateFormat('EEEE, MMM d', locale).format(date);
     }
   }
 
-  static String formatShortDate(DateTime date) {
-    return DateFormat('MMM d').format(date);
+  static String formatHeaderDateWithL10n(
+    DateTime date,
+    AppLocalizations l10n,
+    String localeCode,
+  ) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final target = DateTime(date.year, date.month, date.day);
+
+    final formattedDate = DateFormat('MMM d', localeCode).format(date);
+
+    if (target == today) {
+      return '${l10n.todayTab}, $formattedDate';
+    } else if (target == today.add(const Duration(days: 1))) {
+      return '${l10n.tomorrowGroupHeader}, $formattedDate';
+    } else {
+      return DateFormat('EEEE, MMM d', localeCode).format(date);
+    }
   }
 
-  static String formatFullDate(DateTime date) {
-    return DateFormat('EEEE, MMMM d, yyyy').format(date);
+  static String formatShortDate(DateTime date, {String? locale}) {
+    return DateFormat('MMM d', locale).format(date);
+  }
+
+  static String formatFullDate(DateTime date, {String? locale}) {
+    return DateFormat('EEEE, MMMM d, yyyy', locale).format(date);
   }
 
   static String formatTime(String? time) {
