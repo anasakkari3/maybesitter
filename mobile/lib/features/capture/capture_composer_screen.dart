@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../core/utilities/l10n_extensions.dart';
 import '../../design_system/components/maybesitter_app_bar.dart';
 import '../../design_system/components/maybesitter_buttons.dart';
 import '../../design_system/components/maybesitter_scaffold.dart';
@@ -40,6 +41,7 @@ class _CaptureComposerScreenState extends ConsumerState<CaptureComposerScreen> {
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
+    final l10n = context.l10n;
     final captureState = ref.watch(captureControllerProvider);
     final captureNotifier = ref.read(captureControllerProvider.notifier);
 
@@ -47,9 +49,10 @@ class _CaptureComposerScreenState extends ConsumerState<CaptureComposerScreen> {
 
     return MaybesitterScaffold(
       appBar: MaybesitterAppBar(
-        title: 'New Intent',
+        title: l10n.newIntentTitle,
         leading: IconButton(
           icon: const Icon(Icons.close),
+          tooltip: l10n.closeAction,
           onPressed: () {
             captureNotifier.reset();
             context.pop();
@@ -57,11 +60,7 @@ class _CaptureComposerScreenState extends ConsumerState<CaptureComposerScreen> {
         ),
       ),
       body: isSubmitting
-          ? const Center(
-              child: ProcessingIndicator(
-                label: 'Analyzing your plan with Quiet Intelligence...',
-              ),
-            )
+          ? Center(child: ProcessingIndicator(label: l10n.processingLabel))
           : SingleChildScrollView(
               padding: const EdgeInsets.all(AppSpacing.lg),
               child: Column(
@@ -87,7 +86,7 @@ class _CaptureComposerScreenState extends ConsumerState<CaptureComposerScreen> {
                         const SizedBox(width: AppSpacing.sm),
                         Expanded(
                           child: Text(
-                            'Type or speak freely. Maybesitter extracts commitments, times, and priorities automatically.',
+                            l10n.captureHintText,
                             style: TextStyle(
                               fontSize: 13,
                               color: colors.textPrimary,
@@ -124,8 +123,7 @@ class _CaptureComposerScreenState extends ConsumerState<CaptureComposerScreen> {
                             height: 1.4,
                           ),
                           decoration: InputDecoration(
-                            hintText:
-                                'e.g. "Tomorrow morning at 9am doctor visit, then meet Sarah for coffee at 2pm..."',
+                            hintText: l10n.composerInputHint,
                             hintStyle: TextStyle(
                               color: colors.textMuted,
                               fontSize: 15,
@@ -151,8 +149,8 @@ class _CaptureComposerScreenState extends ConsumerState<CaptureComposerScreen> {
                                     : colors.textSecondary,
                               ),
                               tooltip: _isVoiceRecording
-                                  ? 'Stop Recording'
-                                  : 'Voice Capture',
+                                  ? l10n.voiceCaptureStopTooltip
+                                  : l10n.voiceCaptureTooltip,
                             ),
                             Text(
                               '${_textController.text.length} chars',
@@ -181,7 +179,7 @@ class _CaptureComposerScreenState extends ConsumerState<CaptureComposerScreen> {
                       const SizedBox(width: 4),
                       Flexible(
                         child: Text(
-                          'Your plan is analyzed privately with Quiet Intelligence.',
+                          l10n.privacyNote,
                           style: TextStyle(
                             fontSize: 12,
                             color: colors.textMuted,
@@ -195,7 +193,7 @@ class _CaptureComposerScreenState extends ConsumerState<CaptureComposerScreen> {
 
                   // Submit Action Button
                   PrimaryButton(
-                    label: 'Analyze',
+                    label: l10n.analyzeAction,
                     icon: Icons.auto_awesome,
                     isLoading: isSubmitting,
                     onPressed: () async {

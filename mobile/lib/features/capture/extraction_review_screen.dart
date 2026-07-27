@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../core/utilities/l10n_extensions.dart';
 import '../../design_system/components/empty_state.dart';
 import '../../design_system/components/error_state.dart';
 import '../../design_system/components/extraction_review_card.dart';
@@ -18,17 +19,16 @@ class ExtractionReviewScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final colors = context.colors;
+    final l10n = context.l10n;
     final captureState = ref.watch(captureControllerProvider);
     final notifier = ref.read(captureControllerProvider.notifier);
 
     if (captureState.status == CaptureStatus.extractionFailed) {
       return MaybesitterScaffold(
-        appBar: AppBar(title: const Text('Extraction Error')),
+        appBar: AppBar(title: Text(l10n.extractionErrorTitle)),
         body: ErrorState(
-          title: 'Could Not Extract Plan',
-          message:
-              captureState.errorMessage ??
-              'The AI was unable to parse your plan. Please try again.',
+          title: l10n.extractionErrorTitle,
+          message: captureState.errorMessage ?? l10n.extractionErrorMessage,
           onRetry: () => context.pop(),
         ),
       );
@@ -36,16 +36,15 @@ class ExtractionReviewScreen extends ConsumerWidget {
 
     if (captureState.status == CaptureStatus.noCommitment) {
       return MaybesitterScaffold(
-        appBar: AppBar(title: const Text('Nothing Found')),
+        appBar: AppBar(title: Text(l10n.noCommitmentTitle)),
         body: EmptyState(
           icon: Icons.search_off,
-          title: 'Nothing Found',
-          description:
-              'I understood the message, but I could not find a plan or actionable commitment to save.',
+          title: l10n.noCommitmentTitle,
+          description: l10n.noCommitmentDescription,
           analysisNote: captureState.analysisNote,
-          actionLabel: 'Try Again',
+          actionLabel: l10n.retryAction,
           onAction: () => context.pop(),
-          secondaryActionLabel: 'Cancel',
+          secondaryActionLabel: l10n.cancelAction,
           onSecondaryAction: () {
             notifier.reset();
             context.go('/today');
@@ -56,10 +55,11 @@ class ExtractionReviewScreen extends ConsumerWidget {
 
     return MaybesitterScaffold(
       appBar: AppBar(
-        title: const Text('Review Your Plan'),
+        title: Text(l10n.reviewPlanTitle),
         actions: [
           IconButton(
             icon: const Icon(Icons.close),
+            tooltip: l10n.closeAction,
             onPressed: () {
               notifier.reset();
               context.go('/today');
@@ -119,7 +119,9 @@ class ExtractionReviewScreen extends ConsumerWidget {
             const SizedBox(height: AppSpacing.lg),
 
             Text(
-              'Proposed Commitments (${captureState.extractedCommitments.length})',
+              l10n.proposedCommitmentsCount(
+                captureState.extractedCommitments.length,
+              ),
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w700,
@@ -143,17 +145,17 @@ class ExtractionReviewScreen extends ConsumerWidget {
                           text: item.title,
                         );
                         return AlertDialog(
-                          title: const Text('Edit Commitment'),
+                          title: Text(l10n.editCommitmentTitle),
                           content: TextField(
                             controller: editController,
-                            decoration: const InputDecoration(
-                              labelText: 'Title',
+                            decoration: InputDecoration(
+                              labelText: l10n.commitmentDetailTitle,
                             ),
                           ),
                           actions: [
                             TextButton(
                               onPressed: () => Navigator.pop(ctx),
-                              child: const Text('Cancel'),
+                              child: Text(l10n.cancelAction),
                             ),
                             ElevatedButton(
                               onPressed: () {
@@ -162,7 +164,7 @@ class ExtractionReviewScreen extends ConsumerWidget {
                                 );
                                 Navigator.pop(ctx);
                               },
-                              child: const Text('Save'),
+                              child: Text(l10n.saveAction),
                             ),
                           ],
                         );
@@ -177,8 +179,9 @@ class ExtractionReviewScreen extends ConsumerWidget {
 
             // Actions
             PrimaryButton(
-              label:
-                  'Confirm ${captureState.extractedCommitments.length} Commitments',
+              label: l10n.confirmCommitmentsAction(
+                captureState.extractedCommitments.length,
+              ),
               icon: Icons.check_circle_outline,
               onPressed: () async {
                 final success = await notifier.confirmSave();
@@ -191,7 +194,7 @@ class ExtractionReviewScreen extends ConsumerWidget {
             const SizedBox(height: AppSpacing.sm),
 
             SecondaryButton(
-              label: 'Cancel Entire Plan',
+              label: l10n.cancelPlanAction,
               onPressed: () {
                 notifier.reset();
                 context.go('/today');

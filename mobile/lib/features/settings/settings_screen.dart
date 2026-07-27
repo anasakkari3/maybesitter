@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../core/utilities/l10n_extensions.dart';
 import '../../design_system/components/maybesitter_app_bar.dart';
 import '../../design_system/components/maybesitter_scaffold.dart';
 import '../../design_system/theme/app_theme.dart';
 import '../../design_system/tokens/radius.dart';
 import '../../design_system/tokens/spacing.dart';
+import '../../models/app_settings.dart';
 import '../../services/providers.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -14,12 +16,14 @@ class SettingsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final colors = context.colors;
+    final l10n = context.l10n;
     final settings = ref.watch(appSettingsProvider);
+    final settingsNotifier = ref.read(appSettingsProvider.notifier);
 
     return MaybesitterScaffold(
-      appBar: const MaybesitterAppBar(
-        title: 'Settings',
-        subtitle: 'App preferences & account',
+      appBar: MaybesitterAppBar(
+        title: l10n.settingsTitle,
+        subtitle: l10n.settingsSubtitle,
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(AppSpacing.md),
@@ -42,9 +46,9 @@ class SettingsScreen extends ConsumerWidget {
                         Icons.palette_outlined,
                         color: colors.brandPrimary,
                       ),
-                      title: const Text('Appearance'),
+                      title: Text(l10n.appearanceTitle),
                       subtitle: Text(
-                        'Theme: ${settings.themeMode.name.toUpperCase()}',
+                        '${l10n.appearanceSubtitle} (${settings.themeMode.name.toUpperCase()})',
                       ),
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () => context.push('/settings/appearance'),
@@ -52,12 +56,38 @@ class SettingsScreen extends ConsumerWidget {
                     const Divider(),
                     ListTile(
                       leading: Icon(
+                        Icons.language_outlined,
+                        color: colors.brandPrimary,
+                      ),
+                      title: Text(l10n.languageTitle),
+                      subtitle: Text(settings.localeOption.label),
+                      trailing: DropdownButton<AppLocaleOption>(
+                        value: settings.localeOption,
+                        underline: const SizedBox(),
+                        onChanged: (newOpt) {
+                          if (newOpt != null) {
+                            settingsNotifier.updateLocale(newOpt);
+                          }
+                        },
+                        items: AppLocaleOption.values.map((opt) {
+                          return DropdownMenuItem(
+                            value: opt,
+                            child: Text(opt.label),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                    const Divider(),
+                    ListTile(
+                      leading: Icon(
                         Icons.notifications_none,
                         color: colors.brandPrimary,
                       ),
-                      title: const Text('Notifications'),
+                      title: Text(l10n.notificationsTitle),
                       subtitle: Text(
-                        settings.notificationsEnabled ? 'Enabled' : 'Disabled',
+                        settings.notificationsEnabled
+                            ? l10n.notificationsEnabled
+                            : l10n.notificationsDisabled,
                       ),
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () => context.push('/settings/notifications'),
@@ -68,8 +98,8 @@ class SettingsScreen extends ConsumerWidget {
                         Icons.privacy_tip_outlined,
                         color: colors.brandPrimary,
                       ),
-                      title: const Text('Privacy & Data'),
-                      subtitle: const Text('Local data & telemetry control'),
+                      title: Text(l10n.privacyTitle),
+                      subtitle: Text(l10n.privacySubtitle),
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () => context.push('/settings/privacy'),
                     ),

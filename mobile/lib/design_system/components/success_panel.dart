@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/utilities/l10n_extensions.dart';
 import '../../models/commitment.dart';
 import '../theme/app_theme.dart';
 import '../tokens/radius.dart';
@@ -26,6 +27,8 @@ class SuccessPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
+    final l10n = context.l10n;
+
     return Padding(
       padding: const EdgeInsets.all(AppSpacing.lg),
       child: Column(
@@ -94,7 +97,7 @@ class SuccessPanel extends StatelessWidget {
                             ),
                           ),
                           Text(
-                            'Tomorrow, ${c.startTime ?? "Full day"}',
+                            '${l10n.tomorrowGroupHeader}, ${c.startTime ?? "Full day"}',
                             style: TextStyle(
                               fontSize: 12,
                               color: colors.textSecondary,
@@ -104,7 +107,7 @@ class SuccessPanel extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      c.priority.label,
+                      c.priority.localizedName(l10n),
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w700,
@@ -118,12 +121,12 @@ class SuccessPanel extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.lg),
           PrimaryButton(
-            label: 'View Tomorrow',
+            label: l10n.viewTomorrowAction,
             icon: Icons.event,
             onPressed: onViewTomorrow,
           ),
           const SizedBox(height: AppSpacing.sm),
-          SecondaryButton(label: 'Done', onPressed: onDone),
+          SecondaryButton(label: l10n.doneAction, onPressed: onDone),
           if (onUndo != null) ...[
             const SizedBox(height: AppSpacing.sm),
             TextButton(
@@ -134,7 +137,7 @@ class SuccessPanel extends StatelessWidget {
                   Icon(Icons.undo, size: 16, color: colors.textSecondary),
                   const SizedBox(width: AppSpacing.xs),
                   Text(
-                    'Undo save action',
+                    l10n.undoAction,
                     style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w500,

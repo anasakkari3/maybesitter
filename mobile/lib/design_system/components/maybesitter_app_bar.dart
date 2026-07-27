@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/utilities/l10n_extensions.dart';
 import '../theme/app_theme.dart';
 
 class MaybesitterAppBar extends StatelessWidget implements PreferredSizeWidget {
@@ -23,6 +24,8 @@ class MaybesitterAppBar extends StatelessWidget implements PreferredSizeWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
+    final l10n = context.l10n;
+
     return AppBar(
       leading: leading,
       title: Column(
@@ -39,12 +42,15 @@ class MaybesitterAppBar extends StatelessWidget implements PreferredSizeWidget {
                 ),
                 const SizedBox(width: 8),
               ],
-              Text(
-                title,
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                  color: colors.textPrimary,
+              Flexible(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    color: colors.textPrimary,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ],
@@ -57,6 +63,7 @@ class MaybesitterAppBar extends StatelessWidget implements PreferredSizeWidget {
                 color: colors.textMuted,
                 fontWeight: FontWeight.w400,
               ),
+              overflow: TextOverflow.ellipsis,
             ),
         ],
       ),
@@ -69,7 +76,7 @@ class MaybesitterAppBar extends StatelessWidget implements PreferredSizeWidget {
                 color: colors.textPrimary,
               ),
               onPressed: () {},
-              tooltip: 'Notifications',
+              tooltip: l10n.notificationsTitle,
             ),
           ],
     );

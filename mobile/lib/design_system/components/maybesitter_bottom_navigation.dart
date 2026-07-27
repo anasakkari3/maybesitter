@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/utilities/l10n_extensions.dart';
 import '../theme/app_theme.dart';
 
 class MaybesitterBottomNavigation extends StatelessWidget {
@@ -14,6 +15,8 @@ class MaybesitterBottomNavigation extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
+    final l10n = context.l10n;
+
     return BottomNavigationBar(
       currentIndex: currentIndex,
       onTap: onTap,
@@ -21,26 +24,26 @@ class MaybesitterBottomNavigation extends StatelessWidget {
       selectedItemColor: colors.brandPrimary,
       unselectedItemColor: colors.textMuted,
       type: BottomNavigationBarType.fixed,
-      items: const [
+      items: [
         BottomNavigationBarItem(
-          icon: Icon(Icons.today_outlined),
-          activeIcon: Icon(Icons.today),
-          label: 'Today',
+          icon: const Icon(Icons.today_outlined),
+          activeIcon: const Icon(Icons.today),
+          label: l10n.todayTab,
         ),
         BottomNavigationBarItem(
-          icon: Icon(Icons.calendar_month_outlined),
-          activeIcon: Icon(Icons.calendar_month),
-          label: 'Upcoming',
+          icon: const Icon(Icons.calendar_month_outlined),
+          activeIcon: const Icon(Icons.calendar_month),
+          label: l10n.upcomingTab,
         ),
         BottomNavigationBarItem(
-          icon: Icon(Icons.history_outlined),
-          activeIcon: Icon(Icons.history),
-          label: 'Activity',
+          icon: const Icon(Icons.history_outlined),
+          activeIcon: const Icon(Icons.history),
+          label: l10n.activityTab,
         ),
         BottomNavigationBarItem(
-          icon: Icon(Icons.settings_outlined),
-          activeIcon: Icon(Icons.settings),
-          label: 'Settings',
+          icon: const Icon(Icons.settings_outlined),
+          activeIcon: const Icon(Icons.settings),
+          label: l10n.settingsTab,
         ),
       ],
     );

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../core/utilities/l10n_extensions.dart';
 import '../../design_system/components/maybesitter_buttons.dart';
 import '../../design_system/theme/app_theme.dart';
 import '../../design_system/tokens/spacing.dart';
@@ -12,6 +13,8 @@ class OnboardingScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final colors = context.colors;
+    final l10n = context.l10n;
+
     return Scaffold(
       backgroundColor: colors.background,
       body: SafeArea(
@@ -34,7 +37,7 @@ class OnboardingScreen extends ConsumerWidget {
               ),
               const SizedBox(height: AppSpacing.xl),
               Text(
-                'Welcome to Maybesitter',
+                l10n.welcomeTitle,
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 28,
@@ -44,7 +47,7 @@ class OnboardingScreen extends ConsumerWidget {
               ),
               const SizedBox(height: AppSpacing.md),
               Text(
-                'Quiet Intelligence for your schedule. Effortlessly turn your thoughts, text, and speech into organized commitments.',
+                l10n.welcomeSubtitle,
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 16,
@@ -54,7 +57,7 @@ class OnboardingScreen extends ConsumerWidget {
               ),
               const Spacer(),
               PrimaryButton(
-                label: 'Get Started',
+                label: l10n.getStartedAction,
                 onPressed: () {
                   ref.read(appSettingsProvider.notifier).completeOnboarding();
                   context.go('/today');

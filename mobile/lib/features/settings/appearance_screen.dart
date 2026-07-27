@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/utilities/l10n_extensions.dart';
 import '../../design_system/components/maybesitter_app_bar.dart';
 import '../../design_system/components/maybesitter_scaffold.dart';
 import '../../design_system/components/maybesitter_segmented_control.dart';
@@ -14,14 +15,16 @@ class AppearanceScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final colors = context.colors;
+    final l10n = context.l10n;
     final settings = ref.watch(appSettingsProvider);
     final notifier = ref.read(appSettingsProvider.notifier);
 
     return MaybesitterScaffold(
       appBar: MaybesitterAppBar(
-        title: 'Appearance',
+        title: l10n.appearanceTitle,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
+          tooltip: l10n.backAction,
           onPressed: () => Navigator.pop(context),
         ),
       ),
@@ -31,7 +34,7 @@ class AppearanceScreen extends ConsumerWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Theme Mode',
+              l10n.themeModeLabel,
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w700,
@@ -41,10 +44,10 @@ class AppearanceScreen extends ConsumerWidget {
             const SizedBox(height: AppSpacing.md),
             MaybesitterSegmentedControl<AppThemeMode>(
               selectedValue: settings.themeMode,
-              options: const {
-                AppThemeMode.system: 'System',
-                AppThemeMode.light: 'Light',
-                AppThemeMode.dark: 'Dark',
+              options: {
+                AppThemeMode.system: l10n.themeSystem,
+                AppThemeMode.light: l10n.themeLight,
+                AppThemeMode.dark: l10n.themeDark,
               },
               onSelected: (mode) => notifier.updateThemeMode(mode),
             ),

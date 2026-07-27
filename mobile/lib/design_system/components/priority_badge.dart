@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/utilities/l10n_extensions.dart';
 import '../../models/commitment.dart';
 import '../theme/app_theme.dart';
 import '../tokens/radius.dart';
@@ -12,6 +13,7 @@ class PriorityBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
+    final l10n = context.l10n;
     Color bg;
     Color fg;
 
@@ -37,7 +39,7 @@ class PriorityBadge extends StatelessWidget {
       ),
       decoration: BoxDecoration(color: bg, borderRadius: AppRadius.pillBorder),
       child: Text(
-        priority.label,
+        priority.localizedName(l10n),
         style: TextStyle(
           fontSize: 11,
           fontWeight: FontWeight.w700,

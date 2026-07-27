@@ -19,15 +19,19 @@ class DateGroupHeader extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-              color: colors.textPrimary,
+          Expanded(
+            child: Text(
+              title,
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: colors.textPrimary,
+              ),
+              overflow: TextOverflow.ellipsis,
             ),
           ),
-          if (subtitle != null)
+          if (subtitle != null) ...[
+            const SizedBox(width: AppSpacing.xs),
             Text(
               subtitle!,
               style: TextStyle(
@@ -36,6 +40,7 @@ class DateGroupHeader extends StatelessWidget {
                 color: colors.textMuted,
               ),
             ),
+          ],
         ],
       ),
     );

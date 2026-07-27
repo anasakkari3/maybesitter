@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/utilities/l10n_extensions.dart';
 import '../../design_system/components/maybesitter_bottom_sheet.dart';
 import '../../design_system/components/maybesitter_buttons.dart';
 import '../../design_system/tokens/spacing.dart';
@@ -21,20 +22,30 @@ class PostponeSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final now = DateTime.now();
 
     final options = [
-      {'label': '1 Hour Later', 'date': now.add(const Duration(hours: 1))},
-      {'label': '3 Hours Later', 'date': now.add(const Duration(hours: 3))},
       {
-        'label': 'Tomorrow Morning',
+        'label': l10n.postponeOneHour,
+        'date': now.add(const Duration(hours: 1)),
+      },
+      {
+        'label': l10n.postponeThreeHours,
+        'date': now.add(const Duration(hours: 3)),
+      },
+      {
+        'label': l10n.postponeTomorrowMorning,
         'date': DateTime(now.year, now.month, now.day + 1, 9, 0),
       },
-      {'label': 'Next Week', 'date': now.add(const Duration(days: 7))},
+      {
+        'label': l10n.postponeNextWeek,
+        'date': now.add(const Duration(days: 7)),
+      },
     ];
 
     return MaybesitterBottomSheet(
-      title: 'Postpone Commitment',
+      title: l10n.postponeSheetTitle,
       child: Column(
         children: options.map((opt) {
           final label = opt['label'] as String;

@@ -2,12 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/utilities/date_formatter.dart';
+import '../../core/utilities/l10n_extensions.dart';
+import '../../design_system/components/capture_primary_action.dart';
 import '../../design_system/components/commitment_card.dart';
 import '../../design_system/components/date_group_header.dart';
 import '../../design_system/components/empty_state.dart';
 import '../../design_system/components/maybesitter_app_bar.dart';
 import '../../design_system/components/maybesitter_scaffold.dart';
-import '../../design_system/components/capture_primary_action.dart';
 import '../../design_system/theme/app_theme.dart';
 import '../../design_system/tokens/radius.dart';
 import '../../design_system/tokens/spacing.dart';
@@ -20,6 +21,8 @@ class TodayScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final colors = context.colors;
+    final l10n = context.l10n;
+    final localeCode = context.currentLanguageCode;
     final commitments = ref.watch(todayCommitmentsProvider);
 
     final mustItems = commitments
@@ -47,8 +50,12 @@ class TodayScreen extends ConsumerWidget {
 
     return MaybesitterScaffold(
       appBar: MaybesitterAppBar(
-        title: 'Maybesitter',
-        subtitle: DateFormatter.formatHeaderDate(DateTime.now()),
+        title: l10n.appName,
+        subtitle: DateFormatter.formatHeaderDateWithL10n(
+          DateTime.now(),
+          l10n,
+          localeCode,
+        ),
         showLogo: true,
       ),
       floatingActionButton: CapturePrimaryAction(
@@ -57,10 +64,9 @@ class TodayScreen extends ConsumerWidget {
       body: commitments.isEmpty
           ? EmptyState(
               icon: Icons.event_available,
-              title: 'No Commitments Today',
-              description:
-                  'You have a clean slate! Tap below to capture a new plan.',
-              actionLabel: 'Capture Plan',
+              title: l10n.noCommitmentsTodayTitle,
+              description: l10n.noCommitmentsTodayDesc,
+              actionLabel: l10n.capturePlanAction,
               onAction: () => context.push('/capture'),
             )
           : CustomScrollView(
@@ -80,7 +86,7 @@ class TodayScreen extends ConsumerWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Good morning, Alex',
+                            l10n.goodMorningUser('Alex'),
                             style: TextStyle(
                               fontSize: 20,
                               fontWeight: FontWeight.w700,
@@ -89,7 +95,7 @@ class TodayScreen extends ConsumerWidget {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            '$totalActive commitments remaining for today',
+                            l10n.commitmentsCountToday(totalActive),
                             style: TextStyle(
                               fontSize: 14,
                               color: colors.textSecondary,
@@ -118,8 +124,8 @@ class TodayScreen extends ConsumerWidget {
                 if (mustItems.isNotEmpty) ...[
                   SliverToBoxAdapter(
                     child: DateGroupHeader(
-                      title: 'Now • MUST',
-                      subtitle: '${mustItems.length} items',
+                      title: l10n.nowGroupHeader,
+                      subtitle: l10n.itemsCountLabel(mustItems.length),
                     ),
                   ),
                   SliverPadding(
@@ -147,8 +153,8 @@ class TodayScreen extends ConsumerWidget {
                 if (shouldItems.isNotEmpty) ...[
                   SliverToBoxAdapter(
                     child: DateGroupHeader(
-                      title: 'Later today • SHOULD',
-                      subtitle: '${shouldItems.length} items',
+                      title: l10n.laterTodayGroupHeader,
+                      subtitle: l10n.itemsCountLabel(shouldItems.length),
                     ),
                   ),
                   SliverPadding(
@@ -176,8 +182,8 @@ class TodayScreen extends ConsumerWidget {
                 if (niceItems.isNotEmpty) ...[
                   SliverToBoxAdapter(
                     child: DateGroupHeader(
-                      title: 'Optional • NICE',
-                      subtitle: '${niceItems.length} items',
+                      title: l10n.optionalGroupHeader,
+                      subtitle: l10n.itemsCountLabel(niceItems.length),
                     ),
                   ),
                   SliverPadding(
@@ -205,8 +211,8 @@ class TodayScreen extends ConsumerWidget {
                 if (completedItems.isNotEmpty) ...[
                   SliverToBoxAdapter(
                     child: DateGroupHeader(
-                      title: 'Completed',
-                      subtitle: '${completedItems.length} done',
+                      title: l10n.completedGroupHeader,
+                      subtitle: l10n.doneCountLabel(completedItems.length),
                     ),
                   ),
                   SliverPadding(

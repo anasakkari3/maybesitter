@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import '../../core/utilities/l10n_extensions.dart';
 import '../../design_system/components/empty_state.dart';
 import '../../design_system/components/maybesitter_app_bar.dart';
 import '../../design_system/components/maybesitter_scaffold.dart';
@@ -35,19 +36,20 @@ class ActivityScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final colors = context.colors;
+    final l10n = context.l10n;
+    final localeCode = context.currentLanguageCode;
     final activityList = ref.watch(activityStreamProvider).value ?? [];
 
     return MaybesitterScaffold(
-      appBar: const MaybesitterAppBar(
-        title: 'Activity Log',
-        subtitle: 'History of AI extractions & commitments',
+      appBar: MaybesitterAppBar(
+        title: l10n.activityTitle,
+        subtitle: l10n.activitySubtitle,
       ),
       body: activityList.isEmpty
-          ? const EmptyState(
+          ? EmptyState(
               icon: Icons.history,
-              title: 'No Recent Activity',
-              description:
-                  'Your extraction and commitment history will appear here.',
+              title: l10n.emptyActivityTitle,
+              description: l10n.emptyActivityDescription,
             )
           : ListView.builder(
               padding: const EdgeInsets.all(AppSpacing.md),
@@ -102,6 +104,7 @@ class ActivityScreen extends ConsumerWidget {
                             Text(
                               DateFormat(
                                 'MMM d, h:mm a',
+                                localeCode,
                               ).format(event.timestamp),
                               style: TextStyle(
                                 fontSize: 11,

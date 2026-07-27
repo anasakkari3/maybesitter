@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/utilities/l10n_extensions.dart';
 import '../../design_system/components/maybesitter_app_bar.dart';
 import '../../design_system/components/maybesitter_scaffold.dart';
 import '../../design_system/components/permission_education_card.dart';
@@ -11,13 +12,15 @@ class NotificationsPermissionScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = context.l10n;
     final notifier = ref.read(appSettingsProvider.notifier);
 
     return MaybesitterScaffold(
       appBar: MaybesitterAppBar(
-        title: 'Notifications',
+        title: l10n.notificationsTitle,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
+          tooltip: l10n.backAction,
           onPressed: () => Navigator.pop(context),
         ),
       ),

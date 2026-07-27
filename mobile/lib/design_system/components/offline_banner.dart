@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/utilities/l10n_extensions.dart';
 import '../theme/app_theme.dart';
 import '../tokens/spacing.dart';
 
@@ -8,6 +9,8 @@ class OfflineBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
+    final l10n = context.l10n;
+
     return Container(
       width: double.infinity,
       color: colors.warning.withValues(alpha: 0.2),
@@ -21,7 +24,7 @@ class OfflineBanner extends StatelessWidget {
           Icon(Icons.wifi_off, size: 16, color: colors.warning),
           const SizedBox(width: AppSpacing.sm),
           Text(
-            'Offline Mode — Working with local data',
+            l10n.offlineBannerText,
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w600,

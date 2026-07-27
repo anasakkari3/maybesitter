@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/utilities/date_formatter.dart';
+import '../../core/utilities/l10n_extensions.dart';
 import '../../design_system/components/commitment_card.dart';
 import '../../design_system/components/date_group_header.dart';
 import '../../design_system/components/empty_state.dart';
@@ -28,17 +29,21 @@ class _UpcomingScreenState extends ConsumerState<UpcomingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final upcomingList = ref.watch(upcomingCommitmentsProvider);
 
     // Apply priority filter
     final filtered = upcomingList.where((c) {
-      if (_selectedPriorityFilter == 'Must') {
+      if (_selectedPriorityFilter == l10n.priorityMust ||
+          _selectedPriorityFilter == 'Must') {
         return c.priority == CommitmentPriority.must;
       }
-      if (_selectedPriorityFilter == 'Should') {
+      if (_selectedPriorityFilter == l10n.priorityShould ||
+          _selectedPriorityFilter == 'Should') {
         return c.priority == CommitmentPriority.should;
       }
-      if (_selectedPriorityFilter == 'Nice') {
+      if (_selectedPriorityFilter == l10n.priorityNice ||
+          _selectedPriorityFilter == 'Nice') {
         return c.priority == CommitmentPriority.nice;
       }
       return true;
@@ -63,10 +68,17 @@ class _UpcomingScreenState extends ConsumerState<UpcomingScreen> {
         )
         .toList();
 
+    final priorityFilters = [
+      l10n.priorityFilterAll,
+      l10n.priorityMust,
+      l10n.priorityShould,
+      l10n.priorityNice,
+    ];
+
     return MaybesitterScaffold(
-      appBar: const MaybesitterAppBar(
-        title: 'Upcoming Agenda',
-        subtitle: 'Future commitments & reminders',
+      appBar: MaybesitterAppBar(
+        title: l10n.upcomingTab,
+        subtitle: l10n.upcomingTab,
       ),
       body: Column(
         children: [
@@ -80,9 +92,9 @@ class _UpcomingScreenState extends ConsumerState<UpcomingScreen> {
               children: [
                 MaybesitterSegmentedControl<ViewMode>(
                   selectedValue: _viewMode,
-                  options: const {
-                    ViewMode.agenda: 'Agenda',
-                    ViewMode.calendar: 'Compact Calendar',
+                  options: {
+                    ViewMode.agenda: l10n.agendaView,
+                    ViewMode.calendar: l10n.compactCalendarView,
                   },
                   onSelected: (mode) => setState(() => _viewMode = mode),
                 ),
@@ -90,12 +102,15 @@ class _UpcomingScreenState extends ConsumerState<UpcomingScreen> {
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: Row(
-                    children: ['All', 'Must', 'Should', 'Nice'].map((f) {
+                    children: priorityFilters.map((f) {
                       return Padding(
                         padding: const EdgeInsets.only(right: AppSpacing.xs),
                         child: MaybesitterChip(
                           label: f,
-                          isSelected: _selectedPriorityFilter == f,
+                          isSelected:
+                              _selectedPriorityFilter == f ||
+                              (_selectedPriorityFilter == 'All' &&
+                                  f == l10n.priorityFilterAll),
                           onTap: () =>
                               setState(() => _selectedPriorityFilter = f),
                         ),
@@ -111,19 +126,21 @@ class _UpcomingScreenState extends ConsumerState<UpcomingScreen> {
             child: filtered.isEmpty
                 ? EmptyState(
                     icon: Icons.calendar_month,
-                    title: 'No Upcoming Commitments',
-                    description: 'No plans scheduled for the selected filter.',
-                    actionLabel: 'Capture New Plan',
+                    title: l10n.noUpcomingCommitmentsTitle,
+                    description: l10n.noUpcomingCommitmentsDesc,
+                    actionLabel: l10n.capturePlanAction,
                     onAction: () => context.push('/capture'),
                   )
                 : CustomScrollView(
                     slivers: [
                       // Tomorrow Group
                       if (tomorrowItems.isNotEmpty) ...[
-                        const SliverToBoxAdapter(
+                        SliverToBoxAdapter(
                           child: DateGroupHeader(
-                            title: 'Tomorrow',
-                            subtitle: 'Scheduled plans',
+                            title: l10n.tomorrowGroupHeader,
+                            subtitle: l10n.itemsCountLabel(
+                              tomorrowItems.length,
+                            ),
                           ),
                         ),
                         SliverPadding(
@@ -153,10 +170,12 @@ class _UpcomingScreenState extends ConsumerState<UpcomingScreen> {
 
                       // This Week Group
                       if (thisWeekItems.isNotEmpty) ...[
-                        const SliverToBoxAdapter(
+                        SliverToBoxAdapter(
                           child: DateGroupHeader(
-                            title: 'This week',
-                            subtitle: 'Upcoming days',
+                            title: l10n.thisWeekGroupHeader,
+                            subtitle: l10n.itemsCountLabel(
+                              thisWeekItems.length,
+                            ),
                           ),
                         ),
                         SliverPadding(
@@ -186,10 +205,10 @@ class _UpcomingScreenState extends ConsumerState<UpcomingScreen> {
 
                       // Later Group
                       if (laterItems.isNotEmpty) ...[
-                        const SliverToBoxAdapter(
+                        SliverToBoxAdapter(
                           child: DateGroupHeader(
-                            title: 'Later',
-                            subtitle: 'Future schedule',
+                            title: l10n.laterGroupHeader,
+                            subtitle: l10n.itemsCountLabel(laterItems.length),
                           ),
                         ),
                         SliverPadding(

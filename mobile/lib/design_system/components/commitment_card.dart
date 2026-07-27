@@ -130,54 +130,35 @@ class _CommitmentCardState extends State<CommitmentCard> {
                                     if (widget.commitment.startTime != null ||
                                         widget.commitment.location != null) ...[
                                       const SizedBox(height: 4),
-                                      Row(
+                                      Wrap(
+                                        spacing: AppSpacing.sm,
+                                        runSpacing: 4,
+                                        crossAxisAlignment:
+                                            WrapCrossAlignment.center,
                                         children: [
                                           if (widget.commitment.startTime !=
-                                              null) ...[
-                                            Icon(
-                                              Icons.schedule,
-                                              size: 14,
-                                              color: colors.textMuted,
+                                              null)
+                                            InlineTimeChip(
+                                              time:
+                                                  widget.commitment.startTime!,
+                                              color: colors.textSecondary,
+                                              iconColor: colors.textMuted,
                                             ),
-                                            const SizedBox(width: 4),
-                                            Text(
-                                              widget.commitment.startTime!,
-                                              style: TextStyle(
-                                                fontSize: 13,
-                                                color: colors.textSecondary,
-                                                fontWeight: FontWeight.w500,
-                                              ),
-                                            ),
-                                            const SizedBox(
-                                              width: AppSpacing.sm,
-                                            ),
-                                          ],
                                           if (widget.commitment.location !=
-                                              null) ...[
-                                            Icon(
-                                              Icons.location_on_outlined,
-                                              size: 14,
-                                              color: colors.textMuted,
+                                              null)
+                                            InlineLocationChip(
+                                              location:
+                                                  widget.commitment.location!,
+                                              color: colors.textSecondary,
+                                              iconColor: colors.textMuted,
                                             ),
-                                            const SizedBox(width: 4),
-                                            Expanded(
-                                              child: Text(
-                                                widget.commitment.location!,
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: TextStyle(
-                                                  fontSize: 13,
-                                                  color: colors.textSecondary,
-                                                ),
-                                              ),
-                                            ),
-                                          ],
                                         ],
                                       ),
                                     ],
                                   ],
                                 ),
                               ),
+                              const SizedBox(width: AppSpacing.xs),
                               PriorityBadge(
                                 priority: widget.commitment.priority,
                               ),
@@ -208,6 +189,78 @@ class _CommitmentCardState extends State<CommitmentCard> {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class InlineTimeChip extends StatelessWidget {
+  final String time;
+  final Color color;
+  final Color iconColor;
+
+  const InlineTimeChip({
+    super.key,
+    required this.time,
+    required this.color,
+    required this.iconColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 160),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.schedule, size: 14, color: iconColor),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              time,
+              style: TextStyle(
+                fontSize: 13,
+                color: color,
+                fontWeight: FontWeight.w500,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class InlineLocationChip extends StatelessWidget {
+  final String location;
+  final Color color;
+  final Color iconColor;
+
+  const InlineLocationChip({
+    super.key,
+    required this.location,
+    required this.color,
+    required this.iconColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 160),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.location_on_outlined, size: 14, color: iconColor),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              location,
+              style: TextStyle(fontSize: 13, color: color),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
       ),
     );
   }

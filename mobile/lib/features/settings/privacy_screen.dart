@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/utilities/l10n_extensions.dart';
 import '../../design_system/components/maybesitter_app_bar.dart';
 import '../../design_system/components/maybesitter_buttons.dart';
 import '../../design_system/components/maybesitter_dialog.dart';
@@ -13,13 +14,15 @@ class PrivacyScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = context.l10n;
     final settings = ref.watch(appSettingsProvider);
 
     return MaybesitterScaffold(
       appBar: MaybesitterAppBar(
-        title: 'Privacy & Data',
+        title: l10n.privacyTitle,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
+          tooltip: l10n.backAction,
           onPressed: () => Navigator.pop(context),
         ),
       ),
@@ -29,32 +32,31 @@ class PrivacyScreen extends ConsumerWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             MaybesitterSwitch(
-              label: 'Local Data Encryption',
+              label: l10n.encryptionLabel,
               value: true,
               onChanged: (_) {},
             ),
             const SizedBox(height: AppSpacing.md),
             MaybesitterSwitch(
-              label: 'Analytics Opt-Out',
+              label: l10n.analyticsLabel,
               value: settings.analyticsOptOut,
               onChanged: (_) {},
             ),
             const SizedBox(height: AppSpacing.xxl),
             DestructiveButton(
-              label: 'Delete All Local Data',
+              label: l10n.deleteAllDataAction,
               icon: Icons.delete_forever,
               onPressed: () async {
                 final confirm = await MaybesitterDialog.show(
                   context: context,
-                  title: 'Delete All Local Data',
-                  message:
-                      'Are you sure you want to clear all stored commitments and activity history? This cannot be undone.',
-                  confirmLabel: 'Delete All Data',
+                  title: l10n.deleteAllDataTitle,
+                  message: l10n.deleteAllDataMessage,
+                  confirmLabel: l10n.deleteAllDataAction,
                   isDestructive: true,
                 );
                 if (confirm == true && context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('All local data cleared.')),
+                    SnackBar(content: Text(l10n.dataClearedMessage)),
                   );
                 }
               },

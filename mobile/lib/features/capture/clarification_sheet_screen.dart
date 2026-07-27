@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../core/utilities/l10n_extensions.dart';
 import '../../design_system/components/clarification_card.dart';
 import '../../design_system/components/maybesitter_scaffold.dart';
 import '../../design_system/tokens/spacing.dart';
@@ -12,14 +13,16 @@ class ClarificationSheetScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = context.l10n;
     final captureState = ref.watch(captureControllerProvider);
     final notifier = ref.read(captureControllerProvider.notifier);
 
     return MaybesitterScaffold(
       appBar: AppBar(
-        title: const Text('Clarification'),
+        title: Text(l10n.clarificationTitle),
         leading: IconButton(
           icon: const Icon(Icons.close),
+          tooltip: l10n.closeAction,
           onPressed: () {
             notifier.reset();
             context.go('/today');
@@ -33,7 +36,7 @@ class ClarificationSheetScreen extends ConsumerWidget {
             ClarificationCard(
               promptText:
                   captureState.clarificationPrompt ??
-                  'Please select how you would like this plan scheduled:',
+                  l10n.clarificationCardHeader,
               options: captureState.clarificationOptions,
               onSelectOption: (opt) {
                 // Resolve clarification option and proceed to review

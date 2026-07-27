@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../core/utilities/l10n_extensions.dart';
 import '../../design_system/components/maybesitter_scaffold.dart';
 import '../../design_system/components/success_panel.dart';
 import '../../services/providers.dart';
@@ -11,6 +12,7 @@ class SuccessSaveScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = context.l10n;
     final captureState = ref.watch(captureControllerProvider);
     final notifier = ref.read(captureControllerProvider.notifier);
 
@@ -20,8 +22,11 @@ class SuccessSaveScreen extends ConsumerWidget {
       body: Center(
         child: SingleChildScrollView(
           child: SuccessPanel(
-            title: 'Added ${savedItems.length} commitments for tomorrow.',
-            subtitle: 'Your schedule has been updated with Quiet Intelligence.',
+            title: l10n.commitmentsAddedSuccess(
+              savedItems.length,
+              l10n.tomorrowGroupHeader,
+            ),
+            subtitle: l10n.quietIntelligenceSubtitle,
             savedCommitments: savedItems,
             onViewTomorrow: () {
               notifier.reset();

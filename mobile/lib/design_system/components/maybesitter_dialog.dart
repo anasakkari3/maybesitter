@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/utilities/l10n_extensions.dart';
 import '../theme/app_theme.dart';
 import '../tokens/radius.dart';
 import '../tokens/spacing.dart';
@@ -8,7 +9,7 @@ class MaybesitterDialog extends StatelessWidget {
   final String title;
   final String message;
   final String confirmLabel;
-  final String cancelLabel;
+  final String? cancelLabel;
   final VoidCallback onConfirm;
   final bool isDestructive;
 
@@ -17,7 +18,7 @@ class MaybesitterDialog extends StatelessWidget {
     required this.title,
     required this.message,
     this.confirmLabel = 'Confirm',
-    this.cancelLabel = 'Cancel',
+    this.cancelLabel,
     required this.onConfirm,
     this.isDestructive = false,
   });
@@ -27,7 +28,7 @@ class MaybesitterDialog extends StatelessWidget {
     required String title,
     required String message,
     String confirmLabel = 'Confirm',
-    String cancelLabel = 'Cancel',
+    String? cancelLabel,
     bool isDestructive = false,
   }) {
     return showDialog<bool>(
@@ -46,6 +47,9 @@ class MaybesitterDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
+    final l10n = context.l10n;
+    final displayCancelLabel = cancelLabel ?? l10n.cancelAction;
+
     return AlertDialog(
       backgroundColor: colors.surface,
       shape: const RoundedRectangleBorder(borderRadius: AppRadius.card),
@@ -65,7 +69,10 @@ class MaybesitterDialog extends StatelessWidget {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(false),
-          child: Text(cancelLabel, style: TextStyle(color: colors.textMuted)),
+          child: Text(
+            displayCancelLabel,
+            style: TextStyle(color: colors.textMuted),
+          ),
         ),
         if (isDestructive)
           ElevatedButton(

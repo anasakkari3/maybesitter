@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/utilities/date_formatter.dart';
+import '../../core/utilities/l10n_extensions.dart';
 import '../../design_system/components/commitment_status_badge.dart';
 import '../../design_system/components/maybesitter_app_bar.dart';
 import '../../design_system/components/maybesitter_buttons.dart';
@@ -23,6 +24,8 @@ class CommitmentDetailsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final colors = context.colors;
+    final l10n = context.l10n;
+    final localeCode = context.currentLanguageCode;
     final commitments = ref.watch(commitmentsStreamProvider).value ?? [];
 
     Commitment? commitment;
@@ -34,15 +37,15 @@ class CommitmentDetailsScreen extends ConsumerWidget {
 
     if (commitment == null) {
       return MaybesitterScaffold(
-        appBar: AppBar(title: const Text('Not Found')),
+        appBar: AppBar(title: Text(l10n.noCommitmentTitle)),
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Text('Commitment not found.'),
+              Text(l10n.noCommitmentDescription),
               const SizedBox(height: AppSpacing.md),
               PrimaryButton(
-                label: 'Back to Today',
+                label: l10n.todayTab,
                 isFullWidth: false,
                 onPressed: () => context.go('/today'),
               ),
@@ -56,22 +59,23 @@ class CommitmentDetailsScreen extends ConsumerWidget {
 
     return MaybesitterScaffold(
       appBar: MaybesitterAppBar(
-        title: 'Commitment Detail',
+        title: l10n.commitmentDetailTitle,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
+          tooltip: l10n.backAction,
           onPressed: () => context.pop(),
         ),
         actions: [
           IconButton(
             icon: const Icon(Icons.delete_outline),
             color: colors.destructive,
+            tooltip: l10n.deleteAction,
             onPressed: () async {
               final confirm = await MaybesitterDialog.show(
                 context: context,
-                title: 'Delete Commitment',
-                message:
-                    'Are you sure you want to delete "${commitment!.title}"? This cannot be undone.',
-                confirmLabel: 'Delete',
+                title: l10n.deleteConfirmationTitle,
+                message: l10n.deleteConfirmationMessage(commitment!.title),
+                confirmLabel: l10n.deleteAction,
                 isDestructive: true,
               );
               if (confirm == true) {
@@ -150,15 +154,18 @@ class CommitmentDetailsScreen extends ConsumerWidget {
                       Icons.calendar_today,
                       color: colors.brandPrimary,
                     ),
-                    title: const Text('Scheduled Date'),
+                    title: Text(l10n.scheduledDateLabel),
                     subtitle: Text(
-                      DateFormatter.formatFullDate(commitment.scheduledDate),
+                      DateFormatter.formatFullDate(
+                        commitment.scheduledDate,
+                        locale: localeCode,
+                      ),
                     ),
                   ),
                   const Divider(),
                   ListTile(
                     leading: Icon(Icons.schedule, color: colors.brandPrimary),
-                    title: const Text('Time'),
+                    title: Text(l10n.timeLabel),
                     subtitle: Text(
                       DateFormatter.formatTimeRange(
                         commitment.startTime,
@@ -173,7 +180,7 @@ class CommitmentDetailsScreen extends ConsumerWidget {
                         Icons.location_on,
                         color: colors.brandPrimary,
                       ),
-                      title: const Text('Location'),
+                      title: Text(l10n.locationLabel),
                       subtitle: Text(commitment.location!),
                     ),
                   ],
@@ -181,7 +188,7 @@ class CommitmentDetailsScreen extends ConsumerWidget {
                     const Divider(),
                     ListTile(
                       leading: Icon(Icons.category, color: colors.brandPrimary),
-                      title: const Text('Category'),
+                      title: Text(l10n.categoryLabel),
                       subtitle: Text(commitment.category!),
                     ),
                   ],
@@ -193,7 +200,7 @@ class CommitmentDetailsScreen extends ConsumerWidget {
 
             // Main Actions
             PrimaryButton(
-              label: isDone ? 'Mark as Pending' : 'Mark as Complete',
+              label: isDone ? l10n.markPendingAction : l10n.markCompleteAction,
               icon: isDone ? Icons.undo : Icons.check_circle_outline,
               onPressed: () {
                 if (isDone) {
@@ -209,7 +216,7 @@ class CommitmentDetailsScreen extends ConsumerWidget {
             ),
             const SizedBox(height: AppSpacing.sm),
             SecondaryButton(
-              label: 'Postpone Commitment',
+              label: l10n.postponeAction,
               icon: Icons.schedule_send,
               onPressed: () async {
                 final newDate = await PostponeSheet.show(context);

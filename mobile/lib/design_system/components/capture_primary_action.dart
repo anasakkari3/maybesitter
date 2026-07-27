@@ -1,21 +1,20 @@
 import 'package:flutter/material.dart';
+import '../../core/utilities/l10n_extensions.dart';
 import '../theme/app_theme.dart';
 import '../tokens/elevation.dart';
 import '../tokens/radius.dart';
 
 class CapturePrimaryAction extends StatelessWidget {
   final VoidCallback onTap;
-  final String label;
+  final String? label;
 
-  const CapturePrimaryAction({
-    super.key,
-    required this.onTap,
-    this.label = 'Capture Plan',
-  });
+  const CapturePrimaryAction({super.key, required this.onTap, this.label});
 
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
+    final displayLabel = label ?? context.l10n.capturePlanAction;
+
     return Container(
       decoration: const BoxDecoration(
         shape: BoxShape.circle,
@@ -31,7 +30,7 @@ class CapturePrimaryAction extends StatelessWidget {
         ),
         icon: const Icon(Icons.auto_awesome, size: 22),
         label: Text(
-          label,
+          displayLabel,
           style: TextStyle(
             fontSize: 15,
             fontWeight: FontWeight.w700,

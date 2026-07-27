@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/utilities/l10n_extensions.dart';
 import '../theme/app_theme.dart';
 import '../tokens/radius.dart';
 import '../tokens/spacing.dart';
@@ -17,6 +18,8 @@ class PermissionEducationCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
+    final l10n = context.l10n;
+
     return Container(
       padding: const EdgeInsets.all(AppSpacing.xl),
       decoration: BoxDecoration(
@@ -41,7 +44,7 @@ class PermissionEducationCard extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.lg),
           Text(
-            'Stay Updated on Your Schedule',
+            l10n.notificationsTitle,
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 18,
@@ -51,7 +54,7 @@ class PermissionEducationCard extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(
-            'Maybesitter sends quiet, timely reminders before your commitments so you never miss what matters.',
+            l10n.notificationsSubtitle,
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 14,
@@ -61,7 +64,7 @@ class PermissionEducationCard extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.xl),
           PrimaryButton(
-            label: 'Enable Notifications',
+            label: l10n.notificationsEnabled,
             icon: Icons.check,
             onPressed: onRequestPermission,
           ),
@@ -70,7 +73,7 @@ class PermissionEducationCard extends StatelessWidget {
             TextButton(
               onPressed: onSkip,
               child: Text(
-                'Maybe later',
+                l10n.skipAction,
                 style: TextStyle(fontSize: 14, color: colors.textMuted),
               ),
             ),
