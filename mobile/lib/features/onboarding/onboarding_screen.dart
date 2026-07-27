@@ -1,0 +1,70 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import '../../design_system/components/maybesitter_buttons.dart';
+import '../../design_system/theme/app_theme.dart';
+import '../../design_system/tokens/spacing.dart';
+import '../../services/providers.dart';
+
+class OnboardingScreen extends ConsumerWidget {
+  const OnboardingScreen({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final colors = context.colors;
+    return Scaffold(
+      backgroundColor: colors.background,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.xl),
+          child: Column(
+            children: [
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.all(AppSpacing.xl),
+                decoration: BoxDecoration(
+                  color: colors.brandPrimary.withValues(alpha: 0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.auto_awesome,
+                  size: 64,
+                  color: colors.brandPrimary,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.xl),
+              Text(
+                'Welcome to Maybesitter',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.w700,
+                  color: colors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              Text(
+                'Quiet Intelligence for your schedule. Effortlessly turn your thoughts, text, and speech into organized commitments.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 16,
+                  color: colors.textSecondary,
+                  height: 1.4,
+                ),
+              ),
+              const Spacer(),
+              PrimaryButton(
+                label: 'Get Started',
+                onPressed: () {
+                  ref.read(appSettingsProvider.notifier).completeOnboarding();
+                  context.go('/today');
+                },
+              ),
+              const SizedBox(height: AppSpacing.md),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
