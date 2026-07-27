@@ -111,5 +111,11 @@
   "agendaView": "סדר יום",
   "compactCalendarView": "לוח שנה מקוצר",
   "itemsCountLabel": "{count, plural, =1{פריט אחד} =2{שני פריטים} other{{count} פריטים}}",
-  "doneCountLabel": "הושלמו {count}"
+  "doneCountLabel": "הושלמו {count}",
+  "unsupportedRequestTitle": "בקשה לא נתמכת",
+  "unsupportedRequestMessage": "לא ניתן היה לעבד בקשה זו כהתחייבות או כתוכנית.",
+  "networkErrorMessage": "לא ניתן להתחבר לשרת. נא לבדוק את החיבור.",
+  "proposalExpiredMessage": "פג תוקף התוכנית המוצעת. נא לנתח את התוכנית מחדש.",
+  "validationErrorMessage": "שגיאת אימות שרת. נא לבדוק את הנתונים.",
+  "confirmFailedMessage": "אישור התוכנית בשרת נכשל."
 }

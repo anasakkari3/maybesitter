@@ -771,6 +771,42 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'{count} done'**
   String doneCountLabel(int count);
+
+  /// No description provided for @unsupportedRequestTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Unsupported Request'**
+  String get unsupportedRequestTitle;
+
+  /// No description provided for @unsupportedRequestMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'The request could not be processed as a commitment or plan.'**
+  String get unsupportedRequestMessage;
+
+  /// No description provided for @networkErrorMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to connect to the backend server. Please check your connection.'**
+  String get networkErrorMessage;
+
+  /// No description provided for @proposalExpiredMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'The proposal has expired. Please analyze your plan again.'**
+  String get proposalExpiredMessage;
+
+  /// No description provided for @validationErrorMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Server validation error. Please review your input.'**
+  String get validationErrorMessage;
+
+  /// No description provided for @confirmFailedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to confirm proposal on the server.'**
+  String get confirmFailedMessage;
 }
 
 class _AppLocalizationsDelegate

@@ -1,8 +1,12 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../config/app_config.dart';
 import '../models/app_settings.dart';
 import '../models/commitment.dart';
 import '../models/activity_event.dart';
+import 'api/api_client.dart';
+import 'api/api_capture_service.dart';
+import 'api/api_commitment_repository.dart';
 import 'contracts/commitment_repository.dart';
 import 'contracts/capture_service.dart';
 import 'contracts/activity_repository.dart';
@@ -14,11 +18,34 @@ import 'mock/mock_activity_repository.dart';
 import 'mock/mock_notification_service.dart';
 import 'mock/mock_connectivity_service.dart';
 
+final appConfigProvider = StateProvider<AppConfig>((ref) {
+  return const AppConfig(apiMode: ApiMode.mock);
+});
+
+final apiClientProvider = Provider<ApiClient>((ref) {
+  final config = ref.watch(appConfigProvider);
+  return ApiClient(baseUrl: config.baseUrl);
+});
+
 final commitmentRepositoryProvider = Provider<CommitmentRepository>((ref) {
+  final config = ref.watch(appConfigProvider);
+  if (config.isLocalBackend) {
+    final client = ref.watch(apiClientProvider);
+    return ApiCommitmentRepository(apiClient: client);
+  }
   return InMemoryCommitmentRepository();
 });
 
 final captureServiceProvider = Provider<CaptureService>((ref) {
+  final config = ref.watch(appConfigProvider);
+  if (config.isLocalBackend) {
+    final client = ref.watch(apiClientProvider);
+    return ApiCaptureService(
+      apiClient: client,
+      defaultScopeId: config.scopeId,
+      defaultTimezone: config.timezone,
+    );
+  }
   return MockCaptureService();
 });
 

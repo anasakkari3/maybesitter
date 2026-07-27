@@ -6,6 +6,8 @@ import '../../services/providers.dart';
 
 class CaptureState {
   final CaptureStatus status;
+  final String? proposalId;
+  final String scopeId;
   final String rawInput;
   final List<Commitment> extractedCommitments;
   final ExtractionConfidence confidence;
@@ -16,6 +18,8 @@ class CaptureState {
 
   const CaptureState({
     this.status = CaptureStatus.idle,
+    this.proposalId,
+    this.scopeId = 'default',
     this.rawInput = '',
     this.extractedCommitments = const [],
     this.confidence = ExtractionConfidence.high,
@@ -27,6 +31,8 @@ class CaptureState {
 
   CaptureState copyWith({
     CaptureStatus? status,
+    String? proposalId,
+    String? scopeId,
     String? rawInput,
     List<Commitment>? extractedCommitments,
     ExtractionConfidence? confidence,
@@ -37,6 +43,8 @@ class CaptureState {
   }) {
     return CaptureState(
       status: status ?? this.status,
+      proposalId: proposalId ?? this.proposalId,
+      scopeId: scopeId ?? this.scopeId,
       rawInput: rawInput ?? this.rawInput,
       extractedCommitments: extractedCommitments ?? this.extractedCommitments,
       confidence: confidence ?? this.confidence,
@@ -56,19 +64,29 @@ class CaptureNotifier extends StateNotifier<CaptureState> {
   Future<void> submitIntent(String text) async {
     if (text.trim().isEmpty) return;
 
+    final config = ref.read(appConfigProvider);
+
     state = state.copyWith(
       status: CaptureStatus.submitting,
       rawInput: text,
+      scopeId: config.scopeId,
       errorMessage: null,
     );
 
     final captureService = ref.read(captureServiceProvider);
     final result = await captureService.capture(
-      CaptureRequest(rawInput: text, capturedAt: DateTime.now()),
+      CaptureRequest(
+        rawInput: text,
+        capturedAt: DateTime.now(),
+        timezone: config.timezone,
+        scopeId: config.scopeId,
+      ),
     );
 
     state = state.copyWith(
       status: result.status,
+      proposalId: result.proposalId,
+      scopeId: result.scopeId,
       extractedCommitments: result.extractedCommitments,
       confidence: result.confidence,
       clarificationPrompt: result.clarificationPrompt,
@@ -116,8 +134,28 @@ class CaptureNotifier extends StateNotifier<CaptureState> {
     state = state.copyWith(status: CaptureStatus.submitting);
 
     try {
-      final repo = ref.read(commitmentRepositoryProvider);
-      await repo.saveAll(state.extractedCommitments);
+      final config = ref.read(appConfigProvider);
+      final captureService = ref.read(captureServiceProvider);
+
+      if (config.isLocalBackend || state.proposalId != null) {
+        final confirmResult = await captureService.confirmProposal(
+          proposalId: state.proposalId ?? 'prop-mock',
+          scopeId: state.scopeId,
+          itemIds: state.extractedCommitments.map((c) => c.id).toList(),
+          referenceTime: DateTime.now(),
+        );
+
+        if (!confirmResult.success) {
+          state = state.copyWith(
+            status: CaptureStatus.saveFailed,
+            errorMessage: 'Failed to confirm proposal on server.',
+          );
+          return false;
+        }
+      } else {
+        final repo = ref.read(commitmentRepositoryProvider);
+        await repo.saveAll(state.extractedCommitments);
+      }
 
       final activityRepo = ref.read(activityRepositoryProvider);
       await activityRepo.logEvent(
@@ -136,7 +174,7 @@ class CaptureNotifier extends StateNotifier<CaptureState> {
     } catch (e) {
       state = state.copyWith(
         status: CaptureStatus.saveFailed,
-        errorMessage: 'Failed to persist commitments locally.',
+        errorMessage: 'Failed to persist commitments.',
       );
       return false;
     }
@@ -155,6 +193,7 @@ class CaptureNotifier extends StateNotifier<CaptureState> {
       case CaptureStatus.needsConfirmation:
         state = CaptureState(
           status: CaptureStatus.needsConfirmation,
+          proposalId: 'prev-prop-1',
           rawInput: 'Tomorrow I will go to the doctor and then work.',
           extractedCommitments: [
             Commitment(
@@ -206,6 +245,13 @@ class CaptureNotifier extends StateNotifier<CaptureState> {
           rawInput: 'Hello how are you today',
           analysisNote:
               'The AI scanned for dates, times, and specific actions but did not find an actionable commitment in this input.',
+        );
+        break;
+      case CaptureStatus.unsupportedRequest:
+        state = const CaptureState(
+          status: CaptureStatus.unsupportedRequest,
+          rawInput: 'What is the weather today?',
+          errorMessage: 'The request could not be processed as a commitment.',
         );
         break;
       case CaptureStatus.extractionFailed:

@@ -1,5 +1,6 @@
 import '../../models/capture_result.dart';
 import '../../models/commitment.dart';
+import '../api/dtos/proposal_dtos.dart';
 import '../contracts/capture_service.dart';
 
 class MockCaptureService implements CaptureService {
@@ -121,6 +122,30 @@ class MockCaptureService implements CaptureService {
           category: 'Personal',
         ),
       ],
+    );
+  }
+
+  @override
+  Future<ConfirmProposalResponseDto> confirmProposal({
+    required String proposalId,
+    required String scopeId,
+    required List<String> itemIds,
+    DateTime? referenceTime,
+  }) async {
+    await Future.delayed(const Duration(milliseconds: 200));
+    return ConfirmProposalResponseDto(
+      success: true,
+      persisted: itemIds
+          .map(
+            (id) => PersistedProposalItemDto(
+              itemId: id,
+              commitmentId: 'cid-$id',
+              title: 'Confirmed Item',
+              resolvedTime: DateTime.now().toIso8601String(),
+            ),
+          )
+          .toList(),
+      failed: const [],
     );
   }
 }

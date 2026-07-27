@@ -111,5 +111,11 @@
   "agendaView": "الجدول الزمني",
   "compactCalendarView": "التقويم المصغر",
   "itemsCountLabel": "{count, plural, =1{عنصر واحد} =2{عنصران} few{{count} عناصر} many{{count} عنصرًا} other{{count} عنصر}}",
-  "doneCountLabel": "تم إنجاز {count}"
+  "doneCountLabel": "تم إنجاز {count}",
+  "unsupportedRequestTitle": "طلب غير مدعوم",
+  "unsupportedRequestMessage": "تعذر معالجة هذا الطلب كالتزام أو خطة.",
+  "networkErrorMessage": "تعذر الاتصال بالخادم. يرجى التحقق من الاتصال.",
+  "proposalExpiredMessage": "انتهت صلاحية الخطة المقترحة. يرجى إعادة تحليل خطتك.",
+  "validationErrorMessage": "خطأ في التحقق من البيانات. يرجى مراجعة المدخلات.",
+  "confirmFailedMessage": "فشل تأكيد الخطة على الخادم."
 }

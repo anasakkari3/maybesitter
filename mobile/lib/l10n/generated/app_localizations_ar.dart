@@ -404,4 +404,26 @@ class AppLocalizationsAr extends AppLocalizations {
   String doneCountLabel(int count) {
     return 'تم إنجاز $count';
   }
+
+  @override
+  String get unsupportedRequestTitle => 'طلب غير مدعوم';
+
+  @override
+  String get unsupportedRequestMessage =>
+      'تعذر معالجة هذا الطلب كالتزام أو خطة.';
+
+  @override
+  String get networkErrorMessage =>
+      'تعذر الاتصال بالخادم. يرجى التحقق من الاتصال.';
+
+  @override
+  String get proposalExpiredMessage =>
+      'انتهت صلاحية الخطة المقترحة. يرجى إعادة تحليل خطتك.';
+
+  @override
+  String get validationErrorMessage =>
+      'خطأ في التحقق من البيانات. يرجى مراجعة المدخلات.';
+
+  @override
+  String get confirmFailedMessage => 'فشل تأكيد الخطة على الخادم.';
 }

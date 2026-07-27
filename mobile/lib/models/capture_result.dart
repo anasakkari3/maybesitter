@@ -7,7 +7,11 @@ enum CaptureStatus {
   needsConfirmation,
   needsClarification,
   noCommitment,
+  unsupportedRequest,
   extractionFailed,
+  validationError,
+  networkError,
+  proposalExpired,
   saveFailed,
   saved,
   cancelled,
@@ -50,17 +54,23 @@ class CaptureRequest {
   final String rawInput;
   final DateTime capturedAt;
   final String? clientLocale;
+  final String? timezone;
+  final String? scopeId;
 
   const CaptureRequest({
     required this.rawInput,
     required this.capturedAt,
     this.clientLocale = 'en_US',
+    this.timezone = 'Asia/Jerusalem',
+    this.scopeId = 'default',
   });
 }
 
 @immutable
 class CaptureResult {
   final String requestId;
+  final String? proposalId;
+  final String scopeId;
   final String rawInput;
   final CaptureStatus status;
   final List<Commitment> extractedCommitments;
@@ -72,6 +82,8 @@ class CaptureResult {
 
   const CaptureResult({
     required this.requestId,
+    this.proposalId,
+    this.scopeId = 'default',
     required this.rawInput,
     required this.status,
     this.extractedCommitments = const [],
@@ -84,6 +96,8 @@ class CaptureResult {
 
   CaptureResult copyWith({
     String? requestId,
+    String? proposalId,
+    String? scopeId,
     String? rawInput,
     CaptureStatus? status,
     List<Commitment>? extractedCommitments,
@@ -95,6 +109,8 @@ class CaptureResult {
   }) {
     return CaptureResult(
       requestId: requestId ?? this.requestId,
+      proposalId: proposalId ?? this.proposalId,
+      scopeId: scopeId ?? this.scopeId,
       rawInput: rawInput ?? this.rawInput,
       status: status ?? this.status,
       extractedCommitments: extractedCommitments ?? this.extractedCommitments,

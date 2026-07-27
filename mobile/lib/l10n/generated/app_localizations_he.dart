@@ -400,4 +400,24 @@ class AppLocalizationsHe extends AppLocalizations {
   String doneCountLabel(int count) {
     return 'הושלמו $count';
   }
+
+  @override
+  String get unsupportedRequestTitle => 'בקשה לא נתמכת';
+
+  @override
+  String get unsupportedRequestMessage =>
+      'לא ניתן היה לעבד בקשה זו כהתחייבות או כתוכנית.';
+
+  @override
+  String get networkErrorMessage => 'לא ניתן להתחבר לשרת. נא לבדוק את החיבור.';
+
+  @override
+  String get proposalExpiredMessage =>
+      'פג תוקף התוכנית המוצעת. נא לנתח את התוכנית מחדש.';
+
+  @override
+  String get validationErrorMessage => 'שגיאת אימות שרת. נא לבדוק את הנתונים.';
+
+  @override
+  String get confirmFailedMessage => 'אישור התוכנית בשרת נכשל.';
 }

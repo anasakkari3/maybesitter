@@ -173,5 +173,11 @@
         "type": "int"
       }
     }
-  }
+  },
+  "unsupportedRequestTitle": "Unsupported Request",
+  "unsupportedRequestMessage": "The request could not be processed as a commitment or plan.",
+  "networkErrorMessage": "Unable to connect to the backend server. Please check your connection.",
+  "proposalExpiredMessage": "The proposal has expired. Please analyze your plan again.",
+  "validationErrorMessage": "Server validation error. Please review your input.",
+  "confirmFailedMessage": "Failed to confirm proposal on the server."
 }

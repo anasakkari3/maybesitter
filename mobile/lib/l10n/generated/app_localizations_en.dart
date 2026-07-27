@@ -396,4 +396,27 @@ class AppLocalizationsEn extends AppLocalizations {
   String doneCountLabel(int count) {
     return '$count done';
   }
+
+  @override
+  String get unsupportedRequestTitle => 'Unsupported Request';
+
+  @override
+  String get unsupportedRequestMessage =>
+      'The request could not be processed as a commitment or plan.';
+
+  @override
+  String get networkErrorMessage =>
+      'Unable to connect to the backend server. Please check your connection.';
+
+  @override
+  String get proposalExpiredMessage =>
+      'The proposal has expired. Please analyze your plan again.';
+
+  @override
+  String get validationErrorMessage =>
+      'Server validation error. Please review your input.';
+
+  @override
+  String get confirmFailedMessage =>
+      'Failed to confirm proposal on the server.';
 }
