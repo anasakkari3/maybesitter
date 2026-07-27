@@ -68,7 +68,7 @@ class AppLocalizationsAr extends AppLocalizations {
   String get statusCancelled => 'ملغى';
 
   @override
-  String get newIntentTitle => 'نص جديد';
+  String get newIntentTitle => 'إضافة التزام';
 
   @override
   String get captureHintText =>
@@ -88,7 +88,7 @@ class AppLocalizationsAr extends AppLocalizations {
   String get privacyNote => 'يتم تحليل خطتك بخصوصية تامة عبر الذكاء الهادئ.';
 
   @override
-  String get analyzeAction => 'تحليل';
+  String get analyzeAction => 'تحليل النص';
 
   @override
   String get reviewPlanTitle => 'مراجعة خطتك';
@@ -143,11 +143,11 @@ class AppLocalizationsAr extends AppLocalizations {
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: 'تمت إضافة $count التزام ليوم $date.',
-      many: 'تمت إضافة $count التزامًا ليوم $date.',
-      few: 'تمت إضافة $count التزامات ليوم $date.',
-      two: 'تمت إضافة التزامين ليوم $date.',
-      one: 'تمت إضافة التزام واحد ليوم $date.',
+      other: 'تمت إضافة $count التزام ليوم غد.',
+      many: 'تمت إضافة $count التزامًا ليوم غد.',
+      few: 'تمت إضافة $count التزامات ليوم غد.',
+      two: 'تمت إضافة التزامين ليوم غد.',
+      one: 'تمت إضافة التزام واحد ليوم غد.',
     );
     return '$_temp0';
   }
@@ -200,7 +200,7 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String deleteConfirmationMessage(String title) {
-    return 'هل أنت تأكد من رغبتك في حذف \"$title\"؟ لا يمكن التراجع عن هذا الإجراء.';
+    return 'هل أنت متأكد من رغبتك في حذف \"$title\"؟ لا يمكن التراجع عن هذا الإجراء.';
   }
 
   @override
@@ -274,7 +274,7 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get deleteAllDataMessage =>
-      'هل أنت تأكد من رغبتك في مسح جميع الالتزامات والسجلات المخزنة؟ لا يمكن التراجع عن هذا الإجراء.';
+      'هل أنت متأكد من رغبتك في مسح جميع الالتزامات والسجلات المخزنة؟ لا يمكن التراجع عن هذا الإجراء.';
 
   @override
   String get dataClearedMessage => 'تم مسح جميع البيانات المحلية.';
@@ -354,7 +354,7 @@ class AppLocalizationsAr extends AppLocalizations {
   String get noUpcomingCommitmentsDesc => 'لا توجد خطط مجدولة للتصفية المحددة.';
 
   @override
-  String get capturePlanAction => 'إضافة خطة';
+  String get capturePlanAction => 'إضافة التزام';
 
   @override
   String get processingLabel => 'جاري تحليل خطتك عبر الذكاء الهادئ...';

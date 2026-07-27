@@ -134,6 +134,47 @@ void main() {
       expect(find.text('تفضيلات التطبيق والحساب'), findsOneWidget);
     });
 
+    testWidgets('Arabic & Hebrew Accessibility Semantics & Tooltips', (
+      WidgetTester tester,
+    ) async {
+      final container = ProviderContainer();
+      container
+          .read(appSettingsProvider.notifier)
+          .updateLocale(AppLocaleOption.arabic);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaybesitterApp(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Arabic bottom nav labels
+      expect(find.text('اليوم'), findsWidgets);
+      expect(find.text('القادمة'), findsWidgets);
+      expect(find.text('النشاط'), findsWidgets);
+      expect(find.text('الإعدادات'), findsWidgets);
+
+      // Open settings to check Language selector semantics
+      await tester.tap(find.text('الإعدادات').first);
+      await tester.pumpAndSettle();
+      expect(find.text('اللغة'), findsOneWidget);
+
+      // Switch to Hebrew
+      container
+          .read(appSettingsProvider.notifier)
+          .updateLocale(AppLocaleOption.hebrew);
+      await tester.pumpAndSettle();
+
+      // Hebrew bottom nav labels
+      expect(find.text('היום'), findsWidgets);
+      expect(find.text('בקרוב'), findsWidgets);
+      expect(find.text('פעילות'), findsWidgets);
+      expect(find.text('הגדרות'), findsWidgets);
+      expect(find.text('שפה'), findsOneWidget);
+    });
+
     testWidgets('Renders Mixed-Language Commitment Text cleanly', (
       WidgetTester tester,
     ) async {

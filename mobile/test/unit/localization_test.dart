@@ -7,8 +7,11 @@ import 'package:maybesitter_mobile/l10n/generated/app_localizations.dart';
 import 'package:maybesitter_mobile/models/app_settings.dart';
 import 'package:maybesitter_mobile/models/commitment.dart';
 import 'package:maybesitter_mobile/services/providers.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   group('Localization Unit Tests', () {
     late AppLocalizations l10nEn;
     late AppLocalizations l10nAr;
@@ -31,13 +34,6 @@ void main() {
       expect(AppLocaleOption.hebrew.locale, equals(const Locale('he')));
     });
 
-    test('AppSettingsNotifier locale updates', () async {
-      final notifier = AppSettingsNotifier();
-
-      await notifier.updateLocale(AppLocaleOption.arabic);
-      await notifier.updateLocale(AppLocaleOption.hebrew);
-    });
-
     test('Priority localization across English, Arabic, and Hebrew', () {
       expect(CommitmentPriority.must.localizedName(l10nEn), equals('MUST'));
       expect(CommitmentPriority.must.localizedName(l10nAr), equals('ضروري'));
@@ -49,7 +45,10 @@ void main() {
 
       expect(CommitmentPriority.nice.localizedName(l10nEn), equals('NICE'));
       expect(CommitmentPriority.nice.localizedName(l10nAr), equals('اختياري'));
-      expect(CommitmentPriority.nice.localizedName(l10nHe), equals('רשות'));
+      expect(
+        CommitmentPriority.nice.localizedName(l10nHe),
+        equals('אופציונלי'),
+      );
     });
 
     test(
@@ -65,7 +64,7 @@ void main() {
         );
         expect(
           CommitmentStatus.pending.localizedStatusName(l10nHe),
-          equals('ממתין'),
+          equals('בהמתנה'),
         );
 
         expect(
@@ -78,7 +77,7 @@ void main() {
         );
         expect(
           CommitmentStatus.completed.localizedStatusName(l10nHe),
-          equals('הושלם'),
+          equals('הושלמה'),
         );
 
         expect(
@@ -91,46 +90,168 @@ void main() {
         );
         expect(
           CommitmentStatus.postponed.localizedStatusName(l10nHe),
-          equals('נגרר'),
+          equals('נדחתה'),
         );
       },
     );
 
-    test('Plurals formatting for 1, 2, and multiple commitments', () {
-      expect(
-        l10nEn.confirmCommitmentsAction(1),
-        equals('Confirm 1 Commitment'),
-      );
-      expect(
-        l10nEn.confirmCommitmentsAction(2),
-        equals('Confirm 2 Commitments'),
-      );
-      expect(
-        l10nEn.confirmCommitmentsAction(5),
-        equals('Confirm 5 Commitments'),
-      );
+    test(
+      'SharedPreferences persistence reconstruction & state restoration',
+      () async {
+        // 1. Initialize SharedPreferences with no locale
+        SharedPreferences.setMockInitialValues({});
 
-      expect(l10nAr.confirmCommitmentsAction(1), equals('تأكيد التزام واحد'));
-      expect(l10nAr.confirmCommitmentsAction(2), equals('تأكيد التزامين'));
-      expect(l10nAr.confirmCommitmentsAction(3), equals('تأكيد 3 التزامات'));
+        var notifier = AppSettingsNotifier();
+        await Future<void>.delayed(Duration.zero);
+        expect(notifier.state.localeOption, equals(AppLocaleOption.system));
+
+        // 2. Select Hebrew & persist
+        await notifier.updateLocale(AppLocaleOption.hebrew);
+        var prefs = await SharedPreferences.getInstance();
+        expect(prefs.getString('locale_option'), equals('he'));
+
+        // 3. Dispose state & create fresh state from reloaded SharedPreferences
+        notifier.dispose();
+        var reloadedNotifier = AppSettingsNotifier();
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          reloadedNotifier.state.localeOption,
+          equals(AppLocaleOption.hebrew),
+        );
+
+        // 4. Test Arabic restoration
+        await reloadedNotifier.updateLocale(AppLocaleOption.arabic);
+        reloadedNotifier.dispose();
+        reloadedNotifier = AppSettingsNotifier();
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          reloadedNotifier.state.localeOption,
+          equals(AppLocaleOption.arabic),
+        );
+
+        // 5. Test System default restoration
+        await reloadedNotifier.updateLocale(AppLocaleOption.system);
+        reloadedNotifier.dispose();
+        reloadedNotifier = AppSettingsNotifier();
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          reloadedNotifier.state.localeOption,
+          equals(AppLocaleOption.system),
+        );
+
+        // 6. Test invalid stored value falls back safely to system
+        SharedPreferences.setMockInitialValues({
+          'locale_option': 'invalid_lang',
+        });
+        reloadedNotifier.dispose();
+        reloadedNotifier = AppSettingsNotifier();
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          reloadedNotifier.state.localeOption,
+          equals(AppLocaleOption.system),
+        );
+      },
+    );
+
+    test('Fixed Reference DateTime formatting (2026-07-28T15:30:00)', () {
+      final date = DateTime(2026, 7, 28, 15, 30, 0);
+
+      final fullDateEn = DateFormatter.formatFullDate(date, locale: 'en');
+      final fullDateAr = DateFormatter.formatFullDate(date, locale: 'ar');
+      final fullDateHe = DateFormatter.formatFullDate(date, locale: 'he');
+
+      expect(fullDateEn, contains('July 28, 2026'));
+      expect(fullDateAr, contains('2026'));
+      expect(fullDateHe, contains('2026'));
+
+      expect(DateFormatter.formatTime('15:30'), equals('15:30'));
+      expect(l10nEn.tomorrowGroupHeader, equals('Tomorrow'));
+      expect(l10nAr.tomorrowGroupHeader, equals('غدًا'));
+      expect(l10nHe.tomorrowGroupHeader, equals('מחר'));
+    });
+
+    test(
+      'Arabic ICU plural branches for 0, 1, 2, 3, 11, and 100 commitments',
+      () {
+        expect(
+          l10nAr.commitmentsCountToday(0),
+          equals('لا توجد التزامات نشطة اليوم'),
+        );
+        expect(
+          l10nAr.commitmentsCountToday(1),
+          equals('التزام واحد متبقٍ اليوم'),
+        );
+        expect(
+          l10nAr.commitmentsCountToday(2),
+          equals('التزامان متبقيان اليوم'),
+        );
+        expect(
+          l10nAr.commitmentsCountToday(3),
+          equals('3 التزامات متبقية اليوم'),
+        );
+        expect(
+          l10nAr.commitmentsCountToday(11),
+          equals('11 التزامًا متبقيًا اليوم'),
+        );
+        expect(
+          l10nAr.commitmentsCountToday(100),
+          equals('100 التزام متبقٍ اليوم'),
+        );
+
+        expect(l10nAr.confirmCommitmentsAction(1), equals('تأكيد التزام واحد'));
+        expect(l10nAr.confirmCommitmentsAction(2), equals('تأكيد التزامين'));
+        expect(l10nAr.confirmCommitmentsAction(3), equals('تأكيد 3 التزامات'));
+        expect(
+          l10nAr.confirmCommitmentsAction(11),
+          equals('تأكيد 11 التزامًا'),
+        );
+        expect(
+          l10nAr.confirmCommitmentsAction(100),
+          equals('تأكيد 100 التزام'),
+        );
+      },
+    );
+
+    test('Hebrew plurals for 0, 1, 2, 3, 11, and 100 commitments', () {
+      expect(
+        l10nHe.commitmentsCountToday(0),
+        equals('אין התחייבויות פעילות היום'),
+      );
+      expect(
+        l10nHe.commitmentsCountToday(1),
+        equals('התחייבות אחת נותרה להיום'),
+      );
+      expect(
+        l10nHe.commitmentsCountToday(2),
+        equals('שתי התחייבויות נותרו להיום'),
+      );
+      expect(
+        l10nHe.commitmentsCountToday(3),
+        equals('3 התחייבויות נותרו להיום'),
+      );
+      expect(
+        l10nHe.commitmentsCountToday(11),
+        equals('11 התחייבויות נותרו להיום'),
+      );
+      expect(
+        l10nHe.commitmentsCountToday(100),
+        equals('100 התחייבויות נותרו להיום'),
+      );
 
       expect(l10nHe.confirmCommitmentsAction(1), equals('אישור התחייבות אחת'));
       expect(
         l10nHe.confirmCommitmentsAction(2),
         equals('אישור שתי התחייבויות'),
       );
-      expect(l10nHe.confirmCommitmentsAction(5), equals('אישור 5 התחייבויות'));
-    });
-
-    test('DateFormatter formatting with explicit locales', () {
-      final date = DateTime(2026, 7, 28, 14, 30);
-      final fullDateEn = DateFormatter.formatFullDate(date, locale: 'en');
-      final fullDateAr = DateFormatter.formatFullDate(date, locale: 'ar');
-      final fullDateHe = DateFormatter.formatFullDate(date, locale: 'he');
-
-      expect(fullDateEn, contains('2026'));
-      expect(fullDateAr, isNotEmpty);
-      expect(fullDateHe, isNotEmpty);
+      expect(l10nHe.confirmCommitmentsAction(3), equals('אישור 3 התחייבויות'));
+      expect(
+        l10nHe.confirmCommitmentsAction(11),
+        equals('אישור 11 התחייבויות'),
+      );
+      expect(
+        l10nHe.confirmCommitmentsAction(100),
+        equals('אישור 100 התחייבויות'),
+      );
     });
   });
 }

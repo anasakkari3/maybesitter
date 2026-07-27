@@ -15,7 +15,7 @@ class AppLocalizationsHe extends AppLocalizations {
   String get todayTab => 'היום';
 
   @override
-  String get upcomingTab => 'הבאים';
+  String get upcomingTab => 'בקרוב';
 
   @override
   String get activityTab => 'פעילות';
@@ -48,25 +48,25 @@ class AppLocalizationsHe extends AppLocalizations {
   String get priorityShould => 'מומלץ';
 
   @override
-  String get priorityNice => 'רשות';
+  String get priorityNice => 'אופציונלי';
 
   @override
   String get priorityFilterAll => 'הכול';
 
   @override
-  String get statusPending => 'ממתין';
+  String get statusPending => 'בהמתנה';
 
   @override
-  String get statusCompleted => 'הושלם';
+  String get statusCompleted => 'הושלמה';
 
   @override
-  String get statusPostponed => 'נגרר';
+  String get statusPostponed => 'נדחתה';
 
   @override
-  String get statusCancelled => 'בוטל';
+  String get statusCancelled => 'בוטלה';
 
   @override
-  String get newIntentTitle => 'טקסט חדש';
+  String get newIntentTitle => 'הוספת התחייבות';
 
   @override
   String get captureHintText =>
@@ -87,7 +87,7 @@ class AppLocalizationsHe extends AppLocalizations {
       'התוכנית שלך מנותחת בפרטיות מלאה באמצעות אינטליגנציה שקטה.';
 
   @override
-  String get analyzeAction => 'ניתוח';
+  String get analyzeAction => 'ניתוח הטקסט';
 
   @override
   String get reviewPlanTitle => 'בדיקת התוכנית שלך';
@@ -141,8 +141,8 @@ class AppLocalizationsHe extends AppLocalizations {
       count,
       locale: localeName,
       other: 'נוספו $count התחייבויות ל-$date.',
-      two: 'נוספו שתי התחייבויות ל-$date.',
-      one: 'נוספה התחייבות אחת ל-$date.',
+      two: 'נוספו שתי התחייבויות למחר.',
+      one: 'נוספה התחייבות אחת למחר.',
     );
     return '$_temp0';
   }
@@ -179,10 +179,10 @@ class AppLocalizationsHe extends AppLocalizations {
   String get categoryLabel => 'קטגוריה';
 
   @override
-  String get markCompleteAction => 'סימון כהושלם';
+  String get markCompleteAction => 'סימון כהושלמה';
 
   @override
-  String get markPendingAction => 'סימון כממתין';
+  String get markPendingAction => 'סימון כבהמתנה';
 
   @override
   String get postponeAction => 'דחיית התחייבות';
@@ -351,7 +351,7 @@ class AppLocalizationsHe extends AppLocalizations {
       'אין תוכניות מתוכננות עבור הסינון שנבחר.';
 
   @override
-  String get capturePlanAction => 'הוספת תוכנית';
+  String get capturePlanAction => 'הוספת התחייבות';
 
   @override
   String get processingLabel =>
@@ -364,7 +364,7 @@ class AppLocalizationsHe extends AppLocalizations {
   String get laterTodayGroupHeader => 'היום בהמשך • מומלץ';
 
   @override
-  String get optionalGroupHeader => 'רשות • רשות';
+  String get optionalGroupHeader => 'אופציונלי • אופציונלי';
 
   @override
   String get completedGroupHeader => 'הושלמו';

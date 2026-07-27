@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -216,60 +217,63 @@ class _CaptureComposerScreenState extends ConsumerState<CaptureComposerScreen> {
 
                   const SizedBox(height: AppSpacing.xxl),
 
-                  // Dev Fixture Switcher (development preview only)
-                  ExpansionTile(
-                    title: Text(
-                      'Dev Fixture Previews',
-                      style: TextStyle(fontSize: 13, color: colors.textMuted),
-                    ),
-                    children: [
-                      Wrap(
-                        spacing: 8,
-                        children: [
-                          OutlinedButton(
-                            onPressed: () {
-                              ref
-                                  .read(captureControllerProvider.notifier)
-                                  .previewState(
-                                    CaptureStatus.needsConfirmation,
-                                  );
-                              context.push('/capture/review');
-                            },
-                            child: const Text('2 Items Review'),
-                          ),
-                          OutlinedButton(
-                            onPressed: () {
-                              ref
-                                  .read(captureControllerProvider.notifier)
-                                  .previewState(
-                                    CaptureStatus.needsClarification,
-                                  );
-                              context.push('/capture/clarification');
-                            },
-                            child: const Text('Clarification'),
-                          ),
-                          OutlinedButton(
-                            onPressed: () {
-                              ref
-                                  .read(captureControllerProvider.notifier)
-                                  .previewState(CaptureStatus.noCommitment);
-                              context.push('/capture/review');
-                            },
-                            child: const Text('Nothing Found'),
-                          ),
-                          OutlinedButton(
-                            onPressed: () {
-                              ref
-                                  .read(captureControllerProvider.notifier)
-                                  .previewState(CaptureStatus.extractionFailed);
-                              context.push('/capture/review');
-                            },
-                            child: const Text('Extraction Failed'),
-                          ),
-                        ],
+                  // Dev Fixture Switcher (development preview only - debug mode)
+                  if (kDebugMode)
+                    ExpansionTile(
+                      title: Text(
+                        'Dev Fixture Previews',
+                        style: TextStyle(fontSize: 13, color: colors.textMuted),
                       ),
-                    ],
-                  ),
+                      children: [
+                        Wrap(
+                          spacing: 8,
+                          children: [
+                            OutlinedButton(
+                              onPressed: () {
+                                ref
+                                    .read(captureControllerProvider.notifier)
+                                    .previewState(
+                                      CaptureStatus.needsConfirmation,
+                                    );
+                                context.push('/capture/review');
+                              },
+                              child: const Text('2 Items Review'),
+                            ),
+                            OutlinedButton(
+                              onPressed: () {
+                                ref
+                                    .read(captureControllerProvider.notifier)
+                                    .previewState(
+                                      CaptureStatus.needsClarification,
+                                    );
+                                context.push('/capture/clarification');
+                              },
+                              child: const Text('Clarification'),
+                            ),
+                            OutlinedButton(
+                              onPressed: () {
+                                ref
+                                    .read(captureControllerProvider.notifier)
+                                    .previewState(CaptureStatus.noCommitment);
+                                context.push('/capture/review');
+                              },
+                              child: const Text('Nothing Found'),
+                            ),
+                            OutlinedButton(
+                              onPressed: () {
+                                ref
+                                    .read(captureControllerProvider.notifier)
+                                    .previewState(
+                                      CaptureStatus.extractionFailed,
+                                    );
+                                context.push('/capture/review');
+                              },
+                              child: const Text('Extraction Failed'),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                 ],
               ),
             ),

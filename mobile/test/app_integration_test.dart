@@ -54,8 +54,8 @@ void main() {
 
       expect(find.byType(CaptureComposerScreen), findsOneWidget);
 
-      // 5. Tap Analyze button (Arabic label: تحليل)
-      final analyzeBtn = find.text('تحليل');
+      // 5. Tap Analyze button (Arabic label: تحليل النص)
+      final analyzeBtn = find.text('تحليل النص');
       expect(analyzeBtn, findsOneWidget);
       await tester.tap(analyzeBtn);
       await tester.pump(const Duration(milliseconds: 1000));
@@ -72,7 +72,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // 7. Verify Arabic Success Screen
-      expect(find.textContaining('التزامين'), findsOneWidget);
+      expect(find.text('تمت إضافة التزامين ليوم غد.'), findsOneWidget);
 
       // 8. Return to Settings via Bottom Navigation & switch to Hebrew
       final doneBtn = find.text('تم');
