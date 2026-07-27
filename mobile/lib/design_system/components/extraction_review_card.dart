@@ -46,20 +46,25 @@ class ExtractionReviewCard extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              PriorityBadge(priority: commitment.priority),
+              Flexible(child: PriorityBadge(priority: commitment.priority)),
               Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   IconButton(
                     icon: const Icon(Icons.edit_outlined, size: 18),
                     onPressed: onEdit,
                     color: colors.textSecondary,
                     tooltip: 'Edit',
+                    constraints: const BoxConstraints(),
+                    padding: const EdgeInsets.all(6),
                   ),
                   IconButton(
                     icon: const Icon(Icons.delete_outline, size: 18),
                     onPressed: onRemove,
                     color: colors.destructive,
                     tooltip: 'Remove',
+                    constraints: const BoxConstraints(),
+                    padding: const EdgeInsets.all(6),
                   ),
                 ],
               ),

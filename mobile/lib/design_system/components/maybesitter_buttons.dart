@@ -52,12 +52,15 @@ class PrimaryButton extends StatelessWidget {
                   Icon(icon, size: 20),
                   const SizedBox(width: AppSpacing.sm),
                 ],
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 15,
-                    color: colors.background,
+                Flexible(
+                  child: Text(
+                    label,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 15,
+                      color: colors.background,
+                    ),
                   ),
                 ),
               ],
@@ -108,12 +111,15 @@ class SecondaryButton extends StatelessWidget {
             Icon(icon, size: 20, color: colors.textPrimary),
             const SizedBox(width: AppSpacing.sm),
           ],
-          Text(
-            label,
-            style: TextStyle(
-              fontWeight: FontWeight.w600,
-              fontSize: 15,
-              color: colors.textPrimary,
+          Flexible(
+            child: Text(
+              label,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 15,
+                color: colors.textPrimary,
+              ),
             ),
           ),
         ],
@@ -163,12 +169,15 @@ class DestructiveButton extends StatelessWidget {
               Icon(icon, size: 20, color: Colors.white),
               const SizedBox(width: AppSpacing.sm),
             ],
-            Text(
-              label,
-              style: const TextStyle(
-                fontWeight: FontWeight.w600,
-                fontSize: 15,
-                color: Colors.white,
+            Flexible(
+              child: Text(
+                label,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 15,
+                  color: Colors.white,
+                ),
               ),
             ),
           ],

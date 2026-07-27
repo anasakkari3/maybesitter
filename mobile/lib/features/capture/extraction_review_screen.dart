@@ -91,12 +91,14 @@ class ExtractionReviewScreen extends ConsumerWidget {
                         color: colors.brandPrimary,
                       ),
                       const SizedBox(width: AppSpacing.sm),
-                      Text(
-                        captureState.confidence.label,
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: colors.brandPrimary,
+                      Flexible(
+                        child: Text(
+                          captureState.confidence.label,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: colors.brandPrimary,
+                          ),
                         ),
                       ),
                     ],

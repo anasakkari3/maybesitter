@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import '../tokens/colors.dart';
 import '../tokens/radius.dart';
 
@@ -18,7 +17,7 @@ class AppTheme {
         onSurface: colors.textPrimary,
         onPrimary: colors.background,
       ),
-      fontFamily: GoogleFonts.manrope().fontFamily,
+      fontFamily: 'Manrope',
       extensions: const [colors],
       cardTheme: CardThemeData(
         color: colors.surface,
@@ -64,7 +63,7 @@ class AppTheme {
         onSurface: colors.textPrimary,
         onPrimary: Colors.white,
       ),
-      fontFamily: GoogleFonts.manrope().fontFamily,
+      fontFamily: 'Manrope',
       extensions: const [colors],
       cardTheme: CardThemeData(
         color: colors.surface,

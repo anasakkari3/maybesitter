@@ -40,11 +40,7 @@ class EmptyState extends StatelessWidget {
                 color: colors.surfaceElevated,
                 shape: BoxShape.circle,
               ),
-              child: Icon(
-                icon,
-                size: 48,
-                color: colors.textMuted,
-              ),
+              child: Icon(icon, size: 48, color: colors.textMuted),
             ),
             const SizedBox(height: AppSpacing.lg),
             Text(

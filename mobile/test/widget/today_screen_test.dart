@@ -20,15 +20,15 @@ void main() {
   ];
 
   group('TodayScreen Widget Tests', () {
-    testWidgets('Renders TodayScreen with commitments', (WidgetTester tester) async {
+    testWidgets('Renders TodayScreen with commitments', (
+      WidgetTester tester,
+    ) async {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
             todayCommitmentsProvider.overrideWithValue(testCommitments),
           ],
-          child: const MaterialApp(
-            home: TodayScreen(),
-          ),
+          child: const MaterialApp(home: TodayScreen()),
         ),
       );
       await tester.pumpAndSettle();
@@ -38,12 +38,10 @@ void main() {
       expect(find.text('Pet-Sitter Briefing'), findsOneWidget);
     });
 
-    testWidgets('MaybesitterApp renders full app with router', (WidgetTester tester) async {
-      await tester.pumpWidget(
-        const ProviderScope(
-          child: MaybesitterApp(),
-        ),
-      );
+    testWidgets('MaybesitterApp renders full app with router', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(const ProviderScope(child: MaybesitterApp()));
       await tester.pump();
       await tester.pumpAndSettle();
 

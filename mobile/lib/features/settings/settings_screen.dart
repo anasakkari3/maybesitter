@@ -31,45 +31,50 @@ class SettingsScreen extends ConsumerWidget {
                 borderRadius: AppRadius.card,
                 border: Border.all(color: colors.border),
               ),
-              child: Column(
-                children: [
-                  ListTile(
-                    leading: Icon(
-                      Icons.palette_outlined,
-                      color: colors.brandPrimary,
+              child: Material(
+                color: Colors.transparent,
+                borderRadius: AppRadius.card,
+                clipBehavior: Clip.antiAlias,
+                child: Column(
+                  children: [
+                    ListTile(
+                      leading: Icon(
+                        Icons.palette_outlined,
+                        color: colors.brandPrimary,
+                      ),
+                      title: const Text('Appearance'),
+                      subtitle: Text(
+                        'Theme: ${settings.themeMode.name.toUpperCase()}',
+                      ),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => context.push('/settings/appearance'),
                     ),
-                    title: const Text('Appearance'),
-                    subtitle: Text(
-                      'Theme: ${settings.themeMode.name.toUpperCase()}',
+                    const Divider(),
+                    ListTile(
+                      leading: Icon(
+                        Icons.notifications_none,
+                        color: colors.brandPrimary,
+                      ),
+                      title: const Text('Notifications'),
+                      subtitle: Text(
+                        settings.notificationsEnabled ? 'Enabled' : 'Disabled',
+                      ),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => context.push('/settings/notifications'),
                     ),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => context.push('/settings/appearance'),
-                  ),
-                  const Divider(),
-                  ListTile(
-                    leading: Icon(
-                      Icons.notifications_none,
-                      color: colors.brandPrimary,
+                    const Divider(),
+                    ListTile(
+                      leading: Icon(
+                        Icons.privacy_tip_outlined,
+                        color: colors.brandPrimary,
+                      ),
+                      title: const Text('Privacy & Data'),
+                      subtitle: const Text('Local data & telemetry control'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => context.push('/settings/privacy'),
                     ),
-                    title: const Text('Notifications'),
-                    subtitle: Text(
-                      settings.notificationsEnabled ? 'Enabled' : 'Disabled',
-                    ),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => context.push('/settings/notifications'),
-                  ),
-                  const Divider(),
-                  ListTile(
-                    leading: Icon(
-                      Icons.privacy_tip_outlined,
-                      color: colors.brandPrimary,
-                    ),
-                    title: const Text('Privacy & Data'),
-                    subtitle: const Text('Local data & telemetry control'),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => context.push('/settings/privacy'),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: AppSpacing.lg),

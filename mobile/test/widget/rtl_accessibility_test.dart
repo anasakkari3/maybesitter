@@ -18,7 +18,9 @@ void main() {
   ];
 
   group('RTL & Accessibility Tests', () {
-    testWidgets('Renders TodayScreen in RTL Directionality', (WidgetTester tester) async {
+    testWidgets('Renders TodayScreen in RTL Directionality', (
+      WidgetTester tester,
+    ) async {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
@@ -38,7 +40,9 @@ void main() {
       expect(find.text('Good morning, Alex'), findsOneWidget);
     });
 
-    testWidgets('Renders TodayScreen under Large Text Scale (2.0)', (WidgetTester tester) async {
+    testWidgets('Renders TodayScreen under Large Text Scale (2.0)', (
+      WidgetTester tester,
+    ) async {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
@@ -47,9 +51,9 @@ void main() {
           child: MaterialApp(
             builder: (context, child) {
               return MediaQuery(
-                data: MediaQuery.of(context).copyWith(
-                  textScaler: const TextScaler.linear(2.0),
-                ),
+                data: MediaQuery.of(
+                  context,
+                ).copyWith(textScaler: const TextScaler.linear(2.0)),
                 child: child!,
               );
             },
