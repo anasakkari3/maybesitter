@@ -29,6 +29,19 @@ class ExtractionReviewScreen extends ConsumerWidget {
         body: ErrorState(
           title: l10n.extractionErrorTitle,
           message: captureState.errorMessage ?? l10n.extractionErrorMessage,
+          onRetry: () {
+            notifier.submitIntent(captureState.rawInput);
+          },
+        ),
+      );
+    }
+
+    if (captureState.status == CaptureStatus.unsupportedRequest) {
+      return MaybesitterScaffold(
+        appBar: AppBar(title: Text(l10n.unsupportedRequestTitle)),
+        body: ErrorState(
+          title: l10n.unsupportedRequestTitle,
+          message: captureState.errorMessage ?? l10n.unsupportedRequestMessage,
           onRetry: () => context.pop(),
         ),
       );
@@ -53,6 +66,11 @@ class ExtractionReviewScreen extends ConsumerWidget {
       );
     }
 
+    final selectedCount = captureState.selectedItemIds.length;
+    final isConfirming = captureState.status == CaptureStatus.confirming;
+    final isPartiallySaved =
+        captureState.status == CaptureStatus.partiallySaved;
+
     return MaybesitterScaffold(
       appBar: AppBar(
         title: Text(l10n.reviewPlanTitle),
@@ -72,49 +90,94 @@ class ExtractionReviewScreen extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Confidence & Raw Input Banner
+            // Notice: Proposed items are not yet saved
             Container(
               padding: const EdgeInsets.all(AppSpacing.md),
               decoration: BoxDecoration(
-                color: colors.surface,
+                color: colors.brandSecondary.withValues(alpha: 0.15),
                 borderRadius: AppRadius.card,
-                border: Border.all(color: colors.border),
+                border: Border.all(
+                  color: colors.brandSecondary.withValues(alpha: 0.4),
+                ),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: Row(
                 children: [
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.psychology,
-                        size: 20,
-                        color: colors.brandPrimary,
-                      ),
-                      const SizedBox(width: AppSpacing.sm),
-                      Flexible(
-                        child: Text(
-                          captureState.confidence.label,
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: colors.brandPrimary,
-                          ),
-                        ),
-                      ),
-                    ],
+                  Icon(
+                    Icons.info_outline,
+                    color: colors.brandSecondary,
+                    size: 20,
                   ),
-                  const SizedBox(height: AppSpacing.xs),
-                  Text(
-                    '"${captureState.rawInput}"',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontStyle: FontStyle.italic,
-                      color: colors.textSecondary,
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: Text(
+                      'These items are proposed. Select and review before saving.',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: colors.textPrimary,
+                      ),
                     ),
                   ),
                 ],
               ),
             ),
+
+            if (isPartiallySaved) ...[
+              const SizedBox(height: AppSpacing.md),
+              Container(
+                padding: const EdgeInsets.all(AppSpacing.md),
+                decoration: BoxDecoration(
+                  color: colors.warning.withValues(alpha: 0.15),
+                  borderRadius: AppRadius.card,
+                  border: Border.all(color: colors.warning),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.warning_amber_rounded, color: colors.warning),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: Text(
+                        captureState.errorMessage ??
+                            'Saved ${captureState.persistedItemIds.length} item(s). Some items failed to save.',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: colors.warning,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
+            if (captureState.status == CaptureStatus.saveFailed) ...[
+              const SizedBox(height: AppSpacing.md),
+              Container(
+                padding: const EdgeInsets.all(AppSpacing.md),
+                decoration: BoxDecoration(
+                  color: colors.destructive.withValues(alpha: 0.15),
+                  borderRadius: AppRadius.card,
+                  border: Border.all(color: colors.destructive),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.error_outline, color: colors.destructive),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: Text(
+                        captureState.errorMessage ?? l10n.confirmFailedMessage,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: colors.destructive,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
 
             const SizedBox(height: AppSpacing.lg),
 
@@ -133,17 +196,22 @@ class ExtractionReviewScreen extends ConsumerWidget {
             // Extracted Commitments List
             Column(
               children: captureState.extractedCommitments.map((item) {
+                final isSelected = captureState.selectedItemIds.contains(
+                  item.id,
+                );
                 return ExtractionReviewCard(
                   commitment: item,
+                  isSelected: isSelected,
+                  onToggleSelect: (val) =>
+                      notifier.toggleItemSelection(item.id),
                   onRemove: () => notifier.removeCommitment(item.id),
                   onEdit: () {
-                    // Quick title edit modal
+                    final editController = TextEditingController(
+                      text: item.title,
+                    );
                     showDialog(
                       context: context,
                       builder: (ctx) {
-                        final editController = TextEditingController(
-                          text: item.title,
-                        );
                         return AlertDialog(
                           title: Text(l10n.editCommitmentTitle),
                           content: TextField(
@@ -160,7 +228,10 @@ class ExtractionReviewScreen extends ConsumerWidget {
                             ElevatedButton(
                               onPressed: () {
                                 notifier.updateCommitment(
-                                  item.copyWith(title: editController.text),
+                                  item.copyWith(
+                                    title: editController.text,
+                                    needsClarification: false,
+                                  ),
                                 );
                                 Navigator.pop(ctx);
                               },
@@ -177,18 +248,19 @@ class ExtractionReviewScreen extends ConsumerWidget {
 
             const SizedBox(height: AppSpacing.xl),
 
-            // Actions
+            // Confirm Action
             PrimaryButton(
-              label: l10n.confirmCommitmentsAction(
-                captureState.extractedCommitments.length,
-              ),
+              label: l10n.confirmCommitmentsAction(selectedCount),
               icon: Icons.check_circle_outline,
-              onPressed: () async {
-                final success = await notifier.confirmSave();
-                if (success && context.mounted) {
-                  context.push('/capture/success');
-                }
-              },
+              isLoading: isConfirming,
+              onPressed: (selectedCount == 0 || isConfirming)
+                  ? null
+                  : () async {
+                      final success = await notifier.confirmSave();
+                      if (success && context.mounted) {
+                        context.push('/capture/success');
+                      }
+                    },
             ),
 
             const SizedBox(height: AppSpacing.sm),

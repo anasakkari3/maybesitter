@@ -31,9 +31,13 @@ class _UpcomingScreenState extends ConsumerState<UpcomingScreen> {
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final upcomingList = ref.watch(upcomingCommitmentsProvider);
+    final noDateList = ref.watch(noDateCommitmentsProvider);
+    final overdueList = ref.watch(overdueCommitmentsProvider);
+
+    final combinedList = [...overdueList, ...upcomingList, ...noDateList];
 
     // Apply priority filter
-    final filtered = upcomingList.where((c) {
+    final filtered = combinedList.where((c) {
       if (_selectedPriorityFilter == l10n.priorityMust ||
           _selectedPriorityFilter == 'Must') {
         return c.priority == CommitmentPriority.must;
@@ -49,24 +53,40 @@ class _UpcomingScreenState extends ConsumerState<UpcomingScreen> {
       return true;
     }).toList();
 
-    // Group by date
+    // Grouping
+    final overdueItems = filtered
+        .where(
+          (c) =>
+              c.scheduledDate != null &&
+              DateFormatter.isBeforeToday(c.scheduledDate!),
+        )
+        .toList();
     final tomorrowItems = filtered
-        .where((c) => DateFormatter.isTomorrow(c.scheduledDate))
+        .where(
+          (c) =>
+              c.scheduledDate != null &&
+              DateFormatter.isTomorrow(c.scheduledDate!),
+        )
         .toList();
     final thisWeekItems = filtered
         .where(
           (c) =>
-              DateFormatter.isThisWeek(c.scheduledDate) &&
-              !DateFormatter.isTomorrow(c.scheduledDate),
+              c.scheduledDate != null &&
+              DateFormatter.isThisWeek(c.scheduledDate!) &&
+              !DateFormatter.isTomorrow(c.scheduledDate!) &&
+              !DateFormatter.isBeforeToday(c.scheduledDate!),
         )
         .toList();
     final laterItems = filtered
         .where(
           (c) =>
-              !DateFormatter.isThisWeek(c.scheduledDate) &&
-              !DateFormatter.isTomorrow(c.scheduledDate),
+              c.scheduledDate != null &&
+              !DateFormatter.isThisWeek(c.scheduledDate!) &&
+              !DateFormatter.isTomorrow(c.scheduledDate!) &&
+              !DateFormatter.isBeforeToday(c.scheduledDate!),
         )
         .toList();
+    final noDateItems = filtered.where((c) => c.scheduledDate == null).toList();
 
     final priorityFilters = [
       l10n.priorityFilterAll,
@@ -133,6 +153,39 @@ class _UpcomingScreenState extends ConsumerState<UpcomingScreen> {
                   )
                 : CustomScrollView(
                     slivers: [
+                      // Overdue Group
+                      if (overdueItems.isNotEmpty) ...[
+                        SliverToBoxAdapter(
+                          child: DateGroupHeader(
+                            title: l10n.overdueGroupHeader,
+                            subtitle: l10n.itemsCountLabel(overdueItems.length),
+                          ),
+                        ),
+                        SliverPadding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.md,
+                          ),
+                          sliver: SliverList(
+                            delegate: SliverChildBuilderDelegate((
+                              context,
+                              index,
+                            ) {
+                              final c = overdueItems[index];
+                              return CommitmentCard(
+                                commitment: c,
+                                onToggleComplete: (_) {
+                                  ref
+                                      .read(commitmentRepositoryProvider)
+                                      .complete(c.id);
+                                },
+                                onTap: () =>
+                                    context.push('/commitments/${c.id}'),
+                              );
+                            }, childCount: overdueItems.length),
+                          ),
+                        ),
+                      ],
+
                       // Tomorrow Group
                       if (tomorrowItems.isNotEmpty) ...[
                         SliverToBoxAdapter(
@@ -235,6 +288,40 @@ class _UpcomingScreenState extends ConsumerState<UpcomingScreen> {
                           ),
                         ),
                       ],
+
+                      // No Date Group
+                      if (noDateItems.isNotEmpty) ...[
+                        SliverToBoxAdapter(
+                          child: DateGroupHeader(
+                            title: l10n.noDateGroupHeader,
+                            subtitle: l10n.itemsCountLabel(noDateItems.length),
+                          ),
+                        ),
+                        SliverPadding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.md,
+                          ),
+                          sliver: SliverList(
+                            delegate: SliverChildBuilderDelegate((
+                              context,
+                              index,
+                            ) {
+                              final c = noDateItems[index];
+                              return CommitmentCard(
+                                commitment: c,
+                                onToggleComplete: (_) {
+                                  ref
+                                      .read(commitmentRepositoryProvider)
+                                      .complete(c.id);
+                                },
+                                onTap: () =>
+                                    context.push('/commitments/${c.id}'),
+                              );
+                            }, childCount: noDateItems.length),
+                          ),
+                        ),
+                      ],
+
                       const SliverToBoxAdapter(child: SizedBox(height: 40)),
                     ],
                   ),

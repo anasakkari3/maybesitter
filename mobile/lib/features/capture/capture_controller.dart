@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../models/activity_event.dart';
 import '../../models/capture_result.dart';
 import '../../models/commitment.dart';
+import '../../services/api/dtos/proposal_dtos.dart';
 import '../../services/providers.dart';
 
 class CaptureState {
@@ -10,6 +11,9 @@ class CaptureState {
   final String scopeId;
   final String rawInput;
   final List<Commitment> extractedCommitments;
+  final Set<String> selectedItemIds;
+  final Set<String> persistedItemIds;
+  final List<FailedProposalItemDto> failedItems;
   final ExtractionConfidence confidence;
   final String? clarificationPrompt;
   final List<ClarificationOption> clarificationOptions;
@@ -22,6 +26,9 @@ class CaptureState {
     this.scopeId = 'default',
     this.rawInput = '',
     this.extractedCommitments = const [],
+    this.selectedItemIds = const {},
+    this.persistedItemIds = const {},
+    this.failedItems = const [],
     this.confidence = ExtractionConfidence.high,
     this.clarificationPrompt,
     this.clarificationOptions = const [],
@@ -29,12 +36,20 @@ class CaptureState {
     this.analysisNote,
   });
 
+  bool get isSubmitting =>
+      status == CaptureStatus.analyzing ||
+      status == CaptureStatus.submitting ||
+      status == CaptureStatus.confirming;
+
   CaptureState copyWith({
     CaptureStatus? status,
     String? proposalId,
     String? scopeId,
     String? rawInput,
     List<Commitment>? extractedCommitments,
+    Set<String>? selectedItemIds,
+    Set<String>? persistedItemIds,
+    List<FailedProposalItemDto>? failedItems,
     ExtractionConfidence? confidence,
     String? clarificationPrompt,
     List<ClarificationOption>? clarificationOptions,
@@ -47,6 +62,9 @@ class CaptureState {
       scopeId: scopeId ?? this.scopeId,
       rawInput: rawInput ?? this.rawInput,
       extractedCommitments: extractedCommitments ?? this.extractedCommitments,
+      selectedItemIds: selectedItemIds ?? this.selectedItemIds,
+      persistedItemIds: persistedItemIds ?? this.persistedItemIds,
+      failedItems: failedItems ?? this.failedItems,
       confidence: confidence ?? this.confidence,
       clarificationPrompt: clarificationPrompt ?? this.clarificationPrompt,
       clarificationOptions: clarificationOptions ?? this.clarificationOptions,
@@ -61,13 +79,22 @@ class CaptureNotifier extends StateNotifier<CaptureState> {
 
   CaptureNotifier(this.ref) : super(const CaptureState());
 
-  Future<void> submitIntent(String text) async {
-    if (text.trim().isEmpty) return;
+  void setInputText(String text) {
+    if (state.isSubmitting) return;
+    state = state.copyWith(
+      rawInput: text,
+      status: text.isNotEmpty ? CaptureStatus.editing : CaptureStatus.idle,
+    );
+  }
+
+  Future<void> submitIntent([String? customText]) async {
+    final text = (customText ?? state.rawInput).trim();
+    if (text.isEmpty || state.isSubmitting) return;
 
     final config = ref.read(appConfigProvider);
 
     state = state.copyWith(
-      status: CaptureStatus.submitting,
+      status: CaptureStatus.analyzing,
       rawInput: text,
       scopeId: config.scopeId,
       errorMessage: null,
@@ -83,11 +110,20 @@ class CaptureNotifier extends StateNotifier<CaptureState> {
       ),
     );
 
+    // Valid items (not requiring clarification) are selected by default
+    final initialSelections = result.extractedCommitments
+        .where((c) => !c.needsClarification)
+        .map((c) => c.id)
+        .toSet();
+
     state = state.copyWith(
       status: result.status,
       proposalId: result.proposalId,
       scopeId: result.scopeId,
       extractedCommitments: result.extractedCommitments,
+      selectedItemIds: initialSelections,
+      persistedItemIds: const {},
+      failedItems: const [],
       confidence: result.confidence,
       clarificationPrompt: result.clarificationPrompt,
       clarificationOptions: result.clarificationOptions,
@@ -96,27 +132,64 @@ class CaptureNotifier extends StateNotifier<CaptureState> {
     );
   }
 
-  void updateCommitment(Commitment commitment) {
-    final updatedList = state.extractedCommitments.map((c) {
-      return c.id == commitment.id ? commitment : c;
-    }).toList();
+  void toggleItemSelection(String itemId) {
+    if (state.isSubmitting) return;
+    final item = state.extractedCommitments.firstWhere(
+      (c) => c.id == itemId,
+      orElse: () => Commitment(id: itemId, title: ''),
+    );
+    // Items requiring clarification cannot be selected until corrected
+    if (item.needsClarification) return;
 
-    state = state.copyWith(extractedCommitments: updatedList);
+    final updated = Set<String>.from(state.selectedItemIds);
+    if (updated.contains(itemId)) {
+      updated.remove(itemId);
+    } else {
+      updated.add(itemId);
+    }
+    state = state.copyWith(selectedItemIds: updated);
+  }
+
+  void updateCommitment(Commitment commitment) {
+    final exists = state.extractedCommitments.any((c) => c.id == commitment.id);
+    final updatedList = exists
+        ? state.extractedCommitments
+              .map((c) => c.id == commitment.id ? commitment : c)
+              .toList()
+        : [...state.extractedCommitments, commitment];
+
+    final updatedSelections = Set<String>.from(state.selectedItemIds);
+    if (commitment.needsClarification) {
+      updatedSelections.remove(commitment.id);
+    } else {
+      updatedSelections.add(commitment.id);
+    }
+
+    state = state.copyWith(
+      extractedCommitments: updatedList,
+      selectedItemIds: updatedSelections,
+    );
   }
 
   void removeCommitment(String id) {
     final updatedList = state.extractedCommitments
         .where((c) => c.id != id)
         .toList();
+    final updatedSelections = Set<String>.from(state.selectedItemIds)
+      ..remove(id);
 
     if (updatedList.isEmpty) {
       state = state.copyWith(
         status: CaptureStatus.noCommitment,
         extractedCommitments: [],
+        selectedItemIds: {},
         analysisNote: 'All extracted commitments were removed.',
       );
     } else {
-      state = state.copyWith(extractedCommitments: updatedList);
+      state = state.copyWith(
+        extractedCommitments: updatedList,
+        selectedItemIds: updatedSelections,
+      );
     }
   }
 
@@ -129,9 +202,9 @@ class CaptureNotifier extends StateNotifier<CaptureState> {
   }
 
   Future<bool> confirmSave() async {
-    if (state.extractedCommitments.isEmpty) return false;
+    if (state.selectedItemIds.isEmpty || state.isSubmitting) return false;
 
-    state = state.copyWith(status: CaptureStatus.submitting);
+    state = state.copyWith(status: CaptureStatus.confirming);
 
     try {
       final config = ref.read(appConfigProvider);
@@ -141,20 +214,53 @@ class CaptureNotifier extends StateNotifier<CaptureState> {
         final confirmResult = await captureService.confirmProposal(
           proposalId: state.proposalId ?? 'prop-mock',
           scopeId: state.scopeId,
-          itemIds: state.extractedCommitments.map((c) => c.id).toList(),
+          itemIds: state.selectedItemIds.toList(),
           referenceTime: DateTime.now(),
         );
 
-        if (!confirmResult.success) {
+        final newlyPersisted = confirmResult.persisted
+            .map((p) => p.itemId)
+            .toSet();
+        final allPersisted = {...state.persistedItemIds, ...newlyPersisted};
+
+        if (confirmResult.success && confirmResult.failed.isEmpty) {
+          // 1. Full Success
+          state = state.copyWith(
+            status: CaptureStatus.saved,
+            persistedItemIds: allPersisted,
+            failedItems: [],
+          );
+        } else if (newlyPersisted.isNotEmpty &&
+            confirmResult.failed.isNotEmpty) {
+          // 2. Partial Success
+          state = state.copyWith(
+            status: CaptureStatus.partiallySaved,
+            persistedItemIds: allPersisted,
+            failedItems: confirmResult.failed,
+            errorMessage:
+                'Saved ${newlyPersisted.length} item(s). ${confirmResult.failed.length} item(s) failed.',
+          );
+        } else {
+          // 3. Complete Failure
           state = state.copyWith(
             status: CaptureStatus.saveFailed,
+            failedItems: confirmResult.failed,
             errorMessage: 'Failed to confirm proposal on server.',
           );
           return false;
         }
       } else {
         final repo = ref.read(commitmentRepositoryProvider);
-        await repo.saveAll(state.extractedCommitments);
+        final selectedItems = state.extractedCommitments
+            .where((c) => state.selectedItemIds.contains(c.id))
+            .toList();
+        await repo.saveAll(selectedItems);
+
+        state = state.copyWith(
+          status: CaptureStatus.saved,
+          persistedItemIds: state.selectedItemIds,
+          failedItems: [],
+        );
       }
 
       final activityRepo = ref.read(activityRepositoryProvider);
@@ -163,14 +269,13 @@ class CaptureNotifier extends StateNotifier<CaptureState> {
           id: 'act-${DateTime.now().millisecondsSinceEpoch}',
           type: ActivityEventType.aiCaptureExtracted,
           title: 'Plan Extracted & Saved',
-          description:
-              'Added ${state.extractedCommitments.length} commitments for tomorrow.',
+          description: 'Added ${state.persistedItemIds.length} commitments.',
           timestamp: DateTime.now(),
         ),
       );
 
-      state = state.copyWith(status: CaptureStatus.saved);
-      return true;
+      return state.status == CaptureStatus.saved ||
+          state.status == CaptureStatus.partiallySaved;
     } catch (e) {
       state = state.copyWith(
         status: CaptureStatus.saveFailed,
@@ -217,6 +322,7 @@ class CaptureNotifier extends StateNotifier<CaptureState> {
               priority: CommitmentPriority.should,
             ),
           ],
+          selectedItemIds: {'prev-1', 'prev-2'},
         );
         break;
       case CaptureStatus.needsClarification:
@@ -281,6 +387,8 @@ class CaptureNotifier extends StateNotifier<CaptureState> {
               priority: CommitmentPriority.should,
             ),
           ],
+          selectedItemIds: {'prev-1', 'prev-2'},
+          persistedItemIds: {'prev-1', 'prev-2'},
         );
         break;
       default:

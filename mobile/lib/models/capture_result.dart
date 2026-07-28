@@ -3,17 +3,21 @@ import 'commitment.dart';
 
 enum CaptureStatus {
   idle,
+  editing,
+  analyzing,
   submitting,
   needsConfirmation,
   needsClarification,
   noCommitment,
   unsupportedRequest,
-  extractionFailed,
   validationError,
   networkError,
-  proposalExpired,
-  saveFailed,
+  extractionFailed,
+  confirming,
+  partiallySaved,
   saved,
+  saveFailed,
+  proposalExpired,
   cancelled,
 }
 

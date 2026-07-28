@@ -72,12 +72,13 @@ final todayCommitmentsProvider = Provider<List<Commitment>>((ref) {
   final now = DateTime.now();
   final today = DateTime(now.year, now.month, now.day);
   return all.where((c) {
+    if (c.scheduledDate == null) return false;
     final cDate = DateTime(
-      c.scheduledDate.year,
-      c.scheduledDate.month,
-      c.scheduledDate.day,
+      c.scheduledDate!.year,
+      c.scheduledDate!.month,
+      c.scheduledDate!.day,
     );
-    return cDate.isAtSameMomentAs(today);
+    return cDate.isAtSameMomentAs(today) && !c.status.isCompleted;
   }).toList();
 });
 
@@ -87,13 +88,44 @@ final upcomingCommitmentsProvider = Provider<List<Commitment>>((ref) {
   final now = DateTime.now();
   final today = DateTime(now.year, now.month, now.day);
   return all.where((c) {
+    if (c.scheduledDate == null) return false;
     final cDate = DateTime(
-      c.scheduledDate.year,
-      c.scheduledDate.month,
-      c.scheduledDate.day,
+      c.scheduledDate!.year,
+      c.scheduledDate!.month,
+      c.scheduledDate!.day,
     );
-    return cDate.isAfter(today);
+    return cDate.isAfter(today) && !c.status.isCompleted;
   }).toList();
+});
+
+final noDateCommitmentsProvider = Provider<List<Commitment>>((ref) {
+  final asyncValue = ref.watch(commitmentsStreamProvider);
+  final all = asyncValue.value ?? [];
+  return all
+      .where((c) => c.scheduledDate == null && !c.status.isCompleted)
+      .toList();
+});
+
+final overdueCommitmentsProvider = Provider<List<Commitment>>((ref) {
+  final asyncValue = ref.watch(commitmentsStreamProvider);
+  final all = asyncValue.value ?? [];
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  return all.where((c) {
+    if (c.scheduledDate == null) return false;
+    final cDate = DateTime(
+      c.scheduledDate!.year,
+      c.scheduledDate!.month,
+      c.scheduledDate!.day,
+    );
+    return cDate.isBefore(today) && !c.status.isCompleted;
+  }).toList();
+});
+
+final completedCommitmentsProvider = Provider<List<Commitment>>((ref) {
+  final asyncValue = ref.watch(commitmentsStreamProvider);
+  final all = asyncValue.value ?? [];
+  return all.where((c) => c.status.isCompleted).toList();
 });
 
 final activityStreamProvider = StreamProvider<List<ActivityEvent>>((ref) {

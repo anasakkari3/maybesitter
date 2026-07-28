@@ -55,7 +55,7 @@ class ApiCommitmentRepository implements CommitmentRepository {
       title: commitment.title,
       description: commitment.description,
       priority: CommitmentMapper.mapPriorityToBackendLevel(commitment.priority),
-      dueDate: commitment.scheduledDate.toIso8601String(),
+      dueDate: commitment.scheduledDate?.toIso8601String(),
     );
 
     await apiClient.patch(

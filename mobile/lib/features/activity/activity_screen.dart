@@ -38,13 +38,18 @@ class ActivityScreen extends ConsumerWidget {
     final colors = context.colors;
     final l10n = context.l10n;
     final localeCode = context.currentLanguageCode;
+    final config = ref.watch(appConfigProvider);
     final activityList = ref.watch(activityStreamProvider).value ?? [];
 
+    final title = config.isLocalBackend
+        ? l10n.reminderHistoryTitle
+        : l10n.activityTitle;
+    final subtitle = config.isLocalBackend
+        ? l10n.reminderHistorySubtitle
+        : l10n.activitySubtitle;
+
     return MaybesitterScaffold(
-      appBar: MaybesitterAppBar(
-        title: l10n.activityTitle,
-        subtitle: l10n.activitySubtitle,
-      ),
+      appBar: MaybesitterAppBar(title: title, subtitle: subtitle),
       body: activityList.isEmpty
           ? EmptyState(
               icon: Icons.history,

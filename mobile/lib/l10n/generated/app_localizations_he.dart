@@ -66,6 +66,9 @@ class AppLocalizationsHe extends AppLocalizations {
   String get statusCancelled => 'בוטלה';
 
   @override
+  String get statusUnknown => 'לא ידוע';
+
+  @override
   String get newIntentTitle => 'הוספת התחייבות';
 
   @override
@@ -420,4 +423,16 @@ class AppLocalizationsHe extends AppLocalizations {
 
   @override
   String get confirmFailedMessage => 'אישור התוכנית בשרת נכשל.';
+
+  @override
+  String get noDateGroupHeader => 'ללא תאריך';
+
+  @override
+  String get overdueGroupHeader => 'באיחור';
+
+  @override
+  String get reminderHistoryTitle => 'היסטוריית תזכורות';
+
+  @override
+  String get reminderHistorySubtitle => 'יומן ניסיונות שליחת התראות';
 }

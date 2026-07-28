@@ -21,7 +21,8 @@ enum CommitmentStatus {
   pending,
   completed,
   postponed,
-  cancelled;
+  cancelled,
+  unknown;
 
   bool get isCompleted => this == CommitmentStatus.completed;
 }
@@ -33,7 +34,7 @@ class Commitment {
   final String id;
   final String title;
   final String? description;
-  final DateTime scheduledDate;
+  final DateTime? scheduledDate;
   final String? startTime;
   final String? endTime;
   final String? location;
@@ -43,12 +44,14 @@ class Commitment {
   final DateTime? completedAt;
   final String? category;
   final double confidenceScore;
+  final bool needsClarification;
+  final bool hasInvalidDate;
 
   const Commitment({
     required this.id,
     required this.title,
     this.description,
-    required this.scheduledDate,
+    this.scheduledDate,
     this.startTime,
     this.endTime,
     this.location,
@@ -58,6 +61,8 @@ class Commitment {
     this.completedAt,
     this.category,
     this.confidenceScore = 0.95,
+    this.needsClarification = false,
+    this.hasInvalidDate = false,
   });
 
   Commitment copyWith({
@@ -65,6 +70,7 @@ class Commitment {
     String? title,
     String? description,
     DateTime? scheduledDate,
+    bool clearScheduledDate = false,
     String? startTime,
     String? endTime,
     String? location,
@@ -74,12 +80,16 @@ class Commitment {
     DateTime? completedAt,
     String? category,
     double? confidenceScore,
+    bool? needsClarification,
+    bool? hasInvalidDate,
   }) {
     return Commitment(
       id: id ?? this.id,
       title: title ?? this.title,
       description: description ?? this.description,
-      scheduledDate: scheduledDate ?? this.scheduledDate,
+      scheduledDate: clearScheduledDate
+          ? null
+          : (scheduledDate ?? this.scheduledDate),
       startTime: startTime ?? this.startTime,
       endTime: endTime ?? this.endTime,
       location: location ?? this.location,
@@ -89,6 +99,8 @@ class Commitment {
       completedAt: completedAt ?? this.completedAt,
       category: category ?? this.category,
       confidenceScore: confidenceScore ?? this.confidenceScore,
+      needsClarification: needsClarification ?? this.needsClarification,
+      hasInvalidDate: hasInvalidDate ?? this.hasInvalidDate,
     );
   }
 
@@ -97,7 +109,7 @@ class Commitment {
       'id': id,
       'title': title,
       'description': description,
-      'scheduledDate': scheduledDate.toIso8601String(),
+      'scheduledDate': scheduledDate?.toIso8601String(),
       'startTime': startTime,
       'endTime': endTime,
       'location': location,
@@ -107,24 +119,44 @@ class Commitment {
       'completedAt': completedAt?.toIso8601String(),
       'category': category,
       'confidenceScore': confidenceScore,
+      'needsClarification': needsClarification,
+      'hasInvalidDate': hasInvalidDate,
     };
   }
 
   factory Commitment.fromJson(Map<String, dynamic> json) {
+    DateTime? parsedDate;
+    final dateStr = json['scheduledDate'] as String?;
+    if (dateStr != null && dateStr.isNotEmpty) {
+      try {
+        parsedDate = DateTime.parse(dateStr);
+      } catch (_) {
+        parsedDate = null;
+      }
+    }
+
+    CommitmentStatus parsedStatus = CommitmentStatus.unknown;
+    final statusStr = json['status'] as String?;
+    if (statusStr != null) {
+      try {
+        parsedStatus = CommitmentStatus.values.byName(statusStr);
+      } catch (_) {
+        parsedStatus = CommitmentStatus.unknown;
+      }
+    }
+
     return Commitment(
       id: json['id'] as String,
       title: json['title'] as String,
       description: json['description'] as String?,
-      scheduledDate: DateTime.parse(json['scheduledDate'] as String),
+      scheduledDate: parsedDate,
       startTime: json['startTime'] as String?,
       endTime: json['endTime'] as String?,
       location: json['location'] as String?,
       priority: CommitmentPriority.values.byName(
         json['priority'] as String? ?? 'should',
       ),
-      status: CommitmentStatus.values.byName(
-        json['status'] as String? ?? 'pending',
-      ),
+      status: parsedStatus,
       timeGranularity: TimeGranularity.values.byName(
         json['timeGranularity'] as String? ?? 'exact',
       ),
@@ -133,6 +165,8 @@ class Commitment {
           : null,
       category: json['category'] as String?,
       confidenceScore: (json['confidenceScore'] as num?)?.toDouble() ?? 0.95,
+      needsClarification: json['needsClarification'] as bool? ?? false,
+      hasInvalidDate: json['hasInvalidDate'] as bool? ?? false,
     );
   }
 }

@@ -68,6 +68,9 @@ class AppLocalizationsAr extends AppLocalizations {
   String get statusCancelled => 'ملغى';
 
   @override
+  String get statusUnknown => 'غير معروف';
+
+  @override
   String get newIntentTitle => 'إضافة التزام';
 
   @override
@@ -426,4 +429,16 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get confirmFailedMessage => 'فشل تأكيد الخطة على الخادم.';
+
+  @override
+  String get noDateGroupHeader => 'بدون تاريخ';
+
+  @override
+  String get overdueGroupHeader => 'المتأخرة';
+
+  @override
+  String get reminderHistoryTitle => 'سجل التذكيرات';
+
+  @override
+  String get reminderHistorySubtitle => 'سجل محاولات إرسال الإشعارات';
 }

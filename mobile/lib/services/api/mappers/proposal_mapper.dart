@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 import '../../../models/capture_result.dart';
 import '../../../models/commitment.dart';
@@ -62,31 +63,35 @@ class ProposalMapper {
   static Commitment _mapItemToCommitment(ProposedItemViewDto dto) {
     DateTime? date;
     String? timeStr;
+    bool invalidDateFlag = false;
 
-    if (dto.resolvedTime != null && dto.resolvedTime!.isNotEmpty) {
+    if (dto.needsClarification) {
+      date = null;
+    } else if (dto.resolvedTime != null && dto.resolvedTime!.isNotEmpty) {
       try {
         final parsed = DateTime.parse(dto.resolvedTime!);
         date = parsed;
         timeStr = DateFormat('hh:mm a').format(parsed);
-      } catch (_) {
-        // Fallback to null
+      } catch (e) {
+        invalidDateFlag = true;
+        date = null;
+        if (kDebugMode) {
+          debugPrint(
+            '[ProposalMapper] Invalid date string "${dto.resolvedTime}" for proposed item ${dto.itemId}: $e',
+          );
+        }
       }
     }
-
-    final fallbackNow = DateTime.now();
-    final tomorrow = DateTime(
-      fallbackNow.year,
-      fallbackNow.month,
-      fallbackNow.day,
-    ).add(const Duration(days: 1));
 
     return Commitment(
       id: dto.itemId,
       title: dto.title,
-      scheduledDate: date ?? tomorrow,
+      scheduledDate: date,
       startTime: timeStr,
       priority: CommitmentPriority.must,
       status: CommitmentStatus.pending,
+      needsClarification: dto.needsClarification,
+      hasInvalidDate: invalidDateFlag,
     );
   }
 }

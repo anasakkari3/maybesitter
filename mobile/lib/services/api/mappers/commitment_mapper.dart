@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 import '../../../models/commitment.dart';
 import '../dtos/commitment_dtos.dart';
@@ -6,6 +7,7 @@ class CommitmentMapper {
   static Commitment mapToDomain(BackendCommitmentDto dto) {
     DateTime? date;
     String? timeStr;
+    bool invalidDateFlag = false;
 
     final targetTimeStr = dto.timeSpec.remindAt ?? dto.timeSpec.dueAt;
     if (targetTimeStr != null && targetTimeStr.isNotEmpty) {
@@ -13,28 +15,28 @@ class CommitmentMapper {
         final parsed = DateTime.parse(targetTimeStr);
         date = parsed;
         timeStr = DateFormat('hh:mm a').format(parsed);
-      } catch (_) {
-        // Safe fallback
+      } catch (e) {
+        invalidDateFlag = true;
+        date = null;
+        if (kDebugMode) {
+          debugPrint(
+            '[CommitmentMapper] Invalid date string "$targetTimeStr" for commitment ${dto.id}: $e',
+          );
+        }
       }
     }
-
-    final fallbackNow = DateTime.now();
-    final today = DateTime(
-      fallbackNow.year,
-      fallbackNow.month,
-      fallbackNow.day,
-    );
 
     return Commitment(
       id: dto.id,
       title: dto.title,
       description: dto.description,
-      scheduledDate: date ?? today,
+      scheduledDate: date,
       startTime: timeStr,
       priority: _mapPriorityLevel(dto.priority.level),
       status: _mapStatus(dto.status),
       location: null,
       category: dto.person != null ? 'Personal (${dto.person})' : null,
+      hasInvalidDate: invalidDateFlag,
     );
   }
 
@@ -76,8 +78,9 @@ class CommitmentMapper {
       case 'needs_clarification':
       case 'pending_confirmation':
       case 'active':
-      default:
         return CommitmentStatus.pending;
+      default:
+        return CommitmentStatus.unknown;
     }
   }
 }

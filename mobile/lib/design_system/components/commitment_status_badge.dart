@@ -34,6 +34,10 @@ class CommitmentStatusBadge extends StatelessWidget {
         bg = colors.destructive.withValues(alpha: 0.15);
         fg = colors.destructive;
         break;
+      case CommitmentStatus.unknown:
+        bg = colors.surfaceElevated;
+        fg = colors.textSecondary;
+        break;
     }
 
     return Container(

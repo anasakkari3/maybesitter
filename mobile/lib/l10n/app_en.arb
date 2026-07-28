@@ -32,6 +32,7 @@
   "statusCompleted": "Completed",
   "statusPostponed": "Postponed",
   "statusCancelled": "Cancelled",
+  "statusUnknown": "Unknown",
   "newIntentTitle": "New Intent",
   "captureHintText": "Type or speak freely. Maybesitter extracts commitments, times, and priorities automatically.",
   "composerInputHint": "e.g. \"Tomorrow morning at 9am doctor visit, then meet Sarah for coffee at 2pm...\"",
@@ -179,5 +180,9 @@
   "networkErrorMessage": "Unable to connect to the backend server. Please check your connection.",
   "proposalExpiredMessage": "The proposal has expired. Please analyze your plan again.",
   "validationErrorMessage": "Server validation error. Please review your input.",
-  "confirmFailedMessage": "Failed to confirm proposal on the server."
+  "confirmFailedMessage": "Failed to confirm proposal on the server.",
+  "noDateGroupHeader": "No date set",
+  "overdueGroupHeader": "Overdue",
+  "reminderHistoryTitle": "Reminder History",
+  "reminderHistorySubtitle": "Log of notification delivery attempts"
 }

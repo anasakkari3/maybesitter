@@ -15,6 +15,7 @@
   "statusCompleted": "مكتمل",
   "statusPostponed": "مؤجل",
   "statusCancelled": "ملغى",
+  "statusUnknown": "غير معروف",
   "newIntentTitle": "إضافة التزام",
   "captureHintText": "اكتب أو تحدث بحرية. يستخرج Maybesitter الالتزامات والأوقات والأولويات تلقائيًا.",
   "composerInputHint": "مثال: \"غدًا صباحًا الساعة 9 موعد الطبيب، ثم لقاء سارة للقهوة الساعة 2 ظهرًا...\"",
@@ -117,5 +118,9 @@
   "networkErrorMessage": "تعذر الاتصال بالخادم. يرجى التحقق من الاتصال.",
   "proposalExpiredMessage": "انتهت صلاحية الخطة المقترحة. يرجى إعادة تحليل خطتك.",
   "validationErrorMessage": "خطأ في التحقق من البيانات. يرجى مراجعة المدخلات.",
-  "confirmFailedMessage": "فشل تأكيد الخطة على الخادم."
+  "confirmFailedMessage": "فشل تأكيد الخطة على الخادم.",
+  "noDateGroupHeader": "بدون تاريخ",
+  "overdueGroupHeader": "المتأخرة",
+  "reminderHistoryTitle": "سجل التذكيرات",
+  "reminderHistorySubtitle": "سجل محاولات إرسال الإشعارات"
 }

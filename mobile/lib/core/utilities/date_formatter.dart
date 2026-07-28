@@ -2,7 +2,8 @@ import 'package:intl/intl.dart';
 import '../../l10n/generated/app_localizations.dart';
 
 class DateFormatter {
-  static String formatHeaderDate(DateTime date, {String? locale}) {
+  static String formatHeaderDate(DateTime? date, {String? locale}) {
+    if (date == null) return 'No date set';
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final target = DateTime(date.year, date.month, date.day);
@@ -19,10 +20,11 @@ class DateFormatter {
   }
 
   static String formatHeaderDateWithL10n(
-    DateTime date,
+    DateTime? date,
     AppLocalizations l10n,
     String localeCode,
   ) {
+    if (date == null) return l10n.noDateGroupHeader;
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final target = DateTime(date.year, date.month, date.day);
@@ -38,11 +40,13 @@ class DateFormatter {
     }
   }
 
-  static String formatShortDate(DateTime date, {String? locale}) {
+  static String formatShortDate(DateTime? date, {String? locale}) {
+    if (date == null) return 'No date set';
     return DateFormat('MMM d', locale).format(date);
   }
 
-  static String formatFullDate(DateTime date, {String? locale}) {
+  static String formatFullDate(DateTime? date, {String? locale}) {
+    if (date == null) return 'No date set';
     return DateFormat('EEEE, MMMM d, yyyy', locale).format(date);
   }
 
@@ -57,20 +61,32 @@ class DateFormatter {
     return start ?? end ?? 'Full day';
   }
 
-  static bool isSameDay(DateTime a, DateTime b) {
+  static bool isSameDay(DateTime? a, DateTime? b) {
+    if (a == null || b == null) return false;
     return a.year == b.year && a.month == b.month && a.day == b.day;
   }
 
-  static bool isToday(DateTime date) {
+  static bool isToday(DateTime? date) {
+    if (date == null) return false;
     return isSameDay(date, DateTime.now());
   }
 
-  static bool isTomorrow(DateTime date) {
+  static bool isTomorrow(DateTime? date) {
+    if (date == null) return false;
     final now = DateTime.now();
     return isSameDay(date, now.add(const Duration(days: 1)));
   }
 
-  static bool isThisWeek(DateTime date) {
+  static bool isBeforeToday(DateTime? date) {
+    if (date == null) return false;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final target = DateTime(date.year, date.month, date.day);
+    return target.isBefore(today);
+  }
+
+  static bool isThisWeek(DateTime? date) {
+    if (date == null) return false;
     final now = DateTime.now();
     final startOfWeek = now.subtract(Duration(days: now.weekday - 1));
     final endOfWeek = startOfWeek.add(const Duration(days: 7));

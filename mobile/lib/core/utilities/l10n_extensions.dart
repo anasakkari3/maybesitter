@@ -31,6 +31,8 @@ extension CommitmentStatusL10n on CommitmentStatus {
         return l10n.statusPostponed;
       case CommitmentStatus.cancelled:
         return l10n.statusCancelled;
+      case CommitmentStatus.unknown:
+        return l10n.statusUnknown;
     }
   }
 }

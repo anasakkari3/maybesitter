@@ -190,6 +190,12 @@ abstract class AppLocalizations {
   /// **'Cancelled'**
   String get statusCancelled;
 
+  /// No description provided for @statusUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'Unknown'**
+  String get statusUnknown;
+
   /// No description provided for @newIntentTitle.
   ///
   /// In en, this message translates to:
@@ -807,6 +813,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Failed to confirm proposal on the server.'**
   String get confirmFailedMessage;
+
+  /// No description provided for @noDateGroupHeader.
+  ///
+  /// In en, this message translates to:
+  /// **'No date set'**
+  String get noDateGroupHeader;
+
+  /// No description provided for @overdueGroupHeader.
+  ///
+  /// In en, this message translates to:
+  /// **'Overdue'**
+  String get overdueGroupHeader;
+
+  /// No description provided for @reminderHistoryTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Reminder History'**
+  String get reminderHistoryTitle;
+
+  /// No description provided for @reminderHistorySubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Log of notification delivery attempts'**
+  String get reminderHistorySubtitle;
 }
 
 class _AppLocalizationsDelegate

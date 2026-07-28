@@ -65,6 +65,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get statusCancelled => 'Cancelled';
 
   @override
+  String get statusUnknown => 'Unknown';
+
+  @override
   String get newIntentTitle => 'New Intent';
 
   @override
@@ -419,4 +422,16 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get confirmFailedMessage =>
       'Failed to confirm proposal on the server.';
+
+  @override
+  String get noDateGroupHeader => 'No date set';
+
+  @override
+  String get overdueGroupHeader => 'Overdue';
+
+  @override
+  String get reminderHistoryTitle => 'Reminder History';
+
+  @override
+  String get reminderHistorySubtitle => 'Log of notification delivery attempts';
 }

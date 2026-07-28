@@ -15,6 +15,7 @@
   "statusCompleted": "הושלמה",
   "statusPostponed": "נדחתה",
   "statusCancelled": "בוטלה",
+  "statusUnknown": "לא ידוע",
   "newIntentTitle": "הוספת התחייבות",
   "captureHintText": "כתובי או דברי בחופשיות. Maybesitter מחלץ התחייבויות, זמנים ועדיפויות באופן אוטומטי.",
   "composerInputHint": "לדוגמה: \"מחר בבוקר ב-9:00 תור לרופא, ואז פגישה עם שרה לקפה ב-14:00...\"",
@@ -117,5 +118,9 @@
   "networkErrorMessage": "לא ניתן להתחבר לשרת. נא לבדוק את החיבור.",
   "proposalExpiredMessage": "פג תוקף התוכנית המוצעת. נא לנתח את התוכנית מחדש.",
   "validationErrorMessage": "שגיאת אימות שרת. נא לבדוק את הנתונים.",
-  "confirmFailedMessage": "אישור התוכנית בשרת נכשל."
+  "confirmFailedMessage": "אישור התוכנית בשרת נכשל.",
+  "noDateGroupHeader": "ללא תאריך",
+  "overdueGroupHeader": "באיחור",
+  "reminderHistoryTitle": "היסטוריית תזכורות",
+  "reminderHistorySubtitle": "יומן ניסיונות שליחת התראות"
 }

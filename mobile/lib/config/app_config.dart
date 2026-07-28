@@ -16,6 +16,17 @@ class AppConfig {
   bool get isMock => apiMode == ApiMode.mock;
   bool get isLocalBackend => apiMode == ApiMode.localBackend;
 
+  static String resolveTimezone({String? userTimezone}) {
+    if (userTimezone != null && userTimezone.trim().isNotEmpty) {
+      return userTimezone;
+    }
+    final deviceZone = DateTime.now().timeZoneName;
+    if (deviceZone.isNotEmpty && deviceZone != 'UTC' && deviceZone != 'GMT') {
+      return deviceZone;
+    }
+    return 'Asia/Jerusalem';
+  }
+
   AppConfig copyWith({
     ApiMode? apiMode,
     String? baseUrl,

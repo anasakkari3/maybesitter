@@ -167,6 +167,102 @@ void main() {
       expect(domain.category, contains('Leo'));
     });
 
+    test('Workstream 1: Missing date maps to null (does not become today)', () {
+      final json = {
+        'id': 'c-nodate',
+        'kind': 'task',
+        'title': 'Buy coffee beans',
+        'status': 'active',
+        'priority': {'level': 'normal'},
+        'timeSpec': {'kind': 'unscheduled', 'dueAt': null, 'remindAt': null},
+        'createdAt': '2026-07-27T12:00:00.000Z',
+        'updatedAt': '2026-07-27T12:00:00.000Z',
+      };
+
+      final dto = BackendCommitmentDto.fromJson(json);
+      final domain = CommitmentMapper.mapToDomain(dto);
+
+      expect(domain.scheduledDate, isNull);
+      expect(domain.hasInvalidDate, isFalse);
+    });
+
+    test(
+      'Workstream 1: Invalid date maps to null and sets hasInvalidDate flag',
+      () {
+        final json = {
+          'id': 'c-invalid-date',
+          'kind': 'task',
+          'title': 'Call plumber',
+          'status': 'active',
+          'priority': {'level': 'normal'},
+          'timeSpec': {
+            'kind': 'scheduled_event',
+            'dueAt': 'invalid-date-string',
+          },
+          'createdAt': '2026-07-27T12:00:00.000Z',
+          'updatedAt': '2026-07-27T12:00:00.000Z',
+        };
+
+        final dto = BackendCommitmentDto.fromJson(json);
+        final domain = CommitmentMapper.mapToDomain(dto);
+
+        expect(domain.scheduledDate, isNull);
+        expect(domain.hasInvalidDate, isTrue);
+      },
+    );
+
+    test(
+      'Workstream 1: Unknown status maps to CommitmentStatus.unknown (not pending)',
+      () {
+        final json = {
+          'id': 'c-unknown-status',
+          'kind': 'task',
+          'title': 'Future state item',
+          'status': 'future_status_code',
+          'priority': {'level': 'normal'},
+          'timeSpec': {'kind': 'unscheduled'},
+          'createdAt': '2026-07-27T12:00:00.000Z',
+          'updatedAt': '2026-07-27T12:00:00.000Z',
+        };
+
+        final dto = BackendCommitmentDto.fromJson(json);
+        final domain = CommitmentMapper.mapToDomain(dto);
+
+        expect(domain.status, equals(CommitmentStatus.unknown));
+        expect(domain.status, isNot(equals(CommitmentStatus.pending)));
+      },
+    );
+
+    test(
+      'Workstream 1: Item with needsClarification maps scheduledDate to null',
+      () {
+        final json = {
+          'proposalId': 'prop-clarify',
+          'status': 'needs_clarification',
+          'items': [
+            {
+              'itemId': 'item-ambiguous',
+              'title': 'Work tomorrow',
+              'resolvedTime': '2026-07-29T09:00:00.000Z',
+              'needsClarification': true,
+            },
+          ],
+        };
+
+        final dto = CaptureProposalResponseDto.fromJson(json);
+        final domainResult = ProposalMapper.mapToDomain(
+          dto: dto,
+          rawInput: 'Work tomorrow maybe',
+        );
+
+        expect(domainResult.extractedCommitments.first.scheduledDate, isNull);
+        expect(
+          domainResult.extractedCommitments.first.needsClarification,
+          isTrue,
+        );
+      },
+    );
+
     test('Parses ApiErrorDto common error envelope', () {
       final json = {'error': 'Invalid proposalId or proposal expired'};
       final dto = ApiErrorDto.fromJson(json);
