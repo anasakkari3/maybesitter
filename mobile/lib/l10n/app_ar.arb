@@ -47,6 +47,7 @@
   "locationLabel": "الموقع",
   "categoryLabel": "الفئة",
   "markCompleteAction": "تحديد كمكتمل",
+  "moreActionsLabel": "المزيد من الإجراءات",
   "markPendingAction": "تحديد كقيد الانتظار",
   "postponeAction": "تأجيل الالتزام",
   "deleteAction": "حذف",

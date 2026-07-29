@@ -189,6 +189,9 @@ class AppLocalizationsHe extends AppLocalizations {
   String get markCompleteAction => 'סימון כהושלמה';
 
   @override
+  String get moreActionsLabel => 'פעולות נוספות';
+
+  @override
   String get markPendingAction => 'סימון כבהמתנה';
 
   @override

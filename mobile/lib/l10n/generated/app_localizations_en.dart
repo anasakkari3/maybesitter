@@ -186,6 +186,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get markCompleteAction => 'Mark as Complete';
 
   @override
+  String get moreActionsLabel => 'More actions';
+
+  @override
   String get markPendingAction => 'Mark as Pending';
 
   @override

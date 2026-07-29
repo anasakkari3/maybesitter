@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/utilities/date_formatter.dart';
 import '../../core/utilities/l10n_extensions.dart';
+import '../../design_system/adaptive/adaptive_action_sheet.dart';
 import '../../design_system/adaptive/adaptive_dialog.dart';
+import '../../design_system/adaptive/adaptive_haptics.dart';
 import '../../design_system/adaptive/app_icons.dart';
 import '../../design_system/components/commitment_status_badge.dart';
 import '../../design_system/components/maybesitter_app_bar.dart';
@@ -60,6 +62,40 @@ class CommitmentDetailsScreen extends ConsumerWidget {
 
     final isDone = commitment.status.isCompleted;
 
+    Future<void> toggleComplete() async {
+      AdaptiveHaptics.completion();
+      if (isDone) {
+        await ref
+            .read(commitmentRepositoryProvider)
+            .update(commitment!.copyWith(status: CommitmentStatus.pending));
+      } else {
+        await ref.read(commitmentRepositoryProvider).complete(id);
+      }
+    }
+
+    Future<void> postpone() async {
+      final newDate = await PostponeSheet.show(context);
+      if (newDate != null) {
+        await ref.read(commitmentRepositoryProvider).postpone(id, newDate);
+      }
+    }
+
+    Future<void> confirmDelete() async {
+      // Platform-idiomatic and non-dismissible: deleting must be an explicit
+      // answer, not a stray tap on the barrier.
+      final confirm = await AdaptiveAppDialog.confirm(
+        context: context,
+        title: l10n.deleteConfirmationTitle,
+        message: l10n.deleteConfirmationMessage(commitment!.title),
+        confirmLabel: l10n.deleteAction,
+        isDestructive: true,
+      );
+      if (confirm == true) {
+        await ref.read(commitmentRepositoryProvider).delete(id);
+        if (context.mounted) context.pop();
+      }
+    }
+
     return MaybesitterScaffold(
       appBar: MaybesitterAppBar(
         title: l10n.commitmentDetailTitle,
@@ -93,22 +129,41 @@ class CommitmentDetailsScreen extends ConsumerWidget {
             },
           ),
           IconButton(
-            icon: Icon(icons.delete),
-            color: colors.destructive,
-            tooltip: l10n.deleteAction,
+            icon: Icon(icons.more),
+            color: colors.textSecondary,
+            tooltip: l10n.moreActionsLabel,
             onPressed: () async {
-              // Platform-idiomatic and non-dismissible: deleting must be an
-              // explicit answer, not a stray tap on the barrier.
-              final confirm = await AdaptiveAppDialog.confirm(
+              final choice = await AdaptiveActionSheet.show<String>(
                 context: context,
-                title: l10n.deleteConfirmationTitle,
-                message: l10n.deleteConfirmationMessage(commitment!.title),
-                confirmLabel: l10n.deleteAction,
-                isDestructive: true,
+                title: commitment!.title,
+                actions: [
+                  AdaptiveAction(
+                    value: 'complete',
+                    label: isDone
+                        ? l10n.markPendingAction
+                        : l10n.markCompleteAction,
+                    icon: icons.complete,
+                  ),
+                  AdaptiveAction(
+                    value: 'postpone',
+                    label: l10n.postponeAction,
+                    icon: icons.postpone,
+                  ),
+                  AdaptiveAction(
+                    value: 'delete',
+                    label: l10n.deleteAction,
+                    icon: icons.delete,
+                    isDestructive: true,
+                  ),
+                ],
               );
-              if (confirm == true) {
-                await ref.read(commitmentRepositoryProvider).delete(id);
-                if (context.mounted) context.pop();
+              switch (choice) {
+                case 'complete':
+                  await toggleComplete();
+                case 'postpone':
+                  await postpone();
+                case 'delete':
+                  await confirmDelete();
               }
             },
           ),
@@ -223,30 +278,13 @@ class CommitmentDetailsScreen extends ConsumerWidget {
             PrimaryButton(
               label: isDone ? l10n.markPendingAction : l10n.markCompleteAction,
               icon: isDone ? Icons.undo : Icons.check_circle_outline,
-              onPressed: () {
-                if (isDone) {
-                  ref
-                      .read(commitmentRepositoryProvider)
-                      .update(
-                        commitment!.copyWith(status: CommitmentStatus.pending),
-                      );
-                } else {
-                  ref.read(commitmentRepositoryProvider).complete(id);
-                }
-              },
+              onPressed: toggleComplete,
             ),
             const SizedBox(height: AppSpacing.sm),
             SecondaryButton(
               label: l10n.postponeAction,
               icon: Icons.schedule_send,
-              onPressed: () async {
-                final newDate = await PostponeSheet.show(context);
-                if (newDate != null) {
-                  await ref
-                      .read(commitmentRepositoryProvider)
-                      .postpone(id, newDate);
-                }
-              },
+              onPressed: postpone,
             ),
           ],
         ),

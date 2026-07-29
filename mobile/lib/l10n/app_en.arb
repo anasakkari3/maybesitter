@@ -88,6 +88,7 @@
   "locationLabel": "Location",
   "categoryLabel": "Category",
   "markCompleteAction": "Mark as Complete",
+  "moreActionsLabel": "More actions",
   "markPendingAction": "Mark as Pending",
   "postponeAction": "Postpone Commitment",
   "deleteAction": "Delete",

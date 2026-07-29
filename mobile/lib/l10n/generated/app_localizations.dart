@@ -382,6 +382,12 @@ abstract class AppLocalizations {
   /// **'Mark as Complete'**
   String get markCompleteAction;
 
+  /// No description provided for @moreActionsLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'More actions'**
+  String get moreActionsLabel;
+
   /// No description provided for @markPendingAction.
   ///
   /// In en, this message translates to:

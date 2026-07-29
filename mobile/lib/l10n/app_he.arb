@@ -47,6 +47,7 @@
   "locationLabel": "מיקום",
   "categoryLabel": "קטגוריה",
   "markCompleteAction": "סימון כהושלמה",
+  "moreActionsLabel": "פעולות נוספות",
   "markPendingAction": "סימון כבהמתנה",
   "postponeAction": "דחיית התחייבות",
   "deleteAction": "מחיקה",

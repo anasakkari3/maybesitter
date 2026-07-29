@@ -194,6 +194,9 @@ class AppLocalizationsAr extends AppLocalizations {
   String get markCompleteAction => 'تحديد كمكتمل';
 
   @override
+  String get moreActionsLabel => 'المزيد من الإجراءات';
+
+  @override
   String get markPendingAction => 'تحديد كقيد الانتظار';
 
   @override
