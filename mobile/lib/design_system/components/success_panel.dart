@@ -49,11 +49,7 @@ class SuccessPanel extends StatelessWidget {
                   width: 2,
                 ),
               ),
-              child: Icon(
-                Icons.check_rounded,
-                size: 44,
-                color: colors.success,
-              ),
+              child: Icon(Icons.check_rounded, size: 44, color: colors.success),
             ),
             const SizedBox(height: AppSpacing.lg),
             Text(

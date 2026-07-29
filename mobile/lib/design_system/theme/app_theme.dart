@@ -12,8 +12,14 @@ import '../typography/text_styles.dart';
 /// if a button, input, chip or sheet looks a certain way, it is because of
 /// this file, not because a screen hard-coded it.
 class AppTheme {
-  static final ThemeData lightTheme = _build(SemanticColors.light, Brightness.light);
-  static final ThemeData darkTheme = _build(SemanticColors.dark, Brightness.dark);
+  static final ThemeData lightTheme = _build(
+    SemanticColors.light,
+    Brightness.light,
+  );
+  static final ThemeData darkTheme = _build(
+    SemanticColors.dark,
+    Brightness.dark,
+  );
 
   static ThemeData _build(SemanticColors colors, Brightness brightness) {
     final textTheme = AppTextStyles.textTheme(colors);

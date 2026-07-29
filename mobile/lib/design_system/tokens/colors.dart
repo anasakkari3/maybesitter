@@ -326,11 +326,14 @@ class SemanticColors extends ThemeExtension<SemanticColors> {
       destructive: destructive ?? this.destructive,
       dangerSubtle: dangerSubtle ?? this.dangerSubtle,
       mustPriority: mustPriority ?? this.mustPriority,
-      mustPriorityContainer: mustPriorityContainer ?? this.mustPriorityContainer,
+      mustPriorityContainer:
+          mustPriorityContainer ?? this.mustPriorityContainer,
       shouldPriority: shouldPriority ?? this.shouldPriority,
-      shouldPriorityContainer: shouldPriorityContainer ?? this.shouldPriorityContainer,
+      shouldPriorityContainer:
+          shouldPriorityContainer ?? this.shouldPriorityContainer,
       nicePriority: nicePriority ?? this.nicePriority,
-      nicePriorityContainer: nicePriorityContainer ?? this.nicePriorityContainer,
+      nicePriorityContainer:
+          nicePriorityContainer ?? this.nicePriorityContainer,
       shadow: shadow ?? this.shadow,
       overlay: overlay ?? this.overlay,
     );
@@ -344,7 +347,11 @@ class SemanticColors extends ThemeExtension<SemanticColors> {
       surface: Color.lerp(surface, other.surface, t)!,
       surfaceElevated: Color.lerp(surfaceElevated, other.surfaceElevated, t)!,
       surfaceMuted: Color.lerp(surfaceMuted, other.surfaceMuted, t)!,
-      surfaceBrandSubtle: Color.lerp(surfaceBrandSubtle, other.surfaceBrandSubtle, t)!,
+      surfaceBrandSubtle: Color.lerp(
+        surfaceBrandSubtle,
+        other.surfaceBrandSubtle,
+        t,
+      )!,
       glassBorder: Color.lerp(glassBorder, other.glassBorder, t)!,
       textPrimary: Color.lerp(textPrimary, other.textPrimary, t)!,
       textSecondary: Color.lerp(textSecondary, other.textSecondary, t)!,
@@ -371,11 +378,23 @@ class SemanticColors extends ThemeExtension<SemanticColors> {
       destructive: Color.lerp(destructive, other.destructive, t)!,
       dangerSubtle: Color.lerp(dangerSubtle, other.dangerSubtle, t)!,
       mustPriority: Color.lerp(mustPriority, other.mustPriority, t)!,
-      mustPriorityContainer: Color.lerp(mustPriorityContainer, other.mustPriorityContainer, t)!,
+      mustPriorityContainer: Color.lerp(
+        mustPriorityContainer,
+        other.mustPriorityContainer,
+        t,
+      )!,
       shouldPriority: Color.lerp(shouldPriority, other.shouldPriority, t)!,
-      shouldPriorityContainer: Color.lerp(shouldPriorityContainer, other.shouldPriorityContainer, t)!,
+      shouldPriorityContainer: Color.lerp(
+        shouldPriorityContainer,
+        other.shouldPriorityContainer,
+        t,
+      )!,
       nicePriority: Color.lerp(nicePriority, other.nicePriority, t)!,
-      nicePriorityContainer: Color.lerp(nicePriorityContainer, other.nicePriorityContainer, t)!,
+      nicePriorityContainer: Color.lerp(
+        nicePriorityContainer,
+        other.nicePriorityContainer,
+        t,
+      )!,
       shadow: Color.lerp(shadow, other.shadow, t)!,
       overlay: Color.lerp(overlay, other.overlay, t)!,
     );

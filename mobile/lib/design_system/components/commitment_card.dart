@@ -39,7 +39,9 @@ class CommitmentCard extends StatelessWidget {
     final accent = PriorityBadge.foreground(colors, commitment.priority);
 
     final hasMeta =
-        commitment.startTime != null || commitment.location != null || isOverdue;
+        commitment.startTime != null ||
+        commitment.location != null ||
+        isOverdue;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.smd),
@@ -176,7 +178,11 @@ class _CompletionControl extends StatelessWidget {
                 ),
               ),
               child: isDone
-                  ? const Icon(Icons.check_rounded, size: 16, color: Colors.white)
+                  ? const Icon(
+                      Icons.check_rounded,
+                      size: 16,
+                      color: Colors.white,
+                    )
                   : null,
             ),
           ),

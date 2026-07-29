@@ -40,7 +40,11 @@ class CapturePrimaryAction extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.auto_awesome_rounded, size: 21, color: Colors.white),
+            const Icon(
+              Icons.auto_awesome_rounded,
+              size: 21,
+              color: Colors.white,
+            ),
             const SizedBox(width: AppSpacing.sm + 2),
             Text(
               displayLabel,

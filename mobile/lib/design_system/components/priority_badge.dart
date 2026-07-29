@@ -12,7 +12,11 @@ class PriorityBadge extends StatelessWidget {
   final CommitmentPriority priority;
   final bool compact;
 
-  const PriorityBadge({super.key, required this.priority, this.compact = false});
+  const PriorityBadge({
+    super.key,
+    required this.priority,
+    this.compact = false,
+  });
 
   static Color foreground(SemanticColors colors, CommitmentPriority priority) {
     switch (priority) {

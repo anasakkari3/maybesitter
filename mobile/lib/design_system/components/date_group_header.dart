@@ -19,10 +19,6 @@ class DateGroupHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SectionHeader(
-      title: title,
-      trailingLabel: subtitle,
-      accent: accent,
-    );
+    return SectionHeader(title: title, trailingLabel: subtitle, accent: accent);
   }
 }

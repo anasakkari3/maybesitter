@@ -92,7 +92,9 @@ class TileGroup extends StatelessWidget {
       if (i != children.length - 1) {
         separated.add(
           Padding(
-            padding: const EdgeInsets.only(left: AppSpacing.md + 38 + AppSpacing.smd),
+            padding: const EdgeInsets.only(
+              left: AppSpacing.md + 38 + AppSpacing.smd,
+            ),
             child: Divider(height: 1, color: colors.border),
           ),
         );

@@ -27,9 +27,7 @@ class UndoBanner extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Expanded(
-            child: Text(message, style: context.text.supporting),
-          ),
+          Expanded(child: Text(message, style: context.text.supporting)),
           TextButton(
             onPressed: onUndo,
             child: Text(

@@ -29,7 +29,10 @@ class MaybesitterSwitch extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(label, style: context.text.cardTitle.copyWith(fontSize: 15)),
+                Text(
+                  label,
+                  style: context.text.cardTitle.copyWith(fontSize: 15),
+                ),
                 if (description != null) ...[
                   const SizedBox(height: 2),
                   Text(description!, style: context.text.caption),

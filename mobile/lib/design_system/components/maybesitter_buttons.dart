@@ -79,9 +79,7 @@ class PrimaryButton extends StatelessWidget {
       child: DefaultTextStyle.merge(
         style: TextStyle(color: enabled ? Colors.white : colors.textMuted),
         child: IconTheme.merge(
-          data: IconThemeData(
-            color: enabled ? Colors.white : colors.textMuted,
-          ),
+          data: IconThemeData(color: enabled ? Colors.white : colors.textMuted),
           child: content,
         ),
       ),
