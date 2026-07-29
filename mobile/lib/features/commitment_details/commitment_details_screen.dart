@@ -3,10 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/utilities/date_formatter.dart';
 import '../../core/utilities/l10n_extensions.dart';
+import '../../design_system/adaptive/adaptive_dialog.dart';
+import '../../design_system/adaptive/app_icons.dart';
 import '../../design_system/components/commitment_status_badge.dart';
 import '../../design_system/components/maybesitter_app_bar.dart';
 import '../../design_system/components/maybesitter_buttons.dart';
-import '../../design_system/components/maybesitter_dialog.dart';
 import '../../design_system/components/maybesitter_scaffold.dart';
 import '../../design_system/components/priority_badge.dart';
 import '../../design_system/theme/app_theme.dart';
@@ -25,6 +26,7 @@ class CommitmentDetailsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final colors = context.colors;
     final l10n = context.l10n;
+    final icons = AppIcons.of(context);
     final localeCode = context.currentLanguageCode;
     final config = ref.watch(appConfigProvider);
     final commitments = ref.watch(commitmentsStreamProvider).value ?? [];
@@ -91,11 +93,13 @@ class CommitmentDetailsScreen extends ConsumerWidget {
             },
           ),
           IconButton(
-            icon: const Icon(Icons.delete_outline),
+            icon: Icon(icons.delete),
             color: colors.destructive,
             tooltip: l10n.deleteAction,
             onPressed: () async {
-              final confirm = await MaybesitterDialog.show(
+              // Platform-idiomatic and non-dismissible: deleting must be an
+              // explicit answer, not a stray tap on the barrier.
+              final confirm = await AdaptiveAppDialog.confirm(
                 context: context,
                 title: l10n.deleteConfirmationTitle,
                 message: l10n.deleteConfirmationMessage(commitment!.title),
