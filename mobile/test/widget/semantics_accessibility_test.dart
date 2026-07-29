@@ -65,7 +65,7 @@ void main() {
       // is a gradient surface, not a Material ElevatedButton.
       expect(
         tester.getSemantics(find.bySemanticsLabel('Analyze')),
-        containsSemantics(
+        isSemantics(
           label: 'Analyze',
           isButton: true,
           hasEnabledState: true,
@@ -88,7 +88,7 @@ void main() {
 
       expect(
         tester.getSemantics(find.bySemanticsLabel('Analyze')),
-        containsSemantics(
+        isSemantics(
           label: 'Analyze',
           isButton: true,
           hasEnabledState: true,
@@ -124,7 +124,7 @@ void main() {
         // is expressed through semantics, not through a Material Checkbox.
         expect(
           tester.getSemantics(find.bySemanticsLabel('Include in this save')),
-          containsSemantics(
+          isSemantics(
             hasCheckedState: true,
             isChecked: true,
             hasEnabledState: true,
@@ -156,7 +156,7 @@ void main() {
               'Needs clarification before it can be included',
             ),
           ),
-          containsSemantics(
+          isSemantics(
             hasCheckedState: true,
             isChecked: false,
             hasEnabledState: true,
