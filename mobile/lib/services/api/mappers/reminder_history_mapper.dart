@@ -2,17 +2,20 @@ import '../../../models/activity_event.dart';
 import '../dtos/activity_dtos.dart';
 
 class ReminderHistoryMapper {
-  // Collapsing heuristic based on (itemId, scheduledFor) is disabled until the backend
-  // publishes a canonical logical reminder identity contract.
-  // Attempts are collapsed ONLY if they share a backend-defined logical idempotencyKey.
-  static List<ActivityEvent> groupAttempts(List<ReminderAttemptDto> attempts) {
+  /// Converts raw ReminderAttemptDto records into user-facing ActivityEvents.
+  /// [enableIdentityCollapsing] is false by default pending explicit backend identity handoff.
+  /// When false, each attempt is presented conservatively without merging.
+  static List<ActivityEvent> groupAttempts(
+    List<ReminderAttemptDto> attempts, {
+    bool enableIdentityCollapsing = false,
+  }) {
     if (attempts.isEmpty) return [];
 
     final Map<String, List<ReminderAttemptDto>> grouped = {};
 
     for (final attempt in attempts) {
-      // Use backend-defined idempotencyKey if non-empty, otherwise treat each record conservatively as distinct.
-      final key = attempt.idempotencyKey.trim().isNotEmpty
+      final key =
+          (enableIdentityCollapsing && attempt.idempotencyKey.trim().isNotEmpty)
           ? 'key_${attempt.idempotencyKey.trim()}'
           : 'id_${attempt.id}';
       grouped.putIfAbsent(key, () => []).add(attempt);

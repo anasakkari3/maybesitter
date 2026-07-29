@@ -86,7 +86,7 @@ class SemanticColors extends ThemeExtension<SemanticColors> {
     glassBorder: Color(0x1F000000),
     textPrimary: Color(0xFF191C1E),
     textSecondary: Color(0xFF454651),
-    textMuted: Color(0xFF767682),
+    textMuted: Color(0xFF595966),
     border: Color(0xFFDBD9E1),
     borderStrong: Color(0xFFC6C5D3),
     brandPrimary: Color(0xFF006591),

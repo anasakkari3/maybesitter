@@ -12,18 +12,19 @@ abstract class TimezoneService {
   Future<String> resolveTimezone({String? userTimezone});
 
   /// Validates whether a timezone string is a valid IANA identifier.
-  /// Uses regex as an early rejection filter, followed by IANA database membership confirmation.
+  /// Authoritative validation is determined exclusively by membership in the initialized IANA database.
   static bool isValidIana(String? timezone) {
     if (timezone == null || timezone.trim().isEmpty) return false;
-    final tzString = timezone.trim();
+    final candidate = timezone.trim();
 
-    if (tzString == 'UTC' || tzString == 'GMT') return true;
+    // 1. Lightweight precheck: Reject control characters and malformed whitespace
+    if (candidate.contains('\n') ||
+        candidate.contains('\r') ||
+        candidate.contains('\t')) {
+      return false;
+    }
 
-    // 1. Early rejection filter: Syntax format
-    final ianaRegex = RegExp(r'^[A-Za-z_]+/[A-Za-z_]+(?:/[A-Za-z_]+)?$');
-    if (!ianaRegex.hasMatch(tzString)) return false;
-
-    // 2. Early rejection filter: Known abbreviations
+    // 2. Reject explicit non-IANA abbreviation strings
     final invalidAbbreviations = {
       'IDT',
       'IST',
@@ -39,17 +40,31 @@ abstract class TimezoneService {
       'MDT',
       'BST',
     };
-    if (invalidAbbreviations.contains(tzString.toUpperCase())) return false;
+    if (invalidAbbreviations.contains(candidate.toUpperCase())) return false;
 
-    // 3. Final validation: Confirm membership in standard IANA database
+    // 3. Authoritative check: Database membership in initialized IANA database
     try {
       if (tz.timeZoneDatabase.locations.isEmpty) {
         tz_data.initializeTimeZones();
       }
-      return tz.timeZoneDatabase.locations.containsKey(tzString);
+
+      // Check direct membership or standard UTC/Etc aliases
+      if (tz.timeZoneDatabase.locations.containsKey(candidate)) {
+        return true;
+      }
+
+      // Explicitly allow UTC / GMT / Etc offset standard identifiers
+      if (candidate == 'UTC' ||
+          candidate == 'GMT' ||
+          candidate == 'Etc/UTC' ||
+          candidate == 'Etc/GMT' ||
+          candidate.startsWith('Etc/GMT')) {
+        return true;
+      }
+
+      return false;
     } catch (_) {
-      // Fallback check against known canonical IANA timezones
-      return tzString.contains('/');
+      return candidate.contains('/');
     }
   }
 }

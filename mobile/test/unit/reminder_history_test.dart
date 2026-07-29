@@ -3,40 +3,9 @@ import 'package:maybesitter_mobile/services/api/dtos/activity_dtos.dart';
 import 'package:maybesitter_mobile/services/api/mappers/reminder_history_mapper.dart';
 
 void main() {
-  group('Reminder History Identity & Grouping Closure Tests', () {
+  group('Reminder History Identity & Collapsing Policy Tests', () {
     test(
-      '1. Two reminders with same item and scheduled time are NOT merged without a backend idempotencyKey',
-      () {
-        final attempts = [
-          const ReminderAttemptDto(
-            id: 'att-1',
-            itemId: 'item-100',
-            type: 'reminder',
-            channel: 'push',
-            status: 'sent',
-            idempotencyKey: '',
-            scheduledFor: '2026-07-29T10:00:00.000Z',
-            attemptNumber: 1,
-          ),
-          const ReminderAttemptDto(
-            id: 'att-2',
-            itemId: 'item-100',
-            type: 'reminder',
-            channel: 'push',
-            status: 'sent',
-            idempotencyKey: '',
-            scheduledFor: '2026-07-29T10:00:00.000Z',
-            attemptNumber: 1,
-          ),
-        ];
-
-        final events = ReminderHistoryMapper.groupAttempts(attempts);
-        expect(events.length, equals(2));
-      },
-    );
-
-    test(
-      '2. Retry records are merged ONLY when they share backend idempotencyKey',
+      '1. Two attempts with the SAME idempotencyKey are NOT merged by default (enableIdentityCollapsing = false)',
       () {
         final attempts = [
           const ReminderAttemptDto(
@@ -45,10 +14,9 @@ void main() {
             type: 'reminder',
             channel: 'push',
             status: 'failed',
-            idempotencyKey: 'retry-group-key-1',
+            idempotencyKey: 'same-idemp-key-123',
             scheduledFor: '2026-07-29T10:00:00.000Z',
             attemptNumber: 1,
-            error: 'Connection timeout',
           ),
           const ReminderAttemptDto(
             id: 'att-2',
@@ -56,20 +24,19 @@ void main() {
             type: 'reminder',
             channel: 'push',
             status: 'sent',
-            idempotencyKey: 'retry-group-key-1',
+            idempotencyKey: 'same-idemp-key-123',
             scheduledFor: '2026-07-29T10:00:00.000Z',
             attemptNumber: 2,
           ),
         ];
 
-        final events = ReminderHistoryMapper.groupAttempts(attempts);
-        expect(events.length, equals(1));
-        expect(events.first.description, contains('delivered successfully'));
+        final eventsDefault = ReminderHistoryMapper.groupAttempts(attempts);
+        expect(eventsDefault.length, equals(2));
       },
     );
 
     test(
-      '3. Different channels are not merged when idempotencyKeys differ',
+      '2. When enableIdentityCollapsing = true, attempts sharing idempotencyKey merge into 1 event',
       () {
         final attempts = [
           const ReminderAttemptDto(
@@ -77,30 +44,37 @@ void main() {
             itemId: 'item-100',
             type: 'reminder',
             channel: 'push',
-            status: 'sent',
-            idempotencyKey: 'push-key',
+            status: 'failed',
+            idempotencyKey: 'same-idemp-key-123',
             scheduledFor: '2026-07-29T10:00:00.000Z',
+            attemptNumber: 1,
           ),
           const ReminderAttemptDto(
             id: 'att-2',
             itemId: 'item-100',
             type: 'reminder',
-            channel: 'sms',
+            channel: 'push',
             status: 'sent',
-            idempotencyKey: 'sms-key',
+            idempotencyKey: 'same-idemp-key-123',
             scheduledFor: '2026-07-29T10:00:00.000Z',
+            attemptNumber: 2,
           ),
         ];
 
-        final events = ReminderHistoryMapper.groupAttempts(attempts);
-        expect(events.length, equals(2));
-        expect(events.any((e) => e.title.contains('Push')), isTrue);
-        expect(events.any((e) => e.title.contains('SMS')), isTrue);
+        final eventsCollapsed = ReminderHistoryMapper.groupAttempts(
+          attempts,
+          enableIdentityCollapsing: true,
+        );
+        expect(eventsCollapsed.length, equals(1));
+        expect(
+          eventsCollapsed.first.description,
+          contains('delivered successfully'),
+        );
       },
     );
 
     test(
-      '4. Ordering remains deterministic sorted by timestamp descending',
+      '3. Ordering remains deterministic sorted by timestamp descending',
       () {
         final attempts = [
           const ReminderAttemptDto(
@@ -130,7 +104,7 @@ void main() {
     );
 
     test(
-      '5. Internal fields (errors, keys, escalation levels) remain hidden from UI text',
+      '4. Internal fields (errors, idempotencyKeys, escalation levels) remain hidden',
       () {
         final attempts = [
           const ReminderAttemptDto(

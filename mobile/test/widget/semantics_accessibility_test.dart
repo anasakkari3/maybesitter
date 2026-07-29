@@ -170,28 +170,14 @@ void main() {
     );
 
     testWidgets(
-      '7. Semantics for Network error, Proposal expired, and Partial/Full success banners',
+      '8. Text contrast guideline check across major screens and states',
       (tester) async {
-        await tester.pumpWidget(
-          _wrapWithApp(
-            const Scaffold(
-              body: Column(
-                children: [
-                  Text('Network Connection Error'),
-                  Text('Proposal Expired'),
-                  Text('Partially Saved (1 of 2 failed)'),
-                  Text('Saved successfully'),
-                ],
-              ),
-            ),
-          ),
-        );
+        final SemanticsHandle handle = tester.ensureSemantics();
+        await tester.pumpWidget(_wrapWithApp(const CaptureComposerScreen()));
         await tester.pumpAndSettle();
 
-        expect(find.text('Network Connection Error'), findsOneWidget);
-        expect(find.text('Proposal Expired'), findsOneWidget);
-        expect(find.text('Partially Saved (1 of 2 failed)'), findsOneWidget);
-        expect(find.text('Saved successfully'), findsOneWidget);
+        await expectLater(tester, meetsGuideline(textContrastGuideline));
+        handle.dispose();
       },
     );
   });
