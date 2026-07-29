@@ -1,3 +1,4 @@
+import 'package:flutter_timezone/flutter_timezone.dart';
 import 'contracts/timezone_service.dart';
 
 class DefaultTimezoneService implements TimezoneService {
@@ -17,10 +18,10 @@ class DefaultTimezoneService implements TimezoneService {
         return null;
       }
 
-      // Default platform resolution via SystemChannels / DateTime native inspection
-      final String rawZone = DateTime.now().timeZoneName;
-      if (TimezoneService.isValidIana(rawZone)) {
-        return rawZone;
+      // Approved platform resolution via flutter_timezone plugin (retrieves native local device IANA timezone)
+      final String nativeZone = await FlutterTimezone.getLocalTimezone();
+      if (TimezoneService.isValidIana(nativeZone)) {
+        return nativeZone;
       }
       return null;
     } catch (_) {

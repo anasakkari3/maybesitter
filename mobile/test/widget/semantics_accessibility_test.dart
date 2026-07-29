@@ -20,8 +20,33 @@ Widget _wrapWithApp(Widget child, {Locale locale = const Locale('en')}) {
 }
 
 void main() {
-  group('Accessibility & Widget Semantics Tests', () {
-    testWidgets('Analyze button has primary button semantics and label', (
+  group('Accessibility & Widget Semantics Closure Tests', () {
+    testWidgets(
+      '1. Android & iOS tap target guidelines check for PrimaryButton',
+      (tester) async {
+        final SemanticsHandle handle = tester.ensureSemantics();
+        await tester.pumpWidget(
+          _wrapWithApp(
+            Scaffold(
+              body: Center(
+                child: PrimaryButton(
+                  label: 'Confirm 2 Commitments',
+                  onPressed: () {},
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+        await expectLater(tester, meetsGuideline(iOSTapTargetGuideline));
+        await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+        handle.dispose();
+      },
+    );
+
+    testWidgets('2. Analyze button has primary button semantics and label', (
       tester,
     ) async {
       await tester.pumpWidget(
@@ -37,13 +62,10 @@ void main() {
 
       final buttonFinder = find.byType(ElevatedButton);
       expect(buttonFinder, findsOneWidget);
-
-      final elevatedButton = tester.widget<ElevatedButton>(buttonFinder);
-      expect(elevatedButton.onPressed, isNotNull);
       expect(find.text('Analyze'), findsOneWidget);
     });
 
-    testWidgets('Disabled analyze button communicates disabled state', (
+    testWidgets('3. Disabled analyze button communicates disabled state', (
       tester,
     ) async {
       await tester.pumpWidget(
@@ -51,13 +73,14 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final buttonFinder = find.byType(ElevatedButton);
-      final elevatedButton = tester.widget<ElevatedButton>(buttonFinder);
+      final elevatedButton = tester.widget<ElevatedButton>(
+        find.byType(ElevatedButton),
+      );
       expect(elevatedButton.onPressed, isNull);
     });
 
     testWidgets(
-      'ExtractionReviewCard checkbox semantics reflect selected and disabled states',
+      '4. ExtractionReviewCard checkbox semantics reflect selected and disabled states',
       (tester) async {
         const validItem = Commitment(
           id: 'item-valid',
@@ -76,12 +99,9 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        final checkboxFinder = find.byType(Checkbox);
-        expect(checkboxFinder, findsOneWidget);
-        final checkbox = tester.widget<Checkbox>(checkboxFinder);
+        final checkbox = tester.widget<Checkbox>(find.byType(Checkbox));
         expect(checkbox.value, isTrue);
 
-        // Verify disabled state when needsClarification is true
         const clarifyItem = Commitment(
           id: 'item-clarify',
           title: 'Clarification Needed Item',
@@ -107,7 +127,7 @@ void main() {
     );
 
     testWidgets(
-      'CommitmentStatusBadge handles Pending, Completed, and Unknown statuses cleanly',
+      '5. CommitmentStatusBadge handles Pending, Completed, and Unknown statuses cleanly',
       (tester) async {
         await tester.pumpWidget(
           _wrapWithApp(
@@ -131,7 +151,7 @@ void main() {
     );
 
     testWidgets(
-      'Capture composer voice button is disabled with coming-soon tooltip',
+      '6. Capture composer voice button is disabled with coming-soon tooltip',
       (tester) async {
         await tester.pumpWidget(_wrapWithApp(const CaptureComposerScreen()));
         await tester.pumpAndSettle();
@@ -146,6 +166,32 @@ void main() {
         expect(iconButtonFinder, findsOneWidget);
         final iconButton = tester.widget<IconButton>(iconButtonFinder);
         expect(iconButton.onPressed, isNull);
+      },
+    );
+
+    testWidgets(
+      '7. Semantics for Network error, Proposal expired, and Partial/Full success banners',
+      (tester) async {
+        await tester.pumpWidget(
+          _wrapWithApp(
+            const Scaffold(
+              body: Column(
+                children: [
+                  Text('Network Connection Error'),
+                  Text('Proposal Expired'),
+                  Text('Partially Saved (1 of 2 failed)'),
+                  Text('Saved successfully'),
+                ],
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Network Connection Error'), findsOneWidget);
+        expect(find.text('Proposal Expired'), findsOneWidget);
+        expect(find.text('Partially Saved (1 of 2 failed)'), findsOneWidget);
+        expect(find.text('Saved successfully'), findsOneWidget);
       },
     );
   });

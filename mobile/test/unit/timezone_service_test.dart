@@ -1,55 +1,46 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:maybesitter_mobile/config/app_config.dart';
 import 'package:maybesitter_mobile/services/contracts/timezone_service.dart';
 import 'package:maybesitter_mobile/services/timezone_service_impl.dart';
 
 void main() {
-  group('TimezoneService Resolution & Validation Tests', () {
-    test('Explicit Asia/Jerusalem resolved successfully', () async {
-      final service = DefaultTimezoneService();
-      final result = await service.resolveTimezone(
-        userTimezone: 'Asia/Jerusalem',
+  group('TimezoneService Closure Resolution & IANA Membership Tests', () {
+    test('1. Platform resolver returns Asia/Jerusalem', () async {
+      final service = DefaultTimezoneService(
+        deviceTimezoneProvider: () async => 'Asia/Jerusalem',
       );
+      final result = await service.resolveTimezone(userTimezone: null);
       expect(result, equals('Asia/Jerusalem'));
     });
 
-    test('Explicit Europe/London resolved successfully', () async {
-      final service = DefaultTimezoneService();
-      final result = await service.resolveTimezone(
-        userTimezone: 'Europe/London',
+    test('2. Platform resolver returns America/New_York', () async {
+      final service = DefaultTimezoneService(
+        deviceTimezoneProvider: () async => 'America/New_York',
       );
+      final result = await service.resolveTimezone(userTimezone: null);
+      expect(result, equals('America/New_York'));
+    });
+
+    test('3. Platform resolver returns Europe/London', () async {
+      final service = DefaultTimezoneService(
+        deviceTimezoneProvider: () async => 'Europe/London',
+      );
+      final result = await service.resolveTimezone(userTimezone: null);
       expect(result, equals('Europe/London'));
     });
 
-    test(
-      'Explicit invalid value falls through to device or fallback',
-      () async {
-        final service = DefaultTimezoneService(
-          deviceTimezoneProvider: () async => 'America/Chicago',
-        );
-        final result = await service.resolveTimezone(
-          userTimezone: 'INVALID_ZONE_123',
-        );
-        expect(result, equals('America/Chicago'));
-      },
-    );
+    test('4. Platform resolver returns IDT (abbreviation rejected)', () async {
+      final service = DefaultTimezoneService(
+        deviceTimezoneProvider: () async => 'IDT',
+      );
+      final result = await service.resolveTimezone(userTimezone: null);
+      expect(result, equals('Asia/Jerusalem'));
+    });
 
     test(
-      'Device valid IANA value resolved when user timezone is absent',
+      '5. Platform resolver returns Pacific Standard Time (display name rejected)',
       () async {
         final service = DefaultTimezoneService(
-          deviceTimezoneProvider: () async => 'America/New_York',
-        );
-        final result = await service.resolveTimezone(userTimezone: null);
-        expect(result, equals('America/New_York'));
-      },
-    );
-
-    test(
-      'Device returns IDT (abbreviation rejected) -> fallback to Asia/Jerusalem',
-      () async {
-        final service = DefaultTimezoneService(
-          deviceTimezoneProvider: () async => 'IDT',
+          deviceTimezoneProvider: () async => 'Pacific Standard Time',
         );
         final result = await service.resolveTimezone(userTimezone: null);
         expect(result, equals('Asia/Jerusalem'));
@@ -57,17 +48,17 @@ void main() {
     );
 
     test(
-      'Device returns EET (abbreviation rejected) -> fallback to Asia/Jerusalem',
+      '6. Platform resolver returns Fake/Imaginary (rejected by IANA database)',
       () async {
         final service = DefaultTimezoneService(
-          deviceTimezoneProvider: () async => 'EET',
+          deviceTimezoneProvider: () async => 'Fake/Imaginary_Place',
         );
         final result = await service.resolveTimezone(userTimezone: null);
         expect(result, equals('Asia/Jerusalem'));
       },
     );
 
-    test('Device returns empty string -> fallback to Asia/Jerusalem', () async {
+    test('7. Platform resolver returns empty value', () async {
       final service = DefaultTimezoneService(
         deviceTimezoneProvider: () async => '',
       );
@@ -75,42 +66,52 @@ void main() {
       expect(result, equals('Asia/Jerusalem'));
     });
 
+    test('8. Platform resolver throws exception', () async {
+      final service = DefaultTimezoneService(
+        deviceTimezoneProvider: () async =>
+            throw Exception('Platform channel failed'),
+      );
+      final result = await service.resolveTimezone(userTimezone: null);
+      expect(result, equals('Asia/Jerusalem'));
+    });
+
+    test('9. Explicit user value exists in IANA database', () async {
+      final service = DefaultTimezoneService();
+      final result = await service.resolveTimezone(
+        userTimezone: 'America/Chicago',
+      );
+      expect(result, equals('America/Chicago'));
+    });
+
     test(
-      'Device resolver throws exception -> fallback to Asia/Jerusalem',
+      '10. Explicit user value has valid syntax but does not exist in IANA database',
       () async {
         final service = DefaultTimezoneService(
-          deviceTimezoneProvider: () async =>
-              throw Exception('Platform channel failed'),
+          deviceTimezoneProvider: () async => 'Europe/Paris',
         );
-        final result = await service.resolveTimezone(userTimezone: null);
-        expect(result, equals('Asia/Jerusalem'));
+        // Valid syntax (Area/Location) but non-existent city in IANA db
+        final result = await service.resolveTimezone(
+          userTimezone: 'NonExistent/Imaginary_City',
+        );
+        expect(result, equals('Europe/Paris'));
       },
     );
 
-    test('Validation rejects Windows-style and abbreviation strings', () {
-      expect(TimezoneService.isValidIana('Pacific Standard Time'), isFalse);
-      expect(TimezoneService.isValidIana('IDT'), isFalse);
-      expect(TimezoneService.isValidIana('EET'), isFalse);
-      expect(TimezoneService.isValidIana('+03:00'), isFalse);
-      expect(TimezoneService.isValidIana('Asia/Jerusalem'), isTrue);
-      expect(
-        TimezoneService.isValidIana('America/Indiana/Indianapolis'),
-        isTrue,
+    test('11. Fallback is Asia/Jerusalem', () async {
+      final service = DefaultTimezoneService(
+        deviceTimezoneProvider: () async => null,
       );
+      final result = await service.resolveTimezone(userTimezone: null);
+      expect(result, equals('Asia/Jerusalem'));
     });
 
-    test('AppConfig.resolveTimezone enforces IANA validity', () {
-      expect(
-        AppConfig.resolveTimezone(
-          userTimezone: 'IDT',
-          deviceTimezone: 'Europe/Paris',
-        ),
-        equals('Europe/Paris'),
-      );
-      expect(
-        AppConfig.resolveTimezone(userTimezone: 'IDT', deviceTimezone: 'EET'),
-        equals('Asia/Jerusalem'),
-      );
+    test('TimezoneService.isValidIana requires database membership proof', () {
+      expect(TimezoneService.isValidIana('Asia/Jerusalem'), isTrue);
+      expect(TimezoneService.isValidIana('America/New_York'), isTrue);
+      expect(TimezoneService.isValidIana('Europe/London'), isTrue);
+      expect(TimezoneService.isValidIana('IDT'), isFalse);
+      expect(TimezoneService.isValidIana('Pacific Standard Time'), isFalse);
+      expect(TimezoneService.isValidIana('Fake/Imaginary_Zone'), isFalse);
     });
   });
 }

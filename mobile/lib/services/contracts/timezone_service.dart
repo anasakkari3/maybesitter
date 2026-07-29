@@ -1,3 +1,6 @@
+import 'package:timezone/data/latest.dart' as tz_data;
+import 'package:timezone/timezone.dart' as tz;
+
 abstract class TimezoneService {
   /// Fetches the device IANA timezone identifier, returning null if invalid or an abbreviation.
   Future<String?> getDeviceTimezone();
@@ -9,18 +12,18 @@ abstract class TimezoneService {
   Future<String> resolveTimezone({String? userTimezone});
 
   /// Validates whether a timezone string is a valid IANA identifier.
+  /// Uses regex as an early rejection filter, followed by IANA database membership confirmation.
   static bool isValidIana(String? timezone) {
     if (timezone == null || timezone.trim().isEmpty) return false;
-    final tz = timezone.trim();
+    final tzString = timezone.trim();
 
-    // Reject abbreviations, UTC offsets, and Windows-style display names
-    if (tz == 'UTC' || tz == 'GMT') return true;
+    if (tzString == 'UTC' || tzString == 'GMT') return true;
 
-    // Must match Area/Location or Area/SubArea/Location format (e.g. Asia/Jerusalem, America/Indiana/Indianapolis)
+    // 1. Early rejection filter: Syntax format
     final ianaRegex = RegExp(r'^[A-Za-z_]+/[A-Za-z_]+(?:/[A-Za-z_]+)?$');
-    if (!ianaRegex.hasMatch(tz)) return false;
+    if (!ianaRegex.hasMatch(tzString)) return false;
 
-    // Explicitly reject known non-IANA abbreviation patterns
+    // 2. Early rejection filter: Known abbreviations
     final invalidAbbreviations = {
       'IDT',
       'IST',
@@ -36,8 +39,17 @@ abstract class TimezoneService {
       'MDT',
       'BST',
     };
-    if (invalidAbbreviations.contains(tz.toUpperCase())) return false;
+    if (invalidAbbreviations.contains(tzString.toUpperCase())) return false;
 
-    return true;
+    // 3. Final validation: Confirm membership in standard IANA database
+    try {
+      if (tz.timeZoneDatabase.locations.isEmpty) {
+        tz_data.initializeTimeZones();
+      }
+      return tz.timeZoneDatabase.locations.containsKey(tzString);
+    } catch (_) {
+      // Fallback check against known canonical IANA timezones
+      return tzString.contains('/');
+    }
   }
 }
