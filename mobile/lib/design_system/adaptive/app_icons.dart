@@ -20,6 +20,14 @@ class AppIcons {
   static AppIcons of(BuildContext context) =>
       AppIcons._(Adaptive.isCupertino(context));
 
+  /// Resolvers pinned to an idiom, so the mapping can be asserted without
+  /// building a widget tree.
+  @visibleForTesting
+  static const AppIcons cupertino = AppIcons._(true);
+
+  @visibleForTesting
+  static const AppIcons material = AppIcons._(false);
+
   IconData _pick(IconData cupertino, IconData material) =>
       _cupertino ? cupertino : material;
 
