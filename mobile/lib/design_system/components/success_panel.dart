@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
-import '../../core/utilities/l10n_extensions.dart';
+
 import '../../models/commitment.dart';
+import '../../core/utilities/l10n_extensions.dart';
 import '../theme/app_theme.dart';
-import '../tokens/radius.dart';
 import '../tokens/spacing.dart';
+import 'compact_commitment_row.dart';
 import 'maybesitter_buttons.dart';
 
+/// Confirmation shown after a capture is saved.
 class SuccessPanel extends StatelessWidget {
   final String title;
   final String subtitle;
@@ -31,124 +33,67 @@ class SuccessPanel extends StatelessWidget {
 
     return Padding(
       padding: const EdgeInsets.all(AppSpacing.lg),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(AppSpacing.lg),
-            decoration: BoxDecoration(
-              color: colors.success.withValues(alpha: 0.15),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              Icons.check_circle_outline,
-              size: 54,
-              color: colors.success,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.lg),
-          Text(
-            title,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.w700,
-              color: colors.textPrimary,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.xs),
-          Text(
-            subtitle,
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 14, color: colors.textSecondary),
-          ),
-          const SizedBox(height: AppSpacing.lg),
-          // List of saved commitments preview
-          Column(
-            children: savedCommitments.map((c) {
-              return Container(
-                margin: const EdgeInsets.only(bottom: AppSpacing.sm),
-                padding: const EdgeInsets.all(AppSpacing.md),
-                decoration: BoxDecoration(
-                  color: colors.surface,
-                  borderRadius: AppRadius.card,
-                  border: Border.all(color: colors.border),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 460),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 88,
+              height: 88,
+              decoration: BoxDecoration(
+                color: colors.successSubtle,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: colors.success.withValues(alpha: 0.25),
+                  width: 2,
                 ),
-                child: Row(
-                  children: [
-                    Icon(
-                      c.category == 'Health'
-                          ? Icons.medical_services_outlined
-                          : Icons.work_outline,
-                      color: colors.brandPrimary,
-                      size: 20,
-                    ),
-                    const SizedBox(width: AppSpacing.md),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            c.title,
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                              color: colors.textPrimary,
-                            ),
-                          ),
-                          Text(
-                            '${l10n.tomorrowGroupHeader}, ${c.startTime ?? "Full day"}',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: colors.textSecondary,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Text(
-                      c.priority.localizedName(l10n),
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: colors.textMuted,
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }).toList(),
-          ),
-          const SizedBox(height: AppSpacing.lg),
-          PrimaryButton(
-            label: l10n.viewTomorrowAction,
-            icon: Icons.event,
-            onPressed: onViewTomorrow,
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          SecondaryButton(label: l10n.doneAction, onPressed: onDone),
-          if (onUndo != null) ...[
-            const SizedBox(height: AppSpacing.sm),
-            TextButton(
-              onPressed: onUndo,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.undo, size: 16, color: colors.textSecondary),
-                  const SizedBox(width: AppSpacing.xs),
-                  Text(
-                    l10n.undoAction,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                      color: colors.textSecondary,
-                    ),
-                  ),
-                ],
+              ),
+              child: Icon(
+                Icons.check_rounded,
+                size: 44,
+                color: colors.success,
               ),
             ),
+            const SizedBox(height: AppSpacing.lg),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: context.text.heading1,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              style: context.text.supporting,
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            ...savedCommitments.map(
+              (c) => CompactCommitmentRow(
+                commitment: c,
+                leadingIcon: c.category == 'Health'
+                    ? Icons.medical_services_outlined
+                    : Icons.work_outline_rounded,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.smd),
+            PrimaryButton(
+              label: l10n.viewTomorrowAction,
+              icon: Icons.event_rounded,
+              onPressed: onViewTomorrow,
+            ),
+            const SizedBox(height: AppSpacing.smd),
+            SecondaryButton(label: l10n.doneAction, onPressed: onDone),
+            if (onUndo != null) ...[
+              const SizedBox(height: AppSpacing.sm),
+              TertiaryButton(
+                label: l10n.undoAction,
+                icon: Icons.undo_rounded,
+                onPressed: onUndo,
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }

@@ -1,48 +1,28 @@
 import 'package:flutter/material.dart';
-import '../theme/app_theme.dart';
-import '../tokens/spacing.dart';
 
+import 'section_header.dart';
+
+/// Date/priority group header used by the Today and Upcoming lists.
+///
+/// Thin wrapper over [SectionHeader] so both screens stay in step.
 class DateGroupHeader extends StatelessWidget {
   final String title;
   final String? subtitle;
+  final Color? accent;
 
-  const DateGroupHeader({super.key, required this.title, this.subtitle});
+  const DateGroupHeader({
+    super.key,
+    required this.title,
+    this.subtitle,
+    this.accent,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
-    return Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.md,
-        vertical: AppSpacing.sm,
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Expanded(
-            child: Text(
-              title,
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                color: colors.textPrimary,
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          if (subtitle != null) ...[
-            const SizedBox(width: AppSpacing.xs),
-            Text(
-              subtitle!,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-                color: colors.textMuted,
-              ),
-            ),
-          ],
-        ],
-      ),
+    return SectionHeader(
+      title: title,
+      trailingLabel: subtitle,
+      accent: accent,
     );
   }
 }

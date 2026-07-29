@@ -1,16 +1,27 @@
 import 'package:flutter/material.dart';
+
 import '../../models/commitment.dart';
 import '../theme/app_theme.dart';
-import '../tokens/colors.dart';
+import '../tokens/elevation.dart';
+import '../tokens/motion.dart';
 import '../tokens/radius.dart';
 import '../tokens/spacing.dart';
 import 'priority_badge.dart';
+import 'pressable.dart';
 
-class CommitmentCard extends StatefulWidget {
+/// The primary row of the Today / Upcoming lists.
+///
+/// Reads as one calm block: a large tap-to-complete control, the title, then
+/// a single metadata line. Priority is carried by a small dot plus the badge,
+/// so it never shouts over the title.
+class CommitmentCard extends StatelessWidget {
   final Commitment commitment;
   final ValueChanged<bool?>? onToggleComplete;
   final VoidCallback? onTap;
   final VoidCallback? onMoreTap;
+
+  /// Renders the card in an "overdue" treatment.
+  final bool isOverdue;
 
   const CommitmentCard({
     super.key,
@@ -18,171 +29,98 @@ class CommitmentCard extends StatefulWidget {
     this.onToggleComplete,
     this.onTap,
     this.onMoreTap,
+    this.isOverdue = false,
   });
-
-  @override
-  State<CommitmentCard> createState() => _CommitmentCardState();
-}
-
-class _CommitmentCardState extends State<CommitmentCard> {
-  bool _isPressed = false;
-
-  Color _getAccentColor(SemanticColors colors) {
-    switch (widget.commitment.priority) {
-      case CommitmentPriority.must:
-        return colors.mustPriority;
-      case CommitmentPriority.should:
-        return colors.shouldPriority;
-      case CommitmentPriority.nice:
-        return colors.nicePriority;
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    final isDone = widget.commitment.status.isCompleted;
-    final accentColor = _getAccentColor(colors);
+    final isDone = commitment.status.isCompleted;
+    final accent = PriorityBadge.foreground(colors, commitment.priority);
 
-    return AnimatedScale(
-      scale: _isPressed ? 0.98 : 1.0,
-      duration: const Duration(milliseconds: 100),
-      child: Container(
-        margin: const EdgeInsets.only(bottom: AppSpacing.sm),
-        decoration: BoxDecoration(
-          color: colors.surface,
-          borderRadius: AppRadius.card,
-          border: Border.all(color: colors.border, width: 1),
-        ),
-        child: ClipRRect(
-          borderRadius: AppRadius.card,
-          child: IntrinsicHeight(
+    final hasMeta =
+        commitment.startTime != null || commitment.location != null || isOverdue;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.smd),
+      child: Pressable(
+        onTap: onTap,
+        borderRadius: AppRadius.card,
+        semanticLabel: commitment.title,
+        child: AnimatedContainer(
+          duration: AppMotion.fast,
+          curve: AppMotion.decelerate,
+          padding: const EdgeInsets.all(AppSpacing.md),
+          decoration: BoxDecoration(
+            color: colors.surface,
+            borderRadius: AppRadius.card,
+            border: Border.all(
+              color: isOverdue && !isDone
+                  ? colors.danger.withValues(alpha: 0.35)
+                  : colors.border,
+            ),
+            boxShadow: isDone ? null : AppElevation.card(colors),
+          ),
+          child: Opacity(
+            opacity: isDone ? 0.65 : 1.0,
             child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Left Priority Accent Bar
-                Container(
-                  width: 4,
-                  color: isDone ? colors.textMuted : accentColor,
+                _CompletionControl(
+                  isDone: isDone,
+                  accent: accent,
+                  label: commitment.title,
+                  onToggle: onToggleComplete == null
+                      ? null
+                      : () => onToggleComplete!(!isDone),
                 ),
+                const SizedBox(width: AppSpacing.smd),
                 Expanded(
-                  child: InkWell(
-                    onTapDown: (_) => setState(() => _isPressed = true),
-                    onTapUp: (_) => setState(() => _isPressed = false),
-                    onTapCancel: () => setState(() => _isPressed = false),
-                    onTap: widget.onTap,
-                    child: Padding(
-                      padding: const EdgeInsets.all(AppSpacing.md),
-                      child: Column(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              // Completion Checkbox
-                              InkWell(
-                                onTap: () =>
-                                    widget.onToggleComplete?.call(!isDone),
-                                borderRadius: BorderRadius.circular(20),
-                                child: Container(
-                                  width: 24,
-                                  height: 24,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: isDone
-                                        ? colors.success
-                                        : Colors.transparent,
-                                    border: Border.all(
-                                      color: isDone
-                                          ? colors.success
-                                          : colors.borderStrong,
-                                      width: 2,
-                                    ),
-                                  ),
-                                  child: isDone
-                                      ? const Icon(
-                                          Icons.check,
-                                          size: 16,
-                                          color: Colors.white,
-                                        )
-                                      : null,
-                                ),
-                              ),
-                              const SizedBox(width: AppSpacing.md),
-                              // Title and Time/Location
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      widget.commitment.title,
-                                      style: TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w600,
-                                        color: isDone
-                                            ? colors.textMuted
-                                            : colors.textPrimary,
-                                        decoration: isDone
-                                            ? TextDecoration.lineThrough
-                                            : null,
-                                      ),
-                                    ),
-                                    if (widget.commitment.startTime != null ||
-                                        widget.commitment.location != null) ...[
-                                      const SizedBox(height: 4),
-                                      Wrap(
-                                        spacing: AppSpacing.sm,
-                                        runSpacing: 4,
-                                        crossAxisAlignment:
-                                            WrapCrossAlignment.center,
-                                        children: [
-                                          if (widget.commitment.startTime !=
-                                              null)
-                                            InlineTimeChip(
-                                              time:
-                                                  widget.commitment.startTime!,
-                                              color: colors.textSecondary,
-                                              iconColor: colors.textMuted,
-                                            ),
-                                          if (widget.commitment.location !=
-                                              null)
-                                            InlineLocationChip(
-                                              location:
-                                                  widget.commitment.location!,
-                                              color: colors.textSecondary,
-                                              iconColor: colors.textMuted,
-                                            ),
-                                        ],
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: AppSpacing.xs),
-                              PriorityBadge(
-                                priority: widget.commitment.priority,
-                              ),
-                            ],
-                          ),
-                          if (widget.commitment.description != null &&
-                              widget.commitment.description!.isNotEmpty) ...[
-                            const SizedBox(height: AppSpacing.sm),
-                            Padding(
-                              padding: const EdgeInsets.only(left: 36.0),
+                          Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.only(top: 2),
                               child: Text(
-                                widget.commitment.description!,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: colors.textSecondary,
+                                commitment.title,
+                                style: context.text.cardTitle.copyWith(
+                                  color: isDone
+                                      ? colors.textMuted
+                                      : colors.textPrimary,
+                                  decoration: isDone
+                                      ? TextDecoration.lineThrough
+                                      : null,
+                                  decorationColor: colors.textMuted,
                                 ),
                               ),
                             ),
-                          ],
+                          ),
+                          const SizedBox(width: AppSpacing.sm),
+                          PriorityBadge(priority: commitment.priority),
                         ],
                       ),
-                    ),
+                      if (commitment.description != null &&
+                          commitment.description!.isNotEmpty) ...[
+                        const SizedBox(height: AppSpacing.xs + 2),
+                        Text(
+                          commitment.description!,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: context.text.supporting,
+                        ),
+                      ],
+                      if (hasMeta) ...[
+                        const SizedBox(height: AppSpacing.smd - 2),
+                        _MetaLine(
+                          commitment: commitment,
+                          isOverdue: isOverdue && !isDone,
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               ],
@@ -194,74 +132,129 @@ class _CommitmentCardState extends State<CommitmentCard> {
   }
 }
 
-class InlineTimeChip extends StatelessWidget {
-  final String time;
-  final Color color;
-  final Color iconColor;
+class _CompletionControl extends StatelessWidget {
+  final bool isDone;
+  final Color accent;
+  final String label;
+  final VoidCallback? onToggle;
 
-  const InlineTimeChip({
-    super.key,
-    required this.time,
-    required this.color,
-    required this.iconColor,
+  const _CompletionControl({
+    required this.isDone,
+    required this.accent,
+    required this.label,
+    this.onToggle,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      constraints: const BoxConstraints(maxWidth: 160),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.schedule, size: 14, color: iconColor),
-          const SizedBox(width: 4),
-          Flexible(
-            child: Text(
-              time,
-              style: TextStyle(
-                fontSize: 13,
-                color: color,
-                fontWeight: FontWeight.w500,
+    final colors = context.colors;
+
+    return Semantics(
+      checked: isDone,
+      label: isDone ? 'Mark "$label" as pending' : 'Mark "$label" as complete',
+      child: InkResponse(
+        onTap: onToggle,
+        radius: 26,
+        containedInkWell: false,
+        child: SizedBox(
+          width: AppSpacing.minTouchTarget - 12,
+          height: AppSpacing.minTouchTarget - 12,
+          child: Center(
+            child: AnimatedContainer(
+              duration: AppMotion.fast,
+              curve: AppMotion.decelerate,
+              width: 26,
+              height: 26,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: isDone ? colors.successFill : Colors.transparent,
+                border: Border.all(
+                  color: isDone
+                      ? colors.successFill
+                      : accent.withValues(alpha: 0.55),
+                  width: 2,
+                ),
               ),
-              overflow: TextOverflow.ellipsis,
+              child: isDone
+                  ? const Icon(Icons.check_rounded, size: 16, color: Colors.white)
+                  : null,
             ),
           ),
-        ],
+        ),
       ),
     );
   }
 }
 
-class InlineLocationChip extends StatelessWidget {
-  final String location;
-  final Color color;
-  final Color iconColor;
+class _MetaLine extends StatelessWidget {
+  final Commitment commitment;
+  final bool isOverdue;
 
-  const InlineLocationChip({
-    super.key,
-    required this.location,
-    required this.color,
-    required this.iconColor,
+  const _MetaLine({required this.commitment, required this.isOverdue});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final tint = isOverdue ? colors.danger : colors.textMuted;
+
+    final parts = <Widget>[
+      if (isOverdue)
+        _MetaItem(
+          icon: Icons.error_outline_rounded,
+          label: 'Overdue',
+          tint: colors.danger,
+          emphasise: true,
+        ),
+      if (commitment.startTime != null)
+        _MetaItem(
+          icon: Icons.schedule_rounded,
+          label: commitment.startTime!,
+          tint: tint,
+        ),
+      if (commitment.location != null)
+        _MetaItem(
+          icon: Icons.place_outlined,
+          label: commitment.location!,
+          tint: tint,
+        ),
+    ];
+
+    return Wrap(
+      spacing: AppSpacing.smd,
+      runSpacing: AppSpacing.xs,
+      children: parts,
+    );
+  }
+}
+
+class _MetaItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color tint;
+  final bool emphasise;
+
+  const _MetaItem({
+    required this.icon,
+    required this.label,
+    required this.tint,
+    this.emphasise = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      constraints: const BoxConstraints(maxWidth: 160),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.location_on_outlined, size: 14, color: iconColor),
-          const SizedBox(width: 4),
-          Flexible(
-            child: Text(
-              location,
-              style: TextStyle(fontSize: 13, color: color),
-              overflow: TextOverflow.ellipsis,
-            ),
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 15, color: tint),
+        const SizedBox(width: AppSpacing.xs + 1),
+        Text(
+          label,
+          style: context.text.meta.copyWith(
+            color: tint,
+            fontWeight: emphasise ? FontWeight.w600 : FontWeight.w500,
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }

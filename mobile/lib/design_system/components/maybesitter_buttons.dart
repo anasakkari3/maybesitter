@@ -1,8 +1,19 @@
 import 'package:flutter/material.dart';
+
 import '../theme/app_theme.dart';
+import '../tokens/elevation.dart';
+import '../tokens/gradients.dart';
+import '../tokens/motion.dart';
 import '../tokens/radius.dart';
 import '../tokens/spacing.dart';
+import 'pressable.dart';
 
+const double _kButtonHeight = 54.0;
+
+/// The one loud button on a screen.
+///
+/// Filled with the indigo → violet brand gradient. There should never be two
+/// of these competing in the same viewport.
 class PrimaryButton extends StatelessWidget {
   final String label;
   final VoidCallback? onPressed;
@@ -22,58 +33,77 @@ class PrimaryButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    final button = ElevatedButton(
-      onPressed: isLoading ? null : onPressed,
-      style: ElevatedButton.styleFrom(
-        backgroundColor: colors.brandPrimary,
-        foregroundColor: colors.background,
-        disabledBackgroundColor: colors.surfaceElevated,
-        elevation: 0,
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.lg,
-          vertical: AppSpacing.md,
-        ),
-        shape: const RoundedRectangleBorder(borderRadius: AppRadius.control),
-      ),
-      child: isLoading
-          ? SizedBox(
-              height: 20,
-              width: 20,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: colors.background,
-              ),
-            )
-          : Row(
-              mainAxisSize: isFullWidth ? MainAxisSize.max : MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                if (icon != null) ...[
-                  Icon(icon, size: 20),
-                  const SizedBox(width: AppSpacing.sm),
-                ],
-                Flexible(
-                  child: Text(
-                    label,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 15,
-                      color: colors.background,
-                    ),
-                  ),
-                ),
-              ],
+    final enabled = onPressed != null && !isLoading;
+
+    final content = isLoading
+        ? const SizedBox(
+            height: 22,
+            width: 22,
+            child: CircularProgressIndicator(
+              strokeWidth: 2.4,
+              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
             ),
+          )
+        : Row(
+            mainAxisSize: isFullWidth ? MainAxisSize.max : MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (icon != null) ...[
+                Icon(icon, size: 20, color: Colors.white),
+                const SizedBox(width: AppSpacing.sm),
+              ],
+              Flexible(
+                child: Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: context.text.button.copyWith(color: Colors.white),
+                ),
+              ),
+            ],
+          );
+
+    final button = AnimatedContainer(
+      duration: AppMotion.fast,
+      curve: AppMotion.decelerate,
+      height: _kButtonHeight,
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        gradient: enabled ? AppGradients.primary(colors) : null,
+        color: enabled ? null : colors.surfaceMuted,
+        borderRadius: AppRadius.control,
+        boxShadow: enabled ? AppElevation.brand(colors) : null,
+      ),
+      child: DefaultTextStyle.merge(
+        style: TextStyle(color: enabled ? Colors.white : colors.textMuted),
+        child: IconTheme.merge(
+          data: IconThemeData(
+            color: enabled ? Colors.white : colors.textMuted,
+          ),
+          child: content,
+        ),
+      ),
     );
 
-    if (isFullWidth) {
-      return SizedBox(width: double.infinity, child: button);
-    }
-    return button;
+    final wrapped = Pressable(
+      onTap: enabled ? onPressed : null,
+      borderRadius: AppRadius.control,
+      semanticLabel: label,
+      excludeChildSemantics: true,
+      isButton: true,
+      isEnabled: enabled,
+      child: button,
+    );
+
+    return isFullWidth
+        ? SizedBox(width: double.infinity, child: wrapped)
+        : wrapped;
   }
 }
 
+/// The quiet counterpart to [PrimaryButton] — outlined, on-surface.
 class SecondaryButton extends StatelessWidget {
   final String label;
   final VoidCallback? onPressed;
@@ -91,34 +121,37 @@ class SecondaryButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    final button = OutlinedButton(
-      onPressed: onPressed,
-      style: OutlinedButton.styleFrom(
-        foregroundColor: colors.textPrimary,
-        backgroundColor: colors.surface,
-        side: BorderSide(color: colors.borderStrong, width: 1.5),
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.lg,
-          vertical: AppSpacing.md,
-        ),
-        shape: const RoundedRectangleBorder(borderRadius: AppRadius.control),
+    final enabled = onPressed != null;
+
+    final button = Container(
+      height: _kButtonHeight,
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: AppRadius.control,
+        border: Border.all(color: colors.borderStrong, width: 1.5),
       ),
       child: Row(
         mainAxisSize: isFullWidth ? MainAxisSize.max : MainAxisSize.min,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           if (icon != null) ...[
-            Icon(icon, size: 20, color: colors.textPrimary),
+            Icon(
+              icon,
+              size: 20,
+              color: enabled ? colors.textPrimary : colors.textMuted,
+            ),
             const SizedBox(width: AppSpacing.sm),
           ],
           Flexible(
             child: Text(
               label,
+              textAlign: TextAlign.center,
+              maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontWeight: FontWeight.w600,
-                fontSize: 15,
-                color: colors.textPrimary,
+              style: context.text.button.copyWith(
+                color: enabled ? colors.textPrimary : colors.textMuted,
               ),
             ),
           ),
@@ -126,13 +159,69 @@ class SecondaryButton extends StatelessWidget {
       ),
     );
 
-    if (isFullWidth) {
-      return SizedBox(width: double.infinity, child: button);
-    }
-    return button;
+    final wrapped = Pressable(
+      onTap: onPressed,
+      borderRadius: AppRadius.control,
+      semanticLabel: label,
+      excludeChildSemantics: true,
+      child: button,
+    );
+
+    return isFullWidth
+        ? SizedBox(width: double.infinity, child: wrapped)
+        : wrapped;
   }
 }
 
+/// Low-emphasis inline action. No container, just a tinted label.
+class TertiaryButton extends StatelessWidget {
+  final String label;
+  final VoidCallback? onPressed;
+  final IconData? icon;
+  final bool isDestructive;
+
+  const TertiaryButton({
+    super.key,
+    required this.label,
+    this.onPressed,
+    this.icon,
+    this.isDestructive = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final tint = isDestructive ? colors.danger : colors.brandStrong;
+
+    return TextButton(
+      onPressed: onPressed,
+      style: TextButton.styleFrom(
+        foregroundColor: tint,
+        minimumSize: const Size(0, AppSpacing.minTouchTarget),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.smd,
+          vertical: AppSpacing.sm,
+        ),
+        shape: const RoundedRectangleBorder(borderRadius: AppRadius.control),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 18, color: tint),
+            const SizedBox(width: AppSpacing.sm),
+          ],
+          Text(
+            label,
+            style: context.text.button.copyWith(fontSize: 15, color: tint),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Irreversible actions only.
 class DestructiveButton extends StatelessWidget {
   final String label;
   final VoidCallback? onPressed;
@@ -148,50 +237,54 @@ class DestructiveButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
+
     return SizedBox(
       width: double.infinity,
-      child: ElevatedButton(
-        onPressed: onPressed,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: colors.destructive,
-          foregroundColor: Colors.white,
-          elevation: 0,
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.lg,
-            vertical: AppSpacing.md,
+      child: Pressable(
+        onTap: onPressed,
+        borderRadius: AppRadius.control,
+        semanticLabel: label,
+        excludeChildSemantics: true,
+        child: Container(
+          height: _kButtonHeight,
+          alignment: Alignment.center,
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+          decoration: BoxDecoration(
+            color: colors.dangerSubtle,
+            borderRadius: AppRadius.control,
+            border: Border.all(color: colors.danger.withValues(alpha: 0.35)),
           ),
-          shape: const RoundedRectangleBorder(borderRadius: AppRadius.control),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            if (icon != null) ...[
-              Icon(icon, size: 20, color: Colors.white),
-              const SizedBox(width: AppSpacing.sm),
-            ],
-            Flexible(
-              child: Text(
-                label,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 15,
-                  color: Colors.white,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (icon != null) ...[
+                Icon(icon, size: 20, color: colors.danger),
+                const SizedBox(width: AppSpacing.sm),
+              ],
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: context.text.button.copyWith(color: colors.danger),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
+/// A circular icon action sized to a comfortable 48dp touch target.
 class IconActionButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback? onPressed;
   final String tooltip;
   final Color? color;
+  final bool filled;
 
   const IconActionButton({
     super.key,
@@ -199,16 +292,26 @@ class IconActionButton extends StatelessWidget {
     this.onPressed,
     required this.tooltip,
     this.color,
+    this.filled = false,
   });
 
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
+    final tint = color ?? colors.textSecondary;
+
     return IconButton(
-      icon: Icon(icon, color: color ?? colors.textPrimary),
+      icon: Icon(icon, size: 22, color: tint),
       onPressed: onPressed,
       tooltip: tooltip,
-      splashRadius: 24,
+      style: IconButton.styleFrom(
+        backgroundColor: filled ? colors.surfaceMuted : null,
+        minimumSize: const Size(
+          AppSpacing.minTouchTarget,
+          AppSpacing.minTouchTarget,
+        ),
+        shape: const CircleBorder(),
+      ),
     );
   }
 }

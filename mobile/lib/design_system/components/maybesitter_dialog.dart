@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../../core/utilities/l10n_extensions.dart';
 import '../theme/app_theme.dart';
 import '../tokens/radius.dart';
@@ -8,7 +9,10 @@ import 'maybesitter_buttons.dart';
 class MaybesitterDialog extends StatelessWidget {
   final String title;
   final String message;
+
   final String confirmLabel;
+
+  /// Defaults to the localized cancel action when not supplied.
   final String? cancelLabel;
   final VoidCallback onConfirm;
   final bool isDestructive;
@@ -50,46 +54,63 @@ class MaybesitterDialog extends StatelessWidget {
     final l10n = context.l10n;
     final displayCancelLabel = cancelLabel ?? l10n.cancelAction;
 
-    return AlertDialog(
+    return Dialog(
       backgroundColor: colors.surface,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
+      insetPadding: const EdgeInsets.all(AppSpacing.lg),
       shape: const RoundedRectangleBorder(borderRadius: AppRadius.card),
-      title: Text(
-        title,
-        style: TextStyle(
-          fontSize: 18,
-          fontWeight: FontWeight.w700,
-          color: colors.textPrimary,
-        ),
-      ),
-      content: Text(
-        message,
-        style: TextStyle(fontSize: 14, color: colors.textSecondary),
-      ),
-      actionsPadding: const EdgeInsets.all(AppSpacing.md),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(false),
-          child: Text(
-            displayCancelLabel,
-            style: TextStyle(color: colors.textMuted),
-          ),
-        ),
-        if (isDestructive)
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: colors.destructive,
-              foregroundColor: Colors.white,
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.lg),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: isDestructive ? colors.dangerSubtle : colors.brandSubtle,
+                borderRadius: BorderRadius.circular(AppRadius.md),
+              ),
+              child: Icon(
+                isDestructive
+                    ? Icons.warning_amber_rounded
+                    : Icons.help_outline_rounded,
+                size: 22,
+                color: isDestructive ? colors.danger : colors.brandStrong,
+              ),
             ),
-            onPressed: onConfirm,
-            child: Text(confirmLabel),
-          )
-        else
-          PrimaryButton(
-            label: confirmLabel,
-            onPressed: onConfirm,
-            isFullWidth: false,
-          ),
-      ],
+            const SizedBox(height: AppSpacing.md),
+            Text(title, style: context.text.heading2),
+            const SizedBox(height: AppSpacing.sm),
+            Text(message, style: context.text.supporting),
+            const SizedBox(height: AppSpacing.lg),
+            if (isDestructive)
+              DestructiveButton(label: confirmLabel, onPressed: onConfirm)
+            else
+              PrimaryButton(label: confirmLabel, onPressed: onConfirm),
+            const SizedBox(height: AppSpacing.sm),
+            SizedBox(
+              width: double.infinity,
+              child: TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                style: TextButton.styleFrom(
+                  foregroundColor: colors.textSecondary,
+                  minimumSize: const Size(0, AppSpacing.minTouchTarget),
+                ),
+                child: Text(
+                  displayCancelLabel,
+                  style: context.text.button.copyWith(
+                    fontSize: 15,
+                    color: colors.textSecondary,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

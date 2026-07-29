@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:maybesitter_mobile/app/app.dart';
+import 'package:maybesitter_mobile/design_system/components/capture_primary_action.dart';
 import 'package:maybesitter_mobile/features/capture/capture_composer_screen.dart';
 import 'package:maybesitter_mobile/models/app_settings.dart';
 import 'package:maybesitter_mobile/services/providers.dart';
@@ -42,12 +43,15 @@ void main() {
       expect(arDirectionality.textDirection, equals(TextDirection.rtl));
 
       // 4. Return to Today tab & open Capture Composer
-      final todayTab = find.byIcon(Icons.today_outlined);
+      // The Today destination uses the sunrise glyph in the refreshed nav.
+      final todayTab = find.byIcon(Icons.wb_sunny_outlined);
       expect(todayTab, findsOneWidget);
       await tester.tap(todayTab);
       await tester.pumpAndSettle();
 
-      final captureFab = find.byType(FloatingActionButton).first;
+      // The capture action is the gradient CapturePrimaryAction, not a
+      // Material FloatingActionButton.
+      final captureFab = find.byType(CapturePrimaryAction);
       expect(captureFab, findsOneWidget);
       await tester.tap(captureFab);
       await tester.pumpAndSettle();

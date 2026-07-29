@@ -49,6 +49,7 @@ void main() {
     testWidgets('2. Analyze button has primary button semantics and label', (
       tester,
     ) async {
+      final SemanticsHandle handle = tester.ensureSemantics();
       await tester.pumpWidget(
         _wrapWithApp(
           PrimaryButton(
@@ -60,28 +61,48 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final buttonFinder = find.byType(ElevatedButton);
-      expect(buttonFinder, findsOneWidget);
+      // Asserted through semantics rather than widget type: the primary CTA
+      // is a gradient surface, not a Material ElevatedButton.
+      expect(
+        tester.getSemantics(find.bySemanticsLabel('Analyze')),
+        containsSemantics(
+          label: 'Analyze',
+          isButton: true,
+          hasEnabledState: true,
+          isEnabled: true,
+          hasTapAction: true,
+        ),
+      );
       expect(find.text('Analyze'), findsOneWidget);
+      handle.dispose();
     });
 
     testWidgets('3. Disabled analyze button communicates disabled state', (
       tester,
     ) async {
+      final SemanticsHandle handle = tester.ensureSemantics();
       await tester.pumpWidget(
         _wrapWithApp(const PrimaryButton(label: 'Analyze', onPressed: null)),
       );
       await tester.pumpAndSettle();
 
-      final elevatedButton = tester.widget<ElevatedButton>(
-        find.byType(ElevatedButton),
+      expect(
+        tester.getSemantics(find.bySemanticsLabel('Analyze')),
+        containsSemantics(
+          label: 'Analyze',
+          isButton: true,
+          hasEnabledState: true,
+          isEnabled: false,
+          hasTapAction: false,
+        ),
       );
-      expect(elevatedButton.onPressed, isNull);
+      handle.dispose();
     });
 
     testWidgets(
       '4. ExtractionReviewCard checkbox semantics reflect selected and disabled states',
       (tester) async {
+        final SemanticsHandle handle = tester.ensureSemantics();
         const validItem = Commitment(
           id: 'item-valid',
           title: 'Valid Commitment Title',
@@ -99,8 +120,17 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        final checkbox = tester.widget<Checkbox>(find.byType(Checkbox));
-        expect(checkbox.value, isTrue);
+        // The selection control is a custom circular affordance; its contract
+        // is expressed through semantics, not through a Material Checkbox.
+        expect(
+          tester.getSemantics(find.bySemanticsLabel('Include in this save')),
+          containsSemantics(
+            hasCheckedState: true,
+            isChecked: true,
+            hasEnabledState: true,
+            isEnabled: true,
+          ),
+        );
 
         const clarifyItem = Commitment(
           id: 'item-clarify',
@@ -120,9 +150,20 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        final disabledCheckbox = tester.widget<Checkbox>(find.byType(Checkbox));
-        expect(disabledCheckbox.value, isFalse);
-        expect(disabledCheckbox.onChanged, isNull);
+        expect(
+          tester.getSemantics(
+            find.bySemanticsLabel(
+              'Needs clarification before it can be included',
+            ),
+          ),
+          containsSemantics(
+            hasCheckedState: true,
+            isChecked: false,
+            hasEnabledState: true,
+            isEnabled: false,
+          ),
+        );
+        handle.dispose();
       },
     );
 

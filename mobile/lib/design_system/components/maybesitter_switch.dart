@@ -1,38 +1,46 @@
 import 'package:flutter/material.dart';
+
 import '../theme/app_theme.dart';
+import '../tokens/spacing.dart';
 
 class MaybesitterSwitch extends StatelessWidget {
   final bool value;
   final ValueChanged<bool> onChanged;
   final String label;
+  final String? description;
 
   const MaybesitterSwitch({
     super.key,
     required this.value,
     required this.onChanged,
     required this.label,
+    this.description,
   });
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w500,
-            color: colors.textPrimary,
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: AppSpacing.minTouchTarget),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(label, style: context.text.cardTitle.copyWith(fontSize: 15)),
+                if (description != null) ...[
+                  const SizedBox(height: 2),
+                  Text(description!, style: context.text.caption),
+                ],
+              ],
+            ),
           ),
-        ),
-        Switch.adaptive(
-          value: value,
-          onChanged: onChanged,
-          activeTrackColor: colors.brandPrimary,
-        ),
-      ],
+          const SizedBox(width: AppSpacing.md),
+          Switch.adaptive(value: value, onChanged: onChanged),
+        ],
+      ),
     );
   }
 }

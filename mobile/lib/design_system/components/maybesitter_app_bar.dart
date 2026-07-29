@@ -1,7 +1,14 @@
 import 'package:flutter/material.dart';
-import '../../core/utilities/l10n_extensions.dart';
-import '../theme/app_theme.dart';
 
+import '../theme/app_theme.dart';
+import '../tokens/gradients.dart';
+import '../tokens/radius.dart';
+import '../tokens/spacing.dart';
+
+/// Screen header.
+///
+/// Title and subtitle are stacked with real hierarchy, and the optional brand
+/// mark is a small gradient tile rather than a stray icon.
 class MaybesitterAppBar extends StatelessWidget implements PreferredSizeWidget {
   final String title;
   final String? subtitle;
@@ -19,66 +26,77 @@ class MaybesitterAppBar extends StatelessWidget implements PreferredSizeWidget {
   });
 
   @override
-  Size get preferredSize => const Size.fromHeight(kToolbarHeight);
+  Size get preferredSize => const Size.fromHeight(72);
+
+  /// The header is a fixed-height container, so its text scale is capped.
+  /// Body content keeps the user's full scale — only this strip is clamped,
+  /// which keeps large-text settings from clipping the title.
+  static Widget _clampedHeader({required Widget child}) {
+    return MediaQuery.withClampedTextScaling(maxScaleFactor: 1.3, child: child);
+  }
 
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    final l10n = context.l10n;
 
     return AppBar(
+      toolbarHeight: 72,
       leading: leading,
-      title: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              if (showLogo) ...[
-                Icon(
-                  Icons.check_circle_outline,
-                  color: colors.brandPrimary,
-                  size: 22,
+      leadingWidth: leading == null ? null : 56,
+      titleSpacing: leading == null ? AppSpacing.gutter : 0,
+      backgroundColor: colors.background,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
+      scrolledUnderElevation: 0,
+      title: MaybesitterAppBar._clampedHeader(
+        child: Row(
+          children: [
+            if (showLogo) ...[
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  gradient: AppGradients.primary(colors),
+                  borderRadius: BorderRadius.circular(AppRadius.md),
                 ),
-                const SizedBox(width: 8),
-              ],
-              Flexible(
-                child: Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                    color: colors.textPrimary,
-                  ),
-                  overflow: TextOverflow.ellipsis,
+                child: const Icon(
+                  Icons.bolt_rounded,
+                  color: Colors.white,
+                  size: 20,
                 ),
               ),
+              const SizedBox(width: AppSpacing.smd),
             ],
-          ),
-          if (subtitle != null)
-            Text(
-              subtitle!,
-              style: TextStyle(
-                fontSize: 12,
-                color: colors.textMuted,
-                fontWeight: FontWeight.w400,
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: context.text.heading2,
+                  ),
+                  if (subtitle != null) ...[
+                    const SizedBox(height: 1),
+                    Text(
+                      subtitle!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: context.text.caption,
+                    ),
+                  ],
+                ],
               ),
-              overflow: TextOverflow.ellipsis,
-            ),
-        ],
-      ),
-      actions:
-          actions ??
-          [
-            IconButton(
-              icon: Icon(
-                Icons.notifications_outlined,
-                color: colors.textPrimary,
-              ),
-              onPressed: () {},
-              tooltip: l10n.notificationsTitle,
             ),
           ],
+        ),
+      ),
+      actions: [
+        ...?actions,
+        const SizedBox(width: AppSpacing.sm),
+      ],
     );
   }
 }

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+
 import '../theme/app_theme.dart';
+import '../tokens/elevation.dart';
 import '../tokens/radius.dart';
 import '../tokens/spacing.dart';
 
@@ -12,33 +14,29 @@ class UndoBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
+
     return Container(
       margin: const EdgeInsets.all(AppSpacing.md),
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.md,
-        vertical: AppSpacing.sm,
-      ),
+      padding: const EdgeInsets.only(left: AppSpacing.md, right: AppSpacing.sm),
+      constraints: const BoxConstraints(minHeight: AppSpacing.minTouchTarget),
       decoration: BoxDecoration(
-        color: colors.surfaceElevated,
-        borderRadius: AppRadius.control,
+        color: colors.surface,
+        borderRadius: AppRadius.cardInner,
         border: Border.all(color: colors.border),
+        boxShadow: AppElevation.raised(colors),
       ),
       child: Row(
         children: [
           Expanded(
-            child: Text(
-              message,
-              style: TextStyle(fontSize: 13, color: colors.textPrimary),
-            ),
+            child: Text(message, style: context.text.supporting),
           ),
           TextButton(
             onPressed: onUndo,
             child: Text(
               'Undo',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: colors.brandPrimary,
+              style: context.text.button.copyWith(
+                fontSize: 15,
+                color: colors.brandStrong,
               ),
             ),
           ),
