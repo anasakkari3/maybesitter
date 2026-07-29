@@ -136,7 +136,7 @@ class ExtractionReviewCard extends StatelessWidget {
                 if (commitment.startTime != null)
                   MetaChip(
                     icon: Icons.schedule_rounded,
-                    label: commitment.startTime!,
+                    label: DateFormatter.isolate(commitment.startTime!),
                   ),
                 if (commitment.location != null)
                   MetaChip(

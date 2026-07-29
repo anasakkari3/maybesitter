@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/utilities/date_formatter.dart';
 import '../../models/commitment.dart';
 import '../theme/app_theme.dart';
 import '../tokens/radius.dart';
@@ -74,7 +75,10 @@ class CompactCommitmentRow extends StatelessWidget {
                     ),
                     if (commitment.startTime != null) ...[
                       const SizedBox(height: 2),
-                      Text(commitment.startTime!, style: context.text.caption),
+                      Text(
+                        DateFormatter.isolate(commitment.startTime!),
+                        style: context.text.caption,
+                      ),
                     ],
                   ],
                 ),

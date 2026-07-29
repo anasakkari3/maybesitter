@@ -164,7 +164,10 @@ void main() {
       expect(fullDateAr, contains('2026'));
       expect(fullDateHe, contains('2026'));
 
-      expect(DateFormatter.formatTime('15:30'), equals('15:30'));
+      expect(
+        DateFormatter.stripIsolates(DateFormatter.formatTime('15:30')),
+        equals('15:30'),
+      );
       expect(l10nEn.tomorrowGroupHeader, equals('Tomorrow'));
       expect(l10nAr.tomorrowGroupHeader, equals('غدًا'));
       expect(l10nHe.tomorrowGroupHeader, equals('מחר'));

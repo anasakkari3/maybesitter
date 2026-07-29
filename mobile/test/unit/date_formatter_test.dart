@@ -13,8 +13,12 @@ void main() {
     });
 
     test('formatTimeRange handles nulls gracefully', () {
+      // Ranges carry bidi isolate marks so RTL cannot reorder them; assert
+      // on the visible content.
       expect(
-        DateFormatter.formatTimeRange('09:00 AM', '11:00 AM'),
+        DateFormatter.stripIsolates(
+          DateFormatter.formatTimeRange('09:00 AM', '11:00 AM'),
+        ),
         '09:00 AM — 11:00 AM',
       );
       expect(DateFormatter.formatTimeRange(null, null), 'Full day');

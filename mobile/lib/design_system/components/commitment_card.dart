@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/utilities/date_formatter.dart';
 import '../../models/commitment.dart';
 import '../theme/app_theme.dart';
 import '../tokens/elevation.dart';
@@ -214,7 +215,7 @@ class _MetaLine extends StatelessWidget {
       if (commitment.startTime != null)
         _MetaItem(
           icon: Icons.schedule_rounded,
-          label: commitment.startTime!,
+          label: DateFormatter.isolate(commitment.startTime!),
           tint: tint,
         ),
       if (commitment.location != null)

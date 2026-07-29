@@ -2,6 +2,31 @@ import 'package:intl/intl.dart';
 import '../../l10n/generated/app_localizations.dart';
 
 class DateFormatter {
+  /// U+2066 LEFT-TO-RIGHT ISOLATE.
+  static const String lri = '\u2066';
+
+  /// U+2069 POP DIRECTIONAL ISOLATE.
+  static const String pdi = '\u2069';
+
+  /// Wraps [text] in a Unicode directional isolate so it always renders
+  /// left-to-right and, crucially, is treated as a single opaque unit by the
+  /// surrounding paragraph's bidi algorithm.
+  ///
+  /// Clock times are LTR tokens ("09:00 AM"). Dropped bare into an RTL
+  /// paragraph, the algorithm reorders the run and a range renders as
+  /// "AM — 11:30 AM 09:00". Isolating each token, and the range as a whole,
+  /// keeps the digits in order and keeps start before end without reversing
+  /// the semantic order.
+  static String isolate(String text) {
+    if (text.isEmpty) return text;
+    return '$lri$text$pdi';
+  }
+
+  /// Strips directional isolate marks. For tests and for any consumer that
+  /// needs the bare value (comparison, persistence, semantics labels).
+  static String stripIsolates(String text) =>
+      text.replaceAll(lri, '').replaceAll(pdi, '');
+
   static String formatHeaderDate(DateTime? date, {String? locale}) {
     if (date == null) return 'No date set';
     final now = DateTime.now();
@@ -52,13 +77,21 @@ class DateFormatter {
 
   static String formatTime(String? time) {
     if (time == null || time.isEmpty) return 'Full day';
-    return time;
+    return isolate(time);
   }
 
+  /// Start — end, safe to embed in Arabic and Hebrew paragraphs.
+  ///
+  /// Each endpoint is isolated so its digits and any AM/PM marker stay in
+  /// order, and the whole range is isolated so the separator cannot pull the
+  /// endpoints apart or swap them.
   static String formatTimeRange(String? start, String? end) {
     if (start == null && end == null) return 'Full day';
-    if (start != null && end != null) return '$start — $end';
-    return start ?? end ?? 'Full day';
+    if (start != null && end != null) {
+      return isolate('${isolate(start)} — ${isolate(end)}');
+    }
+    final single = start ?? end;
+    return single == null ? 'Full day' : isolate(single);
   }
 
   static bool isSameDay(DateTime? a, DateTime? b) {
