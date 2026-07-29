@@ -86,6 +86,10 @@ class AppLocalizationsHe extends AppLocalizations {
   String get voiceCaptureStopTooltip => 'עצירת הקלטה';
 
   @override
+  String get editingDisabledExplanation =>
+      'העריכה אינה זמינה זמנית כדי להגן על מועד ההתחייבות.';
+
+  @override
   String get privacyNote =>
       'התוכנית שלך מנותחת בפרטיות מלאה באמצעות אינטליגנציה שקטה.';
 

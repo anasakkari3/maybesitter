@@ -51,18 +51,11 @@ class ApiCommitmentRepository implements CommitmentRepository {
 
   @override
   Future<void> update(Commitment commitment) async {
-    final req = PatchCommitmentRequestDto(
-      title: commitment.title,
-      description: commitment.description,
-      priority: CommitmentMapper.mapPriorityToBackendLevel(commitment.priority),
-      dueDate: commitment.scheduledDate?.toIso8601String(),
+    // Data-Integrity Guard: Commitment PATCH endpoint is disabled in real API mode
+    // to protect users from timezone offset shifts and UTC overwrites.
+    throw UnsupportedError(
+      'Commitment PATCH is disabled in real backend mode to protect scheduled time integrity.',
     );
-
-    await apiClient.patch(
-      '/api/mobile/commitments/${commitment.id}',
-      req.toJson(),
-    );
-    await getToday();
   }
 
   @override

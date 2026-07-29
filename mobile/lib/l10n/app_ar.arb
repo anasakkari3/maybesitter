@@ -21,6 +21,7 @@
   "composerInputHint": "مثال: \"غدًا صباحًا الساعة 9 موعد الطبيب، ثم لقاء سارة للقهوة الساعة 2 ظهرًا...\"",
   "voiceCaptureTooltip": "تسجيل صوتي",
   "voiceCaptureStopTooltip": "إيقاف التسجيل",
+  "editingDisabledExplanation": "التعديل غير متاح مؤقتًا لحماية موعد الالتزام.",
   "privacyNote": "يتم تحليل خطتك بخصوصية تامة عبر الذكاء الهادئ.",
   "analyzeAction": "تحليل النص",
   "reviewPlanTitle": "مراجعة خطتك",

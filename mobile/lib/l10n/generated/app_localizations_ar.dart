@@ -88,6 +88,10 @@ class AppLocalizationsAr extends AppLocalizations {
   String get voiceCaptureStopTooltip => 'إيقاف التسجيل';
 
   @override
+  String get editingDisabledExplanation =>
+      'التعديل غير متاح مؤقتًا لحماية موعد الالتزام.';
+
+  @override
   String get privacyNote => 'يتم تحليل خطتك بخصوصية تامة عبر الذكاء الهادئ.';
 
   @override

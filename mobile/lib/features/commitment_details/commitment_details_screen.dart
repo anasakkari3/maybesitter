@@ -26,6 +26,7 @@ class CommitmentDetailsScreen extends ConsumerWidget {
     final colors = context.colors;
     final l10n = context.l10n;
     final localeCode = context.currentLanguageCode;
+    final config = ref.watch(appConfigProvider);
     final commitments = ref.watch(commitmentsStreamProvider).value ?? [];
 
     Commitment? commitment;
@@ -66,6 +67,29 @@ class CommitmentDetailsScreen extends ConsumerWidget {
           onPressed: () => context.pop(),
         ),
         actions: [
+          IconButton(
+            icon: Icon(
+              Icons.edit_outlined,
+              color: config.supportsSafeCommitmentPatch
+                  ? colors.textPrimary
+                  : colors.textMuted.withValues(alpha: 0.5),
+            ),
+            tooltip: config.supportsSafeCommitmentPatch
+                ? 'Edit'
+                : l10n.editingDisabledExplanation,
+            onPressed: () {
+              if (config.supportsSafeCommitmentPatch) {
+                // Mock mode editing allowed for prototyping
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(l10n.editingDisabledExplanation),
+                    duration: const Duration(seconds: 3),
+                  ),
+                );
+              }
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.delete_outline),
             color: colors.destructive,

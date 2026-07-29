@@ -18,6 +18,10 @@ class AppConfig {
   bool get isMock => apiMode == ApiMode.mock;
   bool get isLocalBackend => apiMode == ApiMode.localBackend;
 
+  /// Capability flag protecting users from backend timezone offset data-corruption defect.
+  /// Default: false for real backend modes, true for mock UI prototyping.
+  bool get supportsSafeCommitmentPatch => isMock;
+
   static String resolveTimezone({
     String? userTimezone,
     String? deviceTimezone,

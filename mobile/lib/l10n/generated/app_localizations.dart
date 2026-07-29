@@ -226,6 +226,12 @@ abstract class AppLocalizations {
   /// **'Stop Recording'**
   String get voiceCaptureStopTooltip;
 
+  /// No description provided for @editingDisabledExplanation.
+  ///
+  /// In en, this message translates to:
+  /// **'Editing is temporarily unavailable to protect your scheduled time.'**
+  String get editingDisabledExplanation;
+
   /// No description provided for @privacyNote.
   ///
   /// In en, this message translates to:

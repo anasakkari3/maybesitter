@@ -21,6 +21,7 @@
   "composerInputHint": "לדוגמה: \"מחר בבוקר ב-9:00 תור לרופא, ואז פגישה עם שרה לקפה ב-14:00...\"",
   "voiceCaptureTooltip": "הקלטה קולית",
   "voiceCaptureStopTooltip": "עצירת הקלטה",
+  "editingDisabledExplanation": "העריכה אינה זמינה זמנית כדי להגן על מועד ההתחייבות.",
   "privacyNote": "התוכנית שלך מנותחת בפרטיות מלאה באמצעות אינטליגנציה שקטה.",
   "analyzeAction": "ניתוח הטקסט",
   "reviewPlanTitle": "בדיקת התוכנית שלך",

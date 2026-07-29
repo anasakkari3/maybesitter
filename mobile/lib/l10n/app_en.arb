@@ -38,6 +38,7 @@
   "composerInputHint": "e.g. \"Tomorrow morning at 9am doctor visit, then meet Sarah for coffee at 2pm...\"",
   "voiceCaptureTooltip": "Voice Capture",
   "voiceCaptureStopTooltip": "Stop Recording",
+  "editingDisabledExplanation": "Editing is temporarily unavailable to protect your scheduled time.",
   "privacyNote": "Your plan is analyzed privately with Quiet Intelligence.",
   "analyzeAction": "Analyze",
   "reviewPlanTitle": "Review Your Plan",

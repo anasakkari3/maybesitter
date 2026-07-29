@@ -85,6 +85,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get voiceCaptureStopTooltip => 'Stop Recording';
 
   @override
+  String get editingDisabledExplanation =>
+      'Editing is temporarily unavailable to protect your scheduled time.';
+
+  @override
   String get privacyNote =>
       'Your plan is analyzed privately with Quiet Intelligence.';
 
