@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../tokens/colors.dart';
 
@@ -22,6 +21,9 @@ import '../tokens/colors.dart';
 /// engine falls through to the platform font, exactly as the previous face
 /// did, so those scripts keep rendering.
 abstract class AppTextStyles {
+  /// The bundled Latin family.
+  static const String fontFamily = 'Poppins';
+
   static TextStyle _base({
     required double size,
     required FontWeight weight,
@@ -29,7 +31,11 @@ abstract class AppTextStyles {
     required Color color,
     double? letterSpacing,
   }) {
-    return GoogleFonts.poppins(
+    return TextStyle(
+      // Bundled family (see pubspec). Arabic and Hebrew have no Poppins
+      // coverage and fall through to the platform font automatically, which
+      // is what we want for joining and glyph metrics.
+      fontFamily: fontFamily,
       fontSize: size,
       fontWeight: weight,
       height: height,

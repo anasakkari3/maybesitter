@@ -46,8 +46,7 @@ class AppIcons {
   IconData get complete =>
       _pick(CupertinoIcons.check_mark_circled, Icons.check_circle_rounded);
   IconData get check => _pick(CupertinoIcons.check_mark, Icons.check_rounded);
-  IconData get postpone =>
-      _pick(CupertinoIcons.clock, Icons.schedule_rounded);
+  IconData get postpone => _pick(CupertinoIcons.clock, Icons.schedule_rounded);
   IconData get delete => _pick(CupertinoIcons.delete, Icons.delete_outline);
   IconData get edit => _pick(CupertinoIcons.pencil, Icons.edit_outlined);
   IconData get more =>
@@ -60,6 +59,5 @@ class AppIcons {
   IconData get calendar =>
       _pick(CupertinoIcons.calendar_today, Icons.event_rounded);
   IconData get time => _pick(CupertinoIcons.time, Icons.schedule_rounded);
-  IconData get location =>
-      _pick(CupertinoIcons.location, Icons.place_outlined);
+  IconData get location => _pick(CupertinoIcons.location, Icons.place_outlined);
 }

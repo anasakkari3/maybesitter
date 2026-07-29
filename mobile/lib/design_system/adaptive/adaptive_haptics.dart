@@ -36,8 +36,7 @@ abstract final class AdaptiveHaptics {
   static void rejected() => _fire('rejected', HapticFeedback.vibrate);
 
   /// A destructive confirmation was presented or accepted.
-  static void destructive() =>
-      _fire('destructive', HapticFeedback.heavyImpact);
+  static void destructive() => _fire('destructive', HapticFeedback.heavyImpact);
 
   /// A picker committed to a value.
   static void selection() => _fire('selection', HapticFeedback.selectionClick);

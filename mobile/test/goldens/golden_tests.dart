@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:maybesitter_mobile/design_system/theme/app_theme.dart';
 import 'package:maybesitter_mobile/features/capture/capture_composer_screen.dart';
 import 'package:maybesitter_mobile/features/capture/capture_controller.dart';
@@ -17,9 +16,8 @@ import 'package:maybesitter_mobile/models/commitment.dart';
 import 'package:maybesitter_mobile/services/providers.dart';
 
 void main() {
-  setUpAll(() {
-    GoogleFonts.config.allowRuntimeFetching = true;
-  });
+  // Poppins is bundled as an asset now, so goldens no longer need runtime
+  // font fetching to render real glyphs.
 
   final testCommitments = [
     Commitment(

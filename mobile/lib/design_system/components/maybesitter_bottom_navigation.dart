@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../core/utilities/l10n_extensions.dart';
+import '../adaptive/adaptive_platform.dart';
+import '../adaptive/app_icons.dart';
 import '../theme/app_theme.dart';
 import '../tokens/elevation.dart';
 import '../tokens/motion.dart';
@@ -17,15 +19,12 @@ class _NavItem {
 /// Built per-frame so destination labels follow the active locale.
 List<_NavItem> _navItems(BuildContext context) {
   final l10n = context.l10n;
+  final i = AppIcons.of(context);
   return [
-    _NavItem(Icons.wb_sunny_outlined, Icons.wb_sunny_rounded, l10n.todayTab),
-    _NavItem(
-      Icons.calendar_month_outlined,
-      Icons.calendar_month_rounded,
-      l10n.upcomingTab,
-    ),
-    _NavItem(Icons.history_rounded, Icons.history_rounded, l10n.activityTab),
-    _NavItem(Icons.settings_outlined, Icons.settings_rounded, l10n.settingsTab),
+    _NavItem(i.todayOutline, i.today, l10n.todayTab),
+    _NavItem(i.upcomingOutline, i.upcoming, l10n.upcomingTab),
+    _NavItem(i.activityOutline, i.activity, l10n.activityTab),
+    _NavItem(i.settingsOutline, i.settings, l10n.settingsTab),
   ];
 }
 
@@ -75,7 +74,7 @@ class MaybesitterBottomNavigation extends StatelessWidget {
                     onTap: () => onTap(index),
                     borderRadius: AppRadius.chip,
                     child: AnimatedContainer(
-                      duration: AppMotion.fast,
+                      duration: Adaptive.motion(context, AppMotion.fast),
                       curve: AppMotion.decelerate,
                       constraints: const BoxConstraints(
                         minHeight: AppSpacing.minTouchTarget,

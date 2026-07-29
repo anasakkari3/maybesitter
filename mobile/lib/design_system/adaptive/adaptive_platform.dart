@@ -36,8 +36,7 @@ abstract final class Adaptive {
     };
   }
 
-  static bool isCupertino(BuildContext context) =>
-      idiomOf(context).isCupertino;
+  static bool isCupertino(BuildContext context) => idiomOf(context).isCupertino;
 
   /// Whether the user has asked the system to reduce motion.
   ///

@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/utilities/l10n_extensions.dart';
+import '../../design_system/adaptive/adaptive_haptics.dart';
+import '../../design_system/adaptive/adaptive_platform.dart';
 import '../../design_system/components/commitment_card.dart';
 import '../../design_system/components/maybesitter_app_bar.dart';
 import '../../design_system/components/maybesitter_buttons.dart';
@@ -12,6 +14,7 @@ import '../../design_system/components/section_header.dart';
 import '../../design_system/components/status_banner.dart';
 import '../../design_system/theme/app_theme.dart';
 import '../../design_system/tokens/elevation.dart';
+import '../../design_system/tokens/motion.dart';
 import '../../design_system/tokens/radius.dart';
 import '../../design_system/tokens/spacing.dart';
 import '../../models/capture_result.dart';
@@ -28,6 +31,13 @@ class CaptureComposerScreen extends ConsumerStatefulWidget {
 
 class _CaptureComposerScreenState extends ConsumerState<CaptureComposerScreen> {
   late TextEditingController _textController;
+  late final FocusNode _focusNode = FocusNode()..addListener(_onFocusChanged);
+  bool _inputFocused = false;
+
+  void _onFocusChanged() {
+    if (!mounted) return;
+    setState(() => _inputFocused = _focusNode.hasFocus);
+  }
 
   @override
   void initState() {
@@ -50,6 +60,9 @@ class _CaptureComposerScreenState extends ConsumerState<CaptureComposerScreen> {
 
   @override
   void dispose() {
+    _focusNode
+      ..removeListener(_onFocusChanged)
+      ..dispose();
     _textController.removeListener(_onTextChanged);
     _textController.dispose();
     super.dispose();
@@ -101,13 +114,23 @@ class _CaptureComposerScreenState extends ConsumerState<CaptureComposerScreen> {
                   const SizedBox(height: AppSpacing.lg),
 
                   // Text area container
-                  Container(
+                  AnimatedContainer(
+                    duration: Adaptive.motion(context, AppMotion.fast),
+                    curve: AppMotion.decelerate,
                     padding: const EdgeInsets.all(AppSpacing.md),
                     decoration: BoxDecoration(
                       color: colors.surface,
                       borderRadius: AppRadius.card,
-                      border: Border.all(color: colors.border, width: 1.5),
-                      boxShadow: AppElevation.card(colors),
+                      // Focus reads as a stronger ring plus a small lift, so
+                      // the writing surface is unmistakably live - without
+                      // moving anything.
+                      border: Border.all(
+                        color: _inputFocused ? colors.focusRing : colors.border,
+                        width: 1.5,
+                      ),
+                      boxShadow: _inputFocused
+                          ? AppElevation.raised(colors)
+                          : AppElevation.card(colors),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -283,6 +306,7 @@ class _CaptureComposerScreenState extends ConsumerState<CaptureComposerScreen> {
                     ? null
                     : () async {
                         final router = GoRouter.of(context);
+                        AdaptiveHaptics.success();
                         await captureNotifier.submitIntent(trimmedInput);
 
                         if (!mounted) return;

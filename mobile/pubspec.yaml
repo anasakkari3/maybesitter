@@ -39,7 +39,6 @@ dependencies:
   flutter_svg: ^2.0.17
   shared_preferences: ^2.5.2
   intl: ^0.20.2
-  google_fonts: ^6.2.1
   freezed_annotation: ^2.4.4
   json_annotation: ^4.9.0
   http: ^1.2.0
@@ -74,6 +73,23 @@ flutter:
   assets:
     - assets/icons/
     - assets/images/
+    - assets/fonts/OFL.txt
+
+  # Bundled so typography is deterministic offline and there is no reflow
+  # after first paint. Poppins is SIL OFL 1.1; assets/fonts/OFL.txt ships the
+  # licence. Latin only - Arabic and Hebrew intentionally fall through to the
+  # platform font, which has the right joining and glyph metrics.
+  fonts:
+    - family: Poppins
+      fonts:
+        - asset: assets/fonts/Poppins-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Poppins-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Poppins-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Poppins-Bold.ttf
+          weight: 700
 
 
   # To add assets to your application, add an assets section, like this:

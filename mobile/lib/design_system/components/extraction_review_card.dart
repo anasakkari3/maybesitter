@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../../core/utilities/date_formatter.dart';
+import '../adaptive/adaptive_haptics.dart';
+import '../adaptive/adaptive_platform.dart';
 import '../../models/commitment.dart';
 import '../theme/app_theme.dart';
 import '../tokens/elevation.dart';
+import '../tokens/motion.dart';
 import '../tokens/radius.dart';
 import '../tokens/spacing.dart';
 import 'maybesitter_chip.dart';
@@ -54,10 +57,20 @@ class ExtractionReviewCard extends StatelessWidget {
             ? DateFormatter.formatShortDate(commitment.scheduledDate!)
             : 'No date set');
 
-    return Container(
+    return AnimatedContainer(
+      duration: Adaptive.motion(context, AppMotion.fast),
+      curve: AppMotion.decelerate,
       margin: const EdgeInsets.only(bottom: AppSpacing.smd),
       decoration: BoxDecoration(
-        color: colors.surface,
+        // Selected cards gain a brand tint and a firmer rail. Unselected ones
+        // stay on plain surface rather than being greyed out, so "not chosen"
+        // never reads as "unavailable".
+        color: effectivelySelected && !isDisabled
+            ? Color.alphaBlend(
+                colors.brandSubtle.withValues(alpha: 0.55),
+                colors.surface,
+              )
+            : colors.surface,
         borderRadius: AppRadius.card,
         border: Border.all(
           color: isDisabled
@@ -203,12 +216,22 @@ class _SelectionControl extends StatelessWidget {
           : 'Include in this save',
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: onChanged == null ? null : () => onChanged!(!isSelected),
+        // A blocked item still accepts the tap so it can explain itself:
+        // the haptic is paired with the visible clarification banner.
+        onTap: () {
+          if (isDisabled) {
+            AdaptiveHaptics.rejected();
+            return;
+          }
+          onChanged?.call(!isSelected);
+        },
         child: SizedBox(
           width: AppSpacing.minTouchTarget,
           height: AppSpacing.minTouchTarget,
           child: Center(
-            child: Container(
+            child: AnimatedContainer(
+              duration: Adaptive.motion(context, AppMotion.fast),
+              curve: AppMotion.decelerate,
               width: 26,
               height: 26,
               decoration: BoxDecoration(
@@ -223,13 +246,16 @@ class _SelectionControl extends StatelessWidget {
                   width: 2,
                 ),
               ),
-              child: isSelected
-                  ? const Icon(
-                      Icons.check_rounded,
-                      size: 16,
-                      color: Colors.white,
-                    )
-                  : null,
+              child: AnimatedScale(
+                scale: isSelected ? 1 : 0,
+                duration: Adaptive.motion(context, AppMotion.fast),
+                curve: AppMotion.decelerate,
+                child: const Icon(
+                  Icons.check_rounded,
+                  size: 16,
+                  color: Colors.white,
+                ),
+              ),
             ),
           ),
         ),

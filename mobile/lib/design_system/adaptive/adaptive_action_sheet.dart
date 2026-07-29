@@ -69,9 +69,7 @@ abstract final class AdaptiveActionSheet {
         top: false,
         child: Padding(
           // Keyboard-safe: if anything below opens a field, the sheet lifts.
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.viewInsetsOf(ctx).bottom,
-          ),
+          padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(ctx).bottom),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../tokens/colors.dart';
 import '../tokens/radius.dart';
@@ -31,7 +30,7 @@ class AppTheme {
       scaffoldBackgroundColor: colors.background,
       canvasColor: colors.background,
       extensions: <ThemeExtension<dynamic>>[colors],
-      fontFamily: GoogleFonts.poppins().fontFamily,
+      fontFamily: AppTextStyles.fontFamily,
       textTheme: textTheme,
       colorScheme: ColorScheme(
         brightness: brightness,

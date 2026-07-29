@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../adaptive/adaptive_platform.dart';
 import '../theme/app_theme.dart';
 import '../tokens/motion.dart';
 
@@ -63,6 +64,10 @@ class _PressableState extends State<Pressable> {
 
   @override
   Widget build(BuildContext context) {
+    // Press feedback is functional, not decorative, so it stays under reduced
+    // motion - but it becomes an instant state change rather than a tween.
+    final pressDuration = Adaptive.motion(context, AppMotion.instant);
+
     return Semantics(
       button: widget.isButton ?? (widget.onTap != null),
       enabled: widget.isEnabled,
@@ -80,7 +85,7 @@ class _PressableState extends State<Pressable> {
         onLongPress: widget.onLongPress,
         child: AnimatedScale(
           scale: _pressed ? widget.scale : 1.0,
-          duration: AppMotion.instant,
+          duration: pressDuration,
           curve: AppMotion.decelerate,
           child: Stack(
             // passthrough keeps the child's constraints identical to the ones
@@ -93,7 +98,7 @@ class _PressableState extends State<Pressable> {
                   child: IgnorePointer(
                     child: AnimatedOpacity(
                       opacity: _pressed ? 1.0 : 0.0,
-                      duration: AppMotion.instant,
+                      duration: pressDuration,
                       child: DecoratedBox(
                         decoration: BoxDecoration(
                           color: context.colors.shadow.withValues(alpha: 0.06),
