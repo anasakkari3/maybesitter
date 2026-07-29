@@ -19,7 +19,7 @@ class DefaultTimezoneService implements TimezoneService {
       }
 
       // Approved platform resolution via flutter_timezone plugin (retrieves native local device IANA timezone)
-      final String nativeZone = await FlutterTimezone.getLocalTimezone();
+      final nativeZone = (await FlutterTimezone.getLocalTimezone()).identifier;
       if (TimezoneService.isValidIana(nativeZone)) {
         return nativeZone;
       }
