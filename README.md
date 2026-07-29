@@ -1,5 +1,13 @@
 # Maybesitter
 
+## Current product strategy
+
+> **Turn overwhelm into one clear next step.**
+>
+> MaybeSitter captures what you committed to, proposes one realistic next action, explains why, and keeps you in control.
+
+The approved strategy is **NARROW AND TEST**. The broader Core Intelligence architecture is a conditional North Star, not the automatic implementation sequence. See [Current Product Strategy](docs/strategy/CURRENT_PRODUCT_STRATEGY.md) and [the market-evidence-gated roadmap](https://github.com/anasakkari3/maybesitter/issues/49).
+
 Maybesitter is a local-first commitment assistant for people whose day gets noisy fast.
 
 It is built around a simple idea: the problem is not always forgetting. Sometimes every task feels equally urgent, and the hard part is deciding what deserves attention now.
