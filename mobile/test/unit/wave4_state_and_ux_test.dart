@@ -234,5 +234,74 @@ void main() {
       );
       expect(AppConfig.resolveTimezone(userTimezone: null), isA<String>());
     });
+
+    test(
+      'Wave 4.1: Complete confirmation failure transitions to saveFailed and retains selected items',
+      () async {
+        final container = ProviderContainer(
+          overrides: [
+            appConfigProvider.overrideWith(
+              (ref) => const AppConfig(apiMode: ApiMode.localBackend),
+            ),
+            captureServiceProvider.overrideWithValue(
+              TestCaptureService(
+                confirmResponse: const ConfirmProposalResponseDto(
+                  success: false,
+                  persisted: [],
+                  failed: [
+                    FailedProposalItemDto(
+                      itemId: 'prev-1',
+                      reason: 'server_error',
+                    ),
+                    FailedProposalItemDto(
+                      itemId: 'prev-2',
+                      reason: 'server_error',
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+
+        final notifier = container.read(captureControllerProvider.notifier);
+        notifier.previewState(CaptureStatus.needsConfirmation);
+
+        final success = await notifier.confirmSave();
+        expect(success, isFalse);
+
+        final state = container.read(captureControllerProvider);
+        expect(state.status, equals(CaptureStatus.saveFailed));
+        expect(state.selectedItemIds, equals({'prev-1', 'prev-2'}));
+        expect(state.failedItems.length, equals(2));
+      },
+    );
+
+    test(
+      'Wave 4.1: Proposal expiry retains original rawInput for re-analysis',
+      () async {
+        final container = ProviderContainer(
+          overrides: [
+            captureServiceProvider.overrideWithValue(
+              TestCaptureService(
+                captureResponse: const CaptureResult(
+                  requestId: 'exp-1',
+                  rawInput: 'Doctor appointment tomorrow at 9am',
+                  status: CaptureStatus.proposalExpired,
+                  errorMessage: 'Proposal expired',
+                ),
+              ),
+            ),
+          ],
+        );
+
+        final notifier = container.read(captureControllerProvider.notifier);
+        await notifier.submitIntent('Doctor appointment tomorrow at 9am');
+
+        final state = container.read(captureControllerProvider);
+        expect(state.status, equals(CaptureStatus.proposalExpired));
+        expect(state.rawInput, equals('Doctor appointment tomorrow at 9am'));
+      },
+    );
   });
 }
