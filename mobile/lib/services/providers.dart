@@ -12,11 +12,17 @@ import 'contracts/capture_service.dart';
 import 'contracts/activity_repository.dart';
 import 'contracts/notification_service.dart';
 import 'contracts/connectivity_service.dart';
+import 'contracts/timezone_service.dart';
+import 'timezone_service_impl.dart';
 import 'mock/in_memory_commitment_repository.dart';
 import 'mock/mock_capture_service.dart';
 import 'mock/mock_activity_repository.dart';
 import 'mock/mock_notification_service.dart';
 import 'mock/mock_connectivity_service.dart';
+
+final timezoneServiceProvider = Provider<TimezoneService>((ref) {
+  return DefaultTimezoneService();
+});
 
 final appConfigProvider = StateProvider<AppConfig>((ref) {
   return const AppConfig(apiMode: ApiMode.mock);

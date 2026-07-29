@@ -27,7 +27,7 @@ class ExtractionReviewCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    final isDisabled = commitment.needsClarification;
+    final isDisabled = !commitment.canBeSelected;
 
     return Container(
       margin: const EdgeInsets.only(bottom: AppSpacing.md),
@@ -36,7 +36,7 @@ class ExtractionReviewCard extends StatelessWidget {
         color: colors.surface,
         borderRadius: AppRadius.card,
         border: Border.all(
-          color: commitment.needsClarification
+          color: isDisabled
               ? colors.warning
               : (isSelected
                     ? colors.brandPrimary.withValues(alpha: 0.6)

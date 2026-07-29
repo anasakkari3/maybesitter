@@ -62,6 +62,42 @@ class TestCaptureService implements CaptureService {
   }
 }
 
+class CapturingTestCaptureService implements CaptureService {
+  final List<List<String>> recordedConfirmItemIds = [];
+  final List<ConfirmProposalResponseDto> confirmResponses;
+  int _confirmCallCount = 0;
+
+  CapturingTestCaptureService({required this.confirmResponses});
+
+  @override
+  Future<CaptureResult> capture(CaptureRequest request) async {
+    return CaptureResult(
+      requestId: 'test-req',
+      proposalId: 'prop-test',
+      rawInput: request.rawInput,
+      status: CaptureStatus.needsConfirmation,
+      extractedCommitments: const [
+        Commitment(id: 'A', title: 'Item A'),
+        Commitment(id: 'B', title: 'Item B'),
+        Commitment(id: 'C', title: 'Item C'),
+      ],
+    );
+  }
+
+  @override
+  Future<ConfirmProposalResponseDto> confirmProposal({
+    required String proposalId,
+    required String scopeId,
+    required List<String> itemIds,
+    DateTime? referenceTime,
+  }) async {
+    recordedConfirmItemIds.add(List<String>.from(itemIds));
+    final resp = confirmResponses[_confirmCallCount % confirmResponses.length];
+    _confirmCallCount++;
+    return resp;
+  }
+}
+
 void main() {
   group('Wave 4: Capture State Machine & UX Logic Tests', () {
     test(
@@ -301,6 +337,78 @@ void main() {
         final state = container.read(captureControllerProvider);
         expect(state.status, equals(CaptureStatus.proposalExpired));
         expect(state.rawInput, equals('Doctor appointment tomorrow at 9am'));
+      },
+    );
+    test(
+      'Step 3: Partial-retry request sends exact failed itemIds on second request',
+      () async {
+        final capturingService = CapturingTestCaptureService(
+          confirmResponses: [
+            const ConfirmProposalResponseDto(
+              success: true,
+              persisted: [
+                PersistedProposalItemDto(
+                  itemId: 'A',
+                  commitmentId: 'c-A',
+                  title: 'A',
+                ),
+                PersistedProposalItemDto(
+                  itemId: 'B',
+                  commitmentId: 'c-B',
+                  title: 'B',
+                ),
+              ],
+              failed: [FailedProposalItemDto(itemId: 'C', reason: 'timeout')],
+            ),
+            const ConfirmProposalResponseDto(
+              success: true,
+              persisted: [
+                PersistedProposalItemDto(
+                  itemId: 'C',
+                  commitmentId: 'c-C',
+                  title: 'C',
+                ),
+              ],
+              failed: [],
+            ),
+          ],
+        );
+
+        final container = ProviderContainer(
+          overrides: [
+            appConfigProvider.overrideWith(
+              (ref) => const AppConfig(apiMode: ApiMode.localBackend),
+            ),
+            captureServiceProvider.overrideWithValue(capturingService),
+          ],
+        );
+
+        final notifier = container.read(captureControllerProvider.notifier);
+        notifier.updateCommitment(const Commitment(id: 'A', title: 'Item A'));
+        notifier.updateCommitment(const Commitment(id: 'B', title: 'Item B'));
+        notifier.updateCommitment(const Commitment(id: 'C', title: 'Item C'));
+
+        // First confirm request: itemIds [A, B, C]
+        await notifier.confirmSave();
+        expect(capturingService.recordedConfirmItemIds.length, equals(1));
+        expect(
+          capturingService.recordedConfirmItemIds[0],
+          equals(['A', 'B', 'C']),
+        );
+
+        final stateAfterFirst = container.read(captureControllerProvider);
+        expect(stateAfterFirst.status, equals(CaptureStatus.partiallySaved));
+        expect(stateAfterFirst.persistedItemIds, equals({'A', 'B'}));
+
+        // Retry confirm request: itemIds [C]
+        await notifier.confirmSave();
+        expect(capturingService.recordedConfirmItemIds.length, equals(2));
+        expect(capturingService.recordedConfirmItemIds[1], equals(['C']));
+
+        final stateAfterRetry = container.read(captureControllerProvider);
+        expect(stateAfterRetry.status, equals(CaptureStatus.saved));
+        expect(stateAfterRetry.persistedItemIds, equals({'A', 'B', 'C'}));
+        expect(stateAfterRetry.failedItems, isEmpty);
       },
     );
   });

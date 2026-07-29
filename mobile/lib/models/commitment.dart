@@ -65,6 +65,15 @@ class Commitment {
     this.hasInvalidDate = false,
   });
 
+  bool get isLocallyValid {
+    if (title.trim().isEmpty) return false;
+    if (hasInvalidDate && scheduledDate == null) return false;
+    if (needsClarification) return false;
+    return true;
+  }
+
+  bool get canBeSelected => isLocallyValid;
+
   Commitment copyWith({
     String? id,
     String? title,

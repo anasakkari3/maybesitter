@@ -25,7 +25,6 @@ class CaptureComposerScreen extends ConsumerStatefulWidget {
 
 class _CaptureComposerScreenState extends ConsumerState<CaptureComposerScreen> {
   late TextEditingController _textController;
-  bool _isVoiceRecording = false;
 
   @override
   void initState() {
@@ -149,24 +148,14 @@ class _CaptureComposerScreenState extends ConsumerState<CaptureComposerScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      // Voice toggle button
+                      // Voice button safely gated as disabled coming-soon feature
                       IconButton(
-                        onPressed: isSubmitting
-                            ? null
-                            : () {
-                                setState(() {
-                                  _isVoiceRecording = !_isVoiceRecording;
-                                });
-                              },
+                        onPressed: null,
                         icon: Icon(
-                          _isVoiceRecording ? Icons.mic : Icons.mic_none,
-                          color: _isVoiceRecording
-                              ? colors.brandPrimary
-                              : colors.textSecondary,
+                          Icons.mic_none,
+                          color: colors.textMuted.withValues(alpha: 0.5),
                         ),
-                        tooltip: _isVoiceRecording
-                            ? l10n.voiceCaptureStopTooltip
-                            : l10n.voiceCaptureTooltip,
+                        tooltip: '${l10n.voiceCaptureTooltip} (Coming soon)',
                       ),
                       Text(
                         '${_textController.text.length} chars',

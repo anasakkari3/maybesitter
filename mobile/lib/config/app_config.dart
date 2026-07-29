@@ -1,3 +1,5 @@
+import '../services/contracts/timezone_service.dart';
+
 enum ApiMode { mock, localBackend }
 
 class AppConfig {
@@ -16,13 +18,19 @@ class AppConfig {
   bool get isMock => apiMode == ApiMode.mock;
   bool get isLocalBackend => apiMode == ApiMode.localBackend;
 
-  static String resolveTimezone({String? userTimezone}) {
-    if (userTimezone != null && userTimezone.trim().isNotEmpty) {
-      return userTimezone;
+  static String resolveTimezone({
+    String? userTimezone,
+    String? deviceTimezone,
+  }) {
+    if (userTimezone != null && TimezoneService.isValidIana(userTimezone)) {
+      return userTimezone.trim();
     }
-    final deviceZone = DateTime.now().timeZoneName;
-    if (deviceZone.isNotEmpty && deviceZone != 'UTC' && deviceZone != 'GMT') {
-      return deviceZone;
+    if (deviceTimezone != null && TimezoneService.isValidIana(deviceTimezone)) {
+      return deviceTimezone.trim();
+    }
+    final deviceZoneName = DateTime.now().timeZoneName;
+    if (TimezoneService.isValidIana(deviceZoneName)) {
+      return deviceZoneName;
     }
     return 'Asia/Jerusalem';
   }

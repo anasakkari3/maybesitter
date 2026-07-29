@@ -80,10 +80,11 @@ class CaptureNotifier extends StateNotifier<CaptureState> {
   CaptureNotifier(this.ref) : super(const CaptureState());
 
   void setInputText(String text) {
-    if (state.isSubmitting) return;
     state = state.copyWith(
       rawInput: text,
-      status: text.isNotEmpty ? CaptureStatus.editing : CaptureStatus.idle,
+      status: state.isSubmitting
+          ? state.status
+          : (text.isNotEmpty ? CaptureStatus.editing : CaptureStatus.idle),
     );
   }
 
@@ -134,12 +135,15 @@ class CaptureNotifier extends StateNotifier<CaptureState> {
 
   void toggleItemSelection(String itemId) {
     if (state.isSubmitting) return;
+    // Persisted items cannot be reselected
+    if (state.persistedItemIds.contains(itemId)) return;
+
     final item = state.extractedCommitments.firstWhere(
       (c) => c.id == itemId,
       orElse: () => Commitment(id: itemId, title: ''),
     );
-    // Items requiring clarification cannot be selected until corrected
-    if (item.needsClarification) return;
+    // Items failing validation cannot be selected
+    if (!item.canBeSelected) return;
 
     final updated = Set<String>.from(state.selectedItemIds);
     if (updated.contains(itemId)) {
@@ -159,7 +163,7 @@ class CaptureNotifier extends StateNotifier<CaptureState> {
         : [...state.extractedCommitments, commitment];
 
     final updatedSelections = Set<String>.from(state.selectedItemIds);
-    if (commitment.needsClarification) {
+    if (!commitment.canBeSelected) {
       updatedSelections.remove(commitment.id);
     } else {
       updatedSelections.add(commitment.id);
@@ -233,9 +237,11 @@ class CaptureNotifier extends StateNotifier<CaptureState> {
         } else if (newlyPersisted.isNotEmpty &&
             confirmResult.failed.isNotEmpty) {
           // 2. Partial Success
+          final failedIds = confirmResult.failed.map((f) => f.itemId).toSet();
           state = state.copyWith(
             status: CaptureStatus.partiallySaved,
             persistedItemIds: allPersisted,
+            selectedItemIds: failedIds,
             failedItems: confirmResult.failed,
             errorMessage:
                 'Saved ${newlyPersisted.length} item(s). ${confirmResult.failed.length} item(s) failed.',
