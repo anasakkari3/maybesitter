@@ -25,7 +25,7 @@ final timezoneServiceProvider = Provider<TimezoneService>((ref) {
 });
 
 final appConfigProvider = StateProvider<AppConfig>((ref) {
-  return const AppConfig(apiMode: ApiMode.mock);
+  return const AppConfig.fromEnvironment();
 });
 
 final apiClientProvider = Provider<ApiClient>((ref) {

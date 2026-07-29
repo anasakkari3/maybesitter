@@ -3,6 +3,8 @@ import '../services/contracts/timezone_service.dart';
 enum ApiMode { mock, localBackend }
 
 class AppConfig {
+  static const _configuredBaseUrl = String.fromEnvironment('API_BASE_URL');
+
   final ApiMode apiMode;
   final String baseUrl;
   final String scopeId;
@@ -19,6 +21,18 @@ class AppConfig {
       defaultValue: false,
     ),
   });
+
+  const AppConfig.fromEnvironment()
+    : apiMode = _configuredBaseUrl == '' ? ApiMode.mock : ApiMode.localBackend,
+      baseUrl = _configuredBaseUrl == ''
+          ? 'http://localhost:3000'
+          : _configuredBaseUrl,
+      scopeId = 'default',
+      timezone = 'Asia/Jerusalem',
+      enableSafeCommitmentPatch = const bool.fromEnvironment(
+        'ENABLE_SAFE_COMMITMENT_PATCH',
+        defaultValue: false,
+      );
 
   bool get isMock => apiMode == ApiMode.mock;
   bool get isLocalBackend => apiMode == ApiMode.localBackend;
