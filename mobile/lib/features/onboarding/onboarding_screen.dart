@@ -39,20 +39,15 @@ class OnboardingScreen extends ConsumerWidget {
               Text(
                 l10n.welcomeTitle,
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.w700,
-                  color: colors.textPrimary,
-                ),
+                style: context.text.display,
               ),
               const SizedBox(height: AppSpacing.md),
               Text(
                 l10n.welcomeSubtitle,
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 16,
+                style: context.text.body.copyWith(
                   color: colors.textSecondary,
-                  height: 1.4,
+                  height: 1.5,
                 ),
               ),
               const Spacer(),

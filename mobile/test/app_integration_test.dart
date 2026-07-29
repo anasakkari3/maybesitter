@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:maybesitter_mobile/app/app.dart';
-import 'package:maybesitter_mobile/design_system/components/capture_primary_action.dart';
 import 'package:maybesitter_mobile/features/capture/capture_composer_screen.dart';
 import 'package:maybesitter_mobile/models/app_settings.dart';
 import 'package:maybesitter_mobile/services/providers.dart';
@@ -49,11 +48,11 @@ void main() {
       await tester.tap(todayTab);
       await tester.pumpAndSettle();
 
-      // The capture action is the gradient CapturePrimaryAction, not a
-      // Material FloatingActionButton.
-      final captureFab = find.byType(CapturePrimaryAction);
-      expect(captureFab, findsOneWidget);
-      await tester.tap(captureFab);
+      // Exactly one capture action must be offered: the FAB is suppressed
+      // while the empty state is showing its own CTA, and vice versa.
+      final captureAction = find.bySemanticsLabel('إضافة التزام');
+      expect(captureAction, findsOneWidget);
+      await tester.tap(captureAction);
       await tester.pumpAndSettle();
 
       expect(find.byType(CaptureComposerScreen), findsOneWidget);

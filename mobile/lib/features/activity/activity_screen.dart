@@ -89,19 +89,11 @@ class ActivityScreen extends ConsumerWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              event.title,
-                              style: TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w600,
-                                color: colors.textPrimary,
-                              ),
-                            ),
+                            Text(event.title, style: context.text.cardTitle),
                             const SizedBox(height: 2),
                             Text(
                               event.description,
-                              style: TextStyle(
-                                fontSize: 13,
+                              style: context.text.meta.copyWith(
                                 color: colors.textSecondary,
                               ),
                             ),
@@ -111,8 +103,7 @@ class ActivityScreen extends ConsumerWidget {
                                 'MMM d, h:mm a',
                                 localeCode,
                               ).format(event.timestamp),
-                              style: TextStyle(
-                                fontSize: 11,
+                              style: context.text.caption.copyWith(
                                 color: colors.textMuted,
                               ),
                             ),

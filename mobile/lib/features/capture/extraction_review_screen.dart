@@ -116,8 +116,7 @@ class ExtractionReviewScreen extends ConsumerWidget {
               const SizedBox(height: AppSpacing.smd),
               StatusBanner(
                 tone: StatusBannerTone.danger,
-                message:
-                    captureState.errorMessage ?? l10n.confirmFailedMessage,
+                message: captureState.errorMessage ?? l10n.confirmFailedMessage,
               ),
             ],
 
@@ -183,7 +182,6 @@ class ExtractionReviewScreen extends ConsumerWidget {
                 );
               }).toList(),
             ),
-
           ],
         ),
       ),

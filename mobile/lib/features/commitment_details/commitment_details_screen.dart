@@ -139,10 +139,7 @@ class CommitmentDetailsScreen extends ConsumerWidget {
                 children: [
                   Text(
                     commitment.title,
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w700,
-                      color: colors.textPrimary,
+                    style: context.text.heading1.copyWith(
                       decoration: isDone ? TextDecoration.lineThrough : null,
                     ),
                   ),
@@ -151,11 +148,7 @@ class CommitmentDetailsScreen extends ConsumerWidget {
                     const SizedBox(height: AppSpacing.md),
                     Text(
                       commitment.description!,
-                      style: TextStyle(
-                        fontSize: 15,
-                        color: colors.textSecondary,
-                        height: 1.4,
-                      ),
+                      style: context.text.supporting.copyWith(height: 1.5),
                     ),
                   ],
                 ],

@@ -10,6 +10,8 @@ import '../../design_system/components/empty_state.dart';
 import '../../design_system/components/maybesitter_app_bar.dart';
 import '../../design_system/components/maybesitter_scaffold.dart';
 import '../../design_system/theme/app_theme.dart';
+import '../../design_system/tokens/elevation.dart';
+import '../../design_system/tokens/gradients.dart';
 import '../../design_system/tokens/radius.dart';
 import '../../design_system/tokens/spacing.dart';
 import '../../models/commitment.dart';
@@ -58,9 +60,12 @@ class TodayScreen extends ConsumerWidget {
         ),
         showLogo: true,
       ),
-      floatingActionButton: CapturePrimaryAction(
-        onTap: () => context.push('/capture'),
-      ),
+      // The empty state already carries the capture CTA, so showing the FAB
+      // too would put two identical actions - and two identical semantics
+      // nodes - on the same screen.
+      floatingActionButton: commitments.isEmpty
+          ? null
+          : CapturePrimaryAction(onTap: () => context.push('/capture')),
       body: commitments.isEmpty
           ? EmptyState(
               icon: Icons.event_available,
@@ -74,32 +79,34 @@ class TodayScreen extends ConsumerWidget {
                 // Today's Header Summary Card
                 SliverToBoxAdapter(
                   child: Padding(
-                    padding: const EdgeInsets.all(AppSpacing.md),
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.gutter,
+                      AppSpacing.smd,
+                      AppSpacing.gutter,
+                      AppSpacing.sm,
+                    ),
                     child: Container(
                       padding: const EdgeInsets.all(AppSpacing.lg),
                       decoration: BoxDecoration(
+                        gradient: AppGradients.brandWash(colors),
                         color: colors.surface,
                         borderRadius: AppRadius.card,
-                        border: Border.all(color: colors.border),
+                        border: Border.all(
+                          color: colors.brandPrimary.withValues(alpha: 0.16),
+                        ),
+                        boxShadow: AppElevation.card(colors),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
                             l10n.goodMorningUser('Alex'),
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.w700,
-                              color: colors.textPrimary,
-                            ),
+                            style: context.text.heading2,
                           ),
                           const SizedBox(height: 4),
                           Text(
                             l10n.commitmentsCountToday(totalActive),
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: colors.textSecondary,
-                            ),
+                            style: context.text.supporting,
                           ),
                           const SizedBox(height: AppSpacing.md),
                           // Progress Bar
@@ -109,9 +116,9 @@ class TodayScreen extends ConsumerWidget {
                               value: commitments.isEmpty
                                   ? 0
                                   : completedItems.length / commitments.length,
-                              backgroundColor: colors.surfaceElevated,
-                              color: colors.brandPrimary,
-                              minHeight: 6,
+                              backgroundColor: colors.surfaceMuted,
+                              color: colors.brandStrong,
+                              minHeight: 8,
                             ),
                           ),
                         ],

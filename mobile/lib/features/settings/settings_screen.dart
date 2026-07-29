@@ -110,7 +110,7 @@ class SettingsScreen extends ConsumerWidget {
             const SizedBox(height: AppSpacing.lg),
             Text(
               'Maybesitter Mobile v1.0.0 (Build 1)',
-              style: TextStyle(fontSize: 12, color: colors.textMuted),
+              style: context.text.caption.copyWith(color: colors.textMuted),
             ),
           ],
         ),

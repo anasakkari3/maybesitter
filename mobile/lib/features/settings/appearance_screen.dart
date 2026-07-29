@@ -14,7 +14,6 @@ class AppearanceScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final colors = context.colors;
     final l10n = context.l10n;
     final settings = ref.watch(appSettingsProvider);
     final notifier = ref.read(appSettingsProvider.notifier);
@@ -33,14 +32,7 @@ class AppearanceScreen extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              l10n.themeModeLabel,
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                color: colors.textPrimary,
-              ),
-            ),
+            Text(l10n.themeModeLabel, style: context.text.cardTitle),
             const SizedBox(height: AppSpacing.md),
             MaybesitterSegmentedControl<AppThemeMode>(
               selectedValue: settings.themeMode,
