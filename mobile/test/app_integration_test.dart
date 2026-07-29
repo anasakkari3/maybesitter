@@ -10,6 +10,8 @@ void main() {
   testWidgets(
     'Integration Test: Multilingual RTL and Locale Persistence Flow',
     (WidgetTester tester) async {
+      // bySemanticsLabel needs the semantics tree built.
+      final SemanticsHandle semantics = tester.ensureSemantics();
       final container = ProviderContainer();
 
       await tester.pumpWidget(
@@ -26,7 +28,9 @@ void main() {
       expect(find.text('Settings'), findsOneWidget);
 
       // 2. Open Settings & switch language to Arabic
-      await tester.tap(find.byIcon(Icons.settings_outlined));
+      // Destinations are targeted by their semantics label: nav icons are
+      // platform-resolved now, so an icon finder would miss on iOS.
+      await tester.tap(find.bySemanticsLabel(RegExp('Settings')));
       await tester.pumpAndSettle();
 
       container
@@ -42,8 +46,7 @@ void main() {
       expect(arDirectionality.textDirection, equals(TextDirection.rtl));
 
       // 4. Return to Today tab & open Capture Composer
-      // The Today destination uses the sunrise glyph in the refreshed nav.
-      final todayTab = find.byIcon(Icons.wb_sunny_outlined);
+      final todayTab = find.bySemanticsLabel(RegExp('اليوم'));
       expect(todayTab, findsOneWidget);
       await tester.tap(todayTab);
       await tester.pumpAndSettle();
@@ -83,7 +86,7 @@ void main() {
       await tester.tap(doneBtn);
       await tester.pumpAndSettle();
 
-      final settingsTabIcon = find.byIcon(Icons.settings_outlined);
+      final settingsTabIcon = find.bySemanticsLabel(RegExp('الإعدادات'));
       expect(settingsTabIcon, findsOneWidget);
       await tester.tap(settingsTabIcon);
       await tester.pumpAndSettle();
@@ -105,12 +108,13 @@ void main() {
       expect(currentSettings.localeOption, equals(AppLocaleOption.hebrew));
 
       // 11. Open Upcoming tab -> verify user commitment titles stay untouched
-      final upcomingTabIcon = find.byIcon(Icons.calendar_month_outlined);
+      final upcomingTabIcon = find.bySemanticsLabel(RegExp('בקרוב'));
       expect(upcomingTabIcon, findsOneWidget);
       await tester.tap(upcomingTabIcon);
       await tester.pumpAndSettle();
 
       expect(find.text('Go to the doctor'), findsOneWidget);
+      semantics.dispose();
     },
   );
 }
