@@ -7,20 +7,25 @@ class AppConfig {
   final String baseUrl;
   final String scopeId;
   final String timezone;
+  final bool enableSafeCommitmentPatch;
 
   const AppConfig({
     this.apiMode = ApiMode.mock,
     this.baseUrl = 'http://localhost:3000',
     this.scopeId = 'default',
     this.timezone = 'Asia/Jerusalem',
+    this.enableSafeCommitmentPatch = const bool.fromEnvironment(
+      'ENABLE_SAFE_COMMITMENT_PATCH',
+      defaultValue: false,
+    ),
   });
 
   bool get isMock => apiMode == ApiMode.mock;
   bool get isLocalBackend => apiMode == ApiMode.localBackend;
 
   /// Capability flag protecting users from backend timezone offset data-corruption defect.
-  /// Default: false for real backend modes, true for mock UI prototyping.
-  bool get supportsSafeCommitmentPatch => isMock;
+  /// Enabled for mock mode OR when explicit deployment capability ENABLE_SAFE_COMMITMENT_PATCH=true (paired with backend commit 87408da+).
+  bool get supportsSafeCommitmentPatch => isMock || enableSafeCommitmentPatch;
 
   static String resolveTimezone({
     String? userTimezone,
@@ -44,12 +49,15 @@ class AppConfig {
     String? baseUrl,
     String? scopeId,
     String? timezone,
+    bool? enableSafeCommitmentPatch,
   }) {
     return AppConfig(
       apiMode: apiMode ?? this.apiMode,
       baseUrl: baseUrl ?? this.baseUrl,
       scopeId: scopeId ?? this.scopeId,
       timezone: timezone ?? this.timezone,
+      enableSafeCommitmentPatch:
+          enableSafeCommitmentPatch ?? this.enableSafeCommitmentPatch,
     );
   }
 }

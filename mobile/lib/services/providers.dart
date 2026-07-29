@@ -37,7 +37,10 @@ final commitmentRepositoryProvider = Provider<CommitmentRepository>((ref) {
   final config = ref.watch(appConfigProvider);
   if (config.isLocalBackend) {
     final client = ref.watch(apiClientProvider);
-    return ApiCommitmentRepository(apiClient: client);
+    return ApiCommitmentRepository(
+      apiClient: client,
+      supportsSafeCommitmentPatch: config.supportsSafeCommitmentPatch,
+    );
   }
   return InMemoryCommitmentRepository();
 });

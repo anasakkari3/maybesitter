@@ -7,10 +7,14 @@ import 'mappers/commitment_mapper.dart';
 
 class ApiCommitmentRepository implements CommitmentRepository {
   final ApiClient apiClient;
+  final bool supportsSafeCommitmentPatch;
   final StreamController<List<Commitment>> _streamController =
       StreamController<List<Commitment>>.broadcast();
 
-  ApiCommitmentRepository({required this.apiClient});
+  ApiCommitmentRepository({
+    required this.apiClient,
+    this.supportsSafeCommitmentPatch = false,
+  });
 
   @override
   Future<List<Commitment>> getToday() async {
@@ -51,11 +55,54 @@ class ApiCommitmentRepository implements CommitmentRepository {
 
   @override
   Future<void> update(Commitment commitment) async {
-    // Data-Integrity Guard: Commitment PATCH endpoint is disabled in real API mode
-    // to protect users from timezone offset shifts and UTC overwrites.
-    throw UnsupportedError(
-      'Commitment PATCH is disabled in real backend mode to protect scheduled time integrity.',
+    if (!supportsSafeCommitmentPatch) {
+      throw UnsupportedError(
+        'Commitment PATCH is disabled in this environment configuration to protect scheduled time integrity.',
+      );
+    }
+
+    final req = PatchCommitmentRequestDto(
+      title: commitment.title,
+      description: commitment.description,
+      priority: CommitmentMapper.mapPriorityToBackendLevel(commitment.priority),
+      dueDate: commitment.scheduledDate?.toIso8601String(),
     );
+
+    await apiClient.patch(
+      '/api/mobile/commitments/${commitment.id}',
+      req.toJson(),
+    );
+    await getToday();
+  }
+
+  /// Performs a fine-grained, field-level PATCH request sending ONLY the specified non-null fields.
+  Future<void> patchFields(
+    String commitmentId, {
+    String? title,
+    String? description,
+    String? priority,
+    String? dueDate,
+    String? reminderTime,
+  }) async {
+    if (!supportsSafeCommitmentPatch) {
+      throw UnsupportedError(
+        'Commitment PATCH is disabled in this environment configuration to protect scheduled time integrity.',
+      );
+    }
+
+    final req = PatchCommitmentRequestDto(
+      title: title,
+      description: description,
+      priority: priority,
+      dueDate: dueDate,
+      reminderTime: reminderTime,
+    );
+
+    await apiClient.patch(
+      '/api/mobile/commitments/$commitmentId',
+      req.toJson(),
+    );
+    await getToday();
   }
 
   @override

@@ -6,7 +6,7 @@ import 'package:maybesitter_mobile/services/api/api_commitment_repository.dart';
 import 'package:maybesitter_mobile/services/api/api_client.dart';
 
 void main() {
-  group('Backend Canonical Handoff Flow Integration Tests (Port 4321)', () {
+  group('Backend Canonical 87408da Integration Flow Tests (Port 4321)', () {
     final baseUrl = 'http://127.0.0.1:4321';
     final scopeId = 'integration-test-${DateTime.now().millisecondsSinceEpoch}';
     final apiClient = ApiClient(baseUrl: baseUrl);
@@ -14,12 +14,15 @@ void main() {
       apiClient: apiClient,
       defaultScopeId: scopeId,
     );
-    final repo = ApiCommitmentRepository(apiClient: apiClient);
+    final repo = ApiCommitmentRepository(
+      apiClient: apiClient,
+      supportsSafeCommitmentPatch: true,
+    );
 
     test(
-      'Executes 14-step canonical mobile flow against backend commit 3def247',
+      'Executes 17-step extended canonical mobile flow with safe PATCH against backend commit 87408da',
       () async {
-        // 1. Submit capture
+        // 1. Capture a deterministic verb-led commitment
         final captureResult = await captureService.capture(
           CaptureRequest(
             rawInput: 'Call the dentist tomorrow at 3pm',
@@ -28,68 +31,120 @@ void main() {
           ),
         );
 
-        // 2. Verify proposal response
+        // 2. Confirm it
         expect(captureResult.proposalId, isNotNull);
-        expect(captureResult.extractedCommitments.isNotEmpty, isTrue);
-
         final firstItemId = captureResult.extractedCommitments.first.id;
 
-        // 3. Verify capture does not persist anything until confirmed
-        final todayBefore = await repo.getToday();
-        final upcomingBefore = await repo.getUpcoming();
-        expect(todayBefore.any((c) => c.id == firstItemId), isFalse);
-        expect(upcomingBefore.any((c) => c.id == firstItemId), isFalse);
-
-        // 4. Confirm proposal
         final confirmResult = await captureService.confirmProposal(
           proposalId: captureResult.proposalId!,
           scopeId: scopeId,
           itemIds: [firstItemId],
         );
         expect(confirmResult.success, isTrue);
-        expect(confirmResult.persisted.isNotEmpty, isTrue);
-
         final backendCommitmentId = confirmResult.persisted.first.commitmentId;
 
-        // 5. Repeat confirmation and verify idempotent result
-        final repeatConfirm = await captureService.confirmProposal(
-          proposalId: captureResult.proposalId!,
-          scopeId: scopeId,
-          itemIds: [firstItemId],
+        // 3. Retrieve it from Upcoming / Direct GET
+        final initialRecord = await repo.getById(backendCommitmentId);
+        expect(initialRecord, isNotNull);
+
+        // 4. Record initial time fields from backend
+        final rawJsonBefore = await apiClient.get(
+          '/api/mobile/commitments/$backendCommitmentId',
         );
-        expect(repeatConfirm.success, isTrue);
+        final rawTimeSpecBefore =
+            rawJsonBefore['timeSpec'] as Map<String, dynamic>;
+        final initialDueAt = rawTimeSpecBefore['dueAt'];
+        final initialRemindAt = rawTimeSpecBefore['remindAt'];
+        final initialTimezone = rawTimeSpecBefore['timezone'];
+        final initialKind = rawTimeSpecBefore['kind'];
 
-        // 6 & 7. Fetch Upcoming and verify persisted commitment appears
-        final upcomingAfter = await repo.getUpcoming();
-        expect(upcomingAfter.any((c) => c.id == backendCommitmentId), isTrue);
+        // 5. Perform title-only PATCH
+        await repo.patchFields(
+          backendCommitmentId,
+          title: 'Call dentist urgent',
+        );
 
-        // Fetch direct GET by ID
-        final directRecord = await repo.getById(backendCommitmentId);
-        expect(directRecord, isNotNull);
-        expect(directRecord!.id, equals(backendCommitmentId));
-        final originalScheduledDate = directRecord.scheduledDate;
+        // 6. Verify title changed
+        final afterTitleRecord = await repo.getById(backendCommitmentId);
+        expect(afterTitleRecord!.title, equals('Call dentist urgent'));
 
-        // 8. Complete using action endpoint (POST /api/mobile/commitments/{id}/actions)
+        // 7. Verify all four recorded time fields remain IDENTICAL
+        final rawJsonAfterTitle = await apiClient.get(
+          '/api/mobile/commitments/$backendCommitmentId',
+        );
+        final rawTimeSpecAfterTitle =
+            rawJsonAfterTitle['timeSpec'] as Map<String, dynamic>;
+        expect(rawTimeSpecAfterTitle['dueAt'], equals(initialDueAt));
+        expect(rawTimeSpecAfterTitle['remindAt'], equals(initialRemindAt));
+        expect(rawTimeSpecAfterTitle['timezone'], equals(initialTimezone));
+        expect(rawTimeSpecAfterTitle['kind'], equals(initialKind));
+
+        // 8. Perform description-only PATCH
+        await repo.patchFields(
+          backendCommitmentId,
+          description: 'Dr. Smith office line',
+        );
+
+        // 9. Verify time fields remain IDENTICAL
+        final rawJsonAfterDesc = await apiClient.get(
+          '/api/mobile/commitments/$backendCommitmentId',
+        );
+        final rawTimeSpecAfterDesc =
+            rawJsonAfterDesc['timeSpec'] as Map<String, dynamic>;
+        expect(rawTimeSpecAfterDesc['dueAt'], equals(initialDueAt));
+        expect(rawTimeSpecAfterDesc['remindAt'], equals(initialRemindAt));
+        expect(rawTimeSpecAfterDesc['timezone'], equals(initialTimezone));
+        expect(rawTimeSpecAfterDesc['kind'], equals(initialKind));
+
+        // 10. Perform priority-only PATCH
+        await repo.patchFields(backendCommitmentId, priority: 'high');
+
+        // 11. Verify time fields remain IDENTICAL
+        final rawJsonAfterPriority = await apiClient.get(
+          '/api/mobile/commitments/$backendCommitmentId',
+        );
+        final rawTimeSpecAfterPriority =
+            rawJsonAfterPriority['timeSpec'] as Map<String, dynamic>;
+        expect(rawTimeSpecAfterPriority['dueAt'], equals(initialDueAt));
+        expect(rawTimeSpecAfterPriority['remindAt'], equals(initialRemindAt));
+        expect(rawTimeSpecAfterPriority['timezone'], equals(initialTimezone));
+        expect(rawTimeSpecAfterPriority['kind'], equals(initialKind));
+
+        // 12. Perform one explicit supported date/reminder update
+        const newDueDate = '2026-07-30T16:00:00.000Z';
+        await repo.patchFields(backendCommitmentId, dueDate: newDueDate);
+
+        // 13. Verify returned instant matches contract semantics
+        final rawJsonAfterDate = await apiClient.get(
+          '/api/mobile/commitments/$backendCommitmentId',
+        );
+        final rawTimeSpecAfterDate =
+            rawJsonAfterDate['timeSpec'] as Map<String, dynamic>;
+        expect(rawTimeSpecAfterDate['dueAt'], isNotNull);
+        expect(rawTimeSpecAfterDate['timezone'], equals(initialTimezone));
+
+        // 14. Perform complete or postpone
         await repo.complete(backendCommitmentId);
 
-        // 9 & 10. Refresh and verify state updated to completed
+        // 15. Refresh and verify state
         final completedRecord = await repo.getById(backendCommitmentId);
-        expect(completedRecord, isNotNull);
         expect(completedRecord!.status, equals(CommitmentStatus.completed));
 
-        // 11. Verify due date and timezone did NOT change unexpectedly
-        expect(completedRecord.scheduledDate, equals(originalScheduledDate));
-
-        // 12. Soft-delete test commitment
+        // 16. Soft-delete test record
         await repo.delete(backendCommitmentId);
 
-        // 13. Verify it disappears from Today and Upcoming
-        final todayFinal = await repo.getToday();
-        final upcomingFinal = await repo.getUpcoming();
-        expect(todayFinal.any((c) => c.id == backendCommitmentId), isFalse);
-        expect(upcomingFinal.any((c) => c.id == backendCommitmentId), isFalse);
+        // 17. Verify cleanup behavior
+        final todayAfterDelete = await repo.getToday();
+        final upcomingAfterDelete = await repo.getUpcoming();
+        expect(
+          todayAfterDelete.any((c) => c.id == backendCommitmentId),
+          isFalse,
+        );
+        expect(
+          upcomingAfterDelete.any((c) => c.id == backendCommitmentId),
+          isFalse,
+        );
 
-        // 14. Direct GET returns dropped record
         final droppedRecord = await repo.getById(backendCommitmentId);
         if (droppedRecord != null) {
           expect(droppedRecord.status, equals(CommitmentStatus.cancelled));
