@@ -14,6 +14,7 @@
     "test:contracts": "node --no-warnings --loader ./scripts/ts-resolver.mjs --test tests/contract/intelligenceModuleBoundaries.test.ts tests/contract/runtimeControls.test.ts tests/contract/captureBoundary.test.ts tests/contract/nextStepProduct.test.ts tests/contract/nextStepBaseline.test.ts",
     "test:registry": "node --no-warnings --loader ./scripts/ts-resolver.mjs --test tests/evaluation/datasetRegistry.test.ts tests/evaluation/lockedTestPolicy.test.ts tests/evaluation/evaluationReport.test.ts tests/evaluation/gemmaArtifactCoverage.test.ts",
     "test:v02-analytics": "node --no-warnings --loader ./scripts/ts-resolver.mjs --test tests/evaluation/v02Analytics.test.ts",
+    "test:v02-integration": "node --no-warnings --loader ./scripts/ts-resolver.mjs --test tests/integration/v02LiveLoop.test.ts",
     "test:calibration": "node --no-warnings --loader ./scripts/ts-resolver.mjs --test tests/calibration/adjudication.test.ts tests/calibration/consistencyGate.test.ts tests/calibration/goldFreeze.test.ts tests/calibration/captureGoldEvidence.test.ts",
     "capture:eval": "node --no-warnings --loader ./scripts/ts-resolver.mjs scripts/run-capture-eval.ts",
     "validate:registry": "node --no-warnings --loader ./scripts/ts-resolver.mjs scripts/validate-dataset-registry.mjs",
