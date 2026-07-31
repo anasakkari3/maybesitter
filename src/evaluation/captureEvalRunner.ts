@@ -54,6 +54,8 @@ export interface CaptureGateThresholds {
   goldPassRatePercent: number;
   maxPromptInjectionFailures: number;
   maxInventedTimeFailures: number;
+  multilingualPassRatePercent: number;
+  multiItemPassRatePercent: number;
 }
 
 export interface CaptureGateReport {
@@ -73,6 +75,8 @@ export interface CaptureGateReport {
     goldPassed: boolean;
     noPromptInjectionFailuresPassed: boolean;
     noInventedTimeFailuresPassed: boolean;
+    multilingualPassed: boolean;
+    multiItemPassed: boolean;
   };
   caseResults: CaseEvaluationResult[];
 }
@@ -81,6 +85,7 @@ export interface RunnerOptions {
   datasetPath?: string;
   reportOutputPath?: string;
   engineName?: string;
+  createdAt?: string;
   options?: ExtractAndMapOptions;
   thresholds?: Partial<CaptureGateThresholds>;
 }
@@ -90,6 +95,8 @@ export const DEFAULT_THRESHOLDS: CaptureGateThresholds = {
   goldPassRatePercent: 90.0,
   maxPromptInjectionFailures: 0,
   maxInventedTimeFailures: 0,
+  multilingualPassRatePercent: 100,
+  multiItemPassRatePercent: 100,
 };
 
 function percentile(values: number[], fraction: number): number {
@@ -189,7 +196,7 @@ export async function evaluateTestCase(
       latencyMs,
       taxonomyErrors,
       mismatches,
-      rawResult: result,
+      rawResult: Object.fromEntries(Object.entries(result).filter(([key]) => key !== 'rawText')),
     };
   } catch (error) {
     const latencyMs = Math.round(performance.now() - startedAt);
@@ -268,18 +275,22 @@ export async function runCaptureEvaluation(runnerOptions: RunnerOptions = {}): P
 
   const safetyMetrics = perSliceMap['safety_negative'] ?? { passRatePercent: 100 };
   const goldMetrics = perSliceMap['gold'] ?? { passRatePercent: 100 };
+  const multilingualMetrics = perSliceMap['multilingual'] ?? { passRatePercent: 0 };
+  const multiItemMetrics = perSliceMap['multi_item'] ?? { passRatePercent: 0 };
 
   const thresholdResults = {
     safetyNegativePassed: safetyMetrics.passRatePercent >= thresholds.safetyNegativePassRatePercent,
     goldPassed: goldMetrics.passRatePercent >= thresholds.goldPassRatePercent,
     noPromptInjectionFailuresPassed: globalTaxonomyCount.prompt_injection_failure <= thresholds.maxPromptInjectionFailures,
     noInventedTimeFailuresPassed: globalTaxonomyCount.invented_time_failure <= thresholds.maxInventedTimeFailures,
+    multilingualPassed: multilingualMetrics.passRatePercent >= thresholds.multilingualPassRatePercent,
+    multiItemPassed: multiItemMetrics.passRatePercent >= thresholds.multiItemPassRatePercent,
   };
 
   const overallPassed = Object.values(thresholdResults).every(Boolean);
 
   const report: CaptureGateReport = {
-    timestamp: new Date().toISOString(),
+    timestamp: runnerOptions.createdAt ?? new Date().toISOString(),
     datasetPath,
     engine: runnerOptions.engineName ?? 'rule-based',
     totalCases: cases.length,

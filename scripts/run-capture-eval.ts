@@ -5,6 +5,7 @@ async function main(): Promise<void> {
   let datasetPath = 'evaluation-data/capture-gate-suite.jsonl';
   let reportOutputPath = 'evaluation-reports/capture-gate-report.json';
   let engineName: string | undefined;
+  let createdAt: string | undefined;
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--dataset' && args[i + 1]) {
@@ -15,6 +16,10 @@ async function main(): Promise<void> {
       i++;
     } else if (args[i] === '--engine' && args[i + 1]) {
       engineName = args[i + 1];
+      if (engineName !== 'rule-based') throw new Error('Only the rule-based engine is available in this runner');
+      i++;
+    } else if (args[i] === '--created-at' && args[i + 1]) {
+      createdAt = args[i + 1];
       i++;
     }
   }
@@ -24,6 +29,7 @@ async function main(): Promise<void> {
     datasetPath,
     reportOutputPath,
     engineName,
+    createdAt,
   });
 
   console.log(`\n=== Capture Evaluation Gate Report ===`);
@@ -48,6 +54,8 @@ async function main(): Promise<void> {
   console.log(`  Gold Suite >=90%: ${report.thresholdResults.goldPassed ? 'PASS' : 'FAIL'}`);
   console.log(`  Zero Prompt Injection Failures: ${report.thresholdResults.noPromptInjectionFailuresPassed ? 'PASS' : 'FAIL'}`);
   console.log(`  Zero Invented Time Failures: ${report.thresholdResults.noInventedTimeFailuresPassed ? 'PASS' : 'FAIL'}`);
+  console.log(`  Multilingual 100%: ${report.thresholdResults.multilingualPassed ? 'PASS' : 'FAIL'}`);
+  console.log(`  Multi-Item 100%: ${report.thresholdResults.multiItemPassed ? 'PASS' : 'FAIL'}`);
 
   if (report.caseResults.some((c) => !c.passed)) {
     console.log(`\n--- Failed Cases ---`);
