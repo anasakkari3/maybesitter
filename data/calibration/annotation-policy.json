@@ -1,0 +1,70 @@
+{
+  "contractVersion": "1.0.0",
+  "policies": [
+    {
+      "id": "capture-gold-annotation",
+      "version": "1.0.0",
+      "title": "Capture Gold annotation policy — overall completion",
+      "effectiveFrom": "2026-07-28T00:00:00.000Z",
+      "supersedes": null,
+      "summary": "A reviewer judges one overall ExtractionResult per source message and marks it accepted, edited, or rejected. A message containing more than one commitment is judged on its primary commitment; there is no way to record the secondary one. This is the policy the canonical 50-record first pass was made under.",
+      "changedRules": []
+    },
+    {
+      "id": "capture-gold-annotation",
+      "version": "2.0.0",
+      "title": "Capture Gold annotation policy — explicit per-item separation",
+      "effectiveFrom": "2026-07-29T01:00:00.000Z",
+      "supersedes": "1.0.0",
+      "summary": "Multi-commitment sources must be separated into ordered per-item Gold with explicit source-language segments and code-point offsets, recorded in data/review/per-item-gold.jsonl. A combined single-commitment completion is no longer acceptable for such a source. Introduced by the remediation round between the first and second calibration passes; this registry exists because that change was previously unrecorded.",
+      "changedRules": [
+        {
+          "ruleId": "MULTI-001",
+          "kind": "changed",
+          "statement": "A source containing more than one commitment may not be accepted as a single combined completion. It requires ordered per-item Gold, one item per commitment.",
+          "affects": ["decision", "commitment_count", "boundary"]
+        },
+        {
+          "ruleId": "MULTI-002",
+          "kind": "introduced",
+          "statement": "Per-item segments are exact source-language substrings with end-exclusive Unicode code-point offsets in logical order. The reviewer selects them; tooling never proposes or pre-populates a boundary.",
+          "affects": ["boundary"]
+        }
+      ]
+    },
+    {
+      "id": "capture-gold-annotation",
+      "version": "2.1.0",
+      "title": "Capture Gold annotation policy — temporal resolution and edit threshold",
+      "effectiveFrom": "2026-07-31T00:00:00.000Z",
+      "supersedes": "2.0.0",
+      "summary": "Corrective guidance from the issue #5 root-cause analysis. Closes the two guidance gaps that produced the remaining calibration disagreements: how a relative temporal expression is resolved, and when a title rewrite requires an 'edited' decision rather than 'accepted'.",
+      "changedRules": [
+        {
+          "ruleId": "TIME-001",
+          "kind": "introduced",
+          "statement": "A relative temporal expression is always resolved against the record's own reference_time and timezone, never against the annotation session's wall clock. If a resolved value's date does not follow from reference_time, the annotation is wrong.",
+          "affects": ["date_time", "slots"]
+        },
+        {
+          "ruleId": "TIME-002",
+          "kind": "introduced",
+          "statement": "A date-only expression such as 'tomorrow' or 'מחר' with no clock time is recorded as a date-only localTimeSpec. It is never recorded as a dueAt with an invented time, and never dropped to null — dropping it silently discards a temporal fact the source stated.",
+          "affects": ["date_time"]
+        },
+        {
+          "ruleId": "EDIT-001",
+          "kind": "introduced",
+          "statement": "A title rewrite requires the 'edited' decision only when the proposed title changes meaning, drops a named entity, or drops a project identifier. Rewording that preserves all three is 'accepted'.",
+          "affects": ["decision", "slots"]
+        },
+        {
+          "ruleId": "CAT-001",
+          "kind": "introduced",
+          "statement": "primaryCalibrationCategory is assigned by commitment count first. A source containing more than one commitment is categorised multiple_commitments even when it also code-switches, so the multi-commitment stratum is not under-sampled by a competing label.",
+          "affects": ["commitment_count", "boundary"]
+        }
+      ]
+    }
+  ]
+}
