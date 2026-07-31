@@ -1,0 +1,815 @@
+{
+  "contractVersion": "1.0.0",
+  "freezeId": "capture-gold-freeze-v1",
+  "version": "1.0.0",
+  "state": "frozen",
+  "frozenAt": "2026-07-31T00:00:00.000Z",
+  "frozenBy": "model-data track",
+  "authorizingIssue": "https://github.com/anasakkari3/maybesitter/issues/5",
+  "policyVersion": "2.1.0",
+  "gateReportId": "capture-gold-consistency-v2",
+  "supersededBy": null,
+  "inputs": [
+    {
+      "name": "gold-decisions",
+      "path": "data/review/gold-decisions.jsonl",
+      "checksum": {
+        "algorithm": "sha256",
+        "value": "45c7421266c2d106aa7cbcda07e2f2db0abb02d63ff0ee0009f4095a85d8a7ea"
+      },
+      "recordCount": 50
+    },
+    {
+      "name": "per-item-gold",
+      "path": "data/review/per-item-gold.jsonl",
+      "checksum": {
+        "algorithm": "sha256",
+        "value": "621b81d3595b582691287450b5cac6b14312cc2ed6c8d342f50cfbbfdb5cbc63"
+      },
+      "recordCount": 9
+    }
+  ],
+  "records": [
+    {
+      "sourceQueueId": "pilot-v4-review-ambiguous-000",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "05b91b037cd818a9c3c056c461d34bcc73982e37f8edd1e206353252dbaea89e"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-ambiguous-002",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "bfe60a7fa1f328b9387932614a334605370ddf9ce281c88c3479edc677929ea0"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-ambiguous-010",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "5c19c91d2160593f7194050062f311b6d21fc04840ce3c9a67df0aa29aab08c0"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-ambiguous-013",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "316c5d236aed9b9bc5dfee5398bb97cebd9ab78f78e4514da0e8030517094e8f"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": {
+        "algorithm": "sha256",
+        "value": "8129aa12ca202e2b13c24e89236907e7097c88222bd953641a925015cd6d9087"
+      },
+      "perItemAnnotationIndex": 5,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-ambiguous-015",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "cc8e3daae0787c507d9af710a8bf383c18e454f38b4b9090041f2650ba38046a"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": {
+        "algorithm": "sha256",
+        "value": "9c584ae6c8c3148f8d10a8cf96784115ceddae9139c1fdaf488f19b8fcbdc111"
+      },
+      "perItemAnnotationIndex": 6,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-ambiguous-022",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "63a8ab93a87e5b9a29848d7eafc6bb37855a6cccf5c74e7f1759564e74590015"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-ambiguous-029",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "2a7a6d01a1a7db40486f10dfec59cec08887d79dfd37885e220598a4be838dbb"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "second",
+      "adjudicated": true,
+      "perItemChecksum": {
+        "algorithm": "sha256",
+        "value": "25feeb8e5750987db2d90c14145107733802b73dc3b1eee7a367f83edd224423"
+      },
+      "perItemAnnotationIndex": 7,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-arabic-003",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "4e5e6b160cc0eca4367df96dacf39c5cbf996531b3ad3fa050474a1f8063f729"
+      },
+      "decision": "edited",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": true,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-arabic-017",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "ecfe062f58617f6f8b133e6244f65abad0a67847141e7544be97b5f502e37eea"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-arabic-018",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "c178c36873e2b5390c0641c97f5bb5dcb6d01c5019159f8c432321160b0febf5"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-arabic-028",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "106c587188885630a6d3e6ffe562c318a3d3cdcf1f80f89ceaf176f6aaf31ea4"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-arabic-039",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "38b8f10d129d44bfab87482d5e1f4b437adde2300c13a777036cec4b2471e886"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": {
+        "algorithm": "sha256",
+        "value": "d457408ddc9567b0f4a8bfd621e07d04c3eb371968eee4e829401ef3069aba9d"
+      },
+      "perItemAnnotationIndex": 1,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-arabic-071",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "4fa1ae58179ba4e85c70c8d1d03730ae5316f9ffbb13b630f2d0a9d632a64ae8"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-arabic-110",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "7dca36e211183460ea3a49fd0ec602a79c3ea9bc71cdaaa0d2e12d278719d971"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-arabic-120",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "9e7b51574687a063bbccb8b934f09c3e9c224648cedce570b6ff74f9fad4bc1b"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-arabic-148",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "327ad760066a719aedcf309a42c9f10aa532110e4951f2387a041c364410c691"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-code_switching-011",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "ed3eda32516bb218a7d3872e832c6d382b7c18ffff98861316a2e442496814d8"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-code_switching-025",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "d6bb147c7606e810a2b795a3be98710f7d2d4e81170f638ba7da9a25fa64c171"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-english-018",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "ea46ad26070e34fee0a3a995d916569e45e5f522ac6ad1f709fa3f1855d5d638"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-english-023",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "3a1023f3cc89f2a2241e2d2267d3325a10039232b54dce4bc52b4cb968b2715a"
+      },
+      "decision": "edited",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-english-049",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "c3a3781c68b64e11b97f3483f852fff81ff7596405331aa99d7f292dfe42bad2"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": {
+        "algorithm": "sha256",
+        "value": "61458f51b14afc0c3b3f3efbd05bce3ced073864a77038ada7440cebe4307068"
+      },
+      "perItemAnnotationIndex": 2,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-english-059",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "c864089aceab4b69c3e9903d08023779d677d8c86aa34257590d74b25a5f9aee"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": {
+        "algorithm": "sha256",
+        "value": "91a6111d5f92da0e63b2be868c8d928669e48fe65ed04e435e653771379da574"
+      },
+      "perItemAnnotationIndex": 3,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-english-068",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "399c6bf154872e8c4b5c6ab577ecff7b84ea2aaf87b6387c9aa09b98e2deafb5"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-english-069",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "6ba542206145a27193b46b4e0699feb9a172c64b3f6240c68427fbd6e7731f73"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": {
+        "algorithm": "sha256",
+        "value": "42f6f8f42196d239ce9b6db32a2f5c5d8194359509ffc66e4dc1e54aca3baa86"
+      },
+      "perItemAnnotationIndex": 4,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-english-070",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "1b9d22b09f9199c63d9116ba30ba8bb84d913e921a60e77c0f5a1da6ede351e5"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-hebrew-003",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "e11314dd318d822699b7c967b859eafbfd222645f7b6a252a245b451ab65a851"
+      },
+      "decision": "edited",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-hebrew-008",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "5a242cc8e843f4dc8e39fa04be82d5f9d41393a4b54c81acf3dfab793e13cfb8"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-hebrew-027",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "7d5a11a9020356e42f05aea5225f9a98c8a3b25ad9226f6b0886e0df2a0f2ea6"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-hebrew-037",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "1a2c660c47b23d5009c9c34bd2edcbbd026747d3536f2f45e0a8a1f15ef8f605"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-hebrew-039",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "269664377f8a6ca65fffff062e0095395dfcd959b9d6f59f70f625cada644957"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "second",
+      "adjudicated": true,
+      "perItemChecksum": {
+        "algorithm": "sha256",
+        "value": "d85de48999d45ac081a5f68fd5608e85bf876f73cf50044c2a42e1de0237471d"
+      },
+      "perItemAnnotationIndex": 8,
+      "excluded": true,
+      "exclusionReason": "date_time defect CAL-002 requires re-annotation before this Gold is usable"
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-hebrew-040",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "f4aa6acb7cad863f029eabb22bcefa84c23f2a85028cddccd9c23171dbfe732f"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-hebrew-066",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "da3a48c58ce6d931b7f49f986ba2df17f65b8ae25f8fa52d87262d7764ef1628"
+      },
+      "decision": "edited",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-hebrew-090",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "ec1df52bbee03a873035efc47e1f2c79178bdf10a546e30e2a8b945f4b55240d"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-hebrew-096",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "b36739dcc12950ac81897608e02cb233578d8503fa4ccfa35b21246aec08142e"
+      },
+      "decision": "edited",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-hebrew-130",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "b910e4dbacfd83edcc43bf133b1fdee6b46a6c15109e0976e9621263c7c36825"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-injection-000",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "2667f2beb5ca6a25ba0c07e48beabe8c20c166167d29a650eb172eb7e3ee57cb"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-injection-005",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "1540d1fde2beea58539ce8e5b266512bb82dd930597b33ab57af47cd781e92e0"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-injection-006",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "2abbd9029ba7a5e587a53a690683440aa43c51ce6297c35081fa6806cdc5232d"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-injection-008",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "dd393c7a998036154c3d84467cd5e78d9c308be06ef7afcc73f5b2fa0d3cc1d7"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-injection-014",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "2800f7bba20842056cad406bfc04c4904fc3bc97163ed438ede1a28585e8089e"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-negative-001",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "80a841ef7fa41070732e76e0ad64b9d018ab494ca9b1a0cb9f0c99e73b833557"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-negative-002",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "5eea696c705146d1c997f1ea78d7186d44edb2e09d1880e1037cb47467ee580f"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-negative-004",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "99f22cb0b42e1530fd5f60d3c41063b038210edafea37782e7147d1aabc34b76"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-negative-005",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "844e5536ac0794434e071535d0163bd20a9f15c3a5e6859e443997da7b0cc4ca"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-negative-006",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "9820180897063f6e2bba8f4d1842f84b19c8873b030e1afe3f49fb1f6e4c5c00"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-negative-008",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "bad6341eb50f193c2d4a34c62fcccb2bc18388c69bc6fb810e4ea2b3ac078310"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-negative-009",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "e67a388cf0988d999329e793d66b9611682409dc7d812c333697bd3fa130d0c1"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-negative-012",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "be20d152de15cebd2e1a6aaa1a454d7b10fd2c2c38100e01868130213d76fd0d"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-negative-014",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "f6b32a1e4b1b330a0cc12d4c37e47772230c149ccc04464bc0370b83f0d39176"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    },
+    {
+      "sourceQueueId": "pilot-v4-review-negative-021",
+      "decisionChecksum": {
+        "algorithm": "sha256",
+        "value": "d1e4f6901eebc81d973f6f953e96985f3c0c94b8d2b6677e5629b6cd4f01d186"
+      },
+      "decision": "accepted",
+      "policyVersion": "2.1.0",
+      "canonicalPass": "first",
+      "adjudicated": false,
+      "perItemChecksum": null,
+      "perItemAnnotationIndex": null,
+      "excluded": false,
+      "exclusionReason": null
+    }
+  ],
+  "recordsChecksum": {
+    "algorithm": "sha256",
+    "value": "c0dc2a1cb11eba63ded898bd16662203c359e9d2cfee27d407bb6b358b9bf0ae"
+  },
+  "includedCount": 49,
+  "excludedCount": 1,
+  "trainingStarted": false
+}
