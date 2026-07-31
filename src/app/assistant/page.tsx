@@ -1,6 +1,7 @@
 import AgendaPanel from '@/components/AgendaPanel';
 import AssistantPanel from '@/components/AssistantPanel';
 import CommitmentReview from '@/components/CommitmentReview';
+import NextStepPanel from '@/components/NextStepPanel';
 
 export default function AssistantPage() {
   return (
@@ -13,6 +14,7 @@ export default function AssistantPage() {
         <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(360px,0.9fr)]">
           <div className="space-y-6">
             <AssistantPanel />
+            <NextStepPanel />
             <AgendaPanel />
           </div>
           <CommitmentReview />

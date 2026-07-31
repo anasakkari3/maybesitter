@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "1.0.0",
+  "reviewedAt": "2026-07-31",
+  "gateIssue": 53,
+  "reviewedCandidateSha": "af69a98f9bca189f9bbf69895dbc305eea3d4cb6",
+  "decision": "CONDITIONAL GO",
+  "pilotExposureAuthorized": false,
+  "resolvedBlockers": {
+    "realRoute": "PASS — NextStepPanel is mounted in /assistant and /api/next-step is built as a dynamic route",
+    "liveBaseline": "PASS — confirmed DomainState is projected through the deterministic V02 baseline",
+    "decisionAnalytics": "PASS — accept/edit/defer/dismiss/done emit strict privacy-safe events",
+    "killSwitch": "PASS — recommendation feature flag and kill switch are exercised; Capture remains available",
+    "operations": "PASS — Anas Akkari owns monitoring, kill-switch activation, rollback approval, and privacy incident review"
+  },
+  "validation": {
+    "v02Integration": "5/5 PASS",
+    "v02Contracts": "27/27 PASS",
+    "v02Analytics": "5/5 PASS",
+    "fullRegression": "252/252 PASS",
+    "typecheck": "PASS",
+    "productionBuild": "PASS",
+    "npmAudit": "PASS — 0 vulnerabilities",
+    "languages": "English, Arabic, and Hebrew locale contracts PASS",
+    "persistenceBoundary": "Every decision result reports persisted=false; confirmation remains required"
+  },
+  "conditions": [
+    "Complete review and merge of PRs #68, #69, and #70 without weakening contracts or assertions.",
+    "Review and merge the integrated V02 candidate PR at the reviewed SHA or a descendant that reruns this gate.",
+    "Keep MAYBESITTER_FEATURE_RECOMMENDATION disabled until the reviewed candidate is deployed and Anas Akkari approves pilot activation."
+  ],
+  "pilotRule": "Pilot users remain NOT ALLOWED until all three conditions are satisfied.",
+  "scopeBoundary": "No planning, broad memory, coaching, autonomous scheduling, or advanced personalization is included."
+}
