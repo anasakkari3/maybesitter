@@ -1,6 +1,8 @@
 import { existsSync, statSync } from 'fs';
+import { readFile } from 'fs/promises';
 import { fileURLToPath, pathToFileURL } from 'url';
 import path from 'path';
+import ts from 'typescript';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -40,4 +42,27 @@ export async function resolve(specifier, context, nextResolve) {
   }
 
   return nextResolve(specifier, context);
+}
+
+export async function load(url, context, nextLoad) {
+  if (url.startsWith('file:') && (url.endsWith('.ts') || url.endsWith('.tsx'))) {
+    const source = await readFile(fileURLToPath(url), 'utf8');
+    const transpiled = ts.transpileModule(source, {
+      compilerOptions: {
+        target: ts.ScriptTarget.ES2022,
+        module: ts.ModuleKind.ESNext,
+        jsx: ts.JsxEmit.ReactJSX,
+        esModuleInterop: true,
+        sourceMap: true,
+      },
+      fileName: fileURLToPath(url),
+    });
+    return {
+      format: 'module',
+      shortCircuit: true,
+      source: transpiled.outputText,
+    };
+  }
+
+  return nextLoad(url, context);
 }
