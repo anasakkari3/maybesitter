@@ -1,10 +1,5 @@
-import {
-  applyCommand,
-  getCommandServiceState,
-  type CommandServiceResult,
-} from './commandService';
 import { randomUUID } from 'crypto';
-import type { Command } from '../../src/domain/stateMachine';
+import type { Command, DomainState } from '../../src/domain/stateMachine';
 import { decideExtractionDisposition } from '../../src/extraction/extractionPolicy';
 import {
   extractWithFallback,
@@ -25,6 +20,11 @@ import {
   recordBehaviorFeedback,
   type BehaviorFeedbackStore,
 } from './behaviorFeedbackService';
+import {
+  type CommandServiceResult,
+  getDeterministicStateGateway,
+  type DeterministicStateGateway,
+} from './deterministicStateGateway';
 
 export type CaptureEngineUsed = ExtractionEngine | 'none';
 export type CaptureDisposition = ExtractionDisposition | 'multi_commitment' | 'no_op';
@@ -41,6 +41,7 @@ export interface CaptureServiceOptions {
   clarificationTtlMs?: number;
   clarificationStore?: ClarificationStore;
   behaviorFeedbackStore?: BehaviorFeedbackStore;
+  deterministicStateGateway?: DeterministicStateGateway;
 }
 
 export interface CaptureServiceResult {
@@ -157,10 +158,10 @@ function multiCommitmentMessage(
   return [lead, ...details].join(' ');
 }
 
-function fallbackCommandResult(): CommandServiceResult {
+function fallbackCommandResult(snapshot: DomainState): CommandServiceResult {
   return {
     result: 'rejected',
-    newState: getCommandServiceState(),
+    newState: snapshot,
     events: [],
   };
 }
@@ -186,12 +187,15 @@ function shouldExecuteCommands(disposition: ExtractionDisposition): boolean {
   return disposition !== 'needs_clarification' && disposition !== 'store_note';
 }
 
-function executeCommands(commands: readonly Command[]): CommandServiceResult[] {
+function executeCommands(
+  commands: readonly Command[],
+  deterministicStateGateway: DeterministicStateGateway,
+): CommandServiceResult[] {
   return commands.map((command) => {
     try {
-      return applyCommand(command);
+      return deterministicStateGateway.apply(command);
     } catch {
-      return fallbackCommandResult();
+      return fallbackCommandResult(deterministicStateGateway.snapshot());
     }
   });
 }
@@ -222,6 +226,7 @@ async function captureMultipleCommitments(
   context: ExtractionContext,
   options: CaptureServiceOptions
 ): Promise<CaptureServiceResult> {
+  const deterministicStateGateway = options.deterministicStateGateway || getDeterministicStateGateway();
   const executionNotes: string[] = [];
   const captured: {
     index: number;
@@ -259,7 +264,7 @@ async function captureMultipleCommitments(
     }
 
     const commandsToExecute = shouldExecuteCommands(disposition) ? commands : [];
-    const commandResults = executeCommands(commandsToExecute);
+    const commandResults = executeCommands(commandsToExecute, deterministicStateGateway);
     if (hasRejectedCommand(commandResults)) {
       executionNotes.push(`I skipped part of "${result.title || segment}" because it could not be applied safely.`);
     }
@@ -364,6 +369,7 @@ export async function captureText(
     timezone: options.timezone || 'UTC',
     defaultReminderHour: options.defaultReminderHour,
   };
+  const deterministicStateGateway = options.deterministicStateGateway || getDeterministicStateGateway();
 
   if (!text) {
     return {
@@ -477,7 +483,7 @@ export async function captureText(
   }
 
   const commandsToExecute = shouldExecuteCommands(disposition) && !unresolvedContinuation ? commands : [];
-  const commandResults = executeCommands(commandsToExecute);
+  const commandResults = executeCommands(commandsToExecute, deterministicStateGateway);
   const hasExecutionProblem = executionNotes.length > 0 || hasRejectedCommand(commandResults);
   if (isContinuation && !unresolvedContinuation && !hasExecutionProblem) {
     recordClarificationFeedback('clarification_succeeded', options, now);
