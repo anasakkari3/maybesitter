@@ -2,21 +2,26 @@
   "name": "maybesitter",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22.5.0"
+  },
   "scripts": {
     "dev": "next dev",
     "dev:reliable": "node scripts/with-worker.mjs dev",
     "dev:worker": "node scripts/reminder-worker.mjs",
     "build": "next build",
-    "test": "node --no-warnings --loader ./scripts/ts-resolver.mjs --test tests/domain/stateMachine.test.ts tests/extraction/extraction.test.ts tests/responseFormatter.test.ts tests/responseEngineQuality.test.ts tests/responseCompressionService.test.ts tests/captureService.test.ts tests/domainAppSnapshotAdapter.test.ts tests/commitmentReview.test.ts tests/agendaService.test.ts tests/agendaScoring.test.ts tests/agendaActionService.test.ts tests/pressureService.test.ts tests/adaptiveService.test.ts tests/behaviorFeedbackService.test.ts tests/personalityService.test.ts tests/calendarFeedService.test.ts tests/scheduler/scheduler.test.ts tests/evaluation/datasetRegistry.test.ts tests/evaluation/lockedTestPolicy.test.ts tests/evaluation/evaluationReport.test.ts tests/evaluation/gemmaArtifactCoverage.test.ts",
+    "test": "node --no-warnings --loader ./scripts/ts-resolver.mjs --test tests/domain/stateMachine.test.ts tests/extraction/extraction.test.ts tests/responseFormatter.test.ts tests/responseEngineQuality.test.ts tests/responseCompressionService.test.ts tests/captureService.test.ts tests/domainAppSnapshotAdapter.test.ts tests/commitmentReview.test.ts tests/agendaService.test.ts tests/agendaScoring.test.ts tests/agendaActionService.test.ts tests/pressureService.test.ts tests/adaptiveService.test.ts tests/behaviorFeedbackService.test.ts tests/personalityService.test.ts tests/calendarFeedService.test.ts tests/scheduler/scheduler.test.ts tests/contract/intelligenceModuleBoundaries.test.ts tests/contract/runtimeControls.test.ts tests/evaluation/datasetRegistry.test.ts tests/evaluation/lockedTestPolicy.test.ts tests/evaluation/evaluationReport.test.ts tests/evaluation/gemmaArtifactCoverage.test.ts",
+    "test:contracts": "node --no-warnings --loader ./scripts/ts-resolver.mjs --test tests/contract/intelligenceModuleBoundaries.test.ts tests/contract/runtimeControls.test.ts",
     "test:registry": "node --no-warnings --loader ./scripts/ts-resolver.mjs --test tests/evaluation/datasetRegistry.test.ts tests/evaluation/lockedTestPolicy.test.ts tests/evaluation/evaluationReport.test.ts tests/evaluation/gemmaArtifactCoverage.test.ts",
     "validate:registry": "node --no-warnings --loader ./scripts/ts-resolver.mjs scripts/validate-dataset-registry.mjs",
     "seal:ledger": "node --no-warnings --loader ./scripts/ts-resolver.mjs scripts/seal-lock-ledger.mjs",
+    "typecheck": "tsc --noEmit",
     "start": "next start",
     "start:reliable": "node scripts/with-worker.mjs start",
     "worker": "node scripts/reminder-worker.mjs"
   },
   "dependencies": {
-    "next": "14.2.0",
+    "next": "14.2.35",
     "react": "^18",
     "react-dom": "^18"
   },

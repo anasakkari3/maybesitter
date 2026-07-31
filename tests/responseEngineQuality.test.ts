@@ -43,18 +43,6 @@ function basePlan(overrides: Partial<ResponsePlan> = {}): ResponsePlan {
     intent: 'confirm_result',
     strategy: 'direct_result',
     moves: ['confirm_action'],
-    facts: {
-      title: 'Send invoice',
-      titleLower: 'send invoice',
-      titleCapitalized: 'Send invoice',
-      stateChange: 'completed',
-    },
-    constraints: {
-      tone: 'quiet',
-      maxSentences: 2,
-      requireQuestion: false,
-      forbiddenTerms: [],
-    },
     ...overrides,
     facts: {
       title: 'Send invoice',
@@ -96,6 +84,7 @@ function pressurePlan(strategy: ResponseStrategy): ResponsePlan {
       tone: strategy === 'easy_choice' ? 'light_check' : strategy === 'close_loop' || strategy === 'reset_plan' ? 'firm' : 'direct',
       maxSentences: 2,
       requireQuestion: strategy === 'easy_choice' || strategy === 'blocker_probe',
+      forbiddenTerms: [],
     },
   });
 }
