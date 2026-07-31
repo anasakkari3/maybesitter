@@ -2,7 +2,7 @@
   "schemaVersion": "1.0.0",
   "reviewedAt": "2026-07-31",
   "gateIssue": 53,
-  "reviewedCandidateSha": "1b5f6aa8b38c87a6560799d2dbbcec98fa2c1157",
+  "reviewedCandidateSha": "af69a98f9bca189f9bbf69895dbc305eea3d4cb6",
   "decision": "CONDITIONAL GO",
   "pilotExposureAuthorized": false,
   "resolvedBlockers": {
@@ -13,7 +13,7 @@
     "operations": "PASS — Anas Akkari owns monitoring, kill-switch activation, rollback approval, and privacy incident review"
   },
   "validation": {
-    "v02Integration": "4/4 PASS",
+    "v02Integration": "5/5 PASS",
     "v02Contracts": "27/27 PASS",
     "v02Analytics": "5/5 PASS",
     "fullRegression": "252/252 PASS",

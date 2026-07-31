@@ -1,6 +1,6 @@
 # V02 readiness gate rerun
 
-Reviewed candidate: `1b5f6aa8b38c87a6560799d2dbbcec98fa2c1157`
+Reviewed candidate: `af69a98f9bca189f9bbf69895dbc305eea3d4cb6`
 
 Decision: **CONDITIONAL GO**. Pilot users remain **NOT ALLOWED** until the PR review, merge, and controlled activation conditions in the machine-readable report are satisfied.
 
