@@ -72,9 +72,14 @@ const CURRENT_GEMMA_DATASET_PATHS: readonly string[] = [
   'benchmark-reports/runtime/summary.json',
 ];
 
+/** Repositories holding the Gemma pipeline artifacts this inventory covers. */
+const GEMMA_REPOSITORIES = ['maybesitter-gemma', 'maybesitter-gemma-runtime-benchmark'];
+
 function registeredPaths(): readonly string[] {
   return shippedRegistry.entries.flatMap((entry) =>
-    entry.artifacts.map((artifact) => artifact.location.path),
+    entry.artifacts
+      .filter((artifact) => GEMMA_REPOSITORIES.includes(artifact.location.repository))
+      .map((artifact) => artifact.location.path),
   );
 }
 
@@ -122,6 +127,9 @@ test('shipped ledger: covers exactly the locked artifacts in the registry', () =
 
   assert.deepEqual(activeInLedger, lockedInRegistry);
   assert.deepEqual(lockedInRegistry, [
+    // Sprint 01, issue #5: the frozen Capture Gold and the gate that authorized it.
+    'capture-gold-consistency-gate-v2',
+    'capture-gold-freeze-v1-manifest',
     'gemma3-locked-automated-v4-cases',
     'gemma3-locked-test-cases',
     'production-extraction-schema-v4-json',

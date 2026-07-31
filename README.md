@@ -119,6 +119,7 @@ npm start               # Start the production server
 npm run start:reliable  # Start production server and reminder worker together
 npm test                # Run the full test suite
 npm run test:registry      # Run the dataset-governance tests only
+npm run test:calibration   # Run the Capture Gold calibration tests
 npm run validate:registry  # Validate the dataset registry, lock ledger, and reports
 ```
 
@@ -133,6 +134,20 @@ evaluation-report contract.
 
 Nothing in the app imports it — it is governance tooling for the model/data
 track, and the artifacts it governs live in the Gemma pipeline working copies.
+
+## Capture Gold calibration
+
+Reviewed Capture Gold is pinned by a versioned freeze manifest, authorized by a
+blind intra-reviewer consistency gate. Contracts and instruments are in
+`lib/calibration/`, evidence in `data/calibration/`.
+
+- [Capture Gold freeze and annotation governance](docs/data/CAPTURE_GOLD_FREEZE.md)
+  — policy versioning, adjudication, gate thresholds, freeze procedure
+- [Root cause: the failed blind-review consistency gate](docs/data/CALIBRATION_CONSISTENCY_ROOT_CAUSE.md)
+  — why the multi-commitment gate never closed
+
+Human review decisions are never rewritten. Resolution is an additive
+adjudication layer, and the freeze pins decisions by checksum in place.
 
 ## Main routes
 
