@@ -25,12 +25,14 @@ import { createHash } from 'node:crypto';
 import { buildGoldFreezeManifest, validateGoldFreezeManifest } from '../lib/calibration/goldFreeze.ts';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const FREEZE_PATH = path.join(repoRoot, 'data/calibration/capture-gold-freeze.json');
-const GATE_PATH = path.join(repoRoot, 'data/calibration/consistency-gate-report.json');
-const ADJUDICATIONS_PATH = path.join(repoRoot, 'data/calibration/adjudications.jsonl');
+const DEFAULT_FREEZE_PATH = 'data/calibration/capture-gold-freeze-v2.json';
+const DEFAULT_GATE_PATH = 'data/calibration/consistency-gate-report-v2.json';
 
 const DECISIONS = 'data/review/gold-decisions.jsonl';
 const PER_ITEM = 'data/review/per-item-gold.jsonl';
+const SECOND_PASSES = ['data/review/calibration/consistency-30-second-pass.jsonl', 'data/review/calibration/consistency-extra-8-second-pass.jsonl'];
+const ADJUDICATIONS = ['data/review/calibration/consistency-30-adjudications.jsonl', 'data/review/calibration/consistency-extra-8-adjudications.jsonl'];
+const CORRECTION = 'data/review/calibration/hebrew-039-reannotation.jsonl';
 
 const RED = '\x1b[31m';
 const YELLOW = '\x1b[33m';
@@ -68,10 +70,12 @@ function main() {
     fail('--calibration-root <path to the Gemma calibration working copy> is required');
   }
   const root = path.resolve(repoRoot, flags['calibration-root']);
+  const freezePath = path.resolve(repoRoot, flags.out ?? DEFAULT_FREEZE_PATH);
+  const gatePath = path.resolve(repoRoot, flags.gate ?? DEFAULT_GATE_PATH);
 
   const decisionsText = readText(path.join(root, DECISIONS));
-  const perItemText = readText(path.join(root, PER_ITEM));
-  const gateReport = JSON.parse(readText(GATE_PATH));
+  const perItemText = [readText(path.join(root, PER_ITEM)), readText(path.join(root, CORRECTION))].join('');
+  const gateReport = JSON.parse(readText(gatePath));
 
   const decisionLines = new Map();
   const decisions = [];
@@ -99,19 +103,32 @@ function main() {
       };
     });
 
-  const adjudications = readText(ADJUDICATIONS_PATH)
-    .split('\n')
-    .filter((line) => line.trim())
-    .map((line) => JSON.parse(line));
+  const adjudications = ADJUDICATIONS.flatMap((source) => readText(path.join(root, source)).split('\n').filter((line) => line.trim()).map((line) => JSON.parse(line)));
+
+  const secondLines = new Map();
+  for (const source of SECOND_PASSES) {
+    for (const line of readText(path.join(root, source)).split('\n').filter((value) => value.trim())) {
+      const row = JSON.parse(line);
+      secondLines.set(row.source_id, line);
+    }
+  }
+  for (const adjudication of adjudications.filter((row) => row.dimension === 'decision' && row.canonicalPass === 'second')) {
+    const line = secondLines.get(adjudication.sourceQueueId);
+    if (!line) fail(`missing canonical second-pass decision for ${adjudication.sourceQueueId}`);
+    const row = JSON.parse(line);
+    const index = decisions.findIndex((decision) => decision.sourceQueueId === row.source_id);
+    decisions[index] = { sourceQueueId: row.source_id, decision: row.decision, completion: null };
+    decisionLines.set(row.source_id, line);
+  }
 
   // A freeze manifest is a locked artifact: re-running the builder must not
   // change its bytes just because the clock moved. An existing manifest's
   // frozenAt is reused unless the caller overrides it explicitly.
-  const previous = existsSync(FREEZE_PATH) ? JSON.parse(readFileSync(FREEZE_PATH, 'utf8')) : null;
+  const previous = existsSync(freezePath) ? JSON.parse(readFileSync(freezePath, 'utf8')) : null;
 
   const manifest = buildGoldFreezeManifest({
-    freezeId: flags['freeze-id'] ?? previous?.freezeId ?? 'capture-gold-freeze-v1',
-    version: flags.version ?? previous?.version ?? '1.0.0',
+    freezeId: flags['freeze-id'] ?? previous?.freezeId ?? 'capture-gold-freeze-v2',
+    version: flags.version ?? previous?.version ?? '2.0.0',
     frozenAt: flags['frozen-at'] ?? previous?.frozenAt ?? new Date().toISOString(),
     frozenBy: flags['frozen-by'] ?? 'model-data track',
     authorizingIssue: 'https://github.com/anasakkari3/maybesitter/issues/5',
@@ -119,7 +136,7 @@ function main() {
     gateReport,
     inputs: [
       { name: 'gold-decisions', path: DECISIONS, checksum: checksum(decisionsText), recordCount: decisions.length },
-      { name: 'per-item-gold', path: PER_ITEM, checksum: checksum(perItemText), recordCount: perItemAnnotations.length },
+      { name: 'per-item-gold-plus-correction', path: `${PER_ITEM}+${CORRECTION}`, checksum: checksum(perItemText), recordCount: perItemAnnotations.length },
     ],
     decisions,
     decisionLines,
@@ -130,8 +147,8 @@ function main() {
   const serialized = `${JSON.stringify(manifest, null, 2)}\n`;
 
   if (flags.check) {
-    if (!existsSync(FREEZE_PATH)) fail('no freeze manifest to check');
-    const existing = JSON.parse(readFileSync(FREEZE_PATH, 'utf8'));
+    if (!existsSync(freezePath)) fail('no freeze manifest to check');
+    const existing = JSON.parse(readFileSync(freezePath, 'utf8'));
     const result = validateGoldFreezeManifest(existing, { decisionLines, gateReport });
     for (const issue of result.issues) {
       const color = issue.severity === 'error' ? RED : YELLOW;
@@ -147,8 +164,8 @@ function main() {
     process.exit(0);
   }
 
-  mkdirSync(path.dirname(FREEZE_PATH), { recursive: true });
-  writeFileSync(FREEZE_PATH, serialized, 'utf8');
+  mkdirSync(path.dirname(freezePath), { recursive: true });
+  writeFileSync(freezePath, serialized, 'utf8');
   console.log(
     `wrote data/calibration/capture-gold-freeze.json — ${manifest.includedCount} included, ${manifest.excludedCount} excluded`,
   );

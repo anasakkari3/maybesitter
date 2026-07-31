@@ -39,9 +39,22 @@ const RESET = '\x1b[0m';
 
 const SOURCES = {
   decisions: 'data/review/gold-decisions.jsonl',
-  secondPass: 'data/review/calibration/consistency-second-pass.jsonl',
-  blindManifest: 'data/review/calibration/consistency-10-manifest.json',
-  perItem: 'data/review/per-item-gold.jsonl',
+  secondPass: [
+    'data/review/calibration/consistency-30-second-pass.jsonl',
+    'data/review/calibration/consistency-extra-8-second-pass.jsonl',
+  ],
+  blindManifest: [
+    'data/review/calibration/consistency-30-manifest.json',
+    'data/review/calibration/consistency-extra-8-manifest.json',
+  ],
+  perItem: [
+    'data/review/calibration/boundary-30-first-pass.jsonl',
+    'data/review/calibration/boundary-30-second-pass.jsonl',
+  ],
+  adjudications: [
+    'data/review/calibration/consistency-30-adjudications.jsonl',
+    'data/review/calibration/consistency-extra-8-adjudications.jsonl',
+  ],
 };
 
 function fail(message) {
@@ -116,16 +129,15 @@ function main() {
   reportValidation('annotation policy', validateAnnotationPolicyRegistry(policies));
 
   const decisionsText = readText(path.join(root, SOURCES.decisions));
-  const secondText = readText(path.join(root, SOURCES.secondPass));
-  const manifestText = readText(path.join(root, SOURCES.blindManifest));
-  const perItemText = readText(path.join(root, SOURCES.perItem));
+  const secondTexts = SOURCES.secondPass.map((source) => readText(path.join(root, source)));
+  const manifestTexts = SOURCES.blindManifest.map((source) => readText(path.join(root, source)));
+  const perItemTexts = SOURCES.perItem.map((source) => readText(path.join(root, source)));
 
   const decisionRows = decisionsText.split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));
-  const secondRows = secondText.split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));
-  const blindManifest = JSON.parse(manifestText);
-  const perItemRows = perItemText.split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));
+  const secondRows = secondTexts.flatMap((text) => text.split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l)));
+  const blindSourceIds = manifestTexts.flatMap((text) => JSON.parse(text).entries.map((entry) => entry.sourceQueueId));
+  const perItemRows = perItemTexts.flatMap((text) => text.split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l)));
 
-  const blindSourceIds = blindManifest.entries.map((entry) => entry.sourceQueueId);
   const pairs = buildDecisionPairs(
     decisionRows.map(toReviewDecision),
     secondRows.map(toReviewDecision),
@@ -133,7 +145,7 @@ function main() {
   );
 
   const disagreedSourceIds = pairs.filter((pair) => !pair.agrees).map((pair) => pair.sourceQueueId);
-  const adjudications = readJsonl(path.join(repoRoot, 'data/calibration/adjudications.jsonl'));
+  const adjudications = SOURCES.adjudications.flatMap((source) => readJsonl(path.join(root, source)));
   reportValidation(
     'adjudications',
     validateAdjudications(adjudications, { policies, disagreedSourceIds }),
@@ -145,13 +157,14 @@ function main() {
   const previous = outPath && existsSync(outPath) ? JSON.parse(readFileSync(outPath, 'utf8')) : null;
 
   const report = evaluateConsistencyGate({
-    reportId: flags['report-id'] ?? previous?.reportId ?? 'capture-gold-consistency-v2',
+    reportId: flags['report-id'] ?? previous?.reportId ?? 'capture-gold-consistency-v3',
     createdAt: flags['created-at'] ?? previous?.createdAt ?? new Date().toISOString(),
     inputs: [
       { name: 'gold-decisions', path: SOURCES.decisions, checksum: checksum(decisionsText), recordCount: decisionRows.length },
-      { name: 'consistency-second-pass', path: SOURCES.secondPass, checksum: checksum(secondText), recordCount: secondRows.length },
-      { name: 'consistency-10-manifest', path: SOURCES.blindManifest, checksum: checksum(manifestText), recordCount: blindSourceIds.length },
-      { name: 'per-item-gold', path: SOURCES.perItem, checksum: checksum(perItemText), recordCount: perItemRows.length },
+      ...SOURCES.secondPass.map((source, index) => ({ name: path.basename(source), path: source, checksum: checksum(secondTexts[index]), recordCount: secondTexts[index].split('\n').filter((line) => line.trim()).length })),
+      ...SOURCES.blindManifest.map((source, index) => ({ name: path.basename(source), path: source, checksum: checksum(manifestTexts[index]), recordCount: JSON.parse(manifestTexts[index]).entries.length })),
+      ...SOURCES.perItem.map((source, index) => ({ name: path.basename(source), path: source, checksum: checksum(perItemTexts[index]), recordCount: perItemTexts[index].split('\n').filter((line) => line.trim()).length })),
+      ...SOURCES.adjudications.map((source) => { const text = readText(path.join(root, source)); return { name: path.basename(source), path: source, checksum: checksum(text), recordCount: text.split('\n').filter((line) => line.trim()).length }; }),
     ],
     pairs,
     adjudications,
