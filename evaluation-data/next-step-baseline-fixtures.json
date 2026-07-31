@@ -1,0 +1,29 @@
+{
+  "version": "1.0.0",
+  "referenceTime": "2026-08-31T09:00:00.000Z",
+  "cases": [
+    {
+      "id": "overdue-wins",
+      "expectedCommitmentId": "overdue",
+      "candidates": [
+        { "commitmentId": "today", "title": "Send report", "confirmed": true, "status": "active", "dueAt": "2026-08-31T12:00:00.000Z", "remindAt": null, "importance": "high", "explicitEffortMinutes": null },
+        { "commitmentId": "overdue", "title": "Call Maya", "confirmed": true, "status": "active", "dueAt": "2026-08-30T12:00:00.000Z", "remindAt": null, "importance": "normal", "explicitEffortMinutes": null }
+      ]
+    },
+    {
+      "id": "stable-id-tie",
+      "expectedCommitmentId": "a",
+      "candidates": [
+        { "commitmentId": "b", "title": "Second", "confirmed": true, "status": "active", "dueAt": null, "remindAt": null, "importance": "normal", "explicitEffortMinutes": null },
+        { "commitmentId": "a", "title": "First", "confirmed": true, "status": "active", "dueAt": null, "remindAt": null, "importance": "normal", "explicitEffortMinutes": null }
+      ]
+    },
+    {
+      "id": "insufficient",
+      "expectedCommitmentId": null,
+      "candidates": [
+        { "commitmentId": "unknown", "title": "Unranked", "confirmed": true, "status": "active", "dueAt": null, "remindAt": null, "importance": null, "explicitEffortMinutes": null }
+      ]
+    }
+  ]
+}
