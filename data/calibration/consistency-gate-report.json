@@ -1,0 +1,142 @@
+{
+  "contractVersion": "1.0.0",
+  "reportId": "capture-gold-consistency-v2",
+  "createdAt": "2026-07-31T00:00:00.000Z",
+  "inputs": [
+    {
+      "name": "gold-decisions",
+      "path": "data/review/gold-decisions.jsonl",
+      "checksum": {
+        "algorithm": "sha256",
+        "value": "45c7421266c2d106aa7cbcda07e2f2db0abb02d63ff0ee0009f4095a85d8a7ea"
+      },
+      "recordCount": 50
+    },
+    {
+      "name": "consistency-second-pass",
+      "path": "data/review/calibration/consistency-second-pass.jsonl",
+      "checksum": {
+        "algorithm": "sha256",
+        "value": "2f0f4e780f6913841aa3f1882366fdf77756edcb78d6154c99badd01e12ce5d6"
+      },
+      "recordCount": 10
+    },
+    {
+      "name": "consistency-10-manifest",
+      "path": "data/review/calibration/consistency-10-manifest.json",
+      "checksum": {
+        "algorithm": "sha256",
+        "value": "7d7b042ddc8afa63b3791450b6a3473f7a87ba912c2b6b5db3a0062be7ebd37c"
+      },
+      "recordCount": 10
+    },
+    {
+      "name": "per-item-gold",
+      "path": "data/review/per-item-gold.jsonl",
+      "checksum": {
+        "algorithm": "sha256",
+        "value": "621b81d3595b582691287450b5cac6b14312cc2ed6c8d342f50cfbbfdb5cbc63"
+      },
+      "recordCount": 9
+    }
+  ],
+  "thresholds": {
+    "minPolicyNormalizedDecisionAgreement": 0.85,
+    "minPerItemAgreement": 0.85,
+    "underpoweredBelowComparisons": 30,
+    "requireEveryDisagreementAdjudicated": true
+  },
+  "comparedItems": 10,
+  "classification": {
+    "agreement": 7,
+    "policy_shift": 2,
+    "tooling_defect": 0,
+    "reviewer_noise": 1
+  },
+  "rawDecisionAgreement": {
+    "dimension": "decision",
+    "matches": 7,
+    "compared": 10,
+    "rate": 0.7,
+    "measurable": true,
+    "confidenceInterval": [
+      0.396778,
+      0.892209
+    ],
+    "underpowered": true
+  },
+  "policyNormalizedDecisionAgreement": {
+    "dimension": "decision",
+    "matches": 7,
+    "compared": 8,
+    "rate": 0.875,
+    "measurable": true,
+    "confidenceInterval": [
+      0.529112,
+      0.977583
+    ],
+    "underpowered": true
+  },
+  "perItemAgreement": [
+    {
+      "dimension": "commitment_count",
+      "matches": 1,
+      "compared": 1,
+      "rate": 1,
+      "measurable": true,
+      "confidenceInterval": [
+        0.206549,
+        1
+      ],
+      "underpowered": true
+    },
+    {
+      "dimension": "boundary",
+      "matches": 1,
+      "compared": 1,
+      "rate": 1,
+      "measurable": true,
+      "confidenceInterval": [
+        0.206549,
+        1
+      ],
+      "underpowered": true
+    },
+    {
+      "dimension": "slots",
+      "matches": 10,
+      "compared": 10,
+      "rate": 1,
+      "measurable": true,
+      "confidenceInterval": [
+        0.722467,
+        1
+      ],
+      "underpowered": true
+    },
+    {
+      "dimension": "date_time",
+      "matches": 5,
+      "compared": 5,
+      "rate": 1,
+      "measurable": true,
+      "confidenceInterval": [
+        0.565518,
+        1
+      ],
+      "underpowered": true
+    }
+  ],
+  "unadjudicatedDisagreements": [],
+  "status": "pass_provisional",
+  "failures": [],
+  "provisos": [
+    "decision is measured over 8 comparison(s), below the 30 needed for a final result",
+    "commitment_count is measured over 1 comparison(s), below the 30 needed for a final result",
+    "boundary is measured over 1 comparison(s), below the 30 needed for a final result",
+    "slots is measured over 10 comparison(s), below the 30 needed for a final result",
+    "date_time is measured over 5 comparison(s), below the 30 needed for a final result",
+    "1 date-time comparison(s) excluded as an adjudicated tooling defect",
+    "1 source(s) need re-annotation before their Gold is usable: pilot-v4-review-hebrew-039"
+  ]
+}
