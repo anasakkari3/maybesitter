@@ -1,0 +1,84 @@
+{
+  "schemaVersion": "1.0.0",
+  "reviewedAt": "2026-07-31",
+  "sprint": {
+    "number": "01",
+    "name": "Capture Quality",
+    "implementationIssues": [5, 6, 7],
+    "reviewGateIssue": 8
+  },
+  "decision": "HOLD",
+  "nextSprintMayStart": false,
+  "integration": {
+    "branch": "integration/sprint-01",
+    "sharedBase": "7956c4ec0152c59fd0c17ab0d9102d5348b38c1b",
+    "integratedCommits": {
+      "5": [
+        "1f51f77f441b177a5c7db5929cc9724d82c0e8e2",
+        "3f3817c90846948dbd4db53c87f0b9d20da01e0c"
+      ],
+      "6": [],
+      "7": []
+    },
+    "candidateBeforeReviewArtifact": "3f3817c90846948dbd4db53c87f0b9d20da01e0c",
+    "candidateWithReviewArtifact": "SELF"
+  },
+  "issueAssessment": {
+    "5": {
+      "status": "PARTIAL",
+      "reason": "The calibration instrumentation and freeze are integrated and verified, but the gate is explicitly pass_provisional: 8 comparable items versus the required 30, with one source excluded pending re-annotation. It does not authorize training."
+    },
+    "6": {
+      "status": "NOT VERIFIED",
+      "reason": "Unique work is preserved at checkpoint/sprint-01-backend-20260731 (81ad75f), but it has no issue handoff commit and is based on an incompatible, mixed backend history. Importing it would pull unrelated changes and silently rewrite provenance."
+    },
+    "7": {
+      "status": "FAIL",
+      "reason": "The preserved runner can report a false green: --engine changes the label without selecting the engine; report bytes vary across identical runs; multilingual and multi-item slices are not release thresholds; the multi-item fixture does not assert commitment boundaries; schema_validation_failure is unreachable; and raw input text is copied into the report."
+    }
+  },
+  "validation": {
+    "runtime": {
+      "os": "macOS 26.5.2 arm64",
+      "node": "22.23.1",
+      "npm": "10.9.8",
+      "typescript": "5.9.3",
+      "next": "14.2.35"
+    },
+    "commands": [
+      { "command": "npm ci", "result": "PASS; 106 packages installed; npm reported 2 high-severity dependency advisories" },
+      { "command": "npm test", "result": "PASS; 237 passed, 0 failed, 0 skipped" },
+      { "command": "npm run typecheck", "result": "PASS" },
+      { "command": "npm run build", "result": "PASS" },
+      { "command": "npm run validate:registry", "result": "PASS with 2 SPL006 warnings for unlocked historical test artifacts; cross-repository bytes not verified by this invocation" },
+      { "command": "node --no-warnings --loader ./scripts/ts-resolver.mjs scripts/freeze-capture-gold.mjs --calibration-root ../maybesitter-gemma-gold-calibration --check", "result": "PASS; 49 included, 1 excluded; checksum c0dc2a1cb11eba63ded898bd16662203c359e9d2cfee27d407bb6b358b9bf0ae" },
+      { "command": "npm run lint", "result": "NOT AVAILABLE; no lint script" },
+      { "command": "npm run coverage", "result": "NOT AVAILABLE; no coverage script" },
+      { "command": "node scripts/verify-stage.mjs", "result": "NOT AVAILABLE on candidate" }
+    ]
+  },
+  "recovery": {
+    "preservedCheckpoints": [
+      { "branch": "checkpoint/sprint-01-quality-and-ui-20260731", "commit": "d184fc1", "scope": "Issue #7 plus unrelated UI work; large local model/data/report artifacts remain untouched in its worktree" },
+      { "branch": "checkpoint/sprint-01-backend-20260731", "commit": "81ad75f", "scope": "Issue #6 plus prior backend/API work" },
+      { "branch": "checkpoint/sprint-01-gemma-calibration-20260731", "commit": "6877fa1", "scope": "Gemma calibration working-copy edits" }
+    ],
+    "stashes": []
+  },
+  "conflicts": [
+    {
+      "issue": 5,
+      "file": "package.json",
+      "resolution": "Kept the Sprint 00 Node >=22.5, Next 14.2.35, typecheck and contract commands; added Issue #5 calibration scripts/tests. No threshold or assertion was weakened."
+    }
+  ],
+  "blockingDefects": [
+    { "severity": "BLOCKER", "owner": "Issue #4/#5 owner", "defect": "Sprint 00 gate remains HOLD and Issue #5 lacks the minimum 30 blind re-reviews plus clean re-annotation of hebrew-039." },
+    { "severity": "BLOCKER", "owner": "Issue #6 owner", "defect": "Produce a clean, single-purpose handoff rebased onto the shared Sprint 00 base, with boundary tests and migration/rollback evidence." },
+    { "severity": "BLOCKER", "owner": "Issue #7 owner", "defect": "Repair engine selection, deterministic evidence, all-slice thresholds, genuine multi-item assertions, reachable taxonomy, report privacy, and dataset locking; rerun on the integrated candidate." },
+    { "severity": "HIGH", "owner": "Dependency maintainer", "defect": "npm audit reports 2 high-severity advisories; assess and remediate without a forced breaking upgrade." }
+  ],
+  "baseline": null,
+  "tag": null,
+  "futureSprintWorkModified": false
+}
