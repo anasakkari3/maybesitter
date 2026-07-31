@@ -167,7 +167,7 @@ function main() {
   mkdirSync(path.dirname(freezePath), { recursive: true });
   writeFileSync(freezePath, serialized, 'utf8');
   console.log(
-    `wrote data/calibration/capture-gold-freeze.json — ${manifest.includedCount} included, ${manifest.excludedCount} excluded`,
+    `wrote ${path.relative(repoRoot, freezePath)} — ${manifest.includedCount} included, ${manifest.excludedCount} excluded`,
   );
   console.log(`records checksum: ${manifest.recordsChecksum.value}`);
   for (const record of manifest.records.filter((r) => r.excluded)) {

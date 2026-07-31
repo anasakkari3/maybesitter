@@ -86,7 +86,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       const extracted = await extractor(segment, context, {
         llmProvider: forceRules ? async () => { throw new Error('rules-only runtime'); } : dependencies.llmProvider,
       });
-      executedEngine = extracted.engine;
+      executedEngine = extracted.engine === 'rule-based' ? 'rule-based' : 'ollama';
       fallbackUsed ||= Boolean(extracted.fallbackReason);
       const failure = semanticFailure(extracted.result, options.now);
       if (failure === 'no_commitment') continue;
