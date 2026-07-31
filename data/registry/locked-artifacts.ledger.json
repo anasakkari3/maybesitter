@@ -60,6 +60,46 @@
         "algorithm": "sha256",
         "value": "ea295ba935b38253f6d58a0644222ab6deec334ddc960fac1fe14bc00a76b973"
       }
+    },
+    {
+      "artifactId": "capture-gold-consistency-gate-v2",
+      "datasetId": "capture-gold-freeze-v1",
+      "checksum": {
+        "algorithm": "sha256",
+        "value": "f55f2f322422b808ad70f33e4b1bd82dfb70aa706ed67ccc3d2ecaf06f573ce7"
+      },
+      "recordCount": null,
+      "lockedAt": "2026-07-31T00:00:00.000Z",
+      "lockedBy": "model-data track",
+      "authorizingIssue": "https://github.com/anasakkari3/maybesitter/issues/5",
+      "state": "active",
+      "supersededBy": null,
+      "supersessionIssue": null,
+      "supersessionReason": null,
+      "chainChecksum": {
+        "algorithm": "sha256",
+        "value": "1a9430f1bb5837dd3ccdecd50c4275d04ad5842541e6c64d5e4a00c9602aa899"
+      }
+    },
+    {
+      "artifactId": "capture-gold-freeze-v1-manifest",
+      "datasetId": "capture-gold-freeze-v1",
+      "checksum": {
+        "algorithm": "sha256",
+        "value": "cf1e76c94388c02cd8f23a58dbf5fc52b899bb1fdc12c531f242289dd9dc3312"
+      },
+      "recordCount": 50,
+      "lockedAt": "2026-07-31T00:00:00.000Z",
+      "lockedBy": "model-data track",
+      "authorizingIssue": "https://github.com/anasakkari3/maybesitter/issues/5",
+      "state": "active",
+      "supersededBy": null,
+      "supersessionIssue": null,
+      "supersessionReason": null,
+      "chainChecksum": {
+        "algorithm": "sha256",
+        "value": "2e3597b0d5d03b76df3ee81352d1af9c3f1eab5653d35e17d4bd476669043662"
+      }
     }
   ]
 }

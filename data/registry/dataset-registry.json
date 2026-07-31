@@ -1027,6 +1027,127 @@
       ]
     },
     {
+      "id": "capture-gold-freeze-v1",
+      "title": "Capture Gold freeze v1 — 50 calibration decisions, 49 included",
+      "version": "1.0.0",
+      "purpose": "human_review",
+      "status": "frozen",
+      "owner": "model-data",
+      "card": "docs/data/CAPTURE_GOLD_FREEZE.md",
+      "supersededBy": null,
+      "gates": ["https://github.com/anasakkari3/maybesitter/issues/5"],
+      "sources": [
+        {
+          "name": "MaybeSitter Capture Gold freeze",
+          "url": "scripts/freeze-capture-gold.mjs",
+          "revision": "capture-gold-freeze-v1",
+          "license": "Project-owned",
+          "declaredRecordCount": 50,
+          "consent": {
+            "basis": "project_owned_authored",
+            "containsPersonalData": true,
+            "personalDataHandling": "pseudonymized",
+            "redistribution": "internal_only",
+            "reviewedBy": "model-data track",
+            "reviewedAt": "2026-07-31T00:00:00.000Z",
+            "notes": "The freeze checksums the canonical decisions in place rather than copying them, so it carries no reviewer text itself. It inherits the internal-only handling of gemma3-gold-review because the records it pins carry reviewer_id."
+          }
+        }
+      ],
+      "lineage": {
+        "derivedFrom": [
+          "gemma3-gold-review",
+          "gemma3-gold-calibration",
+          "gemma3-pilot-v4-review",
+          "source:MaybeSitter Capture Gold freeze"
+        ],
+        "producedBy": {
+          "script": "scripts/freeze-capture-gold.mjs",
+          "version": "capture-gold-freeze-v1",
+          "seed": null
+        },
+        "transformationNotes": "Pins the 50 canonical first-pass decisions by checksum under annotation policy 2.1.0, authorized by consistency gate report capture-gold-consistency-v2. One source (pilot-v4-review-hebrew-039) is excluded pending re-annotation of defect CAL-002. No decision was copied, edited, or rewritten."
+      },
+      "artifacts": [
+        {
+          "id": "capture-gold-freeze-v1-manifest",
+          "role": "provenance",
+          "location": {
+            "repository": "maybesitter",
+            "revision": "s01/calibration-consistency-gold-freeze",
+            "path": "data/calibration/capture-gold-freeze.json"
+          },
+          "mediaType": "application/json",
+          "recordCount": 50,
+          "byteSize": 25413,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "cf1e76c94388c02cd8f23a58dbf5fc52b899bb1fdc12c531f242289dd9dc3312"
+          },
+          "mutability": "locked",
+          "materialized": true,
+          "notes": "49 included, 1 excluded. Records checksum c0dc2a1cb11eba63ded898bd16662203c359e9d2cfee27d407bb6b358b9bf0ae."
+        },
+        {
+          "id": "capture-gold-consistency-gate-v2",
+          "role": "report",
+          "location": {
+            "repository": "maybesitter",
+            "revision": "s01/calibration-consistency-gold-freeze",
+            "path": "data/calibration/consistency-gate-report.json"
+          },
+          "mediaType": "application/json",
+          "recordCount": null,
+          "byteSize": 3712,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "f55f2f322422b808ad70f33e4b1bd82dfb70aa706ed67ccc3d2ecaf06f573ce7"
+          },
+          "mutability": "locked",
+          "materialized": true,
+          "notes": "Gate status pass_provisional. Locked because the freeze cites it as its authorization."
+        },
+        {
+          "id": "capture-gold-adjudications",
+          "role": "annotation",
+          "location": {
+            "repository": "maybesitter",
+            "revision": "s01/calibration-consistency-gold-freeze",
+            "path": "data/calibration/adjudications.jsonl"
+          },
+          "mediaType": "application/jsonl",
+          "recordCount": 4,
+          "byteSize": 4577,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "b64b10111f6245d2a8b1a091ae0bb888868038169ff38a8617fa52d8711842c4"
+          },
+          "mutability": "append_only",
+          "materialized": true,
+          "notes": "Additive resolution layer. Never edits data/review/gold-decisions.jsonl."
+        },
+        {
+          "id": "capture-gold-annotation-policy",
+          "role": "provenance",
+          "location": {
+            "repository": "maybesitter",
+            "revision": "s01/calibration-consistency-gold-freeze",
+            "path": "data/calibration/annotation-policy.json"
+          },
+          "mediaType": "application/json",
+          "recordCount": null,
+          "byteSize": 4165,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "4283784c9a29f338527e6758a2af9dff477767c3daa57bed11d6a95f07b79629"
+          },
+          "mutability": "append_only",
+          "materialized": true,
+          "notes": "Versioned annotation policy 1.0.0 -> 2.0.0 -> 2.1.0. New versions are appended; a published version is never edited."
+        }
+      ]
+    },
+    {
       "id": "production-extraction-schema-v4",
       "title": "Production extraction contract snapshot v4",
       "version": "4.0.0",
