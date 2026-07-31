@@ -1,0 +1,65 @@
+{
+  "contractVersion": "1.0.0",
+  "records": [
+    {
+      "artifactId": "gemma3-locked-automated-v4-cases",
+      "datasetId": "gemma3-locked-automated-v4",
+      "checksum": {
+        "algorithm": "sha256",
+        "value": "251824bfd19517abff63d8eea2cf684bd679bd66ec77f1ac0f61bc789f26174b"
+      },
+      "recordCount": 500,
+      "lockedAt": "2026-07-31T00:00:00.000Z",
+      "lockedBy": "model-data track",
+      "authorizingIssue": "https://github.com/anasakkari3/maybesitter/issues/2",
+      "state": "active",
+      "supersededBy": null,
+      "supersessionIssue": null,
+      "supersessionReason": null,
+      "chainChecksum": {
+        "algorithm": "sha256",
+        "value": "41bf397c8a9619b15c2ebe60401b83aa6c7a7b4569a08d8c8b2a1a80e4bb8250"
+      }
+    },
+    {
+      "artifactId": "gemma3-locked-test-cases",
+      "datasetId": "gemma3-locked-test",
+      "checksum": {
+        "algorithm": "sha256",
+        "value": "4ad00e0980a9576471816fc51f6b68f52b256b50ea76989845a774a38c949dca"
+      },
+      "recordCount": 8,
+      "lockedAt": "2026-07-31T00:00:00.000Z",
+      "lockedBy": "model-data track",
+      "authorizingIssue": "https://github.com/anasakkari3/maybesitter/issues/2",
+      "state": "active",
+      "supersededBy": null,
+      "supersessionIssue": null,
+      "supersessionReason": null,
+      "chainChecksum": {
+        "algorithm": "sha256",
+        "value": "89090bf2e0e9601f125b74cc8542aada327db0d716c7b09a847a020ff0c47383"
+      }
+    },
+    {
+      "artifactId": "production-extraction-schema-v4-json",
+      "datasetId": "production-extraction-schema-v4",
+      "checksum": {
+        "algorithm": "sha256",
+        "value": "9d94f0cccb6933d5e6d4dcb6fd3d02dee079b3f1c064a0f1df239c989244d733"
+      },
+      "recordCount": null,
+      "lockedAt": "2026-07-31T00:00:00.000Z",
+      "lockedBy": "model-data track",
+      "authorizingIssue": "https://github.com/anasakkari3/maybesitter/issues/2",
+      "state": "active",
+      "supersededBy": null,
+      "supersessionIssue": null,
+      "supersessionReason": null,
+      "chainChecksum": {
+        "algorithm": "sha256",
+        "value": "ea295ba935b38253f6d58a0644222ab6deec334ddc960fac1fe14bc00a76b973"
+      }
+    }
+  ]
+}

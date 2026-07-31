@@ -118,7 +118,21 @@ npm run build           # Build for production
 npm start               # Start the production server
 npm run start:reliable  # Start production server and reminder worker together
 npm test                # Run the full test suite
+npm run test:registry      # Run the dataset-governance tests only
+npm run validate:registry  # Validate the dataset registry, lock ledger, and reports
 ```
+
+## Dataset registry
+
+Datasets, splits, lineage, consent, locked test sets, and evaluation reports are
+governed by one registry under `data/registry/`, with versioned contracts and
+validators in `lib/evaluation/registry/`. See [Dataset registry and evaluation
+governance](docs/data/DATASET_REGISTRY.md) for the manifest shape, the
+locked-test immutability policy and its change procedure, and the
+evaluation-report contract.
+
+Nothing in the app imports it — it is governance tooling for the model/data
+track, and the artifacts it governs live in the Gemma pipeline working copies.
 
 ## Main routes
 

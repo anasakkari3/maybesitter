@@ -1,0 +1,1180 @@
+{
+  "contractVersion": "1.0.0",
+  "registryVersion": "1.0.0",
+  "generatedAt": "2026-07-31T00:00:00.000Z",
+  "entries": [
+    {
+      "id": "gemma3-extraction-corpus",
+      "title": "MaybeSitter Gemma 3 structured extraction corpus",
+      "version": "0.1.0-in-progress",
+      "purpose": "training",
+      "status": "validated_partial",
+      "owner": "model-data",
+      "card": "data/DATASET_CARD.md",
+      "supersededBy": null,
+      "gates": ["https://github.com/anasakkari3/maybesitter/issues/5"],
+      "sources": [
+        {
+          "name": "MASSIVE",
+          "url": "https://huggingface.co/datasets/AmazonScience/massive",
+          "revision": "official configurations ar-SA/he-IL/en-US; 11,514 training rows each",
+          "license": "CC BY 4.0",
+          "declaredRecordCount": 34542,
+          "consent": {
+            "basis": "public_license",
+            "containsPersonalData": false,
+            "personalDataHandling": "none",
+            "redistribution": "allowed_with_attribution",
+            "reviewedBy": "model-data track",
+            "reviewedAt": "2026-07-31T00:00:00.000Z",
+            "notes": "Only the official training split is accepted; validation/test rows are reserved and never trained on (data/EXCLUSIONS_REPORT.md)."
+          }
+        },
+        {
+          "name": "Schema-Guided Dialogue",
+          "url": "https://github.com/google-research-datasets/dstc8-schema-guided-dialogue",
+          "revision": "e852981ae34990f4358979625854259302feaa78",
+          "license": "CC BY-SA 4.0",
+          "declaredRecordCount": 15000,
+          "consent": {
+            "basis": "public_license",
+            "containsPersonalData": false,
+            "personalDataHandling": "none",
+            "redistribution": "allowed_with_attribution",
+            "reviewedBy": "model-data track",
+            "reviewedAt": "2026-07-31T00:00:00.000Z",
+            "notes": "Share-alike license: derived corpora that redistribute these turns inherit CC BY-SA 4.0."
+          }
+        },
+        {
+          "name": "CLINC150",
+          "url": "https://archive.ics.uci.edu/dataset/570/clinc150",
+          "revision": "sha256:0d8ecc3e1edd7b25cabde0177544ce536ddf773844bc80ef1a75f36e7f030ea2",
+          "license": "CC BY 4.0",
+          "declaredRecordCount": 15000,
+          "consent": {
+            "basis": "public_license",
+            "containsPersonalData": false,
+            "personalDataHandling": "none",
+            "redistribution": "allowed_with_attribution",
+            "reviewedBy": "model-data track",
+            "reviewedAt": "2026-07-31T00:00:00.000Z"
+          }
+        },
+        {
+          "name": "MaybeSitter deterministic synthetic",
+          "url": "scripts/generate-gemma-synthetic.py",
+          "revision": "generator-v1-seed-42",
+          "license": "Project-owned",
+          "declaredRecordCount": 50458,
+          "consent": {
+            "basis": "project_owned_synthetic",
+            "containsPersonalData": false,
+            "personalDataHandling": "none",
+            "redistribution": "internal_only",
+            "reviewedBy": "model-data track",
+            "reviewedAt": "2026-07-31T00:00:00.000Z",
+            "notes": "Deterministic templates with zoneinfo date arithmetic; no production text."
+          }
+        },
+        {
+          "name": "Human-reviewed Gold",
+          "url": "scripts/review-gemma-gold.py",
+          "revision": "pending review",
+          "license": "Project-owned",
+          "declaredRecordCount": 5000,
+          "consent": {
+            "basis": "project_owned_authored",
+            "containsPersonalData": false,
+            "personalDataHandling": "none",
+            "redistribution": "internal_only",
+            "reviewedBy": "model-data track",
+            "reviewedAt": "2026-07-31T00:00:00.000Z",
+            "notes": "Candidates are generated, not sampled from production. data/TRANSFORMATION_REPORT.md requires production text to be anonymized before it may enter this queue; that path is not open yet."
+          }
+        }
+      ],
+      "lineage": {
+        "derivedFrom": [
+          "source:MASSIVE",
+          "source:Schema-Guided Dialogue",
+          "source:CLINC150",
+          "source:MaybeSitter deterministic synthetic",
+          "source:Human-reviewed Gold"
+        ],
+        "producedBy": {
+          "script": "scripts/assemble-gemma-corpus.py",
+          "version": "assemble-v1",
+          "seed": 42
+        },
+        "transformationNotes": "MASSIVE multilingual rows are grouped by original source id before splitting, so a single utterance cannot straddle train and test."
+      },
+      "artifacts": [
+        {
+          "id": "gemma3-corpus-train",
+          "role": "train",
+          "location": {
+            "repository": "maybesitter-gemma",
+            "revision": "2b63b8547d969019075527c697f0d16e14f0ec93",
+            "path": "training-data/train.jsonl"
+          },
+          "mediaType": "application/jsonl",
+          "recordCount": 3,
+          "byteSize": 2025,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "cc56a2cbd43b7818092986f377bf1938af1fbba86cc7f53602212cf7c7ab83a7"
+          },
+          "mutability": "mutable",
+          "materialized": true,
+          "notes": "Format sample only. data/DATASET_MANIFEST.json declares 103,500 train rows; the assembled corpus has not been built in this working copy."
+        },
+        {
+          "id": "gemma3-corpus-valid",
+          "role": "valid",
+          "location": {
+            "repository": "maybesitter-gemma",
+            "revision": "2b63b8547d969019075527c697f0d16e14f0ec93",
+            "path": "training-data/valid.jsonl"
+          },
+          "mediaType": "application/jsonl",
+          "recordCount": 1,
+          "byteSize": 673,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "45657fd79946164716ff726745000c0b93344b611a111e729b9efec516e2a1eb"
+          },
+          "mutability": "mutable",
+          "materialized": true,
+          "notes": "Format sample only; the manifest declares 5,750 validation rows."
+        },
+        {
+          "id": "gemma3-corpus-test",
+          "role": "test",
+          "location": {
+            "repository": "maybesitter-gemma",
+            "revision": "2b63b8547d969019075527c697f0d16e14f0ec93",
+            "path": "training-data/test.jsonl"
+          },
+          "mediaType": "application/jsonl",
+          "recordCount": 1,
+          "byteSize": 636,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "06ee230bfea46bfc16bdf05e53604629cd20aa5bf5e207d378f59dcb9efbfc06"
+          },
+          "mutability": "append_only",
+          "materialized": true,
+          "notes": "Held-out split of the assembled corpus. Not lockable until the corpus is assembled and overlap-checked, so it may not back a release gate yet."
+        },
+        {
+          "id": "gemma3-corpus-manifest",
+          "role": "provenance",
+          "location": {
+            "repository": "maybesitter-gemma",
+            "revision": "2b63b8547d969019075527c697f0d16e14f0ec93+uncommitted",
+            "path": "data/DATASET_MANIFEST.json"
+          },
+          "mediaType": "application/json",
+          "recordCount": null,
+          "byteSize": 12427,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "f96db590e29f8b8993bab87f1f6623400b94e0e8e08ac60e997267ce14f86bd1"
+          },
+          "mutability": "mutable",
+          "materialized": true,
+          "notes": "Legacy per-corpus manifest, superseded by this registry as the governance record. Observed in the working tree; it differs from the commit it is pinned to."
+        },
+        {
+          "id": "gemma3-corpus-card",
+          "role": "provenance",
+          "location": {
+            "repository": "maybesitter-gemma",
+            "revision": "2b63b8547d969019075527c697f0d16e14f0ec93",
+            "path": "data/DATASET_CARD.md"
+          },
+          "mediaType": "text/markdown",
+          "recordCount": null,
+          "byteSize": 484,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "1efacc899acb3de9dca9bd1af221ebc4e36719b660d559cc5d9db8c6b21599a8"
+          },
+          "mutability": "mutable",
+          "materialized": true
+        },
+        {
+          "id": "gemma3-corpus-licenses",
+          "role": "provenance",
+          "location": {
+            "repository": "maybesitter-gemma",
+            "revision": "2b63b8547d969019075527c697f0d16e14f0ec93",
+            "path": "data/LICENSES.md"
+          },
+          "mediaType": "text/markdown",
+          "recordCount": null,
+          "byteSize": 385,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "fa75bcf2ee7759761e747578cdf056bb8145b1bdb4dcc35b6a64155ccbf6d3ef"
+          },
+          "mutability": "mutable",
+          "materialized": true
+        },
+        {
+          "id": "gemma3-corpus-exclusions",
+          "role": "provenance",
+          "location": {
+            "repository": "maybesitter-gemma",
+            "revision": "2b63b8547d969019075527c697f0d16e14f0ec93",
+            "path": "data/EXCLUSIONS_REPORT.md"
+          },
+          "mediaType": "text/markdown",
+          "recordCount": null,
+          "byteSize": 837,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "6cfbc73db7c6c523012baf2943d1740339ef73fa528a043614051fc3eed6f0c3"
+          },
+          "mutability": "mutable",
+          "materialized": true
+        },
+        {
+          "id": "gemma3-corpus-transformations",
+          "role": "provenance",
+          "location": {
+            "repository": "maybesitter-gemma",
+            "revision": "2b63b8547d969019075527c697f0d16e14f0ec93",
+            "path": "data/TRANSFORMATION_REPORT.md"
+          },
+          "mediaType": "text/markdown",
+          "recordCount": null,
+          "byteSize": 690,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "416878d92ac8d0e0523a62721eacc176529c38c78de2480fdba734376d78a205"
+          },
+          "mutability": "mutable",
+          "materialized": true
+        }
+      ]
+    },
+    {
+      "id": "gemma3-gold-review",
+      "title": "Gemma 3 Gold review queue and human decisions",
+      "version": "0.1.0",
+      "purpose": "human_review",
+      "status": "in_review",
+      "owner": "model-data",
+      "card": "data/DATASET_CARD.md",
+      "supersededBy": null,
+      "gates": ["https://github.com/anasakkari3/maybesitter/issues/5"],
+      "sources": [
+        {
+          "name": "MaybeSitter Gold review candidates",
+          "url": "scripts/generate-gemma-synthetic.py",
+          "revision": "generator-v1-seed-42",
+          "license": "Project-owned",
+          "declaredRecordCount": 5000,
+          "consent": {
+            "basis": "project_owned_synthetic",
+            "containsPersonalData": false,
+            "personalDataHandling": "none",
+            "redistribution": "internal_only",
+            "reviewedBy": "model-data track",
+            "reviewedAt": "2026-07-31T00:00:00.000Z",
+            "notes": "Generated as a separate deterministic source; not copied from the 50,458-row synthetic corpus."
+          }
+        },
+        {
+          "name": "MaybeSitter reviewer decisions",
+          "url": "scripts/review-gemma-gold.py",
+          "revision": "review round 1",
+          "license": "Project-owned",
+          "declaredRecordCount": 50,
+          "consent": {
+            "basis": "project_owned_authored",
+            "containsPersonalData": true,
+            "personalDataHandling": "pseudonymized",
+            "redistribution": "internal_only",
+            "reviewedBy": "model-data track",
+            "reviewedAt": "2026-07-31T00:00:00.000Z",
+            "notes": "Decision records carry a reviewer_id and review timestamps. That identifies a person, so these files are internal-only and must be pseudonymized before any wider use."
+          }
+        }
+      ],
+      "lineage": {
+        "derivedFrom": ["source:MaybeSitter Gold review candidates", "source:MaybeSitter reviewer decisions"],
+        "producedBy": {
+          "script": "scripts/review-gemma-gold.py",
+          "version": "gold-review-v1",
+          "seed": 42
+        }
+      },
+      "artifacts": [
+        {
+          "id": "gemma3-gold-queue",
+          "role": "review_queue",
+          "location": {
+            "repository": "maybesitter-gemma",
+            "revision": "2b63b8547d969019075527c697f0d16e14f0ec93",
+            "path": "data/review/gold-queue.jsonl"
+          },
+          "mediaType": "application/jsonl",
+          "recordCount": 5000,
+          "byteSize": 8273943,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "5a98776e1b72977681ca47686540f200668bb4c52be46b6167d848336563c5ab"
+          },
+          "mutability": "append_only",
+          "materialized": true
+        },
+        {
+          "id": "gemma3-gold-decisions",
+          "role": "annotation",
+          "location": {
+            "repository": "maybesitter-gemma",
+            "revision": "2b63b8547d969019075527c697f0d16e14f0ec93",
+            "path": "data/review/gold-decisions.jsonl"
+          },
+          "mediaType": "application/jsonl",
+          "recordCount": 50,
+          "byteSize": 46372,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "45c7421266c2d106aa7cbcda07e2f2db0abb02d63ff0ee0009f4095a85d8a7ea"
+          },
+          "mutability": "append_only",
+          "materialized": true,
+          "notes": "50 of the 5,000 required Gold decisions. Release gate is not met (data/review/PILOT_V4_REVIEW_PROGRESS.json)."
+        },
+        {
+          "id": "gemma3-per-item-gold",
+          "role": "annotation",
+          "location": {
+            "repository": "maybesitter-gemma",
+            "revision": "2b63b8547d969019075527c697f0d16e14f0ec93",
+            "path": "data/review/per-item-gold.jsonl"
+          },
+          "mediaType": "application/jsonl",
+          "recordCount": 9,
+          "byteSize": 8541,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "621b81d3595b582691287450b5cac6b14312cc2ed6c8d342f50cfbbfdb5cbc63"
+          },
+          "mutability": "append_only",
+          "materialized": true
+        },
+        {
+          "id": "gemma3-per-item-gold-schema",
+          "role": "schema_snapshot",
+          "location": {
+            "repository": "maybesitter-gemma",
+            "revision": "2b63b8547d969019075527c697f0d16e14f0ec93",
+            "path": "data/review/per-item-gold.schema.json"
+          },
+          "mediaType": "application/json",
+          "recordCount": null,
+          "byteSize": 2866,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "1f6d770069b0dcdfcc34e45fc3a740192725e0799a376bde6ee6eeb9b2d4b833"
+          },
+          "mutability": "mutable",
+          "materialized": true
+        }
+      ]
+    },
+    {
+      "id": "gemma3-gold-calibration",
+      "title": "Gemma 3 Gold annotation calibration round",
+      "version": "0.1.0",
+      "purpose": "calibration",
+      "status": "in_review",
+      "owner": "model-data",
+      "card": null,
+      "supersededBy": null,
+      "gates": ["https://github.com/anasakkari3/maybesitter/issues/5"],
+      "sources": [
+        {
+          "name": "MaybeSitter calibration round",
+          "url": "scripts/gemma-calibration",
+          "revision": "maybesitter-pilot-v4-calibration-v1",
+          "license": "Project-owned",
+          "declaredRecordCount": 50,
+          "consent": {
+            "basis": "project_owned_authored",
+            "containsPersonalData": true,
+            "personalDataHandling": "pseudonymized",
+            "redistribution": "internal_only",
+            "reviewedBy": "model-data track",
+            "reviewedAt": "2026-07-31T00:00:00.000Z",
+            "notes": "reviewer-metadata.jsonl records reviewerId, review timestamps, and per-item confidence for a named reviewer."
+          }
+        }
+      ],
+      "lineage": {
+        "derivedFrom": ["gemma3-pilot-v4-review", "gemma3-gold-review", "source:MaybeSitter calibration round"],
+        "producedBy": {
+          "script": "scripts/gemma-calibration",
+          "version": "first-50-calibration-v1",
+          "seed": null
+        },
+        "transformationNotes": "Calibration selection is seeded by the string maybesitter-pilot-v4-calibration-v1 rather than an integer seed."
+      },
+      "artifacts": [
+        {
+          "id": "gemma3-calibration-first-50-manifest",
+          "role": "annotation",
+          "location": {
+            "repository": "maybesitter-gemma",
+            "revision": "2b63b8547d969019075527c697f0d16e14f0ec93",
+            "path": "data/review/calibration/first-50-manifest.json"
+          },
+          "mediaType": "application/json",
+          "recordCount": null,
+          "byteSize": 27625,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "66bbfb7c5f602ebf0ab37bbd345598a16bd3f4a154c1289c45cb812ee9cc6139"
+          },
+          "mutability": "append_only",
+          "materialized": true
+        },
+        {
+          "id": "gemma3-calibration-first-50-coverage",
+          "role": "report",
+          "location": {
+            "repository": "maybesitter-gemma",
+            "revision": "2b63b8547d969019075527c697f0d16e14f0ec93",
+            "path": "data/review/calibration/first-50-coverage.json"
+          },
+          "mediaType": "application/json",
+          "recordCount": null,
+          "byteSize": 1082,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "25c54cae7e52a61b2f0d5871fba56a4ae5452f2032d99083a8407db7e2bb698c"
+          },
+          "mutability": "mutable",
+          "materialized": true
+        },
+        {
+          "id": "gemma3-calibration-consistency-manifest",
+          "role": "annotation",
+          "location": {
+            "repository": "maybesitter-gemma",
+            "revision": "2b63b8547d969019075527c697f0d16e14f0ec93",
+            "path": "data/review/calibration/consistency-10-manifest.json"
+          },
+          "mediaType": "application/json",
+          "recordCount": null,
+          "byteSize": 1559,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "7d7b042ddc8afa63b3791450b6a3473f7a87ba912c2b6b5db3a0062be7ebd37c"
+          },
+          "mutability": "append_only",
+          "materialized": true
+        },
+        {
+          "id": "gemma3-calibration-consistency-second-pass",
+          "role": "annotation",
+          "location": {
+            "repository": "maybesitter-gemma",
+            "revision": "2b63b8547d969019075527c697f0d16e14f0ec93",
+            "path": "data/review/calibration/consistency-second-pass.jsonl"
+          },
+          "mediaType": "application/jsonl",
+          "recordCount": 10,
+          "byteSize": 9340,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "2f0f4e780f6913841aa3f1882366fdf77756edcb78d6154c99badd01e12ce5d6"
+          },
+          "mutability": "append_only",
+          "materialized": true,
+          "notes": "Second-pass decisions are recorded under reviewer_id \"anonymous\" so the blind re-review cannot be linked back to the first pass."
+        },
+        {
+          "id": "gemma3-calibration-reviewer-metadata",
+          "role": "annotation",
+          "location": {
+            "repository": "maybesitter-gemma",
+            "revision": "2b63b8547d969019075527c697f0d16e14f0ec93",
+            "path": "data/review/calibration/reviewer-metadata.jsonl"
+          },
+          "mediaType": "application/jsonl",
+          "recordCount": 58,
+          "byteSize": 16655,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "0874f86b6d1c18569d24cab0d9d17f6db903d0b514d8b7729975c7ae0b2230ff"
+          },
+          "mutability": "append_only",
+          "materialized": true,
+          "notes": "Carries reviewerId. This is the artifact that makes the calibration dataset internal-only."
+        },
+        {
+          "id": "gemma3-calibration-reviewer-metadata-schema",
+          "role": "schema_snapshot",
+          "location": {
+            "repository": "maybesitter-gemma",
+            "revision": "2b63b8547d969019075527c697f0d16e14f0ec93",
+            "path": "data/review/calibration/reviewer-metadata.schema.json"
+          },
+          "mediaType": "application/json",
+          "recordCount": null,
+          "byteSize": 637,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "9d1b60c5883a5a339834ad9a04dfe100ee909cc87a8e194a18fb58bddcbd2d54"
+          },
+          "mutability": "mutable",
+          "materialized": true
+        }
+      ]
+    },
+    {
+      "id": "gemma3-pilot-v4-review",
+      "title": "Gemma 3 pilot-v4 review queue",
+      "version": "1.0.0",
+      "purpose": "human_review",
+      "status": "in_review",
+      "owner": "model-data",
+      "card": null,
+      "supersededBy": null,
+      "sources": [
+        {
+          "name": "MaybeSitter pilot-v4 review candidates",
+          "url": "scripts/prepare-pilot-v4-review.py",
+          "revision": "pilot-v4-review-v1",
+          "license": "Project-owned",
+          "declaredRecordCount": 500,
+          "consent": {
+            "basis": "project_owned_synthetic",
+            "containsPersonalData": false,
+            "personalDataHandling": "none",
+            "redistribution": "internal_only",
+            "reviewedBy": "model-data track",
+            "reviewedAt": "2026-07-31T00:00:00.000Z"
+          }
+        }
+      ],
+      "lineage": {
+        "derivedFrom": ["source:MaybeSitter pilot-v4 review candidates"],
+        "producedBy": {
+          "script": "scripts/prepare-pilot-v4-review.py",
+          "version": "pilot-v4-review-v1",
+          "seed": 42
+        }
+      },
+      "artifacts": [
+        {
+          "id": "gemma3-pilot-v4-review-queue",
+          "role": "review_queue",
+          "location": {
+            "repository": "maybesitter-gemma",
+            "revision": "2b63b8547d969019075527c697f0d16e14f0ec93",
+            "path": "data/review/pilot-v4-review-queue.jsonl"
+          },
+          "mediaType": "application/jsonl",
+          "recordCount": 500,
+          "byteSize": 1552274,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "7fce3f96d95aa5f5dc6117d3f38e27d1fe2811ca939e3cb66bc96eb4ed5c11d5"
+          },
+          "mutability": "append_only",
+          "materialized": true
+        },
+        {
+          "id": "gemma3-pilot-v4-review-coverage",
+          "role": "report",
+          "location": {
+            "repository": "maybesitter-gemma",
+            "revision": "2b63b8547d969019075527c697f0d16e14f0ec93",
+            "path": "data/review/PILOT_V4_REVIEW_COVERAGE.json"
+          },
+          "mediaType": "application/json",
+          "recordCount": null,
+          "byteSize": 1510,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "39daf8e5ac6454201234131693de473eac36be880c507250c2e5facedb7f4443"
+          },
+          "mutability": "mutable",
+          "materialized": true
+        },
+        {
+          "id": "gemma3-pilot-v4-review-progress",
+          "role": "report",
+          "location": {
+            "repository": "maybesitter-gemma",
+            "revision": "2b63b8547d969019075527c697f0d16e14f0ec93+uncommitted",
+            "path": "data/review/PILOT_V4_REVIEW_PROGRESS.json"
+          },
+          "mediaType": "application/json",
+          "recordCount": null,
+          "byteSize": 1052,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "4c2e582a7f7023ab8b6e0a888d632f0c913cd82aa1586268265c223edb9494c6"
+          },
+          "mutability": "mutable",
+          "materialized": true,
+          "notes": "Observed in the working tree; differs from the commit it is pinned to. Records that the 500/2000/5000 review gates are all unmet."
+        }
+      ]
+    },
+    {
+      "id": "gemma3-pilot-v4-staged",
+      "title": "Gemma 3 pilot-v4 staged training set",
+      "version": "0.2.0",
+      "purpose": "training",
+      "status": "draft",
+      "owner": "model-data",
+      "card": null,
+      "supersededBy": null,
+      "gates": ["https://github.com/anasakkari3/maybesitter/issues/5"],
+      "sources": [
+        {
+          "name": "MaybeSitter reviewed Gold decisions",
+          "url": "scripts/prepare-pilot-v4-training.py",
+          "revision": "pilot-v4-staged-compiler-v2",
+          "license": "Project-owned",
+          "declaredRecordCount": 50,
+          "consent": {
+            "basis": "project_owned_authored",
+            "containsPersonalData": false,
+            "personalDataHandling": "anonymized",
+            "redistribution": "internal_only",
+            "reviewedBy": "model-data track",
+            "reviewedAt": "2026-07-31T00:00:00.000Z",
+            "notes": "The compiler emits prompt/completion pairs only; reviewer identity from gemma3-gold-decisions is dropped at this step."
+          }
+        }
+      ],
+      "lineage": {
+        "derivedFrom": ["gemma3-gold-review", "gemma3-pilot-v4-review", "source:MaybeSitter reviewed Gold decisions"],
+        "producedBy": {
+          "script": "scripts/prepare-pilot-v4-training.py",
+          "version": "pilot-v4-staged-compiler-v2",
+          "seed": 42
+        },
+        "transformationNotes": "Compiled from 50 reviewed source items into 126 staged records. trainingReady is false; blockedReason is calibration_consistency_not_completed."
+      },
+      "artifacts": [
+        {
+          "id": "gemma3-pilot-v4-train",
+          "role": "train",
+          "location": {
+            "repository": "maybesitter-gemma",
+            "revision": "2b63b8547d969019075527c697f0d16e14f0ec93+uncommitted",
+            "path": "training-data/pilot-v4-staged/pilot_train.jsonl"
+          },
+          "mediaType": "application/jsonl",
+          "recordCount": 102,
+          "byteSize": 67828,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "d649a5b8324131320abe2fd8ad6181ad0c003186cdd9493e0374f8d3ca95f9ee"
+          },
+          "mutability": "mutable",
+          "materialized": true
+        },
+        {
+          "id": "gemma3-pilot-v4-valid",
+          "role": "valid",
+          "location": {
+            "repository": "maybesitter-gemma",
+            "revision": "2b63b8547d969019075527c697f0d16e14f0ec93+uncommitted",
+            "path": "training-data/pilot-v4-staged/pilot_valid.jsonl"
+          },
+          "mediaType": "application/jsonl",
+          "recordCount": 24,
+          "byteSize": 15885,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "35b9fa00a2e630326f0a3c7cd090f36ed0ac0a3b33d608f8ec8e96429ae2078a"
+          },
+          "mutability": "mutable",
+          "materialized": true
+        },
+        {
+          "id": "gemma3-pilot-v4-test",
+          "role": "test",
+          "location": {
+            "repository": "maybesitter-gemma",
+            "revision": "2b63b8547d969019075527c697f0d16e14f0ec93",
+            "path": "training-data/pilot-v4-staged/locked_test.jsonl"
+          },
+          "mediaType": "application/jsonl",
+          "recordCount": 0,
+          "byteSize": 0,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "mutability": "append_only",
+          "materialized": true,
+          "notes": "Compiled empty: no reviewed item has been promoted into the staged held-out split yet. Evaluation of this pilot uses gemma3-locked-automated-v4 instead."
+        },
+        {
+          "id": "gemma3-pilot-v4-compile-report",
+          "role": "report",
+          "location": {
+            "repository": "maybesitter-gemma",
+            "revision": "2b63b8547d969019075527c697f0d16e14f0ec93+uncommitted",
+            "path": "training-data/pilot-v4-staged/compile-report.json"
+          },
+          "mediaType": "application/json",
+          "recordCount": null,
+          "byteSize": 433,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "9cf85d090aa5a5c47e8f468b465060ac96062f239c804c0ef89fe82eaa62710d"
+          },
+          "mutability": "mutable",
+          "materialized": true
+        },
+        {
+          "id": "gemma3-pilot-v4-training-config",
+          "role": "training_config",
+          "location": {
+            "repository": "maybesitter-gemma",
+            "revision": "2b63b8547d969019075527c697f0d16e14f0ec93",
+            "path": "training-data/pilot-v4/TRAINING_CONFIG.json"
+          },
+          "mediaType": "application/json",
+          "recordCount": null,
+          "byteSize": 1117,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "014759e0843673377f673357ae63dce3c7b4df977ac1eac53c007e1e4da6587c"
+          },
+          "mutability": "mutable",
+          "materialized": true
+        },
+        {
+          "id": "gemma3-pilot-v4-training-yaml",
+          "role": "training_config",
+          "location": {
+            "repository": "maybesitter-gemma",
+            "revision": "2b63b8547d969019075527c697f0d16e14f0ec93",
+            "path": "config/pilot-v4-training.yaml"
+          },
+          "mediaType": "application/yaml",
+          "recordCount": null,
+          "byteSize": 360,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "fa2e1b076d616b8933546b578a7e67a20cd69f070a13b2095cdc0843ea09e8ce"
+          },
+          "mutability": "mutable",
+          "materialized": true,
+          "notes": "MLX LoRA config: 8 layers, 1000 iters, seed 42, adapter_path adapters/maybesitter-gemma3-pilot-v4."
+        }
+      ]
+    },
+    {
+      "id": "gemma3-locked-automated-v4",
+      "title": "Gemma 3 locked automated evaluation set v4",
+      "version": "1.0.0",
+      "purpose": "evaluation",
+      "status": "frozen",
+      "owner": "model-data",
+      "card": null,
+      "supersededBy": null,
+      "gates": ["https://github.com/anasakkari3/maybesitter/issues/2"],
+      "sources": [
+        {
+          "name": "MaybeSitter locked automated evaluation generator",
+          "url": "scripts/generate-gemma-evaluation.py",
+          "revision": "locked-automated-v4-v1",
+          "license": "Project-owned",
+          "declaredRecordCount": 500,
+          "consent": {
+            "basis": "project_owned_synthetic",
+            "containsPersonalData": false,
+            "personalDataHandling": "none",
+            "redistribution": "internal_only",
+            "reviewedBy": "model-data track",
+            "reviewedAt": "2026-07-31T00:00:00.000Z"
+          }
+        }
+      ],
+      "lineage": {
+        "derivedFrom": ["source:MaybeSitter locked automated evaluation generator"],
+        "producedBy": {
+          "script": "scripts/generate-gemma-evaluation.py",
+          "version": "locked-automated-v4-v1",
+          "seed": 42
+        },
+        "transformationNotes": "500 cases, 125 per language across ar/he/en/mixed, over task, reminder, ambiguous, negative, query, and injection categories. Overlap with training and review data was measured at 0 rows."
+      },
+      "artifacts": [
+        {
+          "id": "gemma3-locked-automated-v4-cases",
+          "role": "test",
+          "location": {
+            "repository": "maybesitter-gemma",
+            "revision": "2b63b8547d969019075527c697f0d16e14f0ec93",
+            "path": "evaluation-data/locked-automated-v4.jsonl"
+          },
+          "mediaType": "application/jsonl",
+          "recordCount": 500,
+          "byteSize": 381771,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "251824bfd19517abff63d8eea2cf684bd679bd66ec77f1ac0f61bc789f26174b"
+          },
+          "mutability": "locked",
+          "materialized": true
+        },
+        {
+          "id": "gemma3-locked-automated-v4-manifest",
+          "role": "provenance",
+          "location": {
+            "repository": "maybesitter-gemma",
+            "revision": "2b63b8547d969019075527c697f0d16e14f0ec93",
+            "path": "evaluation-data/LOCKED_AUTOMATED_V4_REPORT.json"
+          },
+          "mediaType": "application/json",
+          "recordCount": null,
+          "byteSize": 463,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "20104ae3015697ecaaa78be50223b4623f25b6c32b34fac06cf821e5c4494517"
+          },
+          "mutability": "append_only",
+          "materialized": true,
+          "notes": "Pre-registry lock record. It already asserts immutableAfterCreation and the same sha256 now held in the lock ledger."
+        }
+      ]
+    },
+    {
+      "id": "gemma3-locked-test",
+      "title": "Gemma 3 authored locked test set",
+      "version": "1.0.0",
+      "purpose": "evaluation",
+      "status": "frozen",
+      "owner": "model-data",
+      "card": null,
+      "supersededBy": null,
+      "gates": ["https://github.com/anasakkari3/maybesitter/issues/2"],
+      "sources": [
+        {
+          "name": "MaybeSitter authored locked test",
+          "url": "evaluation-data/locked-test.jsonl",
+          "revision": "locked-test-v1",
+          "license": "Project-owned",
+          "declaredRecordCount": 8,
+          "consent": {
+            "basis": "project_owned_authored",
+            "containsPersonalData": false,
+            "personalDataHandling": "none",
+            "redistribution": "internal_only",
+            "reviewedBy": "model-data track",
+            "reviewedAt": "2026-07-31T00:00:00.000Z",
+            "notes": "Hand-authored cases; the names in them are invented, not production data."
+          }
+        }
+      ],
+      "lineage": {
+        "derivedFrom": ["source:MaybeSitter authored locked test"],
+        "producedBy": {
+          "script": "hand-authored",
+          "version": "locked-test-v1",
+          "seed": null
+        }
+      },
+      "artifacts": [
+        {
+          "id": "gemma3-locked-test-cases",
+          "role": "test",
+          "location": {
+            "repository": "maybesitter-gemma",
+            "revision": "2b63b8547d969019075527c697f0d16e14f0ec93",
+            "path": "evaluation-data/locked-test.jsonl"
+          },
+          "mediaType": "application/jsonl",
+          "recordCount": 8,
+          "byteSize": 2100,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "4ad00e0980a9576471816fc51f6b68f52b256b50ea76989845a774a38c949dca"
+          },
+          "mutability": "locked",
+          "materialized": true,
+          "notes": "Small smoke-level locked test covering relative dates, null fields, negative history, and clarification."
+        }
+      ]
+    },
+    {
+      "id": "gemma3-development-cases",
+      "title": "Gemma 3 development evaluation cases",
+      "version": "0.1.0",
+      "purpose": "evaluation",
+      "status": "in_review",
+      "owner": "model-data",
+      "card": null,
+      "supersededBy": null,
+      "sources": [
+        {
+          "name": "MaybeSitter authored development cases",
+          "url": "evaluation-data/cases.jsonl",
+          "revision": "dev-cases-v1",
+          "license": "Project-owned",
+          "declaredRecordCount": 20,
+          "consent": {
+            "basis": "project_owned_authored",
+            "containsPersonalData": false,
+            "personalDataHandling": "none",
+            "redistribution": "internal_only",
+            "reviewedBy": "model-data track",
+            "reviewedAt": "2026-07-31T00:00:00.000Z"
+          }
+        }
+      ],
+      "lineage": {
+        "derivedFrom": ["source:MaybeSitter authored development cases"],
+        "producedBy": {
+          "script": "hand-authored",
+          "version": "dev-cases-v1",
+          "seed": null
+        },
+        "transformationNotes": "Iteration-time cases. They are deliberately mutable and may never be used as gate evidence."
+      },
+      "artifacts": [
+        {
+          "id": "gemma3-development-cases-jsonl",
+          "role": "valid",
+          "location": {
+            "repository": "maybesitter-gemma",
+            "revision": "2b63b8547d969019075527c697f0d16e14f0ec93",
+            "path": "evaluation-data/cases.jsonl"
+          },
+          "mediaType": "application/jsonl",
+          "recordCount": 8,
+          "byteSize": 1780,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "f06927fb79a0a2fb92e00f6eedf0a475ab020e718466662afd3138932b631161"
+          },
+          "mutability": "mutable",
+          "materialized": true
+        }
+      ]
+    },
+    {
+      "id": "gemma3-remediation-development-cases",
+      "title": "Gemma 3 remediation-round development cases",
+      "version": "0.1.0",
+      "purpose": "evaluation",
+      "status": "in_review",
+      "owner": "model-data",
+      "card": null,
+      "supersededBy": null,
+      "sources": [
+        {
+          "name": "MaybeSitter remediation development cases",
+          "url": "scripts/gemma-remediation",
+          "revision": "remediation-development-v1",
+          "license": "Project-owned",
+          "declaredRecordCount": 12,
+          "consent": {
+            "basis": "project_owned_authored",
+            "containsPersonalData": false,
+            "personalDataHandling": "none",
+            "redistribution": "internal_only",
+            "reviewedBy": "model-data track",
+            "reviewedAt": "2026-07-31T00:00:00.000Z"
+          }
+        }
+      ],
+      "lineage": {
+        "derivedFrom": ["source:MaybeSitter remediation development cases"],
+        "producedBy": {
+          "script": "scripts/gemma-remediation",
+          "version": "remediation-development-v1",
+          "seed": null
+        },
+        "transformationNotes": "Segment and slot cases authored for the remediation round, covering normal, injection, and malformed slices. Mutable and never gate evidence."
+      },
+      "artifacts": [
+        {
+          "id": "gemma3-remediation-development-jsonl",
+          "role": "valid",
+          "location": {
+            "repository": "maybesitter-gemma",
+            "revision": "2b63b8547d969019075527c697f0d16e14f0ec93",
+            "path": "evaluation-data/remediation-development.json"
+          },
+          "mediaType": "application/json",
+          "recordCount": 12,
+          "byteSize": 2589,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "442e4d44fc4ccf3e5cd18f470defef1965f550fc8bd6dede213b1846ce8b75a1"
+          },
+          "mutability": "mutable",
+          "materialized": true
+        }
+      ]
+    },
+    {
+      "id": "production-extraction-schema-v4",
+      "title": "Production extraction contract snapshot v4",
+      "version": "4.0.0",
+      "purpose": "contract_snapshot",
+      "status": "frozen",
+      "owner": "backend",
+      "card": null,
+      "supersededBy": null,
+      "gates": ["https://github.com/anasakkari3/maybesitter/issues/1"],
+      "sources": [
+        {
+          "name": "MaybeSitter production extraction contract",
+          "url": "scripts/snapshot-production-schema.ts",
+          "revision": "v4",
+          "license": "Project-owned",
+          "declaredRecordCount": null,
+          "consent": {
+            "basis": "project_owned_authored",
+            "containsPersonalData": false,
+            "personalDataHandling": "none",
+            "redistribution": "internal_only",
+            "reviewedBy": "model-data track",
+            "reviewedAt": "2026-07-31T00:00:00.000Z"
+          }
+        }
+      ],
+      "lineage": {
+        "derivedFrom": ["source:MaybeSitter production extraction contract"],
+        "producedBy": {
+          "script": "scripts/snapshot-production-schema.ts",
+          "version": "v4",
+          "seed": null
+        },
+        "transformationNotes": "Snapshotted from the production extraction types so evaluation scoring cannot silently drift from the shipped contract."
+      },
+      "artifacts": [
+        {
+          "id": "production-extraction-schema-v4-json",
+          "role": "schema_snapshot",
+          "location": {
+            "repository": "maybesitter-gemma",
+            "revision": "2b63b8547d969019075527c697f0d16e14f0ec93",
+            "path": "evaluation-data/production-extraction-schema-v4.json"
+          },
+          "mediaType": "application/json",
+          "recordCount": null,
+          "byteSize": 5237,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "9d94f0cccb6933d5e6d4dcb6fd3d02dee079b3f1c064a0f1df239c989244d733"
+          },
+          "mutability": "locked",
+          "materialized": true,
+          "notes": "Locked because evaluation reports fingerprint it; changing the scoring contract must produce a v5 snapshot, not an edit."
+        }
+      ]
+    },
+    {
+      "id": "gemma3-runtime-smoke-v1",
+      "title": "Gemma 3 runtime benchmark smoke set v1",
+      "version": "1.0.0",
+      "purpose": "benchmark",
+      "status": "validated",
+      "owner": "model-data",
+      "card": null,
+      "supersededBy": null,
+      "sources": [
+        {
+          "name": "MaybeSitter runtime smoke generator",
+          "url": "scripts/gemma-runtime",
+          "revision": "runtime-smoke-v1",
+          "license": "Project-owned",
+          "declaredRecordCount": 60,
+          "consent": {
+            "basis": "project_owned_synthetic",
+            "containsPersonalData": false,
+            "personalDataHandling": "none",
+            "redistribution": "internal_only",
+            "reviewedBy": "model-data track",
+            "reviewedAt": "2026-07-31T00:00:00.000Z"
+          }
+        }
+      ],
+      "lineage": {
+        "derivedFrom": ["source:MaybeSitter runtime smoke generator"],
+        "producedBy": {
+          "script": "scripts/gemma-runtime",
+          "version": "runtime-smoke-v1",
+          "seed": 42
+        },
+        "transformationNotes": "Latency and memory feasibility only. These cases score nothing and may not be used as quality evidence."
+      },
+      "artifacts": [
+        {
+          "id": "gemma3-runtime-smoke-cases",
+          "role": "benchmark",
+          "location": {
+            "repository": "maybesitter-gemma-runtime-benchmark",
+            "revision": "d5ba012518975ed14dcf24e4aec0a6bffc371fcf",
+            "path": "benchmark-data/runtime-smoke-v1.jsonl"
+          },
+          "mediaType": "application/jsonl",
+          "recordCount": 60,
+          "byteSize": 93379,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "67d5b2dd3c997f66f8c01269ef766ed60cfec2ccfa4135005002bba00a7f28cd"
+          },
+          "mutability": "append_only",
+          "materialized": true
+        },
+        {
+          "id": "gemma3-runtime-smoke-summary",
+          "role": "report",
+          "location": {
+            "repository": "maybesitter-gemma-runtime-benchmark",
+            "revision": "d5ba012518975ed14dcf24e4aec0a6bffc371fcf",
+            "path": "benchmark-reports/runtime/summary.json"
+          },
+          "mediaType": "application/json",
+          "recordCount": null,
+          "byteSize": 80552,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "ed68489164df459fb37ca747e8b66b6666c1cc892e132420bb2fdf0e8bbe7bcf"
+          },
+          "mutability": "mutable",
+          "materialized": true
+        },
+        {
+          "id": "gemma3-runtime-smoke-raw-results",
+          "role": "report",
+          "location": {
+            "repository": "maybesitter-gemma-runtime-benchmark",
+            "revision": "d5ba012518975ed14dcf24e4aec0a6bffc371fcf",
+            "path": "benchmark-reports/runtime/raw-results.jsonl"
+          },
+          "mediaType": "application/jsonl",
+          "recordCount": 319,
+          "byteSize": 276664,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "170fddbd4aedbabc169d48b7d6bbd86b8681b95bec041d3076dcac2a72c98dc5"
+          },
+          "mutability": "mutable",
+          "materialized": true
+        }
+      ]
+    }
+  ]
+}

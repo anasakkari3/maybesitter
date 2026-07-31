@@ -1,0 +1,93 @@
+{
+  "contractVersion": "1.0.0",
+  "reportId": "gemma3-pilot-v3-expanded-v4",
+  "createdAt": "2026-07-28T00:00:00.000Z",
+  "dataset": {
+    "datasetId": "gemma3-locked-automated-v4",
+    "datasetVersion": "1.0.0",
+    "artifactId": "gemma3-locked-automated-v4-cases",
+    "checksum": {
+      "algorithm": "sha256",
+      "value": "251824bfd19517abff63d8eea2cf684bd679bd66ec77f1ac0f61bc789f26174b"
+    }
+  },
+  "model": {
+    "id": "models/mlx/gemma-3-4b-it-4bit",
+    "runtime": "mlx",
+    "checksum": {
+      "algorithm": "sha256",
+      "value": "9c7211ac790b14677c1e104eab954feeee1ba33634075f8e97459816b707c11c"
+    },
+    "adapter": {
+      "id": "adapters/maybesitter-gemma3-pilot-v3",
+      "checksum": {
+        "algorithm": "sha256",
+        "value": "b227ac714611293540fbc33657373f117c3d1986011d18be603d5158a7b91f12"
+      }
+    },
+    "promptChecksum": {
+      "algorithm": "sha256",
+      "value": "6d36f3a1078cc031c415071566ca4a01a1200382a992ba761ac8bc45adb55632"
+    }
+  },
+  "config": {
+    "checksum": {
+      "algorithm": "sha256",
+      "value": "07a77fb363082ed4571a3a9411a254b9cf801e699ec2247502ff9527c1f5f89f"
+    },
+    "seed": 42,
+    "maxTokens": 384,
+    "decoding": {},
+    "repairEnabled": true,
+    "limit": null
+  },
+  "contractSnapshot": {
+    "artifactId": "production-extraction-schema-v4-json",
+    "checksum": {
+      "algorithm": "sha256",
+      "value": "9d94f0cccb6933d5e6d4dcb6fd3d02dee079b3f1c064a0f1df239c989244d733"
+    }
+  },
+  "metrics": {
+    "cases": 500,
+    "initialJsonSyntaxValidityPercent": 99.2,
+    "initialProductionSchemaValidityPercent": 7.2,
+    "jsonSyntaxValidityPercent": 98,
+    "productionSchemaValidityPercent": 19.6,
+    "jsonSchemaValidityPercent": 19.6,
+    "exactFullObjectMatchPercent": 0,
+    "exactExpectedFieldsPercent": 0,
+    "intentAccuracyPercent": 62.24,
+    "intentMacroF1Percent": 31.67,
+    "slotPrecisionPercent": 36.52,
+    "slotRecallPercent": 66.46,
+    "slotF1Percent": 47.14,
+    "dateTimeExactPercent": 86.05,
+    "nullFieldAccuracyPercent": 16.13,
+    "clarificationAccuracyPercent": 0,
+    "falseActionCreationRatePercent": 90.24,
+    "injectionPassRatePercent": 0,
+    "medianLatencyMs": 5388,
+    "p95LatencyMs": 6001,
+    "peakMemoryGB": 3.426,
+    "repairRatePercent": 92.8,
+    "repairSuccessRatePercent": 13.36,
+    "fallbackRatePercent": 80.4,
+    "failureCount": 500
+  },
+  "slices": {
+    "languageExactPercent": {
+      "ar": 0,
+      "he": 0,
+      "en": 0,
+      "mixed": 0
+    },
+    "languageDateTimeExactPercent": {
+      "ar": 0,
+      "he": 100,
+      "en": 90.91,
+      "mixed": 93.75
+    }
+  },
+  "notes": "Migrated from the legacy expanded-structured-evaluator-v4 report at pilot-v3-expanded-v4.json. Decoding parameters were not recorded by the legacy evaluator, so they are empty rather than guessed. Per-case output stays in evaluation-reports/pilot-v3-expanded-v4.cases.jsonl."
+}
