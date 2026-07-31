@@ -36,6 +36,15 @@ test('V02 kill switch blocks recommendation and decisions while Capture remains 
   assert.throws(() => recordLiveNextStepDecision({ ...proposal, state: 'ready', availableActions: ['accept'] }, 'accept', context(true)), /kill_switch_active/);
 });
 
+test('V02 decisions remain available without analytics consent and emit no event', () => {
+  resetAnalyticsEventsForTests();
+  const withoutConsent = { ...context(), consent: 'essential' as const };
+  const proposal = getLiveNextStep(state, withoutConsent);
+  const outcome = recordLiveNextStepDecision(proposal, 'dismiss', withoutConsent);
+  assert.equal(outcome.status, 'recorded_without_penalty');
+  assert.equal(getAnalyticsEvents().length, 0);
+});
+
 test('V02 live loop preserves English, Arabic, and Hebrew locale contracts', () => {
   for (const locale of ['en', 'ar', 'he'] as const) {
     resetAnalyticsEventsForTests();

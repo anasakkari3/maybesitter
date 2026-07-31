@@ -15,11 +15,12 @@ export interface LiveContext {
   now: Date;
   controls?: RuntimeControlSnapshot;
   emit: (event: PrivacySafeAnalyticsEvent) => void;
+  emitShown?: boolean;
 }
 
-function proposalId(state: DomainState, now: Date): string {
+function proposalId(state: DomainState): string {
   const fingerprint = JSON.stringify(Object.values(state.commitments).map((item) => [item.id, item.updatedAt]).sort());
-  return `next-step-${createHash('sha256').update(`${fingerprint}:${now.toISOString()}`).digest('hex').slice(0, 16)}`;
+  return `next-step-${createHash('sha256').update(fingerprint).digest('hex').slice(0, 16)}`;
 }
 
 function event(context: LiveContext, name: PrivacySafeAnalyticsEvent['eventName'], properties: PrivacySafeAnalyticsEvent['properties']): PrivacySafeAnalyticsEvent {
@@ -45,8 +46,8 @@ export function getLiveNextStep(state: DomainState, context: LiveContext): NextS
       persistence: { occurred: false, confirmationRequired: true },
     };
   }
-  const proposal = selectBaselineNextStep(candidatesFromDomainState(state), context.now, context.locale, proposalId(state, context.now)).recommendation;
-  if (proposal.state === 'ready' && context.consent === 'granted' && proposal.primaryStep) {
+  const proposal = selectBaselineNextStep(candidatesFromDomainState(state), context.now, context.locale, proposalId(state)).recommendation;
+  if (proposal.state === 'ready' && context.consent === 'granted' && context.emitShown !== false && proposal.primaryStep) {
     context.emit(event(context, 'recommendation_shown', { proposalId: proposal.proposalId, commitmentId: proposal.primaryStep.commitmentId, baselineVersion: 'v1' }));
   }
   return proposal;
@@ -65,12 +66,11 @@ export function recordLiveNextStepDecision(
 ): NextStepInteractionOutcome {
   const runtime = resolveModuleRuntime('recommendation', context.controls || readRuntimeControls());
   if (runtime.mode !== 'enabled') throw new Error(`recommendation unavailable: ${runtime.reason}`);
-  if (context.consent !== 'granted') throw new Error('analytics consent is required for pilot decisions');
   const outcome = decideNextStep(proposal, decision, context.now.toISOString(), editedTitle);
   const properties: Record<string, string | number> = { proposalId: proposal.proposalId };
   if (decision === 'edit') properties.changedFieldCount = 1;
   if (decision === 'defer') properties.deferMinutes = 1440;
   if (decision === 'done' && proposal.primaryStep) properties.commitmentId = proposal.primaryStep.commitmentId;
-  context.emit(event(context, DECISION_EVENTS[decision], properties));
+  if (context.consent === 'granted') context.emit(event(context, DECISION_EVENTS[decision], properties));
   return outcome;
 }

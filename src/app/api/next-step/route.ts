@@ -23,9 +23,14 @@ export async function POST(request: Request) {
   const body = await request.json() as { proposal: NextStepRecommendationContract; decision: NextStepDecision; anonymousUserId: string; locale?: NextStepLocale; consent?: string; editedTitle?: string };
   if (!body.anonymousUserId) return Response.json({ error: 'anonymousUserId is required' }, { status: 400 });
   try {
-    const outcome = recordLiveNextStepDecision(body.proposal, body.decision, {
-      anonymousUserId: body.anonymousUserId, locale: body.locale || 'en', consent: body.consent === 'granted' ? 'granted' : 'essential', now: new Date(), emit: appendAnalyticsEvent,
-    }, body.editedTitle);
+    const context = {
+      anonymousUserId: body.anonymousUserId, locale: body.locale || 'en', consent: body.consent === 'granted' ? 'granted' as const : 'essential' as const, now: new Date(), emit: appendAnalyticsEvent, emitShown: false,
+    };
+    const canonicalProposal = getLiveNextStep(getCommandServiceState(), context);
+    if (canonicalProposal.state !== 'ready' || canonicalProposal.proposalId !== body.proposal?.proposalId) {
+      return Response.json({ error: 'proposal is stale or invalid' }, { status: 409 });
+    }
+    const outcome = recordLiveNextStepDecision(canonicalProposal, body.decision, context, body.editedTitle);
     return Response.json(outcome);
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : 'decision rejected' }, { status: 400 });
