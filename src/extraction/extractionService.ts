@@ -1,4 +1,4 @@
-import { extractWithOllama, type LLMProvider } from './ollamaExtractor';
+import { detectPromptInjection, extractWithOllama, type LLMProviderFunction } from './ollamaExtractor';
 import { extract as ruleBasedExtract } from './ruleBasedExtractor';
 import { decideExtractionDisposition } from './extractionPolicy';
 import { mapExtractionToCommand } from './mapExtractionToCommand';
@@ -8,7 +8,7 @@ import type { ExtractionContext, ExtractionDisposition, ExtractionResult } from 
 export type ExtractionEngine = 'ollama' | 'rule-based';
 
 export interface ExtractAndMapOptions {
-  llmProvider?: LLMProvider;
+  llmProvider?: LLMProviderFunction;
 }
 
 export interface ExtractAndMapResult {
@@ -27,6 +27,26 @@ export interface ExtractWithFallbackResult {
 
 function fallbackReasonFrom(error: unknown): string {
   return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+}
+
+function safeNegativeResult(rawText: string, type: 'unknown' | 'informational_context'): ExtractionResult {
+  return {
+    type,
+    action: null,
+    title: null,
+    person: null,
+    dueAt: null,
+    remindAt: null,
+    priority: { level: 'normal', source: 'default', pressureAllowed: false, pressureImplied: false },
+    flexibility: 'movable',
+    confidence: { overall: 0.99, type: 0.99, action: 0.8, time: 0.9, priority: 0.92 },
+    missingFields: ['action'],
+    ambiguityFlags: type === 'informational_context' ? ['informational_without_action'] : ['vague_action'],
+    explicitReminderRequest: false,
+    explicitPressureRequest: false,
+    rawText,
+    parserVersion: 'semantic-safety-v1',
+  };
 }
 
 export async function extractAndMap(
@@ -50,16 +70,28 @@ export async function extractWithFallback(
   context: ExtractionContext,
   options: ExtractAndMapOptions = {}
 ): Promise<ExtractWithFallbackResult> {
+  const injection = detectPromptInjection(rawText);
+  if (injection) {
+    return { result: safeNegativeResult(rawText, 'unknown'), engine: 'rule-based', fallbackReason: `prompt_injection:${injection}` };
+  }
+  const past = /\b(yesterday|last night|last week|earlier)\b|مبارح|أمس|امبارح|אתמול|בשבוע שעבר/i.test(rawText);
+  const request = /\b(remind|add|create|schedule|please|need to|must|tomorrow)\b|ذكرني|ضيف|أضف|لازم|بكرا|תזכיר|תוסיף|צריך|מחר/i.test(rawText);
+  if (past && !request) {
+    return { result: safeNegativeResult(rawText, 'informational_context'), engine: 'rule-based', fallbackReason: 'semantic_safety:past_no_action' };
+  }
   let result: ExtractionResult;
   let engine: ExtractionEngine = 'ollama';
   let fallbackReason: string | null = null;
 
   try {
-    result = await extractWithOllama(rawText, context, options.llmProvider);
+    result = await extractWithOllama(rawText, context, { provider: options.llmProvider });
   } catch (error) {
     fallbackReason = fallbackReasonFrom(error);
     result = ruleBasedExtract(rawText, context);
     engine = 'rule-based';
+  }
+  if (/תזכיר\s+לי/.test(rawText) && result.type === 'task') {
+    result = { ...result, explicitReminderRequest: true };
   }
 
   return {

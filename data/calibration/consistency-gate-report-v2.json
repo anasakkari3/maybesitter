@@ -1,0 +1,179 @@
+{
+  "contractVersion": "1.0.0",
+  "reportId": "capture-gold-consistency-v3",
+  "createdAt": "2026-07-31T15:45:00.000Z",
+  "inputs": [
+    {
+      "name": "gold-decisions",
+      "path": "data/review/gold-decisions.jsonl",
+      "checksum": {
+        "algorithm": "sha256",
+        "value": "45c7421266c2d106aa7cbcda07e2f2db0abb02d63ff0ee0009f4095a85d8a7ea"
+      },
+      "recordCount": 50
+    },
+    {
+      "name": "consistency-30-second-pass.jsonl",
+      "path": "data/review/calibration/consistency-30-second-pass.jsonl",
+      "checksum": {
+        "algorithm": "sha256",
+        "value": "6825e7748fcdd26a6201637b3a273516b47ada5a14307d16b6d926ad6c09d587"
+      },
+      "recordCount": 30
+    },
+    {
+      "name": "consistency-extra-8-second-pass.jsonl",
+      "path": "data/review/calibration/consistency-extra-8-second-pass.jsonl",
+      "checksum": {
+        "algorithm": "sha256",
+        "value": "a37e41709e7fff8fb03d25999f96c998f03477dc26a0b5f680a3d44c0d438307"
+      },
+      "recordCount": 10
+    },
+    {
+      "name": "consistency-30-manifest.json",
+      "path": "data/review/calibration/consistency-30-manifest.json",
+      "checksum": {
+        "algorithm": "sha256",
+        "value": "4d63f5db6a8c783cef9d17e9e6be4ee9d4729ccda25d950c0dbe3cfcae07d31b"
+      },
+      "recordCount": 30
+    },
+    {
+      "name": "consistency-extra-8-manifest.json",
+      "path": "data/review/calibration/consistency-extra-8-manifest.json",
+      "checksum": {
+        "algorithm": "sha256",
+        "value": "dbcb4b485cd7a61ac2b2fbf106a77246421ddfc99d733c5a10f4c51ac9298846"
+      },
+      "recordCount": 9
+    },
+    {
+      "name": "boundary-30-first-pass.jsonl",
+      "path": "data/review/calibration/boundary-30-first-pass.jsonl",
+      "checksum": {
+        "algorithm": "sha256",
+        "value": "cbbf54c2812a701fb77ef6311de1098053ae2ae10a51e727cdc0cc2d1d35c8e4"
+      },
+      "recordCount": 30
+    },
+    {
+      "name": "boundary-30-second-pass.jsonl",
+      "path": "data/review/calibration/boundary-30-second-pass.jsonl",
+      "checksum": {
+        "algorithm": "sha256",
+        "value": "3979d09f420d6bc9327275f7eddd200ce593a96083e66b239e1b660dc2655f45"
+      },
+      "recordCount": 30
+    },
+    {
+      "name": "consistency-30-adjudications.jsonl",
+      "path": "data/review/calibration/consistency-30-adjudications.jsonl",
+      "checksum": {
+        "algorithm": "sha256",
+        "value": "8a25c0799b8129cd691dc0a8945b531e34667033f04310e9bde148d208a63207"
+      },
+      "recordCount": 8
+    },
+    {
+      "name": "consistency-extra-8-adjudications.jsonl",
+      "path": "data/review/calibration/consistency-extra-8-adjudications.jsonl",
+      "checksum": {
+        "algorithm": "sha256",
+        "value": "fc61a1c36a900b505d7942b58936ed597606c3b469c552e308d67bd41ac5a23c"
+      },
+      "recordCount": 1
+    }
+  ],
+  "thresholds": {
+    "minPolicyNormalizedDecisionAgreement": 0.85,
+    "minPerItemAgreement": 0.85,
+    "underpoweredBelowComparisons": 30,
+    "requireEveryDisagreementAdjudicated": true
+  },
+  "comparedItems": 39,
+  "classification": {
+    "agreement": 30,
+    "policy_shift": 9,
+    "tooling_defect": 0,
+    "reviewer_noise": 0
+  },
+  "rawDecisionAgreement": {
+    "dimension": "decision",
+    "matches": 30,
+    "compared": 39,
+    "rate": 0.7692307692307693,
+    "measurable": true,
+    "confidenceInterval": [
+      0.616637,
+      0.873542
+    ],
+    "underpowered": false
+  },
+  "policyNormalizedDecisionAgreement": {
+    "dimension": "decision",
+    "matches": 30,
+    "compared": 30,
+    "rate": 1,
+    "measurable": true,
+    "confidenceInterval": [
+      0.886487,
+      1
+    ],
+    "underpowered": false
+  },
+  "perItemAgreement": [
+    {
+      "dimension": "commitment_count",
+      "matches": 30,
+      "compared": 30,
+      "rate": 1,
+      "measurable": true,
+      "confidenceInterval": [
+        0.886487,
+        1
+      ],
+      "underpowered": false
+    },
+    {
+      "dimension": "boundary",
+      "matches": 30,
+      "compared": 30,
+      "rate": 1,
+      "measurable": true,
+      "confidenceInterval": [
+        0.886487,
+        1
+      ],
+      "underpowered": false
+    },
+    {
+      "dimension": "slots",
+      "matches": 300,
+      "compared": 300,
+      "rate": 1,
+      "measurable": true,
+      "confidenceInterval": [
+        0.987357,
+        1
+      ],
+      "underpowered": false
+    },
+    {
+      "dimension": "date_time",
+      "matches": 180,
+      "compared": 180,
+      "rate": 1,
+      "measurable": true,
+      "confidenceInterval": [
+        0.979105,
+        1
+      ],
+      "underpowered": false
+    }
+  ],
+  "unadjudicatedDisagreements": [],
+  "status": "pass",
+  "failures": [],
+  "provisos": []
+}

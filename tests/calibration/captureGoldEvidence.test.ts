@@ -27,6 +27,8 @@ const policies = readJson<any>('annotation-policy.json');
 const adjudications = readJsonl<any>('adjudications.jsonl');
 const gateReport = readJson<any>('consistency-gate-report.json');
 const freeze = readJson<any>('capture-gold-freeze.json');
+const finalGateReport = readJson<any>('consistency-gate-report-v2.json');
+const finalFreeze = readJson<any>('capture-gold-freeze-v2.json');
 
 /** The three disagreements the blind pass actually produced. */
 const DISAGREED = [
@@ -176,4 +178,29 @@ test('evidence: the gate report pins the checksum of every input it read', () =>
   for (const input of gateReport.inputs) {
     assert.match(input.checksum.value, /^[0-9a-f]{64}$/);
   }
+});
+
+test('final evidence: the human review gate fully passes with thirty comparable records', () => {
+  assert.equal(finalGateReport.status, 'pass');
+  assert.equal(finalGateReport.policyNormalizedDecisionAgreement.compared, 30);
+  assert.equal(finalGateReport.policyNormalizedDecisionAgreement.rate, 1);
+  for (const dimension of finalGateReport.perItemAgreement) {
+    assert.equal(dimension.rate, 1, dimension.dimension);
+    assert.equal(dimension.underpowered, false, dimension.dimension);
+  }
+  assert.deepEqual(finalGateReport.failures, []);
+  assert.deepEqual(finalGateReport.provisos, []);
+  assert.equal(gateAuthorizesTraining(finalGateReport), true);
+});
+
+test('final evidence: v2 freeze includes all Gold and preserves the date-only correction', () => {
+  const validation = validateGoldFreezeManifest(finalFreeze, { gateReport: finalGateReport });
+  assert.equal(validation.valid, true, JSON.stringify(validation.issues, null, 2));
+  assert.equal(finalFreeze.includedCount, 50);
+  assert.equal(finalFreeze.excludedCount, 0);
+  assert.equal(finalFreeze.trainingStarted, false);
+  const corrected = finalFreeze.records.find((record: any) => record.sourceQueueId === 'pilot-v4-review-hebrew-039');
+  assert.ok(corrected);
+  assert.equal(corrected.excluded, false);
+  assert.match(corrected.perItemChecksum.value, /^[0-9a-f]{64}$/);
 });
