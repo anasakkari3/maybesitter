@@ -3,6 +3,7 @@ export const CLOSED_PILOT_MAXIMUM = 40;
 
 export type PilotStopReason =
   | 'not_allowlisted'
+  | 'wrong_instance'
   | 'consent_required'
   | 'quiet_mode'
   | 'revoked'

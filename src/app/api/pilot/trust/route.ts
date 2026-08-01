@@ -4,7 +4,6 @@ import { recordDataDeleted } from '../../../../../lib/analytics/loopAnalytics';
 import {
   buildWhatMaybeSitterKnows,
   createPilotAuditEvent,
-  parseClosedPilotAllowlist,
   requirePilotParticipantId,
   type PilotTrustAction,
 } from '../../../../../lib/pilot/closedPilotControls';
@@ -25,7 +24,7 @@ type ClientAction =
 
 function errorResponse(error: unknown): Response {
   const message = error instanceof Error ? error.message : 'pilot trust request failed';
-  const status = /allowlist must contain/.test(message) ? 503 : /not allowlisted/.test(message) ? 403 : 400;
+  const status = /allowlist must contain|instance participant binding is required/.test(message) ? 503 : /not admitted/.test(message) ? 403 : 400;
   return Response.json({ error: message }, { status });
 }
 
@@ -35,9 +34,8 @@ function participantIdFromUrl(request: Request): string {
 
 function requireAllowlisted(participantId: string): void {
   requirePilotParticipantId(participantId);
-  if (!parseClosedPilotAllowlist(process.env.MAYBESITTER_CLOSED_PILOT_IDS).has(participantId)) {
-    throw new Error('participant is not allowlisted');
-  }
+  const access = resolvePilotAccess(participantId, new Date().toISOString(), false);
+  if (!access.trust) throw new Error('participant is not admitted to this pilot instance');
 }
 
 function clientAction(value: ClientAction, at: string): PilotTrustAction {
