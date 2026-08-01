@@ -9,6 +9,8 @@ import { emitAnalyticsEvent, type AnalyticsContext } from './analyticsContext';
 export const CLIENT_REPORTABLE_EVENTS = [
   'reason_opened', 'calendar_connect_started', 'calendar_connected',
   'pricing_viewed', 'purchase_intent', 'data_deleted',
+  // Self-reported utility and invasiveness for the V03 arm experiment.
+  'recommendation_rated',
 ] as const;
 
 export type ClientReportableEvent = typeof CLIENT_REPORTABLE_EVENTS[number];

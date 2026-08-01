@@ -8,6 +8,8 @@ export const ANALYTICS_EVENT_NAMES = [
   'recommendation_deferred', 'recommendation_dismissed', 'recommendation_completed',
   'reason_opened', 'calendar_connect_started', 'calendar_connected', 'data_deleted',
   'pricing_viewed', 'purchase_intent',
+  // Additive V03 extension: self-reported utility and invasiveness for a shown proposal.
+  'recommendation_rated',
 ] as const;
 
 export type AnalyticsEventName = typeof ANALYTICS_EVENT_NAMES[number];
