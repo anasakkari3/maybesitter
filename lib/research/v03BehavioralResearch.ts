@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 export type ResearchCohort = 'commercial' | 'fast_research';
 export type CurrentWorkflow = 'paper' | 'calendar' | 'todo_app' | 'chat_ai' | 'notes' | 'memory' | 'other';
 export type SwitchingPain = 'none' | 'low' | 'medium' | 'high';
@@ -7,6 +9,7 @@ export interface BehavioralInterviewRecord {
   schemaVersion: 'v1';
   interviewId: string;
   cohort: ResearchCohort;
+  cohortEligibilityConfirmed: true;
   occurredAt: string;
   consentRecorded: true;
   adultConfirmed: true;
@@ -29,6 +32,8 @@ export interface PilotRecruitmentRecord {
   screenedAt: string;
   adultConfirmed: true;
   qualified: boolean;
+  behavioralPainQualified: boolean;
+  cohortEligibilityConfirmed: true;
   researchConsentRecorded: true;
   pilotContactConsentRecorded: boolean;
   pilotStatus: 'not_invited' | 'invited' | 'accepted' | 'declined' | 'withdrawn';
@@ -62,17 +67,27 @@ export interface V03ResearchReport {
     highOrMediumSwitchingPainCount: number;
   }>;
   competitiveBaselines: Record<CompetitiveBaseline, number>;
+  cohortDifferences: {
+    qualifiedPainRateCommercialMinusFastResearch: number | null;
+    paidToolRateCommercialMinusFastResearch: number | null;
+    switchingPainRateCommercialMinusFastResearch: number | null;
+  };
+  evidenceIntegrity: {
+    algorithm: 'sha256';
+    interviewsSemanticSha256: string;
+    recruitmentSemanticSha256: string;
+  };
   limitations: string[];
 }
 
 const INTERVIEW_KEYS = new Set([
-  'schemaVersion', 'interviewId', 'cohort', 'occurredAt', 'consentRecorded', 'adultConfirmed',
+  'schemaVersion', 'interviewId', 'cohort', 'cohortEligibilityConfirmed', 'occurredAt', 'consentRecorded', 'adultConfirmed',
   'pastBehaviorExampleObserved', 'recurringWeeklyPain', 'concreteCostObserved', 'currentWorkflows',
   'abandonedToolObserved', 'paidForRelatedTool', 'privacyBoundaryObserved', 'switchingPain',
   'preferredBaseline', 'evidenceRef',
 ]);
 const RECRUITMENT_KEYS = new Set([
-  'schemaVersion', 'candidateId', 'cohort', 'screenedAt', 'adultConfirmed', 'qualified',
+  'schemaVersion', 'candidateId', 'cohort', 'screenedAt', 'adultConfirmed', 'qualified', 'behavioralPainQualified', 'cohortEligibilityConfirmed',
   'researchConsentRecorded', 'pilotContactConsentRecorded', 'pilotStatus',
 ]);
 const FORBIDDEN_KEYS = /name|email|phone|address|transcript|raw(message|text)|diagnosis/i;
@@ -89,6 +104,13 @@ function exactKeys(value: Record<string, unknown>, allowed: Set<string>): boolea
     && allowed.size === Object.keys(value).length;
 }
 
+function validIsoTime(value: unknown): value is string {
+  if (typeof value !== 'string' || !ISO_DATE.test(value)) return false;
+  const parsed = new Date(value);
+  const normalized = value.includes('.') ? value : value.replace(/Z$/, '.000Z');
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString() === normalized;
+}
+
 export function validateInterviewRecord(value: unknown): string[] {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return ['record must be an object'];
   const record = value as Record<string, unknown>;
@@ -97,7 +119,8 @@ export function validateInterviewRecord(value: unknown): string[] {
   if (record.schemaVersion !== 'v1') errors.push('schemaVersion must be v1');
   if (typeof record.interviewId !== 'string' || !ID.test(record.interviewId)) errors.push('interviewId must be pseudonymous');
   if (!COHORTS.has(record.cohort as ResearchCohort)) errors.push('cohort is invalid');
-  if (typeof record.occurredAt !== 'string' || !ISO_DATE.test(record.occurredAt)) errors.push('occurredAt must be UTC ISO time');
+  if (record.cohortEligibilityConfirmed !== true) errors.push('cohort eligibility must be confirmed');
+  if (!validIsoTime(record.occurredAt)) errors.push('occurredAt must be UTC ISO time');
   if (record.consentRecorded !== true || record.adultConfirmed !== true) errors.push('consent and adult confirmation are required');
   for (const key of ['pastBehaviorExampleObserved', 'recurringWeeklyPain', 'concreteCostObserved', 'abandonedToolObserved', 'paidForRelatedTool', 'privacyBoundaryObserved']) {
     if (typeof record[key] !== 'boolean') errors.push(`${key} must be boolean`);
@@ -107,6 +130,9 @@ export function validateInterviewRecord(value: unknown): string[] {
   if (!SWITCHING.has(record.switchingPain as SwitchingPain)) errors.push('switchingPain is invalid');
   if (!BASELINES.has(record.preferredBaseline as CompetitiveBaseline)) errors.push('preferredBaseline is invalid');
   if (typeof record.evidenceRef !== 'string' || !/^research:\/\/[a-z0-9/_-]+$/.test(record.evidenceRef)) errors.push('evidenceRef must be an external pseudonymous research URI');
+  if (record.cohort === 'commercial' && record.paidForRelatedTool !== true) {
+    errors.push('commercial cohort requires observed paid-tool behavior');
+  }
   return errors;
 }
 
@@ -118,18 +144,34 @@ export function validateRecruitmentRecord(value: unknown): string[] {
   if (record.schemaVersion !== 'v1') errors.push('schemaVersion must be v1');
   if (typeof record.candidateId !== 'string' || !ID.test(record.candidateId)) errors.push('candidateId must be pseudonymous');
   if (!COHORTS.has(record.cohort as ResearchCohort)) errors.push('cohort is invalid');
-  if (typeof record.screenedAt !== 'string' || !ISO_DATE.test(record.screenedAt)) errors.push('screenedAt must be UTC ISO time');
+  if (record.cohortEligibilityConfirmed !== true) errors.push('cohort eligibility must be confirmed');
+  if (!validIsoTime(record.screenedAt)) errors.push('screenedAt must be UTC ISO time');
   if (record.adultConfirmed !== true || record.researchConsentRecorded !== true) errors.push('adult confirmation and research consent are required');
-  if (typeof record.qualified !== 'boolean' || typeof record.pilotContactConsentRecorded !== 'boolean') errors.push('qualification and contact consent must be boolean');
+  if (typeof record.qualified !== 'boolean' || typeof record.behavioralPainQualified !== 'boolean' || typeof record.pilotContactConsentRecorded !== 'boolean') errors.push('qualification, behavioral pain, and contact consent must be boolean');
   if (!PILOT_STATUSES.has(record.pilotStatus as PilotRecruitmentRecord['pilotStatus'])) errors.push('pilotStatus is invalid');
-  if (record.pilotStatus === 'accepted' && (record.qualified !== true || record.pilotContactConsentRecorded !== true)) {
-    errors.push('accepted candidates must be qualified and contact-consented');
+  if (record.pilotStatus === 'accepted' && (record.qualified !== true || record.behavioralPainQualified !== true || record.cohortEligibilityConfirmed !== true || record.pilotContactConsentRecorded !== true)) {
+    errors.push('accepted candidates must be behaviorally qualified, cohort-eligible, and contact-consented');
   }
   return errors;
 }
 
 function rate(numerator: number, denominator: number): number | null {
   return denominator === 0 ? null : numerator / denominator;
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function semanticChecksum<T>(records: readonly T[], id: (record: T) => string): string {
+  const canonical = [...records].sort((left, right) => id(left).localeCompare(id(right))).map(canonicalJson).join('\n');
+  return createHash('sha256').update(canonical).digest('hex');
 }
 
 export function buildV03ResearchReport(
@@ -145,6 +187,7 @@ export function buildV03ResearchReport(
     if (errors.length) throw new Error(`invalid recruitment ${record.candidateId}: ${errors.join('; ')}`);
   }
   if (new Set(interviews.map((record) => record.interviewId)).size !== interviews.length) throw new Error('duplicate interviewId');
+  if (new Set(interviews.map((record) => record.evidenceRef)).size !== interviews.length) throw new Error('duplicate evidenceRef');
   if (new Set(recruitment.map((record) => record.candidateId)).size !== recruitment.length) throw new Error('duplicate candidateId');
 
   const qualifiedPainCount = interviews.filter((record) => record.pastBehaviorExampleObserved && record.recurringWeeklyPain && record.concreteCostObserved).length;
@@ -153,7 +196,7 @@ export function buildV03ResearchReport(
   const decision = !complete ? 'insufficient_sample'
     : problemRate !== null && problemRate >= 0.7 ? 'success'
       : problemRate !== null && problemRate < 0.4 ? 'failure' : 'inconclusive';
-  const qualifiedAndContactConsented = recruitment.filter((record) => record.qualified && record.pilotContactConsentRecorded).length;
+  const qualifiedAndContactConsented = recruitment.filter((record) => record.qualified && record.behavioralPainQualified && record.cohortEligibilityConfirmed && record.pilotContactConsentRecorded).length;
   const accepted = recruitment.filter((record) => record.pilotStatus === 'accepted').length;
 
   const cohortReport = (cohort: ResearchCohort) => {
@@ -168,16 +211,32 @@ export function buildV03ResearchReport(
     };
   };
 
+  const cohorts = { commercial: cohortReport('commercial'), fast_research: cohortReport('fast_research') };
+  const cohortRateDifference = (field: 'qualifiedPainCount' | 'paidForRelatedToolCount' | 'highOrMediumSwitchingPainCount'): number | null => {
+    if (cohorts.commercial.interviews === 0 || cohorts.fast_research.interviews === 0) return null;
+    return cohorts.commercial[field] / cohorts.commercial.interviews - cohorts.fast_research[field] / cohorts.fast_research.interviews;
+  };
+
   return {
     schemaVersion: 'v1',
     interviewSample: { total: interviews.length, targetMinimum: 30, targetMaximum: 40, complete },
     problemEvidence: { qualifiedPainCount, rate: problemRate, decision },
     recruitment: { qualifiedAndContactConsented, accepted, targetMinimum: 25, targetMaximum: 40, complete: accepted >= 25 && accepted <= 40 },
-    cohorts: { commercial: cohortReport('commercial'), fast_research: cohortReport('fast_research') },
+    cohorts,
     competitiveBaselines: {
       current_workflow: interviews.filter((record) => record.preferredBaseline === 'current_workflow').length,
       chatgpt_calendar: interviews.filter((record) => record.preferredBaseline === 'chatgpt_calendar').length,
       chatgpt_todoist: interviews.filter((record) => record.preferredBaseline === 'chatgpt_todoist').length,
+    },
+    cohortDifferences: {
+      qualifiedPainRateCommercialMinusFastResearch: cohortRateDifference('qualifiedPainCount'),
+      paidToolRateCommercialMinusFastResearch: cohortRateDifference('paidForRelatedToolCount'),
+      switchingPainRateCommercialMinusFastResearch: cohortRateDifference('highOrMediumSwitchingPainCount'),
+    },
+    evidenceIntegrity: {
+      algorithm: 'sha256',
+      interviewsSemanticSha256: semanticChecksum(interviews, (record) => record.interviewId),
+      recruitmentSemanticSha256: semanticChecksum(recruitment, (record) => record.candidateId),
     },
     limitations: [
       'Fast-research cohort results are segmented and are not global market evidence.',

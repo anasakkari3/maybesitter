@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import {
   buildV03ResearchReport,
@@ -32,5 +32,7 @@ const report = buildV03ResearchReport(
   readJsonl<PilotRecruitmentRecord>(recruitmentPath),
 );
 mkdirSync(path.dirname(reportPath), { recursive: true });
-writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+const temporaryPath = `${reportPath}.${process.pid}.tmp`;
+writeFileSync(temporaryPath, `${JSON.stringify(report, null, 2)}\n`);
+renameSync(temporaryPath, reportPath);
 process.stdout.write(`Wrote ${reportPath}: ${report.problemEvidence.decision}\n`);

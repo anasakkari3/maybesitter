@@ -29,11 +29,11 @@ Do not ask whether the participant likes the idea, would use “an AI that organ
 
 Two observations count toward the primary rate only when the interviewer has a past-behavior example and records both recurring weekly pain and a concrete consequence. Interest, stated intent, diagnosis, or general frustration does not count. Store coded records using `BehavioralInterviewRecord`; keep recordings, transcripts, contact details, names, and diagnoses outside Git in an access-controlled research system. `evidenceRef` is a pseudonymous external reference, never a quote.
 
-Commercial cohort participants are adults who self-identify with the target difficulty and have relevant paid-tool behavior. Fast-research participants are coded separately even if they also qualify commercially; use the cohort chosen at recruitment and report overlap as a study limitation outside the coded artifact.
+Commercial cohort participants are adults who self-identify with the target difficulty and have relevant paid-tool behavior. `cohortEligibilityConfirmed` and paid-tool behavior are required structurally for a commercial record. Fast-research participants are coded separately even if they also qualify commercially; use the cohort chosen at recruitment and report overlap as a study limitation outside the coded artifact.
 
 ## Consent and recruitment
 
-Record research consent before the interview. Record pilot-contact consent separately; declining contact cannot invalidate research participation. A participant may be marked `accepted` only after adult confirmation, qualification, and pilot-contact consent. Withdrawal changes the recruitment status and must trigger the applicable deletion process in the research system.
+Record research consent before the interview. Record pilot-contact consent separately; declining contact cannot invalidate research participation. A participant may be marked `accepted` only after adult confirmation, observed behavioral-pain qualification, cohort eligibility, and pilot-contact consent. Withdrawal changes the recruitment status and must trigger the applicable deletion process in the research system.
 
 Do not put contact information in the coded JSONL. Maintain the identity-to-pseudonym map separately with least-privilege access. Export only privacy-safe coded rows for reporting.
 
@@ -49,7 +49,7 @@ Run:
 npm run research:v03-report -- --interviews <coded-interviews.jsonl> --recruitment <coded-recruitment.jsonl> --report <report.json>
 ```
 
-The command validates every row, rejects direct identifiers and raw-text fields, enforces consent, segments cohorts, and applies the sample and decision thresholds. Synthetic fixtures are tests only and must never be submitted as issue evidence.
+The command validates every row, rejects direct identifiers and raw-text fields, enforces consent, segments cohorts, reports explicit commercial-minus-fast-research deltas, applies the sample and decision thresholds, and pins order-independent SHA-256 semantic fingerprints for both inputs. Synthetic fixtures are tests only and must never be submitted as issue evidence.
 
 ## Stop conditions
 
