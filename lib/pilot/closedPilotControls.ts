@@ -51,19 +51,39 @@ export interface WhatMaybeSitterKnows {
 
 export interface PilotAuditEvent {
   version: 'v1';
-  eventType: 'exposure_checked' | 'consent_changed' | 'quiet_mode_changed' | 'revoked' | 'data_deleted';
+  eventType: 'exposure_checked' | 'consent_changed' | 'quiet_mode_changed' | 'revoked' | 'data_deleted' | 'support_reported';
   participantId: string;
   occurredAt: string;
   outcome: 'allowed' | 'blocked' | 'recorded';
   reasonCode: string;
 }
 
+export interface PilotTrustIncident {
+  version: 'v1';
+  incidentId: string;
+  participantId: string;
+  occurredAt: string;
+  surface: 'capture' | 'recommendation' | 'calendar' | 'analytics' | 'account';
+  category: 'reliability' | 'privacy' | 'safety' | 'consent' | 'other';
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  status: 'open' | 'contained' | 'resolved';
+  ownerId: string;
+  containmentCode: string;
+  resolutionCode: string | null;
+}
+
 const PARTICIPANT_ID = /^[a-z0-9][a-z0-9_-]{2,63}$/;
+const SAFE_CODE = /^[a-z0-9][a-z0-9_-]{1,63}$/;
 
 function requireIsoTime(value: string): void {
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value)) {
     throw new Error('timestamp must be UTC ISO time');
   }
+}
+
+export function requirePilotParticipantId(value: string): string {
+  if (!PARTICIPANT_ID.test(value)) throw new Error('participantId must be pseudonymous');
+  return value;
 }
 
 export function parseClosedPilotAllowlist(raw: string | undefined): ReadonlySet<string> {
@@ -77,7 +97,7 @@ export function parseClosedPilotAllowlist(raw: string | undefined): ReadonlySet<
 }
 
 export function createPilotTrustState(participantId: string, at: string): PilotTrustState {
-  if (!PARTICIPANT_ID.test(participantId)) throw new Error('participantId must be pseudonymous');
+  requirePilotParticipantId(participantId);
   requireIsoTime(at);
   return {
     version: 'v1', participantId, recommendationConsent: false, analyticsConsent: false,
@@ -86,8 +106,30 @@ export function createPilotTrustState(participantId: string, at: string): PilotT
   };
 }
 
+export function requirePilotTrustState(value: unknown): PilotTrustState {
+  if (!value || typeof value !== 'object') throw new Error('pilot trust state must be an object');
+  const state = value as PilotTrustState;
+  if (state.version !== 'v1') throw new Error('unsupported pilot trust state version');
+  requirePilotParticipantId(state.participantId);
+  for (const field of ['recommendationConsent', 'analyticsConsent', 'calendarConsent', 'quietMode'] as const) {
+    if (typeof state[field] !== 'boolean') throw new Error(`${field} must be boolean`);
+  }
+  for (const field of ['firstValueAt', 'revokedAt', 'deletedAt'] as const) {
+    if (state[field] !== null) requireIsoTime(state[field]);
+  }
+  requireIsoTime(state.updatedAt);
+  return {
+    version: 'v1', participantId: state.participantId,
+    recommendationConsent: state.recommendationConsent, analyticsConsent: state.analyticsConsent,
+    calendarConsent: state.calendarConsent, firstValueAt: state.firstValueAt,
+    quietMode: state.quietMode, revokedAt: state.revokedAt, deletedAt: state.deletedAt,
+    updatedAt: state.updatedAt,
+  };
+}
+
 export function applyPilotTrustAction(state: PilotTrustState, action: PilotTrustAction): PilotTrustState {
   requireIsoTime(action.at);
+  if (Date.parse(action.at) < Date.parse(state.updatedAt)) throw new Error('pilot trust actions cannot be backdated');
   if (state.deletedAt) throw new Error('deleted pilot state cannot be changed');
   if (state.revokedAt && action.type !== 'delete') throw new Error('revoked pilot state can only be deleted');
 
@@ -152,7 +194,46 @@ export function buildWhatMaybeSitterKnows(input: {
 
 export function createPilotAuditEvent(input: PilotAuditEvent): PilotAuditEvent {
   requireIsoTime(input.occurredAt);
-  if (!PARTICIPANT_ID.test(input.participantId)) throw new Error('participantId must be pseudonymous');
-  if (!/^[a-z0-9_]{2,64}$/.test(input.reasonCode)) throw new Error('reasonCode must be a safe code');
-  return { ...input };
+  requirePilotParticipantId(input.participantId);
+  if (!SAFE_CODE.test(input.reasonCode)) throw new Error('reasonCode must be a safe code');
+  if (!['exposure_checked', 'consent_changed', 'quiet_mode_changed', 'revoked', 'data_deleted', 'support_reported'].includes(input.eventType)) {
+    throw new Error('unsupported pilot audit event type');
+  }
+  if (!['allowed', 'blocked', 'recorded'].includes(input.outcome)) throw new Error('unsupported pilot audit outcome');
+  return {
+    version: 'v1', eventType: input.eventType, participantId: input.participantId,
+    occurredAt: input.occurredAt, outcome: input.outcome, reasonCode: input.reasonCode,
+  };
+}
+
+export function createPilotTrustIncident(input: PilotTrustIncident): PilotTrustIncident {
+  requireIsoTime(input.occurredAt);
+  requirePilotParticipantId(input.participantId);
+  for (const [name, value] of [
+    ['incidentId', input.incidentId],
+    ['ownerId', input.ownerId],
+    ['containmentCode', input.containmentCode],
+  ] as const) {
+    if (!SAFE_CODE.test(value)) throw new Error(`${name} must be a safe code`);
+  }
+  if (input.resolutionCode !== null && !SAFE_CODE.test(input.resolutionCode)) {
+    throw new Error('resolutionCode must be a safe code');
+  }
+  if (input.status === 'resolved' && input.resolutionCode === null) {
+    throw new Error('resolved incidents require a resolutionCode');
+  }
+  if (!['capture', 'recommendation', 'calendar', 'analytics', 'account'].includes(input.surface)) {
+    throw new Error('unsupported incident surface');
+  }
+  if (!['reliability', 'privacy', 'safety', 'consent', 'other'].includes(input.category)) {
+    throw new Error('unsupported incident category');
+  }
+  if (!['low', 'medium', 'high', 'critical'].includes(input.severity)) throw new Error('unsupported incident severity');
+  if (!['open', 'contained', 'resolved'].includes(input.status)) throw new Error('unsupported incident status');
+  return {
+    version: 'v1', incidentId: input.incidentId, participantId: input.participantId,
+    occurredAt: input.occurredAt, surface: input.surface, category: input.category,
+    severity: input.severity, status: input.status, ownerId: input.ownerId,
+    containmentCode: input.containmentCode, resolutionCode: input.resolutionCode,
+  };
 }

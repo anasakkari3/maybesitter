@@ -1,13 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   applyPilotTrustAction,
   buildWhatMaybeSitterKnows,
   createPilotAuditEvent,
   createPilotTrustState,
+  createPilotTrustIncident,
   decidePilotExposure,
   parseClosedPilotAllowlist,
 } from '../../lib/pilot/closedPilotControls.ts';
+import { PilotTrustStore } from '../../lib/pilot/pilotTrustStore.ts';
 
 const AT = '2026-09-14T09:00:00.000Z';
 const IDS = Array.from({ length: 25 }, (_, index) => `pilot-${index + 1}`);
@@ -67,4 +72,45 @@ test('closed pilot: what-knows view exposes explicit state and denies sensitive 
 test('closed pilot: audit events accept safe codes and reject raw-text-like reasons', () => {
   assert.equal(createPilotAuditEvent({ version: 'v1', eventType: 'exposure_checked', participantId: 'pilot-1', occurredAt: AT, outcome: 'blocked', reasonCode: 'quiet_mode' }).reasonCode, 'quiet_mode');
   assert.throws(() => createPilotAuditEvent({ version: 'v1', eventType: 'exposure_checked', participantId: 'pilot-1', occurredAt: AT, outcome: 'blocked', reasonCode: 'user said private words' }), /safe code/);
+});
+
+test('closed pilot: audit and incident builders discard unknown raw fields', () => {
+  const audit = createPilotAuditEvent({
+    version: 'v1', eventType: 'support_reported', participantId: 'pilot-1', occurredAt: AT,
+    outcome: 'recorded', reasonCode: 'privacy', rawText: 'private words',
+  } as Parameters<typeof createPilotAuditEvent>[0] & { rawText: string });
+  assert.equal('rawText' in audit, false);
+
+  const incident = createPilotTrustIncident({
+    version: 'v1', incidentId: 'incident-1', participantId: 'pilot-1', occurredAt: AT,
+    surface: 'recommendation', category: 'privacy', severity: 'medium', status: 'open',
+    ownerId: 'pilot_owner', containmentCode: 'reported_for_review', resolutionCode: null,
+    notes: 'private words',
+  } as Parameters<typeof createPilotTrustIncident>[0] & { notes: string });
+  assert.equal('notes' in incident, false);
+  assert.throws(() => createPilotTrustIncident({ ...incident, surface: 'messages' as typeof incident.surface }), /surface/);
+});
+
+test('closed pilot: trust state, audit, and incidents persist atomically in a private file', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'maybesitter-pilot-trust-'));
+  const file = join(directory, 'trust.json');
+  try {
+    const store = new PilotTrustStore(file);
+    store.apply('pilot-1', { type: 'grant_recommendation_consent', at: AT });
+    store.appendAudit(createPilotAuditEvent({ version: 'v1', eventType: 'consent_changed', participantId: 'pilot-1', occurredAt: AT, outcome: 'recorded', reasonCode: 'grant_recommendation_consent' }));
+    store.appendIncident(createPilotTrustIncident({
+      version: 'v1', incidentId: 'incident-1', participantId: 'pilot-1', occurredAt: AT,
+      surface: 'recommendation', category: 'reliability', severity: 'medium', status: 'open',
+      ownerId: 'pilot_owner', containmentCode: 'reported_for_review', resolutionCode: null,
+    }));
+
+    const reloaded = new PilotTrustStore(file);
+    assert.equal(reloaded.getOrCreate('pilot-1', AT).recommendationConsent, true);
+    assert.equal(reloaded.auditEvents().length, 1);
+    assert.equal(reloaded.incidents().length, 1);
+    assert.equal(statSync(file).mode & 0o777, 0o600);
+    assert.doesNotMatch(readFileSync(file, 'utf8'), /private words/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
