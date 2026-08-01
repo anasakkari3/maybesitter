@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { GET as getTrust, POST as updateTrust } from '../../src/app/api/pilot/trust/route.ts';
 import { GET as getNextStep } from '../../src/app/api/next-step/route.ts';
 import { GET as getCalendar } from '../../src/app/api/calendar.ics/route.ts';
+import { POST as recordAnalytics } from '../../src/app/api/analytics/route.ts';
 import { GET as getIncidents, PATCH as updateIncident, POST as reportIncident } from '../../src/app/api/pilot/incidents/route.ts';
 import { configureCommandService } from '../../lib/services/commandService.ts';
 import { createEmptyDomainState, type Commitment } from '../../src/domain/stateMachine.ts';
@@ -57,6 +58,28 @@ test('V03 live pilot: allowlist, consent, first value, calendar, and incident au
     }));
     assert.equal(consented.status, 200);
     assert.equal((await consented.json()).exposure.allowed, true);
+
+    const forgedConsent = await recordAnalytics(new Request('http://local/api/analytics', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        anonymousUserId: 'pilot-1', consent: 'granted', eventName: 'reason_opened',
+        properties: { proposalId: 'proposal-forged-consent' },
+      }),
+    }));
+    assert.equal((await forgedConsent.json()).recorded, false);
+
+    await updateTrust(new Request('http://local/api/pilot/trust', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ participantId: 'pilot-1', action: { type: 'set_analytics_consent', granted: true } }),
+    }));
+    const derivedConsent = await recordAnalytics(new Request('http://local/api/analytics', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        anonymousUserId: 'pilot-1', consent: 'essential', eventName: 'reason_opened',
+        properties: { proposalId: 'proposal-derived-consent' },
+      }),
+    }));
+    assert.equal((await derivedConsent.json()).recorded, true);
 
     const proposal = await getNextStep(new Request('http://local/api/next-step?anonymousUserId=pilot-1&locale=en'));
     assert.equal(proposal.status, 200);

@@ -44,3 +44,26 @@ export function resolvePilotAccess(participantId: string, at: string, audit = tr
   }
   return { decision, trust };
 }
+
+/**
+ * Preserves the reviewed V02 consent behavior outside a configured pilot. Once
+ * pilot exposure is configured (or recommendation is enabled), client claims
+ * are ignored and consent is derived from the durable trust record.
+ */
+export function resolvePilotAnalyticsConsent(
+  participantId: string,
+  requested: 'granted' | 'essential',
+  at = new Date().toISOString(),
+): 'granted' | 'essential' {
+  const controls = readRuntimeControls();
+  const pilotMode = process.env.MAYBESITTER_CLOSED_PILOT_IDS !== undefined || controls.featureFlags.recommendation;
+  if (!pilotMode) return requested;
+  try {
+    requirePilotParticipantId(participantId);
+    const allowlist = parseClosedPilotAllowlist(process.env.MAYBESITTER_CLOSED_PILOT_IDS);
+    if (!allowlist.has(participantId)) return 'essential';
+    return getPilotTrustStore().getOrCreate(participantId, at).analyticsConsent ? 'granted' : 'essential';
+  } catch {
+    return 'essential';
+  }
+}

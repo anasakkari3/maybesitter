@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { resolvePilotAnalyticsConsent } from '../pilot/pilotAccess';
 import {
   ANALYTICS_EVENT_CONTRACT_VERSION,
   type AnalyticsEventName,
@@ -33,7 +34,10 @@ export function analyticsContextFrom(
   if (typeof source.anonymousUserId !== 'string' || !source.anonymousUserId) return null;
   return {
     anonymousUserId: source.anonymousUserId,
-    consent: source.consent === 'granted' ? 'granted' : 'essential',
+    consent: resolvePilotAnalyticsConsent(
+      source.anonymousUserId,
+      source.consent === 'granted' ? 'granted' : 'essential',
+    ),
     now,
     emit,
   };
