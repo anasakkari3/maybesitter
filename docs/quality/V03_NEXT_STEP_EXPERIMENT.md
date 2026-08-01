@@ -48,6 +48,8 @@ Utility and invasiveness ratings are listed in `selfReportedMetrics` and are nev
 
 Effect sizes are reported for every metric regardless of approval — rate difference, relative lift, 95% Wald interval, and Cohen's h for proportions; mean difference, Welch interval, and Cohen's d for ratings. Sample limitations are reported separately from blockers so an underpowered result reads as "not yet measurable" rather than "no effect".
 
+The live next-step panel exposes both rating controls. The server ignores client-declared consent, derives analytics consent from the durable pilot trust record, and stamps a rating with the same enabled experiment assignment used for its proposal. Reports accept only ratings whose proposal was actually shown, count one rating per user/proposal, and use the latest response when a participant updates a rating.
+
 ## Running it
 
 ```

@@ -197,11 +197,15 @@ function numbersFrom(events: readonly PrivacySafeAnalyticsEvent[], eventName: An
     .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
 }
 
-function ratingsFrom(events: readonly PrivacySafeAnalyticsEvent[], property: string): number[] {
-  return events
-    .filter((event) => event.eventName === 'recommendation_rated')
-    .map((event) => event.properties[property])
-    .filter((value): value is number => isRating(value));
+function ratingsFrom(events: readonly PrivacySafeAnalyticsEvent[], property: string, shown: ReadonlySet<string>): number[] {
+  const latestByProposal = new Map<string, number>();
+  for (const event of events) {
+    if (event.eventName !== 'recommendation_rated') continue;
+    const key = proposalKey(event);
+    const value = event.properties[property];
+    if (key && shown.has(key) && isRating(value)) latestByProposal.set(key, value);
+  }
+  return Array.from(latestByProposal.values());
 }
 
 function measureArm(arm: NextStepArm, bucket: ArmEvents): ArmMeasures {
@@ -230,8 +234,8 @@ function measureArm(arm: NextStepArm, bucket: ArmEvents): ArmMeasures {
     dismissalRate: rate(dismissed.size, exposures),
     correctionRate: rate(edited.size, exposures),
     deferralRate: rate(deferred.size, exposures),
-    utilityRating: rating(ratingsFrom(events, 'utilityRating')),
-    invasivenessRating: rating(ratingsFrom(events, 'invasivenessRating')),
+    utilityRating: rating(ratingsFrom(events, 'utilityRating', shown)),
+    invasivenessRating: rating(ratingsFrom(events, 'invasivenessRating', shown)),
     latencyMs: { count: latencies.length, mean: mean(latencies), p95: percentile(latencies, 0.95) },
     costMicros: { count: costs.length, mean: mean(costs) },
   };

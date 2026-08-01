@@ -1,5 +1,7 @@
 import type { DomainState } from '../../src/domain/stateMachine';
 import type { AnalyticsEventName, PrivacySafeAnalyticsEvent } from '../../src/contracts/v1/analyticsEventContracts';
+import { NEXT_STEP_ARMS } from '../../src/contracts/v1/experimentContracts';
+import { resolveNextStepArm } from '../experiments/experimentControls';
 import { emitAnalyticsEvent, type AnalyticsContext } from './analyticsContext';
 
 /**
@@ -71,5 +73,14 @@ export function recordClientEvent(
   eventName: ClientReportableEvent,
   properties: PrivacySafeAnalyticsEvent['properties'],
 ): PrivacySafeAnalyticsEvent | null {
+  if (eventName === 'recommendation_rated') {
+    const assignment = resolveNextStepArm(context.anonymousUserId);
+    if (!assignment.enabled) return null;
+    return emitAnalyticsEvent(
+      { ...context, experimentId: assignment.experimentId, arms: NEXT_STEP_ARMS },
+      eventName,
+      properties,
+    );
+  }
   return emitAnalyticsEvent(context, eventName as AnalyticsEventName, properties);
 }

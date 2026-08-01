@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs';
 import { EXPERIMENT_DECISION_POLICY, NEXT_STEP_EXPERIMENT_ID } from '../../src/contracts/v1/experimentContracts.ts';
 import { validateAnalyticsEvent } from '../../lib/analytics/privacySafeEvents.ts';
 import { buildExperimentReport } from '../../lib/experiments/experimentReport.ts';
+import { recordClientEvent } from '../../lib/analytics/loopAnalytics.ts';
+import { resolveNextStepArm } from '../../lib/experiments/experimentControls.ts';
 
 const events = readFileSync('evaluation-data/v03-experiment-events.jsonl', 'utf8').trim().split('\n').map((line) => JSON.parse(line));
 const GENERATED_AT = new Date('2026-10-01T00:00:00.000Z');
@@ -45,6 +47,39 @@ test('experiment: ratings outside the 1-5 integer scale are rejected', () => {
     const invalid = event({ eventName: 'recommendation_rated', properties: { proposalId: 'p1', utilityRating: bad, invasivenessRating: 2 } });
     assert.equal(validateAnalyticsEvent(invalid).valid, false, `rating ${String(bad)} should be rejected`);
   }
+});
+
+test('experiment: live client ratings use the same enabled arm assignment as proposals', () => {
+  const previous = process.env.MAYBESITTER_EXPERIMENT_NEXT_STEP_ARMS;
+  process.env.MAYBESITTER_EXPERIMENT_NEXT_STEP_ARMS = 'true';
+  try {
+    const emitted: unknown[] = [];
+    const rated = recordClientEvent({
+      anonymousUserId: 'pilot-rating-user', consent: 'granted', now: GENERATED_AT,
+      emit: (value) => emitted.push(value),
+    }, 'recommendation_rated', { proposalId: 'p1', utilityRating: 4, invasivenessRating: 2 });
+    assert.ok(rated);
+    assert.deepEqual(rated.experiment, {
+      experimentId: NEXT_STEP_EXPERIMENT_ID,
+      arm: resolveNextStepArm('pilot-rating-user').arm,
+    });
+    assert.equal(emitted.length, 1);
+  } finally {
+    if (previous === undefined) delete process.env.MAYBESITTER_EXPERIMENT_NEXT_STEP_ARMS;
+    else process.env.MAYBESITTER_EXPERIMENT_NEXT_STEP_ARMS = previous;
+  }
+});
+
+test('experiment: ratings are one-per-shown-proposal and latest response wins', () => {
+  const values = [
+    event(),
+    event({ eventId: 'r1', eventName: 'recommendation_rated', properties: { proposalId: 'p1', utilityRating: 2, invasivenessRating: 2 } }),
+    event({ eventId: 'r2', eventName: 'recommendation_rated', properties: { proposalId: 'p1', utilityRating: 5, invasivenessRating: 3 } }),
+    event({ eventId: 'r3', eventName: 'recommendation_rated', properties: { proposalId: 'never-shown', utilityRating: 1, invasivenessRating: 5 } }),
+  ];
+  const measured = buildExperimentReport(values, GENERATED_AT).arms.find((item) => item.arm === 'generic')!;
+  assert.deepEqual(measured.utilityRating, { count: 1, mean: 5, standardDeviation: 0 });
+  assert.deepEqual(measured.invasivenessRating, { count: 1, mean: 3, standardDeviation: 0 });
 });
 
 test('experiment: all three arms are measured against the generic baseline', () => {

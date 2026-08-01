@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import Navbar from '@/components/Navbar';
+import PilotTrustPanel from '@/components/PilotTrustPanel';
+import { pilotIdentity } from '@/utils/pilotIdentity';
 
 type Tab = 'profile' | 'preferences' | 'notifications' | 'data';
 
@@ -44,7 +46,9 @@ export default function SettingsPage() {
   useEffect(() => {
     setMounted(true);
     if (typeof window !== 'undefined') {
-      setCalendarUrl(`${window.location.origin}/api/calendar.ics`);
+      const participantId = pilotIdentity();
+      const query = participantId ? `?participantId=${encodeURIComponent(participantId)}` : '';
+      setCalendarUrl(`${window.location.origin}/api/calendar.ics${query}`);
     }
   }, []);
 
@@ -322,6 +326,7 @@ export default function SettingsPage() {
         {/* Data Tab */}
         {activeTab === 'data' && (
           <div className="space-y-4">
+            <PilotTrustPanel />
             <div className="bg-white border border-blue-200 rounded-2xl p-6">
               <h2 className="text-lg font-bold text-gray-800 mb-1">iPhone Calendar Feed</h2>
               <p className="text-sm text-gray-500 mb-4">
