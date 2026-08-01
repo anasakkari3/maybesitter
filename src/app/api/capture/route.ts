@@ -1,4 +1,8 @@
+import { analyticsContextFrom } from '../../../../lib/analytics/analyticsContext';
+import { appendAnalyticsEvent } from '../../../../lib/analytics/eventStore';
+import { recordCaptureAnalytics } from '../../../../lib/analytics/loopAnalytics';
 import { captureText } from '../../../../lib/services/captureService';
+import { getCommandServiceState } from '../../../../lib/services/commandService';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,6 +13,9 @@ export async function POST(request: Request) {
     userId?: string;
     conversationId?: string;
     pendingClarificationId?: string;
+    anonymousUserId?: string;
+    consent?: string;
+    locale?: string;
   };
 
   try {
@@ -18,10 +25,25 @@ export async function POST(request: Request) {
   }
 
   const { text, sessionId, userId, conversationId, pendingClarificationId } = body;
-  return Response.json(await captureText(text, {
+  const analytics = analyticsContextFrom(body, appendAnalyticsEvent);
+  const before = analytics ? getCommandServiceState() : null;
+
+  const result = await captureText(text, {
     sessionId,
     userId,
     conversationId,
     pendingClarificationId,
-  }));
+  });
+
+  if (analytics && before) {
+    recordCaptureAnalytics(analytics, {
+      inputLength: typeof text === 'string' ? text.length : 0,
+      locale: body.locale === 'ar' || body.locale === 'he' ? body.locale : 'en',
+      detectionSource: result.meta.engineUsed,
+      before,
+      after: getCommandServiceState(),
+    });
+  }
+
+  return Response.json(result);
 }
