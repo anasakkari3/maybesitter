@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { buildV03GateReport, type V03GateInput } from '../lib/evaluation/v03PilotGate';
 
@@ -15,5 +15,7 @@ if (!inputPath) throw new Error('--input is required');
 const input = JSON.parse(readFileSync(inputPath, 'utf8')) as V03GateInput;
 const report = buildV03GateReport(input);
 mkdirSync(path.dirname(reportPath), { recursive: true });
-writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+const temporaryPath = `${reportPath}.${process.pid}.tmp`;
+writeFileSync(temporaryPath, `${JSON.stringify(report, null, 2)}\n`);
+renameSync(temporaryPath, reportPath);
 process.stdout.write(`Wrote ${reportPath}: ${report.decision}\n`);

@@ -13,7 +13,9 @@ The report records exactly one of `GO`, `CONDITIONAL GO`, `PIVOT`, or `HOLD`. Mi
 - #56: baseline/contextual/personalized assignment integrity, recommendation behavior, corrections, perceived invasiveness, latency, and cost.
 - Privacy-safe evidence references only. Raw input, transcripts, contact details, diagnoses, and user names never enter the gate artifact.
 
-Metrics always retain their denominators. The early behavioral checks use activation 25%, repeated acceptance 35%, and repeated completion 25%. Trust/privacy objections above 30% require HOLD; invasive feedback at or above 25% is a major failure signal. These pilot checks do not replace Week-4/Week-8 or pricing evidence required by V04.
+Metrics always retain their denominators. Recommendation-shown users must reconcile exactly to the three experiment arms, and repeated behavior, correction, and invasiveness counts must remain inside their applicable populations. The early behavioral checks use activation 25%, acceptance 35%, and completion 25%, with the same acceptance/completion thresholds for repeated behavior. Trust/privacy objections above 30% require HOLD; invasive feedback at or above 25% of respondents is a major failure signal, and response coverage below 50% is a condition. These pilot checks do not replace Week-4/Week-8 or pricing evidence required by V04.
+
+P95 latency above 2 seconds or average recommendation cost above 1 cent creates a condition; above 5 seconds or 5 cents requires HOLD. Correction above 25% creates a condition. Any privacy, critical safety/reliability, or unresolved incident requires HOLD. HOLD blockers take precedence over a problem/workflow PIVOT signal so missing or unsafe evidence can never masquerade as a completed decision.
 
 ## Execution
 
@@ -23,7 +25,7 @@ Prepare a privacy-safe JSON input conforming to `V03GateInput`, pin the exact ca
 npm run gate:v03 -- --input <gate-input.json> --report evaluation-reports/v03-pilot-gate.json
 ```
 
-The gate validates reconciled counts, cohort totals, denominators, assignment integrity, latency/cost values, operational evidence, and evidence references before producing a decision. Synthetic fixtures are tests only and must never be cited as pilot evidence.
+The gate validates reconciled counts, cohort totals, denominators, assignment integrity, latency/cost values, operational evidence, privacy-safe limitation codes, evidence references, and five SHA-256 evidence fingerprints before producing a decision. Synthetic fixtures are tests only and must never be cited as pilot evidence.
 
 ## Exit requirements
 
