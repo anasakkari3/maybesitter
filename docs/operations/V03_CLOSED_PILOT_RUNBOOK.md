@@ -8,7 +8,9 @@ The pilot is closed to 25–40 qualified, adult, separately consented participan
 
 Recommendation exposure additionally requires the V02 feature flag enabled, the recommendation kill switch inactive, explicit recommendation consent, quiet mode off, and no revocation/deletion record. A denial at any layer fails closed.
 
-Distribute invitation links as `https://<pilot-host>/assistant?pilotId=<pseudonymous-id>`. The client retains only that pseudonymous ID. Use random, non-guessable IDs in the real allowlist; the sequential IDs in automated tests are fixtures only.
+The current application storage is single-user. Deploy one isolated runtime and data directory per participant; a shared multi-participant runtime is prohibited. Each runtime must set `MAYBESITTER_PILOT_INSTANCE_PARTICIPANT_ID` to exactly one ID from the 25–40-person cohort allowlist. Requests using any other allowlisted ID fail closed, preventing cross-participant state exposure.
+
+Distribute each isolated instance as `https://<participant-specific-pilot-host>/assistant?pilotId=<pseudonymous-id>`. The client retains only that pseudonymous ID. Use random, non-guessable IDs in the real allowlist; the sequential IDs in automated tests are fixtures only.
 
 ## Progressive disclosure
 
@@ -36,4 +38,4 @@ Participants can create a coded incident from the trust panel. Operators read th
 
 ## Auditing and review
 
-Audit allowlist decisions, consent changes, quiet-mode changes, revocation, and deletion using pseudonymous IDs and reason codes only. Before pilot activation, verify 25–40 allowlisted participants, `MAYBESITTER_FEATURE_RECOMMENDATION=true`, `MAYBESITTER_KILL_SWITCH_RECOMMENDATION=false`, consent copy, data export/deletion, quiet mode, support escalation, a protected trust-store path, a strong admin token, and the owner on call. Real incident and exposure records remain outside Git in the approved operational system.
+Audit allowlist decisions, consent changes, quiet-mode changes, revocation, and deletion using pseudonymous IDs and reason codes only. Before pilot activation, verify 25–40 allowlisted participants, a distinct `MAYBESITTER_PILOT_INSTANCE_PARTICIPANT_ID` and isolated data directory on every runtime, `MAYBESITTER_FEATURE_RECOMMENDATION=true`, `MAYBESITTER_KILL_SWITCH_RECOMMENDATION=false`, consent copy, data export/deletion, quiet mode, support escalation, a protected trust-store path, a strong admin token, and the owner on call. Real incident and exposure records remain outside Git in the approved operational system.

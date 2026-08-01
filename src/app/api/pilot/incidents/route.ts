@@ -2,11 +2,11 @@ import { randomUUID, timingSafeEqual } from 'node:crypto';
 import {
   createPilotAuditEvent,
   createPilotTrustIncident,
-  parseClosedPilotAllowlist,
   requirePilotParticipantId,
   type PilotTrustIncident,
 } from '../../../../../lib/pilot/closedPilotControls';
 import { getPilotTrustStore } from '../../../../../lib/pilot/pilotTrustStore';
+import { resolvePilotAccess } from '../../../../../lib/pilot/pilotAccess';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,8 +31,8 @@ export async function POST(request: Request) {
   try {
     const body = await request.json() as ParticipantReport;
     requirePilotParticipantId(body.participantId);
-    if (!parseClosedPilotAllowlist(process.env.MAYBESITTER_CLOSED_PILOT_IDS).has(body.participantId)) {
-      return Response.json({ error: 'participant is not allowlisted' }, { status: 403 });
+    if (!resolvePilotAccess(body.participantId, new Date().toISOString(), false).trust) {
+      return Response.json({ error: 'participant is not admitted to this pilot instance' }, { status: 403 });
     }
     const at = new Date().toISOString();
     const incident = createPilotTrustIncident({
