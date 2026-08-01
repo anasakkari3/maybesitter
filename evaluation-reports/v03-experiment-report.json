@@ -1,0 +1,379 @@
+{
+  "version": "v1",
+  "experimentId": "v03-next-step-proposal",
+  "baselineArm": "generic",
+  "generatedAt": "2026-10-01T00:00:00.000Z",
+  "assignmentIntegrity": {
+    "totalEvents": 1490,
+    "analyzedEvents": 1490,
+    "excludedOtherExperiment": 0,
+    "excludedUnknownArm": 0,
+    "usersInMultipleArms": [],
+    "armShare": {
+      "generic": 0.32,
+      "contextual": 0.36,
+      "personalized": 0.32
+    },
+    "balanced": true
+  },
+  "arms": [
+    {
+      "arm": "generic",
+      "users": 48,
+      "exposures": 192,
+      "decisions": 154,
+      "acceptanceRate": {
+        "count": 60,
+        "denominator": 192,
+        "rate": 0.3125
+      },
+      "completionRate": {
+        "count": 29,
+        "denominator": 192,
+        "rate": 0.151
+      },
+      "dismissalRate": {
+        "count": 50,
+        "denominator": 192,
+        "rate": 0.2604
+      },
+      "correctionRate": {
+        "count": 20,
+        "denominator": 192,
+        "rate": 0.1042
+      },
+      "deferralRate": {
+        "count": 24,
+        "denominator": 192,
+        "rate": 0.125
+      },
+      "utilityRating": {
+        "count": 96,
+        "mean": 3.0313,
+        "standardDeviation": 0.7874
+      },
+      "invasivenessRating": {
+        "count": 96,
+        "mean": 1.9167,
+        "standardDeviation": 0.7059
+      },
+      "latencyMs": {
+        "count": 192,
+        "mean": 5.0417,
+        "p95": 7
+      },
+      "costMicros": {
+        "count": 192,
+        "mean": 0
+      }
+    },
+    {
+      "arm": "contextual",
+      "users": 54,
+      "exposures": 216,
+      "decisions": 176,
+      "acceptanceRate": {
+        "count": 95,
+        "denominator": 216,
+        "rate": 0.4398
+      },
+      "completionRate": {
+        "count": 59,
+        "denominator": 216,
+        "rate": 0.2731
+      },
+      "dismissalRate": {
+        "count": 38,
+        "denominator": 216,
+        "rate": 0.1759
+      },
+      "correctionRate": {
+        "count": 21,
+        "denominator": 216,
+        "rate": 0.0972
+      },
+      "deferralRate": {
+        "count": 22,
+        "denominator": 216,
+        "rate": 0.1019
+      },
+      "utilityRating": {
+        "count": 108,
+        "mean": 3.9167,
+        "standardDeviation": 0.6284
+      },
+      "invasivenessRating": {
+        "count": 108,
+        "mean": 2.0463,
+        "standardDeviation": 0.6751
+      },
+      "latencyMs": {
+        "count": 216,
+        "mean": 5.9861,
+        "p95": 8
+      },
+      "costMicros": {
+        "count": 216,
+        "mean": 0
+      }
+    },
+    {
+      "arm": "personalized",
+      "users": 48,
+      "exposures": 192,
+      "decisions": 149,
+      "acceptanceRate": {
+        "count": 53,
+        "denominator": 192,
+        "rate": 0.276
+      },
+      "completionRate": {
+        "count": 23,
+        "denominator": 192,
+        "rate": 0.1198
+      },
+      "dismissalRate": {
+        "count": 47,
+        "denominator": 192,
+        "rate": 0.2448
+      },
+      "correctionRate": {
+        "count": 36,
+        "denominator": 192,
+        "rate": 0.1875
+      },
+      "deferralRate": {
+        "count": 13,
+        "denominator": 192,
+        "rate": 0.0677
+      },
+      "utilityRating": {
+        "count": 96,
+        "mean": 3.8958,
+        "standardDeviation": 0.6725
+      },
+      "invasivenessRating": {
+        "count": 96,
+        "mean": 3.0833,
+        "standardDeviation": 0.6754
+      },
+      "latencyMs": {
+        "count": 192,
+        "mean": 7.974,
+        "p95": 10
+      },
+      "costMicros": {
+        "count": 192,
+        "mean": 0
+      }
+    }
+  ],
+  "comparisons": [
+    {
+      "arm": "contextual",
+      "rateEffects": [
+        {
+          "metric": "acceptanceRate",
+          "baselineRate": 0.3125,
+          "armRate": 0.4398,
+          "difference": 0.1273,
+          "relativeLift": 0.4074,
+          "confidenceInterval": [
+            0.0341,
+            0.2205
+          ],
+          "cohensH": 0.2637,
+          "significant": true
+        },
+        {
+          "metric": "completionRate",
+          "baselineRate": 0.151,
+          "armRate": 0.2731,
+          "difference": 0.1221,
+          "relativeLift": 0.8086,
+          "confidenceInterval": [
+            0.044,
+            0.2002
+          ],
+          "cohensH": 0.3016,
+          "significant": true
+        },
+        {
+          "metric": "dismissalRate",
+          "baselineRate": 0.2604,
+          "armRate": 0.1759,
+          "difference": -0.0845,
+          "relativeLift": -0.3245,
+          "confidenceInterval": [
+            -0.1647,
+            -0.0043
+          ],
+          "cohensH": -0.2055,
+          "significant": true
+        },
+        {
+          "metric": "correctionRate",
+          "baselineRate": 0.1042,
+          "armRate": 0.0972,
+          "difference": -0.007,
+          "relativeLift": -0.0672,
+          "confidenceInterval": [
+            -0.0656,
+            0.0516
+          ],
+          "cohensH": -0.0233,
+          "significant": false
+        },
+        {
+          "metric": "deferralRate",
+          "baselineRate": 0.125,
+          "armRate": 0.1019,
+          "difference": -0.0231,
+          "relativeLift": -0.1848,
+          "confidenceInterval": [
+            -0.0849,
+            0.0387
+          ],
+          "cohensH": -0.0729,
+          "significant": false
+        }
+      ],
+      "ratingEffects": [
+        {
+          "metric": "utilityRating",
+          "baselineMean": 3.0313,
+          "armMean": 3.9167,
+          "difference": 0.8854,
+          "confidenceInterval": [
+            0.6883,
+            1.0825
+          ],
+          "cohensD": 1.2512,
+          "significant": true
+        },
+        {
+          "metric": "invasivenessRating",
+          "baselineMean": 1.9167,
+          "armMean": 2.0463,
+          "difference": 0.1296,
+          "confidenceInterval": [
+            -0.0605,
+            0.3197
+          ],
+          "cohensD": 0.1879,
+          "significant": false
+        }
+      ],
+      "sampleLimitations": [],
+      "approvedByDecisionRule": true,
+      "blockers": []
+    },
+    {
+      "arm": "personalized",
+      "rateEffects": [
+        {
+          "metric": "acceptanceRate",
+          "baselineRate": 0.3125,
+          "armRate": 0.276,
+          "difference": -0.0365,
+          "relativeLift": -0.1168,
+          "confidenceInterval": [
+            -0.1276,
+            0.0546
+          ],
+          "cohensH": -0.0801,
+          "significant": false
+        },
+        {
+          "metric": "completionRate",
+          "baselineRate": 0.151,
+          "armRate": 0.1198,
+          "difference": -0.0312,
+          "relativeLift": -0.2066,
+          "confidenceInterval": [
+            -0.0996,
+            0.0372
+          ],
+          "cohensH": -0.0913,
+          "significant": false
+        },
+        {
+          "metric": "dismissalRate",
+          "baselineRate": 0.2604,
+          "armRate": 0.2448,
+          "difference": -0.0156,
+          "relativeLift": -0.0599,
+          "confidenceInterval": [
+            -0.1025,
+            0.0713
+          ],
+          "cohensH": -0.0359,
+          "significant": false
+        },
+        {
+          "metric": "correctionRate",
+          "baselineRate": 0.1042,
+          "armRate": 0.1875,
+          "difference": 0.0833,
+          "relativeLift": 0.7994,
+          "confidenceInterval": [
+            0.0132,
+            0.1534
+          ],
+          "cohensH": 0.2383,
+          "significant": true
+        },
+        {
+          "metric": "deferralRate",
+          "baselineRate": 0.125,
+          "armRate": 0.0677,
+          "difference": -0.0573,
+          "relativeLift": -0.4584,
+          "confidenceInterval": [
+            -0.116,
+            0.0014
+          ],
+          "cohensH": -0.1963,
+          "significant": false
+        }
+      ],
+      "ratingEffects": [
+        {
+          "metric": "utilityRating",
+          "baselineMean": 3.0313,
+          "armMean": 3.8958,
+          "difference": 0.8645,
+          "confidenceInterval": [
+            0.6574,
+            1.0716
+          ],
+          "cohensD": 1.1807,
+          "significant": true
+        },
+        {
+          "metric": "invasivenessRating",
+          "baselineMean": 1.9167,
+          "armMean": 3.0833,
+          "difference": 1.1666,
+          "confidenceInterval": [
+            0.9712,
+            1.362
+          ],
+          "cohensD": 1.6887,
+          "significant": true
+        }
+      ],
+      "sampleLimitations": [],
+      "approvedByDecisionRule": false,
+      "blockers": [
+        "no_behavioral_metric_cleared_the_effect_bar",
+        "invasiveness_regression (1.1666 > 0.25)"
+      ]
+    }
+  ],
+  "personalizationApproved": false,
+  "summary": [
+    "contextual: acceptance +0.1273 vs generic (95% CI 0.0341 to 0.2205), meets the decision rule",
+    "personalized: acceptance -0.0365 vs generic (95% CI -0.1276 to 0.0546), blocked by no_behavioral_metric_cleared_the_effect_bar, invasiveness_regression (1.1666 > 0.25)"
+  ]
+}
