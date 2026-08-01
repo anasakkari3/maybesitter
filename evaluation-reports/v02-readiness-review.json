@@ -1,22 +1,24 @@
 {
   "schemaVersion": "1.0.0",
-  "reviewedAt": "2026-07-31",
+  "reviewedAt": "2026-08-01",
   "gateIssue": 53,
-  "reviewedCandidateSha": "af69a98f9bca189f9bbf69895dbc305eea3d4cb6",
+  "reviewedCandidateSha": "46cf881960e0f4358947cabfa5d021ec31f15419",
   "decision": "CONDITIONAL GO",
   "pilotExposureAuthorized": false,
   "resolvedBlockers": {
     "realRoute": "PASS — NextStepPanel is mounted in /assistant and /api/next-step is built as a dynamic route",
     "liveBaseline": "PASS — confirmed DomainState is projected through the deterministic V02 baseline",
     "decisionAnalytics": "PASS — accept/edit/defer/dismiss/done emit strict privacy-safe events",
+    "completeInstrumentation": "PASS — all 16 required V02 events have constrained live emission paths; loop-state events are derived server-side and client events are allowlisted",
+    "analyticsReporting": "PASS — activation, funnel, retention, consent, and deletion metrics reconcile from validated fixtures and live-wired events",
     "killSwitch": "PASS — recommendation feature flag and kill switch are exercised; Capture remains available",
     "operations": "PASS — Anas Akkari owns monitoring, kill-switch activation, rollback approval, and privacy incident review"
   },
   "validation": {
     "v02Integration": "5/5 PASS",
     "v02Contracts": "27/27 PASS",
-    "v02Analytics": "5/5 PASS",
-    "fullRegression": "252/252 PASS",
+    "v02Analytics": "14/14 PASS",
+    "fullRegression": "271/271 PASS",
     "typecheck": "PASS",
     "productionBuild": "PASS",
     "npmAudit": "PASS — 0 vulnerabilities",
@@ -24,10 +26,10 @@
     "persistenceBoundary": "Every decision result reports persisted=false; confirmation remains required"
   },
   "conditions": [
-    "Complete review and merge of PRs #68, #69, and #70 without weakening contracts or assertions.",
-    "Review and merge the integrated V02 candidate PR at the reviewed SHA or a descendant that reruns this gate.",
-    "Keep MAYBESITTER_FEATURE_RECOMMENDATION disabled until the reviewed candidate is deployed and Anas Akkari approves pilot activation."
+    "Keep pilot exposure disabled until the reviewed candidate is deployed and Anas Akkari approves activation.",
+    "Before pilot exposure, verify MAYBESITTER_FEATURE_RECOMMENDATION=true in the target environment.",
+    "Before pilot exposure, verify MAYBESITTER_KILL_SWITCH_RECOMMENDATION=false in the target environment."
   ],
-  "pilotRule": "Pilot users remain NOT ALLOWED until all three conditions are satisfied.",
+  "pilotRule": "Pilot users remain NOT ALLOWED until deployment, explicit owner approval, and both runtime activation requirements are recorded.",
   "scopeBoundary": "No planning, broad memory, coaching, autonomous scheduling, or advanced personalization is included."
 }
