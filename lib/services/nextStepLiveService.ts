@@ -1,40 +1,22 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import type { DomainState } from '../../src/domain/stateMachine';
 import type { RuntimeControlSnapshot } from '../../src/contracts/v1/runtimeControls';
 import { readRuntimeControls, resolveModuleRuntime } from '../../src/contracts/v1/runtimeControls';
 import type { NextStepDecision, NextStepLocale, NextStepRecommendationContract } from '../../src/contracts/v1/nextStepContracts';
 import type { PrivacySafeAnalyticsEvent } from '../../src/contracts/v1/analyticsEventContracts';
-import { cohortFor } from '../analytics/privacySafeEvents';
+import { emitAnalyticsEvent, type AnalyticsContext } from '../analytics/analyticsContext';
 import { candidatesFromDomainState, selectBaselineNextStep } from './nextStepBaseline';
 import { decideNextStep, type NextStepInteractionOutcome } from './nextStepReviewService';
 
-export interface LiveContext {
-  anonymousUserId: string;
-  consent: 'granted' | 'essential';
+export interface LiveContext extends AnalyticsContext {
   locale: NextStepLocale;
-  now: Date;
   controls?: RuntimeControlSnapshot;
-  emit: (event: PrivacySafeAnalyticsEvent) => void;
   emitShown?: boolean;
 }
 
 function proposalId(state: DomainState): string {
   const fingerprint = JSON.stringify(Object.values(state.commitments).map((item) => [item.id, item.updatedAt]).sort());
   return `next-step-${createHash('sha256').update(fingerprint).digest('hex').slice(0, 16)}`;
-}
-
-function event(context: LiveContext, name: PrivacySafeAnalyticsEvent['eventName'], properties: PrivacySafeAnalyticsEvent['properties']): PrivacySafeAnalyticsEvent {
-  return {
-    version: 'v1',
-    eventId: randomUUID(),
-    eventName: name,
-    occurredAt: context.now.toISOString(),
-    anonymousUserId: context.anonymousUserId,
-    cohortId: cohortFor(context.now),
-    experiment: { experimentId: 'v02-next-step', arm: 'baseline' },
-    consent: context.consent,
-    properties,
-  };
 }
 
 export function getLiveNextStep(state: DomainState, context: LiveContext): NextStepRecommendationContract {
@@ -47,8 +29,8 @@ export function getLiveNextStep(state: DomainState, context: LiveContext): NextS
     };
   }
   const proposal = selectBaselineNextStep(candidatesFromDomainState(state), context.now, context.locale, proposalId(state)).recommendation;
-  if (proposal.state === 'ready' && context.consent === 'granted' && context.emitShown !== false && proposal.primaryStep) {
-    context.emit(event(context, 'recommendation_shown', { proposalId: proposal.proposalId, commitmentId: proposal.primaryStep.commitmentId, baselineVersion: 'v1' }));
+  if (proposal.state === 'ready' && context.emitShown !== false && proposal.primaryStep) {
+    emitAnalyticsEvent(context, 'recommendation_shown', { proposalId: proposal.proposalId, commitmentId: proposal.primaryStep.commitmentId, baselineVersion: 'v1' });
   }
   return proposal;
 }
@@ -71,6 +53,6 @@ export function recordLiveNextStepDecision(
   if (decision === 'edit') properties.changedFieldCount = 1;
   if (decision === 'defer') properties.deferMinutes = 1440;
   if (decision === 'done' && proposal.primaryStep) properties.commitmentId = proposal.primaryStep.commitmentId;
-  if (context.consent === 'granted') context.emit(event(context, DECISION_EVENTS[decision], properties));
+  emitAnalyticsEvent(context, DECISION_EVENTS[decision], properties);
   return outcome;
 }
