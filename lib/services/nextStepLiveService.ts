@@ -4,14 +4,31 @@ import type { RuntimeControlSnapshot } from '../../src/contracts/v1/runtimeContr
 import { readRuntimeControls, resolveModuleRuntime } from '../../src/contracts/v1/runtimeControls';
 import type { NextStepDecision, NextStepLocale, NextStepRecommendationContract } from '../../src/contracts/v1/nextStepContracts';
 import type { PrivacySafeAnalyticsEvent } from '../../src/contracts/v1/analyticsEventContracts';
+import { NEXT_STEP_ARMS } from '../../src/contracts/v1/experimentContracts';
 import { emitAnalyticsEvent, type AnalyticsContext } from '../analytics/analyticsContext';
-import { candidatesFromDomainState, selectBaselineNextStep } from './nextStepBaseline';
+import { resolveNextStepArm } from '../experiments/experimentControls';
+import { selectNextStepForArmFromState } from '../experiments/nextStepArms';
 import { decideNextStep, type NextStepInteractionOutcome } from './nextStepReviewService';
 
 export interface LiveContext extends AnalyticsContext {
   locale: NextStepLocale;
   controls?: RuntimeControlSnapshot;
   emitShown?: boolean;
+  /** Timezone used by the context-aware and personalized arms. */
+  timezone?: string;
+  /** Overrides the environment when resolving the arm, for tests and pilot tooling. */
+  env?: Record<string, string | undefined>;
+}
+
+/**
+ * Points every event from this request at the V03 arm experiment, so the arm recorded on
+ * an event is the same assignment that produced the proposal.
+ */
+function withArmAssignment(context: LiveContext): LiveContext {
+  const assignment = resolveNextStepArm(context.anonymousUserId, context.env);
+  return assignment.enabled
+    ? { ...context, experimentId: assignment.experimentId, arms: NEXT_STEP_ARMS }
+    : context;
 }
 
 function proposalId(state: DomainState): string {
@@ -28,9 +45,27 @@ export function getLiveNextStep(state: DomainState, context: LiveContext): NextS
       persistence: { occurred: false, confirmationRequired: true },
     };
   }
-  const proposal = selectBaselineNextStep(candidatesFromDomainState(state), context.now, context.locale, proposalId(state)).recommendation;
+  const assigned = withArmAssignment(context);
+  const arm = resolveNextStepArm(context.anonymousUserId, context.env).arm;
+  const startedAt = performance.now();
+  const selection = selectNextStepForArmFromState(arm, state, {
+    now: context.now,
+    locale: context.locale,
+    proposalId: proposalId(state),
+    timezone: context.timezone || 'UTC',
+  });
+  const latencyMs = Math.round(performance.now() - startedAt);
+  const proposal = selection.recommendation;
+
   if (proposal.state === 'ready' && context.emitShown !== false && proposal.primaryStep) {
-    emitAnalyticsEvent(context, 'recommendation_shown', { proposalId: proposal.proposalId, commitmentId: proposal.primaryStep.commitmentId, baselineVersion: 'v1' });
+    emitAnalyticsEvent(assigned, 'recommendation_shown', {
+      proposalId: proposal.proposalId,
+      commitmentId: proposal.primaryStep.commitmentId,
+      baselineVersion: 'v1',
+      latencyMs,
+      // Every arm is deterministic and local, so no arm incurs model cost.
+      costMicros: 0,
+    });
   }
   return proposal;
 }
@@ -53,6 +88,6 @@ export function recordLiveNextStepDecision(
   if (decision === 'edit') properties.changedFieldCount = 1;
   if (decision === 'defer') properties.deferMinutes = 1440;
   if (decision === 'done' && proposal.primaryStep) properties.commitmentId = proposal.primaryStep.commitmentId;
-  emitAnalyticsEvent(context, DECISION_EVENTS[decision], properties);
+  emitAnalyticsEvent(withArmAssignment(context), DECISION_EVENTS[decision], properties);
   return outcome;
 }

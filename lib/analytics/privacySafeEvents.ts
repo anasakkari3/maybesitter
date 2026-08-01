@@ -5,13 +5,14 @@ import {
   type AnalyticsValidationResult,
   type PrivacySafeAnalyticsEvent,
 } from '../../src/contracts/v1/analyticsEventContracts';
+import { RATING_SCALE, isRating } from '../../src/contracts/v1/experimentContracts';
 
 const EVENT_PROPERTIES: Record<AnalyticsEventName, readonly string[]> = {
   capture_submitted: ['inputLength', 'locale'],
   commitment_detected: ['commitmentId', 'detectionSource'],
   commitment_confirmed: ['commitmentId'],
   commitment_edited: ['commitmentId', 'changedFieldCount'],
-  recommendation_shown: ['proposalId', 'commitmentId', 'baselineVersion'],
+  recommendation_shown: ['proposalId', 'commitmentId', 'baselineVersion', 'latencyMs', 'costMicros'],
   recommendation_accepted: ['proposalId'],
   recommendation_edited: ['proposalId', 'changedFieldCount'],
   recommendation_deferred: ['proposalId', 'deferMinutes'],
@@ -23,8 +24,10 @@ const EVENT_PROPERTIES: Record<AnalyticsEventName, readonly string[]> = {
   data_deleted: ['deletionScope'],
   pricing_viewed: ['surface'],
   purchase_intent: ['priceCents', 'currency'],
+  recommendation_rated: ['proposalId', 'utilityRating', 'invasivenessRating'],
 };
 
+const RATING_KEYS = ['utilityRating', 'invasivenessRating'];
 const PRIVATE_KEY = /(raw|message|text|title|description|person|email|phone|prompt|content)/i;
 const ID = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/;
 
@@ -55,6 +58,7 @@ export function validateAnalyticsEvent(value: unknown): AnalyticsValidationResul
       if (PRIVATE_KEY.test(key)) errors.push(`private property is forbidden: ${key}`);
       if (!['string', 'number', 'boolean'].includes(typeof property) && property !== null) errors.push(`property must be scalar: ${key}`);
       if (typeof property === 'string' && property.length > 128) errors.push(`property is too long: ${key}`);
+      if (RATING_KEYS.includes(key) && !isRating(property)) errors.push(`rating must be an integer ${RATING_SCALE.minimum}-${RATING_SCALE.maximum}: ${key}`);
     }
   }
   return { valid: errors.length === 0, errors };
