@@ -1,0 +1,21 @@
+# Stitch Screen Map — Maybesitter Mobile
+
+Mapping of Google Stitch design screens from project `projects/5784545255932247559` to Flutter implementation:
+
+| Stitch ID | Stitch screen | Flutter route | Flutter widget | Source type | Light | Dark | iOS | Android | RTL | Large text | Golden test | Known deviation | Reason |
+| :--- | :--- | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- | :--- |
+| `2a6d5aa283c94146b238638f3c316bbd` | Today Home (iOS) | `/today` | `TodayScreen` | Stitch-sourced | Yes | Yes | Yes | Adaptive | Yes | Yes | `today_light.png` | Header bar background blur | Adaptive Material 3 blur effect adapted for Flutter web & native rendering |
+| `faebd801b725425ca2f2eda0f6dc12bf` | Today Home (Android) | `/today` | `TodayScreen` | Stitch-sourced | Yes | Yes | Adaptive | Yes | Yes | Yes | `android_viewport.png` | Floating Action Button shape | Uses M3 rounded rectangle floating button per Android target recommendations |
+| `c854adcf08bd437d8434f4273ee031d6` | Upcoming Agenda (iOS) | `/upcoming` | `UpcomingScreen` | Stitch-sourced | Yes | Yes | Yes | Adaptive | Yes | Yes | `upcoming.png` | View switcher tabs | Converted static tabs into interactive `MaybesitterSegmentedControl` |
+| `cfbd84b33ab94ea280a965185de3b2b7` | Capture Composer (iOS) | `/capture` | `CaptureComposerScreen` | Stitch-sourced | Yes | Yes | Yes | Adaptive | Yes | Yes | `capture_composer.png` | Development preview panel | Added collapsible Dev Fixture Previews at bottom to toggle state machine modes in dev builds |
+| `f20c79e9624b40f68993219cc2022563` | Extraction Review (iOS) | `/capture/review` | `ExtractionReviewScreen` | Stitch-sourced | Yes | Yes | Yes | Adaptive | Yes | Yes | `extraction_review.png` | Quick Edit inline modal | Tapping edit opens title text dialog for immediate pre-confirmation edits |
+| `28d674e4bf014a789152db97970bb36e` | Clarification Sheet (iOS) | `/capture/clarification` | `ClarificationSheetScreen` | Stitch-sourced | Yes | Yes | Yes | Adaptive | Yes | Yes | Included | Bottom sheet handle | Added accessible drag handle and explicit option touch targets |
+| `395987245a344dd2be40de0edea9aca0` | Success Save (iOS) | `/capture/success` | `SuccessSaveScreen` | Stitch-sourced | Yes | Yes | Yes | Adaptive | Yes | Yes | `successful_save.png` | Undo snackbar banner | Added 5-second reversible Undo action that deletes saved records if pressed |
+| `077ff78fa0b84d25ab1238de8581c508` | No Commitment Found (iOS) | `/capture/review` | `EmptyState` / Review | Stitch-sourced | Yes | Yes | Yes | Adaptive | Yes | Yes | Included | Guidance message note | Added AI analysis note box explaining why no commitment was detected |
+| `981ac5bbf768485bae98356215a2ae2f` | Maybesitter Commitment Planner | `/commitments/:id` | `CommitmentDetailsScreen` | Stitch-sourced | Yes | Yes | Yes | Adaptive | Yes | Yes | Included | Delete dialog | Added explicit destructive confirmation modal before deleting |
+| *N/A* | Activity Log | `/activity` | `ActivityScreen` | Specification-derived, not directly sourced from Stitch | Yes | Yes | Yes | Yes | Yes | Yes | Included | None | Created from written product requirements |
+| *N/A* | Settings Home | `/settings` | `SettingsScreen` | Specification-derived, not directly sourced from Stitch | Yes | Yes | Yes | Yes | Yes | Yes | `settings.png` | None | Created from written product requirements |
+| *N/A* | Appearance Selector | `/settings/appearance` | `AppearanceScreen` | Specification-derived, not directly sourced from Stitch | Yes | Yes | Yes | Yes | Yes | Yes | Included | None | Created from written product requirements |
+| *N/A* | Privacy & Data | `/settings/privacy` | `PrivacyScreen` | Specification-derived, not directly sourced from Stitch | Yes | Yes | Yes | Yes | Yes | Yes | Included | None | Created from written product requirements |
+| *N/A* | Notifications Education | `/settings/notifications` | `NotificationsPermissionScreen` | Specification-derived, not directly sourced from Stitch | Yes | Yes | Yes | Yes | Yes | Yes | Included | None | Created from written product requirements |
+| *N/A* | Onboarding Welcome | `/onboarding` | `OnboardingScreen` | Specification-derived, not directly sourced from Stitch | Yes | Yes | Yes | Yes | Yes | Yes | Included | None | Created from written product requirements |
