@@ -1,0 +1,190 @@
+{
+  "@@locale": "en",
+  "appName": "Maybesitter",
+  "@appName": {
+    "description": "The product application name"
+  },
+  "todayTab": "Today",
+  "upcomingTab": "Upcoming",
+  "activityTab": "Activity",
+  "settingsTab": "Settings",
+  "goodMorningUser": "Good morning, {userName}",
+  "@goodMorningUser": {
+    "placeholders": {
+      "userName": {
+        "type": "String"
+      }
+    }
+  },
+  "commitmentsCountToday": "{count, plural, =0{No active commitments today} =1{1 commitment remaining for today} other{{count} commitments remaining for today}}",
+  "@commitmentsCountToday": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "priorityMust": "MUST",
+  "priorityShould": "SHOULD",
+  "priorityNice": "NICE",
+  "priorityFilterAll": "All",
+  "statusPending": "Pending",
+  "statusCompleted": "Completed",
+  "statusPostponed": "Postponed",
+  "statusCancelled": "Cancelled",
+  "statusUnknown": "Unknown",
+  "newIntentTitle": "New Intent",
+  "captureHintText": "Type or speak freely. Maybesitter extracts commitments, times, and priorities automatically.",
+  "composerInputHint": "e.g. \"Tomorrow morning at 9am doctor visit, then meet Sarah for coffee at 2pm...\"",
+  "voiceCaptureTooltip": "Voice Capture",
+  "voiceCaptureStopTooltip": "Stop Recording",
+  "editingDisabledExplanation": "Editing is temporarily unavailable to protect your scheduled time.",
+  "privacyNote": "Your plan is analyzed privately with Quiet Intelligence.",
+  "analyzeAction": "Analyze",
+  "reviewPlanTitle": "Review Your Plan",
+  "proposedCommitmentsCount": "Proposed Commitments ({count})",
+  "@proposedCommitmentsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "confirmCommitmentsAction": "Confirm {count, plural, =1{1 Commitment} other{{count} Commitments}}",
+  "@confirmCommitmentsAction": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "cancelPlanAction": "Cancel Entire Plan",
+  "editCommitmentTitle": "Edit Commitment",
+  "clarificationTitle": "Clarification",
+  "clarificationCardHeader": "Clarification Needed",
+  "noCommitmentTitle": "Nothing Found",
+  "noCommitmentDescription": "I understood the message, but I could not find a plan or actionable commitment to save.",
+  "extractionErrorTitle": "Extraction Error",
+  "extractionErrorMessage": "The AI was unable to parse your plan. Please try again.",
+  "commitmentsAddedSuccess": "{count, plural, =1{Added 1 commitment for {date}.} other{Added {count} commitments for {date}.}}",
+  "@commitmentsAddedSuccess": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "quietIntelligenceSubtitle": "Your schedule has been updated with Quiet Intelligence.",
+  "viewTomorrowAction": "View Tomorrow",
+  "doneAction": "Done",
+  "undoAction": "Undo",
+  "undoSuccessMessage": "Saved commitments undone.",
+  "commitmentDetailTitle": "Commitment Detail",
+  "scheduledDateLabel": "Scheduled Date",
+  "timeLabel": "Time",
+  "locationLabel": "Location",
+  "categoryLabel": "Category",
+  "markCompleteAction": "Mark as Complete",
+  "moreActionsLabel": "More actions",
+  "markPendingAction": "Mark as Pending",
+  "postponeAction": "Postpone Commitment",
+  "deleteAction": "Delete",
+  "deleteConfirmationTitle": "Delete Commitment",
+  "deleteConfirmationMessage": "Are you sure you want to delete \"{title}\"? This cannot be undone.",
+  "@deleteConfirmationMessage": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "postponeSheetTitle": "Postpone Commitment",
+  "postponeOneHour": "1 Hour Later",
+  "postponeThreeHours": "3 Hours Later",
+  "postponeTomorrowMorning": "Tomorrow Morning",
+  "postponeNextWeek": "Next Week",
+  "settingsTitle": "Settings",
+  "settingsSubtitle": "App preferences & account",
+  "appearanceTitle": "Appearance",
+  "appearanceSubtitle": "Theme preferences",
+  "themeModeLabel": "Theme Mode",
+  "themeSystem": "System",
+  "themeLight": "Light",
+  "themeDark": "Dark",
+  "notificationsTitle": "Notifications",
+  "notificationsSubtitle": "Reminders & quiet updates",
+  "notificationsEnabled": "Enabled",
+  "notificationsDisabled": "Disabled",
+  "privacyTitle": "Privacy & Data",
+  "privacySubtitle": "Local data & telemetry control",
+  "encryptionLabel": "Local Data Encryption",
+  "analyticsLabel": "Analytics Opt-Out",
+  "deleteAllDataAction": "Delete All Local Data",
+  "deleteAllDataTitle": "Delete All Local Data",
+  "deleteAllDataMessage": "Are you sure you want to clear all stored commitments and activity history? This cannot be undone.",
+  "dataClearedMessage": "All local data cleared.",
+  "languageTitle": "Language",
+  "languageSubtitle": "Application copy & directionality",
+  "languageSystem": "System default",
+  "languageEnglish": "English",
+  "languageArabic": "العربية",
+  "languageHebrew": "עברית",
+  "activityTitle": "Activity History",
+  "activitySubtitle": "Timeline log of AI extractions & updates",
+  "emptyActivityTitle": "No Activity Yet",
+  "emptyActivityDescription": "Actions, commitments, and AI processing logs will appear here.",
+  "welcomeTitle": "Welcome to Maybesitter",
+  "welcomeSubtitle": "Quiet Intelligence for your daily commitments and flexible plans.",
+  "getStartedAction": "Get Started",
+  "skipAction": "Skip",
+  "cancelAction": "Cancel",
+  "saveAction": "Save",
+  "retryAction": "Try Again",
+  "backAction": "Back",
+  "closeAction": "Close",
+  "offlineBannerText": "Offline — Changes will sync locally",
+  "noCommitmentsTodayTitle": "No Commitments Today",
+  "noCommitmentsTodayDesc": "You have a clean slate! Tap below to capture a new plan.",
+  "noUpcomingCommitmentsTitle": "No Upcoming Commitments",
+  "noUpcomingCommitmentsDesc": "No plans scheduled for the selected filter.",
+  "capturePlanAction": "Capture Plan",
+  "processingLabel": "Analyzing your plan with Quiet Intelligence...",
+  "nowGroupHeader": "Now • MUST",
+  "laterTodayGroupHeader": "Later today • SHOULD",
+  "optionalGroupHeader": "Optional • NICE",
+  "completedGroupHeader": "Completed",
+  "tomorrowGroupHeader": "Tomorrow",
+  "thisWeekGroupHeader": "This week",
+  "laterGroupHeader": "Later",
+  "agendaView": "Agenda",
+  "compactCalendarView": "Compact Calendar",
+  "itemsCountLabel": "{count, plural, =1{1 item} other{{count} items}}",
+  "@itemsCountLabel": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "doneCountLabel": "{count} done",
+  "@doneCountLabel": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "unsupportedRequestTitle": "Unsupported Request",
+  "unsupportedRequestMessage": "The request could not be processed as a commitment or plan.",
+  "networkErrorMessage": "Unable to connect to the backend server. Please check your connection.",
+  "proposalExpiredMessage": "The proposal has expired. Please analyze your plan again.",
+  "validationErrorMessage": "Server validation error. Please review your input.",
+  "confirmFailedMessage": "Failed to confirm proposal on the server.",
+  "noDateGroupHeader": "No date set",
+  "overdueGroupHeader": "Overdue",
+  "reminderHistoryTitle": "Reminder History",
+  "reminderHistorySubtitle": "Log of notification delivery attempts"
+}
