@@ -8,6 +8,7 @@ import '../../design_system/components/extraction_review_card.dart';
 import '../../design_system/components/maybesitter_app_bar.dart';
 import '../../design_system/components/maybesitter_buttons.dart';
 import '../../design_system/components/maybesitter_scaffold.dart';
+import '../../design_system/components/maybesitter_text_field.dart';
 import '../../design_system/components/section_header.dart';
 import '../../design_system/components/status_banner.dart';
 import '../../design_system/theme/app_theme.dart';
@@ -151,11 +152,9 @@ class ExtractionReviewScreen extends ConsumerWidget {
                       builder: (ctx) {
                         return AlertDialog(
                           title: Text(l10n.editCommitmentTitle),
-                          content: TextField(
+                          content: MaybesitterTextField(
                             controller: editController,
-                            decoration: InputDecoration(
-                              labelText: l10n.commitmentDetailTitle,
-                            ),
+                            label: l10n.commitmentDetailTitle,
                           ),
                           actions: [
                             TextButton(
