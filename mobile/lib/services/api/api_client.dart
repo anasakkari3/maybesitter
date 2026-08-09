@@ -25,6 +25,28 @@ class NotFoundException extends ApiException {
   const NotFoundException(super.message, {super.statusCode = 404});
 }
 
+/// Pilot exposure was refused. The decoded body is carried through because the
+/// closed-pilot endpoints return a machine-readable `reason` alongside the
+/// message, and the participant is owed the specific explanation rather than a
+/// generic failure.
+class ForbiddenException extends ApiException {
+  final Map<String, dynamic> body;
+
+  const ForbiddenException(
+    super.message, {
+    this.body = const {},
+    super.statusCode = 403,
+  });
+
+  String? get reason => body['reason'] as String?;
+}
+
+/// The server's canonical state moved on — a decision was posted against a
+/// proposal that is no longer current.
+class ConflictException extends ApiException {
+  const ConflictException(super.message, {super.statusCode = 409});
+}
+
 class ServerException extends ApiException {
   const ServerException(super.message, {super.statusCode = 500});
 }
@@ -155,8 +177,15 @@ class ApiClient {
     switch (response.statusCode) {
       case 400:
         throw ValidationException(errorMsg, statusCode: 400);
+      case 403:
+        throw ForbiddenException(
+          errorMsg,
+          body: jsonBody is Map<String, dynamic> ? jsonBody : const {},
+        );
       case 404:
         throw NotFoundException(errorMsg, statusCode: 404);
+      case 409:
+        throw ConflictException(errorMsg, statusCode: 409);
       case 503:
         throw ServerException(errorMsg, statusCode: 503);
       default:

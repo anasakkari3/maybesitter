@@ -4,6 +4,14 @@ enum ApiMode { mock, localBackend }
 
 class AppConfig {
   static const _configuredBaseUrl = String.fromEnvironment('API_BASE_URL');
+  static const _configuredParticipantId = String.fromEnvironment(
+    'PILOT_PARTICIPANT_ID',
+  );
+
+  /// Used in mock mode and in tests. A real pilot build always supplies
+  /// `--dart-define=PILOT_PARTICIPANT_ID=<random pseudonymous id>`; the
+  /// runbook forbids sequential or guessable identifiers.
+  static const mockParticipantId = 'pilot-participant';
 
   final ApiMode apiMode;
   final String baseUrl;
@@ -11,11 +19,17 @@ class AppConfig {
   final String timezone;
   final bool enableSafeCommitmentPatch;
 
+  /// The pseudonymous closed-pilot identity this build is bound to. It is the
+  /// only participant identifier the client holds — no name, no account, no
+  /// contact detail.
+  final String participantId;
+
   const AppConfig({
     this.apiMode = ApiMode.mock,
     this.baseUrl = 'http://localhost:3000',
     this.scopeId = 'default',
     this.timezone = 'Asia/Jerusalem',
+    this.participantId = mockParticipantId,
     this.enableSafeCommitmentPatch = const bool.fromEnvironment(
       'ENABLE_SAFE_COMMITMENT_PATCH',
       defaultValue: false,
@@ -29,10 +43,19 @@ class AppConfig {
           : _configuredBaseUrl,
       scopeId = 'default',
       timezone = 'Asia/Jerusalem',
+      participantId = _configuredParticipantId == ''
+          ? mockParticipantId
+          : _configuredParticipantId,
       enableSafeCommitmentPatch = const bool.fromEnvironment(
         'ENABLE_SAFE_COMMITMENT_PATCH',
         defaultValue: false,
       );
+
+  /// A real backend build must carry an explicitly configured participant id.
+  /// Falling back to the mock identity against a live pilot instance would
+  /// point every device at the same participant, so the app refuses instead.
+  bool get hasValidPilotIdentity =>
+      isMock || participantId != mockParticipantId;
 
   bool get isMock => apiMode == ApiMode.mock;
   bool get isLocalBackend => apiMode == ApiMode.localBackend;
@@ -63,6 +86,7 @@ class AppConfig {
     String? baseUrl,
     String? scopeId,
     String? timezone,
+    String? participantId,
     bool? enableSafeCommitmentPatch,
   }) {
     return AppConfig(
@@ -70,6 +94,7 @@ class AppConfig {
       baseUrl: baseUrl ?? this.baseUrl,
       scopeId: scopeId ?? this.scopeId,
       timezone: timezone ?? this.timezone,
+      participantId: participantId ?? this.participantId,
       enableSafeCommitmentPatch:
           enableSafeCommitmentPatch ?? this.enableSafeCommitmentPatch,
     );

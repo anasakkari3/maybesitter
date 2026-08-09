@@ -93,6 +93,20 @@ class SettingsScreen extends ConsumerWidget {
                       onTap: () => context.push('/settings/notifications'),
                     ),
                     const Divider(),
+                    // The V03 trust centre is the participant's real privacy
+                    // surface; the older privacy screen stays reachable below
+                    // for device-level settings only.
+                    ListTile(
+                      leading: Icon(
+                        Icons.shield_outlined,
+                        color: colors.brandPrimary,
+                      ),
+                      title: Text(l10n.trustCenterTitle),
+                      subtitle: Text(l10n.trustCenterSubtitle),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => context.push('/settings/trust'),
+                    ),
+                    const Divider(),
                     ListTile(
                       leading: Icon(
                         Icons.privacy_tip_outlined,

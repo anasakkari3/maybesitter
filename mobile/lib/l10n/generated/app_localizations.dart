@@ -849,6 +849,630 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Log of notification delivery attempts'**
   String get reminderHistorySubtitle;
+
+  /// No description provided for @nextStepSectionTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Your next step'**
+  String get nextStepSectionTitle;
+
+  /// No description provided for @nextStepProposalNotice.
+  ///
+  /// In en, this message translates to:
+  /// **'A suggestion. Nothing has been changed yet.'**
+  String get nextStepProposalNotice;
+
+  /// No description provided for @nextStepWhyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Why this one'**
+  String get nextStepWhyTitle;
+
+  /// No description provided for @nextStepNoSensitiveInference.
+  ///
+  /// In en, this message translates to:
+  /// **'No sensitive guesses were used to pick this.'**
+  String get nextStepNoSensitiveInference;
+
+  /// No description provided for @nextStepActionAccept.
+  ///
+  /// In en, this message translates to:
+  /// **'Accept'**
+  String get nextStepActionAccept;
+
+  /// No description provided for @nextStepActionEdit.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit'**
+  String get nextStepActionEdit;
+
+  /// No description provided for @nextStepActionDefer.
+  ///
+  /// In en, this message translates to:
+  /// **'Not now'**
+  String get nextStepActionDefer;
+
+  /// No description provided for @nextStepActionDismiss.
+  ///
+  /// In en, this message translates to:
+  /// **'Dismiss'**
+  String get nextStepActionDismiss;
+
+  /// No description provided for @nextStepActionDone.
+  ///
+  /// In en, this message translates to:
+  /// **'Already done'**
+  String get nextStepActionDone;
+
+  /// No description provided for @nextStepAcceptedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Accepted. Start it whenever you want.'**
+  String get nextStepAcceptedMessage;
+
+  /// No description provided for @nextStepEditedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Updated.'**
+  String get nextStepEditedMessage;
+
+  /// No description provided for @nextStepDeferredMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Set aside for now.'**
+  String get nextStepDeferredMessage;
+
+  /// No description provided for @nextStepDismissedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Dismissed.'**
+  String get nextStepDismissedMessage;
+
+  /// No description provided for @nextStepDoneMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Marked as already done.'**
+  String get nextStepDoneMessage;
+
+  /// No description provided for @nextStepShowAnotherAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Show another'**
+  String get nextStepShowAnotherAction;
+
+  /// No description provided for @nextStepEmptyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing to suggest right now'**
+  String get nextStepEmptyTitle;
+
+  /// No description provided for @nextStepEmptyMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Capture something and confirm it, and a next step will show up here.'**
+  String get nextStepEmptyMessage;
+
+  /// No description provided for @nextStepInsufficientTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Not enough to go on yet'**
+  String get nextStepInsufficientTitle;
+
+  /// No description provided for @nextStepInsufficientMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm a few more commitments and a suggestion will appear.'**
+  String get nextStepInsufficientMessage;
+
+  /// No description provided for @nextStepStaleMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'That suggestion changed while you were deciding. Here is the current one.'**
+  String get nextStepStaleMessage;
+
+  /// No description provided for @nextStepLoadingLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Finding your next step'**
+  String get nextStepLoadingLabel;
+
+  /// No description provided for @nextStepFailedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t load a suggestion'**
+  String get nextStepFailedTitle;
+
+  /// No description provided for @nextStepEditTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit this step'**
+  String get nextStepEditTitle;
+
+  /// No description provided for @nextStepEditFieldLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Next step'**
+  String get nextStepEditFieldLabel;
+
+  /// No description provided for @nextStepEditHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Word it the way you would actually do it.'**
+  String get nextStepEditHelp;
+
+  /// No description provided for @evidenceDueToday.
+  ///
+  /// In en, this message translates to:
+  /// **'Due today'**
+  String get evidenceDueToday;
+
+  /// No description provided for @evidenceOverdue.
+  ///
+  /// In en, this message translates to:
+  /// **'Past its date'**
+  String get evidenceOverdue;
+
+  /// No description provided for @evidenceConfirmedByYou.
+  ///
+  /// In en, this message translates to:
+  /// **'You confirmed it'**
+  String get evidenceConfirmedByYou;
+
+  /// No description provided for @evidenceHighPriority.
+  ///
+  /// In en, this message translates to:
+  /// **'You marked it a must'**
+  String get evidenceHighPriority;
+
+  /// No description provided for @evidenceScheduledSoon.
+  ///
+  /// In en, this message translates to:
+  /// **'Coming up soon'**
+  String get evidenceScheduledSoon;
+
+  /// No description provided for @evidenceOnlyOpenItem.
+  ///
+  /// In en, this message translates to:
+  /// **'It\'s your only open item'**
+  String get evidenceOnlyOpenItem;
+
+  /// No description provided for @evidenceOther.
+  ///
+  /// In en, this message translates to:
+  /// **'Based on commitments you confirmed'**
+  String get evidenceOther;
+
+  /// No description provided for @pilotStateUnauthorizedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'This device isn\'t in the pilot'**
+  String get pilotStateUnauthorizedTitle;
+
+  /// No description provided for @pilotStateUnauthorizedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'The pilot code on this device isn\'t on the participant list, so suggestions are off. If that seems wrong, contact whoever invited you.'**
+  String get pilotStateUnauthorizedMessage;
+
+  /// No description provided for @pilotStateWrongInstanceTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Wrong pilot device'**
+  String get pilotStateWrongInstanceTitle;
+
+  /// No description provided for @pilotStateWrongInstanceMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'This copy of the app is set up for a different participant. Use the link you were sent.'**
+  String get pilotStateWrongInstanceMessage;
+
+  /// No description provided for @pilotStateSuspendedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Your pilot access is paused'**
+  String get pilotStateSuspendedTitle;
+
+  /// No description provided for @pilotStateSuspendedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Someone running the pilot paused your access. Your commitments are safe and nothing has been deleted.'**
+  String get pilotStateSuspendedMessage;
+
+  /// No description provided for @pilotStatePausedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Suggestions are paused'**
+  String get pilotStatePausedTitle;
+
+  /// No description provided for @pilotStatePausedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Suggestions are paused for everyone in the pilot right now. Capture still works and nothing has been lost.'**
+  String get pilotStatePausedMessage;
+
+  /// No description provided for @pilotStateDisabledTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Suggestions are off'**
+  String get pilotStateDisabledTitle;
+
+  /// No description provided for @pilotStateDisabledMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'This build has suggestions switched off. Capture and your commitments work as usual.'**
+  String get pilotStateDisabledMessage;
+
+  /// No description provided for @pilotStateConsentRequiredTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Want a suggested next step?'**
+  String get pilotStateConsentRequiredTitle;
+
+  /// No description provided for @pilotStateConsentRequiredMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'MaybeSitter can propose one next step from commitments you\'ve already confirmed. It never changes anything on its own, and you can switch this off at any time.'**
+  String get pilotStateConsentRequiredMessage;
+
+  /// No description provided for @pilotStateConsentRequiredAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn on suggestions'**
+  String get pilotStateConsentRequiredAction;
+
+  /// No description provided for @pilotStateQuietTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Quiet mode is on'**
+  String get pilotStateQuietTitle;
+
+  /// No description provided for @pilotStateQuietMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Suggestions stay hidden until you turn quiet mode off. Nothing has been deleted.'**
+  String get pilotStateQuietMessage;
+
+  /// No description provided for @pilotStateQuietAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn off quiet mode'**
+  String get pilotStateQuietAction;
+
+  /// No description provided for @pilotStateRevokedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'You turned suggestions off'**
+  String get pilotStateRevokedTitle;
+
+  /// No description provided for @pilotStateRevokedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Your commitments are still here. You can turn suggestions back on whenever you like.'**
+  String get pilotStateRevokedMessage;
+
+  /// No description provided for @pilotStateRevokedAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn suggestions back on'**
+  String get pilotStateRevokedAction;
+
+  /// No description provided for @pilotStateDeletedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Your pilot data was deleted'**
+  String get pilotStateDeletedTitle;
+
+  /// No description provided for @pilotStateDeletedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing is stored for you any more. Thanks for taking part.'**
+  String get pilotStateDeletedMessage;
+
+  /// No description provided for @pilotStateUnknownTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Suggestions are unavailable'**
+  String get pilotStateUnknownTitle;
+
+  /// No description provided for @pilotStateUnknownMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'MaybeSitter can\'t confirm your pilot status, so it isn\'t showing a suggestion. Capture still works.'**
+  String get pilotStateUnknownMessage;
+
+  /// No description provided for @pilotStateOfflineTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Can\'t reach MaybeSitter'**
+  String get pilotStateOfflineTitle;
+
+  /// No description provided for @pilotStateOfflineMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Your commitments are safe on this device. Try again in a moment.'**
+  String get pilotStateOfflineMessage;
+
+  /// No description provided for @trustCenterTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Trust & privacy'**
+  String get trustCenterTitle;
+
+  /// No description provided for @trustCenterSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'What\'s on, what\'s off, and how to change it'**
+  String get trustCenterSubtitle;
+
+  /// No description provided for @trustSectionControls.
+  ///
+  /// In en, this message translates to:
+  /// **'Your controls'**
+  String get trustSectionControls;
+
+  /// No description provided for @trustSectionEnding.
+  ///
+  /// In en, this message translates to:
+  /// **'Stopping'**
+  String get trustSectionEnding;
+
+  /// No description provided for @trustRecommendationConsentLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Suggestions'**
+  String get trustRecommendationConsentLabel;
+
+  /// No description provided for @trustRecommendationConsentDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Let MaybeSitter propose one next step. It only ever proposes.'**
+  String get trustRecommendationConsentDescription;
+
+  /// No description provided for @trustAnalyticsConsentLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Share usage data'**
+  String get trustAnalyticsConsentLabel;
+
+  /// No description provided for @trustAnalyticsConsentDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Counts only, never your text. The app works the same either way.'**
+  String get trustAnalyticsConsentDescription;
+
+  /// No description provided for @trustQuietModeLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Quiet mode'**
+  String get trustQuietModeLabel;
+
+  /// No description provided for @trustQuietModeDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide suggestions without losing anything.'**
+  String get trustQuietModeDescription;
+
+  /// No description provided for @trustCalendarConsentLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect your calendar'**
+  String get trustCalendarConsentLabel;
+
+  /// No description provided for @trustCalendarConsentDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Optional and read-only. Disconnect whenever you want.'**
+  String get trustCalendarConsentDescription;
+
+  /// No description provided for @trustCalendarLockedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Calendar comes later'**
+  String get trustCalendarLockedTitle;
+
+  /// No description provided for @trustCalendarLockedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'MaybeSitter will offer to connect your calendar once it has actually been useful to you. It won\'t ask before then.'**
+  String get trustCalendarLockedMessage;
+
+  /// No description provided for @trustWhatWeKnowAction.
+  ///
+  /// In en, this message translates to:
+  /// **'What MaybeSitter knows'**
+  String get trustWhatWeKnowAction;
+
+  /// No description provided for @trustWhatWeKnowSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'See everything it holds about you'**
+  String get trustWhatWeKnowSubtitle;
+
+  /// No description provided for @trustRevokeTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn everything off'**
+  String get trustRevokeTitle;
+
+  /// No description provided for @trustRevokeDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Switches off suggestions, usage data and calendar. Your commitments stay.'**
+  String get trustRevokeDescription;
+
+  /// No description provided for @trustRevokeConfirmTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn everything off?'**
+  String get trustRevokeConfirmTitle;
+
+  /// No description provided for @trustRevokeConfirmMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Suggestions, usage data and any calendar connection get switched off. Your commitments stay, and you can turn things back on later.'**
+  String get trustRevokeConfirmMessage;
+
+  /// No description provided for @trustRevokedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Everything is switched off.'**
+  String get trustRevokedMessage;
+
+  /// No description provided for @trustDeleteTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete everything'**
+  String get trustDeleteTitle;
+
+  /// No description provided for @trustDeleteDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Removes your commitments and usage data. This can\'t be undone.'**
+  String get trustDeleteDescription;
+
+  /// No description provided for @trustDeleteConfirmTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete everything?'**
+  String get trustDeleteConfirmTitle;
+
+  /// No description provided for @trustDeleteConfirmMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'This permanently removes your commitments and your usage data.'**
+  String get trustDeleteConfirmMessage;
+
+  /// No description provided for @trustDeleteAcknowledge.
+  ///
+  /// In en, this message translates to:
+  /// **'I understand this can\'t be undone'**
+  String get trustDeleteAcknowledge;
+
+  /// No description provided for @trustDeletedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Your data has been deleted.'**
+  String get trustDeletedMessage;
+
+  /// No description provided for @trustUpdatedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved.'**
+  String get trustUpdatedMessage;
+
+  /// No description provided for @trustLoadFailedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t load your privacy settings'**
+  String get trustLoadFailedTitle;
+
+  /// No description provided for @trustActionFailedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'That didn\'t save. Try again.'**
+  String get trustActionFailedMessage;
+
+  /// No description provided for @knowsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'What MaybeSitter knows'**
+  String get knowsTitle;
+
+  /// No description provided for @knowsSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Everything it holds about you, in one list'**
+  String get knowsSubtitle;
+
+  /// No description provided for @knowsCommitmentsLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Commitments you confirmed'**
+  String get knowsCommitmentsLabel;
+
+  /// No description provided for @knowsCommitmentsCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{None} =1{1 commitment} other{{count} commitments}}'**
+  String knowsCommitmentsCount(int count);
+
+  /// No description provided for @knowsRecommendationLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Suggestions'**
+  String get knowsRecommendationLabel;
+
+  /// No description provided for @knowsAnalyticsLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Usage data'**
+  String get knowsAnalyticsLabel;
+
+  /// No description provided for @knowsCalendarLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Calendar'**
+  String get knowsCalendarLabel;
+
+  /// No description provided for @knowsOn.
+  ///
+  /// In en, this message translates to:
+  /// **'On'**
+  String get knowsOn;
+
+  /// No description provided for @knowsOff.
+  ///
+  /// In en, this message translates to:
+  /// **'Off'**
+  String get knowsOff;
+
+  /// No description provided for @knowsConnected.
+  ///
+  /// In en, this message translates to:
+  /// **'Connected'**
+  String get knowsConnected;
+
+  /// No description provided for @knowsNotConnected.
+  ///
+  /// In en, this message translates to:
+  /// **'Not connected'**
+  String get knowsNotConnected;
+
+  /// No description provided for @knowsNeverSectionTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Never collected'**
+  String get knowsNeverSectionTitle;
+
+  /// No description provided for @knowsNoMessages.
+  ///
+  /// In en, this message translates to:
+  /// **'Your private messages'**
+  String get knowsNoMessages;
+
+  /// No description provided for @knowsNoSensitive.
+  ///
+  /// In en, this message translates to:
+  /// **'Guesses about your health, mood or relationships'**
+  String get knowsNoSensitive;
+
+  /// No description provided for @knowsNoMedical.
+  ///
+  /// In en, this message translates to:
+  /// **'Any medical or diagnostic profile'**
+  String get knowsNoMedical;
+
+  /// No description provided for @knowsParticipantLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Your pilot code'**
+  String get knowsParticipantLabel;
+
+  /// No description provided for @knowsParticipantNote.
+  ///
+  /// In en, this message translates to:
+  /// **'A random code. It isn\'t your name and nothing here links it to one.'**
+  String get knowsParticipantNote;
 }
 
 class _AppLocalizationsDelegate

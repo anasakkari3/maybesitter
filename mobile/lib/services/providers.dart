@@ -7,18 +7,24 @@ import '../models/activity_event.dart';
 import 'api/api_client.dart';
 import 'api/api_capture_service.dart';
 import 'api/api_commitment_repository.dart';
+import 'api/api_next_step_service.dart';
+import 'api/api_pilot_trust_service.dart';
 import 'contracts/commitment_repository.dart';
 import 'contracts/capture_service.dart';
 import 'contracts/activity_repository.dart';
+import 'contracts/next_step_service.dart';
 import 'contracts/notification_service.dart';
 import 'contracts/connectivity_service.dart';
+import 'contracts/pilot_trust_service.dart';
 import 'contracts/timezone_service.dart';
 import 'timezone_service_impl.dart';
 import 'mock/in_memory_commitment_repository.dart';
 import 'mock/mock_capture_service.dart';
 import 'mock/mock_activity_repository.dart';
+import 'mock/mock_next_step_service.dart';
 import 'mock/mock_notification_service.dart';
 import 'mock/mock_connectivity_service.dart';
+import 'mock/mock_pilot_trust_service.dart';
 
 final timezoneServiceProvider = Provider<TimezoneService>((ref) {
   return DefaultTimezoneService();
@@ -62,6 +68,34 @@ final activityRepositoryProvider = Provider<ActivityRepository>((ref) {
   return MockActivityRepository();
 });
 
+/// Shared mock trust store. The mock recommendation service reads exposure
+/// from this same instance, so toggling quiet mode or revoking in mock mode
+/// blocks the recommendation exactly as the server would.
+final _mockPilotTrustServiceProvider = Provider<MockPilotTrustService>((ref) {
+  return MockPilotTrustService(
+    participantId: ref.watch(appConfigProvider).participantId,
+  );
+});
+
+final pilotTrustServiceProvider = Provider<PilotTrustService>((ref) {
+  final config = ref.watch(appConfigProvider);
+  if (config.isLocalBackend) {
+    return ApiPilotTrustService(apiClient: ref.watch(apiClientProvider));
+  }
+  return ref.watch(_mockPilotTrustServiceProvider);
+});
+
+final nextStepServiceProvider = Provider<NextStepService>((ref) {
+  final config = ref.watch(appConfigProvider);
+  if (config.isLocalBackend) {
+    return ApiNextStepService(apiClient: ref.watch(apiClientProvider));
+  }
+  return MockNextStepService(
+    trustService: ref.watch(_mockPilotTrustServiceProvider),
+    proposal: MockNextStepService.defaultProposal,
+  );
+});
+
 final notificationServiceProvider = Provider<NotificationService>((ref) {
   return MockNotificationService();
 });
@@ -70,9 +104,25 @@ final connectivityServiceProvider = Provider<ConnectivityService>((ref) {
   return MockConnectivityService();
 });
 
-final commitmentsStreamProvider = StreamProvider<List<Commitment>>((ref) {
+final commitmentsStreamProvider = StreamProvider<List<Commitment>>((ref) async* {
   final repo = ref.watch(commitmentRepositoryProvider);
-  return repo.watchCommitments();
+
+  // `watchCommitments()` is a broadcast stream with no replay: the in-memory
+  // repository emits its seed data from its constructor, before anything is
+  // listening, and the API repository only emits after an explicit fetch.
+  // Either way nothing arrives until the first mutation, so a cold launch shows
+  // an empty Today and the V03 loop never starts. Prime it with one read.
+  final seen = <String>{};
+  final initial = <Commitment>[];
+  for (final commitment in [
+    ...await repo.getToday(),
+    ...await repo.getUpcoming(),
+  ]) {
+    if (seen.add(commitment.id)) initial.add(commitment);
+  }
+  yield initial;
+
+  yield* repo.watchCommitments();
 });
 
 final todayCommitmentsProvider = Provider<List<Commitment>>((ref) {

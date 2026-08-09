@@ -16,6 +16,7 @@ import '../../design_system/tokens/radius.dart';
 import '../../design_system/tokens/spacing.dart';
 import '../../models/commitment.dart';
 import '../../services/providers.dart';
+import '../next_step/next_step_card.dart';
 
 class TodayScreen extends ConsumerWidget {
   const TodayScreen({super.key});
@@ -126,6 +127,14 @@ class TodayScreen extends ConsumerWidget {
                     ),
                   ),
                 ),
+
+                // The V03 one-next-step loop. It sits directly under the
+                // summary and above the lists, because it is the single thing
+                // the participant is meant to act on — but only once there is
+                // something confirmed to reason about. Manual capture stays
+                // first: with no commitments the empty state above is shown
+                // instead, and nothing is proposed.
+                const SliverToBoxAdapter(child: NextStepCard()),
 
                 // MUST Priority Section
                 if (mustItems.isNotEmpty) ...[

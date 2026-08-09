@@ -442,4 +442,349 @@ class AppLocalizationsHe extends AppLocalizations {
 
   @override
   String get reminderHistorySubtitle => 'יומן ניסיונות שליחת התראות';
+
+  @override
+  String get nextStepSectionTitle => 'הצעד הבא שלך';
+
+  @override
+  String get nextStepProposalNotice => 'זו הצעה. עדיין לא השתנה שום דבר.';
+
+  @override
+  String get nextStepWhyTitle => 'למה דווקא זה';
+
+  @override
+  String get nextStepNoSensitiveInference =>
+      'לא נעשה שימוש בהשערות רגישות כדי לבחור את זה.';
+
+  @override
+  String get nextStepActionAccept => 'מאשר';
+
+  @override
+  String get nextStepActionEdit => 'עריכה';
+
+  @override
+  String get nextStepActionDefer => 'לא עכשיו';
+
+  @override
+  String get nextStepActionDismiss => 'התעלמות';
+
+  @override
+  String get nextStepActionDone => 'כבר עשיתי';
+
+  @override
+  String get nextStepAcceptedMessage => 'אושר. אפשר להתחיל מתי שתרצה.';
+
+  @override
+  String get nextStepEditedMessage => 'עודכן.';
+
+  @override
+  String get nextStepDeferredMessage => 'נדחה לעת עתה.';
+
+  @override
+  String get nextStepDismissedMessage => 'הוסר.';
+
+  @override
+  String get nextStepDoneMessage => 'סומן כבוצע.';
+
+  @override
+  String get nextStepShowAnotherAction => 'הצע משהו אחר';
+
+  @override
+  String get nextStepEmptyTitle => 'אין מה להציע כרגע';
+
+  @override
+  String get nextStepEmptyMessage => 'תעד משהו ואשר אותו, וכאן יופיע צעד בא.';
+
+  @override
+  String get nextStepInsufficientTitle => 'עדיין אין מספיק מידע';
+
+  @override
+  String get nextStepInsufficientMessage =>
+      'אשר עוד כמה התחייבויות ותופיע הצעה.';
+
+  @override
+  String get nextStepStaleMessage =>
+      'ההצעה השתנתה בזמן שהתלבטת. זו ההצעה הנוכחית.';
+
+  @override
+  String get nextStepLoadingLabel => 'מחפש את הצעד הבא שלך';
+
+  @override
+  String get nextStepFailedTitle => 'לא הצלחנו לטעון הצעה';
+
+  @override
+  String get nextStepEditTitle => 'עריכת הצעד';
+
+  @override
+  String get nextStepEditFieldLabel => 'הצעד הבא';
+
+  @override
+  String get nextStepEditHelp => 'נסח את זה כמו שבאמת תעשה את זה.';
+
+  @override
+  String get evidenceDueToday => 'להיום';
+
+  @override
+  String get evidenceOverdue => 'עבר התאריך';
+
+  @override
+  String get evidenceConfirmedByYou => 'אישרת את זה';
+
+  @override
+  String get evidenceHighPriority => 'סימנת כהכרחי';
+
+  @override
+  String get evidenceScheduledSoon => 'מתקרב';
+
+  @override
+  String get evidenceOnlyOpenItem => 'זה הפריט הפתוח היחיד שלך';
+
+  @override
+  String get evidenceOther => 'על סמך התחייבויות שאישרת';
+
+  @override
+  String get pilotStateUnauthorizedTitle => 'המכשיר הזה אינו בפיילוט';
+
+  @override
+  String get pilotStateUnauthorizedMessage =>
+      'קוד הפיילוט במכשיר הזה אינו ברשימת המשתתפים, ולכן ההצעות כבויות. אם זו טעות, פנה למי שהזמין אותך.';
+
+  @override
+  String get pilotStateWrongInstanceTitle => 'מכשיר פיילוט לא תואם';
+
+  @override
+  String get pilotStateWrongInstanceMessage =>
+      'העותק הזה של האפליקציה מוגדר למשתתף אחר. השתמש בקישור שנשלח אליך.';
+
+  @override
+  String get pilotStateSuspendedTitle => 'הגישה שלך לפיילוט הושהתה';
+
+  @override
+  String get pilotStateSuspendedMessage =>
+      'מי שמנהל את הפיילוט השהה את הגישה שלך. ההתחייבויות שלך שמורות ושום דבר לא נמחק.';
+
+  @override
+  String get pilotStatePausedTitle => 'ההצעות מושהות';
+
+  @override
+  String get pilotStatePausedMessage =>
+      'ההצעות מושהות כרגע לכל המשתתפים. התיעוד עדיין עובד ושום דבר לא אבד.';
+
+  @override
+  String get pilotStateDisabledTitle => 'ההצעות כבויות';
+
+  @override
+  String get pilotStateDisabledMessage =>
+      'בגרסה הזו ההצעות כבויות. התיעוד וההתחייבויות עובדים כרגיל.';
+
+  @override
+  String get pilotStateConsentRequiredTitle => 'רוצה הצעה לצעד הבא?';
+
+  @override
+  String get pilotStateConsentRequiredMessage =>
+      'MaybeSitter יכול להציע צעד אחד מתוך התחייבויות שכבר אישרת. הוא לא משנה דבר מעצמו, ואפשר לכבות את זה בכל רגע.';
+
+  @override
+  String get pilotStateConsentRequiredAction => 'הפעלת הצעות';
+
+  @override
+  String get pilotStateQuietTitle => 'מצב שקט פעיל';
+
+  @override
+  String get pilotStateQuietMessage =>
+      'ההצעות מוסתרות עד שתכבה את המצב השקט. שום דבר לא נמחק.';
+
+  @override
+  String get pilotStateQuietAction => 'כיבוי מצב שקט';
+
+  @override
+  String get pilotStateRevokedTitle => 'כיבית את ההצעות';
+
+  @override
+  String get pilotStateRevokedMessage =>
+      'ההתחייבויות שלך עדיין כאן. אפשר להפעיל הצעות מחדש מתי שתרצה.';
+
+  @override
+  String get pilotStateRevokedAction => 'הפעלת הצעות מחדש';
+
+  @override
+  String get pilotStateDeletedTitle => 'הנתונים שלך נמחקו';
+
+  @override
+  String get pilotStateDeletedMessage =>
+      'כבר לא נשמר עליך שום דבר. תודה שהשתתפת.';
+
+  @override
+  String get pilotStateUnknownTitle => 'ההצעות אינן זמינות';
+
+  @override
+  String get pilotStateUnknownMessage =>
+      'לא ניתן לאמת את מצבך בפיילוט, ולכן לא מוצגת הצעה. התיעוד עדיין עובד.';
+
+  @override
+  String get pilotStateOfflineTitle => 'אין חיבור ל-MaybeSitter';
+
+  @override
+  String get pilotStateOfflineMessage =>
+      'ההתחייבויות שלך שמורות במכשיר. נסה שוב בעוד רגע.';
+
+  @override
+  String get trustCenterTitle => 'אמון ופרטיות';
+
+  @override
+  String get trustCenterSubtitle => 'מה פעיל, מה כבוי, ואיך לשנות';
+
+  @override
+  String get trustSectionControls => 'השליטה שלך';
+
+  @override
+  String get trustSectionEnding => 'הפסקה';
+
+  @override
+  String get trustRecommendationConsentLabel => 'הצעות';
+
+  @override
+  String get trustRecommendationConsentDescription =>
+      'לאפשר ל-MaybeSitter להציע צעד אחד. הוא רק מציע.';
+
+  @override
+  String get trustAnalyticsConsentLabel => 'שיתוף נתוני שימוש';
+
+  @override
+  String get trustAnalyticsConsentDescription =>
+      'מספרים בלבד, אף פעם לא הטקסט שלך. האפליקציה עובדת אותו דבר כך או כך.';
+
+  @override
+  String get trustQuietModeLabel => 'מצב שקט';
+
+  @override
+  String get trustQuietModeDescription => 'להסתיר הצעות בלי לאבד שום דבר.';
+
+  @override
+  String get trustCalendarConsentLabel => 'חיבור היומן';
+
+  @override
+  String get trustCalendarConsentDescription =>
+      'אופציונלי ולקריאה בלבד. אפשר לנתק בכל רגע.';
+
+  @override
+  String get trustCalendarLockedTitle => 'היומן בהמשך';
+
+  @override
+  String get trustCalendarLockedMessage =>
+      'MaybeSitter יציע לחבר את היומן שלך רק אחרי שבאמת יועיל לך. עד אז הוא לא יבקש.';
+
+  @override
+  String get trustWhatWeKnowAction => 'מה MaybeSitter יודע';
+
+  @override
+  String get trustWhatWeKnowSubtitle => 'כל מה שהוא מחזיק עליך';
+
+  @override
+  String get trustRevokeTitle => 'כיבוי הכול';
+
+  @override
+  String get trustRevokeDescription =>
+      'מכבה הצעות, נתוני שימוש ויומן. ההתחייבויות שלך נשארות.';
+
+  @override
+  String get trustRevokeConfirmTitle => 'לכבות הכול?';
+
+  @override
+  String get trustRevokeConfirmMessage =>
+      'הצעות, נתוני שימוש וכל חיבור ליומן ייכבו. ההתחייבויות שלך נשארות, ואפשר להפעיל שוב בהמשך.';
+
+  @override
+  String get trustRevokedMessage => 'הכול כובה.';
+
+  @override
+  String get trustDeleteTitle => 'מחיקת הכול';
+
+  @override
+  String get trustDeleteDescription =>
+      'מוחק את ההתחייבויות ואת נתוני השימוש שלך. אי אפשר לבטל.';
+
+  @override
+  String get trustDeleteConfirmTitle => 'למחוק הכול?';
+
+  @override
+  String get trustDeleteConfirmMessage =>
+      'הפעולה מוחקת לצמיתות את ההתחייבויות ואת נתוני השימוש שלך.';
+
+  @override
+  String get trustDeleteAcknowledge => 'אני מבין שאי אפשר לבטל';
+
+  @override
+  String get trustDeletedMessage => 'הנתונים שלך נמחקו.';
+
+  @override
+  String get trustUpdatedMessage => 'נשמר.';
+
+  @override
+  String get trustLoadFailedTitle => 'לא הצלחנו לטעון את הגדרות הפרטיות';
+
+  @override
+  String get trustActionFailedMessage => 'השינוי לא נשמר. נסה שוב.';
+
+  @override
+  String get knowsTitle => 'מה MaybeSitter יודע';
+
+  @override
+  String get knowsSubtitle => 'כל מה שהוא מחזיק עליך, ברשימה אחת';
+
+  @override
+  String get knowsCommitmentsLabel => 'התחייבויות שאישרת';
+
+  @override
+  String knowsCommitmentsCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count התחייבויות',
+      two: 'שתי התחייבויות',
+      one: 'התחייבות אחת',
+      zero: 'אין',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get knowsRecommendationLabel => 'הצעות';
+
+  @override
+  String get knowsAnalyticsLabel => 'נתוני שימוש';
+
+  @override
+  String get knowsCalendarLabel => 'יומן';
+
+  @override
+  String get knowsOn => 'פעיל';
+
+  @override
+  String get knowsOff => 'כבוי';
+
+  @override
+  String get knowsConnected => 'מחובר';
+
+  @override
+  String get knowsNotConnected => 'לא מחובר';
+
+  @override
+  String get knowsNeverSectionTitle => 'לעולם לא נאסף';
+
+  @override
+  String get knowsNoMessages => 'ההודעות הפרטיות שלך';
+
+  @override
+  String get knowsNoSensitive => 'השערות על הבריאות, מצב הרוח או הקשרים שלך';
+
+  @override
+  String get knowsNoMedical => 'כל פרופיל רפואי או אבחנתי';
+
+  @override
+  String get knowsParticipantLabel => 'קוד הפיילוט שלך';
+
+  @override
+  String get knowsParticipantNote =>
+      'קוד אקראי. הוא אינו שמך ושום דבר כאן לא מקשר בינו לבין שמך.';
 }
