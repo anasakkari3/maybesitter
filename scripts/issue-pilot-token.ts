@@ -1,16 +1,17 @@
-import { generatePilotToken } from '../lib/pilot/pilotTokenService';
+import { generatePilotToken, getRequiredTokenSecret } from '../lib/pilot/pilotTokenService';
 import { requirePilotParticipantId } from '../lib/pilot/closedPilotControls';
 
 function main() {
   const participantId = process.argv[2];
   if (!participantId) {
-    console.error('Usage: npx ts-node scripts/issue-pilot-token.ts <participant_id>');
+    console.error('Usage: MAYBESITTER_PILOT_TOKEN_SECRET=<secret> npx ts-node scripts/issue-pilot-token.ts <participant_id>');
     process.exit(1);
   }
 
   try {
     requirePilotParticipantId(participantId);
-    const token = generatePilotToken(participantId);
+    const secret = getRequiredTokenSecret();
+    const token = generatePilotToken(participantId, secret);
     console.log(`Issued Pilot Token for [${participantId}]:`);
     console.log(token);
   } catch (err) {

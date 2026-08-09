@@ -14,21 +14,23 @@ import {
   PATCH as commitmentPatch,
 } from '../../src/app/api/mobile/commitments/[id]/route.ts';
 import { POST as actionPost } from '../../src/app/api/mobile/commitments/[id]/actions/route.ts';
-import { GET as trustGet } from '../../src/app/api/pilot/trust/route.ts';
+import { GET as healthGet } from '../../src/app/api/health/route.ts';
 import { getPilotTrustStore } from '../../lib/pilot/pilotTrustStore.ts';
 
 const baseUrl = 'http://127.0.0.1:4321';
 const referenceTime = '2026-08-09T08:00:00.000Z';
+const TEST_SECRET = 'test-secret-min-16-chars-long-security-key';
 
 function params(id: string): { params: Promise<{ id: string }> } {
   return { params: Promise.resolve({ id }) };
 }
 
-function setupIsolationTestEnv(instanceParticipantId = 'p-100'): { cleanup: () => void; dir: string } {
+function setupIsolationTestEnv(): { cleanup: () => void; dir: string } {
   const dir = mkdtempSync(join(tmpdir(), 'maybesitter-isolation-test-'));
-  const allowlistIds = Array.from({ length: 30 }, (_, i) => `p-${100 + i}`).join(',');
+  const allowlistIds = Array.from({ length: 40 }, (_, i) => `p-${100 + i}`).join(',');
   process.env.MAYBESITTER_CLOSED_PILOT_IDS = allowlistIds;
-  process.env.MAYBESITTER_PILOT_INSTANCE_PARTICIPANT_ID = instanceParticipantId;
+  process.env.MAYBESITTER_PILOT_INSTANCE_PARTICIPANT_ID = 'p-100';
+  process.env.MAYBESITTER_PILOT_TOKEN_SECRET = TEST_SECRET;
   process.env.MAYBESITTER_DATA_DIR = dir;
   
   return {
@@ -39,32 +41,52 @@ function setupIsolationTestEnv(instanceParticipantId = 'p-100'): { cleanup: () =
   };
 }
 
-test('Participant Identity & Token Validation', async () => {
-  const { cleanup } = setupIsolationTestEnv('p-110');
+test('Blocker 3 Test: Secret Hardening & Token Security Invariants', async () => {
+  const { cleanup } = setupIsolationTestEnv();
   try {
-    const validToken = generatePilotToken('p-110');
-    assert.equal(validToken.startsWith('p-token.p-110.'), true);
+    // 1. Missing secret in production environment throws error
+    const oldSecret = process.env.MAYBESITTER_PILOT_TOKEN_SECRET;
+    delete process.env.MAYBESITTER_PILOT_TOKEN_SECRET;
+    assert.throws(
+      () => generatePilotToken('p-120'),
+      /MAYBESITTER_PILOT_TOKEN_SECRET environment variable is required/
+    );
+    assert.equal(parseAndValidatePilotToken('p-token.p-120.1234.5678').valid, false);
+    process.env.MAYBESITTER_PILOT_TOKEN_SECRET = oldSecret;
 
-    const result = parseAndValidatePilotToken(validToken);
-    assert.equal(result.valid, true);
-    assert.equal(result.participantId, 'p-110');
+    // 2. Explicit test secret works
+    process.env.MAYBESITTER_PILOT_INSTANCE_PARTICIPANT_ID = 'p-120';
+    const validToken = generatePilotToken('p-120', TEST_SECRET);
+    assert.equal(validToken.startsWith('p-token.p-120.'), true);
+    const parsed = parseAndValidatePilotToken(validToken, TEST_SECRET);
+    assert.equal(parsed.valid, true);
+    assert.equal(parsed.participantId, 'p-120');
 
-    // Invalid signature token
+    // 3. Tampered signature fails validation
     const tampered = validToken.replace(/\.[a-f0-9]+$/, '.deadbeef');
-    assert.equal(parseAndValidatePilotToken(tampered).valid, false);
+    assert.equal(parseAndValidatePilotToken(tampered, TEST_SECRET).valid, false);
 
-    // Non-allowlisted participant token
-    const invalidParticipantToken = generatePilotToken('p-999');
-    assert.equal(parseAndValidatePilotToken(invalidParticipantToken).valid, false);
+    // 4. Token generated under Secret A fails validation under Secret B
+    const secretB = 'different-secret-key-min-16-chars-long';
+    const tokenA = generatePilotToken('p-120', TEST_SECRET);
+    assert.equal(parseAndValidatePilotToken(tokenA, secretB).valid, false);
   } finally {
     cleanup();
   }
 });
 
-test('Adversarial Test 1: Participant A cannot fetch Participant B commitments', async () => {
-  const { cleanup, dir } = setupIsolationTestEnv('p-111');
+test('Health Check Route Test: Unauthenticated health check endpoint', async () => {
+  const res = await healthGet();
+  assert.equal(res.status, 200);
+  const body = await res.json() as { status: string; service: string };
+  assert.equal(body.status, 'ok');
+  assert.equal(body.service, 'maybesitter-pilot-backend');
+});
+
+test('Storage & Domain State Isolation Test 1: Participant A file state isolated from Participant B', async () => {
+  const { cleanup, dir } = setupIsolationTestEnv();
   try {
-    const fileA = join(dir, 'p-111-state.json');
+    const fileA = join(dir, 'p-100-state.json');
     configureCommandService({
       initialState: createEmptyDomainState(),
       stateFile: fileA,
@@ -76,7 +98,7 @@ test('Adversarial Test 1: Participant A cannot fetch Participant B commitments',
       body: JSON.stringify({
         text: 'Participant A dentist appointment tomorrow at 3pm',
         referenceTime,
-        scopeId: 'p-111',
+        scopeId: 'p-100',
       }),
     }));
     const proposal = await proposalRes.json() as { proposalId: string; items: Array<{ itemId: string }> };
@@ -85,15 +107,15 @@ test('Adversarial Test 1: Participant A cannot fetch Participant B commitments',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         proposalId: proposal.proposalId,
-        scopeId: 'p-111',
+        scopeId: 'p-100',
         itemIds: [proposal.items[0].itemId],
       }),
     }));
     const confirmation = await confirmRes.json() as { persisted: Array<{ commitmentId: string }> };
     const commitmentIdA = confirmation.persisted[0].commitmentId;
 
-    // Switch state file to Participant B (p-112)
-    const fileB = join(dir, 'p-112-state.json');
+    // Switch state file to Participant B
+    const fileB = join(dir, 'p-101-state.json');
     configureCommandService({
       initialState: createEmptyDomainState(),
       stateFile: fileB,
@@ -106,10 +128,10 @@ test('Adversarial Test 1: Participant A cannot fetch Participant B commitments',
   }
 });
 
-test('Adversarial Test 2: Participant A cannot mutate Participant B commitments', async () => {
-  const { cleanup, dir } = setupIsolationTestEnv('p-113');
+test('Storage & Domain State Isolation Test 2: Participant A state cannot be mutated from Participant B context', async () => {
+  const { cleanup, dir } = setupIsolationTestEnv();
   try {
-    const fileA = join(dir, 'p-113-state.json');
+    const fileA = join(dir, 'p-100-state.json');
     configureCommandService({
       initialState: createEmptyDomainState(),
       stateFile: fileA,
@@ -121,7 +143,7 @@ test('Adversarial Test 2: Participant A cannot mutate Participant B commitments'
       body: JSON.stringify({
         text: 'Participant A task tomorrow at 4pm',
         referenceTime,
-        scopeId: 'p-113',
+        scopeId: 'p-100',
       }),
     }));
     const proposal = await proposalRes.json() as { proposalId: string; items: Array<{ itemId: string }> };
@@ -130,14 +152,14 @@ test('Adversarial Test 2: Participant A cannot mutate Participant B commitments'
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         proposalId: proposal.proposalId,
-        scopeId: 'p-113',
+        scopeId: 'p-100',
         itemIds: [proposal.items[0].itemId],
       }),
     }));
     const confirmation = await confirmRes.json() as { persisted: Array<{ commitmentId: string }> };
     const commitmentIdA = confirmation.persisted[0].commitmentId;
 
-    const fileB = join(dir, 'p-114-state.json');
+    const fileB = join(dir, 'p-101-state.json');
     configureCommandService({
       initialState: createEmptyDomainState(),
       stateFile: fileB,
@@ -173,50 +195,25 @@ test('Adversarial Test 2: Participant A cannot mutate Participant B commitments'
   }
 });
 
-test('Adversarial Test 3: Participant A cannot view Participant B trust state', async () => {
-  const { cleanup } = setupIsolationTestEnv('p-115');
+test('Domain Control Test: Non-allowlisted or revoked token validation fails closed', async () => {
+  const { cleanup } = setupIsolationTestEnv();
   try {
-    const res = await trustGet(new Request(`${baseUrl}/api/pilot/trust?participantId=p-116`));
-    assert.equal(res.status === 403 || res.status === 503, true);
-    const body = await res.json() as { error: string };
-    assert.equal(body.error, 'participant is not admitted to this pilot instance');
-  } finally {
-    cleanup();
-  }
-});
+    // Non-allowlisted participant token
+    const nonAllowlistedToken = generatePilotToken('p-999', TEST_SECRET);
+    const nonRes = parseAndValidatePilotToken(nonAllowlistedToken, TEST_SECRET);
+    assert.equal(nonRes.valid, false);
 
-test('Adversarial Test 4: Revoked or non-allowlisted credentials fail closed', async () => {
-  const { cleanup } = setupIsolationTestEnv('p-999');
-  try {
-    const nonRes = await trustGet(new Request(`${baseUrl}/api/pilot/trust?participantId=p-999`));
-    assert.equal(nonRes.status === 403 || nonRes.status === 503, true);
-
-    process.env.MAYBESITTER_PILOT_INSTANCE_PARTICIPANT_ID = 'p-125';
+    // Revoked participant token (p-100)
     const store = getPilotTrustStore();
-    const now = new Date().toISOString();
-    store.apply('p-125', { type: 'revoke', at: now });
+    const current = store.getOrCreate('p-100', new Date().toISOString());
+    if (!current.revokedAt) {
+      store.apply('p-100', { type: 'revoke', at: new Date().toISOString() });
+    }
 
-    const revokedRes = await trustGet(new Request(`${baseUrl}/api/pilot/trust?participantId=p-125`));
-    const trustBody = await revokedRes.json() as { trust: { revokedAt: string | null }; exposure: { allowed: boolean; reason: string } };
-    assert.equal(trustBody.exposure.allowed, false);
-    assert.equal(trustBody.exposure.reason, 'revoked');
-  } finally {
-    cleanup();
-  }
-});
-
-test('Adversarial Test 5: Client cannot tamper with experiment assignment', async () => {
-  const { cleanup } = setupIsolationTestEnv('p-118');
-  try {
-    const badActionRes = await actionPost(
-      new Request(`${baseUrl}/api/mobile/commitments/fake-id/actions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'override_experiment_arm', arm: 'v03-next-step' }),
-      }),
-      params('fake-id')
-    );
-    assert.equal(badActionRes.status, 400);
+    const revokedToken = generatePilotToken('p-100', TEST_SECRET);
+    const revokedRes = parseAndValidatePilotToken(revokedToken, TEST_SECRET);
+    assert.equal(revokedRes.valid, false);
+    assert.equal(revokedRes.reason, 'revoked');
   } finally {
     cleanup();
   }

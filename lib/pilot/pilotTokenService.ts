@@ -1,9 +1,6 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
-import { requirePilotParticipantId, parseClosedPilotAllowlist } from './closedPilotControls';
-import { getPilotTrustStore } from './pilotTrustStore';
+import { requirePilotParticipantId } from './closedPilotControls';
 import { resolvePilotAccess } from './pilotAccess';
-
-const DEFAULT_SECRET = 'maybesitter-pilot-token-secret-v03-closed-pilot';
 
 export interface PilotTokenPayload {
   version: 'v1';
@@ -11,12 +8,17 @@ export interface PilotTokenPayload {
   issuedAt: string;
 }
 
-export function tokenSecret(): string {
-  return process.env.MAYBESITTER_PILOT_TOKEN_SECRET || DEFAULT_SECRET;
+export function getRequiredTokenSecret(overrideSecret?: string): string {
+  const secret = overrideSecret || process.env.MAYBESITTER_PILOT_TOKEN_SECRET;
+  if (!secret || typeof secret !== 'string' || secret.trim().length < 16) {
+    throw new Error('MAYBESITTER_PILOT_TOKEN_SECRET environment variable is required and must be at least 16 characters');
+  }
+  return secret.trim();
 }
 
-export function generatePilotToken(participantId: string, secret: string = tokenSecret()): string {
+export function generatePilotToken(participantId: string, secretOverride?: string): string {
   requirePilotParticipantId(participantId);
+  const secret = getRequiredTokenSecret(secretOverride);
   const nonce = randomBytes(16).toString('hex');
   const payloadStr = `v1:${participantId}:${nonce}`;
   const signature = createHmac('sha256', secret).update(payloadStr).digest('hex');
@@ -25,7 +27,7 @@ export function generatePilotToken(participantId: string, secret: string = token
 
 export function parseAndValidatePilotToken(
   token: string | null | undefined,
-  secret: string = tokenSecret()
+  secretOverride?: string
 ): { valid: boolean; participantId?: string; reason?: string } {
   if (!token || typeof token !== 'string') {
     return { valid: false, reason: 'missing_token' };
@@ -44,6 +46,13 @@ export function parseAndValidatePilotToken(
     return { valid: false, reason: 'invalid_participant_id' };
   }
 
+  let secret: string;
+  try {
+    secret = getRequiredTokenSecret(secretOverride);
+  } catch (err) {
+    return { valid: false, participantId, reason: err instanceof Error ? err.message : 'missing_secret' };
+  }
+
   const payloadStr = `v1:${participantId}:${nonce}`;
   const expectedSig = createHmac('sha256', secret).update(payloadStr).digest('hex');
 
@@ -51,10 +60,10 @@ export function parseAndValidatePilotToken(
   const expectedBuffer = Buffer.from(expectedSig, 'hex');
 
   if (sigBuffer.length !== expectedBuffer.length || !timingSafeEqual(sigBuffer, expectedBuffer)) {
-    return { valid: false, reason: 'invalid_signature' };
+    return { valid: false, participantId, reason: 'invalid_signature' };
   }
 
-  // Check allowlist & trust state
+  // Validate trust state & allowlist
   try {
     const access = resolvePilotAccess(participantId, new Date().toISOString(), false);
     if (!access.trust) {
