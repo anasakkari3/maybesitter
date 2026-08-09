@@ -19,6 +19,28 @@ class GrantRecommendationConsent extends PilotTrustAction {
   Map<String, dynamic> toJson() => {'type': 'grant_recommendation_consent'};
 }
 
+/// Turns the recommendation surface on or off, and nothing else.
+///
+/// This is what the "Suggestions" switch in the trust centre sends. It is
+/// deliberately narrower than [RevokeTrust]: a participant who silences
+/// suggestions has not asked to withdraw analytics consent or disconnect their
+/// calendar, and mapping a single switch onto a full revoke would take those
+/// away without being asked.
+///
+/// **Pending backend support.** The current `/api/mobile/pilot/trust` action
+/// union has `grant_recommendation_consent` (grant-only) and `revoke`
+/// (everything). See `docs/architecture/V03_FLUTTER_PILOT_CONTRACT.md`.
+class SetRecommendationConsent extends PilotTrustAction {
+  final bool granted;
+  const SetRecommendationConsent(this.granted);
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'type': 'set_recommendation_consent',
+    'granted': granted,
+  };
+}
+
 class SetAnalyticsConsent extends PilotTrustAction {
   final bool granted;
   const SetAnalyticsConsent(this.granted);

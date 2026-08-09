@@ -1,23 +1,79 @@
-# V03 Flutter pilot contract — what the mobile client needs from `/api/mobile/**`
+# V03 Flutter pilot contract — handoff
 
 Owner of this document: the Flutter lane (V03-P1B).
-Owner of the implementation it describes: the backend lane (V03-P1A).
+Owner of the implementation it describes: the backend lane (V03-P1A / PR #82).
 
-The Flutter participant surface for issue #55 is implemented and tested against
-this contract. **Neither endpoint exists yet.** Until they do, the client runs
-against in-memory doubles (`lib/services/mock/`) and the real path is unexercised.
+> **Status: HANDOFF, NOT INTEGRATED.**
+>
+> PR #83 (Flutter) is **not** wired to the real backend. It runs entirely against
+> in-memory doubles in `mobile/lib/services/mock/`. The endpoints and identity
+> model this client currently codes against are **obsolete** — superseded by
+> PR #82. The integration work listed at the end of this document has **not**
+> been done, and nothing here should be read as a claim that it has.
 
-Nothing here is new invention. Both endpoints are thin, participant-bound
-wrappers over handlers that already exist on `main`, and both response bodies
-are the **unchanged** shapes those handlers already return:
+## Section 1 — OBSOLETE assumptions (what PR #83 currently implements)
 
-| Mobile endpoint | Existing handler | Response body |
-| --- | --- | --- |
-| `/api/mobile/recommendation` | `src/app/api/next-step/route.ts` | `NextStepRecommendationContract` / `NextStepDecisionContract` |
-| `/api/mobile/trust` | `src/app/api/pilot/trust/route.ts` | `{ trust, exposure, whatKnows }` |
+Everything in "Superseded contract" below was written before PR #82 landed its
+authenticated, participant-scoped mobile API. It is retained only so the next
+agent can see exactly what has to change.
 
-Per `AGENTS.md`, Flutter talks only to `/api/mobile/**`; it must not call the
-web routes directly, which is the only reason wrappers are needed at all.
+| Obsolete assumption in PR #83 | Superseded by |
+| --- | --- |
+| `GET/POST /api/mobile/recommendation` | `/api/mobile/recommendations/next-step` and `.../actions` |
+| `GET/POST /api/mobile/trust` | `/api/mobile/pilot/trust` |
+| `participantId` as a query parameter / body field = identity | `Authorization: Bearer <pilot-token>`; client-sent `participantId`/`scopeId` are **ignored** for scope selection |
+| `AppConfig.participantId` from `--dart-define` is the participant identity | The token is the identity; the client must hold a credential, not an id |
+| No 401 handling | 401 is a first-class state (missing/malformed/invalid token) |
+| Two endpoints total | Capture and commitment routes are also bearer-authenticated in pilot mode |
+
+## Section 2 — TARGET contract (PR #82, `v03/mobile-pilot-backend-parity`)
+
+Not yet implemented in Flutter.
+
+### Identity
+
+```http
+Authorization: Bearer p-token.<participant_id>.<nonce>.<signature>
+```
+
+- The **bearer token is the only participant identity.** `participantId` and
+  `scopeId` are **not** security identity; the backend ignores them for
+  storage and scope selection, and an authenticated client need not send them.
+- Server-owned scope: the authenticated `participantId` selects participant
+  state. There is no client-selectable scope.
+
+### Endpoints
+
+| Method | Path |
+| --- | --- |
+| `GET` | `/api/mobile/recommendations/next-step` |
+| `POST` | `/api/mobile/recommendations/next-step/actions` |
+| `GET` | `/api/mobile/pilot/trust` |
+| `POST` | `/api/mobile/pilot/trust` |
+| `POST` | `/api/mobile/pilot/incidents` |
+
+Capture and commitment routes (`/api/mobile/capture`, `.../capture/confirm`,
+`.../commitments/*`) are also bearer-authenticated when pilot mode is on.
+
+### Status codes the client must handle
+
+| Status | Meaning |
+| --- | --- |
+| `503 invalid_pilot_runtime_configuration` | pilot mode on, config invalid — fail closed |
+| `401 missing_token` | pilot mode on, no `Authorization` |
+| `401` | malformed token or invalid signature |
+| `403` | non-allowlisted, revoked, or deleted participant |
+
+The payload/DTO shapes are otherwise unchanged from the superseded contract
+below, so the existing DTO layer in `mobile/lib/services/api/dtos/` should port
+without rewriting.
+
+---
+
+## Superseded contract (retained for reference only)
+
+Everything from here to the end of Section 3 describes the **old** endpoints.
+Do not implement against it.
 
 ---
 
@@ -111,6 +167,7 @@ Accepted actions, exactly as the existing handler's `ClientAction` union:
 | Action | Extra field |
 | --- | --- |
 | `grant_recommendation_consent` | — |
+| `set_recommendation_consent` | `granted: boolean` — **not yet supported by the backend**, see below |
 | `set_analytics_consent` | `granted: boolean` |
 | `set_calendar_consent` | `granted: boolean` |
 | `set_quiet_mode` | `enabled: boolean` |
@@ -121,6 +178,62 @@ Accepted actions, exactly as the existing handler's `ClientAction` union:
 something the server observes when it actually serves a ready proposal.
 
 ---
+
+## Section 3 — Remaining integration checklist (NOT DONE)
+
+None of the following is implemented. Each is a separate, deliberate piece of
+work for the next agent.
+
+1. **Secure credential storage.** The client has no way to hold a bearer token.
+   `AppConfig.participantId` is a `--dart-define` string, which is not a
+   credential store. Needs a real secure store (Keychain / Keystore), a
+   provisioning path for getting the token onto the device, and a wipe path on
+   deletion and revocation.
+2. **Bearer auth in `ApiClient`.** `ApiClient` sends no `Authorization` header
+   and has no injection point for one. Every mobile route needs it, not just
+   the two pilot routes.
+3. **Endpoint paths.** `ApiNextStepService.recommendationPath` and
+   `ApiPilotTrustService.trustPath` still point at the obsolete
+   `/api/mobile/recommendation` and `/api/mobile/trust`.
+4. **Response-envelope alignment.** The DTO layer was written against the old
+   handlers' bodies. Confirm PR #82's envelope field-by-field before trusting
+   the existing parsers.
+5. **HTTP 401 / session handling.** `ApiClient` maps 401 to a generic
+   `ServerException`. It needs a distinct unauthenticated state, and the UI
+   needs to route it somewhere other than the generic offline notice.
+6. **`503 invalid_pilot_runtime_configuration`.** Currently collapses into the
+   generic server error. Should be a distinct, non-retryable operator-fault state.
+7. **Bootstrap / session gate.** There is no app-level gate: the app boots
+   straight into Today regardless of whether a valid session exists. Blocked
+   pilot states surface only inside the Today card.
+8. **Remove `participantId` from request payloads** once the token is the
+   identity, so the client cannot appear to assert a scope it does not control.
+9. **`set_recommendation_consent` backend support** — see below.
+10. **`suspended` stop reason backend support** — see below.
+
+## Required contract change: `set_recommendation_consent`
+
+The trust centre's "Suggestions" switch sends:
+
+```json
+{ "type": "set_recommendation_consent", "granted": true | false }
+```
+
+**The backend does not accept this action yet.** The existing union offers only
+`grant_recommendation_consent` (grant-only) and `revoke` (turns off
+recommendation *and* analytics *and* calendar consent, and sets `revokedAt`).
+
+PR #83 originally mapped the switch's OFF position onto `revoke`, which silently
+withdrew analytics and calendar consent the participant had not asked to
+withdraw. That is corrected in the Flutter client: the switch now sends the
+narrow action, and full revoke remains a separate, confirmed button.
+
+**Request:** add `set_recommendation_consent` with a boolean `granted` to the
+trust action union. `granted: false` must clear recommendation consent only,
+leaving `analyticsConsent`, `calendarConsent` and `revokedAt` untouched.
+
+Until it lands, the narrow action is exercised only against the mock; a real
+backend will reject it as an unsupported action type.
 
 ## Required contract change: a `suspended` stop reason
 

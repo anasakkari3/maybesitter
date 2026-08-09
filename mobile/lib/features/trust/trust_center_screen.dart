@@ -135,13 +135,11 @@ class _TrustControls extends StatelessWidget {
                 label: l10n.trustRecommendationConsentLabel,
                 description: l10n.trustRecommendationConsentDescription,
                 value: trust.recommendationConsent,
+                // Off means "stop suggesting", not "withdraw from everything".
+                // Full revoke stays a separate, confirmed action below.
                 onChanged: busy || deleted
                     ? (_) {}
-                    : (granted) => onApply(
-                        granted
-                            ? const GrantRecommendationConsent()
-                            : const RevokeTrust(),
-                      ),
+                    : (granted) => onApply(SetRecommendationConsent(granted)),
               ),
               MaybesitterSwitch(
                 label: l10n.trustAnalyticsConsentLabel,

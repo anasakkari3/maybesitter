@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:maybesitter_mobile/design_system/components/maybesitter_buttons.dart';
 import 'package:maybesitter_mobile/features/trust/trust_center_screen.dart';
 import 'package:maybesitter_mobile/features/trust/what_maybesitter_knows_screen.dart';
+import 'package:maybesitter_mobile/models/pilot_trust.dart';
 import 'package:maybesitter_mobile/services/contracts/pilot_trust_service.dart';
 
 import '../support/v03_pilot_harness.dart';
@@ -59,6 +60,62 @@ void main() {
       expect(snapshot.trust.analyticsConsent, isTrue);
       // Refusing or granting analytics never changes exposure.
       expect(snapshot.exposure.allowed, isTrue);
+    });
+
+    testWidgets('Suggestions OFF stops suggestions without revoking anything else', (
+      tester,
+    ) async {
+      final harness = V03Harness(
+        recommendationConsent: true,
+        analyticsConsent: true,
+        calendarConsent: true,
+        firstValueAt: DateTime.utc(2026, 8, 5),
+      );
+      await harness.pump(tester, const TrustCenterScreen(), isFullScreen: true);
+
+      await toggle(tester, l10n.trustRecommendationConsentLabel);
+
+      final snapshot = await harness.trust.getSnapshot(
+        participantId: 'pilot-participant',
+      );
+      expect(snapshot.trust.recommendationConsent, isFalse);
+      expect(snapshot.exposure.reason, PilotStopReason.consentRequired);
+
+      // The switch is not a revoke: nothing else the participant consented to
+      // may be withdrawn on their behalf.
+      expect(snapshot.trust.isRevoked, isFalse);
+      expect(snapshot.trust.revokedAt, isNull);
+      expect(snapshot.trust.analyticsConsent, isTrue);
+      expect(snapshot.trust.calendarConsent, isTrue);
+      expect(snapshot.trust.isDeleted, isFalse);
+      expect(snapshot.whatKnows.confirmedCommitmentCount, 3);
+    });
+
+    testWidgets('Suggestions ON again restores exposure', (tester) async {
+      final harness = V03Harness(recommendationConsent: false);
+      await harness.pump(tester, const TrustCenterScreen(), isFullScreen: true);
+
+      await toggle(tester, l10n.trustRecommendationConsentLabel);
+
+      final snapshot = await harness.trust.getSnapshot(
+        participantId: 'pilot-participant',
+      );
+      expect(snapshot.trust.recommendationConsent, isTrue);
+      expect(snapshot.exposure.allowed, isTrue);
+    });
+
+    test('the Suggestions switch and full revoke send different actions', () {
+      // Guards the correction at the wire level: if these ever serialise the
+      // same way, the switch has silently become a revoke again.
+      expect(const SetRecommendationConsent(false).toJson(), {
+        'type': 'set_recommendation_consent',
+        'granted': false,
+      });
+      expect(const RevokeTrust().toJson(), {'type': 'revoke'});
+      expect(
+        const SetRecommendationConsent(false).toJson(),
+        isNot(equals(const RevokeTrust().toJson())),
+      );
     });
 
     testWidgets('quiet mode turns on and blocks exposure without deleting', (

@@ -146,6 +146,17 @@ class MockPilotTrustService implements PilotTrustService {
           updatedAt: now,
           clearRevokedAt: true,
         );
+      case SetRecommendationConsent(:final granted):
+        // Touches recommendation consent only. Analytics consent, calendar
+        // consent and the revoked marker are all left exactly as they were —
+        // that separation is the whole point of this action existing.
+        _trust = _copy(
+          recommendationConsent: granted,
+          updatedAt: now,
+          // Turning suggestions back on clears a prior revoke, so the switch
+          // is not a dead control after a full revoke.
+          clearRevokedAt: granted,
+        );
       case SetAnalyticsConsent(:final granted):
         _trust = _copy(analyticsConsent: granted, updatedAt: now);
       case SetCalendarConsent(:final granted):
