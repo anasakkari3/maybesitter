@@ -1,8 +1,8 @@
 import 'package:flutter/foundation.dart';
-import 'package:intl/intl.dart';
 import '../../../models/capture_result.dart';
 import '../../../models/commitment.dart';
 import '../dtos/proposal_dtos.dart';
+import 'backend_time_mapper.dart';
 
 class ProposalMapper {
   static CaptureResult mapToDomain({
@@ -69,9 +69,11 @@ class ProposalMapper {
       date = null;
     } else if (dto.resolvedTime != null && dto.resolvedTime!.isNotEmpty) {
       try {
-        final parsed = DateTime.parse(dto.resolvedTime!);
+        final parsed = BackendTimeMapper.parseAbsoluteIsoToLocal(
+          dto.resolvedTime!,
+        );
         date = parsed;
-        timeStr = DateFormat('hh:mm a').format(parsed);
+        timeStr = BackendTimeMapper.formatLocalClock(parsed);
       } catch (e) {
         invalidDateFlag = true;
         date = null;
@@ -88,10 +90,25 @@ class ProposalMapper {
       title: dto.title,
       scheduledDate: date,
       startTime: timeStr,
-      priority: CommitmentPriority.must,
+      priority: _mapPriorityLevel(dto.priorityLevel),
       status: CommitmentStatus.pending,
       needsClarification: dto.needsClarification,
       hasInvalidDate: invalidDateFlag,
     );
+  }
+
+  static CommitmentPriority _mapPriorityLevel(String? level) {
+    switch (level?.toLowerCase()) {
+      case 'high':
+      case 'must':
+        return CommitmentPriority.must;
+      case 'low':
+      case 'nice':
+        return CommitmentPriority.nice;
+      case 'normal':
+      case 'should':
+      default:
+        return CommitmentPriority.should;
+    }
   }
 }

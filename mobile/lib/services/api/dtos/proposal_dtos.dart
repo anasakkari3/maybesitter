@@ -48,12 +48,14 @@ class ProposedItemViewDto {
   final String itemId;
   final String title;
   final String? resolvedTime;
+  final String? priorityLevel;
   final bool needsClarification;
 
   const ProposedItemViewDto({
     required this.itemId,
     required this.title,
     this.resolvedTime,
+    this.priorityLevel,
     this.needsClarification = false,
   });
 
@@ -62,14 +64,22 @@ class ProposedItemViewDto {
       itemId: json['itemId'] as String? ?? '',
       title: json['title'] as String? ?? '',
       resolvedTime: json['resolvedTime'] as String?,
+      priorityLevel: _priorityLevelFromJson(json['priority']),
       needsClarification: json['needsClarification'] as bool? ?? false,
     );
+  }
+
+  static String? _priorityLevelFromJson(Object? value) {
+    if (value is String) return value;
+    if (value is Map<String, dynamic>) return value['level'] as String?;
+    return null;
   }
 
   Map<String, dynamic> toJson() => {
     'itemId': itemId,
     'title': title,
     'resolvedTime': resolvedTime,
+    if (priorityLevel != null) 'priority': {'level': priorityLevel},
     'needsClarification': needsClarification,
   };
 }

@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/intl.dart';
 import 'package:maybesitter_mobile/models/capture_result.dart';
 import 'package:maybesitter_mobile/models/commitment.dart';
 import 'package:maybesitter_mobile/services/api/dtos/activity_dtos.dart';
@@ -49,6 +50,94 @@ void main() {
       expect(
         domainResult.extractedCommitments[1].title,
         equals('Work afterward'),
+      );
+    });
+
+    test(
+      'Physical regression: proposal UTC timestamps render in local device time',
+      () {
+        final dto = CaptureProposalResponseDto.fromJson({
+          'proposalId': 'prop-timezone',
+          'status': 'proposed',
+          'items': [
+            {
+              'itemId': 'item-call-maya',
+              'title': 'call Maya',
+              'resolvedTime': '2026-08-09T17:30:00.000Z',
+              'needsClarification': false,
+            },
+          ],
+        });
+
+        final domainResult = ProposalMapper.mapToDomain(
+          dto: dto,
+          rawInput: 'Remind me to call Maya today at 8:30 PM',
+        );
+        final commitment = domainResult.extractedCommitments.single;
+        final expectedLocal = DateTime.parse(
+          '2026-08-09T17:30:00.000Z',
+        ).toLocal();
+
+        expect(
+          commitment.startTime,
+          equals(DateFormat('hh:mm a').format(expectedLocal)),
+        );
+        expect(commitment.scheduledDate?.hour, equals(expectedLocal.hour));
+        expect(commitment.scheduledDate?.minute, equals(expectedLocal.minute));
+      },
+    );
+
+    test(
+      'Physical regression: neutral proposals do not invent MUST priority',
+      () {
+        final dto = CaptureProposalResponseDto.fromJson({
+          'proposalId': 'prop-neutral',
+          'status': 'proposed',
+          'items': [
+            {
+              'itemId': 'item-call-maya',
+              'title': 'call Maya',
+              'resolvedTime': '2026-08-09T17:30:00.000Z',
+              'needsClarification': false,
+            },
+          ],
+        });
+
+        final domainResult = ProposalMapper.mapToDomain(
+          dto: dto,
+          rawInput: 'Remind me to call Maya today at 8:30 PM',
+        );
+
+        expect(
+          domainResult.extractedCommitments.single.priority,
+          equals(CommitmentPriority.should),
+        );
+      },
+    );
+
+    test('Proposal mapper honors canonical high priority when provided', () {
+      final dto = CaptureProposalResponseDto.fromJson({
+        'proposalId': 'prop-priority',
+        'status': 'proposed',
+        'items': [
+          {
+            'itemId': 'item-urgent',
+            'title': 'pay electricity bill',
+            'resolvedTime': '2026-08-09T17:30:00.000Z',
+            'priority': {'level': 'high'},
+            'needsClarification': false,
+          },
+        ],
+      });
+
+      final domainResult = ProposalMapper.mapToDomain(
+        dto: dto,
+        rawInput: 'Urgently pay the electricity bill today at 8:30 PM',
+      );
+
+      expect(
+        domainResult.extractedCommitments.single.priority,
+        equals(CommitmentPriority.must),
       );
     });
 
@@ -166,6 +255,42 @@ void main() {
       expect(domain.status, equals(CommitmentStatus.pending));
       expect(domain.category, contains('Leo'));
     });
+
+    test(
+      'Physical regression: commitment UTC timestamps render and group by local device date',
+      () {
+        final json = {
+          'id': 'backend-call-maya',
+          'kind': 'task',
+          'title': 'call Maya',
+          'status': 'active',
+          'priority': {'level': 'normal'},
+          'timeSpec': {
+            'kind': 'scheduled_event',
+            'remindAt': '2026-08-09T17:30:00.000Z',
+            'timezone': 'Asia/Jerusalem',
+          },
+          'createdAt': '2026-08-09T12:00:00.000Z',
+          'updatedAt': '2026-08-09T12:00:00.000Z',
+        };
+
+        final dto = BackendCommitmentDto.fromJson(json);
+        final domain = CommitmentMapper.mapToDomain(dto);
+        final expectedLocal = DateTime.parse(
+          '2026-08-09T17:30:00.000Z',
+        ).toLocal();
+
+        expect(
+          domain.startTime,
+          equals(DateFormat('hh:mm a').format(expectedLocal)),
+        );
+        expect(domain.scheduledDate?.year, equals(expectedLocal.year));
+        expect(domain.scheduledDate?.month, equals(expectedLocal.month));
+        expect(domain.scheduledDate?.day, equals(expectedLocal.day));
+        expect(domain.scheduledDate?.hour, equals(expectedLocal.hour));
+        expect(domain.scheduledDate?.minute, equals(expectedLocal.minute));
+      },
+    );
 
     test('Workstream 1: Missing date maps to null (does not become today)', () {
       final json = {

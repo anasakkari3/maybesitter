@@ -226,6 +226,7 @@ class CaptureNotifier extends StateNotifier<CaptureState> {
             .map((p) => p.itemId)
             .toSet();
         final allPersisted = {...state.persistedItemIds, ...newlyPersisted};
+        final shouldRefreshCommitments = newlyPersisted.isNotEmpty;
 
         if (confirmResult.success && confirmResult.failed.isEmpty) {
           // 1. Full Success
@@ -254,6 +255,10 @@ class CaptureNotifier extends StateNotifier<CaptureState> {
             errorMessage: 'Failed to confirm proposal on server.',
           );
           return false;
+        }
+
+        if (shouldRefreshCommitments && ref.exists(commitmentsStreamProvider)) {
+          ref.invalidate(commitmentsStreamProvider);
         }
       } else {
         final repo = ref.read(commitmentRepositoryProvider);
