@@ -16,6 +16,7 @@ export const dynamic = 'force-dynamic';
 
 type ClientAction =
   | { type: 'grant_recommendation_consent' }
+  | { type: 'set_recommendation_consent'; granted?: unknown }
   | { type: 'set_analytics_consent'; granted?: unknown }
   | { type: 'set_calendar_consent'; granted?: unknown }
   | { type: 'set_quiet_mode'; enabled?: unknown }
@@ -41,6 +42,9 @@ function requireAllowlisted(participantId: string): void {
 function clientAction(value: ClientAction, at: string): PilotTrustAction {
   switch (value?.type) {
     case 'grant_recommendation_consent': return { type: value.type, at };
+    case 'set_recommendation_consent':
+      if (typeof value.granted !== 'boolean') throw new Error('granted must be boolean');
+      return { type: value.type, granted: value.granted, at };
     case 'set_analytics_consent':
       if (typeof value.granted !== 'boolean') throw new Error('granted must be boolean');
       return { type: value.type, granted: value.granted, at };

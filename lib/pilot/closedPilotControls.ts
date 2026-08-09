@@ -26,6 +26,7 @@ export interface PilotTrustState {
 
 export type PilotTrustAction =
   | { type: 'grant_recommendation_consent'; at: string }
+  | { type: 'set_recommendation_consent'; granted: boolean; at: string }
   | { type: 'set_analytics_consent'; granted: boolean; at: string }
   | { type: 'record_first_value'; at: string }
   | { type: 'set_calendar_consent'; granted: boolean; at: string }
@@ -137,6 +138,8 @@ export function applyPilotTrustAction(state: PilotTrustState, action: PilotTrust
   switch (action.type) {
     case 'grant_recommendation_consent':
       return { ...state, recommendationConsent: true, updatedAt: action.at };
+    case 'set_recommendation_consent':
+      return { ...state, recommendationConsent: action.granted, updatedAt: action.at };
     case 'set_analytics_consent':
       return { ...state, analyticsConsent: action.granted, updatedAt: action.at };
     case 'record_first_value':
