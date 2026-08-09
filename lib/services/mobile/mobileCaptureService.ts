@@ -4,10 +4,16 @@ import {
   MemoryCaptureProposalStore,
   proposeCapture,
   type CaptureProposalStore,
+  type CapturePersistenceAdapter,
 } from '../captureBoundary';
 import { createEmptyDomainState, type Command, type Commitment } from '../../../src/domain/stateMachine';
 import { applyCommand, configureCommandService, getCommandServiceState } from '../commandService';
 import { CommandServiceCapturePersistenceAdapter } from './canonicalPersistence';
+import {
+  applyParticipantCommand,
+  applyParticipantCommands,
+  getParticipantStateSnapshot,
+} from './participantState';
 import { guardedMobileExtract } from './safety';
 import { dateFromOptionalIso, normalizeTimezone } from './time';
 
@@ -38,6 +44,10 @@ export interface FailedProposalItem {
   reason: string;
 }
 
+export interface MobileBackendContext {
+  participantId?: string;
+}
+
 type MobileGlobals = typeof globalThis & {
   __maybesitterMobileProposalStore?: MemoryCaptureProposalStore;
   __maybesitterMobilePersistence?: CommandServiceCapturePersistenceAdapter;
@@ -49,7 +59,8 @@ const persistence = mobileGlobals.__maybesitterMobilePersistence ?? new CommandS
 mobileGlobals.__maybesitterMobileProposalStore = store;
 mobileGlobals.__maybesitterMobilePersistence = persistence;
 
-function scopeIdFrom(value: unknown): string {
+function scopeIdFrom(value: unknown, context: MobileBackendContext = {}): string {
+  if (context.participantId) return context.participantId;
   return typeof value === 'string' && value.trim() ? value.trim() : 'default';
 }
 
@@ -71,16 +82,26 @@ function commitmentIdForCommands(commands: readonly Command[] | undefined): stri
   return createDraft?.commitment.id ?? null;
 }
 
+function persistenceFor(context: MobileBackendContext = {}): CapturePersistenceAdapter {
+  if (!context.participantId) return persistence;
+  return {
+    persistAtomically: async (commands: readonly Command[]) => applyParticipantCommands(context.participantId as string, commands),
+    snapshot: () => getParticipantStateSnapshot(context.participantId as string),
+  };
+}
+
 function persistedItem(
   proposalStore: CaptureProposalStore,
   proposalId: string,
-  itemId: string
+  itemId: string,
+  context: MobileBackendContext = {},
 ): PersistedProposalItem | null {
   const stored = proposalStore.get(proposalId);
   const item = stored?.contract.items.find((candidate) => candidate.itemId === itemId);
   const commitmentId = commitmentIdForCommands(stored?.commandsByItemId.get(itemId));
   if (!item || !commitmentId) return null;
-  const commitment = getCommandServiceState().commitments[commitmentId];
+  const state = context.participantId ? getParticipantStateSnapshot(context.participantId) : getCommandServiceState();
+  const commitment = state.commitments[commitmentId];
   return {
     itemId,
     commitmentId,
@@ -89,40 +110,50 @@ function persistedItem(
   };
 }
 
-function activateConfirmedItems(proposalId: string, itemIds: readonly string[]): void {
+async function activateConfirmedItems(
+  proposalId: string,
+  itemIds: readonly string[],
+  context: MobileBackendContext = {},
+): Promise<void> {
   const stored = store.get(proposalId);
   if (!stored) return;
 
-  configureCommandService({});
   for (const itemId of itemIds) {
     const commitmentId = commitmentIdForCommands(stored.commandsByItemId.get(itemId));
     if (!commitmentId) continue;
-    const commitment = getCommandServiceState().commitments[commitmentId];
+    const state = context.participantId ? getParticipantStateSnapshot(context.participantId) : getCommandServiceState();
+    const commitment = state.commitments[commitmentId];
     if (!commitment || commitment.status !== 'pending_confirmation') continue;
-    applyCommand({
+    const command: Command = {
       type: 'ConfirmCommitment',
       commitmentId,
       now: new Date().toISOString(),
-    });
+    };
+    if (context.participantId) {
+      await applyParticipantCommand(context.participantId, command);
+    } else {
+      configureCommandService({});
+      applyCommand(command);
+    }
   }
 }
 
-export async function proposeMobileCapture(input: MobileCaptureInput) {
+export async function proposeMobileCapture(input: MobileCaptureInput, context: MobileBackendContext = {}) {
   const text = typeof input.text === 'string' ? input.text.trim() : '';
   if (!text) throw new Error('text is required');
 
   return proposeCapture(text, {
     now: dateFromOptionalIso(input.referenceTime, new Date(), 'referenceTime'),
     timezone: normalizeTimezone(input.timezone),
-    scopeId: scopeIdFrom(input.scopeId),
+    scopeId: scopeIdFrom(input.scopeId, context),
   }, {
     store,
-    persistence,
+    persistence: persistenceFor(context),
     extractor: guardedMobileExtract,
   });
 }
 
-export async function confirmMobileCapture(input: MobileConfirmInput): Promise<{
+export async function confirmMobileCapture(input: MobileConfirmInput, context: MobileBackendContext = {}): Promise<{
   success: boolean;
   replayed: boolean;
   persisted: PersistedProposalItem[];
@@ -131,7 +162,7 @@ export async function confirmMobileCapture(input: MobileConfirmInput): Promise<{
   const proposalId = typeof input.proposalId === 'string' ? input.proposalId : '';
   if (!proposalId) throw new Error('proposalId is required');
 
-  const scopeId = scopeIdFrom(input.scopeId);
+  const scopeId = scopeIdFrom(input.scopeId, context);
   const selectedItemIds = selectedIdsFrom(input);
   if (selectedItemIds.length === 0) throw new Error('itemIds is required');
 
@@ -142,7 +173,7 @@ export async function confirmMobileCapture(input: MobileConfirmInput): Promise<{
     idempotencyKey: idempotencyKeyFor(proposalId, scopeId, selectedItemIds, input.idempotencyKey),
   }, {
     store,
-    persistence,
+    persistence: persistenceFor(context),
   });
 
   if (!result.success) {
@@ -157,13 +188,13 @@ export async function confirmMobileCapture(input: MobileConfirmInput): Promise<{
     };
   }
 
-  activateConfirmedItems(proposalId, result.persistedItemIds);
+  await activateConfirmedItems(proposalId, result.persistedItemIds, context);
 
   return {
     success: true,
     replayed: result.replayed,
     persisted: result.persistedItemIds
-      .map((itemId) => persistedItem(store, proposalId, itemId))
+      .map((itemId) => persistedItem(store, proposalId, itemId, context))
       .filter((item): item is PersistedProposalItem => item !== null),
     failed: selectedItemIds
       .filter((itemId) => !result.persistedItemIds.includes(itemId))

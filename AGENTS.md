@@ -63,30 +63,12 @@ Flutter (mobile/**)
         → pilot/analytics infrastructure
 ```
 
-### Known gap: `/api/mobile/**` is not implemented on this line
+### `/api/mobile/**` is the Flutter backend boundary
 
-The Flutter client calls `/api/mobile/capture`, `/api/mobile/capture/confirm`,
-`/api/mobile/commitments/today`, `/api/mobile/commitments/upcoming` and
-`/api/mobile/commitments/{id}`. **None of these routes exist in this
-repository.** They have never been on `main`.
-
-An implementation exists only in an unrelated local history (the
-`checkpoint/sprint-01-backend` line, mirrored in the untracked working
-directories `code/maybesitter-backend-agent` and
-`code/maybesitter-backend-phone-test`). That implementation was written against
-an older capture/extraction contract and does **not** compile against the
-current services — a direct copy produces 53 TypeScript errors across
-`mobileCaptureService`, `semanticSafetyGate` and the LLM provider layer,
-because `ConfirmProposalResult`, `ExtractionResult`, `ExtractionContext`,
-`CaptureProposalStatus` and `ExtractAndMapOptions` have all since diverged.
-
-Restoring the mobile API surface is therefore a **port**, not a merge, and is
-tracked as its own work item. Until it lands:
-
-- `mobile/test/integration/backend_canonical_flow_test.dart` fails with
-  connection-refused against `127.0.0.1:4321`, because that backend does not
-  exist here.
-- The Flutter client cannot talk to this repository's backend.
+The canonical Flutter client talks to `/api/mobile/**`. Keep that boundary
+current when product-facing backend behavior is required by Flutter, and adapt
+through existing domain/application services rather than restoring historical
+backend-agent contracts.
 
 ## Cleanup debt
 
