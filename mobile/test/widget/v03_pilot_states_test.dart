@@ -81,9 +81,7 @@ void main() {
       await tester.tap(find.text(l10n.pilotStateConsentRequiredAction));
       await tester.pumpAndSettle();
 
-      final snapshot = await harness.trust.getSnapshot(
-        participantId: 'pilot-participant',
-      );
+      final snapshot = await harness.trust.getSnapshot();
       expect(snapshot.trust.recommendationConsent, isTrue);
       expect(find.text('Call the vet about the booster shot'), findsOneWidget);
     });
@@ -105,7 +103,9 @@ void main() {
       expect(find.text('Call the vet about the booster shot'), findsOneWidget);
     });
 
-    testWidgets('revoked state offers a way back', (tester) async {
+    testWidgets('revoked state is terminal in the participant app', (
+      tester,
+    ) async {
       final harness = V03Harness(
         recommendationConsent: false,
         revokedAt: DateTime.utc(2026, 8, 1),
@@ -116,10 +116,7 @@ void main() {
         title: l10n.pilotStateRevokedTitle,
         message: l10n.pilotStateRevokedMessage,
       );
-
-      await tester.tap(find.text(l10n.pilotStateRevokedAction));
-      await tester.pumpAndSettle();
-      expect(find.text('Call the vet about the booster shot'), findsOneWidget);
+      expect(find.byType(PrimaryButton), findsNothing);
     });
 
     testWidgets('deleted state offers no recovery action', (tester) async {

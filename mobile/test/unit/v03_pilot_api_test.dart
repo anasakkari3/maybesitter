@@ -24,6 +24,7 @@ void main() {
     sent = [];
     return ApiClient(
       baseUrl: 'http://localhost:3000',
+      authTokenProvider: () async => 'test-pilot-token',
       client: MockClient((request) async {
         sent.add(request);
         return http.Response(
@@ -50,23 +51,50 @@ void main() {
     'persistence': {'occurred': false, 'confirmationRequired': true},
   };
 
+  Map<String, dynamic> recommendationEnvelope(Map<String, dynamic> proposal) => {
+    'success': true,
+    'participantId': 'p-42',
+    'recommendation': proposal,
+    'assignment': {'arm': 'control', 'variant': 'baseline'},
+    'exposure': {'allowed': true, 'reason': 'authorized'},
+  };
+
+  Map<String, dynamic> decisionEnvelope({
+    String decision = 'accept',
+    String? editedTitle,
+    bool replayed = false,
+  }) => {
+    'success': true,
+    'replayed': replayed,
+    'participantId': 'p-42',
+    'assignment': {'arm': 'control', 'variant': 'baseline'},
+    'outcome': {
+      'status': 'confirmation_required',
+      'persisted': false,
+      'decision': {
+        'version': '1.0.0',
+        'proposalId': 'proposal-7',
+        'decision': decision,
+        if (editedTitle != null) 'editedTitle': editedTitle,
+        'decidedAt': '2026-08-09T10:00:00.000Z',
+      },
+    },
+  };
+
   group('recommendation endpoint', () {
-    test('GET sends participantId and locale and maps a ready proposal', () async {
+    test('GET sends bearer auth and locale and maps a ready envelope', () async {
       final service = ApiNextStepService(
-        apiClient: clientReturning(readyProposal()),
+        apiClient: clientReturning(recommendationEnvelope(readyProposal())),
       );
 
-      final result = await service.getNextStep(
-        participantId: 'p-42',
-        locale: 'ar',
-      );
+      final result = await service.getNextStep(locale: 'ar');
 
       expect(sent.single.method, 'GET');
-      expect(sent.single.url.path, '/api/mobile/recommendation');
-      expect(sent.single.url.queryParameters, {
-        'participantId': 'p-42',
-        'locale': 'ar',
-      });
+      expect(sent.single.url.path, '/api/mobile/recommendations/next-step');
+      expect(sent.single.headers['authorization'], 'Bearer test-pilot-token');
+      expect(sent.single.url.queryParameters, {'locale': 'ar'});
+      expect(sent.single.url.queryParameters, isNot(contains('participantId')));
+      expect(sent.single.url.queryParameters, isNot(contains('scopeId')));
 
       final recommendation = (result as NextStepAvailable).recommendation;
       expect(recommendation.proposalId, 'proposal-7');
@@ -88,10 +116,7 @@ void main() {
         }, status: 403),
       );
 
-      final result = await service.getNextStep(
-        participantId: 'p-42',
-        locale: 'en',
-      );
+      final result = await service.getNextStep(locale: 'en');
 
       expect(
         (result as NextStepBlocked).reason,
@@ -107,77 +132,77 @@ void main() {
         }, status: 403),
       );
 
-      final result = await service.getNextStep(
-        participantId: 'p-42',
-        locale: 'en',
-      );
+      final result = await service.getNextStep(locale: 'en');
       expect((result as NextStepBlocked).reason, PilotStopReason.unknown);
     });
 
     test('an empty proposal is unavailable, not actionable', () async {
       final service = ApiNextStepService(
-        apiClient: clientReturning({
-          'version': '1.0.0',
-          'proposalId': 'proposal-empty',
-          'state': 'empty',
-          'locale': 'en',
-          'primaryStep': null,
-          'explanation': null,
-          'availableActions': <String>[],
-          'persistence': {'occurred': false, 'confirmationRequired': true},
-        }),
+        apiClient: clientReturning(
+          recommendationEnvelope({
+            'version': '1.0.0',
+            'proposalId': 'proposal-empty',
+            'state': 'empty',
+            'locale': 'en',
+            'primaryStep': null,
+            'explanation': null,
+            'availableActions': <String>[],
+            'persistence': {'occurred': false, 'confirmationRequired': true},
+          }),
+        ),
       );
 
-      final result = await service.getNextStep(
-        participantId: 'p-42',
-        locale: 'en',
-      );
+      final result = await service.getNextStep(locale: 'en');
       expect((result as NextStepUnavailable).state, NextStepState.empty);
     });
 
     test('a ready state with no primary step is not treated as actionable', () async {
       final service = ApiNextStepService(
-        apiClient: clientReturning({
-          'proposalId': 'proposal-broken',
-          'state': 'ready',
-          'locale': 'en',
-          'primaryStep': null,
-          'availableActions': ['accept'],
-          'persistence': {'occurred': false, 'confirmationRequired': true},
-        }),
+        apiClient: clientReturning(
+          recommendationEnvelope({
+            'proposalId': 'proposal-broken',
+            'state': 'ready',
+            'locale': 'en',
+            'primaryStep': null,
+            'availableActions': ['accept'],
+            'persistence': {'occurred': false, 'confirmationRequired': true},
+          }),
+        ),
       );
 
-      final result = await service.getNextStep(
-        participantId: 'p-42',
-        locale: 'en',
-      );
+      final result = await service.getNextStep(locale: 'en');
       expect(result, isA<NextStepUnavailable>());
     });
 
     test('POST echoes the proposal and sends the decision', () async {
       final service = ApiNextStepService(
-        apiClient: clientReturning({
-          'version': '1.0.0',
-          'proposalId': 'proposal-7',
-          'decision': 'edit',
-          'editedTitle': 'Call the clinic instead',
-          'decidedAt': '2026-08-09T10:00:00.000Z',
-        }),
+        apiClient: clientReturning(
+          decisionEnvelope(
+            decision: 'edit',
+            editedTitle: 'Call the clinic instead',
+          ),
+        ),
       );
 
       final outcome = await service.recordDecision(
-        participantId: 'p-42',
         locale: 'en',
         decision: NextStepDecision.edit,
+        idempotencyKey: 'stable-action-key',
         editedTitle: 'Call the clinic instead',
         recommendation: NextStepRecommendationDtoFixture.ready,
       );
 
       expect(sent.single.method, 'POST');
-      expect(sent.single.url.path, '/api/mobile/recommendation');
+      expect(
+        sent.single.url.path,
+        '/api/mobile/recommendations/next-step/actions',
+      );
+      expect(sent.single.headers['authorization'], 'Bearer test-pilot-token');
       final body = jsonDecode(sent.single.body) as Map<String, dynamic>;
-      expect(body['participantId'], 'p-42');
+      expect(body.containsKey('participantId'), isFalse);
+      expect(body.containsKey('scopeId'), isFalse);
       expect(body['decision'], 'edit');
+      expect(body['idempotencyKey'], 'stable-action-key');
       expect(body['editedTitle'], 'Call the clinic instead');
 
       // The server re-derives its own canonical proposal and compares ids, so
@@ -205,9 +230,9 @@ void main() {
 
       expect(
         () => service.recordDecision(
-          participantId: 'p-42',
           locale: 'en',
           decision: NextStepDecision.accept,
+          idempotencyKey: 'same-action',
           recommendation: NextStepRecommendationDtoFixture.ready,
         ),
         throwsA(isA<StaleProposalException>()),
@@ -216,16 +241,12 @@ void main() {
 
     test('a decision request never carries an experiment arm', () async {
       final service = ApiNextStepService(
-        apiClient: clientReturning({
-          'proposalId': 'proposal-7',
-          'decision': 'accept',
-          'decidedAt': '2026-08-09T10:00:00.000Z',
-        }),
+        apiClient: clientReturning(decisionEnvelope()),
       );
       await service.recordDecision(
-        participantId: 'p-42',
         locale: 'en',
         decision: NextStepDecision.accept,
+        idempotencyKey: 'same-action',
         recommendation: NextStepRecommendationDtoFixture.ready,
       );
 
@@ -278,10 +299,11 @@ void main() {
         apiClient: clientReturning(snapshotBody()),
       );
 
-      final snapshot = await service.getSnapshot(participantId: 'p-42');
+      final snapshot = await service.getSnapshot();
 
-      expect(sent.single.url.path, '/api/mobile/trust');
-      expect(sent.single.url.queryParameters, {'participantId': 'p-42'});
+      expect(sent.single.url.path, '/api/mobile/pilot/trust');
+      expect(sent.single.headers['authorization'], 'Bearer test-pilot-token');
+      expect(sent.single.url.queryParameters, isEmpty);
       expect(snapshot.trust.recommendationConsent, isTrue);
       expect(snapshot.exposure.allowed, isTrue);
       expect(snapshot.exposure.reason, PilotStopReason.authorized);
@@ -296,7 +318,7 @@ void main() {
           snapshotBody(firstValueAt: '2026-08-08T09:00:00.000Z'),
         ),
       );
-      final snapshot = await service.getSnapshot(participantId: 'p-42');
+      final snapshot = await service.getSnapshot();
       expect(snapshot.trust.hasReachedFirstValue, isTrue);
       expect(snapshot.trust.mayOfferCalendarConsent, isTrue);
     });
@@ -305,6 +327,10 @@ void main() {
       final cases = <PilotTrustAction, Map<String, dynamic>>{
         const GrantRecommendationConsent(): {
           'type': 'grant_recommendation_consent',
+        },
+        const SetRecommendationConsent(false): {
+          'type': 'set_recommendation_consent',
+          'granted': false,
         },
         const SetAnalyticsConsent(true): {
           'type': 'set_analytics_consent',
@@ -323,10 +349,12 @@ void main() {
         final service = ApiPilotTrustService(
           apiClient: clientReturning(snapshotBody()),
         );
-        await service.apply(participantId: 'p-42', action: entry.key);
+        await service.apply(action: entry.key);
 
         final body = jsonDecode(sent.single.body) as Map<String, dynamic>;
-        expect(body['participantId'], 'p-42');
+        expect(sent.single.url.path, '/api/mobile/pilot/trust');
+        expect(body.containsKey('participantId'), isFalse);
+        expect(body.containsKey('scopeId'), isFalse);
         expect(body['action'], entry.value);
       }
     });
@@ -340,7 +368,7 @@ void main() {
       );
 
       await expectLater(
-        service.getSnapshot(participantId: 'p-42'),
+        service.getSnapshot(),
         throwsA(
           isA<PilotNotAdmittedException>().having(
             (error) => error.reason,
@@ -360,7 +388,7 @@ void main() {
         }),
       );
 
-      final snapshot = await service.getSnapshot(participantId: 'p-42');
+      final snapshot = await service.getSnapshot();
       expect(snapshot.trust.recommendationConsent, isFalse);
       expect(snapshot.trust.analyticsConsent, isFalse);
       expect(snapshot.trust.calendarConsent, isFalse);
@@ -376,7 +404,7 @@ void main() {
           snapshotBody(allowed: true, reason: 'brand_new_state'),
         ),
       );
-      final snapshot = await service.getSnapshot(participantId: 'p-42');
+      final snapshot = await service.getSnapshot();
       expect(snapshot.exposure.allowed, isFalse);
       expect(snapshot.exposure.reason, PilotStopReason.unknown);
     });

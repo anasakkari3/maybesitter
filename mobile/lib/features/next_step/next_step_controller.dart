@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/next_step.dart';
@@ -77,7 +79,8 @@ class NextStepUiState {
 
 class NextStepNotifier extends StateNotifier<NextStepUiState> {
   final NextStepService service;
-  final String participantId;
+  final Map<String, String> _idempotencyKeys = {};
+  final Random _random;
 
   /// Invoked when something happened that may have changed trust state — a
   /// served proposal (first value) or a recorded decision.
@@ -85,9 +88,10 @@ class NextStepNotifier extends StateNotifier<NextStepUiState> {
 
   NextStepNotifier({
     required this.service,
-    required this.participantId,
     this.onTrustMayHaveChanged,
-  }) : super(const NextStepUiState());
+    Random? random,
+  }) : _random = random ?? Random.secure(),
+       super(const NextStepUiState());
 
   Future<void> load({required String locale}) async {
     state = state.copyWith(
@@ -95,10 +99,7 @@ class NextStepNotifier extends StateNotifier<NextStepUiState> {
       staleProposal: false,
     );
     try {
-      final result = await service.getNextStep(
-        participantId: participantId,
-        locale: locale,
-      );
+      final result = await service.getNextStep(locale: locale);
       // The card requests on the first frame, so a widget torn down mid-flight
       // must not write state back.
       if (!mounted) return;
@@ -151,9 +152,13 @@ class NextStepNotifier extends StateNotifier<NextStepUiState> {
     state = state.copyWith(status: NextStepStatus.submitting);
     try {
       await service.recordDecision(
-        participantId: participantId,
         recommendation: recommendation,
         decision: decision,
+        idempotencyKey: _idempotencyKeyFor(
+          recommendation: recommendation,
+          decision: decision,
+          editedTitle: editedTitle,
+        ),
         locale: locale,
         editedTitle: editedTitle,
       );
@@ -190,13 +195,31 @@ class NextStepNotifier extends StateNotifier<NextStepUiState> {
 
   /// Returns to a fresh proposal after an acknowledged decision.
   Future<void> next({required String locale}) => load(locale: locale);
+
+  String _idempotencyKeyFor({
+    required NextStepRecommendation recommendation,
+    required NextStepDecision decision,
+    required String? editedTitle,
+  }) {
+    final logicalAction = [
+      recommendation.proposalId,
+      decision.toJsonString(),
+      editedTitle ?? '',
+    ].join('|');
+    return _idempotencyKeys.putIfAbsent(logicalAction, _newIdempotencyKey);
+  }
+
+  String _newIdempotencyKey() {
+    final micros = DateTime.now().toUtc().microsecondsSinceEpoch;
+    final suffix = _random.nextInt(1 << 32).toRadixString(16).padLeft(8, '0');
+    return 'next-step-$micros-$suffix';
+  }
 }
 
 final nextStepControllerProvider =
     StateNotifierProvider<NextStepNotifier, NextStepUiState>((ref) {
       return NextStepNotifier(
         service: ref.watch(nextStepServiceProvider),
-        participantId: ref.watch(appConfigProvider).participantId,
         onTrustMayHaveChanged: () => ref.invalidate(pilotTrustControllerProvider),
       );
     });

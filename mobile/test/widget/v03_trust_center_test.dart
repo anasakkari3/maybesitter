@@ -54,9 +54,7 @@ void main() {
 
       await toggle(tester, l10n.trustAnalyticsConsentLabel);
 
-      final snapshot = await harness.trust.getSnapshot(
-        participantId: 'pilot-participant',
-      );
+      final snapshot = await harness.trust.getSnapshot();
       expect(snapshot.trust.analyticsConsent, isTrue);
       // Refusing or granting analytics never changes exposure.
       expect(snapshot.exposure.allowed, isTrue);
@@ -75,9 +73,7 @@ void main() {
 
       await toggle(tester, l10n.trustRecommendationConsentLabel);
 
-      final snapshot = await harness.trust.getSnapshot(
-        participantId: 'pilot-participant',
-      );
+      final snapshot = await harness.trust.getSnapshot();
       expect(snapshot.trust.recommendationConsent, isFalse);
       expect(snapshot.exposure.reason, PilotStopReason.consentRequired);
 
@@ -97,9 +93,7 @@ void main() {
 
       await toggle(tester, l10n.trustRecommendationConsentLabel);
 
-      final snapshot = await harness.trust.getSnapshot(
-        participantId: 'pilot-participant',
-      );
+      final snapshot = await harness.trust.getSnapshot();
       expect(snapshot.trust.recommendationConsent, isTrue);
       expect(snapshot.exposure.allowed, isTrue);
     });
@@ -126,9 +120,7 @@ void main() {
 
       await toggle(tester, l10n.trustQuietModeLabel);
 
-      final snapshot = await harness.trust.getSnapshot(
-        participantId: 'pilot-participant',
-      );
+      final snapshot = await harness.trust.getSnapshot();
       expect(snapshot.trust.quietMode, isTrue);
       expect(snapshot.exposure.allowed, isFalse);
       // Commitments survive quiet mode.
@@ -152,9 +144,7 @@ void main() {
       await tester.tap(find.widgetWithText(TextButton, l10n.trustRevokeTitle));
       await tester.pumpAndSettle();
 
-      final snapshot = await harness.trust.getSnapshot(
-        participantId: 'pilot-participant',
-      );
+      final snapshot = await harness.trust.getSnapshot();
       expect(snapshot.trust.recommendationConsent, isFalse);
       expect(snapshot.trust.analyticsConsent, isFalse);
       expect(snapshot.trust.calendarConsent, isFalse);
@@ -173,9 +163,7 @@ void main() {
       );
       await tapVisible(tester, find.widgetWithText(TextButton, l10n.cancelAction));
 
-      final snapshot = await harness.trust.getSnapshot(
-        participantId: 'pilot-participant',
-      );
+      final snapshot = await harness.trust.getSnapshot();
       expect(snapshot.trust.isRevoked, isFalse);
       expect(snapshot.trust.analyticsConsent, isTrue);
     });
@@ -211,9 +199,7 @@ void main() {
         await tester.tap(find.widgetWithText(TextButton, l10n.trustDeleteTitle));
         await tester.pumpAndSettle();
 
-        final snapshot = await harness.trust.getSnapshot(
-          participantId: 'pilot-participant',
-        );
+        final snapshot = await harness.trust.getSnapshot();
         expect(snapshot.trust.isDeleted, isTrue);
         expect(snapshot.whatKnows.confirmedCommitmentCount, 0);
       },
@@ -229,9 +215,7 @@ void main() {
       );
       await tapVisible(tester, find.widgetWithText(TextButton, l10n.cancelAction));
 
-      final snapshot = await harness.trust.getSnapshot(
-        participantId: 'pilot-participant',
-      );
+      final snapshot = await harness.trust.getSnapshot();
       expect(snapshot.trust.isDeleted, isFalse);
       expect(snapshot.whatKnows.confirmedCommitmentCount, 3);
     });
@@ -260,13 +244,9 @@ void main() {
         tester,
       ) async {
         final harness = V03Harness(firstValueAt: null);
-        await harness.trust.apply(
-          participantId: 'pilot-participant',
-          action: const SetCalendarConsent(true),
+        await harness.trust.apply(action: const SetCalendarConsent(true),
         );
-        final snapshot = await harness.trust.getSnapshot(
-          participantId: 'pilot-participant',
-        );
+        final snapshot = await harness.trust.getSnapshot();
         expect(snapshot.trust.calendarConsent, isFalse);
       });
     });

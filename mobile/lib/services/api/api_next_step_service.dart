@@ -7,11 +7,12 @@ import 'dtos/next_step_dtos.dart';
 /// Talks to the mobile recommendation endpoint.
 ///
 /// Endpoint shape is specified in
-/// `docs/architecture/V03_FLUTTER_PILOT_CONTRACT.md` and is a thin,
-/// participant-bound wrapper over the existing `/api/next-step` handler — the
-/// response body is the unchanged `NextStepRecommendationContract`.
+/// `docs/architecture/V03_FLUTTER_PILOT_CONTRACT.md`. Participant identity is
+/// the bearer token injected by [ApiClient]; this service never sends
+/// participant ids or experiment assignment fields.
 class ApiNextStepService implements NextStepService {
-  static const recommendationPath = '/api/mobile/recommendation';
+  static const recommendationPath = '/api/mobile/recommendations/next-step';
+  static const actionPath = '/api/mobile/recommendations/next-step/actions';
 
   final ApiClient apiClient;
 
@@ -19,15 +20,15 @@ class ApiNextStepService implements NextStepService {
 
   @override
   Future<NextStepResult> getNextStep({
-    required String participantId,
     required String locale,
   }) async {
     try {
       final json = await apiClient.get(
         recommendationPath,
-        queryParameters: {'participantId': participantId, 'locale': locale},
+        queryParameters: {'locale': locale},
       );
-      final recommendation = NextStepRecommendationDto.fromJson(json).toDomain();
+      final envelope = NextStepRecommendationEnvelopeDto.fromJson(json);
+      final recommendation = envelope.recommendation.toDomain();
       if (recommendation.isActionable) {
         return NextStepAvailable(recommendation);
       }
@@ -39,9 +40,9 @@ class ApiNextStepService implements NextStepService {
 
   @override
   Future<NextStepDecisionOutcome> recordDecision({
-    required String participantId,
     required NextStepRecommendation recommendation,
     required NextStepDecision decision,
+    required String idempotencyKey,
     required String locale,
     String? editedTitle,
   }) async {
@@ -49,15 +50,15 @@ class ApiNextStepService implements NextStepService {
     // proposal and compares proposalId, so a decision can never be applied to a
     // step the participant is no longer looking at.
     final body = <String, dynamic>{
-      'participantId': participantId,
       'locale': locale,
       'decision': decision.toJsonString(),
+      'idempotencyKey': idempotencyKey,
       'proposal': _toWire(recommendation),
       if (editedTitle != null) 'editedTitle': editedTitle,
     };
     try {
-      final json = await apiClient.post(recommendationPath, body);
-      return NextStepDecisionOutcomeDto.fromJson(json).toDomain();
+      final json = await apiClient.post(actionPath, body);
+      return NextStepDecisionActionEnvelopeDto.fromJson(json).outcome.toDomain();
     } on ConflictException catch (error) {
       throw StaleProposalException(error.message);
     }

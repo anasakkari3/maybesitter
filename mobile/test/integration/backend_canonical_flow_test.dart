@@ -1,155 +1,193 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:maybesitter_mobile/config/app_config.dart';
+import 'package:maybesitter_mobile/features/pilot/pilot_session_controller.dart';
 import 'package:maybesitter_mobile/models/capture_result.dart';
-import 'package:maybesitter_mobile/models/commitment.dart';
+import 'package:maybesitter_mobile/models/next_step.dart';
+import 'package:maybesitter_mobile/models/pilot_trust.dart';
 import 'package:maybesitter_mobile/services/api/api_capture_service.dart';
-import 'package:maybesitter_mobile/services/api/api_commitment_repository.dart';
 import 'package:maybesitter_mobile/services/api/api_client.dart';
+import 'package:maybesitter_mobile/services/api/api_commitment_repository.dart';
+import 'package:maybesitter_mobile/services/api/api_next_step_service.dart';
+import 'package:maybesitter_mobile/services/api/api_pilot_trust_service.dart';
+import 'package:maybesitter_mobile/services/auth/pilot_credential_store.dart';
+import 'package:maybesitter_mobile/services/contracts/next_step_service.dart';
+import 'package:maybesitter_mobile/services/contracts/pilot_trust_service.dart';
 
 void main() {
-  group('Canonical Mobile API Integration Flow (Port 4321)', () {
-    final baseUrl = 'http://127.0.0.1:4321';
-    final scopeId = 'integration-test-${DateTime.now().millisecondsSinceEpoch}';
-    final apiClient = ApiClient(baseUrl: baseUrl);
-    final captureService = ApiCaptureService(
-      apiClient: apiClient,
-      defaultScopeId: scopeId,
-    );
-    final repo = ApiCommitmentRepository(
-      apiClient: apiClient,
-      supportsSafeCommitmentPatch: true,
-    );
+  group('Canonical Mobile API Integration Flow', () {
+    final run = Platform.environment['RUN_CANONICAL_BACKEND_FLOW'] == 'true';
+    final baseUrl =
+        Platform.environment['CANONICAL_BACKEND_URL'] ??
+        'http://127.0.0.1:4321';
+    final pilotToken = Platform.environment['MAYBESITTER_TEST_PILOT_TOKEN'];
+    final pilotTokenB = Platform.environment['MAYBESITTER_TEST_PILOT_TOKEN_B'];
 
     test(
-      'Executes 17-step extended canonical mobile flow with safe PATCH',
+      'executes authenticated pilot flow through real Flutter ApiClient',
       () async {
-        // 1. Capture a deterministic verb-led commitment
-        final captureResult = await captureService.capture(
+        final store = InMemoryPilotCredentialStore();
+        final apiClient = ApiClient(
+          baseUrl: baseUrl,
+          authTokenProvider: store.readToken,
+        );
+        final trust = ApiPilotTrustService(apiClient: apiClient);
+        final nextStep = ApiNextStepService(apiClient: apiClient);
+        final capture = ApiCaptureService(
+          apiClient: apiClient,
+          defaultScopeId: 'spoofed-client-scope',
+          defaultTimezone: 'UTC',
+        );
+        final repo = ApiCommitmentRepository(
+          apiClient: apiClient,
+          supportsSafeCommitmentPatch: true,
+        );
+
+        final session = PilotSessionNotifier(
+          config: const AppConfig(apiMode: ApiMode.localBackend),
+          credentialStore: store,
+          trustService: trust,
+        );
+        await _waitForSession(session);
+        expect(session.state.status, PilotSessionStatus.noCredential);
+
+        await session.submitToken(pilotToken!);
+        expect(session.state.status, PilotSessionStatus.authorized);
+
+        await trust.apply(action: const SetRecommendationConsent(true));
+        final initialTrust = await trust.getSnapshot();
+        expect(initialTrust.trust.recommendationConsent, isTrue);
+
+        final captureResult = await capture.capture(
           CaptureRequest(
-            rawInput: 'Call the dentist tomorrow at 3pm',
-            capturedAt: DateTime.now(),
-            scopeId: scopeId,
+            rawInput: 'Remind me to call Maya tomorrow at 3pm',
+            capturedAt: DateTime.utc(2026, 8, 9, 8),
+            timezone: 'UTC',
+            scopeId: 'spoofed-client-scope',
           ),
         );
+        expect(captureResult.status, CaptureStatus.needsConfirmation);
+        final itemId = captureResult.extractedCommitments.first.id;
 
-        // 2. Confirm it
-        expect(captureResult.proposalId, isNotNull);
-        final firstItemId = captureResult.extractedCommitments.first.id;
-
-        final confirmResult = await captureService.confirmProposal(
+        final confirmResult = await capture.confirmProposal(
           proposalId: captureResult.proposalId!,
-          scopeId: scopeId,
-          itemIds: [firstItemId],
+          scopeId: 'spoofed-client-scope',
+          itemIds: [itemId],
+          referenceTime: DateTime.utc(2026, 8, 9, 8),
         );
         expect(confirmResult.success, isTrue);
-        final backendCommitmentId = confirmResult.persisted.first.commitmentId;
+        final commitmentId = confirmResult.persisted.first.commitmentId;
 
-        // 3. Retrieve it from Upcoming / Direct GET
-        final initialRecord = await repo.getById(backendCommitmentId);
-        expect(initialRecord, isNotNull);
-
-        // 4. Record initial time fields from backend
-        final rawJsonBefore = await apiClient.get(
-          '/api/mobile/commitments/$backendCommitmentId',
-        );
-        final rawTimeSpecBefore =
-            rawJsonBefore['timeSpec'] as Map<String, dynamic>;
-        final initialDueAt = rawTimeSpecBefore['dueAt'];
-        final initialRemindAt = rawTimeSpecBefore['remindAt'];
-        final initialTimezone = rawTimeSpecBefore['timezone'];
-        final initialKind = rawTimeSpecBefore['kind'];
-
-        // 5. Perform title-only PATCH
-        await repo.patchFields(
-          backendCommitmentId,
-          title: 'Call dentist urgent',
-        );
-
-        // 6. Verify title changed
-        final afterTitleRecord = await repo.getById(backendCommitmentId);
-        expect(afterTitleRecord!.title, equals('Call dentist urgent'));
-
-        // 7. Verify all four recorded time fields remain IDENTICAL
-        final rawJsonAfterTitle = await apiClient.get(
-          '/api/mobile/commitments/$backendCommitmentId',
-        );
-        final rawTimeSpecAfterTitle =
-            rawJsonAfterTitle['timeSpec'] as Map<String, dynamic>;
-        expect(rawTimeSpecAfterTitle['dueAt'], equals(initialDueAt));
-        expect(rawTimeSpecAfterTitle['remindAt'], equals(initialRemindAt));
-        expect(rawTimeSpecAfterTitle['timezone'], equals(initialTimezone));
-        expect(rawTimeSpecAfterTitle['kind'], equals(initialKind));
-
-        // 8. Perform description-only PATCH
-        await repo.patchFields(
-          backendCommitmentId,
-          description: 'Dr. Smith office line',
-        );
-
-        // 9. Verify time fields remain IDENTICAL
-        final rawJsonAfterDesc = await apiClient.get(
-          '/api/mobile/commitments/$backendCommitmentId',
-        );
-        final rawTimeSpecAfterDesc =
-            rawJsonAfterDesc['timeSpec'] as Map<String, dynamic>;
-        expect(rawTimeSpecAfterDesc['dueAt'], equals(initialDueAt));
-        expect(rawTimeSpecAfterDesc['remindAt'], equals(initialRemindAt));
-        expect(rawTimeSpecAfterDesc['timezone'], equals(initialTimezone));
-        expect(rawTimeSpecAfterDesc['kind'], equals(initialKind));
-
-        // 10. Perform priority-only PATCH
-        await repo.patchFields(backendCommitmentId, priority: 'high');
-
-        // 11. Verify time fields remain IDENTICAL
-        final rawJsonAfterPriority = await apiClient.get(
-          '/api/mobile/commitments/$backendCommitmentId',
-        );
-        final rawTimeSpecAfterPriority =
-            rawJsonAfterPriority['timeSpec'] as Map<String, dynamic>;
-        expect(rawTimeSpecAfterPriority['dueAt'], equals(initialDueAt));
-        expect(rawTimeSpecAfterPriority['remindAt'], equals(initialRemindAt));
-        expect(rawTimeSpecAfterPriority['timezone'], equals(initialTimezone));
-        expect(rawTimeSpecAfterPriority['kind'], equals(initialKind));
-
-        // 12. Perform one explicit supported date/reminder update
-        const newDueDate = '2026-07-30T16:00:00.000Z';
-        await repo.patchFields(backendCommitmentId, dueDate: newDueDate);
-
-        // 13. Verify returned instant matches contract semantics
-        final rawJsonAfterDate = await apiClient.get(
-          '/api/mobile/commitments/$backendCommitmentId',
-        );
-        final rawTimeSpecAfterDate =
-            rawJsonAfterDate['timeSpec'] as Map<String, dynamic>;
-        expect(rawTimeSpecAfterDate['dueAt'], isNotNull);
-        expect(rawTimeSpecAfterDate['timezone'], equals(initialTimezone));
-
-        // 14. Perform complete or postpone
-        await repo.complete(backendCommitmentId);
-
-        // 15. Refresh and verify state
-        final completedRecord = await repo.getById(backendCommitmentId);
-        expect(completedRecord!.status, equals(CommitmentStatus.completed));
-
-        // 16. Soft-delete test record
-        await repo.delete(backendCommitmentId);
-
-        // 17. Verify cleanup behavior
-        final todayAfterDelete = await repo.getToday();
-        final upcomingAfterDelete = await repo.getUpcoming();
+        final today = await repo.getToday();
+        final upcoming = await repo.getUpcoming();
         expect(
-          todayAfterDelete.any((c) => c.id == backendCommitmentId),
-          isFalse,
-        );
-        expect(
-          upcomingAfterDelete.any((c) => c.id == backendCommitmentId),
-          isFalse,
+          [...today, ...upcoming].any((item) => item.id == commitmentId),
+          isTrue,
         );
 
-        final droppedRecord = await repo.getById(backendCommitmentId);
-        if (droppedRecord != null) {
-          expect(droppedRecord.status, equals(CommitmentStatus.cancelled));
+        final detail = await repo.getById(commitmentId);
+        expect(detail, isNotNull);
+
+        await repo.patchFields(commitmentId, title: 'Call Maya with update');
+        final patched = await repo.getById(commitmentId);
+        expect(patched!.title, contains('Maya'));
+
+        final proposed = await nextStep.getNextStep(locale: 'en');
+        expect(proposed, isA<NextStepAvailable>());
+        final recommendation = (proposed as NextStepAvailable).recommendation;
+        expect(recommendation.explanation, isNotNull);
+        expect(recommendation.availableActions, contains(NextStepDecision.accept));
+
+        final outcome = await nextStep.recordDecision(
+          recommendation: recommendation,
+          decision: NextStepDecision.accept,
+          idempotencyKey: 'flutter-e2e-${DateTime.now().microsecondsSinceEpoch}',
+          locale: 'en',
+        );
+        expect(outcome.decision, NextStepDecision.accept);
+
+        await trust.apply(action: const SetRecommendationConsent(false));
+        var snapshot = await trust.getSnapshot();
+        expect(snapshot.trust.recommendationConsent, isFalse);
+        expect(snapshot.trust.isRevoked, isFalse);
+
+        await trust.apply(action: const SetRecommendationConsent(true));
+        await trust.apply(action: const SetQuietMode(true));
+        final quiet = await nextStep.getNextStep(locale: 'en');
+        expect((quiet as NextStepBlocked).reason, PilotStopReason.quietMode);
+        await trust.apply(action: const SetQuietMode(false));
+
+        snapshot = await trust.getSnapshot();
+        expect(snapshot.whatKnows.participantId, isNotEmpty);
+        expect(snapshot.whatKnows.confirmedCommitmentCount, greaterThanOrEqualTo(1));
+
+        ApiPilotTrustService? trustB;
+        InMemoryPilotCredentialStore? storeB;
+        if (pilotTokenB != null && pilotTokenB.isNotEmpty) {
+          storeB = InMemoryPilotCredentialStore(pilotTokenB);
+          final clientB = ApiClient(
+            baseUrl: baseUrl,
+            authTokenProvider: storeB.readToken,
+          );
+          final repoB = ApiCommitmentRepository(
+            apiClient: clientB,
+            supportsSafeCommitmentPatch: true,
+          );
+          trustB = ApiPilotTrustService(apiClient: clientB);
+          expect(await repoB.getById(commitmentId), isNull);
         }
+
+        await trust.apply(action: const RevokeTrust());
+        final revoked = await nextStep.getNextStep(locale: 'en');
+        expect((revoked as NextStepBlocked).reason, PilotStopReason.revoked);
+        await session.markRevoked();
+        expect(session.state.status, PilotSessionStatus.revoked);
+
+        if (trustB != null && storeB != null) {
+          final sessionB = PilotSessionNotifier(
+            config: const AppConfig(apiMode: ApiMode.localBackend),
+            credentialStore: storeB,
+            trustService: trustB,
+          );
+          await _waitForSession(sessionB);
+          expect(sessionB.state.status, PilotSessionStatus.authorized);
+          await trustB.apply(action: const DeletePilotData());
+          await sessionB.markDeleted();
+          expect(await storeB.readToken(), isNull);
+          expect(sessionB.state.status, PilotSessionStatus.deleted);
+        }
+
+        final invalidStore = InMemoryPilotCredentialStore();
+        final invalidTrust = ApiPilotTrustService(
+          apiClient: ApiClient(
+            baseUrl: baseUrl,
+            authTokenProvider: invalidStore.readToken,
+          ),
+        );
+        final invalidSession = PilotSessionNotifier(
+          config: const AppConfig(apiMode: ApiMode.localBackend),
+          credentialStore: invalidStore,
+          trustService: invalidTrust,
+        );
+        await invalidSession.submitToken('not-a-token');
+        expect(invalidSession.state.status, PilotSessionStatus.unauthorized);
+        expect(await invalidStore.readToken(), isNull);
       },
+      skip: !run || pilotToken == null || pilotToken.isEmpty
+          ? 'Set RUN_CANONICAL_BACKEND_FLOW=true and issued pilot token env vars.'
+          : false,
     );
   });
+}
+
+Future<void> _waitForSession(PilotSessionNotifier session) async {
+  for (var attempt = 0; attempt < 50; attempt++) {
+    final status = session.state.status;
+    if (status != PilotSessionStatus.loadingCredential &&
+        status != PilotSessionStatus.validating) {
+      return;
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+  }
 }

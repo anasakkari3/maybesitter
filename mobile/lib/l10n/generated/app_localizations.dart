@@ -1473,6 +1473,114 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'A random code. It isn\'t your name and nothing here links it to one.'**
   String get knowsParticipantNote;
+
+  /// No description provided for @pilotAccessTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Pilot access'**
+  String get pilotAccessTitle;
+
+  /// No description provided for @pilotAccessMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the token you were issued to use this pilot build.'**
+  String get pilotAccessMessage;
+
+  /// No description provided for @pilotAccessTokenLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Pilot token'**
+  String get pilotAccessTokenLabel;
+
+  /// No description provided for @pilotAccessContinue.
+  ///
+  /// In en, this message translates to:
+  /// **'Continue'**
+  String get pilotAccessContinue;
+
+  /// No description provided for @pilotAccessValidating.
+  ///
+  /// In en, this message translates to:
+  /// **'Checking access'**
+  String get pilotAccessValidating;
+
+  /// No description provided for @pilotAccessInvalidTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'That token did not work'**
+  String get pilotAccessInvalidTitle;
+
+  /// No description provided for @pilotAccessInvalidMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Check the token you were issued and try again.'**
+  String get pilotAccessInvalidMessage;
+
+  /// No description provided for @pilotAccessNotAllowlistedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'This token is not in the pilot'**
+  String get pilotAccessNotAllowlistedTitle;
+
+  /// No description provided for @pilotAccessNotAllowlistedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'MaybeSitter could not admit this token to the current pilot.'**
+  String get pilotAccessNotAllowlistedMessage;
+
+  /// No description provided for @pilotAccessRevokedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Pilot access was revoked'**
+  String get pilotAccessRevokedTitle;
+
+  /// No description provided for @pilotAccessRevokedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'This pilot session is closed. Your normal app screens are no longer available for this token.'**
+  String get pilotAccessRevokedMessage;
+
+  /// No description provided for @pilotAccessDeletedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Pilot data was deleted'**
+  String get pilotAccessDeletedTitle;
+
+  /// No description provided for @pilotAccessDeletedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'The pilot data for this token has been deleted. The app will stay closed for this session.'**
+  String get pilotAccessDeletedMessage;
+
+  /// No description provided for @pilotAccessBackendUnavailableTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Cannot reach MaybeSitter'**
+  String get pilotAccessBackendUnavailableTitle;
+
+  /// No description provided for @pilotAccessBackendUnavailableMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep the token on this device and try again when the backend is available.'**
+  String get pilotAccessBackendUnavailableMessage;
+
+  /// No description provided for @pilotAccessRuntimeConfigTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Pilot is not configured'**
+  String get pilotAccessRuntimeConfigTitle;
+
+  /// No description provided for @pilotAccessRuntimeConfigMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'The pilot backend is failing closed because its runtime configuration is invalid.'**
+  String get pilotAccessRuntimeConfigMessage;
+
+  /// No description provided for @pilotAccessClearToken.
+  ///
+  /// In en, this message translates to:
+  /// **'Use a different token'**
+  String get pilotAccessClearToken;
 }
 
 class _AppLocalizationsDelegate

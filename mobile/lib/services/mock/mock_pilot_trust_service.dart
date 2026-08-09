@@ -122,7 +122,7 @@ class MockPilotTrustService implements PilotTrustService {
   }
 
   @override
-  Future<PilotTrustSnapshot> getSnapshot({required String participantId}) async {
+  Future<PilotTrustSnapshot> getSnapshot() async {
     if (!allowlisted) {
       throw const PilotNotAdmittedException(PilotStopReason.notAllowlisted);
     }
@@ -131,7 +131,6 @@ class MockPilotTrustService implements PilotTrustService {
 
   @override
   Future<PilotTrustSnapshot> apply({
-    required String participantId,
     required PilotTrustAction action,
   }) async {
     if (!allowlisted) {
@@ -140,31 +139,28 @@ class MockPilotTrustService implements PilotTrustService {
     final now = DateTime.now().toUtc();
     switch (action) {
       case GrantRecommendationConsent():
-        // Granting consent again is the documented way back from a revoke.
-        _trust = _copy(
-          recommendationConsent: true,
-          updatedAt: now,
-          clearRevokedAt: true,
-        );
+        if (_trust.isRevoked || _trust.isDeleted) return _snapshot;
+        _trust = _copy(recommendationConsent: true, updatedAt: now);
       case SetRecommendationConsent(:final granted):
+        if (_trust.isRevoked || _trust.isDeleted) return _snapshot;
         // Touches recommendation consent only. Analytics consent, calendar
         // consent and the revoked marker are all left exactly as they were —
         // that separation is the whole point of this action existing.
         _trust = _copy(
           recommendationConsent: granted,
           updatedAt: now,
-          // Turning suggestions back on clears a prior revoke, so the switch
-          // is not a dead control after a full revoke.
-          clearRevokedAt: granted,
         );
       case SetAnalyticsConsent(:final granted):
+        if (_trust.isRevoked || _trust.isDeleted) return _snapshot;
         _trust = _copy(analyticsConsent: granted, updatedAt: now);
       case SetCalendarConsent(:final granted):
+        if (_trust.isRevoked || _trust.isDeleted) return _snapshot;
         // Guards the ladder: calendar cannot be switched on before the product
         // has produced value once, even if a client asks.
         if (granted && !_trust.mayOfferCalendarConsent) return _snapshot;
         _trust = _copy(calendarConsent: granted, updatedAt: now);
       case SetQuietMode(:final enabled):
+        if (_trust.isRevoked || _trust.isDeleted) return _snapshot;
         _trust = _copy(quietMode: enabled, updatedAt: now);
       case RevokeTrust():
         // Revoke turns consent off and preserves commitments.
@@ -197,7 +193,6 @@ class MockPilotTrustService implements PilotTrustService {
     DateTime? revokedAt,
     DateTime? deletedAt,
     DateTime? updatedAt,
-    bool clearRevokedAt = false,
   }) => PilotTrustState(
     participantId: _trust.participantId,
     recommendationConsent:
@@ -206,7 +201,7 @@ class MockPilotTrustService implements PilotTrustService {
     calendarConsent: calendarConsent ?? _trust.calendarConsent,
     quietMode: quietMode ?? _trust.quietMode,
     firstValueAt: firstValueAt ?? _trust.firstValueAt,
-    revokedAt: clearRevokedAt ? null : (revokedAt ?? _trust.revokedAt),
+    revokedAt: revokedAt ?? _trust.revokedAt,
     deletedAt: deletedAt ?? _trust.deletedAt,
     updatedAt: updatedAt ?? _trust.updatedAt,
   );

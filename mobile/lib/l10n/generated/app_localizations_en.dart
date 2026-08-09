@@ -790,4 +790,65 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get knowsParticipantNote =>
       'A random code. It isn\'t your name and nothing here links it to one.';
+
+  @override
+  String get pilotAccessTitle => 'Pilot access';
+
+  @override
+  String get pilotAccessMessage =>
+      'Enter the token you were issued to use this pilot build.';
+
+  @override
+  String get pilotAccessTokenLabel => 'Pilot token';
+
+  @override
+  String get pilotAccessContinue => 'Continue';
+
+  @override
+  String get pilotAccessValidating => 'Checking access';
+
+  @override
+  String get pilotAccessInvalidTitle => 'That token did not work';
+
+  @override
+  String get pilotAccessInvalidMessage =>
+      'Check the token you were issued and try again.';
+
+  @override
+  String get pilotAccessNotAllowlistedTitle => 'This token is not in the pilot';
+
+  @override
+  String get pilotAccessNotAllowlistedMessage =>
+      'MaybeSitter could not admit this token to the current pilot.';
+
+  @override
+  String get pilotAccessRevokedTitle => 'Pilot access was revoked';
+
+  @override
+  String get pilotAccessRevokedMessage =>
+      'This pilot session is closed. Your normal app screens are no longer available for this token.';
+
+  @override
+  String get pilotAccessDeletedTitle => 'Pilot data was deleted';
+
+  @override
+  String get pilotAccessDeletedMessage =>
+      'The pilot data for this token has been deleted. The app will stay closed for this session.';
+
+  @override
+  String get pilotAccessBackendUnavailableTitle => 'Cannot reach MaybeSitter';
+
+  @override
+  String get pilotAccessBackendUnavailableMessage =>
+      'Keep the token on this device and try again when the backend is available.';
+
+  @override
+  String get pilotAccessRuntimeConfigTitle => 'Pilot is not configured';
+
+  @override
+  String get pilotAccessRuntimeConfigMessage =>
+      'The pilot backend is failing closed because its runtime configuration is invalid.';
+
+  @override
+  String get pilotAccessClearToken => 'Use a different token';
 }

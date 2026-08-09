@@ -787,4 +787,65 @@ class AppLocalizationsHe extends AppLocalizations {
   @override
   String get knowsParticipantNote =>
       'קוד אקראי. הוא אינו שמך ושום דבר כאן לא מקשר בינו לבין שמך.';
+
+  @override
+  String get pilotAccessTitle => 'גישה לפיילוט';
+
+  @override
+  String get pilotAccessMessage =>
+      'הזן את הטוקן שקיבלת כדי להשתמש בגרסת הפיילוט.';
+
+  @override
+  String get pilotAccessTokenLabel => 'טוקן פיילוט';
+
+  @override
+  String get pilotAccessContinue => 'המשך';
+
+  @override
+  String get pilotAccessValidating => 'בודקים גישה';
+
+  @override
+  String get pilotAccessInvalidTitle => 'הטוקן הזה לא עבד';
+
+  @override
+  String get pilotAccessInvalidMessage => 'בדוק את הטוקן שקיבלת ונסה שוב.';
+
+  @override
+  String get pilotAccessNotAllowlistedTitle => 'הטוקן הזה אינו בפיילוט';
+
+  @override
+  String get pilotAccessNotAllowlistedMessage =>
+      'MaybeSitter לא הצליח לאשר את הטוקן לפיילוט הנוכחי.';
+
+  @override
+  String get pilotAccessRevokedTitle => 'הגישה לפיילוט בוטלה';
+
+  @override
+  String get pilotAccessRevokedMessage =>
+      'סשן הפיילוט הזה נסגר. מסכי האפליקציה הרגילים אינם זמינים עוד לטוקן הזה.';
+
+  @override
+  String get pilotAccessDeletedTitle => 'נתוני הפיילוט נמחקו';
+
+  @override
+  String get pilotAccessDeletedMessage =>
+      'נתוני הפיילוט עבור הטוקן הזה נמחקו. האפליקציה תישאר סגורה לסשן הזה.';
+
+  @override
+  String get pilotAccessBackendUnavailableTitle =>
+      'לא ניתן להגיע ל-MaybeSitter';
+
+  @override
+  String get pilotAccessBackendUnavailableMessage =>
+      'שמור את הטוקן במכשיר הזה ונסה שוב כשהשרת זמין.';
+
+  @override
+  String get pilotAccessRuntimeConfigTitle => 'הפיילוט אינו מוגדר';
+
+  @override
+  String get pilotAccessRuntimeConfigMessage =>
+      'שרת הפיילוט נסגר בצורה בטוחה כי הגדרות ההרצה אינן תקינות.';
+
+  @override
+  String get pilotAccessClearToken => 'להשתמש בטוקן אחר';
 }

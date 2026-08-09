@@ -9,6 +9,7 @@ import 'api/api_capture_service.dart';
 import 'api/api_commitment_repository.dart';
 import 'api/api_next_step_service.dart';
 import 'api/api_pilot_trust_service.dart';
+import 'auth/pilot_credential_store.dart';
 import 'contracts/commitment_repository.dart';
 import 'contracts/capture_service.dart';
 import 'contracts/activity_repository.dart';
@@ -25,6 +26,7 @@ import 'mock/mock_next_step_service.dart';
 import 'mock/mock_notification_service.dart';
 import 'mock/mock_connectivity_service.dart';
 import 'mock/mock_pilot_trust_service.dart';
+import '../features/pilot/pilot_session_controller.dart';
 
 final timezoneServiceProvider = Provider<TimezoneService>((ref) {
   return DefaultTimezoneService();
@@ -36,7 +38,11 @@ final appConfigProvider = StateProvider<AppConfig>((ref) {
 
 final apiClientProvider = Provider<ApiClient>((ref) {
   final config = ref.watch(appConfigProvider);
-  return ApiClient(baseUrl: config.baseUrl);
+  final credentialStore = ref.watch(pilotCredentialStoreProvider);
+  return ApiClient(
+    baseUrl: config.baseUrl,
+    authTokenProvider: credentialStore.readToken,
+  );
 });
 
 final commitmentRepositoryProvider = Provider<CommitmentRepository>((ref) {
@@ -72,9 +78,7 @@ final activityRepositoryProvider = Provider<ActivityRepository>((ref) {
 /// from this same instance, so toggling quiet mode or revoking in mock mode
 /// blocks the recommendation exactly as the server would.
 final _mockPilotTrustServiceProvider = Provider<MockPilotTrustService>((ref) {
-  return MockPilotTrustService(
-    participantId: ref.watch(appConfigProvider).participantId,
-  );
+  return MockPilotTrustService();
 });
 
 final pilotTrustServiceProvider = Provider<PilotTrustService>((ref) {
@@ -95,6 +99,19 @@ final nextStepServiceProvider = Provider<NextStepService>((ref) {
     proposal: MockNextStepService.defaultProposal,
   );
 });
+
+final pilotCredentialStoreProvider = Provider<PilotCredentialStore>((ref) {
+  return const SecurePilotCredentialStore();
+});
+
+final pilotSessionControllerProvider =
+    StateNotifierProvider<PilotSessionNotifier, PilotSessionState>((ref) {
+      return PilotSessionNotifier(
+        config: ref.watch(appConfigProvider),
+        credentialStore: ref.watch(pilotCredentialStoreProvider),
+        trustService: ref.watch(pilotTrustServiceProvider),
+      );
+    });
 
 final notificationServiceProvider = Provider<NotificationService>((ref) {
   return MockNotificationService();

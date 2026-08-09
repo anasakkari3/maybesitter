@@ -29,9 +29,8 @@ class NextStepBlocked extends NextStepResult {
 }
 
 abstract class NextStepService {
-  /// Fetches the single current proposal for [participantId].
+  /// Fetches the single current proposal for the authenticated pilot token.
   Future<NextStepResult> getNextStep({
-    required String participantId,
     required String locale,
   });
 
@@ -39,9 +38,9 @@ abstract class NextStepService {
   /// the server can reject a stale proposal rather than acting on a step the
   /// participant is no longer looking at.
   Future<NextStepDecisionOutcome> recordDecision({
-    required String participantId,
     required NextStepRecommendation recommendation,
     required NextStepDecision decision,
+    required String idempotencyKey,
     required String locale,
     String? editedTitle,
   });

@@ -27,9 +27,6 @@ class GrantRecommendationConsent extends PilotTrustAction {
 /// calendar, and mapping a single switch onto a full revoke would take those
 /// away without being asked.
 ///
-/// **Pending backend support.** The current `/api/mobile/pilot/trust` action
-/// union has `grant_recommendation_consent` (grant-only) and `revoke`
-/// (everything). See `docs/architecture/V03_FLUTTER_PILOT_CONTRACT.md`.
 class SetRecommendationConsent extends PilotTrustAction {
   final bool granted;
   const SetRecommendationConsent(this.granted);
@@ -75,7 +72,8 @@ class SetQuietMode extends PilotTrustAction {
 }
 
 /// Turns off recommendation, analytics and calendar consent while preserving
-/// canonical commitments. Reversible by granting consent again.
+/// canonical commitments. Terminal in the participant app; suggestions on/off
+/// must use [SetRecommendationConsent] instead.
 class RevokeTrust extends PilotTrustAction {
   const RevokeTrust();
 
@@ -92,10 +90,9 @@ class DeletePilotData extends PilotTrustAction {
 }
 
 abstract class PilotTrustService {
-  Future<PilotTrustSnapshot> getSnapshot({required String participantId});
+  Future<PilotTrustSnapshot> getSnapshot();
 
   Future<PilotTrustSnapshot> apply({
-    required String participantId,
     required PilotTrustAction action,
   });
 }

@@ -66,7 +66,7 @@ class V03Harness {
 
   List<Override> get overrides => [
     appConfigProvider.overrideWith(
-      (ref) => const AppConfig(participantId: 'pilot-participant'),
+      (ref) => const AppConfig(),
     ),
     pilotTrustServiceProvider.overrideWithValue(trust as PilotTrustService),
     nextStepServiceProvider.overrideWithValue(nextStep as NextStepService),

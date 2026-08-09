@@ -37,19 +37,21 @@ class PilotTrustUiState {
 
 class PilotTrustNotifier extends StateNotifier<PilotTrustUiState> {
   final PilotTrustService service;
-  final String participantId;
+  final Future<void> Function()? onRevoked;
+  final Future<void> Function()? onDeleted;
 
-  PilotTrustNotifier({required this.service, required this.participantId})
-    : super(const PilotTrustUiState()) {
+  PilotTrustNotifier({
+    required this.service,
+    this.onRevoked,
+    this.onDeleted,
+  }) : super(const PilotTrustUiState()) {
     load();
   }
 
   Future<void> load() async {
     state = state.copyWith(status: PilotTrustStatus.loading);
     try {
-      final snapshot = await service.getSnapshot(
-        participantId: participantId,
-      );
+      final snapshot = await service.getSnapshot();
       // load() is kicked off from the constructor, so a short-lived widget can
       // be disposed before the request returns.
       if (!mounted) return;
@@ -73,10 +75,16 @@ class PilotTrustNotifier extends StateNotifier<PilotTrustUiState> {
     state = state.copyWith(applying: true);
     try {
       final snapshot = await service.apply(
-        participantId: participantId,
         action: action,
       );
       if (!mounted) return;
+      if (action is DeletePilotData) {
+        await onDeleted?.call();
+        if (!mounted) return;
+      } else if (action is RevokeTrust) {
+        await onRevoked?.call();
+        if (!mounted) return;
+      }
       state = PilotTrustUiState(
         status: PilotTrustStatus.ready,
         snapshot: snapshot,
@@ -103,6 +111,9 @@ final pilotTrustControllerProvider =
     StateNotifierProvider<PilotTrustNotifier, PilotTrustUiState>((ref) {
       return PilotTrustNotifier(
         service: ref.watch(pilotTrustServiceProvider),
-        participantId: ref.watch(appConfigProvider).participantId,
+        onRevoked: () =>
+            ref.read(pilotSessionControllerProvider.notifier).markRevoked(),
+        onDeleted: () =>
+            ref.read(pilotSessionControllerProvider.notifier).markDeleted(),
       );
     });

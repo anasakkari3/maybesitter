@@ -796,4 +796,66 @@ class AppLocalizationsAr extends AppLocalizations {
   @override
   String get knowsParticipantNote =>
       'رمز عشوائي. ليس اسمك ولا يربطه شيء هنا باسمك.';
+
+  @override
+  String get pilotAccessTitle => 'دخول التجربة';
+
+  @override
+  String get pilotAccessMessage =>
+      'أدخل الرمز الذي صدر لك لاستخدام نسخة التجربة.';
+
+  @override
+  String get pilotAccessTokenLabel => 'رمز التجربة';
+
+  @override
+  String get pilotAccessContinue => 'متابعة';
+
+  @override
+  String get pilotAccessValidating => 'جارٍ التحقق من الدخول';
+
+  @override
+  String get pilotAccessInvalidTitle => 'هذا الرمز لم يعمل';
+
+  @override
+  String get pilotAccessInvalidMessage =>
+      'تحقق من الرمز الذي صدر لك ثم أعد المحاولة.';
+
+  @override
+  String get pilotAccessNotAllowlistedTitle => 'هذا الرمز غير موجود في التجربة';
+
+  @override
+  String get pilotAccessNotAllowlistedMessage =>
+      'تعذّر على MaybeSitter إدخال هذا الرمز في التجربة الحالية.';
+
+  @override
+  String get pilotAccessRevokedTitle => 'تم إلغاء دخول التجربة';
+
+  @override
+  String get pilotAccessRevokedMessage =>
+      'أُغلقت جلسة التجربة هذه. لم تعد الشاشات العادية متاحة لهذا الرمز.';
+
+  @override
+  String get pilotAccessDeletedTitle => 'تم حذف بيانات التجربة';
+
+  @override
+  String get pilotAccessDeletedMessage =>
+      'تم حذف بيانات التجربة لهذا الرمز. سيبقى التطبيق مغلقًا لهذه الجلسة.';
+
+  @override
+  String get pilotAccessBackendUnavailableTitle =>
+      'تعذّر الوصول إلى MaybeSitter';
+
+  @override
+  String get pilotAccessBackendUnavailableMessage =>
+      'احتفظ بالرمز على هذا الجهاز وأعد المحاولة عندما تتاح الخدمة.';
+
+  @override
+  String get pilotAccessRuntimeConfigTitle => 'التجربة غير مهيأة';
+
+  @override
+  String get pilotAccessRuntimeConfigMessage =>
+      'خادم التجربة مغلق احترازيًا لأن إعدادات التشغيل غير صالحة.';
+
+  @override
+  String get pilotAccessClearToken => 'استخدام رمز آخر';
 }

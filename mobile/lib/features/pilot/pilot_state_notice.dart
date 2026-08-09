@@ -100,8 +100,6 @@ class PilotStateNotice extends ConsumerWidget {
         message: l10n.pilotStateRevokedMessage,
         icon: Icons.block_outlined,
         tone: _NoticeTone.neutral,
-        actionLabel: l10n.pilotStateRevokedAction,
-        action: const GrantRecommendationConsent(),
       ),
       PilotStopReason.deleted => _NoticeCopy(
         title: l10n.pilotStateDeletedTitle,

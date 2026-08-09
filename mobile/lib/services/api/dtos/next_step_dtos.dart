@@ -144,6 +144,37 @@ class NextStepRecommendationDto {
 }
 
 @immutable
+class NextStepRecommendationEnvelopeDto {
+  final bool success;
+  final String participantId;
+  final NextStepRecommendationDto recommendation;
+  final Map<String, dynamic> exposure;
+
+  const NextStepRecommendationEnvelopeDto({
+    required this.success,
+    required this.participantId,
+    required this.recommendation,
+    required this.exposure,
+  });
+
+  factory NextStepRecommendationEnvelopeDto.fromJson(
+    Map<String, dynamic> json,
+  ) {
+    final recommendation = json['recommendation'];
+    return NextStepRecommendationEnvelopeDto(
+      success: json['success'] as bool? ?? false,
+      participantId: json['participantId'] as String? ?? '',
+      recommendation: NextStepRecommendationDto.fromJson(
+        recommendation is Map<String, dynamic> ? recommendation : json,
+      ),
+      exposure: json['exposure'] is Map<String, dynamic>
+          ? json['exposure'] as Map<String, dynamic>
+          : const {},
+    );
+  }
+}
+
+@immutable
 class NextStepDecisionOutcomeDto {
   final String proposalId;
   final String decision;
@@ -157,13 +188,19 @@ class NextStepDecisionOutcomeDto {
     this.editedTitle,
   });
 
-  factory NextStepDecisionOutcomeDto.fromJson(Map<String, dynamic> json) =>
-      NextStepDecisionOutcomeDto(
-        proposalId: json['proposalId'] as String? ?? '',
-        decision: json['decision'] as String? ?? '',
-        editedTitle: json['editedTitle'] as String?,
-        decidedAt: json['decidedAt'] as String? ?? '',
-      );
+  factory NextStepDecisionOutcomeDto.fromJson(Map<String, dynamic> json) {
+    final decisionRecord = json['decision'];
+    final source = decisionRecord is Map<String, dynamic>
+        ? decisionRecord
+        : json;
+    final editedTitle = source['editedTitle'];
+    return NextStepDecisionOutcomeDto(
+      proposalId: source['proposalId'] as String? ?? '',
+      decision: source['decision'] as String? ?? '',
+      editedTitle: editedTitle is String ? editedTitle : null,
+      decidedAt: source['decidedAt'] as String? ?? '',
+    );
+  }
 
   NextStepDecisionOutcome toDomain() => NextStepDecisionOutcome(
     proposalId: proposalId,
@@ -171,4 +208,33 @@ class NextStepDecisionOutcomeDto {
     editedTitle: editedTitle,
     decidedAt: DateTime.tryParse(decidedAt)?.toUtc() ?? DateTime.now().toUtc(),
   );
+}
+
+@immutable
+class NextStepDecisionActionEnvelopeDto {
+  final bool success;
+  final bool replayed;
+  final String participantId;
+  final NextStepDecisionOutcomeDto outcome;
+
+  const NextStepDecisionActionEnvelopeDto({
+    required this.success,
+    required this.replayed,
+    required this.participantId,
+    required this.outcome,
+  });
+
+  factory NextStepDecisionActionEnvelopeDto.fromJson(
+    Map<String, dynamic> json,
+  ) {
+    final outcome = json['outcome'];
+    return NextStepDecisionActionEnvelopeDto(
+      success: json['success'] as bool? ?? false,
+      replayed: json['replayed'] as bool? ?? false,
+      participantId: json['participantId'] as String? ?? '',
+      outcome: NextStepDecisionOutcomeDto.fromJson(
+        outcome is Map<String, dynamic> ? outcome : json,
+      ),
+    );
+  }
 }

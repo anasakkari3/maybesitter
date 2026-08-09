@@ -56,13 +56,10 @@ class MockNextStepService implements NextStepService {
 
   @override
   Future<NextStepResult> getNextStep({
-    required String participantId,
     required String locale,
   }) async {
     if (failWith != null) throw failWith!;
-    final snapshot = await trustService.getSnapshot(
-      participantId: participantId,
-    );
+    final snapshot = await trustService.getSnapshot();
     if (!snapshot.exposure.allowed) {
       return NextStepBlocked(snapshot.exposure.reason);
     }
@@ -74,16 +71,14 @@ class MockNextStepService implements NextStepService {
 
   @override
   Future<NextStepDecisionOutcome> recordDecision({
-    required String participantId,
     required NextStepRecommendation recommendation,
     required NextStepDecision decision,
+    required String idempotencyKey,
     required String locale,
     String? editedTitle,
   }) async {
     if (failWith != null) throw failWith!;
-    final snapshot = await trustService.getSnapshot(
-      participantId: participantId,
-    );
+    final snapshot = await trustService.getSnapshot();
     if (!snapshot.exposure.allowed) {
       throw PilotNotAdmittedException(snapshot.exposure.reason);
     }
