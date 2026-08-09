@@ -1,7 +1,7 @@
 # Codex Handoff Specification — Mobile API Authentication & Scope Binding Contract
 
-**Lanes**: Codex (Backend API Port owner) $\leftrightarrow$ Operational Infra Lane  
-**Date**: August 9, 2026  
+**Lanes**: Codex (Backend API Port owner) $\leftrightarrow$ Operational Infra Lane
+**Date**: August 9, 2026
 **Status**: `IMPLEMENTED IN PR #82 — SHARED PILOT MOBILE ROUTES AUTHENTICATED`
 
 ---
@@ -38,13 +38,14 @@ const authenticatedParticipantId = validation.participantId!;
 ## 3. Required Server Behavior
 
 1. **Extract Token**: Inspect `Authorization: Bearer <token>`. Fail closed (`401 Unauthorized` / `403 Forbidden`) if missing, malformed, invalid, non-allowlisted, revoked, or deleted.
-2. **Server Scope Binding**: Derive `participantId` strictly from `validation.participantId`. 
+2. **Pilot Mode Preflight**: When `MAYBESITTER_PILOT_MODE=true`, validate `MAYBESITTER_PILOT_TOKEN_SECRET`, `MAYBESITTER_CLOSED_PILOT_IDS`, and absolute durable `MAYBESITTER_DATA_DIR` before mobile pilot traffic can fall through to legacy behavior.
+3. **Server Scope Binding**: Derive `participantId` strictly from `validation.participantId`.
    * **DO NOT** accept or rely on client-supplied `scopeId` parameters in JSON body or URL parameters.
    * If a client passes `scopeId` in body, override it server-side: `scopeId = authenticatedParticipantId`.
-3. **State Selection**: Use `authenticatedParticipantId` to load/persist the participant's state file (e.g. `.maybesitter/participants/${authenticatedParticipantId}-state.json`) via the participant-scoped adapter in `lib/services/mobile/participantState.ts`.
-4. **Shared Runtime**: `resolvePilotAccess()` validates allowlist and trust state per `participantId` dynamically and does not enforce a single global `MAYBESITTER_PILOT_INSTANCE_PARTICIPANT_ID`.
-5. **Concurrency**: Participant state writes are serialized by participant key around load -> canonical `applyDomainCommand()` -> atomic file rename. Different participants use independent queues.
-6. **Deletion**: Participant deletion marks trust deleted and removes only that participant's domain/idempotency state.
+4. **State Selection**: Use `authenticatedParticipantId` to load/persist the participant's state file (e.g. `.maybesitter/participants/${authenticatedParticipantId}-state.json`) via the participant-scoped adapter in `lib/services/mobile/participantState.ts`.
+5. **Shared Runtime**: `resolvePilotAccess()` validates allowlist and trust state per `participantId` dynamically and does not enforce a single global `MAYBESITTER_PILOT_INSTANCE_PARTICIPANT_ID`.
+6. **Concurrency**: Participant state writes are serialized by participant key around load -> canonical `applyDomainCommand()` -> atomic file rename. Different participants use independent queues. V03 pilot deployment uses one active Cloud Run instance because this lock is process-local.
+7. **Deletion**: Participant deletion marks trust deleted and removes only that participant's domain/idempotency state.
 
 ---
 
@@ -63,3 +64,4 @@ Codex satisfies the following request-level HTTP route tests:
 9. `QUERY_BODY_SPOOFING`: Authenticated B with `participantId/scopeId = A` remains in B scope.
 10. `LOCAL_DELETE`: Deleting A leaves B's commitments and trust state intact.
 11. `CONCURRENT_WRITES`: Concurrent A/B and same-participant writes do not lose updates.
+12. `PILOT_MODE_FAIL_CLOSED`: `MAYBESITTER_PILOT_MODE=true` with missing or invalid secret, allowlist, or data dir returns configuration failure and never legacy execution.

@@ -65,6 +65,7 @@ function setup(overrides: Record<string, string | undefined> = {}): () => void {
   const directory = mkdtempSync(join(tmpdir(), 'maybesitter-mobile-pilot-api-'));
   const previous: Record<string, string | undefined> = {
     MAYBESITTER_CLOSED_PILOT_IDS: process.env.MAYBESITTER_CLOSED_PILOT_IDS,
+    MAYBESITTER_PILOT_MODE: process.env.MAYBESITTER_PILOT_MODE,
     MAYBESITTER_PILOT_TRUST_FILE: process.env.MAYBESITTER_PILOT_TRUST_FILE,
     MAYBESITTER_PILOT_TOKEN_SECRET: process.env.MAYBESITTER_PILOT_TOKEN_SECRET,
     MAYBESITTER_DATA_DIR: process.env.MAYBESITTER_DATA_DIR,
@@ -74,6 +75,7 @@ function setup(overrides: Record<string, string | undefined> = {}): () => void {
     MAYBESITTER_PILOT_INCIDENT_OWNER_ID: process.env.MAYBESITTER_PILOT_INCIDENT_OWNER_ID,
   };
   process.env.MAYBESITTER_CLOSED_PILOT_IDS = IDS.slice(0, 25).join(',');
+  process.env.MAYBESITTER_PILOT_MODE = 'true';
   process.env.MAYBESITTER_PILOT_TRUST_FILE = join(directory, 'pilot-trust.json');
   process.env.MAYBESITTER_PILOT_TOKEN_SECRET = TEST_SECRET;
   process.env.MAYBESITTER_DATA_DIR = directory;
@@ -150,6 +152,71 @@ async function nextStep(participantId: string, spoofedScope?: string): Promise<R
   assert.equal(response.status, 200);
   return json(response);
 }
+
+test('pilot mode fails closed when required runtime config is missing or invalid', async () => {
+  for (const override of [
+    { MAYBESITTER_PILOT_TOKEN_SECRET: undefined },
+    { MAYBESITTER_PILOT_TOKEN_SECRET: 'short-secret' },
+    { MAYBESITTER_CLOSED_PILOT_IDS: undefined },
+    { MAYBESITTER_CLOSED_PILOT_IDS: IDS.slice(0, 24).join(',') },
+    { MAYBESITTER_DATA_DIR: undefined },
+    { MAYBESITTER_DATA_DIR: '.maybesitter' },
+  ]) {
+    const cleanup = setup(override);
+    try {
+      const response = await capturePost(request('/api/mobile/capture', {
+        body: {
+          text: 'Call Maya tomorrow at 3pm',
+          referenceTime: REFERENCE_TIME,
+          timezone: 'UTC',
+        },
+      }));
+      assert.equal(response.status, 503);
+      const body = await json(response);
+      assert.equal(body.reason, 'invalid_pilot_runtime_configuration');
+    } finally {
+      cleanup();
+    }
+  }
+});
+
+test('pilot mode without Authorization fails closed on capture and commitments instead of legacy execution', async () => {
+  const cleanup = setup();
+  try {
+    const capture = await capturePost(request('/api/mobile/capture', {
+      body: {
+        text: 'Call Maya tomorrow at 3pm',
+        referenceTime: REFERENCE_TIME,
+        timezone: 'UTC',
+        scopeId: 'legacy-scope',
+      },
+    }));
+    assert.equal(capture.status, 401);
+    assert.equal((await json(capture)).reason, 'missing_token');
+
+    const today = await todayGet(request('/api/mobile/commitments/today?timezone=UTC'));
+    assert.equal(today.status, 401);
+    assert.equal((await json(today)).reason, 'missing_token');
+
+    const detail = await commitmentGet(request('/api/mobile/commitments/legacy-id'), params('legacy-id'));
+    assert.equal(detail.status, 401);
+    assert.equal((await json(detail)).reason, 'missing_token');
+  } finally {
+    cleanup();
+  }
+});
+
+test('pilot mode with valid config and valid token executes authenticated capture', async () => {
+  const cleanup = setup();
+  try {
+    const commitmentId = await createConfirmedCommitment(A, 'Remind me to call Maya tomorrow at 3pm');
+    const detail = await commitmentGet(request(`/api/mobile/commitments/${commitmentId}`, { participantId: A }), params(commitmentId));
+    assert.equal(detail.status, 200);
+    assert.equal((await json(detail)).id, commitmentId);
+  } finally {
+    cleanup();
+  }
+});
 
 test('mobile pilot routes require valid bearer token authorization', async () => {
   const cleanup = setup();
