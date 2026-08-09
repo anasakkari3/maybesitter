@@ -6,7 +6,7 @@ import 'package:maybesitter_mobile/services/api/api_commitment_repository.dart';
 import 'package:maybesitter_mobile/services/api/api_client.dart';
 
 void main() {
-  group('Backend Canonical 87408da Integration Flow Tests (Port 4321)', () {
+  group('Canonical Mobile API Integration Flow (Port 4321)', () {
     final baseUrl = 'http://127.0.0.1:4321';
     final scopeId = 'integration-test-${DateTime.now().millisecondsSinceEpoch}';
     final apiClient = ApiClient(baseUrl: baseUrl);
@@ -20,7 +20,7 @@ void main() {
     );
 
     test(
-      'Executes 17-step extended canonical mobile flow with safe PATCH against backend commit 87408da',
+      'Executes 17-step extended canonical mobile flow with safe PATCH',
       () async {
         // 1. Capture a deterministic verb-led commitment
         final captureResult = await captureService.capture(

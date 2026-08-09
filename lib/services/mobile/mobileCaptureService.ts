@@ -6,7 +6,7 @@ import {
   type CaptureProposalStore,
 } from '../captureBoundary';
 import { createEmptyDomainState, type Command, type Commitment } from '../../../src/domain/stateMachine';
-import { configureCommandService, getCommandServiceState } from '../commandService';
+import { applyCommand, configureCommandService, getCommandServiceState } from '../commandService';
 import { CommandServiceCapturePersistenceAdapter } from './canonicalPersistence';
 import { guardedMobileExtract } from './safety';
 import { dateFromOptionalIso, normalizeTimezone } from './time';
@@ -89,6 +89,24 @@ function persistedItem(
   };
 }
 
+function activateConfirmedItems(proposalId: string, itemIds: readonly string[]): void {
+  const stored = store.get(proposalId);
+  if (!stored) return;
+
+  configureCommandService({});
+  for (const itemId of itemIds) {
+    const commitmentId = commitmentIdForCommands(stored.commandsByItemId.get(itemId));
+    if (!commitmentId) continue;
+    const commitment = getCommandServiceState().commitments[commitmentId];
+    if (!commitment || commitment.status !== 'pending_confirmation') continue;
+    applyCommand({
+      type: 'ConfirmCommitment',
+      commitmentId,
+      now: new Date().toISOString(),
+    });
+  }
+}
+
 export async function proposeMobileCapture(input: MobileCaptureInput) {
   const text = typeof input.text === 'string' ? input.text.trim() : '';
   if (!text) throw new Error('text is required');
@@ -106,6 +124,7 @@ export async function proposeMobileCapture(input: MobileCaptureInput) {
 
 export async function confirmMobileCapture(input: MobileConfirmInput): Promise<{
   success: boolean;
+  replayed: boolean;
   persisted: PersistedProposalItem[];
   failed: FailedProposalItem[];
 }> {
@@ -129,6 +148,7 @@ export async function confirmMobileCapture(input: MobileConfirmInput): Promise<{
   if (!result.success) {
     return {
       success: false,
+      replayed: result.replayed,
       persisted: [],
       failed: selectedItemIds.map((itemId) => ({
         itemId,
@@ -137,8 +157,11 @@ export async function confirmMobileCapture(input: MobileConfirmInput): Promise<{
     };
   }
 
+  activateConfirmedItems(proposalId, result.persistedItemIds);
+
   return {
     success: true,
+    replayed: result.replayed,
     persisted: result.persistedItemIds
       .map((itemId) => persistedItem(store, proposalId, itemId))
       .filter((item): item is PersistedProposalItem => item !== null),
