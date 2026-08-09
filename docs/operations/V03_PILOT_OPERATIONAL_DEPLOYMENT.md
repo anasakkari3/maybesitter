@@ -1,8 +1,8 @@
 # V03 Closed Pilot Operational Deployment Specification
 
 **Target Cohort**: 25–40 Participants  
-**Branch**: `v03/pilot-operations`  
-**Status**: `IDENTITY/OPS SCAFFOLD IMPLEMENTED — AUTH INTEGRATION PENDING`  
+**Branch**: `v03/mobile-pilot-backend-parity` stacked over `v03/pilot-operations`
+**Status**: `AUTHENTICATED SHARED MOBILE PILOT BACKEND IMPLEMENTED IN PR #82`
 
 ---
 
@@ -10,9 +10,9 @@
 
 * **Client**: Flutter Mobile App (`mobile/**`) using OS-backed hardware secure storage (Keychain / KeyStore).
 * **Ingress**: HTTPS `api-pilot.maybesitter.com` with TLS 1.3 and WAF. Legacy `/assistant` web interface is strictly blocked.
-* **Authentication**: Opaque Pseudonymous Pilot API Tokens (`p-token.<participant_id>.<nonce>.<sig>`). Passed in `Authorization: Bearer <token>`.
-* **Persistence**: File-backed storage with per-participant isolated files (`.maybesitter/participants/${participantId}-state.json`).
-* **Isolation Verification**: Verified by storage & domain state isolation tests in `tests/pilot/participantIsolation.test.ts`. Request-level HTTP route isolation is specified in `CODEX_AUTH_HANDOFF.md`.
+* **Authentication**: Opaque Pseudonymous Pilot API Tokens (`p-token.<participant_id>.<nonce>.<sig>`). Passed in `Authorization: Bearer <token>`. Mobile pilot state identity is derived only from the token.
+* **Persistence**: File-backed storage with per-participant isolated files (`.maybesitter/participants/${participantId}-state.json`) and participant-scoped recommendation action idempotency records.
+* **Isolation Verification**: Verified by storage/domain state isolation tests in `tests/pilot/participantIsolation.test.ts` and real `/api/mobile/**` route isolation tests in `tests/mobile/mobilePilotApiRoutes.test.ts`.
 
 ---
 

@@ -14,9 +14,13 @@ import {
 } from '../../pilot/closedPilotControls';
 import { resolvePilotAccess } from '../../pilot/pilotAccess';
 import { getPilotTrustStore } from '../../pilot/pilotTrustStore';
-import { resetSingleUserAccount } from '../appMetadataService';
-import { getCommandServiceState } from '../commandService';
 import { getLiveNextStep, recordLiveNextStepDecision } from '../nextStepLiveService';
+import {
+  deleteParticipantDomainState,
+  getParticipantStateSnapshot,
+  readParticipantState,
+  replayOrRecordParticipantDecision,
+} from './participantState';
 import type {
   NextStepDecision,
   NextStepLocale,
@@ -65,19 +69,8 @@ function localeFrom(value: unknown): NextStepLocale {
   return value === 'ar' || value === 'he' ? value : 'en';
 }
 
-function participantIdentity(source: MobilePilotSource): string {
-  const participantId = stringValue(source, 'participantId') || stringValue(source, 'anonymousUserId');
-  if (!participantId) throw new MobilePilotError('participantId is required', 400);
-  requirePilotParticipantId(participantId);
-  const scopeId = stringValue(source, 'scopeId');
-  if (scopeId && scopeId !== participantId) {
-    throw new MobilePilotError('scopeId must match participantId', 403, 'wrong_scope');
-  }
-  return participantId;
-}
-
-function confirmedCommitmentCount(): number {
-  return Object.values(getCommandServiceState().commitments)
+async function confirmedCommitmentCount(participantId: string): Promise<number> {
+  return Object.values((await readParticipantState(participantId)).commitments)
     .filter((commitment) => Boolean(commitment.confirmedAt)).length;
 }
 
@@ -131,13 +124,12 @@ function recommendationContext(input: MobilePilotSource, participantId: string, 
   };
 }
 
-export function getMobileNextStep(input: MobilePilotSource) {
-  const participantId = participantIdentity(input);
+export async function getMobileNextStep(participantId: string, input: MobilePilotSource) {
   const now = new Date();
   const at = now.toISOString();
   const access = assertAccess(participantId, at);
   const context = recommendationContext(input, participantId, access.trust.analyticsConsent, now);
-  const recommendation = getLiveNextStep(getCommandServiceState(), context);
+  const recommendation = getLiveNextStep(await readParticipantState(participantId), context);
   if (recommendation.state === 'ready' && !access.trust.firstValueAt) {
     getPilotTrustStore().apply(participantId, { type: 'record_first_value', at });
   }
@@ -165,31 +157,12 @@ function proposalFrom(value: unknown): Pick<NextStepRecommendationContract, 'pro
   return { proposalId: proposal.proposalId };
 }
 
-type DecisionReplay = {
-  fingerprint: string;
-  response: {
-    success: true;
-    replayed: boolean;
-    participantId: string;
-    assignment: ReturnType<typeof resolveNextStepArm>;
-    outcome: ReturnType<typeof recordLiveNextStepDecision>;
-  };
-};
-
-type MobilePilotGlobals = typeof globalThis & {
-  __maybesitterMobileDecisionReplays?: Map<string, DecisionReplay>;
-};
-
-const mobilePilotGlobals = globalThis as MobilePilotGlobals;
-const decisionReplays = mobilePilotGlobals.__maybesitterMobileDecisionReplays ?? new Map<string, DecisionReplay>();
-mobilePilotGlobals.__maybesitterMobileDecisionReplays = decisionReplays;
-
 export function resetMobilePilotDecisionReplaysForTests(): void {
-  decisionReplays.clear();
+  // Durable replay records live in each participant data root. Tests use a fresh
+  // root per case, so there is no process-global state to reset.
 }
 
-export function recordMobileNextStepDecision(input: MobilePilotSource) {
-  const participantId = participantIdentity(input);
+export async function recordMobileNextStepDecision(participantId: string, input: MobilePilotSource) {
   const now = new Date();
   const at = now.toISOString();
   const access = assertAccess(participantId, at);
@@ -204,39 +177,39 @@ export function recordMobileNextStepDecision(input: MobilePilotSource) {
     editedTitle: editedTitle ?? null,
   });
   const explicitKey = stringValue(input, 'idempotencyKey');
-  const replayKey = explicitKey ? `${participantId}:${explicitKey}` : '';
-  if (replayKey) {
-    const replay = decisionReplays.get(replayKey);
-    if (replay) {
-      if (replay.fingerprint !== fingerprint) {
-        throw new MobilePilotError('idempotencyKey body mismatch', 409);
-      }
-      return { ...replay.response, replayed: true };
-    }
-  }
 
   const context = {
     ...recommendationContext(input, participantId, access.trust.analyticsConsent, now),
     emitShown: false,
   };
-  const canonicalProposal = getLiveNextStep(getCommandServiceState(), context);
-  if (canonicalProposal.state !== 'ready' || canonicalProposal.proposalId !== proposal.proposalId) {
-    throw new MobilePilotError('proposal is stale or invalid', 409);
-  }
-  const outcome = recordLiveNextStepDecision(canonicalProposal, decision, context, editedTitle);
-  const response = {
-    success: true as const,
-    replayed: false,
-    participantId,
-    assignment,
-    outcome,
+  const create = () => {
+    const canonicalProposal = getLiveNextStep(getParticipantStateSnapshot(participantId), context);
+    if (canonicalProposal.state !== 'ready' || canonicalProposal.proposalId !== proposal.proposalId) {
+      throw new MobilePilotError('proposal is stale or invalid', 409);
+    }
+    const outcome = recordLiveNextStepDecision(canonicalProposal, decision, context, editedTitle);
+    return {
+      success: true as const,
+      replayed: false,
+      participantId,
+      assignment,
+      outcome,
+    };
   };
-  if (replayKey) decisionReplays.set(replayKey, { fingerprint, response });
-  return response;
+
+  if (!explicitKey) return create();
+  try {
+    const result = await replayOrRecordParticipantDecision(participantId, explicitKey, fingerprint, create);
+    return { ...result.response, replayed: result.replayed };
+  } catch (error) {
+    if (error instanceof Error && /idempotencyKey body mismatch/.test(error.message)) {
+      throw new MobilePilotError(error.message, 409);
+    }
+    throw error;
+  }
 }
 
-export function getMobilePilotTrust(input: MobilePilotSource) {
-  const participantId = participantIdentity(input);
+export async function getMobilePilotTrust(participantId: string) {
   const at = new Date().toISOString();
   const access = resolvePilotAccess(participantId, at, false);
   if (!access.trust) throw new MobilePilotError('participant is not admitted to this pilot instance', 403, access.decision.reason);
@@ -247,13 +220,12 @@ export function getMobilePilotTrust(input: MobilePilotSource) {
     exposure: access.decision,
     whatKnows: buildWhatMaybeSitterKnows({
       trust: access.trust,
-      confirmedCommitmentCount: confirmedCommitmentCount(),
+      confirmedCommitmentCount: await confirmedCommitmentCount(participantId),
     }),
   };
 }
 
-export async function updateMobilePilotTrust(input: MobilePilotSource) {
-  const participantId = participantIdentity(input);
+export async function updateMobilePilotTrust(participantId: string, input: MobilePilotSource) {
   const at = new Date().toISOString();
   const access = resolvePilotAccess(participantId, at, false);
   if (!access.trust) throw new MobilePilotError('participant is not admitted to this pilot instance', 403, access.decision.reason);
@@ -276,7 +248,7 @@ export async function updateMobilePilotTrust(input: MobilePilotSource) {
     reasonCode: action.type,
   }));
   if (action.type === 'delete') {
-    await resetSingleUserAccount();
+    await deleteParticipantDomainState(participantId);
     const analytics = analyticsContextFrom({ anonymousUserId: participantId, consent: 'essential' }, appendAnalyticsEvent);
     if (analytics) recordDataDeleted(analytics, 'all_commitments');
   }
@@ -288,13 +260,12 @@ export async function updateMobilePilotTrust(input: MobilePilotSource) {
     exposure,
     whatKnows: buildWhatMaybeSitterKnows({
       trust,
-      confirmedCommitmentCount: confirmedCommitmentCount(),
+      confirmedCommitmentCount: await confirmedCommitmentCount(participantId),
     }),
   };
 }
 
-export function reportMobilePilotIncident(input: MobilePilotSource) {
-  const participantId = participantIdentity(input);
+export function reportMobilePilotIncident(participantId: string, input: MobilePilotSource) {
   const access = resolvePilotAccess(participantId, new Date().toISOString(), false);
   if (!access.trust) throw new MobilePilotError('participant is not admitted to this pilot instance', 403, access.decision.reason);
   const at = new Date().toISOString();

@@ -1,3 +1,4 @@
+import { mobileAuthErrorResponse, optionalMobilePilotAuth } from '../../../../../../../lib/services/mobile/auth';
 import {
   completeCommitment,
   dropCommitment,
@@ -11,6 +12,13 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  let auth;
+  try {
+    auth = optionalMobilePilotAuth(request);
+  } catch (error) {
+    return mobileAuthErrorResponse(error);
+  }
+
   const { id } = await params;
   let body: { action?: unknown; postponedUntil?: unknown };
   try {
@@ -22,11 +30,11 @@ export async function POST(
   try {
     const commitment =
       body.action === 'complete'
-        ? completeCommitment(id)
+        ? await completeCommitment(id, new Date(), auth ?? {})
         : body.action === 'postpone'
-          ? postponeCommitment(id, body.postponedUntil)
+          ? await postponeCommitment(id, body.postponedUntil, new Date(), auth ?? {})
           : body.action === 'cancel'
-            ? dropCommitment(id)
+            ? await dropCommitment(id, new Date(), auth ?? {})
             : null;
     if (!commitment) return mobileError(`Unknown commitment action: ${String(body.action)}`);
     return Response.json({
