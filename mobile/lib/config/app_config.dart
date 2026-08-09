@@ -5,6 +5,8 @@ enum ApiMode { mock, localBackend }
 class AppConfig {
   static const _configuredBaseUrl = String.fromEnvironment('API_BASE_URL');
 
+  static const mockParticipantId = 'pilot-participant';
+
   final ApiMode apiMode;
   final String baseUrl;
   final String scopeId;

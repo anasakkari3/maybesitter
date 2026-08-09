@@ -448,4 +448,414 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get reminderHistorySubtitle => 'سجل محاولات إرسال الإشعارات';
+
+  @override
+  String get nextStepSectionTitle => 'خطوتك التالية';
+
+  @override
+  String get nextStepProposalNotice => 'هذا اقتراح. لم يتغيّر أي شيء بعد.';
+
+  @override
+  String get nextStepWhyTitle => 'لماذا هذه الخطوة';
+
+  @override
+  String get nextStepNoSensitiveInference =>
+      'لم تُستخدم أي استنتاجات حسّاسة لاختيارها.';
+
+  @override
+  String get nextStepActionAccept => 'قبول';
+
+  @override
+  String get nextStepActionEdit => 'تعديل';
+
+  @override
+  String get nextStepActionDefer => 'ليس الآن';
+
+  @override
+  String get nextStepActionDismiss => 'تجاهل';
+
+  @override
+  String get nextStepActionDone => 'أنجزتها سابقًا';
+
+  @override
+  String get nextStepAcceptedMessage => 'تم القبول. ابدأ بها متى شئت.';
+
+  @override
+  String get nextStepEditedMessage => 'تم التحديث.';
+
+  @override
+  String get nextStepDeferredMessage => 'أجّلناها الآن.';
+
+  @override
+  String get nextStepDismissedMessage => 'تم التجاهل.';
+
+  @override
+  String get nextStepDoneMessage => 'سُجّلت كمنجَزة.';
+
+  @override
+  String get nextStepShowAnotherAction => 'اقترح غيرها';
+
+  @override
+  String get nextStepEmptyTitle => 'لا يوجد اقتراح الآن';
+
+  @override
+  String get nextStepEmptyMessage =>
+      'سجّل شيئًا وأكّده، وستظهر لك خطوة تالية هنا.';
+
+  @override
+  String get nextStepInsufficientTitle => 'المعطيات غير كافية بعد';
+
+  @override
+  String get nextStepInsufficientMessage =>
+      'أكّد بضعة التزامات إضافية وسيظهر اقتراح.';
+
+  @override
+  String get nextStepStaleMessage =>
+      'تغيّر الاقتراح أثناء اتخاذك القرار. هذا هو الاقتراح الحالي.';
+
+  @override
+  String get nextStepLoadingLabel => 'جارٍ إيجاد خطوتك التالية';
+
+  @override
+  String get nextStepFailedTitle => 'تعذّر تحميل الاقتراح';
+
+  @override
+  String get nextStepEditTitle => 'تعديل هذه الخطوة';
+
+  @override
+  String get nextStepEditFieldLabel => 'الخطوة التالية';
+
+  @override
+  String get nextStepEditHelp => 'صُغها بالطريقة التي ستنفّذها بها فعلًا.';
+
+  @override
+  String get evidenceDueToday => 'مستحقّة اليوم';
+
+  @override
+  String get evidenceOverdue => 'تجاوزت موعدها';
+
+  @override
+  String get evidenceConfirmedByYou => 'أنت أكّدتها';
+
+  @override
+  String get evidenceHighPriority => 'وضعتها ضمن الضروري';
+
+  @override
+  String get evidenceScheduledSoon => 'موعدها قريب';
+
+  @override
+  String get evidenceOnlyOpenItem => 'هي البند المفتوح الوحيد لديك';
+
+  @override
+  String get evidenceOther => 'استنادًا إلى التزامات أكّدتها';
+
+  @override
+  String get pilotStateUnauthorizedTitle => 'هذا الجهاز ليس ضمن التجربة';
+
+  @override
+  String get pilotStateUnauthorizedMessage =>
+      'رمز التجربة على هذا الجهاز غير مُدرج في قائمة المشاركين، لذلك الاقتراحات متوقّفة. إذا بدا هذا خطأً فتواصل مع من دعاك.';
+
+  @override
+  String get pilotStateWrongInstanceTitle => 'جهاز تجربة غير مطابق';
+
+  @override
+  String get pilotStateWrongInstanceMessage =>
+      'هذه النسخة من التطبيق مُهيّأة لمشارك آخر. استخدم الرابط الذي أُرسل إليك.';
+
+  @override
+  String get pilotStateSuspendedTitle => 'تم إيقاف وصولك مؤقتًا';
+
+  @override
+  String get pilotStateSuspendedMessage =>
+      'أوقف أحد المشرفين على التجربة وصولك مؤقتًا. التزاماتك محفوظة ولم يُحذف أي شيء.';
+
+  @override
+  String get pilotStatePausedTitle => 'الاقتراحات متوقّفة مؤقتًا';
+
+  @override
+  String get pilotStatePausedMessage =>
+      'الاقتراحات متوقّفة حاليًا لجميع المشاركين. التسجيل ما زال يعمل ولم يُفقد شيء.';
+
+  @override
+  String get pilotStateDisabledTitle => 'الاقتراحات مُعطّلة';
+
+  @override
+  String get pilotStateDisabledMessage =>
+      'الاقتراحات مُعطّلة في هذه النسخة. التسجيل والالتزامات تعمل كالمعتاد.';
+
+  @override
+  String get pilotStateConsentRequiredTitle => 'هل تريد اقتراح خطوة تالية؟';
+
+  @override
+  String get pilotStateConsentRequiredMessage =>
+      'يستطيع MaybeSitter أن يقترح خطوة تالية واحدة من التزامات أكّدتها مسبقًا. لا يغيّر شيئًا من تلقاء نفسه، ويمكنك إيقاف ذلك متى شئت.';
+
+  @override
+  String get pilotStateConsentRequiredAction => 'تفعيل الاقتراحات';
+
+  @override
+  String get pilotStateQuietTitle => 'الوضع الهادئ مفعّل';
+
+  @override
+  String get pilotStateQuietMessage =>
+      'تبقى الاقتراحات مخفيّة حتى تُوقف الوضع الهادئ. لم يُحذف أي شيء.';
+
+  @override
+  String get pilotStateQuietAction => 'إيقاف الوضع الهادئ';
+
+  @override
+  String get pilotStateRevokedTitle => 'أوقفت الاقتراحات';
+
+  @override
+  String get pilotStateRevokedMessage =>
+      'التزاماتك ما زالت هنا. يمكنك إعادة تفعيل الاقتراحات متى أردت.';
+
+  @override
+  String get pilotStateRevokedAction => 'إعادة تفعيل الاقتراحات';
+
+  @override
+  String get pilotStateDeletedTitle => 'حُذفت بياناتك';
+
+  @override
+  String get pilotStateDeletedMessage =>
+      'لم يعد يُحفظ لك أي شيء. شكرًا لمشاركتك.';
+
+  @override
+  String get pilotStateUnknownTitle => 'الاقتراحات غير متاحة';
+
+  @override
+  String get pilotStateUnknownMessage =>
+      'تعذّر التأكّد من حالتك في التجربة، لذلك لا يُعرض اقتراح. التسجيل ما زال يعمل.';
+
+  @override
+  String get pilotStateOfflineTitle => 'تعذّر الاتصال بـ MaybeSitter';
+
+  @override
+  String get pilotStateOfflineMessage =>
+      'التزاماتك محفوظة على هذا الجهاز. أعد المحاولة بعد قليل.';
+
+  @override
+  String get trustCenterTitle => 'الثقة والخصوصية';
+
+  @override
+  String get trustCenterSubtitle => 'ما هو مفعّل، وما هو متوقّف، وكيف تغيّره';
+
+  @override
+  String get trustSectionControls => 'أدوات التحكّم';
+
+  @override
+  String get trustSectionEnding => 'الإيقاف';
+
+  @override
+  String get trustRecommendationConsentLabel => 'الاقتراحات';
+
+  @override
+  String get trustRecommendationConsentDescription =>
+      'اسمح لـ MaybeSitter باقتراح خطوة تالية واحدة. هو يقترح فقط.';
+
+  @override
+  String get trustAnalyticsConsentLabel => 'مشاركة بيانات الاستخدام';
+
+  @override
+  String get trustAnalyticsConsentDescription =>
+      'أعداد فقط، ولا يشمل نصوصك. التطبيق يعمل بالطريقة نفسها في الحالتين.';
+
+  @override
+  String get trustQuietModeLabel => 'الوضع الهادئ';
+
+  @override
+  String get trustQuietModeDescription => 'إخفاء الاقتراحات دون فقدان أي شيء.';
+
+  @override
+  String get trustCalendarConsentLabel => 'ربط التقويم';
+
+  @override
+  String get trustCalendarConsentDescription =>
+      'اختياري وللقراءة فقط. يمكنك فصله متى شئت.';
+
+  @override
+  String get trustCalendarLockedTitle => 'التقويم لاحقًا';
+
+  @override
+  String get trustCalendarLockedMessage =>
+      'سيعرض MaybeSitter ربط تقويمك بعد أن يكون قد أفادك فعلًا. ولن يطلب ذلك قبل هذا.';
+
+  @override
+  String get trustWhatWeKnowAction => 'ما الذي يعرفه MaybeSitter';
+
+  @override
+  String get trustWhatWeKnowSubtitle => 'اطّلع على كل ما يحتفظ به عنك';
+
+  @override
+  String get trustRevokeTitle => 'إيقاف كل شيء';
+
+  @override
+  String get trustRevokeDescription =>
+      'يوقف الاقتراحات وبيانات الاستخدام والتقويم. تبقى التزاماتك.';
+
+  @override
+  String get trustRevokeConfirmTitle => 'إيقاف كل شيء؟';
+
+  @override
+  String get trustRevokeConfirmMessage =>
+      'ستتوقّف الاقتراحات وبيانات الاستخدام وأي ربط بالتقويم. تبقى التزاماتك، ويمكنك إعادة التفعيل لاحقًا.';
+
+  @override
+  String get trustRevokedMessage => 'تم إيقاف كل شيء.';
+
+  @override
+  String get trustDeleteTitle => 'حذف كل شيء';
+
+  @override
+  String get trustDeleteDescription =>
+      'يحذف التزاماتك وبيانات استخدامك. لا يمكن التراجع عن ذلك.';
+
+  @override
+  String get trustDeleteConfirmTitle => 'حذف كل شيء؟';
+
+  @override
+  String get trustDeleteConfirmMessage =>
+      'سيؤدي هذا إلى حذف التزاماتك وبيانات استخدامك نهائيًا.';
+
+  @override
+  String get trustDeleteAcknowledge => 'أفهم أنه لا يمكن التراجع عن ذلك';
+
+  @override
+  String get trustDeletedMessage => 'تم حذف بياناتك.';
+
+  @override
+  String get trustUpdatedMessage => 'تم الحفظ.';
+
+  @override
+  String get trustLoadFailedTitle => 'تعذّر تحميل إعدادات الخصوصية';
+
+  @override
+  String get trustActionFailedMessage => 'لم يُحفظ التغيير. أعد المحاولة.';
+
+  @override
+  String get knowsTitle => 'ما الذي يعرفه MaybeSitter';
+
+  @override
+  String get knowsSubtitle => 'كل ما يحتفظ به عنك، في قائمة واحدة';
+
+  @override
+  String get knowsCommitmentsLabel => 'التزامات أكّدتها';
+
+  @override
+  String knowsCommitmentsCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count التزام',
+      many: '$count التزامًا',
+      few: '$count التزامات',
+      two: 'التزامان',
+      one: 'التزام واحد',
+      zero: 'لا شيء',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get knowsRecommendationLabel => 'الاقتراحات';
+
+  @override
+  String get knowsAnalyticsLabel => 'بيانات الاستخدام';
+
+  @override
+  String get knowsCalendarLabel => 'التقويم';
+
+  @override
+  String get knowsOn => 'مفعّل';
+
+  @override
+  String get knowsOff => 'متوقّف';
+
+  @override
+  String get knowsConnected => 'مرتبط';
+
+  @override
+  String get knowsNotConnected => 'غير مرتبط';
+
+  @override
+  String get knowsNeverSectionTitle => 'لا يُجمَع إطلاقًا';
+
+  @override
+  String get knowsNoMessages => 'رسائلك الخاصة';
+
+  @override
+  String get knowsNoSensitive => 'استنتاجات عن صحتك أو مزاجك أو علاقاتك';
+
+  @override
+  String get knowsNoMedical => 'أي ملف طبي أو تشخيصي';
+
+  @override
+  String get knowsParticipantLabel => 'رمزك في التجربة';
+
+  @override
+  String get knowsParticipantNote =>
+      'رمز عشوائي. ليس اسمك ولا يربطه شيء هنا باسمك.';
+
+  @override
+  String get pilotAccessTitle => 'دخول التجربة';
+
+  @override
+  String get pilotAccessMessage =>
+      'أدخل الرمز الذي صدر لك لاستخدام نسخة التجربة.';
+
+  @override
+  String get pilotAccessTokenLabel => 'رمز التجربة';
+
+  @override
+  String get pilotAccessContinue => 'متابعة';
+
+  @override
+  String get pilotAccessValidating => 'جارٍ التحقق من الدخول';
+
+  @override
+  String get pilotAccessInvalidTitle => 'هذا الرمز لم يعمل';
+
+  @override
+  String get pilotAccessInvalidMessage =>
+      'تحقق من الرمز الذي صدر لك ثم أعد المحاولة.';
+
+  @override
+  String get pilotAccessNotAllowlistedTitle => 'هذا الرمز غير موجود في التجربة';
+
+  @override
+  String get pilotAccessNotAllowlistedMessage =>
+      'تعذّر على MaybeSitter إدخال هذا الرمز في التجربة الحالية.';
+
+  @override
+  String get pilotAccessRevokedTitle => 'تم إلغاء دخول التجربة';
+
+  @override
+  String get pilotAccessRevokedMessage =>
+      'أُغلقت جلسة التجربة هذه. لم تعد الشاشات العادية متاحة لهذا الرمز.';
+
+  @override
+  String get pilotAccessDeletedTitle => 'تم حذف بيانات التجربة';
+
+  @override
+  String get pilotAccessDeletedMessage =>
+      'تم حذف بيانات التجربة لهذا الرمز. سيبقى التطبيق مغلقًا لهذه الجلسة.';
+
+  @override
+  String get pilotAccessBackendUnavailableTitle =>
+      'تعذّر الوصول إلى MaybeSitter';
+
+  @override
+  String get pilotAccessBackendUnavailableMessage =>
+      'احتفظ بالرمز على هذا الجهاز وأعد المحاولة عندما تتاح الخدمة.';
+
+  @override
+  String get pilotAccessRuntimeConfigTitle => 'التجربة غير مهيأة';
+
+  @override
+  String get pilotAccessRuntimeConfigMessage =>
+      'خادم التجربة مغلق احترازيًا لأن إعدادات التشغيل غير صالحة.';
+
+  @override
+  String get pilotAccessClearToken => 'استخدام رمز آخر';
 }

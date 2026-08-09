@@ -21,20 +21,65 @@ class ValidationException extends ApiException {
   const ValidationException(super.message, {super.statusCode = 400});
 }
 
+class UnauthorizedException extends ApiException {
+  final Map<String, dynamic> body;
+
+  const UnauthorizedException(
+    super.message, {
+    this.body = const {},
+    super.statusCode = 401,
+  });
+
+  String? get reason => body['reason'] as String?;
+}
+
 class NotFoundException extends ApiException {
   const NotFoundException(super.message, {super.statusCode = 404});
+}
+
+/// Pilot exposure was refused. The decoded body is carried through because the
+/// closed-pilot endpoints return a machine-readable `reason` alongside the
+/// message, and the participant is owed the specific explanation rather than a
+/// generic failure.
+class ForbiddenException extends ApiException {
+  final Map<String, dynamic> body;
+
+  const ForbiddenException(
+    super.message, {
+    this.body = const {},
+    super.statusCode = 403,
+  });
+
+  String? get reason => body['reason'] as String?;
+}
+
+/// The server's canonical state moved on — a decision was posted against a
+/// proposal that is no longer current.
+class ConflictException extends ApiException {
+  const ConflictException(super.message, {super.statusCode = 409});
 }
 
 class ServerException extends ApiException {
   const ServerException(super.message, {super.statusCode = 500});
 }
 
+class OperatorConfigurationException extends ApiException {
+  const OperatorConfigurationException(super.message, {super.statusCode = 503});
+}
+
+typedef AuthTokenProvider = Future<String?> Function();
+
 class ApiClient {
   final String baseUrl;
   final http.Client _client;
+  final AuthTokenProvider? authTokenProvider;
 
-  ApiClient({required this.baseUrl, http.Client? client})
-    : _client = client ?? http.Client();
+  ApiClient({
+    required this.baseUrl,
+    http.Client? client,
+    this.authTokenProvider,
+  }) : _client = client ?? http.Client(),
+       super();
 
   Uri _buildUri(String path, [Map<String, String>? queryParameters]) {
     final cleanedBase = baseUrl.endsWith('/')
@@ -55,7 +100,7 @@ class ApiClient {
       final response = await _client
           .post(
             uri,
-            headers: {'Content-Type': 'application/json'},
+            headers: await _headers(contentTypeJson: true),
             body: jsonEncode(body),
           )
           .timeout(const Duration(seconds: 10));
@@ -77,7 +122,7 @@ class ApiClient {
     final uri = _buildUri(path, queryParameters);
     try {
       final response = await _client
-          .get(uri, headers: {'Accept': 'application/json'})
+          .get(uri, headers: await _headers())
           .timeout(const Duration(seconds: 10));
 
       return _handleResponse(response);
@@ -99,7 +144,7 @@ class ApiClient {
       final response = await _client
           .patch(
             uri,
-            headers: {'Content-Type': 'application/json'},
+            headers: await _headers(contentTypeJson: true),
             body: jsonEncode(body),
           )
           .timeout(const Duration(seconds: 10));
@@ -118,7 +163,7 @@ class ApiClient {
     final uri = _buildUri(path);
     try {
       final response = await _client
-          .delete(uri, headers: {'Accept': 'application/json'})
+          .delete(uri, headers: await _headers())
           .timeout(const Duration(seconds: 10));
 
       return _handleResponse(response);
@@ -129,6 +174,16 @@ class ApiClient {
       }
       throw NetworkException('Unable to connect to backend server: $e');
     }
+  }
+
+  Future<Map<String, String>> _headers({bool contentTypeJson = false}) async {
+    final headers = <String, String>{'Accept': 'application/json'};
+    if (contentTypeJson) headers['Content-Type'] = 'application/json';
+    final token = (await authTokenProvider?.call())?.trim();
+    if (token != null && token.isNotEmpty) {
+      headers['Authorization'] = 'Bearer $token';
+    }
+    return headers;
   }
 
   Map<String, dynamic> _handleResponse(http.Response response) {
@@ -155,9 +210,25 @@ class ApiClient {
     switch (response.statusCode) {
       case 400:
         throw ValidationException(errorMsg, statusCode: 400);
+      case 401:
+        throw UnauthorizedException(
+          errorMsg,
+          body: jsonBody is Map<String, dynamic> ? jsonBody : const {},
+        );
+      case 403:
+        throw ForbiddenException(
+          errorMsg,
+          body: jsonBody is Map<String, dynamic> ? jsonBody : const {},
+        );
       case 404:
         throw NotFoundException(errorMsg, statusCode: 404);
+      case 409:
+        throw ConflictException(errorMsg, statusCode: 409);
       case 503:
+        if (jsonBody is Map<String, dynamic> &&
+            jsonBody['reason'] == 'invalid_pilot_runtime_configuration') {
+          throw OperatorConfigurationException(errorMsg, statusCode: 503);
+        }
         throw ServerException(errorMsg, statusCode: 503);
       default:
         throw ServerException(errorMsg, statusCode: response.statusCode);

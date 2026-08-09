@@ -25,6 +25,14 @@ void main() {
     testWidgets('Renders TodayScreen with commitments', (
       WidgetTester tester,
     ) async {
+      // The Today screen now leads with the V03 next-step card, so a default
+      // 800px test viewport pushes the commitment list below the fold and its
+      // lazy slivers are never built. Give this test a taller surface rather
+      // than weakening what it asserts.
+      tester.view.physicalSize = const Size(1200, 3600);
+      tester.view.devicePixelRatio = 3.0;
+      addTearDown(tester.view.reset);
+
       await tester.pumpWidget(
         ProviderScope(
           overrides: [

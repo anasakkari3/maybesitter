@@ -200,5 +200,58 @@ void main() {
         );
       },
     );
+
+    test('injects bearer token from the credential provider', () async {
+      final mockClient = MockClient((request) async {
+        expect(request.headers['authorization'], 'Bearer test-token');
+        return http.Response(jsonEncode({'success': true}), 200);
+      });
+
+      final apiClient = ApiClient(
+        baseUrl: 'http://localhost:3000',
+        client: mockClient,
+        authTokenProvider: () async => 'test-token',
+      );
+
+      await apiClient.get('/api/mobile/pilot/trust');
+    });
+
+    test('maps auth and pilot runtime errors to typed exceptions', () async {
+      final mockClient = MockClient((request) async {
+        if (request.url.path.contains('unauthorized')) {
+          return http.Response(
+            jsonEncode({'error': 'missing_token', 'reason': 'missing_token'}),
+            401,
+          );
+        }
+        return http.Response(
+          jsonEncode({
+            'error': 'invalid pilot runtime configuration',
+            'reason': 'invalid_pilot_runtime_configuration',
+          }),
+          503,
+        );
+      });
+
+      final apiClient = ApiClient(
+        baseUrl: 'http://localhost:3000',
+        client: mockClient,
+      );
+
+      expect(
+        () => apiClient.get('/unauthorized'),
+        throwsA(
+          isA<UnauthorizedException>().having(
+            (error) => error.reason,
+            'reason',
+            'missing_token',
+          ),
+        ),
+      );
+      expect(
+        () => apiClient.get('/invalid-runtime'),
+        throwsA(isA<OperatorConfigurationException>()),
+      );
+    });
   });
 }

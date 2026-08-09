@@ -12,6 +12,8 @@ import '../features/settings/appearance_screen.dart';
 import '../features/settings/notifications_permission_screen.dart';
 import '../features/settings/privacy_screen.dart';
 import '../features/settings/settings_screen.dart';
+import '../features/trust/trust_center_screen.dart';
+import '../features/trust/what_maybesitter_knows_screen.dart';
 import '../features/today/today_screen.dart';
 import '../features/upcoming/upcoming_screen.dart';
 
@@ -99,6 +101,19 @@ final appRouter = GoRouter(
               parentNavigatorKey: _rootNavigatorKey,
               builder: (context, state) =>
                   const NotificationsPermissionScreen(),
+            ),
+            GoRoute(
+              path: 'trust',
+              parentNavigatorKey: _rootNavigatorKey,
+              builder: (context, state) => const TrustCenterScreen(),
+              routes: [
+                GoRoute(
+                  path: 'knows',
+                  parentNavigatorKey: _rootNavigatorKey,
+                  builder: (context, state) =>
+                      const WhatMaybeSitterKnowsScreen(),
+                ),
+              ],
             ),
           ],
         ),

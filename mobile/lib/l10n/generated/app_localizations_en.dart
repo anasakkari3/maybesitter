@@ -441,4 +441,414 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get reminderHistorySubtitle => 'Log of notification delivery attempts';
+
+  @override
+  String get nextStepSectionTitle => 'Your next step';
+
+  @override
+  String get nextStepProposalNotice =>
+      'A suggestion. Nothing has been changed yet.';
+
+  @override
+  String get nextStepWhyTitle => 'Why this one';
+
+  @override
+  String get nextStepNoSensitiveInference =>
+      'No sensitive guesses were used to pick this.';
+
+  @override
+  String get nextStepActionAccept => 'Accept';
+
+  @override
+  String get nextStepActionEdit => 'Edit';
+
+  @override
+  String get nextStepActionDefer => 'Not now';
+
+  @override
+  String get nextStepActionDismiss => 'Dismiss';
+
+  @override
+  String get nextStepActionDone => 'Already done';
+
+  @override
+  String get nextStepAcceptedMessage => 'Accepted. Start it whenever you want.';
+
+  @override
+  String get nextStepEditedMessage => 'Updated.';
+
+  @override
+  String get nextStepDeferredMessage => 'Set aside for now.';
+
+  @override
+  String get nextStepDismissedMessage => 'Dismissed.';
+
+  @override
+  String get nextStepDoneMessage => 'Marked as already done.';
+
+  @override
+  String get nextStepShowAnotherAction => 'Show another';
+
+  @override
+  String get nextStepEmptyTitle => 'Nothing to suggest right now';
+
+  @override
+  String get nextStepEmptyMessage =>
+      'Capture something and confirm it, and a next step will show up here.';
+
+  @override
+  String get nextStepInsufficientTitle => 'Not enough to go on yet';
+
+  @override
+  String get nextStepInsufficientMessage =>
+      'Confirm a few more commitments and a suggestion will appear.';
+
+  @override
+  String get nextStepStaleMessage =>
+      'That suggestion changed while you were deciding. Here is the current one.';
+
+  @override
+  String get nextStepLoadingLabel => 'Finding your next step';
+
+  @override
+  String get nextStepFailedTitle => 'Couldn\'t load a suggestion';
+
+  @override
+  String get nextStepEditTitle => 'Edit this step';
+
+  @override
+  String get nextStepEditFieldLabel => 'Next step';
+
+  @override
+  String get nextStepEditHelp => 'Word it the way you would actually do it.';
+
+  @override
+  String get evidenceDueToday => 'Due today';
+
+  @override
+  String get evidenceOverdue => 'Past its date';
+
+  @override
+  String get evidenceConfirmedByYou => 'You confirmed it';
+
+  @override
+  String get evidenceHighPriority => 'You marked it a must';
+
+  @override
+  String get evidenceScheduledSoon => 'Coming up soon';
+
+  @override
+  String get evidenceOnlyOpenItem => 'It\'s your only open item';
+
+  @override
+  String get evidenceOther => 'Based on commitments you confirmed';
+
+  @override
+  String get pilotStateUnauthorizedTitle => 'This device isn\'t in the pilot';
+
+  @override
+  String get pilotStateUnauthorizedMessage =>
+      'The pilot code on this device isn\'t on the participant list, so suggestions are off. If that seems wrong, contact whoever invited you.';
+
+  @override
+  String get pilotStateWrongInstanceTitle => 'Wrong pilot device';
+
+  @override
+  String get pilotStateWrongInstanceMessage =>
+      'This copy of the app is set up for a different participant. Use the link you were sent.';
+
+  @override
+  String get pilotStateSuspendedTitle => 'Your pilot access is paused';
+
+  @override
+  String get pilotStateSuspendedMessage =>
+      'Someone running the pilot paused your access. Your commitments are safe and nothing has been deleted.';
+
+  @override
+  String get pilotStatePausedTitle => 'Suggestions are paused';
+
+  @override
+  String get pilotStatePausedMessage =>
+      'Suggestions are paused for everyone in the pilot right now. Capture still works and nothing has been lost.';
+
+  @override
+  String get pilotStateDisabledTitle => 'Suggestions are off';
+
+  @override
+  String get pilotStateDisabledMessage =>
+      'This build has suggestions switched off. Capture and your commitments work as usual.';
+
+  @override
+  String get pilotStateConsentRequiredTitle => 'Want a suggested next step?';
+
+  @override
+  String get pilotStateConsentRequiredMessage =>
+      'MaybeSitter can propose one next step from commitments you\'ve already confirmed. It never changes anything on its own, and you can switch this off at any time.';
+
+  @override
+  String get pilotStateConsentRequiredAction => 'Turn on suggestions';
+
+  @override
+  String get pilotStateQuietTitle => 'Quiet mode is on';
+
+  @override
+  String get pilotStateQuietMessage =>
+      'Suggestions stay hidden until you turn quiet mode off. Nothing has been deleted.';
+
+  @override
+  String get pilotStateQuietAction => 'Turn off quiet mode';
+
+  @override
+  String get pilotStateRevokedTitle => 'You turned suggestions off';
+
+  @override
+  String get pilotStateRevokedMessage =>
+      'Your commitments are still here. You can turn suggestions back on whenever you like.';
+
+  @override
+  String get pilotStateRevokedAction => 'Turn suggestions back on';
+
+  @override
+  String get pilotStateDeletedTitle => 'Your pilot data was deleted';
+
+  @override
+  String get pilotStateDeletedMessage =>
+      'Nothing is stored for you any more. Thanks for taking part.';
+
+  @override
+  String get pilotStateUnknownTitle => 'Suggestions are unavailable';
+
+  @override
+  String get pilotStateUnknownMessage =>
+      'MaybeSitter can\'t confirm your pilot status, so it isn\'t showing a suggestion. Capture still works.';
+
+  @override
+  String get pilotStateOfflineTitle => 'Can\'t reach MaybeSitter';
+
+  @override
+  String get pilotStateOfflineMessage =>
+      'Your commitments are safe on this device. Try again in a moment.';
+
+  @override
+  String get trustCenterTitle => 'Trust & privacy';
+
+  @override
+  String get trustCenterSubtitle =>
+      'What\'s on, what\'s off, and how to change it';
+
+  @override
+  String get trustSectionControls => 'Your controls';
+
+  @override
+  String get trustSectionEnding => 'Stopping';
+
+  @override
+  String get trustRecommendationConsentLabel => 'Suggestions';
+
+  @override
+  String get trustRecommendationConsentDescription =>
+      'Let MaybeSitter propose one next step. It only ever proposes.';
+
+  @override
+  String get trustAnalyticsConsentLabel => 'Share usage data';
+
+  @override
+  String get trustAnalyticsConsentDescription =>
+      'Counts only, never your text. The app works the same either way.';
+
+  @override
+  String get trustQuietModeLabel => 'Quiet mode';
+
+  @override
+  String get trustQuietModeDescription =>
+      'Hide suggestions without losing anything.';
+
+  @override
+  String get trustCalendarConsentLabel => 'Connect your calendar';
+
+  @override
+  String get trustCalendarConsentDescription =>
+      'Optional and read-only. Disconnect whenever you want.';
+
+  @override
+  String get trustCalendarLockedTitle => 'Calendar comes later';
+
+  @override
+  String get trustCalendarLockedMessage =>
+      'MaybeSitter will offer to connect your calendar once it has actually been useful to you. It won\'t ask before then.';
+
+  @override
+  String get trustWhatWeKnowAction => 'What MaybeSitter knows';
+
+  @override
+  String get trustWhatWeKnowSubtitle => 'See everything it holds about you';
+
+  @override
+  String get trustRevokeTitle => 'Turn everything off';
+
+  @override
+  String get trustRevokeDescription =>
+      'Switches off suggestions, usage data and calendar. Your commitments stay.';
+
+  @override
+  String get trustRevokeConfirmTitle => 'Turn everything off?';
+
+  @override
+  String get trustRevokeConfirmMessage =>
+      'Suggestions, usage data and any calendar connection get switched off. Your commitments stay, and you can turn things back on later.';
+
+  @override
+  String get trustRevokedMessage => 'Everything is switched off.';
+
+  @override
+  String get trustDeleteTitle => 'Delete everything';
+
+  @override
+  String get trustDeleteDescription =>
+      'Removes your commitments and usage data. This can\'t be undone.';
+
+  @override
+  String get trustDeleteConfirmTitle => 'Delete everything?';
+
+  @override
+  String get trustDeleteConfirmMessage =>
+      'This permanently removes your commitments and your usage data.';
+
+  @override
+  String get trustDeleteAcknowledge => 'I understand this can\'t be undone';
+
+  @override
+  String get trustDeletedMessage => 'Your data has been deleted.';
+
+  @override
+  String get trustUpdatedMessage => 'Saved.';
+
+  @override
+  String get trustLoadFailedTitle => 'Couldn\'t load your privacy settings';
+
+  @override
+  String get trustActionFailedMessage => 'That didn\'t save. Try again.';
+
+  @override
+  String get knowsTitle => 'What MaybeSitter knows';
+
+  @override
+  String get knowsSubtitle => 'Everything it holds about you, in one list';
+
+  @override
+  String get knowsCommitmentsLabel => 'Commitments you confirmed';
+
+  @override
+  String knowsCommitmentsCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count commitments',
+      one: '1 commitment',
+      zero: 'None',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get knowsRecommendationLabel => 'Suggestions';
+
+  @override
+  String get knowsAnalyticsLabel => 'Usage data';
+
+  @override
+  String get knowsCalendarLabel => 'Calendar';
+
+  @override
+  String get knowsOn => 'On';
+
+  @override
+  String get knowsOff => 'Off';
+
+  @override
+  String get knowsConnected => 'Connected';
+
+  @override
+  String get knowsNotConnected => 'Not connected';
+
+  @override
+  String get knowsNeverSectionTitle => 'Never collected';
+
+  @override
+  String get knowsNoMessages => 'Your private messages';
+
+  @override
+  String get knowsNoSensitive =>
+      'Guesses about your health, mood or relationships';
+
+  @override
+  String get knowsNoMedical => 'Any medical or diagnostic profile';
+
+  @override
+  String get knowsParticipantLabel => 'Your pilot code';
+
+  @override
+  String get knowsParticipantNote =>
+      'A random code. It isn\'t your name and nothing here links it to one.';
+
+  @override
+  String get pilotAccessTitle => 'Pilot access';
+
+  @override
+  String get pilotAccessMessage =>
+      'Enter the token you were issued to use this pilot build.';
+
+  @override
+  String get pilotAccessTokenLabel => 'Pilot token';
+
+  @override
+  String get pilotAccessContinue => 'Continue';
+
+  @override
+  String get pilotAccessValidating => 'Checking access';
+
+  @override
+  String get pilotAccessInvalidTitle => 'That token did not work';
+
+  @override
+  String get pilotAccessInvalidMessage =>
+      'Check the token you were issued and try again.';
+
+  @override
+  String get pilotAccessNotAllowlistedTitle => 'This token is not in the pilot';
+
+  @override
+  String get pilotAccessNotAllowlistedMessage =>
+      'MaybeSitter could not admit this token to the current pilot.';
+
+  @override
+  String get pilotAccessRevokedTitle => 'Pilot access was revoked';
+
+  @override
+  String get pilotAccessRevokedMessage =>
+      'This pilot session is closed. Your normal app screens are no longer available for this token.';
+
+  @override
+  String get pilotAccessDeletedTitle => 'Pilot data was deleted';
+
+  @override
+  String get pilotAccessDeletedMessage =>
+      'The pilot data for this token has been deleted. The app will stay closed for this session.';
+
+  @override
+  String get pilotAccessBackendUnavailableTitle => 'Cannot reach MaybeSitter';
+
+  @override
+  String get pilotAccessBackendUnavailableMessage =>
+      'Keep the token on this device and try again when the backend is available.';
+
+  @override
+  String get pilotAccessRuntimeConfigTitle => 'Pilot is not configured';
+
+  @override
+  String get pilotAccessRuntimeConfigMessage =>
+      'The pilot backend is failing closed because its runtime configuration is invalid.';
+
+  @override
+  String get pilotAccessClearToken => 'Use a different token';
 }
