@@ -29,14 +29,12 @@ test('V03 live pilot: allowlist, consent, first value, calendar, and incident au
     feature: process.env.MAYBESITTER_FEATURE_RECOMMENDATION,
     kill: process.env.MAYBESITTER_KILL_SWITCH_RECOMMENDATION,
     token: process.env.MAYBESITTER_PILOT_ADMIN_TOKEN,
-    binding: process.env.MAYBESITTER_PILOT_INSTANCE_PARTICIPANT_ID,
   };
   process.env.MAYBESITTER_CLOSED_PILOT_IDS = IDS.join(',');
   process.env.MAYBESITTER_PILOT_TRUST_FILE = join(directory, 'trust.json');
   process.env.MAYBESITTER_FEATURE_RECOMMENDATION = 'true';
   process.env.MAYBESITTER_KILL_SWITCH_RECOMMENDATION = 'false';
   process.env.MAYBESITTER_PILOT_ADMIN_TOKEN = 'test-admin-token-123456';
-  process.env.MAYBESITTER_PILOT_INSTANCE_PARTICIPANT_ID = 'pilot-1';
   configureCommandService({
     stateFile: join(directory, 'domain-state.json'), schedulerStore: null,
     initialState: { ...createEmptyDomainState(), commitments: { c1: commitment } },
@@ -46,11 +44,8 @@ test('V03 live pilot: allowlist, consent, first value, calendar, and incident au
     const outsider = await getTrust(new Request('http://local/api/pilot/trust?participantId=outsider'));
     assert.equal(outsider.status, 403);
     const otherAllowlistedParticipant = await getTrust(new Request('http://local/api/pilot/trust?participantId=pilot-2'));
-    assert.equal(otherAllowlistedParticipant.status, 403);
-    delete process.env.MAYBESITTER_PILOT_INSTANCE_PARTICIPANT_ID;
-    const unboundInstance = await getTrust(new Request('http://local/api/pilot/trust?participantId=pilot-1'));
-    assert.equal(unboundInstance.status, 503);
-    process.env.MAYBESITTER_PILOT_INSTANCE_PARTICIPANT_ID = 'pilot-1';
+    assert.equal(otherAllowlistedParticipant.status, 200);
+    assert.equal((await otherAllowlistedParticipant.json()).exposure.reason, 'consent_required');
 
     const initial = await getTrust(new Request('http://local/api/pilot/trust?participantId=pilot-1'));
     assert.equal(initial.status, 200);
@@ -133,7 +128,6 @@ test('V03 live pilot: allowlist, consent, first value, calendar, and incident au
       ['MAYBESITTER_FEATURE_RECOMMENDATION', previous.feature],
       ['MAYBESITTER_KILL_SWITCH_RECOMMENDATION', previous.kill],
       ['MAYBESITTER_PILOT_ADMIN_TOKEN', previous.token],
-      ['MAYBESITTER_PILOT_INSTANCE_PARTICIPANT_ID', previous.binding],
     ] as const) {
       if (value === undefined) delete process.env[key]; else process.env[key] = value;
     }

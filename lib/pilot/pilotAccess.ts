@@ -17,12 +17,6 @@ export interface PilotAccessResult {
 export function resolvePilotAccess(participantId: string, at: string, audit = true): PilotAccessResult {
   requirePilotParticipantId(participantId);
   const allowlist = parseClosedPilotAllowlist(process.env.MAYBESITTER_CLOSED_PILOT_IDS);
-  const boundParticipantId = process.env.MAYBESITTER_PILOT_INSTANCE_PARTICIPANT_ID || '';
-  if (!boundParticipantId) throw new Error('pilot instance participant binding is required');
-  requirePilotParticipantId(boundParticipantId);
-  if (participantId !== boundParticipantId) {
-    return { decision: { allowed: false, reason: 'wrong_instance' }, trust: null };
-  }
   if (!allowlist.has(participantId)) {
     return { decision: { allowed: false, reason: 'not_allowlisted' }, trust: null };
   }
@@ -66,9 +60,6 @@ export function resolvePilotAnalyticsConsent(
   if (!pilotMode) return requested;
   try {
     requirePilotParticipantId(participantId);
-    const boundParticipantId = process.env.MAYBESITTER_PILOT_INSTANCE_PARTICIPANT_ID || '';
-    if (!boundParticipantId || participantId !== boundParticipantId) return 'essential';
-    requirePilotParticipantId(boundParticipantId);
     const allowlist = parseClosedPilotAllowlist(process.env.MAYBESITTER_CLOSED_PILOT_IDS);
     if (!allowlist.has(participantId)) return 'essential';
     return getPilotTrustStore().getOrCreate(participantId, at).analyticsConsent ? 'granted' : 'essential';
