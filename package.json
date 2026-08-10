@@ -23,7 +23,7 @@
     "research:v03-intake": "node --no-warnings --loader ./scripts/ts-resolver.mjs scripts/build-v03-fieldwork-status.ts",
     "test:v03-research": "node --no-warnings --loader ./scripts/ts-resolver.mjs --test tests/research/v03BehavioralResearch.test.ts tests/research/v03FieldIntake.test.ts",
     "test:v02-integration": "node --no-warnings --loader ./scripts/ts-resolver.mjs --test tests/integration/v02LiveLoop.test.ts",
-    "test:v03-pilot": "node --no-warnings --loader ./scripts/ts-resolver.mjs --test tests/pilot/closedPilotControls.test.ts tests/pilot/participantIsolation.test.ts tests/integration/v03ClosedPilotLive.test.ts",
+    "test:v03-pilot": "node --no-warnings --loader ./scripts/ts-resolver.mjs --test tests/pilot/closedPilotControls.test.ts tests/pilot/participantIsolation.test.ts tests/integration/v03ClosedPilotLive.test.ts tests/docs/v03FlutterPilotContract.test.ts",
     "test:calibration": "node --no-warnings --loader ./scripts/ts-resolver.mjs --test tests/calibration/adjudication.test.ts tests/calibration/consistencyGate.test.ts tests/calibration/goldFreeze.test.ts tests/calibration/captureGoldEvidence.test.ts",
     "capture:eval": "node --no-warnings --loader ./scripts/ts-resolver.mjs scripts/run-capture-eval.ts",
     "validate:registry": "node --no-warnings --loader ./scripts/ts-resolver.mjs scripts/validate-dataset-registry.mjs",
