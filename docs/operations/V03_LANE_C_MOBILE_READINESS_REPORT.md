@@ -1,8 +1,16 @@
 # V03 Lane C: Mobile Operational & Device Readiness Audit Report
 
-**Date**: 2026-08-09  
-**Branch**: `ops/v03-mobile-readiness`  
-**Status**: `LANE C COMPLETE`
+**Date**: 2026-08-09
+**Original audit branch**: `ops/v03-mobile-readiness`
+**Preservation branch**: `exec/v03-mobile-readiness-report-rebased`
+**Status**: `HISTORICAL LANE C AUDIT — PRESERVED ON CURRENT MAIN`
+
+> Validation note (2026-08-10): this report preserves the Lane C device-readiness
+> audit from local commit `4868104` and was rechecked against `origin/main` at
+> `b30f0cb` after PR #87. It records engineering/toolchain evidence and design
+> guidance only; it does **not** claim real-user pilot evidence, participant
+> exposure, TestFlight distribution, production deployment, or unlock/closure of
+> issues #55 or #57.
 
 ---
 
@@ -12,7 +20,7 @@
 | :--- | :--- | :--- |
 | **ANDROID** | **`READY`** | Toolchain installed & verified (`Android SDK 36`, `Build-Tools 36.0.0`, `OpenJDK 17/21`, `Gradle 9.1.0`, accepted licenses). `flutter build apk --debug` succeeded (`✓ 153MB APK built`). Repository working tree clean. |
 | **IOS PHYSICAL / TESTFLIGHT** | **`BLOCKED`** | Blocked by code signing, bundle ID registration, and missing App Store distribution credentials. Xcode simulator succeeds, but physical device and TestFlight distribution cannot proceed without explicit provisioning setup. |
-| **PILOT BACKEND DEPLOYMENT** | **`DESIGN READY`** | Deployment architecture designed as a candidate for 25–40 mobile-only participants. Legacy `/assistant` web UI completely excluded. Deployment implementation frozen pending #79 port completion and canonical backend alignment. |
+| **PILOT BACKEND DEPLOYMENT** | **`DESIGN/OPERATIONAL RUNBOOK READY — NOT DEPLOYED`** | This report's architecture section is historical/candidate context. Current `origin/main` contains the authoritative V03-P1 operational runbook at `docs/operations/V03_PILOT_OPERATIONAL_DEPLOYMENT.md`, but that runbook explicitly does not authorize pilot deployment, participant recruitment, or Stage B. |
 
 ---
 
@@ -82,13 +90,13 @@ Simulator builds currently succeed, but physical device deployment and TestFligh
 
 ---
 
-## C. Pilot Deployment Architecture (Candidate Design Specification)
+## C. Pilot Deployment Architecture (Historical Candidate Design)
 
-Architecture for **25–40 pilot participants** in a mobile-only environment:
+The 2026-08-09 Lane C audit captured an architecture candidate for **25–40 pilot participants** in a mobile-only environment. Current `origin/main` now carries the authoritative V03-P1 operational source of truth in `docs/operations/V03_PILOT_OPERATIONAL_DEPLOYMENT.md`; use that runbook for any provisioning, token, backup, restore, restart, rollback, or incident procedure. This section remains a historical design snapshot only and is not evidence of deployment or participant exposure:
 
 ### Operational Guidance & Constraints
-* **Scope Lock**: Design candidate only. Do NOT implement Postgres migration, JWT auth, RLS, multi-tenant persistence, or Cloud Run/ECS infrastructure until issue #79 lands and the post-#79 canonical backend decision is finalized.
-* **Web UI Status**: The legacy `/assistant` web interface is strictly excluded. Mobile clients only interface with canonical `/api/mobile/*` endpoints.
+* **Scope Lock**: Historical design candidate only. Do NOT implement additional Postgres migration, JWT auth, RLS, multi-tenant persistence, or Cloud Run/ECS changes from this report. Current V03-P1 operational procedures live in `docs/operations/V03_PILOT_OPERATIONAL_DEPLOYMENT.md` and still do not authorize pilot deployment, participant recruitment, Stage B, or issue #55/#57 closure.
+* **Web UI Status**: The legacy `/assistant` web interface is strictly excluded. Mobile clients only interface with canonical `/api/mobile/**` endpoints.
 
 ### Candidate Architectural Summary
 1. **Hosting Model**: Containerized Node.js service (Cloud Run / ECS Fargate).
