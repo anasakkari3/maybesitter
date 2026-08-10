@@ -12,6 +12,7 @@ import '../../models/next_step.dart';
 import '../pilot/pilot_state_notice.dart';
 import 'edit_next_step_sheet.dart';
 import 'evidence_labels.dart';
+import 'feedback_flag_button.dart';
 import 'next_step_controller.dart';
 
 /// The V03 participant surface for the one-next-step loop.
@@ -472,6 +473,11 @@ class _DecisionActions extends StatelessWidget {
               ),
           ],
         ),
+        const SizedBox(height: AppSpacing.xs),
+        // Alpha dogfooding affordance: explicit user feedback on the proposal.
+        // Server-side disabled outside alpha (403); the button remains visible
+        // so dogfooders can try, and the sheet explains when disabled.
+        FeedbackFlagButton(proposalId: recommendation.proposalId),
       ],
     );
   }

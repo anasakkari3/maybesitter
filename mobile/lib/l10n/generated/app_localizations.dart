@@ -1581,6 +1581,78 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Use a different token'**
   String get pilotAccessClearToken;
+
+  /// No description provided for @alphaFlagTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Report a problem'**
+  String get alphaFlagTooltip;
+
+  /// No description provided for @alphaFlagTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Report a problem with this step'**
+  String get alphaFlagTitle;
+
+  /// No description provided for @alphaFlagCategoryWrong.
+  ///
+  /// In en, this message translates to:
+  /// **'This recommendation is wrong'**
+  String get alphaFlagCategoryWrong;
+
+  /// No description provided for @alphaFlagCategoryMisunderstood.
+  ///
+  /// In en, this message translates to:
+  /// **'It misunderstood me'**
+  String get alphaFlagCategoryMisunderstood;
+
+  /// No description provided for @alphaFlagCategoryNotUseful.
+  ///
+  /// In en, this message translates to:
+  /// **'It was not useful'**
+  String get alphaFlagCategoryNotUseful;
+
+  /// No description provided for @alphaFlagCategoryInvasive.
+  ///
+  /// In en, this message translates to:
+  /// **'It felt invasive'**
+  String get alphaFlagCategoryInvasive;
+
+  /// No description provided for @alphaFlagCategoryTechnical.
+  ///
+  /// In en, this message translates to:
+  /// **'Technical problem'**
+  String get alphaFlagCategoryTechnical;
+
+  /// No description provided for @alphaFlagNoteHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Optional details'**
+  String get alphaFlagNoteHint;
+
+  /// No description provided for @alphaFlagPickCategory.
+  ///
+  /// In en, this message translates to:
+  /// **'Please choose a category'**
+  String get alphaFlagPickCategory;
+
+  /// No description provided for @alphaFlagSubmit.
+  ///
+  /// In en, this message translates to:
+  /// **'Send report'**
+  String get alphaFlagSubmit;
+
+  /// No description provided for @alphaFlagSent.
+  ///
+  /// In en, this message translates to:
+  /// **'Thank you — report received.'**
+  String get alphaFlagSent;
+
+  /// No description provided for @alphaFlagDisabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Reporting is not enabled in this build.'**
+  String get alphaFlagDisabled;
 }
 
 class _AppLocalizationsDelegate

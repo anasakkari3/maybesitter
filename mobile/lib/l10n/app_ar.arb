@@ -246,5 +246,17 @@
   "pilotAccessBackendUnavailableMessage": "احتفظ بالرمز على هذا الجهاز وأعد المحاولة عندما تتاح الخدمة.",
   "pilotAccessRuntimeConfigTitle": "التجربة غير مهيأة",
   "pilotAccessRuntimeConfigMessage": "خادم التجربة مغلق احترازيًا لأن إعدادات التشغيل غير صالحة.",
-  "pilotAccessClearToken": "استخدام رمز آخر"
+  "pilotAccessClearToken": "استخدام رمز آخر",
+  "alphaFlagTooltip": "أبلغ عن مشكلة",
+  "alphaFlagTitle": "أبلغ عن مشكلة في هذه الخطوة",
+  "alphaFlagCategoryWrong": "هذا الاقتراح خاطئ",
+  "alphaFlagCategoryMisunderstood": "لم يفهمني",
+  "alphaFlagCategoryNotUseful": "لم يكن مفيدًا",
+  "alphaFlagCategoryInvasive": "شعرت أنه متطفل",
+  "alphaFlagCategoryTechnical": "مشكلة تقنية",
+  "alphaFlagNoteHint": "تفاصيل اختيارية",
+  "alphaFlagPickCategory": "يرجى اختيار فئة",
+  "alphaFlagSubmit": "إرسال التقرير",
+  "alphaFlagSent": "شكرًا — تم استلام التقرير.",
+  "alphaFlagDisabled": "الإبلاغ غير مفعّل في هذا الإصدار."
 }

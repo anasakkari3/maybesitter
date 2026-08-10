@@ -246,5 +246,17 @@
   "pilotAccessBackendUnavailableMessage": "שמור את הטוקן במכשיר הזה ונסה שוב כשהשרת זמין.",
   "pilotAccessRuntimeConfigTitle": "הפיילוט אינו מוגדר",
   "pilotAccessRuntimeConfigMessage": "שרת הפיילוט נסגר בצורה בטוחה כי הגדרות ההרצה אינן תקינות.",
-  "pilotAccessClearToken": "להשתמש בטוקן אחר"
+  "pilotAccessClearToken": "להשתמש בטוקן אחר",
+  "alphaFlagTooltip": "דווח על בעיה",
+  "alphaFlagTitle": "דווח על בעיה בשלב הזה",
+  "alphaFlagCategoryWrong": "ההמלצה הזו שגויה",
+  "alphaFlagCategoryMisunderstood": "הוא לא הבין אותי",
+  "alphaFlagCategoryNotUseful": "זה לא היה מועיל",
+  "alphaFlagCategoryInvasive": "זה הרגיש פולשני",
+  "alphaFlagCategoryTechnical": "בעיה טכנית",
+  "alphaFlagNoteHint": "פרטים אופציונליים",
+  "alphaFlagPickCategory": "אנא בחר קטגוריה",
+  "alphaFlagSubmit": "שלח דוח",
+  "alphaFlagSent": "תודה — הדוח התקבל.",
+  "alphaFlagDisabled": "הדיווח אינו מופעל בגרסה זו."
 }
