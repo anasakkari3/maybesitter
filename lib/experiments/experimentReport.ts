@@ -208,15 +208,23 @@ function ratingsFrom(events: readonly PrivacySafeAnalyticsEvent[], property: str
   return Array.from(latestByProposal.values());
 }
 
+function keepShown(keys: ReadonlySet<string>, shown: ReadonlySet<string>): Set<string> {
+  const kept = new Set<string>();
+  keys.forEach((key) => {
+    if (shown.has(key)) kept.add(key);
+  });
+  return kept;
+}
+
 function measureArm(arm: NextStepArm, bucket: ArmEvents): ArmMeasures {
   const { events } = bucket;
   const shown = decisionKeys(events, 'recommendation_shown');
   const exposures = shown.size;
-  const accepted = decisionKeys(events, 'recommendation_accepted');
-  const completed = decisionKeys(events, 'recommendation_completed');
-  const dismissed = decisionKeys(events, 'recommendation_dismissed');
-  const edited = decisionKeys(events, 'recommendation_edited');
-  const deferred = decisionKeys(events, 'recommendation_deferred');
+  const accepted = keepShown(decisionKeys(events, 'recommendation_accepted'), shown);
+  const completed = keepShown(decisionKeys(events, 'recommendation_completed'), shown);
+  const dismissed = keepShown(decisionKeys(events, 'recommendation_dismissed'), shown);
+  const edited = keepShown(decisionKeys(events, 'recommendation_edited'), shown);
+  const deferred = keepShown(decisionKeys(events, 'recommendation_deferred'), shown);
   const decided = new Set<string>();
   for (const keys of [accepted, completed, dismissed, edited, deferred]) {
     keys.forEach((key) => decided.add(key));
