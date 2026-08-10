@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
-import 'package:intl/intl.dart';
 import '../../../models/commitment.dart';
 import '../dtos/commitment_dtos.dart';
+import 'backend_time_mapper.dart';
 
 class CommitmentMapper {
   static Commitment mapToDomain(BackendCommitmentDto dto) {
@@ -12,9 +12,9 @@ class CommitmentMapper {
     final targetTimeStr = dto.timeSpec.remindAt ?? dto.timeSpec.dueAt;
     if (targetTimeStr != null && targetTimeStr.isNotEmpty) {
       try {
-        final parsed = DateTime.parse(targetTimeStr);
+        final parsed = BackendTimeMapper.parseAbsoluteIsoToLocal(targetTimeStr);
         date = parsed;
-        timeStr = DateFormat('hh:mm a').format(parsed);
+        timeStr = BackendTimeMapper.formatLocalClock(parsed);
       } catch (e) {
         invalidDateFlag = true;
         date = null;
