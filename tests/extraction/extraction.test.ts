@@ -50,8 +50,8 @@ test('extraction: Arabic reminder timing cleans title and maps explicit priority
   assert.equal(result.priority.level, 'high');
   assert.equal(result.priority.source, 'user_explicit');
   assert.equal(result.explicitReminderRequest, true);
-  assert.equal(reminder.getDate(), 9);
-  assert.equal(reminder.getHours(), 9);
+  // timezone: 'UTC' → tomorrow 9:00 UTC exactly (host-timezone independent).
+  assert.equal(reminder.toISOString(), '2026-04-09T09:00:00.000Z');
   assert.equal(decideExtractionDisposition(result), 'auto_confirm');
 });
 
@@ -64,8 +64,8 @@ test('extraction: Arabic low-priority timing stays soft and uses the right date 
   assert.equal(result.priority.level, 'low');
   assert.equal(result.priority.source, 'inferred');
   assert.equal(result.flexibility, 'soft');
-  assert.equal(reminder.getDate(), 10);
-  assert.equal(reminder.getHours(), 18);
+  // day after tomorrow, 18:00 UTC.
+  assert.equal(reminder.toISOString(), '2026-04-10T18:00:00.000Z');
   assert.equal(decideExtractionDisposition(result), 'pending_confirmation');
 });
 
@@ -75,7 +75,8 @@ test('extraction: Arabic clock phrases and digits are kept out of the title', ()
 
   assert.equal(result.type, 'task');
   assert.equal(result.title, 'اروح النادي');
-  assert.equal(reminder.getHours(), 17);
+  // 5 PM today in UTC.
+  assert.equal(reminder.toISOString(), '2026-04-08T17:00:00.000Z');
   assert.equal(decideExtractionDisposition(result), 'auto_confirm');
 });
 
@@ -85,8 +86,22 @@ test('extraction: 24-hour ranges use the start time and keep the action title cl
 
   assert.equal(result.type, 'task');
   assert.equal(result.title, 'go to work');
-  assert.equal(reminder.getHours(), 17);
+  assert.equal(reminder.toISOString(), '2026-04-08T17:00:00.000Z');
   assert.equal(decideExtractionDisposition(result), 'auto_confirm');
+});
+
+test('extraction: relative times resolve identically regardless of host timezone (regression)', () => {
+  // The same phrase in two different context timezones must produce the
+  // correct absolute instants, independent of the machine's local timezone.
+  const utcResult = extract('Remind me to call Maya tomorrow at 10am', { now: new Date('2026-08-10T08:00:00.000Z'), timezone: 'UTC' });
+  const jerusalemResult = extract('Remind me to call Maya tomorrow at 10am', { now: new Date('2026-08-10T08:00:00.000Z'), timezone: 'Asia/Jerusalem' });
+
+  assert.equal(utcResult.remindAt, '2026-08-11T10:00:00.000Z');
+  // 10:00 Asia/Jerusalem (UTC+3 in August) == 07:00 UTC.
+  assert.equal(jerusalemResult.remindAt, '2026-08-11T07:00:00.000Z');
+  // And the two must differ by exactly 3 hours.
+  const deltaMs = Date.parse(utcResult.remindAt || '') - Date.parse(jerusalemResult.remindAt || '');
+  assert.equal(deltaMs, 3 * 60 * 60 * 1_000);
 });
 
 test('extractionService: valid LLM output is primary', async () => {

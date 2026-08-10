@@ -262,7 +262,7 @@ test('captureService: continuation fills missing date and time without appending
     assert.equal(second.success, true);
     assert.equal(second.meta.disposition, 'auto_confirm');
     assert.equal(commitment.title, 'call mom');
-    assert.equal(commitment.timeSpec.remindAt ? new Date(commitment.timeSpec.remindAt).getHours() : null, 17);
+    assert.equal(commitment.timeSpec.remindAt ? new Date(commitment.timeSpec.remindAt).getUTCHours() : null, 17);
   } finally {
     cleanup();
   }
@@ -311,8 +311,8 @@ test('captureService: continuation fills missing date without dropping the origi
     const remindAt = commitment.timeSpec.remindAt ? new Date(commitment.timeSpec.remindAt) : null;
     assert.equal(second.success, true);
     assert.equal(second.meta.disposition, 'auto_confirm');
-    assert.equal(remindAt?.getDay(), 5);
-    assert.equal(remindAt?.getHours(), 17);
+    assert.equal(remindAt?.getUTCDay(), 5);
+    assert.equal(remindAt?.getUTCHours(), 17);
   } finally {
     cleanup();
   }
@@ -360,7 +360,7 @@ test('captureService: correction updates date instead of appending a second date
     assert.equal(second.success, true);
     assert.equal(second.meta.disposition, 'auto_confirm');
     assert.equal(commitment.title, 'call mom');
-    assert.equal(commitment.timeSpec.remindAt ? new Date(commitment.timeSpec.remindAt).getDay() : null, 5);
+    assert.equal(commitment.timeSpec.remindAt ? new Date(commitment.timeSpec.remindAt).getUTCDay() : null, 5);
   } finally {
     cleanup();
   }
