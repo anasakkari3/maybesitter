@@ -13,6 +13,15 @@ build/
 # Local Maybesitter runtime data
 .maybesitter/
 
+# V03 (#54) research field data. Trackers, notes, and coded exports hold participant
+# data and belong on the access-controlled research drive, never in Git. The header-only
+# templates under docs/research/v03/templates/ are intentionally tracked.
+*-tracker.csv
+!*.template.csv
+coded-interviews.jsonl
+coded-recruitment.jsonl
+v03-fieldwork-status.json
+
 # Logs
 *.log
 ..dev-server.log
