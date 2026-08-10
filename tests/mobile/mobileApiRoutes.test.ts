@@ -105,7 +105,7 @@ test('mobile API supports capture, confirm, list, detail, patch, action, and del
     const before = await json(detailResponse);
     const beforeTimeSpec = before.timeSpec as Record<string, unknown>;
 
-    const upcomingResponse = await upcomingGet(request('/api/mobile/commitments/upcoming'));
+    const upcomingResponse = await upcomingGet(request(`/api/mobile/commitments/upcoming?referenceTime=${encodeURIComponent(referenceTime)}&timezone=UTC`));
     assert.equal(upcomingResponse.status, 200);
     const upcoming = await json(upcomingResponse);
     assert.equal((upcoming.items as unknown[]).length, 1);
