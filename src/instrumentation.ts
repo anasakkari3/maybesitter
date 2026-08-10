@@ -1,5 +1,6 @@
-import { validatePilotRuntimeConfiguration } from '../lib/services/mobile/pilotRuntimeConfig';
-
-export function register() {
-  validatePilotRuntimeConfiguration();
+export async function register() {
+  if (process.env.NEXT_RUNTIME === 'nodejs') {
+    const { validatePilotRuntimeConfiguration } = await import('../lib/services/mobile/pilotRuntimeConfig');
+    validatePilotRuntimeConfiguration();
+  }
 }
