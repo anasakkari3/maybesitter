@@ -1,12 +1,13 @@
 # V03 Flutter Pilot Contract
 
 Owner of this document: Flutter integration lane for PR #83.
-Canonical backend source: `main` at `740376395a5498841d81aef9073761f83d1a3628`.
+Canonical backend source: `main` at `44ab092ae826b742ed3e2066c952e920cc87234e`.
 
 ## Status
 
-Flutter PR #83 is wired to the canonical V03 mobile pilot backend contract from
-PR #82. The PR remains Draft and is not deployed.
+Flutter PR #83 is merged to canonical `main` and remains wired to the V03 mobile
+pilot backend contract from PR #82. The implementation is engineering-complete;
+this contract does not authorize pilot deployment or participant exposure.
 
 ## Identity
 

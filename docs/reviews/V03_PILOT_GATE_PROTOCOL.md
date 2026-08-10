@@ -1,6 +1,6 @@
 # V03 pilot activation, trust, and early-utility gate
 
-Issue: #57. Gate owner: **Anas Akkari**. Current decision: **HOLD** because Issues #54, #55, and #56 remain open.
+Issue: #57. Gate owner: **Anas Akkari**. Current decision: **HOLD**. Issue #54 is closed only as technical fieldwork-kit preparation; no interview or recruitment evidence has been recorded. The gate remains blocked on real #55 closed-pilot evidence and real #56 experiment evidence.
 
 ## Allowed decisions
 

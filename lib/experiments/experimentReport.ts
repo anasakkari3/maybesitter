@@ -190,11 +190,17 @@ function decisionKeys(events: readonly PrivacySafeAnalyticsEvent[], eventName: A
   return keys;
 }
 
-function numbersFrom(events: readonly PrivacySafeAnalyticsEvent[], eventName: AnalyticsEventName, property: string): number[] {
-  return events
-    .filter((event) => event.eventName === eventName)
-    .map((event) => event.properties[property])
-    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+function shownNumbersFrom(events: readonly PrivacySafeAnalyticsEvent[], property: string): number[] {
+  const firstByProposal = new Map<string, number>();
+  for (const event of events) {
+    if (event.eventName !== 'recommendation_shown') continue;
+    const key = proposalKey(event);
+    const value = event.properties[property];
+    if (key && typeof value === 'number' && Number.isFinite(value) && !firstByProposal.has(key)) {
+      firstByProposal.set(key, value);
+    }
+  }
+  return Array.from(firstByProposal.values());
 }
 
 function ratingsFrom(events: readonly PrivacySafeAnalyticsEvent[], property: string, shown: ReadonlySet<string>): number[] {
@@ -229,8 +235,8 @@ function measureArm(arm: NextStepArm, bucket: ArmEvents): ArmMeasures {
   for (const keys of [accepted, completed, dismissed, edited, deferred]) {
     keys.forEach((key) => decided.add(key));
   }
-  const latencies = numbersFrom(events, 'recommendation_shown', 'latencyMs');
-  const costs = numbersFrom(events, 'recommendation_shown', 'costMicros');
+  const latencies = shownNumbersFrom(events, 'latencyMs');
+  const costs = shownNumbersFrom(events, 'costMicros');
 
   return {
     arm,

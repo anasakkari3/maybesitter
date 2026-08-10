@@ -185,8 +185,8 @@ the template in [12-calculation-and-thresholds.md](12-calculation-and-thresholds
 - **Do not fabricate evidence.** No synthetic, illustrative, or "representative" row may enter the
   trackers or the coded artifact. Every fixture in `tests/research/*` is synthetic and is test-only.
   A fabricated row becomes a fabricated consent claim in the #57 gate record.
-- **#54 stays open** until real interviews and real recruitment happen. Completing this kit does not
-  advance the issue.
+- **Closing #54 for technical fieldwork-kit preparation does not create evidence.** Real interviews
+  and real recruitment are still required before #57 can treat the #54 evidence criterion as met.
 - **A negative result closes the issue honestly.** Below 40% is a real, publishable answer and
   should produce a PIVOT recommendation at #57, not another round of recruiting until the number
   improves.
