@@ -82,6 +82,22 @@ test('experiment: ratings are one-per-shown-proposal and latest response wins', 
   assert.deepEqual(measured.invasivenessRating, { count: 1, mean: 3, standardDeviation: 0 });
 });
 
+test('experiment: behavioral decisions are counted only for shown proposals', () => {
+  const values = [
+    event(),
+    event({ eventId: 'a1', eventName: 'recommendation_accepted', properties: { proposalId: 'p1' } }),
+    event({ eventId: 'a2', eventName: 'recommendation_accepted', properties: { proposalId: 'never-shown' } }),
+    event({ eventId: 'e1', eventName: 'recommendation_edited', properties: { proposalId: 'never-shown', changedFieldCount: 1 } }),
+    event({ eventId: 'd1', eventName: 'recommendation_dismissed', properties: { proposalId: 'never-shown' } }),
+  ];
+  const measured = buildExperimentReport(values, GENERATED_AT).arms.find((item) => item.arm === 'generic')!;
+  assert.equal(measured.exposures, 1);
+  assert.equal(measured.decisions, 1);
+  assert.deepEqual(measured.acceptanceRate, { count: 1, denominator: 1, rate: 1 });
+  assert.deepEqual(measured.correctionRate, { count: 0, denominator: 1, rate: 0 });
+  assert.deepEqual(measured.dismissalRate, { count: 0, denominator: 1, rate: 0 });
+});
+
 test('experiment: all three arms are measured against the generic baseline', () => {
   assert.equal(report.experimentId, NEXT_STEP_EXPERIMENT_ID);
   assert.equal(report.baselineArm, 'generic');
