@@ -98,6 +98,18 @@ test('experiment: behavioral decisions are counted only for shown proposals', ()
   assert.deepEqual(measured.dismissalRate, { count: 0, denominator: 1, rate: 0 });
 });
 
+test('experiment: latency and cost are counted once per shown proposal', () => {
+  const values = [
+    event(),
+    event({ eventId: 's1-duplicate', properties: { proposalId: 'p1', commitmentId: 'c1', baselineVersion: 'v1', latencyMs: 999, costMicros: 100 } }),
+    event({ eventId: 's2', properties: { proposalId: 'p2', commitmentId: 'c2', baselineVersion: 'v1', latencyMs: 9, costMicros: 0 } }),
+  ];
+  const measured = buildExperimentReport(values, GENERATED_AT).arms.find((item) => item.arm === 'generic')!;
+  assert.equal(measured.exposures, 2);
+  assert.deepEqual(measured.latencyMs, { count: 2, mean: 6, p95: 9 });
+  assert.deepEqual(measured.costMicros, { count: 2, mean: 0 });
+});
+
 test('experiment: all three arms are measured against the generic baseline', () => {
   assert.equal(report.experimentId, NEXT_STEP_EXPERIMENT_ID);
   assert.equal(report.baselineArm, 'generic');
