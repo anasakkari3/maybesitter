@@ -21,7 +21,12 @@ function cleanText(value: string, maxLength: number): string {
   return value.replace(/\s+/g, ' ').trim().slice(0, maxLength);
 }
 
-function isSafeText(value: string): boolean {
+/**
+ * The single tone/safety screen for anything this service will surface. Exported so arms
+ * that put user-authored free text (rather than fixed system labels) into `evidenceLabels`
+ * screen it with exactly this rule, instead of only discovering it via `reason`.
+ */
+export function isSafeText(value: string): boolean {
   return value.length > 0 && !FORBIDDEN_LANGUAGE.test(value);
 }
 

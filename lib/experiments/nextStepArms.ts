@@ -10,7 +10,7 @@ import {
   type BaselineScore,
   type BaselineSelection,
 } from '../services/nextStepBaseline';
-import { proposeNextStep } from '../services/nextStepReviewService';
+import { isSafeText, proposeNextStep } from '../services/nextStepReviewService';
 import {
   buildBehaviorProfile,
   kindAffinity,
@@ -164,16 +164,40 @@ function scopeMatchesCandidate(scope: string, candidateTitle: string): boolean {
   return candidateTitle.toLowerCase().includes(scope.toLowerCase());
 }
 
+/**
+ * ADR §5: "magnitude scales with confidence". The 0.5 floor stays an on/off gate — below
+ * it a statement contributes nothing at all — but above it the effect is proportional, so
+ * the feedback loop's ±0.03/-0.05 confidence nudges actually move ranking instead of doing
+ * nothing until a nudge happens to cross the gate.
+ */
+function scaledMagnitude(base: number, confidence: number): number {
+  return base * confidence;
+}
+
+interface StatedAdjustment {
+  /** Soft signals (soft prefer/avoid, facts). Only ever break ties inside an urgency tier. */
+  softBonus: number;
+  /** Hard prefer signals. An explicit user override, allowed to compete across tiers. */
+  hardBonus: number;
+  veto: boolean;
+  trace: PreferenceTraceEntry[];
+}
+
 function statedPreferenceAdjustment(
   candidate: ArmCandidate,
   inputs: StatedPreferenceInputs,
-): { bonus: number; veto: boolean; trace: PreferenceTraceEntry[] } {
+): StatedAdjustment {
   const trace: PreferenceTraceEntry[] = [];
-  let bonus = 0;
+  let softBonus = 0;
+  let hardBonus = 0;
   let veto = false;
 
   for (const preference of inputs.preferences) {
     if (preference.status !== 'active') continue;
+    // A confirm-band (0.60–0.84) statement is recorded but unconfirmed: it must not move
+    // ranking until a human confirms it, otherwise two similar-but-different statements
+    // on one scope would both score, which is exactly what the confirm band exists to stop.
+    if (preference.requiresConfirmation) continue;
     if (preference.confidence < PREFERENCE_CONFIDENCE_FLOOR) continue;
     if (!scopeMatchesCandidate(preference.scope, candidate.title)) continue;
 
@@ -183,24 +207,37 @@ function statedPreferenceAdjustment(
       continue;
     }
     if (preference.polarity === 'avoid') {
-      bonus += SOFT_AVOID_PENALTY;
-      trace.push({ kind: 'preference', id: preference.id, statement: preference.statement, confidence: preference.confidence, effect: 'penalty', magnitude: SOFT_AVOID_PENALTY });
+      const magnitude = scaledMagnitude(SOFT_AVOID_PENALTY, preference.confidence);
+      softBonus += magnitude;
+      trace.push({ kind: 'preference', id: preference.id, statement: preference.statement, confidence: preference.confidence, effect: 'penalty', magnitude });
       continue;
     }
-    const magnitude = preference.strength === 'hard' ? HARD_PREFER_BONUS : SOFT_PREFER_BONUS;
-    bonus += magnitude;
+    const hard = preference.strength === 'hard';
+    const magnitude = scaledMagnitude(hard ? HARD_PREFER_BONUS : SOFT_PREFER_BONUS, preference.confidence);
+    if (hard) hardBonus += magnitude;
+    else softBonus += magnitude;
     trace.push({ kind: 'preference', id: preference.id, statement: preference.statement, confidence: preference.confidence, effect: 'bonus', magnitude });
   }
 
   for (const fact of inputs.facts) {
     if (fact.status !== 'active') continue;
+    if (fact.requiresConfirmation) continue;
     if (fact.confidence < PREFERENCE_CONFIDENCE_FLOOR) continue;
     if (!scopeMatchesCandidate(fact.scope, candidate.title)) continue;
-    bonus += FACT_BONUS;
-    trace.push({ kind: 'fact', id: fact.id, statement: fact.statement, confidence: fact.confidence, effect: 'bonus', magnitude: FACT_BONUS });
+    // Facts state what is true, not a ranked preference, so they are always a soft signal.
+    const magnitude = scaledMagnitude(FACT_BONUS, fact.confidence);
+    softBonus += magnitude;
+    trace.push({ kind: 'fact', id: fact.id, statement: fact.statement, confidence: fact.confidence, effect: 'bonus', magnitude });
   }
 
-  return { bonus, veto, trace };
+  return { softBonus, hardBonus, veto, trace };
+}
+
+/** The three urgency dimensions the deterministic baseline ranks on, most significant first. */
+function urgencyTierOrder(left: BaselineScore, right: BaselineScore): number {
+  return right.latenessBand - left.latenessBand
+    || right.urgencyBand - left.urgencyBand
+    || right.importanceBand - left.importanceBand;
 }
 
 function selectStatedPreferenceArm(
@@ -213,16 +250,30 @@ function selectStatedPreferenceArm(
   const byId = new Map(candidates.map((candidate) => [candidate.commitmentId, candidate]));
   const eligible = baseline.scores.filter((score) => score.evidenceSufficient);
 
-  const adjustmentById = new Map<string, { bonus: number; veto: boolean; trace: PreferenceTraceEntry[] }>();
+  const adjustmentById = new Map<string, StatedAdjustment>();
   for (const score of eligible) {
     const candidate = byId.get(score.commitmentId);
     if (!candidate) continue;
     adjustmentById.set(score.commitmentId, statedPreferenceAdjustment(candidate, inputs));
   }
 
+  const hardBonusOf = (score: BaselineScore): number => adjustmentById.get(score.commitmentId)?.hardBonus || 0;
+  const softBonusOf = (score: BaselineScore): number => adjustmentById.get(score.commitmentId)?.softBonus || 0;
+
   const notVetoed = eligible.filter((score) => !adjustmentById.get(score.commitmentId)?.veto);
+  // Ranking order, most significant first:
+  //   1. HARD prefer signals — an explicit user override, deliberately allowed to beat the
+  //      baseline's urgency tiers (the same latitude the hard-avoid veto already has).
+  //   2. The baseline's own urgency tiers (lateness → urgency → importance).
+  //   3. SOFT signals (soft prefer/avoid, facts) — a nudge *within* one urgency tier only.
+  //   4. The baseline's remaining tiebreaks (effort, then id).
+  // Step 2 sitting above step 3 is what makes "a soft preference is outweighed by overdue
+  // urgency" true: a mild +2*confidence can no longer pull a candidate past a genuinely
+  // more urgent one, only past an equally urgent one.
   const selectedScore = [...notVetoed].sort((left, right) => (
-    (adjustmentById.get(right.commitmentId)?.bonus || 0) - (adjustmentById.get(left.commitmentId)?.bonus || 0)
+    hardBonusOf(right) - hardBonusOf(left)
+      || urgencyTierOrder(left, right)
+      || softBonusOf(right) - softBonusOf(left)
       || baselineOrder(left, right)
   ))[0];
   const selected = selectedScore ? byId.get(selectedScore.commitmentId) : null;
@@ -251,7 +302,12 @@ function selectStatedPreferenceArm(
   }
 
   const trace = adjustmentById.get(selectedScore.commitmentId)?.trace || [];
-  const evidenceLabels = [...selectedScore.evidenceLabels, ...trace.map((entry) => entry.statement)];
+  // This is the first arm to put arbitrary user-authored free text into evidenceLabels —
+  // every earlier arm only used fixed system-generated strings. Screen it with the same
+  // tone guard proposeNextStep applies to `reason`, so a statement like "I must go to the
+  // gym" is dropped from the surfaced evidence rather than collapsing the whole proposal.
+  const statementLabels = trace.map((entry) => entry.statement).filter(isSafeText);
+  const evidenceLabels = [...selectedScore.evidenceLabels, ...statementLabels];
   const recommendation = proposeNextStep(
     [{
       commitmentId: selected.commitmentId,
@@ -267,7 +323,10 @@ function selectStatedPreferenceArm(
     arm: 'stated-preference',
     recommendation,
     scores: baseline.scores,
-    selectedCommitmentId: selected.commitmentId,
+    // If the proposal did not survive review (e.g. the commitment's own title trips the
+    // tone guard), nothing was actually surfaced. Reporting a pick anyway would let a
+    // benchmark credit the arm with a recommendation the user never saw.
+    selectedCommitmentId: recommendation.state === 'ready' ? selected.commitmentId : null,
     adjustments: [],
     fallbackReason,
     preferenceTrace: trace,
