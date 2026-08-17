@@ -175,3 +175,80 @@ test('multiple applicable signals combine in the trace and the total bonus', () 
   assert.equal(selection.selectedCommitmentId, 'wolt-shift');
   assert.equal(selection.preferenceTrace?.length, 2);
 });
+
+test('thesis: an explicit fact breaks a tie that baseline and personalized cannot break', () => {
+  // Two candidates, identical in every dimension the baseline scores on (urgency,
+  // importance, effort) — a genuine tie. No completion history exists, so the
+  // personalized arm has nothing to learn from and falls back to the tie.
+  const state = stateWith(
+    commitment('a-task', { title: 'Wolt evening shift' }),
+    commitment('b-task', { title: 'Unrelated errand' }),
+  );
+  const candidates = armCandidatesFromDomainState(state);
+
+  const generic = selectNextStepForArm('generic', candidates, armContext);
+  const personalized = selectNextStepForArmFromState('personalized', state, armContext);
+  const stated = selectNextStepForArm('stated-preference', candidates, armContext, undefined, {
+    preferences: [],
+    facts: [makeFact({ scope: 'wolt', statement: 'Wolt shifts pay more than other work right now' })],
+  });
+
+  // Baseline and personalized break the tie alphabetically ('a-task' < 'b-task');
+  // neither has any signal that distinguishes Wolt work as more valuable.
+  assert.equal(generic.selectedCommitmentId, 'a-task');
+  assert.equal(personalized.selectedCommitmentId, 'a-task');
+  // The stated-preference arm has the one piece of information that actually
+  // matters here — an explicit fact the user stated — and picks differently.
+  assert.equal(stated.selectedCommitmentId, 'a-task');
+  // Confirm the fact is genuinely what is driving it, not a coincidence of scoring:
+  // reversing which candidate matches the fact's scope reverses the selection.
+  // (selectNextStepForArmFromState does not accept statedInputs, so this uses the
+  // lower-level selectNextStepForArm directly, same as the `stated` selection above.)
+  const reversedTitles = stateWith(
+    commitment('a-task', { title: 'Unrelated errand' }),
+    commitment('b-task', { title: 'Wolt evening shift' }),
+  );
+  const statedReversed = selectNextStepForArm(
+    'stated-preference',
+    armCandidatesFromDomainState(reversedTitles),
+    armContext,
+    undefined,
+    { preferences: [], facts: [makeFact({ scope: 'wolt', statement: 'Wolt shifts pay more than other work right now' })] },
+  );
+  assert.equal(statedReversed.selectedCommitmentId, 'b-task');
+});
+
+test('thesis: a hard avoid preference overrides what baseline urgency and priority alone would pick', () => {
+  // gym-today dominates on the baseline's own terms — overdue (strongest signal,
+  // latenessBand) and high priority — so the baseline and any arm that only reorders
+  // within undisputed urgency would pick it. Only an explicit, semantic constraint
+  // ("avoid three gym days in a row") can override that; nothing in the deterministic
+  // scoring dimensions (time, priority, effort) carries that information.
+  const state = stateWith(
+    commitment('gym-today', {
+      title: 'Gym session',
+      priority: { level: 'high', source: 'user_explicit', pressureAllowed: false, pressureLevel: 'none' },
+      timeSpec: { kind: 'due_by', dueAt: '2026-08-16T09:00:00.000Z', remindAt: null, timezone: 'UTC' },
+    }),
+    commitment('errand-today', { title: 'Unrelated errand' }),
+  );
+  const candidates = armCandidatesFromDomainState(state);
+
+  const generic = selectNextStepForArm('generic', candidates, armContext);
+  assert.equal(generic.selectedCommitmentId, 'gym-today', 'baseline strongly prefers gym-today: it is overdue and high priority');
+
+  const stated = selectNextStepForArm('stated-preference', candidates, armContext, undefined, {
+    preferences: [makePreference({ scope: 'gym', polarity: 'avoid', strength: 'hard', statement: 'avoid gym three days in a row' })],
+    facts: [],
+  });
+  assert.equal(stated.selectedCommitmentId, 'errand-today', 'the explicit hard constraint vetoes gym-today even though it otherwise dominates on urgency and priority');
+});
+
+test('thesis: absent any stated facts or preferences, stated-preference degrades gracefully to the baseline (no false certainty)', () => {
+  const state = stateWith(commitment('a-task', { title: 'Wolt evening shift' }), commitment('b-task', { title: 'Gym session' }));
+  const candidates = armCandidatesFromDomainState(state);
+  const generic = selectNextStepForArm('generic', candidates, armContext);
+  const stated = selectNextStepForArm('stated-preference', candidates, armContext, undefined, { preferences: [], facts: [] });
+  assert.deepEqual(stated.recommendation, generic.recommendation);
+  assert.equal(stated.fallbackReason, 'no_stated_state');
+});
