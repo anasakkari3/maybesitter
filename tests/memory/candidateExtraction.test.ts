@@ -106,3 +106,60 @@ test('extraction: evidence span covers full text', () => {
   assert.equal(candidates[0].evidenceSpan.end, text.length);
   assert.equal(candidates[0].evidenceSpan.text, text);
 });
+
+test('extraction: "I don\'t like going to the gym three days in a row" → preference', () => {
+  const candidates = extractCandidatesRuleBased("I don't like going to the gym three days in a row", { now });
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0].candidateType, 'preference');
+});
+
+test('extraction: "ما بحب اروح الجيم" → preference', () => {
+  const candidates = extractCandidatesRuleBased('ما بحب اروح الجيم', { now });
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0].candidateType, 'preference');
+});
+
+test('extraction: "I prefer working on projects in the evening" → preference', () => {
+  const candidates = extractCandidatesRuleBased('I prefer working on projects in the evening', { now });
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0].candidateType, 'preference');
+});
+
+test('extraction: "I work Tuesday from 17:00 to 20:00" → fact', () => {
+  const candidates = extractCandidatesRuleBased('I work Tuesday from 17:00 to 20:00', { now });
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0].candidateType, 'fact');
+});
+
+test('extraction: "بشتغل الثلاثاء من الخامسة للثامنة" → fact', () => {
+  const candidates = extractCandidatesRuleBased('بشتغل الثلاثاء من الخامسة للثامنة', { now });
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0].candidateType, 'fact');
+});
+
+test('extraction: "I will work on Tuesday" stays a commitment, not a fact (overlap guard)', () => {
+  const candidates = extractCandidatesRuleBased('I will work on Tuesday', { now });
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0].candidateType, 'commitment');
+  assert.equal(candidates[0].modality, 'certain');
+});
+
+test('extraction: existing commitment fixtures are unaffected by the new preference/fact patterns', () => {
+  // Regression check: every pre-existing commitment-classification test text must still
+  // classify as 'commitment'.
+  const stillCommitments = [
+    'يمكن أزور خالي',
+    'ناوي أزور خالي الخميس',
+    'خلص رايح على خالي الخميس',
+    'ذكرني أزور خالي الخميس',
+    'مش رايح الخميس',
+    'إذا خلصت بدري، بروح عالجيم',
+    'remind me to call the doctor tomorrow',
+    'maybe I will go to the gym',
+    "I won't go on Thursday",
+  ];
+  for (const text of stillCommitments) {
+    const candidates = extractCandidatesRuleBased(text, { now });
+    assert.equal(candidates[0].candidateType, 'commitment', `expected "${text}" to stay a commitment`);
+  }
+});

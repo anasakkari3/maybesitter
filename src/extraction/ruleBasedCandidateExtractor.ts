@@ -79,6 +79,69 @@ const REPORTED_PATTERNS = mk([
   'אמרה',
 ]);
 
+const PREFERENCE_PATTERNS = mk([
+  'بفضل',
+  'بحب',
+  'ما\\s+بحب',
+  'مش\\s+بحب',
+  'I\\s+prefer',
+  "I\\s+don't\\s+like",
+  'I\\s+like\\s+to',
+  'I\\s+hate',
+  'I\\s+usually',
+  'I\\s+try\\s+not\\s+to',
+  'אני\\s+מעדיף',
+  'אני\\s+מעדיפה',
+  'אני\\s+אוהב',
+  'אני\\s+לא\\s+אוהב',
+]);
+
+const FACT_VERB_PATTERNS = mk([
+  'بشتغل',
+  'بدوام',
+  'بسكر',
+  'بفتح',
+  'עובד',
+  'עובדת',
+  'סוגר',
+  'פותח',
+  'I\\s+work',
+  'works?\\s+(?:on|at|until|from)',
+  'closes?\\s+at',
+  'opens?\\s+at',
+  'my\\s+(?:work|shift)\\s+(?:hours|is|are)',
+]);
+
+/**
+ * Fact detection runs before commitment-modality detection and requires the absence
+ * of a commitment-modality marker, so a phrase like "I will work on Tuesday"
+ * (CERTAIN_PATTERNS: "I will") stays a commitment, not a fact, even though it also
+ * loosely resembles a schedule statement (FACT_VERB_PATTERNS: "work on").
+ *
+ * Preference detection deliberately does NOT use this guard: NEGATION_PATTERNS
+ * includes "don't", which is also the core marker of the primary "avoid" preference
+ * phrasing ("I don't like ..."). Gating on it would block preference detection
+ * from ever firing on its own main case. None of the existing commitment fixtures
+ * contain a PREFERENCE_PATTERNS phrase, so an ungated check does not regress them
+ * (see the extraction regression test in this task).
+ */
+function hasCommitmentModalityMarker(text: string): boolean {
+  return CERTAIN_PATTERNS.test(text)
+    || INTENDED_PATTERNS.test(text)
+    || POSSIBLE_PATTERNS.test(text)
+    || CONDITIONAL_PATTERNS.test(text)
+    || NEGATION_PATTERNS.test(text)
+    || REPORTED_PATTERNS.test(text);
+}
+
+function looksLikePreference(text: string): boolean {
+  return PREFERENCE_PATTERNS.test(text);
+}
+
+function looksLikeFact(text: string): boolean {
+  return !hasCommitmentModalityMarker(text) && FACT_VERB_PATTERNS.test(text);
+}
+
 function detectModality(text: string): CandidateModality {
   // Order matters: hedges and negations must take precedence over embedded
   // certainty markers (e.g. "maybe I will" is possible, not certain).
@@ -128,6 +191,27 @@ function extractTemporal(text: string): MemoryCandidate['temporal'] | undefined 
 export function extractCandidatesRuleBased(text: string, _context: RuleBasedCandidateContext): MemoryCandidate[] {
   const trimmed = text.trim();
   if (!trimmed) return [];
+
+  if (looksLikePreference(trimmed)) {
+    return [{
+      candidateType: 'preference',
+      normalizedText: trimmed,
+      modality: 'certain',
+      confidence: 0.75,
+      evidenceSpan: { start: 0, end: trimmed.length, text: trimmed },
+    }];
+  }
+
+  if (looksLikeFact(trimmed)) {
+    return [{
+      candidateType: 'fact',
+      normalizedText: trimmed,
+      modality: 'certain',
+      confidence: 0.80,
+      temporal: extractTemporal(trimmed),
+      evidenceSpan: { start: 0, end: trimmed.length, text: trimmed },
+    }];
+  }
 
   const modality = detectModality(trimmed);
 
