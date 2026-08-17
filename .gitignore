@@ -22,6 +22,11 @@ coded-interviews.jsonl
 coded-recruitment.jsonl
 v03-fieldwork-status.json
 
+# Test-run output. evaluation-reports/ otherwise holds reviewed, tracked reports, so this
+# ignores the one file tests/extraction/captureEvalRunner.test.ts regenerates on every
+# `npm test` — tracking it means a dirty tree after every run.
+evaluation-reports/capture-gate-test-report.json
+
 # Logs
 *.log
 ..dev-server.log
