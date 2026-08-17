@@ -108,6 +108,20 @@ test('a hard avoid preference vetoes an otherwise-selectable candidate', () => {
   assert.equal(selection.selectedCommitmentId, 'other-task');
 });
 
+test('a hard avoid preference that vetoes the only eligible candidate does not fall back to selecting it', () => {
+  const state = stateWith(commitment('gym-session', { title: 'Gym session' }));
+  const candidates = armCandidatesFromDomainState(state);
+  const selection = selectNextStepForArm('stated-preference', candidates, armContext, undefined, {
+    preferences: [makePreference({ scope: 'gym', polarity: 'avoid', strength: 'hard' })],
+    facts: [],
+  });
+  assert.equal(selection.selectedCommitmentId, null);
+  assert.notEqual(selection.selectedCommitmentId, 'gym-session');
+  assert.equal(selection.fallbackReason, 'all_vetoed');
+  assert.equal(selection.preferenceTrace?.length, 1);
+  assert.equal(selection.preferenceTrace?.[0].effect, 'veto');
+});
+
 test('a soft avoid preference is a penalty, not a veto: it can still be selected if nothing else is eligible', () => {
   const state = stateWith(commitment('gym-session', { title: 'Gym session' }));
   const candidates = armCandidatesFromDomainState(state);

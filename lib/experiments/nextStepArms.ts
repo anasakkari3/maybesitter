@@ -228,6 +228,24 @@ function selectStatedPreferenceArm(
   const selected = selectedScore ? byId.get(selectedScore.commitmentId) : null;
   const fallbackReason = inputs.preferences.length === 0 && inputs.facts.length === 0 ? 'no_stated_state' : null;
 
+  // Every otherwise-eligible candidate was hard-avoid vetoed. Falling back to the
+  // pre-veto baseline here would silently recommend the very candidate the veto was
+  // meant to exclude, so this case is handled separately from "nothing eligible at all".
+  if (eligible.length > 0 && notVetoed.length === 0) {
+    const vetoedScores = eligible.filter((score) => adjustmentById.get(score.commitmentId)?.veto);
+    const vetoTrace = vetoedScores.flatMap((score) => adjustmentById.get(score.commitmentId)?.trace || []);
+    const recommendation = { ...proposeNextStep([], locale, proposalId), state: 'insufficient_evidence' as const };
+    return {
+      arm: 'stated-preference',
+      recommendation,
+      scores: baseline.scores,
+      selectedCommitmentId: null,
+      adjustments: [],
+      fallbackReason: 'all_vetoed',
+      preferenceTrace: vetoTrace,
+    };
+  }
+
   if (!selected || !selectedScore) {
     return { arm: 'stated-preference', ...baseline, adjustments: [], fallbackReason };
   }
