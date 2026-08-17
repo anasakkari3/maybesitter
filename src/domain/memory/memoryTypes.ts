@@ -5,7 +5,7 @@ export type MemoryKind =
   | 'preference'
   | 'hypothesis';
 
-export type EnabledMemoryKind = 'observation' | 'commitment';
+export type EnabledMemoryKind = 'observation' | 'commitment' | 'fact' | 'preference';
 
 export type DetectedLanguage = 'ar' | 'he' | 'en' | 'mixed';
 
@@ -133,4 +133,66 @@ export interface CommitmentMatchScore {
   semanticScore: number;
   totalScore: number;
   matchReasons: string[];
+}
+
+export type StatementStatus = 'active' | 'superseded' | 'rejected';
+export type PreferenceStrength = 'soft' | 'hard';
+export type PreferencePolarity = 'prefer' | 'avoid';
+
+export interface PreferenceMemory {
+  id: string;
+  userId: string;
+  statement: string;
+  scope: string;
+  strength: PreferenceStrength;
+  polarity: PreferencePolarity;
+  confidence: number;
+  status: StatementStatus;
+  createdAt: string;
+  updatedAt: string;
+  evidenceIds: string[];
+  supersedesPreferenceId?: string;
+}
+
+export interface FactMemory {
+  id: string;
+  userId: string;
+  statement: string;
+  scope: string;
+  confidence: number;
+  status: StatementStatus;
+  createdAt: string;
+  updatedAt: string;
+  evidenceIds: string[];
+  supersedesFactId?: string;
+}
+
+export type PreferenceEventType = 'created' | 'corrected' | 'confidence_adjusted';
+export interface PreferenceEvent {
+  id: string;
+  preferenceId: string;
+  type: PreferenceEventType;
+  fromStatus?: StatementStatus;
+  toStatus?: StatementStatus;
+  fromConfidence?: number;
+  toConfidence?: number;
+  observationId?: string;
+  reason: string;
+  actor: 'user' | 'system' | 'model';
+  createdAt: string;
+}
+
+export type FactEventType = 'created' | 'corrected' | 'confidence_adjusted';
+export interface FactEvent {
+  id: string;
+  factId: string;
+  type: FactEventType;
+  fromStatus?: StatementStatus;
+  toStatus?: StatementStatus;
+  fromConfidence?: number;
+  toConfidence?: number;
+  observationId?: string;
+  reason: string;
+  actor: 'user' | 'system' | 'model';
+  createdAt: string;
 }

@@ -4,6 +4,9 @@ import {
   classifyCommitmentStatus,
   decideConfirmationLevel,
   evaluateNotificationEligibility,
+  classifyPreferenceStrength,
+  classifyPreferencePolarity,
+  deriveStatementScope,
 } from '../../src/domain/memory/memoryPolicy.ts';
 import type { MemoryCandidate, CommitmentMemory } from '../../src/domain/memory/memoryTypes.ts';
 
@@ -133,4 +136,44 @@ test('notification: proposed status → not eligible', () => {
 test('notification: scheduled + time + high confidence → eligible', () => {
   const decision = evaluateNotificationEligibility(makeCommitment({ status: 'scheduled' }));
   assert.ok(decision.eligible);
+});
+
+function makePreferenceCandidate(overrides: Partial<MemoryCandidate> = {}): MemoryCandidate {
+  return {
+    candidateType: 'preference',
+    normalizedText: 'I prefer not to go to the gym three days in a row',
+    modality: 'certain',
+    confidence: 0.75,
+    evidenceSpan: { start: 0, end: 10, text: 'preference' },
+    ...overrides,
+  };
+}
+
+test('policy: "always"/"never"/"must" → hard strength', () => {
+  assert.equal(classifyPreferenceStrength(makePreferenceCandidate({ normalizedText: 'I always need 8 hours of sleep' })), 'hard');
+  assert.equal(classifyPreferenceStrength(makePreferenceCandidate({ normalizedText: 'ما بحب اروح الجيم دايماً ثلاث أيام متتالية' })), 'hard');
+});
+
+test('policy: "usually"/"prefer" without hard markers → soft strength', () => {
+  assert.equal(classifyPreferenceStrength(makePreferenceCandidate({ normalizedText: 'I usually prefer working on projects' })), 'soft');
+});
+
+test('policy: "avoid"/"don\'t like"/"hate" → avoid polarity', () => {
+  assert.equal(classifyPreferencePolarity(makePreferenceCandidate({ normalizedText: "I don't like going to the gym three days in a row" })), 'avoid');
+  assert.equal(classifyPreferencePolarity(makePreferenceCandidate({ normalizedText: 'ما بحب اروح الجيم' })), 'avoid');
+});
+
+test('policy: "I prefer"/"I like" → prefer polarity', () => {
+  assert.equal(classifyPreferencePolarity(makePreferenceCandidate({ normalizedText: 'I prefer working on projects in the evening' })), 'prefer');
+});
+
+test('policy: scope derived from known vocabulary keyword', () => {
+  assert.equal(deriveStatementScope(makePreferenceCandidate({ normalizedText: "I don't like going to the gym three days in a row" })), 'gym');
+  assert.equal(deriveStatementScope(makePreferenceCandidate({ normalizedText: 'Thursday Wolt shifts pay more', candidateType: 'fact' })), 'wolt');
+  assert.equal(deriveStatementScope(makePreferenceCandidate({ normalizedText: 'بشتغل الثلاثاء من الخامسة للثامنة', candidateType: 'fact' })), 'work');
+});
+
+test('policy: scope falls back to normalized text when no keyword matches', () => {
+  const scope = deriveStatementScope(makePreferenceCandidate({ normalizedText: 'I prefer quiet mornings' }));
+  assert.equal(scope, 'i prefer quiet mornings');
 });

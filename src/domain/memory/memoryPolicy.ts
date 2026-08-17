@@ -4,6 +4,8 @@ import type {
   NotificationDecision,
   NotificationReasonCode,
   CommitmentMemory,
+  PreferenceStrength,
+  PreferencePolarity,
 } from './memoryTypes.ts';
 
 export function classifyCommitmentStatus(candidate: MemoryCandidate): CommitmentMemoryStatus | null {
@@ -61,4 +63,48 @@ export function evaluateNotificationEligibility(commitment: CommitmentMemory): N
     scheduledAt: commitment.dueAt,
     reasonCodes: ['ELIGIBLE'],
   };
+}
+
+function mkPolicyPattern(alternatives: string[]): RegExp {
+  return new RegExp(`(?:${alternatives.join('|')})`, 'i');
+}
+
+const HARD_STRENGTH_PATTERNS = mkPolicyPattern([
+  'always', 'never', 'must', 'دايماً', 'دائما', 'لازم', 'תמיד', 'אף\\s+פעם',
+]);
+
+const AVOID_POLARITY_PATTERNS = mkPolicyPattern([
+  "don't\\s+like", 'avoid', 'hate', 'ما\\s+بحب', 'مش\\s+بحب', 'לא\\s+אוהב',
+]);
+
+export function classifyPreferenceStrength(candidate: MemoryCandidate): PreferenceStrength {
+  return HARD_STRENGTH_PATTERNS.test(candidate.normalizedText) ? 'hard' : 'soft';
+}
+
+export function classifyPreferencePolarity(candidate: MemoryCandidate): PreferencePolarity {
+  return AVOID_POLARITY_PATTERNS.test(candidate.normalizedText) ? 'avoid' : 'prefer';
+}
+
+/**
+ * Small closed vocabulary, not open-domain topic extraction — consistent with the
+ * rule-based (no ML, no vector DB) extraction approach used throughout Sprint 1.
+ * Falls back to the normalized statement text, which simply will not match any
+ * commitment title later (fails safe: no scope match means no arm effect).
+ */
+const SCOPE_KEYWORDS: Record<string, string> = {
+  'جيم': 'gym', gym: 'gym',
+  wolt: 'wolt', 'وولت': 'wolt',
+  // 'بشتغل' (not just 'شغل') because the colloquial present-tense conjugation
+  // inserts a ت between the ب prefix and the شغل root — 'شغل' alone is not a
+  // substring of 'بشتغل', so an "I work" statement would otherwise match nothing.
+  'بشتغل': 'work', 'شغل': 'work', 'دوام': 'work', work: 'work', shift: 'work',
+  'نوم': 'sleep', sleep: 'sleep',
+};
+
+export function deriveStatementScope(candidate: MemoryCandidate): string {
+  const normalized = candidate.normalizedText.toLowerCase();
+  for (const [keyword, scope] of Object.entries(SCOPE_KEYWORDS)) {
+    if (normalized.includes(keyword.toLowerCase())) return scope;
+  }
+  return normalized;
 }
