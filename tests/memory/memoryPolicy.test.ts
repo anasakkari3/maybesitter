@@ -158,6 +158,18 @@ test('policy: "usually"/"prefer" without hard markers → soft strength', () => 
   assert.equal(classifyPreferenceStrength(makePreferenceCandidate({ normalizedText: 'I usually prefer working on projects' })), 'soft');
 });
 
+test('policy: "whenever" should not match "never" → soft strength', () => {
+  assert.equal(classifyPreferenceStrength(makePreferenceCandidate({ normalizedText: 'I am available whenever you need me' })), 'soft');
+});
+
+test('policy: "mustard" should not match "must" → soft strength', () => {
+  assert.equal(classifyPreferenceStrength(makePreferenceCandidate({ normalizedText: 'I like mustard on my sandwich' })), 'soft');
+});
+
+test('policy: "mustache" should not match "must" → soft strength', () => {
+  assert.equal(classifyPreferenceStrength(makePreferenceCandidate({ normalizedText: 'He has a mustache' })), 'soft');
+});
+
 test('policy: "avoid"/"don\'t like"/"hate" → avoid polarity', () => {
   assert.equal(classifyPreferencePolarity(makePreferenceCandidate({ normalizedText: "I don't like going to the gym three days in a row" })), 'avoid');
   assert.equal(classifyPreferencePolarity(makePreferenceCandidate({ normalizedText: 'ما بحب اروح الجيم' })), 'avoid');
@@ -165,6 +177,10 @@ test('policy: "avoid"/"don\'t like"/"hate" → avoid polarity', () => {
 
 test('policy: "I prefer"/"I like" → prefer polarity', () => {
   assert.equal(classifyPreferencePolarity(makePreferenceCandidate({ normalizedText: 'I prefer working on projects in the evening' })), 'prefer');
+});
+
+test('policy: "hatred" should not match "hate" → prefer polarity', () => {
+  assert.equal(classifyPreferencePolarity(makePreferenceCandidate({ normalizedText: 'I don\'t have hatred for anyone' })), 'prefer');
 });
 
 test('policy: scope derived from known vocabulary keyword', () => {

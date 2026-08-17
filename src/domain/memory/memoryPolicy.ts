@@ -70,11 +70,11 @@ function mkPolicyPattern(alternatives: string[]): RegExp {
 }
 
 const HARD_STRENGTH_PATTERNS = mkPolicyPattern([
-  'always', 'never', 'must', 'دايماً', 'دائما', 'لازم', 'תמיד', 'אף\\s+פעם',
+  '\\balways\\b', '\\bnever\\b', '\\bmust\\b', 'دايماً', 'دائما', 'لازم', 'תמיד', 'אף\\s+פעם',
 ]);
 
 const AVOID_POLARITY_PATTERNS = mkPolicyPattern([
-  "don't\\s+like", 'avoid', 'hate', 'ما\\s+بحب', 'مش\\s+بحب', 'לא\\s+אוהב',
+  "don't\\s+like", '\\bavoid\\b', '\\bhate\\b', 'ما\\s+بحب', 'مش\\s+بحب', 'לא\\s+אוהב',
 ]);
 
 export function classifyPreferenceStrength(candidate: MemoryCandidate): PreferenceStrength {

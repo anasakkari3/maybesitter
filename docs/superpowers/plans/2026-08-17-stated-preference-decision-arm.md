@@ -197,7 +197,10 @@ export function classifyPreferencePolarity(candidate: MemoryCandidate): Preferen
 const SCOPE_KEYWORDS: Record<string, string> = {
   'جيم': 'gym', gym: 'gym',
   wolt: 'wolt', 'وولت': 'wolt',
-  'شغل': 'work', 'دوام': 'work', work: 'work', shift: 'work',
+  // 'بشتغل' (not just 'شغل') because the colloquial present-tense conjugation
+  // inserts a ت between the ب prefix and the شغل root — 'شغل' alone is not a
+  // substring of 'بشتغل', so an "I work" statement would otherwise match nothing.
+  'بشتغل': 'work', 'شغل': 'work', 'دوام': 'work', work: 'work', shift: 'work',
   'نوم': 'sleep', sleep: 'sleep',
 };
 
@@ -1132,10 +1135,17 @@ const FACT_VERB_PATTERNS = mk([
 ]);
 
 /**
- * Preference/fact detection runs before commitment-modality detection. Both guards
- * require the absence of a commitment-modality marker so a phrase like "I will work
- * on Tuesday" (CERTAIN_PATTERNS: "I will") stays a commitment, not a fact, even
- * though it also loosely resembles a schedule statement.
+ * Fact detection runs before commitment-modality detection and requires the absence
+ * of a commitment-modality marker, so a phrase like "I will work on Tuesday"
+ * (CERTAIN_PATTERNS: "I will") stays a commitment, not a fact, even though it also
+ * loosely resembles a schedule statement (FACT_VERB_PATTERNS: "work on").
+ *
+ * Preference detection deliberately does NOT use this guard: NEGATION_PATTERNS
+ * includes "don't", which is also the core marker of the primary "avoid" preference
+ * phrasing ("I don't like ..."). Gating on it would block preference detection
+ * from ever firing on its own main case. None of the existing commitment fixtures
+ * contain a PREFERENCE_PATTERNS phrase, so an ungated check does not regress them
+ * (see the extraction regression test in this task).
  */
 function hasCommitmentModalityMarker(text: string): boolean {
   return CERTAIN_PATTERNS.test(text)
@@ -1147,7 +1157,7 @@ function hasCommitmentModalityMarker(text: string): boolean {
 }
 
 function looksLikePreference(text: string): boolean {
-  return !hasCommitmentModalityMarker(text) && PREFERENCE_PATTERNS.test(text);
+  return PREFERENCE_PATTERNS.test(text);
 }
 
 function looksLikeFact(text: string): boolean {
@@ -1410,7 +1420,7 @@ with:
       try {
         if (resolution.action === 'link') {
           const updated = deps.preferenceStore.update(
-            { id: resolution.id, statement: candidate.normalizedText, strength, polarity, confidence: Math.max(candidate.confidence, resolution.score.totalScore >= 0.85 ? candidate.confidence : 0) },
+            { id: resolution.id, statement: candidate.normalizedText, strength, polarity, confidence: candidate.confidence },
             `Updated from message: "${candidate.evidenceSpan.text}"`,
             'model',
             observation.id,
