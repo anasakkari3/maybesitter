@@ -14,6 +14,8 @@ export interface CreatePreferenceMemoryInput {
   confidence: number;
   evidenceIds: string[];
   supersedesPreferenceId?: string;
+  /** Defaults to false. True only for resolver "confirm_link" (0.60–0.84) results. */
+  requiresConfirmation?: boolean;
 }
 
 export interface UpdatePreferenceInput {
@@ -23,6 +25,7 @@ export interface UpdatePreferenceInput {
   polarity?: PreferencePolarity;
   confidence?: number;
   status?: StatementStatus;
+  requiresConfirmation?: boolean;
 }
 
 export interface PreferenceMemoryStore {
@@ -102,6 +105,7 @@ export class FilePreferenceMemoryStore implements PreferenceMemoryStore {
       createdAt: now,
       updatedAt: now,
       evidenceIds: input.evidenceIds,
+      requiresConfirmation: input.requiresConfirmation === true,
       ...(input.supersedesPreferenceId !== undefined ? { supersedesPreferenceId: input.supersedesPreferenceId } : {}),
     };
     data.preferences[preference.id] = preference;
@@ -125,16 +129,34 @@ export class FilePreferenceMemoryStore implements PreferenceMemoryStore {
     const preference = data.preferences[input.id];
     if (!preference) throw new Error(`Preference not found: ${input.id}`);
 
+    // Audit before mutating: the ADR's "never silently overwrite" guarantee covers what a
+    // statement *says* (statement/strength/polarity), not just its status. The ingestion
+    // auto-link path never sends `status`, so a status-only check would let a polarity flip
+    // ("prefer" → "avoid") land with no event at all.
     const fromStatus = preference.status;
+    const fromConfidence = preference.confidence;
+    const changed = (field: keyof UpdatePreferenceInput, current: unknown): boolean =>
+      input[field] !== undefined && input[field] !== current;
+    const substantiveChange = changed('statement', preference.statement)
+      || changed('strength', preference.strength)
+      || changed('polarity', preference.polarity)
+      || changed('status', preference.status)
+      || changed('requiresConfirmation', preference.requiresConfirmation);
+    const confidenceChanged = changed('confidence', preference.confidence);
+
     if (input.statement !== undefined) preference.statement = input.statement;
     if (input.strength !== undefined) preference.strength = input.strength;
     if (input.polarity !== undefined) preference.polarity = input.polarity;
     if (input.confidence !== undefined) preference.confidence = input.confidence;
     if (input.status !== undefined) preference.status = input.status;
+    if (input.requiresConfirmation !== undefined) preference.requiresConfirmation = input.requiresConfirmation;
     preference.updatedAt = new Date().toISOString();
 
-    if (input.status !== undefined && input.status !== fromStatus) {
-      data.events.push(this.createEvent(input.id, 'corrected', reason, actor, fromStatus, input.status, undefined, undefined, observationId));
+    if (substantiveChange) {
+      data.events.push(this.createEvent(input.id, 'corrected', reason, actor, fromStatus, preference.status, undefined, undefined, observationId));
+    }
+    if (confidenceChanged) {
+      data.events.push(this.createEvent(input.id, 'confidence_adjusted', reason, actor, undefined, undefined, fromConfidence, preference.confidence, observationId));
     }
 
     this.save(data);

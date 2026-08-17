@@ -75,6 +75,80 @@ test('preferenceStore: update changes fields and records a corrected event on te
   });
 });
 
+test('preferenceStore: update records a corrected event for a non-status field change', () => {
+  withTempStore((store) => {
+    const preference = store.create({
+      userId: 'user_1', statement: 'I prefer going to the gym in the evening', scope: 'gym',
+      strength: 'soft', polarity: 'prefer', confidence: 0.75, evidenceIds: [],
+    }, 'created', undefined);
+
+    // Exactly what the ingestion auto-link path sends: new text, flipped polarity, no status.
+    const updated = store.update(
+      { id: preference.id, statement: "I don't like going to the gym in the evening", strength: 'soft', polarity: 'avoid', confidence: 0.75 },
+      'Updated from message',
+      'model',
+      'obs_2',
+    );
+
+    assert.equal(updated.polarity, 'avoid');
+    const corrected = store.getEvents(preference.id).filter((event) => event.type === 'corrected');
+    assert.equal(corrected.length, 1, 'a silent polarity flip would contradict the never-silently-overwrite guarantee');
+    assert.equal(corrected[0].actor, 'model');
+    assert.equal(corrected[0].observationId, 'obs_2');
+  });
+});
+
+test('preferenceStore: update records a confidence_adjusted event when confidence changes', () => {
+  withTempStore((store) => {
+    const preference = store.create({
+      userId: 'user_1', statement: 'prefer evenings', scope: 'work',
+      strength: 'soft', polarity: 'prefer', confidence: 0.6, evidenceIds: [],
+    }, 'created', undefined);
+
+    store.update({ id: preference.id, confidence: 0.8 }, 'restated more firmly', 'model');
+
+    const events = store.getEvents(preference.id);
+    const adjusted = events.filter((event) => event.type === 'confidence_adjusted');
+    assert.equal(adjusted.length, 1);
+    assert.equal(adjusted[0].fromConfidence, 0.6);
+    assert.equal(adjusted[0].toConfidence, 0.8);
+    assert.equal(events.filter((event) => event.type === 'corrected').length, 0, 'confidence alone is not a correction');
+  });
+});
+
+test('preferenceStore: update that changes nothing records no event', () => {
+  withTempStore((store) => {
+    const preference = store.create({
+      userId: 'user_1', statement: 'prefer evenings', scope: 'work',
+      strength: 'soft', polarity: 'prefer', confidence: 0.6, evidenceIds: [],
+    }, 'created', undefined);
+
+    store.update(
+      { id: preference.id, statement: 'prefer evenings', strength: 'soft', polarity: 'prefer', confidence: 0.6 },
+      're-ingested identical statement',
+      'model',
+    );
+
+    assert.equal(store.getEvents(preference.id).length, 1, 'only the original created event');
+  });
+});
+
+test('preferenceStore: create defaults requiresConfirmation to false and honours an explicit true', () => {
+  withTempStore((store) => {
+    const plain = store.create({
+      userId: 'user_1', statement: 'prefer evenings', scope: 'work',
+      strength: 'soft', polarity: 'prefer', confidence: 0.6, evidenceIds: [],
+    }, 'created', undefined);
+    assert.equal(plain.requiresConfirmation, false);
+
+    const pending = store.create({
+      userId: 'user_1', statement: 'prefer mornings for deep work', scope: 'work',
+      strength: 'soft', polarity: 'prefer', confidence: 0.6, evidenceIds: [], requiresConfirmation: true,
+    }, 'possibly related, needs confirmation', undefined);
+    assert.equal(pending.requiresConfirmation, true);
+  });
+});
+
 test('preferenceStore: adjustConfidence clamps within [0.2, 0.99] and records events', () => {
   withTempStore((store) => {
     const preference = store.create({

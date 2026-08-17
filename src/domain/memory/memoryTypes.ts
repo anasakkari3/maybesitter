@@ -152,6 +152,13 @@ export interface PreferenceMemory {
   updatedAt: string;
   evidenceIds: string[];
   supersedesPreferenceId?: string;
+  /**
+   * Mirrors `CommitmentMemory.requiresConfirmation`. Set when the resolver lands in the
+   * 0.60–0.84 "possibly related" band: the statement is recorded and inspectable, but it
+   * is not yet a confirmed statement of the user's intent, so consumers (the decision
+   * arm) must not act on it until a human confirms.
+   */
+  requiresConfirmation: boolean;
 }
 
 export interface FactMemory {
@@ -165,6 +172,8 @@ export interface FactMemory {
   updatedAt: string;
   evidenceIds: string[];
   supersedesFactId?: string;
+  /** See `PreferenceMemory.requiresConfirmation`. */
+  requiresConfirmation: boolean;
 }
 
 export type PreferenceEventType = 'created' | 'corrected' | 'confidence_adjusted';

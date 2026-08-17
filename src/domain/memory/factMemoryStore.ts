@@ -10,6 +10,8 @@ export interface CreateFactMemoryInput {
   confidence: number;
   evidenceIds: string[];
   supersedesFactId?: string;
+  /** Defaults to false. True only for resolver "confirm_link" (0.60–0.84) results. */
+  requiresConfirmation?: boolean;
 }
 
 export interface UpdateFactInput {
@@ -17,6 +19,7 @@ export interface UpdateFactInput {
   statement?: string;
   confidence?: number;
   status?: StatementStatus;
+  requiresConfirmation?: boolean;
 }
 
 export interface FactMemoryStore {
@@ -94,6 +97,7 @@ export class FileFactMemoryStore implements FactMemoryStore {
       createdAt: now,
       updatedAt: now,
       evidenceIds: input.evidenceIds,
+      requiresConfirmation: input.requiresConfirmation === true,
       ...(input.supersedesFactId !== undefined ? { supersedesFactId: input.supersedesFactId } : {}),
     };
     data.facts[fact.id] = fact;
@@ -117,14 +121,29 @@ export class FileFactMemoryStore implements FactMemoryStore {
     const fact = data.facts[input.id];
     if (!fact) throw new Error(`Fact not found: ${input.id}`);
 
+    // Audit before mutating. Same rationale as preferenceMemoryStore.update: the ingestion
+    // auto-link path rewrites `statement` without ever sending `status`, so a status-only
+    // check would let a rewritten fact land with no audit event.
     const fromStatus = fact.status;
+    const fromConfidence = fact.confidence;
+    const changed = (field: keyof UpdateFactInput, current: unknown): boolean =>
+      input[field] !== undefined && input[field] !== current;
+    const substantiveChange = changed('statement', fact.statement)
+      || changed('status', fact.status)
+      || changed('requiresConfirmation', fact.requiresConfirmation);
+    const confidenceChanged = changed('confidence', fact.confidence);
+
     if (input.statement !== undefined) fact.statement = input.statement;
     if (input.confidence !== undefined) fact.confidence = input.confidence;
     if (input.status !== undefined) fact.status = input.status;
+    if (input.requiresConfirmation !== undefined) fact.requiresConfirmation = input.requiresConfirmation;
     fact.updatedAt = new Date().toISOString();
 
-    if (input.status !== undefined && input.status !== fromStatus) {
-      data.events.push(this.createEvent(input.id, 'corrected', reason, actor, fromStatus, input.status, undefined, undefined, observationId));
+    if (substantiveChange) {
+      data.events.push(this.createEvent(input.id, 'corrected', reason, actor, fromStatus, fact.status, undefined, undefined, observationId));
+    }
+    if (confidenceChanged) {
+      data.events.push(this.createEvent(input.id, 'confidence_adjusted', reason, actor, undefined, undefined, fromConfidence, fact.confidence, observationId));
     }
 
     this.save(data);

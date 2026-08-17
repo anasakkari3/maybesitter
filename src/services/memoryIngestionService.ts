@@ -109,7 +109,7 @@ export function ingestMessage(
       try {
         if (resolution.action === 'link') {
           const updated = deps.preferenceStore.update(
-            { id: resolution.id, statement: candidate.normalizedText, strength, polarity, confidence: candidate.confidence },
+            { id: resolution.id, statement: candidate.normalizedText, strength, polarity, confidence: candidate.confidence, requiresConfirmation: false },
             `Updated from message: "${candidate.evidenceSpan.text}"`,
             'model',
             observation.id,
@@ -126,6 +126,10 @@ export function ingestMessage(
               polarity,
               confidence: candidate.confidence,
               evidenceIds: [observation.id],
+              // Mirrors the commitment confirm_link branch below: a 0.60–0.84 match is
+              // "possibly the same thing" — record it, but leave it inert until a human
+              // confirms rather than letting two similar statements both act on ranking.
+              requiresConfirmation: resolution.action === 'confirm_link',
               supersedesPreferenceId: resolution.action === 'confirm_link' ? resolution.id : undefined,
             },
             resolution.action === 'confirm_link'
@@ -160,7 +164,7 @@ export function ingestMessage(
       try {
         if (resolution.action === 'link') {
           const updated = deps.factStore.update(
-            { id: resolution.id, statement: candidate.normalizedText, confidence: candidate.confidence },
+            { id: resolution.id, statement: candidate.normalizedText, confidence: candidate.confidence, requiresConfirmation: false },
             `Updated from message: "${candidate.evidenceSpan.text}"`,
             'model',
             observation.id,
@@ -175,6 +179,8 @@ export function ingestMessage(
               scope,
               confidence: candidate.confidence,
               evidenceIds: [observation.id],
+              // See the preference branch above: confirm-band statements stay inert.
+              requiresConfirmation: resolution.action === 'confirm_link',
               supersedesFactId: resolution.action === 'confirm_link' ? resolution.id : undefined,
             },
             resolution.action === 'confirm_link'

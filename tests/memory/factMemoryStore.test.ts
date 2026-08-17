@@ -68,6 +68,68 @@ test('factStore: update changes fields and records a corrected event on status c
   });
 });
 
+test('factStore: update records a corrected event for a statement-only change', () => {
+  withTempStore((store) => {
+    const fact = store.create({
+      userId: 'user_1', statement: 'the gym closes at 10pm', scope: 'gym', confidence: 0.8, evidenceIds: [],
+    }, 'created', undefined);
+
+    // Exactly what the ingestion auto-link path sends: rewritten text, no status.
+    store.update(
+      { id: fact.id, statement: 'the gym closes at 9pm on weekdays', confidence: 0.8 },
+      'Updated from message',
+      'model',
+      'obs_2',
+    );
+
+    const corrected = store.getEvents(fact.id).filter((event) => event.type === 'corrected');
+    assert.equal(corrected.length, 1, 'rewriting what a fact says must leave an audit trail');
+    assert.equal(corrected[0].observationId, 'obs_2');
+  });
+});
+
+test('factStore: update records a confidence_adjusted event when confidence changes', () => {
+  withTempStore((store) => {
+    const fact = store.create({
+      userId: 'user_1', statement: 'Tuesday I work 17:00-20:00', scope: 'work', confidence: 0.7, evidenceIds: [],
+    }, 'created', undefined);
+
+    store.update({ id: fact.id, confidence: 0.85 }, 'restated', 'model');
+
+    const events = store.getEvents(fact.id);
+    const adjusted = events.filter((event) => event.type === 'confidence_adjusted');
+    assert.equal(adjusted.length, 1);
+    assert.equal(adjusted[0].fromConfidence, 0.7);
+    assert.equal(adjusted[0].toConfidence, 0.85);
+    assert.equal(events.filter((event) => event.type === 'corrected').length, 0);
+  });
+});
+
+test('factStore: update that changes nothing records no event', () => {
+  withTempStore((store) => {
+    const fact = store.create({
+      userId: 'user_1', statement: 'Tuesday I work 17:00-20:00', scope: 'work', confidence: 0.7, evidenceIds: [],
+    }, 'created', undefined);
+    store.update({ id: fact.id, statement: 'Tuesday I work 17:00-20:00', confidence: 0.7 }, 're-ingested', 'model');
+    assert.equal(store.getEvents(fact.id).length, 1);
+  });
+});
+
+test('factStore: create defaults requiresConfirmation to false and honours an explicit true', () => {
+  withTempStore((store) => {
+    const plain = store.create({
+      userId: 'user_1', statement: 'Tuesday I work 17:00-20:00', scope: 'work', confidence: 0.8, evidenceIds: [],
+    }, 'created', undefined);
+    assert.equal(plain.requiresConfirmation, false);
+
+    const pending = store.create({
+      userId: 'user_1', statement: 'Wednesday I work 09:00-12:00', scope: 'work', confidence: 0.8,
+      evidenceIds: [], requiresConfirmation: true,
+    }, 'possibly related, needs confirmation', undefined);
+    assert.equal(pending.requiresConfirmation, true);
+  });
+});
+
 test('factStore: adjustConfidence clamps within [0.2, 0.99]', () => {
   withTempStore((store) => {
     const fact = store.create({

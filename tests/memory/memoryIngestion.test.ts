@@ -256,6 +256,78 @@ test('ingestion: restating a very similar preference updates it in place instead
   }
 });
 
+test('ingestion: an auto-linked preference that changes what the statement says produces a corrected event', () => {
+  const { deps, cleanup } = createTestDeps();
+  try {
+    const first = ingestMessage({
+      text: 'I prefer going to the gym in the evening',
+      userId: 'user_1',
+      timestamp: '2026-08-17T12:00:00.000Z',
+    }, deps);
+    const second = ingestMessage({
+      text: "I don't like going to the gym in the evening",
+      userId: 'user_1',
+      timestamp: '2026-08-18T12:00:00.000Z',
+    }, deps);
+
+    assert.equal(second.decisions[0].resolution.action, 'link');
+    assert.equal(second.preferences[0].id, first.preferences[0].id);
+    assert.equal(second.preferences[0].polarity, 'avoid', 'the auto-link flipped the polarity');
+
+    const corrected = deps.preferenceStore.getEvents(first.preferences[0].id).filter((event) => event.type === 'corrected');
+    assert.equal(corrected.length, 1, 'an auto-link that changes meaning must never be silent');
+  } finally {
+    cleanup();
+  }
+});
+
+test('ingestion: an auto-linked fact that changes its statement produces a corrected event', () => {
+  const { deps, cleanup } = createTestDeps();
+  try {
+    const first = ingestMessage({
+      text: 'I work Tuesday from 17:00 to 20:00',
+      userId: 'user_1',
+      timestamp: '2026-08-17T12:00:00.000Z',
+    }, deps);
+    const second = ingestMessage({
+      text: 'I work Tuesday from 18:00 to 20:00',
+      userId: 'user_1',
+      timestamp: '2026-08-18T12:00:00.000Z',
+    }, deps);
+
+    assert.equal(second.decisions[0].resolution.action, 'link');
+    assert.equal(second.facts[0].id, first.facts[0].id);
+    const corrected = deps.factStore.getEvents(first.facts[0].id).filter((event) => event.type === 'corrected');
+    assert.equal(corrected.length, 1);
+  } finally {
+    cleanup();
+  }
+});
+
+test('ingestion: a confirm-band preference is created pending confirmation, not as a confirmed statement', () => {
+  const { deps, cleanup } = createTestDeps();
+  try {
+    const first = ingestMessage({
+      text: 'I prefer going to the gym in the evening',
+      userId: 'user_1',
+      timestamp: '2026-08-17T12:00:00.000Z',
+    }, deps);
+    const second = ingestMessage({
+      text: "I don't like the gym on Monday mornings",
+      userId: 'user_1',
+      timestamp: '2026-08-18T12:00:00.000Z',
+    }, deps);
+
+    assert.equal(second.decisions[0].resolution.action, 'confirm_link');
+    assert.equal(second.preferences[0].requiresConfirmation, true, 'mirrors the commitment confirm_link branch');
+    assert.equal(second.preferences[0].supersedesPreferenceId, first.preferences[0].id);
+    assert.equal(first.preferences[0].requiresConfirmation, false);
+    assert.equal(deps.preferenceStore.getActiveByUserId('user_1').length, 2);
+  } finally {
+    cleanup();
+  }
+});
+
 test('ingestion: preference and fact creation produce audit events', () => {
   const { deps, cleanup } = createTestDeps();
   try {
