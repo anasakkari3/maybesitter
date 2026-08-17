@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { ingestMessage, type MemoryIngestionServiceDeps } from '../../src/services/memoryIngestionService.ts';
 import { FileObservationStore } from '../../src/domain/memory/observationStore.ts';
 import { FileCommitmentMemoryStore } from '../../src/domain/memory/commitmentMemoryStore.ts';
+import { FilePreferenceMemoryStore } from '../../src/domain/memory/preferenceMemoryStore.ts';
+import { FileFactMemoryStore } from '../../src/domain/memory/factMemoryStore.ts';
 import { mkdtempSync, rmSync } from 'fs';
 import path from 'path';
 import os from 'os';
@@ -12,6 +14,8 @@ function createTestDeps(): { deps: MemoryIngestionServiceDeps; cleanup: () => vo
   const deps: MemoryIngestionServiceDeps = {
     observationStore: new FileObservationStore(tmpDir),
     commitmentStore: new FileCommitmentMemoryStore(tmpDir),
+    preferenceStore: new FilePreferenceMemoryStore(tmpDir),
+    factStore: new FileFactMemoryStore(tmpDir),
   };
   return { deps, cleanup: () => rmSync(tmpDir, { recursive: true, force: true }) };
 }
@@ -193,6 +197,77 @@ test('ingestion: reprocessing same message does not create duplicate observation
     }, deps);
     const observations = deps.observationStore.getByUserId('user_1');
     assert.equal(observations.length, 2);
+  } finally {
+    cleanup();
+  }
+});
+
+test('ingestion: preference text creates a PreferenceMemory, not a commitment', () => {
+  const { deps, cleanup } = createTestDeps();
+  try {
+    const result = ingestMessage({
+      text: "I don't like going to the gym three days in a row",
+      userId: 'user_1',
+      timestamp: '2026-08-17T12:00:00.000Z',
+    }, deps);
+    assert.equal(result.commitments.length, 0);
+    assert.equal(result.preferences.length, 1);
+    assert.equal(result.preferences[0].polarity, 'avoid');
+    assert.equal(result.preferences[0].scope, 'gym');
+  } finally {
+    cleanup();
+  }
+});
+
+test('ingestion: fact text creates a FactMemory, not a commitment', () => {
+  const { deps, cleanup } = createTestDeps();
+  try {
+    const result = ingestMessage({
+      text: 'I work Tuesday from 17:00 to 20:00',
+      userId: 'user_1',
+      timestamp: '2026-08-17T12:00:00.000Z',
+    }, deps);
+    assert.equal(result.commitments.length, 0);
+    assert.equal(result.facts.length, 1);
+    assert.equal(result.facts[0].scope, 'work');
+  } finally {
+    cleanup();
+  }
+});
+
+test('ingestion: restating a very similar preference updates it in place instead of duplicating', () => {
+  const { deps, cleanup } = createTestDeps();
+  try {
+    ingestMessage({
+      text: "I don't like going to the gym three days in a row",
+      userId: 'user_1',
+      timestamp: '2026-08-17T12:00:00.000Z',
+    }, deps);
+    ingestMessage({
+      text: "I don't like going to the gym three days in a row",
+      userId: 'user_1',
+      timestamp: '2026-08-18T12:00:00.000Z',
+    }, deps);
+    const active = deps.preferenceStore.getActiveByUserId('user_1');
+    assert.equal(active.length, 1);
+    assert.equal(active[0].evidenceIds.length, 2);
+  } finally {
+    cleanup();
+  }
+});
+
+test('ingestion: preference and fact creation produce audit events', () => {
+  const { deps, cleanup } = createTestDeps();
+  try {
+    const result = ingestMessage({
+      text: 'I prefer working on projects in the evening',
+      userId: 'user_1',
+      timestamp: '2026-08-17T12:00:00.000Z',
+    }, deps);
+    assert.equal(result.preferences.length, 1);
+    const events = deps.preferenceStore.getEvents(result.preferences[0].id);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].type, 'created');
   } finally {
     cleanup();
   }
