@@ -44,9 +44,13 @@ preserves that invariant rather than replacing it.
 Activate `fact` and `preference` as enabled kinds, mirroring
 `CommitmentMemory`'s shape and event-sourced audit pattern exactly:
 
-- `PreferenceMemory { id, userId, statement, scope, strength: 'soft'|'hard', polarity: 'prefer'|'avoid', confidence, status, evidenceIds, supersedesPreferenceId?, createdAt, updatedAt }`
-- `FactMemory { id, userId, statement, scope, confidence, status, evidenceIds, supersedesFactId?, createdAt, updatedAt }`
-- `PreferenceEvent` / `FactEvent`, structurally identical to `CommitmentEvent` (`created` / `corrected` / `superseded`, with `reason` and `actor`).
+- `PreferenceMemory { id, userId, statement, scope, strength: 'soft'|'hard', polarity: 'prefer'|'avoid', confidence, status, evidenceIds, supersedesPreferenceId?, requiresConfirmation, createdAt, updatedAt }`
+- `FactMemory { id, userId, statement, scope, confidence, status, evidenceIds, supersedesFactId?, requiresConfirmation, createdAt, updatedAt }`
+- `PreferenceEvent` / `FactEvent`, structurally identical to `CommitmentEvent` (`created` / `corrected` / `confidence_adjusted`, with `reason`, `actor`, and `from`/`to` status and confidence).
+
+`requiresConfirmation` mirrors `CommitmentMemory`'s field of the same
+name and is what makes §3's confirm band a real state rather than a
+label — see §3.
 
 `scope` is a free-form tag (e.g. `"gym-schedule"`, `"work-schedule"`)
 used for matching, not a controlled vocabulary — matching narrow
@@ -68,6 +72,26 @@ event, 0.60–0.84 create pending confirmation, <0.60 create new). A
 second preference on the same scope never silently overwrites — it
 either updates with an audit trail or waits for confirmation.
 
+Concretely, both halves of that guarantee are enforced in code:
+
+- **Audit trail on auto-link.** `update()` compares old against new
+  before mutating and emits one `corrected` event whenever any
+  substantive field actually changed (`statement`, `strength`,
+  `polarity`, `status`, `requiresConfirmation`), plus one
+  `confidence_adjusted` event (carrying `fromConfidence`/`toConfidence`)
+  when confidence changed. Status is not special-cased: the ingestion
+  auto-link path never sends `status`, so a status-only check would let
+  a polarity flip ("prefer" → "avoid") land silently.
+- **Pending confirmation is a real state.** `PreferenceMemory` and
+  `FactMemory` carry `requiresConfirmation: boolean`, mirroring
+  `CommitmentMemory`'s field and set by the same
+  `resolution.action === 'confirm_link'` test the commitment branch
+  already uses (`true` on `confirm_link`, `false` on `link` and
+  `create_new`). The decision arm skips `requiresConfirmation` records
+  the same way it skips non-active and below-floor ones, so two
+  textually-similar-but-different statements on one scope cannot both
+  influence ranking while one of them is still unconfirmed.
+
 ### 4. Extraction — `src/extraction/ruleBasedCandidateExtractor.ts`
 
 New pattern families, checked *before* existing modality detection so
@@ -84,6 +108,11 @@ match them:
   behavior, unchanged).
 - Strength/polarity classification (`memoryPolicy.ts`): "always" /
   "never" / "must" → `hard`; "usually" / "prefer" / "try to" → `soft`.
+- Scope derivation (`memoryPolicy.ts`'s `SCOPE_KEYWORDS`) covers all
+  three languages the extractor detects. It has to: an unmatched
+  statement falls back to its own full text as the scope, which never
+  substring-matches a commitment title, so a missing keyword makes that
+  language a silent no-op on arm scoring rather than a visible failure.
 
 `memoryIngestionService.ts` already has the exact extension seam:
 `if (candidate.candidateType !== 'commitment') { ...reason: "not handled
@@ -104,36 +133,68 @@ can return. This is a structural guarantee, not a convention: the V03
 pilot's live evidence collection cannot be touched by this arm without
 a separate, deliberate code change to `NEXT_STEP_ARMS` itself.
 
-Scoring: for each baseline-eligible candidate, look up active
+Scoring: for each baseline-eligible candidate, look up
 facts/preferences whose `scope` matches the commitment (keyword overlap
-against title/kind). `strength` × `polarity` maps to an effect:
+against title/kind). A statement is only considered if it is `active`,
+not `requiresConfirmation`, and at or above a 0.5 confidence floor;
+below the floor it contributes nothing at all (an on/off gate, not a
+small effect). `strength` × `polarity` then maps to an effect:
 
-| polarity | strength | effect  | magnitude scales with confidence |
-|----------|----------|---------|-----------------------------------|
-| prefer   | soft     | bonus   | mild |
-| prefer   | hard     | bonus   | strong |
-| avoid    | soft     | penalty | mild |
-| avoid    | hard     | veto    | — (removes the candidate) |
+| polarity | strength | effect  | magnitude              | class |
+|----------|----------|---------|------------------------|-------|
+| prefer   | soft     | bonus   | `+2 × confidence`      | soft |
+| prefer   | hard     | bonus   | `+4 × confidence`      | hard |
+| avoid    | soft     | penalty | `-2 × confidence`      | soft |
+| avoid    | hard     | veto    | — (removes the candidate) | hard |
 
-A matching fact always contributes a mild bonus (facts state what is
-true, not a ranked preference, so they don't veto). Produces a decision
-trace: `{ kind: 'fact'|'preference', id, statement, confidence, effect:
-'bonus'|'penalty'|'veto', magnitude }[]`, following the same
-`ArmAdjustment`/evidence-label pattern the `contextual` and
+A matching fact always contributes a soft bonus of `+1 × confidence`
+(facts state what is true, not a ranked preference, so they don't veto).
+Magnitudes are proportional to confidence rather than fixed constants,
+so §6's feedback nudges move ranking continuously instead of doing
+nothing until a nudge happens to cross the floor.
+
+**Soft signals are tier-bounded; hard signals are not.** Candidates are
+ranked by: (1) hard prefer bonus, (2) the baseline's own urgency tiers
+(`latenessBand` → `urgencyBand` → `importanceBand`), (3) soft bonuses
+and penalties, (4) the baseline's remaining tiebreaks. Putting the
+baseline's tiers above soft signals is what makes "a soft preference is
+outweighed by overdue urgency" true: a mild preference reorders within
+an urgency tier but can never pull a candidate past a genuinely more
+urgent one. Hard signals keep the latitude the name implies — the veto
+removes a candidate outright, and a hard prefer bonus is allowed to
+outrank the baseline's tiers.
+
+Produces a decision trace: `{ kind: 'fact'|'preference', id, statement,
+confidence, effect: 'bonus'|'penalty'|'veto', magnitude }[]`, where
+`magnitude` is the confidence-scaled value actually applied, following
+the same `ArmAdjustment`/evidence-label pattern the `contextual` and
 `personalized` arms already use. A veto can only remove a candidate from
 contention within the baseline-eligible set — it still cannot admit one
 the baseline excluded.
 
+This is the first arm to place user-authored free text (a preference's
+`statement`) into `evidenceLabels`; earlier arms only used fixed
+system-generated strings. Those statements are screened with
+`nextStepReviewService`'s own `isSafeText` tone guard before being
+surfaced, and if a proposal still fails review the arm reports
+`selectedCommitmentId: null` rather than a pick nothing surfaced.
+
 ### 6. Feedback — benchmark-only, not wired to live analytics
 
-`applyDecisionFeedback(store, decisionOutcome)`: on an accept where a
-preference/fact contributed a bonus/veto, nudge its `confidence` by a
-small bounded step (+0.03, capped 0.99); on a dismiss/edit where it
-contributed, nudge down (-0.05, floored at 0.2 — never deleted, stays
-inspectable and can recover). A preference's `strength`/`polarity` never
-changes from feedback, only `confidence`. This function is called
-explicitly by benchmark scenarios, not by `emitAnalyticsEvent` — it does
-not touch the live pilot's analytics or trust pipeline.
+`applyDecisionFeedback(stores, trace, outcome, reason)`: for each trace
+entry that contributed a **bonus or penalty**, nudge that statement's
+`confidence` — up on an accept/done (+0.03, capped 0.99), down on a
+dismiss/edit/defer (-0.05, floored at 0.2 — never deleted, stays
+inspectable and can recover). **Veto entries are excluded outright**: a
+veto removed its candidate from contention, so the decision the user
+then made was about a *different* commitment and carries no evidence
+about whether the vetoing constraint was right. A preference's
+`strength`/`polarity` never changes from feedback, only `confidence`.
+Because §5's magnitudes scale with confidence, these nudges change
+ranking weight continuously rather than only at the 0.5 floor. This
+function is called explicitly by benchmark scenarios, not by
+`emitAnalyticsEvent` — it does not touch the live pilot's analytics or
+trust pipeline.
 
 ## Non-Goals
 
@@ -158,8 +219,9 @@ not touch the live pilot's analytics or trust pipeline.
   fixtures still classify unchanged).
 - Integration: extend `memoryIngestion.test.ts` for the new
   preference/fact branches.
-- Benchmark: new `tests/experiments/statedPreferenceArm.test.ts`, ≥8
-  scenarios — explicit fact breaks a tie baseline/personalized can't
+- Benchmark: new `tests/experiments/statedPreferenceArm.test.ts` (plus
+  `statedPreferenceFeedback.test.ts` for the confidence-decay scenario),
+  ≥8 scenarios — explicit fact breaks a tie baseline/personalized can't
   see; hard-constraint preference vetoes an eligible candidate; soft
   preference is outweighed by overdue urgency; explicit correction
   supersedes cleanly with an audit event; two conflicting preference
