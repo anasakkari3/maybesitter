@@ -99,6 +99,15 @@ const SCOPE_KEYWORDS: Record<string, string> = {
   // substring of 'بشتغل', so an "I work" statement would otherwise match nothing.
   'بشتغل': 'work', 'شغل': 'work', 'دوام': 'work', work: 'work', shift: 'work',
   'نوم': 'sleep', sleep: 'sleep',
+  // Hebrew. The extractor already detects Hebrew preferences ("אני מעדיף") and facts
+  // ("אני עובד"), so without these entries every Hebrew statement fell through to the
+  // full-text fallback scope, which never substring-matches a commitment title —
+  // Hebrew was a silent no-op on arm scoring. 'עובד'/'עובדת' (the inflected verb) are
+  // listed alongside the noun 'עבודה' for the same reason 'بشتغل' is listed alongside
+  // 'شغل': "אני עובד ביום שלישי" contains neither 'עבודה' nor 'משמרת'.
+  'חדר כושר': 'gym', 'כושר': 'gym', 'ג׳ים': 'gym', "ג'ים": 'gym',
+  'עבודה': 'work', 'משמרת': 'work', 'עובדת': 'work', 'עובד': 'work',
+  'שינה': 'sleep', 'לישון': 'sleep',
 };
 
 export function deriveStatementScope(candidate: MemoryCandidate): string {

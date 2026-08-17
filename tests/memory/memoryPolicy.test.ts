@@ -189,6 +189,13 @@ test('policy: scope derived from known vocabulary keyword', () => {
   assert.equal(deriveStatementScope(makePreferenceCandidate({ normalizedText: 'بشتغل الثلاثاء من الخامسة للثامنة', candidateType: 'fact' })), 'work');
 });
 
+test('policy: Hebrew statements derive a scope instead of falling through to the full-text fallback', () => {
+  assert.equal(deriveStatementScope(makePreferenceCandidate({ normalizedText: 'אני מעדיף ללכת לחדר כושר בערב' })), 'gym');
+  assert.equal(deriveStatementScope(makePreferenceCandidate({ normalizedText: 'אני עובד ביום שלישי', candidateType: 'fact' })), 'work');
+  assert.equal(deriveStatementScope(makePreferenceCandidate({ normalizedText: 'אני מעדיף משמרת בערב' })), 'work');
+  assert.equal(deriveStatementScope(makePreferenceCandidate({ normalizedText: 'אני מעדיף ללכת לישון מוקדם' })), 'sleep');
+});
+
 test('policy: scope falls back to normalized text when no keyword matches', () => {
   const scope = deriveStatementScope(makePreferenceCandidate({ normalizedText: 'I prefer quiet mornings' }));
   assert.equal(scope, 'i prefer quiet mornings');
