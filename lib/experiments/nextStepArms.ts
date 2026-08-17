@@ -1,12 +1,14 @@
 import type { Commitment, DomainState } from '../../src/domain/stateMachine';
 import type { NextStepLocale, NextStepRecommendationContract } from '../../src/contracts/v1/nextStepContracts';
 import { NEXT_STEP_ARMS, NEXT_STEP_BASELINE_ARM, type NextStepArm } from '../../src/contracts/v1/experimentContracts';
+import type { PreferenceMemory, FactMemory } from '../../src/domain/memory/memoryTypes.ts';
 import {
   candidatesFromDomainState,
   scoreBaselineCandidate,
   selectBaselineNextStep,
   type BaselineCandidate,
   type BaselineScore,
+  type BaselineSelection,
 } from '../services/nextStepBaseline';
 import { proposeNextStep } from '../services/nextStepReviewService';
 import {
@@ -29,13 +31,14 @@ export interface ArmAdjustment {
 }
 
 export interface ArmSelection {
-  arm: NextStepArm;
+  arm: NextStepArm | 'stated-preference';
   recommendation: NextStepRecommendationContract;
   scores: BaselineScore[];
   selectedCommitmentId: string | null;
   adjustments: ArmAdjustment[];
   /** Set when an arm could not run its own logic and deliberately fell back. */
   fallbackReason: string | null;
+  preferenceTrace?: PreferenceTraceEntry[];
 }
 
 export interface ArmContext {
@@ -137,15 +140,136 @@ function explanation(labels: readonly string[]): string {
   return labels.length === 1 ? `Based on ${labels[0]}.` : `Based on ${labels.slice(0, 2).join(' and ')}.`;
 }
 
+export interface PreferenceTraceEntry {
+  kind: 'fact' | 'preference';
+  id: string;
+  statement: string;
+  confidence: number;
+  effect: 'bonus' | 'penalty' | 'veto';
+  magnitude: number;
+}
+
+export interface StatedPreferenceInputs {
+  preferences: readonly PreferenceMemory[];
+  facts: readonly FactMemory[];
+}
+
+const PREFERENCE_CONFIDENCE_FLOOR = 0.5;
+const SOFT_PREFER_BONUS = 2;
+const HARD_PREFER_BONUS = 4;
+const SOFT_AVOID_PENALTY = -2;
+const FACT_BONUS = 1;
+
+function scopeMatchesCandidate(scope: string, candidateTitle: string): boolean {
+  return candidateTitle.toLowerCase().includes(scope.toLowerCase());
+}
+
+function statedPreferenceAdjustment(
+  candidate: ArmCandidate,
+  inputs: StatedPreferenceInputs,
+): { bonus: number; veto: boolean; trace: PreferenceTraceEntry[] } {
+  const trace: PreferenceTraceEntry[] = [];
+  let bonus = 0;
+  let veto = false;
+
+  for (const preference of inputs.preferences) {
+    if (preference.status !== 'active') continue;
+    if (preference.confidence < PREFERENCE_CONFIDENCE_FLOOR) continue;
+    if (!scopeMatchesCandidate(preference.scope, candidate.title)) continue;
+
+    if (preference.polarity === 'avoid' && preference.strength === 'hard') {
+      veto = true;
+      trace.push({ kind: 'preference', id: preference.id, statement: preference.statement, confidence: preference.confidence, effect: 'veto', magnitude: 0 });
+      continue;
+    }
+    if (preference.polarity === 'avoid') {
+      bonus += SOFT_AVOID_PENALTY;
+      trace.push({ kind: 'preference', id: preference.id, statement: preference.statement, confidence: preference.confidence, effect: 'penalty', magnitude: SOFT_AVOID_PENALTY });
+      continue;
+    }
+    const magnitude = preference.strength === 'hard' ? HARD_PREFER_BONUS : SOFT_PREFER_BONUS;
+    bonus += magnitude;
+    trace.push({ kind: 'preference', id: preference.id, statement: preference.statement, confidence: preference.confidence, effect: 'bonus', magnitude });
+  }
+
+  for (const fact of inputs.facts) {
+    if (fact.status !== 'active') continue;
+    if (fact.confidence < PREFERENCE_CONFIDENCE_FLOOR) continue;
+    if (!scopeMatchesCandidate(fact.scope, candidate.title)) continue;
+    bonus += FACT_BONUS;
+    trace.push({ kind: 'fact', id: fact.id, statement: fact.statement, confidence: fact.confidence, effect: 'bonus', magnitude: FACT_BONUS });
+  }
+
+  return { bonus, veto, trace };
+}
+
+function selectStatedPreferenceArm(
+  candidates: readonly ArmCandidate[],
+  baseline: BaselineSelection,
+  inputs: StatedPreferenceInputs,
+  locale: NextStepLocale,
+  proposalId: string,
+): ArmSelection {
+  const byId = new Map(candidates.map((candidate) => [candidate.commitmentId, candidate]));
+  const eligible = baseline.scores.filter((score) => score.evidenceSufficient);
+
+  const adjustmentById = new Map<string, { bonus: number; veto: boolean; trace: PreferenceTraceEntry[] }>();
+  for (const score of eligible) {
+    const candidate = byId.get(score.commitmentId);
+    if (!candidate) continue;
+    adjustmentById.set(score.commitmentId, statedPreferenceAdjustment(candidate, inputs));
+  }
+
+  const notVetoed = eligible.filter((score) => !adjustmentById.get(score.commitmentId)?.veto);
+  const selectedScore = [...notVetoed].sort((left, right) => (
+    (adjustmentById.get(right.commitmentId)?.bonus || 0) - (adjustmentById.get(left.commitmentId)?.bonus || 0)
+      || baselineOrder(left, right)
+  ))[0];
+  const selected = selectedScore ? byId.get(selectedScore.commitmentId) : null;
+  const fallbackReason = inputs.preferences.length === 0 && inputs.facts.length === 0 ? 'no_stated_state' : null;
+
+  if (!selected || !selectedScore) {
+    return { arm: 'stated-preference', ...baseline, adjustments: [], fallbackReason };
+  }
+
+  const trace = adjustmentById.get(selectedScore.commitmentId)?.trace || [];
+  const evidenceLabels = [...selectedScore.evidenceLabels, ...trace.map((entry) => entry.statement)];
+  const recommendation = proposeNextStep(
+    [{
+      commitmentId: selected.commitmentId,
+      title: selected.title,
+      reason: explanation(evidenceLabels),
+      evidenceLabels,
+      rank: 0,
+    }],
+    locale,
+    proposalId,
+  );
+  return {
+    arm: 'stated-preference',
+    recommendation,
+    scores: baseline.scores,
+    selectedCommitmentId: selected.commitmentId,
+    adjustments: [],
+    fallbackReason,
+    preferenceTrace: trace,
+  };
+}
+
 export function selectNextStepForArm(
-  arm: NextStepArm,
+  arm: NextStepArm | 'stated-preference',
   candidates: readonly ArmCandidate[],
   context: ArmContext,
   profile?: BehaviorProfile,
+  statedInputs?: StatedPreferenceInputs,
 ): ArmSelection {
   const baseline = selectBaselineNextStep(candidates, context.now, context.locale, context.proposalId);
   if (arm === NEXT_STEP_BASELINE_ARM) {
     return { arm, ...baseline, adjustments: [], fallbackReason: null };
+  }
+
+  if (arm === 'stated-preference') {
+    return selectStatedPreferenceArm(candidates, baseline, statedInputs || { preferences: [], facts: [] }, context.locale, context.proposalId);
   }
 
   const usable = arm === 'personalized' && profile !== undefined && profileIsUsable(profile);
