@@ -176,7 +176,7 @@ test('calibration: the seed decides which of two equally-scoring candidates wins
     assert.notEqual(report.best, null);
     winners.add(report.best!.policy.version);
   }
-  assert.ok(winners.size > 1, `expected the seed to break ties, saw only ${[...winners].join(', ')}`);
+  assert.ok(winners.size > 1, `expected the seed to break ties, saw only ${Array.from(winners).join(', ')}`);
 });
 
 test('calibration: best is null when no candidate beats the baseline', () => {

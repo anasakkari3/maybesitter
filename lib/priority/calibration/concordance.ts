@@ -161,7 +161,9 @@ export function evaluateConcordance(corpus: CalibrationCorpus, policy: PriorityP
 
   // Union of declared pairs and judged pairs, so a judgment about a pair the
   // corpus lacks widens the coverage denominator rather than vanishing.
-  const pairIds = Array.from(new Set([...byPairId.keys(), ...verdictsByPairId.keys()])).sort(compareIds);
+  const pairIds = Array.from(
+    new Set([...Array.from(byPairId.keys()), ...Array.from(verdictsByPairId.keys())]),
+  ).sort(compareIds);
 
   const overall = emptyTally();
   const sliceTallies = new Map<string, ReturnType<typeof emptyTally>>();
