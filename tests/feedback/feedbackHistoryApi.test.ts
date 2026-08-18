@@ -13,6 +13,7 @@ import { join } from 'node:path';
 
 import { generatePilotToken } from '../../lib/pilot/pilotTokenService.ts';
 import {
+  createFeedbackHistoryPort,
   setFeedbackHistoryPort,
   type FeedbackHistoryPort,
   type FeedbackRevokeResult,
@@ -21,8 +22,11 @@ import { GET as historyGet } from '../../src/app/api/mobile/feedback/history/rou
 import { POST as revokePost } from '../../src/app/api/mobile/feedback/[id]/revoke/route.ts';
 import {
   FEEDBACK_EVENT_SCHEMA_VERSION,
+  type AppendFeedbackEventInput,
   type FeedbackBaseline,
   type FeedbackEvent,
+  type FeedbackEventQuery,
+  type FeedbackEventStore,
   type FeedbackHistoryResponse,
   type FeedbackOutcome,
 } from '../../src/contracts/v1/feedbackContracts.ts';
@@ -394,6 +398,116 @@ test('feedback revoke: a blank id is rejected before it reaches the port', async
       routeParams('   '),
     );
     assert.equal(response.status, 400);
+  } finally {
+    teardown();
+  }
+});
+
+/**
+ * The store contract's `revoke(id, at)` takes no scope, and event ids are
+ * derived from their own fields rather than randomly generated — so an id is
+ * computable by anyone who knows the four inputs behind it, and the store will
+ * revoke whatever it is handed. This drives the route through the *real*
+ * adapter over a store that behaves exactly that way, so the refusal is proven
+ * end to end rather than assumed from a fake that enforces it for us.
+ */
+function naiveStore(seed: readonly FeedbackEvent[]): FeedbackEventStore {
+  const events = new Map(seed.map((entry) => [entry.id, { ...entry }]));
+  return {
+    append(_input: AppendFeedbackEventInput, _recordedAt: string): FeedbackEvent {
+      throw new Error('the history routes must never append');
+    },
+    get(id: string): FeedbackEvent | null {
+      return events.get(id) ?? null;
+    },
+    list(query: FeedbackEventQuery): readonly FeedbackEvent[] {
+      return Array.from(events.values()).filter((entry) => entry.scopeId === query.scopeId);
+    },
+    // No scope, no question asked: revokes any id it is given.
+    revoke(id: string, at: string): boolean {
+      const found = events.get(id);
+      if (!found || found.revokedAt) return false;
+      events.set(id, { ...found, revokedAt: at });
+      return true;
+    },
+    deleteScope(): number {
+      return 0;
+    },
+    readBaseline(): FeedbackBaseline | null {
+      return null;
+    },
+    writeBaseline(): void {},
+  };
+}
+
+test('feedback revoke: a participant cannot revoke another participant event through the real adapter', async () => {
+  const store = naiveStore([
+    event({ id: 'fbk_derived', scopeId: OTHER, outcome: 'complete', occurredAt: '2026-08-10T09:00:00.000Z' }),
+  ]);
+  const teardown = setup(createFeedbackHistoryPort(store));
+  try {
+    const response = await revokePost(
+      request('/api/mobile/feedback/fbk_derived/revoke', { method: 'POST', participantId: OWNER }),
+      routeParams('fbk_derived'),
+    );
+
+    assert.equal(response.status, 404);
+    // The store would have revoked it happily. It is still untouched.
+    assert.equal(store.get('fbk_derived')?.revokedAt, undefined);
+  } finally {
+    teardown();
+  }
+});
+
+test('feedback revoke: the owner of that same event can still revoke it', async () => {
+  const store = naiveStore([
+    event({ id: 'fbk_derived', scopeId: OWNER, outcome: 'complete', occurredAt: '2026-08-10T09:00:00.000Z' }),
+  ]);
+  const teardown = setup(createFeedbackHistoryPort(store));
+  try {
+    // The refusal above is about ownership, not about the route being inert.
+    const response = await revokePost(
+      request('/api/mobile/feedback/fbk_derived/revoke', { method: 'POST', participantId: OWNER }),
+      routeParams('fbk_derived'),
+    );
+
+    assert.equal(response.status, 200);
+    assert.ok(store.get('fbk_derived')?.revokedAt);
+  } finally {
+    teardown();
+  }
+});
+
+test('feedback revoke: another scope history is unreadable through the real adapter', async () => {
+  const store = naiveStore([
+    event({ id: 'fbk_theirs', scopeId: OTHER, outcome: 'complete', occurredAt: '2026-08-10T09:00:00.000Z' }),
+  ]);
+  const teardown = setup(createFeedbackHistoryPort(store));
+  try {
+    assert.deepEqual((await historyFor(OWNER)).rows, []);
+  } finally {
+    teardown();
+  }
+});
+
+test('feedback revoke: a store that refuses the write is reported as a failure, not a success', async () => {
+  const port: FeedbackHistoryPort = createFeedbackHistoryPort({
+    ...naiveStore([
+      event({ id: 'e1', scopeId: OWNER, outcome: 'defer', occurredAt: '2026-08-10T09:00:00.000Z' }),
+    ]),
+    revoke: () => false,
+  });
+  const teardown = setup(port);
+  try {
+    const response = await revokePost(
+      request('/api/mobile/feedback/e1/revoke', { method: 'POST', participantId: OWNER }),
+      routeParams('e1'),
+    );
+
+    assert.equal(response.status, 500);
+    const body = await response.json() as { success?: boolean; reason?: string };
+    assert.equal(body.success, false);
+    assert.equal(body.reason, 'revoke_failed');
   } finally {
     teardown();
   }

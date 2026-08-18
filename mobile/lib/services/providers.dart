@@ -7,12 +7,14 @@ import '../models/activity_event.dart';
 import 'api/api_client.dart';
 import 'api/api_alpha_feedback_service.dart';
 import 'api/api_capture_service.dart';
+import 'api/api_feedback_history_service.dart';
 import 'api/api_commitment_repository.dart';
 import 'api/api_next_step_service.dart';
 import 'api/api_pilot_trust_service.dart';
 import 'auth/pilot_credential_store.dart';
 import 'contracts/commitment_repository.dart';
 import 'contracts/capture_service.dart';
+import 'contracts/feedback_history_service.dart';
 import 'contracts/activity_repository.dart';
 import 'contracts/next_step_service.dart';
 import 'contracts/notification_service.dart';
@@ -23,6 +25,7 @@ import 'timezone_service_impl.dart';
 import 'mock/in_memory_commitment_repository.dart';
 import 'mock/mock_capture_service.dart';
 import 'mock/mock_activity_repository.dart';
+import 'mock/mock_feedback_history_service.dart';
 import 'mock/mock_next_step_service.dart';
 import 'mock/mock_notification_service.dart';
 import 'mock/mock_connectivity_service.dart';
@@ -105,6 +108,19 @@ final nextStepServiceProvider = Provider<NextStepService>((ref) {
 /// MAYBESITTER_ALPHA_FEEDBACK_ENABLED=true; otherwise calls are no-ops/403s.
 final alphaFeedbackServiceProvider = Provider<ApiAlphaFeedbackService>((ref) {
   return ApiAlphaFeedbackService(apiClient: ref.watch(apiClientProvider));
+});
+
+/// The behaviour record behind "What we noticed".
+///
+/// The mock is a working record, not a stub: revoking through it really stops
+/// the entry being used, so mock mode shows the same behaviour the server gives
+/// rather than a screen that merely looks correct.
+final feedbackHistoryServiceProvider = Provider<FeedbackHistoryService>((ref) {
+  final config = ref.watch(appConfigProvider);
+  if (config.isLocalBackend) {
+    return ApiFeedbackHistoryService(apiClient: ref.watch(apiClientProvider));
+  }
+  return MockFeedbackHistoryService();
 });
 
 final pilotCredentialStoreProvider = Provider<PilotCredentialStore>((ref) {

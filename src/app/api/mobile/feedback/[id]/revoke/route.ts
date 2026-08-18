@@ -47,9 +47,19 @@ export async function POST(
   const result = port.revokeForScope(scopeId, eventId, new Date().toISOString());
   if (result.outcome === 'not_found') {
     // Same answer whether the event does not exist or belongs to someone else.
+    // Event ids are derived from their own fields, so an id is guessable and
+    // a 403 here would confirm that someone else's event exists.
     return Response.json(
       { success: false, error: 'feedback event not found', reason: 'event_not_found' },
       { status: 404 },
+    );
+  }
+  if (result.outcome === 'failed') {
+    // The event is real and the correction did not land. Saying so is the only
+    // honest answer; a 200 here would be the screen's central failure.
+    return Response.json(
+      { success: false, error: 'the revocation could not be applied', reason: 'revoke_failed' },
+      { status: 500 },
     );
   }
 

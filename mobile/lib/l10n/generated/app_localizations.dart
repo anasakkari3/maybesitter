@@ -1653,6 +1653,264 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Reporting is not enabled in this build.'**
   String get alphaFlagDisabled;
+
+  /// No description provided for @feedbackHistoryTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'What we noticed'**
+  String get feedbackHistoryTitle;
+
+  /// No description provided for @feedbackHistorySubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Moments we recorded, and how to correct them'**
+  String get feedbackHistorySubtitle;
+
+  /// No description provided for @feedbackHistoryEntryTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'What we noticed'**
+  String get feedbackHistoryEntryTitle;
+
+  /// No description provided for @feedbackHistoryEntrySubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'See and correct what we recorded about your actions'**
+  String get feedbackHistoryEntrySubtitle;
+
+  /// No description provided for @feedbackHistoryIntro.
+  ///
+  /// In en, this message translates to:
+  /// **'Each line below is one moment we observed. None of it is stored as a preference, and none of it is a description of who you are.'**
+  String get feedbackHistoryIntro;
+
+  /// No description provided for @feedbackHistoryRevokeNote.
+  ///
+  /// In en, this message translates to:
+  /// **'If we got one wrong, turn it off. It stops counting from then on, and it stays listed here so you can see what changed.'**
+  String get feedbackHistoryRevokeNote;
+
+  /// No description provided for @feedbackObservedAccept.
+  ///
+  /// In en, this message translates to:
+  /// **'We saw you accept this suggestion.'**
+  String get feedbackObservedAccept;
+
+  /// No description provided for @feedbackObservedEdit.
+  ///
+  /// In en, this message translates to:
+  /// **'We saw you change this before saving it.'**
+  String get feedbackObservedEdit;
+
+  /// No description provided for @feedbackObservedReject.
+  ///
+  /// In en, this message translates to:
+  /// **'We saw you turn this down.'**
+  String get feedbackObservedReject;
+
+  /// No description provided for @feedbackObservedDefer.
+  ///
+  /// In en, this message translates to:
+  /// **'We saw you put this off.'**
+  String get feedbackObservedDefer;
+
+  /// No description provided for @feedbackObservedComplete.
+  ///
+  /// In en, this message translates to:
+  /// **'We saw you finish this.'**
+  String get feedbackObservedComplete;
+
+  /// No description provided for @feedbackObservedIgnore.
+  ///
+  /// In en, this message translates to:
+  /// **'We saw this go unanswered.'**
+  String get feedbackObservedIgnore;
+
+  /// No description provided for @feedbackObservedUndo.
+  ///
+  /// In en, this message translates to:
+  /// **'We saw you reverse this.'**
+  String get feedbackObservedUndo;
+
+  /// No description provided for @feedbackObservedUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'We recorded something here that this version of the app cannot describe.'**
+  String get feedbackObservedUnknown;
+
+  /// No description provided for @feedbackHistoryWhen.
+  ///
+  /// In en, this message translates to:
+  /// **'On {date}'**
+  String feedbackHistoryWhen(String date);
+
+  /// No description provided for @feedbackHistoryAboutItem.
+  ///
+  /// In en, this message translates to:
+  /// **'About: {title}'**
+  String feedbackHistoryAboutItem(String title);
+
+  /// No description provided for @feedbackHistorySubjectUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'The item this was about is no longer on your list.'**
+  String get feedbackHistorySubjectUnknown;
+
+  /// No description provided for @feedbackRevokeAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Don\'t learn from this'**
+  String get feedbackRevokeAction;
+
+  /// No description provided for @feedbackRevokeSemantics.
+  ///
+  /// In en, this message translates to:
+  /// **'Don\'t learn from this: {description}'**
+  String feedbackRevokeSemantics(String description);
+
+  /// No description provided for @feedbackRevokedBadge.
+  ///
+  /// In en, this message translates to:
+  /// **'We stopped using this'**
+  String get feedbackRevokedBadge;
+
+  /// No description provided for @feedbackRevokedOn.
+  ///
+  /// In en, this message translates to:
+  /// **'You turned this off on {date}.'**
+  String feedbackRevokedOn(String date);
+
+  /// No description provided for @feedbackRevokeDoneMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Done. We no longer learn from that one.'**
+  String get feedbackRevokeDoneMessage;
+
+  /// No description provided for @feedbackRevokeFailedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'That did not go through. Nothing changed.'**
+  String get feedbackRevokeFailedMessage;
+
+  /// No description provided for @feedbackHistoryEmptyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing recorded yet'**
+  String get feedbackHistoryEmptyTitle;
+
+  /// No description provided for @feedbackHistoryEmptyMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'After you act on a suggestion, what we observed will appear here.'**
+  String get feedbackHistoryEmptyMessage;
+
+  /// No description provided for @feedbackHistoryLoadFailedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'We could not load this'**
+  String get feedbackHistoryLoadFailedTitle;
+
+  /// No description provided for @feedbackHistoryLoadFailedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'The record could not be reached. Nothing has changed.'**
+  String get feedbackHistoryLoadFailedMessage;
+
+  /// No description provided for @feedbackHistoryUnavailableTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Not connected in this build'**
+  String get feedbackHistoryUnavailableTitle;
+
+  /// No description provided for @feedbackHistoryUnavailableMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'This build has no behaviour record connected, so there is nothing to show. That is not the same as an empty history.'**
+  String get feedbackHistoryUnavailableMessage;
+
+  /// No description provided for @feedbackBaselineTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'From before we kept dates'**
+  String get feedbackBaselineTitle;
+
+  /// No description provided for @feedbackBaselineMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'These totals come from before we started recording dates. Without a date, a total cannot be shown as a moment, and it cannot be turned off one at a time.'**
+  String get feedbackBaselineMessage;
+
+  /// No description provided for @feedbackBaselineUpdated.
+  ///
+  /// In en, this message translates to:
+  /// **'Last changed {date}.'**
+  String feedbackBaselineUpdated(String date);
+
+  /// No description provided for @feedbackBaselineIgnoredSuggestions.
+  ///
+  /// In en, this message translates to:
+  /// **'Suggestions left unanswered'**
+  String get feedbackBaselineIgnoredSuggestions;
+
+  /// No description provided for @feedbackBaselineCompletedActions.
+  ///
+  /// In en, this message translates to:
+  /// **'Things you finished'**
+  String get feedbackBaselineCompletedActions;
+
+  /// No description provided for @feedbackBaselineDelayedActions.
+  ///
+  /// In en, this message translates to:
+  /// **'Things you put off'**
+  String get feedbackBaselineDelayedActions;
+
+  /// No description provided for @feedbackBaselineClarificationSuccesses.
+  ///
+  /// In en, this message translates to:
+  /// **'Our questions that helped'**
+  String get feedbackBaselineClarificationSuccesses;
+
+  /// No description provided for @feedbackBaselineClarificationFailures.
+  ///
+  /// In en, this message translates to:
+  /// **'Our questions that did not help'**
+  String get feedbackBaselineClarificationFailures;
+
+  /// No description provided for @privacyStorageTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Where your data lives'**
+  String get privacyStorageTitle;
+
+  /// No description provided for @privacyTokenStorageLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Pilot access token'**
+  String get privacyTokenStorageLabel;
+
+  /// No description provided for @privacyTokenStorageValue.
+  ///
+  /// In en, this message translates to:
+  /// **'Device keychain'**
+  String get privacyTokenStorageValue;
+
+  /// No description provided for @privacyRealControlsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Analytics, consent and deletion'**
+  String get privacyRealControlsTitle;
+
+  /// No description provided for @privacyRealControlsMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'These are handled in Trust & privacy. Each control there acts on the server, not only on this device.'**
+  String get privacyRealControlsMessage;
+
+  /// No description provided for @privacyOpenTrustCenterAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Open Trust & privacy'**
+  String get privacyOpenTrustCenterAction;
 }
 
 class _AppLocalizationsDelegate

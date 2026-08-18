@@ -36,13 +36,23 @@ import type {
 /**
  * `not_found` covers "no such event" and "belongs to another scope" alike.
  * Distinguishing them would turn revoke into an oracle for whether an id
- * exists somewhere else in the system.
+ * exists somewhere else in the system — and event ids are derived from their
+ * own fields rather than randomly generated, so an id an attacker can compute
+ * must never be an authorisation boundary on its own.
+ *
+ * `failed` is the store declining a write on an event that does exist and is
+ * not yet revoked. It is kept apart from the other three because reporting it
+ * as `not_found` would tell the user their record is missing, and reporting it
+ * as `revoked` would tell them a correction happened that did not.
  */
-export type FeedbackRevokeOutcome = 'revoked' | 'already_revoked' | 'not_found';
+export type FeedbackRevokeOutcome = 'revoked' | 'already_revoked' | 'not_found' | 'failed';
 
+/** One member per outcome, so narrowing on `outcome` also narrows `event`. */
 export type FeedbackRevokeResult =
-  | { readonly outcome: 'revoked' | 'already_revoked'; readonly event: FeedbackEvent }
-  | { readonly outcome: 'not_found'; readonly event: null };
+  | { readonly outcome: 'revoked'; readonly event: FeedbackEvent }
+  | { readonly outcome: 'already_revoked'; readonly event: FeedbackEvent }
+  | { readonly outcome: 'not_found'; readonly event: null }
+  | { readonly outcome: 'failed'; readonly event: null };
 
 export interface FeedbackHistoryPort {
   /**
@@ -83,18 +93,24 @@ export function createFeedbackHistoryPort(store: FeedbackEventStore): FeedbackHi
     },
 
     revokeForScope(scopeId: string, eventId: string, at: string): FeedbackRevokeResult {
+      // The ownership check happens here, before the store is asked to do
+      // anything. `FeedbackEventStore.revoke(id, at)` takes no scope and will
+      // revoke whatever id it is handed, so this is the only place isolation
+      // can be enforced — and event ids are derived from their own contents,
+      // so knowing an id proves nothing about who it belongs to.
       const existing = store.get(eventId);
       if (!existing || existing.scopeId !== scopeId) return { outcome: 'not_found', event: null };
+
+      // `revoke()` answers false for "missing" and "already revoked" alike, so
+      // the distinction is drawn here rather than inferred from its result.
+      // Re-revoking is a benign no-op, not an error.
       if (existing.revokedAt) return { outcome: 'already_revoked', event: existing };
 
       const applied = store.revoke(eventId, at);
-      // A store that declines the write must not be reported as a success.
       const after = store.get(eventId);
-      if (!applied || !after?.revokedAt) {
-        return after && after.scopeId === scopeId && after.revokedAt
-          ? { outcome: 'already_revoked', event: after }
-          : { outcome: 'not_found', event: null };
-      }
+      // A store that declines, or that claims success without stamping, must
+      // not be reported to the user as a correction that took effect.
+      if (!applied || !after?.revokedAt) return { outcome: 'failed', event: null };
       return { outcome: 'revoked', event: after };
     },
   };

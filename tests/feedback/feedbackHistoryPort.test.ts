@@ -131,13 +131,15 @@ test('history port: re-revoking keeps the original correction time', () => {
   assert.equal(result.event?.revokedAt, '2026-08-12T08:00:00.000Z');
 });
 
-test('history port: a store that declines the write is not reported as a success', () => {
+test('history port: a store that declines the write is reported as failed, not missing', () => {
   const store = stubStore([event('e1', 'scope-a')], { refuseRevoke: true });
   const port = createFeedbackHistoryPort(store);
 
   const result = port.revokeForScope('scope-a', 'e1', '2026-08-14T10:00:00.000Z');
 
-  assert.notEqual(result.outcome, 'revoked');
+  // The event exists, so "not found" would be a false statement about the
+  // user's own record; the honest answer is that the correction did not land.
+  assert.equal(result.outcome, 'failed');
   assert.equal(store.get('e1')?.revokedAt, undefined);
 });
 
@@ -148,7 +150,7 @@ test('history port: a store that claims success without stamping is caught', () 
   // The user is told a correction was applied only when the record shows it.
   const result = port.revokeForScope('scope-a', 'e1', '2026-08-14T10:00:00.000Z');
 
-  assert.equal(result.outcome, 'not_found');
+  assert.equal(result.outcome, 'failed');
 });
 
 test('history port: baseline reads pass straight through', () => {
