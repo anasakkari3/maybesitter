@@ -1,6 +1,6 @@
 {
   "contractVersion": "priority-calibration-v1",
-  "provenance": "human_reviewed",
+  "provenance": "synthetic_pipeline_proof",
   "rubricVersion": "priority-rubric-v1",
   "decisions": []
 }

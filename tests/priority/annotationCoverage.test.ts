@@ -84,7 +84,12 @@ test('the shipped decision store holds zero decisions', () => {
 test('the shipped corpus declares what kind of evidence it is for', () => {
   const loaded = loadShippedDecisionCorpus();
 
-  assert.equal(loaded.provenance, 'human_reviewed');
+  // Synthetic, because it holds no decisions. The previous value here was
+  // `human_reviewed` over zero rows, which made the unsafe label the default a
+  // maintainer would have to deliberately remove — backwards. Dropping
+  // pipeline-proof rows into this file would then have inherited a claim that a
+  // person made them.
+  assert.equal(loaded.provenance, 'synthetic_pipeline_proof');
   assert.equal(loaded.rubricVersion, RUBRIC_VERSION);
   assert.equal(loaded.contractVersion, CALIBRATION_SCHEMA_VERSION);
 });
@@ -275,4 +280,24 @@ test('the markdown states the withheld locked split rather than leaving it impli
 
   assert.deepEqual(report.withheldLockedPairIds, QUEUE.withheldLockedPairIds);
   assert.match(generateQueueCoverageMarkdown(report), /locked evaluation split/i);
+});
+
+test('a decision corpus claiming human_reviewed over zero rows is rejected', () => {
+  // The shipped file previously carried this exact combination, which made the
+  // unsafe label the default a maintainer would have to deliberately remove.
+  // Rejected rather than downgraded: the claim and the rows disagree, and
+  // quietly picking one would hide that somebody wrote a label no data
+  // supports.
+  const result = parseDecisionCorpus({
+    contractVersion: CALIBRATION_SCHEMA_VERSION,
+    provenance: 'human_reviewed',
+    rubricVersion: RUBRIC_VERSION,
+    decisions: [],
+  });
+
+  assert.equal(result.valid, false);
+  assert.ok(
+    result.issues.some((issue) => issue.code === 'PDC004'),
+    'the empty-corpus provenance guard must fire',
+  );
 });

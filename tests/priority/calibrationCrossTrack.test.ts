@@ -253,3 +253,41 @@ test('declaring synthetic provenance keeps it out of the manifest as human evide
     'a run over rows nobody made must never be stored as human evidence',
   );
 });
+
+test('a corpus emptied by the split filter cannot keep a human_reviewed label', () => {
+  // Found in code review. The emptiness check ran against the caller's input
+  // rather than the filtered rows, so a corpus holding only other-split
+  // judgments kept whatever label it was handed — and reported human evidence
+  // for a run with zero human rows, while suppressing the synthetic banner that
+  // keys off the same field.
+  //
+  // This is the ordinary shape of the locked corpus once real judgments exist:
+  // the queue withholds locked pairs, so judgments about them do not appear.
+  const lockedOnly = judgmentsFrom(
+    PRIORITY_SEED_PAIRS.filter((pair) => pair.split === 'locked').slice(0, 2).map((pair) =>
+      createReviewedDecision({
+        pairId: pair.pairId, reviewerId: 'rev-a', verdict: 'left',
+        rationale: 'C1: locked-split row', hardConstraintFlag: false,
+        decidedAt: '2026-08-18T09:00:00.000Z',
+      }),
+    ),
+  );
+
+  const corpus = buildSeedCorpus({
+    split: 'calibration',
+    judgments: lockedOnly,
+    provenance: 'human_reviewed',
+  });
+
+  assert.equal(corpus.judgments.length, 0, 'the filter removes every row');
+  assert.equal(
+    corpus.provenance,
+    'synthetic_pipeline_proof',
+    'and a corpus with no rows holds no evidence about anyone, whatever the caller declared',
+  );
+
+  const report = runCalibration({
+    corpus, basePolicy: DEFAULT_PRIORITY_POLICY, generatedAt: GENERATED_AT, searchSeed: 42,
+  });
+  assert.equal(report.manifest.corpusProvenance, 'synthetic_pipeline_proof');
+});

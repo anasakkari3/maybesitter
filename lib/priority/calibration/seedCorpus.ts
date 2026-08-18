@@ -68,7 +68,17 @@ export function buildSeedCorpus(options: {
     .map(calibrationPairOf);
   const pairIds = new Set(pairs.map((pair) => pair.pairId));
 
-  const declared = provenanceOfEmptyCorpus(options.judgments) ?? options.provenance;
+  // Judgments about the other split are not this corpus's business; carrying
+  // them would let a locked-split row widen the calibration denominator.
+  const judgments = options.judgments.filter((judgment) => pairIds.has(judgment.pairId));
+
+  // Decided on the *filtered* rows, not the input. A corpus that ends up empty
+  // after filtering holds no evidence about anyone, whatever the caller
+  // declared — and this is the ordinary shape of the locked corpus once real
+  // judgments exist, since the queue withholds locked pairs and ingest rejects
+  // them. Checking before the filter let a run with zero rows keep a
+  // `human_reviewed` label and suppress the synthetic banner that keys off it.
+  const declared = provenanceOfEmptyCorpus(judgments) ?? options.provenance;
   if (declared === undefined) {
     throw new TypeError(
       'calibration: provenance must be declared for a non-empty corpus; it cannot be inferred from the rows',
@@ -78,9 +88,7 @@ export function buildSeedCorpus(options: {
   return {
     provenance: declared,
     pairs,
-    // Judgments about the other split are not this corpus's business; carrying
-    // them would let a locked-split row widen the calibration denominator.
-    judgments: options.judgments.filter((judgment) => pairIds.has(judgment.pairId)),
+    judgments,
     hardConstraints: (options.hardConstraints ?? []).filter((declaration) => pairIds.has(declaration.pairId)),
   };
 }

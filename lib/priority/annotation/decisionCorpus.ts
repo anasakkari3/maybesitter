@@ -122,6 +122,17 @@ export function parseDecisionCorpus(raw: unknown): DecisionCorpusLoadResult {
       `provenance must be one of ${JUDGMENT_PROVENANCES.join(' | ')}; a corpus that does not state ` +
         'whether it is reviewer evidence or a pipeline proof cannot be told apart from one that is',
     );
+  } else if (raw.provenance === 'human_reviewed' && Array.isArray(raw.decisions) && raw.decisions.length === 0) {
+    // A file with no decisions holds no reviewer evidence, whatever it says.
+    // Rejected rather than silently downgraded: the claim and the rows
+    // disagree, and quietly picking one would hide that somebody wrote a label
+    // no data supports.
+    collector.error(
+      'PDC004',
+      'corpus.provenance',
+      "a corpus with zero decisions cannot be 'human_reviewed'; ship it as " +
+        "'synthetic_pipeline_proof' until real reviewer rows exist",
+    );
   }
 
   const rubricVersion = typeof raw.rubricVersion === 'string' ? raw.rubricVersion : null;
