@@ -54,6 +54,8 @@ const MEMORY_FILE_EXT = '.memory.json';
 /** Suffix of a temp file written before the atomic rename. */
 const TEMP_FILE_EXT = '.tmp';
 const RECORD_ID_PREFIX = 'mem_';
+/** Keeps createdAt + ttlMs inside the ECMAScript time range. */
+const MAX_TTL_MS = 8_640_000_000_000_000;
 
 /**
  * Record ids reach the filesystem as `<id>.memory.json`, so an id containing
@@ -103,8 +105,12 @@ function assertValidInput(input: CreateMemoryInput): void {
   if (input.exportPolicy !== undefined && !EXPORT_POLICIES.includes(input.exportPolicy)) {
     fail(`exportPolicy must be one of ${EXPORT_POLICIES.join(', ')}`);
   }
-  if (input.ttlMs !== undefined && (!Number.isFinite(input.ttlMs) || input.ttlMs <= 0)) {
-    fail('ttlMs must be a positive number of milliseconds');
+  if (input.ttlMs !== undefined
+    && (!Number.isFinite(input.ttlMs) || input.ttlMs <= 0 || input.ttlMs > MAX_TTL_MS)) {
+    // Upper bound included so staleAfter stays a representable date: without it
+    // buildRecord throws a bare RangeError, escaping this module's own
+    // "runtime memory: ..." error contract.
+    fail(`ttlMs must be a positive number of milliseconds no greater than ${MAX_TTL_MS}`);
   }
   if (input.evidenceIds !== undefined
     && (!Array.isArray(input.evidenceIds) || !input.evidenceIds.every((id) => isNonEmptyString(id)))) {
@@ -196,16 +202,39 @@ function isFresh(record: RuntimeMemoryRecord, now: string): boolean {
   return Date.parse(record.staleAfter) > Date.parse(now);
 }
 
+/**
+ * Code-unit ordering, never localeCompare: ordering feeds retrieval results and
+ * must not shift with the host's locale.
+ */
+function compareStrings(left: string, right: string): number {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+
+/**
+ * Timestamps are compared as instants, not as text. ISO timestamps carrying
+ * different UTC offsets sort differently as strings than they do in time, and
+ * isIsoTimestamp accepts offsets, so a textual sort can rank an older record
+ * above a newer one — which `limit` would then return in place of the newest.
+ */
+function compareInstants(left: string, right: string): number {
+  const leftMs = Date.parse(left);
+  const rightMs = Date.parse(right);
+  if (Number.isNaN(leftMs) || Number.isNaN(rightMs)) return compareStrings(left, right);
+  return leftMs - rightMs;
+}
+
 /** Newest observation first; createdAt then id break ties so ordering is total. */
 function byNewestObserved(a: RuntimeMemoryRecord, b: RuntimeMemoryRecord): number {
-  return b.observedAt.localeCompare(a.observedAt)
-    || b.createdAt.localeCompare(a.createdAt)
-    || a.id.localeCompare(b.id);
+  return compareInstants(b.observedAt, a.observedAt)
+    || compareInstants(b.createdAt, a.createdAt)
+    || compareStrings(a.id, b.id);
 }
 
 /** Oldest first for inspection, so a supersession chain reads in write order. */
 function byOldestCreated(a: RuntimeMemoryRecord, b: RuntimeMemoryRecord): number {
-  return a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id);
+  return compareInstants(a.createdAt, b.createdAt) || compareStrings(a.id, b.id);
 }
 
 /**
@@ -444,10 +473,20 @@ function createFileRepository(resolveDataDir: () => string): RecordRepository {
     },
 
     remove(id: string): boolean {
-      const filePath = recordPath(ensureDir(), id);
-      if (!existsSync(filePath)) return false;
-      unlinkSync(filePath);
-      return true;
+      const dataDir = ensureDir();
+      const filePath = recordPath(dataDir, id);
+      const existed = existsSync(filePath);
+      if (existed) unlinkSync(filePath);
+
+      // Sweep any temp file a crashed write left for this same id. Nothing else
+      // can reach it afterwards — readAll() skips .tmp, so prune() and revoke()
+      // never see it — and it holds the complete record, content included.
+      const tempPrefix = `${id}${MEMORY_FILE_EXT}`;
+      for (const entry of readdirSync(dataDir)) {
+        if (!entry.startsWith(tempPrefix) || !entry.endsWith(TEMP_FILE_EXT)) continue;
+        unlinkSync(path.join(dataDir, entry));
+      }
+      return existed;
     },
 
     removeScope(scopeId: string): number {

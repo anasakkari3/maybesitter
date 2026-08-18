@@ -412,7 +412,12 @@ function checkAvailabilityView(ctx: FieldContext, value: Record<string, unknown>
   const path = `${ctx.path}.value`;
   const windows = value.busyWindows;
   const openCommitments = ctx.commitments.filter(isOpen);
-  const expectedWindowIds = openCommitments.filter((c) => c.timeSpec.kind !== 'unscheduled').map((c) => c.id);
+  // A busy window needs a time, not a label. timeSpec.kind and dueAt are set
+  // independently — UpdateCommitment merges the two halves — so a commitment can
+  // be kind:'unscheduled' with a dueAt, or kind:'due_by' with dueAt cleared.
+  // The projection keys off the time it actually has; so does this.
+  const hasTime = (c: Commitment): boolean => c.timeSpec.dueAt !== null;
+  const expectedWindowIds = openCommitments.filter(hasTime).map((c) => c.id);
 
   if (!Array.isArray(windows)) {
     ctx.issues.error('AVAILABILITY_WINDOWS_INVALID', `${path}.busyWindows`, 'busyWindows must be an array');
@@ -455,11 +460,15 @@ function checkAvailabilityView(ctx: FieldContext, value: Record<string, unknown>
       if (window.timezone !== commitment.timeSpec.timezone) {
         ctx.issues.error('AVAILABILITY_WINDOW_MISMATCH', `${windowPath}.timezone`, "must equal the commitment's timezone");
       }
-      if (window.kind !== commitment.timeSpec.kind) {
+      // BusyWindow['kind'] has no 'unscheduled' member: a window only exists
+      // where there is a time, and a timed commitment is either an appointment
+      // or a deadline.
+      const expectedKind = commitment.timeSpec.kind === 'scheduled_event' ? 'scheduled_event' : 'due_by';
+      if (window.kind !== expectedKind) {
         ctx.issues.error(
           'AVAILABILITY_WINDOW_MISMATCH',
           `${windowPath}.kind`,
-          `must equal the commitment's timeSpec.kind ${commitment.timeSpec.kind}`,
+          `must be ${expectedKind} for a commitment with timeSpec.kind ${commitment.timeSpec.kind}`,
         );
       }
     });
@@ -488,7 +497,7 @@ function checkAvailabilityView(ctx: FieldContext, value: Record<string, unknown>
     }
   }
 
-  const expectedUnscheduled = openCommitments.filter((c) => c.timeSpec.kind === 'unscheduled').length;
+  const expectedUnscheduled = openCommitments.filter((c) => !hasTime(c)).length;
   if (value.unscheduledCommitmentCount !== expectedUnscheduled) {
     ctx.issues.error(
       'AVAILABILITY_UNSCHEDULED_MISMATCH',

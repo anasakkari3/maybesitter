@@ -480,9 +480,12 @@ test('recent outcomes count status terminals and terminal ack states inside the 
   assert.equal(view.droppedCount, 1);
   assert.equal(view.postponedCount, 1);
   assert.equal(view.ignoredCount, 1);
-  // A dropped commitment carries ack state 'completed' per the state machine, so
-  // the ack tally and the status tally disagree on purpose.
-  assert.deepEqual(view.countsByAckState, { postponed: 1, completed: 2, ignored: 1 });
+  // c_dropped_in carries ack state 'completed', because Drop sets it to mean
+  // "no longer awaiting acknowledgement". Counting it here would report an
+  // abandoned commitment as a completed one, so the drop artifact is excluded
+  // and the ack tally agrees with the status tally.
+  assert.deepEqual(view.countsByAckState, { postponed: 1, completed: 1, ignored: 1 });
+  assert.equal(view.countsByAckState.completed, view.completedCount);
   // Encounter order would have produced ['completed', 'ignored', 'postponed'].
   assert.deepEqual(Object.keys(view.countsByAckState), ['postponed', 'completed', 'ignored']);
   assert.equal(projection.recentOutcomes.provenance.derivedFrom, '2026-08-17T11:00:00.000Z');

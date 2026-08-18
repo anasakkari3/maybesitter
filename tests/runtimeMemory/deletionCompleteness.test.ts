@@ -75,3 +75,21 @@ test('SECURITY: a file naming a different scope is never deleted', () => {
   assert.equal(readdirSync(dataDir).length, 1, "carol's file must survive");
   rmSync(dir, { recursive: true, force: true });
 });
+
+test('SECURITY: deleteById also sweeps a temp file left by a crashed write', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'sec5-'));
+  const dataDir = join(dir, 'store');
+  const store = createFileRuntimeMemoryStore({ dataDir });
+  const rec = store.put({
+    scopeId: 'erin', kind: 'fact', content: 'e', language: 'en',
+    source: 'user_stated', confidence: 0.5, observedAt: '2026-08-18T00:00:00.000Z',
+  }, '2026-08-18T00:00:00.000Z');
+  // A crash between writeFileSync and renameSync leaves this behind. Nothing
+  // else can reach it: readAll() skips .tmp, so prune() and revoke() never see it.
+  writeFileSync(join(dataDir, `${rec.id}.memory.json.4242.tmp`),
+    JSON.stringify({ ...rec, content: 'LEAKED SECRET' }));
+
+  assert.equal(store.deleteById(rec.id), true);
+  assert.deepEqual(readdirSync(dataDir), [], 'deleteById must leave no file holding the record');
+  rmSync(dir, { recursive: true, force: true });
+});

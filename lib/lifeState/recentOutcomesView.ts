@@ -95,8 +95,17 @@ export function buildRecentOutcomesView(
 
     // Ack outcomes are tracked separately from status outcomes: a postponement
     // is an outcome the user produced without the commitment ever closing.
+    //
+    // Dropping is excluded because Drop sets currentAckState to 'completed'
+    // (stateMachine.ts) purely to mean "no longer awaiting acknowledgement".
+    // Counting that ack would report an abandoned commitment as a completed
+    // one — the opposite of what happened, and to a consumer measuring whether
+    // the user is finishing things, actively misleading.
     const ackState = fact.commitment.currentAckState;
-    if (TERMINAL_ACK_STATES.includes(ackState) && withinWindow(fact.commitment.updatedAt, windowStartMs, nowMs)) {
+    const ackIsDropArtifact = fact.commitment.status === 'dropped';
+    if (!ackIsDropArtifact
+      && TERMINAL_ACK_STATES.includes(ackState)
+      && withinWindow(fact.commitment.updatedAt, windowStartMs, nowMs)) {
       tally.ackCounts[ackState] = (tally.ackCounts[ackState] || 0) + 1;
       if (ackState === 'postponed') tally.postponedCount += 1;
       if (ackState === 'ignored') tally.ignoredCount += 1;
