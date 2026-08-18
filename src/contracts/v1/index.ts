@@ -4,6 +4,7 @@ export * from './lifeStateContracts';
 export * from './memoryContracts';
 export * from './feedbackContracts';
 export * from './priorityContracts';
+export * from './calibrationContracts';
 export * from './captureContracts';
 export * from './nextStepContracts';
 export * from './analyticsEventContracts';
