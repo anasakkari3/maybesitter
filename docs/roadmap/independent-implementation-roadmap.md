@@ -30,14 +30,28 @@ These 17 issues stayed **open** but are labeled `excluded:human-gate` and out of
 
 ## Implementation roadmap (34 issues, independent, gate-free)
 
-### Sprint 02 — Life-State & Memory
+### Sprint 02 — Life-State & Memory ✅ DONE
 
-- **[#9](https://github.com/anasakkari3/maybesitter/issues/9) — [S02][Backend] Implement canonical Life-State projection**
+Merged 2026-08-18 via [#99](https://github.com/anasakkari3/maybesitter/pull/99). Design:
+`docs/superpowers/specs/2026-08-18-sprint-02-life-state-memory-design.md`.
+
+- **[#9](https://github.com/anasakkari3/maybesitter/issues/9) — [S02][Backend] Implement canonical Life-State projection** — done, `lib/lifeState/`
   Create a deterministic read model for commitments, availability, load, and recent outcomes.
-- **[#10](https://github.com/anasakkari3/maybesitter/issues/10) — [S02][Backend] Implement provenance-aware Memory store**
+- **[#10](https://github.com/anasakkari3/maybesitter/issues/10) — [S02][Backend] Implement provenance-aware Memory store** — done, `lib/runtimeMemory/`
   Store runtime memories with source, confidence, freshness, scope, and revocation.
-- **[#11](https://github.com/anasakkari3/maybesitter/issues/11) — [S02][Model/Data] Create Life-State and Memory contract fixtures**
+- **[#11](https://github.com/anasakkari3/maybesitter/issues/11) — [S02][Model/Data] Create Life-State and Memory contract fixtures** — done, `tests/fixtures/`
   Build multilingual fixtures that test missing, stale, conflicting, and sensitive context.
+
+**Contracts now available to later sprints** — `src/contracts/v1/lifeStateContracts.ts` and
+`src/contracts/v1/memoryContracts.ts`. The `lifeState` and `memory` entries in `moduleContracts.ts`
+are no longer placeholders.
+
+**Lesson for the remaining sprints.** Writing the shared contracts before starting parallel work
+prevented merge conflicts, but did not prevent the three modules from *interpreting* the contract
+three different ways: 91 tests passed while they disagreed, because the fixture corpus was data that
+nothing executed. Every sprint that splits into parallel tracks should end with an integration test
+that runs one track's fixtures against another track's real implementation — that step, not the
+per-track suites, is what found the disagreements.
 
 ### Sprint 03 — Feedback Events
 
