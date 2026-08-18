@@ -22,10 +22,31 @@ class DateFormatter {
     return '$lri$text$pdi';
   }
 
+  /// U+2068 FIRST STRONG ISOLATE.
+  static const String fsi = '\u2068';
+
+  /// Wraps [text] in a first-strong isolate: it is still one opaque unit to the
+  /// surrounding paragraph, but its own direction is taken from its first
+  /// strong character instead of being forced left-to-right.
+  ///
+  /// This is the right tool for anything whose direction depends on the locale,
+  /// and a *locale-formatted date* is the clearest case. `DateFormat.yMMMd`
+  /// produces "Aug 18, 2026" in English but "١٨ أغسطس ٢٠٢٦" in Arabic. Forcing
+  /// the Arabic form left-to-right with [isolate] reorders its top-level runs
+  /// and the day number lands at the far end of the line — "في أغسطس 2026 3:10
+  /// م 18" instead of "في 18 أغسطس 2026 3:10 م". [isolate] stays correct for a
+  /// genuinely LTR token such as a bare clock time; this one is for text that
+  /// changes direction with the locale, and for user-supplied text whose script
+  /// is unknown.
+  static String isolateAuto(String text) {
+    if (text.isEmpty) return text;
+    return '$fsi$text$pdi';
+  }
+
   /// Strips directional isolate marks. For tests and for any consumer that
   /// needs the bare value (comparison, persistence, semantics labels).
   static String stripIsolates(String text) =>
-      text.replaceAll(lri, '').replaceAll(pdi, '');
+      text.replaceAll(lri, '').replaceAll(fsi, '').replaceAll(pdi, '');
 
   static String formatHeaderDate(DateTime? date, {String? locale}) {
     if (date == null) return 'No date set';

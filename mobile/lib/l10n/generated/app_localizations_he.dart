@@ -884,4 +884,153 @@ class AppLocalizationsHe extends AppLocalizations {
 
   @override
   String get alphaFlagDisabled => 'הדיווח אינו מופעל בגרסה זו.';
+
+  @override
+  String get feedbackHistoryTitle => 'מה שמנו לב אליו';
+
+  @override
+  String get feedbackHistorySubtitle => 'רגעים שתיעדנו, ואיך לתקן אותם';
+
+  @override
+  String get feedbackHistoryEntryTitle => 'מה שמנו לב אליו';
+
+  @override
+  String get feedbackHistoryEntrySubtitle =>
+      'לראות ולתקן את מה שתיעדנו על הפעולות שלך';
+
+  @override
+  String get feedbackHistoryIntro =>
+      'כל שורה כאן היא רגע אחד שראינו. אף אחת מהן אינה נשמרת כהעדפה, ואף אחת מהן אינה תיאור שלך.';
+
+  @override
+  String get feedbackHistoryRevokeNote =>
+      'אם טעינו באחת, אפשר לכבות אותה. היא תפסיק להיספר מכאן והלאה, ותישאר מוצגת כאן כדי שאפשר יהיה לראות מה השתנה.';
+
+  @override
+  String get feedbackObservedAccept => 'ראינו שאישרת את ההצעה הזו.';
+
+  @override
+  String get feedbackObservedEdit => 'ראינו ששינית את זה לפני השמירה.';
+
+  @override
+  String get feedbackObservedReject => 'ראינו שסירבת לזה.';
+
+  @override
+  String get feedbackObservedDefer => 'ראינו שדחית את זה למועד אחר.';
+
+  @override
+  String get feedbackObservedComplete => 'ראינו שסיימת את זה.';
+
+  @override
+  String get feedbackObservedIgnore => 'ראינו שזה עבר בלי תגובה.';
+
+  @override
+  String get feedbackObservedUndo => 'ראינו שביטלת את זה.';
+
+  @override
+  String get feedbackObservedUnknown =>
+      'תיעדנו כאן משהו שגרסה זו של האפליקציה לא יודעת לתאר.';
+
+  @override
+  String feedbackHistoryWhen(String date) {
+    return 'בתאריך $date';
+  }
+
+  @override
+  String feedbackHistoryAboutItem(String title) {
+    return 'בנוגע ל: $title';
+  }
+
+  @override
+  String get feedbackHistorySubjectUnknown =>
+      'הפריט שזה נגע אליו כבר לא נמצא ברשימה שלך.';
+
+  @override
+  String get feedbackRevokeAction => 'אל תלמדו מזה';
+
+  @override
+  String feedbackRevokeSemantics(String description) {
+    return 'אל תלמדו מזה: $description';
+  }
+
+  @override
+  String get feedbackRevokedBadge => 'הפסקנו להשתמש בזה';
+
+  @override
+  String feedbackRevokedOn(String date) {
+    return 'כיבית את זה בתאריך $date.';
+  }
+
+  @override
+  String get feedbackRevokeDoneMessage => 'בוצע. אנחנו כבר לא לומדים מזה.';
+
+  @override
+  String get feedbackRevokeFailedMessage => 'הפעולה לא עברה. שום דבר לא השתנה.';
+
+  @override
+  String get feedbackHistoryEmptyTitle => 'עדיין לא תועד דבר';
+
+  @override
+  String get feedbackHistoryEmptyMessage =>
+      'לאחר פעולה על הצעה, מה שראינו יופיע כאן.';
+
+  @override
+  String get feedbackHistoryLoadFailedTitle => 'לא הצלחנו לטעון את זה';
+
+  @override
+  String get feedbackHistoryLoadFailedMessage =>
+      'לא ניתן היה להגיע ליומן. שום דבר לא השתנה.';
+
+  @override
+  String get feedbackHistoryUnavailableTitle => 'לא מחובר בגרסה זו';
+
+  @override
+  String get feedbackHistoryUnavailableMessage =>
+      'בגרסה זו אין יומן התנהגות מחובר, ולכן אין מה להציג. זה אינו זהה להיסטוריה ריקה.';
+
+  @override
+  String get feedbackBaselineTitle => 'מלפני שהתחלנו לתעד תאריכים';
+
+  @override
+  String get feedbackBaselineMessage =>
+      'הסכומים האלה מגיעים מהתקופה שלפני תיעוד התאריכים. בלי תאריך אי אפשר להציג סכום כרגע בודד, ואי אפשר לכבות אותו אחד-אחד.';
+
+  @override
+  String feedbackBaselineUpdated(String date) {
+    return 'שינוי אחרון בתאריך $date.';
+  }
+
+  @override
+  String get feedbackBaselineIgnoredSuggestions => 'הצעות שנשארו ללא מענה';
+
+  @override
+  String get feedbackBaselineCompletedActions => 'דברים שסיימת';
+
+  @override
+  String get feedbackBaselineDelayedActions => 'דברים שדחית';
+
+  @override
+  String get feedbackBaselineClarificationSuccesses => 'שאלות שלנו שעזרו';
+
+  @override
+  String get feedbackBaselineClarificationFailures => 'שאלות שלנו שלא עזרו';
+
+  @override
+  String get privacyStorageTitle => 'היכן הנתונים שלך נשמרים';
+
+  @override
+  String get privacyTokenStorageLabel => 'אסימון גישה לפיילוט';
+
+  @override
+  String get privacyTokenStorageValue => 'מחסן המפתחות של המכשיר';
+
+  @override
+  String get privacyRealControlsTitle => 'נתוני שימוש, הסכמה ומחיקה';
+
+  @override
+  String get privacyRealControlsMessage =>
+      'אלה מנוהלים במסך אמון ופרטיות. כל פקד שם משפיע על השרת, לא רק על המכשיר הזה.';
+
+  @override
+  String get privacyOpenTrustCenterAction => 'פתיחת אמון ופרטיות';
 }

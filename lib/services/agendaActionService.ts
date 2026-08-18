@@ -5,9 +5,12 @@ import {
 } from './commandService';
 import {
   recordBehaviorFeedback,
+  scopeBehaviorFeedback,
   type BehaviorFeedbackScopeOptions,
   type BehaviorFeedbackStore,
 } from './behaviorFeedbackService';
+import { createFileFeedbackEventStore } from '../feedback/feedbackEventStore';
+import type { FeedbackEventStore, FeedbackOutcome } from '../../src/contracts/v1/feedbackContracts';
 import type { Command, Commitment } from '../../src/domain/stateMachine';
 
 export type AgendaActionType = 'done' | 'aware' | 'postpone' | 'skip';
@@ -19,6 +22,8 @@ export interface AgendaActionResult {
 
 export interface AgendaActionOptions extends BehaviorFeedbackScopeOptions {
   feedbackStore?: BehaviorFeedbackStore;
+  /** Injected in tests; defaults to the shared file-backed event store. */
+  feedbackEventStore?: FeedbackEventStore;
 }
 
 function isAgendaActionType(action: unknown): action is AgendaActionType {
@@ -86,7 +91,12 @@ function failureMessage(action: AgendaActionType, result: CommandServiceResult['
   return `No change was applied for ${action}.`;
 }
 
-function recordActionFeedback(action: AgendaActionType, now: Date, options: AgendaActionOptions): void {
+function recordActionFeedback(
+  action: AgendaActionType,
+  subjectId: string,
+  now: Date,
+  options: AgendaActionOptions,
+): void {
   if (
     !options.feedbackStore &&
     !options.feedbackScopeId &&
@@ -106,6 +116,69 @@ function recordActionFeedback(action: AgendaActionType, now: Date, options: Agen
   if (action === 'skip') {
     recordBehaviorFeedback('suggestion_ignored', { ...options, now });
   }
+
+  appendFeedbackEvent(action, subjectId, now, options);
+}
+
+/**
+ * Sprint 03 dual-write: the same outcome is also appended to the event log.
+ *
+ * The legacy counter write above stays authoritative for this sprint — six
+ * modules still read it — so the event log can be verified against a working
+ * system before anything depends on it.
+ *
+ * Ordering and isolation are deliberate. The append runs last and its failure
+ * is swallowed, so a fault in the new log leaves the legacy counter written and
+ * the user's action applied. The event log is then merely short, which a replay
+ * can repair; the reverse — failing the user's action because a
+ * not-yet-depended-on log misbehaved — would be a regression caused entirely by
+ * unfinished work.
+ */
+function appendFeedbackEvent(
+  action: AgendaActionType,
+  subjectId: string,
+  now: Date,
+  options: AgendaActionOptions,
+): void {
+  const outcome = FEEDBACK_OUTCOME_BY_ACTION[action];
+  if (!outcome) return;
+
+  const store = options.feedbackEventStore ?? defaultFeedbackEventStore();
+  const at = now.toISOString();
+  try {
+    store.append(
+      {
+        scopeId: scopeBehaviorFeedback(options),
+        outcome,
+        subjectId,
+        actor: 'user',
+        source: 'mobile_action',
+        occurredAt: at,
+      },
+      at,
+    );
+  } catch {
+    // See the ordering note above: the legacy write already succeeded.
+  }
+}
+
+/**
+ * `aware` has no outcome: acknowledging that a commitment exists is not yet a
+ * decision about it, and recording one would put a behaviour in the log the
+ * user never performed.
+ */
+const FEEDBACK_OUTCOME_BY_ACTION: Readonly<Partial<Record<AgendaActionType, FeedbackOutcome>>> =
+  Object.freeze({
+    done: 'complete',
+    postpone: 'defer',
+    skip: 'ignore',
+  });
+
+let sharedFeedbackEventStore: FeedbackEventStore | null = null;
+
+function defaultFeedbackEventStore(): FeedbackEventStore {
+  sharedFeedbackEventStore ??= createFileFeedbackEventStore();
+  return sharedFeedbackEventStore;
 }
 
 export function applyAgendaAction(
@@ -133,7 +206,7 @@ export function applyAgendaAction(
   const results = commandsForAction(commitment, action, now).map((command) => applyCommand(command));
   const result = aggregateResult(results);
   if (result === 'applied') {
-    recordActionFeedback(action, now, options);
+    recordActionFeedback(action, id, now, options);
   }
 
   return {

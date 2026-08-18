@@ -887,4 +887,159 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get alphaFlagDisabled => 'Reporting is not enabled in this build.';
+
+  @override
+  String get feedbackHistoryTitle => 'What we noticed';
+
+  @override
+  String get feedbackHistorySubtitle =>
+      'Moments we recorded, and how to correct them';
+
+  @override
+  String get feedbackHistoryEntryTitle => 'What we noticed';
+
+  @override
+  String get feedbackHistoryEntrySubtitle =>
+      'See and correct what we recorded about your actions';
+
+  @override
+  String get feedbackHistoryIntro =>
+      'Each line below is one moment we observed. None of it is stored as a preference, and none of it is a description of who you are.';
+
+  @override
+  String get feedbackHistoryRevokeNote =>
+      'If we got one wrong, turn it off. It stops counting from then on, and it stays listed here so you can see what changed.';
+
+  @override
+  String get feedbackObservedAccept => 'We saw you accept this suggestion.';
+
+  @override
+  String get feedbackObservedEdit => 'We saw you change this before saving it.';
+
+  @override
+  String get feedbackObservedReject => 'We saw you turn this down.';
+
+  @override
+  String get feedbackObservedDefer => 'We saw you put this off.';
+
+  @override
+  String get feedbackObservedComplete => 'We saw you finish this.';
+
+  @override
+  String get feedbackObservedIgnore => 'We saw this go unanswered.';
+
+  @override
+  String get feedbackObservedUndo => 'We saw you reverse this.';
+
+  @override
+  String get feedbackObservedUnknown =>
+      'We recorded something here that this version of the app cannot describe.';
+
+  @override
+  String feedbackHistoryWhen(String date) {
+    return 'On $date';
+  }
+
+  @override
+  String feedbackHistoryAboutItem(String title) {
+    return 'About: $title';
+  }
+
+  @override
+  String get feedbackHistorySubjectUnknown =>
+      'The item this was about is no longer on your list.';
+
+  @override
+  String get feedbackRevokeAction => 'Don\'t learn from this';
+
+  @override
+  String feedbackRevokeSemantics(String description) {
+    return 'Don\'t learn from this: $description';
+  }
+
+  @override
+  String get feedbackRevokedBadge => 'We stopped using this';
+
+  @override
+  String feedbackRevokedOn(String date) {
+    return 'You turned this off on $date.';
+  }
+
+  @override
+  String get feedbackRevokeDoneMessage =>
+      'Done. We no longer learn from that one.';
+
+  @override
+  String get feedbackRevokeFailedMessage =>
+      'That did not go through. Nothing changed.';
+
+  @override
+  String get feedbackHistoryEmptyTitle => 'Nothing recorded yet';
+
+  @override
+  String get feedbackHistoryEmptyMessage =>
+      'After you act on a suggestion, what we observed will appear here.';
+
+  @override
+  String get feedbackHistoryLoadFailedTitle => 'We could not load this';
+
+  @override
+  String get feedbackHistoryLoadFailedMessage =>
+      'The record could not be reached. Nothing has changed.';
+
+  @override
+  String get feedbackHistoryUnavailableTitle => 'Not connected in this build';
+
+  @override
+  String get feedbackHistoryUnavailableMessage =>
+      'This build has no behaviour record connected, so there is nothing to show. That is not the same as an empty history.';
+
+  @override
+  String get feedbackBaselineTitle => 'From before we kept dates';
+
+  @override
+  String get feedbackBaselineMessage =>
+      'These totals come from before we started recording dates. Without a date, a total cannot be shown as a moment, and it cannot be turned off one at a time.';
+
+  @override
+  String feedbackBaselineUpdated(String date) {
+    return 'Last changed $date.';
+  }
+
+  @override
+  String get feedbackBaselineIgnoredSuggestions =>
+      'Suggestions left unanswered';
+
+  @override
+  String get feedbackBaselineCompletedActions => 'Things you finished';
+
+  @override
+  String get feedbackBaselineDelayedActions => 'Things you put off';
+
+  @override
+  String get feedbackBaselineClarificationSuccesses =>
+      'Our questions that helped';
+
+  @override
+  String get feedbackBaselineClarificationFailures =>
+      'Our questions that did not help';
+
+  @override
+  String get privacyStorageTitle => 'Where your data lives';
+
+  @override
+  String get privacyTokenStorageLabel => 'Pilot access token';
+
+  @override
+  String get privacyTokenStorageValue => 'Device keychain';
+
+  @override
+  String get privacyRealControlsTitle => 'Analytics, consent and deletion';
+
+  @override
+  String get privacyRealControlsMessage =>
+      'These are handled in Trust & privacy. Each control there acts on the server, not only on this device.';
+
+  @override
+  String get privacyOpenTrustCenterAction => 'Open Trust & privacy';
 }

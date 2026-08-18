@@ -9,6 +9,7 @@ import '../features/capture/success_save_screen.dart';
 import '../features/commitment_details/commitment_details_screen.dart';
 import '../features/onboarding/onboarding_screen.dart';
 import '../features/settings/appearance_screen.dart';
+import '../features/settings/feedback_history_screen.dart';
 import '../features/settings/notifications_permission_screen.dart';
 import '../features/settings/privacy_screen.dart';
 import '../features/settings/settings_screen.dart';
@@ -95,6 +96,13 @@ final appRouter = GoRouter(
               path: 'privacy',
               parentNavigatorKey: _rootNavigatorKey,
               builder: (context, state) => const PrivacyScreen(),
+              routes: [
+                GoRoute(
+                  path: 'feedback-history',
+                  parentNavigatorKey: _rootNavigatorKey,
+                  builder: (context, state) => const FeedbackHistoryScreen(),
+                ),
+              ],
             ),
             GoRoute(
               path: 'notifications',

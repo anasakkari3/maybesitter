@@ -894,4 +894,153 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get alphaFlagDisabled => 'الإبلاغ غير مفعّل في هذا الإصدار.';
+
+  @override
+  String get feedbackHistoryTitle => 'ما لاحظناه';
+
+  @override
+  String get feedbackHistorySubtitle => 'لحظات سجّلناها، وكيفية تصحيحها';
+
+  @override
+  String get feedbackHistoryEntryTitle => 'ما لاحظناه';
+
+  @override
+  String get feedbackHistoryEntrySubtitle =>
+      'اطّلع على ما سجّلناه عن أفعالك وصحّحه';
+
+  @override
+  String get feedbackHistoryIntro =>
+      'كل سطر هنا هو لحظة واحدة لاحظناها. لا يُحفظ أي منها كتفضيل، ولا يصف أي منها من أنت.';
+
+  @override
+  String get feedbackHistoryRevokeNote =>
+      'إذا أخطأنا في واحدة، أوقفها. لن تُحتسب بعد ذلك، وتبقى ظاهرة هنا لترى ما الذي تغيّر.';
+
+  @override
+  String get feedbackObservedAccept => 'رأيناك تقبل هذا الاقتراح.';
+
+  @override
+  String get feedbackObservedEdit => 'رأيناك تعدّل هذا قبل حفظه.';
+
+  @override
+  String get feedbackObservedReject => 'رأيناك ترفض هذا.';
+
+  @override
+  String get feedbackObservedDefer => 'رأيناك تؤجّل هذا.';
+
+  @override
+  String get feedbackObservedComplete => 'رأيناك تُنهي هذا.';
+
+  @override
+  String get feedbackObservedIgnore => 'رأينا هذا يمرّ دون ردّ.';
+
+  @override
+  String get feedbackObservedUndo => 'رأيناك تتراجع عن هذا.';
+
+  @override
+  String get feedbackObservedUnknown =>
+      'سجّلنا هنا شيئًا لا يستطيع هذا الإصدار من التطبيق وصفه.';
+
+  @override
+  String feedbackHistoryWhen(String date) {
+    return 'في $date';
+  }
+
+  @override
+  String feedbackHistoryAboutItem(String title) {
+    return 'بخصوص: $title';
+  }
+
+  @override
+  String get feedbackHistorySubjectUnknown =>
+      'العنصر الذي يخصّه هذا لم يعد في قائمتك.';
+
+  @override
+  String get feedbackRevokeAction => 'لا تتعلّم من هذا';
+
+  @override
+  String feedbackRevokeSemantics(String description) {
+    return 'لا تتعلّم من هذا: $description';
+  }
+
+  @override
+  String get feedbackRevokedBadge => 'توقّفنا عن استخدام هذا';
+
+  @override
+  String feedbackRevokedOn(String date) {
+    return 'أوقفت هذا في $date.';
+  }
+
+  @override
+  String get feedbackRevokeDoneMessage => 'تم. لم نعد نتعلّم من ذلك.';
+
+  @override
+  String get feedbackRevokeFailedMessage => 'لم تتم العملية. لم يتغيّر شيء.';
+
+  @override
+  String get feedbackHistoryEmptyTitle => 'لا شيء مسجّل بعد';
+
+  @override
+  String get feedbackHistoryEmptyMessage =>
+      'بعد أن تتصرّف تجاه اقتراح، سيظهر هنا ما لاحظناه.';
+
+  @override
+  String get feedbackHistoryLoadFailedTitle => 'تعذّر تحميل هذا';
+
+  @override
+  String get feedbackHistoryLoadFailedMessage =>
+      'تعذّر الوصول إلى السجل. لم يتغيّر شيء.';
+
+  @override
+  String get feedbackHistoryUnavailableTitle => 'غير موصول في هذا الإصدار';
+
+  @override
+  String get feedbackHistoryUnavailableMessage =>
+      'هذا الإصدار لا يتضمّن سجل سلوك موصولًا، لذا لا يوجد ما يُعرض. وهذا ليس مثل سجل فارغ.';
+
+  @override
+  String get feedbackBaselineTitle => 'من قبل أن نسجّل التواريخ';
+
+  @override
+  String get feedbackBaselineMessage =>
+      'هذه المجاميع تعود إلى ما قبل بدء تسجيل التواريخ. بلا تاريخ، لا يمكن عرض المجموع كلحظة، ولا يمكن إيقافه واحدًا واحدًا.';
+
+  @override
+  String feedbackBaselineUpdated(String date) {
+    return 'آخر تغيير في $date.';
+  }
+
+  @override
+  String get feedbackBaselineIgnoredSuggestions => 'اقتراحات بلا ردّ';
+
+  @override
+  String get feedbackBaselineCompletedActions => 'أشياء أنجزتها';
+
+  @override
+  String get feedbackBaselineDelayedActions => 'أشياء أجّلتها';
+
+  @override
+  String get feedbackBaselineClarificationSuccesses => 'أسئلتنا التي ساعدت';
+
+  @override
+  String get feedbackBaselineClarificationFailures => 'أسئلتنا التي لم تساعد';
+
+  @override
+  String get privacyStorageTitle => 'أين تُحفظ بياناتك';
+
+  @override
+  String get privacyTokenStorageLabel => 'رمز الوصول التجريبي';
+
+  @override
+  String get privacyTokenStorageValue => 'سلسلة مفاتيح الجهاز';
+
+  @override
+  String get privacyRealControlsTitle => 'التحليلات والموافقة والحذف';
+
+  @override
+  String get privacyRealControlsMessage =>
+      'تُدار هذه من شاشة الثقة والخصوصية. كل عنصر هناك يؤثّر على الخادم، لا على هذا الجهاز وحده.';
+
+  @override
+  String get privacyOpenTrustCenterAction => 'فتح الثقة والخصوصية';
 }
