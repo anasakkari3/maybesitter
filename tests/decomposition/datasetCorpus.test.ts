@@ -43,6 +43,7 @@ import {
   readExampleCorpusFile,
   verifyReviewedProvenance,
   type CreateReviewInput,
+  type DecompositionReview,
 } from '../../lib/decomposition/evaluation/corpus.ts';
 import {
   buildSplitManifest,
@@ -170,7 +171,7 @@ test('a seed-role file may not carry a reviewed row', () => {
 test('promoteToReviewed cannot mint a reviewed row without a review', () => {
   assert.throws(
     () => promoteToReviewed(SEED.examples[0], []),
-    /no review/,
+    /no 'approve' review/,
     'the only constructor for a reviewed row must require the evidence that makes the claim true',
   );
   const promoted = promoteToReviewed(SEED.examples[0], [review()]);
@@ -417,4 +418,147 @@ test('no module under lib/decomposition/evaluation reads the system clock', () =
       );
     }
   }
+});
+
+/* ── H1/H2: what counts as evidence of review ───────────────────── */
+
+test('a reject verdict is not evidence that a row was approved', () => {
+  // A reviewer filing `reject` is saying the row is unusable. Reading that as
+  // approval certifies the exact row the only person who looked at it threw out.
+  const rejected = review({ verdict: 'reject', label: null });
+  assert.throws(() => promoteToReviewed(SEED.examples[0], [rejected]), /approve/);
+  assert.equal(
+    verifyReviewedProvenance({
+      examples: [{ ...SEED.examples[0], provenance: 'human_reviewed' }],
+      reviews: [rejected],
+    }).valid,
+    false,
+  );
+});
+
+test('an abstention is not evidence either, in the verifier as well as the minter', () => {
+  // The verifier is the half wired into the shipped-file guard, so if the two
+  // disagree the weaker one is what actually runs. They share one predicate.
+  const abstained = review({ verdict: 'unresolved', label: null });
+  assert.throws(() => promoteToReviewed(SEED.examples[0], [abstained]), /approve/);
+  const verified = verifyReviewedProvenance({
+    examples: [{ ...SEED.examples[0], provenance: 'human_reviewed' }],
+    reviews: [abstained],
+  });
+  assert.equal(verified.valid, false, 'someone who abstained is exactly someone who did not judge the row');
+  assert.ok(hasIssue(verified, 'DXP010'), JSON.stringify(verified.issues, null, 2));
+});
+
+test('a review with no reviewer or no timestamp is not evidence', () => {
+  // Forged past the constructor, which is the only way this shape can exist.
+  // Without this the reviewer/time requirement inside the verifier is untested.
+  const base = review();
+  for (const forged of [
+    { ...base, reviewerId: '' } as unknown as DecompositionReview,
+    { ...base, reviewedAt: 'sometime' } as unknown as DecompositionReview,
+  ]) {
+    const result = verifyReviewedProvenance({
+      examples: [{ ...SEED.examples[0], provenance: 'human_reviewed' }],
+      reviews: [forged],
+    });
+    assert.equal(result.valid, false, `accepted a review missing its author or its time: ${JSON.stringify(forged)}`);
+  }
+});
+
+test('a relabel is evidence only for the label the reviewer actually proposed', () => {
+  const atomicRow = SEED.examples.filter((example) => example.label === 'atomic')[0];
+  const relabel = review({ exampleId: atomicRow.exampleId, verdict: 'relabel', label: 'multi_step' });
+
+  // Promoting the row as it stands would stamp `human_reviewed` on the label
+  // the reviewer rejected, and silently discard the one they proposed.
+  assert.throws(() => promoteToReviewed(atomicRow, [relabel]), /relabel/);
+
+  const applied = { ...atomicRow, label: 'multi_step' as const };
+  assert.equal(promoteToReviewed(applied, [relabel]).provenance, 'human_reviewed');
+});
+
+/* ── M4: the provenance check is on the load path ───────────────── */
+
+test('a reviewed corpus whose rows outrun the review log does not load', () => {
+  const forged = {
+    contractVersion: '1.0.0',
+    schema: 'decomposition-v1',
+    role: 'reviewed',
+    note: 'forged for this test',
+    examples: [{ ...SEED.examples[0], provenance: 'human_reviewed' }],
+  };
+  const loaded = loadReviewedCorpus({ raw: forged, reviews: [] });
+  assert.equal(loaded.valid, false, 'the load path, not only a separate helper, must refuse an unbacked claim');
+  assert.ok(hasIssue(loaded, 'DXP010'), JSON.stringify(loaded.issues, null, 2));
+  assert.deepEqual(loaded.examples, [], 'a corpus that fails provenance yields no rows');
+
+  const backed = loadReviewedCorpus({
+    raw: forged,
+    reviews: [review({ exampleId: SEED.examples[0].exampleId })],
+  });
+  assert.equal(backed.valid, true, JSON.stringify(backed.issues, null, 2));
+  assert.equal(backed.examples.length, 1);
+});
+
+/* ── Corpus-file gates that were unpinned ───────────────────────── */
+
+test('a synthetic row in the reviewed corpus is refused', () => {
+  const parsed = parseExampleCorpus({
+    contractVersion: '1.0.0',
+    schema: 'decomposition-v1',
+    role: 'reviewed',
+    note: 'n',
+    examples: [SEED.examples[0]],
+  });
+  assert.equal(parsed.valid, false);
+  assert.ok(hasIssue(parsed, 'DXC021'), JSON.stringify(parsed.issues, null, 2));
+});
+
+test('two rows sharing an exampleId are refused', () => {
+  const parsed = parseExampleCorpus({
+    contractVersion: '1.0.0',
+    schema: 'decomposition-v1',
+    role: 'seed',
+    note: 'n',
+    examples: [SEED.examples[0], SEED.examples[0]],
+  });
+  assert.equal(parsed.valid, false);
+  assert.ok(hasIssue(parsed, 'DXC013'), JSON.stringify(parsed.issues, null, 2));
+});
+
+test('the loader runs the shared vocabulary over every row it reads', () => {
+  const multi = SEED.examples.filter((example) => example.expectedSteps.length >= 2)[0];
+  const forgedSpan = {
+    ...multi,
+    expectedSteps: [
+      { ...multi.expectedSteps[0], sourceSpans: [{ start: 0, end: 5, text: 'WRONG' }] },
+      ...multi.expectedSteps.slice(1),
+    ],
+  };
+  const parsed = parseExampleCorpus({
+    contractVersion: '1.0.0',
+    schema: 'decomposition-v1',
+    role: 'seed',
+    note: 'n',
+    examples: [forgedSpan],
+  });
+  assert.equal(parsed.valid, false, 'ground truth that breaks the vocabulary is a broken ruler');
+  assert.ok(hasIssue(parsed, 'DXC030'), JSON.stringify(parsed.issues, null, 2));
+});
+
+test('a multi_step row carrying one step is a corpus defect, not a proposal violation', () => {
+  // SPLIT_ATOMIC belongs to the shared proposal vocabulary and means the
+  // over-split direction only; #27 cannot even represent a sub-two-step
+  // decomposition. The under-split direction is still bad ground truth, so it
+  // is reported here, under this module's own namespace.
+  const multi = SEED.examples.filter((example) => example.expectedSteps.length >= 2)[0];
+  const parsed = parseExampleCorpus({
+    contractVersion: '1.0.0',
+    schema: 'decomposition-v1',
+    role: 'seed',
+    note: 'n',
+    examples: [{ ...multi, expectedSteps: [multi.expectedSteps[0]] }],
+  });
+  assert.equal(parsed.valid, false);
+  assert.ok(hasIssue(parsed, 'DXC031'), JSON.stringify(parsed.issues, null, 2));
 });

@@ -81,8 +81,18 @@ that actually tests restraint.
 
 Both carry `expectedSteps: []`. A row labelled `multi_step` must carry **at least two** steps: a
 step list of size one and an honest refusal to decompose are the same data, and the contract removes
-that ambiguity on the proposal side by giving `AtomicProposal` no `steps` field at all. The dataset
-holds the same line — `validateDecompositionExample` reports `SPLIT_ATOMIC` in both directions.
+that ambiguity on the proposal side by giving `AtomicProposal` no `steps` field at all.
+
+The two directions are reported under **different** codes, and the distinction matters for the
+cross-track comparison with #27:
+
+- An `atomic` or `do_not_split` row carrying steps is `SPLIT_ATOMIC`, from the shared vocabulary.
+  This is the over-split direction, and it is the only thing the contract's `SPLIT_ATOMIC` means.
+- A `multi_step` row carrying fewer than two steps is `DXC031`, on
+  `ExampleValidationResult.corpusIssues`, in this module's own namespace. #27 **cannot** produce
+  that shape — `DecomposedProposal.steps` is typed `[Step, Step, ...Step[]]`, so a sub-two-step
+  decomposition is unrepresentable — and a shared code that one track can emit and the other never
+  can is a cross-track disagreement waiting to be found over data neither side thinks is broken.
 
 ### 2.2 Write the spans, do not count them
 
@@ -106,8 +116,12 @@ Rules for the span set:
   conjunction that preceded it. In `احجز التذكرة ثم جدد جواز السفر واشتر التأمين.` the third span
   starts at `اشتر`, **not** at the prefixed `و` — including the clitic would be including the
   boundary marker inside the thing it separates.
-- **Non-overlapping across steps.** Two steps may not claim the same code units. Checked pairwise;
-  reported as `SPAN_OVERLAP`. Adjacent is fine — `[0,4)` and `[4,10)` do not overlap.
+- **Non-overlapping, full stop.** No two spans in an example may claim the same code units —
+  including two spans of the *same* step. Checked pairwise over every span; reported as
+  `SPAN_OVERLAP`. Adjacent is fine — `[0,4)` and `[4,10)` do not overlap. A step double-claiming its
+  own text is the case that hides best: `coveredCodeUnits` unions the duplication away, so no
+  coverage figure moves and nothing else would ever notice.
+- **Disjoint spans on one step stay legal.** That is why `sourceSpans` is a list at all.
 - **Not required to cover everything.** Connectives, punctuation and scheduling phrases sit outside
   every span. That is why coverage on a perfect decomposition is well under 1.0, and why the
   coverage metric reports the ground-truth figure beside the produced one.
@@ -122,6 +136,10 @@ Rules for the span set:
 - Never write `"2026-08-21"`. Resolving a relative time against a clock is Capture's job; a
   decomposer that computes one has invented a fact. Reported as `INVENTED_TIMING`.
 - Never infer an owner from context — only from a name the sentence contains. Reported as
+  `INVENTED_OWNER`.
+- Never write `""`. An empty string is neither a claim nor an absence, and `indexOf("")` is `0`, so
+  a blank "occurs verbatim" in every source text ever written and would sail through the check. The
+  field already has a way to say nothing: `null`. A blank is reported as `INVENTED_TIMING` /
   `INVENTED_OWNER`.
 
 A step with no span must set `inferred: true` and admit it. A step with no span that does not admit
@@ -165,6 +183,13 @@ row's rank moves. A per-id bucket gives approximate proportions — which is why
 8 rather than 16 / 3 / 4 — and the property that actually matters: **a row's split is decided the
 moment it gets an id and never moves again.** Do not "rebalance" the split by tuning ids.
 
+Weights are pinned to `DEFAULT_SPLIT_WEIGHTS` at verification time (`DSM025`), for the same reason
+`assignmentVersion` is: weights decide the partition just as much as the hash does, and a manifest
+sealed with `{100, 0, 0}` has no locked-test split at all while describing itself as split three
+ways. Re-weighting is a re-split, and a re-split needs a new assignment version rather than a quiet
+reseal. `buildSplitManifest` still accepts custom weights — that is a testing affordance, and a
+manifest built with them will correctly refuse to verify.
+
 `data/quality/decomposition-split-manifest.json` seals membership *and* content. Membership alone
 cannot catch an edit to a row's `sourceText` that leaves its id intact, and that edit changes what a
 locked-test score means while changing nothing a reviewer would notice in a diff of counts. The
@@ -195,8 +220,8 @@ never `0`: zero is a measurement, an empty denominator is the absence of one.
 | `boundary.spanPrecision` | Are the cuts it made ones the ground truth agrees with? | Spans the proposals produced. |
 | `boundary.exactExampleAgreement` | Whole-row agreement, refusals included. | Evaluated examples. |
 | `coverage.produced` | How much source text do the produced steps account for? | Source code units across the **decomposed** proposals. |
-| `coverage.expected` | The same figure for ground truth — the ceiling `produced` is read against. | Same. |
-| `faithfulness.clean` | Did it avoid inventing, mis-citing and over-splitting? | Evaluated examples. |
+| `coverage.groundTruth` | The same figure for ground truth. **Not a ceiling** — see below. | Source code units across the examples carrying **expected spans**. |
+| `faithfulness.clean` | Did it avoid inventing, mis-citing and over-splitting? | Evaluated examples **whose proposal produced at least one step**. |
 | `faithfulness.doNotSplitRespected` | Did it leave the unsplittable rows alone? | Evaluated `do_not_split` + `atomic` rows. |
 
 Three choices worth stating, because each could reasonably have gone the other way:
@@ -208,10 +233,19 @@ Three choices worth stating, because each could reasonably have gone the other w
   decomposer reach 100% by emitting the same step twice. Including refusals at zero would understate
   a decomposer that is correctly conservative — so refusals are excluded and `examplesInScope`
   reports how many rows the figure actually covers.
-- **Under-splitting is not an invention.** A proposal with no steps is scored as a boundary miss and
-  left out of faithfulness entirely. Charging it there would make "declined to answer" and
-  "fabricated a date" the same finding, and a decomposer that refuses everything would score exactly
-  as dishonestly as one that makes things up — while being, in fact, the safe failure.
+- **`coverage.groundTruth` is not a ceiling on `coverage.produced`, and must not be described as
+  one.** It was called `coverage.expected` and was computed over the *decomposed* rows, which made
+  it read `0.0000` on a do-not-split row an over-splitter had split, while `produced` read `0.8696`
+  on the same row — the "ceiling" beneath the figure it supposedly bounded, and the over-splitter
+  posting the highest coverage number in the report. The two now carry different scopes and each
+  states its own in `denominatorOf`. Read them side by side; do not subtract them.
+- **Under-splitting is not an invention, and not a clean bill either.** A proposal with no steps is
+  scored as a boundary miss and left out of faithfulness — out of **both halves of the ratio**.
+  Charging it to faithfulness would make "declined to answer" and "fabricated a date" the same
+  finding. But leaving it in the denominator was worse in the other direction: an empty proposal
+  produces no violations, so it landed in the *numerator* too, and a decomposer that refused all
+  eleven golden rows scored `clean = 1.0 (11/11)` — identical to a flawless run. It now scores
+  `clean = null (0/0)` with `boundary.spanRecall = 0.0 (0/11)`, which is the honest picture.
 
 `FAITHFULNESS_VIOLATION_CODES` is the subset of the shared vocabulary that is a claim about the
 world: `SPAN_MISMATCH`, `INVENTED_TIMING`, `INVENTED_OWNER`, `UNSOURCED_STEP`, `INFERRED_WITH_SPAN`,
@@ -235,6 +269,14 @@ const report = buildEvaluationReport({
 });
 ```
 
+### Reading a report honestly
+
+`faithfulness.doNotSplitRespected` is `1.0 (7/7)` for a decomposer that refuses everything, and that
+is **correct**, not a defect: it did leave every unsplittable row alone. The metric answers one
+narrow question and answers it truthfully. It is only misleading if read alone, which is why
+`clean` and `spanRecall` sit beside it — a total refuser reads `null (0/0)` and `0.0 (0/11)` there,
+and no reader who looks at the row can mistake it for a good result.
+
 No module under `lib/decomposition/evaluation` reads `Date.now`, `new Date` or `Math.random`; a test
 in `tests/decomposition/datasetCorpus.test.ts` enforces it by reading the sources. These reports are
 committed artifacts, and one that differs between two runs over unchanged input cannot be reviewed
@@ -257,6 +299,18 @@ A reviewer answers with a `DecompositionReview`:
 | `relabel` | The label is wrong; here is the right one. | required |
 | `reject` | The example should not be in the corpus — the source text is unusable. | `null` |
 | `unresolved` | Abstention. The guide does not decide this case. | `null` |
+
+**Only `approve` is evidence that a row may be stamped `human_reviewed`.** `reject` says the row is
+unusable — reading it as approval would certify the exact row the one person who looked at it threw
+out. `unresolved` is an abstention, and someone who abstained is precisely someone who did not judge
+the row. `relabel` is evidence **only for the label the reviewer proposed**: promoting a row the
+relabel has not been applied to would stamp `human_reviewed` on the label the reviewer rejected and
+silently discard the one they asked for.
+
+One predicate, `isBackingReview`, decides this for both `verifyReviewedProvenance` and
+`promoteToReviewed`. They were separate and had already drifted — the minter refused an abstention
+while the verifier accepted one, and since the verifier is the half wired into the shipped-file
+guard, the laxer of the two was what actually ran.
 
 `reject` and `relabel` are separate because merging them would make "this row is mislabelled" and
 "this row should not exist" the same edit, and only one of them changes the size of the corpus.
@@ -307,12 +361,15 @@ disagreement, and treating it as a conflict pushes a reviewer to guess rather th
    where the names and times enter the repository.
 5. **Promote approved rows** with `promoteToReviewed(example, reviews)` into
    `data/quality/decomposition-reviewed-examples.json` (`role: "reviewed"`). The function throws
-   without a backing review, so a promotion cannot outrun its evidence. Apply `relabel` verdicts to
-   the row before promoting it; drop `reject`ed rows; leave `unresolved` rows in the seed corpus.
+   without an `approve` review, so a promotion cannot outrun its evidence. **Apply `relabel` verdicts
+   to the row before promoting it** — `promoteToReviewed` refuses a row whose label still contradicts
+   the relabel, and says so by name. Drop `reject`ed rows; leave `unresolved` rows in the seed corpus.
 6. **Update the two guard tests.** `the reviewed corpus ships empty` will fail, correctly, the moment
    real rows land. Replace the zero assertion with the new expected count *and keep both exits
    closed* — assert validity separately, and keep asserting that every `human_reviewed` row verifies
-   against the review log. Do not delete the guard; narrow it.
+   against the review log. Do not delete the guard; narrow it. Note that `loadReviewedCorpus` now
+   enforces provenance on the **load path** as well, so narrowing this test no longer leaves the
+   claim unchecked — but the test is still what makes the guarantee visible in review.
 7. **Re-seal the split manifest.** Promoting a row changes the corpus content, so the checksums
    change. Rebuild with `buildSplitManifest` and commit the result in the same commit as the data.
    Membership will not change: split assignment is by id, and promotion does not change ids.
@@ -321,6 +378,40 @@ disagreement, and treating it as a conflict pushes a reviewer to guess rather th
    corpus. Sprint 06 deliberately ships a single sealed checksum instead: with no reviewed rows the
    corpus is rebuilt from source on every run, and the chain would be ceremony. Once real reviewed
    rows exist, that stops being true and the chain earns its weight.
+
+---
+
+## 6a. Known limitations
+
+Stated here rather than discovered later. None of these is a defect in the code; each is a
+consequence of the corpus being 23 synthetic rows.
+
+### The locked-test split cannot answer the boundary question
+
+Per-id hashing put **one** multi-step row in the held-out split. So on locked-test:
+
+| Figure | Denominator today | Usable? |
+|---|---|---|
+| `faithfulness.doNotSplitRespected` | 7 rows (4 `do_not_split`, 3 `atomic`) | **Yes** — this is what the held-out split is currently for. |
+| `faithfulness.clean` | 1 row | No. One row is an anecdote. |
+| `boundary.spanRecall` | 3 spans, all from one sentence | No. |
+| `coverage.produced` | 1 row | No. |
+
+`tests/decomposition/evaluatorPipeline.test.ts` asserts this composition explicitly, so the
+limitation cannot quietly drift. That test is expected to be **updated** when the corpus grows, not
+deleted.
+
+**The remedy is more seed rows — never ids tuned to move existing rows between splits.** A row whose
+split moves was never held out, and hand-tuning ids to "fix" the balance destroys the one property
+the digest scheme exists to provide. Adding rows is safe precisely because assignment is per-id:
+existing rows do not move.
+
+### Every number in this pipeline is a property of the pipeline
+
+The seed corpus is synthetic and the proposals in the test suite are reconstructed from ground
+truth, so every score in every test is a ceiling the pipeline can reach, not a measurement of any
+decomposer. Nothing here is evidence about model quality, and a figure lifted out of this track into
+a status report is a fabrication regardless of how it was computed.
 
 ---
 
@@ -356,8 +447,8 @@ revert. A reverted review log costs a re-run of the whole annotation round.
 **Forward compatibility.** `SPLIT_ASSIGNMENT_VERSION` (`decomposition-split-v1`) is part of the
 hashed input, so re-splitting the corpus is possible but cannot happen by accident: it requires a new
 version string, and a manifest sealed under the old one then refuses to verify (`DSM010`) rather than
-silently describing a different partition. `DECOMPOSITION_CORPUS_CONTRACT_VERSION` does the same for
-the data files.
+silently describing a different partition. The same holds for the weights (`DSM025`).
+`DECOMPOSITION_CORPUS_CONTRACT_VERSION` does the same for the data files.
 
 ---
 

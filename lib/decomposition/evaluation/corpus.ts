@@ -516,6 +516,7 @@ export function parseExampleCorpus(raw: unknown): ExampleCorpusLoadResult {
 
     const example = row as unknown as DecompositionExample;
     const validation = validateDecompositionExample(example);
+    collector.merge(validation.corpusIssues);
     for (const violation of validation.violations) {
       collector.error(
         'DXC030',
@@ -541,11 +542,83 @@ export function loadSeedCorpus(options?: { readonly path?: string }): ExampleCor
   return parseExampleCorpus(readExampleCorpusFile(options?.path ?? DECOMPOSITION_SEED_CORPUS_PATH));
 }
 
-export function loadReviewedCorpus(options?: { readonly path?: string }): ExampleCorpusLoadResult {
-  return parseExampleCorpus(readExampleCorpusFile(options?.path ?? DECOMPOSITION_REVIEWED_CORPUS_PATH));
+export interface LoadReviewedCorpusOptions {
+  readonly path?: string;
+  /** Overrides the file read. For tests; the shipped path is the default. */
+  readonly raw?: unknown;
+  /** Defaults to the committed review log. */
+  readonly reviews?: readonly DecompositionReview[];
+}
+
+/**
+ * Loads the reviewed corpus **and checks that its rows are backed**.
+ *
+ * The provenance check runs on the load path, not only in a helper a caller may
+ * remember to call. `parseExampleCorpus` cannot do it alone — it validates one
+ * file and the evidence lives in another — and leaving it to a test was not
+ * enough either: the shipped-file guard that makes the claim true today asserts
+ * every row is *synthetic*, and §6 of the annotation guide instructs the next
+ * maintainer to narrow exactly that assertion the moment real rows land. At
+ * that point nothing would have been checking provenance at all.
+ *
+ * A corpus that fails yields zero rows, not the rows that happened to pass. A
+ * partly-trusted corpus of human judgements is not a corpus of human
+ * judgements.
+ */
+export function loadReviewedCorpus(options?: LoadReviewedCorpusOptions): ExampleCorpusLoadResult {
+  const raw =
+    options?.raw !== undefined
+      ? options.raw
+      : readExampleCorpusFile(options?.path ?? DECOMPOSITION_REVIEWED_CORPUS_PATH);
+  const parsed = parseExampleCorpus(raw);
+  const reviews = options?.reviews ?? loadShippedReviewLog().reviews;
+  const provenance = verifyReviewedProvenance({ examples: parsed.examples, reviews });
+  if (provenance.valid) return parsed;
+
+  return {
+    valid: false,
+    issues: Object.freeze([...parsed.issues, ...provenance.issues]),
+    examples: Object.freeze([]),
+    corpusEmpty: true,
+    role: parsed.role,
+  };
 }
 
 /* ── Provenance ─────────────────────────────────────────────────── */
+
+/**
+ * Whether one review is evidence that `example` was approved as it stands.
+ *
+ * Extracted so `verifyReviewedProvenance` and `promoteToReviewed` cannot
+ * diverge. They did: the minter refused an abstention and the verifier accepted
+ * one, and since the verifier is the half wired into the shipped-file guard,
+ * the weaker of the two was what actually ran. A rule enforced in two places by
+ * two pieces of code is a rule enforced by whichever is laxer.
+ *
+ * Where each verdict lands, and why:
+ *
+ *  - `approve` is the only affirmative judgement. It is evidence.
+ *  - `reject` says the row is unusable. Reading it as approval would certify
+ *    the exact row the one person who looked at it threw out.
+ *  - `unresolved` is an abstention. Someone who abstained is precisely someone
+ *    who did not judge the row.
+ *  - `relabel` is evidence **only for the label the reviewer proposed**. If the
+ *    caller has not applied it, promoting the row would stamp `human_reviewed`
+ *    on the label the reviewer rejected and silently discard the one they asked
+ *    for — the reviewer's judgement inverted, then certified.
+ */
+export function isBackingReview(
+  example: Pick<DecompositionExample, 'exampleId' | 'label'>,
+  review: DecompositionReview,
+): boolean {
+  if (review.exampleId !== example.exampleId) return false;
+  // Author and time are re-checked rather than assumed from the type: a type
+  // does not survive a JSON.parse or a hand-edited file, and a review whose
+  // author or time is unknown cannot be audited.
+  if (!isNonEmptyString(review.reviewerId) || !isIsoTimestamp(review.reviewedAt)) return false;
+  if (review.verdict === 'approve') return true;
+  return review.verdict === 'relabel' && review.label === example.label;
+}
 
 export interface VerifyReviewedProvenanceOptions {
   readonly examples: readonly DecompositionExample[];
@@ -571,15 +644,15 @@ export function verifyReviewedProvenance(options: VerifyReviewedProvenanceOption
 
   for (const example of options.examples) {
     if (example.provenance !== 'human_reviewed') continue;
-    const reviews = (backing.get(example.exampleId) ?? []).filter(
-      (row) => isNonEmptyString(row.reviewerId) && isIsoTimestamp(row.reviewedAt),
-    );
+    const reviews = (backing.get(example.exampleId) ?? []).filter((row) => isBackingReview(example, row));
     if (reviews.length === 0) {
       collector.error(
         'DXP010',
         `examples['${example.exampleId}'].provenance`,
-        `'${example.exampleId}' claims 'human_reviewed' but no review names it. A dataset that claims review ` +
-          'it never had corrupts every number computed from it afterwards, and does so invisibly',
+        `'${example.exampleId}' claims 'human_reviewed' but no review approves it as labelled. A rejection, ` +
+          'an abstention, and a relabel the row has not had applied are all reviews — none of them is an ' +
+          'approval. A dataset that claims review it never had corrupts every number computed from it ' +
+          'afterwards, and does so invisibly',
       );
     }
   }
@@ -599,17 +672,24 @@ export function promoteToReviewed(
   example: DecompositionExample,
   reviews: readonly DecompositionReview[],
 ): DecompositionExample {
-  const backing = reviews.filter(
-    (row) =>
-      row.exampleId === example.exampleId &&
-      isNonEmptyString(row.reviewerId) &&
-      isIsoTimestamp(row.reviewedAt) &&
-      row.verdict !== 'unresolved',
-  );
+  const backing = reviews.filter((row) => isBackingReview(example, row));
   if (backing.length === 0) {
+    // Name the near miss. A relabel the caller forgot to apply is the failure
+    // most likely to read as a bug in this function rather than as a step
+    // skipped in the promotion, so it is called out by name.
+    const pendingRelabel = reviews.filter(
+      (row) => row.exampleId === example.exampleId && row.verdict === 'relabel' && row.label !== example.label,
+    );
+    if (pendingRelabel.length > 0) {
+      fail(
+        `'${example.exampleId}' is labelled '${example.label}' but its only reviews propose a relabel to ` +
+          `'${String(pendingRelabel[0].label)}'. Apply the relabel to the row and promote that one, or the ` +
+          'stamped row would certify the label the reviewer rejected',
+      );
+    }
     fail(
-      `'${example.exampleId}' has no review from a named reviewer at a stated time, so it cannot be promoted ` +
-        "to 'human_reviewed'",
+      `'${example.exampleId}' has no 'approve' review from a named reviewer at a stated time, so it cannot be ` +
+        "promoted to 'human_reviewed'. A reject and an abstention are reviews; neither is an approval",
     );
   }
   return Object.freeze({

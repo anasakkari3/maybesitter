@@ -264,20 +264,6 @@ test('SPLIT_ATOMIC fires when a do-not-split or atomic example carries steps', (
   }
 });
 
-test('a multi_step example with fewer than two steps is not a decomposition', () => {
-  // One step and a refusal to decompose are the same data if a size-one list is
-  // accepted here, which is exactly the ambiguity `AtomicProposal` exists to
-  // remove on the proposal side.
-  const result = validateDecompositionExample(
-    example({ label: 'multi_step', expectedSteps: [sourced('s1', 'Book the venue')] }),
-  );
-  assert.equal(result.valid, false);
-  assert.deepEqual(
-    result.violations.map((violation) => violation.code),
-    ['SPLIT_ATOMIC'],
-  );
-});
-
 /* ── Audit policy ───────────────────────────────────────────────── */
 
 test('no violation detail repeats raw source text', () => {
@@ -306,12 +292,14 @@ test('no violation detail repeats raw source text', () => {
 
 test('every violation is attributed to a step id or explicitly to the proposal', () => {
   const result = validateDecompositionExample(
-    example({ label: 'do_not_split', expectedSteps: [sourced('s1', 'Book the venue')] }),
+    example({
+      label: 'do_not_split',
+      expectedSteps: [sourced('s1', 'Book the venue'), step({ stepId: 's2', title: '  ' })],
+    }),
   );
-  for (const violation of result.violations) {
-    assert.ok(violation.stepId === null || typeof violation.stepId === 'string');
-  }
-  assert.equal(result.violations[0].stepId, null, 'SPLIT_ATOMIC is a finding about the example, not a step');
+  const byCode = new Map(result.violations.map((violation) => [violation.code, violation.stepId] as const));
+  assert.equal(byCode.get('EMPTY_STEP'), 's2', 'a step-level finding names its step');
+  assert.equal(byCode.get('SPLIT_ATOMIC'), null, 'SPLIT_ATOMIC is a finding about the example, not a step');
 });
 
 /* ── The shape #27 checks proposals with ───────────────────────── */
@@ -327,4 +315,69 @@ test('validateProposedSteps applies the same rules without an example wrapper', 
     'multi_step',
   ).map((violation) => violation.code);
   assert.deepEqual(observed, ['CONJUNCTION_ONLY']);
+});
+
+/* ── M3: overlap is about the example, not about a pair of steps ── */
+
+test('SPAN_OVERLAP fires when one step claims the same source text twice', () => {
+  // "Source segments are exact and non-overlapping" is unqualified. A step
+  // double-claiming its own text is a duplicated segment, and coveredCodeUnits
+  // unions the duplication away so no metric would ever notice it.
+  const doubled = step({
+    stepId: 's1',
+    title: 'Book the venue by Friday',
+    sourceSpans: [span(SOURCE, 'Book the venue by Friday'), span(SOURCE, 'by Friday')],
+    inferred: false,
+  });
+  assert.deepEqual(codes([doubled]), ['SPAN_OVERLAP']);
+});
+
+test('one step may still cite two disjoint spans', () => {
+  // The reason sourceSpans is a list at all: a step stated across discontinuous
+  // parts of one sentence. Widening the overlap check must not break this.
+  const discontinuous = step({
+    stepId: 's1',
+    title: 'Book the venue … to Omar',
+    sourceSpans: [span(SOURCE, 'Book the venue'), span(SOURCE, 'to Omar')],
+    inferred: false,
+  });
+  assert.deepEqual(codes([discontinuous]), []);
+});
+
+/* ── H3: SPLIT_ATOMIC is the over-split direction only ──────────── */
+
+test('SPLIT_ATOMIC does not fire for a multi_step example carrying too few steps', () => {
+  // The contract text is "a commitment marked do-not-split was split anyway",
+  // and #27 cannot reach the other direction: DecomposedProposal.steps is typed
+  // [Step, Step, ...Step[]], so a sub-two-step decomposition is unrepresentable.
+  // Emitting a shared code #27 can never emit would make the cross-track
+  // comparison disagree over data neither side considers broken. The underlying
+  // defect is still caught, as a corpus issue — see datasetCorpus.test.ts.
+  const result = validateDecompositionExample(
+    example({ label: 'multi_step', expectedSteps: [sourced('s1', 'Book the venue')] }),
+  );
+  assert.deepEqual(result.violations.map((violation) => violation.code), []);
+  assert.equal(result.valid, false, 'still invalid — as a corpus defect');
+  assert.deepEqual(
+    result.corpusIssues.map((issue) => issue.code),
+    ['DXC031'],
+  );
+});
+
+test('an empty proposal produces no violation at all', () => {
+  // The metrics module relied on a guard clause to stop the old under-split
+  // direction from firing here. With SPLIT_ATOMIC narrowed, the guard is gone
+  // and this is what makes its removal safe.
+  assert.deepEqual(validateProposedSteps(SOURCE, [], 'multi_step'), []);
+  assert.deepEqual(validateProposedSteps(SOURCE, [], 'do_not_split'), []);
+});
+
+/* ── L3: an empty string is not a claim ─────────────────────────── */
+
+test('an empty statedTiming or statedOwner is refused rather than silently passing', () => {
+  // indexOf('') is 0, so an empty string "occurs verbatim" in every source text
+  // and slips through the invention check. It is neither a real claim nor null.
+  assert.deepEqual(codes([sourced('s1', 'Book the venue', { statedTiming: '' })]), ['INVENTED_TIMING']);
+  assert.deepEqual(codes([sourced('s1', 'Book the venue', { statedOwner: '' })]), ['INVENTED_OWNER']);
+  assert.deepEqual(codes([sourced('s1', 'Book the venue', { statedOwner: '   ' })]), ['INVENTED_OWNER']);
 });

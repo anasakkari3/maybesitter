@@ -330,6 +330,27 @@ export function verifySplitManifest(options: VerifySplitManifestOptions): Valida
     );
     return collector.result();
   }
+  // Weights decide the partition just as much as the hash does. A manifest
+  // sealed with {100, 0, 0} has no locked-test split at all, and used to verify
+  // clean — a corpus with no hold-out describing itself as split three ways.
+  // Pinned to the module constant for the same reason `assignmentVersion` is:
+  // a deliberate re-weighting is a re-split, and a re-split needs a new
+  // assignment version, not a quiet reseal under the old one.
+  if (
+    manifest.weights.train !== DEFAULT_SPLIT_WEIGHTS.train ||
+    manifest.weights.valid !== DEFAULT_SPLIT_WEIGHTS.valid ||
+    manifest.weights.lockedTest !== DEFAULT_SPLIT_WEIGHTS.lockedTest
+  ) {
+    collector.error(
+      'DSM025',
+      'manifest.weights',
+      `sealed under {train: ${manifest.weights.train}, valid: ${manifest.weights.valid}, lockedTest: ` +
+        `${manifest.weights.lockedTest}} but the committed weights are {train: ${DEFAULT_SPLIT_WEIGHTS.train}, ` +
+        `valid: ${DEFAULT_SPLIT_WEIGHTS.valid}, lockedTest: ${DEFAULT_SPLIT_WEIGHTS.lockedTest}}; ` +
+        'a re-weighted split is a different partition and needs a new assignment version',
+    );
+    return collector.result();
+  }
   if (manifest.contractVersion !== SPLIT_MANIFEST_CONTRACT_VERSION) {
     collector.error(
       'DSM011',

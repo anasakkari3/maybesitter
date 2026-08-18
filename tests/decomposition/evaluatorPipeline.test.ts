@@ -86,9 +86,10 @@ test('the evaluator runs over the locked-test split and states its denominators'
   assert.equal(report.evaluatedExamples, held.length);
   assert.deepEqual(report.unevaluatedExampleIds, []);
 
-  // Every score is over the held-out rows and says so.
+  // Each score is over its own scope and says which. They are deliberately not
+  // the same number: `exactExampleAgreement` covers every held-out row,
+  // `clean` only the rows that produced steps.
   assert.equal(report.boundary.exactExampleAgreement.denominator, held.length);
-  assert.equal(report.faithfulness.clean.denominator, held.length);
   assert.equal(
     report.coverage.produced.denominator,
     held
@@ -100,6 +101,34 @@ test('the evaluator runs over the locked-test split and states its denominators'
   assert.equal(report.boundary.spanRecall.value, 1);
   assert.equal(report.faithfulness.clean.value, 1);
   assert.equal(report.faithfulness.doNotSplitRespected.value, 1);
+});
+
+test('the locked-test split cannot currently answer the boundary question', () => {
+  // A known limitation, asserted rather than left implicit so it cannot drift
+  // out of the guide. Per-id hashing put only one multi-step row in the
+  // held-out split, so `spanRecall` there rests on three spans from a single
+  // sentence and `clean` on one row — near-vacuous, whatever they read.
+  //
+  // The remedy is more seed rows, never ids tuned to move existing ones
+  // between splits: a row whose split moves was never held out. This test is
+  // expected to be UPDATED when the corpus grows, not deleted.
+  const held = selectSplit(SEED.examples, 'locked-test');
+  const report = buildEvaluationReport({
+    examples: held,
+    proposals: held.map(proposalFor),
+    generatedAt: GENERATED_AT,
+  });
+
+  assert.equal(held.length, 8);
+  assert.equal(held.filter((example) => example.label === 'multi_step').length, 1);
+
+  assert.equal(report.boundary.spanRecall.denominator, 3, 'three spans, all from one sentence');
+  assert.equal(report.faithfulness.clean.denominator, 1);
+  assert.equal(report.faithfulness.examplesWithProducedSteps, 1);
+  assert.equal(report.coverage.examplesInScope, 1);
+
+  // What the held-out split *can* answer today: seven rows that must not split.
+  assert.equal(report.faithfulness.doNotSplitRespected.denominator, 7);
 });
 
 test('a report over the whole corpus is not the same claim as one over a split', () => {

@@ -40,6 +40,8 @@
  * produce identical violations in identical order, so a metric report built
  * from them is a committed artifact rather than a moving one.
  */
+import type { ValidationIssue } from '../../evaluation/registry/contracts';
+import { IssueCollector } from '../../evaluation/registry/validationPrimitives';
 import type {
   DecompositionExample,
   DecompositionLabelKind,
@@ -104,8 +106,23 @@ function normaliseTitle(title: string): string {
 
 export interface ExampleValidationResult {
   readonly exampleId: string;
+  /** False when either list below is non-empty. */
   readonly valid: boolean;
+  /** Findings in the shared vocabulary. #27's validator emits the same codes. */
   readonly violations: readonly DecompositionViolation[];
+  /**
+   * Findings about the example *as ground truth*, in this module's own
+   * namespace.
+   *
+   * Kept separate from `violations` because the shared vocabulary describes
+   * what can be wrong with a *proposal*, and some things that can be wrong with
+   * a corpus row have no proposal counterpart — a `multi_step` row carrying one
+   * step being the case in point: `DecomposedProposal.steps` is typed
+   * `[Step, Step, ...Step[]]`, so #27 cannot produce that shape and cannot ever
+   * emit a code for it. Reporting it under a shared code would make the
+   * cross-track comparison disagree over data neither side considers broken.
+   */
+  readonly corpusIssues: readonly ValidationIssue[];
 }
 
 function violation(
@@ -222,24 +239,45 @@ export function validateProposedSteps(
       usableSpans.push({ stepId, span });
     });
 
-    if (step.statedTiming !== null && sourceText.indexOf(step.statedTiming) < 0) {
-      violations.push(
-        violation(
-          'INVENTED_TIMING',
-          stepId,
-          `step '${stepId}' states a timing of ${step.statedTiming.length} code units that does not occur in the ` +
-            'source text; resolving a relative time against a clock is Capture\'s job, not a decomposer\'s',
-        ),
-      );
+    // A blank string is checked before the containment test, because
+    // `indexOf('')` is 0: an empty timing "occurs verbatim" in every source text
+    // ever written and would sail through. It is neither a real claim nor
+    // `null`, and the field already has a way to say nothing.
+    if (step.statedTiming !== null) {
+      if (step.statedTiming.trim().length === 0) {
+        violations.push(
+          violation(
+            'INVENTED_TIMING',
+            stepId,
+            `step '${stepId}' carries a blank statedTiming; a field that means "no timing" is null, and a blank ` +
+              'string claims a timing while naming none',
+          ),
+        );
+      } else if (sourceText.indexOf(step.statedTiming) < 0) {
+        violations.push(
+          violation(
+            'INVENTED_TIMING',
+            stepId,
+            `step '${stepId}' states a timing of ${step.statedTiming.length} code units that does not occur in the ` +
+              'source text; resolving a relative time against a clock is Capture\'s job, not a decomposer\'s',
+          ),
+        );
+      }
     }
-    if (step.statedOwner !== null && sourceText.indexOf(step.statedOwner) < 0) {
-      violations.push(
-        violation(
-          'INVENTED_OWNER',
-          stepId,
-          `step '${stepId}' names an owner of ${step.statedOwner.length} code units that does not occur in the source text`,
-        ),
-      );
+    if (step.statedOwner !== null) {
+      if (step.statedOwner.trim().length === 0) {
+        violations.push(
+          violation('INVENTED_OWNER', stepId, `step '${stepId}' carries a blank statedOwner; use null to name nobody`),
+        );
+      } else if (sourceText.indexOf(step.statedOwner) < 0) {
+        violations.push(
+          violation(
+            'INVENTED_OWNER',
+            stepId,
+            `step '${stepId}' names an owner of ${step.statedOwner.length} code units that does not occur in the source text`,
+          ),
+        );
+      }
     }
 
     for (const edge of step.dependsOn) {
@@ -261,24 +299,30 @@ export function validateProposedSteps(
     }
   }
 
-  // Pairwise, across steps only. The contract defines SPAN_OVERLAP as "two
-  // steps claiming overlapping source text"; a step citing two overlapping
-  // spans of its own is redundant rather than a provenance conflict, and
-  // reporting it under this code would make the evaluator's count disagree with
-  // #27's rejection over data neither considers broken.
+  // Pairwise over every span in the example, including two spans of the *same*
+  // step. The acceptance criterion is unqualified — source segments are exact
+  // and non-overlapping — and a step double-claiming its own text is a
+  // duplicated segment like any other. It is also the one that hides best:
+  // `coveredCodeUnits` unions the duplication away, so no coverage figure
+  // moves, and nothing else in the pipeline would ever notice.
+  //
+  // A step citing two *disjoint* spans stays legal; that is why `sourceSpans`
+  // is a list at all.
   for (let i = 0; i < usableSpans.length; i += 1) {
     for (let j = i + 1; j < usableSpans.length; j += 1) {
       const left = usableSpans[i];
       const right = usableSpans[j];
-      if (left.stepId === right.stepId) continue;
       // Half-open ranges: [0,4) and [4,10) are adjacent, not overlapping.
       if (left.span.start < right.span.end && right.span.start < left.span.end) {
+        const region =
+          `[${Math.max(left.span.start, right.span.start)}, ${Math.min(left.span.end, right.span.end)})`;
         violations.push(
           violation(
             'SPAN_OVERLAP',
             right.stepId,
-            `steps '${left.stepId}' and '${right.stepId}' both claim source code units ` +
-              `[${Math.max(left.span.start, right.span.start)}, ${Math.min(left.span.end, right.span.end)})`,
+            left.stepId === right.stepId
+              ? `step '${left.stepId}' claims source code units ${region} twice`
+              : `steps '${left.stepId}' and '${right.stepId}' both claim source code units ${region}`,
           ),
         );
       }
@@ -298,33 +342,24 @@ export function validateProposedSteps(
 }
 
 /**
- * `SPLIT_ATOMIC` in both directions.
+ * `SPLIT_ATOMIC`: the over-split direction, and only that one.
  *
- * A `do_not_split` or `atomic` row carrying steps is the obvious direction. The
- * less obvious one is a `multi_step` row carrying fewer than two: a size-one
- * step list and an honest refusal to decompose are the same data, and the
- * contract removes that ambiguity on the proposal side by giving
- * `AtomicProposal` no `steps` field at all. The dataset has to hold the same
- * line, or a row labelled `multi_step` with one step would score as a correct
- * decomposition of something nobody decomposed.
+ * The contract defines this as "a commitment marked do-not-split was split
+ * anyway". The opposite direction — a `multi_step` row carrying fewer than two
+ * steps — is also a defect, but it is not *this* one, and #27 cannot reach it:
+ * `DecomposedProposal.steps` is typed `[Step, Step, ...Step[]]`, so a
+ * sub-two-step decomposition is unrepresentable on the proposal side. A shared
+ * code that one track can emit and the other cannot is a cross-track
+ * disagreement waiting to be discovered over data neither side thinks is
+ * broken.
+ *
+ * That defect is still caught. It is reported as `DXC031` on
+ * `ExampleValidationResult.corpusIssues`, where it belongs: a statement about
+ * the corpus, in the corpus's own namespace.
  */
 function detectSplitAtomic(label: DecompositionLabelKind, stepCount: number): DecompositionViolation | null {
-  if (label === 'multi_step') {
-    return stepCount >= 2
-      ? null
-      : violation(
-          'SPLIT_ATOMIC',
-          null,
-          `labelled 'multi_step' but carries ${stepCount} step(s); a decomposition of size one is an atomic outcome`,
-        );
-  }
-  return stepCount === 0
-    ? null
-    : violation(
-        'SPLIT_ATOMIC',
-        null,
-        `labelled '${label}' but carries ${stepCount} step(s)`,
-      );
+  if (label === 'multi_step' || stepCount === 0) return null;
+  return violation('SPLIT_ATOMIC', null, `labelled '${label}' but carries ${stepCount} step(s)`);
 }
 
 /** Iterative depth-first cycle detection; no recursion, so a long chain cannot blow the stack. */
@@ -376,10 +411,27 @@ function hasCycle(steps: readonly DecompositionStepProposal[]): boolean {
  */
 export function validateDecompositionExample(example: DecompositionExample): ExampleValidationResult {
   const violations = validateProposedSteps(example.sourceText, example.expectedSteps, example.label);
+  const collector = new IssueCollector();
+
+  // A size-one step list and an honest refusal to decompose are the same data.
+  // The contract removes that ambiguity on the proposal side by giving
+  // `AtomicProposal` no `steps` field; the dataset holds the same line here, in
+  // its own namespace rather than the shared one. See `detectSplitAtomic`.
+  if (example.label === 'multi_step' && example.expectedSteps.length < 2) {
+    collector.error(
+      'DXC031',
+      `examples['${example.exampleId}'].expectedSteps`,
+      `labelled 'multi_step' but carries ${example.expectedSteps.length} step(s); a decomposition of size one ` +
+        'is an atomic outcome, and scoring it as a correct decomposition credits a split nobody made',
+    );
+  }
+
+  const corpusIssues = collector.result().issues;
   return Object.freeze({
     exampleId: example.exampleId,
-    valid: violations.length === 0,
+    valid: violations.length === 0 && corpusIssues.length === 0,
     violations,
+    corpusIssues: Object.freeze(corpusIssues),
   });
 }
 

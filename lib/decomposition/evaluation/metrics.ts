@@ -28,17 +28,27 @@
  *  - **Coverage** is over *code units of source text*, and only over rows the
  *    decomposer actually decomposed. A refusal has no steps, so it has no
  *    coverage — including it at zero would understate a decomposer that is
- *    correctly conservative.
+ *    correctly conservative. `coverage.groundTruth` is the same figure over the
+ *    rows that *have* ground-truth spans. It is **not a ceiling on
+ *    `coverage.produced`** and must not be described as one: on a do-not-split
+ *    row an over-splitter covers most of the sentence while the ground truth
+ *    covers none of it, so `produced` legitimately exceeds `groundTruth` in
+ *    exactly the case the corpus exists to catch.
  *  - **Faithfulness** is over *examples*: did it invent anything, cite anything
  *    it could not, or split what must not be split.
  *
- * ── Under-splitting is not an invention ─────────────────────────────
+ * ── Under-splitting is not an invention, and not a clean bill either ─
  *
  * A proposal that produces no steps is scored as a boundary miss and left out
- * of faithfulness entirely. Charging it to faithfulness would make "declined to
- * answer" and "fabricated a date" the same finding, and a decomposer that
- * refuses everything would score exactly as dishonestly as one that makes
- * things up — while being, in fact, the safe failure.
+ * of faithfulness — out of *both halves of the ratio*, not just the inspection.
+ * Charging it to faithfulness would make "declined to answer" and "fabricated a
+ * date" the same finding, and a decomposer that refuses everything would score
+ * as dishonestly as one that makes things up, while being the safe failure.
+ * Leaving it in the denominator was worse in the other direction: an empty
+ * proposal produces no violations, so it landed in the *numerator* too, and a
+ * decomposer that refused all eleven golden rows scored `clean = 1.0 (11/11)`
+ * — identical to a flawless run. `faithfulness.clean` is therefore over
+ * `examplesWithProducedSteps`, and reads `null` when that is zero.
  *
  * ── Boundary matches on offsets; the carried text is faithfulness ───
  *
@@ -295,26 +305,39 @@ export interface CoverageRow {
   readonly exampleId: string;
   readonly coveredCodeUnits: number;
   readonly sourceCodeUnits: number;
-  readonly ratio: number;
+  /** Null over an empty source, for the same reason every other ratio here is. */
+  readonly ratio: number | null;
 }
 
 export interface CoverageMetrics {
-  /** Source text the produced steps account for. */
+  /** Source text the produced steps account for, over the decomposed rows. */
   readonly produced: MetricScore;
-  /** The same figure for the ground truth: the ceiling `produced` is read against. */
-  readonly expected: MetricScore;
+  /**
+   * The same figure for the ground truth, over the rows that *have* expected
+   * spans.
+   *
+   * Named `groundTruth` rather than `expected` because the previous name
+   * invited reading it as a ceiling, and it is not one. It was also computed
+   * over the decomposed rows, which made it read `0.0000` on a do-not-split row
+   * an over-splitter had split — beneath the figure it supposedly bounded, and
+   * with the over-splitter posting the highest coverage number in the report.
+   * The two now carry different scopes and say so in `denominatorOf`.
+   */
+  readonly groundTruth: MetricScore;
   /** Rows the decomposer actually decomposed. A refusal has no coverage to report. */
   readonly examplesInScope: number;
+  /** Rows carrying ground-truth spans — the scope of `groundTruth`. */
+  readonly examplesWithExpectedSpans: number;
   readonly evaluatedExamples: number;
   readonly perExample: readonly CoverageRow[];
 }
 
 function buildCoverageMetrics(cases: readonly EvaluationCase[]): CoverageMetrics {
   const inScope = cases.filter((evaluated) => evaluated.proposal.outcome === 'decomposed');
+  const withExpected = cases.filter((evaluated) => evaluated.example.expectedSteps.length > 0);
 
   let covered = 0;
   let sourceUnits = 0;
-  let expectedCovered = 0;
   const perExample: CoverageRow[] = [];
 
   for (const evaluated of inScope) {
@@ -322,22 +345,38 @@ function buildCoverageMetrics(cases: readonly EvaluationCase[]): CoverageMetrics
     const own = coveredCodeUnits(producedSteps(evaluated.proposal));
     covered += own;
     sourceUnits += units;
-    expectedCovered += coveredCodeUnits(evaluated.example.expectedSteps);
     perExample.push(
       Object.freeze({
         exampleId: evaluated.example.exampleId,
         coveredCodeUnits: own,
         sourceCodeUnits: units,
-        ratio: units === 0 ? 0 : own / units,
+        ratio: units === 0 ? null : own / units,
       }),
     );
   }
 
-  const denominatorOf = `source code units across the ${inScope.length} decomposed proposal(s)`;
+  let expectedCovered = 0;
+  let expectedUnits = 0;
+  for (const evaluated of withExpected) {
+    expectedCovered += coveredCodeUnits(evaluated.example.expectedSteps);
+    expectedUnits += evaluated.example.sourceText.length;
+  }
+
   return Object.freeze({
-    produced: score('coverage.produced', covered, sourceUnits, denominatorOf),
-    expected: score('coverage.expected', expectedCovered, sourceUnits, denominatorOf),
+    produced: score(
+      'coverage.produced',
+      covered,
+      sourceUnits,
+      `source code units across the ${inScope.length} decomposed proposal(s)`,
+    ),
+    groundTruth: score(
+      'coverage.groundTruth',
+      expectedCovered,
+      expectedUnits,
+      `source code units across the ${withExpected.length} example(s) carrying expected spans`,
+    ),
     examplesInScope: inScope.length,
+    examplesWithExpectedSpans: withExpected.length,
     evaluatedExamples: cases.length,
     perExample: Object.freeze(perExample.slice().sort((a, b) => byCodeUnit(a.exampleId, b.exampleId))),
   });
@@ -372,12 +411,20 @@ export const FAITHFULNESS_VIOLATION_CODES: readonly DecompositionViolationCode[]
 export type FaithfulnessViolationCounts = Readonly<Record<string, number>>;
 
 export interface FaithfulnessMetrics {
-  /** Evaluated examples whose proposal carries no faithfulness violation. */
+  /**
+   * Rows that produced steps and carry no faithfulness violation.
+   *
+   * The denominator is `examplesWithProducedSteps`, not the evaluated count: a
+   * proposal with no steps is never inspected, so counting it as clean puts a
+   * row in the numerator on the strength of an examination that never happened.
+   */
   readonly clean: MetricScore;
   /** Do-not-split and atomic rows the decomposer declined to split. */
   readonly doNotSplitRespected: MetricScore;
   /** Every code in the vocabulary, including the ones at zero. */
   readonly violationCounts: FaithfulnessViolationCounts;
+  /** The scope of `clean`, reported beside it so a `null` is readable. */
+  readonly examplesWithProducedSteps: number;
   readonly offendingExampleIds: readonly string[];
 }
 
@@ -385,17 +432,20 @@ export interface FaithfulnessMetrics {
  * Faithfulness violations for one produced proposal.
  *
  * The ground-truth label is passed to the validator so `SPLIT_ATOMIC` means
- * "split something the corpus says is one task". A proposal with no steps is
- * skipped entirely: with zero steps and a `multi_step` label the validator would
- * report `SPLIT_ATOMIC` for the *opposite* defect — under-splitting — and that
- * belongs to boundary recall, not here.
+ * "split something the corpus says is one task". An earlier version guarded
+ * this call with an early return for empty proposals, because `SPLIT_ATOMIC`
+ * then also covered the under-split direction and would have fired here for the
+ * opposite defect. That direction now lives in the corpus namespace
+ * (`DXC031`, see `example.ts`), so the guard is gone and an empty proposal
+ * simply yields nothing — which is also why it must not be counted as clean.
+ * See `buildFaithfulnessMetrics`.
  */
 export function faithfulnessViolationsFor(evaluated: EvaluationCase): readonly DecompositionViolation[] {
-  const steps = producedSteps(evaluated.proposal);
-  if (steps.length === 0) return Object.freeze([]);
-  return validateProposedSteps(evaluated.proposal.sourceText, steps, evaluated.example.label).filter(
-    (violation) => FAITHFULNESS_VIOLATION_CODES.indexOf(violation.code) >= 0,
-  );
+  return validateProposedSteps(
+    evaluated.proposal.sourceText,
+    producedSteps(evaluated.proposal),
+    evaluated.example.label,
+  ).filter((violation) => FAITHFULNESS_VIOLATION_CODES.indexOf(violation.code) >= 0);
 }
 
 function buildFaithfulnessMetrics(cases: readonly EvaluationCase[]): FaithfulnessMetrics {
@@ -406,6 +456,7 @@ function buildFaithfulnessMetrics(cases: readonly EvaluationCase[]): Faithfulnes
   for (const code of FAITHFULNESS_VIOLATION_CODES) counts[code] = 0;
 
   let clean = 0;
+  let withProducedSteps = 0;
   const offending: string[] = [];
   let unsplittable = 0;
   let unsplittableRespected = 0;
@@ -413,8 +464,13 @@ function buildFaithfulnessMetrics(cases: readonly EvaluationCase[]): Faithfulnes
   for (const evaluated of cases) {
     const violations = faithfulnessViolationsFor(evaluated);
     for (const violation of violations) counts[violation.code] += 1;
-    if (violations.length === 0) clean += 1;
-    else offending.push(evaluated.example.exampleId);
+    // Only rows that produced something can be faithful or unfaithful about it.
+    // A refusal is neither, and belongs in neither half of the ratio.
+    if (producedSteps(evaluated.proposal).length > 0) {
+      withProducedSteps += 1;
+      if (violations.length === 0) clean += 1;
+    }
+    if (violations.length > 0) offending.push(evaluated.example.exampleId);
 
     const label = evaluated.example.label;
     if (label === 'do_not_split' || label === 'atomic') {
@@ -424,7 +480,12 @@ function buildFaithfulnessMetrics(cases: readonly EvaluationCase[]): Faithfulnes
   }
 
   return Object.freeze({
-    clean: score('faithfulness.clean', clean, cases.length, 'evaluated examples'),
+    clean: score(
+      'faithfulness.clean',
+      clean,
+      withProducedSteps,
+      'evaluated examples whose proposal produced at least one step',
+    ),
     doNotSplitRespected: score(
       'faithfulness.doNotSplitRespected',
       unsplittableRespected,
@@ -432,6 +493,7 @@ function buildFaithfulnessMetrics(cases: readonly EvaluationCase[]): Faithfulnes
       'evaluated examples labelled do_not_split or atomic',
     ),
     violationCounts: Object.freeze(counts),
+    examplesWithProducedSteps: withProducedSteps,
     offendingExampleIds: Object.freeze(offending.slice().sort(byCodeUnit)),
   });
 }

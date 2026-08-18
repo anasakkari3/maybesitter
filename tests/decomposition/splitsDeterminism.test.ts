@@ -191,6 +191,10 @@ test('a manifest sealed under a different assignment version does not silently v
 });
 
 test('a hand-edited members list is caught even when the counts still add up', () => {
+  // Distinct from the leak test below: this moves a row between splits, which
+  // the recomputed assignment catches (DSM021); that one lists a row twice,
+  // which only the manifest's own consistency pass can see (DSM022).
+
   const built = manifest();
   const swapped = {
     ...built,
@@ -215,4 +219,57 @@ test('a manifest that has been outside this process is parsed before it is trust
   const broken = parseSplitManifest({ ...(roundTripped as object), corpusChecksum: 'not-a-checksum' });
   assert.equal(broken.valid, false);
   assert.equal(broken.manifest, null, 'a partly-valid manifest is not a manifest');
+});
+
+/* ── Weight boundaries ──────────────────────────────────────────── */
+
+test('the bucket boundaries fall exactly where the weights say', () => {
+  // No seed id happens to hash to bucket 70, so a `<` / `<=` slip at that edge
+  // survived the whole suite. Probed ids are used to reach each boundary.
+  const boundaries: Record<number, string> = {};
+  for (let index = 0; index < 20000 && Object.keys(boundaries).length < 4; index += 1) {
+    const candidate = `probe-${index}`;
+    const bucket = splitBucket(candidate);
+    if ([69, 70, 84, 85].indexOf(bucket) >= 0 && boundaries[bucket] === undefined) {
+      boundaries[bucket] = candidate;
+    }
+  }
+  assert.deepEqual(Object.keys(boundaries).map(Number).sort((a, b) => a - b), [69, 70, 84, 85]);
+
+  assert.equal(assignSplit(boundaries[69]), 'train', 'bucket 69 is the last train bucket');
+  assert.equal(assignSplit(boundaries[70]), 'valid', 'bucket 70 is the first valid bucket');
+  assert.equal(assignSplit(boundaries[84]), 'valid', 'bucket 84 is the last valid bucket');
+  assert.equal(assignSplit(boundaries[85]), 'locked-test', 'bucket 85 is the first locked-test bucket');
+});
+
+/* ── Tampered manifests ─────────────────────────────────────────── */
+
+test('an id listed under two splits at once is caught as a leak', () => {
+  // The manifest is the only place this is visible: the corpus has no splits in
+  // it, so a recomputed assignment cannot see a row duplicated across two lists.
+  const built = manifest();
+  const leaked = {
+    ...built,
+    members: { ...built.members, train: [...built.members.train, built.members['locked-test'][0]] },
+  };
+  const result = verifySplitManifest({ examples: CORPUS, manifest: leaked });
+  assert.equal(result.valid, false);
+  assert.ok(hasIssue(result, 'DSM022'), JSON.stringify(result.issues, null, 2));
+});
+
+test('a manifest sealed under different weights does not verify', () => {
+  // Weights decide the partition just as much as the hash does. A manifest
+  // sealed with {100, 0, 0} has an empty locked-test split and used to verify
+  // clean, which is a corpus with no hold-out at all describing itself as split.
+  const skewed = buildSplitManifest({
+    examples: CORPUS,
+    manifestId: 'dsplit-001',
+    generatedAt: GENERATED_AT,
+    weights: { train: 100, valid: 0, lockedTest: 0 },
+  });
+  assert.equal(skewed.counts['locked-test'], 0);
+
+  const result = verifySplitManifest({ examples: CORPUS, manifest: skewed });
+  assert.equal(result.valid, false, 'a re-weighted split needs a new assignment version, not a quiet reseal');
+  assert.ok(hasIssue(result, 'DSM025'), JSON.stringify(result.issues, null, 2));
 });
