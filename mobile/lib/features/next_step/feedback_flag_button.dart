@@ -51,20 +51,22 @@ class FeedbackFlagButton extends ConsumerWidget {
             children: [
               Text(l10n.alphaFlagTitle, style: Theme.of(sheetContext).textTheme.titleMedium),
               const SizedBox(height: AppSpacing.md),
-              for (final category in ApiAlphaFeedbackService.categories)
-                ListenableBuilder(
-                  listenable: selectedCategory,
-                  builder: (context, _) {
-                    return RadioListTile<String>(
-                      dense: true,
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(_categoryLabel(l10n, category)),
-                      value: category,
-                      groupValue: selectedCategory.value,
-                      onChanged: (value) => selectedCategory.value = value,
-                    );
-                  },
+              RadioGroup<String>(
+                groupValue: selectedCategory.value,
+                onChanged: (value) => selectedCategory.value = value,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (final category in ApiAlphaFeedbackService.categories)
+                      RadioListTile<String>(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(_categoryLabel(l10n, category)),
+                        value: category,
+                      ),
+                  ],
                 ),
+              ),
               const SizedBox(height: AppSpacing.md),
               TextField(
                 controller: noteController,

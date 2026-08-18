@@ -190,7 +190,8 @@ function parseDateTime(raw: string, context: ExtractionContext): { dueAt: string
 function stripTiming(text: string): string {
   return text
     .replace(/\b(after tomorrow|day after tomorrow|today|tomorrow|tonight|morning|afternoon|evening|night)\b/gi, ' ')
-    .replace(/(بعد بكرا|بعد بكرة|بعد غداً|بعد غد|اليوم|النهارده|اليومه|بكرا|بكرة|غداً|غدا|الصبح|صباح|بعد الظهر|بعد الضهر|المساء|المسا|مساء|بالليل|الليل)/gi, ' ')
+    .replace(/(بعد بكرا|بعد بكرة|بعد غداً|بعد غد|اليوم|النهارده|اليومه|بكرا|بكرة|غداً|غدا|الصبح|صباحاً|صباحا|صباح|بعد الظهر|بعد الضهر|المساء|المسا|مساءً|مساءا|مساء|بالليل|الليل)/gi, ' ')
+    .replace(/\b(?:on|this|next)\s+(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/gi, ' ')
     .replace(/\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/gi, ' ')
     .replace(/(الأحد|الاحد|الاثنين|الإثنين|الأثنين|الثلاثاء|الثلثاء|الأربعاء|الاربعاء|الخميس|الجمعة|السبت)/gi, ' ')
     .replace(/\b(?:at|by|around)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/gi, ' ')

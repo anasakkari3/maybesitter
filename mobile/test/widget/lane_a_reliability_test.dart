@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/widgets.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -65,7 +64,10 @@ void main() {
             child: _buildLocalizedApp(const SuccessSaveScreen()),
           ),
         );
-        await tester.pumpAndSettle();
+        // Bounded pumps: the success screen runs a looping animation that never
+        // settles, so pumpAndSettle would time out.
+        await tester.pump(const Duration(milliseconds: 400));
+        await tester.pump(const Duration(milliseconds: 400));
 
         expect(find.text('Added 1 commitment for Tomorrow.'), findsOneWidget);
         expect(find.text('Go to the doctor'), findsOneWidget);
