@@ -1,0 +1,337 @@
+{
+  "generatedAt": "2026-08-18T13:47:04.440Z",
+  "totalFixtures": 16,
+  "validFixtures": 16,
+  "invalidFixtures": 0,
+  "languages": [
+    "ar",
+    "he",
+    "en",
+    "mixed"
+  ],
+  "conditions": [
+    "missing",
+    "stale",
+    "conflicting",
+    "sensitive"
+  ],
+  "matrix": {
+    "ar": {
+      "missing": {
+        "fixtureIds": [
+          "ar-missing"
+        ],
+        "memoryRecordCount": 1,
+        "inScopeRecordCount": 0,
+        "sensitiveRecordCount": 0,
+        "bidirectionalStringCount": 1,
+        "valid": true
+      },
+      "stale": {
+        "fixtureIds": [
+          "ar-stale"
+        ],
+        "memoryRecordCount": 1,
+        "inScopeRecordCount": 1,
+        "sensitiveRecordCount": 0,
+        "bidirectionalStringCount": 3,
+        "valid": true
+      },
+      "conflicting": {
+        "fixtureIds": [
+          "ar-conflicting"
+        ],
+        "memoryRecordCount": 4,
+        "inScopeRecordCount": 4,
+        "sensitiveRecordCount": 0,
+        "bidirectionalStringCount": 5,
+        "valid": true
+      },
+      "sensitive": {
+        "fixtureIds": [
+          "ar-sensitive"
+        ],
+        "memoryRecordCount": 2,
+        "inScopeRecordCount": 2,
+        "sensitiveRecordCount": 2,
+        "bidirectionalStringCount": 3,
+        "valid": true
+      }
+    },
+    "he": {
+      "missing": {
+        "fixtureIds": [
+          "he-missing"
+        ],
+        "memoryRecordCount": 1,
+        "inScopeRecordCount": 0,
+        "sensitiveRecordCount": 0,
+        "bidirectionalStringCount": 1,
+        "valid": true
+      },
+      "stale": {
+        "fixtureIds": [
+          "he-stale"
+        ],
+        "memoryRecordCount": 1,
+        "inScopeRecordCount": 1,
+        "sensitiveRecordCount": 0,
+        "bidirectionalStringCount": 3,
+        "valid": true
+      },
+      "conflicting": {
+        "fixtureIds": [
+          "he-conflicting"
+        ],
+        "memoryRecordCount": 4,
+        "inScopeRecordCount": 4,
+        "sensitiveRecordCount": 0,
+        "bidirectionalStringCount": 5,
+        "valid": true
+      },
+      "sensitive": {
+        "fixtureIds": [
+          "he-sensitive"
+        ],
+        "memoryRecordCount": 2,
+        "inScopeRecordCount": 2,
+        "sensitiveRecordCount": 2,
+        "bidirectionalStringCount": 3,
+        "valid": true
+      }
+    },
+    "en": {
+      "missing": {
+        "fixtureIds": [
+          "en-missing"
+        ],
+        "memoryRecordCount": 1,
+        "inScopeRecordCount": 0,
+        "sensitiveRecordCount": 0,
+        "bidirectionalStringCount": 0,
+        "valid": true
+      },
+      "stale": {
+        "fixtureIds": [
+          "en-stale"
+        ],
+        "memoryRecordCount": 1,
+        "inScopeRecordCount": 1,
+        "sensitiveRecordCount": 0,
+        "bidirectionalStringCount": 0,
+        "valid": true
+      },
+      "conflicting": {
+        "fixtureIds": [
+          "en-conflicting"
+        ],
+        "memoryRecordCount": 4,
+        "inScopeRecordCount": 4,
+        "sensitiveRecordCount": 0,
+        "bidirectionalStringCount": 0,
+        "valid": true
+      },
+      "sensitive": {
+        "fixtureIds": [
+          "en-sensitive"
+        ],
+        "memoryRecordCount": 2,
+        "inScopeRecordCount": 2,
+        "sensitiveRecordCount": 2,
+        "bidirectionalStringCount": 0,
+        "valid": true
+      }
+    },
+    "mixed": {
+      "missing": {
+        "fixtureIds": [
+          "mixed-missing"
+        ],
+        "memoryRecordCount": 1,
+        "inScopeRecordCount": 0,
+        "sensitiveRecordCount": 0,
+        "bidirectionalStringCount": 1,
+        "valid": true
+      },
+      "stale": {
+        "fixtureIds": [
+          "mixed-stale"
+        ],
+        "memoryRecordCount": 1,
+        "inScopeRecordCount": 1,
+        "sensitiveRecordCount": 0,
+        "bidirectionalStringCount": 3,
+        "valid": true
+      },
+      "conflicting": {
+        "fixtureIds": [
+          "mixed-conflicting"
+        ],
+        "memoryRecordCount": 4,
+        "inScopeRecordCount": 4,
+        "sensitiveRecordCount": 0,
+        "bidirectionalStringCount": 8,
+        "valid": true
+      },
+      "sensitive": {
+        "fixtureIds": [
+          "mixed-sensitive"
+        ],
+        "memoryRecordCount": 2,
+        "inScopeRecordCount": 2,
+        "sensitiveRecordCount": 2,
+        "bidirectionalStringCount": 3,
+        "valid": true
+      }
+    }
+  },
+  "gaps": [],
+  "totalMemoryRecords": 32,
+  "totalSensitiveRecords": 8,
+  "totalBidirectionalStrings": 39,
+  "corpusIssues": [],
+  "seededFailures": [
+    {
+      "caseId": "malformed-not-an-object",
+      "defect": "The fixture is a string rather than an object.",
+      "expectedIssueCode": "FIXTURE_NOT_OBJECT",
+      "detected": true,
+      "detail": "rejected with FIXTURE_NOT_OBJECT"
+    },
+    {
+      "caseId": "malformed-invalid-language",
+      "defect": "language is \"fr\", which the memory contract does not declare.",
+      "expectedIssueCode": "INVALID_LANGUAGE",
+      "detected": true,
+      "detail": "rejected with INVALID_LANGUAGE"
+    },
+    {
+      "caseId": "malformed-invalid-condition",
+      "defect": "condition is \"unclear\", which is outside the four context conditions.",
+      "expectedIssueCode": "INVALID_CONDITION",
+      "detected": true,
+      "detail": "rejected with INVALID_CONDITION"
+    },
+    {
+      "caseId": "malformed-non-iso-now",
+      "defect": "now is \"18 August 2026\", which is not an ISO timestamp.",
+      "expectedIssueCode": "INVALID_TIMESTAMP",
+      "detected": true,
+      "detail": "rejected with INVALID_TIMESTAMP"
+    },
+    {
+      "caseId": "malformed-computed-at-drift",
+      "defect": "A provenance.computedAt is a different instant from the fixture clock.",
+      "expectedIssueCode": "PROVENANCE_COMPUTED_AT_MISMATCH",
+      "detected": true,
+      "detail": "rejected with PROVENANCE_COMPUTED_AT_MISMATCH"
+    },
+    {
+      "caseId": "malformed-empty-state-expects-known",
+      "defect": "A missing-condition fixture expects a known commitments field over an empty DomainState.",
+      "expectedIssueCode": "EMPTY_STATE_EXPECTS_UNKNOWN",
+      "detected": true,
+      "detail": "rejected with EMPTY_STATE_EXPECTS_UNKNOWN"
+    },
+    {
+      "caseId": "malformed-no-data-over-populated-state",
+      "defect": "A populated fixture claims NO_DATA for recentOutcomes instead of a known-zero window.",
+      "expectedIssueCode": "NO_DATA_OVER_POPULATED_STATE",
+      "detected": true,
+      "detail": "rejected with NO_DATA_OVER_POPULATED_STATE"
+    },
+    {
+      "caseId": "malformed-unknown-reason-outside-vocabulary",
+      "defect": "An unknown field uses reason \"MAYBE\", which the contract does not declare.",
+      "expectedIssueCode": "INVALID_UNKNOWN_REASON",
+      "detected": true,
+      "detail": "rejected with INVALID_UNKNOWN_REASON"
+    },
+    {
+      "caseId": "malformed-sensitive-shareable",
+      "defect": "A record marked sensitive expects exportPolicy shareable_aggregate.",
+      "expectedIssueCode": "SENSITIVE_EXPORT_POLICY",
+      "detected": true,
+      "detail": "rejected with SENSITIVE_EXPORT_POLICY"
+    },
+    {
+      "caseId": "malformed-confidence-out-of-range",
+      "defect": "A record declares confidence 1.4, outside the contract range 0..1.",
+      "expectedIssueCode": "CONFIDENCE_OUT_OF_RANGE",
+      "detected": true,
+      "detail": "rejected with CONFIDENCE_OUT_OF_RANGE"
+    },
+    {
+      "caseId": "malformed-empty-content",
+      "defect": "A record declares whitespace-only content.",
+      "expectedIssueCode": "EMPTY_CONTENT",
+      "detected": true,
+      "detail": "rejected with EMPTY_CONTENT"
+    },
+    {
+      "caseId": "malformed-bidi-control-character",
+      "defect": "Content carries a U+202E right-to-left override, which mangles logical order.",
+      "expectedIssueCode": "BIDI_CONTROL_CHARACTER",
+      "detected": true,
+      "detail": "rejected with BIDI_CONTROL_CHARACTER"
+    },
+    {
+      "caseId": "malformed-language-script-mismatch",
+      "defect": "An Arabic-tagged record carries Latin-only content.",
+      "expectedIssueCode": "LANGUAGE_SCRIPT_MISMATCH",
+      "detected": true,
+      "detail": "rejected with LANGUAGE_SCRIPT_MISMATCH"
+    },
+    {
+      "caseId": "malformed-stale-after-from-observed-at",
+      "defect": "staleAfter is measured from observedAt rather than from write time, so an old observation is born nearly stale.",
+      "expectedIssueCode": "STALE_AFTER_MISMATCH",
+      "detected": true,
+      "detail": "rejected with STALE_AFTER_MISMATCH"
+    },
+    {
+      "caseId": "malformed-stale-expectation-mismatch",
+      "defect": "A record whose staleAfter is in the past claims it is not stale at the clock.",
+      "expectedIssueCode": "STALE_EXPECTATION_MISMATCH",
+      "detected": true,
+      "detail": "rejected with STALE_EXPECTATION_MISMATCH"
+    },
+    {
+      "caseId": "malformed-retrievable-stale-record",
+      "defect": "A stale record claims it is still retrievable, which retrieve() forbids.",
+      "expectedIssueCode": "RETRIEVE_EXPECTATION_INCONSISTENT",
+      "detected": true,
+      "detail": "rejected with RETRIEVE_EXPECTATION_INCONSISTENT"
+    },
+    {
+      "caseId": "malformed-unknown-supersedes-handle",
+      "defect": "A record supersedes a handle that does not exist in the fixture.",
+      "expectedIssueCode": "UNKNOWN_SUPERSEDES_HANDLE",
+      "detected": true,
+      "detail": "rejected with UNKNOWN_SUPERSEDES_HANDLE"
+    },
+    {
+      "caseId": "malformed-retrieve-order",
+      "defect": "expectedRetrieveHandles is ordered oldest-observedAt first.",
+      "expectedIssueCode": "RETRIEVE_ORDER_INVALID",
+      "detected": true,
+      "detail": "rejected with RETRIEVE_ORDER_INVALID"
+    },
+    {
+      "caseId": "malformed-prune-count",
+      "defect": "A fixture with one stale record expects prune() to return 0.",
+      "expectedIssueCode": "PRUNE_COUNT_MISMATCH",
+      "detected": true,
+      "detail": "rejected with PRUNE_COUNT_MISMATCH"
+    },
+    {
+      "caseId": "malformed-vacuous-absence-assertion",
+      "defect": "expectedAbsentFromProjection names a string that is nowhere in the DomainState.",
+      "expectedIssueCode": "VACUOUS_ABSENCE_ASSERTION",
+      "detected": true,
+      "detail": "rejected with VACUOUS_ABSENCE_ASSERTION"
+    }
+  ],
+  "seededFailureTested": true,
+  "status": "GATE PASSED"
+}
