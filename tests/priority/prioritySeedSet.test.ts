@@ -236,14 +236,14 @@ test('Arabic and Hebrew seed text round-trips byte-identically with no bidi mang
   assert.equal(hebrew, 'לסדר את מסמכי הביטוח');
 
   assert.deepEqual(
-    [...(arabic ?? '')].map((ch) => ch.codePointAt(0)),
+    Array.from(arabic ?? '').map((ch) => ch.codePointAt(0)),
     [
       0x062a, 0x0633, 0x0644, 0x064a, 0x0645, 0x0020, 0x062a, 0x0642, 0x0631, 0x064a, 0x0631, 0x0020,
       0x0627, 0x0644, 0x062d, 0x0636, 0x0627, 0x0646, 0x0629,
     ],
   );
   assert.deepEqual(
-    [...(hebrew ?? '')].map((ch) => ch.codePointAt(0)),
+    Array.from(hebrew ?? '').map((ch) => ch.codePointAt(0)),
     [
       0x05dc, 0x05e1, 0x05d3, 0x05e8, 0x0020, 0x05d0, 0x05ea, 0x0020, 0x05de, 0x05e1, 0x05de, 0x05db,
       0x05d9, 0x0020, 0x05d4, 0x05d1, 0x05d9, 0x05d8, 0x05d5, 0x05d7,
@@ -262,7 +262,7 @@ test('Arabic and Hebrew seed text round-trips byte-identically with no bidi mang
 
 test('no bidi control characters and no replacement characters anywhere in the corpus', () => {
   // U+200E/F LRM/RLM, U+202A-E embedding/override, U+2066-9 isolates, U+FFFD replacement.
-  const forbidden = /[‎‏‪-‮⁦-⁩�]/;
+  const forbidden = /[\u200E\u200F\u202A-\u202E\u2066-\u2069\uFFFD]/;
 
   for (const pair of PRIORITY_SEED_PAIRS) {
     for (const text of seedPairStrings(pair)) {
@@ -276,7 +276,7 @@ test('no bidi control characters and no replacement characters anywhere in the c
 });
 
 test('mixed-language pairs really do mix scripts', () => {
-  const rtl = /[֐-׿؀-ۿݐ-ݿﭐ-﷿ﹰ-﻿]/;
+  const rtl = /[\u0590-\u05FF\u0600-\u06FF\u0750-\u077F\uFB1D-\uFDFF\uFE70-\uFEFF]/;
   const latin = /[A-Za-z]/;
 
   const mixedPairs = PRIORITY_SEED_PAIRS.filter((pair) => pair.language === 'mixed');
