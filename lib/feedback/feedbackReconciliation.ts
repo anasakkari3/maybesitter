@@ -156,7 +156,7 @@ function recountBaseline(baseline: FeedbackBaseline | null): number {
  * any log of two or more events this is a different order from the input, which
  * is all the replay needs.
  */
-function reorderedForReplay<T>(items: readonly T[]): T[] {
+export function reorderedForReplay<T>(items: readonly T[]): T[] {
   const odd = items.filter((_, index) => index % 2 === 1).reverse();
   const even = items.filter((_, index) => index % 2 === 0);
   return [...odd, ...even];

@@ -21,6 +21,7 @@ import path from 'node:path';
 import {
   buildFeedbackReconciliation,
   generateFeedbackReconciliationMarkdown,
+  reorderedForReplay,
   type FeedbackReplayInput,
 } from '../../lib/feedback/feedbackReconciliation.ts';
 import { aggregateFeedback } from '../../lib/feedback/feedbackAggregation.ts';
@@ -146,6 +147,21 @@ test('the report replays each scope against a reordered copy of its own log', ()
     assert.equal(scope.replayMatches, true, `${scope.scopeId} did not replay identically`);
   }
   assert.deepEqual(report.failures, []);
+});
+
+test('the replay reordering actually reorders, so replayMatches is not vacuous', () => {
+  // Guards the test above: if the "reordered" copy were the input order, every
+  // scope would replay identically by construction and the check would prove
+  // nothing. It must also stay deterministic — a random shuffle would make the
+  // report itself unreproducible.
+  const items = ['a', 'b', 'c', 'd', 'e'];
+
+  assert.notDeepEqual(reorderedForReplay(items), items);
+  assert.deepEqual(reorderedForReplay(items), reorderedForReplay(items));
+  assert.deepEqual([...reorderedForReplay(items)].sort(), items);
+  // Degenerate logs have no other order to be in, and must not be mangled.
+  assert.deepEqual(reorderedForReplay(['only']), ['only']);
+  assert.deepEqual(reorderedForReplay([]), []);
 });
 
 test('the report is byte-identical for the same input, scopes sorted by id', () => {
