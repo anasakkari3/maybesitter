@@ -258,12 +258,14 @@ export interface AnnotatorSummary {
  * fixes the fields a consumer may rely on; these add the coverage figures that
  * make `observedAgreement` readable without being misread.
  */
+/**
+ * `rubricVersion`, `scorablePairCount` and `unscorablePairCount` moved into the
+ * committed `AgreementReport` at merge — they belong with the figure they
+ * qualify, not beside it. What remains here is the detail a report needs and a
+ * consumer of the contract does not.
+ */
 export interface PriorityAgreementReport extends AgreementReport {
-  readonly rubricVersion: string;
   readonly judgmentCount: number;
-  /** Pairs with at least two annotators who did not abstain. */
-  readonly scorablePairCount: number;
-  readonly unscorablePairCount: number;
   /** Annotator-pair comparisons in the denominator. */
   readonly comparableVerdictPairCount: number;
   readonly concordantVerdictPairCount: number;
@@ -280,12 +282,17 @@ function byCodeUnit(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
+/**
+ * `generatedAt` is required for the same reason it is on the coverage report:
+ * this output is committed, so reading the host clock here would make an
+ * unchanged corpus produce a changed file.
+ */
 export function buildAgreementReport(
   judgments: readonly PairwiseJudgment[],
-  options?: { generatedAt?: string; rubricVersion?: string },
+  options: { generatedAt: string; rubricVersion?: string },
 ): PriorityAgreementReport {
-  const generatedAt = options?.generatedAt ?? new Date().toISOString();
-  const rubricVersion = options?.rubricVersion ?? RUBRIC_VERSION;
+  const { generatedAt } = options;
+  const rubricVersion = options.rubricVersion ?? RUBRIC_VERSION;
 
   const pairIds = Array.from(new Set(judgments.map((judgment) => judgment.pairId))).sort(byCodeUnit);
   const annotatorIds = Array.from(new Set(judgments.map((judgment) => judgment.annotatorId))).sort(byCodeUnit);

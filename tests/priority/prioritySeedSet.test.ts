@@ -69,7 +69,7 @@ test('seed pairs carry no expected verdict, because none has been judged', () =>
 /* ── Coverage and balance ────────────────────────────────────────── */
 
 test('seed set covers every language x load-pattern cell', () => {
-  const report = buildSeedSetCoverageReport();
+  const report = buildSeedSetCoverageReport({ generatedAt: '2026-08-19T00:00:00.000Z' });
 
   assert.deepEqual(report.gaps, [], 'every language x load-pattern cell must carry at least one pair');
   assert.equal(report.status, 'GATE PASSED');
@@ -82,7 +82,7 @@ test('a missing language x load-pattern cell fails loudly', () => {
     (pair) => !(pair.language === 'he' && pair.loadPattern === 'heavy'),
   );
 
-  const report = buildSeedSetCoverageReport({ pairs: withoutCell });
+  const report = buildSeedSetCoverageReport({ pairs: withoutCell, generatedAt: '2026-08-19T00:00:00.000Z' });
 
   assert.equal(report.status, 'GATE FAILED');
   assert.ok(
@@ -93,7 +93,7 @@ test('a missing language x load-pattern cell fails loudly', () => {
 });
 
 test('every unordered reason mix is represented', () => {
-  const report = buildSeedSetCoverageReport();
+  const report = buildSeedSetCoverageReport({ generatedAt: '2026-08-19T00:00:00.000Z' });
   const covered = new Set(PRIORITY_SEED_PAIRS.map(reasonMixOf));
 
   for (const mix of REASON_MIXES) {
@@ -103,7 +103,7 @@ test('every unordered reason mix is represented', () => {
 });
 
 test('coverage report makes imbalance visible rather than asserting balance', () => {
-  const report = buildSeedSetCoverageReport();
+  const report = buildSeedSetCoverageReport({ generatedAt: '2026-08-19T00:00:00.000Z' });
 
   // The distribution is data, so a reviewer can see the shape rather than trust a claim.
   for (const language of SEED_LANGUAGES) {
@@ -133,14 +133,14 @@ test('imbalance is reported when one cell dominates', () => {
     })),
   ];
 
-  const report = buildSeedSetCoverageReport({ pairs: skewed });
+  const report = buildSeedSetCoverageReport({ pairs: skewed, generatedAt: '2026-08-19T00:00:00.000Z' });
 
   assert.ok(report.imbalances.length > 0, 'a 13:1 cell skew must be reported');
   assert.match(generateSeedSetCoverageMarkdown(report), /Imbalance/);
 });
 
 test('designed-ambiguous pairs exist in every language, so the unresolved path is exercisable', () => {
-  const report = buildSeedSetCoverageReport();
+  const report = buildSeedSetCoverageReport({ generatedAt: '2026-08-19T00:00:00.000Z' });
 
   for (const language of SEED_LANGUAGES) {
     assert.ok(

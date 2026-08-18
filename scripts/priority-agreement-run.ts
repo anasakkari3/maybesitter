@@ -34,10 +34,13 @@ import { formatIssue } from '../lib/evaluation/registry/validationPrimitives';
 const jsonOnly = process.argv.includes('--json-only');
 
 async function main(): Promise<void> {
-  const coverage = buildSeedSetCoverageReport();
+  // The CLI owns the clock; the report builders take it, so an unchanged
+  // corpus produces an unchanged report body.
+  const generatedAt = new Date().toISOString();
+  const coverage = buildSeedSetCoverageReport({ generatedAt });
   const lock = verifySeedSetLock();
   const loaded = loadShippedJudgmentCorpus();
-  const agreement = buildAgreementReport(loaded.judgments);
+  const agreement = buildAgreementReport(loaded.judgments, { generatedAt });
 
   const reportDir = join(process.cwd(), 'docs', 'quality', 'reports');
   mkdirSync(reportDir, { recursive: true });

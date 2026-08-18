@@ -211,11 +211,30 @@ export interface PairwiseJudgment {
 
 export interface AgreementReport {
   readonly version: typeof PRIORITY_SCHEMA_VERSION;
+  /**
+   * Which rubric produced these judgments. Judgments are not comparable across
+   * rubric revisions, and without this a stored report cannot say what criteria
+   * it was measuring — the same reason `PriorityScore` carries `policyVersion`.
+   */
+  readonly rubricVersion: string;
   readonly generatedAt: string;
   readonly pairCount: number;
   readonly annotatorCount: number;
   /** Null when there are too few judgments to compute one honestly. */
   readonly observedAgreement: number | null;
+  /**
+   * Pairs the agreement figure was computed over, and pairs it could not be.
+   *
+   * `observedAgreement` excludes `unresolved` judgments entirely — counting an
+   * abstention as agreement would make giving up the cheapest way to raise the
+   * number, and counting it as disagreement would punish an annotator for
+   * following the rubric. That exclusion means the figure is computed over a
+   * subset, so its coverage travels with it: 100% over one pair of forty is a
+   * different claim from 100% over forty.
+   */
+  readonly scorablePairCount: number;
+  readonly unscorablePairCount: number;
+  /** Number of judgment rows recording an abstention, not pairs. */
   readonly unresolvedCount: number;
   readonly disagreements: readonly string[];
   /**

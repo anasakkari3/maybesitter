@@ -110,10 +110,18 @@ function tally<T extends string>(keys: readonly T[]): Record<string, number> {
 
 /* ── Report ─────────────────────────────────────────────────────── */
 
-export function buildSeedSetCoverageReport(options?: {
+/**
+ * `generatedAt` is required, not defaulted to the host clock. These reports are
+ * committed artifacts, so a clock read here makes two runs over identical
+ * inputs produce different files — churn that has already had to be discarded
+ * twice elsewhere in this repo. The caller that owns the clock (the CLI) passes
+ * it in.
+ */
+export function buildSeedSetCoverageReport(options: {
   pairs?: readonly PrioritySeedPair[];
-  generatedAt?: string;
+  generatedAt: string;
 }): SeedSetCoverageReport {
+  const { generatedAt } = options;
   const pairs = options?.pairs ?? PRIORITY_SEED_PAIRS;
 
   const matrix: Record<string, Record<string, SeedCoverageCell>> = {};
@@ -187,7 +195,7 @@ export function buildSeedSetCoverageReport(options?: {
   const uncoveredReasonMixes = (REASON_MIXES as readonly string[]).filter((mix) => (byReasonMix[mix] ?? 0) === 0);
 
   return {
-    generatedAt: options?.generatedAt ?? new Date().toISOString(),
+    generatedAt,
     rubricVersion: RUBRIC_VERSION,
     clock: SEED_CLOCK_ISO,
     totalPairs: pairs.length,
