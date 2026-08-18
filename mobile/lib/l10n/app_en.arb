@@ -327,5 +327,89 @@
   "alphaFlagPickCategory": "Please choose a category",
   "alphaFlagSubmit": "Send report",
   "alphaFlagSent": "Thank you — report received.",
-  "alphaFlagDisabled": "Reporting is not enabled in this build."
+  "alphaFlagDisabled": "Reporting is not enabled in this build.",
+
+  "feedbackHistoryTitle": "What we noticed",
+  "feedbackHistorySubtitle": "Moments we recorded, and how to correct them",
+  "feedbackHistoryEntryTitle": "What we noticed",
+  "feedbackHistoryEntrySubtitle": "See and correct what we recorded about your actions",
+  "feedbackHistoryIntro": "Each line below is one moment we observed. None of it is stored as a preference, and none of it is a description of who you are.",
+  "feedbackHistoryRevokeNote": "If we got one wrong, turn it off. It stops counting from then on, and it stays listed here so you can see what changed.",
+
+  "feedbackObservedAccept": "We saw you accept this suggestion.",
+  "feedbackObservedEdit": "We saw you change this before saving it.",
+  "feedbackObservedReject": "We saw you turn this down.",
+  "feedbackObservedDefer": "We saw you put this off.",
+  "feedbackObservedComplete": "We saw you finish this.",
+  "feedbackObservedIgnore": "We saw this go unanswered.",
+  "feedbackObservedUndo": "We saw you reverse this.",
+  "feedbackObservedUnknown": "We recorded something here that this version of the app cannot describe.",
+
+  "feedbackHistoryWhen": "On {date}",
+  "@feedbackHistoryWhen": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "feedbackHistoryAboutItem": "About: {title}",
+  "@feedbackHistoryAboutItem": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "feedbackHistorySubjectUnknown": "The item this was about is no longer on your list.",
+  "feedbackRevokeAction": "Don't learn from this",
+  "feedbackRevokeSemantics": "Don't learn from this: {description}",
+  "@feedbackRevokeSemantics": {
+    "placeholders": {
+      "description": {
+        "type": "String"
+      }
+    }
+  },
+  "feedbackRevokedBadge": "We stopped using this",
+  "feedbackRevokedOn": "You turned this off on {date}.",
+  "@feedbackRevokedOn": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "feedbackRevokeDoneMessage": "Done. We no longer learn from that one.",
+  "feedbackRevokeFailedMessage": "That did not go through. Nothing changed.",
+
+  "feedbackHistoryEmptyTitle": "Nothing recorded yet",
+  "feedbackHistoryEmptyMessage": "After you act on a suggestion, what we observed will appear here.",
+  "feedbackHistoryLoadFailedTitle": "We could not load this",
+  "feedbackHistoryLoadFailedMessage": "The record could not be reached. Nothing has changed.",
+  "feedbackHistoryUnavailableTitle": "Not connected in this build",
+  "feedbackHistoryUnavailableMessage": "This build has no behaviour record connected, so there is nothing to show. That is not the same as an empty history.",
+
+  "feedbackBaselineTitle": "From before we kept dates",
+  "feedbackBaselineMessage": "These totals come from before we started recording dates. Without a date, a total cannot be shown as a moment, and it cannot be turned off one at a time.",
+  "feedbackBaselineUpdated": "Last changed {date}.",
+  "@feedbackBaselineUpdated": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "feedbackBaselineIgnoredSuggestions": "Suggestions left unanswered",
+  "feedbackBaselineCompletedActions": "Things you finished",
+  "feedbackBaselineDelayedActions": "Things you put off",
+  "feedbackBaselineClarificationSuccesses": "Our questions that helped",
+  "feedbackBaselineClarificationFailures": "Our questions that did not help",
+
+  "privacyStorageTitle": "Where your data lives",
+  "privacyTokenStorageLabel": "Pilot access token",
+  "privacyTokenStorageValue": "Device keychain",
+  "privacyRealControlsTitle": "Analytics, consent and deletion",
+  "privacyRealControlsMessage": "These are handled in Trust & privacy. Each control there acts on the server, not only on this device.",
+  "privacyOpenTrustCenterAction": "Open Trust & privacy"
 }
