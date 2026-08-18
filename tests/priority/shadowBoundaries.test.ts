@@ -96,6 +96,26 @@ export function importSpecifiers(source: string): string[] {
   return specifiers;
 }
 
+/**
+ * Source with its comments removed.
+ *
+ * The content bans below are about what the code *does*, and this file's own
+ * modules explain in prose why they do not call `Math.random()` or read the
+ * clock. Scanning the raw text would flag those explanations, and the cheapest
+ * way to make such a scanner green is to delete the comment that explains the
+ * rule — so the scanner would be actively pushing the code in the wrong
+ * direction. Comments are therefore stripped first, and only real code is
+ * checked.
+ *
+ * The line-comment pattern keeps the character before `//`, so a `https://`
+ * inside a string literal is not mistaken for the start of a comment.
+ */
+function strippedSource(file: string): string {
+  return readFileSync(file, 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|[^:'"`\\])\/\/[^\n]*/g, '$1');
+}
+
 function resolveLocal(fromFile: string, specifier: string): string | null {
   if (!specifier.startsWith('.')) return null;
   const base = resolve(dirname(fromFile), specifier.replace(/\.ts$/, ''));
@@ -230,7 +250,7 @@ test('shadow comparison reaches no filesystem or network primitive at all', () =
   }
 
   for (const file of sourceFilesUnder(shadowDir)) {
-    const source = readFileSync(file, 'utf8');
+    const source = strippedSource(file);
     assert.equal(/\bfetch\s*\(/.test(source), false, `${relative(file)} must not call fetch()`);
     assert.equal(/\bprocess\.env\b/.test(source), false, `${relative(file)} must not read process.env`);
     assert.equal(/\bglobalThis\b/.test(source), false, `${relative(file)} must not reach into globalThis`);
@@ -242,7 +262,7 @@ test('shadow comparison is deterministic at the source level: no clock, no rando
   // added here because an unseeded sampler would make a sampled run
   // unreproducible while every count-based assertion still passed.
   for (const file of sourceFilesUnder(shadowDir)) {
-    const source = readFileSync(file, 'utf8');
+    const source = strippedSource(file);
     const name = relative(file);
     assert.equal(/\bDate\.now\s*\(/.test(source), false, `${name} must not call Date.now()`);
     assert.equal(/\bnew\s+Date\s*\(/.test(source), false, `${name} must not construct a Date`);
