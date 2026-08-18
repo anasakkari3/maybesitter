@@ -56,7 +56,7 @@ import type {
 import { PRIORITY_SCHEMA_VERSION } from '../../../src/contracts/v1/priorityContracts';
 import type { ValidationIssue } from '../../evaluation/registry/contracts';
 import { IssueCollector, isIsoTimestamp, isNonEmptyString, isPlainObject } from '../../evaluation/registry/validationPrimitives';
-import { RUBRIC_VERSION, type PrioritySeedPair } from '../../../tests/fixtures/prioritySeedSet';
+import { PRIORITY_SEED_PAIRS, RUBRIC_VERSION, type PrioritySeedPair } from '../../../tests/fixtures/prioritySeedSet';
 
 /* ── Corpus schema ──────────────────────────────────────────────── */
 
@@ -266,6 +266,8 @@ export interface AnnotatorSummary {
  */
 export interface PriorityAgreementReport extends AgreementReport {
   readonly judgmentCount: number;
+  /** Seed pairs nobody judged at all. Included in `pairCount`. */
+  readonly unjudgedPairCount: number;
   /** Annotator-pair comparisons in the denominator. */
   readonly comparableVerdictPairCount: number;
   readonly concordantVerdictPairCount: number;
@@ -289,12 +291,28 @@ function byCodeUnit(a: string, b: string): number {
  */
 export function buildAgreementReport(
   judgments: readonly PairwiseJudgment[],
-  options: { generatedAt: string; rubricVersion?: string },
+  options: {
+    generatedAt: string;
+    rubricVersion?: string;
+    /**
+     * The pairs annotators were asked to judge. Without it the coverage figure
+     * denominates against pairs someone happened to judge, so two annotators
+     * agreeing on 2 of 25 seed pairs render as "100% over 2 of 2" — which is
+     * precisely the reading this module's header says it exists to prevent.
+     * Defaults to the shipped seed set.
+     */
+    seedPairIds?: readonly string[];
+  },
 ): PriorityAgreementReport {
   const { generatedAt } = options;
+  const seedPairIds = options.seedPairIds ?? PRIORITY_SEED_PAIRS.map((pair) => pair.pairId);
   const rubricVersion = options.rubricVersion ?? RUBRIC_VERSION;
 
-  const pairIds = Array.from(new Set(judgments.map((judgment) => judgment.pairId))).sort(byCodeUnit);
+  const judgedPairIds = Array.from(new Set(judgments.map((judgment) => judgment.pairId)));
+  // Union, so a judgment naming a pair outside the seed set is still counted
+  // rather than silently shrinking the denominator.
+  const pairIds = Array.from(new Set([...seedPairIds, ...judgedPairIds])).sort(byCodeUnit);
+  const unjudgedPairCount = pairIds.filter((pairId) => !judgedPairIds.includes(pairId)).length;
   const annotatorIds = Array.from(new Set(judgments.map((judgment) => judgment.annotatorId))).sort(byCodeUnit);
   const unresolvedCount = judgments.filter((judgment) => judgment.verdict === 'unresolved').length;
 
@@ -357,6 +375,7 @@ export function buildAgreementReport(
     generatedAt,
     rubricVersion,
     pairCount: pairIds.length,
+    unjudgedPairCount,
     annotatorCount: annotatorIds.length,
     judgmentCount: judgments.length,
     observedAgreement: comparable === 0 ? null : round4(concordant / comparable),
@@ -422,6 +441,7 @@ export function generateAgreementMarkdown(report: PriorityAgreementReport): stri
     '',
     `Observed agreement: **${agreement}**`,
     `Computed over ${report.scorablePairCount} of ${report.pairCount} pairs ` +
+    `(${report.unjudgedPairCount} unjudged) ` +
       `(${report.concordantVerdictPairCount}/${report.comparableVerdictPairCount} annotator-pair comparisons).`,
     `Judgments: ${report.judgmentCount} | Annotators: ${report.annotatorCount} | ` +
       `Unresolved: ${report.unresolvedCount} | Unscorable pairs: ${report.unscorablePairCount}`,

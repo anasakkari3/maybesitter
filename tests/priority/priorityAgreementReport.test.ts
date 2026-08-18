@@ -43,8 +43,17 @@ function judgment(
   };
 }
 
+/**
+ * These tests exercise the agreement arithmetic over their own synthetic pairs,
+ * so they declare their own pair universe. Without it the denominator would be
+ * the shipped seed set and every figure here would be diluted by seed pairs the
+ * test never intended to model.
+ */
 function report(judgments: readonly PairwiseJudgment[]) {
-  return buildAgreementReport(judgments, { generatedAt: FIXED_GENERATED_AT });
+  return buildAgreementReport(judgments, {
+    generatedAt: FIXED_GENERATED_AT,
+    seedPairIds: Array.from(new Set(judgments.map((judgment) => judgment.pairId))),
+  });
 }
 
 function corpus(judgments: readonly unknown[]): unknown {
@@ -323,4 +332,26 @@ test('a populated report renders its numbers and its disagreements', () => {
   assert.match(markdown, /50\.0%/);
   assert.match(markdown, /ann-a='left' vs ann-b='right'/);
   assert.match(markdown, /NOT HUMAN EVIDENCE/);
+});
+
+test('agreement over a handful of the seed set reports the pairs nobody judged', () => {
+  // The scenario a code review reproduced: two annotators agree on two pairs
+  // and the report rendered "100.0% over 2 of 2", hiding the rest of the seed
+  // set. A rate over 2 of 25 is not a high agreement rate; it is a rubric
+  // almost nobody applied.
+  const judged = PRIORITY_SEED_PAIRS.slice(0, 2);
+  const judgments = judged.flatMap((pair) => [
+    judgment(pair.pairId, 'ann-1', 'left'),
+    judgment(pair.pairId, 'ann-2', 'left'),
+  ]);
+
+  const built = buildAgreementReport(judgments, { generatedAt: FIXED_GENERATED_AT });
+
+  assert.equal(built.observedAgreement, 1, 'they did agree on what they judged');
+  assert.equal(built.scorablePairCount, 2);
+  assert.equal(built.pairCount, PRIORITY_SEED_PAIRS.length, 'the denominator is the seed set');
+  assert.equal(built.unjudgedPairCount, PRIORITY_SEED_PAIRS.length - 2);
+
+  const markdown = generateAgreementMarkdown(built);
+  assert.match(markdown, /unjudged/, 'the rendering must surface the unjudged pairs beside the rate');
 });

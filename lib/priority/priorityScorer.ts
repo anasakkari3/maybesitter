@@ -154,7 +154,10 @@ function latenessPoints(lateness: LatenessFeature, policy: PriorityPolicy): numb
  * absent feature.
  */
 function userPressurePoints(pressure: UserPressureFeature, policy: PriorityPolicy): number {
-  if (pressure.ignoredCount <= 0) return 0;
+  // Negated rather than `<= 0`, so a non-finite count falls through to 0 like
+  // every other non-finite value in this file rather than scoring as a full
+  // ignore.
+  if (!(pressure.ignoredCount > 0)) return 0;
   return pressure.ignoredRecently ? policy.weights.userPressureRecent : policy.weights.userPressureStale;
 }
 
@@ -166,7 +169,14 @@ function scoreSoftly(input: ScorePriorityInput): { components: ScoreComponent[];
   const { features, reason, policy } = input;
   const components: ScoreComponent[] = [];
 
-  components.push({ code: 'reason_base', points: policy.reasonBase[reason], evidence: null });
+  const reasonBase = policy.reasonBase[reason];
+  if (!Number.isFinite(reasonBase)) {
+    // Without this the total is NaN, and because NaN !== NaN the reconciliation
+    // invariant becomes *false* rather than merely wrong — a broken explanation
+    // that no assertion of the form sum === total can catch.
+    throw new TypeError(`priority scoring: policy has no base score for reason '${String(reason)}'`);
+  }
+  components.push({ code: 'reason_base', points: reasonBase, evidence: null });
 
   if (features.urgency.known) {
     components.push({

@@ -28,7 +28,12 @@ export interface AgendaScoringInput {
  * previously contained, and tests/priority/priorityDelegationEquivalence.test.ts
  * asserts the two agree across every band, both caps, and the boundary cases.
  *
- * One intentional behaviour change: an unparseable `now` now throws. It
+ * Two intentional behaviour changes. A commitment whose `id` is empty or blank
+ * now throws rather than being scored: a ranking entry that cannot be
+ * identified cannot be acted on, and the id is what every downstream consumer
+ * keys by.
+ *
+ * And an unparseable `now` now throws. It
  * previously flowed through as NaN, silently yielding a plausible-but-wrong
  * score (7300 where a valid clock gave 7720) — every time feature dropped and
  * every ignore treated as stale. Producing a confident ranking from a nonsense
