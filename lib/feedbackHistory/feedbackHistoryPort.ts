@@ -54,6 +54,18 @@ export type FeedbackRevokeResult =
   | { readonly outcome: 'not_found'; readonly event: null }
   | { readonly outcome: 'failed'; readonly event: null };
 
+/**
+ * Named rather than positional on purpose. scopeId and eventId are both plain
+ * strings, so a swap type-checks cleanly — and this call guards an
+ * authorization boundary, where a silent swap turns the ownership check into a
+ * lookup of a nonexistent id that "passes" by returning not_found.
+ */
+export interface FeedbackRevokeRequest {
+  readonly scopeId: string;
+  readonly eventId: string;
+  readonly at: string;
+}
+
 export interface FeedbackHistoryPort {
   /**
    * Every event in the scope, revoked ones included. History must show the
@@ -73,7 +85,7 @@ export interface FeedbackHistoryPort {
    * `scopeId`. Re-revoking returns the event unchanged: the correction keeps
    * the timestamp it originally had.
    */
-  revokeForScope(scopeId: string, eventId: string, at: string): FeedbackRevokeResult;
+  revokeForScope(request: FeedbackRevokeRequest): FeedbackRevokeResult;
 }
 
 /**
@@ -92,7 +104,7 @@ export function createFeedbackHistoryPort(store: FeedbackEventStore): FeedbackHi
       return store.readBaseline(scopeId);
     },
 
-    revokeForScope(scopeId: string, eventId: string, at: string): FeedbackRevokeResult {
+    revokeForScope({ scopeId, eventId, at }: FeedbackRevokeRequest): FeedbackRevokeResult {
       // The ownership check happens here, before the store is asked to do
       // anything. `FeedbackEventStore.revoke(id, at)` takes no scope and will
       // revoke whatever id it is handed, so this is the only place isolation

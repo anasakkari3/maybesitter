@@ -16,6 +16,7 @@ import {
   createFeedbackHistoryPort,
   setFeedbackHistoryPort,
   type FeedbackHistoryPort,
+  type FeedbackRevokeRequest,
   type FeedbackRevokeResult,
 } from '../../lib/feedbackHistory/feedbackHistoryPort.ts';
 import { GET as historyGet } from '../../src/app/api/mobile/feedback/history/route.ts';
@@ -68,7 +69,7 @@ function fakePort(seed: readonly FeedbackEvent[], baselines: Record<string, Feed
     readBaseline(scopeId: string): FeedbackBaseline | null {
       return baselines[scopeId] ?? null;
     },
-    revokeForScope(scopeId: string, eventId: string, at: string): FeedbackRevokeResult {
+    revokeForScope({ scopeId, eventId, at }: FeedbackRevokeRequest): FeedbackRevokeResult {
       const found = events.get(eventId);
       if (!found || found.scopeId !== scopeId) return { outcome: 'not_found', event: null };
       if (found.revokedAt) return { outcome: 'already_revoked', event: found };

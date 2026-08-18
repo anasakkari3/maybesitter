@@ -1,3 +1,4 @@
+import { installDefaultFeedbackHistoryPort } from '../../../../../../lib/feedbackHistory/bootstrap';
 import { mobileAuthErrorResponse } from '../../../../../../lib/services/mobile/auth';
 import {
   feedbackHistoryUnavailableResponse,
@@ -10,6 +11,9 @@ import {
 } from '../../../../../../lib/feedbackHistory/feedbackHistoryView';
 
 export const dynamic = 'force-dynamic';
+
+// Joins this route to the real event store; see lib/feedbackHistory/bootstrap.
+installDefaultFeedbackHistoryPort();
 
 /**
  * GET /api/mobile/feedback/history

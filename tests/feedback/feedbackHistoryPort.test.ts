@@ -103,7 +103,7 @@ test('history port: revoke stamps the event and returns the stamped copy', () =>
   const store = stubStore([event('e1', 'scope-a')]);
   const port = createFeedbackHistoryPort(store);
 
-  const result = port.revokeForScope('scope-a', 'e1', '2026-08-14T10:00:00.000Z');
+  const result = port.revokeForScope({ scopeId: 'scope-a', eventId: 'e1', at: '2026-08-14T10:00:00.000Z' });
 
   assert.equal(result.outcome, 'revoked');
   assert.equal(result.event?.revokedAt, '2026-08-14T10:00:00.000Z');
@@ -114,7 +114,7 @@ test('history port: an event in another scope is never revoked through this scop
   const store = stubStore([event('theirs', 'scope-b')]);
   const port = createFeedbackHistoryPort(store);
 
-  const result = port.revokeForScope('scope-a', 'theirs', '2026-08-14T10:00:00.000Z');
+  const result = port.revokeForScope({ scopeId: 'scope-a', eventId: 'theirs', at: '2026-08-14T10:00:00.000Z' });
 
   assert.equal(result.outcome, 'not_found');
   assert.equal(result.event, null);
@@ -125,7 +125,7 @@ test('history port: re-revoking keeps the original correction time', () => {
   const store = stubStore([event('e1', 'scope-a', '2026-08-12T08:00:00.000Z')]);
   const port = createFeedbackHistoryPort(store);
 
-  const result = port.revokeForScope('scope-a', 'e1', '2026-08-14T10:00:00.000Z');
+  const result = port.revokeForScope({ scopeId: 'scope-a', eventId: 'e1', at: '2026-08-14T10:00:00.000Z' });
 
   assert.equal(result.outcome, 'already_revoked');
   assert.equal(result.event?.revokedAt, '2026-08-12T08:00:00.000Z');
@@ -135,7 +135,7 @@ test('history port: a store that declines the write is reported as failed, not m
   const store = stubStore([event('e1', 'scope-a')], { refuseRevoke: true });
   const port = createFeedbackHistoryPort(store);
 
-  const result = port.revokeForScope('scope-a', 'e1', '2026-08-14T10:00:00.000Z');
+  const result = port.revokeForScope({ scopeId: 'scope-a', eventId: 'e1', at: '2026-08-14T10:00:00.000Z' });
 
   // The event exists, so "not found" would be a false statement about the
   // user's own record; the honest answer is that the correction did not land.
@@ -148,7 +148,7 @@ test('history port: a store that claims success without stamping is caught', () 
   const port = createFeedbackHistoryPort(store);
 
   // The user is told a correction was applied only when the record shows it.
-  const result = port.revokeForScope('scope-a', 'e1', '2026-08-14T10:00:00.000Z');
+  const result = port.revokeForScope({ scopeId: 'scope-a', eventId: 'e1', at: '2026-08-14T10:00:00.000Z' });
 
   assert.equal(result.outcome, 'failed');
 });

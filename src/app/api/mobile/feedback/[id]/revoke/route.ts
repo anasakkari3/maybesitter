@@ -1,3 +1,4 @@
+import { installDefaultFeedbackHistoryPort } from '../../../../../../../lib/feedbackHistory/bootstrap';
 import { mobileAuthErrorResponse } from '../../../../../../../lib/services/mobile/auth';
 import {
   feedbackHistoryUnavailableResponse,
@@ -8,6 +9,9 @@ import { toHistoryRow } from '../../../../../../../lib/feedbackHistory/feedbackH
 import { FEEDBACK_EVENT_SCHEMA_VERSION } from '../../../../../../../src/contracts/v1/feedbackContracts';
 
 export const dynamic = 'force-dynamic';
+
+// Joins this route to the real event store; see lib/feedbackHistory/bootstrap.
+installDefaultFeedbackHistoryPort();
 
 /**
  * POST /api/mobile/feedback/{id}/revoke
@@ -44,7 +48,7 @@ export async function POST(
   const port = requireFeedbackHistoryPort();
   if (!port) return feedbackHistoryUnavailableResponse();
 
-  const result = port.revokeForScope(scopeId, eventId, new Date().toISOString());
+  const result = port.revokeForScope({ scopeId, eventId, at: new Date().toISOString() });
   if (result.outcome === 'not_found') {
     // Same answer whether the event does not exist or belongs to someone else.
     // Event ids are derived from their own fields, so an id is guessable and
