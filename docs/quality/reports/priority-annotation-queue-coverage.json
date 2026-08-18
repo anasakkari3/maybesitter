@@ -1,0 +1,49 @@
+{
+  "version": "priority-calibration-v1",
+  "generatedAt": "2026-08-18T22:03:22.574Z",
+  "totalItems": 16,
+  "decidedItems": 0,
+  "pendingItems": 16,
+  "bySlice": {
+    "ar/light": 0,
+    "ar/moderate": 0,
+    "ar/overloaded": 0,
+    "en/heavy": 0,
+    "en/light": 0,
+    "en/overloaded": 0,
+    "he/heavy": 0,
+    "he/light": 0,
+    "he/moderate": 0,
+    "mixed/heavy": 0,
+    "mixed/moderate": 0,
+    "mixed/overloaded": 0
+  },
+  "reviewerCount": 0,
+  "conflictCount": 0,
+  "corpusEmpty": true,
+  "skippedItems": 0,
+  "decisionCount": 0,
+  "reviewerIds": [],
+  "itemsBySlice": {
+    "ar/light": 1,
+    "ar/moderate": 2,
+    "ar/overloaded": 1,
+    "en/heavy": 1,
+    "en/light": 2,
+    "en/overloaded": 1,
+    "he/heavy": 2,
+    "he/light": 1,
+    "he/moderate": 1,
+    "mixed/heavy": 1,
+    "mixed/moderate": 2,
+    "mixed/overloaded": 1
+  },
+  "unresolvedCount": 0,
+  "withheldLockedPairIds": [
+    "ps-ar-heavy-01",
+    "ps-en-moderate-01",
+    "ps-he-overloaded-01",
+    "ps-mixed-light-01"
+  ],
+  "status": "CORPUS EMPTY"
+}

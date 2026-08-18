@@ -1,0 +1,51 @@
+{
+  "version": "priority-calibration-v1",
+  "generatedAt": "2026-08-18T22:04:58.051Z",
+  "baselinePolicyVersion": "priority-policy-v1",
+  "candidatePolicyVersion": "priority-policy-candidate-demo",
+  "sampling": {
+    "rate": 1,
+    "seed": 0
+  },
+  "comparedCount": 40,
+  "disagreements": [
+    {
+      "commitmentId": "ps-ar-moderate-02-d",
+      "baselineRank": 27,
+      "candidateRank": 28,
+      "cause": "scorer_disagreement",
+      "unknownFeatures": [
+        "urgency",
+        "dependency",
+        "effort"
+      ]
+    },
+    {
+      "commitmentId": "ps-en-light-01-a",
+      "baselineRank": 28,
+      "candidateRank": 26,
+      "cause": "scorer_disagreement",
+      "unknownFeatures": [
+        "urgency",
+        "dependency",
+        "effort"
+      ]
+    },
+    {
+      "commitmentId": "ps-en-overloaded-01-a",
+      "baselineRank": 26,
+      "candidateRank": 27,
+      "cause": "scorer_disagreement",
+      "unknownFeatures": [
+        "dependency",
+        "effort"
+      ]
+    }
+  ],
+  "byCause": {
+    "missing_context": 0,
+    "scorer_disagreement": 3,
+    "mixed": 0
+  },
+  "rankCorrelation": 0.9948717948717949
+}
