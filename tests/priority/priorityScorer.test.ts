@@ -363,6 +363,93 @@ test('priorityScorer: the scorer and its policy read no clock and use no locale 
   }
 });
 
+/**
+ * A deterministic sweep, not a random one: the generator is a seeded LCG, so
+ * this test explores far more of the input space than the hand-written cases
+ * while still failing identically on every run. Its purpose is the
+ * reconciliation invariant specifically — a total computed independently of the
+ * components can agree with them on the cases someone thought to write down and
+ * still diverge somewhere in the space, and this is what makes that divergence
+ * findable.
+ */
+function sweepFeatures(seed: number): { reason: PriorityReason; overrides: FeatureOverrides } {
+  let state = seed;
+  const next = (bound: number): number => {
+    state = (state * 1_103_515_245 + 12_345) % 2_147_483_648;
+    return state % bound;
+  };
+  const reasons: readonly PriorityReason[] = ['overdue', 'due_soon', 'active', 'pending'];
+  const levels = ['low', 'normal', 'high'] as const;
+
+  return {
+    reason: reasons[next(4)],
+    overrides: {
+      commitmentId: `cmt_${seed}`,
+      urgency: next(5) === 0 ? undefined : { hoursOverdue: next(200) / 2, dueSoonCloseness: next(101) / 100 },
+      importance: next(5) === 0 ? undefined : { level: levels[next(3)], userSet: next(2) === 0 },
+      lateness:
+        next(5) === 0
+          ? undefined
+          : { snoozedCount: next(6), postponed: next(2) === 0, deferred: next(2) === 0 },
+      userPressure: next(5) === 0 ? undefined : { ignoredCount: next(4), ignoredRecently: next(2) === 0 },
+    },
+  };
+}
+
+test('priorityScorer: the components sum to the total across a deterministic sweep', () => {
+  let capped = 0;
+  for (let seed = 1; seed <= 2_000; seed += 1) {
+    const { reason, overrides } = sweepFeatures(seed);
+    const result = score(reason, overrides);
+    assert.equal(
+      result.components.reduce((sum, component) => sum + component.points, 0),
+      result.total,
+      `reconciliation failed on seed ${seed}`,
+    );
+    assert.ok(result.total >= 0 && result.total <= DEFAULT_PRIORITY_POLICY.totalCap);
+    if (result.reasonCodes.includes('BAND_CAPPED')) capped += 1;
+  }
+  // The sweep is only meaningful if it actually reaches the clamped region.
+  assert.ok(capped >= 25, `sweep must exercise the band cap, saw ${capped}`);
+});
+
+test('rankPriorities: the sweep ranks identically from any input permutation', () => {
+  const scored = [];
+  for (let seed = 1; seed <= 60; seed += 1) {
+    const { reason, overrides } = sweepFeatures(seed);
+    scored.push(score(reason, overrides));
+  }
+
+  const expected = rankPriorities({ scored }).map((entry) => entry.commitmentId);
+  for (let rotation = 1; rotation <= 5; rotation += 1) {
+    const offset = rotation * 7;
+    const permuted = [...scored.slice(offset), ...scored.slice(0, offset)].reverse();
+    assert.deepEqual(rankPriorities({ scored: permuted }).map((entry) => entry.commitmentId), expected);
+  }
+});
+
+/**
+ * Structural rather than behavioural, in the style of
+ * tests/feedback/feedbackBoundaries.test.ts, and it exists because of a gap
+ * found by mutation testing.
+ *
+ * Replacing `total: sumPoints(components)` with an independent expression that
+ * happens to compute the same number produces a program no black-box test can
+ * distinguish — the outputs are identical for every input. What differs is the
+ * property the issue actually asks for: that the breakdown *is* the
+ * computation, so the two cannot drift apart in a later edit. That property
+ * lives in the shape of the source, so it is checked there.
+ */
+test('priorityScorer: the total has exactly one production site, and it is the component sum', () => {
+  const source = readFileSync(path.join(repoRoot, 'lib/priority/priorityScorer.ts'), 'utf8');
+  const productions = (source.match(/\btotal: [^,\n}]+/g) ?? [])
+    .map((production) => production.trim())
+    // The type annotation on scoreSoftly's return, not a value.
+    .filter((production) => production !== 'total: number');
+
+  assert.deepEqual(productions, ['total: sumPoints(components)']);
+});
+
 test('priorityScorer: scoring the same input twice produces an identical score', () => {
   const features = makeFeatures(MAXIMAL_FEATURES);
   const first = scorePriority({ features, reason: 'overdue', policy: DEFAULT_PRIORITY_POLICY });
