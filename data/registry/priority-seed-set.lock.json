@@ -1,0 +1,31 @@
+{
+  "contractVersion": "1.0.0",
+  "records": [
+    {
+      "splitId": "priority-seed-set-locked-v1",
+      "rubricVersion": "priority-rubric-v1",
+      "pairIds": [
+        "ps-ar-heavy-01",
+        "ps-en-moderate-01",
+        "ps-he-overloaded-01",
+        "ps-mixed-light-01"
+      ],
+      "pairCount": 4,
+      "checksum": {
+        "algorithm": "sha256",
+        "value": "75ec5851b1c9fd5d084acdcdcfc8081208916594a2fbacc5dbc88b6d00064b28"
+      },
+      "lockedAt": "2026-08-18T00:00:00.000Z",
+      "lockedBy": "model-data track",
+      "authorizingIssue": "https://github.com/anasakkari3/maybesitter/issues/19",
+      "state": "active",
+      "supersededBy": null,
+      "supersessionIssue": null,
+      "supersessionReason": null,
+      "chainChecksum": {
+        "algorithm": "sha256",
+        "value": "465e31b2b170034abb4715c898ed342e2d227b60253902c94139b5c6096d4db6"
+      }
+    }
+  ]
+}
