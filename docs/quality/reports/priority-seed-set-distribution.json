@@ -1,0 +1,249 @@
+{
+  "generatedAt": "2026-08-18T21:10:39.774Z",
+  "rubricVersion": "priority-rubric-v1",
+  "clock": "2026-08-18T09:00:00.000Z",
+  "totalPairs": 20,
+  "languages": [
+    "ar",
+    "he",
+    "en",
+    "mixed"
+  ],
+  "loadPatterns": [
+    "light",
+    "moderate",
+    "heavy",
+    "overloaded"
+  ],
+  "matrix": {
+    "ar": {
+      "light": {
+        "pairIds": [
+          "ps-ar-light-01"
+        ],
+        "designedAmbiguous": 0,
+        "lockedPairs": 0,
+        "bidirectionalStrings": 0,
+        "reasonMixes": [
+          "overdue|due_soon"
+        ]
+      },
+      "moderate": {
+        "pairIds": [
+          "ps-ar-moderate-01",
+          "ps-ar-moderate-02"
+        ],
+        "designedAmbiguous": 1,
+        "lockedPairs": 0,
+        "bidirectionalStrings": 0,
+        "reasonMixes": [
+          "active|pending",
+          "active|active"
+        ]
+      },
+      "heavy": {
+        "pairIds": [
+          "ps-ar-heavy-01"
+        ],
+        "designedAmbiguous": 0,
+        "lockedPairs": 1,
+        "bidirectionalStrings": 0,
+        "reasonMixes": [
+          "overdue|overdue"
+        ]
+      },
+      "overloaded": {
+        "pairIds": [
+          "ps-ar-overloaded-01"
+        ],
+        "designedAmbiguous": 0,
+        "lockedPairs": 0,
+        "bidirectionalStrings": 0,
+        "reasonMixes": [
+          "due_soon|pending"
+        ]
+      }
+    },
+    "he": {
+      "light": {
+        "pairIds": [
+          "ps-he-light-01"
+        ],
+        "designedAmbiguous": 0,
+        "lockedPairs": 0,
+        "bidirectionalStrings": 0,
+        "reasonMixes": [
+          "due_soon|active"
+        ]
+      },
+      "moderate": {
+        "pairIds": [
+          "ps-he-moderate-01"
+        ],
+        "designedAmbiguous": 0,
+        "lockedPairs": 0,
+        "bidirectionalStrings": 0,
+        "reasonMixes": [
+          "overdue|active"
+        ]
+      },
+      "heavy": {
+        "pairIds": [
+          "ps-he-heavy-01",
+          "ps-he-heavy-02"
+        ],
+        "designedAmbiguous": 1,
+        "lockedPairs": 0,
+        "bidirectionalStrings": 0,
+        "reasonMixes": [
+          "pending|pending",
+          "due_soon|due_soon"
+        ]
+      },
+      "overloaded": {
+        "pairIds": [
+          "ps-he-overloaded-01"
+        ],
+        "designedAmbiguous": 0,
+        "lockedPairs": 1,
+        "bidirectionalStrings": 0,
+        "reasonMixes": [
+          "overdue|pending"
+        ]
+      }
+    },
+    "en": {
+      "light": {
+        "pairIds": [
+          "ps-en-light-01",
+          "ps-en-light-02"
+        ],
+        "designedAmbiguous": 1,
+        "lockedPairs": 0,
+        "bidirectionalStrings": 0,
+        "reasonMixes": [
+          "active|active",
+          "pending|pending"
+        ]
+      },
+      "moderate": {
+        "pairIds": [
+          "ps-en-moderate-01"
+        ],
+        "designedAmbiguous": 0,
+        "lockedPairs": 1,
+        "bidirectionalStrings": 0,
+        "reasonMixes": [
+          "due_soon|due_soon"
+        ]
+      },
+      "heavy": {
+        "pairIds": [
+          "ps-en-heavy-01"
+        ],
+        "designedAmbiguous": 0,
+        "lockedPairs": 0,
+        "bidirectionalStrings": 0,
+        "reasonMixes": [
+          "overdue|due_soon"
+        ]
+      },
+      "overloaded": {
+        "pairIds": [
+          "ps-en-overloaded-01"
+        ],
+        "designedAmbiguous": 0,
+        "lockedPairs": 0,
+        "bidirectionalStrings": 0,
+        "reasonMixes": [
+          "active|pending"
+        ]
+      }
+    },
+    "mixed": {
+      "light": {
+        "pairIds": [
+          "ps-mixed-light-01"
+        ],
+        "designedAmbiguous": 0,
+        "lockedPairs": 1,
+        "bidirectionalStrings": 2,
+        "reasonMixes": [
+          "due_soon|active"
+        ]
+      },
+      "moderate": {
+        "pairIds": [
+          "ps-mixed-moderate-01",
+          "ps-mixed-moderate-02"
+        ],
+        "designedAmbiguous": 1,
+        "lockedPairs": 0,
+        "bidirectionalStrings": 3,
+        "reasonMixes": [
+          "overdue|overdue"
+        ]
+      },
+      "heavy": {
+        "pairIds": [
+          "ps-mixed-heavy-01"
+        ],
+        "designedAmbiguous": 0,
+        "lockedPairs": 0,
+        "bidirectionalStrings": 2,
+        "reasonMixes": [
+          "due_soon|pending"
+        ]
+      },
+      "overloaded": {
+        "pairIds": [
+          "ps-mixed-overloaded-01"
+        ],
+        "designedAmbiguous": 0,
+        "lockedPairs": 0,
+        "bidirectionalStrings": 2,
+        "reasonMixes": [
+          "overdue|active"
+        ]
+      }
+    }
+  },
+  "byLanguage": {
+    "ar": 5,
+    "he": 5,
+    "en": 5,
+    "mixed": 5
+  },
+  "byLoadPattern": {
+    "light": 5,
+    "moderate": 6,
+    "heavy": 5,
+    "overloaded": 4
+  },
+  "byReasonMix": {
+    "overdue|overdue": 3,
+    "overdue|due_soon": 2,
+    "overdue|active": 2,
+    "overdue|pending": 1,
+    "due_soon|due_soon": 2,
+    "due_soon|active": 2,
+    "due_soon|pending": 2,
+    "active|active": 2,
+    "active|pending": 2,
+    "pending|pending": 2
+  },
+  "uncoveredReasonMixes": [],
+  "designedAmbiguousByLanguage": {
+    "ar": 1,
+    "he": 1,
+    "en": 1,
+    "mixed": 1
+  },
+  "designedAmbiguousTotal": 4,
+  "lockedPairCount": 4,
+  "calibrationPairCount": 16,
+  "totalBidirectionalStrings": 9,
+  "gaps": [],
+  "imbalances": [],
+  "status": "GATE PASSED"
+}
