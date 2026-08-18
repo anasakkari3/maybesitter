@@ -16,7 +16,14 @@
  *     `continue`-ing past the implied checks, and pinned by tests asserting the
  *     *exact* code set rather than membership.
  *
- *  2. **`detail` never quotes the input.** Violations travel with proposals and
+ *  2. **Provenance is re-derived for every field a step asserts, including the
+ *     title.** Checking the spans alone leaves the invention channel that
+ *     matters open: a provider can cite real offsets and put anything at all in
+ *     the title, and the title is the field the user reads and the adapter
+ *     persists. "This step came from these words" is only a checkable claim if
+ *     the words the step states are the words its spans select.
+ *
+ *  3. **`detail` never quotes the input.** Violations travel with proposals and
  *     into audit records, and a message that echoes the offending text would
  *     put raw user content everywhere a violation goes — silently defeating the
  *     `rawInputInAudit: false` policy from a direction nobody inspects. Details
@@ -64,6 +71,11 @@ export interface DecompositionValidationInput {
    * own output, which would make the check circular.
    */
   readonly declaredAtomic?: boolean;
+}
+
+/** Collapse runs of whitespace so a re-spaced title is not a different claim. */
+function collapseWhitespace(value: string): string {
+  return value.trim().replace(/\s+/g, ' ');
 }
 
 function normalizeConnective(title: string): string {
@@ -136,11 +148,12 @@ export function validateDecomposition(
     seenIds.add(step.stepId);
   }
 
-  // Spans whose offsets are in range, per step index. Overlap is computed over
-  // these alone: an out-of-range span is not a range, so asking whether it
-  // intersects another one produces a second finding about the same defect and
-  // sends the reviewer to the wrong step.
-  const inRangeSpans: SourceSpan[][] = steps.map(() => []);
+  // Every in-range span in the proposal, tagged with the step that claimed it.
+  // Flat rather than per-step because overlap is checked over *all* pairs: a
+  // step double-claiming its own words is exactly as wrong as two steps
+  // colliding, and the acceptance criterion ("source segments are exact and
+  // non-overlapping") draws no distinction between the two.
+  const claims: { readonly stepIndex: number; readonly span: SourceSpan }[] = [];
 
   for (let index = 0; index < steps.length; index += 1) {
     const step = steps[index];
@@ -154,12 +167,7 @@ export function validateDecomposition(
       add('CONJUNCTION_ONLY', step.stepId, `step ${index} title is a connective, not an action`);
     }
 
-    if (step.inferred && step.sourceSpans.length > 0) {
-      add('INFERRED_WITH_SPAN', step.stepId, 'step claims inference while citing source spans');
-    } else if (!step.inferred && step.sourceSpans.length === 0) {
-      add('UNSOURCED_STEP', step.stepId, 'step cites no source span and does not admit inference');
-    }
-
+    let spansUsable = true;
     for (let spanIndex = 0; spanIndex < step.sourceSpans.length; spanIndex += 1) {
       const span = step.sourceSpans[spanIndex];
       if (
@@ -167,30 +175,61 @@ export function validateDecomposition(
         || !Number.isInteger(span.end)
         || span.start < 0
         || span.end > sourceText.length
-        || span.start > span.end
+        // A degenerate `[n, n)` is in bounds and claims nothing, and
+        // `slice(n, n) === ''` would match a `text` of `''`, so the round-trip
+        // check passes it silently. Malformed, not exact.
+        || span.start >= span.end
       ) {
         add(
           'SPAN_OUT_OF_RANGE',
           step.stepId,
-          `span ${spanIndex} is not a valid range within a source of length ${sourceText.length}`,
+          `span ${spanIndex} is not a valid non-empty range within a source of length ${sourceText.length}`,
         );
+        spansUsable = false;
         continue;
       }
-      inRangeSpans[index].push(span);
+      claims.push({ stepIndex: index, span });
       if (sourceText.slice(span.start, span.end) !== span.text) {
         add(
           'SPAN_MISMATCH',
           step.stepId,
           `span ${spanIndex} does not round-trip: sourceText.slice(start, end) !== text`,
         );
+        spansUsable = false;
       }
     }
 
-    if (step.statedTiming !== null && !sourceText.includes(step.statedTiming)) {
-      add('INVENTED_TIMING', step.stepId, 'statedTiming does not occur verbatim in the source text');
+    if (step.inferred && step.sourceSpans.length > 0) {
+      add('INFERRED_WITH_SPAN', step.stepId, 'step claims inference while citing source text');
+    } else if (!step.inferred && step.sourceSpans.length === 0) {
+      add('UNSOURCED_STEP', step.stepId, 'step cites no source span and does not admit inference');
+    } else if (!step.inferred && spansUsable && trimmed.length > 0) {
+      // The title must be exactly what its spans select, modulo whitespace.
+      // Skipped when a span is already broken, because a title cannot be
+      // checked against an unusable span and two findings for one defect send
+      // the reviewer to the wrong place. An edited title is confirmed at the
+      // boundary, never re-validated here: the user rewrote the wording, and a
+      // user is allowed to say something the engine did not read.
+      const spanned = collapseWhitespace(step.sourceSpans.map((span) => span.text).join(' '));
+      if (collapseWhitespace(step.title) !== spanned) {
+        add(
+          'UNSOURCED_STEP',
+          step.stepId,
+          'step title is not the text its own spans select',
+        );
+      }
     }
-    if (step.statedOwner !== null && !sourceText.includes(step.statedOwner)) {
-      add('INVENTED_OWNER', step.stepId, 'statedOwner does not occur verbatim in the source text');
+
+    // `null` is how a step says it makes no claim. An empty or blank string is
+    // a claim about nothing, and `sourceText.includes('')` is always true, so a
+    // plain verbatim check waves it through.
+    if (step.statedTiming !== null
+      && (step.statedTiming.trim().length === 0 || !sourceText.includes(step.statedTiming))) {
+      add('INVENTED_TIMING', step.stepId, 'statedTiming is blank or does not occur verbatim in the source text');
+    }
+    if (step.statedOwner !== null
+      && (step.statedOwner.trim().length === 0 || !sourceText.includes(step.statedOwner))) {
+      add('INVENTED_OWNER', step.stepId, 'statedOwner is blank or does not occur verbatim in the source text');
     }
 
     for (const dependency of step.dependsOn) {
@@ -202,21 +241,18 @@ export function validateDecomposition(
     }
   }
 
-  // Overlap is pairwise across *different* steps. Two spans on one step may
-  // abut or nest without lying about anything; two steps claiming the same
-  // words means at least one of them did not come from where it says.
-  for (let left = 0; left < steps.length; left += 1) {
-    for (let right = left + 1; right < steps.length; right += 1) {
-      for (const a of inRangeSpans[left]) {
-        for (const b of inRangeSpans[right]) {
-          if (a.start < b.end && b.start < a.end) {
-            add(
-              'SPAN_OVERLAP',
-              steps[right].stepId,
-              `source range overlaps the range claimed by step index ${left}`,
-            );
-          }
-        }
+  for (let left = 0; left < claims.length; left += 1) {
+    for (let right = left + 1; right < claims.length; right += 1) {
+      const a = claims[left];
+      const b = claims[right];
+      if (a.span.start < b.span.end && b.span.start < a.span.end) {
+        add(
+          'SPAN_OVERLAP',
+          steps[b.stepIndex].stepId,
+          a.stepIndex === b.stepIndex
+            ? `step ${b.stepIndex} claims overlapping source ranges twice`
+            : `source range overlaps the range claimed by step index ${a.stepIndex}`,
+        );
       }
     }
   }

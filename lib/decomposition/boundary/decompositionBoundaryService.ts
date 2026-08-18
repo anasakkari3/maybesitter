@@ -13,9 +13,13 @@
  *     invalid, not partially applied. Silence is not consent, and the whole
  *     point of "partial acceptance is explicit" is that the set the user did
  *     not accept is stated rather than inferred from what they left out.
- *  3. **Confirmation is scoped and idempotent.** The scope is checked before
- *     the proposal is used, and a replay of the same `idempotencyKey` returns
- *     the stored result rather than writing again.
+ *  3. **Confirmation is scoped, idempotent and claimed before it writes.** The
+ *     scope is checked before the proposal is used, and a replay of the same
+ *     `idempotencyKey` returns the stored result rather than writing again.
+ *     The claim is recorded *before* the adapter is awaited, because the gap
+ *     between reading a proposal and recording its result is a window a second
+ *     confirmation walks straight through — and here the two confirmations
+ *     carry per-step verdicts, so the loser's rejected steps end up canonical.
  *  4. **Audit carries a hash, never the text.** The input is hashed and
  *     measured; the words are not copied anywhere an operator can read them.
  *     This matters more here than in Capture, because a decomposition's spans
@@ -25,6 +29,7 @@
 import { createHash, randomUUID } from 'crypto';
 import {
   DECOMPOSITION_CONTRACT_VERSION,
+  DECOMPOSITION_SCHEMA_VERSION,
   type ConfirmationFailureCode,
   type DecompositionConfirmationRequest,
   type DecompositionConfirmationResult,
@@ -96,11 +101,34 @@ export async function proposeDecompositionBoundary(
   options: ProposeDecompositionOptions,
   dependencies: DecompositionBoundaryDependencies,
 ): Promise<DecompositionProposal> {
-  // Non-string input is a caller bug, but the boundary answers it in the
-  // contract's own vocabulary rather than throwing: a decomposition request
-  // that cannot be read has produced no steps, which is what atomic means.
-  const sourceText = typeof rawInput === 'string' ? rawInput : '';
   const proposalId = (dependencies.newProposalId ?? randomUUID)();
+
+  // A caller bug is a failure of *this attempt*, never a finding about the
+  // commitment. Coercing to '' and letting the engine answer `not_decomposable`
+  // would record "we read this and it is one action" about input nobody read,
+  // and audit it as a success. `engine_unavailable` is the honest answer: we
+  // could not try.
+  if (typeof rawInput !== 'string') {
+    const unreadable: DecompositionProposal = {
+      version: DECOMPOSITION_CONTRACT_VERSION,
+      schema: DECOMPOSITION_SCHEMA_VERSION,
+      proposalId,
+      commitmentId: options.commitmentId,
+      sourceText: '',
+      provenance: {
+        requestedEngine: options.requestedEngine ?? 'model',
+        executedEngine: options.requestedEngine ?? 'model',
+        fallbackUsed: false,
+      },
+      outcome: 'atomic',
+      reason: 'engine_unavailable',
+    };
+    dependencies.store.put({ proposal: unreadable, scopeId: options.scopeId });
+    dependencies.audit?.(auditEvent('failed', '', options.now, 'unreadable_input', 0));
+    return unreadable;
+  }
+
+  const sourceText = rawInput;
 
   const proposal = await proposeDecomposition({
     proposalId,
@@ -218,6 +246,40 @@ function resolveDecisions(
   };
 }
 
+/**
+ * Apply one already-validated ruling. Split out so the claim on the proposal
+ * can be recorded synchronously, before this is awaited.
+ */
+async function applyConfirmation(
+  proposal: Extract<DecompositionProposal, { outcome: 'decomposed' }>,
+  resolved: ResolvedDecisions,
+  dependencies: DecompositionBoundaryDependencies,
+  now: Date,
+): Promise<DecompositionConfirmationResult> {
+  if (resolved.accepted.length > 0) {
+    try {
+      await dependencies.persistence.persistAtomically(resolved.accepted);
+    } catch {
+      dependencies.audit?.(auditEvent('failed', proposal.sourceText, now, 'persistence_failed', 0));
+      return failure('persistence_failed');
+    }
+  }
+  dependencies.audit?.(auditEvent(
+    'succeeded',
+    proposal.sourceText,
+    now,
+    'confirmed',
+    resolved.accepted.length,
+  ));
+  return {
+    version: DECOMPOSITION_CONTRACT_VERSION,
+    success: true,
+    replayed: false,
+    persistedStepIds: resolved.accepted.map((step) => step.stepId),
+    rejectedStepIds: resolved.rejectedStepIds,
+  };
+}
+
 export async function confirmDecomposition(
   request: DecompositionConfirmationRequest,
   dependencies: DecompositionBoundaryDependencies,
@@ -227,12 +289,24 @@ export async function confirmDecomposition(
   const stored = dependencies.store.get(request.proposalId);
   if (!stored || stored.scopeId !== request.scopeId) return failure('proposal_not_found');
 
-  if (stored.confirmedResult) {
-    // A spent proposal answers only its own replay. A *different* decision set
-    // arriving after the write is not a retry of anything; treating it as one
-    // would apply the first ruling and report success for the second.
-    if (stored.idempotencyKey !== request.idempotencyKey) return failure('proposal_not_found');
-    return { ...stored.confirmedResult, replayed: true };
+  // A proposal already claimed by a different key is spent, whether the write
+  // has landed yet or not.
+  //
+  // TODO(integration): `already_confirmed` is being added to
+  // `ConfirmationFailureCode` by #25 and belongs at both of these call sites.
+  // `proposal_not_found` is right for the scope check above — telling a wrong
+  // scope that the proposal exists would be an enumeration oracle — but here it
+  // is merely misleading: the caller holds a real proposal id and the real
+  // reason is that someone else ruled first.
+  const claimed = stored.confirmedResult !== undefined || stored.inFlight !== undefined;
+  if (claimed && stored.idempotencyKey !== request.idempotencyKey) return failure('proposal_not_found');
+
+  if (stored.confirmedResult) return { ...stored.confirmedResult, replayed: true };
+  if (stored.inFlight) {
+    // Same key, still in flight: await the one real attempt rather than start a
+    // second write that would collide in the adapter.
+    const settled = await stored.inFlight;
+    return settled.success ? { ...settled, replayed: true } : settled;
   }
 
   const proposal = stored.proposal;
@@ -241,33 +315,36 @@ export async function confirmDecomposition(
   const resolved = resolveDecisions(proposal, request);
   if (typeof resolved === 'string') return failure(resolved);
 
-  if (resolved.accepted.length > 0) {
-    try {
-      await dependencies.persistence.persistAtomically(resolved.accepted);
-    } catch {
-      // The proposal is deliberately left unspent: a write that did not happen
-      // must stay retryable, and marking it confirmed here would make the retry
-      // report a replay of a batch nobody ever applied.
-      dependencies.audit?.(auditEvent('failed', proposal.sourceText, now, 'persistence_failed', 0));
-      return failure('persistence_failed');
-    }
+  if (resolved.accepted.length === 0) {
+    // Nothing to write, so nothing to race over; recorded without yielding.
+    const result: DecompositionConfirmationResult = {
+      version: DECOMPOSITION_CONTRACT_VERSION,
+      success: true,
+      replayed: false,
+      persistedStepIds: [],
+      rejectedStepIds: resolved.rejectedStepIds,
+    };
+    stored.confirmedResult = result;
+    stored.idempotencyKey = request.idempotencyKey;
+    dependencies.audit?.(auditEvent('succeeded', proposal.sourceText, now, 'confirmed', 0));
+    return result;
   }
 
-  const result: DecompositionConfirmationResult = {
-    version: DECOMPOSITION_CONTRACT_VERSION,
-    success: true,
-    replayed: false,
-    persistedStepIds: resolved.accepted.map((step) => step.stepId),
-    rejectedStepIds: resolved.rejectedStepIds,
-  };
-  stored.confirmedResult = result;
+  // Claim first, await second. Both assignments complete in this synchronous
+  // turn — `applyConfirmation` runs only as far as its own first `await` before
+  // handing the promise back — so any later caller sees the claim.
   stored.idempotencyKey = request.idempotencyKey;
-  dependencies.audit?.(auditEvent(
-    'succeeded',
-    proposal.sourceText,
-    now,
-    'confirmed',
-    resolved.accepted.length,
-  ));
+  stored.inFlight = applyConfirmation(proposal, resolved, dependencies, now);
+
+  const result = await stored.inFlight;
+  stored.inFlight = undefined;
+  if (result.success) {
+    stored.confirmedResult = result;
+  } else {
+    // A write that did not happen must stay retryable, so the claim is
+    // released; marking it confirmed would make the retry report a replay of a
+    // batch nobody ever applied.
+    stored.idempotencyKey = undefined;
+  }
   return result;
 }

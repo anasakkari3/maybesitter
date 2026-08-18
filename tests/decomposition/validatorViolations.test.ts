@@ -100,8 +100,8 @@ test('SPAN_OVERLAP: two steps claiming the same source text', () => {
 });
 
 test('SPAN_OVERLAP is not raised for adjacent half-open spans', () => {
-  const left = step({ sourceSpans: [{ start: 0, end: 4, text: 'Book' }] });
-  const right = step({ stepId: 's2', title: ' the', sourceSpans: [{ start: 4, end: 8, text: ' the' }] });
+  const left = step({ title: 'Book', sourceSpans: [{ start: 0, end: 4, text: 'Book' }] });
+  const right = step({ stepId: 's2', title: 'the', sourceSpans: [{ start: 4, end: 8, text: ' the' }] });
   assert.deepEqual(validateDecomposition({ sourceText: SOURCE, steps: [left, right] }), []);
 });
 
@@ -199,6 +199,110 @@ test('every golden expected-step set validates clean against its own source', ()
       validateDecomposition({ sourceText: example.sourceText, steps: example.expectedSteps }),
       [],
       `${example.exampleId} should be a valid decomposition`,
+    );
+  }
+});
+
+/* ── Contract rulings issued at review time ──────────────────────── */
+
+test('SPAN_OVERLAP covers two spans belonging to the same step', () => {
+  // A step double-claiming its own words is exactly as wrong as two steps
+  // colliding: the acceptance criterion "source segments are exact and
+  // non-overlapping" is unqualified, and #26's evaluator counts it the same way.
+  const doubleClaiming = step({
+    title: 'Book the venue the venue',
+    sourceSpans: [at(SOURCE, 'Book the venue'), { start: 5, end: 14, text: 'the venue' }],
+  });
+  assert.deepEqual(codes(validateDecomposition({ sourceText: SOURCE, steps: [doubleClaiming, second] })), [
+    'SPAN_OVERLAP',
+  ]);
+});
+
+test('SPAN_OUT_OF_RANGE covers a degenerate empty range, not only an out-of-bounds one', () => {
+  // `slice(5, 5) === ''` matches a `text` of `''`, so SPAN_MISMATCH would pass
+  // this trivially. A span that claims nothing is malformed, not exact.
+  const degenerate = step({ sourceSpans: [{ start: 5, end: 5, text: '' }] });
+  assert.deepEqual(codes(validateDecomposition({ sourceText: SOURCE, steps: [degenerate, second] })), [
+    'SPAN_OUT_OF_RANGE',
+  ]);
+});
+
+test('an empty statedTiming or statedOwner is a claim about nothing, not an absent claim', () => {
+  // `sourceText.includes('')` is true, so a naive verbatim check passes an
+  // empty string silently. Absence is spelled `null`; '' is neither.
+  for (const [field, code] of [
+    ['statedTiming', 'INVENTED_TIMING'],
+    ['statedOwner', 'INVENTED_OWNER'],
+  ] as const) {
+    for (const blank of ['', '   ']) {
+      assert.deepEqual(
+        codes(validateDecomposition({ sourceText: SOURCE, steps: [step({ [field]: blank }), second] })),
+        [code],
+        `${field}=${JSON.stringify(blank)} should be rejected`,
+      );
+    }
+  }
+});
+
+/* ── Title provenance (Blocker 3) ────────────────────────────────── */
+
+test('UNSOURCED_STEP: a title the spans do not source', () => {
+  // The invention channel the validator used to leave open: a provider can cite
+  // real spans and put anything at all in the title, and the title is the field
+  // the user reads and the adapter persists. Provenance is only checkable if
+  // the words the step claims are the words the spans select.
+  const fabricated = step({ title: 'Wire $9,000 to account 12345' });
+  assert.deepEqual(codes(validateDecomposition({ sourceText: SOURCE, steps: [fabricated, second] })), [
+    'UNSOURCED_STEP',
+  ]);
+});
+
+test('a title assembled from several spans is sourced', () => {
+  const multiSpan = step({
+    title: 'Book the venue send the invitations',
+    sourceSpans: [at(SOURCE, 'Book the venue'), at(SOURCE, 'send the invitations')],
+  });
+  assert.deepEqual(validateDecomposition({ sourceText: SOURCE, steps: [multiSpan] }), []);
+});
+
+test('title provenance tolerates whitespace differences but not added words', () => {
+  const respaced = step({ title: '  Book   the venue  ' });
+  assert.deepEqual(validateDecomposition({ sourceText: SOURCE, steps: [respaced, second] }), []);
+
+  const padded = step({ title: 'Book the venue urgently' });
+  assert.deepEqual(codes(validateDecomposition({ sourceText: SOURCE, steps: [padded, second] })), [
+    'UNSOURCED_STEP',
+  ]);
+});
+
+test('a broken span is reported once, not also as an unsourced title', () => {
+  // Precedence: when the span itself is unusable the title cannot be checked
+  // against it, and reporting both would give two findings for one defect.
+  for (const spans of [
+    [{ start: 0, end: 14, text: 'Book the cake!' }],
+    [{ start: 0, end: SOURCE.length + 5, text: SOURCE }],
+  ]) {
+    const broken = step({ title: 'Something else entirely', sourceSpans: spans });
+    const reported = codes(validateDecomposition({ sourceText: SOURCE, steps: [broken, second] }));
+    assert.equal(reported.length, 1, `expected one code, got ${reported.join()}`);
+    assert.equal(reported[0].startsWith('SPAN_'), true);
+  }
+});
+
+test('an inferred step is exempt from title provenance, because it admits having none', () => {
+  const inferred = step({ stepId: 's3', title: 'Confirm the booking', sourceSpans: [], inferred: true });
+  assert.deepEqual(validateDecomposition({ sourceText: SOURCE, steps: [step(), second, inferred] }), []);
+});
+
+test('no golden expected step is reported unsourced once title provenance is checked', () => {
+  for (const example of DECOMPOSITION_GOLDEN) {
+    const reported = codes(
+      validateDecomposition({ sourceText: example.sourceText, steps: example.expectedSteps }),
+    );
+    assert.equal(
+      reported.includes('UNSOURCED_STEP'),
+      false,
+      `${example.exampleId} titles should be sourced by their own spans`,
     );
   }
 });

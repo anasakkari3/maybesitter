@@ -41,23 +41,49 @@ coordinating conjunction is a prefixed clitic — the "and" in `واطلب` and
 express that boundary at all, so a clitic candidate is one code unit wide and
 the next step begins mid-token.
 
-**A candidate survives only when an action starts after it.** The same clitic
-occurs inside fixed noun phrases (`والأحكام`, `וההגבלות`, `terms and
-conditions`), where splitting invents a step. The discriminator is what follows
-the conjunction:
+**Boundaries require positive lexical evidence, in every script.** The word
+after the conjunction must be a known imperative; an unknown word yields no
+boundary.
 
-| Script | Rule |
+The first version of this detector did not work that way, and the reason it was
+changed is worth keeping. It guessed "an action starts here" from the first
+*letter* — Arabic `ا أ إ آ ت ي ن س`, Hebrew `ת י א נ ל` — with the definite
+article as a veto. Those letters open a large share of ordinary indefinite
+nouns, and Hebrew `ל` is the preposition "to" at least as often as an infinitive
+prefix, so the rule fired on conjoined **objects**: `جهز العشاء وسلطة خضراء`
+became two steps, and `תשלח מתנה לשרה ולדני כהן` invented an errand addressed to
+half a name. Both survived the validator — the spans round-trip, the ids are
+unique, the graph is acyclic — and were persisted. The golden `do_not_split`
+rows had not caught it because each happens to place a definite article after
+the clitic (`والأحكام`, `וההגבלות`) or leave a single-token recipient (`and
+Omar`); adding a surname dissolves both mitigations.
+
+A guess dressed as morphology is still a guess, and this one failed in the
+inventing direction, in the two languages that are the issue's named acceptance
+criterion. The lexicons are:
+
+| Script | Evidence |
 |---|---|
-| Arabic | `ال` marks a definite noun and cannot open a step; `ا أ إ ت ي ن س` are imperative/imperfect prefixes and can. A short lexicon covers form II/III imperatives (`راجع`, `ذكّر`) that carry no visible prefix. |
-| Hebrew | `ה` is the definite article and cannot open a step; `ת י א נ ל` are verbal prefixes and can. Particles (`את`, `של`, `אני`) are excluded first, because several begin with a letter that is also a prefix. |
-| Latin | No morphology exists to use — `order` and `conditions` differ only in the word — so English uses a lexicon of common task verbs. |
+| Arabic | Imperatives, normalized: diacritics stripped, hamza-carrying alef folded to bare alef, final ya folded — `أرسل` and `ارسل` are the same instruction from different keyboards. Attached object pronouns are stripped before lookup, because Arabic suffixes the object onto the verb (`ارسله` = `ارسل` + `ه`) and most transitive instructions are phrased that way. |
+| Hebrew | Imperatives in all three ordinary task forms: 2nd-person future used as imperative (`תשלח`), infinitive (`לשלוח`), and bare imperative (`שלח`). |
+| English | Common task verbs, unchanged — English never had morphology to lean on, so it always worked this way. |
 
-**A step must be a phrase, not a word.** A one-token step is nearly always a
-conjoined object the previous rule could not exclude. Hebrew is where this
-bites: `ל` is both the infinitive prefix and the preposition "to", so `ולעומר`
-("and to Omar") is morphologically identical to a conjoined infinitive. The
-minimum-phrase rule costs the rare genuine one-word step and removes the whole
-class of trailing-recipient over-splits.
+Dropping the prefix rule also **closed** the hif'il gap the previous version
+documented: `ה`-initial imperatives (`הזמן`, `הכן`) can now be listed, because
+protecting `וההגבלות` no longer requires treating every `ה` as an article.
+
+**Both clauses must be phrases.** A one-token clause beside a mere conjunction
+is a conjoined object that slipped the lexicon. This rejects *that boundary
+only* — never the whole split — and never applies to an explicit sequencing
+marker. Discarding the whole split had a worse failure than the one it
+prevented: `Email the client, then call.` returned `atomic: not_decomposable`,
+telling the caller the commitment was one action because a token count
+overruled the strongest evidence the detector has.
+
+**A sentence-final `.` is not a boundary**, so `Call the dentist. Buy the milk.`
+yields no split. Sentence segmentation is a separate problem with its own
+abbreviation traps (`Dr.` is in the golden set) and getting it wrong splits
+inside a name. Under-split, and stated.
 
 **Timing travels verbatim.** A trailing time phrase (`by Friday`,
 `يوم الاثنين`) is lifted out of the step's span into `statedTiming` unresolved.
@@ -73,27 +99,49 @@ from the person acted upon — "send a note to Sarah" names a recipient — so
 A plain conjunction or a comma joins without ordering; asserting an edge there
 would invent a constraint the user never stated.
 
-**Confidence** is the weakest boundary the split relied on: sequencing marker
-0.9, standalone conjunction or comma 0.7, bare clitic 0.55. A caller raising
-`minimumConfidence` loses clitic boundaries first, which is the correct order to
-lose them in. Nothing split scores 0, so a refusal cannot be read as certainty.
+**Confidence ranks kinds of evidence, not the quality of a split.** Sequencing
+marker 0.9, standalone conjunction or comma 0.7, bare clitic 0.55; the result is
+the weakest boundary used, and 0 when nothing split. Read the number for what it
+is: every clitic boundary scores 0.55 whether it is right or wrong, so
+`minimumConfidence` cannot separate a good clitic split from a bad one. What it
+can do is switch off a whole class of evidence — a threshold above 0.55 disables
+clitic-based decomposition, which is most of Arabic and Hebrew. That is a blunt
+but legitimate conservative posture, and it is the only thing the knob does.
+Correctness of individual boundaries is the lexicons' job, not the threshold's.
 
 ### Measured behaviour, including the gaps
 
-All 11 golden rows in `tests/fixtures/decompositionGolden.ts` reproduce exactly,
-spans and dependency edges included. On held-out sentences of the same shapes,
-two known gaps remain, both in the under-split direction:
+All 11 golden rows reproduce exactly — spans, timings and dependency edges —
+before and after the rewrite. The rewrite was measured on two held-out classes,
+neither drawn from the fixtures:
 
-1. **English recall equals lexicon coverage.** `Vacuum the car and polish the
-   wheels.` does not split, because neither verb is listed. A verb missing from
-   the lexicon produces a missed split, never a wrong one.
-2. **Hebrew hif'il imperatives are read as nouns.** `והזמן` ("and order") starts
-   with `ה`, which the article rule treats as nominal. Preferring the verb
-   reading would split `וההגבלות`, which the golden set says is the worse error.
+| Class | Before | After |
+|---|---|---|
+| Conjoined object or recipient, must **not** split (n=20) | 7 over-split | **0 over-split** |
+| Genuinely two actions, **should** split (n=20) | 15 recalled | 15 recalled |
+| Golden set, exact match (n=11) | 11 | 11 |
 
-Both fail closed. That is the deliberate bias: an under-split loses a step the
-user can still see in the original sentence, while an over-split invents one
-that carries a span and therefore *looks* sourced.
+Recall was expected to fall and was budgeted for; it did not, because the
+object-pronoun stripping recovered what the lexicon lost. Had the two traded
+against each other the trade would still have been taken: under-splitting loses
+a step the user can still read in their own sentence, while over-splitting
+invents one that carries a span and therefore *looks* sourced.
+
+The five remaining recall misses, all fail-closed:
+
+1. **Lexicon coverage bounds recall in every script.** `Wash the car and vacuum
+   the seats.`, `Polish the shoes and iron the shirt.`,
+   `תסגור את החלון ותכבה את האור.` — the second verb is not listed.
+2. **A one-word clause after a mere conjunction is folded back**, by design.
+   `جهز العرض واطبعه.` stays one step even though `اطبعه` is recognised. The
+   same rule is what keeps `وعمر` and `ולעומר` from becoming errands.
+3. **Object-pronoun stripping only helps when the stem is listed.**
+   `اشتر الهدية وغلفها.` misses because `غلف` is not a listed imperative.
+
+One known over-split risk remains, recorded rather than papered over: Hebrew
+`תקנה` is both "you will buy" and "regulation", and Hebrew is written without
+vowels, so `ותקנה` after a noun can still split wrongly. It stays in the lexicon
+because it is a common task verb and removing it loses a frequent correct split.
 
 ## Validator
 
@@ -107,22 +155,35 @@ rather than a silent divergence.
 | `EMPTY_STEP` | Title blank or whitespace. |
 | `CONJUNCTION_ONLY` | Title is only a connective — a split artefact, not a step. |
 | `SPAN_MISMATCH` | `sourceText.slice(start, end) !== text`. |
-| `SPAN_OUT_OF_RANGE` | Offsets are not a valid range in the source. |
-| `SPAN_OVERLAP` | Two steps claim overlapping source text. |
-| `INVENTED_TIMING` | `statedTiming` is not verbatim in the source. |
-| `INVENTED_OWNER` | `statedOwner` is not verbatim in the source. |
+| `SPAN_OUT_OF_RANGE` | Offsets are not a valid non-empty range in the source. A degenerate `[n, n)` is in bounds and claims nothing, and `slice(n, n) === ''` matches a `text` of `''`, so the round-trip check would pass it silently. |
+| `SPAN_OVERLAP` | Any two spans in the proposal overlap, **including two spans of the same step** — a step double-claiming its own words is exactly as wrong as two steps colliding. |
+| `INVENTED_TIMING` | `statedTiming` is blank or not verbatim in the source. Absence is spelled `null`; `''` is a claim about nothing, and `includes('')` is always true. |
+| `INVENTED_OWNER` | `statedOwner` is blank or not verbatim in the source. |
 | `INFERRED_WITH_SPAN` | Claims inference while citing source text. |
-| `UNSOURCED_STEP` | No span and no admission of inference. |
+| `UNSOURCED_STEP` | No span and no admission of inference, **or** a title its own spans do not select. |
 | `DUPLICATE_STEP_ID` | Two steps share a `stepId`. |
 | `UNKNOWN_DEPENDENCY` | An edge names no step in this proposal. |
 | `CYCLIC_DEPENDENCY` | The dependency graph is not acyclic. |
 | `SELF_DEPENDENCY` | A step depends on itself. |
-| `SPLIT_ATOMIC` | A commitment declared do-not-split was split anyway. |
+| `SPLIT_ATOMIC` | A commitment declared do-not-split was split anyway. Over-split direction only; a `multi_step` row with too few steps is #26's corpus concern and is unreachable here, since `DecomposedProposal.steps` is a two-or-more tuple. |
+
+**Titles carry provenance too.** A non-inferred step's title must be exactly
+what its spans select, modulo whitespace. Checking the spans alone left the
+invention channel that matters wide open: a provider could cite real offsets and
+put anything at all in the title, and the title is the field the user reads and
+the adapter persists. A provider returning valid spans with the titles
+`Wire $9,000 to account 12345` and `Delete all backups` validated, confirmed and
+persisted. The contract's premise is that provenance is a *round-trippable
+assertion*; a title nothing sources is not one. An edited title is exempt — it
+is confirmed at the boundary and never re-validated, because the user is allowed
+to say something the engine did not read.
 
 **Codes have precedence, and one defect reports one code.** Several conditions
 imply each other: an out-of-range span also fails the round-trip and is excluded
 from overlap comparison; a self-edge is also a cycle and is excluded from cycle
-detection; a blank title is also "only a connective". Reporting every
+detection (`SELF_DEPENDENCY` wins, never both); a blank title is also "only a
+connective"; a broken span suppresses the title-provenance check, because a
+title cannot be compared against a span that is unusable. Reporting every
 technically-true code would give a reviewer four findings for one defect and no
 signal about the cause. `validatorViolations.test.ts` asserts the *exact* code
 set per case, so the precedence cannot drift.
@@ -162,8 +223,15 @@ A sibling of `docs/architecture/capture-boundary.md`.
 - An edit keeps the step's spans. The user rewrote the wording, not the origin.
 - A rejected step's incoming dependency edges are dropped rather than persisted
   as edges to something that does not exist.
-- Confirmation is scoped and idempotent. A replay of the same `idempotencyKey`
-  returns the stored result with `replayed: true`. A *different* decision set
+- Confirmation is scoped, idempotent, and **claimed before it writes**. The
+  claim (the idempotency key, plus the in-flight attempt) is recorded before the
+  adapter is awaited. Recording it afterwards left a window between reading the
+  proposal and storing the result that a second confirmation walked straight
+  through: two rulings with disjoint accept sets both returned `success: true`,
+  both wrote, and every step rejected in the first ruling became canonical —
+  defeating `everyStepNeedsExplicitDecision` on a UI double-submit. A concurrent
+  replay of the *same* key now awaits the one real attempt rather than starting
+  a second write. A replay returns the stored result with `replayed: true`. A *different* decision set
   arriving after the write returns `proposal_not_found` — the proposal is spent,
   and treating it as a retry would report success for a ruling never applied.
 - A failed adapter write leaves the proposal unspent, so the retry is a real
@@ -172,6 +240,11 @@ A sibling of `docs/architecture/capture-boundary.md`.
   collisions and dangling edges included — and replaces canonical state only
   once every step validates. An empty batch is refused rather than reported as a
   successful no-op.
+- Input that is not a string never reaches the engine. It returns
+  `atomic: engine_unavailable` and audits as `failed`. Coercing it to `''` and
+  letting the engine answer `not_decomposable` recorded "we read this and it is
+  one action" about input nobody read — a caller bug filed as a determination
+  about a commitment.
 - Audit envelopes carry a SHA-256 hash and the length of the input, never the
   text. Asserted against every Arabic and Hebrew string in the golden set.
 
@@ -214,6 +287,18 @@ node --no-warnings --loader ./scripts/ts-resolver.mjs --test tests/decomposition
    `proposeDecompositionBoundary` and rule on already-issued proposals
    explicitly — a proposal is an offer and expires harmlessly if ignored.
 3. Revert the #27 commit.
+
+**The kill switch does not stop confirmations.** `proposeDecompositionBoundary`
+consults `resolveModuleRuntime`; `confirmDecomposition` does not, so setting
+`MAYBESITTER_KILL_SWITCH_PLANNING` stops new proposals from using the model but
+does **not** block an already-issued proposal from being confirmed and written.
+This mirrors Sprint 01, where `confirmCapture` likewise does not consult runtime
+controls, and it is deliberate rather than overlooked: the rules-only contract's
+`allowsDirectStateWrites: false` governs writes the *module* makes on its own,
+not writes a user explicitly confirmed, and `planning` defaults to flag-off — so
+gating confirmation on it would block every confirmation by default and strand
+proposals a user had already ruled on. Step 2 below is therefore load-bearing
+and not optional: stopping callers is what stops writes.
 
 No canonical-state rollback is required at any step: proposing never writes, and
 confirmation writes only to the decomposition step store, which has no consumer

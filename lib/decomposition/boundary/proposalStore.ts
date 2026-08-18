@@ -13,7 +13,18 @@ export interface StoredDecompositionProposal {
   readonly scopeId: string;
   /** Set once the proposal has been confirmed; a spent proposal is not re-confirmable. */
   confirmedResult?: DecompositionConfirmationResult;
+  /**
+   * The key that claimed this proposal. Written *before* the adapter is
+   * awaited, not after it returns: the window between reading the proposal and
+   * recording the result is long enough for a second confirmation to walk
+   * straight through, and a UI double-submit is enough to reach it.
+   */
   idempotencyKey?: string;
+  /**
+   * The confirmation currently in flight, so a concurrent replay of the same
+   * key can await the one real attempt instead of starting a second write.
+   */
+  inFlight?: Promise<DecompositionConfirmationResult>;
 }
 
 export interface DecompositionProposalStore {

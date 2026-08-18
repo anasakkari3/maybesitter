@@ -374,14 +374,109 @@ test('the audit hash is of the input, so identical inputs correlate and differen
   assert.notEqual(a.events[0].fields.inputHash, c.events[0].fields.inputHash);
 });
 
-test('non-string input is refused as an atomic outcome rather than crashing the boundary', async () => {
+test('unreadable input is a failed attempt, not a finding that the commitment is one task', async () => {
+  // `not_decomposable` is a claim *about the commitment*: "we read this and it
+  // is one action". Saying that about input we never read — and auditing it as
+  // a success — records a caller bug as a determination.
   const dependencies = harness();
-  for (const bad of [null, undefined, 42, {}, []]) {
+  for (const bad of [null, undefined, 42, {}, [], true]) {
     const proposal = await proposeDecompositionBoundary(bad, {
       commitmentId: 'c1', scopeId: 'scope-a', now,
     }, dependencies);
     assert.equal(proposal.outcome, 'atomic');
-    assert.equal(proposal.outcome === 'atomic' && proposal.reason, 'not_decomposable');
+    assert.equal(proposal.outcome === 'atomic' && proposal.reason, 'engine_unavailable');
+    assert.equal(
+      dependencies.events[dependencies.events.length - 1].fields.outcome,
+      'failed',
+      'an unreadable request is not a successful execution',
+    );
   }
   assert.deepEqual(Object.keys(dependencies.persistence.snapshot().steps), []);
+});
+
+/* ── Concurrency (Blocker 2) ─────────────────────────────────────── */
+
+test('two concurrent confirmations with different rulings cannot both apply', async () => {
+  // The proposal was read, the guard passed, and control was yielded to the
+  // adapter before anything was recorded — so a second confirmation arriving in
+  // that window saw an unspent proposal. Both wrote, and every step rejected in
+  // the first ruling became canonical anyway, which is exactly what
+  // `everyStepNeedsExplicitDecision` exists to prevent. A UI double-submit is
+  // enough to reach it.
+  const dependencies = harness();
+  const proposal = await proposeWedding(dependencies);
+  if (proposal.outcome !== 'decomposed') throw new Error('setup');
+  const [a, b, c] = proposal.steps.map((step) => step.stepId);
+
+  const [first, second] = await Promise.all([
+    confirmDecomposition(request(proposal.proposalId, [
+      { stepId: a, verdict: 'accept' },
+      { stepId: b, verdict: 'reject' },
+      { stepId: c, verdict: 'reject' },
+    ], { idempotencyKey: 'ruling-A' }), dependencies),
+    confirmDecomposition(request(proposal.proposalId, [
+      { stepId: a, verdict: 'reject' },
+      { stepId: b, verdict: 'accept' },
+      { stepId: c, verdict: 'accept' },
+    ], { idempotencyKey: 'ruling-B' }), dependencies),
+  ]);
+
+  const winners = [first, second].filter((result) => result.success);
+  assert.equal(winners.length, 1, 'exactly one ruling may apply');
+  assert.deepEqual(
+    Object.keys(dependencies.persistence.snapshot().steps).sort(),
+    winners[0].persistedStepIds.slice().sort(),
+    'nothing outside the winning ruling may be persisted',
+  );
+  const loser = [first, second].find((result) => !result.success);
+  assert.equal(loser?.replayed, false);
+});
+
+test('a concurrent double-submit of the same ruling applies once and replays', async () => {
+  const dependencies = harness();
+  const proposal = await proposeWedding(dependencies);
+  if (proposal.outcome !== 'decomposed') throw new Error('setup');
+  const decisions = proposal.steps.map((step): StepDecision => ({ stepId: step.stepId, verdict: 'accept' }));
+
+  const [first, second] = await Promise.all([
+    confirmDecomposition(request(proposal.proposalId, decisions), dependencies),
+    confirmDecomposition(request(proposal.proposalId, decisions), dependencies),
+  ]);
+
+  assert.equal(first.success, true);
+  assert.equal(second.success, true);
+  assert.deepEqual(first.persistedStepIds, second.persistedStepIds);
+  assert.equal([first, second].filter((result) => result.replayed).length, 1, 'one of the two is a replay');
+  assert.equal(Object.keys(dependencies.persistence.snapshot().steps).length, 3);
+});
+
+test('a concurrent confirmation that fails to persist leaves the proposal retryable', async () => {
+  let calls = 0;
+  const adapter: DecompositionPersistenceAdapter = {
+    async persistAtomically() {
+      calls += 1;
+      throw new Error('adapter refused the batch');
+    },
+    snapshot: () => createEmptyDecompositionState(),
+  };
+  const dependencies = { ...harness(adapter), persistence: adapter };
+  const proposal = await proposeWedding(dependencies);
+  if (proposal.outcome !== 'decomposed') throw new Error('setup');
+  const decisions = proposal.steps.map((step): StepDecision => ({ stepId: step.stepId, verdict: 'accept' }));
+
+  const results = await Promise.all([
+    confirmDecomposition(request(proposal.proposalId, decisions), dependencies),
+    confirmDecomposition(request(proposal.proposalId, decisions), dependencies),
+  ]);
+  assert.deepEqual(results.map((result) => result.failureCode), ['persistence_failed', 'persistence_failed']);
+
+  // The claim must be released, or a genuine retry would answer with a replay
+  // of a batch that never landed.
+  const retried = await confirmDecomposition(
+    request(proposal.proposalId, decisions, { idempotencyKey: 'a-fresh-key' }),
+    dependencies,
+  );
+  assert.equal(retried.failureCode, 'persistence_failed');
+  assert.equal(retried.replayed, false);
+  assert.ok(calls >= 2);
 });
