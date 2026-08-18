@@ -459,7 +459,11 @@ function createFileRepository(resolveDataDir: () => string): FeedbackRepository 
       const file = filePath(ensureDir(), id, EVENT_FILE_EXT);
       if (!existsSync(file)) return null;
       const raw = readJson(file);
-      return isFeedbackEvent(raw) ? freezeEvent(raw) : null;
+      // The id is re-checked against the path rather than trusted from it: the
+      // id is what a revoke endpoint addresses, so a hand-placed file must not
+      // be able to answer a lookup with a different event.
+      if (!isFeedbackEvent(raw) || raw.id !== id) return null;
+      return freezeEvent(raw);
     },
 
     readAll(): FeedbackEvent[] {
