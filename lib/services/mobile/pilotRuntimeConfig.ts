@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { parseClosedPilotAllowlist } from '../../pilot/closedPilotControls';
+import { alphaAllowlistConfigured, parseAlphaAllowlist } from '../../pilot/alphaControls';
 import { getRequiredTokenSecret } from '../../pilot/pilotTokenService';
 
 export class PilotRuntimeConfigurationError extends Error {
@@ -42,7 +43,18 @@ export function validatePilotRuntimeConfiguration(env: NodeJS.ProcessEnv = proce
   try {
     parseClosedPilotAllowlist(env.MAYBESITTER_CLOSED_PILOT_IDS);
   } catch (error) {
-    throw new PilotRuntimeConfigurationError(error instanceof Error ? error.message : 'MAYBESITTER_CLOSED_PILOT_IDS is invalid');
+    // A small trusted-alpha run (1–10) is valid ONLY when the explicit alpha
+    // allowlist is configured; otherwise the 25–40 closed-pilot contract stands.
+    if (!alphaAllowlistConfigured(env)) {
+      throw new PilotRuntimeConfigurationError(error instanceof Error ? error.message : 'MAYBESITTER_CLOSED_PILOT_IDS is invalid');
+    }
+  }
+  if (alphaAllowlistConfigured(env)) {
+    try {
+      parseAlphaAllowlist(env.MAYBESITTER_ALPHA_IDS);
+    } catch (error) {
+      throw new PilotRuntimeConfigurationError(error instanceof Error ? error.message : 'MAYBESITTER_ALPHA_IDS is invalid');
+    }
   }
 
   requireDurableParticipantDataDir(env);

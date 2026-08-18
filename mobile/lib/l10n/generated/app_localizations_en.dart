@@ -851,4 +851,40 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get pilotAccessClearToken => 'Use a different token';
+
+  @override
+  String get alphaFlagTooltip => 'Report a problem';
+
+  @override
+  String get alphaFlagTitle => 'Report a problem with this step';
+
+  @override
+  String get alphaFlagCategoryWrong => 'This recommendation is wrong';
+
+  @override
+  String get alphaFlagCategoryMisunderstood => 'It misunderstood me';
+
+  @override
+  String get alphaFlagCategoryNotUseful => 'It was not useful';
+
+  @override
+  String get alphaFlagCategoryInvasive => 'It felt invasive';
+
+  @override
+  String get alphaFlagCategoryTechnical => 'Technical problem';
+
+  @override
+  String get alphaFlagNoteHint => 'Optional details';
+
+  @override
+  String get alphaFlagPickCategory => 'Please choose a category';
+
+  @override
+  String get alphaFlagSubmit => 'Send report';
+
+  @override
+  String get alphaFlagSent => 'Thank you — report received.';
+
+  @override
+  String get alphaFlagDisabled => 'Reporting is not enabled in this build.';
 }

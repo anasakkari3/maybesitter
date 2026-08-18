@@ -1,0 +1,283 @@
+{
+  "generatedAt": "2026-08-10T16:57:28.655Z",
+  "totalScenarios": 30,
+  "passed": 30,
+  "failed": 0,
+  "passRate": 100,
+  "failuresByTaxonomy": {},
+  "failuresBySeverity": {},
+  "scenarioResults": [
+    {
+      "scenarioId": "en-task-tomorrow",
+      "lang": "en",
+      "passed": true,
+      "failures": [],
+      "extractionType": "task",
+      "disposition": "auto_confirm",
+      "recState": "ready"
+    },
+    {
+      "scenarioId": "en-task-today",
+      "lang": "en",
+      "passed": true,
+      "failures": [],
+      "extractionType": "task",
+      "disposition": "auto_confirm",
+      "recState": "ready"
+    },
+    {
+      "scenarioId": "en-follow-up",
+      "lang": "en",
+      "passed": true,
+      "failures": [],
+      "extractionType": "follow_up",
+      "disposition": "pending_confirmation",
+      "recState": null
+    },
+    {
+      "scenarioId": "en-info-context",
+      "lang": "en",
+      "passed": true,
+      "failures": [],
+      "extractionType": "informational_context",
+      "disposition": "store_note",
+      "recState": null
+    },
+    {
+      "scenarioId": "en-ambiguous",
+      "lang": "en",
+      "passed": true,
+      "failures": [],
+      "extractionType": "task",
+      "disposition": "needs_clarification",
+      "recState": null
+    },
+    {
+      "scenarioId": "en-dont-remind",
+      "lang": "en",
+      "passed": true,
+      "failures": [],
+      "extractionType": "task",
+      "disposition": "store_note",
+      "recState": null
+    },
+    {
+      "scenarioId": "en-report-friday",
+      "lang": "en",
+      "passed": true,
+      "failures": [],
+      "extractionType": "task",
+      "disposition": "pending_confirmation",
+      "recState": null
+    },
+    {
+      "scenarioId": "en-24h-range",
+      "lang": "en",
+      "passed": true,
+      "failures": [],
+      "extractionType": "task",
+      "disposition": "auto_confirm",
+      "recState": null
+    },
+    {
+      "scenarioId": "ar-task-tomorrow-high",
+      "lang": "ar",
+      "passed": true,
+      "failures": [],
+      "extractionType": "task",
+      "disposition": "auto_confirm",
+      "recState": null
+    },
+    {
+      "scenarioId": "ar-task-lower",
+      "lang": "ar",
+      "passed": true,
+      "failures": [],
+      "extractionType": "task",
+      "disposition": "pending_confirmation",
+      "recState": null
+    },
+    {
+      "scenarioId": "ar-clock-phrase",
+      "lang": "ar",
+      "passed": true,
+      "failures": [],
+      "extractionType": "task",
+      "disposition": "auto_confirm",
+      "recState": null
+    },
+    {
+      "scenarioId": "ar-task-friday",
+      "lang": "ar",
+      "passed": true,
+      "failures": [],
+      "extractionType": "task",
+      "disposition": "auto_confirm",
+      "recState": null
+    },
+    {
+      "scenarioId": "ar-info-not-task",
+      "lang": "ar",
+      "passed": true,
+      "failures": [],
+      "extractionType": "informational_context",
+      "disposition": "store_note",
+      "recState": null
+    },
+    {
+      "scenarioId": "ar-low-priority",
+      "lang": "ar",
+      "passed": true,
+      "failures": [],
+      "extractionType": "task",
+      "disposition": "auto_confirm",
+      "recState": null
+    },
+    {
+      "scenarioId": "he-task-tomorrow",
+      "lang": "he",
+      "passed": true,
+      "failures": [],
+      "extractionType": "task",
+      "disposition": "needs_clarification",
+      "recState": null
+    },
+    {
+      "scenarioId": "he-follow-up",
+      "lang": "he",
+      "passed": true,
+      "failures": [],
+      "extractionType": "task",
+      "disposition": "needs_clarification",
+      "recState": null
+    },
+    {
+      "scenarioId": "he-info-context",
+      "lang": "he",
+      "passed": true,
+      "failures": [],
+      "extractionType": "informational_context",
+      "disposition": "store_note",
+      "recState": null
+    },
+    {
+      "scenarioId": "mixed-ar-en",
+      "lang": "mixed",
+      "passed": true,
+      "failures": [],
+      "extractionType": "task",
+      "disposition": "auto_confirm",
+      "recState": null
+    },
+    {
+      "scenarioId": "mixed-he-en",
+      "lang": "mixed",
+      "passed": true,
+      "failures": [],
+      "extractionType": "task",
+      "disposition": "pending_confirmation",
+      "recState": null
+    },
+    {
+      "scenarioId": "en-no-medical-inference",
+      "lang": "en",
+      "passed": true,
+      "failures": [],
+      "extractionType": "task",
+      "disposition": "needs_clarification",
+      "recState": null
+    },
+    {
+      "scenarioId": "ar-no-gender-inference",
+      "lang": "ar",
+      "passed": true,
+      "failures": [],
+      "extractionType": "task",
+      "disposition": "auto_confirm",
+      "recState": null
+    },
+    {
+      "scenarioId": "en-specific-nextstep",
+      "lang": "en",
+      "passed": true,
+      "failures": [],
+      "extractionType": "task",
+      "disposition": "auto_confirm",
+      "recState": "ready"
+    },
+    {
+      "scenarioId": "en-overdue-nextstep",
+      "lang": "en",
+      "passed": true,
+      "failures": [],
+      "extractionType": "task",
+      "disposition": "needs_clarification",
+      "recState": "ready"
+    },
+    {
+      "scenarioId": "en-empty-nextstep",
+      "lang": "en",
+      "passed": true,
+      "failures": [],
+      "extractionType": "informational_context",
+      "disposition": "store_note",
+      "recState": "empty"
+    },
+    {
+      "scenarioId": "en-tomorrow-evening",
+      "lang": "en",
+      "passed": true,
+      "failures": [],
+      "extractionType": "task",
+      "disposition": "auto_confirm",
+      "recState": null
+    },
+    {
+      "scenarioId": "en-accept-action",
+      "lang": "en",
+      "passed": true,
+      "failures": [],
+      "extractionType": "task",
+      "disposition": "needs_clarification",
+      "recState": "ready"
+    },
+    {
+      "scenarioId": "en-low-effort",
+      "lang": "en",
+      "passed": true,
+      "failures": [],
+      "extractionType": "task",
+      "disposition": "needs_clarification",
+      "recState": "ready"
+    },
+    {
+      "scenarioId": "en-unfaithful-dont-remind",
+      "lang": "en",
+      "passed": true,
+      "failures": [],
+      "extractionType": "task",
+      "disposition": "store_note",
+      "recState": "empty"
+    },
+    {
+      "scenarioId": "ar-task-weekday",
+      "lang": "ar",
+      "passed": true,
+      "failures": [],
+      "extractionType": "task",
+      "disposition": "auto_confirm",
+      "recState": null
+    },
+    {
+      "scenarioId": "he-task-tomorrow-morning",
+      "lang": "he",
+      "passed": true,
+      "failures": [],
+      "extractionType": "task",
+      "disposition": "needs_clarification",
+      "recState": null
+    }
+  ],
+  "seededFailureTested": true,
+  "status": "GATE PASSED"
+}

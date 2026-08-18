@@ -16,7 +16,13 @@ class SuccessSaveScreen extends ConsumerWidget {
     final captureState = ref.watch(captureControllerProvider);
     final notifier = ref.read(captureControllerProvider.notifier);
 
-    final savedItems = captureState.extractedCommitments;
+    // Only report/undo what the server actually confirmed persisted - not
+    // every item that was extracted. A deselected or failed item must never
+    // be shown here as saved, and Undo must never try to delete something
+    // that was never written.
+    final savedItems = captureState.extractedCommitments
+        .where((c) => captureState.persistedItemIds.contains(c.id))
+        .toList();
 
     return MaybesitterScaffold(
       body: Center(

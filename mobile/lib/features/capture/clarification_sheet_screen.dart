@@ -39,8 +39,7 @@ class ClarificationSheetScreen extends ConsumerWidget {
                   l10n.clarificationCardHeader,
               options: captureState.clarificationOptions,
               onSelectOption: (opt) {
-                // Resolve clarification option and proceed to review
-                notifier.previewState(CaptureStatus.needsConfirmation);
+                notifier.resolveClarification(opt);
                 context.push('/capture/review');
               },
             ),

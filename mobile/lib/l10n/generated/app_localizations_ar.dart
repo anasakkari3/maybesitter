@@ -858,4 +858,40 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get pilotAccessClearToken => 'استخدام رمز آخر';
+
+  @override
+  String get alphaFlagTooltip => 'أبلغ عن مشكلة';
+
+  @override
+  String get alphaFlagTitle => 'أبلغ عن مشكلة في هذه الخطوة';
+
+  @override
+  String get alphaFlagCategoryWrong => 'هذا الاقتراح خاطئ';
+
+  @override
+  String get alphaFlagCategoryMisunderstood => 'لم يفهمني';
+
+  @override
+  String get alphaFlagCategoryNotUseful => 'لم يكن مفيدًا';
+
+  @override
+  String get alphaFlagCategoryInvasive => 'شعرت أنه متطفل';
+
+  @override
+  String get alphaFlagCategoryTechnical => 'مشكلة تقنية';
+
+  @override
+  String get alphaFlagNoteHint => 'تفاصيل اختيارية';
+
+  @override
+  String get alphaFlagPickCategory => 'يرجى اختيار فئة';
+
+  @override
+  String get alphaFlagSubmit => 'إرسال التقرير';
+
+  @override
+  String get alphaFlagSent => 'شكرًا — تم استلام التقرير.';
+
+  @override
+  String get alphaFlagDisabled => 'الإبلاغ غير مفعّل في هذا الإصدار.';
 }

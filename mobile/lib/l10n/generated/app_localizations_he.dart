@@ -848,4 +848,40 @@ class AppLocalizationsHe extends AppLocalizations {
 
   @override
   String get pilotAccessClearToken => 'להשתמש בטוקן אחר';
+
+  @override
+  String get alphaFlagTooltip => 'דווח על בעיה';
+
+  @override
+  String get alphaFlagTitle => 'דווח על בעיה בשלב הזה';
+
+  @override
+  String get alphaFlagCategoryWrong => 'ההמלצה הזו שגויה';
+
+  @override
+  String get alphaFlagCategoryMisunderstood => 'הוא לא הבין אותי';
+
+  @override
+  String get alphaFlagCategoryNotUseful => 'זה לא היה מועיל';
+
+  @override
+  String get alphaFlagCategoryInvasive => 'זה הרגיש פולשני';
+
+  @override
+  String get alphaFlagCategoryTechnical => 'בעיה טכנית';
+
+  @override
+  String get alphaFlagNoteHint => 'פרטים אופציונליים';
+
+  @override
+  String get alphaFlagPickCategory => 'אנא בחר קטגוריה';
+
+  @override
+  String get alphaFlagSubmit => 'שלח דוח';
+
+  @override
+  String get alphaFlagSent => 'תודה — הדוח התקבל.';
+
+  @override
+  String get alphaFlagDisabled => 'הדיווח אינו מופעל בגרסה זו.';
 }

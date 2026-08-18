@@ -60,7 +60,13 @@ void main() {
 
       expect(find.byType(CaptureComposerScreen), findsOneWidget);
 
-      // 5. Tap Analyze button (Arabic label: تحليل النص)
+      // 5. Type the commitment text (composer opens empty by design — no demo
+      // text pre-fill), then tap Analyze button (Arabic label: تحليل النص)
+      await tester.enterText(
+        find.byType(TextField),
+        'Tomorrow I will go to the doctor and then work.',
+      );
+      await tester.pump();
       final analyzeBtn = find.text('تحليل النص');
       expect(analyzeBtn, findsOneWidget);
       await tester.tap(analyzeBtn);

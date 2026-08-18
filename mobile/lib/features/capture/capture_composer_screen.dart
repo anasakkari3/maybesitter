@@ -46,7 +46,7 @@ class _CaptureComposerScreenState extends ConsumerState<CaptureComposerScreen> {
     _textController = TextEditingController(
       text: captureState.rawInput.isNotEmpty
           ? captureState.rawInput
-          : 'Tomorrow I will go to the doctor and then work.',
+          : '',
     );
     _textController.addListener(_onTextChanged);
   }

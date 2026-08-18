@@ -11,6 +11,7 @@ import '../../design_system/components/commitment_status_badge.dart';
 import '../../design_system/components/maybesitter_app_bar.dart';
 import '../../design_system/components/maybesitter_buttons.dart';
 import '../../design_system/components/maybesitter_scaffold.dart';
+import '../../design_system/components/maybesitter_text_field.dart';
 import '../../design_system/components/priority_badge.dart';
 import '../../design_system/theme/app_theme.dart';
 import '../../design_system/tokens/radius.dart';
@@ -80,6 +81,39 @@ class CommitmentDetailsScreen extends ConsumerWidget {
       }
     }
 
+    Future<void> editTitle() async {
+      final editController = TextEditingController(text: commitment!.title);
+      final newTitle = await showDialog<String>(
+        context: context,
+        builder: (ctx) {
+          return AlertDialog(
+            title: Text(l10n.editCommitmentTitle),
+            content: MaybesitterTextField(
+              controller: editController,
+              label: l10n.commitmentDetailTitle,
+              autofocus: true,
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: Text(l10n.cancelAction),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(ctx, editController.text),
+                child: Text(l10n.saveAction),
+              ),
+            ],
+          );
+        },
+      );
+      final trimmed = newTitle?.trim();
+      if (trimmed != null && trimmed.isNotEmpty) {
+        await ref
+            .read(commitmentRepositoryProvider)
+            .update(commitment!.copyWith(title: trimmed));
+      }
+    }
+
     Future<void> confirmDelete() async {
       // Platform-idiomatic and non-dismissible: deleting must be an explicit
       // answer, not a stray tap on the barrier.
@@ -117,7 +151,7 @@ class CommitmentDetailsScreen extends ConsumerWidget {
                 : l10n.editingDisabledExplanation,
             onPressed: () {
               if (config.supportsSafeCommitmentPatch) {
-                // Mock mode editing allowed for prototyping
+                editTitle();
               } else {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(

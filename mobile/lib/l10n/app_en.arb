@@ -315,5 +315,17 @@
   "pilotAccessBackendUnavailableMessage": "Keep the token on this device and try again when the backend is available.",
   "pilotAccessRuntimeConfigTitle": "Pilot is not configured",
   "pilotAccessRuntimeConfigMessage": "The pilot backend is failing closed because its runtime configuration is invalid.",
-  "pilotAccessClearToken": "Use a different token"
+  "pilotAccessClearToken": "Use a different token",
+  "alphaFlagTooltip": "Report a problem",
+  "alphaFlagTitle": "Report a problem with this step",
+  "alphaFlagCategoryWrong": "This recommendation is wrong",
+  "alphaFlagCategoryMisunderstood": "It misunderstood me",
+  "alphaFlagCategoryNotUseful": "It was not useful",
+  "alphaFlagCategoryInvasive": "It felt invasive",
+  "alphaFlagCategoryTechnical": "Technical problem",
+  "alphaFlagNoteHint": "Optional details",
+  "alphaFlagPickCategory": "Please choose a category",
+  "alphaFlagSubmit": "Send report",
+  "alphaFlagSent": "Thank you — report received.",
+  "alphaFlagDisabled": "Reporting is not enabled in this build."
 }

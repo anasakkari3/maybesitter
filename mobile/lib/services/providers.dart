@@ -5,6 +5,7 @@ import '../models/app_settings.dart';
 import '../models/commitment.dart';
 import '../models/activity_event.dart';
 import 'api/api_client.dart';
+import 'api/api_alpha_feedback_service.dart';
 import 'api/api_capture_service.dart';
 import 'api/api_commitment_repository.dart';
 import 'api/api_next_step_service.dart';
@@ -98,6 +99,12 @@ final nextStepServiceProvider = Provider<NextStepService>((ref) {
     trustService: ref.watch(_mockPilotTrustServiceProvider),
     proposal: MockNextStepService.defaultProposal,
   );
+});
+
+/// Alpha feedback flag service. Only meaningful with a local backend and
+/// MAYBESITTER_ALPHA_FEEDBACK_ENABLED=true; otherwise calls are no-ops/403s.
+final alphaFeedbackServiceProvider = Provider<ApiAlphaFeedbackService>((ref) {
+  return ApiAlphaFeedbackService(apiClient: ref.watch(apiClientProvider));
 });
 
 final pilotCredentialStoreProvider = Provider<PilotCredentialStore>((ref) {

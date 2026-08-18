@@ -11,6 +11,26 @@ const WEEKDAYS: Record<string, number> = {
   saturday: 6,
 };
 
+const AR_WEEKDAYS: Record<string, number> = {
+  'الأحد': 0,
+  'الاحد': 0,
+  'الاثنين': 1,
+  'الإثنين': 1,
+  'الأثنين': 1,
+  'الثلاثاء': 2,
+  'الثلثاء': 2,
+  'الأربعاء': 3,
+  'الاربعاء': 3,
+  'الخميس': 4,
+  'الجمعة': 5,
+  'السبت': 6,
+};
+
+const AR_WEEKDAY_RE = /(الأحد|الاحد|الاثنين|الإثنين|الأثنين|الثلاثاء|الثلثاء|الأربعاء|الاربعاء|الخميس|الجمعة|السبت)/;
+
+const INFORMATIONAL_RE =
+  /\b(waiting on|for your information|fyi|just so you know|asked me about|told me about)\b|(سألتني|سألني|تسألني|مستني|مستنية|بانتظار|ينتظر|تنتظر|قالت لي|قال لي)|(מחכה|מחכים|שאל אותי|שאלה אותי|ביקש ממני)|(i|we) had a (nice|great|good|bad|tiring|long|busy|rough) (day|week|morning|afternoon|evening|night)\b/i;
+
 function addDays(date: Date, days: number): Date {
   const next = new Date(date);
   next.setDate(next.getDate() + days);
@@ -25,6 +45,65 @@ function setTime(date: Date, hour: number, minute = 0): Date {
 
 function nextWeekday(from: Date, weekday: number): Date {
   return addDays(from, (weekday - from.getDay() + 7) % 7);
+}
+
+/* ── Timezone-aware date math ──────────────────────────────────────
+ * The extractor receives a `timezone` in its context (e.g. 'UTC',
+ * 'Asia/Jerusalem'). Relative phrases ("tomorrow at 10am") must resolve
+ * to the same absolute instant regardless of the host machine's timezone.
+ * These helpers do wall-clock math in the target timezone and convert back
+ * to UTC. When no timezone is supplied we fall back to the host timezone to
+ * preserve legacy behavior. DST transitions are handled with a two-pass
+ * offset refinement. */
+
+function tzOffsetMs(date: Date, timeZone: string): number {
+  if (timeZone === 'UTC' || timeZone === 'Etc/UTC') return 0;
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'longOffset' }).formatToParts(date);
+  const name = parts.find((part) => part.type === 'timeZoneName')?.value || 'GMT';
+  const match = /GMT([+-])(\d{2}):(\d{2})/.exec(name);
+  if (!match) return 0;
+  const sign = match[1] === '-' ? -1 : 1;
+  return sign * (Number(match[2]) * 3_600 + Number(match[3]) * 60) * 1_000;
+}
+
+function wallClockParts(date: Date, timeZone: string): { year: number; month: number; day: number; hour: number; minute: number; second: number } {
+  const offset = tzOffsetMs(date, timeZone);
+  const wall = new Date(date.getTime() + offset);
+  return {
+    year: wall.getUTCFullYear(),
+    month: wall.getUTCMonth(),
+    day: wall.getUTCDate(),
+    hour: wall.getUTCHours(),
+    minute: wall.getUTCMinutes(),
+    second: wall.getUTCSeconds(),
+  };
+}
+
+function fromWallClock(parts: { year: number; month: number; day: number; hour: number; minute: number; second: number }, timeZone: string): Date {
+  const utcGuess = new Date(Date.UTC(parts.year, parts.month, parts.day, parts.hour, parts.minute, parts.second));
+  const offset = tzOffsetMs(utcGuess, timeZone);
+  return new Date(utcGuess.getTime() - offset);
+}
+
+function addDaysTz(date: Date, days: number, timeZone: string): Date {
+  const parts = wallClockParts(date, timeZone);
+  return fromWallClock({ ...parts, day: parts.day + days }, timeZone);
+}
+
+function setTimeTz(date: Date, hour: number, minute: number, timeZone: string): Date {
+  const parts = wallClockParts(date, timeZone);
+  return fromWallClock({ ...parts, hour, minute, second: 0 }, timeZone);
+}
+
+function nextWeekdayTz(from: Date, weekday: number, timeZone: string): Date {
+  const parts = wallClockParts(from, timeZone);
+  const currentWeekday = new Date(Date.UTC(parts.year, parts.month, parts.day)).getUTCDay();
+  const diff = (weekday - currentWeekday + 7) % 7;
+  return addDaysTz(from, diff, timeZone);
+}
+
+function resolveTimezone(context: ExtractionContext): string {
+  return context.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
 
 function normalizeArabicDigits(value: string): string {
@@ -56,6 +135,7 @@ function parseClock(raw: string): { hour: number; minute: number } | null {
 function parseDateTime(raw: string, context: ExtractionContext): { dueAt: string | null; remindAt: string | null; confidence: number } {
   const lower = raw.toLowerCase();
   const now = context.now;
+  const tz = resolveTimezone(context);
   const clock = parseClock(raw);
   let targetDate: Date | null = null;
   let timeConfidence = 0;
@@ -65,18 +145,21 @@ function parseDateTime(raw: string, context: ExtractionContext): { dueAt: string
     timeConfidence = 0.85;
   }
   if (/\btomorrow\b/.test(lower) || /(بكرا|بكرة|غدا|غداً)/.test(lower)) {
-    targetDate = addDays(now, 1);
+    targetDate = addDaysTz(now, 1, tz);
     timeConfidence = 0.9;
   }
   if (/\b(after tomorrow|day after tomorrow)\b/.test(lower) || /(بعد بكرا|بعد بكرة|بعد غد|بعد غداً)/.test(lower)) {
-    targetDate = addDays(now, 2);
+    targetDate = addDaysTz(now, 2, tz);
     timeConfidence = 0.9;
   }
 
-  const weekday = lower.match(/\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/);
+  const weekday = lower.match(/\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/) || lower.match(AR_WEEKDAY_RE);
   if (weekday) {
-    targetDate = nextWeekday(now, WEEKDAYS[weekday[1]]);
-    timeConfidence = 0.88;
+    const day = WEEKDAYS[weekday[1]] ?? AR_WEEKDAYS[weekday[1]];
+    if (day !== undefined) {
+      targetDate = nextWeekdayTz(now, day, tz);
+      timeConfidence = 0.88;
+    }
   }
 
   if (!targetDate && clock) {
@@ -100,15 +183,17 @@ function parseDateTime(raw: string, context: ExtractionContext): { dueAt: string
     timeConfidence = Math.max(timeConfidence, 0.95);
   }
 
-  const withTime = setTime(targetDate, hour, minute);
+  const withTime = setTimeTz(targetDate, hour, minute, tz);
   return { dueAt: withTime.toISOString(), remindAt: withTime.toISOString(), confidence: timeConfidence };
 }
 
 function stripTiming(text: string): string {
   return text
     .replace(/\b(after tomorrow|day after tomorrow|today|tomorrow|tonight|morning|afternoon|evening|night)\b/gi, ' ')
-    .replace(/(بعد بكرا|بعد بكرة|بعد غداً|بعد غد|اليوم|النهارده|اليومه|بكرا|بكرة|غداً|غدا|الصبح|صباح|بعد الظهر|بعد الضهر|المساء|المسا|مساء|بالليل|الليل)/gi, ' ')
+    .replace(/(بعد بكرا|بعد بكرة|بعد غداً|بعد غد|اليوم|النهارده|اليومه|بكرا|بكرة|غداً|غدا|الصبح|صباحاً|صباحا|صباح|بعد الظهر|بعد الضهر|المساء|المسا|مساءً|مساءا|مساء|بالليل|الليل)/gi, ' ')
+    .replace(/\b(?:on|this|next)\s+(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/gi, ' ')
     .replace(/\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/gi, ' ')
+    .replace(/(الأحد|الاحد|الاثنين|الإثنين|الأثنين|الثلاثاء|الثلثاء|الأربعاء|الاربعاء|الخميس|الجمعة|السبت)/gi, ' ')
     .replace(/\b(?:at|by|around)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/gi, ' ')
     .replace(/\b(?:at|by|around)\s*\d{1,2}(?::\d{2})?(?=$|[\s,.،])/gi, ' ')
     .replace(/\bfrom\s+\d{1,2}:\d{2}\s+to\s+\d{1,2}:\d{2}\b/gi, ' ')
@@ -190,7 +275,7 @@ export function extract(rawText: string, context: ExtractionContext): Extraction
     };
   }
 
-  if (/\b(waiting on|for your information|fyi|just so you know)\b/.test(lower) && !explicitReminderRequest) {
+  if (INFORMATIONAL_RE.test(lower) && !explicitReminderRequest) {
     return {
       type: 'informational_context',
       action: null,

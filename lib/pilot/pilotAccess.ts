@@ -7,6 +7,7 @@ import {
   type PilotExposureDecision,
   type PilotTrustState,
 } from './closedPilotControls';
+import { isAlphaParticipant } from './alphaControls';
 import { getPilotTrustStore } from './pilotTrustStore';
 
 export interface PilotAccessResult {
@@ -14,10 +15,25 @@ export interface PilotAccessResult {
   trust: PilotTrustState | null;
 }
 
+/**
+ * Membership check: closed-pilot allowlist (25–40, V03 contract) OR the
+ * explicit trusted-alpha allowlist (1–10, internal-only). The closed-pilot
+ * parser is deliberately strict and throws when fewer than 25 IDs are set;
+ * that throw is tolerated here ONLY when an alpha allowlist is configured,
+ * so a small trusted-alpha run can start before the real pilot fills out.
+ */
+function isAllowlisted(participantId: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  if (isAlphaParticipant(participantId, env)) return true;
+  try {
+    return parseClosedPilotAllowlist(env.MAYBESITTER_CLOSED_PILOT_IDS).has(participantId);
+  } catch {
+    return false;
+  }
+}
+
 export function resolvePilotAccess(participantId: string, at: string, audit = true): PilotAccessResult {
   requirePilotParticipantId(participantId);
-  const allowlist = parseClosedPilotAllowlist(process.env.MAYBESITTER_CLOSED_PILOT_IDS);
-  if (!allowlist.has(participantId)) {
+  if (!isAllowlisted(participantId)) {
     return { decision: { allowed: false, reason: 'not_allowlisted' }, trust: null };
   }
 
@@ -26,7 +42,9 @@ export function resolvePilotAccess(participantId: string, at: string, audit = tr
   const controls = readRuntimeControls();
   const decision = decidePilotExposure({
     participantId,
-    allowlist,
+    // Membership was already admitted (closed OR alpha); expose the
+    // participant to their own exposure decision.
+    allowlist: new Set([participantId]),
     trust,
     featureEnabled: controls.featureFlags.recommendation,
     killSwitchActive: controls.killSwitches.recommendation,
@@ -60,8 +78,7 @@ export function resolvePilotAnalyticsConsent(
   if (!pilotMode) return requested;
   try {
     requirePilotParticipantId(participantId);
-    const allowlist = parseClosedPilotAllowlist(process.env.MAYBESITTER_CLOSED_PILOT_IDS);
-    if (!allowlist.has(participantId)) return 'essential';
+    if (!isAllowlisted(participantId)) return 'essential';
     return getPilotTrustStore().getOrCreate(participantId, at).analyticsConsent ? 'granted' : 'essential';
   } catch {
     return 'essential';
