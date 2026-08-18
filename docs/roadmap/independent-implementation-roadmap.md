@@ -111,9 +111,37 @@ Where a sprint replaces live logic, fuzz the replacement against what it replace
 - **[#19](https://github.com/anasakkari3/maybesitter/issues/19) — [S04][Model/Data] Create Priority evaluation seed set and rubric** — **scope split applied** (buildable-now vs. human-input-stub, see issue body)
   Define pairwise/listwise judgment data and disagreement handling before model-assisted ranking.
 
-### Sprint 05 — Priority Calibration
+### Sprint 05 — Priority Calibration ✅ DONE
 
-_Advisory: calibrates the Sprint 04 Priority scorer; can be built against a stub scorer interface._
+Merged 2026-08-19 via [#105](https://github.com/anasakkari3/maybesitter/pull/105). Design:
+`docs/superpowers/specs/2026-08-19-sprint-05-priority-calibration-design.md`.
+
+**Contracts now available** — `src/contracts/v1/calibrationContracts.ts`. The annotation queue,
+calibration pipeline and shadow comparison all exist and are exercised.
+
+**Carried forward.**
+1. **Two corpora ship empty and must stay that way until real reviewers exist**:
+   `data/quality/priority-judgments.json` and `data/quality/priority-annotation-decisions.json`.
+   Everything is wired to receive them. Filling either with generated rows would fit the product's
+   ranking to preferences nobody expressed.
+2. `DEFAULT_PRIORITY_POLICY` is frozen and enforced by `tests/priority/policyFreeze.test.ts`. If that
+   test fails, the shipped weights moved — do not update it to match; either the change is the
+   defect, or it is deliberate and belongs in review.
+3. `ReviewedDecision` lacks `leftCommitmentId`/`rightCommitmentId`, so a verdict of `left` depends on
+   an orientation held elsewhere. Mitigated by the seed-set checksum lock; close it when the contract
+   is next reopened.
+4. Still outstanding from Sprint 03: the `behaviorFeedbackService` dual-write and its two readers.
+
+**Two issue premises were corrected rather than implemented.** #23 asked to compare "current
+ordering" with Priority v1, which Sprint 04 had made the same code — implemented literally it would
+have reported zero disagreement forever. #22 asked to calibrate against judgments that were
+deliberately never collected.
+
+**Lesson.** When a sprint's output could be mistaken for evidence, the safeguard has to be a test
+owned outside the track it constrains. Weights fitted to invented judgments look exactly like weights
+fitted to real ones, and a report that infers provenance from whether rows exist will label every
+synthetic run as human evidence — which is what happened, twice, and was caught both times by
+integration and review rather than by the tracks themselves.
 
 - **[#21](https://github.com/anasakkari3/maybesitter/issues/21) — [S05][Model/Data] Run pairwise and listwise Priority annotation round** — **scope split applied** (buildable-now vs. human-input-stub, see issue body)
   Collect reviewed ranking judgments with rationales and hard-constraint flags.
