@@ -321,6 +321,10 @@ for (const equivalenceCase of cases) {
 }
 
 test('priorityScorer equivalence: the cases cover every reason band', () => {
-  const covered = new Set(cases.map((equivalenceCase) => equivalenceCase.input.reason));
-  assert.deepEqual([...covered].sort(), ['active', 'due_soon', 'overdue', 'pending']);
+  const covered = cases
+    .map((equivalenceCase) => equivalenceCase.input.reason)
+    .filter((reason, index, all) => all.indexOf(reason) === index)
+    .slice()
+    .sort();
+  assert.deepEqual(covered, ['active', 'due_soon', 'overdue', 'pending']);
 });

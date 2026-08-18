@@ -358,7 +358,8 @@ test('priorityScorer: the scorer and its policy read no clock and use no locale 
     const source = readFileSync(path.join(repoRoot, relative), 'utf8');
     assert.equal(/Date\.now\(/.test(source), false, `${relative} must not read the clock`);
     assert.equal(/new Date\(/.test(source), false, `${relative} must not read the clock`);
-    assert.equal(/localeCompare/.test(source), false, `${relative} must not compare by locale`);
+    // A call, not the word: the modules explain in prose why they avoid it.
+    assert.equal(/\.localeCompare\(/.test(source), false, `${relative} must not compare by locale`);
   }
 });
 
