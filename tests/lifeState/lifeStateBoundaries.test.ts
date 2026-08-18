@@ -41,6 +41,12 @@ function importSpecifiers(source: string): string[] {
     /from\s*['"]([^'"]+)['"]/g,
     /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
     /require\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
+    // Side-effect-only `import 'x';` binds no name, so it has no `from` clause
+    // and the pattern above misses it — yet it still executes the module. Without
+    // this, a writer could be pulled in by a form the writer ban does not see,
+    // which defeats the guarantee this file exists to make. The whitespace after
+    // `import` keeps it from matching `import('x')`, which is already covered.
+    /import\s+['"]([^'"]+)['"]/g,
   ];
 
   for (const pattern of patterns) {
