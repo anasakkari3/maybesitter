@@ -433,6 +433,21 @@ test('an extreme window yields a representable windowStart instead of a bare Ran
   }
 });
 
+test('a now at the edge of representable time still yields a window', () => {
+  // Clamping windowDays is not enough on its own: an ordinary 14-day window
+  // measured back from the earliest representable instant also lands outside
+  // the range, and `new Date(...).toISOString()` throws "Invalid time value"
+  // with nothing in the message about the window that caused it.
+  const earliest = new Date(-8_640_000_000_000_000).toISOString();
+
+  const result = aggregateFeedback(input({ now: earliest, events: [] }));
+
+  assert.equal(result.computedAt, earliest);
+  // There is no earlier representable instant, so the window floors to one.
+  assert.equal(result.windowStart, earliest);
+  assert.ok(Number.isFinite(Date.parse(result.windowStart)));
+});
+
 /* ── Revocation ─────────────────────────────────────────────────── */
 
 test('revoked events leave every aggregate and are counted instead of hidden', () => {
