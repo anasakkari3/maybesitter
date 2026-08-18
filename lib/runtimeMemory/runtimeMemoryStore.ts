@@ -51,6 +51,8 @@ import { isIsoTimestamp, isNonEmptyString } from '../evaluation/registry/validat
 
 const MEMORY_SUBDIR = 'runtime-memory';
 const MEMORY_FILE_EXT = '.memory.json';
+/** Suffix of a temp file written before the atomic rename. */
+const TEMP_FILE_EXT = '.tmp';
 const RECORD_ID_PREFIX = 'mem_';
 
 /**
@@ -390,9 +392,26 @@ function createFileRepository(resolveDataDir: () => string): RecordRepository {
    * exactly the file a scope deletion must not miss.
    */
   function readScopeId(filePath: string): string | null {
+    let text: string;
     try {
-      const raw = JSON.parse(readFileSync(filePath, 'utf8')) as Record<string, unknown> | null;
-      return typeof raw?.scopeId === 'string' ? raw.scopeId : null;
+      text = readFileSync(filePath, 'utf8');
+    } catch {
+      return null;
+    }
+
+    try {
+      const raw = JSON.parse(text) as Record<string, unknown> | null;
+      if (typeof raw?.scopeId === 'string') return raw.scopeId;
+    } catch {
+      // Fall through: the most likely corruption is a write truncated by a
+      // crash, and scopeId is written near the top of the record, so the name
+      // of the owner usually survives even when the JSON does not.
+    }
+
+    const match = /"scopeId"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(text);
+    if (!match) return null;
+    try {
+      return JSON.parse(`"${match[1]}"`) as string;
     } catch {
       return null;
     }
@@ -435,12 +454,17 @@ function createFileRepository(resolveDataDir: () => string): RecordRepository {
       const dataDir = ensureDir();
       let removed = 0;
       for (const entry of readdirSync(dataDir)) {
-        if (!entry.endsWith(MEMORY_FILE_EXT)) continue;
+        // Orphaned temp files (`<id>.memory.json.<pid>.tmp`, left by a crash
+        // between write and rename) hold a complete record with full content.
+        // Skipping them would leave the user's data on disk after they asked
+        // for it to be deleted.
+        if (!entry.endsWith(MEMORY_FILE_EXT) && !entry.endsWith(TEMP_FILE_EXT)) continue;
         const filePath = path.join(dataDir, entry);
-        // A file whose JSON is unrecoverable names no scope, so it is left in
-        // place: deleting unattributable files on any scope deletion would
-        // destroy a different user's data. Such a file is an operator problem,
-        // not something one user's deletion may resolve on their behalf.
+        // Attribution is by scopeId alone, and only an exact match deletes. A
+        // file too damaged to name any owner is left in place: deleting
+        // unattributable files on any scope deletion could destroy a different
+        // user's data. That residue is an operator problem, not something one
+        // user's deletion may resolve on their behalf.
         if (readScopeId(filePath) !== scopeId) continue;
         unlinkSync(filePath);
         removed++;
