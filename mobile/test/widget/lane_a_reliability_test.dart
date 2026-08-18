@@ -8,8 +8,10 @@ import 'package:maybesitter_mobile/features/capture/capture_controller.dart';
 import 'package:maybesitter_mobile/features/capture/clarification_sheet_screen.dart';
 import 'package:maybesitter_mobile/features/capture/extraction_review_screen.dart';
 import 'package:maybesitter_mobile/features/capture/success_save_screen.dart';
+import 'package:maybesitter_mobile/features/commitment_details/commitment_details_screen.dart';
 import 'package:maybesitter_mobile/l10n/generated/app_localizations.dart';
 import 'package:maybesitter_mobile/models/capture_result.dart';
+import 'package:maybesitter_mobile/services/providers.dart';
 
 Widget _buildLocalizedApp(Widget home) {
   return MaterialApp(
@@ -139,6 +141,56 @@ void main() {
         // ...never silently swapped for unrelated placeholder commitments.
         expect(find.text('Go to the doctor'), findsNothing);
         expect(find.text('Work afterward'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'Edit icon on commitment details actually lets the participant edit',
+      (WidgetTester tester) async {
+        final container = ProviderContainer();
+        addTearDown(container.dispose);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: _buildLocalizedApp(
+              const CommitmentDetailsScreen(id: 'c-today-1'),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Pet-Sitter Briefing'), findsOneWidget);
+
+        // The pencil icon renders fully enabled (not greyed out) in mock
+        // mode, so tapping it must do *something* - not silently no-op.
+        await tester.tap(find.byIcon(Icons.edit_outlined));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text('Edit Commitment'),
+          findsOneWidget,
+          reason:
+              'Tapping the enabled-looking edit icon must open an editor, '
+              'not do nothing.',
+        );
+
+        await tester.enterText(
+          find.widgetWithText(TextField, 'Pet-Sitter Briefing'),
+          'Updated briefing title',
+        );
+        await tester.tap(find.text('Save'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Updated briefing title'), findsOneWidget);
+        expect(
+          container
+              .read(commitmentsStreamProvider)
+              .value!
+              .firstWhere((c) => c.id == 'c-today-1')
+              .title,
+          'Updated briefing title',
+        );
       },
     );
   });
