@@ -188,6 +188,35 @@ test('deleteScope removes only the target scope, leaving a sibling scope intact'
   }
 });
 
+test('deleteScope also removes damaged files that still name the scope', () => {
+  const cleanup = setup();
+  try {
+    const store = createFileRuntimeMemoryStore();
+    const kept = store.put(input({ scopeId: 'scope-b', content: HEBREW, language: 'he' }), NOW);
+    store.put(input({ scopeId: 'scope-a', content: ARABIC, language: 'ar' }), NOW);
+
+    // Written by a schema version this build cannot read. It is unusable, but
+    // it still names the scope and still holds the user's content, so "delete
+    // my data" must take it too.
+    writeFileSync(
+      join(recordDir(), 'mem_damaged.memory.json'),
+      JSON.stringify({ version: 'runtime-memory-v99', id: 'mem_damaged', scopeId: 'scope-a', content: ARABIC }),
+    );
+    // Unrecoverable, so unattributable. Deleting files that name no scope on
+    // any scope deletion would destroy a different scope's data.
+    writeFileSync(join(recordDir(), 'mem_unreadable.memory.json'), 'not json at all');
+
+    assert.equal(store.deleteScope('scope-a'), 2);
+    assert.deepEqual(
+      readdirSync(recordDir()).sort(),
+      [`${kept.id}.memory.json`, 'mem_unreadable.memory.json'].sort(),
+    );
+    assert.equal(createFileRuntimeMemoryStore().get(kept.id)?.content, HEBREW);
+  } finally {
+    cleanup();
+  }
+});
+
 test('prune expires stale records on disk and leaves fresh ones alone', () => {
   const cleanup = setup();
   try {

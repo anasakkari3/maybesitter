@@ -215,12 +215,27 @@ interface RecordRepository {
   readAll(): RuntimeMemoryRecord[];
   write(record: RuntimeMemoryRecord): void;
   remove(id: string): boolean;
+  /**
+   * Removes every stored artifact attributable to the scope, including any the
+   * reader is unable to parse as a record. Deletion is the one operation that
+   * must reach further than retrieval does: a file too damaged to read still
+   * holds the user's content, so leaving it behind would make "delete my data"
+   * untrue. Only the backend knows what it is holding, so it does the sweep.
+   */
+  removeScope(scopeId: string): number;
 }
 
 function createStore(repository: RecordRepository, defaultTtlMs: number): RuntimeMemoryStore {
   function readSafe(id: unknown): RuntimeMemoryRecord | null {
     const safeId = toSafeId(id);
     return safeId === null ? null : repository.readOne(safeId);
+  }
+
+  function listScope(scopeId: string): readonly RuntimeMemoryRecord[] {
+    if (!isNonEmptyString(scopeId)) fail('scopeId must be a non-empty string');
+    return Object.freeze(
+      repository.readAll().filter((record) => record.scopeId === scopeId).sort(byOldestCreated),
+    );
   }
 
   return {
@@ -261,10 +276,7 @@ function createStore(repository: RecordRepository, defaultTtlMs: number): Runtim
     },
 
     listAll(scopeId: string): readonly RuntimeMemoryRecord[] {
-      if (!isNonEmptyString(scopeId)) fail('scopeId must be a non-empty string');
-      return Object.freeze(
-        repository.readAll().filter((record) => record.scopeId === scopeId).sort(byOldestCreated),
-      );
+      return listScope(scopeId);
     },
 
     supersede(oldId: string, input: CreateMemoryInput, now: string): RuntimeMemoryRecord {
@@ -312,11 +324,7 @@ function createStore(repository: RecordRepository, defaultTtlMs: number): Runtim
 
     deleteScope(scopeId: string): number {
       if (!isNonEmptyString(scopeId)) fail('scopeId must be a non-empty string');
-      let deleted = 0;
-      for (const record of repository.readAll()) {
-        if (record.scopeId === scopeId && repository.remove(record.id)) deleted++;
-      }
-      return deleted;
+      return repository.removeScope(scopeId);
     },
 
     export(scopeId: string, now: string): MemoryExport {
@@ -327,7 +335,7 @@ function createStore(repository: RecordRepository, defaultTtlMs: number): Runtim
         version: MEMORY_RECORD_SCHEMA_VERSION,
         scopeId,
         exportedAt: now,
-        records: this.listAll(scopeId),
+        records: listScope(scopeId),
       });
     },
 
@@ -376,6 +384,20 @@ function createFileRepository(resolveDataDir: () => string): RecordRepository {
     return null;
   }
 
+  /**
+   * Lenient scope attribution for deletion only. Enough of a file may survive
+   * to say whose it is even when it fails the full record guard, and that is
+   * exactly the file a scope deletion must not miss.
+   */
+  function readScopeId(filePath: string): string | null {
+    try {
+      const raw = JSON.parse(readFileSync(filePath, 'utf8')) as Record<string, unknown> | null;
+      return typeof raw?.scopeId === 'string' ? raw.scopeId : null;
+    } catch {
+      return null;
+    }
+  }
+
   return {
     readOne(id: string): RuntimeMemoryRecord | null {
       const filePath = recordPath(ensureDir(), id);
@@ -408,6 +430,23 @@ function createFileRepository(resolveDataDir: () => string): RecordRepository {
       unlinkSync(filePath);
       return true;
     },
+
+    removeScope(scopeId: string): number {
+      const dataDir = ensureDir();
+      let removed = 0;
+      for (const entry of readdirSync(dataDir)) {
+        if (!entry.endsWith(MEMORY_FILE_EXT)) continue;
+        const filePath = path.join(dataDir, entry);
+        // A file whose JSON is unrecoverable names no scope, so it is left in
+        // place: deleting unattributable files on any scope deletion would
+        // destroy a different user's data. Such a file is an operator problem,
+        // not something one user's deletion may resolve on their behalf.
+        if (readScopeId(filePath) !== scopeId) continue;
+        unlinkSync(filePath);
+        removed++;
+      }
+      return removed;
+    },
   };
 }
 
@@ -420,6 +459,13 @@ function createMemoryRepository(): RecordRepository {
       records.set(record.id, record);
     },
     remove: (id) => records.delete(id),
+    removeScope: (scopeId) => {
+      let removed = 0;
+      for (const [id, record] of Array.from(records.entries())) {
+        if (record.scopeId === scopeId && records.delete(id)) removed++;
+      }
+      return removed;
+    },
   };
 }
 
