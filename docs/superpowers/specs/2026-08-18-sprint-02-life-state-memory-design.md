@@ -179,21 +179,28 @@ export interface RuntimeMemoryRecord {
 
 ```ts
 export interface RuntimeMemoryStore {
-  put(input: CreateMemoryInput): RuntimeMemoryRecord;
+  put(input: CreateMemoryInput, now: string): RuntimeMemoryRecord;
   get(id: string): RuntimeMemoryRecord | null;
-  retrieve(query: MemoryQuery): RuntimeMemoryRecord[];  // active only
-  listAll(scopeId: string): RuntimeMemoryRecord[];      // everything, for inspection
-  supersede(oldId: string, input: CreateMemoryInput): RuntimeMemoryRecord;
+  retrieve(query: MemoryQuery): readonly RuntimeMemoryRecord[];  // active, non-stale only
+  listAll(scopeId: string): readonly RuntimeMemoryRecord[];      // everything, for inspection
+  supersede(oldId: string, input: CreateMemoryInput, now: string): RuntimeMemoryRecord;
   revoke(id: string, at: string): boolean;
   deleteById(id: string): boolean;
   deleteScope(scopeId: string): number;
-  export(scopeId: string): MemoryExport;
+  export(scopeId: string, now: string): MemoryExport;
   prune(now: string): number;
 }
 
-export function createFileRuntimeMemoryStore(options?: { dataDir?: string; defaultTtlMs?: number }): RuntimeMemoryStore;
+export function createFileRuntimeMemoryStore(options?: RuntimeMemoryStoreOptions): RuntimeMemoryStore;
 export function createInMemoryRuntimeMemoryStore(): RuntimeMemoryStore;
 ```
+
+Every mutating method takes an explicit timestamp; the store never reads the system clock, so tests
+are deterministic. `MemoryQuery` carries its own `now` for the same reason.
+
+**`staleAfter` derives from write time**, not `observedAt`: `staleAfter = now + ttlMs`. A fact
+observed long ago but recorded today is not born stale. `observedAt` records when the underlying fact
+was true and never affects staleness.
 
 Supporting types, all defined in `src/contracts/v1/memoryContracts.ts`:
 
@@ -202,7 +209,7 @@ Supporting types, all defined in `src/contracts/v1/memoryContracts.ts`:
   optional `ttlMs` (falls back to the store's `defaultTtlMs`). Server-assigned fields (`id`,
   `version`, `status`, `createdAt`, `updatedAt`, `staleAfter`, supersession links) are **not**
   accepted from callers.
-- `MemoryQuery` — `scopeId` (required), optional `kind`, `minConfidence`, `language`, `limit`.
+- `MemoryQuery` — `scopeId` and `now` (required), optional `kind`, `minConfidence`, `language`, `limit`.
   Results are sorted newest-`observedAt` first. `retrieve()` always filters to
   `status === 'active'` and `staleAfter > now`.
 - `MemoryExport` — `{ version, scopeId, exportedAt, records: RuntimeMemoryRecord[] }`, the
