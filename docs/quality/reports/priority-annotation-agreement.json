@@ -1,0 +1,18 @@
+{
+  "version": "priority-v1",
+  "generatedAt": "2026-08-18T21:10:39.776Z",
+  "rubricVersion": "priority-rubric-v1",
+  "pairCount": 0,
+  "annotatorCount": 0,
+  "judgmentCount": 0,
+  "observedAgreement": null,
+  "unresolvedCount": 0,
+  "disagreements": [],
+  "corpusEmpty": true,
+  "scorablePairCount": 0,
+  "unscorablePairCount": 0,
+  "comparableVerdictPairCount": 0,
+  "concordantVerdictPairCount": 0,
+  "perAnnotator": [],
+  "status": "CORPUS EMPTY"
+}
