@@ -116,7 +116,21 @@ where the resulting order differs and why.
 |---|---|
 | Shadow output cannot affect persistence or UI | The module imports no writer and no UI surface, enforced by a boundary test walking the transitive import closure — the technique that caught a real side-effect-import gap in Sprint 03. Shadow comparison returns a value; it has no write path to return through. |
 | Sampling is configurable | An explicit sample rate and a deterministic, seeded selection, so a sampled run is reproducible rather than merely cheap. |
-| Metrics separate missing context from scorer disagreement | Two distinct causes, reported separately. A rank change caused by an unknown feature is a **data** problem; a rank change caused by different weights over identical known features is a **policy** problem. Conflating them sends a reader to debug the wrong thing — and given `dependency` and `effort` are permanently unknown, the first category is guaranteed non-empty. |
+| Metrics separate missing context from scorer disagreement | Two distinct causes, reported separately. A rank change caused by an unknown feature is a **data** problem; a rank change caused by different weights over identical known features is a **policy** problem. Conflating them sends a reader to debug the wrong thing. |
+
+**Corrected during implementation.** This section originally added: "given `dependency` and `effort`
+are permanently unknown, the first category is guaranteed non-empty." That was wrong, and taking it
+literally would have destroyed the split. If a permanently-unknown feature always counts as missing
+context, then every disagreement is `missing_context` or `mixed`, `scorer_disagreement` becomes
+unreachable, and `byCause` carries no information — the same "looks reassuring, measures nothing"
+failure as #23's original framing, one level down.
+
+The rule that survives: **a cause must be something that differs between the two runs.** Both
+policies are exactly as blind to `dependency` and `effort` as each other, so that blindness cannot
+explain a difference between them. A feature is only decisive when it is unknown *and* the two
+policies weight it differently. Permanently-unknown features are still listed in
+`RankDisagreement.unknownFeatures` — that is the guarantee that genuinely holds — but they do not
+classify a row.
 
 ## Testing
 
@@ -166,3 +180,16 @@ will police these new modules automatically).
   so a zero result is a real signal rather than the only result the code can produce.
 - **Leakage between the annotation corpus and the locked split.** Mitigation: the ingest check in
   #21, tested from both directions.
+
+- **A reviewed decision cannot be checked against what the reviewer saw.** `ReviewedDecision` carries
+  `pairId` but not `leftCommitmentId`/`rightCommitmentId`, so a verdict of `left` is only meaningful
+  relative to an orientation stored elsewhere — where Sprint 04's `PairwiseJudgment` carries both and
+  guards it. If a pair's orientation ever changed between cutting a batch and ingesting a decision,
+  the judgment would silently mean the opposite of what the reviewer intended, and calibration would
+  fit to the inverse of their preference.
+
+  Mitigated rather than fixed this sprint: the seed set is checksum-locked, so orientation cannot
+  change undetected, and `verifyBatchOrientation` checks at the one point where the information still
+  exists. The contract was left alone because two tracks were mid-flight against it and the lock
+  already closes the path. **Add the two ids when the contract is next reopened** — a decision that
+  carries its own orientation cannot be misread, whereas a check has to be remembered.
