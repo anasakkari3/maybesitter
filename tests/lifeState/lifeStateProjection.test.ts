@@ -279,12 +279,37 @@ test('commitments view counts every status, and open/overdue sets are id-sorted'
   const view = projection.commitments.value;
 
   assert.deepEqual(view.countsByStatus, { draft: 1, active: 2, completed: 1, missed: 1 });
-  assert.equal(view.openCount, 3);
-  assert.deepEqual(view.openCommitmentIds, ['c_a', 'c_m', 'c_z']);
+  // c_missed counts as open: the state machine still accepts Complete/Postpone
+  // on it, so it is live work, not a finished outcome.
+  assert.equal(view.openCount, 4);
+  assert.deepEqual(view.openCommitmentIds, ['c_a', 'c_m', 'c_missed', 'c_z']);
+  // It carries no dueAt, so being open does not make it overdue.
   assert.deepEqual(view.overdueCommitmentIds, ['c_a', 'c_z']);
   assert.equal(view.overdueCount, 2);
   assert.equal(projection.commitments.provenance.derivedFrom, '2026-08-15T09:00:00.000Z');
   assert.equal(projection.commitments.provenance.source, 'domain_state');
+});
+
+test('a missed commitment is open work, not a finished outcome, so it raises load rather than counting as an outcome', () => {
+  const projection = project(stateOf([
+    commitment({ id: 'c_missed', status: 'missed', updatedAt: '2026-08-15T09:00:00.000Z' }),
+  ]));
+
+  assert.equal(projection.commitments.known, true);
+  assert.equal(projection.load.known, true);
+  if (!projection.commitments.known || !projection.load.known) return;
+
+  // Open, and therefore contributing to load.
+  assert.equal(projection.commitments.value.openCount, 1);
+  assert.deepEqual(projection.commitments.value.openCommitmentIds, ['c_missed']);
+  assert.equal(projection.load.value.openCount, 1);
+
+  // Missing a deadline is a behavioural signal, but the work is not finished,
+  // so it must not be reported as a completed outcome.
+  assert.equal(projection.recentOutcomes.known, true);
+  if (!projection.recentOutcomes.known) return;
+  assert.equal(projection.recentOutcomes.value.completedCount, 0);
+  assert.equal(projection.recentOutcomes.value.droppedCount, 0);
 });
 
 test('countsByStatus emits keys in lifecycle order, not in whatever order commitments were encountered', () => {

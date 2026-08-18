@@ -99,7 +99,11 @@ export interface LoadView {
   readonly openCount: number;
   readonly overdueCount: number;
   readonly dueSoonCount: number;
-  /** Deterministic banding over the counts above; see LOAD_BAND_THRESHOLDS. */
+  /**
+   * Banding on `openCount` alone, via LOAD_BAND_THRESHOLDS. The other counts
+   * are reported for consumers to weigh but deliberately do not move the band,
+   * so the formula stays exactly the exported thresholds.
+   */
   readonly band: LoadBand;
 }
 
@@ -151,19 +155,33 @@ export const LOAD_BAND_THRESHOLDS = Object.freeze({
   heavy: 9,
 });
 
-/** Statuses that count as "open" for commitments, availability, and load. */
+/**
+ * Statuses that count as "open" for commitments, availability, and load.
+ *
+ * `missed` is open, not terminal. The state machine still accepts Complete,
+ * Postpone, and MarkAware on a missed commitment, and canEscalate() explicitly
+ * includes it — a missed commitment is live work the system is still pressing
+ * on. Treating it as finished would understate load for exactly the users
+ * carrying the most overdue work.
+ */
 export const OPEN_COMMITMENT_STATUSES: readonly CommitmentStatus[] = Object.freeze([
   'draft',
   'needs_clarification',
   'pending_confirmation',
   'active',
   'deferred',
+  'missed',
 ]);
 
-/** Statuses that represent a finished commitment, used by recentOutcomes. */
+/**
+ * Statuses that represent a finished commitment, used by recentOutcomes.
+ *
+ * Deliberately excludes `missed`: missing a deadline is a behavioral signal,
+ * but the work is not finished. It is reported through the open counts and
+ * through ack states rather than as a completed outcome.
+ */
 export const TERMINAL_COMMITMENT_STATUSES: readonly CommitmentStatus[] = Object.freeze([
   'completed',
   'dropped',
-  'missed',
   'archived',
 ]);
