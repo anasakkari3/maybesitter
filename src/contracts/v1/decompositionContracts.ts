@@ -272,6 +272,17 @@ export type ConfirmationFailureCode =
   | 'unknown_step'
   | 'duplicate_decision'
   | 'invalid_edit'
+  /**
+   * The proposal was already confirmed, and this request is not a replay of
+   * that confirmation — a reused idempotency key carrying different decisions,
+   * or a fresh key against a proposal that has already been applied.
+   *
+   * Distinct from `proposal_not_found`, which is what those cases reported
+   * before this member existed. Collapsing them tells a caller its proposal
+   * never existed when in fact its decisions were rejected because someone had
+   * already decided — the one case where a retry is exactly the wrong response.
+   */
+  | 'already_confirmed'
   | 'persistence_failed';
 
 export interface DecompositionConfirmationResult {
