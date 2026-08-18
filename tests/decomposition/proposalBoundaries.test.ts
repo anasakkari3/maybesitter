@@ -140,6 +140,49 @@ export function importSpecifiers(source: string): string[] {
 }
 
 /**
+ * Import statements the compiler erases: `import type` and `export type`.
+ *
+ * They bind no runtime value and execute no module, so they cannot reach a
+ * writer however forbidden the module at the other end is. Separating them is
+ * not a loophole but the difference between "this code can call that" and "this
+ * code names that type" — and it is load-bearing, because the frozen contract
+ * chain reaches `src/domain/stateMachine` through exactly one such import
+ * (`lifeStateContracts.ts` naming `DomainState`) and through no other edge.
+ *
+ * The pattern is deliberately tight — no quote or semicolon between `type` and
+ * the specifier — so it cannot run past the end of a statement and swallow the
+ * value import that follows it.
+ */
+const TYPE_ONLY_PATTERNS = [
+  /\b(?:import|export)\s+type\s+[^'";]*from\s*['"]([^'"]+)['"]/g,
+] as const;
+
+export function typeOnlySpecifiers(source: string): string[] {
+  const specifiers: string[] = [];
+  for (const pattern of TYPE_ONLY_PATTERNS) {
+    let match = pattern.exec(source);
+    while (match !== null) {
+      specifiers.push(match[1]);
+      match = pattern.exec(source);
+    }
+  }
+  return specifiers;
+}
+
+/**
+ * Specifiers that survive compilation — the only ones that are a real edge.
+ *
+ * Computed by deleting the erased statements and re-scanning, rather than by
+ * subtracting one list from another, so a module imported both as a type and as
+ * a value is correctly still a value edge.
+ */
+export function valueSpecifiers(source: string): string[] {
+  return importSpecifiers(
+    source.replace(/\b(?:import|export)\s+type\s+[^'";]*from\s*['"][^'"]+['"]/g, ' '),
+  );
+}
+
+/**
  * Source with its comments removed.
  *
  * The content bans below are about what the code *does*, and these modules
@@ -149,17 +192,55 @@ export function importSpecifiers(source: string): string[] {
  * in the wrong direction. The line-comment pattern keeps the character before
  * `//`, so a `https://` inside a string literal is not read as a comment.
  */
-function strippedSource(file: string): string {
-  return readFileSync(file, 'utf8')
+export function stripComments(source: string): string {
+  return source
     .replace(/\/\*[\s\S]*?\*\//g, ' ')
     .replace(/(^|[^:'"`\\])\/\/[^\n]*/g, '$1');
 }
 
+function strippedSource(file: string): string {
+  return stripComments(readFileSync(file, 'utf8'));
+}
+
+/**
+ * The repo file a specifier names, or null when it names no repo file.
+ *
+ * Understands `@/*`, which `tsconfig.json` maps to `./src/*` and which 76
+ * imports across `lib/` and `src/` use. Without it the closure walk stopped
+ * dead at the repo's dominant import spelling: an `@/`-reached module was never
+ * opened, so everything it imported was invisible — in the one test that is the
+ * sole evidence for "the original commitment remains canonical".
+ *
+ * A non-bare specifier that resolves to nothing throws rather than returning
+ * null. Silence is what let the alias hole survive: an edge the scanner chose
+ * not to follow and an edge it followed to nothing produced the same clean
+ * result, so the closure could shrink to nothing and still report green.
+ */
 function resolveLocal(fromFile: string, specifier: string): string | null {
-  if (!specifier.startsWith('.')) return null;
-  const base = resolve(dirname(fromFile), specifier.replace(/\.tsx?$/, ''));
-  const candidates = [base, `${base}.ts`, `${base}.tsx`, join(base, 'index.ts')];
-  return candidates.find((candidate) => existsSync(candidate) && statSync(candidate).isFile()) || null;
+  const aliased = specifier.startsWith('@/');
+  if (!aliased && !specifier.startsWith('.')) return null;
+
+  const withoutExtension = specifier.replace(/\.tsx?$/, '');
+  const base = aliased
+    ? join(repoRoot, 'src', withoutExtension.slice(2))
+    : resolve(dirname(fromFile), withoutExtension);
+  const candidates = [
+    base,
+    `${base}.ts`,
+    `${base}.tsx`,
+    `${base}.js`,
+    `${base}.mjs`,
+    `${base}.json`,
+    join(base, 'index.ts'),
+    join(base, 'index.tsx'),
+  ];
+  const found = candidates.find((candidate) => existsSync(candidate) && statSync(candidate).isFile());
+  if (found) return found;
+
+  throw new Error(
+    `boundary scanner: could not resolve "${specifier}" from ${relative(fromFile)}. `
+      + 'A specifier the scanner cannot follow is a hole in the closure, not a file to skip.',
+  );
 }
 
 /** Every repo file reachable from `roots`, mapped to its own import specifiers. */
@@ -171,12 +252,18 @@ function importClosure(roots: readonly string[]): Map<string, string[]> {
     const file = queue.shift() as string;
     if (closure.has(file)) continue;
 
-    const specifiers = importSpecifiers(readFileSync(file, 'utf8'));
+    // Stripped, so prose in a doc comment that names a module is not read as an
+    // import of it. The content bans below already read stripped source; having
+    // the closure read raw meant a comment explaining why a writer is forbidden
+    // reported that writer as a violation.
+    const specifiers = valueSpecifiers(stripComments(readFileSync(file, 'utf8')));
     closure.set(file, specifiers);
 
     for (const specifier of specifiers) {
       const resolved = resolveLocal(file, specifier);
-      if (resolved && !closure.has(resolved)) queue.push(resolved);
+      // Only source files are walked further; a .json or .js leaf has no
+      // TypeScript imports to follow but is still a legitimate resolution.
+      if (resolved && /\.tsx?$/.test(resolved) && !closure.has(resolved)) queue.push(resolved);
     }
   }
   return closure;
@@ -265,7 +352,7 @@ test('scanner: the closure walks past the first hop', () => {
   const closure = importClosure(roots);
   const directlyImported = new Set(
     roots.flatMap((file) =>
-      importSpecifiers(readFileSync(file, 'utf8'))
+      valueSpecifiers(stripComments(readFileSync(file, 'utf8')))
         .map((specifier) => resolveLocal(file, specifier))
         .filter((resolved): resolved is string => resolved !== null),
     ),
@@ -376,4 +463,118 @@ test('the contract states that the original commitment stays canonical', () => {
   assert.match(policy[1], /everyStepNeedsExplicitDecision: true/);
   assert.match(policy[1], /proposalCanPersist: false/);
   assert.match(policy[1], /confirmationRequired: true/);
+});
+
+/* ── Review regressions: the scanner's own blind spots ────────────── */
+
+test('scanner: the @/ path alias resolves to src/', () => {
+  // `resolveLocal` only understood specifiers starting with `.`, while
+  // tsconfig maps `@/*` to `./src/*` and 76 imports across lib/ and src/
+  // already use it. Anything reached through an `@/` import was invisible to
+  // the closure walk — a hole the width of the repo's dominant spelling, in
+  // the one test that is the sole evidence for the canonical-commitment
+  // criterion.
+  const fromFile = join(proposalDir, 'proposalStore.ts');
+
+  assert.equal(
+    resolveLocal(fromFile, '@/contracts/v1/decompositionContracts'),
+    join(repoRoot, 'src', 'contracts', 'v1', 'decompositionContracts.ts'),
+  );
+  assert.equal(resolveLocal(fromFile, '@/types'), join(repoRoot, 'src', 'types', 'index.ts'));
+});
+
+test('scanner: an unresolvable non-bare specifier fails loudly', () => {
+  // Silently returning null is how the alias hole stayed invisible: an
+  // un-followed edge and a followed one that found nothing looked the same.
+  const fromFile = join(proposalDir, 'proposalStore.ts');
+
+  assert.throws(() => resolveLocal(fromFile, './doesNotExist'), /could not resolve/i);
+  assert.throws(() => resolveLocal(fromFile, '@/doesNotExist'), /could not resolve/i);
+  // Bare specifiers are not repo files and legitimately resolve to nothing.
+  assert.equal(resolveLocal(fromFile, 'node:fs'), null);
+  assert.equal(resolveLocal(fromFile, 'react'), null);
+});
+
+test('scanner: the closure follows an @/ import into src/', () => {
+  // End to end, on a real repo file, so this cannot pass by unit-testing a
+  // helper the closure does not actually use.
+  const aliasUser = join(repoRoot, 'src', 'utils', 'reminderEngine.ts');
+  assert.ok(existsSync(aliasUser), 'expected a repo file that imports through @/');
+  assert.match(readFileSync(aliasUser, 'utf8'), /from '@\//, 'expected it to still use the alias');
+
+  const closure = importClosure([aliasUser]);
+
+  assert.ok(
+    closure.has(join(repoRoot, 'src', 'types', 'index.ts')),
+    'the closure must walk through an @/ specifier, not stop at it',
+  );
+});
+
+test('scanner: a commented-out import is not read as a real one', () => {
+  // The closure read raw source while the content bans read stripped source,
+  // so prose in a doc comment naming a writer module reported a violation that
+  // no code could cause — and the cheapest way to silence it is to delete the
+  // comment explaining the rule.
+  const source = [
+    '/**',
+    " * Historically this imported '../../services/commandService'.",
+    ' */',
+    "// import { dataStore } from '@/server/dataStore';",
+    "import { real } from './real';",
+  ].join('\n');
+
+  const found = importSpecifiers(stripComments(source));
+
+  assert.deepEqual(found, ['./real']);
+});
+
+test('scanner: an erased type-only import is not a runtime edge', () => {
+  // `import type` is removed by the compiler, so it can execute nothing and
+  // write nothing. The distinction is load-bearing here: the frozen contract
+  // chain reaches src/domain/stateMachine through exactly one such import, and
+  // treating that as a runtime dependency would make the guard unsatisfiable
+  // without editing a contract this issue may not touch.
+  const source = [
+    "import type { DomainState } from '../../domain/stateMachine';",
+    "export type { Command } from '../../domain/stateMachine';",
+    "import { applyCommand } from './realDependency';",
+  ].join('\n');
+
+  assert.deepEqual(valueSpecifiers(source), ['./realDependency']);
+  assert.deepEqual(typeOnlySpecifiers(source).sort(), [
+    '../../domain/stateMachine',
+    '../../domain/stateMachine',
+  ]);
+});
+
+test('scanner: a value import of a banned module is still caught', () => {
+  // The other half of the previous test: type-awareness must not become a way
+  // to launder a real dependency.
+  const source = [
+    "import type { DomainState } from '../../domain/stateMachine';",
+    "import { applyCommand } from '../../domain/stateMachine';",
+  ].join('\n');
+
+  assert.deepEqual(valueSpecifiers(source), ['../../domain/stateMachine']);
+  assert.notEqual(forbiddenReason(valueSpecifiers(source)[0]), null);
+});
+
+test('the contract chain reaches canonical state only through erased type imports', () => {
+  // Stated as a property rather than a footnote. If a future contract edit turns
+  // that edge into a value import, this fails and says so.
+  const closure = importClosure(sourceFilesUnder(proposalDir));
+  const lifeState = join(repoRoot, 'src', 'contracts', 'v1', 'lifeStateContracts.ts');
+
+  assert.ok(closure.has(lifeState), 'the contract chain must still be walked');
+  assert.ok(
+    typeOnlySpecifiers(stripComments(readFileSync(lifeState, 'utf8'))).some((specifier) =>
+      specifier.endsWith('domain/stateMachine'),
+    ),
+    'the edge to the domain machine must be an erased type import',
+  );
+  assert.equal(
+    closure.has(join(repoRoot, 'src', 'domain', 'stateMachine.ts')),
+    false,
+    'no runtime path from the proposal module may reach the domain state machine',
+  );
 });

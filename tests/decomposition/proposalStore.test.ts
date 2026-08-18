@@ -120,10 +120,16 @@ function setup(proposal: DecompositionProposal = proposalFrom('en-multi-wedding'
 /* ── Admission ────────────────────────────────────────────────────── */
 
 test('a valid decomposed proposal is admitted and retrievable', () => {
-  const { store, admission, proposal } = setup();
+  const proposal = proposalFrom('en-multi-wedding');
+  const snapshot = JSON.parse(JSON.stringify(proposal)) as unknown;
+  const { store, admission } = setup(proposal);
 
   assert.equal(admission.admitted, true);
-  assert.deepEqual(store.get('p1')?.proposal, proposal);
+  // Compared against a clone taken before admission, not against `proposal`
+  // itself: the store used to hand back the caller's own object, so the old
+  // assertion compared an object with itself and could not fail.
+  assert.deepEqual(JSON.parse(JSON.stringify(store.get('p1')?.proposal)) as unknown, snapshot);
+  assert.notEqual(store.get('p1')?.proposal, proposal, 'the store must not hand back the caller object');
   assert.equal(store.get('p1')?.scopeId, SCOPE);
 });
 
@@ -274,7 +280,7 @@ test('rejecting every step succeeds and persists nothing at all', async () => {
 test('confirmation leaves the stored proposal byte-identical', async () => {
   // "The original commitment remains canonical" at the store level: an edit
   // rewrites what is confirmed, never what was proposed.
-  const { store, proposal } = setup();
+  const { store } = setup();
   const before = JSON.parse(JSON.stringify(store.get('p1')?.proposal)) as unknown;
 
   await store.confirm(
@@ -288,7 +294,6 @@ test('confirmation leaves the stored proposal byte-identical', async () => {
   );
 
   assert.deepEqual(JSON.parse(JSON.stringify(store.get('p1')?.proposal)) as unknown, before);
-  assert.deepEqual(store.get('p1')?.proposal, proposal);
 });
 
 /* ── Idempotency ──────────────────────────────────────────────────── */
@@ -323,6 +328,7 @@ test('the same idempotency key with different decisions is refused, not replayed
 
   assert.equal(second.success, false);
   assert.equal(second.replayed, false);
+  assert.equal(second.failureCode, 'already_confirmed');
   assert.equal(recorder.batches.length, 1);
 });
 
@@ -332,6 +338,7 @@ test('a second confirmation under a new key cannot re-apply an applied proposal'
   const second = await store.confirm(request({ idempotencyKey: 'key-2' }));
 
   assert.equal(second.success, false);
+  assert.equal(second.failureCode, 'already_confirmed');
   assert.equal(recorder.batches.length, 1);
 });
 
@@ -397,4 +404,144 @@ test('a failing port reports persistence_failed and leaves the proposal confirma
   assert.equal(retried.success, true);
   assert.equal(retried.replayed, false);
   assert.equal(recorder.batches.length, 1);
+});
+
+/* ── Review regressions ───────────────────────────────────────────── */
+
+test('re-admitting a confirmed proposal cannot make it applicable twice', async () => {
+  // `admit` used to overwrite the entry with `confirmed: null`, which reset the
+  // already-confirmed guard and let the port be reached a second time. The
+  // guard is only a guard if it survives a re-admission.
+  const proposal = proposalFrom('en-multi-wedding');
+  const { store, recorder } = setup(proposal);
+
+  const first = await store.confirm(request());
+  assert.equal(first.success, true);
+
+  store.admit({ proposal, scopeId: SCOPE });
+
+  // A fresh key is a second apply, which is the case the guard exists for.
+  const reapply = await store.confirm(request({ idempotencyKey: 'key-2' }));
+  assert.equal(reapply.success, false);
+  assert.equal(reapply.failureCode, 'already_confirmed');
+
+  // And the identical request is still a replay, not a second write.
+  const replay = await store.confirm(request());
+  assert.equal(replay.replayed, true);
+
+  assert.equal(recorder.batches.length, 1, 'the port must still have been reached exactly once');
+});
+
+test('re-admitting under another scope does not hand that scope the proposal', async () => {
+  // The same overwrite let a second admission move a live proposal into a
+  // different scope, defeating the scope check outright.
+  const proposal = proposalFrom('en-multi-wedding');
+  const { store, recorder } = setup(proposal);
+
+  store.admit({ proposal, scopeId: 'someone-else' });
+  const foreign = await store.confirm(request({ scopeId: 'someone-else' }));
+
+  assert.equal(foreign.success, false);
+  assert.equal(foreign.failureCode, 'proposal_not_found');
+  assert.deepEqual(recorder.batches, []);
+
+  // And the original scope still owns it.
+  const owner = await store.confirm(request());
+  assert.equal(owner.success, true);
+  assert.equal(recorder.batches.length, 1);
+});
+
+test('a re-admission of an open proposal is refused rather than silently applied', () => {
+  const { store } = setup();
+  const again = store.admit({ proposal: proposalFrom('en-multi-wedding'), scopeId: SCOPE });
+
+  assert.equal(again.admitted, false);
+  assert.equal(again.admitted === false ? again.reason : null, 'already_admitted');
+});
+
+test('concurrent confirmations with one key reach the port once', async () => {
+  // `confirm` read the stored entry, awaited the port, and only then recorded
+  // the confirmation — so two callers interleaving on that await both saw an
+  // unconfirmed proposal and both applied it.
+  const batches: ConfirmedStepBatch[] = [];
+  const slowPort = {
+    async persistConfirmedSteps(batch: ConfirmedStepBatch): Promise<void> {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      batches.push(batch);
+    },
+  };
+  const store = createInMemoryProposalStore({ persistence: slowPort });
+  store.admit({ proposal: proposalFrom('en-multi-wedding'), scopeId: SCOPE });
+
+  const results = await Promise.all([store.confirm(request()), store.confirm(request())]);
+
+  assert.equal(batches.length, 1, 'the port must be reached exactly once');
+  assert.equal(results.filter((result) => result.success && !result.replayed).length, 1);
+  assert.equal(results.filter((result) => result.replayed).length, 1);
+});
+
+test('concurrent confirmations with different keys apply only one', async () => {
+  const batches: ConfirmedStepBatch[] = [];
+  const slowPort = {
+    async persistConfirmedSteps(batch: ConfirmedStepBatch): Promise<void> {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      batches.push(batch);
+    },
+  };
+  const store = createInMemoryProposalStore({ persistence: slowPort });
+  store.admit({ proposal: proposalFrom('en-multi-wedding'), scopeId: SCOPE });
+
+  const results = await Promise.all([
+    store.confirm(request()),
+    store.confirm(request({ idempotencyKey: 'key-2' })),
+  ]);
+
+  assert.equal(batches.length, 1);
+  assert.equal(results.filter((result) => result.success).length, 1);
+  assert.equal(
+    results.filter((result) => result.failureCode === 'already_confirmed').length,
+    1,
+    'the loser must be told someone already decided, not that nothing exists',
+  );
+});
+
+test('the store hands out no reference a caller can corrupt', async () => {
+  const proposal = proposalFrom('en-multi-wedding');
+  const { store, recorder } = setup(proposal);
+  const stored = store.get('p1');
+
+  assert.ok(stored);
+  assert.notEqual(stored.proposal, proposal, 'the stored proposal must not alias the caller object');
+  assert.equal(Object.isFrozen(stored.proposal), true, 'a retrieved proposal must be immutable');
+
+  await store.confirm(
+    request({
+      decisions: [
+        { stepId: 's1', verdict: 'edit', editedTitle: 'Reserve the venue' },
+        { stepId: 's2', verdict: 'accept' },
+        { stepId: 's3', verdict: 'reject' },
+      ],
+    }),
+  );
+
+  // An adapter normalizing spans in place is the realistic failure. It must not
+  // be able to reach stored state through the batch it was handed.
+  const before = JSON.parse(JSON.stringify(store.get('p1')?.proposal)) as unknown;
+  const spans = recorder.batches[0].steps[0].step.sourceSpans;
+  assert.equal(Object.isFrozen(spans), true, 'the batch must not carry a mutable span array');
+  assert.throws(() => {
+    (spans as unknown as { start: number }[])[0].start = 999;
+  }, 'mutating a span handed to the port must fail loudly');
+
+  assert.deepEqual(JSON.parse(JSON.stringify(store.get('p1')?.proposal)) as unknown, before);
+});
+
+test('mutating the proposal object after admission cannot change what is stored', () => {
+  const proposal = proposalFrom('en-multi-wedding');
+  const { store } = setup(proposal);
+  const before = JSON.parse(JSON.stringify(store.get('p1')?.proposal)) as unknown;
+
+  (proposal as unknown as { commitmentId: string }).commitmentId = 'somebody-elses-commitment';
+
+  assert.deepEqual(JSON.parse(JSON.stringify(store.get('p1')?.proposal)) as unknown, before);
 });

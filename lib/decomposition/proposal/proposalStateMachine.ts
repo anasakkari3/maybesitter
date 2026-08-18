@@ -103,6 +103,104 @@ export interface ResolvedConfirmation {
   readonly rejectedStepIds: readonly string[];
 }
 
+/**
+ * Titles that are only a connective.
+ *
+ * English `and`/`then` are the obvious ones. Arabic `و` and Hebrew `ו` are here
+ * because both languages write the conjunction as a clitic prefixed onto the
+ * next word with no whitespace (`واطلب`, `ותזמין`), so a splitter that strips
+ * the prefix to find the boundary emits the bare letter as if it were a step.
+ * That artefact is a single character and would pass any "non-empty title"
+ * check, which is exactly why `CONJUNCTION_ONLY` is a separate code from
+ * `EMPTY_STEP`.
+ *
+ * Matching is whole-title only. A title that merely *starts* with a connective
+ * ("and order the cake", "واطلب الكعكة") is a real step, and rejecting those
+ * would break the very rows the clitic handling exists to support.
+ */
+const CONNECTIVE_TITLES: ReadonlySet<string> = new Set([
+  'and',
+  'then',
+  'and then',
+  'also',
+  'next',
+  'و',
+  'ثم',
+  'وثم',
+  'وبعدها',
+  'بعدها',
+  'ו',
+  'ואז',
+  'וגם',
+  'אחכ',
+]);
+
+/**
+ * Combining marks and invisible format characters, removed before any lookup.
+ *
+ * Both are ordinary in this product's real input and both defeated the
+ * connective list outright: vocalized Arabic (`وَ` is waw + fatha) and a
+ * right-to-left mark pasted in ahead of a word (`‏و`) are different strings
+ * from the bare conjunction, so the artefact walked straight through while
+ * looking identical on screen. Explicit BMP ranges rather than `\p{M}` with the
+ * `u` flag, because the repo compiles to es5 and `u` is unavailable there.
+ *
+ *  - `\u0300-\u036F` Latin combining diacritics
+ *  - `\u0591-\u05BD \u05BF \u05C1-\u05C2 \u05C4-\u05C5 \u05C7` Hebrew niqqud and cantillation
+ *  - `\u0610-\u061A \u064B-\u065F \u0670 \u06D6-\u06ED` Arabic harakat and Quranic marks
+ *  - `\u200B-\u200F \u061C \u202A-\u202E \u2066-\u2069 \uFEFF` zero-width and bidi controls
+ */
+const INVISIBLE_MARKS =
+  /[\u0300-\u036F\u0591-\u05BD\u05BF\u05C1\u05C2\u05C4\u05C5\u05C7\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u200B-\u200F\u061C\u202A-\u202E\u2066-\u2069\uFEFF]/g;
+
+/**
+ * Punctuation, symbols and separators that carry no meaning on their own.
+ *
+ * Stripped before the connective lookup so " , then " and "and." are recognised
+ * as the same artefact as "then" — a splitter that leaves the delimiter attached
+ * would otherwise walk straight through the check. Arabic comma, semicolon and
+ * question mark are listed explicitly: they are separate code points from their
+ * Latin lookalikes, so a class built only from ASCII punctuation would leave an
+ * Arabic split artefact looking like a real title.
+ *
+ * The hyphen is last in the class and unescaped-by-position on purpose. It used
+ * to sit inside `‐-―`, which a regex reads as the *range* U+2010–U+2015 — so the
+ * ASCII hyphen was a range delimiter and never a member, and a title of "-" was
+ * not empty. The dash range is spelled with explicit escapes now so no character
+ * can be silently swallowed into a range again.
+ *
+ * No `u` flag: every character here is in the BMP, so the class means the same
+ * thing without it.
+ */
+const TITLE_NOISE = /[\s.,;:!?،؛؟"'`()[\]{}«»“”‘’\u2010-\u2015+/&*=~|_\\@#%^<>…·•—–－·、。「」\u00a0-]+/g;
+
+/**
+ * A title reduced to the form the violation checks compare on.
+ *
+ * Lowercased, stripped of invisible marks and of punctuation. Exported nowhere:
+ * every caller goes through `titleViolation` so the entry path and the edit path
+ * cannot drift apart, which is exactly what happened when the edit path used a
+ * bare `trim()`.
+ */
+function normalizeTitle(title: string): string {
+  return title.replace(INVISIBLE_MARKS, '').replace(TITLE_NOISE, ' ').trim().toLowerCase();
+}
+
+/**
+ * What is wrong with a title on its own, or null when nothing is.
+ *
+ * The single standard for "this is not a step", applied both when a proposal is
+ * admitted and when a user edits a step. Before, admission used this and the
+ * edit path used `trim().length === 0`, so a user could edit a step into "and"
+ * or "." — strings admission would have rejected outright — and the port
+ * received them.
+ */
+function titleViolation(title: string): 'EMPTY_STEP' | 'CONJUNCTION_ONLY' | null {
+  const normalized = normalizeTitle(title);
+  if (normalized.length === 0) return 'EMPTY_STEP';
+  return CONNECTIVE_TITLES.has(normalized) ? 'CONJUNCTION_ONLY' : null;
+}
+
 /* ── The fold ─────────────────────────────────────────────────────── */
 
 export function initialProposalState(proposal: DecomposedProposal): ProposalState {
@@ -153,11 +251,18 @@ export function applyStepDecision(state: ProposalState, decision: StepDecision):
   let next: ProposalStepState;
   if (decision.verdict === 'edit') {
     const editedTitle = decision.editedTitle.trim();
-    if (editedTitle.length === 0) {
+    // The same standard admission applies, not a weaker one. `invalid_edit` is
+    // the code either way: the caller needs to know which decision to fix, and
+    // EMPTY_STEP/CONJUNCTION_ONLY describe a proposal, not a request.
+    const titleProblem = titleViolation(editedTitle);
+    if (titleProblem !== null) {
       return failed(state, {
         code: 'invalid_edit',
         stepId: decision.stepId,
-        detail: 'edited title is blank; a step with no words is not a step',
+        detail:
+          titleProblem === 'EMPTY_STEP'
+            ? 'edited title has no words; a step with no words is not a step'
+            : 'edited title is only a connective; that is a split artefact, not a step',
       });
     }
     next = {
@@ -210,11 +315,20 @@ export function reduceStepDecisions(
 /**
  * Splits a completed state into what persists and what does not.
  *
+ * Finalizes first rather than trusting the caller to have done it. A state
+ * mid-fold has steps still pending, and reading one directly returned the
+ * decided steps as confirmed with the undecided ones in neither list — silent
+ * partial acceptance, reachable by anyone wiring the documented incremental
+ * path (`applyStepDecision`) straight to a port. Finalizing here makes that
+ * unreachable instead of merely discouraged; it is idempotent, so a caller that
+ * already finalized loses nothing.
+ *
  * A state carrying a failure yields nothing on either side: a refused request
  * has no rejected steps either, because the user's rejections were part of a
  * request that was never valid.
  */
-export function resolveConfirmedSteps(state: ProposalState): ResolvedConfirmation {
+export function resolveConfirmedSteps(input: ProposalState): ResolvedConfirmation {
+  const state = finalizeProposalState(input);
   if (state.failure !== null) return { confirmed: [], rejectedStepIds: [] };
 
   const confirmed: ConfirmedDecompositionStep[] = [];
@@ -230,57 +344,6 @@ export function resolveConfirmedSteps(state: ProposalState): ResolvedConfirmatio
 }
 
 /* ── Entry validation ─────────────────────────────────────────────── */
-
-/**
- * Titles that are only a connective.
- *
- * English `and`/`then` are the obvious ones. Arabic `و` and Hebrew `ו` are here
- * because both languages write the conjunction as a clitic prefixed onto the
- * next word with no whitespace (`واطلب`, `ותזמין`), so a splitter that strips
- * the prefix to find the boundary emits the bare letter as if it were a step.
- * That artefact is a single character and would pass any "non-empty title"
- * check, which is exactly why `CONJUNCTION_ONLY` is a separate code from
- * `EMPTY_STEP`.
- *
- * Matching is whole-title only. A title that merely *starts* with a connective
- * ("and order the cake", "واطلب الكعكة") is a real step, and rejecting those
- * would break the very rows the clitic handling exists to support.
- */
-const CONNECTIVE_TITLES: ReadonlySet<string> = new Set([
-  'and',
-  'then',
-  'and then',
-  'also',
-  'next',
-  'و',
-  'ثم',
-  'وثم',
-  'وبعدها',
-  'بعدها',
-  'ו',
-  'ואז',
-  'וגם',
-  'אחכ',
-]);
-
-/**
- * Punctuation and separators that carry no meaning on their own.
- *
- * Stripped before the connective lookup so " , then " and "and." are recognised
- * as the same artefact as "then" — a splitter that leaves the delimiter attached
- * would otherwise walk straight through the check. Arabic comma, semicolon and
- * question mark are listed explicitly: they are separate code points from their
- * Latin lookalikes, so a class built only from ASCII punctuation would leave an
- * Arabic split artefact looking like a real title.
- *
- * No `u` flag: the repo compiles to es5, and every character here is in the BMP,
- * so the class means the same thing without it.
- */
-const TITLE_NOISE = /[\s.,;:!?،؛؟‐-―"'`()[\]{}«»“”‘’]+/g;
-
-function normalizeTitle(title: string): string {
-  return title.replace(TITLE_NOISE, ' ').trim().toLowerCase();
-}
 
 function violation(
   code: DecompositionViolation['code'],
@@ -342,10 +405,21 @@ function hasCycle(steps: readonly DecompositionStepProposal[]): boolean {
  * a private code here would be one #26 could not count and #27 could not
  * reject.
  *
- * Span exactness, invented timings and owners, and the atomic/do-not-split
- * judgement are deliberately *not* checked here: they need the source text and
- * the label, which is #27's validator and #26's evaluator, and duplicating them
- * would create the second opinion the shared vocabulary exists to prevent.
+ * `INFERRED_WITH_SPAN` and `UNSOURCED_STEP` are checked here because both are
+ * decidable from the step alone — they are a consistency check between
+ * `inferred` and `sourceSpans`, needing nothing else — and `UNSOURCED_STEP` is
+ * the provenance deliverable itself: a step with no span and no admission is
+ * indistinguishable from an invented one, and admitting it would put an
+ * unsourced step in front of a user.
+ *
+ * `SPAN_MISMATCH`, `SPAN_OUT_OF_RANGE` and `SPAN_OVERLAP` are deliberately *not*
+ * checked here, and neither are `INVENTED_TIMING`, `INVENTED_OWNER` or
+ * `SPLIT_ATOMIC`. Not for want of the source text — `proposal.sourceText` is
+ * right here — but because each is a judgement about the *engine's* reading of
+ * that text, which is #27's validator and #26's evaluator. Two independent
+ * implementations of the same judgement is the second opinion the shared
+ * vocabulary exists to prevent; a consistency check on one step's own fields
+ * is not.
  */
 export function validateProposalEntry(proposal: DecomposedProposal): readonly DecompositionViolation[] {
   const violations: DecompositionViolation[] = [];
@@ -360,12 +434,27 @@ export function validateProposalEntry(proposal: DecomposedProposal): readonly De
     }
     seenIds.add(step.stepId);
 
-    const normalized = normalizeTitle(step.title);
-    if (normalized.length === 0) {
-      violations.push(violation('EMPTY_STEP', step.stepId, 'title is blank or punctuation only'));
-    } else if (CONNECTIVE_TITLES.has(normalized)) {
+    const titleProblem = titleViolation(step.title);
+    if (titleProblem === 'EMPTY_STEP') {
+      violations.push(violation('EMPTY_STEP', step.stepId, 'title has no words once punctuation and marks are removed'));
+    } else if (titleProblem === 'CONJUNCTION_ONLY') {
       violations.push(
         violation('CONJUNCTION_ONLY', step.stepId, 'title is only a connective; this is a split artefact, not a step'),
+      );
+    }
+
+    // The contract's own rule: `sourceSpans` may be empty only for a step the
+    // engine admits it inferred, and a step that admits it cannot also cite
+    // text. Both directions matter — an unadmitted unsourced step is an
+    // invented one wearing a proposal's clothes, and a step claiming both is
+    // one whose provenance nobody can act on.
+    if (step.inferred && step.sourceSpans.length > 0) {
+      violations.push(
+        violation('INFERRED_WITH_SPAN', step.stepId, 'step is marked inferred but cites source text'),
+      );
+    } else if (!step.inferred && step.sourceSpans.length === 0) {
+      violations.push(
+        violation('UNSOURCED_STEP', step.stepId, 'step cites no source text and does not admit to being inferred'),
       );
     }
 

@@ -439,3 +439,152 @@ test('entry validation reports every distinct problem, not just the first', () =
     ['CONJUNCTION_ONLY', 'DUPLICATE_STEP_ID', 'EMPTY_STEP', 'UNKNOWN_DEPENDENCY'],
   );
 });
+
+/* ── Review regressions ───────────────────────────────────────────── */
+
+test('an edit to a connective or punctuation-only title is invalid_edit', () => {
+  // The edit path used `trim().length === 0` while admission used the strictly
+  // stronger normalisation, so a user could edit a step into exactly the string
+  // an engine could not have proposed. One standard, both paths.
+  for (const title of ['and', 'then', 'ثم', 'و', 'ואז', '.', '-', '…', '  &  ']) {
+    const state = reduceStepDecisions(proposalFrom('en-multi-wedding'), [
+      accept('s1'),
+      edit('s2', title),
+      accept('s3'),
+    ]);
+    assert.equal(state.failure?.code, 'invalid_edit', `${JSON.stringify(title)} must be refused`);
+    assert.equal(state.failure?.stepId, 's2');
+  }
+});
+
+test('an edit to a real title that merely contains a connective is accepted', () => {
+  // The mirror: the stronger check must not start refusing ordinary edits.
+  for (const title of ['and order the cake', 'Review the terms and conditions', 'واطلب الكعكة']) {
+    const state = reduceStepDecisions(proposalFrom('en-multi-wedding'), [
+      accept('s1'),
+      edit('s2', title),
+      accept('s3'),
+    ]);
+    assert.equal(state.failure, null, `${JSON.stringify(title)} must be allowed`);
+  }
+});
+
+test('resolving a state that was never finalized confirms nothing', () => {
+  // A caller wiring the incremental path straight to a port would otherwise
+  // ship exactly the silent partial acceptance the contract forbids: s1
+  // confirmed, s2 and s3 in neither list and nobody told.
+  const partial = applyStepDecision(initialProposalState(proposalFrom('en-multi-wedding')), accept('s1'));
+  const resolved = resolveConfirmedSteps(partial);
+
+  assert.deepEqual(resolved.confirmed, []);
+  assert.deepEqual(resolved.rejectedStepIds, []);
+});
+
+test('resolving a fully decided state does not need an explicit finalize', () => {
+  const decided = [accept('s1'), accept('s2'), reject('s3')].reduce(
+    applyStepDecision,
+    initialProposalState(proposalFrom('en-multi-wedding')),
+  );
+  const resolved = resolveConfirmedSteps(decided);
+
+  assert.deepEqual(resolved.confirmed.map((entry) => entry.step.stepId), ['s1', 's2']);
+  assert.deepEqual(resolved.rejectedStepIds, ['s3']);
+});
+
+test('diacritics and bidi marks do not hide a connective-only title', () => {
+  // Ordinary in this product's real input: vocalized Arabic, and a right-to-left
+  // mark pasted in ahead of the word. Both left the title a bare conjunction
+  // that no longer matched the connective list.
+  const cases: readonly (readonly [string, string])[] = [
+    ['وَ', 'waw with fatha'],
+    ['‏و', 'RLM then waw'],
+    ['  ثُمَّ  ', 'vocalized thumma'],
+    ['‎And‏', 'LRM around and'],
+    ['וָ', 'vav with qamats'],
+  ];
+
+  for (const [title, label] of cases) {
+    assert.deepEqual(
+      codesFor(withSteps([step({ stepId: 'a', title }), step({ stepId: 'b' })])),
+      ['CONJUNCTION_ONLY'],
+      `${label} must still be CONJUNCTION_ONLY`,
+    );
+  }
+});
+
+test('a title made only of punctuation or symbols is EMPTY_STEP', () => {
+  // The ASCII hyphen was never caught: inside the noise class `‐-―` is a range
+  // from U+2010 to U+2015, so `-` was a range delimiter and not a member.
+  for (const title of ['-', '+', '/', '…', '&', '*', '--', ' . ', '()', '|']) {
+    assert.deepEqual(
+      codesFor(withSteps([step({ stepId: 'a', title }), step({ stepId: 'b' })])),
+      ['EMPTY_STEP'],
+      `${JSON.stringify(title)} must be EMPTY_STEP`,
+    );
+  }
+});
+
+test('ordinary titles containing punctuation are still admissible', () => {
+  for (const title of ['Book venue & cake', 'Call Dr. Levi', 'Send the 3/4 report', 'Pay — in full']) {
+    assert.deepEqual(
+      codesFor(withSteps([step({ stepId: 'a', title }), step({ stepId: 'b' })])),
+      [],
+      `${JSON.stringify(title)} must be admissible`,
+    );
+  }
+});
+
+test('a step claiming to be inferred while citing source text is INFERRED_WITH_SPAN', () => {
+  const violations = validateProposalEntry(
+    withSteps([
+      step({ stepId: 'a', inferred: true, sourceSpans: [{ start: 0, end: 4, text: 'Book' }] }),
+      step({ stepId: 'b' }),
+    ]),
+  );
+
+  assert.deepEqual(violations.map((violation) => violation.code), ['INFERRED_WITH_SPAN']);
+  assert.equal(violations[0].stepId, 'a');
+});
+
+test('a step with no span that does not admit to being inferred is UNSOURCED_STEP', () => {
+  // Directly the "stable source-span/provenance links" deliverable: a step with
+  // no span and no admission is indistinguishable from an invented one.
+  const violations = validateProposalEntry(
+    withSteps([step({ stepId: 'a', inferred: false, sourceSpans: [] }), step({ stepId: 'b' })]),
+  );
+
+  assert.deepEqual(violations.map((violation) => violation.code), ['UNSOURCED_STEP']);
+  assert.equal(violations[0].stepId, 'a');
+});
+
+test('the two honest provenance shapes are admissible', () => {
+  assert.deepEqual(
+    codesFor(
+      withSteps([
+        step({ stepId: 'a', inferred: false, sourceSpans: [{ start: 0, end: 4, text: 'Book' }] }),
+        step({ stepId: 'b', inferred: true, sourceSpans: [] }),
+      ]),
+    ),
+    [],
+  );
+});
+
+test('an edit cannot mutate the spans of the step it came from', () => {
+  // The headline provenance test compared the edited step's span array with the
+  // proposal's — which was the same array object, so it could not have caught an
+  // in-place rewrite. Compare against a clone taken before the edit, and assert
+  // the arrays are not the same object.
+  const proposal = proposalFrom('ar-multi-wedding');
+  const before = JSON.parse(JSON.stringify(proposal.steps[1].sourceSpans)) as unknown;
+
+  const state = reduceStepDecisions(proposal, [accept('s1'), edit('s2', 'ابعت الدعوات'), accept('s3')]);
+  const edited = state.steps.find((entry) => entry.stepId === 's2');
+
+  assert.ok(edited);
+  assert.deepEqual(JSON.parse(JSON.stringify(edited.step.sourceSpans)) as unknown, before);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(proposal.steps[1].sourceSpans)) as unknown,
+    before,
+    'the proposal the edit came from must be unchanged',
+  );
+});
