@@ -197,6 +197,38 @@ class CaptureNotifier extends StateNotifier<CaptureState> {
     }
   }
 
+  /// Applies a clarification answer to the items already extracted from the
+  /// participant's real input, then proceeds to review.
+  ///
+  /// This must never discard what the participant actually typed: earlier,
+  /// this simply loaded unrelated fixture/preview data regardless of what
+  /// was extracted or which option was picked. There is no backend endpoint
+  /// to interpret [option] semantically yet, so the honest behavior is to
+  /// unblock the items that were waiting on clarification and let the
+  /// participant confirm what was really extracted - not invent a plan they
+  /// never entered.
+  void resolveClarification(ClarificationOption option) {
+    if (state.isSubmitting) return;
+
+    final resolved = state.extractedCommitments
+        .map(
+          (c) => c.needsClarification
+              ? c.copyWith(needsClarification: false)
+              : c,
+        )
+        .toList();
+    final initialSelections = resolved
+        .where((c) => c.canBeSelected)
+        .map((c) => c.id)
+        .toSet();
+
+    state = state.copyWith(
+      status: CaptureStatus.needsConfirmation,
+      extractedCommitments: resolved,
+      selectedItemIds: initialSelections,
+    );
+  }
+
   void updatePriority(String id, CommitmentPriority priority) {
     final updatedList = state.extractedCommitments.map((c) {
       return c.id == id ? c.copyWith(priority: priority) : c;
@@ -337,12 +369,28 @@ class CaptureNotifier extends StateNotifier<CaptureState> {
         );
         break;
       case CaptureStatus.needsClarification:
-        state = const CaptureState(
+        state = CaptureState(
           status: CaptureStatus.needsClarification,
           rawInput: 'I have a doctor visit and work tomorrow...',
+          // Mirrors what the real backend sends: items already extracted
+          // from the participant's own input, some flagged as needing one
+          // more detail rather than fully replaced by canned data.
+          extractedCommitments: [
+            Commitment(
+              id: 'clarify-1',
+              title: 'Doctor visit',
+              scheduledDate: tomorrow,
+              priority: CommitmentPriority.must,
+            ),
+            Commitment(
+              id: 'clarify-2',
+              title: 'Work',
+              needsClarification: true,
+            ),
+          ],
           clarificationPrompt:
               'I understood that you have a doctor visit and work tomorrow. Should work be scheduled as a fixed time or flexible?',
-          clarificationOptions: [
+          clarificationOptions: const [
             ClarificationOption(
               id: 'o1',
               text: 'Schedule work 11:30 AM – 5:00 PM',
