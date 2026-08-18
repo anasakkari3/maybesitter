@@ -160,6 +160,18 @@ const BUSY_WINDOW_KEYS = keysOf<keyof BusyWindow>({
 const LIFE_STATE_FIELDS = ['commitments', 'availability', 'load', 'recentOutcomes'] as const;
 
 /**
+ * Fields for which DomainState is the authoritative record rather than partial
+ * evidence, and which are therefore known-zero over an empty state.
+ *
+ * DomainState is the complete record of the user's commitments, so an empty one
+ * means "zero commitments" with certainty — a known fact, not missing
+ * information. The other two fields describe a world wider than our records: an
+ * empty commitment list does not mean the user's calendar is free, and no
+ * history is not evidence about behaviour. Those stay NO_DATA.
+ */
+const AUTHORITATIVE_OVER_EMPTY_STATE: ReadonlySet<string> = new Set(['commitments', 'load']);
+
+/**
  * Characters that reorder or isolate bidirectional runs. Fixture text must be
  * stored in logical order, so any of these is a defect rather than content:
  * LRM, RLM, ALM, LRE, RLE, PDF, LRO, RLO, LRI, RLI, FSI, PDI.
@@ -285,8 +297,16 @@ function checkProvenance(ctx: FieldContext, provenance: unknown, knownField: boo
     if (derivedFrom !== null) {
       ctx.issues.error('ABSENT_SOURCE_HAS_INPUT', path, "source 'absent' cannot name a contributing input");
     }
-    if (knownField) {
-      ctx.issues.error('KNOWN_FIELD_ABSENT_SOURCE', path, "a known field cannot carry source 'absent'");
+    // A known field may legitimately carry 'absent' over an empty DomainState:
+    // the value is known *because* there are no records, and DomainState is the
+    // authoritative record. Over a populated state it is a contradiction — some
+    // record must have produced the value.
+    if (knownField && ctx.commitments.length > 0) {
+      ctx.issues.error(
+        'KNOWN_FIELD_ABSENT_SOURCE',
+        path,
+        "a known field over a populated DomainState cannot carry source 'absent'; some record produced its value",
+      );
     }
   }
 }
@@ -676,11 +696,11 @@ function checkLifeStateSection(
       continue;
     }
 
-    if (stateIsEmpty) {
+    if (stateIsEmpty && !AUTHORITATIVE_OVER_EMPTY_STATE.has(fieldName)) {
       issues.error(
         'EMPTY_STATE_EXPECTS_UNKNOWN',
         fieldPath,
-        'the DomainState is empty, so this field must be unknown with reason NO_DATA rather than known — that distinction is the point of Field<T>',
+        `the DomainState is empty and ${fieldName} describes more than our own records, so it must be unknown with reason NO_DATA rather than known`,
       );
     }
 

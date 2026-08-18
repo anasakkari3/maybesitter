@@ -34,9 +34,22 @@ export type UnknownReason =
   /** Deliberately deferred to a later sprint. */
   | 'NOT_IMPLEMENTED';
 
+/**
+ * `source` and `derivedFrom` are independent, and the difference carries
+ * meaning:
+ *
+ *   - `source: 'domain_state'`, `derivedFrom: <ts>` — records were read and at
+ *     least one contributed.
+ *   - `source: 'domain_state'`, `derivedFrom: null` — records were read and
+ *     none contributed. "Looked and found nothing in the window."
+ *   - `source: 'absent'`, `derivedFrom: null` — there was nothing to read.
+ *
+ * Collapsing source into a function of derivedFrom would erase the difference
+ * between the middle case and the last one.
+ */
 export interface FieldProvenance {
   readonly source: 'domain_state' | 'deterministic_rule' | 'absent';
-  /** ISO timestamp of the newest input that contributed to this field. */
+  /** ISO timestamp of the newest input that contributed, or null if none did. */
   readonly derivedFrom: string | null;
   /** ISO timestamp of the projection run that produced this field. */
   readonly computedAt: string;
@@ -57,6 +70,20 @@ export interface UnknownField {
 /**
  * Every projected field carries freshness and source metadata, and distinguishes
  * "known to be empty/false/zero" from "not known".
+ *
+ * Over an *empty* DomainState the two halves of the projection diverge, and the
+ * split is deliberate:
+ *
+ *   - `commitments` and `load` are **known-zero**. DomainState is the complete,
+ *     authoritative record of the user's commitments, so an empty one means
+ *     zero with certainty.
+ *   - `availability` and `recentOutcomes` are **unknown (NO_DATA)**. They
+ *     describe a world wider than our records: an empty commitment list does
+ *     not mean the user's time is free, and no history is not evidence about
+ *     behaviour.
+ *
+ * Reporting a known zero as unknown hides a real fact; reporting an unknown as
+ * a known zero invents one. Both directions matter.
  */
 export type Field<T> = KnownField<T> | UnknownField;
 

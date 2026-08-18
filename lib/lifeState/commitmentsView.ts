@@ -56,5 +56,5 @@ export function buildCommitmentsView(facts: readonly CommitmentFact[], computedA
     overdueCommitmentIds,
   };
 
-  return knownField(view, newestTimestamp(facts.map((fact) => fact.commitment.updatedAt)), computedAt);
+  return knownField(view, newestTimestamp(facts.map((fact) => fact.commitment.updatedAt)), computedAt, facts.length > 0);
 }

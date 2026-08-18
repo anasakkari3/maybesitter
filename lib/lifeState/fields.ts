@@ -4,14 +4,20 @@
  * Centralised so that "what does source mean" is answered once, in one place,
  * rather than being decided differently by each view. The rule is:
  *
- *   source = 'domain_state' when at least one DomainState record contributed
- *          = 'absent'       when nothing contributed at all
+ *   source     = 'domain_state' when DomainState records were read for this field
+ *              = 'absent'       when there was nothing to read
+ *   derivedFrom = the newest timestamp among the records that contributed, or
+ *                 null when none carried one
  *
- * which makes `source` a function of `derivedFrom` and therefore impossible for a
- * view to get inconsistently wrong. A known-zero over an empty set is honestly
- * 'absent': the value is known, but no record produced it. 'deterministic_rule'
- * is unused in v1 — every field reads DomainState, none is computed from `now`
- * alone.
+ * These are deliberately independent. A known-zero over a populated state —
+ * "no commitment finished inside the window" — reads the state and finds
+ * nothing relevant, so it is `source: 'domain_state'` with `derivedFrom: null`.
+ * Collapsing source into a function of derivedFrom would report `absent` for a
+ * field whose value is genuinely known, and would leave a consumer unable to
+ * tell "looked and found nothing" from "never looked".
+ *
+ * 'deterministic_rule' is unused in v1 — every field reads DomainState, none is
+ * computed from `now` alone.
  */
 import type {
   FieldProvenance,
@@ -59,18 +65,37 @@ export function newestTimestamp(candidates: readonly (string | null | undefined)
   return best;
 }
 
-export function provenanceOf(derivedFrom: string | null, computedAt: string): FieldProvenance {
+/**
+ * @param sourceRead whether any DomainState record was read for this field.
+ *   Independent of `derivedFrom`: a field can read records and still have none
+ *   contribute a timestamp.
+ */
+export function provenanceOf(
+  derivedFrom: string | null,
+  computedAt: string,
+  sourceRead: boolean,
+): FieldProvenance {
   return {
-    source: derivedFrom === null ? 'absent' : 'domain_state',
+    source: sourceRead ? 'domain_state' : 'absent',
     derivedFrom,
     computedAt,
   };
 }
 
-export function knownField<T>(value: T, derivedFrom: string | null, computedAt: string): KnownField<T> {
-  return { known: true, value, provenance: provenanceOf(derivedFrom, computedAt) };
+export function knownField<T>(
+  value: T,
+  derivedFrom: string | null,
+  computedAt: string,
+  sourceRead: boolean,
+): KnownField<T> {
+  return { known: true, value, provenance: provenanceOf(derivedFrom, computedAt, sourceRead) };
 }
 
-export function unknownField(reason: UnknownReason, derivedFrom: string | null, computedAt: string): UnknownField {
-  return { known: false, reason, provenance: provenanceOf(derivedFrom, computedAt) };
+export function unknownField(
+  reason: UnknownReason,
+  derivedFrom: string | null,
+  computedAt: string,
+  sourceRead: boolean,
+): UnknownField {
+  return { known: false, reason, provenance: provenanceOf(derivedFrom, computedAt, sourceRead) };
 }

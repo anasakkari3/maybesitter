@@ -259,8 +259,28 @@ test('commitments exist with no outcome inside the window: recentOutcomes is kno
   assert.equal(recentOutcomes.value.completedCount, 0);
   assert.equal(recentOutcomes.value.droppedCount, 0);
   assert.deepEqual(recentOutcomes.value.countsByAckState, {});
-  assert.equal(recentOutcomes.provenance.source, 'absent');
+  // The state was read and searched; nothing inside the window contributed a
+  // timestamp. That is "looked and found nothing", which is not the same as
+  // "never looked" — so source stays domain_state while derivedFrom is null.
+  assert.equal(recentOutcomes.provenance.source, 'domain_state');
   assert.equal(recentOutcomes.provenance.derivedFrom, null);
+});
+
+test('source and derivedFrom are independent: absent means nothing was read, not merely that nothing carried a timestamp', () => {
+  // Empty state: nothing to read at all.
+  const empty = project(createEmptyDomainState());
+  assert.equal(empty.recentOutcomes.provenance.source, 'absent');
+  assert.equal(empty.recentOutcomes.provenance.derivedFrom, null);
+
+  // Populated state, but no outcome inside the window: read, found nothing.
+  const populated = project(stateOf([
+    commitment({ id: 'c_a', status: 'completed', currentAckState: 'completed', completedAt: '2026-06-01T00:00:00.000Z', updatedAt: '2026-06-01T00:00:00.000Z' }),
+  ]));
+  assert.equal(populated.recentOutcomes.provenance.source, 'domain_state');
+  assert.equal(populated.recentOutcomes.provenance.derivedFrom, null);
+
+  // Both report derivedFrom null, so source is the only thing that tells a
+  // consumer these two situations apart.
 });
 
 /* ── CommitmentsView ─────────────────────────────────────────────── */

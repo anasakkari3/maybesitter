@@ -527,17 +527,36 @@ function missingFixture(language: MemoryLanguage): LifeStateMemoryFixture {
     now: FIXTURE_CLOCK_ISO,
     description: 'Empty DomainState and no in-scope memory: nothing to ground on.',
     notes:
-      'Every LifeState field must be NO_DATA with an absent source. This is the fixture that keeps ' +
-      '"unknown" distinct from "zero": a projection returning known-zero counts over an empty state ' +
-      'fails here. The probe record proves the scope filter, not the store, is what makes retrieval ' +
-      'empty — it is written under a neighbouring scope and must be invisible to both retrieve() and ' +
+      'This is the fixture that keeps "unknown" distinct from "zero", in both directions. ' +
+      'DomainState is the authoritative record of commitments, so an empty one means zero ' +
+      'commitments with certainty: `commitments` and `load` are known-zero, and a projection ' +
+      'reporting them as unknown fails here. `availability` and `recentOutcomes` describe a world ' +
+      'wider than our records — an empty commitment list does not make the user free, and no ' +
+      'history is not behavioural evidence — so those stay NO_DATA with an absent source. ' +
+      'The probe record proves the scope filter, not the store, is what makes retrieval empty: it ' +
+      'is written under a neighbouring scope and must be invisible to both retrieve() and ' +
       'listAll() for this scope.',
     lifeState: {
       input: { state, now: FIXTURE_CLOCK_ISO, scopeId },
       expected: {
-        commitments: noData(),
+        commitments: {
+          known: true,
+          value: {
+            countsByStatus: {},
+            openCount: 0,
+            overdueCount: 0,
+            openCommitmentIds: [],
+            overdueCommitmentIds: [],
+          },
+          provenance: absentProvenance(),
+        },
         availability: noData(),
-        load: noData(),
+        load: {
+          known: true,
+          value: { openCount: 0, overdueCount: 0, band: 'light' },
+          provenance: absentProvenance(),
+          unpinned: LOAD_UNPINNED,
+        },
         recentOutcomes: noData(),
       },
     },
@@ -1122,7 +1141,10 @@ export const MALFORMED_FIXTURES: readonly MalformedFixtureCase[] = Object.freeze
   },
   {
     id: 'malformed-empty-state-expects-known',
-    defect: 'A missing-condition fixture expects a known commitments field over an empty DomainState.',
+    defect:
+      'A missing-condition fixture expects a known availability field over an empty DomainState. ' +
+      'Unlike commitments, an empty record says nothing about whether the user is free, so ' +
+      'claiming knowledge here asserts something no data supports.',
     expectedIssueCode: 'EMPTY_STATE_EXPECTS_UNKNOWN',
     fixture: {
       ...MIXED_MISSING,
@@ -1131,16 +1153,10 @@ export const MALFORMED_FIXTURES: readonly MalformedFixtureCase[] = Object.freeze
         ...MIXED_MISSING.lifeState,
         expected: {
           ...MIXED_MISSING.lifeState.expected,
-          commitments: {
+          availability: {
             known: true,
-            value: {
-              countsByStatus: {},
-              openCount: 0,
-              overdueCount: 0,
-              openCommitmentIds: [],
-              overdueCommitmentIds: [],
-            },
-            provenance: { source: 'domain_state', derivedFrom: null, computedAt: FIXTURE_CLOCK_ISO },
+            value: { busyWindows: [], unscheduledCommitmentCount: 0 },
+            provenance: { source: 'absent', derivedFrom: null, computedAt: FIXTURE_CLOCK_ISO },
           },
         },
       },

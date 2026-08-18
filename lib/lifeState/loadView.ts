@@ -39,5 +39,5 @@ export function buildLoadView(facts: readonly CommitmentFact[], computedAt: stri
     band: bandForOpenCount(openFacts.length),
   };
 
-  return knownField(view, newestTimestamp(openFacts.map((fact) => fact.commitment.updatedAt)), computedAt);
+  return knownField(view, newestTimestamp(openFacts.map((fact) => fact.commitment.updatedAt)), computedAt, facts.length > 0);
 }

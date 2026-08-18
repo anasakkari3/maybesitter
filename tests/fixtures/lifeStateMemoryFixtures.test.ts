@@ -89,7 +89,13 @@ test('fixtures: every expected provenance is stamped with the fixed clock', () =
   }
 });
 
-test('fixtures: missing context expects NO_DATA on every field, not zero', () => {
+test('fixtures: missing context separates what an empty record proves from what it cannot', () => {
+  // DomainState is the authoritative record of commitments, so an empty one
+  // proves there are zero — a known fact. It proves nothing about the user's
+  // free time or their behaviour, so those two stay unknown. Getting this
+  // backwards in either direction defeats the point of Field<T>.
+  const AUTHORITATIVE = new Set(['commitments', 'load']);
+
   for (const language of FIXTURE_LANGUAGES) {
     const fixture = fixtureFor(language, 'missing');
     assert.ok(fixture);
@@ -97,8 +103,15 @@ test('fixtures: missing context expects NO_DATA on every field, not zero', () =>
 
     for (const field of LIFE_STATE_FIELDS) {
       const declared: ExpectedField<unknown> = fixture.lifeState.expected[field];
-      assert.equal(declared.known, false, `${fixture.id}.${field} must be unknown`);
-      assert.equal(declared.known === false ? declared.reason : null, 'NO_DATA');
+
+      if (AUTHORITATIVE.has(field)) {
+        assert.equal(declared.known, true, `${fixture.id}.${field} must be known-zero over an empty state`);
+      } else {
+        assert.equal(declared.known, false, `${fixture.id}.${field} must be unknown`);
+        assert.equal(declared.known === false ? declared.reason : null, 'NO_DATA');
+      }
+
+      // Either way nothing was read, so provenance reports no source.
       assert.equal(declared.provenance.source, 'absent');
       assert.equal(declared.provenance.derivedFrom, null);
     }

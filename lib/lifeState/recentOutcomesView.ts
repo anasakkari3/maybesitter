@@ -72,7 +72,7 @@ export function buildRecentOutcomesView(
   computedAt: string
 ): Field<RecentOutcomesView> {
   if (facts.length === 0) {
-    return unknownField('NO_DATA', null, computedAt);
+    return unknownField('NO_DATA', null, computedAt, false);
   }
 
   const windowStartMs = nowMs - windowDays * MS_PER_DAY;
@@ -120,5 +120,5 @@ export function buildRecentOutcomesView(
     countsByAckState,
   };
 
-  return knownField(view, newestTimestamp(tally.contributingTimestamps), computedAt);
+  return knownField(view, newestTimestamp(tally.contributingTimestamps), computedAt, true);
 }

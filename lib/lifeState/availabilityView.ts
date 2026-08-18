@@ -41,7 +41,7 @@ function busyWindowsFrom(openFacts: readonly CommitmentFact[]): BusyWindow[] {
 
 export function buildAvailabilityView(facts: readonly CommitmentFact[], computedAt: string): Field<AvailabilityView> {
   if (facts.length === 0) {
-    return unknownField('NO_DATA', null, computedAt);
+    return unknownField('NO_DATA', null, computedAt, false);
   }
 
   const openFacts = facts.filter((fact) => fact.isOpen);
@@ -53,7 +53,8 @@ export function buildAvailabilityView(facts: readonly CommitmentFact[], computed
     return unknownField(
       'INSUFFICIENT_DATA',
       newestTimestamp(facts.map((fact) => fact.commitment.updatedAt)),
-      computedAt
+      computedAt,
+      true
     );
   }
 
@@ -62,5 +63,5 @@ export function buildAvailabilityView(facts: readonly CommitmentFact[], computed
     unscheduledCommitmentCount: openFacts.filter((fact) => fact.deadlineAt === null).length,
   };
 
-  return knownField(view, newestTimestamp(openFacts.map((fact) => fact.commitment.updatedAt)), computedAt);
+  return knownField(view, newestTimestamp(openFacts.map((fact) => fact.commitment.updatedAt)), computedAt, true);
 }
