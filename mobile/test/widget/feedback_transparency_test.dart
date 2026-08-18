@@ -3,6 +3,9 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+// intl exports its own TextDirection, which would shadow dart:ui's.
+import 'package:intl/intl.dart' hide TextDirection;
+import 'package:maybesitter_mobile/core/utilities/date_formatter.dart';
 import 'package:maybesitter_mobile/design_system/components/maybesitter_switch.dart';
 import 'package:maybesitter_mobile/features/settings/feedback_history_controller.dart';
 import 'package:maybesitter_mobile/features/settings/feedback_history_screen.dart';
@@ -165,7 +168,13 @@ void main() {
       );
 
       expect(
-        find.text(l10n.feedbackHistoryAboutItem('Weekly Meal Prep')),
+        // The title is the user's own text, so it is direction-isolated in
+        // case its script differs from the surrounding sentence.
+        find.text(
+          l10n.feedbackHistoryAboutItem(
+            DateFormatter.isolateAuto('Weekly Meal Prep'),
+          ),
+        ),
         findsOneWidget,
       );
       // The event log holds an id, not a name. Where the item is gone the row
@@ -354,6 +363,55 @@ void main() {
         );
       });
     }
+
+    // Regression: the dates were first wrapped in a LEFT-TO-RIGHT isolate,
+    // which is right for a bare clock time and wrong for a localised date. On
+    // the simulator the Arabic row read "في أغسطس 2026 3:10 م 18" — the day
+    // number torn off the date and parked at the end of the line. English
+    // widget tests could not see it, because in English the forced direction
+    // happened to be the correct one.
+    testWidgets('a localized date keeps its own direction in ar and he', (
+      tester,
+    ) async {
+      for (final code in ['ar', 'he']) {
+        final l10n = l10nFor(code);
+        final occurredAt = DateTime(2026, 8, 18, 15, 10);
+        await pump(
+          tester,
+          const FeedbackHistoryScreen(),
+          service: MockFeedbackHistoryService(
+            rows: [
+              FeedbackHistoryRow(
+                id: 'evt-1',
+                outcome: FeedbackOutcome.defer,
+                subjectId: 'c-today-2',
+                occurredAt: occurredAt,
+                revokedAt: null,
+                canRevoke: true,
+              ),
+            ],
+            baseline: null,
+          ),
+          locale: Locale(code),
+        );
+
+        final rendered = l10n.feedbackHistoryWhen(
+          DateFormatter.isolateAuto(
+            DateFormat.yMMMd(code).add_jm().format(occurredAt),
+          ),
+        );
+        expect(
+          find.text(rendered),
+          findsOneWidget,
+          reason: '[$code] the date is not wrapped in a first-strong isolate',
+        );
+        // The day number is still inside the date, not stranded after it.
+        expect(
+          DateFormatter.stripIsolates(rendered).contains(DateFormatter.lri),
+          isFalse,
+        );
+      }
+    });
 
     testWidgets('every new key is translated in all three locales', (
       tester,

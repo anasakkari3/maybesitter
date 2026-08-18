@@ -171,7 +171,10 @@ class _ObservationCard extends StatelessWidget {
     final description = observationFor(l10n, row.outcome);
     final subjectLine = subjectTitle == null
         ? l10n.feedbackHistorySubjectUnknown
-        : l10n.feedbackHistoryAboutItem(subjectTitle!);
+        // The title is the user's own text and may be in any script, so it is
+        // isolated by first strong character rather than assumed to match the
+        // direction of the sentence it sits in.
+        : l10n.feedbackHistoryAboutItem(DateFormatter.isolateAuto(subjectTitle!));
     final locale = context.currentLanguageCode;
 
     return Semantics(
@@ -266,9 +269,11 @@ class _ObservationCard extends StatelessWidget {
                     l10n.feedbackRevokeAction,
                     // The visible label is short; the spoken one names the row
                     // it applies to, so a screen reader user is never asked to
-                    // remember which entry the button belongs to.
+                    // remember which entry the button belongs to. Isolate marks
+                    // are stripped: they order glyphs, and nothing is being
+                    // laid out here.
                     semanticsLabel: l10n.feedbackRevokeSemantics(
-                      '$description $subjectLine',
+                      DateFormatter.stripIsolates('$description $subjectLine'),
                     ),
                   ),
                 ),
@@ -407,7 +412,12 @@ String observationFor(AppLocalizations l10n, FeedbackOutcome outcome) {
   }
 }
 
-/// A date and time, isolated so an RTL paragraph cannot reorder its digits.
+/// A date and time, kept whole inside the surrounding paragraph.
+///
+/// The isolate is first-strong rather than left-to-right. A localised date is
+/// Arabic in Arabic and Hebrew in Hebrew, and forcing it LTR pulls the day
+/// number out of the date and drops it at the end of the line — a defect that
+/// is invisible in an English widget test and obvious on an RTL simulator.
 String _formatMoment(DateTime moment, String locale) {
   String formatted;
   try {
@@ -417,5 +427,5 @@ String _formatMoment(DateTime moment, String locale) {
     // fallback beats an exception on a screen about being trustworthy.
     formatted = DateFormat.yMMMd().add_jm().format(moment);
   }
-  return DateFormatter.isolate(formatted);
+  return DateFormatter.isolateAuto(formatted);
 }
