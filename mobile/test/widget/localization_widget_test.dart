@@ -25,8 +25,12 @@ void main() {
       // The Today screen now leads with the V03 next-step card, so a default
       // 800px test viewport pushes the commitment list below the fold and its
       // lazy slivers are never built. Give this test a taller surface rather
-      // than weakening what it asserts.
-      tester.view.physicalSize = const Size(1200, 3600);
+      // than weakening what it asserts. 4200 (not 3600) because Today's
+      // scroll viewport now reserves 96px of bottom clearance so the capture
+      // FAB never overlaps real content (lane-a-full-audit) - that shrinks
+      // the buildable region by the same amount, and 3600 had just enough
+      // margin to leave this test passing only by accident.
+      tester.view.physicalSize = const Size(1200, 4200);
       tester.view.devicePixelRatio = 3.0;
       addTearDown(tester.view.reset);
 
@@ -75,8 +79,12 @@ void main() {
       // The Today screen now leads with the V03 next-step card, so a default
       // 800px test viewport pushes the commitment list below the fold and its
       // lazy slivers are never built. Give this test a taller surface rather
-      // than weakening what it asserts.
-      tester.view.physicalSize = const Size(1200, 3600);
+      // than weakening what it asserts. 4200 (not 3600) because Today's
+      // scroll viewport now reserves 96px of bottom clearance so the capture
+      // FAB never overlaps real content (lane-a-full-audit) - that shrinks
+      // the buildable region by the same amount, and 3600 had just enough
+      // margin to leave this test passing only by accident.
+      tester.view.physicalSize = const Size(1200, 4200);
       tester.view.devicePixelRatio = 3.0;
       addTearDown(tester.view.reset);
 
