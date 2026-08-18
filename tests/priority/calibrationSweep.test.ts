@@ -93,6 +93,26 @@ test('sweep: the grid is bounded and its size is a stated number', () => {
   assert.equal(grid.length, 44);
 });
 
+test('sweep: the canonical grid order is pinned, so a reordering is a red test', () => {
+  const versions = canonicalSweepGrid(BASE).map((policy) => policy.version);
+
+  // The first eight, in full. A sweep whose order changed — because the axes
+  // were re-sorted, the multipliers re-listed, or the loops nested the other way
+  // round — would break ties differently and select a different candidate from
+  // the same corpus and the same seed.
+  assert.deepEqual(versions.slice(0, 8), [
+    `${BASE.version}+importanceHigh*0.5`,
+    `${BASE.version}+importanceHigh*0.75`,
+    `${BASE.version}+importanceHigh*1.25`,
+    `${BASE.version}+importanceHigh*1.5`,
+    `${BASE.version}+importanceNormal*0.5`,
+    `${BASE.version}+importanceNormal*0.75`,
+    `${BASE.version}+importanceNormal*1.25`,
+    `${BASE.version}+importanceNormal*1.5`,
+  ]);
+  assert.equal(versions[versions.length - 1], `${BASE.version}+userPressureStale*1.5`);
+});
+
 test('sweep: every candidate carries a version that is not the shipped one', () => {
   const versions = canonicalSweepGrid(BASE).map((policy) => policy.version);
   assert.equal(new Set(versions).size, versions.length);
