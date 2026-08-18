@@ -1,0 +1,67 @@
+{
+  "contractVersion": "1.0.0",
+  "schema": "decomposition-v1",
+  "manifestId": "decomposition-split-2026-08-19",
+  "assignmentVersion": "decomposition-split-v1",
+  "generatedAt": "2026-08-19T12:00:00.000Z",
+  "weights": {
+    "train": 70,
+    "valid": 15,
+    "lockedTest": 15
+  },
+  "exampleCount": 23,
+  "counts": {
+    "train": 12,
+    "valid": 3,
+    "locked-test": 8
+  },
+  "members": {
+    "train": [
+      "seed-ar-en-atomic-flight",
+      "seed-ar-en-multi-invoice",
+      "seed-ar-multi-errands",
+      "seed-en-atomic-recycling",
+      "seed-en-multi-expenses",
+      "seed-en-multi-garden",
+      "seed-en-multi-move",
+      "seed-en-multi-release",
+      "seed-en-nosplit-gift",
+      "seed-en-nosplit-safety",
+      "seed-en-nosplit-tradeoff",
+      "seed-he-multi-shop"
+    ],
+    "valid": [
+      "seed-ar-en-multi-report",
+      "seed-ar-multi-travel",
+      "seed-en-atomic-landlord"
+    ],
+    "locked-test": [
+      "seed-ar-atomic-bill",
+      "seed-ar-nosplit-call",
+      "seed-ar-nosplit-rules",
+      "seed-en-atomic-permit",
+      "seed-he-atomic-dentist",
+      "seed-he-multi-office",
+      "seed-he-nosplit-gift",
+      "seed-he-nosplit-procedures"
+    ]
+  },
+  "splitChecksums": {
+    "train": {
+      "algorithm": "sha256",
+      "value": "c6543aa32e56e21ea88b3b86fbb7672b2baba3d9020b131f912674f7206de0f7"
+    },
+    "valid": {
+      "algorithm": "sha256",
+      "value": "6e5cd58cdcf03ddf1c84e26a14af753f07d982d407b2e394b5f46ab682e763ae"
+    },
+    "locked-test": {
+      "algorithm": "sha256",
+      "value": "0b6d68a4d2b996dfea9138992d3e9a7a35177757e59cb9cc3c6f6ced9660ce38"
+    }
+  },
+  "corpusChecksum": {
+    "algorithm": "sha256",
+    "value": "ca6633c7c8b1c56ae3e39b09a3e34a18f0de96d025bacea2aa06451b189b33c7"
+  }
+}

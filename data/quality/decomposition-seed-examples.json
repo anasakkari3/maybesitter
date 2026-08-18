@@ -1,0 +1,675 @@
+{
+  "contractVersion": "1.0.0",
+  "schema": "decomposition-v1",
+  "role": "seed",
+  "note": "SYNTHETIC — ENGINEERING QA ONLY — NOT HUMAN EVIDENCE. Written to prove the Sprint 06 decomposition pipeline runs end to end. No person has reviewed these labels, and no score computed from them says anything about model quality. See docs/data/decomposition-annotation-guide.md.",
+  "examples": [
+    {
+      "exampleId": "seed-en-multi-move",
+      "locale": "en",
+      "sourceText": "Pack the boxes, then call the movers and update the address.",
+      "label": "multi_step",
+      "provenance": "synthetic",
+      "expectedSteps": [
+        {
+          "stepId": "s1",
+          "title": "Pack the boxes",
+          "sourceSpans": [
+            {
+              "start": 0,
+              "end": 14,
+              "text": "Pack the boxes"
+            }
+          ],
+          "inferred": false,
+          "dependsOn": [],
+          "statedTiming": null,
+          "statedOwner": null
+        },
+        {
+          "stepId": "s2",
+          "title": "call the movers",
+          "sourceSpans": [
+            {
+              "start": 21,
+              "end": 36,
+              "text": "call the movers"
+            }
+          ],
+          "inferred": false,
+          "dependsOn": [
+            {
+              "dependsOnStepId": "s1",
+              "kind": "temporal"
+            }
+          ],
+          "statedTiming": null,
+          "statedOwner": null
+        },
+        {
+          "stepId": "s3",
+          "title": "update the address",
+          "sourceSpans": [
+            {
+              "start": 41,
+              "end": 59,
+              "text": "update the address"
+            }
+          ],
+          "inferred": false,
+          "dependsOn": [],
+          "statedTiming": null,
+          "statedOwner": null
+        }
+      ],
+      "note": "\"then\" sequences s2 after s1; the \"and\" before s3 orders nothing, and asserting a dependency there would invent one."
+    },
+    {
+      "exampleId": "seed-en-multi-release",
+      "locale": "en",
+      "sourceText": "Draft the release notes by Monday, then tag the build and email the team.",
+      "label": "multi_step",
+      "provenance": "synthetic",
+      "expectedSteps": [
+        {
+          "stepId": "s1",
+          "title": "Draft the release notes",
+          "sourceSpans": [
+            {
+              "start": 0,
+              "end": 23,
+              "text": "Draft the release notes"
+            }
+          ],
+          "inferred": false,
+          "dependsOn": [],
+          "statedTiming": "by Monday",
+          "statedOwner": null
+        },
+        {
+          "stepId": "s2",
+          "title": "tag the build",
+          "sourceSpans": [
+            {
+              "start": 40,
+              "end": 53,
+              "text": "tag the build"
+            }
+          ],
+          "inferred": false,
+          "dependsOn": [
+            {
+              "dependsOnStepId": "s1",
+              "kind": "temporal"
+            }
+          ],
+          "statedTiming": null,
+          "statedOwner": null
+        },
+        {
+          "stepId": "s3",
+          "title": "email the team",
+          "sourceSpans": [
+            {
+              "start": 58,
+              "end": 72,
+              "text": "email the team"
+            }
+          ],
+          "inferred": false,
+          "dependsOn": [],
+          "statedTiming": null,
+          "statedOwner": null
+        }
+      ],
+      "note": "Timing is carried verbatim as \"by Monday\". Resolving it to a date is Capture's job; a decomposer that computes one has invented a fact."
+    },
+    {
+      "exampleId": "seed-en-multi-expenses",
+      "locale": "en",
+      "sourceText": "Collect the receipts and file the expense report.",
+      "label": "multi_step",
+      "provenance": "synthetic",
+      "expectedSteps": [
+        {
+          "stepId": "s1",
+          "title": "Collect the receipts",
+          "sourceSpans": [
+            {
+              "start": 0,
+              "end": 20,
+              "text": "Collect the receipts"
+            }
+          ],
+          "inferred": false,
+          "dependsOn": [],
+          "statedTiming": null,
+          "statedOwner": null
+        },
+        {
+          "stepId": "s2",
+          "title": "file the expense report",
+          "sourceSpans": [
+            {
+              "start": 25,
+              "end": 48,
+              "text": "file the expense report"
+            }
+          ],
+          "inferred": false,
+          "dependsOn": [
+            {
+              "dependsOnStepId": "s1",
+              "kind": "temporal"
+            }
+          ],
+          "statedTiming": null,
+          "statedOwner": null
+        }
+      ],
+      "note": "The smallest real decomposition: two steps, and the dependency is stated by the content rather than by a marker word."
+    },
+    {
+      "exampleId": "seed-en-multi-garden",
+      "locale": "en",
+      "sourceText": "Water the plants, prune the roses and mow the lawn.",
+      "label": "multi_step",
+      "provenance": "synthetic",
+      "expectedSteps": [
+        {
+          "stepId": "s1",
+          "title": "Water the plants",
+          "sourceSpans": [
+            {
+              "start": 0,
+              "end": 16,
+              "text": "Water the plants"
+            }
+          ],
+          "inferred": false,
+          "dependsOn": [],
+          "statedTiming": null,
+          "statedOwner": null
+        },
+        {
+          "stepId": "s2",
+          "title": "prune the roses",
+          "sourceSpans": [
+            {
+              "start": 18,
+              "end": 33,
+              "text": "prune the roses"
+            }
+          ],
+          "inferred": false,
+          "dependsOn": [],
+          "statedTiming": null,
+          "statedOwner": null
+        },
+        {
+          "stepId": "s3",
+          "title": "mow the lawn",
+          "sourceSpans": [
+            {
+              "start": 38,
+              "end": 50,
+              "text": "mow the lawn"
+            }
+          ],
+          "inferred": false,
+          "dependsOn": [],
+          "statedTiming": null,
+          "statedOwner": null
+        }
+      ],
+      "note": "Three independent actions in a comma list. No edge is stated, so none is recorded."
+    },
+    {
+      "exampleId": "seed-ar-multi-errands",
+      "locale": "ar",
+      "sourceText": "اشتر الخضار ثم مر على الصيدلية واحجز موعد الطبيب.",
+      "label": "multi_step",
+      "provenance": "synthetic",
+      "expectedSteps": [
+        {
+          "stepId": "s1",
+          "title": "اشتر الخضار",
+          "sourceSpans": [
+            {
+              "start": 0,
+              "end": 11,
+              "text": "اشتر الخضار"
+            }
+          ],
+          "inferred": false,
+          "dependsOn": [],
+          "statedTiming": null,
+          "statedOwner": null
+        },
+        {
+          "stepId": "s2",
+          "title": "مر على الصيدلية",
+          "sourceSpans": [
+            {
+              "start": 15,
+              "end": 30,
+              "text": "مر على الصيدلية"
+            }
+          ],
+          "inferred": false,
+          "dependsOn": [
+            {
+              "dependsOnStepId": "s1",
+              "kind": "temporal"
+            }
+          ],
+          "statedTiming": null,
+          "statedOwner": null
+        },
+        {
+          "stepId": "s3",
+          "title": "احجز موعد الطبيب",
+          "sourceSpans": [
+            {
+              "start": 32,
+              "end": 48,
+              "text": "احجز موعد الطبيب"
+            }
+          ],
+          "inferred": false,
+          "dependsOn": [],
+          "statedTiming": null,
+          "statedOwner": null
+        }
+      ],
+      "note": "The third conjunction is the clitic \"و\" prefixed onto \"احجز\": there is no whitespace to split on, and the prefix must stay outside the span or the span stops matching its own text."
+    },
+    {
+      "exampleId": "seed-ar-multi-travel",
+      "locale": "ar",
+      "sourceText": "احجز التذكرة ثم جدد جواز السفر واشتر التأمين.",
+      "label": "multi_step",
+      "provenance": "synthetic",
+      "expectedSteps": [
+        {
+          "stepId": "s1",
+          "title": "احجز التذكرة",
+          "sourceSpans": [
+            {
+              "start": 0,
+              "end": 12,
+              "text": "احجز التذكرة"
+            }
+          ],
+          "inferred": false,
+          "dependsOn": [],
+          "statedTiming": null,
+          "statedOwner": null
+        },
+        {
+          "stepId": "s2",
+          "title": "جدد جواز السفر",
+          "sourceSpans": [
+            {
+              "start": 16,
+              "end": 30,
+              "text": "جدد جواز السفر"
+            }
+          ],
+          "inferred": false,
+          "dependsOn": [
+            {
+              "dependsOnStepId": "s1",
+              "kind": "temporal"
+            }
+          ],
+          "statedTiming": null,
+          "statedOwner": null
+        },
+        {
+          "stepId": "s3",
+          "title": "اشتر التأمين",
+          "sourceSpans": [
+            {
+              "start": 32,
+              "end": 44,
+              "text": "اشتر التأمين"
+            }
+          ],
+          "inferred": false,
+          "dependsOn": [],
+          "statedTiming": null,
+          "statedOwner": null
+        }
+      ],
+      "note": "Second Arabic prefixed-conjunction case, so the behaviour is not pinned by a single example."
+    },
+    {
+      "exampleId": "seed-he-multi-office",
+      "locale": "he",
+      "sourceText": "תדפיס את החוזה, תחתום עליו ותשלח לעורך הדין.",
+      "label": "multi_step",
+      "provenance": "synthetic",
+      "expectedSteps": [
+        {
+          "stepId": "s1",
+          "title": "תדפיס את החוזה",
+          "sourceSpans": [
+            {
+              "start": 0,
+              "end": 14,
+              "text": "תדפיס את החוזה"
+            }
+          ],
+          "inferred": false,
+          "dependsOn": [],
+          "statedTiming": null,
+          "statedOwner": null
+        },
+        {
+          "stepId": "s2",
+          "title": "תחתום עליו",
+          "sourceSpans": [
+            {
+              "start": 16,
+              "end": 26,
+              "text": "תחתום עליו"
+            }
+          ],
+          "inferred": false,
+          "dependsOn": [
+            {
+              "dependsOnStepId": "s1",
+              "kind": "temporal"
+            }
+          ],
+          "statedTiming": null,
+          "statedOwner": null
+        },
+        {
+          "stepId": "s3",
+          "title": "תשלח לעורך הדין",
+          "sourceSpans": [
+            {
+              "start": 28,
+              "end": 43,
+              "text": "תשלח לעורך הדין"
+            }
+          ],
+          "inferred": false,
+          "dependsOn": [
+            {
+              "dependsOnStepId": "s2",
+              "kind": "temporal"
+            }
+          ],
+          "statedTiming": null,
+          "statedOwner": null
+        }
+      ],
+      "note": "Hebrew prefixed conjunction (\"ותשלח\"). The chain is genuinely sequential: you cannot sign an unprinted contract or send an unsigned one."
+    },
+    {
+      "exampleId": "seed-he-multi-shop",
+      "locale": "he",
+      "sourceText": "תקנה חלב, תשלם את החשבון ותחזור הביתה.",
+      "label": "multi_step",
+      "provenance": "synthetic",
+      "expectedSteps": [
+        {
+          "stepId": "s1",
+          "title": "תקנה חלב",
+          "sourceSpans": [
+            {
+              "start": 0,
+              "end": 8,
+              "text": "תקנה חלב"
+            }
+          ],
+          "inferred": false,
+          "dependsOn": [],
+          "statedTiming": null,
+          "statedOwner": null
+        },
+        {
+          "stepId": "s2",
+          "title": "תשלם את החשבון",
+          "sourceSpans": [
+            {
+              "start": 10,
+              "end": 24,
+              "text": "תשלם את החשבון"
+            }
+          ],
+          "inferred": false,
+          "dependsOn": [],
+          "statedTiming": null,
+          "statedOwner": null
+        },
+        {
+          "stepId": "s3",
+          "title": "תחזור הביתה",
+          "sourceSpans": [
+            {
+              "start": 26,
+              "end": 37,
+              "text": "תחזור הביתה"
+            }
+          ],
+          "inferred": false,
+          "dependsOn": [],
+          "statedTiming": null,
+          "statedOwner": null
+        }
+      ],
+      "note": "Hebrew comma list closed by a prefixed conjunction; spans increase in storage order even though the text renders right to left."
+    },
+    {
+      "exampleId": "seed-ar-en-multi-report",
+      "locale": "ar-EN",
+      "sourceText": "جهز الـ report للاجتماع وبعدها ارسل الـ summary للفريق",
+      "label": "multi_step",
+      "provenance": "synthetic",
+      "expectedSteps": [
+        {
+          "stepId": "s1",
+          "title": "جهز الـ report للاجتماع",
+          "sourceSpans": [
+            {
+              "start": 0,
+              "end": 23,
+              "text": "جهز الـ report للاجتماع"
+            }
+          ],
+          "inferred": false,
+          "dependsOn": [],
+          "statedTiming": null,
+          "statedOwner": null
+        },
+        {
+          "stepId": "s2",
+          "title": "ارسل الـ summary للفريق",
+          "sourceSpans": [
+            {
+              "start": 31,
+              "end": 54,
+              "text": "ارسل الـ summary للفريق"
+            }
+          ],
+          "inferred": false,
+          "dependsOn": [
+            {
+              "dependsOnStepId": "s1",
+              "kind": "temporal"
+            }
+          ],
+          "statedTiming": null,
+          "statedOwner": null
+        }
+      ],
+      "note": "Code-switching mid-sentence: each step spans both scripts, so a span that stopped at the first direction change would cut \"report\" and \"summary\" off their own verbs."
+    },
+    {
+      "exampleId": "seed-ar-en-multi-invoice",
+      "locale": "ar-EN",
+      "sourceText": "راجع الـ invoice يوم الأحد وبعدها حول المبلغ للمورد",
+      "label": "multi_step",
+      "provenance": "synthetic",
+      "expectedSteps": [
+        {
+          "stepId": "s1",
+          "title": "راجع الـ invoice",
+          "sourceSpans": [
+            {
+              "start": 0,
+              "end": 16,
+              "text": "راجع الـ invoice"
+            }
+          ],
+          "inferred": false,
+          "dependsOn": [],
+          "statedTiming": "يوم الأحد",
+          "statedOwner": null
+        },
+        {
+          "stepId": "s2",
+          "title": "حول المبلغ للمورد",
+          "sourceSpans": [
+            {
+              "start": 34,
+              "end": 51,
+              "text": "حول المبلغ للمورد"
+            }
+          ],
+          "inferred": false,
+          "dependsOn": [
+            {
+              "dependsOnStepId": "s1",
+              "kind": "temporal"
+            }
+          ],
+          "statedTiming": null,
+          "statedOwner": null
+        }
+      ],
+      "note": "The timing sits between the two steps and belongs to the first. It is carried verbatim, and it is deliberately not inside either span: a span is the step, not the step plus its schedule."
+    },
+    {
+      "exampleId": "seed-en-atomic-landlord",
+      "locale": "en",
+      "sourceText": "Email the landlord.",
+      "label": "atomic",
+      "provenance": "synthetic",
+      "expectedSteps": [],
+      "note": "One verb, one object, no conjunction. The baseline that must not produce a one-step \"decomposition\"."
+    },
+    {
+      "exampleId": "seed-en-atomic-permit",
+      "locale": "en",
+      "sourceText": "Renew the parking permit before June.",
+      "label": "atomic",
+      "provenance": "synthetic",
+      "expectedSteps": [],
+      "note": "A deadline is not a second step. A splitter that treats \"before June\" as its own item has produced an errand nobody described."
+    },
+    {
+      "exampleId": "seed-ar-atomic-bill",
+      "locale": "ar",
+      "sourceText": "ادفع فاتورة الكهرباء.",
+      "label": "atomic",
+      "provenance": "synthetic",
+      "expectedSteps": [],
+      "note": "Arabic single action with no conjunction present at all."
+    },
+    {
+      "exampleId": "seed-he-atomic-dentist",
+      "locale": "he",
+      "sourceText": "תתקשר לרופא שיניים.",
+      "label": "atomic",
+      "provenance": "synthetic",
+      "expectedSteps": [],
+      "note": "Hebrew single action. \"רופא שיניים\" is one noun phrase and must not be read as two objects."
+    },
+    {
+      "exampleId": "seed-ar-en-atomic-flight",
+      "locale": "ar-EN",
+      "sourceText": "احجز الـ flight ليوم 15/4",
+      "label": "atomic",
+      "provenance": "synthetic",
+      "expectedSteps": [],
+      "note": "Mixed script with digits inside an RTL run. The digits must not shift the offsets of anything around them, and the date must not be resolved to a year."
+    },
+    {
+      "exampleId": "seed-en-atomic-recycling",
+      "locale": "en",
+      "sourceText": "Take out the recycling.",
+      "label": "atomic",
+      "provenance": "synthetic",
+      "expectedSteps": [],
+      "note": "Second English atomic case, so the atomic behaviour is not pinned by a single sentence."
+    },
+    {
+      "exampleId": "seed-en-nosplit-safety",
+      "locale": "en",
+      "sourceText": "Update the health and safety notice.",
+      "label": "do_not_split",
+      "provenance": "synthetic",
+      "expectedSteps": [],
+      "note": "\"and\" sits inside the fixed noun phrase \"health and safety\". Splitting yields \"Update the health\" and \"safety notice\" — the first is wrong and the second is not an action."
+    },
+    {
+      "exampleId": "seed-en-nosplit-gift",
+      "locale": "en",
+      "sourceText": "Buy a gift for Lina and Karim.",
+      "label": "do_not_split",
+      "provenance": "synthetic",
+      "expectedSteps": [],
+      "note": "One action with two recipients. The conjunction joins objects, not steps, and splitting would let a step claim an owner the sentence never assigned it."
+    },
+    {
+      "exampleId": "seed-en-nosplit-tradeoff",
+      "locale": "en",
+      "sourceText": "Weigh the pros and cons before deciding.",
+      "label": "do_not_split",
+      "provenance": "synthetic",
+      "expectedSteps": [],
+      "note": "\"pros and cons\" is a single idiom; neither half is a task on its own."
+    },
+    {
+      "exampleId": "seed-ar-nosplit-rules",
+      "locale": "ar",
+      "sourceText": "اقرأ القوانين واللوائح قبل التوقيع.",
+      "label": "do_not_split",
+      "provenance": "synthetic",
+      "expectedSteps": [],
+      "note": "The Arabic clitic trap: \"واللوائح\" carries the conjunction as a prefix inside a fixed noun phrase, so the very handling that makes seed-ar-multi-errands splittable must not fire here."
+    },
+    {
+      "exampleId": "seed-ar-nosplit-call",
+      "locale": "ar",
+      "sourceText": "اتصل بأحمد وسارة اليوم.",
+      "label": "do_not_split",
+      "provenance": "synthetic",
+      "expectedSteps": [],
+      "note": "One call, two people. The prefixed \"و\" joins the two names, not two errands."
+    },
+    {
+      "exampleId": "seed-he-nosplit-procedures",
+      "locale": "he",
+      "sourceText": "לקרוא את הכללים והנהלים לפני הפגישה.",
+      "label": "do_not_split",
+      "provenance": "synthetic",
+      "expectedSteps": [],
+      "note": "Hebrew equivalent of the clitic trap: \"והנהלים\" is a prefixed conjunction inside one noun phrase."
+    },
+    {
+      "exampleId": "seed-he-nosplit-gift",
+      "locale": "he",
+      "sourceText": "לשלוח מתנה לדני ולמיכל.",
+      "label": "do_not_split",
+      "provenance": "synthetic",
+      "expectedSteps": [],
+      "note": "One gift, two recipients, joined by the prefixed \"ו\" on a name. Splitting invents a second errand."
+    }
+  ]
+}
