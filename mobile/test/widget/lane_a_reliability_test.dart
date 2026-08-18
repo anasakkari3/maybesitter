@@ -56,7 +56,13 @@ void main() {
         // before confirming, so only one should be persisted and reported.
         notifier.previewState(CaptureStatus.needsConfirmation);
         notifier.toggleItemSelection('prev-2');
-        await notifier.confirmSave();
+        // `confirmSave` awaits a real `Future.delayed` inside the mock
+        // capture service. Inside `testWidgets`, timers only fire once the
+        // binding's clock is advanced via `tester.pump`, and nothing has
+        // pumped yet at this point - so calling this directly would hang
+        // forever. `runAsync` escapes to the real timer zone so the delay
+        // actually elapses.
+        await tester.runAsync(() => notifier.confirmSave());
 
         await tester.pumpWidget(
           UncontrolledProviderScope(
