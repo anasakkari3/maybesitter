@@ -1,3 +1,6 @@
+import { LIFE_STATE_SCHEMA_VERSION } from './lifeStateContracts';
+import { MEMORY_RECORD_SCHEMA_VERSION } from './memoryContracts';
+
 export const MODULE_CONTRACT_VERSION = 'v1' as const;
 
 export const INTELLIGENCE_MODULES = [
@@ -86,6 +89,19 @@ interface GenericModuleOutput {
   status: 'not_implemented_in_sprint_00';
 }
 
+/**
+ * Reported by a module that has a real implementation behind it. The registry
+ * entry stays a descriptor rather than a live call: modules are reached through
+ * their own entry points, and routing every call through this table would make
+ * it a dependency hub that every module has to import.
+ */
+interface ImplementedModuleOutput {
+  status: 'implemented';
+  module: IntelligenceModuleName;
+  schemaVersion: string;
+  entryPoint: string;
+}
+
 async function placeholderExecutor<TOutput>(provenance: ContractProvenance, output: TOutput): Promise<ModuleExecutionResult<TOutput>> {
   return { ok: true, output, provenance };
 }
@@ -110,9 +126,14 @@ export const INTELLIGENCE_MODULE_CONTRACTS: Record<IntelligenceModuleName, Intel
     owner: 'backend',
     allowsDirectStateWrites: false,
     allowedDependencyLayers: ['contracts', 'deterministic-services', 'adapters'],
-    inputDescription: 'Projected life-state updates from approved events only.',
-    outputDescription: 'Non-operative placeholder until Sprint 02.',
-    execute: async (invocation: ModuleInvocation<unknown>) => placeholderExecutor(invocation.provenance, { status: 'not_implemented_in_sprint_00' } satisfies GenericModuleOutput),
+    inputDescription: 'A DomainState snapshot plus an explicit `now`, projected without writes.',
+    outputDescription: 'A LifeState read model; see lifeStateContracts and lib/lifeState.',
+    execute: async (invocation: ModuleInvocation<unknown>) => placeholderExecutor(invocation.provenance, {
+      status: 'implemented',
+      module: 'lifeState',
+      schemaVersion: LIFE_STATE_SCHEMA_VERSION,
+      entryPoint: 'lib/lifeState/lifeStateProjection#projectLifeState',
+    } satisfies ImplementedModuleOutput),
   },
   memory: {
     version: MODULE_CONTRACT_VERSION,
@@ -120,9 +141,14 @@ export const INTELLIGENCE_MODULE_CONTRACTS: Record<IntelligenceModuleName, Intel
     owner: 'backend',
     allowsDirectStateWrites: false,
     allowedDependencyLayers: ['contracts', 'deterministic-services', 'adapters'],
-    inputDescription: 'Provenance-aware memory writes and retrieval commands.',
-    outputDescription: 'Non-operative placeholder until Sprint 02+ gates pass.',
-    execute: async (invocation: ModuleInvocation<unknown>) => placeholderExecutor(invocation.provenance, { status: 'not_implemented_in_sprint_00' } satisfies GenericModuleOutput),
+    inputDescription: 'Provenance-aware runtime memory writes, retrieval, revocation, and export.',
+    outputDescription: 'RuntimeMemoryRecords; see memoryContracts and lib/runtimeMemory.',
+    execute: async (invocation: ModuleInvocation<unknown>) => placeholderExecutor(invocation.provenance, {
+      status: 'implemented',
+      module: 'memory',
+      schemaVersion: MEMORY_RECORD_SCHEMA_VERSION,
+      entryPoint: 'lib/runtimeMemory/runtimeMemoryStore#createFileRuntimeMemoryStore',
+    } satisfies ImplementedModuleOutput),
   },
   priority: {
     version: MODULE_CONTRACT_VERSION,
