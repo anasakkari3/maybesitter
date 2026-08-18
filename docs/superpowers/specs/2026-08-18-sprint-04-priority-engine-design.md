@@ -234,6 +234,21 @@ the total computed independently of the components — each must turn a test red
   the existing scorer is what users see today. Mitigation: `calculateAgendaUrgencyScore` keeps its
   signature, and the existing agenda tests must pass unchanged; any diff in score is treated as a
   defect in the refactor rather than an improvement to accept.
+
+  **Revised at merge, deliberately, with one exception.** An unparseable `now` previously flowed
+  through as `NaN` and produced a confident but wrong score — 7300 for a commitment a valid clock
+  scored 7720, with every time feature silently dropped and every ignore treated as stale. The
+  delegation throws instead. This is a knowing departure from "any diff is a defect", taken because
+  the old behaviour is the failure mode this codebase has repeatedly removed elsewhere: a component
+  that reports a confident result it has no basis for. No caller relied on it and no test covered
+  it. Pinned by a test so a future change back is visible.
+
+- **The feature layer cannot consume Sprint 03 aggregates.** The design above called Priority their
+  "first real consumer", which was wrong. `FeedbackAggregates` is a **scope-wide** outcome tally
+  (`windowed`/`lifetime` counts); `subjectId` survives only on `FeedbackHistoryRow` and never
+  reaches the aggregate. Attributing a scope's ignore count to one commitment's `userPressure` would
+  invent a per-commitment signal *and* break behaviour-preserving delegation. Consuming them needs
+  either a per-subject aggregate or a policy-layer use, and belongs to a later sprint.
 - **The clamp makes reconciliation subtle.** Mitigation: the clamp is an explicit signed component,
   and mutation tests specifically target it.
 - **#19 could fabricate evidence.** Mitigation: the shipped judgment set is asserted empty, and the

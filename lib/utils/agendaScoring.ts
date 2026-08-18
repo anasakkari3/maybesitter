@@ -1,4 +1,8 @@
 import type { Commitment, Reminder } from '../../src/domain/stateMachine';
+import { extractPriorityFeatures } from '../priority/priorityFeatures';
+import { scorePriority } from '../priority/priorityScorer';
+import { DEFAULT_PRIORITY_POLICY } from '../priority/priorityPolicy';
+import type { PriorityReason } from '../../src/contracts/v1/priorityContracts';
 
 export type AgendaScoringReason = 'overdue' | 'due_soon' | 'pending' | 'active';
 
@@ -11,97 +15,42 @@ export interface AgendaScoringInput {
   dueSoonWindowMs: number;
 }
 
-const SCORE_CAP = 9_999;
-const REASON_BASE_SCORE: Record<AgendaScoringReason, number> = {
-  overdue: 7_000,
-  due_soon: 5_000,
-  active: 3_000,
-  pending: 1_000,
-};
-const REASON_BAND_CAP = 999;
-const RECENT_IGNORED_WINDOW_MS = 24 * 60 * 60 * 1_000;
-
-function clamp(value: number, min: number, max: number): number {
-  if (!Number.isFinite(value)) return min;
-  return Math.max(min, Math.min(max, value));
-}
-
-function parseTime(value: string | null | undefined): number | null {
-  if (!value) return null;
-  const parsed = Date.parse(value);
-  return Number.isNaN(parsed) ? null : parsed;
-}
-
-function importanceScore(commitment: Commitment): number {
-  if (commitment.priority.level === 'high') return 180;
-  if (commitment.priority.level === 'normal') return 80;
-  return 0;
-}
-
-function overdueDurationScore(times: readonly string[], nowMs: number): number {
-  const overdueTimes = times
-    .map(parseTime)
-    .filter((time): time is number => time !== null && time < nowMs)
-    .sort((a, b) => a - b);
-  if (overdueTimes.length === 0) return 0;
-
-  const hoursOverdue = (nowMs - overdueTimes[0]) / (60 * 60 * 1_000);
-  return clamp(Math.round(hoursOverdue * 6), 0, 420);
-}
-
-function timeRemainingScore(times: readonly string[], nowMs: number, dueSoonWindowMs: number): number {
-  const upcomingTimes = times
-    .map(parseTime)
-    .filter((time): time is number => time !== null && time >= nowMs)
-    .sort((a, b) => a - b);
-  if (upcomingTimes.length === 0 || dueSoonWindowMs <= 0) return 0;
-
-  const remainingMs = clamp(upcomingTimes[0] - nowMs, 0, dueSoonWindowMs);
-  const closeness = 1 - remainingMs / dueSoonWindowMs;
-  return clamp(Math.round(closeness * 420), 0, 420);
-}
-
-function repeatedDelayScore(commitment: Commitment, reminders: readonly Reminder[]): number {
-  const snoozedCount = reminders.filter((reminder) => reminder.status === 'snoozed').length;
-  const snoozeBoost = clamp(snoozedCount * 90, 0, 270);
-  const postponedBoost = commitment.currentAckState === 'postponed' || commitment.postponedUntil ? 160 : 0;
-  const deferredBoost = commitment.status === 'deferred' ? 80 : 0;
-  return snoozeBoost + postponedBoost + deferredBoost;
-}
-
-function latestIgnoredAt(commitment: Commitment, reminders: readonly Reminder[]): number | null {
-  const ignoredTimes = reminders
-    .filter((reminder) => reminder.status === 'ignored')
-    .map((reminder) => parseTime(reminder.updatedAt) || parseTime(reminder.deliveredAt) || parseTime(reminder.createdAt))
-    .filter((time): time is number => time !== null)
-    .sort((a, b) => b - a);
-
-  if (ignoredTimes.length > 0) return ignoredTimes[0];
-  return commitment.currentAckState === 'ignored' ? parseTime(commitment.updatedAt) : null;
-}
-
-function ignoredScore(commitment: Commitment, reminders: readonly Reminder[], nowMs: number): number {
-  const ignoredAt = latestIgnoredAt(commitment, reminders);
-  if (!ignoredAt) return 0;
-  return nowMs - ignoredAt <= RECENT_IGNORED_WINDOW_MS ? 240 : 120;
-}
-
-function reasonTimeScore(input: AgendaScoringInput, nowMs: number): number {
-  if (input.reason === 'overdue') return overdueDurationScore(input.relevantTimes, nowMs);
-  if (input.reason === 'due_soon') {
-    return timeRemainingScore(input.relevantTimes, nowMs, input.dueSoonWindowMs);
-  }
-  return 0;
-}
-
+/**
+ * Agenda urgency, delegated to the Priority Engine (Sprint 04).
+ *
+ * This function used to own the scoring arithmetic. It now extracts a feature
+ * vector and scores it, so the product has exactly one ranking implementation
+ * rather than two that can drift — and so the same numbers can be explained
+ * component by component, which is what `scorePriority` returns and this
+ * signature cannot.
+ *
+ * The weights in DEFAULT_PRIORITY_POLICY transcribe the arithmetic this file
+ * previously contained, and tests/priority/priorityDelegationEquivalence.test.ts
+ * asserts the two agree across every band, both caps, and the boundary cases.
+ *
+ * One intentional behaviour change: an unparseable `now` now throws. It
+ * previously flowed through as NaN, silently yielding a plausible-but-wrong
+ * score (7300 where a valid clock gave 7720) — every time feature dropped and
+ * every ignore treated as stale. Producing a confident ranking from a nonsense
+ * clock is worse than refusing, and no caller relied on it: nothing tested it.
+ */
 export function calculateAgendaUrgencyScore(input: AgendaScoringInput): number {
   const nowMs = input.now.getTime();
-  const rawBandScore =
-    reasonTimeScore(input, nowMs) +
-    importanceScore(input.commitment) +
-    repeatedDelayScore(input.commitment, input.reminders) +
-    ignoredScore(input.commitment, input.reminders, nowMs);
-  const bandScore = clamp(rawBandScore, 0, REASON_BAND_CAP);
+  if (!Number.isFinite(nowMs)) {
+    throw new TypeError('agenda scoring: `now` must be a valid Date');
+  }
 
-  return clamp(REASON_BASE_SCORE[input.reason] + bandScore, 0, SCORE_CAP);
+  const features = extractPriorityFeatures({
+    commitment: input.commitment,
+    reminders: input.reminders,
+    now: input.now.toISOString(),
+    relevantTimes: input.relevantTimes,
+    dueSoonWindowMs: input.dueSoonWindowMs,
+  });
+
+  return scorePriority({
+    features,
+    reason: input.reason as PriorityReason,
+    policy: DEFAULT_PRIORITY_POLICY,
+  }).total;
 }
