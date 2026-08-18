@@ -104,6 +104,51 @@ test('reordering keys in the input state changes neither the digest nor the seri
   assert.equal(JSON.stringify(a), JSON.stringify(b));
 });
 
+test('projection survives arbitrary reshuffling of every record map and nested object', () => {
+  // A seeded LCG rather than Math.random: a determinism test that is itself
+  // nondeterministic can only produce unreproducible failures.
+  let seed = 20260818;
+  const nextRandom = (): number => {
+    seed = (seed * 1103515245 + 12345) % 2147483648;
+    return seed / 2147483648;
+  };
+
+  const reshuffle = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(reshuffle);
+    if (value === null || typeof value !== 'object') return value;
+
+    const keys = Object.keys(value as Record<string, unknown>);
+    for (let index = keys.length - 1; index > 0; index -= 1) {
+      const swap = Math.floor(nextRandom() * (index + 1));
+      [keys[index], keys[swap]] = [keys[swap], keys[index]];
+    }
+    const rebuilt: Record<string, unknown> = {};
+    for (const key of keys) rebuilt[key] = reshuffle((value as Record<string, unknown>)[key]);
+    return rebuilt;
+  };
+
+  const state = stateOf(
+    [
+      commitment({ id: 'c_3', status: 'draft' }),
+      commitment({ id: 'c_1', timeSpec: { kind: 'due_by', dueAt: '2026-08-17T09:00:00.000Z', remindAt: null, timezone: 'UTC' } }),
+      commitment({ id: 'c_10', status: 'deferred', currentAckState: 'postponed', postponedUntil: '2026-08-19T09:00:00.000Z', updatedAt: '2026-08-17T09:00:00.000Z' }),
+      commitment({ id: 'c_2', status: 'completed', currentAckState: 'completed', completedAt: '2026-08-13T09:00:00.000Z', updatedAt: '2026-08-13T09:00:00.000Z' }),
+      commitment({ id: 'c_4', status: 'dropped', currentAckState: 'completed', droppedAt: '2026-08-12T09:00:00.000Z', updatedAt: '2026-08-12T09:00:00.000Z' }),
+      commitment({ id: 'c_5', currentAckState: 'ignored', updatedAt: '2026-08-16T09:00:00.000Z', timeSpec: { kind: 'scheduled_event', dueAt: '2026-08-19T14:00:00.000Z', remindAt: null, timezone: 'Asia/Jerusalem' } }),
+    ],
+    [
+      { id: 'r_2', commitmentId: 'c_1', reminderType: 'due_soon', scheduledFor: '2026-08-17T08:00:00.000Z', status: 'snoozed', requiresAction: true, deliveredAt: null, acknowledgedAt: null, snoozedUntil: '2026-08-18T08:00:00.000Z', createdAt: '2026-08-15T09:00:00.000Z', updatedAt: '2026-08-16T09:00:00.000Z' },
+      { id: 'r_1', commitmentId: 'c_5', reminderType: 'check_in', scheduledFor: '2026-08-16T08:00:00.000Z', status: 'ignored', requiresAction: true, deliveredAt: '2026-08-16T08:00:00.000Z', acknowledgedAt: null, snoozedUntil: null, createdAt: '2026-08-15T09:00:00.000Z', updatedAt: '2026-08-16T09:00:00.000Z' },
+    ]
+  );
+
+  const expected = JSON.stringify(project(state));
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const shuffled = reshuffle(state) as DomainState;
+    assert.equal(JSON.stringify(project(shuffled)), expected, `reshuffle attempt ${attempt} changed the projection`);
+  }
+});
+
 test('computedAt is taken from input.now rather than the system clock', () => {
   const projection = project(createEmptyDomainState());
 
@@ -242,6 +287,18 @@ test('commitments view counts every status, and open/overdue sets are id-sorted'
   assert.equal(projection.commitments.provenance.source, 'domain_state');
 });
 
+test('countsByStatus emits keys in lifecycle order, not in whatever order commitments were encountered', () => {
+  const projection = project(stateOf([
+    commitment({ id: 'c_a', status: 'completed', currentAckState: 'completed', completedAt: '2026-08-15T09:00:00.000Z', updatedAt: '2026-08-15T09:00:00.000Z' }),
+    commitment({ id: 'c_b', status: 'draft' }),
+  ]));
+
+  assert.equal(projection.commitments.known, true);
+  if (!projection.commitments.known) return;
+  // Encounter order (ids ascending) would have produced ['completed', 'draft'].
+  assert.deepEqual(Object.keys(projection.commitments.value.countsByStatus), ['draft', 'completed']);
+});
+
 test('a terminal commitment past its due date is not overdue, because overdue only applies to open work', () => {
   const projection = project(stateOf([
     commitment({
@@ -262,13 +319,15 @@ test('a terminal commitment past its due date is not overdue, because overdue on
 
 /* ── AvailabilityView ────────────────────────────────────────────── */
 
-test('busy windows come from open timed commitments only, sorted by start time', () => {
+test('busy windows come from open timed commitments only, sorted by start time rather than by id', () => {
+  // Ids are deliberately in the opposite order to the due dates, so an
+  // implementation that leaned on the id ordering would fail here.
   const projection = project(stateOf([
-    commitment({ id: 'c_late', timeSpec: { kind: 'scheduled_event', dueAt: '2026-08-20T15:00:00.000Z', remindAt: null, timezone: 'Asia/Jerusalem' } }),
-    commitment({ id: 'c_early', timeSpec: { kind: 'due_by', dueAt: '2026-08-19T09:00:00.000Z', remindAt: null, timezone: 'UTC' } }),
-    commitment({ id: 'c_open_untimed' }),
+    commitment({ id: 'c_a', timeSpec: { kind: 'scheduled_event', dueAt: '2026-08-20T15:00:00.000Z', remindAt: null, timezone: 'Asia/Jerusalem' } }),
+    commitment({ id: 'c_b', timeSpec: { kind: 'due_by', dueAt: '2026-08-19T09:00:00.000Z', remindAt: null, timezone: 'UTC' } }),
+    commitment({ id: 'c_c_open_untimed' }),
     commitment({
-      id: 'c_done',
+      id: 'c_d_done',
       status: 'completed',
       currentAckState: 'completed',
       completedAt: '2026-08-15T09:00:00.000Z',
@@ -282,8 +341,8 @@ test('busy windows come from open timed commitments only, sorted by start time',
   const view = projection.availability.value;
 
   assert.deepEqual(view.busyWindows, [
-    { commitmentId: 'c_early', startsAt: '2026-08-19T09:00:00.000Z', endsAt: null, timezone: 'UTC', kind: 'due_by' },
-    { commitmentId: 'c_late', startsAt: '2026-08-20T15:00:00.000Z', endsAt: null, timezone: 'Asia/Jerusalem', kind: 'scheduled_event' },
+    { commitmentId: 'c_b', startsAt: '2026-08-19T09:00:00.000Z', endsAt: null, timezone: 'UTC', kind: 'due_by' },
+    { commitmentId: 'c_a', startsAt: '2026-08-20T15:00:00.000Z', endsAt: null, timezone: 'Asia/Jerusalem', kind: 'scheduled_event' },
   ]);
   assert.equal(view.unscheduledCommitmentCount, 1);
 });
@@ -379,6 +438,8 @@ test('recent outcomes count status terminals and terminal ack states inside the 
   // A dropped commitment carries ack state 'completed' per the state machine, so
   // the ack tally and the status tally disagree on purpose.
   assert.deepEqual(view.countsByAckState, { postponed: 1, completed: 2, ignored: 1 });
+  // Encounter order would have produced ['completed', 'ignored', 'postponed'].
+  assert.deepEqual(Object.keys(view.countsByAckState), ['postponed', 'completed', 'ignored']);
   assert.equal(projection.recentOutcomes.provenance.derivedFrom, '2026-08-17T11:00:00.000Z');
 });
 
