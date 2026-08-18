@@ -75,9 +75,21 @@ class TodayScreen extends ConsumerWidget {
               actionLabel: l10n.capturePlanAction,
               onAction: () => context.push('/capture'),
             )
-          : CustomScrollView(
-              slivers: [
-                // Today's Header Summary Card
+          : Padding(
+              // Reserves the capture FAB's own footprint (56 height + 16
+              // margin on each side) below the scrollable viewport. Without
+              // this, the FAB - which always floats at a fixed bottom-right
+              // position regardless of scroll offset - silently sits on top
+              // of whatever real content (e.g. the next-step card's "Not
+              // now"/"Dismiss" actions) happens to land there, which is
+              // guaranteed whenever the day's content is short enough not
+              // to need scrolling. Shrinking the viewport itself, rather
+              // than only padding the end of the list, keeps this true at
+              // any scroll position and content length.
+              padding: const EdgeInsets.only(bottom: kFabScrollClearance),
+              child: CustomScrollView(
+                slivers: [
+                  // Today's Header Summary Card
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(
@@ -254,9 +266,16 @@ class TodayScreen extends ConsumerWidget {
                     ),
                   ),
                 ],
-                const SliverToBoxAdapter(child: SizedBox(height: 80)),
-              ],
+                  const SliverToBoxAdapter(child: SizedBox(height: 24)),
+                ],
+              ),
             ),
     );
   }
 }
+
+/// Bottom clearance reserved below Today's scrollable content so the
+/// capture FAB (56 tall, with the Scaffold's standard 16 margin on each
+/// side) never overlaps real, interactive content - see the `Padding`
+/// wrapping the `CustomScrollView` above.
+const double kFabScrollClearance = 96;

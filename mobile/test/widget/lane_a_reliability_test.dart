@@ -9,6 +9,9 @@ import 'package:maybesitter_mobile/features/capture/clarification_sheet_screen.d
 import 'package:maybesitter_mobile/features/capture/extraction_review_screen.dart';
 import 'package:maybesitter_mobile/features/capture/success_save_screen.dart';
 import 'package:maybesitter_mobile/features/commitment_details/commitment_details_screen.dart';
+import 'package:maybesitter_mobile/features/today/today_screen.dart';
+import 'package:maybesitter_mobile/design_system/components/capture_primary_action.dart';
+import 'package:maybesitter_mobile/design_system/components/maybesitter_bottom_navigation.dart';
 import 'package:maybesitter_mobile/l10n/generated/app_localizations.dart';
 import 'package:maybesitter_mobile/models/capture_result.dart';
 import 'package:maybesitter_mobile/services/providers.dart';
@@ -190,6 +193,76 @@ void main() {
               .firstWhere((c) => c.id == 'c-today-1')
               .title,
           'Updated briefing title',
+        );
+      },
+    );
+
+    testWidgets(
+      'Capture FAB does not cover the next-step "Not now" action on Today',
+      (WidgetTester tester) async {
+        final container = ProviderContainer();
+        addTearDown(container.dispose);
+
+        // The default test surface (800x600, a wide/short window) has a
+        // completely different aspect ratio than a real phone and hides
+        // this defect: buttons wrap differently and the FAB's fixed corner
+        // lands somewhere harmless. Match a real device's logical size
+        // (iPhone-class: ~402x874 @3x) so the layout this test measures is
+        // the layout a participant actually sees.
+        tester.view.physicalSize = const Size(1206, 2622);
+        tester.view.devicePixelRatio = 3.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        // Reproduces the real navigation shell (app/router.dart's
+        // ShellRoute): TodayScreen's own Scaffold - the one that positions
+        // the capture FAB - is nested inside an outer Scaffold that also
+        // shows the bottom tab bar. Rendering TodayScreen alone in a bare
+        // MaterialApp gives it extra vertical room the real app never has,
+        // which hid this defect in an earlier version of this test.
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: _buildLocalizedApp(
+              Scaffold(
+                body: const TodayScreen(),
+                bottomNavigationBar: MaybesitterBottomNavigation(
+                  currentIndex: 0,
+                  onTap: (_) {},
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final scrollFinder = find.byType(CustomScrollView);
+        final fabFinder = find.byType(CapturePrimaryAction);
+        expect(scrollFinder, findsOneWidget);
+        expect(fabFinder, findsOneWidget);
+
+        final scrollRect = tester.getRect(scrollFinder);
+        final fabRect = tester.getRect(fabFinder);
+
+        // This checks the structural invariant (the scrollable viewport
+        // must end above the FAB's fixed zone), not the position of any one
+        // piece of text: `flutter test` renders with a synthetic test font
+        // whose metrics don't match real device fonts, so a real-content
+        // rect (e.g. around the "Not now" label) can measure as
+        // non-overlapping here while still visibly overlapping on an actual
+        // simulator, where wrapped explanation text runs taller. Asserting
+        // on the scroll viewport's own bounds instead is font-independent:
+        // whatever renders inside it is guaranteed to be clipped above the
+        // reserved band, regardless of how tall its content measures.
+        expect(
+          scrollRect.bottom,
+          lessThanOrEqualTo(fabRect.top),
+          reason:
+              'Today\'s scrollable content must never extend into the '
+              'capture FAB\'s fixed bottom-right zone - whatever real '
+              'content lands there (e.g. the next-step card\'s "Not now" '
+              'action) would have its tap silently stolen by the FAB, '
+              'which paints on top.',
         );
       },
     );
