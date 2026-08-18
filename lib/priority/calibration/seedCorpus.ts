@@ -54,6 +54,12 @@ export function buildSeedCorpus(options: {
   /** Which seed split to draw pairs from. `calibration` for tuning, `locked` for the gate. */
   readonly split: PrioritySeedPair['split'];
   readonly judgments: readonly PairwiseJudgment[];
+  /**
+   * Declared by the caller, never inferred. Required whenever judgments are
+   * supplied: nothing in a judgment's shape says whether a person made it, so
+   * a guess here would let a synthetic run present itself as human evidence.
+   */
+  readonly provenance?: JudgmentProvenance;
   readonly hardConstraints?: readonly HardConstraintDeclaration[];
   readonly seedPairs?: readonly PrioritySeedPair[];
 }): CalibrationCorpus {
@@ -62,8 +68,15 @@ export function buildSeedCorpus(options: {
     .map(calibrationPairOf);
   const pairIds = new Set(pairs.map((pair) => pair.pairId));
 
+  const declared = provenanceOfEmptyCorpus(options.judgments) ?? options.provenance;
+  if (declared === undefined) {
+    throw new TypeError(
+      'calibration: provenance must be declared for a non-empty corpus; it cannot be inferred from the rows',
+    );
+  }
+
   return {
-    provenance: provenanceOf(options.judgments),
+    provenance: declared,
     pairs,
     // Judgments about the other split are not this corpus's business; carrying
     // them would let a locked-split row widen the calibration denominator.
@@ -73,12 +86,23 @@ export function buildSeedCorpus(options: {
 }
 
 /**
- * Derived from the rows, not asserted by the caller.
+ * Provenance cannot be inferred from the rows.
  *
- * There is exactly one way to get `human_reviewed` out of this function, and it
- * requires judgments to exist. An empty corpus is `synthetic_pipeline_proof`
- * because it is not evidence about anyone's preferences.
+ * This function previously returned `human_reviewed` for any non-empty judgment
+ * set. That is backwards for the only judgments that exist today: synthetic
+ * rows are the sole way to exercise the pipeline, so every run stamped its
+ * manifest as human evidence — precisely what `JudgmentProvenance` exists to
+ * prevent. "The rows exist" is not the same claim as "a person made them", and
+ * nothing in a judgment's shape distinguishes one from the other.
+ *
+ * So provenance is now declared by whoever supplies the rows and travels with
+ * the corpus file. A caller loading the committed corpus passes what that file
+ * declares; a test constructing rows passes `synthetic_pipeline_proof`. There
+ * is no path that guesses.
+ *
+ * Retained only for the one case that genuinely is decidable: no judgments
+ * cannot be evidence about anyone's preferences.
  */
-export function provenanceOf(judgments: readonly PairwiseJudgment[]): JudgmentProvenance {
-  return judgments.length === 0 ? 'synthetic_pipeline_proof' : 'human_reviewed';
+export function provenanceOfEmptyCorpus(judgments: readonly PairwiseJudgment[]): JudgmentProvenance | null {
+  return judgments.length === 0 ? 'synthetic_pipeline_proof' : null;
 }

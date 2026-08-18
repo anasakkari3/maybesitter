@@ -79,8 +79,10 @@ async function main(): Promise<void> {
   const usedSplitIds = flagValues('used-split');
 
   const loaded = loadShippedJudgmentCorpus();
-  const calibrationCorpus = buildSeedCorpus({ split: 'calibration', judgments: loaded.judgments });
-  const lockedCorpus = buildSeedCorpus({ split: 'locked', judgments: loaded.judgments });
+  // Declared by the corpus file, never guessed from whether rows exist.
+  const provenance = loaded.provenance ?? 'synthetic_pipeline_proof';
+  const calibrationCorpus = buildSeedCorpus({ split: 'calibration', judgments: loaded.judgments, provenance });
+  const lockedCorpus = buildSeedCorpus({ split: 'locked', judgments: loaded.judgments, provenance });
 
   // The gate runs first: whether it consumed the locked split is a fact the
   // manifest has to carry, and a manifest written before the gate ran could not

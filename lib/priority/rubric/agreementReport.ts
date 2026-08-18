@@ -57,6 +57,7 @@ import { PRIORITY_SCHEMA_VERSION } from '../../../src/contracts/v1/priorityContr
 import type { ValidationIssue } from '../../evaluation/registry/contracts';
 import { IssueCollector, isIsoTimestamp, isNonEmptyString, isPlainObject } from '../../evaluation/registry/validationPrimitives';
 import { PRIORITY_SEED_PAIRS, RUBRIC_VERSION, type PrioritySeedPair } from '../../../tests/fixtures/prioritySeedSet';
+import type { JudgmentProvenance } from '../../../src/contracts/v1/calibrationContracts';
 
 /* ── Corpus schema ──────────────────────────────────────────────── */
 
@@ -85,7 +86,7 @@ const JUDGMENT_KEYS: readonly string[] = Object.freeze([
   'judgedAt',
 ]);
 
-const CORPUS_KEYS: readonly string[] = Object.freeze(['contractVersion', 'rubricVersion', 'judgments']);
+const CORPUS_KEYS: readonly string[] = Object.freeze(['contractVersion', 'rubricVersion', 'provenance', 'judgments']);
 
 /* ── Loader ─────────────────────────────────────────────────────── */
 
@@ -96,6 +97,14 @@ export interface JudgmentLoadResult {
   readonly judgments: readonly PairwiseJudgment[];
   readonly corpusEmpty: boolean;
   readonly rubricVersion: string | null;
+  /**
+   * Declared by the corpus file. Null when the file does not say.
+   *
+   * Not inferred from whether rows exist: synthetic rows are the only kind
+   * that exist today, so inferring would label every pipeline run as human
+   * evidence — the exact confusion JudgmentProvenance exists to prevent.
+   */
+  readonly provenance: JudgmentProvenance | null;
 }
 
 export interface LoadJudgmentsOptions {
@@ -113,7 +122,7 @@ export function loadPairwiseJudgments(raw: unknown, options?: LoadJudgmentsOptio
 
   if (!isPlainObject(raw)) {
     collector.error('PRJ001', 'corpus', 'judgment corpus must be an object');
-    return { valid: false, issues: collector.result().issues, judgments: [], corpusEmpty: true, rubricVersion: null };
+    return { valid: false, issues: collector.result().issues, judgments: [], corpusEmpty: true, rubricVersion: null, provenance: null };
   }
 
   for (const key of Object.keys(raw)) {
@@ -130,6 +139,9 @@ export function loadPairwiseJudgments(raw: unknown, options?: LoadJudgmentsOptio
     );
   }
 
+  const provenance = raw.provenance === 'human_reviewed' || raw.provenance === 'synthetic_pipeline_proof'
+    ? raw.provenance
+    : null;
   const rubricVersion = typeof raw.rubricVersion === 'string' ? raw.rubricVersion : null;
   if (rubricVersion !== null && rubricVersion !== RUBRIC_VERSION) {
     // A warning, not an error: judgments collected under an older rubric are
@@ -145,7 +157,7 @@ export function loadPairwiseJudgments(raw: unknown, options?: LoadJudgmentsOptio
 
   if (!Array.isArray(raw.judgments)) {
     collector.error('PRJ005', 'corpus.judgments', 'judgments must be an array');
-    return { valid: false, issues: collector.result().issues, judgments: [], corpusEmpty: true, rubricVersion };
+    return { valid: false, issues: collector.result().issues, judgments: [], corpusEmpty: true, rubricVersion, provenance };
   }
 
   const byPairId = new Map<string, PrioritySeedPair>();
@@ -233,6 +245,7 @@ export function loadPairwiseJudgments(raw: unknown, options?: LoadJudgmentsOptio
 
   const result = collector.result();
   return {
+    provenance,
     valid: result.valid,
     issues: result.issues,
     judgments: result.valid ? accepted : [],

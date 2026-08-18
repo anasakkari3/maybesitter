@@ -1,5 +1,6 @@
 {
   "contractVersion": "priority-judgments-v1",
   "rubricVersion": "priority-rubric-v1",
+  "provenance": "synthetic_pipeline_proof",
   "judgments": []
 }
