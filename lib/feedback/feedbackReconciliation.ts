@@ -299,6 +299,10 @@ export function buildFeedbackReconciliation(
     generatedAt: input.now,
     nowSource: input.nowSource,
     windowDays,
+    // Derived here rather than read off an aggregate, because the report must
+    // still state its window when every scope failed to reconcile. Clamped to
+    // the earliest representable instant for the same reason the aggregation
+    // clamps: toISOString throws outside the ECMAScript time range.
     windowStart: new Date(Math.max(-8_640_000_000_000_000, windowStartMs)).toISOString(),
     scopeCount: scopes.length,
     totalEvents: scopes.reduce((total, scope) => total + scope.eventCount, 0),
