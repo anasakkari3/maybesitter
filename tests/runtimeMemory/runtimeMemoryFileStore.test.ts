@@ -85,7 +85,7 @@ test('Arabic and Hebrew content round-trips through the file store unchanged', (
       assert.equal(loaded.content, record.content);
       // Code-point equality catches reordering and normalization that plain
       // string equality on a visually identical value would still pass.
-      assert.deepEqual([...loaded.content], [...record.content]);
+      assert.deepEqual(Array.from(loaded.content), Array.from(record.content));
       assert.equal(Buffer.from(loaded.content, 'utf8').equals(Buffer.from(record.content, 'utf8')), true);
       assert.doesNotMatch(loaded.content, BIDI_MARKS, 'no bidi control or presentation forms introduced');
 
