@@ -77,9 +77,32 @@ adjacent same-typed parameters guard a security boundary, name them.
 - **[#15](https://github.com/anasakkari3/maybesitter/issues/15) — [S03][Product] Add feedback transparency and undo controls**
   Let users inspect why the system learned something and revoke incorrect signals.
 
-### Sprint 04 — Priority Engine v1
+### Sprint 04 — Priority Engine v1 ✅ DONE
 
-_Advisory: scores against Life-State + Feedback signals (Sprints 02-03) if available; stub/mock otherwise._
+Merged 2026-08-19 via [#103](https://github.com/anasakkari3/maybesitter/pull/103). Design:
+`docs/superpowers/specs/2026-08-18-sprint-04-priority-engine-design.md`.
+
+**Contracts now available** — `src/contracts/v1/priorityContracts.ts`. `lib/utils/agendaScoring` now
+delegates to `lib/priority/**`, so the product has one ranking implementation.
+
+**Carried forward, in priority order.**
+1. `rankPriorities` has no non-test caller: `agendaScoring` returns `.total` only, so the
+   hard-constraint tier affects no ordering a user sees. Sprint 05 is where it gets exercised.
+2. The priority judgment corpus (`data/quality/priority-judgments.json`) is **empty by design**.
+   Sprint 05 calibrates against it, so it needs real annotations first — fabricating rows would
+   train the ranking on invented preferences.
+3. Still outstanding from Sprint 03: the `behaviorFeedbackService` dual-write and its two readers.
+   Priority did *not* consume the feedback aggregates — `FeedbackAggregates` is scope-wide with no
+   per-subject breakdown, so attributing a scope's counts to one commitment would invent a signal.
+   Consuming them needs a per-subject aggregate.
+4. A latent bug in pre-existing code, reported not replicated: `agendaScoring`'s old
+   `parseTime(a) || parseTime(b)` chain treated a `1970-01-01T00:00:00Z` timestamp as falsy. The new
+   path handles it correctly, which is the only behavioural divergence between them.
+
+**Lesson.** Delegating to a rewritten core is only as safe as the evidence that the two agree. Hand-
+picked equivalence cases were not enough: a differential fuzz of the delegated path against the
+original arithmetic over 260,000 randomized inputs is what actually established it, and it is cheap.
+Where a sprint replaces live logic, fuzz the replacement against what it replaces.
 
 - **[#17](https://github.com/anasakkari3/maybesitter/issues/17) — [S04][Backend] Implement deterministic priority feature extraction**
   Compute urgency, importance, dependency, effort, lateness, and user-pressure features from trusted state.
