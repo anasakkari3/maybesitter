@@ -53,9 +53,22 @@ nothing executed. Every sprint that splits into parallel tracks should end with 
 that runs one track's fixtures against another track's real implementation — that step, not the
 per-track suites, is what found the disagreements.
 
-### Sprint 03 — Feedback Events
+### Sprint 03 — Feedback Events ✅ DONE
 
-_Advisory: consumes Life-State projections (Sprint 02) if available; stub/mock the interface otherwise._
+Merged 2026-08-18 via [#101](https://github.com/anasakkari3/maybesitter/pull/101). Design:
+`docs/superpowers/specs/2026-08-18-sprint-03-feedback-events-design.md`.
+
+**Contracts now available to later sprints** — `src/contracts/v1/feedbackContracts.ts`.
+
+**Carried forward.** The legacy `behaviorFeedbackService` counters are still authoritative: outcomes
+are dual-written to the event log beside them, and the six modules that read the counters were
+deliberately not migrated. Whichever sprint first needs behavioural features (Priority, S04-05)
+should migrate those readers to `aggregateFeedback` and retire the dual-write.
+
+**Lesson.** Sprint 02's lesson held again, and one more surfaced: `revokeForScope` took three
+positional strings, so swapping two of them type-checked cleanly — and the first draft of the
+cross-track test did exactly that, making the *authorization* test pass for the wrong reason. Where
+adjacent same-typed parameters guard a security boundary, name them.
 
 - **[#13](https://github.com/anasakkari3/maybesitter/issues/13) — [S03][Backend] Define and persist behavioral Feedback events**
   Record accept, edit, reject, defer, complete, ignore, and undo outcomes as append-only events.
