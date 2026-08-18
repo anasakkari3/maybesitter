@@ -170,17 +170,18 @@ function reconcileScope(
   windowDays: number,
   windowStartMs: number,
   nowMs: number,
+  aggregateFn: FeedbackAggregator,
 ): ScopeReconciliation {
   const empty: OutcomeCounts = {};
   try {
-    const aggregate = aggregateFeedback({
+    const aggregate = aggregateFn({
       events: scope.events,
       baseline: scope.baseline,
       scopeId: scope.scopeId,
       now,
       windowDays,
     });
-    const replayed = aggregateFeedback({
+    const replayed = aggregateFn({
       events: reorderedForReplay(scope.events),
       baseline: scope.baseline,
       scopeId: scope.scopeId,
@@ -245,8 +246,20 @@ function requireDistinctScopes(scopes: readonly FeedbackReplayScope[]): void {
   }
 }
 
+/**
+ * The aggregator this report checks.
+ *
+ * Overridable for one reason: a seeded-failure test has to be able to hand the
+ * report a deliberately wrong aggregate and watch the recount catch it. A check
+ * that cannot fail is not evidence of anything, which is the same argument the
+ * seeded-failure tests in lib/quality/ are built on. Production callers use the
+ * default.
+ */
+export type FeedbackAggregator = typeof aggregateFeedback;
+
 export function buildFeedbackReconciliation(
   input: FeedbackReplayInput,
+  aggregate: FeedbackAggregator = aggregateFeedback,
 ): FeedbackReconciliationReport {
   requireDistinctScopes(input.scopes);
 
@@ -262,7 +275,9 @@ export function buildFeedbackReconciliation(
   // Sorted by scope id with a code-unit comparison, never localeCompare: the
   // report is diffed across runs and must not reorder itself on another host.
   const ordered = [...input.scopes].sort((left, right) => compareStrings(left.scopeId, right.scopeId));
-  const scopes = ordered.map((scope) => reconcileScope(scope, input.now, windowDays, windowStartMs, nowMs));
+  const scopes = ordered.map((scope) =>
+    reconcileScope(scope, input.now, windowDays, windowStartMs, nowMs, aggregate),
+  );
 
   const failures: string[] = [];
   for (const scope of scopes) {

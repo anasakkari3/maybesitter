@@ -412,6 +412,12 @@ test('windowDays defaults to the contract default and resolves hostile values', 
   assert.equal(resolveFeedbackWindowDays(Number.POSITIVE_INFINITY), DEFAULT_FEEDBACK_WINDOW_DAYS);
   // A fractional window still has to mean at least one whole day, never zero.
   assert.equal(resolveFeedbackWindowDays(0.5), 1);
+  // Clamped to the widest window that still has a representable start, and the
+  // clamped value is what the aggregate reports — a caller must not be told the
+  // window was 1e9 days when it was not.
+  assert.equal(resolveFeedbackWindowDays(1e9), 100_000_000);
+  assert.equal(resolveFeedbackWindowDays(Number.MAX_SAFE_INTEGER), 100_000_000);
+  assert.equal(aggregateFeedback(input({ windowDays: 1e9 })).windowDays, 100_000_000);
 });
 
 test('an extreme window yields a representable windowStart instead of a bare RangeError', () => {

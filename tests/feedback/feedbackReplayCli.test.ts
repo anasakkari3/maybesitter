@@ -246,6 +246,39 @@ test('a corrupted export is reported as a failure instead of taking the run down
   assert.equal(report.failures.length, 1);
   assert.match(report.failures[0], /scope-a/);
   assert.equal(report.scopes[0].replayMatches, false);
+  // The corrupt scope is left out of the cross-user totals: folding it in would
+  // move the global numbers by an unknown amount while the report claimed the
+  // failure was contained to one scope.
+  assert.deepEqual(report.global.windowed, {});
+  assert.equal(report.global.scopeCount, 0);
+  // Its rows are still reported, so nothing is quietly dropped from the count
+  // of what the export contained.
+  assert.equal(report.totalEvents, 1);
+});
+
+test('a seeded wrong aggregate is caught by the recount', () => {
+  // A reconciliation that cannot fail is not evidence. This hands the report an
+  // aggregator that loses an event on its way into the counts — the exact
+  // failure the recount exists to notice — and asserts the report says so.
+  const seeded = ((aggregationInput: Parameters<typeof aggregateFeedback>[0]) => {
+    const honest = aggregateFeedback(aggregationInput);
+    return { ...honest, windowed: {}, lifetime: {} };
+  }) as typeof aggregateFeedback;
+
+  const report = buildFeedbackReconciliation(replayInput(), seeded);
+
+  assert.equal(report.status, 'MISMATCH');
+  assert.equal(report.failures.length, 2);
+  for (const failure of report.failures) assert.match(failure, /recount/);
+  for (const scope of report.scopes) assert.equal(scope.recountMatches, false);
+});
+
+test('the honest aggregate passes the same recount the seeded one fails', () => {
+  // The pair matters: without this, "recount catches a wrong aggregate" could
+  // be true of an implementation that fails everything.
+  const report = buildFeedbackReconciliation(replayInput());
+  for (const scope of report.scopes) assert.equal(scope.recountMatches, true);
+  assert.equal(report.status, 'RECONCILED');
 });
 
 test('the markdown report states that nothing was persisted as a source of truth', () => {
