@@ -419,7 +419,10 @@ Editing a locked pair after judgments exist would silently change what those jud
    `src/contracts/v1/priorityContracts.ts`.
 4. Run `node --no-warnings --loader ./scripts/ts-resolver.mjs scripts/priority-agreement-run.ts`.
    The loader rejects malformed rows; the report writes to `docs/quality/reports/`.
-5. **Delete the anti-fabrication assertion in `tests/priority/prioritySeedSet.test.ts` in the same
-   commit that adds the first real rows, and say in the commit message who annotated and when.**
-   The test is designed to fail the moment rows appear, so that adding them is a deliberate,
-   reviewable act rather than a quiet drift.
+5. **Replace the zero-row assertion in `tests/priority/prioritySeedSet.test.ts` in the same commit
+   that adds the first real rows**, and say in the commit message who annotated, when, and under
+   which rubric version. Replace it rather than delete it: the guard becomes an assertion that the
+   corpus matches the annotation run it claims to come from — an expected row count, the expected
+   annotator ids — so the corpus stays pinned to a real event rather than becoming unguarded.
+   The current test is designed to fail the moment rows appear, so that adding them is a
+   deliberate, reviewable act rather than a quiet drift.
