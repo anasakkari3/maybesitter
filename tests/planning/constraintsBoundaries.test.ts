@@ -217,19 +217,28 @@ test('it reaches neither sibling Sprint 07 track, so the cross-track comparison 
   );
 });
 
-test('the only planning module it reaches is the shared time primitive', () => {
+test('the only planning modules it reaches are the two shared primitives', () => {
   // Stated as an allowlist rather than as a list of prohibitions, because a
   // prohibition list only forbids the directories someone thought of. `shared/`
-  // is deliberately the one exception: the sprint design puts every
+  // is deliberately the exception: the sprint design puts every
   // instant/wall-clock conversion there precisely so the three tracks share the
-  // arithmetic instead of writing it three times.
+  // arithmetic instead of writing it three times, and `compare.ts` is there for
+  // the same reason one level down.
+  //
+  // Extended by naming the second file, not by loosening the rule to
+  // `shared/**`. The whole value of this assertion is that adding a dependency
+  // is a decision someone writes down; a glob would have let the next one in
+  // silently, which is the failure mode the list exists to prevent.
   const closure = importClosure(roots());
   const planningModules = Array.from(closure.keys())
     .map(relative)
     .filter((file) => file.startsWith('lib/planning/') && !file.startsWith('lib/planning/constraints/'))
     .sort();
 
-  assert.deepEqual(planningModules, ['lib/planning/shared/time.ts']);
+  assert.deepEqual(planningModules, [
+    'lib/planning/shared/compare.ts',
+    'lib/planning/shared/time.ts',
+  ]);
 });
 
 test('it depends on exactly one product contract, the planning one', () => {

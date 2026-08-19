@@ -63,36 +63,34 @@ import {
   isPositiveInterval,
   resolveLocalTime,
   subtractIntervals,
+  nominalInstantBracket,
   toEpochMs,
   toInstant,
   wallClockAt,
   weekdayAt,
-  zoneOffsetMs,
   type WallClockParts,
 } from '../shared/time';
+import { compareByCodePoint } from '../shared/compare';
 
 const MS_PER_DAY = 86_400_000;
 
+
 /**
- * The one spelling of string ordering in this module.
+ * Why a window cannot be materialised.
  *
- * There were two, inlined at the two sort sites, and they are the fifth
- * independent spelling of string ordering in a sprint whose deduplication pass
- * was named for removing the other four — surviving in the one module all three
- * tracks share. The impact is small and the shape is the one
- * `lib/planning/shared/` exists to prevent, so it gets a name and one
- * definition.
- *
- * Code-unit order, deliberately, not a locale collation: this orders machine
- * output for determinism, and a locale-aware comparator would make a plan's
- * ordering depend on the machine that produced it. Hoisted here so that when
- * the sprint's shared comparator lands there is a single call site to swap; it
- * does not exist on this branch yet.
+ * Names the *condition* rather than the window, so a finding built from it
+ * carries neither caller-chosen text nor the caller's array ordering. #30
+ * refused the "name it by index" instruction on the second ground and was
+ * right: an input position puts the caller's ordering inside the output, and the
+ * same two windows with the same defect read as "index 0" or "index 1" depending
+ * only on the order they arrived in.
  */
-function compareStrings(left: string, right: string): number {
-  if (left < right) return -1;
-  return left > right ? 1 : 0;
-}
+export type WindowDefect =
+  | 'weekday'
+  | 'start_minute'
+  | 'end_minute'
+  | 'end_not_after_start'
+  | 'timezone';
 
 /** How a window's local boundary resolved on the date it landed on. */
 export type BoundaryResolutionKind = 'exact' | 'gap' | 'fold';
@@ -256,13 +254,19 @@ function isWholeMinuteInDay(value: number): boolean {
  * beyond the contract's stated interval rule are listed in `index.ts`, so there
  * is one statement of them and one implementation.
  */
-export function isMaterialisableWindow(window: WorkingWindow): boolean {
-  if (!Number.isInteger(window.weekday) || window.weekday < 0 || window.weekday > 6) return false;
-  if (!isWholeMinuteInDay(window.startMinute) || !isWholeMinuteInDay(window.endMinute)) return false;
+export function windowDefect(window: WorkingWindow): WindowDefect | null {
+  if (!Number.isInteger(window.weekday) || window.weekday < 0 || window.weekday > 6) return 'weekday';
+  if (!isWholeMinuteInDay(window.startMinute)) return 'start_minute';
+  if (!isWholeMinuteInDay(window.endMinute)) return 'end_minute';
   // A window occupying the whole day starts at minute 0; `startMinute === 1440`
   // would leave no room for a positive window and is caught by the next line.
-  if (window.endMinute <= window.startMinute) return false;
-  return typeof window.timezone === 'string' && isKnownTimeZone(window.timezone);
+  if (window.endMinute <= window.startMinute) return 'end_not_after_start';
+  if (typeof window.timezone !== 'string' || !isKnownTimeZone(window.timezone)) return 'timezone';
+  return null;
+}
+
+export function isMaterialisableWindow(window: WorkingWindow): boolean {
+  return windowDefect(window) === null;
 }
 
 interface ResolvedBoundary {
@@ -322,42 +326,14 @@ function resolveBoundary(
 }
 
 /**
- * The widest span of instants a local boundary could plausibly denote on its
- * date, ignoring the transition entirely.
+ * The instants a local boundary could denote on its date, before any
+ * verification, fold policy or gap handling — the *nominal* reading.
  *
- * This is the *nominal* reading: where the boundary would have sat if the
- * offset had not moved that day. It exists to answer one question — would this
- * occurrence have met the horizon at all? — and it has to be computable for a
- * local time that denotes *no* instant, which is exactly when `resolveBoundary`
- * has no answer to give.
- *
- * Bracketed rather than pinned to one offset, using the offsets a day either
- * side, the same two `resolveLocalTime` uses. Picking a single anchor offset
- * would need an anchor instant, and the obvious candidate — local midnight of
- * the date — is itself a fold in America/Havana and a gap in other zones, so the
- * anchor would need the very machinery it is meant to stand in for. The bracket
- * needs no anchor and errs outward, which is the safe direction: it can only
- * make this module report an anomaly it might have filtered, never hide one.
- *
- * **This belongs in `lib/planning/shared/time.ts` and is only here because this
- * branch may not edit that file.** `resolveLocalTime` already computes exactly
- * these two candidates and then discards the ones that do not verify — this
- * needs them *before* that filtering, which is the one thing that module does
- * not expose. That makes this a second site of DST arithmetic in the sprint,
- * which is the failure `shared/time.ts` was written to prevent. The signature
- * requested, matching that module's existing style:
- *
- *     export function nominalInstantBracket(
- *       parts: WallClockParts,
- *       timeZone: string,
- *     ): { readonly earliestMs: number; readonly latestMs: number };
- *
- * Semantics: form the naive UTC reading of `parts`, correct it by the zone's
- * offsets one day before and one day after, and return the min and max of the
- * two candidates — no verification, no fold policy, no gap handling. For a local
- * time with no anomaly both candidates coincide and the bracket is a point. When
- * that lands, this function becomes a call to it and the `MS_PER_DAY` and
- * `zoneOffsetMs` uses here go away.
+ * Delegated to `shared/time.ts`. It lived here as its own three lines of offset
+ * arithmetic until that module exported `nominalInstantBracket`, and two modules
+ * doing DST arithmetic is the one thing that file exists to prevent. The
+ * minute-1440 roll-over stays here: "midnight ends this local day" is a fact
+ * about `WorkingWindow`, not about instants.
  */
 function nominalBracket(
   date: CalendarDate,
@@ -366,16 +342,8 @@ function nominalBracket(
 ): { readonly minMs: number; readonly maxMs: number } {
   const onDate = minuteOfDay === MINUTES_PER_DAY ? addCalendarDays(date, 1) : date;
   const minute = minuteOfDay === MINUTES_PER_DAY ? 0 : minuteOfDay;
-  const naiveMs = Date.UTC(
-    onDate.year,
-    onDate.month - 1,
-    onDate.day,
-    Math.floor(minute / 60),
-    minute % 60,
-  );
-  const before = naiveMs - zoneOffsetMs(naiveMs - MS_PER_DAY, timeZone);
-  const after = naiveMs - zoneOffsetMs(naiveMs + MS_PER_DAY, timeZone);
-  return { minMs: Math.min(before, after), maxMs: Math.max(before, after) };
+  const bracket = nominalInstantBracket(partsAt(onDate, minute), timeZone);
+  return { minMs: bracket.earliestMs, maxMs: bracket.latestMs };
 }
 
 /**
@@ -536,12 +504,12 @@ export function normalizeWorkingWindows(
   materialized.sort(
     (left, right) =>
       toEpochMs(left.interval.startsAt) - toEpochMs(right.interval.startsAt)
-      || compareStrings(left.windowId, right.windowId)
+      || compareByCodePoint(left.windowId, right.windowId)
       || left.windowIndex - right.windowIndex,
   );
   anomalies.sort(
     (left, right) =>
-      compareStrings(left.localDate, right.localDate)
+      compareByCodePoint(left.localDate, right.localDate)
       || left.windowIndex - right.windowIndex
       || (left.boundary === right.boundary ? 0 : left.boundary === 'start' ? -1 : 1),
   );

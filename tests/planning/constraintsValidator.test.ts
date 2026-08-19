@@ -227,6 +227,34 @@ test('EFFORT_NOT_POSITIVE: a buffer that is not a finite, non-negative number of
   }
 });
 
+test('a malformed buffer is reported beside an unknown effort, not swallowed by it', () => {
+  // Two independent defects on two independent fields, so two codes. The
+  // suppression principle is "borrows a bound from something already reported
+  // invalid", and a malformed buffer borrows nothing from an unknown effort —
+  // they are simply both wrong. Chaining the buffer check onto the effort branch
+  // made an unknown effort silence it, which is the principle read as "one item
+  // earns one code" yet again.
+  for (const buffers of [
+    { bufferBeforeMinutes: -5, bufferAfterMinutes: 0 },
+    { bufferBeforeMinutes: 0, bufferAfterMinutes: Number.NaN },
+  ]) {
+    const broken = item({ effort: { kind: 'unknown' }, ...buffers });
+    assert.deepEqual(
+      codes(validate(constraints({ items: [broken] }))),
+      ['EFFORT_NOT_POSITIVE', 'EFFORT_UNKNOWN'],
+      JSON.stringify(buffers),
+    );
+  }
+});
+
+test('a malformed effort and a malformed buffer earn one EFFORT_NOT_POSITIVE, not two', () => {
+  // The other direction. Both fields are unusable durations and the code says so
+  // once; repeating the same code on the same item adds no information a reader
+  // can act on, and the contract carries no way to tell the two apart anyway.
+  const broken = item({ effort: { kind: 'known', minutes: 0 }, bufferAfterMinutes: Number.NaN });
+  assert.deepEqual(validate(constraints({ items: [broken] })).map((r) => r.code), ['EFFORT_NOT_POSITIVE']);
+});
+
 test('a zero buffer is not a defect; only a negative or non-finite one is', () => {
   // The boundary the guard has to get right. Buffers default to zero all over
   // the request, and a guard that demanded a positive number would report every
@@ -325,6 +353,53 @@ test('INVALID_INTERVAL: a working window naming a zone the runtime does not know
   assert.deepEqual(codes(validate(constraints({ workingWindows: [...WEEKDAY_WINDOWS, elsewhere] }))), [
     'INVALID_INTERVAL',
   ]);
+});
+
+test('a window finding does not depend on where the caller happened to list the window', () => {
+  // Reported by #30, who refused my "name it by index" instruction on the
+  // grounds that an input array position puts the caller's ordering inside the
+  // output. They were right and the instruction was wrong: the same two windows
+  // with the same defect produced "index 1" or "index 0" depending only on the
+  // order they arrived in.
+  //
+  // The locator is now built from the window's own stated fields, which is both
+  // order-independent and more use to a reader than a position. The timezone is
+  // deliberately *not* among them: an unknown zone is arbitrary caller text, and
+  // this is the one field a malformed window can carry a sentence in.
+  const sound = { windowId: 'w-RAWTEXT-ok', weekday: 1, startMinute: 540, endMinute: 1020, timezone: 'Asia/Kolkata' } as const;
+  const broken = { windowId: 'w-RAWTEXT-bad', weekday: 3, startMinute: 600, endMinute: 60, timezone: 'Asia/Kolkata' } as const;
+
+  const forward = validate(constraints({ workingWindows: [sound, broken] }));
+  const reversed = validate(constraints({ workingWindows: [broken, sound] }));
+
+  assert.deepEqual(forward.map((r) => r.detail), reversed.map((r) => r.detail));
+  assert.equal(forward.length, 1);
+  assert.match(forward[0].detail, /weekday 3/);
+  assert.equal(forward[0].detail.includes('index'), false, forward[0].detail);
+});
+
+test('a window finding names the condition that failed, and never the zone string', () => {
+  // The zone is the only field on a window that can hold free text, so it is
+  // described rather than quoted.
+  const cases: [Partial<WorkingWindow>, RegExp][] = [
+    [{ weekday: 9 as WorkingWindow['weekday'] }, /weekday/],
+    [{ startMinute: -30 }, /start minute/],
+    [{ endMinute: 1441 }, /end minute/],
+    [{ startMinute: 600, endMinute: 60 }, /not after/],
+    [{ timezone: 'Mars/Olympus_Mons is where I told my doctor I relapsed' }, /time zone/],
+  ];
+  for (const [overrides, expected] of cases) {
+    const broken: WorkingWindow = {
+      windowId: 'w-RAWTEXT-defect', weekday: 1, startMinute: 540, endMinute: 1020,
+      timezone: 'Asia/Kolkata', ...overrides,
+    };
+    const reasons = validate(constraints({ workingWindows: [broken] }));
+    const detail = reasons.find((r) => r.code === 'INVALID_INTERVAL')?.detail ?? '';
+    assert.match(detail, expected, JSON.stringify(overrides));
+    if (typeof overrides.timezone === 'string') {
+      assert.equal(detail.includes(overrides.timezone), false, 'the zone string must not be quoted');
+    }
+  }
 });
 
 test('INVALID_INTERVAL: the complete list of window defects that are not interval defects', () => {

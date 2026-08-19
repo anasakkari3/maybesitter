@@ -147,6 +147,8 @@ export {
   freeRunsWithin,
   isKnownTimeZone,
   isMaterialisableWindow,
+  windowDefect,
+  type WindowDefect,
   mergeIntervals,
   normalizeWorkingWindows,
   type BoundaryResolutionKind,
