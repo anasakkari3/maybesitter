@@ -8,9 +8,16 @@ import 'package:maybesitter_mobile/l10n/generated/app_localizations.dart';
 import 'package:maybesitter_mobile/models/app_settings.dart';
 import 'package:maybesitter_mobile/models/commitment.dart';
 import 'package:maybesitter_mobile/services/providers.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   group('Localization Widget Tests', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({
+        'has_completed_onboarding': true,
+      });
+    });
+
     testWidgets('Renders English Today Screen', (WidgetTester tester) async {
       await tester.pumpWidget(const ProviderScope(child: MaybesitterApp()));
       await tester.pumpAndSettle();

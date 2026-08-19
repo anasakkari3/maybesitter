@@ -1025,6 +1025,93 @@ class AppLocalizationsEn extends AppLocalizations {
       'Our questions that did not help';
 
   @override
+  String get routineSurveyTitle => 'Your daily routine';
+
+  @override
+  String get routineSurveySubtitle =>
+      'Five quick picks so reminders avoid your obvious no-go times.';
+
+  @override
+  String get routineSleepQuestion => 'When do you usually sleep?';
+
+  @override
+  String get routineSleepEarly => '10:30 PM - 6:30 AM';
+
+  @override
+  String get routineSleepStandard => '11:30 PM - 7:30 AM';
+
+  @override
+  String get routineSleepLate => '12:30 AM - 8:30 AM';
+
+  @override
+  String get routineFocusQuestion => 'When is your usual work or study block?';
+
+  @override
+  String get routineFocusWorkday => '9:00 AM - 5:00 PM';
+
+  @override
+  String get routineFocusEarly => '8:00 AM - 4:00 PM';
+
+  @override
+  String get routineFocusAfternoon => '12:00 PM - 6:00 PM';
+
+  @override
+  String get routineFixedQuestion => 'Any regular fixed commitment window?';
+
+  @override
+  String get routineFixedMorning => 'Morning, 7:00 - 9:00';
+
+  @override
+  String get routineFixedAfternoon => 'Afternoon, 2:00 - 4:00';
+
+  @override
+  String get routineFixedEvening => 'Evening, 6:00 - 8:00';
+
+  @override
+  String get routineReminderQuestion => 'How persistent should reminders be?';
+
+  @override
+  String get routineReminderSoft => 'Soft only';
+
+  @override
+  String get routineReminderFollowUp => 'Soft + follow-up';
+
+  @override
+  String get routineReminderStrong => 'Strong when needed';
+
+  @override
+  String get routineQuietQuestion => 'When should reminders stay quiet?';
+
+  @override
+  String get routineQuietEarly => '9:30 PM - 6:30 AM';
+
+  @override
+  String get routineQuietStandard => '10:30 PM - 7:30 AM';
+
+  @override
+  String get routineQuietLate => '11:30 PM - 8:30 AM';
+
+  @override
+  String get routineNoneRegular => 'No regular window';
+
+  @override
+  String get routineCompleteAction => 'Finish setup';
+
+  @override
+  String get routineSaveAction => 'Save routine';
+
+  @override
+  String get routineSettingsTitle => 'Routine profile';
+
+  @override
+  String get routineSettingsSubtitle =>
+      'Sleep, focus time, fixed windows, and quiet hours';
+
+  @override
+  String get routineSettingsConfiguredSubtitle =>
+      'Used for future reminder timing';
+
+  @override
   String get privacyStorageTitle => 'Where your data lives';
 
   @override

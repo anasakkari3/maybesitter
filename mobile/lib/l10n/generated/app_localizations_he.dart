@@ -1016,6 +1016,92 @@ class AppLocalizationsHe extends AppLocalizations {
   String get feedbackBaselineClarificationFailures => 'שאלות שלנו שלא עזרו';
 
   @override
+  String get routineSurveyTitle => 'השגרה היומית שלך';
+
+  @override
+  String get routineSurveySubtitle =>
+      'חמש בחירות מהירות כדי שתזכורות יימנעו מזמנים שבבירור לא מתאימים.';
+
+  @override
+  String get routineSleepQuestion => 'מתי בדרך כלל ישנים?';
+
+  @override
+  String get routineSleepEarly => '22:30 - 06:30';
+
+  @override
+  String get routineSleepStandard => '23:30 - 07:30';
+
+  @override
+  String get routineSleepLate => '00:30 - 08:30';
+
+  @override
+  String get routineFocusQuestion => 'מתי בדרך כלל זמן העבודה או הלימודים?';
+
+  @override
+  String get routineFocusWorkday => '09:00 - 17:00';
+
+  @override
+  String get routineFocusEarly => '08:00 - 16:00';
+
+  @override
+  String get routineFocusAfternoon => '12:00 - 18:00';
+
+  @override
+  String get routineFixedQuestion => 'יש חלון קבוע להתחייבויות חוזרות?';
+
+  @override
+  String get routineFixedMorning => 'בוקר, 07:00 - 09:00';
+
+  @override
+  String get routineFixedAfternoon => 'אחר הצהריים, 14:00 - 16:00';
+
+  @override
+  String get routineFixedEvening => 'ערב, 18:00 - 20:00';
+
+  @override
+  String get routineReminderQuestion => 'כמה מתמידות התזכורות צריכות להיות?';
+
+  @override
+  String get routineReminderSoft => 'רכות בלבד';
+
+  @override
+  String get routineReminderFollowUp => 'רכות + מעקב';
+
+  @override
+  String get routineReminderStrong => 'חזקות כשצריך';
+
+  @override
+  String get routineQuietQuestion => 'מתי התזכורות צריכות להישאר שקטות?';
+
+  @override
+  String get routineQuietEarly => '21:30 - 06:30';
+
+  @override
+  String get routineQuietStandard => '22:30 - 07:30';
+
+  @override
+  String get routineQuietLate => '23:30 - 08:30';
+
+  @override
+  String get routineNoneRegular => 'אין חלון קבוע';
+
+  @override
+  String get routineCompleteAction => 'סיום ההגדרה';
+
+  @override
+  String get routineSaveAction => 'שמירת שגרה';
+
+  @override
+  String get routineSettingsTitle => 'פרופיל שגרה';
+
+  @override
+  String get routineSettingsSubtitle =>
+      'שינה, זמן מיקוד, חלונות קבועים ושעות שקט';
+
+  @override
+  String get routineSettingsConfiguredSubtitle => 'משמש לתזמון תזכורות עתידיות';
+
+  @override
   String get privacyStorageTitle => 'היכן הנתונים שלך נשמרים';
 
   @override

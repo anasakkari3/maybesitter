@@ -115,7 +115,7 @@ class CommitmentDetailsScreen extends ConsumerWidget {
       if (trimmed != null && trimmed.isNotEmpty) {
         await ref
             .read(commitmentRepositoryProvider)
-            .update(commitment!.copyWith(title: trimmed));
+            .update(commitment.copyWith(title: trimmed));
       }
     }
 

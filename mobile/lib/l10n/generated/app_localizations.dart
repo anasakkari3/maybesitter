@@ -1876,6 +1876,174 @@ abstract class AppLocalizations {
   /// **'Our questions that did not help'**
   String get feedbackBaselineClarificationFailures;
 
+  /// No description provided for @routineSurveyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Your daily routine'**
+  String get routineSurveyTitle;
+
+  /// No description provided for @routineSurveySubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Five quick picks so reminders avoid your obvious no-go times.'**
+  String get routineSurveySubtitle;
+
+  /// No description provided for @routineSleepQuestion.
+  ///
+  /// In en, this message translates to:
+  /// **'When do you usually sleep?'**
+  String get routineSleepQuestion;
+
+  /// No description provided for @routineSleepEarly.
+  ///
+  /// In en, this message translates to:
+  /// **'10:30 PM - 6:30 AM'**
+  String get routineSleepEarly;
+
+  /// No description provided for @routineSleepStandard.
+  ///
+  /// In en, this message translates to:
+  /// **'11:30 PM - 7:30 AM'**
+  String get routineSleepStandard;
+
+  /// No description provided for @routineSleepLate.
+  ///
+  /// In en, this message translates to:
+  /// **'12:30 AM - 8:30 AM'**
+  String get routineSleepLate;
+
+  /// No description provided for @routineFocusQuestion.
+  ///
+  /// In en, this message translates to:
+  /// **'When is your usual work or study block?'**
+  String get routineFocusQuestion;
+
+  /// No description provided for @routineFocusWorkday.
+  ///
+  /// In en, this message translates to:
+  /// **'9:00 AM - 5:00 PM'**
+  String get routineFocusWorkday;
+
+  /// No description provided for @routineFocusEarly.
+  ///
+  /// In en, this message translates to:
+  /// **'8:00 AM - 4:00 PM'**
+  String get routineFocusEarly;
+
+  /// No description provided for @routineFocusAfternoon.
+  ///
+  /// In en, this message translates to:
+  /// **'12:00 PM - 6:00 PM'**
+  String get routineFocusAfternoon;
+
+  /// No description provided for @routineFixedQuestion.
+  ///
+  /// In en, this message translates to:
+  /// **'Any regular fixed commitment window?'**
+  String get routineFixedQuestion;
+
+  /// No description provided for @routineFixedMorning.
+  ///
+  /// In en, this message translates to:
+  /// **'Morning, 7:00 - 9:00'**
+  String get routineFixedMorning;
+
+  /// No description provided for @routineFixedAfternoon.
+  ///
+  /// In en, this message translates to:
+  /// **'Afternoon, 2:00 - 4:00'**
+  String get routineFixedAfternoon;
+
+  /// No description provided for @routineFixedEvening.
+  ///
+  /// In en, this message translates to:
+  /// **'Evening, 6:00 - 8:00'**
+  String get routineFixedEvening;
+
+  /// No description provided for @routineReminderQuestion.
+  ///
+  /// In en, this message translates to:
+  /// **'How persistent should reminders be?'**
+  String get routineReminderQuestion;
+
+  /// No description provided for @routineReminderSoft.
+  ///
+  /// In en, this message translates to:
+  /// **'Soft only'**
+  String get routineReminderSoft;
+
+  /// No description provided for @routineReminderFollowUp.
+  ///
+  /// In en, this message translates to:
+  /// **'Soft + follow-up'**
+  String get routineReminderFollowUp;
+
+  /// No description provided for @routineReminderStrong.
+  ///
+  /// In en, this message translates to:
+  /// **'Strong when needed'**
+  String get routineReminderStrong;
+
+  /// No description provided for @routineQuietQuestion.
+  ///
+  /// In en, this message translates to:
+  /// **'When should reminders stay quiet?'**
+  String get routineQuietQuestion;
+
+  /// No description provided for @routineQuietEarly.
+  ///
+  /// In en, this message translates to:
+  /// **'9:30 PM - 6:30 AM'**
+  String get routineQuietEarly;
+
+  /// No description provided for @routineQuietStandard.
+  ///
+  /// In en, this message translates to:
+  /// **'10:30 PM - 7:30 AM'**
+  String get routineQuietStandard;
+
+  /// No description provided for @routineQuietLate.
+  ///
+  /// In en, this message translates to:
+  /// **'11:30 PM - 8:30 AM'**
+  String get routineQuietLate;
+
+  /// No description provided for @routineNoneRegular.
+  ///
+  /// In en, this message translates to:
+  /// **'No regular window'**
+  String get routineNoneRegular;
+
+  /// No description provided for @routineCompleteAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Finish setup'**
+  String get routineCompleteAction;
+
+  /// No description provided for @routineSaveAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Save routine'**
+  String get routineSaveAction;
+
+  /// No description provided for @routineSettingsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Routine profile'**
+  String get routineSettingsTitle;
+
+  /// No description provided for @routineSettingsSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Sleep, focus time, fixed windows, and quiet hours'**
+  String get routineSettingsSubtitle;
+
+  /// No description provided for @routineSettingsConfiguredSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Used for future reminder timing'**
+  String get routineSettingsConfiguredSubtitle;
+
   /// No description provided for @privacyStorageTitle.
   ///
   /// In en, this message translates to:

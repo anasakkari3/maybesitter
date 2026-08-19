@@ -316,6 +316,21 @@ enum QuietHoursRespectMode {
 }
 
 @immutable
+class ReminderScheduleDecision {
+  final ReminderIntensity intensity;
+  final Duration leadTime;
+  final bool requiresExplicitOptIn;
+  final bool respectsQuietHours;
+
+  const ReminderScheduleDecision({
+    required this.intensity,
+    required this.leadTime,
+    required this.requiresExplicitOptIn,
+    required this.respectsQuietHours,
+  });
+}
+
+@immutable
 class ReminderPolicy {
   static const currentSchemaVersion = 1;
 
@@ -336,6 +351,55 @@ class ReminderPolicy {
     this.strongRemindersRequireExplicitOptIn = true,
     this.quietHoursRespectMode = QuietHoursRespectMode.alwaysDefer,
   });
+
+  ReminderScheduleDecision decisionFor(Commitment commitment) {
+    final requestedIntensity = switch (commitment.priority) {
+      CommitmentPriority.must => maxIntensity,
+      CommitmentPriority.should =>
+        maxIntensity == ReminderIntensity.strongReminder
+            ? ReminderIntensity.followUp
+            : maxIntensity,
+      CommitmentPriority.nice =>
+        maxIntensity == ReminderIntensity.none
+            ? ReminderIntensity.none
+            : ReminderIntensity.softAwareness,
+    };
+    final intensity = _capIntensity(requestedIntensity);
+    return ReminderScheduleDecision(
+      intensity: intensity,
+      leadTime: _leadTimeFor(intensity),
+      requiresExplicitOptIn:
+          intensity == ReminderIntensity.strongReminder &&
+          strongRemindersRequireExplicitOptIn,
+      respectsQuietHours:
+          quietHoursRespectMode != QuietHoursRespectMode.allowUserOverride,
+    );
+  }
+
+  ReminderPolicy copyWith({
+    int? schemaVersion,
+    ReminderIntensity? maxIntensity,
+    Duration? softAwarenessLeadTime,
+    Duration? followUpLeadTime,
+    Duration? strongReminderLeadTime,
+    bool? strongRemindersRequireExplicitOptIn,
+    QuietHoursRespectMode? quietHoursRespectMode,
+  }) {
+    return ReminderPolicy(
+      schemaVersion: schemaVersion ?? this.schemaVersion,
+      maxIntensity: maxIntensity ?? this.maxIntensity,
+      softAwarenessLeadTime:
+          softAwarenessLeadTime ?? this.softAwarenessLeadTime,
+      followUpLeadTime: followUpLeadTime ?? this.followUpLeadTime,
+      strongReminderLeadTime:
+          strongReminderLeadTime ?? this.strongReminderLeadTime,
+      strongRemindersRequireExplicitOptIn:
+          strongRemindersRequireExplicitOptIn ??
+          this.strongRemindersRequireExplicitOptIn,
+      quietHoursRespectMode:
+          quietHoursRespectMode ?? this.quietHoursRespectMode,
+    );
+  }
 
   Map<String, dynamic> toJson() {
     return {
@@ -378,6 +442,21 @@ class ReminderPolicy {
       ),
     );
   }
+
+  ReminderIntensity _capIntensity(ReminderIntensity requested) {
+    return _intensityRank(requested) <= _intensityRank(maxIntensity)
+        ? requested
+        : maxIntensity;
+  }
+
+  Duration _leadTimeFor(ReminderIntensity intensity) {
+    return switch (intensity) {
+      ReminderIntensity.none => Duration.zero,
+      ReminderIntensity.softAwareness => softAwarenessLeadTime,
+      ReminderIntensity.followUp => followUpLeadTime,
+      ReminderIntensity.strongReminder => strongReminderLeadTime,
+    };
+  }
 }
 
 @immutable
@@ -387,6 +466,14 @@ class RoutineTimeWindow {
   final String? label;
 
   const RoutineTimeWindow({required this.start, required this.end, this.label});
+
+  RoutineTimeWindow copyWith({String? start, String? end, String? label}) {
+    return RoutineTimeWindow(
+      start: start ?? this.start,
+      end: end ?? this.end,
+      label: label ?? this.label,
+    );
+  }
 
   Map<String, dynamic> toJson() {
     return {'start': start, 'end': end, 'label': label};
@@ -426,6 +513,32 @@ class UserRoutineProfile {
     this.quietHours,
     this.surveySkipped = false,
   });
+
+  UserRoutineProfile copyWith({
+    int? schemaVersion,
+    DateTime? updatedAt,
+    String? timezone,
+    RoutineTimeWindow? sleepWindow,
+    List<RoutineTimeWindow>? focusWindows,
+    List<RoutineTimeWindow>? fixedCommitmentWindows,
+    ReminderIntensity? preferredReminderIntensity,
+    RoutineTimeWindow? quietHours,
+    bool? surveySkipped,
+  }) {
+    return UserRoutineProfile(
+      schemaVersion: schemaVersion ?? this.schemaVersion,
+      updatedAt: updatedAt ?? this.updatedAt,
+      timezone: timezone ?? this.timezone,
+      sleepWindow: sleepWindow ?? this.sleepWindow,
+      focusWindows: focusWindows ?? this.focusWindows,
+      fixedCommitmentWindows:
+          fixedCommitmentWindows ?? this.fixedCommitmentWindows,
+      preferredReminderIntensity:
+          preferredReminderIntensity ?? this.preferredReminderIntensity,
+      quietHours: quietHours ?? this.quietHours,
+      surveySkipped: surveySkipped ?? this.surveySkipped,
+    );
+  }
 
   Map<String, dynamic> toJson() {
     return {
@@ -511,4 +624,13 @@ List<RoutineTimeWindow> _windowList(dynamic value) {
             RoutineTimeWindow.fromJson(Map<String, dynamic>.from(window)),
       )
       .toList(growable: false);
+}
+
+int _intensityRank(ReminderIntensity intensity) {
+  return switch (intensity) {
+    ReminderIntensity.none => 0,
+    ReminderIntensity.softAwareness => 1,
+    ReminderIntensity.followUp => 2,
+    ReminderIntensity.strongReminder => 3,
+  };
 }

@@ -38,6 +38,7 @@ class AppSettings {
   final bool hapticFeedbackEnabled;
   final bool analyticsOptOut;
   final bool hasCompletedOnboarding;
+  final bool hasLoadedSettings;
 
   const AppSettings({
     this.themeMode = AppThemeMode.system,
@@ -47,6 +48,7 @@ class AppSettings {
     this.hapticFeedbackEnabled = true,
     this.analyticsOptOut = true,
     this.hasCompletedOnboarding = false,
+    this.hasLoadedSettings = false,
   });
 
   AppSettings copyWith({
@@ -57,6 +59,7 @@ class AppSettings {
     bool? hapticFeedbackEnabled,
     bool? analyticsOptOut,
     bool? hasCompletedOnboarding,
+    bool? hasLoadedSettings,
   }) {
     return AppSettings(
       themeMode: themeMode ?? this.themeMode,
@@ -68,6 +71,7 @@ class AppSettings {
       analyticsOptOut: analyticsOptOut ?? this.analyticsOptOut,
       hasCompletedOnboarding:
           hasCompletedOnboarding ?? this.hasCompletedOnboarding,
+      hasLoadedSettings: hasLoadedSettings ?? this.hasLoadedSettings,
     );
   }
 }
