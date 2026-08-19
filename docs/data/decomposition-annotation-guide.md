@@ -327,10 +327,39 @@ the row. `relabel` is evidence **only for the label the reviewer proposed**: pro
 relabel has not been applied to would stamp `human_reviewed` on the label the reviewer rejected and
 silently discard the one they asked for.
 
-One predicate, `isBackingReview`, decides this for both `verifyReviewedProvenance` and
+**`spansVerified` is load-bearing.** An approval certifies the whole row, spans included; a reviewer
+who did not look at them has not certified them, so an `approve` filed with `spansVerified: false`
+is not evidence for a row that carries spans. A row with no spans — every `atomic` and
+`do_not_split` row — has nothing to verify and needs no attestation; demanding one about nothing is
+how a checkbox becomes a reflex.
+
+One predicate, `isBackingReview`, decides all of this for both `verifyReviewedProvenance` and
 `promoteToReviewed`. They were separate and had already drifted — the minter refused an abstention
 while the verifier accepted one, and since the verifier is the half wired into the shipped-file
-guard, the laxer of the two was what actually ran.
+guard, the laxer of the two was what actually ran. The predicate also re-runs
+`validateDecompositionReview` over every candidate: a bare object literal carrying four plausible
+fields and no `version`, `reviewId` or `rationale` used to mint a reviewed row, because nothing
+validated the evidence before counting it as evidence.
+
+### Three layers, because one is one bypass away
+
+The honesty guarantee is enforced at every level a caller can enter at, not only the outermost:
+
+| Entry point | What it enforces |
+|---|---|
+| `isBackingReview` | What counts as evidence at all: verdict, structure, span attestation. |
+| `parseExampleCorpus` | Provenance, over whatever evidence the caller supplies — defaulting to **none**. |
+| `loadSeedCorpus` / `loadReviewedCorpus` | That the file is the corpus you asked for (`DXC022`), plus everything above. |
+
+`parseExampleCorpus` defaults its `reviews` to empty rather than reading the shipped review log. That
+keeps the parser pure, and it makes "no evidence supplied" the failing case rather than the quiet
+success — a caller who wants a reviewed row to pass has to hand over the evidence for it.
+
+The role check is separate from the row-level `DXC020`/`DXC021` checks and neither substitutes for
+the other: those are about what a row claims, `DXC022` is about which file you opened.
+`loadReviewedCorpus` pointed at the seed file used to return all 23 synthetic rows and call them
+valid, because `verifyReviewedProvenance` skips every row that is not `human_reviewed` — a file with
+no reviewed rows sails straight through the check meant to police reviewed rows.
 
 `reject` and `relabel` are separate because merging them would make "this row is mislabelled" and
 "this row should not exist" the same edit, and only one of them changes the size of the corpus.

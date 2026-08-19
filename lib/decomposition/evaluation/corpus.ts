@@ -393,6 +393,19 @@ const EXAMPLE_KEYS: readonly string[] = Object.freeze([
   'note',
 ]);
 
+export interface ParseExampleCorpusOptions {
+  /**
+   * The reviews backing any `human_reviewed` row in this file.
+   *
+   * Defaults to **empty**, which means a reviewed row fails unless the caller
+   * supplies its evidence. That direction is deliberate. The alternative — read
+   * the shipped review log from in here — would make the parser do I/O and
+   * would make "no evidence" the quiet success case; this way the parser stays
+   * pure and the unsafe direction is the one a caller has to ask for.
+   */
+  readonly reviews?: readonly DecompositionReview[];
+}
+
 export interface ExampleCorpusLoadResult {
   readonly valid: boolean;
   readonly issues: readonly ValidationIssue[];
@@ -416,7 +429,10 @@ export function readExampleCorpusFile(path: string = DECOMPOSITION_SEED_CORPUS_P
  * vocabulary is worse than a wrong model, because every score computed against
  * it is measured off a broken ruler.
  */
-export function parseExampleCorpus(raw: unknown): ExampleCorpusLoadResult {
+export function parseExampleCorpus(
+  raw: unknown,
+  options: ParseExampleCorpusOptions = {},
+): ExampleCorpusLoadResult {
   const collector = new IssueCollector();
 
   if (!isPlainObject(raw)) {
@@ -528,6 +544,13 @@ export function parseExampleCorpus(raw: unknown): ExampleCorpusLoadResult {
     accepted.push(example);
   });
 
+  // Provenance is checked *here*, not only in the loader above it. This
+  // function is exported from evaluation/index.ts and is directly reachable, so
+  // a check that lived only one level up was one import away from being
+  // bypassed — and an in-process caller is exactly how the next maintainer will
+  // reach it.
+  collector.merge(verifyReviewedProvenance({ examples: accepted, reviews: options.reviews ?? [] }).issues);
+
   const result = collector.result();
   return {
     valid: result.valid,
@@ -538,28 +561,70 @@ export function parseExampleCorpus(raw: unknown): ExampleCorpusLoadResult {
   };
 }
 
-export function loadSeedCorpus(options?: { readonly path?: string }): ExampleCorpusLoadResult {
-  return parseExampleCorpus(readExampleCorpusFile(options?.path ?? DECOMPOSITION_SEED_CORPUS_PATH));
-}
-
-export interface LoadReviewedCorpusOptions {
+export interface LoadCorpusOptions {
   readonly path?: string;
   /** Overrides the file read. For tests; the shipped path is the default. */
   readonly raw?: unknown;
-  /** Defaults to the committed review log. */
+  /** Defaults to the committed review log. Only meaningful for the reviewed role. */
   readonly reviews?: readonly DecompositionReview[];
 }
 
 /**
- * Loads the reviewed corpus **and checks that its rows are backed**.
+ * Loads a corpus file **and refuses one playing the other role**.
  *
- * The provenance check runs on the load path, not only in a helper a caller may
- * remember to call. `parseExampleCorpus` cannot do it alone — it validates one
- * file and the evidence lives in another — and leaving it to a test was not
- * enough either: the shipped-file guard that makes the claim true today asserts
- * every row is *synthetic*, and §6 of the annotation guide instructs the next
- * maintainer to narrow exactly that assertion the moment real rows land. At
- * that point nothing would have been checking provenance at all.
+ * The role guard is the second door found around the honesty check.
+ * `verifyReviewedProvenance` skips every row that is not `human_reviewed`, so a
+ * file with no reviewed rows in it passes the check meant to police reviewed
+ * rows — and `loadReviewedCorpus` pointed at the seed file therefore returned
+ * all 23 synthetic rows and called them valid. The function whose entire job is
+ * "return only rows a person approved" was handing back rows nobody had looked
+ * at. Neither the provenance check nor the row-level `role` check
+ * (`DXC020`/`DXC021`) can catch that on its own: both are about the rows, and
+ * this is about which file you opened.
+ *
+ * A corpus that fails yields zero rows, never the rows it just refused.
+ */
+function loadCorpusForRole(
+  raw: unknown,
+  expectedRole: DecompositionCorpusRole,
+  reviews: readonly DecompositionReview[],
+): ExampleCorpusLoadResult {
+  const parsed = parseExampleCorpus(raw, { reviews });
+  if (parsed.role === expectedRole) return parsed;
+
+  const collector = new IssueCollector();
+  collector.error(
+    'DXC022',
+    'corpus.role',
+    `this loader reads the '${expectedRole}' corpus but the file declares role ` +
+      `${JSON.stringify(parsed.role)}; the two corpora make different claims about their rows and are not ` +
+      'interchangeable',
+  );
+  return {
+    valid: false,
+    issues: Object.freeze([...parsed.issues, ...collector.result().issues]),
+    examples: Object.freeze([]),
+    corpusEmpty: true,
+    role: parsed.role,
+  };
+}
+
+export function loadSeedCorpus(options?: LoadCorpusOptions): ExampleCorpusLoadResult {
+  const raw =
+    options?.raw !== undefined
+      ? options.raw
+      : readExampleCorpusFile(options?.path ?? DECOMPOSITION_SEED_CORPUS_PATH);
+  // No reviews: a seed file may not carry a reviewed row at all (DXC020), so
+  // supplying evidence for one would be answering a question it cannot ask.
+  return loadCorpusForRole(raw, 'seed', []);
+}
+
+/** Retained as the documented name for the reviewed loader's options. */
+export type LoadReviewedCorpusOptions = LoadCorpusOptions;
+
+/**
+ * Loads the reviewed corpus, checks its rows are backed, and checks it is
+ * actually the reviewed corpus.
  *
  * A corpus that fails yields zero rows, not the rows that happened to pass. A
  * partly-trusted corpus of human judgements is not a corpus of human
@@ -570,18 +635,7 @@ export function loadReviewedCorpus(options?: LoadReviewedCorpusOptions): Example
     options?.raw !== undefined
       ? options.raw
       : readExampleCorpusFile(options?.path ?? DECOMPOSITION_REVIEWED_CORPUS_PATH);
-  const parsed = parseExampleCorpus(raw);
-  const reviews = options?.reviews ?? loadShippedReviewLog().reviews;
-  const provenance = verifyReviewedProvenance({ examples: parsed.examples, reviews });
-  if (provenance.valid) return parsed;
-
-  return {
-    valid: false,
-    issues: Object.freeze([...parsed.issues, ...provenance.issues]),
-    examples: Object.freeze([]),
-    corpusEmpty: true,
-    role: parsed.role,
-  };
+  return loadCorpusForRole(raw, 'reviewed', options?.reviews ?? loadShippedReviewLog().reviews);
 }
 
 /* ── Provenance ─────────────────────────────────────────────────── */
@@ -608,16 +662,31 @@ export function loadReviewedCorpus(options?: LoadReviewedCorpusOptions): Example
  *    for — the reviewer's judgement inverted, then certified.
  */
 export function isBackingReview(
-  example: Pick<DecompositionExample, 'exampleId' | 'label'>,
+  example: Pick<DecompositionExample, 'exampleId' | 'label' | 'expectedSteps'>,
   review: DecompositionReview,
 ): boolean {
   if (review.exampleId !== example.exampleId) return false;
-  // Author and time are re-checked rather than assumed from the type: a type
-  // does not survive a JSON.parse or a hand-edited file, and a review whose
-  // author or time is unknown cannot be audited.
-  if (!isNonEmptyString(review.reviewerId) || !isIsoTimestamp(review.reviewedAt)) return false;
+
+  // The whole row is re-validated, not just author and time. A type does not
+  // survive a JSON.parse or a hand-edited file, and a bare object literal
+  // carrying four plausible fields — no version, no reviewId, no rationale —
+  // used to mint a `human_reviewed` row. Evidence is checked before it is
+  // counted as evidence.
+  if (validateDecompositionReview(review).review === null) return false;
+
+  // `spansVerified` is load-bearing or it is a lie. An approval certifies the
+  // whole row, spans included; a reviewer who did not look at them has not
+  // certified them. A row carrying no spans has nothing to verify, and
+  // demanding an attestation about nothing is how a checkbox becomes a reflex —
+  // so the requirement is conditional on there being something to check.
+  if (exampleCarriesSpans(example) && !review.spansVerified) return false;
+
   if (review.verdict === 'approve') return true;
   return review.verdict === 'relabel' && review.label === example.label;
+}
+
+function exampleCarriesSpans(example: Pick<DecompositionExample, 'expectedSteps'>): boolean {
+  return example.expectedSteps.some((step) => step.sourceSpans.length > 0);
 }
 
 export interface VerifyReviewedProvenanceOptions {
@@ -680,6 +749,20 @@ export function promoteToReviewed(
     const pendingRelabel = reviews.filter(
       (row) => row.exampleId === example.exampleId && row.verdict === 'relabel' && row.label !== example.label,
     );
+    const unchecked = reviews.filter(
+      (row) =>
+        row.exampleId === example.exampleId &&
+        !row.spansVerified &&
+        exampleCarriesSpans(example) &&
+        validateDecompositionReview(row).review !== null,
+    );
+    if (unchecked.length > 0) {
+      fail(
+        `'${example.exampleId}' carries source spans and its only reviews were filed with ` +
+          "spansVerified: false. An approval that did not check the spans is not evidence that the spans " +
+          'are right, and promoting the row would certify offsets nobody read',
+      );
+    }
     if (pendingRelabel.length > 0) {
       fail(
         `'${example.exampleId}' is labelled '${example.label}' but its only reviews propose a relabel to ` +
