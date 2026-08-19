@@ -802,3 +802,132 @@ test('a prototype-named step id is stored, not mistaken for an inherited propert
   assert.deepEqual(Object.keys(persistedById(adapter)).sort(), hostile.slice().sort());
   assert.equal(Object.getPrototypeOf({}), Object.prototype, 'no prototype was polluted');
 });
+
+
+/* ── The request is data, read once (security re-review) ─────────── */
+
+test('a request that is not an object fails in the contract vocabulary', async () => {
+  // `malformedRequest` dereferenced `request.proposalId` before establishing
+  // that `request` was an object, so the guard added for malformed *decisions*
+  // still threw one level up.
+  const dependencies = harness();
+  for (const bad of [null, undefined, 42, 'accept', true]) {
+    const result = await confirmDecomposition(bad as never, dependencies);
+    assert.equal(result.success, false, `${String(bad)} should fail`);
+    assert.ok(result.failureCode, 'a failure must name a contract code');
+  }
+});
+
+test('a verdict that changes between reads cannot be checked as one and applied as another', async () => {
+  // The verdict was read in the guard, again in the fingerprint, and again in
+  // the reducer. An accessor answering "reject" twice and "accept" afterwards
+  // was validated as a rejection and then persisted.
+  const dependencies = harness();
+  const proposal = await proposeWedding(dependencies);
+  if (proposal.outcome !== 'decomposed') throw new Error('setup');
+  const ids = proposal.steps.map((step) => step.stepId);
+
+  let reads = 0;
+  const shifty = {
+    stepId: ids[0],
+    get verdict() {
+      reads += 1;
+      return reads <= 2 ? 'reject' : 'accept';
+    },
+  };
+  const result = await confirmDecomposition({
+    proposalId: proposal.proposalId,
+    scopeId: 'scope-a',
+    idempotencyKey: 'shifty',
+    decisions: [shifty as unknown as StepDecision,
+      { stepId: ids[1], verdict: 'reject' },
+      { stepId: ids[2], verdict: 'reject' }],
+  }, dependencies);
+
+  assert.deepEqual(result.persistedStepIds, [], 'a step validated as rejected must not be written');
+  assert.deepEqual(Object.keys(dependencies.persistence.snapshot().steps), []);
+});
+
+test('an edited title carrying control characters is refused', async () => {
+  const dependencies = harness();
+  const proposal = await proposeWedding(dependencies);
+  if (proposal.outcome !== 'decomposed') throw new Error('setup');
+
+  for (const editedTitle of ['\u0000\u0000', '\u0007SEND a note', 'line\u000bbreak']) {
+    const result = await confirmDecomposition(request(
+      proposal.proposalId,
+      proposal.steps.map((step, index): StepDecision => index === 0
+        ? { stepId: step.stepId, verdict: 'edit', editedTitle }
+        : { stepId: step.stepId, verdict: 'accept' }),
+      { idempotencyKey: `ctrl-${editedTitle.length}` },
+    ), dependencies);
+    assert.equal(result.success, false, `${JSON.stringify(editedTitle)} should be refused`);
+    assert.equal(result.failureCode, 'invalid_edit');
+  }
+  assert.deepEqual(Object.keys(dependencies.persistence.snapshot().steps), []);
+});
+
+/* ── The adapter defends itself ──────────────────────────────────── */
+
+test('the adapter holds a direct caller to the same title standard as the boundary', async () => {
+  // Defence in depth: the boundary already refuses these, but the adapter used
+  // `trim().length === 0` while the boundary used `titleAdmission`, so the two
+  // disagreed about "and" — and the adapter is the thing that writes.
+  const adapter = new TransactionalDecompositionPersistenceAdapter(createEmptyDecompositionState());
+  const step = (title: string): ConfirmedDecompositionStep => ({
+    stepId: 'a', proposalId: 'p1', commitmentId: 'c1', title,
+    sourceSpans: [{ start: 0, end: 4, text: 'Book' }],
+    dependsOn: [], statedTiming: null, statedOwner: null, inferred: false,
+  });
+  for (const title of ['and', 'ثم', '   ']) {
+    await assert.rejects(adapter.persistAtomically([step(title)]), `"${title}" should be refused`);
+  }
+  assert.deepEqual(adapter.snapshot().steps, {});
+});
+
+test('an id that could forge a composite key is refused', async () => {
+  // The key is `proposalId + NUL + stepId`, and the claim that no two pairs can
+  // collide was false: ('p', NUL+'s1') and ('p'+NUL, 's1') build the same key.
+  // Engine ids exclude NUL, so nothing reached it — but an invariant that does
+  // not hold is not a defence, and `proposalId` was never validated at all.
+  const adapter = new TransactionalDecompositionPersistenceAdapter(createEmptyDecompositionState());
+  const step = (proposalId: string, stepId: string): ConfirmedDecompositionStep => ({
+    stepId, proposalId, commitmentId: 'c1', title: 'Book',
+    sourceSpans: [{ start: 0, end: 4, text: 'Book' }],
+    dependsOn: [], statedTiming: null, statedOwner: null, inferred: false,
+  });
+  await assert.rejects(adapter.persistAtomically([step('p', '\u0000s1')]));
+  await assert.rejects(adapter.persistAtomically([step('p\u0000', 's1')]));
+  assert.deepEqual(adapter.snapshot().steps, {});
+
+  // The pair that used to collide now cannot be admitted at all.
+  await adapter.persistAtomically([step('p', 's1'), step('p1', 's1')]);
+  assert.equal(Object.keys(adapter.snapshot().steps).length, 2);
+});
+
+/* ── The store hands out data, not a handle ──────────────────────── */
+
+test('a holder of a stored proposal cannot rewrite its confirmation state', async () => {
+  // `get` returned the live internal record, so a caller could clear the
+  // idempotency key or plant a confirmation. The proposal itself was already
+  // cloned and frozen; the record around it was not.
+  const dependencies = harness();
+  const proposal = await proposeWedding(dependencies);
+  if (proposal.outcome !== 'decomposed') throw new Error('setup');
+  const decisions = proposal.steps.map((step): StepDecision => ({ stepId: step.stepId, verdict: 'accept' }));
+  await confirmDecomposition(request(proposal.proposalId, decisions), dependencies);
+
+  const held = dependencies.store.get(proposal.proposalId) as unknown as Record<string, unknown>;
+  assert.ok(held);
+  try {
+    held.idempotencyKey = undefined;
+    held.confirmedResult = undefined;
+  } catch {
+    // Frozen is an equally good answer.
+  }
+
+  const replay = await confirmDecomposition(request(proposal.proposalId, decisions), dependencies);
+  assert.equal(replay.success, true);
+  assert.equal(replay.replayed, true, 'the confirmation must have survived the tampering');
+  assert.equal(Object.keys(dependencies.persistence.snapshot().steps).length, 3);
+});

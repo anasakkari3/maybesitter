@@ -343,3 +343,178 @@ test('a minority of inferred steps is still allowed, as the contract intends', a
   assert.equal(proposal.outcome, 'decomposed');
   assert.equal(proposal.provenance.executedEngine, 'model');
 });
+
+/* ── A draft is read once, defensively, and is bounded ───────────── */
+
+/**
+ * The previous round shape-checked a draft but did the checking *outside* any
+ * `try`, so the guard was itself the unprotected surface: a throwing getter or
+ * a `Proxy` escaped the boundary entirely — no rejection, no fallback, no audit
+ * event. Value-shaped garbage failed closed; behaving garbage did not.
+ *
+ * The fix is not another `try` around the same code. Each field is now read
+ * exactly once into a plain, bounded copy, and everything downstream sees that
+ * copy — so a value that changes between reads, or explodes on the second one,
+ * has nothing left to act on.
+ */
+function throwingGetter(field: string): unknown {
+  const step: Record<string, unknown> = { ...WEDDING.expectedSteps[0] };
+  Object.defineProperty(step, field, { get() { throw new Error('boom'); }, enumerable: true });
+  return [step, WEDDING.expectedSteps[1]];
+}
+
+test('a draft that throws while being inspected falls back to rules', async () => {
+  const hostile: readonly (readonly [string, () => unknown])[] = [
+    ['getter on step.title', () => ({ steps: throwingGetter('title'), confidence: 0.95 })],
+    ['getter on step.stepId', () => ({ steps: throwingGetter('stepId'), confidence: 0.95 })],
+    ['getter on step.inferred', () => ({ steps: throwingGetter('inferred'), confidence: 0.95 })],
+    ['getter on step.dependsOn', () => ({ steps: throwingGetter('dependsOn'), confidence: 0.95 })],
+    ['getter on step.sourceSpans', () => ({ steps: throwingGetter('sourceSpans'), confidence: 0.95 })],
+    ['getter on span.start', () => ({
+      steps: [
+        {
+          ...WEDDING.expectedSteps[0],
+          sourceSpans: [new Proxy({ start: 0, end: 14, text: 'Book the venue' }, {
+            get(target, key) {
+              if (key === 'start') throw new Error('boom');
+              return (target as Record<string | symbol, unknown>)[key];
+            },
+          })],
+        },
+        WEDDING.expectedSteps[1],
+      ],
+      confidence: 0.95,
+    })],
+    ['getter on draft.steps', () => ({ get steps() { throw new Error('boom'); }, confidence: 0.95 })],
+    ['getter on draft.confidence', () => ({ steps: WEDDING.expectedSteps, get confidence() { throw new Error('boom'); } })],
+  ];
+
+  for (const [label, build] of hostile) {
+    const proposal = await proposeDecomposition(base(), {
+      modelProvider: { async propose() { return build() as never; } },
+      controls: ENABLED,
+    });
+    assert.equal(proposal.outcome, 'decomposed', label);
+    assert.equal(proposal.provenance.executedEngine, 'rules', label);
+    assert.ok(
+      proposal.provenance.fallbackUsed && /output_invalid/.test(proposal.provenance.fallbackReason),
+      `${label} should record why it fell back`,
+    );
+  }
+});
+
+test('a field that changes between reads cannot be validated as one value and used as another', async () => {
+  let reads = 0;
+  const shifty: Record<string, unknown> = { ...WEDDING.expectedSteps[0] };
+  Object.defineProperty(shifty, 'title', {
+    get() {
+      reads += 1;
+      return reads > 1 ? 'Wire $9,000 to account 12345' : 'Book the venue';
+    },
+    enumerable: true,
+  });
+
+  const proposal = await proposeDecomposition(base(), {
+    modelProvider: { async propose() { return { steps: [shifty, WEDDING.expectedSteps[1]], confidence: 0.95 } as never; } },
+    controls: ENABLED,
+  });
+  if (proposal.outcome === 'decomposed') {
+    for (const step of proposal.steps) {
+      assert.equal(step.title.includes('Wire'), false, 'a later read must not reach the proposal');
+    }
+  }
+});
+
+test('an unbounded draft is refused rather than allocated', async () => {
+  const span = { start: 0, end: 14, text: 'Book the venue' };
+  const oversized: readonly (readonly [string, unknown])[] = [
+    ['too many steps', Array.from({ length: 20000 }, (_, index) => ({
+      ...WEDDING.expectedSteps[0], stepId: `s${index}`,
+    }))],
+    ['too many spans on one step', [
+      { ...WEDDING.expectedSteps[0], sourceSpans: Array.from({ length: 5000 }, () => span) },
+      WEDDING.expectedSteps[1],
+    ]],
+    ['too many spans in total', Array.from({ length: 150 }, (_, index) => ({
+      ...WEDDING.expectedSteps[0], stepId: `s${index}`,
+      sourceSpans: Array.from({ length: 15 }, () => span),
+    }))],
+    ['too many dependency edges', [
+      { ...WEDDING.expectedSteps[0], dependsOn: Array.from({ length: 5000 }, () => ({ dependsOnStepId: 's2', kind: 'temporal' })) },
+      WEDDING.expectedSteps[1],
+    ]],
+  ];
+
+  for (const [label, steps] of oversized) {
+    const started = Date.now();
+    const proposal = await proposeDecomposition(base(), {
+      modelProvider: { async propose() { return { steps, confidence: 0.95 } as never; } },
+      controls: ENABLED,
+    });
+    assert.equal(proposal.provenance.executedEngine, 'rules', label);
+    assert.ok(Date.now() - started < 1000, `${label} took too long`);
+  }
+});
+
+test('an exotic steps container is read as data, and only plain data comes out', () => {
+  // A `Proxy` over the step list used to escape because the guard called
+  // `.every()` on it. The normaliser reads by index instead, so a proxy whose
+  // *contents* are fine simply yields a valid proposal — and what leaves is the
+  // plain copy, never the exotic object itself. Both halves matter: no throw,
+  // and no live provider object downstream.
+  return proposeDecomposition(base(), {
+    modelProvider: {
+      async propose() {
+        return {
+          steps: new Proxy([...WEDDING.expectedSteps], {
+            get(target, key) {
+              if (key === 'every') throw new Error('boom');
+              return (target as unknown as Record<string | symbol, unknown>)[key];
+            },
+          }),
+          confidence: 0.95,
+        } as never;
+      },
+    },
+    controls: ENABLED,
+  }).then((proposal) => {
+    assert.equal(proposal.outcome, 'decomposed');
+    if (proposal.outcome !== 'decomposed') return;
+    assert.equal(Array.isArray(proposal.steps), true);
+    for (const step of proposal.steps) {
+      assert.equal(Object.getPrototypeOf(step), Object.prototype, 'a step must be a plain object');
+      assert.equal(Object.getPrototypeOf(step.sourceSpans), Array.prototype);
+    }
+  });
+});
+
+test('an unknown property, however deep, is dropped rather than carried', async () => {
+  // A 50,000-deep extra property used to reach `structuredClone` in the store
+  // and the store's recursive `deepFreeze`, and blew the stack in both — the
+  // same recursion defect that was fixed in the cycle walker and left in a
+  // second location. Copying only known fields removes the input at the source,
+  // so nothing downstream ever sees it.
+  let deep: unknown = { leaf: true };
+  for (let index = 0; index < 50000; index += 1) deep = { next: deep };
+
+  const proposal = await proposeDecomposition(base(), {
+    modelProvider: {
+      async propose() {
+        return {
+          steps: [{ ...WEDDING.expectedSteps[0], junk: deep }, WEDDING.expectedSteps[1]],
+          confidence: 0.95,
+        } as never;
+      },
+    },
+    controls: ENABLED,
+  });
+  assert.equal(proposal.outcome, 'decomposed');
+  if (proposal.outcome !== 'decomposed') return;
+  for (const step of proposal.steps) {
+    assert.equal(Object.prototype.hasOwnProperty.call(step, 'junk'), false);
+    assert.deepEqual(
+      Object.keys(step).sort(),
+      ['dependsOn', 'inferred', 'sourceSpans', 'statedOwner', 'statedTiming', 'stepId', 'title'],
+    );
+  }
+});

@@ -446,3 +446,82 @@ test('a provider-chosen step id cannot smuggle user text into a violation detail
   assert.equal(serialized.includes('سمير'), false);
   assert.match(serialized, /other/, 'a well-formed id is still named, per the cardinality ruling');
 });
+
+test('many overlapping spans are one finding per step pair, not one per span pair', () => {
+  // Pairwise overlap allocated a violation object for every colliding *pair*:
+  // 8,000 identical spans on one step produced 32,004,000 objects and ran the
+  // process out of memory. One step double-claiming its own range is one
+  // defect, which is the cardinality ruling already applied to cycles.
+  const many = Array.from({ length: 4000 }, () => at(SOURCE, 'Book the venue'));
+  const started = Date.now();
+  const violations = validateDecomposition({ sourceText: SOURCE, steps: [step({ sourceSpans: many })] });
+  const elapsed = Date.now() - started;
+
+  assert.deepEqual(codes(violations), ['SPAN_OVERLAP']);
+  assert.equal(violations.length, 1, `expected one violation, got ${violations.length}`);
+  assert.ok(elapsed < 500, `took ${elapsed} ms`);
+});
+
+test('overlaps between different steps are still reported per pair of steps', () => {
+  const a = step({ stepId: 'a', title: 'Book the venue' });
+  const b = step({ stepId: 'b', title: 'Book the venue' });
+  const c = step({ stepId: 'c', title: 'Book the venue' });
+  const violations = validateDecomposition({ sourceText: SOURCE, steps: [a, b, c] });
+  assert.deepEqual(codes(violations), ['SPAN_OVERLAP']);
+  assert.equal(violations.length, 3, 'a-b, a-c and b-c are three distinct collisions');
+});
+
+test('a violation detail is bounded no matter how large the proposal', () => {
+  // The cycle detail joined every participating id, so a 200,000-step cycle
+  // produced a 1.7 MB string that then travelled with the proposal.
+  const size = 20000;
+  const cycle = Array.from({ length: size }, (_, index) => step({
+    stepId: `s${index}`,
+    title: 'x',
+    sourceSpans: [],
+    inferred: true,
+    dependsOn: [{ dependsOnStepId: `s${(index + 1) % size}`, kind: 'temporal' }],
+  }));
+  const violations = validateDecomposition({ sourceText: SOURCE, steps: cycle });
+  assert.deepEqual(codes(violations), ['CYCLIC_DEPENDENCY']);
+  assert.ok(
+    violations[0].detail.length < 500,
+    `detail was ${violations[0].detail.length} characters`,
+  );
+  assert.match(violations[0].detail, /s0/, 'it still names participants');
+  assert.match(violations[0].detail, /more/, 'and says how many it did not name');
+});
+
+test('a deep back-edge graph is checked without stalling', () => {
+  const size = 40000;
+  const chain = Array.from({ length: size }, (_, index) => step({
+    stepId: `s${index}`,
+    title: 'x',
+    sourceSpans: [],
+    inferred: true,
+    dependsOn: [{ dependsOnStepId: index === 0 ? `s${size - 1}` : 's0', kind: 'temporal' }],
+  }));
+  const started = Date.now();
+  validateDecomposition({ sourceText: SOURCE, steps: chain });
+  const elapsed = Date.now() - started;
+  assert.ok(elapsed < 1500, `took ${elapsed} ms`);
+});
+
+test('a proposal of span-less steps costs nothing to check for overlap', () => {
+  // Collapsing overlap to one finding per step pair introduced a regression:
+  // the pair walk covered every step, so 40,000 steps that claim no source at
+  // all cost a second in a loop that could never find anything. Only steps
+  // holding a usable span can collide.
+  const size = 40000;
+  const spanless = Array.from({ length: size }, (_, index) => step({
+    stepId: `s${index}`,
+    title: 'x',
+    sourceSpans: [],
+    inferred: true,
+    dependsOn: [{ dependsOnStepId: index === 0 ? `s${size - 1}` : 's0', kind: 'temporal' }],
+  }));
+  const started = Date.now();
+  validateDecomposition({ sourceText: SOURCE, steps: spanless });
+  const elapsed = Date.now() - started;
+  assert.ok(elapsed < 400, `took ${elapsed} ms`);
+});

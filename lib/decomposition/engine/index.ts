@@ -26,6 +26,8 @@ import {
   type DecompositionStepProposal,
   type DecompositionViolation,
   type RejectedProposal,
+  type SourceSpan,
+  type StepDependency,
 } from '../../../src/contracts/v1/decompositionContracts';
 import { resolveModuleRuntime, type RuntimeControlSnapshot } from '../../../src/contracts/v1/runtimeControls';
 import { detectSteps } from './rulesDetector';
@@ -142,20 +144,35 @@ function provenanceOf(
 }
 
 /**
- * Is this draft actually shaped like a draft?
+ * Turn whatever the provider returned into plain, bounded data — or nothing.
  *
- * `DecompositionModelDraft` is a TypeScript type and TypeScript is erased at
- * runtime, so a provider — an injected boundary to something outside this
- * process — can return anything at all. The validator is written against
- * well-typed fields, so a null `sourceSpans` or a numeric `title` threw a raw
- * `TypeError` straight out of the boundary: no rejection, no audit event, no
- * fallback. This is the check that makes the module docblock's claim, that a
- * draft is validated exactly like any other untrusted input, true.
+ * `DecompositionModelDraft` is a TypeScript type and TypeScript is erased, so a
+ * provider is free to return anything: values of the wrong type, accessors that
+ * throw, accessors that answer differently each time, a `Proxy` that traps
+ * `every`, or an object nested deeply enough to overflow the stack in
+ * `structuredClone`. An earlier version type-checked the fields but did the
+ * checking *outside* any `try`, which made the guard itself the unprotected
+ * surface.
  *
- * Deliberately structural only. Whether the *content* is honest — spans that
- * round-trip, titles their spans source — remains `validateDecomposition`'s
- * job, and running it on well-typed garbage is the point.
+ * Three properties, none of which a bare type-check provides:
+ *
+ *  1. **Every field is read exactly once**, into a fresh plain object. A value
+ *     that changes between reads therefore cannot be validated as one thing and
+ *     used as another.
+ *  2. **Only known fields are copied**, so a hostile extra property — however
+ *     deep — never reaches `structuredClone` or the store.
+ *  3. **Cardinality is bounded** before anything is allocated per element, so a
+ *     draft cannot ask this process to build a million steps or thirty million
+ *     violations.
+ *
+ * The whole thing runs inside one `try`: any throw at all means the draft is
+ * not usable, which is a rules fallback, not an exception out of the boundary.
  */
+const MAX_DRAFT_STEPS = 200;
+const MAX_SPANS_PER_STEP = 20;
+const MAX_TOTAL_SPANS = 500;
+const MAX_EDGES_PER_STEP = 50;
+
 const DEPENDENCY_KINDS: ReadonlySet<string> = new Set(['temporal', 'resource', 'informational']);
 
 /**
@@ -168,35 +185,85 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function isWellFormedSpan(value: unknown): boolean {
-  if (!isRecord(value)) return false;
-  return Number.isInteger(value.start) && Number.isInteger(value.end) && typeof value.text === 'string';
+interface NormalisedDraft {
+  readonly steps: readonly DecompositionStepProposal[];
+  readonly confidence: number;
 }
 
-function isWellFormedEdge(value: unknown): boolean {
-  if (!isRecord(value)) return false;
-  return typeof value.dependsOnStepId === 'string'
-    && typeof value.kind === 'string'
-    && DEPENDENCY_KINDS.has(value.kind);
+function normaliseSpan(value: unknown): SourceSpan {
+  if (!isRecord(value)) throw new Error('span is not an object');
+  const start = value.start;
+  const end = value.end;
+  const text = value.text;
+  if (!Number.isInteger(start) || !Number.isInteger(end) || typeof text !== 'string') {
+    throw new Error('span field has the wrong type');
+  }
+  return { start: start as number, end: end as number, text };
 }
 
-function isWellFormedDraftStep(value: unknown): value is DecompositionStepProposal {
-  if (!isRecord(value)) return false;
-  if (typeof value.stepId !== 'string' || !DRAFT_STEP_ID.test(value.stepId)) return false;
-  if (typeof value.title !== 'string') return false;
-  if (typeof value.inferred !== 'boolean') return false;
-  if (!Array.isArray(value.sourceSpans) || !value.sourceSpans.every(isWellFormedSpan)) return false;
-  if (!Array.isArray(value.dependsOn) || !value.dependsOn.every(isWellFormedEdge)) return false;
-  if (value.statedTiming !== null && typeof value.statedTiming !== 'string') return false;
-  if (value.statedOwner !== null && typeof value.statedOwner !== 'string') return false;
-  return true;
+function normaliseEdge(value: unknown): StepDependency {
+  if (!isRecord(value)) throw new Error('edge is not an object');
+  const dependsOnStepId = value.dependsOnStepId;
+  const kind = value.kind;
+  if (typeof dependsOnStepId !== 'string' || typeof kind !== 'string' || !DEPENDENCY_KINDS.has(kind)) {
+    throw new Error('edge field has the wrong type');
+  }
+  return { dependsOnStepId, kind: kind as StepDependency['kind'] };
 }
 
-function wellFormedDraftSteps(draft: unknown): readonly DecompositionStepProposal[] | null {
-  if (!isRecord(draft)) return null;
-  if (typeof draft.confidence !== 'number' || !Number.isFinite(draft.confidence)) return null;
-  if (!Array.isArray(draft.steps)) return null;
-  return draft.steps.every(isWellFormedDraftStep) ? (draft.steps as DecompositionStepProposal[]) : null;
+function normaliseDraft(draft: unknown): NormalisedDraft | null {
+  try {
+    if (!isRecord(draft)) return null;
+
+    const confidence = draft.confidence;
+    if (typeof confidence !== 'number' || !Number.isFinite(confidence)) return null;
+
+    const rawSteps = draft.steps;
+    if (!Array.isArray(rawSteps) || rawSteps.length > MAX_DRAFT_STEPS) return null;
+
+    const steps: DecompositionStepProposal[] = [];
+    let totalSpans = 0;
+
+    for (let index = 0; index < rawSteps.length; index += 1) {
+      const raw: unknown = rawSteps[index];
+      if (!isRecord(raw)) return null;
+
+      const stepId = raw.stepId;
+      const title = raw.title;
+      const inferred = raw.inferred;
+      const statedTiming = raw.statedTiming;
+      const statedOwner = raw.statedOwner;
+      const rawSpans = raw.sourceSpans;
+      const rawEdges = raw.dependsOn;
+
+      if (typeof stepId !== 'string' || !DRAFT_STEP_ID.test(stepId)) return null;
+      if (typeof title !== 'string') return null;
+      if (typeof inferred !== 'boolean') return null;
+      if (statedTiming !== null && typeof statedTiming !== 'string') return null;
+      if (statedOwner !== null && typeof statedOwner !== 'string') return null;
+      if (!Array.isArray(rawSpans) || rawSpans.length > MAX_SPANS_PER_STEP) return null;
+      if (!Array.isArray(rawEdges) || rawEdges.length > MAX_EDGES_PER_STEP) return null;
+
+      totalSpans += rawSpans.length;
+      if (totalSpans > MAX_TOTAL_SPANS) return null;
+
+      steps.push({
+        stepId,
+        title,
+        inferred,
+        statedTiming,
+        statedOwner,
+        sourceSpans: rawSpans.map(normaliseSpan),
+        dependsOn: rawEdges.map(normaliseEdge),
+      });
+    }
+    return { steps, confidence };
+  } catch {
+    // Any throw at all — a hostile accessor, a proxy trap, a stack overflow
+    // from something nested — means the draft is not usable. That is a
+    // fallback, not an exception out of the boundary.
+    return null;
+  }
 }
 
 /**
@@ -211,6 +278,11 @@ function wellFormedDraftSteps(draft: unknown): readonly DecompositionStepProposa
  * wrote. The non-arbitrary part is that a proposal with no sourced step at all
  * is not grounded in anything; the exact ratio is a policy choice, set here at
  * "the majority must be sourced" and stated rather than buried.
+ *
+ * It bounds *proportion*, not content: a minority inferred step's title is
+ * still provider-authored text that no check can ground, which is recorded in
+ * the validator's own "what this proves" section and survives to the persisted
+ * record as `inferred: true`.
  */
 function isMostlySourced(steps: readonly DecompositionStepProposal[]): boolean {
   const inferred = steps.filter((step) => step.inferred).length;
@@ -274,10 +346,11 @@ export async function proposeDecomposition(
     return runRules('model_provider_failed');
   }
 
-  const draftSteps = wellFormedDraftSteps(draft);
-  if (draftSteps === null) return runRules('model_output_invalid:malformed');
+  const normalised = normaliseDraft(draft);
+  if (normalised === null) return runRules('model_output_invalid:malformed');
+  const draftSteps = normalised.steps;
 
-  if (draft.confidence < minimumConfidence) return runRules('model_below_confidence');
+  if (normalised.confidence < minimumConfidence) return runRules('model_below_confidence');
   if (draftSteps.length === 0) {
     // The model's considered verdict that this is one action. Overriding it
     // with the rules detector would make the model's opinion decorative.

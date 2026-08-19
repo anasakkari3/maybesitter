@@ -198,52 +198,98 @@ export async function proposeDecompositionBoundary(
  */
 const KNOWN_VERDICTS: ReadonlySet<string> = new Set(['accept', 'reject', 'edit']);
 
+/**
+ * C0 and C1 control characters, plus the line separators.
+ *
+ * A title is something a person will read in a list. NUL and friends are not
+ * text a user typed on purpose, they survive JSON transport intact, and two
+ * NULs were persisted as a step title.
+ */
+const CONTROL_CHARACTERS = /[\u0000-\u001F\u007F-\u009F\u2028\u2029]/;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/** One ruling, already read out of the request and into plain data. */
+interface NormalisedDecision {
+  readonly stepId: string;
+  readonly verdict: 'accept' | 'reject' | 'edit';
+  readonly editedTitle: string;
+}
+
+interface NormalisedRequest {
+  readonly proposalId: string;
+  readonly scopeId: string;
+  readonly idempotencyKey: string;
+  readonly decisions: readonly NormalisedDecision[];
+  readonly fingerprint: string;
+}
+
 /**
- * Why this request is not a well-formed confirmation, or null.
+ * Read the request once, into plain data, or say why it is not a confirmation.
  *
- * Everything below used to be assumed. `decisions` that was not an array threw
- * a raw `TypeError` out of the function this module's own docblock calls "the
- * boundary", and an unrecognised verdict was read as acceptance — on the one
- * path here that writes, against a contract whose stated rule is that silence
- * is not consent. Failing closed in the contract's own vocabulary is the whole
- * job of this function.
+ * "Once" is the security property, not a tidiness preference. The verdict used
+ * to be read in the guard, again when fingerprinting, and again in the reducer;
+ * an accessor answering `reject` twice and `accept` afterwards was validated as
+ * a rejection and then persisted. Everything downstream now sees this copy, so
+ * a value that changes between reads has nothing left to change.
+ *
+ * The object-ness check comes first because the previous version dereferenced
+ * `request.proposalId` before establishing there was a request at all — the
+ * same defect one level up from the one it was written to fix.
  */
-function malformedRequest(request: DecompositionConfirmationRequest): ConfirmationFailureCode | null {
-  if (typeof request.proposalId !== 'string'
-    || typeof request.scopeId !== 'string'
-    || typeof request.idempotencyKey !== 'string') {
+function normaliseRequest(
+  request: unknown,
+): NormalisedRequest | ConfirmationFailureCode {
+  if (!isRecord(request)) return 'proposal_not_found';
+
+  const proposalId = request.proposalId;
+  const scopeId = request.scopeId;
+  const idempotencyKey = request.idempotencyKey;
+  if (typeof proposalId !== 'string' || typeof scopeId !== 'string' || typeof idempotencyKey !== 'string') {
     return 'proposal_not_found';
   }
-  if (!Array.isArray(request.decisions)) return 'incomplete_decisions';
 
-  for (const decision of request.decisions) {
-    if (!isRecord(decision) || typeof decision.stepId !== 'string') return 'unknown_step';
-    if (typeof decision.verdict !== 'string' || !KNOWN_VERDICTS.has(decision.verdict)) {
+  const rawDecisions = request.decisions;
+  if (!Array.isArray(rawDecisions)) return 'incomplete_decisions';
+
+  const decisions: NormalisedDecision[] = [];
+  for (const raw of rawDecisions) {
+    if (!isRecord(raw)) return 'unknown_step';
+    const stepId = raw.stepId;
+    const verdict = raw.verdict;
+    if (typeof stepId !== 'string') return 'unknown_step';
+    if (typeof verdict !== 'string' || !KNOWN_VERDICTS.has(verdict)) {
       // Not an acceptance and not a rejection: the request states no ruling
       // this reducer understands for that step, which is the same defect as
       // omitting it.
       return 'incomplete_decisions';
     }
-    if (decision.verdict === 'edit') {
-      if (typeof decision.editedTitle !== 'string') return 'invalid_edit';
-      if (decision.editedTitle.length > MAX_EDITED_TITLE_LENGTH) return 'invalid_edit';
-    }
-  }
-  return null;
-}
 
-function decisionFingerprint(request: DecompositionConfirmationRequest): string {
-  return JSON.stringify(
-    request.decisions.map((decision) => [
-      decision.stepId,
-      decision.verdict,
-      decision.verdict === 'edit' ? decision.editedTitle.trim() : '',
-    ]),
-  );
+    let editedTitle = '';
+    if (verdict === 'edit') {
+      const raw2 = raw.editedTitle;
+      if (typeof raw2 !== 'string') return 'invalid_edit';
+      if (raw2.length > MAX_EDITED_TITLE_LENGTH) return 'invalid_edit';
+      if (CONTROL_CHARACTERS.test(raw2)) return 'invalid_edit';
+      editedTitle = raw2.trim();
+    }
+    decisions.push({ stepId, verdict: verdict as NormalisedDecision['verdict'], editedTitle });
+  }
+
+  return {
+    proposalId,
+    scopeId,
+    idempotencyKey,
+    decisions,
+    // Order-sensitive on purpose: two decision lists differing in order are
+    // different requests, and treating them as one would silently accept a
+    // ruling the user did not make.
+    fingerprint: JSON.stringify(
+      decisions.map((decision) => [decision.stepId, decision.verdict, decision.editedTitle]),
+    ),
+  };
 }
 
 function failure(failureCode: ConfirmationFailureCode): DecompositionConfirmationResult {
@@ -271,7 +317,7 @@ interface ResolvedDecisions {
  */
 function resolveDecisions(
   proposal: Extract<DecompositionProposal, { outcome: 'decomposed' }>,
-  request: DecompositionConfirmationRequest,
+  request: NormalisedRequest,
 ): ResolvedDecisions | ConfirmationFailureCode {
   const byStepId = new Map<string, DecompositionStepProposal>();
   for (const step of proposal.steps) byStepId.set(step.stepId, step);
@@ -285,9 +331,9 @@ function resolveDecisions(
   if (seen.size !== proposal.steps.length) return 'incomplete_decisions';
 
   // Positive test. Anything that is not literally 'reject' used to be an
-  // acceptance, so an unknown verdict silently wrote; the request-level guard
-  // rejects those before we get here, and this stays positive so the two can
-  // never drift apart into "unknown means yes" again.
+  // acceptance, so an unknown verdict silently wrote; normalisation rejects
+  // those before we get here, and this stays positive so the two can never
+  // drift apart into "unknown means yes" again.
   const acceptedIds = new Set(
     request.decisions
       .filter((decision) => decision.verdict === 'accept' || decision.verdict === 'edit')
@@ -302,7 +348,7 @@ function resolveDecisions(
       rejectedStepIds.push(step.stepId);
       continue;
     }
-    const title = decision.verdict === 'edit' ? decision.editedTitle.trim() : step.title;
+    const title = decision.verdict === 'edit' ? decision.editedTitle : step.title;
     // The same standard admission applies to an edit, not a weaker one. This
     // used to check only for emptiness, so a step could be edited into "and" —
     // a string the validator rejects outright as a split artefact — and written.
@@ -379,30 +425,29 @@ export async function confirmDecomposition(
   options: { readonly now?: Date } = {},
 ): Promise<DecompositionConfirmationResult> {
   const now = options.now ?? new Date(0);
-  const malformed = malformedRequest(request);
-  if (malformed !== null) return failure(malformed);
+  const normalised = normaliseRequest(request);
+  if (typeof normalised === 'string') return failure(normalised);
 
-  const stored = dependencies.store.get(request.proposalId);
-  if (!stored || stored.scopeId !== request.scopeId) return failure('proposal_not_found');
+  const stored = dependencies.store.get(normalised.proposalId);
+  if (!stored || stored.scopeId !== normalised.scopeId) return failure('proposal_not_found');
 
   // A proposal already claimed is spent unless this request is the very same
   // ruling arriving again. Matching on the key alone made a reused key with
   // different decisions read as a retry: a user asking to reject all three
   // steps was told all three had been saved.
   //
-  // Both halves of this are needed: #27's fingerprint decides *whether* the
-  // ruling is the same one, and `already_confirmed` says *why* a different one
-  // is refused.
+  // Both halves are needed: the normalised fingerprint decides *whether* this
+  // is the same ruling, and `already_confirmed` says *why* a different one is
+  // refused.
   //
   // `proposal_not_found` stays on the scope check above — telling a wrong scope
   // that the proposal exists would be an enumeration oracle. Here it would only
   // mislead: the caller holds a real proposal id, and the real reason is that
   // someone else ruled first. A caller told "not found" retries; a caller told
   // "already confirmed" stops, which is the correct response to this one.
-  const fingerprint = decisionFingerprint(request);
   const claimed = stored.confirmedResult !== undefined || stored.inFlight !== undefined;
-  const isSameRuling =
-    stored.idempotencyKey === request.idempotencyKey && stored.decisionFingerprint === fingerprint;
+  const isSameRuling = stored.idempotencyKey === normalised.idempotencyKey
+    && stored.decisionFingerprint === normalised.fingerprint;
   if (claimed && !isSameRuling) return failure('already_confirmed');
 
   if (stored.confirmedResult) return { ...stored.confirmedResult, replayed: true };
@@ -416,7 +461,7 @@ export async function confirmDecomposition(
   const proposal = stored.proposal;
   if (proposal.outcome !== 'decomposed') return failure('proposal_not_decomposed');
 
-  const resolved = resolveDecisions(proposal, request);
+  const resolved = resolveDecisions(proposal, normalised);
   if (typeof resolved === 'string') return failure(resolved);
 
   if (resolved.accepted.length === 0) {
@@ -428,9 +473,8 @@ export async function confirmDecomposition(
       persistedStepIds: [],
       rejectedStepIds: resolved.rejectedStepIds,
     };
-    stored.confirmedResult = result;
-    stored.idempotencyKey = request.idempotencyKey;
-    stored.decisionFingerprint = fingerprint;
+    dependencies.store.claim(normalised.proposalId, normalised.idempotencyKey, normalised.fingerprint);
+    dependencies.store.settle(normalised.proposalId, result);
     dependencies.audit?.(auditEvent('succeeded', proposal.sourceText, now, 'confirmed', 0));
     return result;
   }
@@ -438,20 +482,22 @@ export async function confirmDecomposition(
   // Claim first, await second. Both assignments complete in this synchronous
   // turn — `applyConfirmation` runs only as far as its own first `await` before
   // handing the promise back — so any later caller sees the claim.
-  stored.idempotencyKey = request.idempotencyKey;
-  stored.decisionFingerprint = fingerprint;
-  stored.inFlight = applyConfirmation(proposal, resolved, dependencies, now);
+  const inFlight = applyConfirmation(proposal, resolved, dependencies, now);
+  dependencies.store.claim(
+    normalised.proposalId,
+    normalised.idempotencyKey,
+    normalised.fingerprint,
+    inFlight,
+  );
 
-  const result = await stored.inFlight;
-  stored.inFlight = undefined;
+  const result = await inFlight;
   if (result.success) {
-    stored.confirmedResult = result;
+    dependencies.store.settle(normalised.proposalId, result);
   } else {
     // A write that did not happen must stay retryable, so the claim is
     // released; marking it confirmed would make the retry report a replay of a
     // batch nobody ever applied.
-    stored.idempotencyKey = undefined;
-    stored.decisionFingerprint = undefined;
+    dependencies.store.release(normalised.proposalId);
   }
   return result;
 }
