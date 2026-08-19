@@ -249,13 +249,45 @@ function findTransitionMs(lowMs: number, highMs: number, timeZone: string): numb
  * answers, and for a skipped time it returns an instant whose local clock reads
  * something else entirely. Neither raises anything for a caller to notice.
  */
-export function resolveLocalTime(parts: WallClockParts, timeZone: string): LocalTimeResolution {
+/**
+ * The earliest and latest instant a wall-clock reading could denote, before any
+ * verification, fold policy, or gap handling is applied.
+ *
+ * This is the first half of `resolveLocalTime`: form the naive UTC reading and
+ * correct it by the offsets in force a day either side, which bracket any single
+ * transition within the day. For a time with no anomaly the two candidates
+ * coincide and the bracket is a point.
+ *
+ * Exported because a caller needs the bracket *before* the filtering — to ask
+ * where an occurrence would have fallen had it not been skipped, which is not a
+ * question `resolveLocalTime` can answer once it has discarded the candidates
+ * that do not read back. #29 needed exactly that to decide whether a DST anomaly
+ * lands inside the planning horizon, and had reimplemented these three lines
+ * rather than reach for them — DST arithmetic living in two modules, which is
+ * the one thing this file exists to prevent.
+ *
+ * It deliberately does *not* verify. A bracket is a range that certainly
+ * contains the answer, not a claim that either endpoint is a real instant.
+ */
+export function nominalInstantBracket(
+  parts: WallClockParts,
+  timeZone: string,
+): { readonly earliestMs: number; readonly latestMs: number } {
+  const candidates = nominalCandidates(parts, timeZone);
+  return { earliestMs: candidates[0], latestMs: candidates[candidates.length - 1] };
+}
+
+/** The naive reading corrected by the offsets a day either side, ascending. */
+function nominalCandidates(parts: WallClockParts, timeZone: string): number[] {
   const naiveMs = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute);
   const offsetBefore = zoneOffsetMs(naiveMs - MS_PER_DAY, timeZone);
   const offsetAfter = zoneOffsetMs(naiveMs + MS_PER_DAY, timeZone);
-
-  const candidates = Array.from(new Set([naiveMs - offsetBefore, naiveMs - offsetAfter]))
+  return Array.from(new Set([naiveMs - offsetBefore, naiveMs - offsetAfter]))
     .sort((left, right) => left - right);
+}
+
+export function resolveLocalTime(parts: WallClockParts, timeZone: string): LocalTimeResolution {
+  const candidates = nominalCandidates(parts, timeZone);
   const valid = candidates.filter((candidate) => partsEqual(wallClockAt(candidate, timeZone), parts));
 
   if (valid.length === 1) {

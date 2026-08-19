@@ -24,6 +24,7 @@ import {
   intervalsOverlap,
   isPositiveInterval,
   minutesBetween,
+  nominalInstantBracket,
   resolveLocalTime,
   subtractIntervals,
   toEpochMs,
@@ -295,4 +296,29 @@ test('an unrecognised fold policy does not disturb a time that is not folded', (
     instantFromResolution(exact, 'nonsense' as unknown as 'earliest'),
     '2026-11-09T14:00:00.000Z',
   );
+});
+
+test('the nominal bracket contains the real instant, and is a point when nothing is anomalous', () => {
+  // The half of resolveLocalTime a caller needs *before* verification: where
+  // would this reading have fallen had it not been skipped. Exported so #29
+  // stops recomputing it; asserted here so the two halves cannot drift.
+  const ordinary = { year: 2026, month: 11, day: 9, hour: 9, minute: 0 };
+  const point = nominalInstantBracket(ordinary, 'America/New_York');
+  assert.equal(point.earliestMs, point.latestMs, 'an unanomalous reading brackets to a point');
+  assert.equal(toInstant(point.earliestMs), '2026-11-09T14:00:00.000Z');
+
+  // A gap: neither endpoint is real, but the bracket still spans the transition.
+  const gap = nominalInstantBracket({ year: 2026, month: 3, day: 8, hour: 2, minute: 30 }, 'America/New_York');
+  assert.ok(gap.earliestMs < gap.latestMs, 'an anomalous reading brackets a range');
+  const transition = toEpochMs('2026-03-08T07:00:00.000Z');
+  assert.ok(gap.earliestMs < transition && transition <= gap.latestMs, 'the bracket must span the transition');
+
+  // A fold: both candidates are real, and the bracket is exactly the two.
+  const foldParts = { year: 2026, month: 11, day: 1, hour: 1, minute: 30 };
+  const fold = resolveLocalTime(foldParts, 'America/New_York');
+  const bracket = nominalInstantBracket(foldParts, 'America/New_York');
+  assert.equal(fold.kind, 'fold');
+  if (fold.kind !== 'fold') return;
+  assert.equal(toInstant(bracket.earliestMs), fold.firstInstant);
+  assert.equal(toInstant(bracket.latestMs), fold.secondInstant);
 });

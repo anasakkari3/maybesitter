@@ -392,6 +392,21 @@ const DIVERGENCE_CASES: ReadonlyArray<{
     constraints: constraints({ items: [item({ priority: Number.NaN })] }),
   },
 
+  {
+    name: 'unknown effort beside a malformed buffer — two independent defects',
+    constraints: constraints({ items: [item({
+      effort: { kind: 'unknown' },
+      bufferBeforeMinutes: -5,
+    })] }),
+  },
+  {
+    name: 'unknown effort beside a NaN buffer',
+    constraints: constraints({ items: [item({
+      effort: { kind: 'unknown' },
+      bufferAfterMinutes: Number.NaN,
+    })] }),
+  },
+
   /* Suppression breadth — an item that states both of its own bounds */
   {
     name: 'stale deadline on an item that states both bounds',
