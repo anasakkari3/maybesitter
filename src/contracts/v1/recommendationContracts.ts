@@ -33,19 +33,25 @@
  *
  * ── Five structural decisions, each because the alternative fails quietly ──
  *
- *  1. **An unsourced claim is unrepresentable, not discouraged.** Evidence is a
- *     graph of two node kinds: an `ObservedEvidence` names a record in trusted
- *     state, and a `DerivedEvidence` names a **non-empty** list of parents. There
- *     is no third kind and no "inferred" escape hatch. Because
- *     `checkEvidenceGraph` rejects cycles and dangling references, and
- *     `derivedFrom` is a non-empty tuple, every maximal ancestry path in an
- *     accepted graph terminates at an observed node — so "every claim traces to
- *     trusted state" is a theorem about the type rather than a convention.
- *     Sprint 06 got this far with `inferred` + empty `sourceSpans`, which is an
- *     *admission* an engine can make honestly and a caller can ignore; Sprint 07
- *     went further with `Effort` being a variant. This goes one step further
- *     again: there is nothing to admit to, because the shape has no room for it.
- *     See `EvidenceNode` and `resolveEvidenceRoots`.
+ *  1. **An unsourced claim is unrepresentable in the type, and reported at the
+ *     boundary.** Evidence is a graph of two node kinds: an `ObservedEvidence`
+ *     names a record in trusted state, and a `DerivedEvidence` names a
+ *     **non-empty** list of parents. There is no third kind and no "inferred"
+ *     escape hatch. Sprint 06 got this far with `inferred` + empty
+ *     `sourceSpans`, which is an *admission* an engine can make honestly and a
+ *     caller can ignore; Sprint 07 went further with `Effort` being a variant.
+ *
+ *     **The half of that claim that needed correcting.** An earlier draft argued
+ *     that the tuple arity plus cycle rejection makes "every claim traces to
+ *     trusted state" a theorem, so no runtime code was needed. That is true of
+ *     the type and false of the value, and the checkers in this file exist for
+ *     exactly the place the type is absent — `JSON.parse` yields plain arrays,
+ *     so `derivedFrom: []` arrives across any network, storage or cross-track
+ *     boundary and passed every check here until `UNSOURCED_DERIVATION` existed.
+ *     The rule that generalises: **every non-empty tuple in this file is a hole
+ *     at the untyped boundary**, and each now has a runtime code. The type keeps
+ *     honest producers honest; the checker is what the guarantee actually rests
+ *     on. See `EvidenceNode`, `checkEvidenceGraph` and `resolveEvidenceRoots`.
  *
  *  2. **A lone option must say why it is alone.** `OptionSet` has three variants
  *     and no `primary` field. A UI cannot read "the recommendation" and drop the
@@ -55,8 +61,13 @@
  *     evidence that nothing else existed). The shape `{ primary, alternatives }`
  *     is what this exists to forbid: it renders correctly when `alternatives` is
  *     dropped, so dropping it is invisible, and the pilot's
- *     `NextStepRecommendationContract.primaryStep` is exactly that shape. See
- *     `OptionSet` and `summarizeOptionSet`.
+ *     `NextStepRecommendationContract.primaryStep` is exactly that shape.
+ *
+ *     The arities are enforced by `checkRecommendation`, not only by the tuple
+ *     types — `CHOICE_BELOW_MINIMUM` and `SOLE_OPTION_WITHOUT_ACCOUNT`. A
+ *     `choice` carrying one option is the criterion's exact failure and it
+ *     passed every check while `minOptionsForChoice` sat exported and unread.
+ *     See `OptionSet` and `summarizeOptionSet`.
  *
  *  3. **Staleness is a computed verdict with a fail-closed default.** Wall-clock
  *     expiry is the easy half. The half that matters is that a recommendation is
@@ -678,16 +689,77 @@ export const RECOMMENDED_ACTION_KIND_COVERAGE = _actionKindsAreExhaustive;
  * which is why the checkers below compare keys internally and report positions.
  */
 export function actionKey(action: RecommendedAction): string {
+  const parts = actionParts(action);
+  // Length-prefixed segments, because a plain `:` join is **not injective**: a
+  // `schedule` of commitment `a:b` starting at `S` produces the same string as a
+  // `schedule` of commitment `a` starting at `b:S`, and the collision surfaces as
+  // a `DUPLICATE_OPTION_ACTION` reported against two genuinely different actions.
+  // Ids are caller-chosen free strings, so a delimiter that appears in them is
+  // not a hypothetical.
+  let key = '';
+  for (let index = 0; index < parts.length; index += 1) {
+    key += `${parts[index].length}:${parts[index]}|`;
+  }
+  return key;
+}
+
+/**
+ * The parts of an action, or a stable encoding of an unrecognised one.
+ *
+ * `actionKey` is declared to return `string` and, before the untyped boundary
+ * was taken seriously, an action with an unknown `kind` fell off the end of the
+ * switch and returned `undefined` — so *two different* unrecognised actions
+ * compared equal and produced a `DUPLICATE_OPTION_ACTION` finding about a
+ * duplication that did not exist. A checker inventing findings is worse than one
+ * missing them, because the caller acts on it.
+ */
+function actionParts(action: RecommendedAction): readonly string[] {
   switch (action.kind) {
     case 'do_now':
-      return `do_now:${action.commitmentId}`;
+      return ['do_now', String(action.commitmentId)];
     case 'schedule':
-      return `schedule:${action.commitmentId}:${action.slot.startsAt}:${action.slot.endsAt}`;
+      return [
+        'schedule',
+        String(action.commitmentId),
+        String(action.slot === null || action.slot === undefined ? '' : action.slot.startsAt),
+        String(action.slot === null || action.slot === undefined ? '' : action.slot.endsAt),
+      ];
     case 'decompose':
-      return `decompose:${action.commitmentId}:${action.proposalId}`;
+      return ['decompose', String(action.commitmentId), String(action.proposalId)];
     case 'defer':
-      return `defer:${action.commitmentId}:${action.until}`;
+      return ['defer', String(action.commitmentId), String(action.until)];
+    default:
+      return ['\u0000unknown', canonicalUnknown(action)];
   }
+}
+
+/**
+ * A deterministic encoding of a value this contract does not recognise.
+ *
+ * Keys are sorted by code unit — `<` on strings, which is a code-*unit*
+ * comparison and is exactly what is wanted here: the result must not move with
+ * the host's ICU data or `LANG`, which is the whole objection to `localeCompare`
+ * stated under `RECOMMENDATION_ORDERING_KEYS`. Code-unit versus code-point order
+ * differs only for astral characters and either is stable, which is the property
+ * this needs.
+ */
+function canonicalUnknown(value: unknown): string {
+  if (value === null || typeof value !== 'object') return String(value);
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record).sort((left, right) => (left === right ? 0 : left < right ? -1 : 1));
+  let encoded = '';
+  for (let index = 0; index < keys.length; index += 1) {
+    const inner = record[keys[index]];
+    encoded += `${keys[index].length}:${keys[index]}=${canonicalUnknown(inner)};`;
+  }
+  return `{${encoded}}`;
+}
+
+/** Whether an action is one this contract version recognises. */
+export function isKnownActionKind(action: RecommendedAction): boolean {
+  return (RECOMMENDED_ACTION_KINDS as readonly string[]).includes(
+    action === null || action === undefined ? '' : (action as { kind?: unknown }).kind as string,
+  );
 }
 
 /**
@@ -764,36 +836,70 @@ export type OptionSet =
  * the fact that it is discarding the rest, in a diff a reviewer can see.
  */
 export interface OptionSetSummary {
-  readonly lead: RecommendationOption;
+  /**
+   * Null only for an option set this contract version does not recognise.
+   *
+   * Nullable rather than absent, because the previous shape returned a
+   * confidently-typed `lead: RecommendationOption` that was `undefined` at
+   * runtime whenever `kind` was unrecognised — and `soleness` said
+   * `'only_candidate'`, so a renderer was told "this is the only thing on your
+   * plate" about an offer it had failed to parse. Version skew between #34 and
+   * #35 is the documented reason this checker runs at both ends; it is not a
+   * hypothetical boundary.
+   */
+  readonly lead: RecommendationOption | null;
   /** Everything after the lead, in offer order. Empty for the one-option kinds. */
   readonly alternatives: readonly RecommendationOption[];
-  readonly soleness: OptionSet['kind'];
+  readonly soleness: OptionSet['kind'] | 'unknown';
   readonly excluded: readonly ExcludedOption[];
 }
 
 export function summarizeOptionSet(options: OptionSet): OptionSetSummary {
+  if (options === null || options === undefined) {
+    return { lead: null, alternatives: [], soleness: 'unknown', excluded: [] };
+  }
   if (options.kind === 'choice') {
+    const list = asArray<RecommendationOption>(options.options);
     return {
-      lead: options.options[0],
-      alternatives: options.options.slice(1),
+      lead: list.length > 0 ? list[0] : null,
+      alternatives: list.slice(1),
       soleness: 'choice',
-      excluded: options.excluded,
+      excluded: asArray<ExcludedOption>(options.excluded),
     };
   }
   if (options.kind === 'sole_survivor') {
     return {
-      lead: options.option,
+      lead: options.option ?? null,
       alternatives: [],
       soleness: 'sole_survivor',
-      excluded: options.excluded,
+      excluded: asArray<ExcludedOption>(options.excluded),
     };
   }
-  return { lead: options.option, alternatives: [], soleness: 'only_candidate', excluded: [] };
+  if (options.kind === 'only_candidate') {
+    return { lead: options.option ?? null, alternatives: [], soleness: 'only_candidate', excluded: [] };
+  }
+  return { lead: null, alternatives: [], soleness: 'unknown', excluded: [] };
 }
 
-/** Every offered option, in order, whatever the variant. */
+/** Every offered option, in order, whatever the variant. Never contains a hole. */
 export function offeredOptions(options: OptionSet): readonly RecommendationOption[] {
-  return options.kind === 'choice' ? options.options : [options.option];
+  const summary = summarizeOptionSet(options);
+  if (summary.lead === null) return [];
+  return [summary.lead, ...summary.alternatives];
+}
+
+/**
+ * A defensive array read for the untyped boundary.
+ *
+ * Every list in this contract is typed as an array or a non-empty tuple, and at
+ * the boundary any of them can arrive as `undefined`, `null`, or a JSON object.
+ * Returning `[]` rather than throwing keeps the checkers able to report the
+ * *other* things wrong with the value, which is the whole ordering rule in
+ * `RECOMMENDATION_INPUT_POLICY`: decide what is wrong with the input before
+ * doing anything that assumes it is well-formed.
+ */
+function asArray<T>(value: unknown): readonly T[] {
+  return Array.isArray(value) ? (value as readonly T[]) : [];
 }
 
 /* ── Validity: expiry and invalidation ───────────────────────────── */
@@ -921,15 +1027,35 @@ export type Recommendation = OfferedRecommendation | WithheldRecommendation;
  * - `EMPTY_FINGERPRINT`        — an observed node whose `valueFingerprint` is
  *                                blank. See `ObservedEvidence`.
  *
- * There is deliberately **no `UNROOTED_CLAIM` code.** A graph that passes the
- * five above cannot contain a derived node whose ancestry misses every
- * observation: parents are non-empty, all parents resolve, and the graph is
- * acyclic and finite, so every ancestry path terminates at a node with no
- * parents, which is an `ObservedEvidence` by construction. Adding the code would
- * imply the condition is reachable and invite an implementation to check for it
- * instead of relying on the structure. What *would* reintroduce it is widening
- * `derivedFrom` to a plain array — which is the change this note exists to
- * flag to whoever is tempted by it.
+ * - `UNSOURCED_DERIVATION`     — a derived node with an **empty** parent list.
+ *
+ *   This code exists because an earlier draft argued it could not: parents are a
+ *   non-empty tuple, so a parentless derivation is unconstructible, so no code is
+ *   needed. That argument is sound about the *type* and false about the *value*,
+ *   and these checkers exist for exactly the place the type is absent. A tuple
+ *   arity is a compile-time claim; `JSON.parse` produces a plain array, and so
+ *   does every network boundary, every stored record, and every hand-built
+ *   fixture in a track that has not adopted the type. The falsifying case is one
+ *   line — `derivedFrom: []` — and it passed both checkers and the staleness
+ *   verdict while `resolveEvidenceRoots` returned null for it, which is the
+ *   contract contradicting itself.
+ *
+ *   The general lesson, and it generalises past this member: **every non-empty
+ *   tuple in this file is a hole at the untyped boundary.** `supportedBy`,
+ *   `basis`, `support`, `exclusion`, `attested`, `reasons` and the `choice`
+ *   arity are all the same shape of claim, and each now has a runtime code —
+ *   see `UNSOURCED_CLAIM`, `EMPTY_REASON_LIST`, `CHOICE_BELOW_MINIMUM` and
+ *   `SOLE_OPTION_WITHOUT_ACCOUNT` below.
+ * - `UNKNOWN_NODE_KIND`        — a node whose `kind` is neither `observed` nor
+ *                                `derived`. Reported rather than ignored because
+ *                                every pass in this file is written as
+ *                                `if (node.kind !== 'observed') continue`, so an
+ *                                unrecognised node is silently exempt from
+ *                                *all* of them: it is never fingerprint-checked,
+ *                                so it can never invalidate a recommendation,
+ *                                and it made `resolveEvidenceRoots` throw. A
+ *                                node that no pass applies to is the ideal place
+ *                                for an unsourced claim to live.
  */
 export type EvidenceGraphDefectCode =
   | 'BLANK_NODE_ID'
@@ -937,7 +1063,9 @@ export type EvidenceGraphDefectCode =
   | 'UNKNOWN_EVIDENCE_NODE'
   | 'SELF_DERIVED_EVIDENCE'
   | 'CYCLIC_EVIDENCE'
-  | 'EMPTY_FINGERPRINT';
+  | 'EMPTY_FINGERPRINT'
+  | 'UNSOURCED_DERIVATION'
+  | 'UNKNOWN_NODE_KIND';
 
 /**
  * What can be structurally wrong with the offer itself.
@@ -963,6 +1091,45 @@ export type EvidenceGraphDefectCode =
  *                                   things is a list, and the acceptance
  *                                   criterion about user control is about a
  *                                   choice a person can actually hold.
+ * - `CHOICE_BELOW_MINIMUM`        — a `choice` carrying fewer than
+ *                                   `minOptionsForChoice` options. The floor was
+ *                                   exported as data and enforced by nothing: a
+ *                                   `choice` holding one option passed every
+ *                                   check and summarised as
+ *                                   `soleness: 'choice', alternatives: []` — a
+ *                                   single option presented as though it were
+ *                                   the only one, which is the exact shape the
+ *                                   acceptance criterion forbids and the exact
+ *                                   shape the doc comment on `OptionSet` claimed
+ *                                   was "not constructible". It is not
+ *                                   constructible *in the type*; the boundary
+ *                                   has no type.
+ * - `SOLE_OPTION_WITHOUT_ACCOUNT` — a `sole_survivor` with an empty `excluded`
+ *                                   list, or an `only_candidate` with an empty
+ *                                   `attested` list. One code, because it is one
+ *                                   defect wearing two field names: a lone
+ *                                   option with no account of why it is alone.
+ *                                   The account is the entire difference between
+ *                                   a proposal and an instruction.
+ * - `EMPTY_REASON_LIST`           — an option with no `support`, an excluded
+ *                                   candidate with no `exclusion`, or a
+ *                                   `withheld` verdict with no `reasons`. A
+ *                                   refusal is a claim, and a refusal with zero
+ *                                   claims is the unsourced claim this contract
+ *                                   is built to make unrepresentable.
+ * - `UNSOURCED_CLAIM`             — a reason, a confidence, or an attestation
+ *                                   whose evidence list is empty. Distinct from
+ *                                   `UNKNOWN_EVIDENCE_NODE`, which is a
+ *                                   reference that *misses*: citing nothing and
+ *                                   citing something absent are different
+ *                                   mistakes by different producers.
+ * - `UNKNOWN_OPTION_SET_KIND`     — an `OptionSet.kind` this version does not
+ *                                   recognise.
+ * - `UNKNOWN_ACTION_KIND`         — a `RecommendedAction.kind` this version does
+ *                                   not recognise. Both exist because version
+ *                                   skew between #34 and #35 is the documented
+ *                                   reason this checker runs at both ends, and
+ *                                   an unrecognised variant previously threw.
  */
 export type RecommendationStructureDefectCode =
   | 'CONFIDENCE_OUT_OF_RANGE'
@@ -970,7 +1137,13 @@ export type RecommendationStructureDefectCode =
   | 'DUPLICATE_OPTION_ACTION'
   | 'EXCLUDED_OPTION_ALSO_OFFERED'
   | 'OPTION_INDEX_MISMATCH'
-  | 'OPTION_CAP_EXCEEDED';
+  | 'OPTION_CAP_EXCEEDED'
+  | 'CHOICE_BELOW_MINIMUM'
+  | 'SOLE_OPTION_WITHOUT_ACCOUNT'
+  | 'EMPTY_REASON_LIST'
+  | 'UNSOURCED_CLAIM'
+  | 'UNKNOWN_OPTION_SET_KIND'
+  | 'UNKNOWN_ACTION_KIND';
 
 export type RecommendationDefectCode =
   | EvidenceGraphDefectCode
@@ -983,7 +1156,14 @@ export const EVIDENCE_GRAPH_DEFECT_CODES = Object.freeze([
   'SELF_DERIVED_EVIDENCE',
   'CYCLIC_EVIDENCE',
   'EMPTY_FINGERPRINT',
+  'UNSOURCED_DERIVATION',
+  'UNKNOWN_NODE_KIND',
 ] as const) satisfies readonly EvidenceGraphDefectCode[];
+
+type _GraphDefectCodesCovered =
+  Exclude<EvidenceGraphDefectCode, (typeof EVIDENCE_GRAPH_DEFECT_CODES)[number]> extends never ? true : never;
+const _graphDefectCodesAreExhaustive: _GraphDefectCodesCovered = true;
+export const EVIDENCE_GRAPH_DEFECT_CODE_COVERAGE = _graphDefectCodesAreExhaustive;
 
 export const RECOMMENDATION_STRUCTURE_DEFECT_CODES = Object.freeze([
   'CONFIDENCE_OUT_OF_RANGE',
@@ -992,7 +1172,20 @@ export const RECOMMENDATION_STRUCTURE_DEFECT_CODES = Object.freeze([
   'EXCLUDED_OPTION_ALSO_OFFERED',
   'OPTION_INDEX_MISMATCH',
   'OPTION_CAP_EXCEEDED',
+  'CHOICE_BELOW_MINIMUM',
+  'SOLE_OPTION_WITHOUT_ACCOUNT',
+  'EMPTY_REASON_LIST',
+  'UNSOURCED_CLAIM',
+  'UNKNOWN_OPTION_SET_KIND',
+  'UNKNOWN_ACTION_KIND',
 ] as const) satisfies readonly RecommendationStructureDefectCode[];
+
+type _StructureDefectCodesCovered =
+  Exclude<RecommendationStructureDefectCode, (typeof RECOMMENDATION_STRUCTURE_DEFECT_CODES)[number]> extends never
+    ? true
+    : never;
+const _structureDefectCodesAreExhaustive: _StructureDefectCodesCovered = true;
+export const RECOMMENDATION_STRUCTURE_DEFECT_CODE_COVERAGE = _structureDefectCodesAreExhaustive;
 
 /**
  * One structural finding.
@@ -1013,17 +1206,35 @@ export interface RecommendationDefect {
 
 /* ── Graph checking ──────────────────────────────────────────────── */
 
+/**
+ * Blank, or not a string at all.
+ *
+ * Total on purpose. The typed signature said `string` and the runtime received
+ * whatever the boundary produced: a numeric `nodeId` reached `value.trim()` and
+ * raised a `TypeError` out of a checker whose entire contract is to *return* a
+ * finding list — and `BLANK_NODE_ID` already existed for precisely this class of
+ * unusable identifier. This is the Sprint 07 defect shape recorded in
+ * `PLANNING_INPUT_POLICY`: a helper raising several frames below the entry
+ * point, invisible to a typed caller and immediate at the untyped boundary the
+ * module was written to guard.
+ */
 function isBlank(value: string): boolean {
-  return value.trim().length === 0;
+  return typeof value !== 'string' || value.trim().length === 0;
+}
+
+/** A node kind this contract version knows how to reason about. */
+function isKnownNodeKind(node: EvidenceNode): boolean {
+  return node !== null && node !== undefined && (node.kind === 'observed' || node.kind === 'derived');
 }
 
 /**
  * Structural check over an evidence graph alone.
  *
- * Returns findings; it does not throw. Per `RECOMMENDATION_INPUT_POLICY`, every
- * condition this taxonomy names comes back as data — a checker that raises
- * cannot return the list it exists to return, which is the defect
- * `planningContracts` records three instances of.
+ * Returns findings; it does not throw, for **any** input. Per
+ * `RECOMMENDATION_INPUT_POLICY`, every condition this taxonomy names comes back
+ * as data — a checker that raises cannot return the list it exists to return,
+ * which is the defect `planningContracts` records three sprint-07 instances of
+ * and which this function shipped four more of before review.
  *
  * **Ordering is by input position**, deliberately, and not by any string
  * comparison. Findings are emitted node by node in `graph.nodes` order and, for
@@ -1032,43 +1243,55 @@ function isBlank(value: string): boolean {
  * repo's comparator (`compareByCodePoint`) lives in `lib/planning/shared/` and a
  * contract must not import `lib/`, so the only ways to sort by id here would be
  * a second copy of that arithmetic (the Sprint 06 gap) or `localeCompare`, whose
- * result depends on the runtime's ICU data and default locale. The pilot's
- * `nextStepBaseline.ts` uses `localeCompare` twice; that is a known pre-existing
- * defect recorded in the roadmap, not a precedent.
+ * result depends on the runtime's ICU data and default locale.
+ *
+ * The V03 pilot surface had four `localeCompare` sites — `nextStepBaseline.ts`
+ * twice, `nextStepReviewService.ts` and `experiments/nextStepArms.ts` once each —
+ * all of which now use `compareByCodePoint`. They are recorded here because a
+ * reader who finds them in the history should not read them as a precedent this
+ * module may follow: they were a pre-existing defect, and the count is worth
+ * stating because the first grep that went looking for them returned two. A
+ * truncated search over a rule that must hold everywhere reports a clean result
+ * for the part it saw, which is the same shape of failure as a cross-track test
+ * comparing at too coarse a granularity.
  *
  * **The suppression rule**, matching `planningContracts`: a finding is suppressed
  * only when it borrows a bound from something already reported malformed. A node
  * with a blank id is not also reported as a duplicate of the next blank id,
  * because the duplication is an artefact of the blankness. A dangling
  * `derivedFrom` edge does not suppress a cycle among the edges that do resolve —
- * those borrow nothing from the broken one.
+ * those borrow nothing from the broken one. A node of unknown kind is reported
+ * once and then not judged as though it were a derivation, because every claim
+ * about its edges would borrow from a shape it does not have.
  */
 export function checkEvidenceGraph(graph: EvidenceGraph): readonly RecommendationDefect[] {
   const defects: RecommendationDefect[] = [];
-  const nodes = graph.nodes;
+  const nodes = asArray<EvidenceNode>(graph === null || graph === undefined ? [] : graph.nodes);
 
   const firstIndexById = new Map<EvidenceNodeId, number>();
   const blankIndices = new Set<number>();
+  const unknownKindIndices = new Set<number>();
 
   for (let index = 0; index < nodes.length; index += 1) {
     const node = nodes[index];
-    if (isBlank(node.nodeId)) {
+    const nodeId = node === null || node === undefined ? undefined : node.nodeId;
+    if (isBlank(nodeId as string)) {
       blankIndices.add(index);
       defects.push({
         code: 'BLANK_NODE_ID',
         nodeId: null,
         optionIndex: null,
-        detail: `evidence node #${index} has a blank id`,
+        detail: `evidence node #${index} has a blank or non-textual id`,
       });
       continue;
     }
-    const first = firstIndexById.get(node.nodeId);
+    const first = firstIndexById.get(nodeId as string);
     if (first === undefined) {
-      firstIndexById.set(node.nodeId, index);
+      firstIndexById.set(nodeId as string, index);
     } else {
       defects.push({
         code: 'DUPLICATE_EVIDENCE_NODE',
-        nodeId: node.nodeId,
+        nodeId: nodeId as string,
         optionIndex: null,
         detail: `evidence node #${index} repeats the id first used by node #${first}`,
       });
@@ -1077,7 +1300,19 @@ export function checkEvidenceGraph(graph: EvidenceGraph): readonly Recommendatio
 
   for (let index = 0; index < nodes.length; index += 1) {
     const node = nodes[index];
-    if (node.kind !== 'observed') continue;
+    if (isKnownNodeKind(node)) continue;
+    unknownKindIndices.add(index);
+    defects.push({
+      code: 'UNKNOWN_NODE_KIND',
+      nodeId: blankIndices.has(index) ? null : node.nodeId,
+      optionIndex: null,
+      detail: `evidence node #${index} declares a kind this contract version does not recognise`,
+    });
+  }
+
+  for (let index = 0; index < nodes.length; index += 1) {
+    const node = nodes[index];
+    if (unknownKindIndices.has(index) || node.kind !== 'observed') continue;
     if (isBlank(node.valueFingerprint)) {
       defects.push({
         code: 'EMPTY_FINGERPRINT',
@@ -1090,11 +1325,26 @@ export function checkEvidenceGraph(graph: EvidenceGraph): readonly Recommendatio
 
   for (let index = 0; index < nodes.length; index += 1) {
     const node = nodes[index];
-    if (node.kind !== 'derived') continue;
+    if (unknownKindIndices.has(index) || node.kind !== 'derived') continue;
     const nodeId = blankIndices.has(index) ? null : node.nodeId;
+    const parents = asArray<EvidenceNodeId>(node.derivedFrom);
+
+    if (parents.length === 0) {
+      // The falsifying case for the "structural, not conventional" claim. A
+      // parentless derivation reaches no observation, so it is an unsourced
+      // claim — and it passed every check here until this line existed.
+      defects.push({
+        code: 'UNSOURCED_DERIVATION',
+        nodeId,
+        optionIndex: null,
+        detail: `derived evidence node #${index} names no parent, so it rests on no observation`,
+      });
+      continue;
+    }
+
     let selfReported = false;
-    for (let edge = 0; edge < node.derivedFrom.length; edge += 1) {
-      const parentId = node.derivedFrom[edge];
+    for (let edge = 0; edge < parents.length; edge += 1) {
+      const parentId = parents[edge];
       if (!blankIndices.has(index) && parentId === node.nodeId) {
         if (!selfReported) {
           selfReported = true;
@@ -1118,7 +1368,7 @@ export function checkEvidenceGraph(graph: EvidenceGraph): readonly Recommendatio
     }
   }
 
-  const cyclic = findCyclicNodeIndices(nodes, firstIndexById, blankIndices);
+  const cyclic = findCyclicNodeIndices(nodes, firstIndexById, blankIndices, unknownKindIndices);
   for (let position = 0; position < cyclic.length; position += 1) {
     const index = cyclic[position];
     defects.push({
@@ -1133,18 +1383,35 @@ export function checkEvidenceGraph(graph: EvidenceGraph): readonly Recommendatio
 }
 
 /**
- * Indices of nodes on a derivation cycle of length > 1.
+ * Indices of nodes on a derivation cycle of length > 1, in input order.
  *
  * Every member of a cycle is reported, not just the node the traversal happened
  * to enter through. Sprint 07's cross-track fuzz found exactly the opposite bug
  * in the planning cycle detector: a member reached through a cross edge was
  * missed while the code stayed in the reported *set*, contributed by the two
  * members that were found — so a set-level comparison saw perfect agreement and
- * the caller was told the third node was fine. Membership is computed by
- * intersecting forward reachability with backward reachability, which cannot
- * miss a member by traversal order.
+ * the caller was told the third node was fine.
  *
- * Self-edges are excluded here: they are `SELF_DERIVED_EVIDENCE`, one defect one
+ * **Tarjan's strongly-connected components, iteratively.** Membership of a cycle
+ * of length > 1 is exactly membership of an SCC of size > 1, which cannot miss a
+ * member by traversal order, and it is one linear pass.
+ *
+ * Two properties of the previous implementation are worth recording, because
+ * both were found by review rather than by any test here. It intersected forward
+ * reachability with backward reachability per node — and the backward half was
+ * **provably dead**: after `if (!forward.has(index)) continue`, the node reaches
+ * itself, so it trivially also reaches itself in the reversed graph. Twenty
+ * lines and a whole reversed adjacency built for nothing, under a comment
+ * praising an intersection that never excluded anything. It was also O(V·(V+E)),
+ * which is 222ms at five thousand nodes; this is O(V+E). Dead code that looks
+ * load-bearing is worse than absent code, because the next reader budgets
+ * trust for it.
+ *
+ * The recursion is explicit rather than by call stack: a twelve-thousand-node
+ * derivation chain overflowed the stack in the sibling traversal, and an
+ * evidence graph's depth is caller-controlled.
+ *
+ * Self-edges are excluded: they are `SELF_DERIVED_EVIDENCE`, one defect one
  * code. A node with a self-edge *and* a real cycle earns both, because those are
  * two distinct defects rather than one told twice.
  */
@@ -1152,14 +1419,17 @@ function findCyclicNodeIndices(
   nodes: readonly EvidenceNode[],
   firstIndexById: ReadonlyMap<EvidenceNodeId, number>,
   blankIndices: ReadonlySet<number>,
+  unknownKindIndices: ReadonlySet<number>,
 ): readonly number[] {
+  const count = nodes.length;
   const outgoing: number[][] = [];
-  for (let index = 0; index < nodes.length; index += 1) {
+  for (let index = 0; index < count; index += 1) {
     const node = nodes[index];
     const edges: number[] = [];
-    if (node.kind === 'derived' && !blankIndices.has(index)) {
-      for (let edge = 0; edge < node.derivedFrom.length; edge += 1) {
-        const parentId = node.derivedFrom[edge];
+    if (!unknownKindIndices.has(index) && node.kind === 'derived' && !blankIndices.has(index)) {
+      const parents = asArray<EvidenceNodeId>(node.derivedFrom);
+      for (let edge = 0; edge < parents.length; edge += 1) {
+        const parentId = parents[edge];
         if (parentId === node.nodeId) continue;
         const target = firstIndexById.get(parentId);
         if (target !== undefined) edges.push(target);
@@ -1168,34 +1438,69 @@ function findCyclicNodeIndices(
     outgoing.push(edges);
   }
 
-  const incoming: number[][] = [];
-  for (let index = 0; index < nodes.length; index += 1) incoming.push([]);
-  for (let index = 0; index < outgoing.length; index += 1) {
-    for (let edge = 0; edge < outgoing[index].length; edge += 1) {
-      incoming[outgoing[index][edge]].push(index);
+  const UNVISITED = -1;
+  const index_ = new Int32Array(count).fill(UNVISITED);
+  const lowLink = new Int32Array(count).fill(0);
+  const onStack = new Uint8Array(count);
+  const componentSize = new Int32Array(count).fill(0);
+  const componentOf = new Int32Array(count).fill(UNVISITED);
+  const sccStack: number[] = [];
+  let nextIndex = 0;
+  let nextComponent = 0;
+
+  for (let root = 0; root < count; root += 1) {
+    if (index_[root] !== UNVISITED) continue;
+    // Explicit frames: [node, next edge to consider].
+    const frames: number[][] = [[root, 0]];
+    index_[root] = nextIndex;
+    lowLink[root] = nextIndex;
+    nextIndex += 1;
+    sccStack.push(root);
+    onStack[root] = 1;
+
+    while (frames.length > 0) {
+      const frame = frames[frames.length - 1];
+      const node = frame[0];
+      if (frame[1] < outgoing[node].length) {
+        const next = outgoing[node][frame[1]];
+        frame[1] += 1;
+        if (index_[next] === UNVISITED) {
+          index_[next] = nextIndex;
+          lowLink[next] = nextIndex;
+          nextIndex += 1;
+          sccStack.push(next);
+          onStack[next] = 1;
+          frames.push([next, 0]);
+        } else if (onStack[next] === 1) {
+          if (index_[next] < lowLink[node]) lowLink[node] = index_[next];
+        }
+        continue;
+      }
+      frames.pop();
+      if (frames.length > 0) {
+        const parent = frames[frames.length - 1][0];
+        if (lowLink[node] < lowLink[parent]) lowLink[parent] = lowLink[node];
+      }
+      if (lowLink[node] === index_[node]) {
+        let size = 0;
+        const component = nextComponent;
+        nextComponent += 1;
+        for (;;) {
+          const member = sccStack.pop() as number;
+          onStack[member] = 0;
+          componentOf[member] = component;
+          size += 1;
+          if (member === node) break;
+        }
+        componentSize[component] = size;
+      }
     }
   }
 
-  const reach = (start: number, adjacency: readonly number[][]): Set<number> => {
-    const seen = new Set<number>();
-    const stack: number[] = adjacency[start].slice();
-    while (stack.length > 0) {
-      const next = stack.pop() as number;
-      if (seen.has(next)) continue;
-      seen.add(next);
-      const onward = adjacency[next];
-      for (let edge = 0; edge < onward.length; edge += 1) stack.push(onward[edge]);
-    }
-    return seen;
-  };
-
   const cyclic: number[] = [];
-  for (let index = 0; index < nodes.length; index += 1) {
-    if (outgoing[index].length === 0) continue;
-    const forward = reach(index, outgoing);
-    if (!forward.has(index)) continue;
-    const backward = reach(index, incoming);
-    if (backward.has(index)) cyclic.push(index);
+  for (let index = 0; index < count; index += 1) {
+    const component = componentOf[index];
+    if (component !== UNVISITED && componentSize[component] > 1) cyclic.push(index);
   }
   return cyclic;
 }
@@ -1209,7 +1514,13 @@ function findCyclicNodeIndices(
  * than throwing on an unresolvable or cyclic graph keeps the function usable as
  * the *assertion* in that property test — a version that threw would make the
  * property untestable except by catching, and a caught throw is indistinguishable
- * from a bug in the test.
+ * from a bug in the test. It now also returns null, rather than throwing, for a
+ * node of unknown kind and for a parentless derivation, which is what makes the
+ * property true rather than merely asserted.
+ *
+ * Iterative rather than recursive. The recursive version overflowed the call
+ * stack at roughly twelve thousand chained nodes — a `RangeError` out of a
+ * function documented never to throw, on input whose depth the caller chooses.
  *
  * Roots come back in `graph.nodes` order, deduplicated, for determinism without
  * a string comparator (see `checkEvidenceGraph`).
@@ -1218,121 +1529,251 @@ export function resolveEvidenceRoots(
   graph: EvidenceGraph,
   nodeId: EvidenceNodeId,
 ): readonly ObservedEvidence[] | null {
+  const nodes = asArray<EvidenceNode>(graph === null || graph === undefined ? [] : graph.nodes);
   const indexById = new Map<EvidenceNodeId, number>();
-  for (let index = 0; index < graph.nodes.length; index += 1) {
-    const candidate = graph.nodes[index];
-    if (!indexById.has(candidate.nodeId)) indexById.set(candidate.nodeId, index);
+  for (let index = 0; index < nodes.length; index += 1) {
+    const candidate = nodes[index];
+    const candidateId = candidate === null || candidate === undefined ? undefined : candidate.nodeId;
+    if (isBlank(candidateId as string)) continue;
+    if (!indexById.has(candidateId as string)) indexById.set(candidateId as string, index);
   }
   const start = indexById.get(nodeId);
   if (start === undefined) return null;
 
   const rootIndices = new Set<number>();
-  const visiting = new Set<number>();
-  const settled = new Set<number>();
+  const state = new Uint8Array(nodes.length); // 0 unseen, 1 visiting, 2 settled
+  const frames: number[][] = [[start, 0]];
+  state[start] = 1;
 
-  const walk = (index: number): boolean => {
-    if (settled.has(index)) return true;
-    if (visiting.has(index)) return false;
-    visiting.add(index);
-    const node = graph.nodes[index];
+  while (frames.length > 0) {
+    const frame = frames[frames.length - 1];
+    const node = nodes[frame[0]];
+    if (!isKnownNodeKind(node)) return null;
     if (node.kind === 'observed') {
-      rootIndices.add(index);
-    } else {
-      for (let edge = 0; edge < node.derivedFrom.length; edge += 1) {
-        const parent = indexById.get(node.derivedFrom[edge]);
-        if (parent === undefined) return false;
-        if (!walk(parent)) return false;
-      }
+      rootIndices.add(frame[0]);
+      state[frame[0]] = 2;
+      frames.pop();
+      continue;
     }
-    visiting.delete(index);
-    settled.add(index);
-    return true;
-  };
-
-  if (!walk(start)) return null;
+    const parents = asArray<EvidenceNodeId>(node.derivedFrom);
+    // A derivation with no parents reaches no observation. Null, not `[]`:
+    // an empty root list read as success is the exact mutation that survived
+    // review, because nothing distinguished "rests on nothing" from "resolved".
+    if (parents.length === 0) return null;
+    if (frame[1] >= parents.length) {
+      state[frame[0]] = 2;
+      frames.pop();
+      continue;
+    }
+    const parentId = parents[frame[1]];
+    frame[1] += 1;
+    const parent = indexById.get(parentId);
+    if (parent === undefined) return null;
+    if (state[parent] === 1) return null; // a cycle is not resolvable
+    if (state[parent] === 2) continue;
+    state[parent] = 1;
+    frames.push([parent, 0]);
+  }
 
   const roots: ObservedEvidence[] = [];
-  for (let index = 0; index < graph.nodes.length; index += 1) {
-    if (rootIndices.has(index)) roots.push(graph.nodes[index] as ObservedEvidence);
+  for (let index = 0; index < nodes.length; index += 1) {
+    if (rootIndices.has(index)) roots.push(nodes[index] as ObservedEvidence);
   }
-  return roots.length > 0 ? roots : null;
+  /**
+   * Returned unconditionally, and the missing `roots.length > 0 ? roots : null`
+   * is deliberate.
+   *
+   * Every exit above that could reach here with an empty set already returns
+   * null — a parentless derivation, a dangling parent, a re-entered node, an
+   * unrecognised kind — and every successful walk adds at least one observation,
+   * because the only node kind that settles without recursing is `observed`. So
+   * a trailing emptiness check is unreachable.
+   *
+   * That is not a stylistic preference. Mutation testing found the two guards
+   * **masking each other**: deleting either one left all tests green, because
+   * the other still produced null, so neither was actually covered. Keeping one
+   * load-bearing guard makes its deletion a failing test. It is the same finding
+   * as the provably-dead backward-reachability pass removed from
+   * `findCyclicNodeIndices` — a second check that looks like defence in depth
+   * and is really an untested branch plus a hole in the first check's coverage.
+   */
+  return roots;
 }
 
 /* ── Whole-recommendation checking ───────────────────────────────── */
 
 /**
- * Every evidence reference a recommendation makes outside the graph's own edges.
+ * One evidence reference made outside the graph's own edges, with where it came
+ * from.
+ *
+ * `emptyCode` is what to report when the *list* the reference came from is
+ * empty, which is a different mistake from a reference that misses: citing
+ * nothing and citing something absent are made by different producers and fixed
+ * in different places.
+ */
+interface ExternalReference {
+  readonly id: EvidenceNodeId;
+  readonly optionIndex: number | null;
+  readonly where: string;
+}
+
+/**
+ * Every evidence reference a recommendation makes outside the graph's own edges,
+ * plus a finding for every reference list that is empty.
  *
  * Collected in one place so the checker cannot cover three of the four kinds of
  * reference and read as complete. The fourth — `Confidence.basis` — is the one a
  * hand-written checker forgets, because it is nested two levels down and the
  * other three are at the top of their objects.
+ *
+ * The empty-list findings live here for the same reason: every one of these
+ * lists is a non-empty tuple in the type and a plain array at the boundary, so
+ * the emptiness check has to sit exactly where the reference walk does, or the
+ * two will drift apart the first time a reference site is added.
  */
 function collectExternalReferences(
   recommendation: Recommendation,
-): readonly { readonly id: EvidenceNodeId; readonly optionIndex: number | null; readonly where: string }[] {
-  const refs: { id: EvidenceNodeId; optionIndex: number | null; where: string }[] = [];
+): { readonly refs: readonly ExternalReference[]; readonly defects: readonly RecommendationDefect[] } {
+  const refs: ExternalReference[] = [];
+  const defects: RecommendationDefect[] = [];
 
   const addReasonRefs = (
-    reasons: readonly EvidenceBackedReason<RecommendationReasonCode>[],
+    reasons: unknown,
     optionIndex: number | null,
     where: string,
+    emptyListDetail: string,
   ): void => {
-    for (let index = 0; index < reasons.length; index += 1) {
-      const reason = reasons[index];
-      for (let edge = 0; edge < reason.supportedBy.length; edge += 1) {
-        refs.push({ id: reason.supportedBy[edge], optionIndex, where: `${where} #${index}` });
+    const list = asArray<EvidenceBackedReason<RecommendationReasonCode>>(reasons);
+    if (list.length === 0) {
+      defects.push({ code: 'EMPTY_REASON_LIST', nodeId: null, optionIndex, detail: emptyListDetail });
+      return;
+    }
+    for (let index = 0; index < list.length; index += 1) {
+      const reason = list[index];
+      const supportedBy = asArray<EvidenceNodeId>(reason === null || reason === undefined ? [] : reason.supportedBy);
+      if (supportedBy.length === 0) {
+        defects.push({
+          code: 'UNSOURCED_CLAIM',
+          nodeId: null,
+          optionIndex,
+          detail: `${where} #${index} states a reason that rests on no evidence`,
+        });
+        continue;
+      }
+      for (let edge = 0; edge < supportedBy.length; edge += 1) {
+        refs.push({ id: supportedBy[edge], optionIndex, where: `${where} #${index}` });
       }
     }
   };
 
   if (recommendation.outcome === 'withheld') {
-    addReasonRefs(recommendation.reasons, null, 'withholding reason');
-    return refs;
+    addReasonRefs(
+      recommendation.reasons,
+      null,
+      'withholding reason',
+      'a withheld verdict states no reason, so it refuses without a claim',
+    );
+    return { refs, defects };
   }
 
   const options = offeredOptions(recommendation.options);
   for (let index = 0; index < options.length; index += 1) {
     const option = options[index];
-    addReasonRefs(option.support, index, 'support reason');
-    for (let edge = 0; edge < option.confidence.basis.length; edge += 1) {
-      refs.push({ id: option.confidence.basis[edge], optionIndex: index, where: 'confidence basis' });
+    addReasonRefs(
+      option === null || option === undefined ? [] : option.support,
+      index,
+      'support reason',
+      `option #${index} is offered with no stated support`,
+    );
+    const basis = asArray<EvidenceNodeId>(
+      option === null || option === undefined || option.confidence === null || option.confidence === undefined
+        ? []
+        : option.confidence.basis,
+    );
+    if (basis.length === 0) {
+      defects.push({
+        code: 'UNSOURCED_CLAIM',
+        nodeId: null,
+        optionIndex: index,
+        detail: `option #${index} states a confidence that rests on no evidence`,
+      });
+    }
+    for (let edge = 0; edge < basis.length; edge += 1) {
+      refs.push({ id: basis[edge], optionIndex: index, where: 'confidence basis' });
     }
   }
+
   const summary = summarizeOptionSet(recommendation.options);
   for (let index = 0; index < summary.excluded.length; index += 1) {
-    addReasonRefs(summary.excluded[index].exclusion, null, `exclusion reason on excluded candidate #${index}`);
+    const candidate = summary.excluded[index];
+    addReasonRefs(
+      candidate === null || candidate === undefined ? [] : candidate.exclusion,
+      null,
+      `exclusion reason on excluded candidate #${index}`,
+      `excluded candidate #${index} is excluded with no stated reason`,
+    );
   }
-  if (recommendation.options.kind === 'only_candidate') {
-    const attested = recommendation.options.attested;
+
+  if (recommendation.options !== null && recommendation.options !== undefined && recommendation.options.kind === 'only_candidate') {
+    const attested = asArray<EvidenceNodeId>(recommendation.options.attested);
+    if (attested.length === 0) {
+      defects.push({
+        code: 'SOLE_OPTION_WITHOUT_ACCOUNT',
+        nodeId: null,
+        optionIndex: null,
+        detail: 'the sole option claims nothing else existed and attests that claim with no evidence',
+      });
+    }
     for (let edge = 0; edge < attested.length; edge += 1) {
       refs.push({ id: attested[edge], optionIndex: null, where: 'only-candidate attestation' });
     }
   }
-  return refs;
+  return { refs, defects };
 }
 
 /**
  * The full structural check: the graph, plus every reference into it, plus the
  * offer's own invariants.
  *
- * Reports; never throws. This is what #34 runs before emitting and what #35 runs
- * before rendering — both, deliberately. A check run only by the producer is a
- * check the consumer trusts on the producer's word, and Sprint 05's rule is that
- * a check owned by the thing it checks is not a check.
+ * Reports; never throws, for any input. This is what #34 runs before emitting
+ * and what #35 runs before rendering — both, deliberately. A check run only by
+ * the producer is a check the consumer trusts on the producer's word, and
+ * Sprint 05's rule is that a check owned by the thing it checks is not a check.
+ *
+ * That both-ends design is exactly why the untyped cases matter: the reason for
+ * running it at the consumer is version skew, and version skew is precisely how
+ * an unrecognised `OptionSet.kind` or `RecommendedAction.kind` arrives. Before
+ * review, both raised a `TypeError` out of the function whose job was to report
+ * them.
  */
 export function checkRecommendation(recommendation: Recommendation): readonly RecommendationDefect[] {
+  if (recommendation === null || recommendation === undefined) {
+    return [
+      {
+        code: 'UNKNOWN_OPTION_SET_KIND',
+        nodeId: null,
+        optionIndex: null,
+        detail: 'no recommendation was supplied',
+      },
+    ];
+  }
+
   const defects: RecommendationDefect[] = checkEvidenceGraph(recommendation.evidence).slice();
 
   const known = new Set<EvidenceNodeId>();
-  for (let index = 0; index < recommendation.evidence.nodes.length; index += 1) {
-    const node = recommendation.evidence.nodes[index];
-    if (!isBlank(node.nodeId)) known.add(node.nodeId);
+  const nodes = asArray<EvidenceNode>(
+    recommendation.evidence === null || recommendation.evidence === undefined ? [] : recommendation.evidence.nodes,
+  );
+  for (let index = 0; index < nodes.length; index += 1) {
+    const node = nodes[index];
+    const nodeId = node === null || node === undefined ? undefined : node.nodeId;
+    if (!isBlank(nodeId as string)) known.add(nodeId as string);
   }
 
-  const refs = collectExternalReferences(recommendation);
-  for (let index = 0; index < refs.length; index += 1) {
-    const ref = refs[index];
+  const collected = collectExternalReferences(recommendation);
+  for (let index = 0; index < collected.defects.length; index += 1) defects.push(collected.defects[index]);
+  for (let index = 0; index < collected.refs.length; index += 1) {
+    const ref = collected.refs[index];
     if (!known.has(ref.id)) {
       defects.push({
         code: 'UNKNOWN_EVIDENCE_NODE',
@@ -1345,7 +1786,39 @@ export function checkRecommendation(recommendation: Recommendation): readonly Re
 
   if (recommendation.outcome === 'withheld') return defects;
 
-  const options = offeredOptions(recommendation.options);
+  const optionSet = recommendation.options;
+  const summary = summarizeOptionSet(optionSet);
+  if (summary.soleness === 'unknown') {
+    defects.push({
+      code: 'UNKNOWN_OPTION_SET_KIND',
+      nodeId: null,
+      optionIndex: null,
+      detail: 'the offer declares an option-set kind this contract version does not recognise',
+    });
+    return defects;
+  }
+
+  const options = offeredOptions(optionSet);
+
+  // The floor, enforced rather than merely exported. A `choice` of one is a
+  // single option presented as though it were the only one, which is the shape
+  // the "alternatives preserve user control" criterion exists to forbid.
+  if (summary.soleness === 'choice' && options.length < RECOMMENDATION_OPTION_POLICY.minOptionsForChoice) {
+    defects.push({
+      code: 'CHOICE_BELOW_MINIMUM',
+      nodeId: null,
+      optionIndex: null,
+      detail: `a choice carries ${options.length} options against a floor of ${RECOMMENDATION_OPTION_POLICY.minOptionsForChoice}`,
+    });
+  }
+  if (summary.soleness === 'sole_survivor' && summary.excluded.length === 0) {
+    defects.push({
+      code: 'SOLE_OPTION_WITHOUT_ACCOUNT',
+      nodeId: null,
+      optionIndex: null,
+      detail: 'a lone surviving option is offered with no account of what was excluded',
+    });
+  }
   if (options.length > RECOMMENDATION_OPTION_POLICY.maxOptions) {
     defects.push({
       code: 'OPTION_CAP_EXCEEDED',
@@ -1358,15 +1831,17 @@ export function checkRecommendation(recommendation: Recommendation): readonly Re
   const firstPositionByAction = new Map<string, number>();
   for (let index = 0; index < options.length; index += 1) {
     const option = options[index];
+    if (option === null || option === undefined) continue;
     if (option.optionIndex !== index) {
       defects.push({
         code: 'OPTION_INDEX_MISMATCH',
         nodeId: null,
         optionIndex: index,
-        detail: `option at position #${index} states index ${option.optionIndex}`,
+        detail: `option at position #${index} states index ${String(option.optionIndex)}`,
       });
     }
-    const expectedBand = bandForConfidence(option.confidence.value);
+    const value = option.confidence === null || option.confidence === undefined ? Number.NaN : option.confidence.value;
+    const expectedBand = bandForConfidence(value);
     if (expectedBand === null) {
       defects.push({
         code: 'CONFIDENCE_OUT_OF_RANGE',
@@ -1380,6 +1855,14 @@ export function checkRecommendation(recommendation: Recommendation): readonly Re
         nodeId: null,
         optionIndex: index,
         detail: `option #${index} states a band its confidence value does not map to`,
+      });
+    }
+    if (!isKnownActionKind(option.action)) {
+      defects.push({
+        code: 'UNKNOWN_ACTION_KIND',
+        nodeId: null,
+        optionIndex: index,
+        detail: `option #${index} proposes an action kind this contract version does not recognise`,
       });
     }
     const key = actionKey(option.action);
@@ -1396,9 +1879,18 @@ export function checkRecommendation(recommendation: Recommendation): readonly Re
     }
   }
 
-  const summary = summarizeOptionSet(recommendation.options);
   for (let index = 0; index < summary.excluded.length; index += 1) {
-    const key = actionKey(summary.excluded[index].action);
+    const candidate = summary.excluded[index];
+    if (candidate === null || candidate === undefined) continue;
+    if (!isKnownActionKind(candidate.action)) {
+      defects.push({
+        code: 'UNKNOWN_ACTION_KIND',
+        nodeId: null,
+        optionIndex: null,
+        detail: `excluded candidate #${index} proposes an action kind this contract version does not recognise`,
+      });
+    }
+    const key = actionKey(candidate.action);
     const offeredAt = firstPositionByAction.get(key);
     if (offeredAt !== undefined) {
       defects.push({
@@ -1505,7 +1997,33 @@ export type StalenessVerdict =
   | { readonly fresh: false; readonly reasons: readonly [StalenessReason, ...StalenessReason[]] };
 
 /**
- * Epoch millis for an instant, or null when it does not parse.
+ * The shape an `Instant` is contracted to have: a full ISO-8601 date-time with
+ * an **explicit** offset, `Z` or `±HH:MM`.
+ *
+ * The explicitness is the whole point. `Date.parse` follows the ECMAScript rule
+ * that a date-time string *without* an offset is local time, so
+ * `2026-11-23T00:00:00` denotes a different instant on every host. Measured, on
+ * one recommendation with one `now`:
+ *
+ *     TZ=UTC                  → EXPIRED
+ *     TZ=America/Los_Angeles  → FRESH
+ *     TZ=Asia/Tokyo           → EXPIRED
+ *
+ * That is the same class of defect this file spends a long comment condemning
+ * under `localeCompare` — a verdict that moves with the host's environment — and
+ * the source scan in `expiryRules.test.ts` had blessed it, on the true but
+ * insufficient grounds that `Date.parse` does not read the clock. It does not
+ * read the clock; it reads the zone.
+ *
+ * Date-only forms are rejected too, even though the spec reads those as UTC:
+ * `Date.parse('2026')` succeeds, and a recommendation whose expiry is the string
+ * `'2026'` is a producer bug that should surface as `INVALID_INSTANT` rather
+ * than as a silently-accepted January the first.
+ */
+const INSTANT_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/;
+
+/**
+ * Epoch millis for an instant, or null when it is not a well-formed `Instant`.
  *
  * Numeric comparison of parsed instants, never lexicographic comparison of the
  * strings. Lexicographic ordering of ISO-8601 is only sound for identically
@@ -1513,9 +2031,13 @@ export type StalenessVerdict =
  * `2026-01-01T00:00:00.000+00:00` denote the same instant while comparing
  * unequal — a recommendation would expire an arbitrary amount early or late
  * depending on which producer wrote the field.
+ *
+ * The shape is checked *before* `Date.parse`, not after: `Date.parse` accepts a
+ * superset of what `Instant` promises, so parsing first and validating second
+ * would mean the permissive reading had already decided the answer.
  */
 function instantToMillis(value: Instant): number | null {
-  if (typeof value !== 'string' || isBlank(value)) return null;
+  if (typeof value !== 'string' || !INSTANT_PATTERN.test(value)) return null;
   const parsed = Date.parse(value);
   return Number.isNaN(parsed) ? null : parsed;
 }
@@ -1543,7 +2065,26 @@ function instantToMillis(value: Instant): number | null {
  */
 export function evaluateRecommendationStaleness(input: StalenessCheckInput): StalenessVerdict {
   const reasons: StalenessReason[] = [];
-  const validity = input.recommendation.validity;
+  const recommendation = input === null || input === undefined ? null : input.recommendation;
+  const validity =
+    recommendation === null || recommendation === undefined || recommendation.validity === null || recommendation.validity === undefined
+      ? { basisAt: '' as Instant, expiresAt: '' as Instant }
+      : recommendation.validity;
+  /**
+   * A missing fingerprint map is treated as an *empty* one, so every observation
+   * comes back `SOURCE_UNVERIFIABLE` and the verdict is stale.
+   *
+   * This was a `TypeError` before review, from `hasOwnProperty.call(undefined,…)`
+   * — and it threw on the one input the fail-closed rule exists for. "The caller
+   * has lost track of its sources" is not an edge case here, it is the case the
+   * whole section is written around, and answering it with a crash is strictly
+   * worse than answering it with `fresh: true` would have been: at least the
+   * wrong answer is a value a caller can act on.
+   */
+  const fingerprints =
+    input !== null && input !== undefined && typeof input.currentFingerprints === 'object' && input.currentFingerprints !== null
+      ? input.currentFingerprints
+      : ({} as Readonly<Record<EvidenceNodeId, string | null>>);
 
   const nowMillis = instantToMillis(input.now);
   const basisMillis = instantToMillis(validity.basisAt);
@@ -1601,11 +2142,53 @@ export function evaluateRecommendationStaleness(input: StalenessCheckInput): Sta
     });
   }
 
-  const nodes = input.recommendation.evidence.nodes;
+  /**
+   * A **missing** node list is not an empty one.
+   *
+   * `nodes: []` is a well-formed graph that happens to hold nothing, and there
+   * is nothing to re-verify, so it is fresh. `evidence: undefined` means the
+   * watch set cannot be enumerated at all — which is unverifiable, and
+   * unverifiable fails closed. This is the same distinction `lifeStateContracts`
+   * draws between a known zero and an unknown: reporting the second as the first
+   * invents a fact, and here the invented fact is "nothing can have changed".
+   */
+  const rawNodes =
+    recommendation === null || recommendation === undefined || recommendation.evidence === null || recommendation.evidence === undefined
+      ? undefined
+      : recommendation.evidence.nodes;
+  if (!Array.isArray(rawNodes)) {
+    reasons.push({
+      code: 'SOURCE_UNVERIFIABLE',
+      nodeId: null,
+      field: null,
+      detail: 'the recommendation carries no readable evidence graph, so its watch set cannot be enumerated',
+    });
+  }
+  const nodes = asArray<EvidenceNode>(rawNodes);
   for (let index = 0; index < nodes.length; index += 1) {
     const node = nodes[index];
-    if (node.kind !== 'observed') continue;
-    if (!Object.prototype.hasOwnProperty.call(input.currentFingerprints, node.nodeId)) {
+    if (node === null || node === undefined) continue;
+    /**
+     * A node of unrecognised kind is watched, not skipped.
+     *
+     * Every pass in this file is written as `if (node.kind !== 'observed')
+     * continue`, so before review an unknown kind was exempt from all of them —
+     * it could never invalidate anything, which makes an unrecognised node the
+     * ideal hiding place for a claim that must never go stale. Unverifiable is
+     * the honest reading and it fails closed, exactly as a missing fingerprint
+     * does.
+     */
+    if (node.kind !== 'observed') {
+      if (isKnownNodeKind(node)) continue;
+      reasons.push({
+        code: 'SOURCE_UNVERIFIABLE',
+        nodeId: typeof node.nodeId === 'string' ? node.nodeId : null,
+        field: null,
+        detail: `evidence node #${index} declares an unrecognised kind and cannot be re-verified`,
+      });
+      continue;
+    }
+    if (!Object.prototype.hasOwnProperty.call(fingerprints, node.nodeId)) {
       reasons.push({
         code: 'SOURCE_UNVERIFIABLE',
         nodeId: node.nodeId,
@@ -1614,7 +2197,7 @@ export function evaluateRecommendationStaleness(input: StalenessCheckInput): Sta
       });
       continue;
     }
-    const current = input.currentFingerprints[node.nodeId];
+    const current = fingerprints[node.nodeId];
     if (current === null) {
       reasons.push({
         code: 'SOURCE_REMOVED',
@@ -1675,6 +2258,154 @@ export interface RecommendationDecision {
   readonly editedTitle?: string;
   /** Supplied by the caller. This module never reads a clock. */
   readonly decidedAt: Instant;
+}
+
+/**
+ * What can be wrong with a decision, judged against the offer it targets.
+ *
+ * This taxonomy exists because the contract argued at length that an
+ * `optionIndex` which has drifted from its position "silently retargets a user's
+ * accept onto a different action", made that a defect of the *offer*
+ * (`OPTION_INDEX_MISMATCH`), and then provided nothing that checked a decision
+ * at all. An argument about why a field is dangerous, with no check on the
+ * field, is the shape of documentation that reads as a guarantee.
+ *
+ * - `DECISION_RECOMMENDATION_MISMATCH` — the decision names a different
+ *                                        `recommendationId`. The worst available
+ *                                        outcome: a real user act, recorded
+ *                                        against an action they never saw.
+ * - `DECISION_TARGETS_WITHHELD`        — a verdict on an offer that proposed
+ *                                        nothing. Only a whole-offer `dismiss`
+ *                                        is meaningful there.
+ * - `DECISION_TARGET_REQUIRED`         — a null `optionIndex` on a verdict that
+ *                                        must name what it applies to. `dismiss`
+ *                                        may target the whole offer; accepting,
+ *                                        editing, deferring or completing
+ *                                        *something* requires saying which.
+ * - `DECISION_TARGETS_UNKNOWN_OPTION`  — an index outside the offered range.
+ * - `DECISION_EDIT_WITHOUT_TITLE`      — an `edit` with no replacement text, so
+ *                                        the step would be confirmed as the
+ *                                        engine's wording under the user's
+ *                                        edit — the failure
+ *                                        `decompositionContracts.StepDecision`
+ *                                        was shaped to prevent.
+ * - `DECISION_UNKNOWN_VERDICT`         — a verdict this version does not know.
+ */
+export type RecommendationDecisionDefectCode =
+  | 'DECISION_RECOMMENDATION_MISMATCH'
+  | 'DECISION_TARGETS_WITHHELD'
+  | 'DECISION_TARGET_REQUIRED'
+  | 'DECISION_TARGETS_UNKNOWN_OPTION'
+  | 'DECISION_EDIT_WITHOUT_TITLE'
+  | 'DECISION_UNKNOWN_VERDICT';
+
+export const RECOMMENDATION_DECISION_DEFECT_CODES = Object.freeze([
+  'DECISION_RECOMMENDATION_MISMATCH',
+  'DECISION_TARGETS_WITHHELD',
+  'DECISION_TARGET_REQUIRED',
+  'DECISION_TARGETS_UNKNOWN_OPTION',
+  'DECISION_EDIT_WITHOUT_TITLE',
+  'DECISION_UNKNOWN_VERDICT',
+] as const) satisfies readonly RecommendationDecisionDefectCode[];
+
+export const RECOMMENDATION_DECISION_VERDICTS = Object.freeze([
+  'accept',
+  'edit',
+  'defer',
+  'dismiss',
+  'done',
+] as const) satisfies readonly RecommendationDecisionVerdict[];
+
+type _DecisionVerdictsCovered =
+  Exclude<RecommendationDecisionVerdict, (typeof RECOMMENDATION_DECISION_VERDICTS)[number]> extends never ? true : never;
+const _decisionVerdictsAreExhaustive: _DecisionVerdictsCovered = true;
+export const RECOMMENDATION_DECISION_VERDICT_COVERAGE = _decisionVerdictsAreExhaustive;
+
+export interface RecommendationDecisionDefect {
+  readonly code: RecommendationDecisionDefectCode;
+  readonly optionIndex: number | null;
+  readonly detail: string;
+}
+
+/**
+ * Check a decision against the offer it claims to be about.
+ *
+ * Reports; never throws. `detail` carries no identifier, on the same terms as
+ * `EvidenceBackedReason.detail`: `recommendationId` is caller-chosen and the
+ * mismatch is stated without quoting either side.
+ */
+export function checkRecommendationDecision(
+  recommendation: Recommendation,
+  decision: RecommendationDecision,
+): readonly RecommendationDecisionDefect[] {
+  const defects: RecommendationDecisionDefect[] = [];
+  if (recommendation === null || recommendation === undefined || decision === null || decision === undefined) {
+    return [
+      {
+        code: 'DECISION_RECOMMENDATION_MISMATCH',
+        optionIndex: null,
+        detail: 'a decision was checked without both a decision and the offer it targets',
+      },
+    ];
+  }
+
+  if (decision.recommendationId !== recommendation.recommendationId) {
+    defects.push({
+      code: 'DECISION_RECOMMENDATION_MISMATCH',
+      optionIndex: decision.optionIndex,
+      detail: 'the decision names a different recommendation than the one it is checked against',
+    });
+  }
+
+  if (!(RECOMMENDATION_DECISION_VERDICTS as readonly string[]).includes(decision.verdict)) {
+    defects.push({
+      code: 'DECISION_UNKNOWN_VERDICT',
+      optionIndex: decision.optionIndex,
+      detail: 'the decision states a verdict this contract version does not recognise',
+    });
+    return defects;
+  }
+
+  if (decision.verdict === 'edit' && isBlank(decision.editedTitle as string)) {
+    defects.push({
+      code: 'DECISION_EDIT_WITHOUT_TITLE',
+      optionIndex: decision.optionIndex,
+      detail: 'an edit verdict carries no replacement title',
+    });
+  }
+
+  if (recommendation.outcome === 'withheld') {
+    if (decision.verdict !== 'dismiss' || decision.optionIndex !== null) {
+      defects.push({
+        code: 'DECISION_TARGETS_WITHHELD',
+        optionIndex: decision.optionIndex,
+        detail: 'the decision rules on an option of an offer that proposed nothing',
+      });
+    }
+    return defects;
+  }
+
+  const options = offeredOptions(recommendation.options);
+  if (decision.optionIndex === null) {
+    if (decision.verdict !== 'dismiss') {
+      defects.push({
+        code: 'DECISION_TARGET_REQUIRED',
+        optionIndex: null,
+        detail: 'the verdict applies to one option but the decision names none',
+      });
+    }
+    return defects;
+  }
+
+  if (!Number.isInteger(decision.optionIndex) || decision.optionIndex < 0 || decision.optionIndex >= options.length) {
+    defects.push({
+      code: 'DECISION_TARGETS_UNKNOWN_OPTION',
+      optionIndex: decision.optionIndex,
+      detail: `the decision targets a position the offer does not have; it offered ${options.length}`,
+    });
+  }
+
+  return defects;
 }
 
 /* ── Policy ──────────────────────────────────────────────────────── */
