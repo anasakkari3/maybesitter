@@ -293,8 +293,7 @@ state, confirmed steps go to a new store with no existing rows, and there is no
 production route or consumer. The work is additive and unrouted, exactly as
 Sprint 01's capture boundary was.
 
-`package.json` test wiring is owned centrally at merge time; run this track's
-suite by path:
+This track's suites are wired into `npm test` and `npm run test:sprint06`.
 
 ```bash
 node --no-warnings --loader ./scripts/ts-resolver.mjs --test tests/decomposition/*.test.ts

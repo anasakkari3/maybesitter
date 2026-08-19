@@ -52,6 +52,7 @@ const SHARED_STRUCTURAL_CODES: readonly DecompositionViolationCode[] = [
   'UNKNOWN_DEPENDENCY',
   'CYCLIC_DEPENDENCY',
   'SELF_DEPENDENCY',
+  'SPLIT_ATOMIC',
 ];
 
 function codesFromValidator(sourceText: string, steps: readonly DecompositionStepProposal[]): string[] {
@@ -237,6 +238,57 @@ test('cross-track: a self-edge earns exactly one code, in both tracks', () => {
   ];
   assert.deepEqual(codesFromValidator(HOST.sourceText, mutated), ['SELF_DEPENDENCY']);
   assert.deepEqual(codesFromEvaluator(exampleWith(HOST, mutated)), ['SELF_DEPENDENCY']);
+});
+
+/**
+ * `SPLIT_ATOMIC`, in both directions and at the boundary that hid the bug.
+ *
+ * This code was the one omission from `SHARED_STRUCTURAL_CODES`, and it is the
+ * one place the two tracks still disagreed after everything else agreed: #26
+ * fired at one step, #27 only above one. Per the contract — "a commitment
+ * marked do-not-split was *split* anyway" — one step is not a split. The
+ * omission is why nothing caught it, so the code is in the compared surface
+ * now and the boundary case is pinned explicitly rather than sampled.
+ */
+test('cross-track: two steps on a do-not-split commitment is SPLIT_ATOMIC in both tracks', () => {
+  const steps = baseSteps().slice(0, 2);
+  const asExample: DecompositionExample = { ...HOST, label: 'do_not_split', expectedSteps: steps };
+  assert.ok(
+    validateDecomposition({ sourceText: HOST.sourceText, steps, declaredAtomic: true })
+      .some((violation) => violation.code === 'SPLIT_ATOMIC'),
+  );
+  assert.ok(
+    validateDecompositionExample(asExample).violations.some((violation) => violation.code === 'SPLIT_ATOMIC'),
+  );
+});
+
+test('cross-track: one step on a do-not-split commitment is not a split, in either track', () => {
+  const steps = baseSteps().slice(0, 1);
+  const asExample: DecompositionExample = { ...HOST, label: 'do_not_split', expectedSteps: steps };
+  const fromValidator = validateDecomposition({ sourceText: HOST.sourceText, steps, declaredAtomic: true })
+    .filter((violation) => violation.code === 'SPLIT_ATOMIC');
+  const fromEvaluator = validateDecompositionExample(asExample).violations
+    .filter((violation) => violation.code === 'SPLIT_ATOMIC');
+  assert.deepEqual(fromValidator, [], '#27 called one step a split');
+  assert.deepEqual(fromEvaluator, [], '#26 called one step a split');
+});
+
+/**
+ * The omission itself, guarded.
+ *
+ * `SPLIT_ATOMIC` was missing from the compared surface, so the tracks could
+ * disagree about it indefinitely while every other code agreed. A list of
+ * codes to compare that is allowed to be shorter than the contract's list will
+ * drift again the next time a code is added.
+ */
+test('cross-track: every contract violation code is in the compared surface', () => {
+  const contractCodes: readonly DecompositionViolationCode[] = [
+    'EMPTY_STEP', 'CONJUNCTION_ONLY', 'SPAN_MISMATCH', 'SPAN_OUT_OF_RANGE', 'SPAN_OVERLAP',
+    'INVENTED_TIMING', 'INVENTED_OWNER', 'INFERRED_WITH_SPAN', 'UNSOURCED_STEP',
+    'DUPLICATE_STEP_ID', 'UNKNOWN_DEPENDENCY', 'CYCLIC_DEPENDENCY', 'SELF_DEPENDENCY', 'SPLIT_ATOMIC',
+  ];
+  const missing = contractCodes.filter((code) => !SHARED_STRUCTURAL_CODES.includes(code));
+  assert.deepEqual(missing, [], `codes the cross-track run does not compare: ${missing.join(', ')}`);
 });
 
 /**

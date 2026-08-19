@@ -32,7 +32,8 @@
 /**
  * Titles that are only a connective, in every language the product captures.
  *
- * The union of what the three tracks had, because every entry any of them held
+ * The union of what the three tracks had *and* of the markers the rules
+ * detector cuts on, because every entry any of them held
  * was a real artefact one of them had seen. Arabic `و` and Hebrew `ו` are here
  * as bare single characters because both languages write the conjunction as a
  * clitic prefixed onto the next word with no whitespace (`واطلب`, `ותזמין`); a
@@ -71,6 +72,15 @@ export const CONNECTIVE_TITLE_LIST: readonly string[] = Object.freeze([
   'וגם',
   'ואחר כך',
   'אחכ',
+  // Every marker the rules detector cuts on, folded in after a reviewer found
+  // five it splits at that no track would then reject as a bare step. A word
+  // the product's own splitter treats as a boundary is, by definition, an
+  // artefact when it arrives back as a step title.
+  'afterwards',
+  'وبعد ذلك',
+  'وكذلك',
+  'אחר כך',
+  'לאחר מכן',
 ]);
 
 /** Lookup form. The list above is the iterable one — `tsconfig` targets es5, where a Set is not directly iterable. */

@@ -244,8 +244,11 @@ Nothing was written to user data, so there is nothing in user data to undo.
    `tests/decomposition/proposal*.test.ts` and this document are the whole
    surface, plus one additive member (`already_confirmed`) on
    `ConfirmationFailureCode` in `src/contracts/v1/decompositionContracts.ts`.
-   That member may be left in place on a rollback: it is additive, no existing
-   member changed, and nothing outside this module reads the code yet.
+   That member must be left in place on a rollback: it is additive and changes
+   no existing member, and #27's boundary service now returns it
+   (`lib/decomposition/boundary/decompositionBoundaryService.ts`). Removing it
+   while reverting this track would break a module this rollback does not
+   touch.
 
 No canonical-state rollback is required, because proposal creation writes nothing
 and confirmation writes only through an injected port that Sprint 06 ships no
@@ -267,5 +270,7 @@ node --no-warnings --loader ./scripts/ts-resolver.mjs --test tests/decomposition
 | `tests/decomposition/proposalStore.test.ts` | Admission, scope, the port contract, idempotency, failure paths |
 | `tests/decomposition/proposalBoundaries.test.ts` | The import closure, the scanner itself, the port being declaration-only |
 
-Test wiring in `package.json` is owned centrally at merge time, so these run by
-explicit path until then.
+These suites are wired into `npm test` and `npm run test:sprint06`. The wiring
+is owned by the merge rather than by any track, because three agents editing one
+space-separated string is a three-way conflict whose careless resolution drops
+coverage silently.
