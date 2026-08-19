@@ -67,6 +67,7 @@ import {
   toInstant,
   wallClockAt,
   weekdayAt,
+  zoneOffsetMs,
   type WallClockParts,
 } from '../shared/time';
 
@@ -257,6 +258,43 @@ function resolveBoundary(
 }
 
 /**
+ * The widest span of instants a local boundary could plausibly denote on its
+ * date, ignoring the transition entirely.
+ *
+ * This is the *nominal* reading: where the boundary would have sat if the
+ * offset had not moved that day. It exists to answer one question — would this
+ * occurrence have met the horizon at all? — and it has to be computable for a
+ * local time that denotes *no* instant, which is exactly when `resolveBoundary`
+ * has no answer to give.
+ *
+ * Bracketed rather than pinned to one offset, using the offsets a day either
+ * side, the same two `resolveLocalTime` uses. Picking a single anchor offset
+ * would need an anchor instant, and the obvious candidate — local midnight of
+ * the date — is itself a fold in America/Havana and a gap in other zones, so the
+ * anchor would need the very machinery it is meant to stand in for. The bracket
+ * needs no anchor and errs outward, which is the safe direction: it can only
+ * make this module report an anomaly it might have filtered, never hide one.
+ */
+function nominalBracket(
+  date: CalendarDate,
+  minuteOfDay: number,
+  timeZone: string,
+): { readonly minMs: number; readonly maxMs: number } {
+  const onDate = minuteOfDay === MINUTES_PER_DAY ? addCalendarDays(date, 1) : date;
+  const minute = minuteOfDay === MINUTES_PER_DAY ? 0 : minuteOfDay;
+  const naiveMs = Date.UTC(
+    onDate.year,
+    onDate.month - 1,
+    onDate.day,
+    Math.floor(minute / 60),
+    minute % 60,
+  );
+  const before = naiveMs - zoneOffsetMs(naiveMs - MS_PER_DAY, timeZone);
+  const after = naiveMs - zoneOffsetMs(naiveMs + MS_PER_DAY, timeZone);
+  return { minMs: Math.min(before, after), maxMs: Math.max(before, after) };
+}
+
+/**
  * Materialise recurring wall-clock windows into absolute intervals clipped to
  * the horizon.
  *
@@ -334,15 +372,45 @@ export function normalizeWorkingWindows(
       const end = resolveBoundary(date, window.endMinute, window.timezone, config.foldPolicy);
       const localDate = formatCalendarDate(date);
 
-      for (const [boundary, resolved] of [['start', start], ['end', end]] as const) {
-        if (resolved.kind !== 'exact') {
-          anomalies.push({
-            windowId: window.windowId,
-            windowIndex: index,
-            localDate,
-            boundary,
-            kind: resolved.kind,
-          });
+      // An anomaly is reported only when the occurrence carrying it would have
+      // met the horizon had the offset not moved — the *nominal* extent, not the
+      // resolved one.
+      //
+      // The cross-track test found this: a spring gap on Sunday the 8th was
+      // reported against a horizon opening on the 9th, sending the user to fix a
+      // window with no bearing on anything being planned. #31's oracle stayed
+      // quiet and was right. Filtering here rather than in the validator is what
+      // keeps one answer to the question: the validator reports what it is
+      // handed, so it follows automatically, and so does every other consumer.
+      //
+      // The nominal extent is what separates the two cases that look identical
+      // from the outside, since neither leaves a materialised window behind:
+      //
+      //   - swallowed by the gap, inside the horizon — nominal extent is a real
+      //     stretch of local time the plan covers. The user asked for an hour and
+      //     lost it, and must be told. Pinned at oracleFeasibility.test.ts:822.
+      //   - clipped away by the horizon — nominal extent lies outside the plan
+      //     entirely. Silence.
+      //
+      // "Did anything survive the clip?" cannot tell them apart; both survive
+      // nothing. Note this also covers the extra day the weekday scan reaches
+      // back over, whose occurrences are usually outside the horizon by
+      // construction.
+      const nominalStartMs = nominalBracket(date, window.startMinute, window.timezone).minMs;
+      const nominalEndMs = nominalBracket(date, window.endMinute, window.timezone).maxMs;
+      const nominallyInHorizon = nominalStartMs < horizonEndMs && nominalEndMs > horizonStartMs;
+
+      if (nominallyInHorizon) {
+        for (const [boundary, resolved] of [['start', start], ['end', end]] as const) {
+          if (resolved.kind !== 'exact') {
+            anomalies.push({
+              windowId: window.windowId,
+              windowIndex: index,
+              localDate,
+              boundary,
+              kind: resolved.kind,
+            });
+          }
         }
       }
 

@@ -54,6 +54,19 @@
  * this module briefly hid two real findings. `validator.ts` lists the four
  * suppressions the principle licenses here and nothing else claims one.
  *
+ * **A DST anomaly is reported only when it lands inside the plan.**
+ * `NONEXISTENT_LOCAL_TIME` and `AMBIGUOUS_LOCAL_TIME` are emitted for an
+ * occurrence whose *nominal* extent — where the window would have sat had the
+ * offset not moved that day — meets the horizon. An anomalous occurrence the
+ * horizon never reaches is silence: sending a user to fix a window with no
+ * bearing on anything being planned is noise, not information. The judgement is
+ * made in `normalizeWorkingWindows`, the only place that sees the horizon and
+ * the nominal extent together, so every consumer inherits one answer rather than
+ * deciding separately. The nominal extent is also what distinguishes an
+ * occurrence the horizon clipped away (silence) from one a gap swallowed inside
+ * the horizon (reported) — neither leaves a materialised window behind, so
+ * "did anything survive?" cannot tell them apart.
+ *
  * ## Where this module reads more into a code than the contract states
  *
  * Two places, both recorded here because a reading that lives only in an

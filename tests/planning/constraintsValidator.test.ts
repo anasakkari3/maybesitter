@@ -878,6 +878,26 @@ test('NONEXISTENT_LOCAL_TIME is raised once per occurrence, not once per window 
   assert.equal(reasons.length, 2);
 });
 
+test('NONEXISTENT_LOCAL_TIME is not raised for a gap the horizon never reaches', () => {
+  // The merge-owned cross-track test's exact input, kept here at the level the
+  // comparison is actually made at: this validator against #31's oracle. They
+  // returned [NONEXISTENT_LOCAL_TIME, NO_WORKING_WINDOW] and [NO_WORKING_WINDOW]
+  // on it, and the oracle was right — the gap is Sunday the 8th and the plan
+  // opens on the 9th, so the anomalous occurrence has no bearing on it.
+  //
+  // The judgement lives in the normalizer, which is the only place that sees the
+  // horizon and the window's nominal extent together. This validator reports
+  // what it is handed, so this test guards the wiring as much as the rule.
+  const reasons = validate(constraints({
+    timezone: 'America/New_York',
+    horizon: { startsAt: '2026-03-09T00:00:00.000Z', endsAt: '2026-03-10T00:00:00.000Z' },
+    workingWindows: [
+      { windowId: 'w-RAWTEXT-early', weekday: 0, startMinute: 120, endMinute: 360, timezone: 'America/New_York' },
+    ],
+  }));
+  assert.deepEqual(codes(reasons), ['NO_WORKING_WINDOW']);
+});
+
 test('a window that merely spans a transition is not anomalous, only shorter', () => {
   assert.deepEqual(validate(constraints({
     horizon: { startsAt: '2026-03-07T00:00:00.000Z', endsAt: '2026-03-10T00:00:00.000Z' },
