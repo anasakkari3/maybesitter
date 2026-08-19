@@ -63,23 +63,51 @@ const CONFIG: PlanningConfig = {
   resourceDependenciesOrder: false,
 };
 
+/**
+ * Findings as `itemId:CODE` pairs, deduplicated and sorted.
+ *
+ * Pairs rather than bare code names, and that distinction is the whole strength
+ * of this file. The first version of it compared `Set(reasons.map(r => r.code))`
+ * and reported the two readers in perfect agreement over 40,000 fuzzed requests.
+ * Comparing pairs over the same 40,000 found 13 disagreements, every one of them
+ * the same real defect: a cycle detector that missed a member reached through a
+ * *cross* edge rather than a back edge. `CYCLIC_DEPENDENCY` was in the set
+ * anyway — contributed by the two members it did find — so the set comparison
+ * saw nothing while one reader was telling the caller a permanently blocked item
+ * was fine.
+ *
+ * Multiplicity is still collapsed, because the contract leaves it to each
+ * implementation (one reason carrying a count, or one per occurrence). What it
+ * does not leave open is *who* a finding is about.
+ */
+function staticPairsFromValidator(
+  constraints: PlanningConstraints,
+  config: PlanningConfig,
+): string[] {
+  return Array.from(new Set(
+    validateConstraints(constraints, config)
+      .filter((reason) => STATIC.has(reason.code))
+      .map((reason) => `${reason.itemId ?? '<constraints>'}:${reason.code}`),
+  )).sort();
+}
+
+function staticPairsFromOracle(
+  constraints: PlanningConstraints,
+  config: PlanningConfig,
+): string[] {
+  return Array.from(new Set(
+    assessFeasibility(constraints, config).reasons
+      .filter((reason) => STATIC.has(reason.code))
+      .map((reason) => `${reason.itemId ?? '<constraints>'}:${reason.code}`),
+  )).sort();
+}
+
 function staticCodesFromValidator(
   constraints: PlanningConstraints,
   config: PlanningConfig,
 ): string[] {
   return Array.from(new Set(
     validateConstraints(constraints, config)
-      .map((reason) => reason.code)
-      .filter((code) => STATIC.has(code)),
-  )).sort();
-}
-
-function staticCodesFromOracle(
-  constraints: PlanningConstraints,
-  config: PlanningConfig,
-): string[] {
-  return Array.from(new Set(
-    assessFeasibility(constraints, config).reasons
       .map((reason) => reason.code)
       .filter((code) => STATIC.has(code)),
   )).sort();
@@ -342,6 +370,57 @@ const DIVERGENCE_CASES: ReadonlyArray<{
     })] }),
   },
 
+  /* Buffers — malformed, which one reader clamped and one reported */
+  {
+    name: 'negative before-buffer',
+    constraints: constraints({ items: [item({ bufferBeforeMinutes: -5 })] }),
+  },
+  {
+    name: 'non-finite after-buffer',
+    constraints: constraints({ items: [item({ bufferAfterMinutes: Number.NaN })] }),
+  },
+  {
+    name: 'infinite before-buffer',
+    constraints: constraints({ items: [item({ bufferBeforeMinutes: Number.POSITIVE_INFINITY })] }),
+  },
+  {
+    name: 'NaN effort',
+    constraints: constraints({ items: [item({ effort: { kind: 'known', minutes: Number.NaN } })] }),
+  },
+  {
+    name: 'NaN priority',
+    constraints: constraints({ items: [item({ priority: Number.NaN })] }),
+  },
+
+  /* Suppression breadth — an item that states both of its own bounds */
+  {
+    name: 'stale deadline on an item that states both bounds',
+    constraints: constraints({ items: [item({
+      earliestStartAt: '2026-11-01T00:00:00.000Z',
+      deadlineAt: '2026-11-02T00:00:00.000Z',
+      effort: { kind: 'known', minutes: 10000 },
+    })] }),
+  },
+
+  /* Cycles reached through a cross edge, not a back edge */
+  {
+    name: 'three-item cycle entered through a cross edge',
+    constraints: constraints({ items: [
+      item({ itemId: 'a', dependsOn: [{ dependsOnItemId: 'b', kind: 'temporal' }, { dependsOnItemId: 'c', kind: 'temporal' }] }),
+      item({ itemId: 'b', dependsOn: [{ dependsOnItemId: 'a', kind: 'temporal' }] }),
+      item({ itemId: 'c', dependsOn: [{ dependsOnItemId: 'b', kind: 'temporal' }] }),
+    ] }),
+  },
+  {
+    name: 'a long chain feeding into a cycle',
+    constraints: constraints({ items: [
+      item({ itemId: 'a', dependsOn: [{ dependsOnItemId: 'b', kind: 'temporal' }] }),
+      item({ itemId: 'b', dependsOn: [{ dependsOnItemId: 'c', kind: 'temporal' }] }),
+      item({ itemId: 'c', dependsOn: [{ dependsOnItemId: 'd', kind: 'temporal' }] }),
+      item({ itemId: 'd', dependsOn: [{ dependsOnItemId: 'b', kind: 'temporal' }] }),
+    ] }),
+  },
+
   /* Config-sensitivity: the same constraints under the other flag */
   {
     name: 'resource cycle with ordering off',
@@ -385,12 +464,12 @@ test('cross-track: validator and oracle agree on every case in the divergence ta
     // A throw is a disagreement too, and the more dangerous kind: an oracle
     // that raises cannot return the finding list it exists to return.
     try {
-      fromValidator = staticCodesFromValidator(testCase.constraints, config);
+      fromValidator = staticPairsFromValidator(testCase.constraints, config);
     } catch (error) {
       fromValidator = [`THREW ${(error as Error).name}`];
     }
     try {
-      fromOracle = staticCodesFromOracle(testCase.constraints, config);
+      fromOracle = staticPairsFromOracle(testCase.constraints, config);
     } catch (error) {
       fromOracle = [`THREW ${(error as Error).name}`];
     }
@@ -412,8 +491,8 @@ test('cross-track: validator and oracle agree on every scenario in the shipped c
 
   const disagreements: string[] = [];
   for (const scenario of all) {
-    const fromValidator = staticCodesFromValidator(scenario.constraints, scenario.config);
-    const fromOracle = staticCodesFromOracle(scenario.constraints, scenario.config);
+    const fromValidator = staticPairsFromValidator(scenario.constraints, scenario.config);
+    const fromOracle = staticPairsFromOracle(scenario.constraints, scenario.config);
     if (JSON.stringify(fromValidator) !== JSON.stringify(fromOracle)) {
       disagreements.push(`  ${scenario.scenarioId}: #29 [${fromValidator.join(', ')}] vs #31 [${fromOracle.join(', ')}]`);
     }
@@ -505,7 +584,7 @@ test('cross-track: a static contradiction the readers agree on is never schedule
     const config = testCase.config ?? CONFIG;
     let fromValidator: string[];
     try {
-      fromValidator = staticCodesFromValidator(testCase.constraints, config);
+      fromValidator = staticPairsFromValidator(testCase.constraints, config);
     } catch {
       continue;
     }
@@ -562,5 +641,88 @@ test('the sprint 07 script and the full test script register the same planning f
     filesIn(packageJson.scripts['test:sprint07']),
     filesIn(packageJson.scripts.test),
     'test:sprint07 and test cover different planning files',
+  );
+});
+
+/* ── 4. Redaction, across all three tracks at once ───────────────── */
+
+test('no track puts a caller-chosen identifier into a reason detail', () => {
+  // The contract's ruling is that "raw user text" includes identifiers, because
+  // an id is a free string people fill with content. Each track was told
+  // separately; only a check that runs all three on one input can say whether
+  // all three complied. Two did and one did not, and no per-track test saw it.
+  //
+  // The markers below are the shape that makes this matter: an id is often a
+  // slug of the thing itself, so it carries exactly what the title would.
+  const markers = {
+    scopeId: 'scope-anasakkari-personal',
+    windowId: 'window-therapy-tuesdays',
+    eventId: 'event-divorce-mediation-3',
+    itemId: 'item-tell-my-manager-i-am-quitting',
+    title: 'tell my manager I am quitting',
+    sourceCommitmentId: 'commitment-biopsy-results-call',
+  };
+
+  const probe: PlanningConstraints = {
+    scopeId: markers.scopeId,
+    timezone: 'America/New_York',
+    horizon: HORIZON,
+    workingWindows: [window({ windowId: markers.windowId, startMinute: 1020, endMinute: 540 })],
+    fixedEvents: [
+      {
+        eventId: markers.eventId,
+        interval: { startsAt: '2026-11-09T16:00:00.000Z', endsAt: '2026-11-09T14:00:00.000Z' },
+        sourceCommitmentId: markers.sourceCommitmentId,
+        blocking: true,
+      },
+    ],
+    items: [item({
+      itemId: markers.itemId,
+      title: markers.title,
+      effort: { kind: 'unknown' },
+      dependsOn: [{ dependsOnItemId: 'ghost-item-the-affair', kind: 'temporal' }],
+    })],
+  };
+
+  const details: Array<{ where: string; detail: string }> = [];
+  for (const reason of validateConstraints(probe, CONFIG)) {
+    details.push({ where: '#29 validator', detail: reason.detail });
+  }
+  for (const reason of assessFeasibility(probe, CONFIG).reasons) {
+    details.push({ where: '#31 oracle', detail: reason.detail });
+  }
+  const plan = schedulePlan(probe, CONFIG);
+  for (const reason of [...plan.constraintReasons, ...plan.unscheduled.map((u) => u.reason)]) {
+    details.push({ where: '#30 scheduler', detail: reason.detail });
+  }
+
+  assert.ok(details.length > 0, 'the probe produced no findings, so this guard proves nothing');
+
+  const leaks: string[] = [];
+  for (const { where, detail } of details) {
+    for (const [field, marker] of Object.entries(markers)) {
+      // itemId has its own field on PlanningReason and is not a leak there; it
+      // is a leak in the prose, which is what this reads.
+      if (detail.includes(marker)) leaks.push(`${where}: ${field} appears in "${detail}"`);
+    }
+    if (detail.includes('ghost-item-the-affair')) {
+      leaks.push(`${where}: another item's id appears in "${detail}"`);
+    }
+  }
+  assert.deepEqual(leaks, [], `caller-chosen strings reached PlanningReason.detail:\n  ${leaks.join('\n  ')}`);
+});
+
+test('a plan carries no caller-chosen string anywhere in its serialised form', () => {
+  // Wider than the detail check: the whole Plan travels, and the digest is a
+  // hash precisely so that titles do not ride along inside it.
+  const probe = constraints({
+    scopeId: 'scope-secret',
+    items: [item({ itemId: 'i-1', title: 'file for divorce before the hearing' })],
+  });
+  const serialised = JSON.stringify(schedulePlan(probe, CONFIG));
+  assert.equal(
+    serialised.includes('file for divorce before the hearing'),
+    false,
+    'the item title appears in the serialised plan',
   );
 });

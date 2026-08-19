@@ -344,6 +344,22 @@ export interface PlanningConfig {
  * every working window being malformed yields both `INVALID_INTERVAL` and
  * `NO_WORKING_WINDOW`, which are two true facts rather than one fact told twice.
  *
+ * "Borrows a bound" is decided **per item, per bound**, not per request. An item
+ * that states *both* of its own bounds borrows nothing from the horizon, so
+ * `DEADLINE_BEYOND_HORIZON` on it does not suppress `EFFORT_EXCEEDS_ITEM_WINDOW`
+ * — the effort still does not fit between two instants the caller supplied, and
+ * that is true whatever the horizon says. Suppressing it there was one of the
+ * two readers over-applying this rule, and the fuzz that found it needed no DST
+ * and no unusual zone: an ordinary item with a stale deadline.
+ *
+ * **Findings carry an `itemId`, and the two readers must agree on it.** Agreeing
+ * on the *set* of code names present somewhere in a request is a much weaker
+ * claim than agreeing on which item earns which code, and the weaker claim hides
+ * real defects: a cycle detector that missed a member reached through a cross
+ * edge left `CYCLIC_DEPENDENCY` in the set — contributed by the two members it
+ * did find — while telling the caller the third item was fine. Cross-track
+ * comparison is on `(itemId, code)` pairs.
+ *
  * **Multiplicity is not contracted.** Whether three mutually-overlapping fixed
  * events yield two reasons or three, and whether two dangling edges on one item
  * yield one reason carrying a count or two reasons, is left to each
@@ -381,7 +397,17 @@ export interface PlanningConfig {
  *                               finding list it exists to return.
  * - `EFFORT_UNKNOWN`          — the item's duration is unknown, so no slot can
  *                               be sized for it. Reported, never guessed.
- * - `EFFORT_NOT_POSITIVE`     — a `known` effort of zero or less.
+ * - `EFFORT_NOT_POSITIVE`     — a `known` effort of zero or less, **or a buffer
+ *                               that is negative or not finite**. The buffers
+ *                               are covered here rather than by a code of their
+ *                               own because the frozen list has none, and the
+ *                               alternative shipped: one track reported it, one
+ *                               clamped it to zero with `Math.max`, and the
+ *                               scheduler placed the item — three readings of
+ *                               one input. Clamping is the dangerous one, since
+ *                               `NaN > available` is `false` and a
+ *                               silently-repaired buffer turns a contradiction
+ *                               into a *feasible* verdict.
  * - `DEADLINE_BEFORE_EARLIEST_START` — the item's own window is empty before
  *                               any other constraint is consulted.
  * - `DEADLINE_BEYOND_HORIZON` — the deadline falls at or before
@@ -741,6 +767,33 @@ export interface PlanQualityMetrics {
 }
 
 /* ── Policy ──────────────────────────────────────────────────────── */
+
+/**
+ * What a planning entry point may do with input it cannot use.
+ *
+ * **If the taxonomy names it, report it. Throwing is reserved for input the
+ * taxonomy cannot describe.** `slotMinutes <= 0` and a duplicated `itemId` have
+ * no code and may throw; a NaN `startMinute`, a non-finite buffer and a
+ * zero-length interval all have codes and must come back as findings.
+ *
+ * This is a rule because it was broken three times in one sprint, each time by
+ * a helper raising several frames below the entry point: an unknown IANA zone
+ * reached `Intl` and threw a `RangeError` out of a feasibility check; a fold the
+ * config declined to resolve reached a cast and threw a `TypeError` out of a
+ * normalizer; and a canonical digest computed *before* the static pass threw on
+ * a NaN the static pass existed to report. Each was invisible to a typed caller
+ * and immediate for the untyped boundary the module was written to guard, which
+ * is why none of them failed a test.
+ *
+ * The ordering consequence is concrete: a module that hashes or serialises its
+ * input must do so *after* deciding what is wrong with it, or it will raise on
+ * exactly the inputs its report is for.
+ */
+export const PLANNING_INPUT_POLICY = Object.freeze({
+  reportWhatTheTaxonomyNames: true,
+  throwOnlyWhenNoCodeApplies: true,
+  digestAfterStaticPass: true,
+});
 
 export const PLANNING_PERSISTENCE_POLICY = Object.freeze({
   /** A plan is a proposal about time. It is never canonical user state. */
