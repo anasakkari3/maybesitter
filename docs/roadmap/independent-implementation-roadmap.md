@@ -239,7 +239,52 @@ _Advisory: schedules against Priority output (Sprint 04-05) and Decomposition (S
 - **[#31](https://github.com/anasakkari3/maybesitter/issues/31) — [S07][Model/Data] Create Planning scenarios and feasibility oracle**
   Build scenario-based evaluation for overload, conflicts, multilingual dates, and changes.
 
-### Sprint 08 — Recommendations
+### Sprint 08 — Recommendations ✅ DONE
+
+Merged 2026-08-20 via [#122](https://github.com/anasakkari3/maybesitter/pull/122). Contracts:
+`src/contracts/v1/recommendationContracts.ts`; module at `lib/recommendation/`.
+
+**This sprint's shape was new: a working implementation of the same judgement already
+shipped.** The V03 pilot (`lib/services/nextStepBaseline.ts`, `NextStepReview.tsx`,
+`/api/next-step`) already selected and presented a next step, and its tests already pinned
+"hard constraints exclude" and "reproducible independent of input order" — which are two of
+#34's acceptance criteria almost verbatim. Sprint 06's lesson said not to ship a second
+implementation of one mechanism; the resolution was to build the module *beside* the pilot,
+forbid a runtime edge in either direction, and use the pilot as the **independent second
+reader** in the cross-track test rather than as something to replace. That comparison ran
+over a 10,368-row matrix at `(commitmentId, code)` granularity and found no unsafe-direction
+disagreement.
+
+**The lesson, and it is about unreachable outcomes.** Two defects this sprint had the same
+shape and neither was visible to any assertion about the thing itself: `decompose` could
+never be offered because a per-commitment quota always suppressed it, and `defer` could
+never be offered because a deferral needs a target instant the selector input does not
+carry. In both cases the *code* was reachable and the *outcome* was not, while everything
+downstream — the ranking table, the review copy in three locales — read as though a user
+could be shown one. Only an assertion that **enumerates the vocabulary and demands each
+member be produced** can see this. It now exists, over `PROPOSABLE_ACTION_KINDS`, with
+`defer` a named exclusion and two further tests stopping that exclusion from becoming a
+place to put whatever stopped working.
+
+**The other repeated shape: a limit that exists only as a number.**
+`maxEvidenceRefsPerReason` was declared beside the enforced limits and enforced nowhere. A
+valid, defect-free, fresh recommendation with one reason repeating a node id 400,000 times
+took 8.2 seconds of CPU on an unauthenticated route and returned **200** with a 3 KB body.
+Separately, the selector and the review surface disagreed about how large a recommendation
+may be, so at ~55 commitments the product refused its own output — invisible to both suites
+because each probed *shapes* and neither probed *sizes*.
+
+**On measurement.** Two tracks caught their own tooling lying before reporting: a fuzzer
+that reshuffled the RNG and so compared different data rather than the same data reordered,
+and a mutation harness whose grep silently matched nothing, reporting every mutant as
+survived. Both refused the comfortable number and fixed the instrument. A perfect
+measurement is a warning, not a result. Relatedly, when a strengthened generator dropped
+below an evidence threshold, the fix was raising the iteration count, not lowering the
+threshold — lowering it is how a suite reports a strength it no longer has.
+
+- **[#33](https://github.com/anasakkari3/maybesitter/issues/33) — Recommendation contract and evidence graph** — done
+- **[#34](https://github.com/anasakkari3/maybesitter/issues/34) — Recommendation selector v1** — done
+- **[#35](https://github.com/anasakkari3/maybesitter/issues/35) — Recommendation review interaction** — done, accessibility verified structurally only; see the note in `tests/recommendation/reviewAccessibility.test.ts`
 
 _Advisory: selects from Planning Engine output (Sprint 07); stub/mock otherwise._
 
