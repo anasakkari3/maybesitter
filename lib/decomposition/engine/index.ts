@@ -141,6 +141,82 @@ function provenanceOf(
   return { requestedEngine, executedEngine, fallbackUsed: true, fallbackReason };
 }
 
+/**
+ * Is this draft actually shaped like a draft?
+ *
+ * `DecompositionModelDraft` is a TypeScript type and TypeScript is erased at
+ * runtime, so a provider — an injected boundary to something outside this
+ * process — can return anything at all. The validator is written against
+ * well-typed fields, so a null `sourceSpans` or a numeric `title` threw a raw
+ * `TypeError` straight out of the boundary: no rejection, no audit event, no
+ * fallback. This is the check that makes the module docblock's claim, that a
+ * draft is validated exactly like any other untrusted input, true.
+ *
+ * Deliberately structural only. Whether the *content* is honest — spans that
+ * round-trip, titles their spans source — remains `validateDecomposition`'s
+ * job, and running it on well-typed garbage is the point.
+ */
+const DEPENDENCY_KINDS: ReadonlySet<string> = new Set(['temporal', 'resource', 'informational']);
+
+/**
+ * Step ids travel into violation `detail` strings and become persistence keys,
+ * so a provider does not get to choose their shape.
+ */
+const DRAFT_STEP_ID = /^[A-Za-z0-9_.:-]{1,64}$/;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isWellFormedSpan(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  return Number.isInteger(value.start) && Number.isInteger(value.end) && typeof value.text === 'string';
+}
+
+function isWellFormedEdge(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  return typeof value.dependsOnStepId === 'string'
+    && typeof value.kind === 'string'
+    && DEPENDENCY_KINDS.has(value.kind);
+}
+
+function isWellFormedDraftStep(value: unknown): value is DecompositionStepProposal {
+  if (!isRecord(value)) return false;
+  if (typeof value.stepId !== 'string' || !DRAFT_STEP_ID.test(value.stepId)) return false;
+  if (typeof value.title !== 'string') return false;
+  if (typeof value.inferred !== 'boolean') return false;
+  if (!Array.isArray(value.sourceSpans) || !value.sourceSpans.every(isWellFormedSpan)) return false;
+  if (!Array.isArray(value.dependsOn) || !value.dependsOn.every(isWellFormedEdge)) return false;
+  if (value.statedTiming !== null && typeof value.statedTiming !== 'string') return false;
+  if (value.statedOwner !== null && typeof value.statedOwner !== 'string') return false;
+  return true;
+}
+
+function wellFormedDraftSteps(draft: unknown): readonly DecompositionStepProposal[] | null {
+  if (!isRecord(draft)) return null;
+  if (typeof draft.confidence !== 'number' || !Number.isFinite(draft.confidence)) return null;
+  if (!Array.isArray(draft.steps)) return null;
+  return draft.steps.every(isWellFormedDraftStep) ? (draft.steps as DecompositionStepProposal[]) : null;
+}
+
+/**
+ * At least as many sourced steps as inferred ones.
+ *
+ * `inferred: true` legitimately exempts a step from title provenance — it
+ * admits having no source — but the exemption is one provider-supplied boolean,
+ * and a draft of entirely inferred steps passed validation with zero violations
+ * and carried arbitrary text to the user and the adapter. A decomposition
+ * claims to decompose *this sentence*: if the sourced steps do not outnumber
+ * the invented ones, it is the engine's plan, not a reading of what the user
+ * wrote. The non-arbitrary part is that a proposal with no sourced step at all
+ * is not grounded in anything; the exact ratio is a policy choice, set here at
+ * "the majority must be sourced" and stated rather than buried.
+ */
+function isMostlySourced(steps: readonly DecompositionStepProposal[]): boolean {
+  const inferred = steps.filter((step) => step.inferred).length;
+  return steps.length - inferred > inferred;
+}
+
 export async function proposeDecomposition(
   input: DecompositionEngineInput,
   dependencies: DecompositionEngineDependencies = {},
@@ -198,18 +274,29 @@ export async function proposeDecomposition(
     return runRules('model_provider_failed');
   }
 
+  const draftSteps = wellFormedDraftSteps(draft);
+  if (draftSteps === null) return runRules('model_output_invalid:malformed');
+
   if (draft.confidence < minimumConfidence) return runRules('model_below_confidence');
-  if (draft.steps.length === 0) {
+  if (draftSteps.length === 0) {
     // The model's considered verdict that this is one action. Overriding it
     // with the rules detector would make the model's opinion decorative.
     return atomic(input, provenanceOf(requestedEngine, 'model', null), 'not_decomposable');
   }
-  if (draft.steps.length === 1) return runRules('model_returned_single_step');
+  if (draftSteps.length === 1) return runRules('model_returned_single_step');
+  if (!isMostlySourced(draftSteps)) return runRules('model_output_invalid:mostly_inferred');
 
-  const violations = validate(draft.steps);
+  // Belt and braces: the shape guard above is what makes validation safe, but a
+  // field it does not know about must not be able to throw out of the boundary.
+  let violations: readonly DecompositionViolation[];
+  try {
+    violations = validate(draftSteps);
+  } catch {
+    return runRules('model_output_invalid:validation_threw');
+  }
   if (violations.length > 0) return runRules('model_output_invalid');
 
   const provenance = provenanceOf(requestedEngine, 'model', null);
-  return decomposed(input, provenance, draft.steps)
+  return decomposed(input, provenance, draftSteps)
     ?? atomic(input, provenance, 'not_decomposable');
 }

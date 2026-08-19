@@ -375,3 +375,74 @@ test('no golden expected step is reported unsourced once title provenance is che
     );
   }
 });
+
+test('a span rejected for exactness is not also charged with overlapping', () => {
+  // The overlap pass ran over spans the exactness check had already rejected,
+  // so a forged span collided with a real one and the same defect was billed
+  // twice. A span whose text does not match what its offsets select is not a
+  // claim on that range at all — there is nothing for it to overlap with.
+  const forged = step({ title: 'x', sourceSpans: [{ start: 0, end: 14, text: 'WRONG TEXT!!!' }] });
+  const real = step({ stepId: 's2', title: 'Book the venue' });
+  assert.deepEqual(codes(validateDecomposition({ sourceText: SOURCE, steps: [forged, real] })), [
+    'SPAN_MISMATCH',
+  ]);
+});
+
+test('an out-of-range span is likewise not charged with overlapping', () => {
+  const beyond = step({ title: 'x', sourceSpans: [{ start: 0, end: SOURCE.length + 5, text: SOURCE }] });
+  const real = step({ stepId: 's2', title: 'Book the venue' });
+  assert.deepEqual(codes(validateDecomposition({ sourceText: SOURCE, steps: [beyond, real] })), [
+    'SPAN_OUT_OF_RANGE',
+  ]);
+});
+
+test('a very deep dependency chain does not blow the stack', () => {
+  // Cycle detection recursed once per edge, so a provider returning a few
+  // thousand chained steps threw a RangeError straight out of the boundary —
+  // past the only try/catch in the engine, which wraps the provider call and
+  // not the validation of what it returned. No RejectedProposal, no audit
+  // event, no fallback. #26's twin is iterative for the same reason.
+  const depth = 50000;
+  const chain = Array.from({ length: depth }, (_, index) => step({
+    stepId: `s${index}`,
+    title: 'x',
+    sourceSpans: [],
+    inferred: true,
+    dependsOn: [{ dependsOnStepId: `s${(index + 1) % depth}`, kind: 'temporal' }],
+  }));
+  const violations = validateDecomposition({ sourceText: SOURCE, steps: chain });
+  assert.deepEqual(codes(violations), ['CYCLIC_DEPENDENCY']);
+  assert.equal(violations.length, 1);
+});
+
+test('a deep acyclic chain is not reported as a cycle', () => {
+  const depth = 50000;
+  const chain = Array.from({ length: depth }, (_, index) => step({
+    stepId: `s${index}`,
+    title: 'x',
+    sourceSpans: [],
+    inferred: true,
+    dependsOn: index + 1 < depth ? [{ dependsOnStepId: `s${index + 1}`, kind: 'temporal' }] : [],
+  }));
+  assert.deepEqual(validateDecomposition({ sourceText: SOURCE, steps: chain }), []);
+});
+
+test('a provider-chosen step id cannot smuggle user text into a violation detail', () => {
+  // `detail` is contractually free of raw user text, and the cycle detail names
+  // the participating ids. That was justified by ids being engine-assigned,
+  // which is false for a provider-supplied draft: a provider that echoes the
+  // commitment as a step id put the user's sentence into every log line that
+  // prints violations.
+  const smuggled = 'اتصل بالدكتور سمير غدا واحجز موعد أسناني الأسبوع القادم';
+  const violations = validateDecomposition({
+    sourceText: SOURCE,
+    steps: [
+      step({ stepId: 'other', sourceSpans: [], inferred: true, title: 'x', dependsOn: [{ dependsOnStepId: smuggled, kind: 'temporal' }] }),
+      step({ stepId: smuggled, sourceSpans: [], inferred: true, title: 'x', dependsOn: [{ dependsOnStepId: 'other', kind: 'temporal' }] }),
+    ],
+  });
+  const serialized = JSON.stringify(violations.map((violation) => violation.detail));
+  assert.equal(serialized.includes(smuggled), false, 'detail leaked the smuggled id');
+  assert.equal(serialized.includes('سمير'), false);
+  assert.match(serialized, /other/, 'a well-formed id is still named, per the cardinality ruling');
+});

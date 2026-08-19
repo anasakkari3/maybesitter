@@ -32,6 +32,28 @@
  *     a step that duplicates one of its own ranges is billed for the
  *     duplication alone.
  *
+ *     **What this check does and does not prove.** It proves the title's words
+ *     were written by the user somewhere in this commitment. It does *not*
+ *     prove the commitment says the step. Two gaps are real and neither is
+ *     closed here:
+ *
+ *       - **Sub-span selection can drop a negation.** In "Do not cancel the
+ *         wedding and call the caterer", the span `[7,25)` round-trips exactly
+ *         and yields the title "cancel the wedding". The negation is simply
+ *         outside the span.
+ *       - **Disjoint spans stitch into a phrase nobody wrote.** Spans over
+ *         "send the keys" and "delete the backups" join into
+ *         "send the keys delete the backups", a sentence the user never typed.
+ *         Multi-span steps are sanctioned by the contract — a step is often
+ *         stated across discontinuous parts of one sentence — so requiring
+ *         contiguity would contradict it, and is not done.
+ *
+ *     Closing these means reading the sentence, not checking offsets against
+ *     it, which is a different piece of work. What is checkable is checked; the
+ *     rest is stated rather than implied. The rules detector emits exactly one
+ *     contiguous span per step, so both gaps are reachable only through a model
+ *     provider's draft.
+ *
  *  3. **`detail` never quotes the input.** Violations travel with proposals and
  *     into audit records, and a message that echoes the offending text would
  *     put raw user content everywhere a violation goes — silently defeating the
@@ -120,6 +142,27 @@ function mergedSpanText(sourceText: string, spans: readonly SourceSpan[]): strin
   );
 }
 
+/**
+ * What is wrong with a title on its own, or null when nothing is.
+ *
+ * Exported because it is the *single* standard for "this is not a step",
+ * applied both when a proposal is validated and when a user edits a step at the
+ * boundary. Those were two different rules before — admission used this one,
+ * the edit path used `trim().length === 0` — so a user could edit a step into
+ * "and" and have it written, a string admission would have rejected outright.
+ * Sharing the function is what makes the two agree by construction rather than
+ * by two authors remembering the same thing.
+ */
+export type TitleAdmissionProblem = 'EMPTY_STEP' | 'CONJUNCTION_ONLY';
+
+export function titleAdmission(title: string): TitleAdmissionProblem | null {
+  const trimmed = title.trim();
+  // An empty title is also, trivially, "only a connective". Reporting the
+  // emptier fact is the actionable one.
+  if (trimmed.length === 0) return 'EMPTY_STEP';
+  return CONNECTIVE_ONLY.has(normalizeConnective(trimmed)) ? 'CONJUNCTION_ONLY' : null;
+}
+
 function normalizeConnective(title: string): string {
   // Strip trailing punctuation only; interior spacing is significant because
   // "and then" is a connective while "and thennews" is not a word at all.
@@ -132,6 +175,13 @@ function normalizeConnective(title: string): string {
  * Both exclusions matter: a self-edge is reported as `SELF_DEPENDENCY` and
  * would otherwise also surface here, and a dangling edge cannot be part of a
  * cycle at all — following it would either crash or invent one.
+ *
+ * Iterative, with an explicit stack. The recursive version cost one JS frame
+ * per edge, so a provider returning a few thousand chained steps threw a
+ * `RangeError` out of the boundary — past the engine's only `try/catch`, which
+ * wraps the provider call and not the validation of its output, so there was no
+ * rejection, no audit event and no fallback. #26's twin is iterative for
+ * exactly this reason, and the two now agree at depth as well as in verdict.
  */
 function stepsInCycle(steps: readonly DecompositionStepProposal[]): ReadonlySet<string> {
   const known = new Set(steps.map((step) => step.stepId));
@@ -147,26 +197,61 @@ function stepsInCycle(steps: readonly DecompositionStepProposal[]): ReadonlySet<
 
   const inCycle = new Set<string>();
   const state = new Map<string, 'visiting' | 'done'>();
-  const stack: string[] = [];
+  /** The current gray path, mirrored as a set so a back edge is O(1) to spot. */
+  const path: string[] = [];
+  const onPath = new Set<string>();
 
-  const visit = (id: string): void => {
-    const current = state.get(id);
-    if (current === 'done') return;
-    if (current === 'visiting') {
-      for (let index = stack.lastIndexOf(id); index >= 0 && index < stack.length; index += 1) {
-        inCycle.add(stack[index]);
+  for (const root of Array.from(known)) {
+    if (state.has(root)) continue;
+    const stack: { readonly id: string; edgeIndex: number }[] = [{ id: root, edgeIndex: 0 }];
+    state.set(root, 'visiting');
+    path.push(root);
+    onPath.add(root);
+
+    while (stack.length > 0) {
+      const frame = stack[stack.length - 1];
+      const outgoing = edges.get(frame.id) ?? [];
+      if (frame.edgeIndex < outgoing.length) {
+        const next = outgoing[frame.edgeIndex];
+        frame.edgeIndex += 1;
+        if (onPath.has(next)) {
+          // Back edge: everything from `next` to the top of the path is in it.
+          for (let index = path.lastIndexOf(next); index < path.length; index += 1) {
+            inCycle.add(path[index]);
+          }
+        } else if (!state.has(next)) {
+          state.set(next, 'visiting');
+          path.push(next);
+          onPath.add(next);
+          stack.push({ id: next, edgeIndex: 0 });
+        }
+      } else {
+        stack.pop();
+        onPath.delete(frame.id);
+        path.pop();
+        state.set(frame.id, 'done');
       }
-      return;
     }
-    state.set(id, 'visiting');
-    stack.push(id);
-    for (const next of edges.get(id) ?? []) visit(next);
-    stack.pop();
-    state.set(id, 'done');
-  };
-
-  for (const step of steps) visit(step.stepId);
+  }
   return inCycle;
+}
+
+/**
+ * A step id rendered safe to put in a `detail` string.
+ *
+ * `detail` is contractually free of raw user text. Naming the ids in a cycle is
+ * the coordinator's cardinality ruling, and that was justified by ids being
+ * engine-assigned — true for this detector, false for a provider-supplied
+ * draft. A provider echoing the commitment as a step id put the user's sentence
+ * into every log line that prints violations. Ids that look like ids are named;
+ * anything else is reported positionally, the way the `SPAN_*` codes already do.
+ */
+const SAFE_STEP_ID = /^[A-Za-z0-9_.:-]{1,64}$/;
+
+function safeStepId(steps: readonly DecompositionStepProposal[], stepId: string): string {
+  if (SAFE_STEP_ID.test(stepId)) return stepId;
+  const index = steps.findIndex((step) => step.stepId === stepId);
+  return index >= 0 ? `step#${index}` : 'step#unknown';
 }
 
 export function validateDecomposition(
@@ -201,11 +286,10 @@ export function validateDecomposition(
     const step = steps[index];
     const trimmed = step.title.trim();
 
-    if (trimmed.length === 0) {
-      // An empty title is also, trivially, "only a connective". Reporting the
-      // emptier fact is the actionable one.
+    const titleProblem = titleAdmission(step.title);
+    if (titleProblem === 'EMPTY_STEP') {
       add('EMPTY_STEP', step.stepId, `step ${index} has a blank title`);
-    } else if (CONNECTIVE_ONLY.has(normalizeConnective(trimmed))) {
+    } else if (titleProblem === 'CONJUNCTION_ONLY') {
       add('CONJUNCTION_ONLY', step.stepId, `step ${index} title is a connective, not an action`);
     }
 
@@ -230,7 +314,6 @@ export function validateDecomposition(
         spansUsable = false;
         continue;
       }
-      claims.push({ stepIndex: index, span });
       if (sourceText.slice(span.start, span.end) !== span.text) {
         add(
           'SPAN_MISMATCH',
@@ -238,7 +321,14 @@ export function validateDecomposition(
           `span ${spanIndex} does not round-trip: sourceText.slice(start, end) !== text`,
         );
         spansUsable = false;
+        continue;
       }
+      // Registered only once the span has passed *both* checks. A span whose
+      // text does not match what its offsets select is not a claim on that
+      // range at all, so it has nothing to overlap with; letting it into the
+      // overlap pass billed one forged span as two defects and disagreed with
+      // #26, which excludes unusable spans for the same reason.
+      claims.push({ stepIndex: index, span });
     }
 
     if (step.inferred && step.sourceSpans.length > 0) {
@@ -304,7 +394,7 @@ export function validateDecomposition(
   // more at fault than the others. The contract reserves `stepId: null` for
   // exactly this. Ids are engine-assigned, so naming them in `detail` keeps the
   // no-user-text rule intact while still saying which steps to look at.
-  const cyclic = Array.from(stepsInCycle(steps)).sort();
+  const cyclic = Array.from(stepsInCycle(steps)).map((id) => safeStepId(steps, id)).sort();
   if (cyclic.length > 0) {
     add('CYCLIC_DEPENDENCY', null, `dependency cycle among steps: ${cyclic.join(', ')}`);
   }

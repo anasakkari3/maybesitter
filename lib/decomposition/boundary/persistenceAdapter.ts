@@ -12,6 +12,17 @@
  * `Commitment` has no notion of a step or a parent, Sprint 07's scheduler reads
  * that type, and pushing a schema change into a shared surface for a feature
  * with no production route would be a migration owed to nobody.
+ *
+ * **State is keyed by `(proposalId, stepId)`, not by `stepId`.** A `stepId` is
+ * proposal-local by contract — `StepDependency.dependsOnStepId` and
+ * `StepDecision.stepId` both name a step *within one proposal*, and the frozen
+ * golden set pins the detector's ids as `s1`, `s2`, `s3` — so every proposal in
+ * the product carries the same three. Keyed on the bare id, canonical state
+ * collided the moment a user decomposed a second commitment, and every
+ * commitment after the first failed permanently with `persistence_failed`. The
+ * alternative, minting globally unique ids in the detector, would put a
+ * storage concern inside a pure function and contradict the fixture the two
+ * sibling tracks compare against.
  */
 
 import type { SourceSpan, StepDependency } from '../../../src/contracts/v1/decompositionContracts';
@@ -33,9 +44,30 @@ export interface ConfirmedDecompositionStep {
   readonly dependsOn: readonly StepDependency[];
   readonly statedTiming: string | null;
   readonly statedOwner: string | null;
+  /**
+   * Whether the engine admitted this step was not read from the source.
+   *
+   * Carried through because the admission is the only thing separating a step
+   * the user wrote from one the engine added around it, and dropping it at
+   * persistence left the stored record unable to say which it was — while
+   * `inferred: true` is precisely what exempts a step from title provenance.
+   */
+  readonly inferred: boolean;
+}
+
+/**
+ * The key a confirmed step is filed under.
+ *
+ * Exported because a consumer cannot reconstruct it by guessing: the separator
+ * is a NUL, which cannot occur in an id, so `(p1, s2)` and `(p1s, 2)` cannot
+ * collide the way a `-` or `:` separator would allow.
+ */
+export function stepKey(proposalId: string, stepId: string): string {
+  return `${proposalId}\u0000${stepId}`;
 }
 
 export interface DecompositionPersistedState {
+  /** Keyed by `stepKey(proposalId, stepId)`. */
   readonly steps: Readonly<Record<string, ConfirmedDecompositionStep>>;
 }
 
@@ -67,20 +99,32 @@ export class TransactionalDecompositionPersistenceAdapter implements Decompositi
 
     const candidate: Record<string, ConfirmedDecompositionStep> = structuredClone(this.state.steps);
     for (const step of steps) {
-      if (candidate[step.stepId]) {
-        throw new Error(`decomposition adapter: step ${step.stepId} already persisted`);
+      const key = stepKey(step.proposalId, step.stepId);
+      // `Object.hasOwn`, not truthiness: `candidate` is a plain object, so
+      // `candidate['constructor']` is truthy without anything being stored
+      // there. The composite key already makes a collision with an inherited
+      // name impossible, but a guard that depends on the key format is a trap
+      // that grows back the moment the format changes.
+      if (Object.hasOwn(candidate, key)) {
+        throw new Error(`decomposition adapter: step ${step.stepId} already persisted for this proposal`);
       }
       if (step.title.trim().length === 0) {
         throw new Error(`decomposition adapter: step ${step.stepId} has a blank title`);
       }
-      candidate[step.stepId] = step;
+      // Cloned on the way in. The caller keeps a reference to the batch it
+      // passed, and without this a mutation *after* the write would silently
+      // rewrite canonical state — provenance that can be edited after the fact
+      // is not provenance.
+      candidate[key] = structuredClone(step);
     }
     // Edges are checked after the whole batch is staged so that a step may
     // depend on another step in the same confirmation, which is the ordinary
     // case — checking as we went would make the batch order significant.
+    // Resolved within the step's own proposal, because that is the only scope
+    // in which `dependsOnStepId` means anything.
     for (const step of steps) {
       for (const edge of step.dependsOn) {
-        if (!candidate[edge.dependsOnStepId]) {
+        if (!Object.hasOwn(candidate, stepKey(step.proposalId, edge.dependsOnStepId))) {
           throw new Error(
             `decomposition adapter: step ${step.stepId} depends on unpersisted ${edge.dependsOnStepId}`,
           );

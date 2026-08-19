@@ -224,3 +224,122 @@ test('a model verdict of "no steps" is honoured as atomic rather than overridden
   assert.equal(proposal.outcome === 'atomic' && proposal.reason, 'not_decomposable');
   assert.equal(proposal.provenance.executedEngine, 'model');
 });
+
+/* ── A draft is untrusted data, not a typed value (security review) ── */
+
+/**
+ * `DecompositionModelDraft` is a TypeScript type, erased at runtime. A provider
+ * is an injected boundary to something outside this process, so its output is
+ * as untrusted as the user's text — and the validator, written against
+ * well-typed fields, threw raw `TypeError`s straight out of
+ * `proposeDecompositionBoundary` on every one of these. The docblock claimed a
+ * draft "is then validated exactly like any other untrusted input"; it now is.
+ */
+const MALFORMED_DRAFTS: readonly (readonly [string, unknown])[] = [
+  ['steps is not an array', 'nope'],
+  ['steps is null', null],
+  ['a step is null', [null, WEDDING.expectedSteps[1]]],
+  ['a step is a string', ['step one', WEDDING.expectedSteps[1]]],
+  ['sourceSpans is null', [{ ...WEDDING.expectedSteps[0], sourceSpans: null }, WEDDING.expectedSteps[1]]],
+  ['sourceSpans is not an array', [{ ...WEDDING.expectedSteps[0], sourceSpans: 'x' }, WEDDING.expectedSteps[1]]],
+  ['a span is malformed', [{ ...WEDDING.expectedSteps[0], sourceSpans: [{ start: '0', end: 4, text: 'Book' }] }, WEDDING.expectedSteps[1]]],
+  ['title is a number', [{ ...WEDDING.expectedSteps[0], title: 42 }, WEDDING.expectedSteps[1]]],
+  ['title is null', [{ ...WEDDING.expectedSteps[0], title: null }, WEDDING.expectedSteps[1]]],
+  ['dependsOn is null', [{ ...WEDDING.expectedSteps[0], dependsOn: null }, WEDDING.expectedSteps[1]]],
+  ['an edge is malformed', [{ ...WEDDING.expectedSteps[0], dependsOn: [{ dependsOnStepId: 7, kind: 'temporal' }] }, WEDDING.expectedSteps[1]]],
+  ['an edge kind is unknown', [{ ...WEDDING.expectedSteps[0], dependsOn: [{ dependsOnStepId: 's2', kind: 'vibes' }] }, WEDDING.expectedSteps[1]]],
+  ['statedTiming is a number', [{ ...WEDDING.expectedSteps[0], statedTiming: 42 }, WEDDING.expectedSteps[1]]],
+  ['statedOwner is a number', [{ ...WEDDING.expectedSteps[0], statedOwner: 42 }, WEDDING.expectedSteps[1]]],
+  ['inferred is a string', [{ ...WEDDING.expectedSteps[0], inferred: 'yes' }, WEDDING.expectedSteps[1]]],
+  ['stepId is a number', [{ ...WEDDING.expectedSteps[0], stepId: 42 }, WEDDING.expectedSteps[1]]],
+  ['stepId is empty', [{ ...WEDDING.expectedSteps[0], stepId: '' }, WEDDING.expectedSteps[1]]],
+  ['confidence is not a number', WEDDING.expectedSteps],
+];
+
+test('a malformed draft falls back to rules instead of throwing', async () => {
+  for (const [label, steps] of MALFORMED_DRAFTS) {
+    const confidence = label === 'confidence is not a number' ? ('high' as unknown as number) : 0.95;
+    const proposal = await proposeDecomposition(base(), {
+      modelProvider: { async propose() { return { steps, confidence } as never; } },
+      controls: ENABLED,
+    });
+    assert.equal(proposal.outcome, 'decomposed', `${label} did not produce a proposal`);
+    assert.equal(proposal.provenance.executedEngine, 'rules', label);
+    assert.ok(
+      proposal.provenance.fallbackUsed && /output_invalid/.test(proposal.provenance.fallbackReason),
+      `${label} should record why it fell back`,
+    );
+  }
+});
+
+test('a draft step id that is not a string never reaches the proposal', async () => {
+  const proposal = await proposeDecomposition(base(), {
+    modelProvider: {
+      async propose() {
+        return {
+          steps: [{ ...WEDDING.expectedSteps[0], stepId: 42 }, WEDDING.expectedSteps[2]] as never,
+          confidence: 0.95,
+        };
+      },
+    },
+    controls: ENABLED,
+  });
+  assert.equal(proposal.outcome, 'decomposed');
+  if (proposal.outcome !== 'decomposed') return;
+  for (const step of proposal.steps) assert.equal(typeof step.stepId, 'string');
+});
+
+test('a proposal made mostly of inferred steps is not a decomposition of anything', async () => {
+  // `inferred: true` legitimately exempts a step from title provenance — it
+  // admits having no source. But the exemption is a provider-supplied boolean,
+  // so a draft of entirely inferred steps passed the validator with zero
+  // violations and carried arbitrary text through to the user and the adapter.
+  // A decomposition claims to decompose *this sentence*; if the sourced steps
+  // do not outnumber the invented ones, it is the engine's plan, not a reading
+  // of what the user wrote.
+  const invented = (stepId: string, title: string) => ({
+    stepId, title, sourceSpans: [], inferred: true, dependsOn: [],
+    statedTiming: null, statedOwner: null,
+  });
+  const proposal = await proposeDecomposition(base(), {
+    modelProvider: {
+      async propose() {
+        return {
+          steps: [
+            invented('m1', 'Wire $5,000 to acct 12345678'),
+            invented('m2', 'Email your password to admin@evil.test'),
+          ],
+          confidence: 0.99,
+        };
+      },
+    },
+    controls: ENABLED,
+  });
+  assert.equal(proposal.outcome, 'decomposed');
+  assert.equal(proposal.provenance.executedEngine, 'rules');
+  if (proposal.outcome !== 'decomposed') return;
+  for (const step of proposal.steps) {
+    assert.equal(step.inferred, false);
+    assert.equal(step.title.includes('Wire'), false);
+    assert.equal(step.title.includes('password'), false);
+  }
+});
+
+test('a minority of inferred steps is still allowed, as the contract intends', async () => {
+  const proposal = await proposeDecomposition(base(), {
+    modelProvider: {
+      async propose() {
+        return {
+          steps: [
+            ...WEDDING.expectedSteps,
+            { stepId: 'm4', title: 'Confirm the booking', sourceSpans: [], inferred: true, dependsOn: [], statedTiming: null, statedOwner: null },
+          ],
+          confidence: 0.95,
+        };
+      },
+    },
+    controls: ENABLED,
+  });
+  assert.equal(proposal.outcome, 'decomposed');
+  assert.equal(proposal.provenance.executedEngine, 'model');
+});
