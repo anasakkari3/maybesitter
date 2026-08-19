@@ -5,6 +5,7 @@ import 'package:maybesitter_mobile/app/app.dart';
 import 'package:maybesitter_mobile/features/capture/capture_composer_screen.dart';
 import 'package:maybesitter_mobile/models/app_settings.dart';
 import 'package:maybesitter_mobile/services/providers.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   testWidgets(
@@ -12,6 +13,9 @@ void main() {
     (WidgetTester tester) async {
       // bySemanticsLabel needs the semantics tree built.
       final SemanticsHandle semantics = tester.ensureSemantics();
+      SharedPreferences.setMockInitialValues({
+        'has_completed_onboarding': true,
+      });
       final container = ProviderContainer();
 
       await tester.pumpWidget(

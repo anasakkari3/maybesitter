@@ -4,6 +4,12 @@ Generated 2026-08-18 from the full open-issue backlog of [anasakkari3/maybesitte
 
 Background/context (left untouched, informational only): [#49 — Conditional Core Intelligence roadmap](https://github.com/anasakkari3/maybesitter/issues/49).
 
+Pilot-facing compressed plan: [Codex Pilot Value Roadmap](codex-pilot-value-roadmap.md).
+This is the 4-sprint, 10-issue plan for iPhone/Watch presence, voice capture,
+awareness reminders, calendar MVP, safe manual source intake, and closed-pilot
+readiness. It is separate from the long-term S07-S11 Core Intelligence module
+work below.
+
 ## Excluded (human/business-gated, not implementation work)
 
 These 17 issues stayed **open** but are labeled `excluded:human-gate` and out of scope for this roadmap — their deliverable is a decision, a live experiment, or real-user exposure, not code.
@@ -304,4 +310,3 @@ _Advisory: integrates every module above end-to-end in shadow mode; build increm
 - Cross-module "Advisory" notes above are non-blocking. Where a later module's design assumes an earlier module's output, stub or mock that interface rather than waiting for the earlier module to be finished.
 - The 6 issues marked "scope split applied" originally called for collecting real human judgments (annotation rounds, human-reviewed datasets, live cohort studies). Each is now scoped to the buildable infrastructure (schemas, pipelines, rubrics-as-code, harnesses) with the human-input step stubbed as a clearly documented follow-up, not part of this implementation pass.
 - Original sprint "Window" dates in each issue are leftover artifacts of the old gated calendar and no longer apply — these issues can be picked up in any order.
-

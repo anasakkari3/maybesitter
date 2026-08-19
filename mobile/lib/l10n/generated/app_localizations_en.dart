@@ -85,6 +85,68 @@ class AppLocalizationsEn extends AppLocalizations {
   String get voiceCaptureStopTooltip => 'Stop Recording';
 
   @override
+  String get spokenPromptPrimaryAction => 'Speak what is on your mind';
+
+  @override
+  String get spokenPromptStopAction => 'Stop and review';
+
+  @override
+  String get spokenPromptListeningTitle => 'Listening';
+
+  @override
+  String get spokenPromptPermissionRequestMessage =>
+      'Allow speech access, then say the messy commitment as it comes to mind.';
+
+  @override
+  String get spokenPromptListeningMessage =>
+      'Say the commitment naturally. No audio is kept after transcription.';
+
+  @override
+  String get spokenPromptReviewTitle => 'Review before analysis';
+
+  @override
+  String get spokenPromptReviewMessage =>
+      'Edit the transcript below, then analyze it when it says what you meant.';
+
+  @override
+  String get spokenPromptPermissionDeniedTitle => 'Speech access is off';
+
+  @override
+  String get spokenPromptPermissionDeniedMessage =>
+      'Typed capture still works. You can use the keyboard and analyze your note.';
+
+  @override
+  String get spokenPromptUnavailableTitle => 'Speech is unavailable';
+
+  @override
+  String get spokenPromptUnavailableMessage =>
+      'Typed capture still works. Use the keyboard and analyze your note.';
+
+  @override
+  String get spokenPromptFailureTitle => 'Speech capture failed';
+
+  @override
+  String get spokenPromptFailureMessage =>
+      'Typed capture still works. Use the keyboard or try voice again.';
+
+  @override
+  String get importClipboardAction => 'Import from clipboard';
+
+  @override
+  String get importClipboardEmptyMessage =>
+      'There is no text on the clipboard right now.';
+
+  @override
+  String get importReviewTitle => 'Review imported text';
+
+  @override
+  String get importReviewMessage =>
+      'Confirm this text before MaybeSitter analyzes or saves anything.';
+
+  @override
+  String get importUseTextAction => 'Use this text';
+
+  @override
   String get editingDisabledExplanation =>
       'Editing is temporarily unavailable to protect your scheduled time.';
 
@@ -255,6 +317,81 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get notificationsDisabled => 'Disabled';
+
+  @override
+  String get pilotFeedbackTitle => 'Pilot feedback';
+
+  @override
+  String get pilotFeedbackSubtitle =>
+      'Tell us which pilot moment mattered and how it felt.';
+
+  @override
+  String get pilotFeedbackEntrySubtitle =>
+      'Usefulness, timing, and reminder feel';
+
+  @override
+  String get pilotFeedbackSurfaceTitle => 'Which surface are you rating?';
+
+  @override
+  String get pilotFeedbackSurfaceWidget => 'Widget';
+
+  @override
+  String get pilotFeedbackSurfaceVoice => 'Voice';
+
+  @override
+  String get pilotFeedbackSurfaceNotification => 'Notification';
+
+  @override
+  String get pilotFeedbackSurfaceCalendar => 'Calendar';
+
+  @override
+  String get pilotFeedbackSurfaceImport => 'Import';
+
+  @override
+  String get pilotFeedbackUsefulnessTitle => 'How useful was it?';
+
+  @override
+  String get pilotFeedbackUsefulnessHigh => 'Very useful';
+
+  @override
+  String get pilotFeedbackUsefulnessSome => 'Somewhat';
+
+  @override
+  String get pilotFeedbackUsefulnessNotYet => 'Not yet';
+
+  @override
+  String get pilotFeedbackAnnoyanceTitle => 'How did the reminder feel?';
+
+  @override
+  String get pilotFeedbackAnnoyanceCalm => 'Calm';
+
+  @override
+  String get pilotFeedbackAnnoyanceFine => 'Fine';
+
+  @override
+  String get pilotFeedbackAnnoyanceTooMuch => 'Too much';
+
+  @override
+  String get pilotFeedbackTimingTitle => 'How was the timing?';
+
+  @override
+  String get pilotFeedbackTimingEarly => 'Too early';
+
+  @override
+  String get pilotFeedbackTimingRight => 'About right';
+
+  @override
+  String get pilotFeedbackTimingLate => 'Too late';
+
+  @override
+  String get pilotFeedbackTimingNotUsing => 'Not using this';
+
+  @override
+  String get pilotFeedbackSubmitAction => 'Send feedback';
+
+  @override
+  String get pilotFeedbackSavedMessage =>
+      'Thanks. Your pilot feedback was recorded.';
 
   @override
   String get privacyTitle => 'Privacy & Data';
@@ -678,6 +815,100 @@ class AppLocalizationsEn extends AppLocalizations {
       'MaybeSitter will offer to connect your calendar once it has actually been useful to you. It won\'t ask before then.';
 
   @override
+  String get trustCalendarProviderApple => 'Apple Calendar via EventKit';
+
+  @override
+  String get trustCalendarConsentOffMessage =>
+      'Calendar import is off. The app still works without it.';
+
+  @override
+  String get trustCalendarNotConnectedMessage =>
+      'Consent is on, but nothing is imported yet. Connect Apple Calendar when you want MaybeSitter to see busy time.';
+
+  @override
+  String get trustCalendarPermissionDeniedMessage =>
+      'Calendar access is off in iPhone Settings, so MaybeSitter keeps working without it.';
+
+  @override
+  String get trustCalendarUnsupportedMessage =>
+      'This pilot starts with Apple Calendar on iPhone only. MaybeSitter still works without calendar access.';
+
+  @override
+  String trustCalendarImportedSummary(int count, int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count busy blocks imported for the next $days days.',
+      one: '1 busy block imported for the next $days days.',
+      zero: 'No busy blocks imported for the next $days days yet.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String trustCalendarDisconnectedRetainedMessage(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'Apple Calendar is disconnected. $count imported busy blocks are still stored on this device until you delete them.',
+      one:
+          'Apple Calendar is disconnected. 1 imported busy block is still stored on this device until you delete it.',
+      zero: 'Apple Calendar is disconnected.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String trustCalendarLastSynced(Object value) {
+    return 'Last synced: $value';
+  }
+
+  @override
+  String get trustCalendarConflictTitle => 'Schedule conflicts found';
+
+  @override
+  String trustCalendarConflictMessage(int commitments, int busyBlocks) {
+    String _temp0 = intl.Intl.pluralLogic(
+      commitments,
+      locale: localeName,
+      other: '$commitments MaybeSitter commitments overlap',
+      one: '1 MaybeSitter commitment overlaps',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      busyBlocks,
+      locale: localeName,
+      other: '$busyBlocks imported busy blocks.',
+      one: '1 imported busy block.',
+    );
+    return '$_temp0 $_temp1';
+  }
+
+  @override
+  String get trustCalendarConnectAction => 'Connect now';
+
+  @override
+  String get trustCalendarRefreshAction => 'Refresh import';
+
+  @override
+  String get trustCalendarDisconnectAction => 'Disconnect';
+
+  @override
+  String get trustCalendarDeleteDataAction => 'Delete imported data';
+
+  @override
+  String get trustCalendarConnectedMessage => 'Apple Calendar is connected.';
+
+  @override
+  String get trustCalendarRefreshedMessage => 'Calendar import refreshed.';
+
+  @override
+  String get trustCalendarDisconnectedMessage => 'Apple Calendar disconnected.';
+
+  @override
+  String get trustCalendarDeletedMessage => 'Imported calendar data deleted.';
+
+  @override
   String get trustWhatWeKnowAction => 'What MaybeSitter knows';
 
   @override
@@ -1023,6 +1254,127 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get feedbackBaselineClarificationFailures =>
       'Our questions that did not help';
+
+  @override
+  String get routineSurveyTitle => 'Your daily routine';
+
+  @override
+  String get routineSurveySubtitle =>
+      'Five quick picks so reminders avoid your obvious no-go times.';
+
+  @override
+  String get routineSleepQuestion => 'When do you usually sleep?';
+
+  @override
+  String get routineSleepEarly => '10:30 PM - 6:30 AM';
+
+  @override
+  String get routineSleepStandard => '11:30 PM - 7:30 AM';
+
+  @override
+  String get routineSleepLate => '12:30 AM - 8:30 AM';
+
+  @override
+  String get routineFocusQuestion => 'When is your usual work or study block?';
+
+  @override
+  String get routineFocusWorkday => '9:00 AM - 5:00 PM';
+
+  @override
+  String get routineFocusEarly => '8:00 AM - 4:00 PM';
+
+  @override
+  String get routineFocusAfternoon => '12:00 PM - 6:00 PM';
+
+  @override
+  String get routineFixedQuestion => 'Any regular fixed commitment window?';
+
+  @override
+  String get routineFixedMorning => 'Morning, 7:00 - 9:00';
+
+  @override
+  String get routineFixedAfternoon => 'Afternoon, 2:00 - 4:00';
+
+  @override
+  String get routineFixedEvening => 'Evening, 6:00 - 8:00';
+
+  @override
+  String get routineReminderQuestion => 'How persistent should reminders be?';
+
+  @override
+  String get routineReminderSoft => 'Soft only';
+
+  @override
+  String get routineReminderFollowUp => 'Soft + follow-up';
+
+  @override
+  String get routineReminderStrong => 'Strong when needed';
+
+  @override
+  String get routineQuietQuestion => 'When should reminders stay quiet?';
+
+  @override
+  String get routineQuietEarly => '9:30 PM - 6:30 AM';
+
+  @override
+  String get routineQuietStandard => '10:30 PM - 7:30 AM';
+
+  @override
+  String get routineQuietLate => '11:30 PM - 8:30 AM';
+
+  @override
+  String get routineNoneRegular => 'No regular window';
+
+  @override
+  String get routineCompleteAction => 'Finish setup';
+
+  @override
+  String get routineSaveAction => 'Save routine';
+
+  @override
+  String get routineSettingsTitle => 'Routine profile';
+
+  @override
+  String get routineSettingsSubtitle =>
+      'Sleep, focus time, fixed windows, and quiet hours';
+
+  @override
+  String get routineSettingsConfiguredSubtitle =>
+      'Used for future reminder timing';
+
+  @override
+  String get routineEscalationTitle => 'How reminder strength works';
+
+  @override
+  String get routineEscalationNice => 'Nice items stay at soft awareness only.';
+
+  @override
+  String get routineEscalationShouldSoft =>
+      'Should items stay soft with this setting.';
+
+  @override
+  String get routineEscalationShouldFollowUp =>
+      'Should items can add a follow-up when timing matters.';
+
+  @override
+  String get routineEscalationMustSoft =>
+      'Must items stay at soft awareness with this setting.';
+
+  @override
+  String get routineEscalationMustFollowUp =>
+      'Must items can follow up before timed items with this setting.';
+
+  @override
+  String get routineEscalationMustStrong =>
+      'Must items can use a stronger reminder about 10 minutes before a timed item because you opted in.';
+
+  @override
+  String get routineEscalationQuietHours =>
+      'Quiet hours still defer reminders.';
+
+  @override
+  String get routineEscalationNoFakeCalls =>
+      'MaybeSitter never uses fake phone calls or deceptive system UI.';
 
   @override
   String get privacyStorageTitle => 'Where your data lives';

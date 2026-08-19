@@ -30,6 +30,14 @@ class ActivityScreen extends ConsumerWidget {
         return Icons.chat_bubble_outline;
       case ActivityEventType.permissionChanged:
         return Icons.tune;
+      case ActivityEventType.softAwarenessAcknowledged:
+        return Icons.notifications_active_outlined;
+      case ActivityEventType.softAwarenessSnoozed:
+        return Icons.snooze_outlined;
+      case ActivityEventType.softAwarenessIgnored:
+        return Icons.notifications_off_outlined;
+      case ActivityEventType.softAwarenessMissed:
+        return Icons.warning_amber_rounded;
     }
   }
 

@@ -86,6 +86,67 @@ class AppLocalizationsHe extends AppLocalizations {
   String get voiceCaptureStopTooltip => 'עצירת הקלטה';
 
   @override
+  String get spokenPromptPrimaryAction => 'אמרי מה עובר לך בראש';
+
+  @override
+  String get spokenPromptStopAction => 'עצירה ובדיקה';
+
+  @override
+  String get spokenPromptListeningTitle => 'מקשיב';
+
+  @override
+  String get spokenPromptPermissionRequestMessage =>
+      'אפשרי גישה לדיבור ואז אמרי את ההתחייבות כפי שהיא עולה לך.';
+
+  @override
+  String get spokenPromptListeningMessage =>
+      'דברי טבעי. שום אודיו לא נשמר אחרי התמלול.';
+
+  @override
+  String get spokenPromptReviewTitle => 'בדיקה לפני ניתוח';
+
+  @override
+  String get spokenPromptReviewMessage =>
+      'ערכי את התמלול למטה ואז נתחי אותו כשהוא אומר את מה שהתכוונת.';
+
+  @override
+  String get spokenPromptPermissionDeniedTitle => 'הגישה לדיבור כבויה';
+
+  @override
+  String get spokenPromptPermissionDeniedMessage =>
+      'לכידה בהקלדה עדיין זמינה. אפשר להשתמש במקלדת ואז לנתח את ההערה.';
+
+  @override
+  String get spokenPromptUnavailableTitle => 'דיבור לא זמין';
+
+  @override
+  String get spokenPromptUnavailableMessage =>
+      'לכידה בהקלדה עדיין זמינה. אפשר להשתמש במקלדת ואז לנתח את ההערה.';
+
+  @override
+  String get spokenPromptFailureTitle => 'הלכידה הקולית נכשלה';
+
+  @override
+  String get spokenPromptFailureMessage =>
+      'לכידה בהקלדה עדיין זמינה. אפשר להשתמש במקלדת או לנסות שוב בקול.';
+
+  @override
+  String get importClipboardAction => 'ייבוא מהלוח';
+
+  @override
+  String get importClipboardEmptyMessage => 'אין כרגע טקסט בלוח.';
+
+  @override
+  String get importReviewTitle => 'סקירת הטקסט שיובא';
+
+  @override
+  String get importReviewMessage =>
+      'אשרו את הטקסט הזה לפני ש-MaybeSitter ינתח או ישמור משהו.';
+
+  @override
+  String get importUseTextAction => 'להשתמש בטקסט הזה';
+
+  @override
   String get editingDisabledExplanation =>
       'העריכה אינה זמינה זמנית כדי להגן על מועד ההתחייבות.';
 
@@ -258,6 +319,79 @@ class AppLocalizationsHe extends AppLocalizations {
 
   @override
   String get notificationsDisabled => 'מושבת';
+
+  @override
+  String get pilotFeedbackTitle => 'משוב לפיילוט';
+
+  @override
+  String get pilotFeedbackSubtitle =>
+      'ספרו לנו איזה רגע בפיילוט היה משמעותי ואיך הוא הרגיש.';
+
+  @override
+  String get pilotFeedbackEntrySubtitle => 'שימושיות, תזמון והתחושה של התזכורת';
+
+  @override
+  String get pilotFeedbackSurfaceTitle => 'איזה משטח אתם מדרגים?';
+
+  @override
+  String get pilotFeedbackSurfaceWidget => 'ווידג׳ט';
+
+  @override
+  String get pilotFeedbackSurfaceVoice => 'קול';
+
+  @override
+  String get pilotFeedbackSurfaceNotification => 'התראה';
+
+  @override
+  String get pilotFeedbackSurfaceCalendar => 'יומן';
+
+  @override
+  String get pilotFeedbackSurfaceImport => 'ייבוא';
+
+  @override
+  String get pilotFeedbackUsefulnessTitle => 'עד כמה זה הועיל?';
+
+  @override
+  String get pilotFeedbackUsefulnessHigh => 'מאוד מועיל';
+
+  @override
+  String get pilotFeedbackUsefulnessSome => 'במידה מסוימת';
+
+  @override
+  String get pilotFeedbackUsefulnessNotYet => 'עוד לא';
+
+  @override
+  String get pilotFeedbackAnnoyanceTitle => 'איך התזכורת הרגישה?';
+
+  @override
+  String get pilotFeedbackAnnoyanceCalm => 'רגוע';
+
+  @override
+  String get pilotFeedbackAnnoyanceFine => 'בסדר';
+
+  @override
+  String get pilotFeedbackAnnoyanceTooMuch => 'יותר מדי';
+
+  @override
+  String get pilotFeedbackTimingTitle => 'איך היה התזמון?';
+
+  @override
+  String get pilotFeedbackTimingEarly => 'מוקדם מדי';
+
+  @override
+  String get pilotFeedbackTimingRight => 'בערך נכון';
+
+  @override
+  String get pilotFeedbackTimingLate => 'מאוחר מדי';
+
+  @override
+  String get pilotFeedbackTimingNotUsing => 'לא משתמש/ת בזה';
+
+  @override
+  String get pilotFeedbackSubmitAction => 'שליחת משוב';
+
+  @override
+  String get pilotFeedbackSavedMessage => 'תודה. משוב הפיילוט נרשם.';
 
   @override
   String get privacyTitle => 'פרטיות ונתונים';
@@ -675,6 +809,105 @@ class AppLocalizationsHe extends AppLocalizations {
       'MaybeSitter יציע לחבר את היומן שלך רק אחרי שבאמת יועיל לך. עד אז הוא לא יבקש.';
 
   @override
+  String get trustCalendarProviderApple => 'Apple Calendar דרך EventKit';
+
+  @override
+  String get trustCalendarConsentOffMessage =>
+      'ייבוא היומן כבוי. האפליקציה עדיין עובדת בלעדיו.';
+
+  @override
+  String get trustCalendarNotConnectedMessage =>
+      'ההסכמה פעילה, אבל עדיין לא יובא דבר. חבר את Apple Calendar כשתרצה ש-MaybeSitter יראה זמנים תפוסים.';
+
+  @override
+  String get trustCalendarPermissionDeniedMessage =>
+      'הגישה ליומן כבויה בהגדרות ה-iPhone, ולכן MaybeSitter ממשיך לעבוד גם בלעדיה.';
+
+  @override
+  String get trustCalendarUnsupportedMessage =>
+      'הפיילוט מתחיל עם Apple Calendar ב-iPhone בלבד. MaybeSitter עדיין עובד בלי גישה ליומן.';
+
+  @override
+  String trustCalendarImportedSummary(int count, int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'יובאו $count זמנים תפוסים ל-$days הימים הקרובים.',
+      two: 'יובאו שני זמנים תפוסים ל-$days הימים הקרובים.',
+      one: 'יובא זמן תפוס אחד ל-$days הימים הקרובים.',
+      zero: 'עדיין לא יובאו זמנים תפוסים ל-$days הימים הקרובים.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String trustCalendarDisconnectedRetainedMessage(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'Apple Calendar מנותק. $count זמנים תפוסים שיובאו עדיין שמורים במכשיר הזה עד שתמחק אותם.',
+      two:
+          'Apple Calendar מנותק. שני זמנים תפוסים שיובאו עדיין שמורים במכשיר הזה עד שתמחק אותם.',
+      one:
+          'Apple Calendar מנותק. זמן תפוס אחד שיובא עדיין שמור במכשיר הזה עד שתמחק אותו.',
+      zero: 'Apple Calendar מנותק.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String trustCalendarLastSynced(Object value) {
+    return 'סונכרן לאחרונה: $value';
+  }
+
+  @override
+  String get trustCalendarConflictTitle => 'נמצאו התנגשויות בלו\"ז';
+
+  @override
+  String trustCalendarConflictMessage(int commitments, int busyBlocks) {
+    String _temp0 = intl.Intl.pluralLogic(
+      commitments,
+      locale: localeName,
+      other: '$commitments התחייבויות ב-MaybeSitter חופפות ל-',
+      two: 'שתי התחייבויות ב-MaybeSitter חופפות ל-',
+      one: 'התחייבות אחת ב-MaybeSitter חופפת ל-',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      busyBlocks,
+      locale: localeName,
+      other: '$busyBlocks זמנים תפוסים מיובאים.',
+      two: 'שני זמנים תפוסים מיובאים.',
+      one: 'זמן תפוס מיובא אחד.',
+    );
+    return '$_temp0$_temp1';
+  }
+
+  @override
+  String get trustCalendarConnectAction => 'לחבר עכשיו';
+
+  @override
+  String get trustCalendarRefreshAction => 'רענון הייבוא';
+
+  @override
+  String get trustCalendarDisconnectAction => 'ניתוק';
+
+  @override
+  String get trustCalendarDeleteDataAction => 'מחיקת הנתונים שיובאו';
+
+  @override
+  String get trustCalendarConnectedMessage => 'Apple Calendar מחובר.';
+
+  @override
+  String get trustCalendarRefreshedMessage => 'ייבוא היומן רוענן.';
+
+  @override
+  String get trustCalendarDisconnectedMessage => 'Apple Calendar נותק.';
+
+  @override
+  String get trustCalendarDeletedMessage => 'נתוני היומן שיובאו נמחקו.';
+
+  @override
   String get trustWhatWeKnowAction => 'מה MaybeSitter יודע';
 
   @override
@@ -1014,6 +1247,126 @@ class AppLocalizationsHe extends AppLocalizations {
 
   @override
   String get feedbackBaselineClarificationFailures => 'שאלות שלנו שלא עזרו';
+
+  @override
+  String get routineSurveyTitle => 'השגרה היומית שלך';
+
+  @override
+  String get routineSurveySubtitle =>
+      'חמש בחירות מהירות כדי שתזכורות יימנעו מזמנים שבבירור לא מתאימים.';
+
+  @override
+  String get routineSleepQuestion => 'מתי בדרך כלל ישנים?';
+
+  @override
+  String get routineSleepEarly => '22:30 - 06:30';
+
+  @override
+  String get routineSleepStandard => '23:30 - 07:30';
+
+  @override
+  String get routineSleepLate => '00:30 - 08:30';
+
+  @override
+  String get routineFocusQuestion => 'מתי בדרך כלל זמן העבודה או הלימודים?';
+
+  @override
+  String get routineFocusWorkday => '09:00 - 17:00';
+
+  @override
+  String get routineFocusEarly => '08:00 - 16:00';
+
+  @override
+  String get routineFocusAfternoon => '12:00 - 18:00';
+
+  @override
+  String get routineFixedQuestion => 'יש חלון קבוע להתחייבויות חוזרות?';
+
+  @override
+  String get routineFixedMorning => 'בוקר, 07:00 - 09:00';
+
+  @override
+  String get routineFixedAfternoon => 'אחר הצהריים, 14:00 - 16:00';
+
+  @override
+  String get routineFixedEvening => 'ערב, 18:00 - 20:00';
+
+  @override
+  String get routineReminderQuestion => 'כמה מתמידות התזכורות צריכות להיות?';
+
+  @override
+  String get routineReminderSoft => 'רכות בלבד';
+
+  @override
+  String get routineReminderFollowUp => 'רכות + מעקב';
+
+  @override
+  String get routineReminderStrong => 'חזקות כשצריך';
+
+  @override
+  String get routineQuietQuestion => 'מתי התזכורות צריכות להישאר שקטות?';
+
+  @override
+  String get routineQuietEarly => '21:30 - 06:30';
+
+  @override
+  String get routineQuietStandard => '22:30 - 07:30';
+
+  @override
+  String get routineQuietLate => '23:30 - 08:30';
+
+  @override
+  String get routineNoneRegular => 'אין חלון קבוע';
+
+  @override
+  String get routineCompleteAction => 'סיום ההגדרה';
+
+  @override
+  String get routineSaveAction => 'שמירת שגרה';
+
+  @override
+  String get routineSettingsTitle => 'פרופיל שגרה';
+
+  @override
+  String get routineSettingsSubtitle =>
+      'שינה, זמן מיקוד, חלונות קבועים ושעות שקט';
+
+  @override
+  String get routineSettingsConfiguredSubtitle => 'משמש לתזמון תזכורות עתידיות';
+
+  @override
+  String get routineEscalationTitle => 'כך עובדת עוצמת התזכורת';
+
+  @override
+  String get routineEscalationNice =>
+      'פריטים \"נחמד אם\" נשארים בתזכורת רכה בלבד.';
+
+  @override
+  String get routineEscalationShouldSoft =>
+      'פריטי \"כדאי\" נשארים רכים עם ההגדרה הזאת.';
+
+  @override
+  String get routineEscalationShouldFollowUp =>
+      'פריטי \"כדאי\" יכולים לקבל תזכורת המשך כשהתזמון חשוב.';
+
+  @override
+  String get routineEscalationMustSoft =>
+      'פריטי \"חייב\" נשארים בתזכורת רכה עם ההגדרה הזאת.';
+
+  @override
+  String get routineEscalationMustFollowUp =>
+      'פריטי \"חייב\" יכולים לקבל תזכורת המשך לפני פריטים מתוזמנים עם ההגדרה הזאת.';
+
+  @override
+  String get routineEscalationMustStrong =>
+      'פריטי \"חייב\" יכולים להשתמש בתזכורת חזקה יותר בערך 10 דקות לפני פריט מתוזמן כי בחרת בכך.';
+
+  @override
+  String get routineEscalationQuietHours => 'שעות השקט עדיין דוחות תזכורות.';
+
+  @override
+  String get routineEscalationNoFakeCalls =>
+      'MaybeSitter אף פעם לא משתמש בשיחות טלפון מזויפות או בממשק מערכת מטעה.';
 
   @override
   String get privacyStorageTitle => 'היכן הנתונים שלך נשמרים';

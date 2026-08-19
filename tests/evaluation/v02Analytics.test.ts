@@ -34,6 +34,8 @@ test('analytics: activation, funnel, retention, and consent metrics reconcile', 
   assert.equal(report.totalUsers, 2);
   assert.equal(report.activatedUsers, 1);
   assert.equal(report.activationRate, 0.5);
+  assert.deepEqual(report.activation, { denominator: 2, activated: 1, rate: 0.5 });
+  assert.deepEqual(report.firstValue, { denominator: 2, reached: 0, rate: 0 });
   assert.deepEqual(report.funnel, { capture_submitted: 2, commitment_detected: 1, commitment_confirmed: 1, recommendation_shown: 1, recommendation_accepted: 1, recommendation_completed: 1 });
   assert.deepEqual(report.retention, { week4Eligible: 2, week4Retained: 1, week4Rate: 0.5, week8Eligible: 2, week8Retained: 0, week8Rate: 0 });
   assert.equal(report.consent.deletions, 1);

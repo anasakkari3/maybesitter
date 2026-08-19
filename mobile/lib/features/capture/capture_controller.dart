@@ -1,9 +1,24 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../models/activity_event.dart';
 import '../../models/capture_result.dart';
 import '../../models/commitment.dart';
+import '../../models/pilot_loop_analytics.dart';
 import '../../services/api/dtos/proposal_dtos.dart';
+import '../../services/contracts/speech_capture_service.dart';
 import '../../services/providers.dart';
+import 'capture_flow_launch.dart';
+
+enum SpokenPromptStatus {
+  idle,
+  requestingPermission,
+  listening,
+  reviewingTranscript,
+  permissionDenied,
+  unavailable,
+  failed,
+}
 
 class CaptureState {
   final CaptureStatus status;
@@ -19,6 +34,8 @@ class CaptureState {
   final List<ClarificationOption> clarificationOptions;
   final String? errorMessage;
   final String? analysisNote;
+  final SpokenPromptStatus spokenPromptStatus;
+  final String? spokenPromptMessage;
 
   const CaptureState({
     this.status = CaptureStatus.idle,
@@ -34,12 +51,18 @@ class CaptureState {
     this.clarificationOptions = const [],
     this.errorMessage,
     this.analysisNote,
+    this.spokenPromptStatus = SpokenPromptStatus.idle,
+    this.spokenPromptMessage,
   });
 
   bool get isSubmitting =>
       status == CaptureStatus.analyzing ||
       status == CaptureStatus.submitting ||
       status == CaptureStatus.confirming;
+
+  bool get isListeningToSpeech =>
+      spokenPromptStatus == SpokenPromptStatus.requestingPermission ||
+      spokenPromptStatus == SpokenPromptStatus.listening;
 
   CaptureState copyWith({
     CaptureStatus? status,
@@ -55,6 +78,9 @@ class CaptureState {
     List<ClarificationOption>? clarificationOptions,
     String? errorMessage,
     String? analysisNote,
+    SpokenPromptStatus? spokenPromptStatus,
+    String? spokenPromptMessage,
+    bool clearSpokenPromptMessage = false,
   }) {
     return CaptureState(
       status: status ?? this.status,
@@ -70,12 +96,21 @@ class CaptureState {
       clarificationOptions: clarificationOptions ?? this.clarificationOptions,
       errorMessage: errorMessage ?? this.errorMessage,
       analysisNote: analysisNote ?? this.analysisNote,
+      spokenPromptStatus: spokenPromptStatus ?? this.spokenPromptStatus,
+      spokenPromptMessage: clearSpokenPromptMessage
+          ? null
+          : (spokenPromptMessage ?? this.spokenPromptMessage),
     );
   }
 }
 
 class CaptureNotifier extends StateNotifier<CaptureState> {
   final Ref ref;
+  String _speechBaseInput = '';
+  String _speechSource = CaptureLaunchSource.app.name;
+  String _speechLocale = 'en-US';
+  bool _speechCompletionLogged = false;
+  bool _speechAbandonedLogged = false;
 
   CaptureNotifier(this.ref) : super(const CaptureState());
 
@@ -86,6 +121,186 @@ class CaptureNotifier extends StateNotifier<CaptureState> {
           ? state.status
           : (text.isNotEmpty ? CaptureStatus.editing : CaptureStatus.idle),
     );
+  }
+
+  Future<void> startSpokenPrompt({
+    required String localeId,
+    CaptureLaunchSource source = CaptureLaunchSource.app,
+  }) async {
+    if (state.isSubmitting || state.isListeningToSpeech) return;
+
+    if (!ref.read(pilotPresenceFeatureFlagsProvider).voice) {
+      state = state.copyWith(
+        spokenPromptStatus: SpokenPromptStatus.unavailable,
+        clearSpokenPromptMessage: true,
+      );
+      return;
+    }
+
+    _speechBaseInput = state.rawInput.trim();
+    _speechSource = source.name;
+    _speechLocale = localeId;
+    _speechCompletionLogged = false;
+    _speechAbandonedLogged = false;
+    _recordPilotLoopAnalytics(
+      PilotLoopAnalyticsEvent.voiceCaptureStarted(
+        source: _speechSource,
+        locale: _speechLocale,
+        flags: ref.read(pilotPresenceFeatureFlagsProvider),
+      ),
+    );
+    state = state.copyWith(
+      spokenPromptStatus: SpokenPromptStatus.requestingPermission,
+      clearSpokenPromptMessage: true,
+    );
+
+    final speechService = ref.read(speechCaptureServiceProvider);
+
+    try {
+      final result = await speechService.startListening(
+        localeId: localeId,
+        onTranscript: _applySpeechTranscript,
+        onFailure: _applySpeechFailure,
+        onDone: _finishSpeechReview,
+      );
+
+      if (!mounted) return;
+
+      if (!result.started) {
+        _applySpeechFailure(result.failureReason, result.message);
+        return;
+      }
+
+      if (state.spokenPromptStatus == SpokenPromptStatus.requestingPermission) {
+        state = state.copyWith(
+          spokenPromptStatus: SpokenPromptStatus.listening,
+          clearSpokenPromptMessage: true,
+        );
+      }
+    } catch (error) {
+      _applySpeechFailure(SpeechCaptureFailureReason.failed, '$error');
+    }
+  }
+
+  Future<void> stopSpokenPrompt() async {
+    if (!state.isListeningToSpeech) return;
+
+    await ref.read(speechCaptureServiceProvider).stopListening();
+    _finishSpeechReview();
+  }
+
+  Future<void> cancelSpokenPrompt() async {
+    if (!state.isListeningToSpeech) return;
+
+    await ref.read(speechCaptureServiceProvider).cancelListening();
+    _recordVoiceAbandoned('cancelled');
+    _speechBaseInput = '';
+    state = state.copyWith(
+      spokenPromptStatus: state.rawInput.trim().isEmpty
+          ? SpokenPromptStatus.idle
+          : SpokenPromptStatus.reviewingTranscript,
+      clearSpokenPromptMessage: true,
+    );
+  }
+
+  void noteSourceIntakeReviewed({
+    required String importSource,
+    required int characterCount,
+  }) {
+    _recordPilotLoopAnalytics(
+      PilotLoopAnalyticsEvent.sourceIntakeReviewed(
+        importSource: importSource,
+        characterCount: characterCount,
+        flags: ref.read(pilotPresenceFeatureFlagsProvider),
+      ),
+    );
+  }
+
+  void applyImportedText(String text, {required String importSource}) {
+    final normalized = text.trim();
+    if (normalized.isEmpty) return;
+    state = state.copyWith(rawInput: normalized, status: CaptureStatus.editing);
+    _recordPilotLoopAnalytics(
+      PilotLoopAnalyticsEvent.sourceIntakeConfirmed(
+        importSource: importSource,
+        characterCount: normalized.length,
+        flags: ref.read(pilotPresenceFeatureFlagsProvider),
+      ),
+    );
+  }
+
+  void _applySpeechTranscript(SpeechCaptureTranscript transcript) {
+    if (!mounted) return;
+    final mergedInput = _mergeSpeechTranscript(
+      _speechBaseInput,
+      transcript.text,
+    );
+
+    state = state.copyWith(
+      rawInput: mergedInput,
+      status: CaptureStatus.editing,
+      spokenPromptStatus: transcript.isFinal
+          ? SpokenPromptStatus.reviewingTranscript
+          : SpokenPromptStatus.listening,
+      clearSpokenPromptMessage: true,
+    );
+    if (transcript.isFinal && !_speechCompletionLogged) {
+      _speechCompletionLogged = true;
+      _recordPilotLoopAnalytics(
+        PilotLoopAnalyticsEvent.voiceCaptureCompleted(
+          source: _speechSource,
+          locale: _speechLocale,
+          inputLength: mergedInput.length,
+          flags: ref.read(pilotPresenceFeatureFlagsProvider),
+        ),
+      );
+    }
+  }
+
+  String _mergeSpeechTranscript(String base, String transcript) {
+    final cleanTranscript = transcript.trim();
+    if (base.isEmpty) return cleanTranscript;
+    if (cleanTranscript.isEmpty) return base;
+    return '$base $cleanTranscript'.trim();
+  }
+
+  void _applySpeechFailure(
+    SpeechCaptureFailureReason? reason,
+    String? message,
+  ) {
+    if (!mounted) return;
+
+    final status = reason == SpeechCaptureFailureReason.permissionDenied
+        ? SpokenPromptStatus.permissionDenied
+        : reason == SpeechCaptureFailureReason.unavailable
+        ? SpokenPromptStatus.unavailable
+        : SpokenPromptStatus.failed;
+
+    state = state.copyWith(
+      status: state.rawInput.trim().isEmpty ? CaptureStatus.idle : state.status,
+      spokenPromptStatus: status,
+      spokenPromptMessage: message,
+    );
+    _recordVoiceAbandoned(reason?.name ?? 'failed');
+  }
+
+  void _finishSpeechReview() {
+    if (!mounted) return;
+
+    if (state.spokenPromptStatus != SpokenPromptStatus.listening &&
+        state.spokenPromptStatus != SpokenPromptStatus.requestingPermission) {
+      return;
+    }
+
+    final hadInput = state.rawInput.trim().isNotEmpty;
+    state = state.copyWith(
+      spokenPromptStatus: state.rawInput.trim().isEmpty
+          ? SpokenPromptStatus.idle
+          : SpokenPromptStatus.reviewingTranscript,
+      clearSpokenPromptMessage: true,
+    );
+    if (!hadInput) _recordVoiceAbandoned('empty');
+    _speechBaseInput = '';
   }
 
   Future<void> submitIntent([String? customText]) async {
@@ -212,9 +427,8 @@ class CaptureNotifier extends StateNotifier<CaptureState> {
 
     final resolved = state.extractedCommitments
         .map(
-          (c) => c.needsClarification
-              ? c.copyWith(needsClarification: false)
-              : c,
+          (c) =>
+              c.needsClarification ? c.copyWith(needsClarification: false) : c,
         )
         .toList();
     final initialSelections = resolved
@@ -329,7 +543,35 @@ class CaptureNotifier extends StateNotifier<CaptureState> {
   }
 
   void reset() {
+    _speechBaseInput = '';
+    _speechCompletionLogged = false;
+    _speechAbandonedLogged = false;
     state = const CaptureState();
+  }
+
+  void _recordVoiceAbandoned(String reason) {
+    if (_speechCompletionLogged || _speechAbandonedLogged) return;
+    _speechAbandonedLogged = true;
+    _recordPilotLoopAnalytics(
+      PilotLoopAnalyticsEvent.voiceCaptureAbandoned(
+        source: _speechSource,
+        locale: _speechLocale,
+        reason: reason,
+        inputLength: state.rawInput.length,
+        flags: ref.read(pilotPresenceFeatureFlagsProvider),
+      ),
+    );
+  }
+
+  void _recordPilotLoopAnalytics(PilotLoopAnalyticsEvent event) {
+    try {
+      unawaited(
+        ref
+            .read(pilotLoopAnalyticsServiceProvider)
+            .record(event)
+            .catchError((_) {}),
+      );
+    } catch (_) {}
   }
 
   // Preview / fixture helpers for testing all UI states

@@ -7,7 +7,11 @@ enum ActivityEventType {
   commitmentDeleted,
   aiCaptureExtracted,
   aiClarificationResolved,
-  permissionChanged;
+  permissionChanged,
+  softAwarenessAcknowledged,
+  softAwarenessSnoozed,
+  softAwarenessIgnored,
+  softAwarenessMissed;
 
   String get defaultTitle {
     switch (this) {
@@ -25,6 +29,14 @@ enum ActivityEventType {
         return 'Clarification Resolved';
       case ActivityEventType.permissionChanged:
         return 'Settings Updated';
+      case ActivityEventType.softAwarenessAcknowledged:
+        return 'Awareness Confirmed';
+      case ActivityEventType.softAwarenessSnoozed:
+        return 'Reminder Snoozed';
+      case ActivityEventType.softAwarenessIgnored:
+        return 'Soft Awareness Ignored';
+      case ActivityEventType.softAwarenessMissed:
+        return 'Soft Awareness Missed';
     }
   }
 }

@@ -19,6 +19,13 @@ class SettingsScreen extends ConsumerWidget {
     final l10n = context.l10n;
     final settings = ref.watch(appSettingsProvider);
     final settingsNotifier = ref.read(appSettingsProvider.notifier);
+    final pilotFlags = ref.watch(pilotPresenceFeatureFlagsProvider);
+    final hasPilotFeedbackSurface =
+        pilotFlags.widget ||
+        pilotFlags.voice ||
+        pilotFlags.awareness ||
+        pilotFlags.watch ||
+        pilotFlags.imports;
 
     return MaybesitterScaffold(
       appBar: MaybesitterAppBar(
@@ -92,6 +99,34 @@ class SettingsScreen extends ConsumerWidget {
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () => context.push('/settings/notifications'),
                     ),
+                    const Divider(),
+                    ListTile(
+                      leading: Icon(
+                        Icons.schedule_outlined,
+                        color: colors.brandPrimary,
+                      ),
+                      title: Text(l10n.routineSettingsTitle),
+                      subtitle: Text(
+                        ref.watch(routineProfileProvider) == null
+                            ? l10n.routineSettingsSubtitle
+                            : l10n.routineSettingsConfiguredSubtitle,
+                      ),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => context.push('/settings/routine'),
+                    ),
+                    if (hasPilotFeedbackSurface) ...[
+                      const Divider(),
+                      ListTile(
+                        leading: Icon(
+                          Icons.insights_outlined,
+                          color: colors.brandPrimary,
+                        ),
+                        title: Text(l10n.pilotFeedbackTitle),
+                        subtitle: Text(l10n.pilotFeedbackEntrySubtitle),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () => context.push('/settings/pilot-feedback'),
+                      ),
+                    ],
                     const Divider(),
                     // The V03 trust centre is the participant's real privacy
                     // surface; the older privacy screen stays reachable below
