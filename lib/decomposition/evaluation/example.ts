@@ -52,6 +52,8 @@
  * produce identical violations in identical order, so a metric report built
  * from them is a committed artifact rather than a moving one.
  */
+import { MAX_STEPS_PER_PROPOSAL, MAX_SPANS_PER_STEP, MAX_TOTAL_SPANS, isNameableId, CORPUS_ID_SEPARATOR_RUNS } from '../shared/limits';
+export { MAX_STEPS_PER_PROPOSAL, MAX_SPANS_PER_STEP, MAX_TOTAL_SPANS };
 import { isConnectiveOnly, isEmptyTitle } from '../shared/connectives';
 import type { ValidationIssue } from '../../evaluation/registry/contracts';
 import { IssueCollector } from '../../evaluation/registry/validationPrimitives';
@@ -139,44 +141,21 @@ function coveredTextOf(sourceText: string, spans: readonly SourceSpan[]): string
  * Deliberately narrow — the shape every id in this repository already has.
  * Anything else is replaced by the step's position.
  */
-const SAFE_REF_CHARS = /^[A-Za-z0-9_-]+$/;
-const SAFE_REF_MAX_LENGTH = 28;
-const SAFE_REF_MAX_SEPARATOR_RUNS = 4;
-const SAFE_REF_MAX_DIGITS = 8;
-
 /**
  * Whether a caller-supplied identifier is safe to quote in a message.
  *
- * The first version of this was a *shape* check — anything over
- * `[A-Za-z0-9_-]` up to 64 characters — and a shape check is not a content
- * check. A provider writing its sentence with hyphens for spaces walked
- * straight through it: `Tell-my-therapist-I-relapsed-on-Tuesday` and
- * `card_4111111111111111_cvv_123` were both "safe" and both quoted verbatim.
- * The earlier test proved nothing, because it probed an Arabic sentence, every
- * character of which is outside the class already.
+ * Delegated to `lib/decomposition/shared/limits.ts`, which holds the union of
+ * the bounds this file and `engine/validator.ts` had arrived at separately —
+ * length, separator runs, and total digits. Two independently-written copies of
+ * one predicate is how the two tracks came to redact different ids while both
+ * claiming the contract's "never contains raw user text".
  *
- * Three bounds, each aimed at what an identifier is *not*:
- *
- *  - **Length.** 28 code units. The longest id in this repository is 26
- *    (`seed-he-nosplit-procedures`); the shortest sentence that carries
- *    anything is longer.
- *  - **Separator runs.** Four. An id names a thing; seven hyphen-joined tokens
- *    is a sentence wearing an id's punctuation.
- *  - **Digits.** Eight in total, not merely consecutively — a card number
- *    written `4111-1111-1111-1111` has no run longer than four.
- *
- * This is a heuristic and is documented as one. The *guarantee* does not rest
- * on it: anything it rejects falls back to the step's position, which locates
- * the step just as well and carries nothing. The heuristic only buys back
- * readability for the ordinary case.
+ * The heuristic is documented as one there. The guarantee here does not rest on
+ * it: anything it rejects falls back to the row's position, which locates the
+ * example just as well and carries nothing.
  */
 export function isSafeRef(value: unknown): value is string {
-  if (typeof value !== 'string') return false;
-  if (value.length === 0 || value.length > SAFE_REF_MAX_LENGTH) return false;
-  if (!SAFE_REF_CHARS.test(value)) return false;
-  const separatorRuns = value.match(/[-_]+/g);
-  if (separatorRuns !== null && separatorRuns.length > SAFE_REF_MAX_SEPARATOR_RUNS) return false;
-  return value.replace(/[^0-9]/g, '').length <= SAFE_REF_MAX_DIGITS;
+  return isNameableId(value, CORPUS_ID_SEPARATOR_RUNS);
 }
 
 /* ── Work limits ────────────────────────────────────────────────── */
@@ -195,9 +174,6 @@ export function isSafeRef(value: unknown): value is string {
  * They are exported as named constants precisely so reconciling them is a
  * one-line change rather than an archaeology exercise.
  */
-export const MAX_STEPS_PER_PROPOSAL = 128;
-export const MAX_SPANS_PER_STEP = 64;
-export const MAX_TOTAL_SPANS = 512;
 
 export interface ValidationLimitBreach {
   readonly limit: 'steps' | 'spansPerStep' | 'totalSpans';

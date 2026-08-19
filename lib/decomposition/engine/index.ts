@@ -16,6 +16,7 @@
  * the field exists to prevent.
  */
 
+import { MAX_STEPS_PER_PROPOSAL, MAX_SPANS_PER_STEP, MAX_TOTAL_SPANS, MAX_EDGES_PER_STEP, MAX_DRAFT_TEXT_LENGTH } from '../shared/limits';
 import {
   DECOMPOSITION_CONTRACT_VERSION,
   DECOMPOSITION_SCHEMA_VERSION,
@@ -168,10 +169,6 @@ function provenanceOf(
  * The whole thing runs inside one `try`: any throw at all means the draft is
  * not usable, which is a rules fallback, not an exception out of the boundary.
  */
-const MAX_DRAFT_STEPS = 200;
-const MAX_SPANS_PER_STEP = 20;
-const MAX_TOTAL_SPANS = 500;
-const MAX_EDGES_PER_STEP = 50;
 
 const DEPENDENCY_KINDS: ReadonlySet<string> = new Set(['temporal', 'resource', 'informational']);
 
@@ -198,7 +195,6 @@ const DRAFT_STEP_ID = /^[A-Za-z0-9_.:-]{1,64}$/;
  * verbatim in the source text to survive validation, which the boundary caps at
  * 10,000 — so a legitimate value can never approach this.
  */
-const MAX_DRAFT_TEXT_LENGTH = 1_000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -238,7 +234,7 @@ function normaliseDraft(draft: unknown): NormalisedDraft | null {
     if (typeof confidence !== 'number' || !Number.isFinite(confidence)) return null;
 
     const rawSteps = draft.steps;
-    if (!Array.isArray(rawSteps) || rawSteps.length > MAX_DRAFT_STEPS) return null;
+    if (!Array.isArray(rawSteps) || rawSteps.length > MAX_STEPS_PER_PROPOSAL) return null;
 
     const steps: DecompositionStepProposal[] = [];
     let totalSpans = 0;

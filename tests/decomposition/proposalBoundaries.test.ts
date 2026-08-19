@@ -386,21 +386,29 @@ test('scanner: the closure walks past the first hop', () => {
   );
 });
 
-test('the proposal module is a leaf: its only runtime dependency is the shared lexicon', () => {
+test('the proposal module is a leaf: it reaches nothing but the shared vocabulary', () => {
   // The consolidation's own guarantee, stated as a property. Before it, the
   // proposal module carried a store that imported the contract for a runtime
   // constant and a port declaring a persistence seam; now the reducer holds no
-  // runtime edge at all except the connective lexicon it must share with #26
-  // and #27 so the three cannot disagree about what a connective is. Anything
-  // else appearing here is a confirmation path being rebuilt beside the one
-  // that writes.
+  // runtime edge at all except the two shared files it must agree with #26 and
+  // #27 about — what a connective is, and how long an edited title may be.
+  // Anything else appearing here is a confirmation path being rebuilt beside
+  // the one that writes.
+  //
+  // Both entries are data, not behaviour, and that is the whole reason they are
+  // shared: three copies of a word list disagreed on 20 of 31 probed titles,
+  // and two copies of a span limit differed by a factor of three. A judgement
+  // implemented twice is a cross-check; a number written twice is a gap.
   const closure = importClosure(sourceFilesUnder(proposalDir));
   const external = Array.from(closure.keys())
     .filter((file) => !file.startsWith(`${proposalDir}/`))
     .map(relative)
     .sort();
 
-  assert.deepEqual(external, ['lib/decomposition/shared/connectives.ts']);
+  assert.deepEqual(external, [
+    'lib/decomposition/shared/connectives.ts',
+    'lib/decomposition/shared/limits.ts',
+  ]);
 });
 
 /* ── The guarantees ───────────────────────────────────────────────── */

@@ -39,6 +39,7 @@
  * shape. The reducer decides; this module writes.
  */
 
+import { MAX_SOURCE_TEXT_LENGTH } from '../shared/limits';
 import { createHash, randomUUID } from 'crypto';
 import {
   DECOMPOSITION_CONTRACT_VERSION,
@@ -90,7 +91,6 @@ export interface DecompositionBoundaryDependencies {
  * one request is enough to stall the process. The limits are generous for a
  * commitment a person typed and stated rather than buried.
  */
-const MAX_SOURCE_TEXT_LENGTH = 10_000;
 
 export interface ProposeDecompositionOptions {
   readonly commitmentId: string;

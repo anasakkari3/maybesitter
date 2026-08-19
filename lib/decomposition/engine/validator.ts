@@ -72,6 +72,8 @@
  *     carry indices, ids and lengths only.
  */
 
+import { MAX_VIOLATIONS, MAX_VIOLATION_DETAIL_TOTAL, MAX_NAMED_IDS_IN_DETAIL, isNameableId } from '../shared/limits';
+export { MAX_VIOLATIONS, MAX_VIOLATION_DETAIL_TOTAL };
 import { isConnectiveOnly, isEmptyTitle } from '../shared/connectives';
 import type {
   DecompositionStepProposal,
@@ -238,36 +240,16 @@ function stepsInCycle(steps: readonly DecompositionStepProposal[]): ReadonlySet<
  * into every log line that prints violations. Ids that look like ids are named;
  * anything else is reported positionally, the way the `SPAN_*` codes already do.
  */
-const SAFE_STEP_ID = /^[A-Za-z0-9_.:-]{1,32}$/;
-
 /**
- * Separator runs, and how many an id may contain.
+ * Whether a step id may be quoted in a `detail`, delegated to the one rule.
  *
- * The character class alone is not a content test, and treating it as one was
- * the defect. `[A-Za-z0-9_.:-]{1,64}` is exactly "a sentence with the spaces
- * replaced": `Tell-my-therapist-I-relapsed-on-Tuesday` and
- * `card_4111111111111111_cvv_123` both matched and were emitted verbatim into
- * `detail`, which travels with the proposal and into every log line that prints
- * a violation.
- *
- * Two bounds, because either alone is escapable. The length cap is well under
- * the old 64 so a sentence does not fit; the separator-run cap is what a
- * sentence cannot avoid, since the separators are where its spaces went. An id
- * a detector or a person actually mints — `s1`, `step_3`, `a:b`, `A-1` — has at
- * most a couple of them. Anything else is reported positionally, the way the
- * `SPAN_*` codes already do.
- *
- * This is the same rule `lib/decomposition/evaluation/example.ts` applies, so
- * the two tracks redact the same ids.
+ * This was a local character class, and `lib/decomposition/evaluation/example.ts`
+ * had a different local one — the two tracks redacted different ids while both
+ * claiming the contract's "never contains raw user text". The rule now lives in
+ * `lib/decomposition/shared/limits.ts` for the same reason the connective
+ * lexicon does: a predicate is data, and two copies of data drift.
  */
-const SEPARATOR_RUNS = /[_.:-]+/g;
-const MAX_SEPARATOR_RUNS = 2;
-
-function isNameableStepId(stepId: string): boolean {
-  if (!SAFE_STEP_ID.test(stepId)) return false;
-  const runs = stepId.match(SEPARATOR_RUNS);
-  return runs === null || runs.length <= MAX_SEPARATOR_RUNS;
-}
+const isNameableStepId = isNameableId;
 
 /**
  * How many findings one validation returns, and how much `detail` they may
@@ -296,8 +278,6 @@ function isNameableStepId(stepId: string): boolean {
  * a cap that reshuffles which defect is reported first would make the report
  * depend on how full it was.
  */
-export const MAX_VIOLATIONS = 200;
-export const MAX_VIOLATION_DETAIL_TOTAL = 20_000;
 
 /**
  * How many ids a `detail` will name before summarising the rest.
@@ -307,7 +287,6 @@ export const MAX_VIOLATION_DETAIL_TOTAL = 20_000;
  * Naming a handful and counting the remainder keeps the finding actionable
  * without making it a payload.
  */
-const MAX_NAMED_IDS_IN_DETAIL = 8;
 
 function nameSome(ids: readonly string[]): string {
   if (ids.length <= MAX_NAMED_IDS_IN_DETAIL) return ids.join(', ');

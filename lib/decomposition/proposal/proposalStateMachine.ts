@@ -48,6 +48,8 @@
  * its arguments.
  */
 
+import { MAX_EDITED_TITLE_LENGTH } from '../shared/limits';
+export { MAX_EDITED_TITLE_LENGTH };
 import { isConnectiveOnly, isEmptyTitle } from '../shared/connectives';
 import type {
   ConfirmationFailureCode,
@@ -179,7 +181,6 @@ const KNOWN_VERDICTS: ReadonlySet<string> = new Set(['accept', 'reject', 'edit']
  * A title travels from here into persistence with no other limit on the path,
  * so without a cap a megabyte of pasted text is a valid step.
  */
-export const MAX_EDITED_TITLE_LENGTH = 500;
 
 /**
  * C0 and C1 control characters, plus the line and paragraph separators.
