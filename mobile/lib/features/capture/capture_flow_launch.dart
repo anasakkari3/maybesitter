@@ -41,12 +41,13 @@ class CaptureFlowLaunch {
     CaptureLaunchSource source = CaptureLaunchSource.app,
     CaptureLaunchInput input = CaptureLaunchInput.typed,
   }) {
+    final queryParameters = {
+      if (source != CaptureLaunchSource.app) 'source': source.name,
+      if (input != CaptureLaunchInput.typed) 'input': 'voice',
+    };
     return Uri(
       path: routePath,
-      queryParameters: {
-        if (source != CaptureLaunchSource.app) 'source': source.name,
-        if (input != CaptureLaunchInput.typed) 'input': 'voice',
-      },
+      queryParameters: queryParameters.isEmpty ? null : queryParameters,
     ).toString();
   }
 

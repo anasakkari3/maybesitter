@@ -1,4 +1,5 @@
 import 'package:flutter/services.dart';
+import '../features/capture/capture_flow_launch.dart';
 
 typedef RouteNavigator = void Function(String location);
 
@@ -42,15 +43,7 @@ class WidgetDeepLinkService {
 
     switch (segments.first) {
       case 'capture':
-        final queryParameters = <String, String>{
-          for (final key in const ['source', 'input'])
-            if (uri.queryParameters[key]?.isNotEmpty ?? false)
-              key: uri.queryParameters[key]!,
-        };
-        return Uri(
-          path: '/capture',
-          queryParameters: queryParameters.isEmpty ? null : queryParameters,
-        ).toString();
+        return CaptureFlowLaunch.locationFromExternalUri(uri);
       case 'today':
       case 'next':
         return '/today';

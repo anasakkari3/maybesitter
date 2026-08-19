@@ -8,8 +8,7 @@ enum PilotLoopAnalyticsEventName {
   voiceCaptureAbandoned('voice_capture_abandoned'),
   widgetImpression('widget_impression'),
   widgetTap('widget_tap'),
-  deepLinkOpened('deep_link_opened'),
-  firstValueReached('first_value_reached');
+  deepLinkOpened('deep_link_opened');
 
   final String wireName;
 
@@ -126,16 +125,6 @@ class PilotLoopAnalyticsEvent {
     );
   }
 
-  factory PilotLoopAnalyticsEvent.firstValueReached({
-    required String surface,
-    required String reason,
-  }) {
-    return PilotLoopAnalyticsEvent(
-      name: PilotLoopAnalyticsEventName.firstValueReached,
-      properties: {'surface': surface, 'reason': reason},
-    );
-  }
-
   static Map<String, Object?> flagProperties(PilotPresenceFeatureFlags flags) {
     return {
       'flagWidget': flags.widget,
@@ -165,6 +154,14 @@ class PilotLoopAnalyticsEvent {
       }
       if (value is String && value.length > 128) {
         throw ArgumentError('Analytics property is too long');
+      }
+      if (entry.key == 'targetRoute' &&
+          !const {'capture', 'today', 'commitment_detail'}.contains(value)) {
+        throw ArgumentError('Analytics target route is not canonical');
+      }
+      if (entry.key == 'source' &&
+          !const {'app', 'widget', 'external'}.contains(value)) {
+        throw ArgumentError('Analytics source is not canonical');
       }
     }
   }

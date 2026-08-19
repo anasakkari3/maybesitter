@@ -55,6 +55,8 @@ const EVENT_PROPERTIES: Record<AnalyticsEventName, readonly string[]> = {
 const RATING_KEYS = ['utilityRating', 'invasivenessRating'];
 const PRIVATE_KEY = /(raw|message|text|title|description|person|email|phone|prompt|content)/i;
 const ID = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/;
+const TARGET_ROUTES = new Set(['capture', 'today', 'commitment_detail']);
+const SOURCE_VALUES = new Set(['app', 'widget', 'external']);
 
 export function validateAnalyticsEvent(value: unknown): AnalyticsValidationResult {
   const errors: string[] = [];
@@ -83,6 +85,8 @@ export function validateAnalyticsEvent(value: unknown): AnalyticsValidationResul
       if (PRIVATE_KEY.test(key)) errors.push(`private property is forbidden: ${key}`);
       if (!['string', 'number', 'boolean'].includes(typeof property) && property !== null) errors.push(`property must be scalar: ${key}`);
       if (typeof property === 'string' && property.length > 128) errors.push(`property is too long: ${key}`);
+      if (key === 'targetRoute' && (typeof property !== 'string' || !TARGET_ROUTES.has(property))) errors.push(`targetRoute is not canonical: ${String(property)}`);
+      if (key === 'source' && (typeof property !== 'string' || !SOURCE_VALUES.has(property))) errors.push(`source is not canonical: ${String(property)}`);
       if (RATING_KEYS.includes(key) && !isRating(property)) errors.push(`rating must be an integer ${RATING_SCALE.minimum}-${RATING_SCALE.maximum}: ${key}`);
     }
   }
