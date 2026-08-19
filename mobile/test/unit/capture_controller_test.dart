@@ -2,7 +2,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:maybesitter_mobile/config/app_config.dart';
 import 'package:maybesitter_mobile/features/capture/capture_controller.dart';
+import 'package:maybesitter_mobile/features/capture/capture_flow_launch.dart';
 import 'package:maybesitter_mobile/models/capture_result.dart';
+import 'package:maybesitter_mobile/models/pilot_loop_analytics.dart';
+import 'package:maybesitter_mobile/services/contracts/pilot_loop_analytics_service.dart';
 import 'package:maybesitter_mobile/services/contracts/speech_capture_service.dart';
 import 'package:maybesitter_mobile/services/providers.dart';
 
@@ -44,19 +47,32 @@ class FakeSpeechCaptureService implements SpeechCaptureService {
   }
 }
 
+class FakePilotLoopAnalyticsService implements PilotLoopAnalyticsService {
+  final List<PilotLoopAnalyticsEvent> events = [];
+
+  @override
+  Future<void> record(PilotLoopAnalyticsEvent event) async {
+    event.toJson();
+    events.add(event);
+  }
+}
+
 void main() {
   group('CaptureController Tests', () {
     late ProviderContainer container;
     late FakeSpeechCaptureService speechService;
+    late FakePilotLoopAnalyticsService analyticsService;
 
     setUp(() {
       speechService = FakeSpeechCaptureService();
+      analyticsService = FakePilotLoopAnalyticsService();
       container = ProviderContainer(
         overrides: [
           appConfigProvider.overrideWith(
             (ref) => const AppConfig(enablePilotVoice: true),
           ),
           speechCaptureServiceProvider.overrideWithValue(speechService),
+          pilotLoopAnalyticsServiceProvider.overrideWithValue(analyticsService),
         ],
       );
     });
@@ -132,6 +148,40 @@ void main() {
       expect(state.rawInput, 'Buy milk and call Maya');
       expect(state.status, CaptureStatus.editing);
       expect(state.spokenPromptStatus, SpokenPromptStatus.reviewingTranscript);
+    });
+
+    test('speech capture records content-free pilot loop analytics', () async {
+      final notifier = container.read(captureControllerProvider.notifier);
+
+      await notifier.startSpokenPrompt(
+        localeId: 'en_US',
+        source: CaptureLaunchSource.widget,
+      );
+      speechService.emitTranscript('call Maya', isFinal: true);
+
+      expect(analyticsService.events.map((event) => event.name), [
+        PilotLoopAnalyticsEventName.voiceCaptureStarted,
+        PilotLoopAnalyticsEventName.voiceCaptureCompleted,
+      ]);
+      expect(analyticsService.events.last.properties['inputLength'], 9);
+      expect(analyticsService.events.last.properties['source'], 'widget');
+      expect(
+        analyticsService.events.last.properties,
+        isNot(containsPair('rawText', 'call Maya')),
+      );
+    });
+
+    test('cancelled speech capture records an abandoned event', () async {
+      final notifier = container.read(captureControllerProvider.notifier);
+
+      await notifier.startSpokenPrompt(localeId: 'en_US');
+      await notifier.cancelSpokenPrompt();
+
+      expect(
+        analyticsService.events.last.name,
+        PilotLoopAnalyticsEventName.voiceCaptureAbandoned,
+      );
+      expect(analyticsService.events.last.properties['reason'], 'cancelled');
     });
 
     test('speech permission denial keeps typed capture usable', () async {

@@ -11,6 +11,7 @@ import 'api/api_capture_service.dart';
 import 'api/api_feedback_history_service.dart';
 import 'api/api_commitment_repository.dart';
 import 'api/api_next_step_service.dart';
+import 'api/api_pilot_loop_analytics_service.dart';
 import 'api/api_pilot_trust_service.dart';
 import 'auth/pilot_credential_store.dart';
 import 'contracts/commitment_repository.dart';
@@ -19,6 +20,7 @@ import 'contracts/feedback_history_service.dart';
 import 'contracts/activity_repository.dart';
 import 'contracts/next_step_service.dart';
 import 'contracts/notification_service.dart';
+import 'contracts/pilot_loop_analytics_service.dart';
 import 'contracts/pilot_presence_store.dart';
 import 'contracts/connectivity_service.dart';
 import 'contracts/pilot_trust_service.dart';
@@ -34,6 +36,7 @@ import 'mock/in_memory_commitment_repository.dart';
 import 'mock/mock_capture_service.dart';
 import 'mock/mock_activity_repository.dart';
 import 'mock/mock_feedback_history_service.dart';
+import 'mock/in_memory_pilot_loop_analytics_service.dart';
 import 'mock/mock_next_step_service.dart';
 import 'mock/mock_notification_service.dart';
 import 'mock/mock_connectivity_service.dart';
@@ -159,11 +162,35 @@ final pilotPresenceStoreProvider = Provider<PilotPresenceStore>((ref) {
   return SharedPreferencesPilotPresenceStore();
 });
 
+final _mockPilotLoopAnalyticsServiceProvider =
+    Provider<InMemoryPilotLoopAnalyticsService>((ref) {
+      return InMemoryPilotLoopAnalyticsService();
+    });
+
+final pilotLoopAnalyticsServiceProvider = Provider<PilotLoopAnalyticsService>((
+  ref,
+) {
+  final settings = ref.watch(appSettingsProvider);
+  if (settings.analyticsOptOut) {
+    return const DisabledPilotLoopAnalyticsService();
+  }
+
+  final config = ref.watch(appConfigProvider);
+  if (config.isLocalBackend) {
+    return ApiPilotLoopAnalyticsService(
+      apiClient: ref.watch(apiClientProvider),
+    );
+  }
+  return ref.watch(_mockPilotLoopAnalyticsServiceProvider);
+});
+
 final pilotPresenceSnapshotPublisherProvider =
     Provider<PilotPresenceSnapshotPublisher>((ref) {
       return PilotPresenceSnapshotPublisher(
         store: ref.watch(pilotPresenceStoreProvider),
         now: DateTime.now,
+        analyticsService: ref.watch(pilotLoopAnalyticsServiceProvider),
+        flags: ref.watch(pilotPresenceFeatureFlagsProvider),
       );
     });
 

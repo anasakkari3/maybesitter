@@ -1,8 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:maybesitter_mobile/config/app_config.dart';
 import 'package:maybesitter_mobile/models/commitment.dart';
+import 'package:maybesitter_mobile/models/pilot_loop_analytics.dart';
 import 'package:maybesitter_mobile/models/pilot_presence.dart';
 import 'package:maybesitter_mobile/services/contracts/pilot_presence_store.dart';
+import 'package:maybesitter_mobile/services/mock/in_memory_pilot_loop_analytics_service.dart';
 import 'package:maybesitter_mobile/services/pilot_presence_snapshot_publisher.dart';
 import 'package:maybesitter_mobile/services/shared_preferences_pilot_presence_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -362,6 +364,38 @@ void main() {
         expect(item.redactionReason, SnapshotRedactionReason.titlesDisabled);
       },
     );
+
+    test('records a content-free widget impression when publishing', () async {
+      final store = _FakePilotPresenceStore();
+      final analytics = InMemoryPilotLoopAnalyticsService();
+      final publisher = PilotPresenceSnapshotPublisher(
+        store: store,
+        analyticsService: analytics,
+        flags: const PilotPresenceFeatureFlags(
+          widget: true,
+          voice: true,
+          awareness: false,
+          watch: false,
+          imports: false,
+        ),
+        now: () => DateTime.utc(2026, 8, 19, 12),
+      );
+
+      await publisher.publishWidgetSnapshot([
+        const Commitment(
+          id: 'private',
+          title: 'Call therapist',
+          priority: CommitmentPriority.must,
+        ),
+      ]);
+
+      expect(
+        analytics.events.single.name,
+        PilotLoopAnalyticsEventName.widgetImpression,
+      );
+      expect(analytics.events.single.properties['widgetState'], 'populated');
+      expect(analytics.events.single.properties, isNot(contains('title')));
+    });
   });
 }
 

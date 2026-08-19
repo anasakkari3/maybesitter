@@ -1,15 +1,28 @@
 import '../models/commitment.dart';
+import '../models/pilot_loop_analytics.dart';
 import '../models/pilot_presence.dart';
+import '../config/app_config.dart';
+import 'contracts/pilot_loop_analytics_service.dart';
 import 'contracts/pilot_presence_store.dart';
 
 class PilotPresenceSnapshotPublisher {
   final PilotPresenceStore store;
+  final PilotLoopAnalyticsService? analyticsService;
+  final PilotPresenceFeatureFlags flags;
   final DateTime Function() now;
   final Duration snapshotTtl;
 
   const PilotPresenceSnapshotPublisher({
     required this.store,
     required this.now,
+    this.analyticsService,
+    this.flags = const PilotPresenceFeatureFlags(
+      widget: false,
+      voice: false,
+      awareness: false,
+      watch: false,
+      imports: false,
+    ),
     this.snapshotTtl = const Duration(minutes: 30),
   });
 
@@ -27,6 +40,16 @@ class PilotPresenceSnapshotPublisher {
     );
 
     await store.publishSnapshot(snapshot);
+    try {
+      await analyticsService?.record(
+        PilotLoopAnalyticsEvent.widgetImpression(
+          surface: 'homeWidget',
+          widgetFamily: 'unknown',
+          widgetState: snapshot.displayState(generatedAt).name,
+          flags: flags,
+        ),
+      );
+    } catch (_) {}
   }
 
   Future<void> clearWidgetSnapshot() => store.clearSnapshot();

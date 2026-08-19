@@ -1,10 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../models/activity_event.dart';
 import '../../models/capture_result.dart';
 import '../../models/commitment.dart';
+import '../../models/pilot_loop_analytics.dart';
 import '../../services/api/dtos/proposal_dtos.dart';
 import '../../services/contracts/speech_capture_service.dart';
 import '../../services/providers.dart';
+import 'capture_flow_launch.dart';
 
 enum SpokenPromptStatus {
   idle,
@@ -103,6 +107,10 @@ class CaptureState {
 class CaptureNotifier extends StateNotifier<CaptureState> {
   final Ref ref;
   String _speechBaseInput = '';
+  String _speechSource = CaptureLaunchSource.app.name;
+  String _speechLocale = 'en-US';
+  bool _speechCompletionLogged = false;
+  bool _speechAbandonedLogged = false;
 
   CaptureNotifier(this.ref) : super(const CaptureState());
 
@@ -115,7 +123,10 @@ class CaptureNotifier extends StateNotifier<CaptureState> {
     );
   }
 
-  Future<void> startSpokenPrompt({required String localeId}) async {
+  Future<void> startSpokenPrompt({
+    required String localeId,
+    CaptureLaunchSource source = CaptureLaunchSource.app,
+  }) async {
     if (state.isSubmitting || state.isListeningToSpeech) return;
 
     if (!ref.read(pilotPresenceFeatureFlagsProvider).voice) {
@@ -127,6 +138,17 @@ class CaptureNotifier extends StateNotifier<CaptureState> {
     }
 
     _speechBaseInput = state.rawInput.trim();
+    _speechSource = source.name;
+    _speechLocale = localeId;
+    _speechCompletionLogged = false;
+    _speechAbandonedLogged = false;
+    _recordPilotLoopAnalytics(
+      PilotLoopAnalyticsEvent.voiceCaptureStarted(
+        source: _speechSource,
+        locale: _speechLocale,
+        flags: ref.read(pilotPresenceFeatureFlagsProvider),
+      ),
+    );
     state = state.copyWith(
       spokenPromptStatus: SpokenPromptStatus.requestingPermission,
       clearSpokenPromptMessage: true,
@@ -171,6 +193,7 @@ class CaptureNotifier extends StateNotifier<CaptureState> {
     if (!state.isListeningToSpeech) return;
 
     await ref.read(speechCaptureServiceProvider).cancelListening();
+    _recordVoiceAbandoned('cancelled');
     _speechBaseInput = '';
     state = state.copyWith(
       spokenPromptStatus: state.rawInput.trim().isEmpty
@@ -182,15 +205,30 @@ class CaptureNotifier extends StateNotifier<CaptureState> {
 
   void _applySpeechTranscript(SpeechCaptureTranscript transcript) {
     if (!mounted) return;
+    final mergedInput = _mergeSpeechTranscript(
+      _speechBaseInput,
+      transcript.text,
+    );
 
     state = state.copyWith(
-      rawInput: _mergeSpeechTranscript(_speechBaseInput, transcript.text),
+      rawInput: mergedInput,
       status: CaptureStatus.editing,
       spokenPromptStatus: transcript.isFinal
           ? SpokenPromptStatus.reviewingTranscript
           : SpokenPromptStatus.listening,
       clearSpokenPromptMessage: true,
     );
+    if (transcript.isFinal && !_speechCompletionLogged) {
+      _speechCompletionLogged = true;
+      _recordPilotLoopAnalytics(
+        PilotLoopAnalyticsEvent.voiceCaptureCompleted(
+          source: _speechSource,
+          locale: _speechLocale,
+          inputLength: mergedInput.length,
+          flags: ref.read(pilotPresenceFeatureFlagsProvider),
+        ),
+      );
+    }
   }
 
   String _mergeSpeechTranscript(String base, String transcript) {
@@ -217,6 +255,7 @@ class CaptureNotifier extends StateNotifier<CaptureState> {
       spokenPromptStatus: status,
       spokenPromptMessage: message,
     );
+    _recordVoiceAbandoned(reason?.name ?? 'failed');
   }
 
   void _finishSpeechReview() {
@@ -227,12 +266,14 @@ class CaptureNotifier extends StateNotifier<CaptureState> {
       return;
     }
 
+    final hadInput = state.rawInput.trim().isNotEmpty;
     state = state.copyWith(
       spokenPromptStatus: state.rawInput.trim().isEmpty
           ? SpokenPromptStatus.idle
           : SpokenPromptStatus.reviewingTranscript,
       clearSpokenPromptMessage: true,
     );
+    if (!hadInput) _recordVoiceAbandoned('empty');
     _speechBaseInput = '';
   }
 
@@ -476,7 +517,35 @@ class CaptureNotifier extends StateNotifier<CaptureState> {
   }
 
   void reset() {
+    _speechBaseInput = '';
+    _speechCompletionLogged = false;
+    _speechAbandonedLogged = false;
     state = const CaptureState();
+  }
+
+  void _recordVoiceAbandoned(String reason) {
+    if (_speechCompletionLogged || _speechAbandonedLogged) return;
+    _speechAbandonedLogged = true;
+    _recordPilotLoopAnalytics(
+      PilotLoopAnalyticsEvent.voiceCaptureAbandoned(
+        source: _speechSource,
+        locale: _speechLocale,
+        reason: reason,
+        inputLength: state.rawInput.length,
+        flags: ref.read(pilotPresenceFeatureFlagsProvider),
+      ),
+    );
+  }
+
+  void _recordPilotLoopAnalytics(PilotLoopAnalyticsEvent event) {
+    try {
+      unawaited(
+        ref
+            .read(pilotLoopAnalyticsServiceProvider)
+            .record(event)
+            .catchError((_) {}),
+      );
+    } catch (_) {}
   }
 
   // Preview / fixture helpers for testing all UI states

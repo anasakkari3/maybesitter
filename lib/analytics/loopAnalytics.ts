@@ -13,6 +13,10 @@ export const CLIENT_REPORTABLE_EVENTS = [
   'pricing_viewed', 'purchase_intent', 'data_deleted',
   // Self-reported utility and invasiveness for the V03 arm experiment.
   'recommendation_rated',
+  // Phone-presence loop events are observed by the client but carry only scalar,
+  // content-free context. Server-side validation rejects raw content keys.
+  'voice_capture_started', 'voice_capture_completed', 'voice_capture_abandoned',
+  'widget_impression', 'widget_tap', 'deep_link_opened',
 ] as const;
 
 export type ClientReportableEvent = typeof CLIENT_REPORTABLE_EVENTS[number];
@@ -66,6 +70,13 @@ export function recordCommitmentEdited(context: AnalyticsContext, commitmentId: 
 
 export function recordDataDeleted(context: AnalyticsContext, deletionScope: string): PrivacySafeAnalyticsEvent | null {
   return emitAnalyticsEvent(context, 'data_deleted', { deletionScope });
+}
+
+export function recordFirstValueReached(
+  context: AnalyticsContext,
+  properties: { surface: string; reason: string },
+): PrivacySafeAnalyticsEvent | null {
+  return emitAnalyticsEvent(context, 'first_value_reached', properties);
 }
 
 export function recordClientEvent(

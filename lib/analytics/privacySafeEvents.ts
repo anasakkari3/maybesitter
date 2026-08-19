@@ -25,6 +25,31 @@ const EVENT_PROPERTIES: Record<AnalyticsEventName, readonly string[]> = {
   pricing_viewed: ['surface'],
   purchase_intent: ['priceCents', 'currency'],
   recommendation_rated: ['proposalId', 'utilityRating', 'invasivenessRating'],
+  voice_capture_started: [
+    'source', 'locale',
+    'flagWidget', 'flagVoice', 'flagAwareness', 'flagWatch', 'flagImports',
+  ],
+  voice_capture_completed: [
+    'source', 'locale', 'inputLength',
+    'flagWidget', 'flagVoice', 'flagAwareness', 'flagWatch', 'flagImports',
+  ],
+  voice_capture_abandoned: [
+    'source', 'locale', 'reason', 'inputLength',
+    'flagWidget', 'flagVoice', 'flagAwareness', 'flagWatch', 'flagImports',
+  ],
+  widget_impression: [
+    'surface', 'widgetFamily', 'widgetState',
+    'flagWidget', 'flagVoice', 'flagAwareness', 'flagWatch', 'flagImports',
+  ],
+  widget_tap: [
+    'surface', 'targetRoute',
+    'flagWidget', 'flagVoice', 'flagAwareness', 'flagWatch', 'flagImports',
+  ],
+  deep_link_opened: [
+    'source', 'targetRoute',
+    'flagWidget', 'flagVoice', 'flagAwareness', 'flagWatch', 'flagImports',
+  ],
+  first_value_reached: ['surface', 'reason'],
 };
 
 const RATING_KEYS = ['utilityRating', 'invasivenessRating'];
