@@ -78,6 +78,7 @@ import type {
   PlanningItem,
   PlanningReason,
   StaticInfeasibilityCode,
+  WorkingWindow,
 } from '../../../src/contracts/v1/planningContracts';
 import {
   intervalsOverlap,
@@ -85,7 +86,7 @@ import {
   minutesBetween,
   toEpochMs,
 } from '../shared/time';
-import { normalizeWorkingWindows } from './normalize';
+import { normalizeWorkingWindows, windowDefect } from './normalize';
 
 export interface ConstraintValidationOptions {
   /**
@@ -110,6 +111,50 @@ type StaticReason = PlanningReason & { readonly code: StaticInfeasibilityCode };
 
 function reason(code: StaticInfeasibilityCode, itemId: string | null, detail: string): StaticReason {
   return { code, itemId, detail };
+}
+
+/**
+ * A malformed working window, described by what is wrong with it.
+ *
+ * Two things this may not contain, and the second was a real finding.
+ *
+ * **No caller-chosen text.** The `timezone` is the one field on a window that
+ * can hold a sentence — the others are numbers — so an unknown zone is reported
+ * as a category and never quoted. `windowId` is likewise a caller's string and
+ * is not named.
+ *
+ * **No input position.** This used to read "working window at index 2", which #30
+ * refused when I asked them to follow it: an array index puts the caller's
+ * ordering inside the output, so the same two windows with the same defect
+ * produced different prose depending only on the order they arrived in. The
+ * locator is now the window's own stated schedule, which is order-independent
+ * and tells a reader more than a position did.
+ *
+ * The `weekday`/minute values are echoed because they are numbers the caller
+ * supplied about a calendar, not text about a life.
+ */
+function describeWindowDefect(window: WorkingWindow): string {
+  const at = `working window for weekday ${String(window.weekday)} at `
+    + `${String(window.startMinute)}..${String(window.endMinute)}`;
+  switch (windowDefect(window)) {
+    case 'weekday':
+      return `${at}: the weekday is not a whole day of the week in 0..6`;
+    case 'start_minute':
+      return `${at}: the start minute is not a whole number of minutes in 0..1440`;
+    case 'end_minute':
+      return `${at}: the end minute is not a whole number of minutes in 0..1440`;
+    case 'end_not_after_start':
+      return `${at}: the end minute is not after the start minute; overnight availability is two `
+        + 'windows, one per weekday, because a wrapping window makes the weekday ambiguous exactly '
+        + 'when a transition lands inside it';
+    case 'timezone':
+      return `${at}: it names a time zone this runtime does not know`;
+    default:
+      // Unreachable: only malformed windows are described. Kept total rather
+      // than cast, so a new defect kind fails here instead of producing prose
+      // that says nothing.
+      return `${at}: it is not a well-formed recurring interval`;
+  }
 }
 
 /**
@@ -139,11 +184,27 @@ function forcesOrdering(kind: PlanningDependencyKind, config: PlanningConfig): b
  * dangling edge cannot be part of a cycle at all, and following it would either
  * crash or invent one.
  *
- * Iterative with an explicit stack, for the reason
- * `lib/decomposition/engine/validator.ts` records: the recursive version cost
- * one JS frame per edge, and a few thousand chained items threw a `RangeError`
- * out past the only `try`/`catch` on the path — so a deep graph produced no
- * verdict at all rather than a wrong one, which is the harder failure to notice.
+ * **Strongly connected components, not a back-edge walk.** This was a
+ * depth-first search that marked the current gray path whenever it found a back
+ * edge, copied from `lib/decomposition/engine/validator.ts`, and it silently
+ * missed members. Given `a -> b, a -> c, b -> a, c -> b`, the item `c` sits on
+ * the cycle `a -> c -> b -> a`, but by the time `c` is visited `b` has already
+ * finished, so `c -> b` is a *cross* edge: not a back edge, not an unvisited
+ * node, so neither branch fires and `c` is reported feasible. It can never
+ * start. The integration fuzzer found it in 13 of 40,000 cases; a fixed table of
+ * 44 hand-written graphs had not.
+ *
+ * A node is on a cycle exactly when its strongly connected component has more
+ * than one member — self-edges being already excluded, an SCC of one is
+ * acyclic. That is a reachability question, and answering it directly is why
+ * #31's oracle was right. Tarjan's algorithm computes every component in one
+ * pass, so this costs the same single walk the broken version did.
+ *
+ * Iterative with an explicit stack, for the reason the Sprint 06 module records:
+ * the recursive form cost one JS frame per edge, and a few thousand chained
+ * items threw a `RangeError` out past the only `try`/`catch` on the path — so a
+ * deep graph produced no verdict at all rather than a wrong one, which is the
+ * harder failure to notice.
  */
 function itemsInCycle(
   items: readonly PlanningItem[],
@@ -162,41 +223,62 @@ function itemsInCycle(
   }
 
   const inCycle = new Set<string>();
-  const state = new Map<string, 'visiting' | 'done'>();
-  // The current gray path, mirrored as a map from id to its index in it, so
-  // both "is this a back edge?" and "where does the cycle start?" are O(1).
-  const path: string[] = [];
-  const onPath = new Map<string, number>();
+  const index = new Map<string, number>();
+  const lowLink = new Map<string, number>();
+  const onComponentStack = new Set<string>();
+  const componentStack: string[] = [];
+  let nextIndex = 0;
 
   for (const root of Array.from(known)) {
-    if (state.has(root)) continue;
-    const stack: { readonly id: string; edgeIndex: number }[] = [{ id: root, edgeIndex: 0 }];
-    state.set(root, 'visiting');
-    onPath.set(root, path.length);
-    path.push(root);
+    if (index.has(root)) continue;
 
-    while (stack.length > 0) {
-      const frame = stack[stack.length - 1];
+    index.set(root, nextIndex);
+    lowLink.set(root, nextIndex);
+    nextIndex += 1;
+    componentStack.push(root);
+    onComponentStack.add(root);
+    const work: { readonly id: string; edgeIndex: number }[] = [{ id: root, edgeIndex: 0 }];
+
+    while (work.length > 0) {
+      const frame = work[work.length - 1];
       const outgoing = edges.get(frame.id) ?? [];
+
       if (frame.edgeIndex < outgoing.length) {
         const next = outgoing[frame.edgeIndex];
         frame.edgeIndex += 1;
-        const cycleStart = onPath.get(next);
-        if (cycleStart !== undefined) {
-          for (let index = cycleStart; index < path.length; index += 1) {
-            inCycle.add(path[index]);
-          }
-        } else if (!state.has(next)) {
-          state.set(next, 'visiting');
-          onPath.set(next, path.length);
-          path.push(next);
-          stack.push({ id: next, edgeIndex: 0 });
+        if (!index.has(next)) {
+          index.set(next, nextIndex);
+          lowLink.set(next, nextIndex);
+          nextIndex += 1;
+          componentStack.push(next);
+          onComponentStack.add(next);
+          work.push({ id: next, edgeIndex: 0 });
+        } else if (onComponentStack.has(next)) {
+          // The edge reaches a node still open in this component. A cross edge
+          // to a *closed* node is correctly ignored here — it cannot join two
+          // components — which is precisely the case the old walk conflated
+          // with "not on a cycle".
+          lowLink.set(frame.id, Math.min(lowLink.get(frame.id) as number, index.get(next) as number));
         }
-      } else {
-        stack.pop();
-        onPath.delete(frame.id);
-        path.pop();
-        state.set(frame.id, 'done');
+        continue;
+      }
+
+      work.pop();
+      const parent = work[work.length - 1];
+      if (parent !== undefined) {
+        lowLink.set(parent.id, Math.min(lowLink.get(parent.id) as number, lowLink.get(frame.id) as number));
+      }
+      if (lowLink.get(frame.id) === index.get(frame.id)) {
+        const component: string[] = [];
+        for (;;) {
+          const member = componentStack.pop() as string;
+          onComponentStack.delete(member);
+          component.push(member);
+          if (member === frame.id) break;
+        }
+        if (component.length > 1) {
+          for (const member of component) inCycle.add(member);
+        }
       }
     }
   }
@@ -292,13 +374,7 @@ export function validateConstraints(
   const normalized = normalizeWorkingWindows(constraints.workingWindows, horizon, config);
 
   for (const index of normalized.malformedWindowIndices) {
-    reasons.push(reason(
-      'INVALID_INTERVAL',
-      null,
-      `working window at index ${index} is not a well-formed recurring interval: `
-      + 'it needs a weekday in 0..6, whole start and end minutes in 0..1440 with the end after the '
-      + 'start, and a time zone this runtime knows',
-    ));
+    reasons.push(reason('INVALID_INTERVAL', null, describeWindowDefect(constraints.workingWindows[index])));
   }
 
   for (const event of constraints.fixedEvents.map((value, index) => ({ value, index }))) {
@@ -403,12 +479,23 @@ export function validateConstraints(
         item.itemId,
         'known effort is not a positive, finite number of minutes',
       ));
-    } else if (!buffersUsable) {
-      // Reported under the same code as a bad effort, because it is the same
-      // defect: a duration field on this item is not a usable number of minutes,
-      // so the total time the item requires cannot be computed. The frozen
-      // taxonomy has no separate code for a buffer, and inventing a private one
-      // is what a shared vocabulary exists to prevent.
+    }
+
+    // A malformed buffer is its own defect on its own field, so an *unknown*
+    // effort does not silence it: nothing here borrows a bound from anything
+    // reported, which is the only licence the suppression principle grants.
+    // Chaining this onto the effort branch made `{kind:'unknown'}` swallow it,
+    // which is "one item earns one code" wearing the principle's clothes again.
+    //
+    // It is skipped only when the effort branch already emitted this same code.
+    // Both fields are unusable durations, the code says so once, and the
+    // contract carries no way to tell a bad effort from a bad buffer — so a
+    // second copy adds nothing a reader can act on.
+    if (!buffersUsable && !(effortKnown && !effortUsable)) {
+      // Reported under the effort code, which the contract now states covers a
+      // buffer that is negative or not finite. The frozen taxonomy has no code
+      // of its own for a buffer, and inventing a private one is what a shared
+      // vocabulary exists to prevent.
       reasons.push(reason(
         'EFFORT_NOT_POSITIVE',
         item.itemId,
@@ -482,7 +569,16 @@ export function validateConstraints(
     // interval. Every one of those is the suppression principle rather than a
     // taste: this check borrows a bound from something already reported invalid,
     // so the answer it would give is an artefact of that finding.
-    if (effortUsable && buffersUsable && windowJudgeable && !deadlineBeforeStart && !deadlineOutsideHorizon) {
+    // `deadlineOutsideHorizon` suppresses this only when the window actually
+    // leans on the horizon. An item stating both of its own bounds borrows
+    // nothing, and 10,000 minutes not fitting in one day is true whatever the
+    // horizon says — the ruling is per item and per *bound*, not per request,
+    // and reading it per request was the same mistake one level down from where
+    // I first made it.
+    const windowMeasuresAReportedBound =
+      deadlineBeforeStart || (deadlineOutsideHorizon && !windowSelfSpecified);
+
+    if (effortUsable && buffersUsable && windowJudgeable && !windowMeasuresAReportedBound) {
       // Buffers are protected time *around* the item and the contract keeps
       // them out of `Effort` on purpose, so a plan can report "this took 30
       // minutes and needed 15 minutes of recovery" rather than inflating one

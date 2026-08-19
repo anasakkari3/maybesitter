@@ -63,15 +63,34 @@ import {
   isPositiveInterval,
   resolveLocalTime,
   subtractIntervals,
+  nominalInstantBracket,
   toEpochMs,
   toInstant,
   wallClockAt,
   weekdayAt,
-  zoneOffsetMs,
   type WallClockParts,
 } from '../shared/time';
+import { compareByCodePoint } from '../shared/compare';
 
 const MS_PER_DAY = 86_400_000;
+
+
+/**
+ * Why a window cannot be materialised.
+ *
+ * Names the *condition* rather than the window, so a finding built from it
+ * carries neither caller-chosen text nor the caller's array ordering. #30
+ * refused the "name it by index" instruction on the second ground and was
+ * right: an input position puts the caller's ordering inside the output, and the
+ * same two windows with the same defect read as "index 0" or "index 1" depending
+ * only on the order they arrived in.
+ */
+export type WindowDefect =
+  | 'weekday'
+  | 'start_minute'
+  | 'end_minute'
+  | 'end_not_after_start'
+  | 'timezone';
 
 /** How a window's local boundary resolved on the date it landed on. */
 export type BoundaryResolutionKind = 'exact' | 'gap' | 'fold';
@@ -138,13 +157,30 @@ export interface NormalizedWindows {
  * place a Kolkata user's morning five and a half hours from where they said it
  * was, with nothing downstream able to tell that had happened.
  */
-function isKnownTimeZone(timeZone: string): boolean {
+const knownTimeZoneCache = new Map<string, boolean>();
+
+/**
+ * Memoised because #31 calls this per window on a hot path and constructing an
+ * `Intl.DateTimeFormat` to throw it away is the expensive part. Bounded because
+ * the key is a caller-supplied string: an unbounded cache keyed on user input is
+ * a slow leak on a path that never restarts. The bound is far above any real
+ * request, which names a handful of zones.
+ */
+const MAX_CACHED_TIME_ZONES = 512;
+
+export function isKnownTimeZone(timeZone: string): boolean {
+  const cached = knownTimeZoneCache.get(timeZone);
+  if (cached !== undefined) return cached;
+
+  let known: boolean;
   try {
     new Intl.DateTimeFormat('en-US', { timeZone });
-    return true;
+    known = true;
   } catch {
-    return false;
+    known = false;
   }
+  if (knownTimeZoneCache.size < MAX_CACHED_TIME_ZONES) knownTimeZoneCache.set(timeZone, known);
+  return known;
 }
 
 /** A calendar date, independent of any zone. */
@@ -209,14 +245,28 @@ function isWholeMinuteInDay(value: number): boolean {
  * unusual, so there is nothing to place and nothing to clip. The window's index
  * is returned to the caller instead, and the validator turns it into exactly one
  * `INVALID_INTERVAL`.
+ *
+ * **Exported because it is a validity predicate, not a judgement.** #31 had an
+ * independent implementation of the same rule. The two agreed across 65,880
+ * sampled cases, which is exactly the situation the sprint design calls a gap
+ * rather than a check: two readings of a *judgement* check each other, two
+ * copies of a *predicate* are a place to drift. The four conditions it enforces
+ * beyond the contract's stated interval rule are listed in `index.ts`, so there
+ * is one statement of them and one implementation.
  */
-function isMaterialisable(window: WorkingWindow): boolean {
-  if (!Number.isInteger(window.weekday) || window.weekday < 0 || window.weekday > 6) return false;
-  if (!isWholeMinuteInDay(window.startMinute) || !isWholeMinuteInDay(window.endMinute)) return false;
+export function windowDefect(window: WorkingWindow): WindowDefect | null {
+  if (!Number.isInteger(window.weekday) || window.weekday < 0 || window.weekday > 6) return 'weekday';
+  if (!isWholeMinuteInDay(window.startMinute)) return 'start_minute';
+  if (!isWholeMinuteInDay(window.endMinute)) return 'end_minute';
   // A window occupying the whole day starts at minute 0; `startMinute === 1440`
   // would leave no room for a positive window and is caught by the next line.
-  if (window.endMinute <= window.startMinute) return false;
-  return typeof window.timezone === 'string' && isKnownTimeZone(window.timezone);
+  if (window.endMinute <= window.startMinute) return 'end_not_after_start';
+  if (typeof window.timezone !== 'string' || !isKnownTimeZone(window.timezone)) return 'timezone';
+  return null;
+}
+
+export function isMaterialisableWindow(window: WorkingWindow): boolean {
+  return windowDefect(window) === null;
 }
 
 interface ResolvedBoundary {
@@ -276,22 +326,14 @@ function resolveBoundary(
 }
 
 /**
- * The widest span of instants a local boundary could plausibly denote on its
- * date, ignoring the transition entirely.
+ * The instants a local boundary could denote on its date, before any
+ * verification, fold policy or gap handling — the *nominal* reading.
  *
- * This is the *nominal* reading: where the boundary would have sat if the
- * offset had not moved that day. It exists to answer one question — would this
- * occurrence have met the horizon at all? — and it has to be computable for a
- * local time that denotes *no* instant, which is exactly when `resolveBoundary`
- * has no answer to give.
- *
- * Bracketed rather than pinned to one offset, using the offsets a day either
- * side, the same two `resolveLocalTime` uses. Picking a single anchor offset
- * would need an anchor instant, and the obvious candidate — local midnight of
- * the date — is itself a fold in America/Havana and a gap in other zones, so the
- * anchor would need the very machinery it is meant to stand in for. The bracket
- * needs no anchor and errs outward, which is the safe direction: it can only
- * make this module report an anomaly it might have filtered, never hide one.
+ * Delegated to `shared/time.ts`. It lived here as its own three lines of offset
+ * arithmetic until that module exported `nominalInstantBracket`, and two modules
+ * doing DST arithmetic is the one thing that file exists to prevent. The
+ * minute-1440 roll-over stays here: "midnight ends this local day" is a fact
+ * about `WorkingWindow`, not about instants.
  */
 function nominalBracket(
   date: CalendarDate,
@@ -300,16 +342,8 @@ function nominalBracket(
 ): { readonly minMs: number; readonly maxMs: number } {
   const onDate = minuteOfDay === MINUTES_PER_DAY ? addCalendarDays(date, 1) : date;
   const minute = minuteOfDay === MINUTES_PER_DAY ? 0 : minuteOfDay;
-  const naiveMs = Date.UTC(
-    onDate.year,
-    onDate.month - 1,
-    onDate.day,
-    Math.floor(minute / 60),
-    minute % 60,
-  );
-  const before = naiveMs - zoneOffsetMs(naiveMs - MS_PER_DAY, timeZone);
-  const after = naiveMs - zoneOffsetMs(naiveMs + MS_PER_DAY, timeZone);
-  return { minMs: Math.min(before, after), maxMs: Math.max(before, after) };
+  const bracket = nominalInstantBracket(partsAt(onDate, minute), timeZone);
+  return { minMs: bracket.earliestMs, maxMs: bracket.latestMs };
 }
 
 /**
@@ -335,7 +369,7 @@ export function normalizeWorkingWindows(
   const horizonEndMs = toEpochMs(horizon.endsAt);
 
   for (let index = 0; index < windows.length; index += 1) {
-    if (!isMaterialisable(windows[index])) malformedWindowIndices.push(index);
+    if (!isMaterialisableWindow(windows[index])) malformedWindowIndices.push(index);
   }
 
   // A horizon that is not a positive interval has no dates in it. Reporting it
@@ -348,7 +382,7 @@ export function normalizeWorkingWindows(
 
   for (let index = 0; index < windows.length; index += 1) {
     const window = windows[index];
-    if (!isMaterialisable(window)) continue;
+    if (!isMaterialisableWindow(window)) continue;
 
     // The local dates the horizon touches, in this window's own zone. Read from
     // the zone rather than from UTC because a horizon starting at 23:30Z is
@@ -470,12 +504,12 @@ export function normalizeWorkingWindows(
   materialized.sort(
     (left, right) =>
       toEpochMs(left.interval.startsAt) - toEpochMs(right.interval.startsAt)
-      || (left.windowId < right.windowId ? -1 : left.windowId > right.windowId ? 1 : 0)
+      || compareByCodePoint(left.windowId, right.windowId)
       || left.windowIndex - right.windowIndex,
   );
   anomalies.sort(
     (left, right) =>
-      (left.localDate < right.localDate ? -1 : left.localDate > right.localDate ? 1 : 0)
+      compareByCodePoint(left.localDate, right.localDate)
       || left.windowIndex - right.windowIndex
       || (left.boundary === right.boundary ? 0 : left.boundary === 'start' ? -1 : 1),
   );

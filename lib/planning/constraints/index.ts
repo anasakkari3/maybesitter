@@ -67,6 +67,17 @@
  * the horizon (reported) — neither leaves a materialised window behind, so
  * "did anything survive?" cannot tell them apart.
  *
+ * ## What is on this surface, and why the predicate is
+ *
+ * `isMaterialisableWindow` and `isKnownTimeZone` are exported for #31 to import
+ * rather than re-derive. They are *validity predicates*, not judgements, and the
+ * sprint's rule is that two independent readings of a judgement check each other
+ * while two copies of a predicate are a place to drift. #31 had its own
+ * implementation of both; they agreed across 65,880 sampled cases, which is what
+ * agreement looks like right up until it stops. The four conditions the
+ * predicate enforces beyond the contract's stated interval rule are listed
+ * below, so the rule has one statement and one implementation.
+ *
  * ## Where this module reads more into a code than the contract states
  *
  * Two places, both recorded here because a reading that lives only in an
@@ -134,6 +145,10 @@
 
 export {
   freeRunsWithin,
+  isKnownTimeZone,
+  isMaterialisableWindow,
+  windowDefect,
+  type WindowDefect,
   mergeIntervals,
   normalizeWorkingWindows,
   type BoundaryResolutionKind,

@@ -227,6 +227,34 @@ test('EFFORT_NOT_POSITIVE: a buffer that is not a finite, non-negative number of
   }
 });
 
+test('a malformed buffer is reported beside an unknown effort, not swallowed by it', () => {
+  // Two independent defects on two independent fields, so two codes. The
+  // suppression principle is "borrows a bound from something already reported
+  // invalid", and a malformed buffer borrows nothing from an unknown effort —
+  // they are simply both wrong. Chaining the buffer check onto the effort branch
+  // made an unknown effort silence it, which is the principle read as "one item
+  // earns one code" yet again.
+  for (const buffers of [
+    { bufferBeforeMinutes: -5, bufferAfterMinutes: 0 },
+    { bufferBeforeMinutes: 0, bufferAfterMinutes: Number.NaN },
+  ]) {
+    const broken = item({ effort: { kind: 'unknown' }, ...buffers });
+    assert.deepEqual(
+      codes(validate(constraints({ items: [broken] }))),
+      ['EFFORT_NOT_POSITIVE', 'EFFORT_UNKNOWN'],
+      JSON.stringify(buffers),
+    );
+  }
+});
+
+test('a malformed effort and a malformed buffer earn one EFFORT_NOT_POSITIVE, not two', () => {
+  // The other direction. Both fields are unusable durations and the code says so
+  // once; repeating the same code on the same item adds no information a reader
+  // can act on, and the contract carries no way to tell the two apart anyway.
+  const broken = item({ effort: { kind: 'known', minutes: 0 }, bufferAfterMinutes: Number.NaN });
+  assert.deepEqual(validate(constraints({ items: [broken] })).map((r) => r.code), ['EFFORT_NOT_POSITIVE']);
+});
+
 test('a zero buffer is not a defect; only a negative or non-finite one is', () => {
   // The boundary the guard has to get right. Buffers default to zero all over
   // the request, and a guard that demanded a positive number would report every
@@ -325,6 +353,53 @@ test('INVALID_INTERVAL: a working window naming a zone the runtime does not know
   assert.deepEqual(codes(validate(constraints({ workingWindows: [...WEEKDAY_WINDOWS, elsewhere] }))), [
     'INVALID_INTERVAL',
   ]);
+});
+
+test('a window finding does not depend on where the caller happened to list the window', () => {
+  // Reported by #30, who refused my "name it by index" instruction on the
+  // grounds that an input array position puts the caller's ordering inside the
+  // output. They were right and the instruction was wrong: the same two windows
+  // with the same defect produced "index 1" or "index 0" depending only on the
+  // order they arrived in.
+  //
+  // The locator is now built from the window's own stated fields, which is both
+  // order-independent and more use to a reader than a position. The timezone is
+  // deliberately *not* among them: an unknown zone is arbitrary caller text, and
+  // this is the one field a malformed window can carry a sentence in.
+  const sound = { windowId: 'w-RAWTEXT-ok', weekday: 1, startMinute: 540, endMinute: 1020, timezone: 'Asia/Kolkata' } as const;
+  const broken = { windowId: 'w-RAWTEXT-bad', weekday: 3, startMinute: 600, endMinute: 60, timezone: 'Asia/Kolkata' } as const;
+
+  const forward = validate(constraints({ workingWindows: [sound, broken] }));
+  const reversed = validate(constraints({ workingWindows: [broken, sound] }));
+
+  assert.deepEqual(forward.map((r) => r.detail), reversed.map((r) => r.detail));
+  assert.equal(forward.length, 1);
+  assert.match(forward[0].detail, /weekday 3/);
+  assert.equal(forward[0].detail.includes('index'), false, forward[0].detail);
+});
+
+test('a window finding names the condition that failed, and never the zone string', () => {
+  // The zone is the only field on a window that can hold free text, so it is
+  // described rather than quoted.
+  const cases: [Partial<WorkingWindow>, RegExp][] = [
+    [{ weekday: 9 as WorkingWindow['weekday'] }, /weekday/],
+    [{ startMinute: -30 }, /start minute/],
+    [{ endMinute: 1441 }, /end minute/],
+    [{ startMinute: 600, endMinute: 60 }, /not after/],
+    [{ timezone: 'Mars/Olympus_Mons is where I told my doctor I relapsed' }, /time zone/],
+  ];
+  for (const [overrides, expected] of cases) {
+    const broken: WorkingWindow = {
+      windowId: 'w-RAWTEXT-defect', weekday: 1, startMinute: 540, endMinute: 1020,
+      timezone: 'Asia/Kolkata', ...overrides,
+    };
+    const reasons = validate(constraints({ workingWindows: [broken] }));
+    const detail = reasons.find((r) => r.code === 'INVALID_INTERVAL')?.detail ?? '';
+    assert.match(detail, expected, JSON.stringify(overrides));
+    if (typeof overrides.timezone === 'string') {
+      assert.equal(detail.includes(overrides.timezone), false, 'the zone string must not be quoted');
+    }
+  }
 });
 
 test('INVALID_INTERVAL: the complete list of window defects that are not interval defects', () => {
@@ -465,6 +540,45 @@ test('DEADLINE_BEYOND_HORIZON: the reviewer\'s exact disjoint-sets input', () =>
 test('a deadline at exactly the horizon start is beyond it, since a deadline is exclusive', () => {
   const atStart = item({ deadlineAt: '2026-03-02T00:00:00.000Z' });
   assert.deepEqual(codes(validate(constraints({ items: [atStart] }))), ['DEADLINE_BEYOND_HORIZON']);
+});
+
+test('a stale deadline does not silence the window check on an item that states both bounds', () => {
+  // The fuzzer hit this 2,665 times with no DST and no exotic zone: an ordinary
+  // item with an old deadline. The item states `earliestStartAt` *and*
+  // `deadlineAt`, so it borrows nothing from the horizon, and 10,000 minutes not
+  // fitting in a single day is true whatever the horizon says.
+  //
+  // My suppression read `deadlineOutsideHorizon` without asking whether the
+  // window was self-specified — the ruling is per item and per *bound*, not per
+  // request, and this was the same mistake one level down from where I first
+  // made it.
+  const stale = item({
+    effort: { kind: 'known', minutes: 10_000 },
+    earliestStartAt: '2026-11-01T00:00:00.000Z',
+    deadlineAt: '2026-11-02T00:00:00.000Z',
+  });
+  const input = constraints({
+    horizon: { startsAt: '2026-11-09T00:00:00.000Z', endsAt: '2026-11-20T00:00:00.000Z' },
+    items: [stale],
+  });
+  assert.deepEqual(codes(validate(input)), ['DEADLINE_BEYOND_HORIZON', 'EFFORT_EXCEEDS_ITEM_WINDOW']);
+});
+
+test('a stale deadline still silences the window check when the window borrows a bound', () => {
+  // The suppression that survives, kept next to the one that did not. With no
+  // stated `earliestStartAt` the window really is [horizon start, deadline], and
+  // that relation is exactly what DEADLINE_BEYOND_HORIZON just reported — so the
+  // window check would be measuring the finding rather than the item.
+  const stale = item({
+    effort: { kind: 'known', minutes: 10_000 },
+    earliestStartAt: null,
+    deadlineAt: '2026-11-02T00:00:00.000Z',
+  });
+  const input = constraints({
+    horizon: { startsAt: '2026-11-09T00:00:00.000Z', endsAt: '2026-11-20T00:00:00.000Z' },
+    items: [stale],
+  });
+  assert.deepEqual(codes(validate(input)), ['DEADLINE_BEYOND_HORIZON']);
 });
 
 test('a deadline after the horizon end is not reported at all: the horizon is the binding constraint', () => {
@@ -678,6 +792,58 @@ test('an item with a self-edge inside a longer cycle earns one code, and its nei
   );
 });
 
+test('CYCLIC_DEPENDENCY: an item reaching a cycle through a cross edge is on it', () => {
+  // Found by the integration fuzzer, and a false *feasible*: the caller was told
+  // `i3` was fine when `i3` can never start.
+  //
+  // `i3` sits on the cycle i1 -> i3 -> i2 -> i1. A depth-first walk that marks
+  // the gray path only when it finds a *back* edge never sees it: by the time
+  // `i3` is visited, `i2` is already finished, so the edge i3 -> i2 is a cross
+  // edge and neither branch fires. Reachability, not back edges, is what decides
+  // membership — which is how #31's oracle got it right.
+  const a = item({ itemId: 'i1', dependsOn: [
+    { dependsOnItemId: 'i2', kind: 'temporal' },
+    { dependsOnItemId: 'i3', kind: 'temporal' },
+  ] });
+  const b = item({ itemId: 'i2', dependsOn: [{ dependsOnItemId: 'i1', kind: 'temporal' }] });
+  const c = item({ itemId: 'i3', dependsOn: [{ dependsOnItemId: 'i2', kind: 'temporal' }] });
+
+  const reasons = validate(constraints({ items: [a, b, c] }));
+  assert.deepEqual(
+    reasons.map((reason) => [reason.itemId, reason.code]),
+    [['i1', 'CYCLIC_DEPENDENCY'], ['i2', 'CYCLIC_DEPENDENCY'], ['i3', 'CYCLIC_DEPENDENCY']],
+  );
+});
+
+test('CYCLIC_DEPENDENCY: a chain feeding a cycle names the cycle only, not the chain', () => {
+  // The other side of the fix, and the one that stops "report everything
+  // reachable" from being the cure. `i1` leads into the cycle i2 -> i3 -> i4 ->
+  // i2 without being on it: it is *blocked*, which is #30's transitive
+  // BLOCKED_BY_DEPENDENCY — a different message to a user and a different bug to
+  // an engineer.
+  const items = [
+    item({ itemId: 'i1', dependsOn: [{ dependsOnItemId: 'i2', kind: 'temporal' }] }),
+    item({ itemId: 'i2', dependsOn: [{ dependsOnItemId: 'i3', kind: 'temporal' }] }),
+    item({ itemId: 'i3', dependsOn: [{ dependsOnItemId: 'i4', kind: 'temporal' }] }),
+    item({ itemId: 'i4', dependsOn: [{ dependsOnItemId: 'i2', kind: 'temporal' }] }),
+  ];
+  const reasons = validate(constraints({ items }));
+  assert.deepEqual(reasons.map((reason) => reason.itemId), ['i2', 'i3', 'i4']);
+});
+
+test('CYCLIC_DEPENDENCY: two disjoint cycles are both found, whichever is walked first', () => {
+  // A walk that stops at the first component it completes, or that carries state
+  // between roots, would report one and not the other.
+  const items = [
+    item({ itemId: 'i1', dependsOn: [{ dependsOnItemId: 'i2', kind: 'temporal' }] }),
+    item({ itemId: 'i2', dependsOn: [{ dependsOnItemId: 'i1', kind: 'temporal' }] }),
+    item({ itemId: 'i3', dependsOn: [{ dependsOnItemId: 'i4', kind: 'temporal' }] }),
+    item({ itemId: 'i4', dependsOn: [{ dependsOnItemId: 'i3', kind: 'temporal' }] }),
+  ];
+  const reasons = validate(constraints({ items }));
+  assert.deepEqual(reasons.map((reason) => reason.itemId), ['i1', 'i2', 'i3', 'i4']);
+});
+
 test('a cycle of informational edges is not a scheduling contradiction and is not reported', () => {
   // The contract says `resource` and `informational` are recorded but do not,
   // on their own, force ordering in v1. An edge that forces no order cannot
@@ -726,6 +892,74 @@ test('a dangling edge is excluded from cycle detection rather than crashing it o
   });
   const b = item({ itemId: 'i2', dependsOn: [] });
   assert.deepEqual(codes(validate(constraints({ items: [a, b] }))), ['UNKNOWN_DEPENDENCY']);
+});
+
+test('cycle membership agrees with brute-force reachability over 2,000 random graphs', () => {
+  // The check that would have caught the cross-edge defect on the day it was
+  // written, and the reason it is here rather than in a scratch file: a table of
+  // hand-written graphs tests the shapes its author already thought of, and this
+  // defect lived in a shape nobody drew. The integration fuzzer found it in 13
+  // of 40,000 cases.
+  //
+  // The reference is deliberately the *stupid* definition — an item is on a
+  // cycle exactly when it can reach itself in one hop or more, computed by
+  // breadth-first search from every node. It is far too slow to ship and it is
+  // obviously correct, which is the whole point of a reference implementation.
+  //
+  // Seeded rather than random: a fuzz test that fails once every hundred runs
+  // and passes on retry teaches a team to press retry.
+  let seed = 12_345;
+  const random = (): number => {
+    seed = (seed * 1_664_525 + 1_013_904_223) >>> 0;
+    return seed / 4_294_967_296;
+  };
+
+  const reachesItself = (ids: readonly string[], edges: ReadonlyMap<string, readonly string[]>): Set<string> => {
+    const onCycle = new Set<string>();
+    for (const start of ids) {
+      const seen = new Set<string>();
+      const queue = Array.from(edges.get(start) ?? []);
+      while (queue.length > 0) {
+        const next = queue.shift() as string;
+        if (next === start) {
+          onCycle.add(start);
+          break;
+        }
+        if (seen.has(next)) continue;
+        seen.add(next);
+        queue.push(...(edges.get(next) ?? []));
+      }
+    }
+    return onCycle;
+  };
+
+  let graphsWithACycle = 0;
+  for (let trial = 0; trial < 2_000; trial += 1) {
+    const size = 1 + Math.floor(random() * 7);
+    const ids = Array.from({ length: size }, (_unused, index) => `i${index}`);
+    const edges = new Map<string, string[]>();
+    for (const id of ids) {
+      edges.set(id, Array.from(new Set(ids.filter(() => random() < 0.3).filter((target) => target !== id))));
+    }
+
+    const items = ids.map((id) => item({
+      itemId: id,
+      dependsOn: (edges.get(id) as string[]).map((target) => ({ dependsOnItemId: target, kind: 'temporal' as const })),
+    }));
+
+    const reported = validateConstraints(constraints({ items }), CONFIG)
+      .filter((reason) => reason.code === 'CYCLIC_DEPENDENCY')
+      .map((reason) => reason.itemId)
+      .sort();
+    const expected = Array.from(reachesItself(ids, edges)).sort();
+    if (expected.length > 0) graphsWithACycle += 1;
+
+    assert.deepEqual(reported, expected, `graph ${trial}: ${JSON.stringify(Array.from(edges))}`);
+  }
+
+  // Without this the test would pass just as loudly against a generator that
+  // only ever produced acyclic graphs.
+  assert.ok(graphsWithACycle > 500, `expected many cyclic graphs, saw ${graphsWithACycle}`);
 });
 
 test('a long dependency chain is not a cycle, and is walked without exhausting the stack', () => {
