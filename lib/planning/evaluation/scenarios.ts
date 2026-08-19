@@ -545,25 +545,46 @@ const CURATED_ROWS: readonly PlanningScenario[] = [
     note: 'Minute 1440 is the top of the stated domain: a window ending at midnight ends at minute 1440 of its own day, not minute 0 of the next one.',
   },
   {
-    scenarioId: 'boundary-deadline-beyond-horizon',
+    scenarioId: 'boundary-deadline-before-horizon-start',
     kind: 'boundary',
     lockState: 'locked',
     locale: 'en-US',
     constraints: {
-      scopeId: 'scope-boundary-deadline',
+      scopeId: 'scope-boundary-deadline-overdue',
       timezone: 'America/New_York',
       horizon: { startsAt: '2026-11-09T00:00:00.000Z', endsAt: '2026-11-10T00:00:00.000Z' },
       workingWindows: [workWindow('w-mon', 1, 9 * HOUR, 17 * HOUR, 'America/New_York')],
       fixedEvents: [],
-      items: [task({ itemId: 'i-far', title: 'renew the passport', deadlineAt: '2026-11-20T00:00:00.000Z' })],
+      items: [task({ itemId: 'i-overdue', title: 'renew the passport', deadlineAt: '2026-11-08T00:00:00.000Z' })],
     },
     config: DEFAULT_CONFIG,
     expectation: {
       expectedScheduledItemIds: [],
-      expectedUnscheduledReasons: { 'i-far': 'DEADLINE_BEYOND_HORIZON' },
+      expectedUnscheduledReasons: { 'i-overdue': 'DEADLINE_BEYOND_HORIZON' },
       expectedConstraintCodes: [],
     },
-    note: 'Distinct from having no time: there is a whole free day here. Extending the horizon would change the answer, which is what separates this code from NO_FEASIBLE_SLOT.',
+    note: 'The surviving half of DEADLINE_BEYOND_HORIZON: the deadline is already past when the plan begins, so no instant inside the horizon is before it. Distinct from having no time — there is a whole free day here — which is what separates this code from NO_FEASIBLE_SLOT. Replaces an earlier row that pointed the other way; see its counterpart below for why that direction is not this code.',
+  },
+  {
+    scenarioId: 'boundary-deadline-after-horizon-end-still-places',
+    kind: 'boundary',
+    lockState: 'locked',
+    locale: 'en-US',
+    constraints: {
+      scopeId: 'scope-boundary-deadline-long-dated',
+      timezone: 'America/New_York',
+      horizon: { startsAt: '2026-11-09T00:00:00.000Z', endsAt: '2026-11-10T00:00:00.000Z' },
+      workingWindows: [workWindow('w-mon', 1, 9 * HOUR, 17 * HOUR, 'America/New_York')],
+      fixedEvents: [],
+      items: [task({ itemId: 'i-long-dated', title: 'renew the passport', deadlineAt: '2026-11-20T00:00:00.000Z' })],
+    },
+    config: DEFAULT_CONFIG,
+    expectation: {
+      expectedScheduledItemIds: ['i-long-dated'],
+      expectedUnscheduledReasons: {},
+      expectedConstraintCodes: [],
+    },
+    note: 'The guard for the behaviour that nearly went missing. An item due eleven days after a one-day horizon is the least constrained thing in the request: the horizon binds first and the item places normally. An earlier reading called this DEADLINE_BEYOND_HORIZON, which would have turned every long-dated commitment into an infeasibility — most of the forward-looking work a planner exists to place.',
   },
   {
     scenarioId: 'boundary-no-working-window',
@@ -879,7 +900,12 @@ export function generatePlanningScenarios(
           }));
           break;
         case 'DEADLINE_BEYOND_HORIZON':
-          items.push(task({ ...base, deadlineAt: '2026-12-01T00:00:00.000Z' }));
+          // Before the horizon *starts*, not after it ends. A deadline after the
+          // end is not this code and not an infeasibility at all: the horizon
+          // binds first and the item schedules normally. The generated rows
+          // asserted the opposite, and #30's scheduler placed the very items
+          // they claimed were unplaceable.
+          items.push(task({ ...base, deadlineAt: '2026-11-01T00:00:00.000Z' }));
           break;
         case 'SELF_DEPENDENCY':
           items.push(task({ ...base, dependsOn: [{ dependsOnItemId: itemId, kind: 'temporal' }] }));

@@ -66,10 +66,8 @@ rule in `oracle.ts`; they are collected here so a merge does not have to find th
    a window claiming minute 2000 or day 7 denotes no interval on any clock face, so its availability
    either appears from nowhere or disappears without a word, and the overload judgement built on
    `availableMinutes` inherits the error.
-2. **`DEADLINE_BEYOND_HORIZON` is symmetric.** A deadline *before* the horizon starts is outside it
-   just as much as one after it ends, and extending the horizon backwards would change the answer —
-   which is the property the contract uses to separate this code from having no time. **Adjudicated
-   in this reading's favour**; #29 changes to match.
+2. **`DEADLINE_BEYOND_HORIZON` is one-sided**, and this is no longer a divergence: the code is
+   emitted only when `deadlineAt <= horizon.startsAt`. See below for why the other half was wrong.
 3. **`EFFORT_EXCEEDS_ITEM_WINDOW` is suppressed only where it would borrow a bound from something
    already reported invalid** — no size to compare, an item window already reported empty, or a
    bound taken from a horizon that is itself the broken thing. It is *not* suppressed merely because
@@ -86,7 +84,27 @@ rule in `oracle.ts`; they are collected here so a merge does not have to find th
 If #29 reads any of these differently, that disagreement is the finding the sprint was designed to
 surface. It is not a bug in one side to be quietly patched to match the other.
 
-### Two rules an earlier draft had and this one does not
+### Three rules an earlier draft had and this one does not
+
+**`DEADLINE_BEYOND_HORIZON` was symmetric and should never have been.** The draft reported a
+deadline *after* `horizon.endsAt` as well, on the ground that "the plan simply does not reach that
+far" is true in both directions. It is true, and it is the wrong conclusion. An item due next month,
+in a two-week plan, is the **least** constrained thing in the request: the horizon binds first and
+the item schedules normally. Reporting it turned every long-dated commitment into an infeasibility —
+most of the forward-looking work a planner exists to place.
+
+The merge-owned cross-track test caught it from both sides in one run: `#29 []` against
+`#31 [DEADLINE_BEYOND_HORIZON]` on the same input, and #30's real scheduler *placing* the items two
+corpus rows had declared unplaceable. Both the shipped row and a generated one asserted the wrong
+direction, so the corpus had been confirming the bug rather than catching it. The surviving
+direction is kept by `boundary-deadline-before-horizon-start`, and the behaviour that nearly went
+missing now has a row of its own: `boundary-deadline-after-horizon-end-still-places` asserts that a
+deadline eleven days past a one-day horizon is **scheduled**.
+
+Dropping the half did not take `EFFORT_EXCEEDS_ITEM_WINDOW` with it. An item's own window is still
+its own window, and effort that does not fit between `earliestStartAt` and `deadlineAt` is reported
+whatever the horizon says.
+
 
 **`NO_WORKING_WINDOW` is no longer suppressed by a window-level finding.** The original ground was
 that a code which only ever co-occurs with another is not independent evidence. It does not hold:
@@ -134,7 +152,7 @@ throw. A corpus that merely *counted* its kinds would let a merge that dropped t
 | `conflict` | curated | Two blocking events double-booked; and an item that must abut a meeting exactly. |
 | `dependency` | curated | Cycle, self-edge, dangling edge. |
 | `dst` | curated | New York and Jerusalem, both directions. |
-| `boundary` | curated + generated | Midnight, deadline past the horizon, no window, zero-length event, `+05:30`. |
+| `boundary` | curated + generated | Midnight, a deadline already past when the plan begins, a long-dated deadline that still places, no window, zero-length event, `+05:30`. |
 | `multilingual` | curated | `ar-SA`/Asia/Riyadh, `he-IL`/Asia/Jerusalem, `en-US`/America/New_York. |
 | `change` | curated | A `-before`/`-after` pair over one scope; the input churn is measured across. |
 
@@ -299,7 +317,13 @@ does not edit it), and this document.
 data to reconcile, no consumer to unwind. The only visible effect is that the four test files go back
 to being registered-but-absent, which is the state the sprint base already ships.
 
-**Forward compatibility.** `PLANNING_SCENARIO_CORPUS_VERSION` is part of every generated row's digest
-input, so changing the generator requires bumping it and the change cannot happen by accident. The
-corpus `digest` is a function of the row *set*, not its order, so reordering rows is not a change to
-the corpus and a stored digest will not spuriously mismatch.
+**Forward compatibility.** The corpus `digest` is taken over the row *set*, not its order: reordering
+rows is not a change to the corpus and a stored digest will not spuriously mismatch, while any change
+to what a row *contains* — generated or curated — does change it and is therefore visible.
+
+`PLANNING_SCENARIO_CORPUS_VERSION` sits in the generator's per-row draw input. Its job is narrower
+than an earlier draft of this section claimed: it makes a deliberate **re-draw** possible — pointing
+every index at different values without changing the seed string — not "any generator change
+requires a bump". It is not the thing that makes a content change visible; the digest is. The
+correction matters because the overstated version would have had a maintainer bump it, and thereby
+re-point all twelve generated rows, for a one-line fix to a single defect branch.

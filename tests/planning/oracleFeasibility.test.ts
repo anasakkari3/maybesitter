@@ -270,8 +270,33 @@ test('DEADLINE_BEFORE_EARLIEST_START fires when the two coincide, because deadli
   );
 });
 
-test('DEADLINE_BEYOND_HORIZON: a deadline past the horizon end, but not one exactly on it', () => {
-  const beyond = assessFeasibility(
+test('DEADLINE_BEYOND_HORIZON is one-sided: at or before the horizon start, and nowhere else', () => {
+  const before = assessFeasibility(
+    constraints({ items: [item({ itemId: 'i-overdue', deadlineAt: '2026-11-08T00:00:00.000Z' })] }),
+    CONFIG,
+  );
+  const exactlyAtStart = assessFeasibility(
+    constraints({ items: [item({ itemId: 'i-at-start', deadlineAt: UTC_HORIZON.startsAt })] }),
+    CONFIG,
+  );
+  const justAfterStart = assessFeasibility(
+    constraints({ items: [item({ itemId: 'i-just-after', deadlineAt: '2026-11-09T12:00:00.000Z' })] }),
+    CONFIG,
+  );
+
+  assert.deepEqual(codesFor(before, 'i-overdue'), ['DEADLINE_BEYOND_HORIZON']);
+  // `<=`, not `<`. Deadlines are exclusive, so a deadline on the horizon's first
+  // instant leaves no instant inside the plan that precedes it.
+  assert.deepEqual(codesFor(exactlyAtStart, 'i-at-start'), ['DEADLINE_BEYOND_HORIZON']);
+  assert.deepEqual(codesFor(justAfterStart, 'i-just-after'), []);
+});
+
+test('a deadline after the horizon ends is not a finding at all', () => {
+  const wellBeyond = assessFeasibility(
+    constraints({ items: [item({ itemId: 'i-long-dated', deadlineAt: '2027-06-01T00:00:00.000Z' })] }),
+    CONFIG,
+  );
+  const oneMillisecondBeyond = assessFeasibility(
     constraints({ items: [item({ itemId: 'i-late', deadlineAt: '2026-11-16T00:00:01.000Z' })] }),
     CONFIG,
   );
@@ -280,22 +305,35 @@ test('DEADLINE_BEYOND_HORIZON: a deadline past the horizon end, but not one exac
     CONFIG,
   );
 
-  assert.deepEqual(codesFor(beyond, 'i-late'), ['DEADLINE_BEYOND_HORIZON']);
-  // The deadline is exclusive and the horizon is half-open, so an item finished
-  // at the horizon's last instant is finished inside the horizon.
+  // An earlier draft read the code symmetrically and reported all three. That
+  // turned every long-dated commitment into an infeasibility — most of the
+  // forward-looking work a planner exists to place. The horizon binds first;
+  // an item due next June, in a one-week plan, is the *least* constrained thing
+  // in the request. The cross-track test caught it from both sides: #29 emitted
+  // nothing here, and #30's scheduler placed the item this file called
+  // unplaceable.
+  assert.deepEqual(codesFor(wellBeyond, 'i-long-dated'), []);
+  assert.deepEqual(codesFor(oneMillisecondBeyond, 'i-late'), []);
   assert.deepEqual(codesFor(onTheEdge, 'i-edge'), []);
 });
 
-test('DEADLINE_BEYOND_HORIZON also covers a deadline the horizon starts after', () => {
+test('a long-dated deadline does not silence the effort arithmetic either', () => {
   const verdict = assessFeasibility(
-    constraints({ items: [item({ itemId: 'i-past', deadlineAt: '2026-11-08T00:00:00.000Z' })] }),
+    constraints({
+      items: [item({
+        itemId: 'i-huge-long-dated',
+        effort: { kind: 'known', minutes: 60 },
+        earliestStartAt: '2026-11-09T09:00:00.000Z',
+        deadlineAt: '2026-11-09T09:30:00.000Z',
+      })],
+    }),
     CONFIG,
   );
 
-  // "The plan simply does not reach that far" is symmetric: extending the
-  // horizon backwards would change the answer, which is the property that
-  // separates this code from having no time at all.
-  assert.deepEqual(codesFor(verdict, 'i-past'), ['DEADLINE_BEYOND_HORIZON']);
+  // The item's own window is still its own window. Dropping the "after the end"
+  // half of DEADLINE_BEYOND_HORIZON must not take EFFORT_EXCEEDS_ITEM_WINDOW
+  // with it: 15 + 60 + 15 does not fit in 30 minutes whatever the horizon says.
+  assert.deepEqual(codesFor(verdict, 'i-huge-long-dated'), ['EFFORT_EXCEEDS_ITEM_WINDOW']);
 });
 
 test('EFFORT_EXCEEDS_ITEM_WINDOW counts buffers, and is off by exactly one minute at the boundary', () => {
