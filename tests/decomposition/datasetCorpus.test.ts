@@ -749,3 +749,139 @@ test('a well-formed corpus row still passes the shape gate', () => {
   assert.equal(loadSeedCorpus().valid, true);
   assert.equal(loadSeedCorpus().examples.length, 23);
 });
+
+/* ── The corpus gate bounds its own output ──────────────────────── */
+
+test('a span-bomb row is refused instead of amplified into a million issues', () => {
+  // Measured before the fix: 1,600 spans on one step produced 1,279,201 issues
+  // and 253 MB of message strings out of the function this module calls the
+  // trust boundary for files; 8,000 spans exhausted the heap. Each DXC030 wraps
+  // one violation, so per-span-pair overlap findings amplified straight through.
+  const row = {
+    exampleId: 'span-bomb',
+    locale: 'en',
+    sourceText: 'Book the venue by Friday.',
+    label: 'multi_step',
+    provenance: 'synthetic',
+    note: 'constructed by the test',
+    expectedSteps: [
+      {
+        stepId: 's1',
+        title: 'Book the venue',
+        sourceSpans: Array.from({ length: 1600 }, () => ({ start: 0, end: 14, text: 'Book the venue' })),
+        inferred: false,
+        dependsOn: [],
+        statedTiming: null,
+        statedOwner: null,
+      },
+      {
+        stepId: 's2',
+        title: 'by Friday',
+        sourceSpans: [{ start: 15, end: 24, text: 'by Friday' }],
+        inferred: false,
+        dependsOn: [],
+        statedTiming: null,
+        statedOwner: null,
+      },
+    ],
+  };
+
+  const started = Date.now();
+  const parsed = parseExampleCorpus({
+    contractVersion: '1.0.0',
+    schema: 'decomposition-v1',
+    role: 'seed',
+    note: 'n',
+    examples: [row],
+  });
+  const elapsed = Date.now() - started;
+
+  assert.equal(parsed.valid, false);
+  assert.ok(hasIssue(parsed, 'DXC034'), JSON.stringify(parsed.issues.slice(0, 3), null, 2));
+  assert.ok(parsed.issues.length < 50, `expected a bounded report, got ${parsed.issues.length} issues`);
+  const bytes = parsed.issues.reduce((total, issue) => total + issue.message.length, 0);
+  assert.ok(bytes < 100_000, `expected bounded message bytes, got ${bytes}`);
+  assert.ok(elapsed < 2000, `took ${elapsed} ms`);
+});
+
+/* ── exampleId is as untrusted as any other caller-supplied string ─ */
+
+test('no corpus issue message interpolates a raw exampleId', () => {
+  // The same argument stepRef used for stepId. A crafted row put a whole
+  // sentence verbatim into three issue messages.
+  const payload = 'I-owe-Ahmed-40000-for-the-abortion-clinic';
+  const row = { ...SEED.examples[0], exampleId: payload };
+
+  const cases: readonly (readonly [string, unknown])[] = [
+    ['DXC013 duplicate id', { role: 'seed', examples: [row, row] }],
+    ['DXC020 reviewed row in a seed file', { role: 'seed', examples: [{ ...row, provenance: 'human_reviewed' }] }],
+    ['DXC021 synthetic row in a reviewed file', { role: 'reviewed', examples: [row] }],
+    ['DXC031 multi_step with one step', { role: 'seed', examples: [{ ...row, expectedSteps: [row.expectedSteps[0]] }] }],
+    ['DXC032 unsplittable with one step', { role: 'seed', examples: [{ ...row, label: 'atomic', expectedSteps: [row.expectedSteps[0]] }] }],
+  ];
+
+  for (const [name, extra] of cases) {
+    const parsed = parseExampleCorpus({
+      contractVersion: '1.0.0',
+      schema: 'decomposition-v1',
+      note: 'n',
+      ...(extra as object),
+    });
+    for (const issue of parsed.issues) {
+      assert.equal(
+        issue.message.includes(payload) || issue.path.includes(payload),
+        false,
+        `${name}: leaked the exampleId into ${issue.code} — ${issue.path}: ${issue.message}`,
+      );
+    }
+  }
+});
+
+test('DXP010 names the row without quoting its id', () => {
+  const payload = 'I-owe-Ahmed-40000-for-the-abortion-clinic';
+  const result = verifyReviewedProvenance({
+    examples: [{ ...SEED.examples[0], exampleId: payload, provenance: 'human_reviewed' }],
+    reviews: [],
+  });
+  assert.equal(result.valid, false);
+  for (const issue of result.issues) {
+    assert.equal(issue.message.includes(payload) || issue.path.includes(payload), false, issue.message);
+  }
+});
+
+test('a benign exampleId stays readable in corpus diagnostics', () => {
+  const parsed = parseExampleCorpus({
+    contractVersion: '1.0.0',
+    schema: 'decomposition-v1',
+    role: 'seed',
+    note: 'n',
+    examples: [SEED.examples[0], SEED.examples[0]],
+  });
+  assert.ok(
+    parsed.issues.some((issue) => issue.message.includes(SEED.examples[0].exampleId)),
+    'real corpus ids must survive redaction, or every diagnostic becomes positional',
+  );
+});
+
+test('a thrown or ingest message never quotes a hostile exampleId either', () => {
+  // exampleRef covers the issue messages; exampleLabel covers the paths that
+  // have no row index to fall back on — promotion errors and ingest rejections.
+  // Both were unpinned, and a mutation that made exampleLabel quote everything
+  // left the suite green.
+  const payload = 'I-owe-Ahmed-40000-for-the-abortion-clinic';
+  const hostile = { ...SEED.examples[0], exampleId: payload };
+
+  assert.throws(
+    () => promoteToReviewed(hostile, []),
+    (error: Error) => {
+      assert.equal(error.message.includes(payload), false, `promotion error leaked: ${error.message}`);
+      return true;
+    },
+  );
+
+  const outcome = ingestReviews([review({ exampleId: payload })], { queue: QUEUE.items });
+  assert.equal(outcome.accepted.length, 0);
+  for (const issue of outcome.issues) {
+    assert.equal(issue.message.includes(payload), false, `ingest leaked: ${issue.message}`);
+  }
+});

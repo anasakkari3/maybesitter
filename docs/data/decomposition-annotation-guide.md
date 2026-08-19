@@ -117,8 +117,9 @@ Rules for the span set:
   starts at `اشتر`, **not** at the prefixed `و` — including the clitic would be including the
   boundary marker inside the thing it separates.
 - **Non-overlapping, full stop.** No two spans in an example may claim the same code units —
-  including two spans of the *same* step. Checked pairwise over every span; reported as
-  `SPAN_OVERLAP`. Adjacent is fine — `[0,4)` and `[4,10)` do not overlap. A step double-claiming its
+  including two spans of the *same* step. Reported as `SPAN_OVERLAP`, **once per step pair** (a
+  step's own spans are the pair `(i, i)`), so a step with five mutually overlapping spans is one
+  finding and not ten. Adjacent is fine — `[0,4)` and `[4,10)` do not overlap. A step double-claiming its
   own text is the case that hides best: `coveredCodeUnits` unions the duplication away, so no
   coverage figure moves and nothing else would ever notice.
 - **Disjoint spans on one step stay legal.** That is why `sourceSpans` is a list at all.
@@ -185,6 +186,46 @@ a cycle is `CYCLIC_DEPENDENCY` (a self-edge is reported only as the former — o
 **what a naive splitter would produce and why that is wrong**. "and sits inside the noun phrase
 'terms and conditions'; splitting yields 'Review the terms' and 'conditions before Friday', the
 second of which is not even an action" is a note. "Do not split" is not.
+
+### Limits
+
+`validateProposedSteps` will not analyse an unbounded proposal, and
+`parseExampleCorpus` refuses an oversized row outright (`DXC034`):
+
+| Limit | Value |
+|---|---|
+| `MAX_STEPS_PER_PROPOSAL` | 128 |
+| `MAX_SPANS_PER_STEP` | 64 |
+| `MAX_TOTAL_SPANS` | 512 |
+
+Set far above anything real — the golden set and the seed corpus carry one span per step and at most
+three steps — and far below what it takes to hurt. Before the per-step-pair change, one step with
+4,000 identical spans built 7,998,000 violation objects in about a second, and through the corpus
+gate 1,600 spans amplified into 1,279,201 issues and 253 MB of message strings, with 8,000
+exhausting the heap. Both are now bounded: 50,000 spans is one `DXC034` issue in 5 ms.
+
+**These values are provisional and must be reconciled with #27's**, which bounds the same shapes.
+They are exported named constants so that is a one-line change.
+
+### Identifiers in messages
+
+`DecompositionViolation.detail` never quotes a caller-supplied identifier verbatim. A `stepId` and an
+`exampleId` arrive from a model or a file and are as untrusted as the source text; both were being
+interpolated raw, and a step id reading
+`Tell-my-therapist-I-relapsed-on-Tuesday` went into ten different messages.
+
+An identifier is quoted only if it passes `isSafeRef`: at most 28 code units, only
+`[A-Za-z0-9_-]`, at most four separator runs, at most eight digits in total. Anything else is
+replaced by the step's or row's **position**, which locates it just as well and carries nothing.
+
+The three bounds are aimed at what an identifier is *not*: prose is longer, a sentence written with
+hyphens for spaces has more separator runs than a name does, and a card number has more digits than
+an id needs — including one written `4111-1111-1111-1111`, which has no digit run longer than four.
+
+**This is a heuristic and the guarantee does not rest on it.** A shape check can never be a content
+check; the fallback to position is what actually holds. The heuristic only buys back readability for
+the ordinary case, and every real id in this repository passes it — the longest,
+`seed-he-nosplit-procedures`, is 26 code units with three separator runs.
 
 ---
 

@@ -166,7 +166,102 @@ function coveredTextOf(sourceText: string, spans: readonly SourceSpan[]): string
  * Deliberately narrow — the shape every id in this repository already has.
  * Anything else is replaced by the step's position.
  */
-const SAFE_STEP_ID = /^[A-Za-z0-9_-]{1,64}$/;
+const SAFE_REF_CHARS = /^[A-Za-z0-9_-]+$/;
+const SAFE_REF_MAX_LENGTH = 28;
+const SAFE_REF_MAX_SEPARATOR_RUNS = 4;
+const SAFE_REF_MAX_DIGITS = 8;
+
+/**
+ * Whether a caller-supplied identifier is safe to quote in a message.
+ *
+ * The first version of this was a *shape* check — anything over
+ * `[A-Za-z0-9_-]` up to 64 characters — and a shape check is not a content
+ * check. A provider writing its sentence with hyphens for spaces walked
+ * straight through it: `Tell-my-therapist-I-relapsed-on-Tuesday` and
+ * `card_4111111111111111_cvv_123` were both "safe" and both quoted verbatim.
+ * The earlier test proved nothing, because it probed an Arabic sentence, every
+ * character of which is outside the class already.
+ *
+ * Three bounds, each aimed at what an identifier is *not*:
+ *
+ *  - **Length.** 28 code units. The longest id in this repository is 26
+ *    (`seed-he-nosplit-procedures`); the shortest sentence that carries
+ *    anything is longer.
+ *  - **Separator runs.** Four. An id names a thing; seven hyphen-joined tokens
+ *    is a sentence wearing an id's punctuation.
+ *  - **Digits.** Eight in total, not merely consecutively — a card number
+ *    written `4111-1111-1111-1111` has no run longer than four.
+ *
+ * This is a heuristic and is documented as one. The *guarantee* does not rest
+ * on it: anything it rejects falls back to the step's position, which locates
+ * the step just as well and carries nothing. The heuristic only buys back
+ * readability for the ordinary case.
+ */
+export function isSafeRef(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  if (value.length === 0 || value.length > SAFE_REF_MAX_LENGTH) return false;
+  if (!SAFE_REF_CHARS.test(value)) return false;
+  const separatorRuns = value.match(/[-_]+/g);
+  if (separatorRuns !== null && separatorRuns.length > SAFE_REF_MAX_SEPARATOR_RUNS) return false;
+  return value.replace(/[^0-9]/g, '').length <= SAFE_REF_MAX_DIGITS;
+}
+
+/* ── Work limits ────────────────────────────────────────────────── */
+
+/**
+ * Bounds on what this validator will analyse.
+ *
+ * Set well above anything a real decomposition reaches — the golden set and the
+ * seed corpus carry one span per step and at most three steps — and far below
+ * what it takes to hurt: before the per-step-pair change, one step with 4,000
+ * identical spans produced 7,998,000 violation objects, and through the corpus
+ * gate 1,600 spans amplified into 1,279,201 issues and 253 MB of message
+ * strings.
+ *
+ * These are **provisional**: #27 bounds the same shapes and the two must agree.
+ * They are exported as named constants precisely so reconciling them is a
+ * one-line change rather than an archaeology exercise.
+ */
+export const MAX_STEPS_PER_PROPOSAL = 128;
+export const MAX_SPANS_PER_STEP = 64;
+export const MAX_TOTAL_SPANS = 512;
+
+export interface ValidationLimitBreach {
+  readonly limit: 'steps' | 'spansPerStep' | 'totalSpans';
+  readonly observed: number;
+  readonly allowed: number;
+  /** Which step breached a per-step limit, or null for a whole-proposal one. */
+  readonly stepIndex: number | null;
+}
+
+/**
+ * Reports the first limit a step list breaches, or null.
+ *
+ * Separate from `validateProposedSteps` so the trust boundaries can *refuse*
+ * oversized input in their own vocabulary — `parseExampleCorpus` answers
+ * `DXC034` and rejects the row — rather than having the shared validator invent
+ * a violation code for a shape that is not a decomposition defect at all.
+ */
+export function exceedsValidationLimits(
+  steps: readonly DecompositionStepProposal[],
+): ValidationLimitBreach | null {
+  if (steps.length > MAX_STEPS_PER_PROPOSAL) {
+    return { limit: 'steps', observed: steps.length, allowed: MAX_STEPS_PER_PROPOSAL, stepIndex: null };
+  }
+  let total = 0;
+  for (let index = 0; index < steps.length; index += 1) {
+    const spans = steps[index].sourceSpans;
+    const count = Array.isArray(spans) ? spans.length : 0;
+    if (count > MAX_SPANS_PER_STEP) {
+      return { limit: 'spansPerStep', observed: count, allowed: MAX_SPANS_PER_STEP, stepIndex: index };
+    }
+    total += count;
+  }
+  if (total > MAX_TOTAL_SPANS) {
+    return { limit: 'totalSpans', observed: total, allowed: MAX_TOTAL_SPANS, stepIndex: null };
+  }
+  return null;
+}
 
 /**
  * How a step is named inside a `detail`.
@@ -188,7 +283,7 @@ const SAFE_STEP_ID = /^[A-Za-z0-9_-]{1,64}$/;
  * audit clause is about `detail`.
  */
 function stepRef(stepId: unknown, index: number): string {
-  return typeof stepId === 'string' && SAFE_STEP_ID.test(stepId) ? `'${stepId}'` : `#${index}`;
+  return isSafeRef(stepId) ? `'${stepId}'` : `#${index}`;
 }
 
 /**
@@ -198,7 +293,7 @@ function stepRef(stepId: unknown, index: number): string {
  * unknown — so an unsafe one is described by length alone.
  */
 function dependencyRef(stepId: unknown): string {
-  if (typeof stepId === 'string' && SAFE_STEP_ID.test(stepId)) return `'${stepId}'`;
+  if (isSafeRef(stepId)) return `'${stepId}'`;
   return `an id of ${typeof stepId === 'string' ? stepId.length : 0} code units`;
 }
 
@@ -345,7 +440,15 @@ export function validateProposedSteps(
         );
         return;
       }
-      usableSpans.push({ stepId, stepIndex, span });
+      // Backstop against an oversized proposal reaching this function directly.
+      // The real gate is `exceedsValidationLimits`, which the trust boundaries
+      // call to refuse the input in their own vocabulary before it gets here;
+      // this only stops a direct caller from paying for work no decomposition
+      // needs. Spans beyond the cap are excluded from the pairwise analysis, and
+      // `exceedsValidationLimits` is how a caller learns that happened.
+      if (stepUsableSpans.length < MAX_SPANS_PER_STEP) {
+        usableSpans.push({ stepId, stepIndex, span });
+      }
       stepUsableSpans.push(span);
     });
 
@@ -445,31 +548,53 @@ export function validateProposedSteps(
     }
   }
 
-  // Pairwise over every span in the example, including two spans of the *same*
-  // step. The acceptance criterion is unqualified — source segments are exact
-  // and non-overlapping — and a step double-claiming its own text is a
-  // duplicated segment like any other. It is also the one that hides best:
-  // `coveredCodeUnits` unions the duplication away, so no coverage figure
-  // moves, and nothing else in the pipeline would ever notice.
+  // One finding per **step pair**, not per span pair.
+  //
+  // The acceptance criterion is unqualified — source segments are exact and
+  // non-overlapping — and that includes two spans of the *same* step, whose
+  // pair is (i, i). What changed is the cardinality: a step with N mutually
+  // overlapping spans is one finding, not C(N, 2) of them.
+  //
+  // Two reasons, and the second is the serious one:
+  //
+  //  - #27 reports per step pair, so per span pair diverged from it. Every
+  //    shape the cross-track table pinned used at most two spans per step or
+  //    exactly one — the only shapes where the two formulations coincide — so
+  //    the divergence opened at the third span and went unseen.
+  //  - Per span pair is quadratic in *output*. One step with 4,000 identical
+  //    spans built 7,998,000 violation objects, and through `parseExampleCorpus`
+  //    each became a `DXC030` issue: 1,600 spans produced 1,279,201 issues and
+  //    253 MB of message strings, and 8,000 exhausted the heap. Output is now
+  //    bounded by the number of step pairs, which the step limit bounds in turn.
   //
   // A step citing two *disjoint* spans stays legal; that is why `sourceSpans`
   // is a list at all.
+  const reportedPairs = new Set<string>();
+  const stepIdByIndex = steps.map((entry) => entry.stepId);
+
   for (let i = 0; i < usableSpans.length; i += 1) {
     for (let j = i + 1; j < usableSpans.length; j += 1) {
       const left = usableSpans[i];
       const right = usableSpans[j];
+      const lowIndex = Math.min(left.stepIndex, right.stepIndex);
+      const highIndex = Math.max(left.stepIndex, right.stepIndex);
+      const pairKey = `${lowIndex}:${highIndex}`;
+      // Early exit: this pair of steps has already been reported once.
+      if (reportedPairs.has(pairKey)) continue;
       // Half-open ranges: [0,4) and [4,10) are adjacent, not overlapping.
       if (left.span.start < right.span.end && right.span.start < left.span.end) {
+        reportedPairs.add(pairKey);
         const region =
           `[${Math.max(left.span.start, right.span.start)}, ${Math.min(left.span.end, right.span.end)})`;
+        const lowRef = stepRef(stepIdByIndex[lowIndex], lowIndex);
+        const highRef = stepRef(stepIdByIndex[highIndex], highIndex);
         violations.push(
           violation(
             'SPAN_OVERLAP',
-            right.stepId,
-            left.stepId === right.stepId
-              ? `step ${stepRef(left.stepId, left.stepIndex)} claims source code units ${region} twice`
-              : `steps ${stepRef(left.stepId, left.stepIndex)} and ${stepRef(right.stepId, right.stepIndex)} ` +
-                `both claim source code units ${region}`,
+            stepIdByIndex[highIndex],
+            lowIndex === highIndex
+              ? `step ${lowRef} claims overlapping source code units, including ${region}`
+              : `steps ${lowRef} and ${highRef} both claim source code units ${region}`,
           ),
         );
       }
@@ -576,7 +701,7 @@ export function validateDecompositionExample(example: DecompositionExample): Exa
   if (example.label === 'multi_step' && example.expectedSteps.length < 2) {
     collector.error(
       'DXC031',
-      `examples['${example.exampleId}'].expectedSteps`,
+      `examples[${stepRef(example.exampleId, 0)}].expectedSteps`,
       `labelled 'multi_step' but carries ${example.expectedSteps.length} step(s); a decomposition of size one ` +
         'is an atomic outcome, and scoring it as a correct decomposition credits a split nobody made',
     );
@@ -585,7 +710,7 @@ export function validateDecompositionExample(example: DecompositionExample): Exa
   if (example.label !== 'multi_step' && example.expectedSteps.length === 1) {
     collector.error(
       'DXC032',
-      `examples['${example.exampleId}'].expectedSteps`,
+      `examples[${stepRef(example.exampleId, 0)}].expectedSteps`,
       `labelled '${example.label}' but carries one step; the contract says expectedSteps is empty for ` +
         'atomic and do_not_split rows, and a single step there is a decomposition nobody made',
     );
