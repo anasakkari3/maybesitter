@@ -733,14 +733,26 @@ export function assessFeasibility(
       ));
     }
 
-    if (deadlineMs !== null && horizonValid && (deadlineMs > horizonEndMs || deadlineMs < horizonStartMs)) {
-      // Symmetric on purpose. The code's prose — "the plan simply does not reach
-      // that far, and extending the horizon would change the answer" — is as
-      // true of a deadline the horizon starts after as of one it ends before.
+    // One-sided, and the asymmetry is the whole content of the rule.
+    //
+    // A deadline at or before the horizon's first instant leaves no time inside
+    // the plan to do the work: deadlines are exclusive, so `<=` and not `<`.
+    //
+    // A deadline *after* the horizon ends is **not** reported at all. An earlier
+    // draft read the code symmetrically, on the ground that "the plan does not
+    // reach that far" is true in both directions. It is, and it is the wrong
+    // conclusion: an item due next month, in a two-week plan, is the *least*
+    // constrained thing in the request — the horizon binds first and the item
+    // schedules normally. Reporting it turned every long-dated commitment into
+    // an infeasibility, which is most of the forward-looking work a planner
+    // exists to place. The merge-owned cross-track test caught it from both
+    // sides at once: #29 emitted nothing, and #30's scheduler placed the item
+    // this file had just declared unplaceable.
+    if (deadlineMs !== null && horizonValid && deadlineMs <= horizonStartMs) {
       itemReasons.push(reason(
         'DEADLINE_BEYOND_HORIZON',
         item.itemId,
-        'the deadline falls outside the planning horizon',
+        'the deadline falls at or before the first instant of the planning horizon',
       ));
     }
 
@@ -780,14 +792,17 @@ export function assessFeasibility(
     //  2. the item's own window was already reported empty
     //     (DEADLINE_BEFORE_EARLIEST_START);
     //  3. a bound was taken from the horizon and the horizon is the thing that
-    //     is broken — either it is itself degenerate, or the deadline sits
-    //     before it starts, which was already reported as DEADLINE_BEYOND_HORIZON.
+    //     is broken — either it is itself degenerate, or the deadline sits at or
+    //     before its start, already reported as DEADLINE_BEYOND_HORIZON.
     //     Without (3) an inverted horizon manufactured a spurious finding
     //     against *every* item in the request.
     const emptyOwnWindow = itemReasons.some((found) => found.code === 'DEADLINE_BEFORE_EARLIEST_START');
     const borrowsBrokenHorizon = (earliestMs === null || deadlineMs === null) && !horizonValid;
+    // `<=`, tracking the rule above exactly: whenever DEADLINE_BEYOND_HORIZON is
+    // reported for a borrowed lower bound, the arithmetic it would feed is the
+    // consequence of that same finding.
     const deadlinePrecedesHorizon = earliestMs === null && deadlineMs !== null && horizonValid
-      && deadlineMs < horizonStartMs;
+      && deadlineMs <= horizonStartMs;
 
     if (
       effortMinutes !== null && effortMinutes > 0
