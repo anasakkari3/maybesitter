@@ -516,3 +516,121 @@ test('a blank title beside a valid span is EMPTY_STEP alone, not also unsourced'
   });
   assert.deepEqual(codes([blankButSpanned]), ['EMPTY_STEP']);
 });
+
+/* ── The audit clause covers step ids, not just source text ─────── */
+
+const HOSTILE_ID = 'Tell my therapist I relapsed on Tuesday, account 4111-1111-1111-1111';
+
+test('no violation detail interpolates a raw step id', () => {
+  // The contract says `detail` never contains raw user text and this module
+  // repeats the claim for itself; both were false. A stepId is caller-supplied,
+  // so on the engine-facing path this function documents — proposals from a
+  // model — it is exactly as untrusted as the source text.
+  //
+  // Five codes leaked it, one more than the review found: SPAN_OVERLAP
+  // interpolates *two* ids.
+  const hostile = (overrides: Partial<DecompositionStepProposal> = {}) =>
+    step({ stepId: HOSTILE_ID, ...overrides });
+
+  const cases: readonly (readonly DecompositionStepProposal[])[] = [
+    [hostile({ title: '   ' }), step({ stepId: 'z', title: 'Pay the deposit' })],
+    [hostile({ title: 'Pay the deposit', inferred: false }), step({ stepId: 'z', title: 'Pay the deposit' })],
+    [
+      step({ stepId: 'a', title: 'a', dependsOn: [{ dependsOnStepId: HOSTILE_ID, kind: 'temporal' }] }),
+      step({ stepId: 'z', title: 'Pay the deposit' }),
+    ],
+    [hostile({ title: 'a' }), hostile({ title: 'b' })],
+    [
+      hostile({ title: 'Book the venue by Friday', inferred: false, sourceSpans: [span(SOURCE, 'Book the venue by Friday')] }),
+      step({ stepId: 'other', title: 'by Friday', inferred: false, sourceSpans: [span(SOURCE, 'by Friday')] }),
+    ],
+    // SPAN_OVERLAP has two branches and they build their message separately.
+    // The case above is the cross-step one; this is the self-overlap one, which
+    // a first mutation pass showed was leaking unexercised.
+    [
+      hostile({
+        title: 'Book the venue by Friday',
+        inferred: false,
+        sourceSpans: [span(SOURCE, 'Book the venue by Friday'), span(SOURCE, 'by Friday')],
+      }),
+      step({ stepId: 'z', title: 'Pay the deposit' }),
+    ],
+  ];
+
+  let seen = 0;
+  for (const steps of cases) {
+    const violations = validateProposedSteps(SOURCE, steps, 'multi_step');
+    assert.ok(violations.length > 0, 'each case must actually produce a violation');
+    for (const violation of violations) {
+      seen += 1;
+      assert.equal(
+        violation.detail.includes('4111') || violation.detail.includes('therapist'),
+        false,
+        `${violation.code} leaked a raw step id into an audit-visible detail: ${violation.detail}`,
+      );
+    }
+  }
+  assert.ok(seen >= 6, `expected to exercise at least six violations, saw ${seen}`);
+});
+
+test('the stepId field still carries the real id, because the contract says it does', () => {
+  // Only `detail` is under the audit clause. `stepId` is typed to carry the id
+  // a violation is attributed to, and a consumer needs it to find the step.
+  const violations = validateProposedSteps(
+    SOURCE,
+    [step({ stepId: HOSTILE_ID, title: '   ' }), step({ stepId: 'z', title: 'Pay the deposit' })],
+    'multi_step',
+  );
+  assert.equal(violations[0].code, 'EMPTY_STEP');
+  assert.equal(violations[0].stepId, HOSTILE_ID);
+});
+
+test('a benign step id stays readable in the detail', () => {
+  // Redacting every id would make the messages useless for the ordinary case,
+  // which is every id this repository actually uses.
+  const violations = validateProposedSteps(
+    SOURCE,
+    [step({ stepId: 's1', title: '   ' }), step({ stepId: 's2', title: 'Pay the deposit' })],
+    'multi_step',
+  );
+  assert.ok(violations[0].detail.includes("'s1'"), violations[0].detail);
+});
+
+/* ── M2: SPLIT_ATOMIC means split, and one step is not a split ──── */
+
+test('SPLIT_ATOMIC does not fire for a single step', () => {
+  // The contract's wording is "a commitment marked do-not-split was *split*
+  // anyway". One step is not a split, and #27 fires only above one — so on this
+  // case #26 was the side that was wrong.
+  const one = [sourced('s1', 'Book the venue')];
+  for (const label of ['atomic', 'do_not_split'] as const) {
+    assert.deepEqual(
+      validateProposedSteps(SOURCE, one, label).map((violation) => violation.code),
+      [],
+      `${label} with one step must not report SPLIT_ATOMIC`,
+    );
+  }
+});
+
+test('SPLIT_ATOMIC still fires above one step', () => {
+  const two = [sourced('s1', 'Book the venue'), sourced('s2', 'send the invitations')];
+  for (const label of ['atomic', 'do_not_split'] as const) {
+    assert.deepEqual(validateProposedSteps(SOURCE, two, label).map((violation) => violation.code), [
+      'SPLIT_ATOMIC',
+    ]);
+  }
+});
+
+test('a single step on an unsplittable row is still caught, as a corpus defect', () => {
+  // Aligning the shared code must not silently drop the finding: the contract
+  // says expectedSteps is empty for atomic and do_not_split, so one step there
+  // is bad ground truth. It moves to this module's namespace for the same
+  // reason the under-split direction did — #27 cannot represent it, so a shared
+  // code would diverge again.
+  const result = validateDecompositionExample(
+    example({ label: 'do_not_split', expectedSteps: [sourced('s1', 'Book the venue')] }),
+  );
+  assert.deepEqual(result.violations.map((violation) => violation.code), []);
+  assert.equal(result.valid, false);
+  assert.deepEqual(result.corpusIssues.map((issue) => issue.code), ['DXC032']);
+});

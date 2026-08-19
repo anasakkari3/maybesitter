@@ -133,6 +133,48 @@ function coveredTextOf(sourceText: string, spans: readonly SourceSpan[]): string
     .join(' ');
 }
 
+/**
+ * Ids safe to interpolate into a violation `detail`.
+ *
+ * Deliberately narrow — the shape every id in this repository already has.
+ * Anything else is replaced by the step's position.
+ */
+const SAFE_STEP_ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+/**
+ * How a step is named inside a `detail`.
+ *
+ * `DecompositionViolation.detail` is documented in the contract as never
+ * carrying raw user text, and this module repeated the claim for itself. Both
+ * were false: a `stepId` is caller-supplied, and on the engine-facing path this
+ * file documents — proposals produced by a model — it is exactly as untrusted
+ * as the source text is. A step id of
+ * `Tell my therapist I relapsed on Tuesday, account 4111-…` went verbatim into
+ * five different messages.
+ *
+ * Redacting every id would make the messages useless for the ordinary case, so
+ * a benign id is kept and anything else falls back to the position, which
+ * locates the step just as well and carries nothing.
+ *
+ * The `stepId` *field* is untouched: the contract types it to carry the id a
+ * violation is attributed to, and a consumer needs it to find the step. The
+ * audit clause is about `detail`.
+ */
+function stepRef(stepId: unknown, index: number): string {
+  return typeof stepId === 'string' && SAFE_STEP_ID.test(stepId) ? `'${stepId}'` : `#${index}`;
+}
+
+/**
+ * The same, for a dependency target.
+ *
+ * An unknown target has no position to fall back on — that is what makes it
+ * unknown — so an unsafe one is described by length alone.
+ */
+function dependencyRef(stepId: unknown): string {
+  if (typeof stepId === 'string' && SAFE_STEP_ID.test(stepId)) return `'${stepId}'`;
+  return `an id of ${typeof stepId === 'string' ? stepId.length : 0} code units`;
+}
+
 export interface ExampleValidationResult {
   readonly exampleId: string;
   /** False when either list below is non-empty. */
@@ -200,28 +242,35 @@ export function validateProposedSteps(
   // overlap pass. A span that failed either is excluded: it does not reliably
   // denote a region of the text, so an overlap computed against it would be a
   // second report of the first defect.
-  const usableSpans: { readonly stepId: string; readonly span: SourceSpan }[] = [];
+  const usableSpans: {
+    readonly stepId: string;
+    readonly stepIndex: number;
+    readonly span: SourceSpan;
+  }[] = [];
 
+  let stepIndex = -1;
   for (const step of steps) {
+    stepIndex += 1;
     const stepId = step.stepId;
+    const ref = stepRef(stepId, stepIndex);
     const stepUsableSpans: SourceSpan[] = [];
     let stepHadUnusableSpan = false;
 
     if (seenStepIds.has(stepId)) {
       violations.push(
-        violation('DUPLICATE_STEP_ID', stepId, `step id '${stepId}' appears more than once in this decomposition`),
+        violation('DUPLICATE_STEP_ID', stepId, `step id ${ref} appears more than once in this decomposition`),
       );
     }
     seenStepIds.add(stepId);
 
     if (isEmptyTitle(step.title)) {
-      violations.push(violation('EMPTY_STEP', stepId, `step '${stepId}' has a blank title`));
+      violations.push(violation('EMPTY_STEP', stepId, `step ${ref} has a blank title`));
     } else if (isConnectiveOnly(step.title)) {
       violations.push(
         violation(
           'CONJUNCTION_ONLY',
           stepId,
-          `step '${stepId}' is a connective, not a step: a split artefact left behind by cutting on a conjunction`,
+          `step ${ref} is a connective, not a step: a split artefact left behind by cutting on a conjunction`,
         ),
       );
     }
@@ -231,7 +280,7 @@ export function validateProposedSteps(
         violation(
           'INFERRED_WITH_SPAN',
           stepId,
-          `step '${stepId}' claims to be inferred while citing ${step.sourceSpans.length} source span(s)`,
+          `step ${ref} claims to be inferred while citing ${step.sourceSpans.length} source span(s)`,
         ),
       );
     } else if (!step.inferred && step.sourceSpans.length === 0) {
@@ -239,13 +288,13 @@ export function validateProposedSteps(
         violation(
           'UNSOURCED_STEP',
           stepId,
-          `step '${stepId}' cites no source span and does not admit to being inferred`,
+          `step ${ref} cites no source span and does not admit to being inferred`,
         ),
       );
     }
 
     step.sourceSpans.forEach((span, index) => {
-      const where = `step '${stepId}' span[${index}]`;
+      const where = `step ${ref} span[${index}]`;
       if (!spanIsInRange(span, length)) {
         stepHadUnusableSpan = true;
         violations.push(
@@ -268,7 +317,7 @@ export function validateProposedSteps(
         );
         return;
       }
-      usableSpans.push({ stepId, span });
+      usableSpans.push({ stepId, stepIndex, span });
       stepUsableSpans.push(span);
     });
 
@@ -302,7 +351,7 @@ export function validateProposedSteps(
         violation(
           'UNSOURCED_STEP',
           stepId,
-          `step '${stepId}' has a title of ${step.title.length} code units that its ${stepUsableSpans.length} ` +
+          `step ${ref} has a title of ${step.title.length} code units that its ${stepUsableSpans.length} ` +
             'span(s) do not source; the spans check out and the title is not what they select',
         ),
       );
@@ -318,7 +367,7 @@ export function validateProposedSteps(
           violation(
             'INVENTED_TIMING',
             stepId,
-            `step '${stepId}' carries a blank statedTiming; a field that means "no timing" is null, and a blank ` +
+            `step ${ref} carries a blank statedTiming; a field that means "no timing" is null, and a blank ` +
               'string claims a timing while naming none',
           ),
         );
@@ -327,7 +376,7 @@ export function validateProposedSteps(
           violation(
             'INVENTED_TIMING',
             stepId,
-            `step '${stepId}' states a timing of ${step.statedTiming.length} code units that does not occur in the ` +
+            `step ${ref} states a timing of ${step.statedTiming.length} code units that does not occur in the ` +
               'source text; resolving a relative time against a clock is Capture\'s job, not a decomposer\'s',
           ),
         );
@@ -336,14 +385,14 @@ export function validateProposedSteps(
     if (step.statedOwner !== null) {
       if (step.statedOwner.trim().length === 0) {
         violations.push(
-          violation('INVENTED_OWNER', stepId, `step '${stepId}' carries a blank statedOwner; use null to name nobody`),
+          violation('INVENTED_OWNER', stepId, `step ${ref} carries a blank statedOwner; use null to name nobody`),
         );
       } else if (sourceText.indexOf(step.statedOwner) < 0) {
         violations.push(
           violation(
             'INVENTED_OWNER',
             stepId,
-            `step '${stepId}' names an owner of ${step.statedOwner.length} code units that does not occur in the source text`,
+            `step ${ref} names an owner of ${step.statedOwner.length} code units that does not occur in the source text`,
           ),
         );
       }
@@ -355,13 +404,13 @@ export function validateProposedSteps(
         // graph below. A self-loop *is* a cycle, so leaving it in would emit
         // CYCLIC_DEPENDENCY for the same edge and give #27 two rejections to
         // reconcile where there is one defect. The specific code wins.
-        violations.push(violation('SELF_DEPENDENCY', stepId, `step '${stepId}' depends on itself`));
+        violations.push(violation('SELF_DEPENDENCY', stepId, `step ${ref} depends on itself`));
       } else if (!stepIds.has(edge.dependsOnStepId)) {
         violations.push(
           violation(
             'UNKNOWN_DEPENDENCY',
             stepId,
-            `step '${stepId}' depends on '${edge.dependsOnStepId}', which is not a step in this decomposition`,
+            `step ${ref} depends on ${dependencyRef(edge.dependsOnStepId)}, which is not a step in this decomposition`,
           ),
         );
       }
@@ -390,8 +439,9 @@ export function validateProposedSteps(
             'SPAN_OVERLAP',
             right.stepId,
             left.stepId === right.stepId
-              ? `step '${left.stepId}' claims source code units ${region} twice`
-              : `steps '${left.stepId}' and '${right.stepId}' both claim source code units ${region}`,
+              ? `step ${stepRef(left.stepId, left.stepIndex)} claims source code units ${region} twice`
+              : `steps ${stepRef(left.stepId, left.stepIndex)} and ${stepRef(right.stepId, right.stepIndex)} ` +
+                `both claim source code units ${region}`,
           ),
         );
       }
@@ -427,7 +477,16 @@ export function validateProposedSteps(
  * the corpus, in the corpus's own namespace.
  */
 function detectSplitAtomic(label: DecompositionLabelKind, stepCount: number): DecompositionViolation | null {
-  if (label === 'multi_step' || stepCount === 0) return null;
+  // Above one, not above zero. The contract's wording is "a commitment marked
+  // do-not-split was *split* anyway", and one step is not a split — it is a
+  // decomposition that did not happen. #27 fires only above one, and on this
+  // case #26 was the side that was wrong.
+  //
+  // One step on an unsplittable row is still bad ground truth, since the
+  // contract says `expectedSteps` is empty for both labels. It is reported as
+  // `DXC032` on `corpusIssues`, for the same reason the under-split direction
+  // is: #27 cannot represent the shape, so a shared code would diverge again.
+  if (label === 'multi_step' || stepCount <= 1) return null;
   return violation('SPLIT_ATOMIC', null, `labelled '${label}' but carries ${stepCount} step(s)`);
 }
 
@@ -492,6 +551,15 @@ export function validateDecompositionExample(example: DecompositionExample): Exa
       `examples['${example.exampleId}'].expectedSteps`,
       `labelled 'multi_step' but carries ${example.expectedSteps.length} step(s); a decomposition of size one ` +
         'is an atomic outcome, and scoring it as a correct decomposition credits a split nobody made',
+    );
+  }
+
+  if (example.label !== 'multi_step' && example.expectedSteps.length === 1) {
+    collector.error(
+      'DXC032',
+      `examples['${example.exampleId}'].expectedSteps`,
+      `labelled '${example.label}' but carries one step; the contract says expectedSteps is empty for ` +
+        'atomic and do_not_split rows, and a single step there is a decomposition nobody made',
     );
   }
 
