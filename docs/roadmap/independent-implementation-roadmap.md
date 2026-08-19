@@ -150,7 +150,44 @@ integration and review rather than by the tracks themselves.
 - **[#23](https://github.com/anasakkari3/maybesitter/issues/23) — [S05][Quality] Add Priority shadow comparison telemetry**
   Compare current ordering and Priority v1 without changing what users see.
 
-### Sprint 06 — Decomposition
+### Sprint 06 — Decomposition ✅ DONE
+
+Merged 2026-08-19 via [#109](https://github.com/anasakkari3/maybesitter/pull/109). Design:
+`docs/superpowers/specs/2026-08-19-sprint-06-decomposition-design.md`.
+
+**Contracts now available** — `src/contracts/v1/decompositionContracts.ts`. `decomposition` is a
+registered entry in `INTELLIGENCE_MODULES`, so its audit events carry its own name and
+`MAYBESITTER_KILL_SWITCH_DECOMPOSITION` exists. Additive and unrouted, as Sprint 01's capture
+boundary was; the feature flag defaults off, so the rules detector is what runs.
+
+**Carried forward.**
+
+- `ConfirmedDecompositionStep` carries neither `proposedTitle` nor `disposition`, so a persisted
+  step cannot say what the engine proposed or whether the user rewrote it. The one real capability
+  lost when the two confirmation boundaries were consolidated into one.
+- An invalid proposal can be stored and shown; only writing is blocked. Admission is no longer the
+  gate it was.
+- The locked-test split holds one decomposable row, so held-out boundary figures rest on three
+  spans from a single example. The remedy is more seed rows, never tuned ids.
+- The human-reviewed corpus and the review log ship empty. Every row is `synthetic` and says so.
+- The consolidated state passes every gate but has not been through an independent review round;
+  the last one predates the consolidation.
+
+**Premises corrected rather than implemented.** The issues told each track to coordinate "through
+the contracts named in this issue" and named none — they predate any. #25's "state machine" was
+read as a pure reducer rather than an extension of `DomainState`, which Sprint 07's scheduler
+reads. #26's "reviewed dataset" ships synthetic-only, the rule Sprint 04 set with its empty
+judgment corpus.
+
+**The lesson, which cost four review rounds to learn.** Two independent implementations of a
+*judgement* are a check on each other — that is what the cross-track test exists for, and it
+earned its place. Two independent copies of *data* are a gap waiting for whichever caller falls
+into it. Three copies of the connective lexicon disagreed on 20 of 31 probed titles; two copies of
+a span limit differed by a factor of three; the `SPAN_OVERLAP` cardinality diverged from the third
+span onward. Each is now single-sourced in `lib/decomposition/shared/`. The related trap: a
+cross-track table that samples one input per code proves the code exists, not that two
+implementations mean the same thing by it — and the one code it omitted was the one that stayed
+divergent.
 
 _Advisory: operates on commitments from Life-State (Sprint 02); stub/mock otherwise._
 
