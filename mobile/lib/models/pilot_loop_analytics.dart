@@ -8,7 +8,9 @@ enum PilotLoopAnalyticsEventName {
   voiceCaptureAbandoned('voice_capture_abandoned'),
   widgetImpression('widget_impression'),
   widgetTap('widget_tap'),
-  deepLinkOpened('deep_link_opened');
+  deepLinkOpened('deep_link_opened'),
+  softAwarenessAction('soft_awareness_action'),
+  softAwarenessMissed('soft_awareness_missed');
 
   final String wireName;
 
@@ -125,6 +127,26 @@ class PilotLoopAnalyticsEvent {
     );
   }
 
+  factory PilotLoopAnalyticsEvent.softAwarenessAction({
+    required String action,
+    required PilotPresenceFeatureFlags flags,
+  }) {
+    return PilotLoopAnalyticsEvent(
+      name: PilotLoopAnalyticsEventName.softAwarenessAction,
+      properties: {'action': action, ...flagProperties(flags)},
+    );
+  }
+
+  factory PilotLoopAnalyticsEvent.softAwarenessMissed({
+    required String outcome,
+    required PilotPresenceFeatureFlags flags,
+  }) {
+    return PilotLoopAnalyticsEvent(
+      name: PilotLoopAnalyticsEventName.softAwarenessMissed,
+      properties: {'outcome': outcome, ...flagProperties(flags)},
+    );
+  }
+
   static Map<String, Object?> flagProperties(PilotPresenceFeatureFlags flags) {
     return {
       'flagWidget': flags.widget,
@@ -162,6 +184,14 @@ class PilotLoopAnalyticsEvent {
       if (entry.key == 'source' &&
           !const {'app', 'widget', 'external'}.contains(value)) {
         throw ArgumentError('Analytics source is not canonical');
+      }
+      if (entry.key == 'action' &&
+          !const {'aware', 'snooze', 'done'}.contains(value)) {
+        throw ArgumentError('Soft awareness action is not canonical');
+      }
+      if (entry.key == 'outcome' &&
+          !const {'ignored', 'missed'}.contains(value)) {
+        throw ArgumentError('Soft awareness outcome is not canonical');
       }
     }
   }

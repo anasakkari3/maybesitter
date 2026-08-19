@@ -23,6 +23,9 @@ class MaybesitterApp extends ConsumerStatefulWidget {
 class _MaybesitterAppState extends ConsumerState<MaybesitterApp> {
   final WidgetDeepLinkService _deepLinkService = const WidgetDeepLinkService();
   ProviderSubscription<AsyncValue<List<Commitment>>>? _presenceSubscription;
+  ProviderSubscription<Object?>? _awarenessSettingsSubscription;
+  ProviderSubscription<Object?>? _awarenessRoutineSubscription;
+  ProviderSubscription<Object?>? _awarenessFlagsSubscription;
 
   @override
   void initState() {
@@ -39,8 +42,21 @@ class _MaybesitterAppState extends ConsumerState<MaybesitterApp> {
         final commitments = next.valueOrNull;
         if (commitments == null) return;
         unawaited(publisher.publishWidgetSnapshot(commitments));
+        _syncSoftAwarenessSchedules(commitments);
       },
       fireImmediately: true,
+    );
+    _awarenessSettingsSubscription = ref.listenManual(
+      appSettingsProvider,
+      (_, __) => _syncSoftAwarenessSchedules(),
+    );
+    _awarenessRoutineSubscription = ref.listenManual(
+      routineProfileProvider,
+      (_, __) => _syncSoftAwarenessSchedules(),
+    );
+    _awarenessFlagsSubscription = ref.listenManual(
+      pilotPresenceFeatureFlagsProvider,
+      (_, __) => _syncSoftAwarenessSchedules(),
     );
     _deepLinkService.start((location) {
       if (!mounted) return;
@@ -52,6 +68,9 @@ class _MaybesitterAppState extends ConsumerState<MaybesitterApp> {
   @override
   void dispose() {
     _presenceSubscription?.close();
+    _awarenessSettingsSubscription?.close();
+    _awarenessRoutineSubscription?.close();
+    _awarenessFlagsSubscription?.close();
     _deepLinkService.dispose();
     super.dispose();
   }
@@ -130,6 +149,17 @@ class _MaybesitterAppState extends ConsumerState<MaybesitterApp> {
       String path when path.startsWith('/commitments/') => 'commitment_detail',
       _ => null,
     };
+  }
+
+  void _syncSoftAwarenessSchedules([List<Commitment>? commitments]) {
+    final currentCommitments =
+        commitments ?? ref.read(commitmentsStreamProvider).valueOrNull;
+    if (currentCommitments == null) return;
+    unawaited(
+      ref
+          .read(softAwarenessReminderEngineProvider)
+          .syncCommitments(currentCommitments),
+    );
   }
 }
 

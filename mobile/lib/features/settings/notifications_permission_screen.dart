@@ -5,6 +5,7 @@ import '../../design_system/components/maybesitter_app_bar.dart';
 import '../../design_system/components/maybesitter_scaffold.dart';
 import '../../design_system/components/permission_education_card.dart';
 import '../../design_system/tokens/spacing.dart';
+import '../../services/contracts/notification_service.dart';
 import '../../services/providers.dart';
 
 class NotificationsPermissionScreen extends ConsumerWidget {
@@ -29,9 +30,14 @@ class NotificationsPermissionScreen extends ConsumerWidget {
         child: PermissionEducationCard(
           onRequestPermission: () async {
             final service = ref.read(notificationServiceProvider);
-            await service.requestPermission();
-            notifier.toggleNotifications(true);
-            if (context.mounted) Navigator.pop(context);
+            final permission = await service.requestPermission();
+            notifier.toggleNotifications(
+              permission == NotificationPermissionState.granted,
+            );
+            if (permission == NotificationPermissionState.granted &&
+                context.mounted) {
+              Navigator.pop(context);
+            }
           },
           onSkip: () => Navigator.pop(context),
         ),
