@@ -246,11 +246,44 @@ test('SPAN_OVERLAP covers two spans belonging to the same step', () => {
   // colliding: the acceptance criterion "source segments are exact and
   // non-overlapping" is unqualified, and #26's evaluator counts it the same way.
   const doubleClaiming = step({
-    title: 'Book the venue the venue',
     sourceSpans: [at(SOURCE, 'Book the venue'), { start: 5, end: 14, text: 'the venue' }],
   });
   assert.deepEqual(codes(validateDecomposition({ sourceText: SOURCE, steps: [doubleClaiming, second] })), [
     'SPAN_OVERLAP',
+  ]);
+});
+
+test('title coverage is judged against the merged span range, so duplication is billed once', () => {
+  // `[0,14)` and `[5,14)` jointly cover exactly `Book the venue`, so the title
+  // *is* sourced and the only defect is the duplication. Concatenating the span
+  // texts instead would read the title as `Book the venue the venue` and add a
+  // second code for the same mistake — a caller handed two codes for one
+  // mistake cannot tell whether it has one problem or two.
+  const doubleClaiming = step({
+    title: 'Book the venue',
+    sourceSpans: [at(SOURCE, 'Book the venue'), { start: 5, end: 14, text: 'the venue' }],
+  });
+  const reported = validateDecomposition({ sourceText: SOURCE, steps: [doubleClaiming, second] });
+  assert.deepEqual(codes(reported), ['SPAN_OVERLAP']);
+  assert.equal(reported.length, 1, 'one defect, one violation');
+});
+
+test('merged coverage joins spans that meet, and still rejects a gap the title papers over', () => {
+  // Touching ranges merge, so a title spelling the joined text is sourced.
+  const touching = step({
+    title: 'Book the',
+    sourceSpans: [{ start: 0, end: 4, text: 'Book' }, { start: 4, end: 8, text: ' the' }],
+  });
+  assert.deepEqual(validateDecomposition({ sourceText: SOURCE, steps: [touching] }), []);
+
+  // Disjoint ranges stay separate, so a title claiming the words *between* them
+  // is still unsourced.
+  const straddling = step({
+    title: 'Book the venue and send',
+    sourceSpans: [at(SOURCE, 'Book'), at(SOURCE, 'send the invitations')],
+  });
+  assert.deepEqual(codes(validateDecomposition({ sourceText: SOURCE, steps: [straddling] })), [
+    'UNSOURCED_STEP',
   ]);
 });
 

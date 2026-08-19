@@ -27,7 +27,10 @@
  *     `UNSOURCED_STEP`, which covers both shapes the name implies: a step with
  *     no span at all, and a step whose title its spans do not source. #26's
  *     evaluator counts them under the same code, so the two agree by
- *     construction rather than by coincidence.
+ *     construction rather than by coincidence. Coverage is measured against the
+ *     *merged* span range, whitespace collapsed — the standard #26 states — so
+ *     a step that duplicates one of its own ranges is billed for the
+ *     duplication alone.
  *
  *  3. **`detail` never quotes the input.** Violations travel with proposals and
  *     into audit records, and a message that echoes the offending text would
@@ -82,6 +85,39 @@ export interface DecompositionValidationInput {
 /** Collapse runs of whitespace so a re-spaced title is not a different claim. */
 function collapseWhitespace(value: string): string {
   return value.trim().replace(/\s+/g, ' ');
+}
+
+/**
+ * The text a step's spans jointly cover, with overlapping and touching ranges
+ * merged first.
+ *
+ * Merging rather than concatenating is what keeps one defect to one code. A
+ * step claiming `[0,14)` and `[5,14)` has duplicated a range, and `SPAN_OVERLAP`
+ * already says so; concatenating the two texts would read its coverage as
+ * "Book the venue the venue" and bill the same mistake a second time as an
+ * unsourced title. Under merging the pair covers exactly `Book the venue`, so
+ * the title is sourced and only the duplication is reported.
+ *
+ * Disjoint ranges stay separate and are joined by a single space, so a title
+ * cannot quietly claim the words sitting in the gap between two spans.
+ */
+function mergedSpanText(sourceText: string, spans: readonly SourceSpan[]): string {
+  const ordered = spans.slice().sort((left, right) => left.start - right.start || left.end - right.end);
+  const merged: { start: number; end: number }[] = [];
+  for (const span of ordered) {
+    const last = merged[merged.length - 1];
+    // `<=` so ranges that merely touch are merged too: `[0,4)` and `[4,8)` cover
+    // one continuous stretch of the source, and treating them as two would
+    // depend on where the caller happened to cut.
+    if (last && span.start <= last.end) {
+      last.end = Math.max(last.end, span.end);
+      continue;
+    }
+    merged.push({ start: span.start, end: span.end });
+  }
+  return collapseWhitespace(
+    merged.map((range) => sourceText.slice(range.start, range.end)).join(' '),
+  );
 }
 
 function normalizeConnective(title: string): string {
@@ -216,8 +252,7 @@ export function validateDecomposition(
       // the reviewer to the wrong place. An edited title is confirmed at the
       // boundary, never re-validated here: the user rewrote the wording, and a
       // user is allowed to say something the engine did not read.
-      const spanned = collapseWhitespace(step.sourceSpans.map((span) => span.text).join(' '));
-      if (collapseWhitespace(step.title) !== spanned) {
+      if (collapseWhitespace(step.title) !== mergedSpanText(sourceText, step.sourceSpans)) {
         add(
           'UNSOURCED_STEP',
           step.stepId,
