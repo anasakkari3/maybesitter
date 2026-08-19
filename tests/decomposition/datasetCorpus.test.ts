@@ -698,3 +698,54 @@ test('a row with no spans does not require a span attestation', () => {
   assert.equal(noSpans.label === 'atomic' || noSpans.label === 'do_not_split', true);
   assert.equal(isBackingReview(noSpans, review({ exampleId: noSpans.exampleId, spansVerified: false })), true);
 });
+
+/* ── M-d: the corpus gate reports, it does not throw ────────────── */
+
+test('a malformed step in a corpus file is reported, not thrown', () => {
+  // A gate that throws instead of reporting is not a gate. Every one of these
+  // came out of parseExampleCorpus as a raw TypeError, from the function this
+  // module documents as the ingestion point for anything arriving as JSON.
+  const row = JSON.parse(JSON.stringify(SEED.examples.filter((e) => e.expectedSteps.length >= 2)[0]));
+  const withSteps = (expectedSteps: unknown) => ({
+    contractVersion: '1.0.0',
+    schema: 'decomposition-v1',
+    role: 'seed',
+    note: 'n',
+    examples: [{ ...row, expectedSteps }],
+  });
+
+  const malformed: readonly (readonly [string, unknown])[] = [
+    ['a null step', [null]],
+    ['a string step', ['x']],
+    ['a missing sourceSpans', [{ ...row.expectedSteps[0], sourceSpans: undefined }]],
+    ['a missing dependsOn', [{ ...row.expectedSteps[0], dependsOn: undefined }]],
+    ['a numeric title', [{ ...row.expectedSteps[0], title: 42 }]],
+    ['a null span', [{ ...row.expectedSteps[0], sourceSpans: [null] }]],
+    ['a numeric statedTiming', [{ ...row.expectedSteps[0], statedTiming: 42 }]],
+    ['a non-array expectedSteps', 'not-an-array'],
+    ['a non-numeric span offset', [{ ...row.expectedSteps[0], sourceSpans: [{ start: 'x', end: 4, text: 'Book' }] }]],
+    ['a non-boolean inferred', [{ ...row.expectedSteps[0], inferred: 'yes' }]],
+    ['a malformed dependency edge', [{ ...row.expectedSteps[0], dependsOn: [{ kind: 'temporal' }] }]],
+  ];
+
+  for (const [name, expectedSteps] of malformed) {
+    let parsed;
+    try {
+      parsed = parseExampleCorpus(withSteps(expectedSteps));
+    } catch (error) {
+      assert.fail(`${name} threw instead of reporting: ${(error as Error).message}`);
+    }
+    assert.equal(parsed.valid, false, `${name} must not parse as valid`);
+    assert.ok(
+      parsed.issues.some((issue) => issue.code === 'DXC033' || issue.code === 'DXC018'),
+      `${name} must report a corpus code, got [${parsed.issues.map((i) => i.code).join(', ')}]`,
+    );
+    assert.deepEqual(parsed.examples, [], `${name} must yield no rows`);
+  }
+});
+
+test('a well-formed corpus row still passes the shape gate', () => {
+  // The shape check must not reject the data that actually ships.
+  assert.equal(loadSeedCorpus().valid, true);
+  assert.equal(loadSeedCorpus().examples.length, 23);
+});

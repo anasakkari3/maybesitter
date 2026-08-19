@@ -435,9 +435,25 @@ disagreement, and treating it as a conflict pushes a reviewer to guess rather th
 Stated here rather than discovered later. None of these is a defect in the code; each is a
 consequence of the corpus being 23 synthetic rows.
 
+### The manifest declares 70/15/15 and the split is 52/13/35
+
+Read the `weights` field as *the rule*, never as *the outcome*. The committed manifest declares
+`{train: 70, valid: 15, lockedTest: 15}` and its `counts` are `{train: 12, valid: 3, locked-test: 8}`
+— 52% / 13% / 35% over 23 rows.
+
+Nothing is wrong. The bucketing was independently checked over 100,000 synthetic ids and lands at
+69.91 / 15.05 / 15.04, with per-bucket counts of 932–1070 against an expected 1000; the observed 8
+locked-test rows is a ≈2.7σ small-sample tail. That is the price of assignment being a pure function
+of the example id, and it is the right price — the alternative re-points the held-out set every time
+a row is added.
+
+But **do not read 70/15/15 and trust it as a description of this corpus.** The declared weights and
+the actual counts are different facts, and only `counts` and `members` describe what is in the
+splits today. The consequence follows immediately.
+
 ### The locked-test split cannot answer the boundary question
 
-Per-id hashing put **one** multi-step row in the held-out split. So on locked-test:
+The same variance put **one** multi-step row in the held-out split — 1 of 8. So on locked-test:
 
 | Figure | Denominator today | Usable? |
 |---|---|---|
@@ -453,7 +469,12 @@ deleted.
 **The remedy is more seed rows — never ids tuned to move existing rows between splits.** A row whose
 split moves was never held out, and hand-tuning ids to "fix" the balance destroys the one property
 the digest scheme exists to provide. Adding rows is safe precisely because assignment is per-id:
-existing rows do not move.
+existing rows do not move, and the counts converge on the declared weights as the corpus grows.
+
+Equally: do not "fix" the gap by editing `weights` to match the counts. The weights are the rule the
+assignment follows; rewriting them to describe an outcome would make the manifest self-consistent
+and meaningless, and `verifySplitManifest` pins them to `DEFAULT_SPLIT_WEIGHTS` (`DSM025`) precisely
+so that cannot happen quietly.
 
 ### Every number in this pipeline is a property of the pipeline
 

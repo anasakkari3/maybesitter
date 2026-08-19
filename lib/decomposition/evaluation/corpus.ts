@@ -393,6 +393,103 @@ const EXAMPLE_KEYS: readonly string[] = Object.freeze([
   'note',
 ]);
 
+const STEP_KEYS: readonly string[] = Object.freeze([
+  'stepId',
+  'title',
+  'sourceSpans',
+  'inferred',
+  'dependsOn',
+  'statedTiming',
+  'statedOwner',
+]);
+
+const SPAN_KEYS: readonly string[] = Object.freeze(['start', 'end', 'text']);
+
+/**
+ * Shape-checks one `expectedSteps` element before anything reads it.
+ *
+ * `validateDecompositionExample` takes a typed `DecompositionExample` and
+ * trusts its shape, which is correct for a typed caller and wrong for JSON.
+ * Casting a parsed row straight to the type turned this function — the corpus
+ * gate, the trust boundary for everything arriving as a file — into a source of
+ * raw `TypeError`s: a null step, a numeric title, a missing `dependsOn` and
+ * four other shapes each crashed it. A gate that throws instead of reporting is
+ * not a gate, because the caller cannot tell a malformed file from a bug.
+ *
+ * Answers in this module's own `DXC0xx` vocabulary. The shared violation codes
+ * describe a decomposition that is wrong; these describe a file that is not a
+ * decomposition at all, and #27 never sees one.
+ */
+function validateStepShape(raw: unknown, path: string, collector: IssueCollector): boolean {
+  if (!isPlainObject(raw)) {
+    collector.error('DXC033', path, 'expected step must be an object');
+    return false;
+  }
+  for (const key of Object.keys(raw)) {
+    if (STEP_KEYS.indexOf(key) < 0) collector.error('DXC033', `${path}.${key}`, `unknown step field '${key}'`);
+  }
+
+  let ok = true;
+  const require = (condition: boolean, field: string, message: string) => {
+    if (!condition) {
+      collector.error('DXC033', `${path}.${field}`, message);
+      ok = false;
+    }
+  };
+
+  require(isNonEmptyString(raw.stepId), 'stepId', 'stepId must be a non-empty string');
+  require(typeof raw.title === 'string', 'title', 'title must be a string');
+  require(typeof raw.inferred === 'boolean', 'inferred', 'inferred must be a boolean');
+  require(
+    raw.statedTiming === null || typeof raw.statedTiming === 'string',
+    'statedTiming',
+    'statedTiming must be a string or null',
+  );
+  require(
+    raw.statedOwner === null || typeof raw.statedOwner === 'string',
+    'statedOwner',
+    'statedOwner must be a string or null',
+  );
+
+  if (!Array.isArray(raw.sourceSpans)) {
+    require(false, 'sourceSpans', 'sourceSpans must be an array');
+  } else {
+    raw.sourceSpans.forEach((span, index) => {
+      const spanPath = `${path}.sourceSpans[${index}]`;
+      if (!isPlainObject(span)) {
+        collector.error('DXC033', spanPath, 'span must be an object');
+        ok = false;
+        return;
+      }
+      for (const key of Object.keys(span)) {
+        if (SPAN_KEYS.indexOf(key) < 0) collector.error('DXC033', `${spanPath}.${key}`, `unknown span field '${key}'`);
+      }
+      if (!Number.isInteger(span.start) || !Number.isInteger(span.end) || typeof span.text !== 'string') {
+        collector.error('DXC033', spanPath, 'span needs integer start and end and a string text');
+        ok = false;
+      }
+    });
+  }
+
+  if (!Array.isArray(raw.dependsOn)) {
+    require(false, 'dependsOn', 'dependsOn must be an array');
+  } else {
+    raw.dependsOn.forEach((edge, index) => {
+      const edgePath = `${path}.dependsOn[${index}]`;
+      if (
+        !isPlainObject(edge) ||
+        !isNonEmptyString(edge.dependsOnStepId) ||
+        (edge.kind !== 'temporal' && edge.kind !== 'resource' && edge.kind !== 'informational')
+      ) {
+        collector.error('DXC033', edgePath, 'edge needs a dependsOnStepId and a kind of temporal|resource|informational');
+        ok = false;
+      }
+    });
+  }
+
+  return ok;
+}
+
 export interface ParseExampleCorpusOptions {
   /**
    * The reviews backing any `human_reviewed` row in this file.
@@ -529,6 +626,15 @@ export function parseExampleCorpus(
         'note is required, especially on a do_not_split row: why it must not split is the whole content of the label',
       );
     }
+
+    // Shape before semantics: `validateDecompositionExample` takes a typed
+    // example and trusts it, so a row that is not one must be stopped here
+    // rather than cast past the type system into a TypeError.
+    let shapeOk = true;
+    (row.expectedSteps as unknown[]).forEach((step, stepIndex) => {
+      if (!validateStepShape(step, `${path}.expectedSteps[${stepIndex}]`, collector)) shapeOk = false;
+    });
+    if (!shapeOk) return;
 
     const example = row as unknown as DecompositionExample;
     const validation = validateDecompositionExample(example);
