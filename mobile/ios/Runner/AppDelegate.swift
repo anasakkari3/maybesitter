@@ -9,8 +9,20 @@ import UIKit
   ) -> Bool {
     if let controller = window?.rootViewController as? FlutterViewController {
       PilotPresenceSharedStorePlugin.register(binaryMessenger: controller.binaryMessenger)
+      PilotDeepLinkPlugin.register(binaryMessenger: controller.binaryMessenger)
     }
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  override func application(
+    _ app: UIApplication,
+    open url: URL,
+    options: [UIApplication.OpenURLOptionsKey: Any] = [:]
+  ) -> Bool {
+    if PilotDeepLinkPlugin.handle(url: url) {
+      return true
+    }
+    return super.application(app, open: url, options: options)
   }
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {

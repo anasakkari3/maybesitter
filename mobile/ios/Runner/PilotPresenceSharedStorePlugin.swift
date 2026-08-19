@@ -1,10 +1,12 @@
 import Flutter
 import UIKit
+import WidgetKit
 
 final class PilotPresenceSharedStorePlugin {
   private static let channelName = "com.maybesitter.mobile/pilot_presence_shared_store"
   private static let appGroup = "group.com.maybesitter.maybesitterMobile"
   private static let snapshotKey = "pilot_presence_commitment_snapshot_v1"
+  private static let timelineKinds = ["MaybeSitterHomeWidget", "MaybeSitterLockScreenWidget"]
 
   static func register(binaryMessenger: FlutterBinaryMessenger) {
     let channel = FlutterMethodChannel(name: channelName, binaryMessenger: binaryMessenger)
@@ -47,12 +49,23 @@ final class PilotPresenceSharedStorePlugin {
         return
       }
       defaults.set(value, forKey: key)
-      result(defaults.synchronize())
+      let synchronized = defaults.synchronize()
+      reloadWidgetTimelines()
+      result(synchronized)
     case "removeString":
       defaults.removeObject(forKey: key)
+      _ = defaults.synchronize()
+      reloadWidgetTimelines()
       result(nil)
     default:
       result(FlutterMethodNotImplemented)
+    }
+  }
+
+  private static func reloadWidgetTimelines() {
+    guard #available(iOS 14.0, *) else { return }
+    for kind in timelineKinds {
+      WidgetCenter.shared.reloadTimelines(ofKind: kind)
     }
   }
 }
