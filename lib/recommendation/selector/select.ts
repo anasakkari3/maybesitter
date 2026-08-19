@@ -59,6 +59,7 @@ import { createHash } from 'node:crypto';
 
 import {
   RECOMMENDATION_CONTRACT_VERSION,
+  RECOMMENDATION_SCHEMA_VERSION,
   actionKey,
   bandForConfidence,
   checkRecommendation,
@@ -91,6 +92,7 @@ import { compareByCodePoint } from '../../planning/shared/compare';
 import {
   epochMsOrNull,
   generateCandidates,
+  validateSelectorConfig,
   type Candidate,
   type CandidateSet,
   type CommitmentSnapshot,
@@ -109,18 +111,20 @@ import {
 } from './policy';
 
 /**
- * The schema this module speaks, spelled out as a literal.
+ * The schema this module speaks — re-exported from the contract, not respelled.
  *
- * `recommendationContracts.ts` imports `MODULE_CONTRACT_VERSION` from
- * `moduleContracts.ts`, so importing `RECOMMENDATION_SCHEMA_VERSION` *into*
- * `moduleContracts.ts` would close a cycle that ESM resolves by evaluating the
- * contract while `moduleContracts`'s body has not run — a TDZ `ReferenceError`
- * at import time that `tsc` reports nothing about. The `recommendation`
- * descriptor therefore spells the string out, and
- * `tests/contract/intelligenceModuleBoundaries.test.ts` pins the two spellings
- * together. This constant is the module-side half of that pin.
+ * It was a third hand-written `'recommendation-v1'` literal, justified by the
+ * TDZ cycle. That justification does not apply here: the cycle is between
+ * `moduleContracts.ts` and `recommendationContracts.ts`, and **`lib/` sits
+ * outside it** — this file already imports the contract for a dozen other
+ * names, so importing one more closes nothing. Only the descriptor in
+ * `moduleContracts.ts` needs the literal, and
+ * `tests/contract/intelligenceModuleBoundaries.test.ts` pins that one against
+ * `RECOMMENDATION_SCHEMA_VERSION`. A third spelling that no test compared
+ * against the other two was a copy of a constant waiting for one of them to
+ * move.
  */
-export const RECOMMENDATION_SELECTOR_SCHEMA = 'recommendation-v1' as const;
+export const RECOMMENDATION_SELECTOR_SCHEMA = RECOMMENDATION_SCHEMA_VERSION;
 
 /** The version of the canonical input encoding, prefixed into every digest. */
 export const RECOMMENDATION_INPUT_DIGEST_VERSION = 'recommendation-digest-v1' as const;
@@ -546,8 +550,11 @@ export function selectRecommendation(
   config: RecommendationSelectorConfig = DEFAULT_RECOMMENDATION_SELECTOR_CONFIG,
 ): RecommendationSelection {
   const set = generateCandidates(input, config);
-  const digest = selectorInputDigest(input, config);
   const nowMs = epochMsOrNull(input.now) as number;
+  validateSelectorConfig(config, nowMs);
+  // Only now. `RECOMMENDATION_INPUT_POLICY.digestAfterStaticPass`: hash the
+  // input after deciding what is wrong with it, never before.
+  const digest = selectorInputDigest(input, config);
   const scopeNode = set.scope.commitmentsNodeId;
 
   if (!config.enabled) {
@@ -575,6 +582,30 @@ export function selectRecommendation(
       ageMinutes === null
         ? 'the projection this run would have read does not state a parseable computation instant'
         : `the projection this run read was computed ${Math.round(ageMinutes)} minutes from the evaluation instant, outside the ${config.maxInputAgeMinutes}-minute window`,
+      [scopeNode],
+      0,
+    );
+  }
+
+  // The projection has to be able to say what the scope contains before this
+  // module may claim anything about absence. `only_candidate.attested` means
+  // "there was genuinely nothing else" and `NO_ELIGIBLE_CANDIDATE` means "there
+  // is nothing to do"; both cited `n-scope-commitments` without ever reading
+  // its `known` flag, so against an unknown projection they rested on an
+  // `{kind: 'absent'}` node — a claim of *absence of knowledge* presented as
+  // evidence of *absence*. That also falsified this module's own reason for
+  // requiring `lifeState` at all, which is Sprint 02's known-versus-unknown
+  // distinction. Reading it fails closed, and Sprint 02 guarantees
+  // `commitments` is known-zero whenever a projection exists, so this path is
+  // reached only by a malformed one.
+  if (!input.lifeState.commitments.known) {
+    return withheld(
+      input,
+      config,
+      set,
+      digest,
+      'INSUFFICIENT_EVIDENCE',
+      'the projection this run reads cannot say what this scope contains, so nothing about absence is claimable',
       [scopeNode],
       0,
     );

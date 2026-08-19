@@ -324,12 +324,22 @@ test('a hard-excluded candidate never becomes an option, whatever it scores', ()
 });
 
 test('the four hard-constraint codes are emitted in the pilot-comparable precedence order', () => {
+  // `BLOCKED_BY_DEPENDENCY` is absent here even though two blockers were passed:
+  // the candidate is archived, and "waiting on a prerequisite" borrows its whole
+  // meaning from the commitment still being live. One defect, one code.
   const codes = hardExclusionCodes(
     commitment('c-x', { confirmedAt: null, status: 'archived' }),
     null,
     2,
   );
-  assert.deepEqual(codes, ['NOT_CONFIRMED', 'ALREADY_CLOSED', 'BLOCKED_BY_DEPENDENCY']);
+  assert.deepEqual(codes, ['NOT_CONFIRMED', 'ALREADY_CLOSED']);
+
+  // Nothing wider is suppressed: an unconfirmed *open* commitment really is
+  // also blocked, and both have to change before it can be offered.
+  assert.deepEqual(
+    hardExclusionCodes(commitment('c-w', { confirmedAt: null, status: 'active' }), null, 2),
+    ['NOT_CONFIRMED', 'BLOCKED_BY_DEPENDENCY'],
+  );
 
   const withInvalidTime = hardExclusionCodes(commitment('c-y', { dueAt: 'nope' }), null, 0);
   assert.deepEqual(withInvalidTime, ['INVALID_SOURCE_TIME']);
@@ -666,4 +676,151 @@ test('every outcome this module can produce passes the contract checker', () => 
   }
   // The sweep is not vacuous: it covered more than one outcome shape.
   assert.ok(seen.size >= 4, `expected several outcome shapes, saw ${Array.from(seen).sort().join(', ')}`);
+});
+
+/* ── The untyped boundary ────────────────────────────────────────── */
+
+test('an absent optional field is read as absent, not as a present value', () => {
+  // `=== null` is a strict test and a missing key is `undefined`. A payload with
+  // no `confirmedAt` key used to be *offered*, with the graph asserting
+  // `ELIGIBLE_FROM_CONFIRMATION: {flag: true}` positively and the `confirmed_at`
+  // observation carrying `{kind: 'instant'}` with no `value` — a shape
+  // `EvidenceClaim` does not admit — while `checkRecommendation` reported zero
+  // defects, because none of that is a condition its taxonomy names.
+  const missingKey = {
+    commitmentId: 'c-x',
+    status: 'active',
+    dueAt: '2026-08-18T09:00:00.000Z',
+    remindAt: null,
+    importance: 'high',
+    blockedByCommitmentIds: [],
+    planItemId: null,
+    decompositionProposalId: null,
+    decompositionStepId: null,
+  } as unknown as CommitmentSnapshot;
+
+  const set = generateCandidates(request({ commitments: [missingKey] }), DEFAULT_RECOMMENDATION_SELECTOR_CONFIG);
+  assert.deepEqual(set.candidates[0].hardExclusions, ['NOT_CONFIRMED']);
+
+  const selection = selectRecommendation(request({ commitments: [missingKey] }));
+  assert.deepEqual(selection.defects, []);
+  assert.equal(selection.recommendation.outcome, 'withheld');
+
+  const eligible = selection.recommendation.evidence.nodes.filter(
+    (node) => node.kind === 'derived' && node.rule === 'ELIGIBLE_FROM_CONFIRMATION',
+  )[0];
+  assert.deepEqual(eligible.claim, { kind: 'flag', value: false });
+
+  const observed = selection.recommendation.evidence.nodes.filter(
+    (node) => node.kind === 'observed' && node.source.kind === 'commitment' && node.source.field === 'confirmed_at',
+  )[0];
+  assert.deepEqual(observed.claim, { kind: 'absent', reason: 'NO_DATA' });
+});
+
+test('a commitment with no usable id or an unknown status is refused, not guessed at', () => {
+  for (const broken of [
+    { commitmentId: '   ' },
+    { commitmentId: undefined },
+    { status: 'somewhere_else' },
+  ] as unknown as Partial<CommitmentSnapshot>[]) {
+    assert.throws(
+      () => selectRecommendation(request({ commitments: [{ ...commitment('c-a'), ...broken }] })),
+      (error: unknown) =>
+        error instanceof RecommendationInputError && error.field === 'commitments',
+      `expected a classified refusal for ${JSON.stringify(broken)}`,
+    );
+  }
+});
+
+test('an unusable config value is refused by name rather than as a raw error', () => {
+  const good = request({ commitments: [commitment('c-a', { dueAt: '2026-08-18T09:00:00.000Z', importance: 'high' })] });
+  for (const override of [
+    { ttlMinutes: Number.NaN },
+    { ttlMinutes: Number.POSITIVE_INFINITY },
+    { ttlMinutes: 0 },
+    { ttlMinutes: -120 },
+    { ttlMinutes: 1e15 },
+    { dueSoonHours: Number.NaN },
+    { planSlotImminentMinutes: -1 },
+    { maxInputAgeMinutes: Number.NaN },
+  ]) {
+    assert.throws(
+      () => selectRecommendation(good, { ...DEFAULT_RECOMMENDATION_SELECTOR_CONFIG, ...override }),
+      (error: unknown) => error instanceof RecommendationInputError && error.field === 'config',
+      `expected a classified refusal for ${JSON.stringify(override)}`,
+    );
+  }
+  // `-120` in particular used to produce a recommendation valid at no instant at
+  // all with zero reported defects: `EXPIRY_NOT_AFTER_BASIS` is a staleness code,
+  // so `checkRecommendation` cannot see it.
+});
+
+test('an instant with no explicit offset is refused, and that is a stated divergence from the pilot', () => {
+  // #33's `INSTANT_PATTERN` requires `Z` or `±HH:MM` before `Date.parse` is
+  // reached, because an offset-less date-time is host-local. The same request
+  // used to produce OVERDUE/0.9 under TZ=UTC and DUE_SOON/0.7 under
+  // TZ=America/Los_Angeles with an identical inputDigest.
+  const set = generateCandidates(
+    request({ commitments: [commitment('c-a', { dueAt: '2026-08-19T11:00:00' })] }),
+    DEFAULT_RECOMMENDATION_SELECTOR_CONFIG,
+  );
+  assert.deepEqual(set.candidates[0].hardExclusions, ['INVALID_SOURCE_TIME']);
+
+  // The pilot accepts it — bare `Date.parse` — so this is the one class where
+  // the two readings differ, and it differs in the safe direction.
+  const baseline = scoreBaselineCandidate(
+    {
+      commitmentId: 'c-a',
+      title: 'title',
+      confirmed: true,
+      status: 'active',
+      dueAt: '2026-08-19T11:00:00',
+      remindAt: null,
+      importance: null,
+      explicitEffortMinutes: null,
+    },
+    new Date(NOW),
+  );
+  assert.equal(baseline.exclusionReason, null, 'the pilot is expected to accept it; that is the divergence');
+
+  // A malformed `now` is refused outright rather than silently host-local.
+  assert.throws(
+    () => selectRecommendation(request({ now: '2026-08-19T12:00:00' })),
+    (error: unknown) => error instanceof RecommendationInputError && error.field === 'now',
+  );
+});
+
+test('a blocker this request did not supply leaves an absent observation behind', () => {
+  // The rule is unchanged — an unsupplied blocker cannot block, because
+  // `BLOCKED_BY_DEPENDENCY` would have to cite an observation that does not
+  // exist — but the drop is now visible instead of living only in a comment.
+  const input = request({
+    commitments: [
+      commitment('c-alpha', {
+        dueAt: '2026-08-18T09:00:00.000Z',
+        importance: 'high',
+        blockedByCommitmentIds: ['c-not-supplied', 'c-also-missing', 'c-not-supplied'],
+      }),
+    ],
+  });
+  const set = generateCandidates(input, DEFAULT_RECOMMENDATION_SELECTOR_CONFIG);
+  const candidate = set.candidates[0];
+  assert.deepEqual(candidate.hardExclusions, []);
+  assert.deepEqual(candidate.unresolvedBlockerIds, ['c-also-missing', 'c-not-supplied']);
+  assert.equal(candidate.evidence.unresolvedBlockerNodeIds.length, 2, 'a repeated id is one observation');
+
+  for (const nodeId of candidate.evidence.unresolvedBlockerNodeIds) {
+    const node = set.evidence.nodes.filter((row) => row.nodeId === nodeId)[0];
+    assert.equal(node.kind, 'observed');
+    assert.deepEqual(node.claim, { kind: 'absent', reason: 'NO_DATA' });
+    assert.equal(node.source.kind, 'commitment');
+  }
+  assert.deepEqual(checkEvidenceGraph(set.evidence), []);
+  // And it survives into the emitted recommendation, so an audit record shows it.
+  const selection = selectRecommendation(input);
+  assert.deepEqual(selection.defects, []);
+  const carried = selection.recommendation.evidence.nodes.filter(
+    (node) => candidate.evidence.unresolvedBlockerNodeIds.indexOf(node.nodeId) !== -1,
+  );
+  assert.equal(carried.length, 2);
 });

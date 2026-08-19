@@ -217,7 +217,7 @@ test('the recommendation does not depend on the order the object keys were writt
   // `JSON.stringify` — would differ here while every value stayed equal. That is
   // the exact defect Sprint 07 shipped.
   const forward = request();
-  const backwardKeys: RecommendationSelectorInput = {
+  const backwardKeys: { -readonly [K in keyof RecommendationSelectorInput]: RecommendationSelectorInput[K] } = {
     plan: PLAN,
     priorityScores: SCORES.slice().map((score) => ({
       policyVersion: score.policyVersion,
@@ -243,6 +243,18 @@ test('the recommendation does not depend on the order the object keys were writt
     now: NOW,
     recommendationId: 'rec-1',
     scopeId: 'scope-1',
+  };
+  // The plan is part of this, and it was the half that was missing. The earlier
+  // version of this test rebuilt the keys of `commitments` and `priorityScores`
+  // and passed `plan: PLAN` through untouched — so the one object the selector
+  // stored by reference was the one object whose key order was never varied.
+  backwardKeys.plan = {
+    ...PLAN,
+    scheduled: PLAN.scheduled.map((row) => ({
+      reservedInterval: { endsAt: row.reservedInterval.endsAt, startsAt: row.reservedInterval.startsAt },
+      interval: { endsAt: row.interval.endsAt, startsAt: row.interval.startsAt },
+      itemId: row.itemId,
+    })),
   };
   assert.equal(serialise(backwardKeys), serialise(forward));
   assert.equal(
@@ -444,4 +456,84 @@ test('changing the config changes the recommendation, and the recommendation say
   });
   assert.notEqual(wide.recommendation.inputDigest, narrow.recommendation.inputDigest);
   assert.notEqual(JSON.stringify(wide.recommendation), JSON.stringify(narrow.recommendation));
+});
+
+/* ── The output shares no state with the request ─────────────────── */
+
+test('a plan interval is copied by value, never aliased into the offer', () => {
+  // Storing `placed.interval` by reference carried the caller's object all the
+  // way into `RecommendedAction.slot`. Three consequences, all of which a
+  // reversed-array test is blind to: key order leaked into
+  // `JSON.stringify(recommendation)` while `inputDigest` stayed equal, because
+  // the canonical encoder re-orders; any extra property the caller had hung on
+  // the interval was copied verbatim into the output; and the output shared
+  // mutable state with the input while the module claimed purity.
+  const slot = { startsAt: '2026-08-19T13:00:00.000Z', endsAt: '2026-08-19T13:10:00.000Z' };
+  const input = request({
+    commitments: [commitment('c-alpha', { dueAt: '2026-08-19T13:00:00.000Z', importance: 'high', planItemId: 'item-alpha' })],
+    priorityScores: [],
+    plan: {
+      ...PLAN,
+      scheduled: [{ itemId: 'item-alpha', interval: slot, reservedInterval: slot }],
+    },
+  });
+  const selection = selectRecommendation(input);
+  if (selection.recommendation.outcome !== 'offered') {
+    assert.fail('expected an offer');
+    return;
+  }
+  const option = selection.recommendation.options.kind === 'choice'
+    ? selection.recommendation.options.options[0]
+    : selection.recommendation.options.option;
+  assert.equal(option.action.kind, 'schedule');
+  if (option.action.kind !== 'schedule') return;
+  assert.notEqual(option.action.slot, slot, 'the offer aliases the caller\'s interval object');
+  assert.deepEqual(option.action.slot, slot);
+});
+
+test('an extra property on a plan interval does not reach the output', () => {
+  const leaky = {
+    startsAt: '2026-08-19T13:00:00.000Z',
+    endsAt: '2026-08-19T13:10:00.000Z',
+    label: 'call-dr.cohen-about-the-biopsy',
+  } as unknown as Plan['scheduled'][number]['interval'];
+  const selection = selectRecommendation(
+    request({
+      commitments: [commitment('c-alpha', { dueAt: '2026-08-19T13:00:00.000Z', importance: 'high', planItemId: 'item-alpha' })],
+      priorityScores: [],
+      plan: { ...PLAN, scheduled: [{ itemId: 'item-alpha', interval: leaky, reservedInterval: leaky }] },
+    }),
+  );
+  assert.equal(
+    JSON.stringify(selection.recommendation).indexOf('call-dr.cohen'),
+    -1,
+    'a caller property on the interval was copied into the output',
+  );
+});
+
+test('the plan interval key order changes nothing, and the digest agrees', () => {
+  const build = (interval: Record<string, string>): RecommendationSelectorInput =>
+    request({
+      commitments: [commitment('c-alpha', { dueAt: '2026-08-19T13:00:00.000Z', importance: 'high', planItemId: 'item-alpha' })],
+      priorityScores: [],
+      plan: {
+        ...PLAN,
+        scheduled: [
+          {
+            itemId: 'item-alpha',
+            interval: interval as unknown as Plan['scheduled'][number]['interval'],
+            reservedInterval: interval as unknown as Plan['scheduled'][number]['interval'],
+          },
+        ],
+      },
+    });
+  const forward = build({ startsAt: '2026-08-19T13:00:00.000Z', endsAt: '2026-08-19T13:10:00.000Z' });
+  const backward = build({ endsAt: '2026-08-19T13:10:00.000Z', startsAt: '2026-08-19T13:00:00.000Z' });
+  // The digest already agreed before the fix — the canonical encoder re-orders —
+  // which is exactly why the mismatch was invisible to a digest-only assertion.
+  assert.equal(
+    selectorInputDigest(forward, DEFAULT_RECOMMENDATION_SELECTOR_CONFIG),
+    selectorInputDigest(backward, DEFAULT_RECOMMENDATION_SELECTOR_CONFIG),
+  );
+  assert.equal(serialise(backward), serialise(forward));
 });

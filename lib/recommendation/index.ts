@@ -82,26 +82,49 @@
  * contract's frozen lists, and the exported shapes are additive over the
  * contract rather than a second copy of it: `RecommendationSelectorInput`,
  * `CommitmentSnapshot` and `RecommendationSelectorConfig` describe a *request*,
- * which the contract deliberately does not model. A new reason code added to
- * `recommendationContracts.ts` fails
- * `tests/recommendation/selectorPolicy.test.ts`'s coverage sweep rather than
- * being silently unemitted by the one module that is supposed to emit it.
+ * which the contract deliberately does not model.
+ *
+ * Two coverage sweeps in `tests/recommendation/selectorPolicy.test.ts` keep a
+ * new contract code from being silently unemitted: one over
+ * `SUPPORT_REASON_CODES` against the confidence weights, and one over
+ * `EXCLUSION_REASON_CODES` against the set this module can actually emit. The
+ * second exists because an earlier version of this paragraph claimed the first
+ * covered both, and it does not — it only ever read the weight table, so
+ * `NO_PLANNED_SLOT` and `OUTSIDE_WORKING_WINDOW` sat structurally unemittable
+ * with nothing failing. They remain unemittable, deliberately: this module is
+ * handed a `Plan` rather than a set of working windows, so it can honestly
+ * claim neither. The sweep now names them, so adding a code is a decision
+ * someone records rather than an omission nothing notices.
+ *
+ * ## Output size
+ *
+ * The evidence graph is linear in the number of candidates — roughly seven
+ * nodes each, plus one per distinct unresolved blocker — but the constant is
+ * not small: 200 candidates produce about 1,400 nodes and 400 KB of JSON, the
+ * same order as a Sprint 07 payload defect. Stated here rather than discovered
+ * by #35's review surface. A caller with a large scope should page or
+ * pre-filter its candidate list; this module deliberately does not truncate,
+ * because dropping candidates silently is what the excluded list exists to
+ * prevent.
  */
 
 export {
   CLOSED_COMMITMENT_STATUSES,
+  KNOWN_COMMITMENT_STATUSES,
   RecommendationInputError,
   currentFingerprints,
   effectiveTimeSource,
   epochMsOrNull,
   generateCandidates,
   hardExclusionCodes,
+  validateSelectorConfig,
   type Candidate,
   type CandidateEvidence,
   type CandidateGenerationOptions,
   type CandidateSet,
   type CommitmentLifecycleStatus,
   type CommitmentSnapshot,
+  type RecommendationInputField,
   type RecommendationSelectorInput,
   type ScopeEvidence,
 } from './selector/candidates';

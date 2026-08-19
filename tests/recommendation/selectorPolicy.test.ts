@@ -46,13 +46,16 @@ import {
 } from '../../lib/recommendation/index.ts';
 import {
   CONFIDENCE_BAND_THRESHOLDS,
+  EXCLUSION_REASON_CODES,
   RECOMMENDATION_OPTION_POLICY,
   RECOMMENDATION_ORDERING_KEYS,
   SUPPORT_REASON_CODES,
+  actionKey,
   bandForConfidence,
   checkRecommendation,
   offeredOptions,
   summarizeOptionSet,
+  type ExclusionReasonCode,
   type SupportReasonCode,
 } from '../../src/contracts/v1/recommendationContracts.ts';
 import type { Field, LifeState } from '../../src/contracts/v1/lifeStateContracts.ts';
@@ -535,4 +538,269 @@ test('a missing priority is not a low priority', () => {
     rankOptionCandidates([broken, withoutScore, withScore])[0].commitmentId,
     'c-a',
   );
+});
+
+/* ── UNBLOCKS_DEPENDENTS claims something specific ───────────────── */
+
+test('a dependent that is not actually waiting does not count as unblocked', () => {
+  // Adding a *completed* commitment that names the candidate as its blocker used
+  // to buy that candidate 1.5 weight, carrying it from 0.3 to 0.6 over the lead
+  // floor, and put "this is the open prerequisite of another item" in front of a
+  // user about an item that was finished and waiting for nothing. A withheld
+  // verdict became an offer on the strength of a false claim.
+  const blocker = commitment('c-blocker', { importance: 'high' });
+  const alone = selectRecommendation(request({ commitments: [blocker] }));
+  assert.equal(alone.recommendation.outcome, 'withheld');
+
+  for (const [label, dependent] of [
+    ['completed', commitment('c-dep', { status: 'completed', blockedByCommitmentIds: ['c-blocker'] })],
+    ['unconfirmed', commitment('c-dep', { confirmedAt: null, blockedByCommitmentIds: ['c-blocker'] })],
+    ['invalid time', commitment('c-dep', { dueAt: 'nope', blockedByCommitmentIds: ['c-blocker'] })],
+  ] as const) {
+    const selection = selectRecommendation(request({ commitments: [blocker, dependent] }));
+    assert.equal(
+      selection.recommendation.outcome,
+      'withheld',
+      `a ${label} dependent must not make its blocker offerable`,
+    );
+  }
+
+  // And the claim is still made when it is true: a dependent whose *only*
+  // obstacle is the block really is unblocked by finishing this one.
+  const genuine = selectRecommendation(
+    request({
+      commitments: [blocker, commitment('c-dep', { blockedByCommitmentIds: ['c-blocker'] })],
+    }),
+  );
+  assert.equal(genuine.recommendation.outcome, 'offered');
+  if (genuine.recommendation.outcome !== 'offered') return;
+  const option = offeredOptions(genuine.recommendation.options)[0];
+  assert.ok(
+    option.support.map((reason) => reason.code).indexOf('UNBLOCKS_DEPENDENTS') !== -1,
+    'the reason must still be emitted where it is true',
+  );
+});
+
+/* ── Claims about absence read the projection's `known` flag ─────── */
+
+test('an unknown commitments projection withholds rather than attesting to absence', () => {
+  // `only_candidate.attested` means "there was genuinely nothing else". It used
+  // to cite `n-scope-commitments` without reading `known`, so against an unknown
+  // projection it rested on an `{kind: 'absent'}` node — absence of knowledge
+  // presented as evidence of absence — and that falsified this module's own
+  // reason for requiring `lifeState` at all.
+  const unknownProjection: LifeState = { ...lifeState(), commitments: unknownField() };
+  const selection = selectRecommendation(
+    request({
+      lifeState: unknownProjection,
+      commitments: [commitment('c-alpha', { dueAt: '2026-08-18T09:00:00.000Z', importance: 'high' })],
+    }),
+  );
+  assert.deepEqual(selection.defects, []);
+  assert.equal(selection.recommendation.outcome, 'withheld');
+  if (selection.recommendation.outcome !== 'withheld') return;
+  assert.deepEqual(selection.recommendation.reasons.map((reason) => reason.code), ['INSUFFICIENT_EVIDENCE']);
+
+  // With a known projection the same request is an offer, so the guard is not
+  // simply refusing everything.
+  const known = selectRecommendation(
+    request({ commitments: [commitment('c-alpha', { dueAt: '2026-08-18T09:00:00.000Z', importance: 'high' })] }),
+  );
+  assert.equal(known.recommendation.outcome, 'offered');
+  if (known.recommendation.outcome !== 'offered') return;
+  assert.equal(known.recommendation.options.kind, 'only_candidate');
+  if (known.recommendation.options.kind !== 'only_candidate') return;
+  const attested = known.recommendation.options.attested[0];
+  const node = known.recommendation.evidence.nodes.filter((row) => row.nodeId === attested)[0];
+  assert.equal(node.kind, 'observed');
+  assert.equal(node.claim.kind, 'quantity', 'the attestation must rest on a known count, not on an absent field');
+});
+
+/* ── The pipeline order is pinned, not incidental ────────────────── */
+
+test('a weak alternative beside a strong lead is excluded, never both offered and excluded', () => {
+  // The risk gate has to run *before* diversity. Running diversity over the
+  // unfiltered ranking instead lets a candidate the risk gate rejected be
+  // offered as well, so the same action appears in both lists —
+  // `EXCLUDED_OPTION_ALSO_OFFERED`. No test covered the ordering, so that
+  // mutation stayed green.
+  const selection = selectRecommendation(
+    request({
+      commitments: [
+        commitment('c-strong', { dueAt: '2026-08-18T09:00:00.000Z', importance: 'high' }),
+        // Eligible, but supported by nothing: the risk gate's business.
+        commitment('c-weak'),
+      ],
+    }),
+  );
+  assert.deepEqual(selection.defects, [], 'the contract checker found a defect in this module\'s own output');
+  assert.equal(selection.recommendation.outcome, 'offered');
+  if (selection.recommendation.outcome !== 'offered') return;
+
+  const offeredKeys = offeredOptions(selection.recommendation.options).map((option) => option.action.commitmentId);
+  const summary = summarizeOptionSet(selection.recommendation.options);
+  const excludedKeys = summary.excluded.map((row) => row.action.commitmentId);
+  assert.deepEqual(offeredKeys, ['c-strong']);
+  assert.ok(excludedKeys.indexOf('c-weak') !== -1);
+  for (const key of offeredKeys) {
+    assert.equal(excludedKeys.indexOf(key), -1, 'an action is both offered and excluded');
+  }
+});
+
+test('the support-count guard does not trust the confidence number beside it', () => {
+  // Under the current weights a zero-support candidate scores zero and would
+  // fail the offer floor anyway, so deleting this branch left every test green.
+  // It is not redundant: `applyRiskPolicy` is exported, and it must refuse a row
+  // whose `confidence` is not a function of its own codes — `support` is a
+  // non-empty tuple and its non-emptiness cannot depend on a weight staying
+  // positive.
+  const inconsistent = optionCandidate({ supportCodes: [], confidence: 0.95 });
+  const outcome = applyRiskPolicy([inconsistent]);
+  assert.deepEqual(outcome.offered, []);
+  assert.deepEqual(outcome.rejected.map((row) => row.code), ['INSUFFICIENT_EVIDENCE']);
+  assert.ok(RECOMMENDATION_RISK_POLICY.minSupportReasons >= 1);
+});
+
+test('being the only eligible candidate is claimed only when it is true', () => {
+  const two = selectRecommendation(
+    request({
+      commitments: [
+        commitment('c-alpha', { dueAt: '2026-08-18T09:00:00.000Z', importance: 'high' }),
+        commitment('c-bravo', { dueAt: '2026-08-18T10:00:00.000Z', importance: 'high' }),
+      ],
+    }),
+  );
+  if (two.recommendation.outcome !== 'offered') {
+    assert.fail('expected an offer');
+    return;
+  }
+  for (const option of offeredOptions(two.recommendation.options)) {
+    assert.equal(
+      option.support.map((reason) => reason.code).indexOf('ONLY_ELIGIBLE_ACTION'),
+      -1,
+      'the module claimed sole eligibility with two eligible candidates',
+    );
+  }
+
+  const one = selectRecommendation(
+    request({
+      commitments: [
+        commitment('c-alpha', { dueAt: '2026-08-18T09:00:00.000Z', importance: 'high' }),
+        commitment('c-closed', { status: 'completed' }),
+      ],
+    }),
+  );
+  if (one.recommendation.outcome !== 'offered') {
+    assert.fail('expected an offer');
+    return;
+  }
+  assert.ok(
+    offeredOptions(one.recommendation.options)[0].support
+      .map((reason) => reason.code)
+      .indexOf('ONLY_ELIGIBLE_ACTION') !== -1,
+  );
+});
+
+/* ── Which exclusion codes this module can actually emit ─────────── */
+
+/**
+ * Stated rather than derived, so that adding a contract code is a decision
+ * someone records. An earlier note claimed the support-weight sweep covered
+ * this; it does not, and two codes sat structurally unemittable with nothing
+ * failing.
+ */
+const EMITTABLE_EXCLUSION_CODES: readonly ExclusionReasonCode[] = [
+  'NOT_CONFIRMED',
+  'ALREADY_CLOSED',
+  'INVALID_SOURCE_TIME',
+  'BLOCKED_BY_DEPENDENCY',
+  'INSUFFICIENT_EVIDENCE',
+  'LOWER_RANKED',
+  'OPTION_CAP_REACHED',
+];
+
+/** Not emittable, deliberately: this module is handed a Plan, not windows. */
+const UNEMITTABLE_EXCLUSION_CODES: readonly ExclusionReasonCode[] = [
+  'NO_PLANNED_SLOT',
+  'OUTSIDE_WORKING_WINDOW',
+];
+
+test('the two exclusion-code lists together cover the contract exactly', () => {
+  assert.deepEqual(
+    EMITTABLE_EXCLUSION_CODES.concat(UNEMITTABLE_EXCLUSION_CODES).slice().sort(),
+    EXCLUSION_REASON_CODES.slice().sort(),
+  );
+});
+
+test('every code this module claims it can emit is actually reachable', () => {
+  const seen = new Set<string>();
+  const record = (selection: ReturnType<typeof selectRecommendation>): void => {
+    if (selection.recommendation.outcome !== 'offered') return;
+    for (const row of summarizeOptionSet(selection.recommendation.options).excluded) {
+      for (const reason of row.exclusion) seen.add(reason.code);
+    }
+  };
+
+  record(selectRecommendation(request({
+    commitments: [
+      commitment('c-good', { dueAt: '2026-08-18T09:00:00.000Z', importance: 'high' }),
+      commitment('c-unconfirmed', { confirmedAt: null }),
+      commitment('c-closed', { status: 'completed' }),
+      commitment('c-badtime', { dueAt: 'not-a-date' }),
+      commitment('c-weak'),
+      commitment('c-blocked', { blockedByCommitmentIds: ['c-good'] }),
+    ],
+  })));
+
+  const many: CommitmentSnapshot[] = [];
+  const rows: { itemId: string; startsAt: string; endsAt: string }[] = [];
+  for (let index = 0; index < 8; index += 1) {
+    const id = `c-${String(index).padStart(2, '0')}`;
+    many.push(commitment(id, { dueAt: '2026-08-18T09:00:00.000Z', importance: 'high', planItemId: `item-${index}` }));
+    rows.push({ itemId: `item-${index}`, startsAt: '2026-08-19T13:00:00.000Z', endsAt: '2026-08-19T13:10:00.000Z' });
+  }
+  record(selectRecommendation(request({ commitments: many, plan: plan(rows) })));
+
+  for (const code of EMITTABLE_EXCLUSION_CODES) {
+    assert.ok(seen.has(code), `${code} is listed as emittable but was never produced`);
+  }
+  for (const code of UNEMITTABLE_EXCLUSION_CODES) {
+    assert.equal(seen.has(code), false, `${code} is listed as unemittable but was produced`);
+  }
+});
+
+/* ── Each appended ordering key earns its place ──────────────────── */
+
+test('each appended ordering key is load-bearing on its own', () => {
+  // Deleting either key alone left the suite green, and only deleting both
+  // failed — the shape where a second check looks like defence in depth and is
+  // really an untested branch plus a hole in the first check's coverage. Each is
+  // now pinned by a pair that ties on everything before it and differs only in
+  // the key under test.
+  const slot = { startsAt: NOW, endsAt: '2026-08-19T12:30:00.000Z' };
+
+  // Kind rank alone: same commitment, different kinds, chosen so that
+  // `actionKey` orders them the *other* way. #33's `actionKey` is
+  // length-prefixed, so `defer` encodes as `"5:defer|…"` and sorts below
+  // `do_now`'s `"6:do_now|…"` — while `RECOMMENDED_ACTION_KINDS` ranks `defer`
+  // last. Only the kind rank can produce the answer below, so deleting it
+  // flips this assertion instead of leaving the suite green.
+  const doNow = optionCandidate({ action: { kind: 'do_now', commitmentId: 'c-alpha' } });
+  const defer = optionCandidate({
+    action: { kind: 'defer', commitmentId: 'c-alpha', until: '2026-08-20T09:00:00.000Z' },
+  });
+  assert.ok(compareOptionCandidates(doNow, defer) < 0, 'the action-kind rank is not deciding');
+  assert.ok(
+    actionKey(doNow.action) > actionKey(defer.action),
+    'the fixture no longer isolates the kind rank from the actionKey tie-break',
+  );
+
+  // actionKey alone: same commitment, same kind, different slots — the kind rank
+  // ties and nothing before it separates them.
+  const early = optionCandidate({ action: { kind: 'schedule', commitmentId: 'c-alpha', slot } });
+  const late = optionCandidate({
+    action: { kind: 'schedule', commitmentId: 'c-alpha', slot: { startsAt: '2026-08-19T14:00:00.000Z', endsAt: '2026-08-19T14:30:00.000Z' } },
+  });
+  assert.notEqual(compareOptionCandidates(early, late), 0, 'the actionKey tie-break is not deciding');
+  assert.equal(compareOptionCandidates(early, late) + compareOptionCandidates(late, early), 0);
 });

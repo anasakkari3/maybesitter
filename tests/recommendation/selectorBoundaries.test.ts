@@ -623,3 +623,79 @@ test('every detail string names a candidate by index rather than by id', () => {
   );
   assert.ok(details.length > 0, 'no detail names a candidate by index');
 });
+
+/* ── Output size is stated rather than discovered downstream ─────── */
+
+test('the evidence graph stays linear in the candidate count', () => {
+  // `resolveBlockers` used `open.indexOf` inside its loop, which made it
+  // quadratic per candidate and cubic over a dense request. The size of the
+  // output is also a real property for #35's review surface to budget for, so
+  // it is pinned here rather than found there.
+  const build = (count: number): { nodes: number; bytes: number } => {
+    const commitments: CommitmentSnapshot[] = [];
+    for (let index = 0; index < count; index += 1) {
+      commitments.push(
+        snapshot(`c-${String(index).padStart(4, '0')}`, {
+          dueAt: '2026-08-18T09:00:00.000Z',
+          importance: 'high',
+        }),
+      );
+    }
+    const selection = selectRecommendation({
+      scopeId: 'scope-1',
+      recommendationId: 'rec-1',
+      now: NOW,
+      lifeState: leakyLifeState(),
+      commitments,
+      priorityScores: [],
+      plan: null,
+    });
+    return {
+      nodes: selection.recommendation.evidence.nodes.length,
+      bytes: JSON.stringify(selection.recommendation).length,
+    };
+  };
+  const small = build(50);
+  const large = build(200);
+  // Linear, not quadratic: quadrupling the input must not multiply the graph by
+  // sixteen. The slack allows for the fixed scope-level nodes.
+  assert.ok(
+    large.nodes < small.nodes * 5,
+    `graph grew super-linearly: ${small.nodes} nodes at 50, ${large.nodes} at 200`,
+  );
+  assert.ok(
+    large.bytes < small.bytes * 5,
+    `payload grew super-linearly: ${small.bytes} bytes at 50, ${large.bytes} at 200`,
+  );
+  // And the documented order of magnitude in lib/recommendation/index.ts is real.
+  assert.ok(large.bytes > 100_000, 'the size note in index.ts overstates the payload');
+  assert.ok(large.bytes < 900_000, 'the payload exceeds the size stated in index.ts');
+});
+
+test('a dense blocker graph completes without quadratic blow-up', () => {
+  // Every candidate blocked by every earlier one: the shape that turned
+  // `open.indexOf` cubic.
+  const commitments: CommitmentSnapshot[] = [];
+  for (let index = 0; index < 120; index += 1) {
+    const blockedBy: string[] = [];
+    for (let edge = 0; edge < index; edge += 1) blockedBy.push(`c-${String(edge).padStart(4, '0')}`);
+    commitments.push(
+      snapshot(`c-${String(index).padStart(4, '0')}`, {
+        dueAt: '2026-08-18T09:00:00.000Z',
+        importance: 'high',
+        blockedByCommitmentIds: blockedBy,
+      }),
+    );
+  }
+  const selection = selectRecommendation({
+    scopeId: 'scope-1',
+    recommendationId: 'rec-1',
+    now: NOW,
+    lifeState: leakyLifeState(),
+    commitments,
+    priorityScores: [],
+    plan: null,
+  });
+  assert.deepEqual(selection.defects, []);
+  assert.equal(selection.consideredCount, 120);
+});

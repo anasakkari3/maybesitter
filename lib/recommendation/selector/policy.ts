@@ -223,11 +223,18 @@ export const RECOMMENDATION_DIVERSITY_POLICY = Object.freeze({
 /**
  * When an option is too weakly supported to offer, and when the whole run is.
  *
+ * The acceptance criterion "returns no recommendation when evidence is
+ * insufficient" is these two floors — not, as an earlier version of this comment
+ * claimed, `minSupportReasons` and a confidence floor. That reading did not
+ * survive a mutant: the support-count guard is subsumed by `minOfferConfidence`
+ * under the current weights, so the two genuinely distinct halves are **the
+ * offer floor** (this option is too weak to show at all) and **the lead floor**
+ * (the best option left is too weak to lead, so the whole offer is withheld).
+ *
  * `minLeadConfidence` is `CONFIDENCE_BAND_THRESHOLDS.medium` — referenced, not
  * copied, so the sentence "the lead option is at least `medium`" stays true if
- * the bands ever move. It is the acceptance criterion "returns no recommendation
- * when evidence is insufficient" expressed as a number: below it, the module
- * withholds with `INSUFFICIENT_EVIDENCE` rather than offering its best guess.
+ * the bands ever move. Below it the module withholds with
+ * `INSUFFICIENT_EVIDENCE` rather than offering its best guess.
  *
  * `minOfferConfidence` is lower than `minLeadConfidence` on purpose. An
  * alternative does not have to be as strong as the lead to be worth showing —
@@ -236,6 +243,17 @@ export const RECOMMENDATION_DIVERSITY_POLICY = Object.freeze({
  * lone `DUE_SOON` (0.4) does.
  */
 export const RECOMMENDATION_RISK_POLICY = Object.freeze({
+  /**
+   * Not redundant with the floors below, and it took a surviving mutant to say
+   * why. Under the current weights a candidate with zero support codes scores
+   * zero and would fail `minOfferConfidence` anyway, so deleting this branch
+   * left all tests green. It stays because it is the one rule that does **not**
+   * read the confidence number: `RecommendationOption.support` is a non-empty
+   * tuple, and its non-emptiness must not depend on every weight staying
+   * positive, nor on the `confidence` field of an `OptionCandidate` actually
+   * being `confidenceFor(its own codes)`. `applyRiskPolicy` is exported and a
+   * caller can hand it an inconsistent row; this is what refuses that one.
+   */
   minSupportReasons: 1,
   minOfferConfidence: 0.2,
   minLeadConfidence: CONFIDENCE_BAND_THRESHOLDS.medium,
