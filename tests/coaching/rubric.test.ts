@@ -37,6 +37,11 @@ import {
 } from '../../src/contracts/v1/coachingContracts.ts';
 import {
   ACTION_BEARING_CLAIM_KINDS,
+  AFFIX_CLITICS,
+  MORPHOLOGY_RESIDUAL,
+  affixVariants,
+  lexiconForProbe,
+  matchesPhraseInLocale,
   CLAIM_KIND_FOR_NON_SUPPORT_SOURCE,
   CODE_DISPOSITIONS,
   COACHING_RUBRIC,
@@ -57,7 +62,7 @@ import {
   type RubricDimension,
   type ToneDimension,
 } from '../../lib/coaching/evaluation/rubric.ts';
-import { buildRow } from '../../lib/coaching/evaluation/evaluationSet.ts';
+import { TEMPLATE_TEXT, buildRow } from '../../lib/coaching/evaluation/evaluationSet.ts';
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(testDir, '..', '..');
@@ -92,6 +97,10 @@ function stripComments(source: string): string {
 
 function sorted(values: readonly string[]): string[] {
   return values.slice().sort();
+}
+
+function uniqueSorted(values: readonly string[]): string[] {
+  return sorted(Array.from(new Set(values)));
 }
 
 /* ── Never vacuous ───────────────────────────────────────────────── */
@@ -138,17 +147,36 @@ test('COACHING_RUBRIC is total over the dimensions and each spec names its own d
   }
 });
 
-test('every tone dimension declares itself a proxy and no faithfulness dimension does', () => {
-  // The honest flag. A tone gate that claimed to measure helpfulness rather than
-  // to match a word list would make the human slot look optional.
-  for (const dimension of TONE_DIMENSIONS) {
-    assert.equal(COACHING_RUBRIC[dimension].automatedIsProxy, true, `${dimension} must declare itself a proxy`);
+test('automatedIsProxy is pinned dimension by dimension, never by gate', () => {
+  // This assertion used to read "every tone dimension is a proxy and no
+  // faithfulness dimension is", which is a by-gate rule, and a by-gate rule is
+  // exactly what let `persistence_claim` ship declaring `false` while being a
+  // pure lexicon match over prose — the same matcher over the same shape of
+  // list that `non_shaming` uses and honestly calls a proxy. The flag describes
+  // the *method*, not the gate, so the pin is now member by member.
+  //
+  // The stake is not cosmetic: `automatedIsProxy` is the only field the whole
+  // human-slot argument rests on, and the wrong value told a reader of a stored
+  // report that a lexical miss on an Arabic affixed form was a conclusive
+  // faithfulness pass.
+  const proxies = RUBRIC_DIMENSIONS.filter((dimension) => COACHING_RUBRIC[dimension].automatedIsProxy);
+  const notProxies = RUBRIC_DIMENSIONS.filter((dimension) => !COACHING_RUBRIC[dimension].automatedIsProxy);
+  assert.deepEqual(sorted(proxies), sorted(['helpfulness', 'calmness', 'non_shaming', 'persistence_claim']));
+  assert.deepEqual(sorted(notProxies), sorted(['claim_support', 'claim_derivability', 'decision_echo_integrity']));
+
+  // And the reason the partition falls where it does: the three non-proxies are
+  // the ones whose signal mentions the recommendation's evidence; the four
+  // proxies are the ones whose signal is a lexicon or a structural flag.
+  for (const dimension of notProxies) {
+    assert.ok(
+      /evidence|reason|verdict/i.test(COACHING_RUBRIC[dimension].automatedSignal),
+      `${dimension} claims not to be a proxy but its signal does not mention the recommendation`,
+    );
   }
-  for (const dimension of FAITHFULNESS_DIMENSIONS) {
-    assert.equal(
-      COACHING_RUBRIC[dimension].automatedIsProxy,
-      false,
-      `${dimension} is decided against the recommendation's own evidence; calling it a proxy understates it`,
+  for (const dimension of proxies) {
+    assert.ok(
+      /lexicon/.test(COACHING_RUBRIC[dimension].automatedSignal),
+      `${dimension} declares itself a proxy but its signal does not name a lexicon`,
     );
   }
 });
@@ -232,7 +260,7 @@ test('the surveillance half of trackingVerbs fires in English', () => {
       (COACHING_FORBIDDEN_LANGUAGE.trackingVerbs as readonly string[]).includes(phrase),
       `${phrase} is missing from #38's trackingVerbs`,
     );
-    assert.deepEqual(matchedPhrases(`I am ${phrase} that for you.`, PERSISTENCE_LEXICON.en), [phrase]);
+    assert.deepEqual(matchedPhrases('en', `I am ${phrase} that for you.`, PERSISTENCE_LEXICON.en), [phrase]);
   }
 });
 
@@ -243,14 +271,14 @@ test('the persistence lexicons fire in Arabic and Hebrew, which an English list 
   assert.ok(matchesPhrase('אשים עין על הפריט הזה.', 'אשים עין'));
   // And the English list is silent on all of them, which is the whole reason
   // the other two lists exist.
-  assert.deepEqual(matchedPhrases('أراقب هذا البند نيابة عنك.', PERSISTENCE_LEXICON.en), []);
-  assert.deepEqual(matchedPhrases('אעקוב אחרי הפריט הזה בשבילך.', PERSISTENCE_LEXICON.en), []);
+  assert.deepEqual(matchedPhrases('en', 'أراقب هذا البند نيابة عنك.', PERSISTENCE_LEXICON.en), []);
+  assert.deepEqual(matchedPhrases('en', 'אעקוב אחרי הפריט הזה בשבילך.', PERSISTENCE_LEXICON.en), []);
 });
 
 test('the shame lexicons fire in Arabic and Hebrew', () => {
   assert.ok(matchesPhrase('لقد فشلت في إنجاز هذا البند.', 'فشلت'));
   assert.ok(matchesPhrase('נכשלת בטיפול בפריט הזה.', 'נכשלת'));
-  assert.deepEqual(matchedPhrases('لقد فشلت في إنجاز هذا البند.', TONE_LEXICON.en.non_shaming.disqualifying), []);
+  assert.deepEqual(matchedPhrases('en', 'لقد فشلت في إنجاز هذا البند.', TONE_LEXICON.en.non_shaming.disqualifying), []);
 });
 
 test('phrase matching is word-anchored, not a substring scan', () => {
@@ -275,11 +303,12 @@ test('phrase matching is total: no input shape raises', () => {
   assert.equal(matchesPhrase(undefined, 'lazy'), false);
   assert.equal(matchesPhrase('anything', ''), false);
   assert.equal(matchesPhrase('anything', '   '), false);
-  assert.deepEqual(matchedPhrases(null, ['lazy']), []);
+  assert.deepEqual(matchedPhrases('en', null, ['lazy']), []);
+  assert.deepEqual(matchedPhrases('ar', null, ['فشلت']), []);
 });
 
 test('matched phrases come back in code-point order, never locale order', () => {
-  const hits = matchedPhrases('failed, lazy, avoidant', COACHING_FORBIDDEN_LANGUAGE.shame);
+  const hits = matchedPhrases('en', 'failed, lazy, avoidant', COACHING_FORBIDDEN_LANGUAGE.shame);
   assert.deepEqual(hits, hits.slice().sort((left, right) => (left < right ? -1 : left > right ? 1 : 0)));
 });
 
@@ -443,20 +472,113 @@ test('no module under lib/coaching defines a second isInstant', () => {
   }
 });
 
-test('lib/coaching/evaluation reads no file and reaches no network', () => {
-  // "No copyrighted, private or real conversation corpus is used" as a
-  // structural property rather than a promise: the whole corpus is the source of
-  // these modules plus a seed, so there is nothing for a file read to bring in.
-  for (const file of sourceFilesUnder(moduleDir)) {
-    const source = stripComments(readFileSync(file, 'utf8'));
-    for (const [pattern, why] of [
-      [/readFileSync|readFile\s*\(|createReadStream/, 'reads a file; the corpus must be the source of this module'],
-      [/\bfetch\s*\(|https?:\/\/[^\s'"`]+/, 'reaches the network'],
-      [/from\s+['"]node:fs['"]|from\s+['"]fs['"]/, 'imports the filesystem'],
-    ] as const) {
-      assert.equal(pattern.test(source), false, `${relative(file)} ${why}`);
+/**
+ * Every local specifier a source imports, runtime or type.
+ *
+ * Matched on the resolved repo path and never on specifier text: Sprint 06
+ * recorded a pattern anchored on a directory name that never saw the relative
+ * spelling of the very import it forbade, and went on reporting a clean
+ * separation across that edge.
+ */
+function importSpecifiers(source: string): string[] {
+  const found: string[] = [];
+  const pattern = /(?:from|import)\s*\(?\s*['"]([^'"]+)['"]/g;
+  let match = pattern.exec(source);
+  while (match !== null) {
+    found.push(match[1]);
+    match = pattern.exec(source);
+  }
+  return found;
+}
+
+function resolveLocal(fromFile: string, specifier: string): string | null {
+  if (!specifier.startsWith('.') && !specifier.startsWith('/')) return null;
+  const base = join(dirname(fromFile), specifier);
+  for (const candidate of [base, `${base}.ts`, `${base}.tsx`, join(base, 'index.ts')]) {
+    if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
+  }
+  return null;
+}
+
+/** Every file reachable from `roots` by local imports, transitively. */
+function importClosure(roots: readonly string[]): { files: string[]; specifiers: string[] } {
+  const files: string[] = [];
+  const specifiers: string[] = [];
+  const queue = [...roots];
+  while (queue.length > 0) {
+    const file = queue.pop() as string;
+    if (files.includes(file)) continue;
+    files.push(file);
+    for (const specifier of importSpecifiers(stripComments(readFileSync(file, 'utf8')))) {
+      specifiers.push(specifier);
+      const resolved = resolveLocal(file, specifier);
+      if (resolved !== null && !files.includes(resolved)) queue.push(resolved);
     }
   }
+  return { files: files.sort(), specifiers };
+}
+
+test('the import closure walks past the first hop, so it is not a direct-import check', () => {
+  // A closure that stopped at depth one would be a scan of three files wearing
+  // the word "closure", which is the overstatement this replaced.
+  const roots = sourceFilesUnder(moduleDir);
+  const closure = importClosure(roots);
+  assert.ok(closure.files.length > roots.length, 'the closure found nothing past the roots');
+  const direct = new Set(
+    roots.flatMap((file) =>
+      importSpecifiers(readFileSync(file, 'utf8'))
+        .map((specifier) => resolveLocal(file, specifier))
+        .filter((resolved): resolved is string => resolved !== null),
+    ),
+  );
+  assert.ok(
+    closure.files.some((file) => !roots.includes(file) && !direct.has(file)),
+    'every file in the closure is a direct import of a root; the walk is one hop deep',
+  );
+});
+
+test('nothing in the coaching import closure reads a file, reaches a network, or loads a corpus', () => {
+  // "No copyrighted, private or real conversation corpus is used" — checked over
+  // the whole transitive closure rather than over three files.
+  //
+  // The earlier version of this test scanned `lib/coaching/**` alone and the
+  // documentation called it structural. It was not: `lib/coaching` imports two
+  // modules outside the scanned tree, so a helper under `lib/<anything>/` that
+  // read a file, or a `import corpus from './corpus.json'`, would have passed —
+  // and a `.json` specifier is matched by no pattern a source scan writes.
+  const { files, specifiers } = importClosure(sourceFilesUnder(moduleDir));
+  assert.ok(files.length > 3, 'the closure is too small to be the closure');
+  for (const file of files) {
+    const source = stripComments(readFileSync(file, 'utf8'));
+    for (const [pattern, why] of [
+      [/readFileSync|readFile\s*\(|createReadStream|readdirSync/, 'reads a file'],
+      [/\bfetch\s*\(|https?:\/\/[^\s'"`]+/, 'reaches the network'],
+      [/from\s+['"]node:fs['"]|from\s+['"]fs['"]|require\(['"]fs['"]\)/, 'imports the filesystem'],
+    ] as const) {
+      assert.equal(pattern.test(source), false, `${relative(file)} ${why}, and it is in the coaching import closure`);
+    }
+  }
+  // A data import is not a call and no source scan sees it. This is the hole
+  // the scan could not have covered whatever patterns it grew.
+  for (const specifier of specifiers) {
+    assert.equal(
+      /\.(json|csv|txt|ndjson|jsonl)$/.test(specifier),
+      false,
+      `a data file is imported into the coaching closure: ${specifier}`,
+    );
+  }
+});
+
+test('the import scanner recognises the specifier spellings it must', () => {
+  // A negative-only assertion passes against a matcher that finds nothing.
+  const sample = [
+    "import a from './x';",
+    "import type { B } from '../y.ts';",
+    "export * from './z';",
+    "const c = await import('./w');",
+    "import corpus from './corpus.json';",
+  ].join('\n');
+  assert.deepEqual(sorted(importSpecifiers(sample)), sorted(['./x', '../y.ts', './z', './w', './corpus.json']));
 });
 
 test('the call scans still recognise a real call, so stripping comments did not disarm them', () => {
@@ -511,4 +633,137 @@ test('a rubric dimension list is a value a sweep can iterate, not a type alone',
   const toneOnly: ToneDimension[] = [...TONE_DIMENSIONS];
   assert.equal(dimensions.length, 7);
   assert.equal(toneOnly.length, 3);
+});
+
+/* ── Affixation, and the residual it does not reach ──────────────── */
+
+test('the affix tables are declared per locale and English declares none', () => {
+  assert.deepEqual(sorted(Object.keys(AFFIX_CLITICS)), sorted(COACHING_LOCALES));
+  // English has no proclitics. Inventing some would be a second morphology
+  // nobody asked for, and the English residual is measured instead.
+  assert.deepEqual(affixVariants('en', 'keeping track'), ['keeping track']);
+  for (const locale of ['ar', 'he'] as const) {
+    const variants = affixVariants(locale, 'x');
+    assert.ok(variants.length > 1, `${locale} expands nothing`);
+    assert.ok(variants.includes('x'), `${locale} lost the unprefixed form`);
+    // Bounded and enumerable: a slot product, not an open rewrite.
+    const slots = AFFIX_CLITICS[locale];
+    const bound = slots.reduce((total, slot) => total * slot.length, 1);
+    assert.ok(variants.length <= bound, `${locale} produced more variants than its slots allow`);
+  }
+});
+
+test('affix expansion is a strict widening: nothing that matched before stops matching', () => {
+  for (const locale of COACHING_LOCALES) {
+    const phrases = [...PERSISTENCE_LEXICON[locale], ...TONE_LEXICON[locale].non_shaming.disqualifying];
+    for (const phrase of phrases) {
+      assert.ok(
+        matchesPhraseInLocale(locale, `prefix ${phrase} suffix`, phrase),
+        `${locale} lost the bare form of a listed phrase`,
+      );
+    }
+  }
+});
+
+test('affix expansion catches the prefixed forms the corpus used to avoid', () => {
+  // The concrete cases. Before AFFIX_CLITICS these three were silent misses and
+  // the corpus was authored around them.
+  assert.ok(matchesPhraseInLocale('ar', 'سأراقب هذا البند نيابة عنك.', 'أراقب'));
+  assert.ok(matchesPhraseInLocale('ar', 'وسأراقب هذا البند.', 'أراقب'));
+  assert.ok(matchesPhraseInLocale('he', 'ואעקוב אחרי הפריט הזה.', 'אעקוב'));
+  assert.ok(matchesPhraseInLocale('he', 'אמרתי שאעקוב אחרי הפריט הזה.', 'אעקוב'));
+  // And the exact matcher still does not, which is what makes the widening real
+  // rather than a rename.
+  assert.equal(matchesPhrase('سأراقب هذا البند.', 'أراقب'), false);
+  assert.equal(matchesPhrase('ואעקוב אחרי הפריט הזה.', 'אעקוב'), false);
+});
+
+test('affix expansion does not fire on the clean templates in any locale', () => {
+  // The loud direction. A prefix table is a widening, and a widening that fired
+  // on ordinary prose would be worse than the miss it repairs.
+  for (const locale of COACHING_LOCALES) {
+    for (const id of Object.keys(TEMPLATE_TEXT[locale]) as (keyof (typeof TEMPLATE_TEXT)['en'])[]) {
+      const text = TEMPLATE_TEXT[locale][id];
+      assert.deepEqual(
+        matchedPhrases(locale, text, PERSISTENCE_LEXICON[locale]),
+        [],
+        `${locale}/${id} now reads as a persistence claim`,
+      );
+      assert.deepEqual(
+        matchedPhrases(locale, text, TONE_LEXICON[locale].non_shaming.disqualifying),
+        [],
+        `${locale}/${id} now reads as shaming`,
+      );
+    }
+  }
+});
+
+test('the morphology residual is measured, and its misses are real misses', () => {
+  // The point of this test is the `false` rows. The corpus's detection figure is
+  // computed over rows this repo authored, and a corpus authored around a
+  // matcher's assumptions will always agree with it. These probes are authored
+  // around the opposite assumption, and the ones declared undetected are the
+  // honest size of the blind spot.
+  assert.ok(MORPHOLOGY_RESIDUAL.length > 0);
+  for (const probe of MORPHOLOGY_RESIDUAL) {
+    const hits = matchedPhrases(probe.locale, probe.text, lexiconForProbe(probe));
+    assert.equal(
+      hits.length > 0,
+      probe.detected,
+      `${probe.locale}/${probe.form} "${probe.means}" is declared detected=${probe.detected} and measures ${hits.length > 0}`,
+    );
+  }
+});
+
+test('the residual probes cover every locale and every form, and both answers', () => {
+  // A residual set that was all misses would be a complaint; one that was all
+  // hits would be a victory lap. Both have to be present per locale, or the set
+  // is not measuring a boundary.
+  assert.deepEqual(uniqueSorted(MORPHOLOGY_RESIDUAL.map((probe) => probe.locale)), sorted(COACHING_LOCALES));
+  assert.deepEqual(uniqueSorted(MORPHOLOGY_RESIDUAL.map((probe) => probe.form)), sorted(['affixed', 'bare', 'inflected']));
+  assert.deepEqual(uniqueSorted(MORPHOLOGY_RESIDUAL.map((probe) => String(probe.detected))), ['false', 'true']);
+  for (const locale of COACHING_LOCALES) {
+    const forLocale = MORPHOLOGY_RESIDUAL.filter((probe) => probe.locale === locale);
+    assert.ok(forLocale.some((probe) => probe.detected), `${locale} has no detected probe`);
+    assert.ok(forLocale.some((probe) => !probe.detected), `${locale} has no missed probe`);
+  }
+  // Every miss says why, so the residual is a list of named limitations rather
+  // than a bucket of things that did not work.
+  for (const probe of MORPHOLOGY_RESIDUAL) {
+    if (probe.detected) continue;
+    assert.ok(probe.note.startsWith('MISS'), `an undetected probe does not name itself a miss: ${probe.means}`);
+  }
+});
+
+test("the English residual records #38's inverse coverage gap rather than patching it locally", () => {
+  // `PERSISTENCE_LEXICON.en` IS #38's array by identity. Adding the eye idiom
+  // here would break that identity and start the drift the identity prevents,
+  // so the gap is recorded as a measured miss and the repair is #38's.
+  const eye = MORPHOLOGY_RESIDUAL.find((probe) => probe.locale === 'en' && probe.means === 'the eye idiom');
+  assert.ok(eye !== undefined);
+  assert.equal(eye?.detected, false);
+  assert.equal((COACHING_FORBIDDEN_LANGUAGE.trackingVerbs as readonly string[]).includes('keep an eye on'), false);
+  // And the Arabic and Hebrew lists, which this file owns, do carry it.
+  assert.ok(PERSISTENCE_LEXICON.ar.includes('أبقي عيني على'));
+  assert.ok(PERSISTENCE_LEXICON.he.includes('אשים עין'));
+});
+
+/* ── Source hygiene ──────────────────────────────────────────────── */
+
+test('no source under lib/coaching carries a control character', () => {
+  // Three raw NUL bytes shipped inside the two digest inputs — `${VERSION}\0${rowId}`
+  // and `${seed}\0${index}\0${field}`. They render as a space in every viewer, a
+  // reviewer reads a space, and `grep` on the separator finds nothing. They are
+  // inside the two hashes that decide lock buckets and every generator draw, so
+  // "fixing" the invisible character later silently re-points the hold-out.
+  // Same class as Sprint 08's limit that existed only as a number: present,
+  // load-bearing, and invisible to every check anyone had written.
+  for (const file of sourceFilesUnder(moduleDir)) {
+    const source = readFileSync(file, 'utf8');
+    for (let index = 0; index < source.length; index += 1) {
+      const code = source.charCodeAt(index);
+      const printable = code === 0x09 || code === 0x0a || code === 0x0d || code >= 0x20;
+      assert.ok(printable, `${relative(file)} carries a control character at offset ${index}`);
+    }
+  }
 });

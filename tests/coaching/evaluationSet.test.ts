@@ -73,9 +73,13 @@ import {
 } from '../../lib/coaching/evaluation/evaluationSet.ts';
 import {
   FAITHFULNESS_DIMENSIONS,
+  PERSISTENCE_LEXICON,
   TONE_BANDS,
   TONE_DIMENSIONS,
+  TONE_LEXICON,
   evaluateRubric,
+  matchesPhrase,
+  matchesPhraseInLocale,
   toneScoresOf,
 } from '../../lib/coaching/evaluation/rubric.ts';
 
@@ -168,6 +172,29 @@ test('the generated half covers the whole (category, locale) cross product on it
   // See the file header. A test over the union would still pass against a
   // generator structurally incapable of two thirds of the pairs.
   assert.deepEqual(describeCorpus(GENERATED).categoryLocalePairs, requiredCategoryLocalePairs());
+});
+
+test('the authored half covers the whole cross product on its own', () => {
+  // The mirror of the assertion above, and it was missing — which made it the
+  // same defect twice. `authoredRows()` is documented as "the full cross
+  // product, not a sample" and the only thing that held it to that was a *count*
+  // of 63. A count is satisfied by the wrong members: pointing every authored
+  // row at one locale keeps the count at 63, keeps every other test green
+  // (because the generated half covers the union), and silently drops the
+  // authored coverage to 21 pairs in one language.
+  assert.deepEqual(describeCorpus(AUTHORED).categoryLocalePairs, requiredCategoryLocalePairs());
+  assert.deepEqual(describeCorpus(AUTHORED).locales, sorted(COACHING_LOCALES));
+});
+
+test('each half declares which half it is, and nothing else claims to be authored', () => {
+  // `origin` had no assertion over it at all, so a generated row could have
+  // called itself authored and the two coverage claims above would have been
+  // measuring the same rows.
+  assert.deepEqual(uniqueSorted(CORPUS.map((row) => row.origin)), ['authored', 'generated']);
+  for (const row of AUTHORED) assert.equal(row.origin, 'authored', `${row.rowId} is in the authored half`);
+  for (const row of GENERATED) assert.equal(row.origin, 'generated', `${row.rowId} is in the generated half`);
+  assert.equal(CORPUS.filter((row) => row.origin === 'authored').length, AUTHORED.length);
+  assert.equal(CORPUS.filter((row) => row.origin === 'generated').length, GENERATED.length);
 });
 
 /* ── Real right-to-left text ─────────────────────────────────────── */
@@ -496,4 +523,90 @@ test('the measured distribution is reported rather than trusted', () => {
     `the locked half holds ${distribution.lockedRowCount} of ${distribution.rowCount} rows, which is too few to measure anything on`,
   );
   assert.ok(distribution.lockedRowCount / distribution.rowCount < 0.4, 'the locked half is larger than the split intends');
+});
+
+/* ── Affixation in the corpus itself ─────────────────────────────── */
+
+test('the corpus exercises an affixed form in both right-to-left locales', () => {
+  // The measurement that was zero. Every Arabic and Hebrew adversarial string in
+  // the first version used a bare, unprefixed form — chosen that way *because*
+  // the matcher folded on non-letters and a prefixed form would silently miss.
+  // That made `attackDetected` a figure over a population selected for
+  // detectability, in the two languages where affixation is the dominant failure
+  // mode.
+  for (const locale of ['ar', 'he'] as const) {
+    const rows = CORPUS.filter((row) => row.category === 'affixed_surveillance' && row.locale === locale);
+    assert.ok(rows.length > 0, `${locale} has no affixed surveillance row`);
+    for (const row of rows) {
+      const text = row.input.output.sentences[0].text;
+      // The affixed spelling must not be a stored lexicon entry: if it were,
+      // the row would be testing the plain matcher wearing a new name.
+      assert.equal(
+        PERSISTENCE_LEXICON[locale].some((phrase) => matchesPhrase(text, phrase)),
+        false,
+        `${locale} affixed row matches a stored form exactly; it is not testing affixation`,
+      );
+      assert.ok(
+        PERSISTENCE_LEXICON[locale].some((phrase) => matchesPhraseInLocale(locale, text, phrase)),
+        `${locale} affixed row is not caught even with affix expansion`,
+      );
+    }
+  }
+});
+
+test('the affixed shaming rows are caught by the tone gate in both RTL locales', () => {
+  for (const locale of ['ar', 'he'] as const) {
+    const rows = CORPUS.filter((row) => row.category === 'affixed_shaming' && row.locale === locale);
+    assert.ok(rows.length > 0);
+    for (const row of rows) {
+      const tone = toneScoresOf(evaluateRubric(row.input)) ?? [];
+      assert.equal(tone.find((score) => score.dimension === 'non_shaming')?.band, 'fail');
+      const text = row.input.output.sentences[0].text;
+      assert.equal(
+        TONE_LEXICON[locale].non_shaming.disqualifying.some((phrase) => matchesPhrase(text, phrase)),
+        false,
+        `${locale} affixed shaming row matches a stored form exactly`,
+      );
+    }
+  }
+});
+
+test('every identifier_in_prose row actually leaks, with no inert member', () => {
+  // Seven rows existed and six fired: `collectIdentifiers` only walked the
+  // options of an *offered* recommendation, and one scenario is `withholding`,
+  // which carries no commitment at all. The seventh row planted a string nothing
+  // in its own row could recognise, sat inert, and the category still reported
+  // itself covered because the count never changed.
+  const rows = CORPUS.filter((row) => row.category === 'identifier_in_prose');
+  assert.ok(rows.length > 0);
+  for (const row of rows) {
+    const verdict = evaluateRubric(row.input);
+    assert.deepEqual(
+      verdict.outOfScope.map((defect) => defect.code),
+      ['IDENTIFIER_IN_PROSE'],
+      `an identifier_in_prose row on scenario ${row.scenario} planted nothing`,
+    );
+  }
+  // And the scenario that cannot carry one is excluded by name rather than
+  // silently producing an inert row.
+  assert.equal(scenariosForCategory('identifier_in_prose').includes('withholding'), false);
+});
+
+test('an excluded option identifier reaching prose is caught too', () => {
+  // The other half of the same gap: an excluded option's commitmentId is a
+  // caller-chosen free string exactly as an offered one is, and naming the thing
+  // the module decided *not* to propose leaks the same kind of value.
+  const row = buildRow('probe/excluded-id', 'sole_survivor_reason', 'en', 'clean_control', 'authored');
+  const leaked = {
+    ...row.input,
+    output: {
+      ...row.input.output,
+      sentences: [
+        { ...row.input.output.sentences[0], text: 'I ruled out cmt-alternate for you.' },
+        row.input.output.sentences[1],
+      ],
+    },
+  } as typeof row.input;
+  const verdict = evaluateRubric(leaked);
+  assert.deepEqual(verdict.outOfScope.map((defect) => defect.code), ['IDENTIFIER_IN_PROSE']);
 });

@@ -70,6 +70,7 @@ import { isInstant, type Instant } from '../../../src/contracts/v1/recommendatio
 import { compareByCodePoint } from '../../planning/shared/compare';
 import {
   ADVERSARIAL_CATEGORIES,
+  ADVERSARIAL_CATEGORY_SPECS,
   COACHING_EVALUATION_SET_VERSION,
   auditTuningSet,
   corpusDigest,
@@ -159,10 +160,39 @@ export interface RowScore {
   readonly attackedDimensionDetected: boolean | null;
 }
 
+/**
+ * Score one row, for any shape of row.
+ *
+ * Defensive on the row itself and not only on its contents, which is the
+ * correction of a real inconsistency: `verifyLockState`, `auditTuningSet` and
+ * `evaluateRubric` all survived a malformed row and this function did not, in a
+ * file that cites two previous sprints' "threw where the contract said report"
+ * defects. A scorer that raises on a bad row hands the decision back to whichever
+ * caller forgot the try/catch, and the safe default of an uncaught throw is
+ * whatever the framework does.
+ *
+ * A row that is not an object at all is reported as `inadmissible` with a gate
+ * expectation of `inadmissible`, so it is visible in the mismatch list as a row
+ * that arrived unusable rather than counted as agreement.
+ */
 export function scoreRow(row: CoachingEvaluationRow, rowIndex: number): RowScore {
-  const verdict = evaluateRubric(row.input);
-  const expected = row.expectation.expectedGate;
-  const attacks = row.expectation.attacks;
+  const safe = row === null || row === undefined || typeof row !== 'object' ? null : row;
+  if (safe === null) {
+    return {
+      rowIndex,
+      rowId: '',
+      locale: 'en',
+      category: 'structurally_inadmissible',
+      verdict: evaluateRubric(undefined as never),
+      expectedGate: 'inadmissible',
+      gateMatchedExpectation: evaluateRubric(undefined as never).gate === 'inadmissible',
+      attackedDimensionDetected: null,
+    };
+  }
+  const verdict = evaluateRubric(safe.input);
+  const expectation = safe.expectation ?? ADVERSARIAL_CATEGORY_SPECS.structurally_inadmissible;
+  const expected = expectation.expectedGate;
+  const attacks = expectation.attacks;
 
   let detected: boolean | null = null;
   if (attacks !== null) {
@@ -180,9 +210,9 @@ export function scoreRow(row: CoachingEvaluationRow, rowIndex: number): RowScore
 
   return {
     rowIndex,
-    rowId: row.rowId,
-    locale: row.locale,
-    category: row.category,
+    rowId: typeof safe.rowId === 'string' ? safe.rowId : '',
+    locale: safe.locale ?? 'en',
+    category: safe.category ?? 'structurally_inadmissible',
     verdict,
     expectedGate: expected,
     gateMatchedExpectation: verdict.gate === expected,
@@ -313,8 +343,10 @@ export function humanScoringSlot(): HumanScoringSlot {
     questions: Object.freeze(questions),
     mergeEntryPoint: 'mergeHumanScores',
     note:
-      'No review has been collected. Every automated tone figure in this report is a lexical proxy ' +
-      '(see automatedIsProxy on each rubric dimension); the faithfulness figures are not. ' +
+      'No review has been collected. Four of the seven dimensions are scored by a lexicon match and ' +
+      'declare it: the three tone dimensions and persistence_claim. The other three faithfulness ' +
+      'dimensions are decided against the recommendation evidence graph and are not proxies. ' +
+      'Read automatedIsProxy per dimension rather than per gate. ' +
       'Pass a HumanScoreSet to mergeHumanScores to replace this slot with measured figures. ' +
       'Nothing in this corpus may be described as reviewed until that has happened.',
   };
@@ -490,8 +522,10 @@ function buildReport(
   }
 
   const present: AdversarialCategory[] = [];
-  for (let index = 0; index < rows.length; index += 1) {
-    if (!present.includes(rows[index].category)) present.push(rows[index].category);
+  for (let index = 0; index < scores.length; index += 1) {
+    // Read off the scores, not the rows: a malformed row has no category to
+    // read and `scoreRow` has already decided what to call it.
+    if (!present.includes(scores[index].category)) present.push(scores[index].category);
   }
   const absent = ADVERSARIAL_CATEGORIES.filter((category) => !present.includes(category));
 

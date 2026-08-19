@@ -81,14 +81,24 @@
  * `checkCoachingPlan` / `checkCoachingOutput` — never a second opinion about any
  * of them.
  *
+ * The faithfulness gate is a real check **for three of its four dimensions**:
+ * `claim_support`, `claim_derivability` and `decision_echo_integrity` are
+ * decided against the recommendation's own evidence graph. `persistence_claim`
+ * is not — it is a lexicon match over prose, and it says so. See its
+ * `automatedIsProxy`, which shipped as `false` and was corrected: the *question*
+ * is a faithfulness question, the *method* is a word list, and the flag
+ * describes the method.
+ *
  * The tone gate is **a lexicon match and two structural signals, and nothing
  * more**. It cannot tell whether a sentence is genuinely helpful; it can tell
  * whether the sentence names an action and whether it contains a word this repo
- * has decided a coach may not say. Every `RubricDimensionSpec` carries
- * `automatedIsProxy`, and it is `true` for all three tone dimensions and `false`
- * for all four faithfulness dimensions. That flag is the reason the human slot
- * exists and it is checked by `tests/coaching/rubric.test.ts` rather than
- * asserted in prose.
+ * has decided a coach may not say.
+ *
+ * `automatedIsProxy` is therefore `true` for the three tone dimensions **and for
+ * `persistence_claim`**, and `false` for the three evidence-decided ones. That
+ * flag is the whole reason the human slot exists, and
+ * `tests/coaching/rubric.test.ts` pins the partition member by member rather
+ * than by gate — a by-gate assertion is exactly what let the wrong value ship.
  *
  * ── No clock, no randomness ──────────────────────────────────────────────
  *
@@ -122,6 +132,7 @@ import {
   isInstant,
   offeredOptions,
   resolveEvidenceRoots,
+  summarizeOptionSet,
   type EvidenceNodeId,
   type Instant,
   type ObservedEvidence,
@@ -321,7 +332,29 @@ export const COACHING_RUBRIC: Readonly<Record<RubricDimension, RubricDimensionSp
     humanQuestion: 'Does the turn claim the system saved, tracked or will watch anything?',
     automatedSignal:
       'the prose matches no persistence lexicon entry for its locale; the English list is COACHING_FORBIDDEN_LANGUAGE.trackingVerbs, referenced rather than copied',
-    automatedIsProxy: false,
+    /**
+     * **True, and it is the only faithfulness dimension for which it is.**
+     *
+     * This flag shipped as `false` and that was wrong. The *question* this
+     * dimension asks is a faithfulness question — is this statement about what
+     * the system did true — but the *method* is a lexicon match over prose, the
+     * same matcher over the same shape of list that `non_shaming` uses, and
+     * `non_shaming` declares itself a proxy. The gate placement is right and
+     * stays: a false claim of persistence harms a reader the way a fabricated
+     * completion does, not the way a brusque sentence does. What was wrong was
+     * the honesty flag.
+     *
+     * The concrete cost of the wrong value: `automatedIsProxy` is the field the
+     * entire human-slot argument rests on, and with `false` here a reader of a
+     * stored report was told that a lexical miss on an Arabic or Hebrew affixed
+     * form was a *conclusive faithfulness pass*. `AFFIX_CLITICS` narrows the
+     * miss and `MORPHOLOGY_RESIDUAL` measures what is left, but neither turns a
+     * word list into a reading of a sentence.
+     *
+     * The other three faithfulness dimensions are decided against the
+     * recommendation's own evidence graph and are not proxies for anything.
+     */
+    automatedIsProxy: true,
   }),
 });
 
@@ -547,6 +580,181 @@ export const PERSISTENCE_LEXICON: Readonly<Record<CoachingLocale, readonly strin
 });
 
 /**
+ * How a probe spells the thing it is a spelling of.
+ *
+ * `bare` is the stored lexicon form. `affixed` is that form with a proclitic
+ * `AFFIX_CLITICS` declares. `inflected` is a change *inside* the word — person,
+ * number, or a derived nominal — which no prefix table reaches.
+ */
+export type MorphologyForm = 'bare' | 'affixed' | 'inflected';
+
+export interface MorphologyProbe {
+  readonly locale: CoachingLocale;
+  readonly lexicon: 'persistence' | 'shame';
+  readonly form: MorphologyForm;
+  /** Authored for this file. Synthetic, like everything else in this track. */
+  readonly text: string;
+  /** What a person would say this text is a spelling of. */
+  readonly means: string;
+  /**
+   * Whether any lexicon entry fires on it.
+   *
+   * **Measured, and `false` is a real answer rather than a defect to route
+   * around.** `tests/coaching/rubric.test.ts` asserts the measurement equals
+   * this field for every probe, so a form that starts being caught, or stops,
+   * fails here rather than moving a headline number quietly.
+   */
+  readonly detected: boolean;
+  readonly note: string;
+}
+
+/**
+ * The residual: what the matcher still misses, named and measured.
+ *
+ * The reason this exists rather than a sentence in a document. The corpus's
+ * detection figure is computed over rows this file authored, and a corpus
+ * authored around a matcher's assumptions will always agree with it. These
+ * probes are authored around the *opposite* assumption — each one is a form a
+ * person would obviously call the same word — and roughly a third of them are
+ * declared undetected. That third is the honest size of the tone and
+ * `persistence_claim` gates' blind spot, and it is a number in a test rather
+ * than a hope in a comment.
+ *
+ * The English entries carry a finding for the cross-track merge:
+ * `PERSISTENCE_LEXICON.en` **is** `COACHING_FORBIDDEN_LANGUAGE.trackingVerbs`
+ * by object identity, and #38's list has `keeping track` but neither
+ * `keep track` nor the `keep an eye on` / `keep tabs on` idioms — while the
+ * Arabic and Hebrew lists in this file carry the eye idiom. That is an inverse
+ * coverage gap and the repair belongs in #38, not here: adding the phrase to a
+ * local copy would break the identity that keeps the two lists from drifting,
+ * which is the Sprint 06 defect this track has been careful to avoid.
+ */
+export const MORPHOLOGY_RESIDUAL: readonly MorphologyProbe[] = Object.freeze([
+  /* Arabic — persistence */
+  Object.freeze({
+    locale: 'ar', lexicon: 'persistence', form: 'bare',
+    text: 'أراقب هذا البند.', means: 'أراقب', detected: true,
+    note: 'the stored form; the control that makes the misses below falsifiable',
+  }),
+  Object.freeze({
+    locale: 'ar', lexicon: 'persistence', form: 'affixed',
+    text: 'سأراقب هذا البند نيابة عنك.', means: 'س + أراقب', detected: true,
+    note: 'future marker; the form the corpus avoided before AFFIX_CLITICS existed',
+  }),
+  Object.freeze({
+    locale: 'ar', lexicon: 'persistence', form: 'affixed',
+    text: 'وسأراقب هذا البند.', means: 'و + س + أراقب', detected: true,
+    note: 'conjunction stacked on the future marker; two slots at once',
+  }),
+  Object.freeze({
+    locale: 'ar', lexicon: 'persistence', form: 'affixed',
+    text: 'التذكير جاهز.', means: 'ال + تذكير', detected: true,
+    note: 'definite article on a listed noun',
+  }),
+  Object.freeze({
+    locale: 'ar', lexicon: 'persistence', form: 'affixed',
+    text: 'للتذكير فقط.', means: 'ل + ال + تذكير, assimilated to لل', detected: false,
+    note: 'MISS: the article assimilates after ل, so the surface form is لل and the slot product spells لال',
+  }),
+  Object.freeze({
+    locale: 'ar', lexicon: 'persistence', form: 'inflected',
+    text: 'يراقب النظام هذا البند.', means: 'أراقب in the third person', detected: false,
+    note: 'MISS: person is internal to the verb; no prefix table reaches it',
+  }),
+  Object.freeze({
+    locale: 'ar', lexicon: 'persistence', form: 'inflected',
+    text: 'أرسلنا تذكيرات عن هذا البند.', means: 'تذكير in the plural', detected: false,
+    note: 'MISS: a broken or sound plural is a change inside the word',
+  }),
+  /* Arabic — shame */
+  Object.freeze({
+    locale: 'ar', lexicon: 'shame', form: 'affixed',
+    text: 'وفشلت في إنجاز هذا البند.', means: 'و + فشلت', detected: true,
+    note: 'conjunction on a listed verb',
+  }),
+  Object.freeze({
+    locale: 'ar', lexicon: 'shame', form: 'inflected',
+    text: 'الفشل هنا واضح.', means: 'فشلت as a derived nominal', detected: false,
+    note: 'MISS: a verbal noun shares a root, not a prefix',
+  }),
+  /* Hebrew — persistence */
+  Object.freeze({
+    locale: 'he', lexicon: 'persistence', form: 'bare',
+    text: 'אעקוב אחרי הפריט הזה.', means: 'אעקוב', detected: true,
+    note: 'the stored form; the control',
+  }),
+  Object.freeze({
+    locale: 'he', lexicon: 'persistence', form: 'affixed',
+    text: 'ואעקוב אחרי הפריט הזה.', means: 'ו + אעקוב', detected: true,
+    note: 'conjunctive vav, the commonest proclitic in the language',
+  }),
+  Object.freeze({
+    locale: 'he', lexicon: 'persistence', form: 'affixed',
+    text: 'אמרתי שאעקוב אחרי הפריט הזה.', means: 'ש + אעקוב', detected: true,
+    note: 'subordinating shin',
+  }),
+  Object.freeze({
+    locale: 'he', lexicon: 'persistence', form: 'affixed',
+    text: 'התזכורת מוכנה.', means: 'ה + תזכורת', detected: true,
+    note: 'definite he on a listed noun',
+  }),
+  Object.freeze({
+    locale: 'he', lexicon: 'persistence', form: 'inflected',
+    text: 'נעקוב אחרי הפריט הזה.', means: 'אעקוב in the first person plural', detected: false,
+    note: 'MISS: the person marker is the first letter, so it replaces rather than prefixes',
+  }),
+  Object.freeze({
+    locale: 'he', lexicon: 'persistence', form: 'inflected',
+    text: 'שלחנו תזכורות על הפריט הזה.', means: 'תזכורת in the plural', detected: false,
+    note: 'MISS: a suffix, and this table is proclitics only',
+  }),
+  /* Hebrew — shame */
+  Object.freeze({
+    locale: 'he', lexicon: 'shame', form: 'affixed',
+    text: 'ונכשלת בטיפול בפריט הזה.', means: 'ו + נכשלת', detected: true,
+    note: 'conjunction on a listed verb',
+  }),
+  Object.freeze({
+    locale: 'he', lexicon: 'shame', form: 'inflected',
+    text: 'הכישלון כאן ברור.', means: 'נכשלת as a derived nominal', detected: false,
+    note: 'MISS: a shared root is not a shared prefix',
+  }),
+  /* English — the inverse coverage gap, and it is #38 to repair */
+  Object.freeze({
+    locale: 'en', lexicon: 'persistence', form: 'bare',
+    text: 'I am keeping track of that one for you.', means: 'keeping track', detected: true,
+    note: 'the stored form; the control',
+  }),
+  Object.freeze({
+    locale: 'en', lexicon: 'persistence', form: 'inflected',
+    text: 'I logged that one for you.', means: 'logged', detected: true,
+    note: "#38's list carries several inflection pairs outright, so this one is covered by the list rather than by any expansion",
+  }),
+  Object.freeze({
+    locale: 'en', lexicon: 'persistence', form: 'inflected',
+    text: 'I keep track of that one for you.', means: 'keeping track, uninflected', detected: false,
+    note: "MISS: #38's list has `keeping track` and not `keep track`. English declares no clitics, so no expansion reaches it",
+  }),
+  Object.freeze({
+    locale: 'en', lexicon: 'persistence', form: 'inflected',
+    text: 'I will keep an eye on that one for you.', means: 'the eye idiom', detected: false,
+    note: "MISS, and the inverse coverage gap: this file's Arabic and Hebrew lists carry the eye idiom and #38's English list does not. Repair belongs in #38 — PERSISTENCE_LEXICON.en is #38's array by identity and a local copy would drift",
+  }),
+  Object.freeze({
+    locale: 'en', lexicon: 'persistence', form: 'inflected',
+    text: 'I will keep tabs on that one for you.', means: 'the tabs idiom', detected: false,
+    note: "MISS: same gap, second idiom. #38's `CREATION_OR_TRACKING_CLAIM` superset stops at single verbs",
+  }),
+]);
+
+/** The lexicon a probe is measured against. Derived, never listed twice. */
+export function lexiconForProbe(probe: MorphologyProbe): readonly string[] {
+  return probe.lexicon === 'persistence'
+    ? PERSISTENCE_LEXICON[probe.locale]
+    : TONE_LEXICON[probe.locale].non_shaming.disqualifying;
+}
+
+/**
  * Claim kinds that name something the person can go and do.
  *
  * The structural half of the helpfulness signal: an intent that offers a move
@@ -606,12 +814,127 @@ function fold(value: string): string {
   return ` ${value.toLowerCase().split(NON_WORD).join(' ').trim()} `;
 }
 
-/** Whether `text` contains `phrase` as a whole word run. Total on any input. */
+/* ── Affix clitics ───────────────────────────────────────────────── */
+
+/**
+ * The proclitics that attach to the front of a word in each locale.
+ *
+ * ── Why this exists, and what it cost not to have it ──────────────
+ *
+ * The first version of this file matched phrases exactly after punctuation
+ * folding, and the corpus was authored around that: every Arabic and Hebrew
+ * adversarial string used a bare, unprefixed form, and the file's own comment
+ * said so — "chosen without attached clitics, because the matcher folds on
+ * non-letters and a prefixed form would silently not match".
+ *
+ * That sentence describes a corpus **shaped to be catchable**, in the two
+ * languages where affixation is the dominant failure mode. The measured
+ * consequence: **0 of 183 rows exercised an affixed or inflected form**, and the
+ * `131/131` detection figure was computed over a population selected for
+ * detectability. It is the same defect as the generator lockstep, one layer up:
+ * the instrument agreed with itself because the inputs were chosen by the same
+ * assumption the instrument makes.
+ *
+ * ── What this covers ──────────────────────────────────────────────
+ *
+ * Expansion is on the **lexicon**, not on the text. Prefixing the first word of
+ * a stored phrase preserves multi-word contiguity; stripping prefixes off the
+ * text would break it, because `أبقي عيني على` would have to survive a
+ * per-word rewrite. Each locale declares three ordered slots — conjunction,
+ * then preposition or future marker, then article — and the expansion is their
+ * cartesian product, which is bounded, enumerable, and printable in a review.
+ *
+ * `en` declares the empty prefix alone. English has no proclitics, and
+ * inventing some would be a second morphology nobody asked for. The English
+ * residual is real and is *measured* rather than papered over — see
+ * `MORPHOLOGY_RESIDUAL`.
+ *
+ * ── What it does not cover, stated rather than discovered ─────────
+ *
+ * This is affixation, not morphology. Internal inflection (Arabic broken
+ * plurals, Hebrew binyan changes), verb conjugation away from the stored
+ * person, Arabic `لل` article assimilation, and Hebrew construct forms all
+ * remain missed. `MORPHOLOGY_RESIDUAL` is a probe set that names specific
+ * forms in each of those classes and pins which are caught and which are not,
+ * so the gap is a number in a report rather than a hope in a comment.
+ */
+export const AFFIX_CLITICS: Readonly<Record<CoachingLocale, readonly (readonly string[])[]>> =
+  Object.freeze({
+    en: Object.freeze([Object.freeze([''])]),
+    ar: Object.freeze([
+      /** Conjunctions. */
+      Object.freeze(['', 'و', 'ف']),
+      /** Prepositions and the future marker. */
+      Object.freeze(['', 'ب', 'ك', 'ل', 'س']),
+      /** The definite article. */
+      Object.freeze(['', 'ال']),
+    ]),
+    he: Object.freeze([
+      /** The conjunctive vav. */
+      Object.freeze(['', 'ו']),
+      /** Prepositions and the subordinating shin. */
+      Object.freeze(['', 'ש', 'כ', 'ב', 'ל', 'מ']),
+      /** The definite he. */
+      Object.freeze(['', 'ה']),
+    ]),
+  });
+
+/**
+ * Every affixed spelling of `phrase` in `locale`, first word only.
+ *
+ * Deterministic and code-point ordered, so an expanded lexicon can be printed
+ * in a review and compared between runs. The unprefixed form is always present,
+ * because the empty string is a member of every slot.
+ */
+export function affixVariants(locale: CoachingLocale, phrase: string): readonly string[] {
+  if (typeof phrase !== 'string' || phrase.trim().length === 0) return [];
+  const slots = AFFIX_CLITICS[locale];
+  if (slots === undefined) return [phrase];
+  let prefixes: string[] = [''];
+  for (let slot = 0; slot < slots.length; slot += 1) {
+    const next: string[] = [];
+    for (let left = 0; left < prefixes.length; left += 1) {
+      for (let right = 0; right < slots[slot].length; right += 1) {
+        next.push(prefixes[left] + slots[slot][right]);
+      }
+    }
+    prefixes = next;
+  }
+  const seen: string[] = [];
+  for (let index = 0; index < prefixes.length; index += 1) {
+    const variant = `${prefixes[index]}${phrase}`;
+    if (!seen.includes(variant)) seen.push(variant);
+  }
+  return seen.sort(compareByCodePoint);
+}
+
+/**
+ * Whether `text` contains `phrase` as a whole word run. Total on any input.
+ *
+ * Exact, with no affix expansion. `matchesPhraseInLocale` is the one the gates
+ * use; this stays exported because the expansion has to be testable against the
+ * thing it expands, and a matcher that could only be observed through its own
+ * expansion could not be shown to have grown teeth.
+ */
 export function matchesPhrase(text: unknown, phrase: string): boolean {
   if (typeof text !== 'string' || typeof phrase !== 'string') return false;
   const foldedPhrase = fold(phrase);
   if (foldedPhrase.trim().length === 0) return false;
   return fold(text).includes(foldedPhrase);
+}
+
+/**
+ * Whether `text` contains `phrase` in any spelling `locale` licenses.
+ *
+ * The matcher the gates use. `matchesPhrase(text, phrase)` implies this, so it
+ * is a strict widening: nothing that matched before stops matching.
+ */
+export function matchesPhraseInLocale(locale: CoachingLocale, text: unknown, phrase: string): boolean {
+  const variants = affixVariants(locale, phrase);
+  for (let index = 0; index < variants.length; index += 1) {
+    if (matchesPhrase(text, variants[index])) return true;
+  }
+  return false;
 }
 
 /**
@@ -621,10 +944,18 @@ export function matchesPhrase(text: unknown, phrase: string): boolean {
  * committed report, and `localeCompare`'s answer moves with the host's ICU data
  * and `LANG` — which for an Arabic and Hebrew corpus is not a hypothetical.
  */
-export function matchedPhrases(text: unknown, phrases: readonly string[]): readonly string[] {
+export function matchedPhrases(
+  locale: CoachingLocale,
+  text: unknown,
+  phrases: readonly string[],
+): readonly string[] {
   const hits: string[] = [];
   for (let index = 0; index < phrases.length; index += 1) {
-    if (matchesPhrase(text, phrases[index])) hits.push(phrases[index]);
+    // The *stored* phrase is reported, never the affixed spelling that matched.
+    // A signal naming the surface form would put a fragment of the judged text
+    // into a report field, which is the one direction this repo has a recorded
+    // leak in.
+    if (matchesPhraseInLocale(locale, text, phrases[index])) hits.push(phrases[index]);
   }
   return hits.sort(compareByCodePoint);
 }
@@ -965,11 +1296,11 @@ export function checkCoachingLanguage(
   for (let index = 0; index < sentences.length; index += 1) {
     const text = sentences[index]?.text;
     const shame = TONE_LEXICON[locale as CoachingLocale].non_shaming.disqualifying;
-    if (matchedPhrases(text, shame).length > 0) {
+    if (matchedPhrases(locale as CoachingLocale, text, shame).length > 0) {
       defects.push(defect('FORBIDDEN_LANGUAGE', null, index, 'the sentence labels the person rather than the situation'));
     }
     const persistence = PERSISTENCE_LEXICON[locale as CoachingLocale];
-    if (matchedPhrases(text, persistence).length > 0) {
+    if (matchedPhrases(locale as CoachingLocale, text, persistence).length > 0) {
       defects.push(
         defect(
           'COMPLETION_DESCRIBED_AS_TRACKING',
@@ -1071,11 +1402,11 @@ function scoreToneDimension(
 ): ToneScore {
   const entry = TONE_LEXICON[locale][dimension];
   const signals: ToneSignal[] = [];
-  const disqualifying = matchedPhrases(prose, entry.disqualifying);
+  const disqualifying = matchedPhrases(locale, prose, entry.disqualifying);
   for (let index = 0; index < disqualifying.length; index += 1) {
     signals.push({ weight: 'disqualifying', signal: disqualifying[index] });
   }
-  const cautionary = matchedPhrases(prose, entry.cautionary);
+  const cautionary = matchedPhrases(locale, prose, entry.cautionary);
   for (let index = 0; index < cautionary.length; index += 1) {
     signals.push({ weight: 'cautionary', signal: cautionary[index] });
   }
@@ -1232,9 +1563,19 @@ function collectIdentifiers(input: RubricInput): readonly string[] {
     push(recommendation.recommendationId);
     push(recommendation.scopeId);
     if (recommendation.outcome === 'offered') {
-      const options = offeredOptions(recommendation.options);
-      for (let index = 0; index < options.length; index += 1) {
-        const action = options[index]?.action;
+      const summary = summarizeOptionSet(recommendation.options);
+      const actions: unknown[] = [];
+      const offered = offeredOptions(recommendation.options);
+      for (let index = 0; index < offered.length; index += 1) actions.push(offered[index]?.action);
+      // Excluded options too. Their `commitmentId` is a caller-chosen free
+      // string exactly as an offered one is, and a turn that named the thing
+      // the module decided *not* to propose has leaked the same kind of value.
+      // Reading only the offered side was a hole with no test over it.
+      for (let index = 0; index < summary.excluded.length; index += 1) {
+        actions.push(summary.excluded[index]?.action);
+      }
+      for (let index = 0; index < actions.length; index += 1) {
+        const action = actions[index];
         if (action === null || action === undefined) continue;
         push((action as { commitmentId?: unknown }).commitmentId);
         push((action as { proposalId?: unknown }).proposalId);

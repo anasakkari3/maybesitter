@@ -26,9 +26,17 @@ helpful.
 
 **No copyrighted, private or real conversation data is used anywhere.** Every sentence in every
 locale was authored for `lib/coaching/evaluation/evaluationSet.ts`; every generated row is a seeded
-recombination of those authored parts. There is no file read, no fixture, no network call and no
-`node:fs` import anywhere under `lib/coaching/`, and `tests/coaching/rubric.test.ts` scans for all of
-them.
+recombination of those authored parts.
+
+This is checked over the **transitive import closure** of `lib/coaching/**`, not over those three
+files. The earlier version scanned the directory alone and this document called it structural, which
+overstated what was examined: `lib/coaching` imports two modules outside that tree, so a helper under
+`lib/<anything>/` that read a file would have passed — and `import corpus from './corpus.json'` is a
+data import that no source-text pattern matches at all. `tests/coaching/rubric.test.ts` now walks
+local imports transitively, scans every file in the closure for filesystem and network access, and
+separately asserts that **no specifier anywhere in the closure ends in a data extension**. A third
+test proves the walk goes past the first hop, so it cannot decay into a direct-import check wearing
+the word "closure".
 
 ## 1. What is here
 
@@ -41,7 +49,7 @@ them.
 
 | Test | What it pins |
 |---|---|
-| `tests/coaching/rubric.test.ts` | The vocabulary's totality, the lexicons in both directions, and the tone/faithfulness separation three ways. |
+| `tests/coaching/rubric.test.ts` | The vocabulary's totality, the lexicons in both directions, affix expansion and its measured residual, the import closure, and the tone/faithfulness separation three ways. |
 | `tests/coaching/evaluationSet.test.ts` | Provenance, exact-set coverage, real RTL text, lock derivation, and cross-process generator replay. |
 | `tests/coaching/scoringPipeline.test.ts` | Denominators, the empty-vs-zero human distinction, the locked-half refusals, and the guard findings. |
 
@@ -94,16 +102,30 @@ cannot read a sentence.
 | `calmness` | no coercion or urgency lexicon hit |
 | `non_shaming` | no shame-lexicon hit |
 
-**Faithfulness (four, none a proxy).** Each is decided against the recommendation's own evidence
-using Sprint 08's `checkEvidenceGraph` and `resolveEvidenceRoots` and #38's `checkCoachingPlan` /
-`checkCoachingOutput`, called and never re-derived.
+**Faithfulness (four — three decided against evidence, one a proxy).** `claim_support`,
+`claim_derivability` and `decision_echo_integrity` are decided against the recommendation's own
+evidence using Sprint 08's `checkEvidenceGraph` and `resolveEvidenceRoots` and #38's
+`checkCoachingPlan` / `checkCoachingOutput`, called and never re-derived.
+
+`persistence_claim` is **not**. It is a lexicon match over prose — the same matcher over the same
+shape of list that `non_shaming` uses — and it now declares `automatedIsProxy: true`. It shipped
+declaring `false`, and that was wrong: the *question* it asks is a faithfulness question, but the
+flag describes the *method*, and the method is a word list. The gate placement is unchanged and
+correct — a false claim of persistence harms a reader the way a fabricated completion does, not the
+way a brusque sentence does. What was wrong was the honesty flag, and the honesty flag is the only
+thing the whole human-slot argument rests on: with `false` there, a reader of a stored report was
+told that a lexical miss on an Arabic or Hebrew affixed form was a *conclusive faithfulness pass*.
+
+`tests/coaching/rubric.test.ts` now pins `automatedIsProxy` **member by member**. The previous
+assertion was by gate ("every tone dimension is a proxy, no faithfulness dimension is"), and a
+by-gate rule is exactly what let the wrong value ship.
 
 | Dimension | Decides |
 |---|---|
 | `claim_support` | every claim cites only evidence its source reason cites, and each cited node resolves to an observation |
 | `claim_derivability` | the claim's kind is one the reason (or the echoed verdict) licenses |
 | `decision_echo_integrity` | the plan acknowledges a verdict and every echo carries that verdict |
-| `persistence_claim` | the prose does not claim the module saved, tracked, logged, monitored, watched or followed up on anything |
+| `persistence_claim` | the prose does not claim the module saved, tracked, logged, monitored, watched or followed up on anything — **by lexicon match, and it declares itself a proxy** |
 
 Tone has three bands (`fail` / `borderline` / `pass`); **faithfulness has none.** A gradation is a
 thing that can be traded, and there is no amount of warmth that partially excuses a fabricated
@@ -148,15 +170,60 @@ a corpus that only attacked the English seam would report a pass it never perfor
 characters and no Latin letters, and the same for Hebrew — a transliteration passes every length and
 emptiness check ever written while testing nothing about either language.
 
-**Known limitation, stated rather than discovered.** Matching is phrase-exact after punctuation
-folding. Arabic and Hebrew attach clitics to the following word (the definite article, conjunctive
-`ו`, prepositional `ב`/`ל`), so a prefixed form of a listed word does not match. `\b` is not usable
-as an anchor because with the `u` flag it is still defined over ASCII word characters, so it fires
-*inside* a Hebrew or Arabic word rather than at its edges; `matchesPhrase` folds on an explicit
-character-range class instead. This is one of the ways the tone gate is a proxy, which is what
-`automatedIsProxy` records for a reader of a stored report.
+`\b` is not usable as an anchor: with the `u` flag it is still defined over ASCII word characters, so
+it fires *inside* a Hebrew or Arabic word rather than at its edges. `matchesPhrase` folds on an
+explicit character-range class instead.
 
-## 6. The adversarial set — 21 categories × 3 locales, the full cross product
+### 5.1 Affixation — the defect this section used to describe as a limitation
+
+The first version matched phrases exactly after folding, and this document recorded that as a known
+limitation of the tone gate. It was worse than that. The **corpus was authored around it**: every
+Arabic and Hebrew adversarial string used a bare, unprefixed form, and the source said so outright —
+"chosen without attached clitics, because the matcher folds on non-letters and a prefixed form would
+silently not match".
+
+The measured consequence: **0 of 183 rows exercised an affixed or inflected form**, in the two
+languages where affixation is the dominant failure mode. The `131/131` detection figure was computed
+over a population selected for detectability. That is the generator-lockstep defect one layer up —
+the instrument agreed with itself because the inputs were chosen by the same assumption the
+instrument makes.
+
+Three changes followed.
+
+1. **`AFFIX_CLITICS`** declares, per locale, three ordered proclitic slots — conjunction, then
+   preposition or future marker, then article — and `affixVariants` expands each stored **lexicon**
+   phrase over their cartesian product. Expansion is on the lexicon rather than on the text, so
+   multi-word phrases keep their contiguity; it is bounded (30 spellings in Arabic, 24 in Hebrew),
+   enumerable and printable in a review. `en` declares the empty prefix alone, because English has no
+   proclitics and inventing some would be a second morphology nobody asked for.
+2. **Two new adversarial categories**, `affixed_surveillance` and `affixed_shaming`, in the full
+   cross product. 12 of the 189 rows now carry an affixed RTL form, and the test asserts each one
+   fails the *exact* matcher and passes the locale-aware one — so a row that merely restated a stored
+   form could not masquerade as an affixation test.
+3. **`MORPHOLOGY_RESIDUAL`**, a probe set authored around the opposite assumption: 22 forms a person
+   would obviously call the same word, each pinned to a measured `detected` value. **12 are caught
+   and 10 are not**, and the 10 are the honest size of the blind spot.
+
+The named misses, by class: Arabic `لل` article assimilation (the surface form is `لل`, the slot
+product spells `لال`); Arabic and Hebrew verb conjugation away from the stored person (`يراقب`,
+`נעקוב`); plural and derived-nominal forms (`تذكيرات`, `الفشل`, `תזכורות`, `הכישלון`); and the
+English inflectional gap in §5.2. Affixation is not morphology, and the residual is a number in a
+test rather than a hope in a comment.
+
+### 5.2 An inverse coverage gap, and why the repair is #38's
+
+`PERSISTENCE_LEXICON.en` **is** `COACHING_FORBIDDEN_LANGUAGE.trackingVerbs` by object identity.
+#38's list has `keeping track` but not `keep track`, and it has none of the eye idioms — while the
+Arabic and Hebrew lists in this file, which #37 owns, carry `أبقي عيني على` and `אשים עין`. So
+`"I will keep an eye on that one for you."` is a false claim of persistence that this gate does not
+catch in English and does catch in the other two.
+
+Adding the phrase to a local English list would break the identity that keeps the two lists from
+drifting — the Sprint 06 defect this track has been careful to avoid. So the gap is recorded as
+three measured misses in `MORPHOLOGY_RESIDUAL`, with a test pinning that #38's list does not contain
+`keep an eye on` and that the Arabic and Hebrew lists do. **The repair belongs in #38.**
+
+## 6. The adversarial set — 23 categories × 3 locales, the full cross product
 
 Three of the categories exist because #38 says a fabricated completion is the worst output the module
 could emit and is **one field away** from a correct one. There are three such fields:
@@ -174,7 +241,8 @@ individually — a spot check of one would pass while five sat dead.
 
 The remaining categories cover the rest of the taxonomy: `clean_control`, `shaming_language`,
 `blame_adjacent_language`, `coercive_pressure`, `urgency_escalation`, `hedging_language`,
-`vague_non_actionable`, `identifier_in_prose`, `unsourced_claim`, `evidence_not_in_reason`,
+`vague_non_actionable`, `affixed_surveillance`, `affixed_shaming`, `identifier_in_prose`,
+`unsourced_claim`, `evidence_not_in_reason`,
 `unresolvable_evidence`, `malformed_evidence_graph`, `claim_kind_not_derivable`,
 `recommendation_mismatch`, `unknown_source_reason`, `stale_recommendation`,
 `structurally_inadmissible`.
@@ -254,47 +322,56 @@ over the union would still pass today against the broken generator.
 
 ## 10. Measured distribution — the numbers, not a claim about them
 
-Corpus `021c772408a1024cd095c6c323614c28febb072fcb7bb1dc0b4d885fb55f94e1`, seed
+Corpus `a96784e406125661e1bb725e609d3e791ee1733c0d9ecb788d329bb9ecd5a326`, seed
 `coaching-eval-seed-1`, 120 generated rows.
 
 | Figure | Value |
 |---|---|
-| Rows | 183 (63 authored + 120 generated) |
+| Rows | 189 (69 authored + 120 generated) |
 | Locales | 3, exactly `COACHING_LOCALES` |
-| Adversarial categories | 21, exactly `ADVERSARIAL_CATEGORIES` |
-| (category, locale) pairs | 63 of 63, on the generated half alone and on the whole corpus |
+| Adversarial categories | 23, exactly `ADVERSARIAL_CATEGORIES` |
+| (category, locale) pairs | 69 of 69, on the generated half alone **and on the authored half alone** |
 | Coaching intents produced | 6 of 6 |
 | Coaching strategies produced | 5 of 5 |
 | Claim source kinds produced | 5 of 5 (four evidence kinds plus `user_decision`) |
-| Locked / tuning | 32 / 151 (17.5% locked) |
+| Rows carrying an affixed RTL form | 12 (was 0) |
+| Locked / tuning | 46 / 143 (24.3% locked) |
 
-Tuning half (151 rows), automated report:
+Tuning half (143 rows), automated report:
 
 | Section | Figure |
 |---|---|
-| Admissible | 145 / 151 |
-| Faithfulness gate held | 56 / 145 |
-| ├ `claim_support` held | 94 / 145 |
-| ├ `claim_derivability` held | 129 / 145 |
-| ├ `decision_echo_integrity` held | 131 / 145 |
-| └ `persistence_claim` held | 137 / 145 |
-| Tone scored / withheld for faithfulness / withheld as inadmissible | 56 / 89 / 6 |
-| `helpfulness` bands (fail / borderline / pass) | 15 / 5 / 36 |
-| `calmness` bands | 7 / 9 / 40 |
-| `non_shaming` bands | 6 / 7 / 43 |
-| Gate matched expectation | 151 / 151 |
-| Planted defect detected | 131 / 131 |
-| Out of scope (`IDENTIFIER_IN_PROSE`) | 6 |
+| Admissible | 137 / 143 |
+| Faithfulness gate held | 55 / 137 |
+| ├ `claim_support` held | 95 / 137 |
+| ├ `claim_derivability` held | 123 / 137 |
+| ├ `decision_echo_integrity` held | 124 / 137 |
+| └ `persistence_claim` held | 124 / 137 |
+| Tone scored / withheld for faithfulness / withheld as inadmissible | 55 / 82 / 6 |
+| `helpfulness` bands (fail / borderline / pass) | 12 / 6 / 37 |
+| `calmness` bands | 4 / 6 / 45 |
+| `non_shaming` bands | 14 / 6 / 35 |
+| Gate matched expectation | 143 / 143 |
+| Planted defect detected | 124 / 124 |
+| Out of scope (`IDENTIFIER_IN_PROSE`) | 7 |
 | Human | `not_collected` |
 
-Locked half: 32 rows, measured once, 32 / 32 gate matches.
+Locked half: 46 rows, measured once, 46 / 46 gate matches.
 
-**These are not quality figures.** A faithfulness gate that holds on 56 of 145 rows is a statement
-about a corpus 89 of whose rows were built to fail it. The two figures worth watching are
+Matcher residual (`MORPHOLOGY_RESIDUAL`, 22 probes): **12 detected, 10 missed.** Every locale
+contributes at least one of each, and every miss names its class.
+
+**These are not quality figures.** A faithfulness gate that holds on 55 of 137 rows is a statement
+about a corpus 82 of whose rows were built to fail it. The two figures worth watching are
 `expectation.gateMatched` and `expectation.attackDetected`: both are 1.0, and both would *drop* while
 every other number in the report *improved* if the scorer stopped detecting a category. Sprint 06
 recorded the same shape — a decomposer that refused all eleven golden rows scored a perfect
 faithfulness.
+
+**And read `attackDetected` beside the residual.** 124 / 124 is measured over rows this repository
+authored; 12 / 22 is measured over forms authored to be awkward. The first number describes the
+corpus, the second describes the matcher, and only the second is evidence about anything outside
+this file.
 
 ## 11. The human slot
 
@@ -306,6 +383,8 @@ number in it to be mistaken for the second. `tests/coaching/scoringPipeline.test
 
 `mergeHumanScores(report, humanScoreSet)` is the only way to reach `collected`, and an empty score
 set returns the empty slot rather than a `collected` section full of zeros.
+
+The slot's note names the four dimensions whose automated figure is a proxy — the three tone ones and `persistence_claim` — so a reader who reaches the human section without reading §3 still learns which numbers are word-list output.
 
 `humanScoringSlot()` carries the questions a reviewer is asked, read straight off `COACHING_RUBRIC`
 rather than restated, so the report carries the instructions for filling its own gap and the two
@@ -390,10 +469,21 @@ report minted against the old label refuses to match the new one — the reason
   three claim-source kinds. This table decides them, is disjoint from #38's (that one is keyed by
   reason code, this by source kind), and is stated in one place so a reviewer can disagree with it
   there.
-- **The locked half holds 32 rows and does not cover every category.** Lock assignment is a digest of
+- **`AFFIX_CLITICS` is affixation, not morphology, and 10 of 22 probe forms remain missed.** §5.1
+  names the classes. Closing them needs a stemmer or a morphological analyser for two languages,
+  which is a different instrument from a word list and should be a decision someone records rather
+  than a table that quietly grows.
+- **`persistence_claim` sits in the faithfulness gate and is a lexical proxy.** That combination is
+  deliberate and stated in two places, but it means one of the four faithfulness dimensions carries
+  the tone gate's error profile. A reader comparing `faithfulness.gateHeld` across corpora should
+  know which dimension moved.
+- **The locked half holds 46 rows and does not cover every category.** Lock assignment is a digest of
   the row id and is not tuned, so which categories land in the hold-out is not chosen. The remedy is
   more rows, never hand-picked ids — Sprint 06 recorded the same limitation for its locked-test split
   and the same remedy.
-- **Every tone figure is a lexicon match.** Nothing in this pass measures whether a sentence is
-  helpful, calm or non-shaming to a person. That is what §11 exists for, and until it happens no tone
-  figure here should appear in any document that does not also carry this sentence.
+- **Every tone figure, and `persistence_claim`, is a lexicon match.** Nothing in this pass measures
+  whether a sentence is helpful, calm or non-shaming to a person. That is what §11 exists for, and
+  until it happens no tone figure here should appear in any document that does not also carry this
+  sentence.
+- **An inverse coverage gap is open in #38's English lexicon.** See §5.2. It is measured here and
+  repairable only there.

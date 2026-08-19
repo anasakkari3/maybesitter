@@ -30,8 +30,10 @@ import {
   LOCK_ASSIGNMENT_VERSION,
   buildRow,
   defaultCorpus,
+  describeCorpus,
   lockStateFor,
   partitionByLock,
+  verifyLockState,
   type CoachingEvaluationRow,
   type LockedRowSet,
   type TuningRowSet,
@@ -327,7 +329,12 @@ test('the human slot names the questions a reviewer is asked, read off the rubri
   assert.deepEqual(sorted(slot.dimensions), sorted(RUBRIC_DIMENSIONS));
   assert.equal(slot.status, 'awaiting_first_review');
   assert.equal(slot.mergeEntryPoint, 'mergeHumanScores');
-  assert.ok(slot.note.includes('proxy'));
+  // The note has to name *which* dimensions the proxy claim covers, because
+  // "some of these are word-list output" is not actionable to a reader who
+  // reaches the human section without reading the rubric.
+  assert.ok(slot.note.includes('proxies'));
+  assert.ok(slot.note.includes('persistence_claim'), 'the note does not name the faithfulness dimension that is a proxy');
+  assert.ok(slot.note.includes('per dimension rather than per gate'));
 });
 
 test('merging an empty review set leaves the slot empty rather than filling it with zeros', () => {
@@ -452,6 +459,33 @@ test('a row score names its row by index as well as by id', () => {
   assert.equal(score.locale, 'he');
   assert.equal(score.gateMatchedExpectation, true);
   assert.equal(score.attackedDimensionDetected, null, 'a clean control attacks nothing');
+});
+
+test('the scorer reports rather than throws for a malformed row inside a well-formed set', () => {
+  // `verifyLockState`, `auditTuningSet` and `evaluateRubric` all survived a
+  // malformed row and `scoreTuningSet` did not, in a file that cites two
+  // previous sprints' "threw where the contract said report" defects twice. A
+  // scorer that raises hands the decision back to whichever caller forgot the
+  // try/catch, and the safe default of an uncaught throw is whatever the
+  // framework does.
+  const shapes: unknown[] = [null, undefined, 42, 'a row', [], { rowId: 'x' }];
+  for (const shape of shapes) {
+    const rows = [PARTITION.tuning.rows[0], shape as CoachingEvaluationRow];
+    const report = scoreTuningSet({ kind: 'tuning', rows }, GENERATED_AT);
+    assert.equal(report.rowCount, 2);
+    assert.equal(report.rows.length, 2);
+    // And it is visible rather than counted as agreement: a row that arrived
+    // unusable shows up as inadmissible, not as a silent pass.
+    assert.ok(report.tone.withheldAsInadmissible >= 1, `a ${typeof shape} row was not reported as inadmissible`);
+  }
+});
+
+test('a malformed row does not take the digest or the distribution down with it', () => {
+  const rows = [PARTITION.tuning.rows[0], null as unknown as CoachingEvaluationRow];
+  const report = scoreTuningSet({ kind: 'tuning', rows }, GENERATED_AT);
+  assert.equal(report.corpusDigest.length, 64);
+  assert.deepEqual(verifyLockState(rows).map((finding) => finding.code), []);
+  assert.equal(describeCorpus(rows).rowCount, 2);
 });
 
 test('the scorer reports rather than throws for a set it was handed as null', () => {

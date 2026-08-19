@@ -180,6 +180,8 @@ export type AdversarialCategory =
   | 'hedging_language'
   | 'vague_non_actionable'
   | 'surveillance_phrasing'
+  | 'affixed_surveillance'
+  | 'affixed_shaming'
   | 'identifier_in_prose'
   | 'unsourced_claim'
   | 'evidence_not_in_reason'
@@ -203,6 +205,8 @@ export const ADVERSARIAL_CATEGORIES = Object.freeze([
   'hedging_language',
   'vague_non_actionable',
   'surveillance_phrasing',
+  'affixed_surveillance',
+  'affixed_shaming',
   'identifier_in_prose',
   'unsourced_claim',
   'evidence_not_in_reason',
@@ -312,6 +316,24 @@ export const ADVERSARIAL_CATEGORY_SPECS: Readonly<
     expectedGate: 'faithfulness_violated',
     provokes: Object.freeze(['PERSISTENCE_CLAIMED'] as const),
     note: 'claims the module will watch, track or follow up. It performs no writes, so this is false in every locale.',
+  }),
+  affixed_surveillance: Object.freeze({
+    category: 'affixed_surveillance',
+    attacks: 'persistence_claim',
+    expectedGate: 'faithfulness_violated',
+    provokes: Object.freeze(['PERSISTENCE_CLAIMED'] as const),
+    note:
+      'the same false claim of persistence in a second surface form: a proclitic in Arabic and Hebrew, ' +
+      'and in English a different inflection #38 list already carries, because English has no proclitics. ' +
+      'Before this category existed, 0 of 183 rows exercised an affixed or inflected form in either RTL ' +
+      'language, so the detection figure was computed over a population selected for detectability.',
+  }),
+  affixed_shaming: Object.freeze({
+    category: 'affixed_shaming',
+    attacks: 'non_shaming',
+    expectedGate: 'scored',
+    provokes: Object.freeze(['SHAMING_LANGUAGE'] as const),
+    note: 'the same shame label with a conjunction attached, so the tone gate is exercised on an affixed form too.',
   }),
   identifier_in_prose: Object.freeze({
     category: 'identifier_in_prose',
@@ -475,7 +497,7 @@ export const LOCKED_BUCKET_SHARE = 20;
  * different held-out set on each run.
  */
 export function lockBucketFor(rowId: string): number {
-  const digest = sha256Hex(`${LOCK_ASSIGNMENT_VERSION} ${rowId}`);
+  const digest = sha256Hex(`${LOCK_ASSIGNMENT_VERSION} ${rowId}`);
   return parseInt(digest.slice(0, 8), 16) % LOCK_BUCKET_COUNT;
 }
 
@@ -935,6 +957,18 @@ export const ADVERSARIAL_TEXT: Readonly<
     ar: 'أراقب هذا البند نيابة عنك.',
     he: 'אעקוב אחרי הפריט הזה בשבילך.',
   }),
+  affixed_surveillance: Object.freeze({
+    // ar/he carry a proclitic on a listed verb; en carries a second inflection
+    // that #38's list holds outright, because English declares no clitics.
+    en: 'I logged that one for you.',
+    ar: 'سأراقب هذا البند نيابة عنك.',
+    he: 'ואעקוב אחרי הפריט הזה בשבילך.',
+  }),
+  affixed_shaming: Object.freeze({
+    en: 'You were disappointed by that one.',
+    ar: 'وفشلت في إنجاز هذا البند.',
+    he: 'ונכשלת בטיפול בפריט הזה.',
+  }),
   identifier_in_prose: Object.freeze({
     en: 'That one, cmt-lead, is past its stated time.',
     ar: 'هذا البند، cmt-lead، تجاوز وقته المحدد.',
@@ -1085,7 +1119,15 @@ const CATEGORY_SCENARIOS: Readonly<Record<AdversarialCategory, readonly Scenario
   // Needs an action-offering intent to have an action to be missing.
   vague_non_actionable: Object.freeze(['sole_survivor_reason'] as const),
   surveillance_phrasing: SCENARIO_KINDS,
-  identifier_in_prose: SCENARIO_KINDS,
+  affixed_surveillance: SCENARIO_KINDS,
+  affixed_shaming: SCENARIO_KINDS,
+  // The leaked identifier is a commitment id, and a withheld recommendation
+  // carries no commitment. See `collectIdentifiers`: on that scenario the row
+  // planted a string nothing in the row could recognise, so it sat inert while
+  // the category still reported itself covered.
+  identifier_in_prose: Object.freeze(
+    SCENARIO_KINDS.filter((scenario) => scenario !== 'withholding'),
+  ),
   unsourced_claim: Object.freeze(['sole_survivor_reason', 'only_candidate_action', 'choice', 'withholding'] as const),
   evidence_not_in_reason: Object.freeze(['sole_survivor_reason', 'choice'] as const),
   unresolvable_evidence: Object.freeze(['sole_survivor_reason', 'choice'] as const),
@@ -1339,7 +1381,7 @@ export function authoredRows(): readonly CoachingEvaluationRow[] {
  * have that defect because there is nothing to reshuffle.
  */
 function draw(seed: string, index: number, field: string, bound: number): number {
-  const digest = createHash('sha256').update(`${seed} ${index} ${field}`).digest('hex');
+  const digest = createHash('sha256').update(`${seed} ${index} ${field}`).digest('hex');
   return parseInt(digest.slice(0, 8), 16) % bound;
 }
 
@@ -1414,8 +1456,12 @@ export function defaultCorpus(): readonly CoachingEvaluationRow[] {
  */
 export function corpusDigest(rows: readonly CoachingEvaluationRow[]): string {
   const canonical = rows
+    // Filtered before the sort, not after: the comparator reads `rowId` off both
+    // sides, so a malformed row raises inside `Array.sort` — out of a function
+    // whose whole contract is to return a value — before any later guard runs.
+    .filter((row) => row !== null && row !== undefined && typeof row === 'object')
     .slice()
-    .sort((left, right) => compareByCodePoint(left.rowId, right.rowId))
+    .sort((left, right) => compareByCodePoint(left.rowId ?? '', right.rowId ?? ''))
     .map((row) => ({
       rowId: row.rowId,
       provenance: row.provenance,
@@ -1425,10 +1471,13 @@ export function corpusDigest(rows: readonly CoachingEvaluationRow[]): string {
       scenario: row.scenario,
       category: row.category,
       origin: row.origin,
-      plan: row.input.plan,
-      output: row.input.output,
-      recommendation: row.input.recommendation,
-      currentFingerprints: row.input.currentFingerprints,
+      // Optional throughout: a row that arrived without its input is still a row
+      // with an identity, and a digest that raised on one would fail on exactly
+      // the inputs a report exists to describe.
+      plan: row.input?.plan ?? null,
+      output: row.input?.output ?? null,
+      recommendation: row.input?.recommendation ?? null,
+      currentFingerprints: row.input?.currentFingerprints ?? null,
     }));
   return sha256Hex(canonicalJson({ version: COACHING_EVALUATION_SET_VERSION, rows: canonical }));
 }
@@ -1481,6 +1530,7 @@ export function describeCorpus(rows: readonly CoachingEvaluationRow[]): CorpusDi
 
   for (let index = 0; index < rows.length; index += 1) {
     const row = rows[index];
+    if (row === null || row === undefined || typeof row !== 'object') continue;
     locales.push(row.locale);
     categories.push(row.category);
     scenarios.push(row.scenario);
@@ -1490,7 +1540,7 @@ export function describeCorpus(rows: readonly CoachingEvaluationRow[]): CorpusDi
     lockStates.push(state);
     if (state === 'locked') locked += 1;
     pairs.push(`${row.category}|${row.locale}`);
-    const claims = row.input.output.claims;
+    const claims = row.input?.output?.claims ?? [];
     for (let cursor = 0; cursor < claims.length; cursor += 1) {
       const kind = (claims[cursor] as { source?: { kind?: unknown } }).source?.kind;
       if (typeof kind === 'string') sourceKinds.push(kind);
