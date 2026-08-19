@@ -37,14 +37,16 @@ export * from './rulesDetector';
 export * from './validator';
 
 /**
- * Decomposition runs under the `planning` runtime module.
+ * Decomposition runs under its own runtime module.
  *
- * There is no `decomposition` entry in `INTELLIGENCE_MODULES`, and adding one
- * would edit a contract three tracks share mid-sprint. `planning` is the module
- * the roadmap files this capability under, so its feature flag and kill switch
- * are the ones an operator would reach for anyway.
+ * #27 originally borrowed `planning`, because adding to `INTELLIGENCE_MODULES`
+ * mid-sprint would have edited a contract three tracks shared. Integration is
+ * where that edit is safe, and it had to happen: audit envelopes carry the
+ * module name, so borrowing `planning` would have filed every decomposition
+ * event under a capability that did not produce it, and an operator reaching
+ * for `MAYBESITTER_KILL_SWITCH_DECOMPOSITION` would have found nothing.
  */
-const RUNTIME_MODULE = 'planning' as const;
+const RUNTIME_MODULE = 'decomposition' as const;
 
 export interface DecompositionEngineInput {
   readonly proposalId: string;

@@ -85,7 +85,7 @@ function auditEvent(
     eventType: 'module_execution',
     occurredAt: now.toISOString(),
     correlationId: randomUUID(),
-    module: 'planning',
+    module: 'decomposition',
     fields: {
       outcome,
       reasonCode,
@@ -292,14 +292,13 @@ export async function confirmDecomposition(
   // A proposal already claimed by a different key is spent, whether the write
   // has landed yet or not.
   //
-  // TODO(integration): `already_confirmed` is being added to
-  // `ConfirmationFailureCode` by #25 and belongs at both of these call sites.
-  // `proposal_not_found` is right for the scope check above — telling a wrong
-  // scope that the proposal exists would be an enumeration oracle — but here it
-  // is merely misleading: the caller holds a real proposal id and the real
-  // reason is that someone else ruled first.
+  // `proposal_not_found` stays on the scope check above — telling a wrong scope
+  // that the proposal exists would be an enumeration oracle. Here it would only
+  // mislead: the caller holds a real proposal id, and the real reason is that
+  // someone else ruled first. A caller told "not found" retries; a caller told
+  // "already confirmed" stops, which is the correct response to this one.
   const claimed = stored.confirmedResult !== undefined || stored.inFlight !== undefined;
-  if (claimed && stored.idempotencyKey !== request.idempotencyKey) return failure('proposal_not_found');
+  if (claimed && stored.idempotencyKey !== request.idempotencyKey) return failure('already_confirmed');
 
   if (stored.confirmedResult) return { ...stored.confirmedResult, replayed: true };
   if (stored.inFlight) {

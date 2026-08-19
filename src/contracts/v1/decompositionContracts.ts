@@ -142,17 +142,49 @@ export type DecompositionProvenance =
  * - `CONJUNCTION_ONLY`    — a step that is only a connective ("and", "ثم",
  *                           "ואז"): a split artefact, not a step.
  * - `SPAN_MISMATCH`       — `raw.slice(start, end) !== text`.
- * - `SPAN_OUT_OF_RANGE`   — a span reaching outside the source text.
- * - `SPAN_OVERLAP`        — two steps claiming overlapping source text.
+ * - `SPAN_OUT_OF_RANGE`   — a span reaching outside the source text, or a
+ *                           degenerate empty range. `[5, 5)` is inside the text
+ *                           and still claims nothing; reporting it as a
+ *                           mismatch would pass trivially, since `slice(5, 5)`
+ *                           equals the `''` it would be compared against.
+ * - `SPAN_OVERLAP`        — any two spans in one proposal claiming overlapping
+ *                           source text, *including two spans of the same
+ *                           step*. A step double-claiming its own words is as
+ *                           wrong as two steps colliding, and the acceptance
+ *                           criterion this serves says "non-overlapping"
+ *                           without qualifying whose spans.
  * - `INVENTED_TIMING`     — `statedTiming` not present in the source text.
  * - `INVENTED_OWNER`      — `statedOwner` not present in the source text.
  * - `INFERRED_WITH_SPAN`  — claims to be inferred while citing source text.
- * - `UNSOURCED_STEP`      — has no span and does not admit to being inferred.
+ * - `UNSOURCED_STEP`      — the step's content does not come from the text.
+ *                           Two shapes: no span at all while not admitting to
+ *                           being inferred, and — equally — a `title` the
+ *                           step's own spans do not source. The second is not a
+ *                           nicety: a provider returning correct spans beside a
+ *                           fabricated title passes every other provenance
+ *                           check here, because the span round-trips and the
+ *                           title it purports to come from is never compared to
+ *                           anything. The title is the field a user reads and
+ *                           the field that gets persisted.
  * - `DUPLICATE_STEP_ID`   — two steps sharing a `stepId`.
  * - `UNKNOWN_DEPENDENCY`  — an edge pointing at no step in this proposal.
- * - `CYCLIC_DEPENDENCY`   — the dependency graph is not acyclic.
- * - `SELF_DEPENDENCY`     — a step depending on itself.
+ * - `CYCLIC_DEPENDENCY`   — the dependency graph is not acyclic. A self-edge is
+ *                           a cycle, but is reported under `SELF_DEPENDENCY`
+ *                           alone; see below.
+ * - `SELF_DEPENDENCY`     — a step depending on itself. Takes precedence over
+ *                           `CYCLIC_DEPENDENCY`: one defect earns one code, and
+ *                           a caller handed two rejections for one edge cannot
+ *                           tell whether it has one problem or two.
  * - `SPLIT_ATOMIC`        — a commitment marked do-not-split was split anyway.
+ *                           This direction only. Under-splitting — a step list
+ *                           shorter than the label implies — is not reportable
+ *                           here and is not a proposal defect at all: the
+ *                           `DecomposedProposal.steps` tuple makes a sub-two
+ *                           step decomposition unrepresentable, so no engine
+ *                           can produce one. A dataset row whose ground truth
+ *                           under-splits is a corpus defect, and #26 reports it
+ *                           in its own namespace rather than borrowing a code
+ *                           whose stated meaning is the opposite failure.
  */
 export type DecompositionViolationCode =
   | 'EMPTY_STEP'
