@@ -58,6 +58,7 @@
 import {
   actionKey,
   checkRecommendation,
+  checkRecommendationDecision,
   evaluateRecommendationStaleness,
   offeredOptions,
   resolveEvidenceRoots,
@@ -98,7 +99,6 @@ import {
   REVIEW_LOCALES,
   REVIEW_MODES,
   RTL_REVIEW_LOCALES,
-  WHOLE_OFFER_VERDICTS,
   targetPosition,
 } from './reviewContract';
 import type {
@@ -132,17 +132,31 @@ function isBlank(value: string): boolean {
 }
 
 /**
- * Epoch millis, or null when the value does not parse.
+ * Does this instant satisfy the contract's instant rule?
  *
- * Copied in shape from #33's private `instantToMillis` and for the same reason
- * stated there: never a lexicographic comparison of the strings, because
- * `2026-01-01T00:00:00Z` and `2026-01-01T00:00:00.000+00:00` denote one instant
- * and compare unequal. This module only needs the *parses / does not parse*
- * half, so nothing here re-implements #33's comparisons — the staleness verdict
- * is #33's to compute and this file asks it rather than repeating it.
+ * **This is a deliberate, single-site duplicate, and it is marked so it can be
+ * deleted.** `3a8158b` ruled that an instant must carry an explicit offset, so
+ * that a no-offset string is malformed rather than silently read as host-local
+ * time. The rule lives in `INSTANT_PATTERN` in `recommendationContracts.ts` —
+ * which is **module-private**, along with `instantToMillis`, so there is nothing
+ * to import.
+ *
+ * `now` is not affected: it is delegated, because
+ * `evaluateRecommendationStaleness` already reports `INVALID_INSTANT` for it and
+ * this file simply does not pre-empt that. `decidedAt` and
+ * `confirmation.confirmedAt` are the gap — no contract function reads either,
+ * and `checkRecommendationDecision` does not check instants.
+ *
+ * The pattern below is a **byte-for-byte copy** of the contract's, and the
+ * request to export it is recorded in `docs/architecture/recommendation-review.md`
+ * under "Reported upstream". When it is exported, delete this constant and
+ * import it; a copy that outlives its reason is how two spellings of "what is a
+ * valid instant" start disagreeing.
  */
+const CONTRACT_INSTANT_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/;
+
 function parses(value: unknown): boolean {
-  if (typeof value !== 'string' || isBlank(value)) return false;
+  if (typeof value !== 'string' || !CONTRACT_INSTANT_PATTERN.test(value)) return false;
   return !Number.isNaN(Date.parse(value));
 }
 
@@ -219,10 +233,27 @@ function rootSourceKindsFor(
   reason: SupportReason,
 ): readonly TrustedSource['kind'][] {
   const kinds = new Set<TrustedSource['kind']>();
+  const known = SOURCE_KIND_COPY[REVIEW_LOCALES[0]];
   for (let index = 0; index < reason.supportedBy.length; index += 1) {
     const roots = resolveEvidenceRoots(recommendation.evidence, reason.supportedBy[index]);
     if (roots === null) continue;
-    for (let root = 0; root < roots.length; root += 1) kinds.add(roots[root].source.kind);
+    for (let root = 0; root < roots.length; root += 1) {
+      // An observed node whose `source` is not an object, or whose kind this
+      // version has no name for, contributes nothing rather than crashing the
+      // render or printing `undefined` into a sentence.
+      //
+      // Found by the single-site mutation sweep in `reviewApi.test.ts`, not by
+      // hand: `evidence.nodes[0].source = null` reached here as a `TypeError`
+      // out of a public route. #33's checkers never dereference `source`, so
+      // this one is genuinely the presenter's — it is the only code that reads
+      // it, and a consumer that reads a field owns being able to survive it.
+      const source = roots[root].source as TrustedSource | null | undefined;
+      if (source === null || source === undefined || typeof source !== 'object') continue;
+      const kind = source.kind;
+      if (typeof kind !== 'string') continue;
+      if (!Object.prototype.hasOwnProperty.call(known, kind)) continue;
+      kinds.add(kind);
+    }
   }
   return Array.from(kinds).sort(compareByCodePoint);
 }
@@ -475,6 +506,30 @@ export function presentRecommendation(input: PresentReviewInput): ReviewView {
     whyHeading: chrome.whyHeading,
   } as const;
 
+  /**
+   * #33's `summarizeOptionSet` returns `lead: null` and `soleness: 'unknown'`
+   * for an `OptionSet.kind` this version does not know.
+   *
+   * Handled explicitly rather than allowed to fall through, because falling
+   * through is the exact defect the contract change was made to close: the old
+   * signature returned `lead: undefined` while still reporting
+   * `soleness: 'only_candidate'`, so the surface asserted "this was the only
+   * candidate" about a value that did not exist, and rendered without
+   * complaining.
+   *
+   * Belt and braces by design. `checkRecommendation` above already reports
+   * `UNKNOWN_OPTION_SET_KIND` and would have returned, and the request boundary
+   * rejects an unknown kind before that. This branch is for a *direct library
+   * caller* who reached the presenter without either, and it refuses rather than
+   * renders — the whole point of `RECOMMENDATION_REVIEW_POLICY.validateBeforeRender`
+   * is that the presenter does not trust the producer.
+   */
+  const summary = summarizeOptionSet(recommendation.options);
+  if (summary.lead === null || summary.soleness === 'unknown') {
+    return nothingToReview(input, 'defective', { defects: ['UNKNOWN_OPTION_SET_KIND'] });
+  }
+  const lead = summary.lead;
+
   if (input.mode === 'blind') {
     const salt = input.blindingSalt;
     const order = blindSlotOrder(recommendation, salt);
@@ -504,7 +559,6 @@ export function presentRecommendation(input: PresentReviewInput): ReviewView {
   // `summarizeOptionSet` is the only way to reach the lead, and it hands back
   // `soleness`, `alternatives` and `excluded` with it. See #33's decision 2:
   // a renderer that wants only the lead has to visibly discard the rest.
-  const summary = summarizeOptionSet(recommendation.options);
   const view: AttributedReviewView = {
     ...base,
     heading: chrome.heading,
@@ -514,7 +568,7 @@ export function presentRecommendation(input: PresentReviewInput): ReviewView {
     excludedHeading: chrome.excludedHeading,
     soleness: summary.soleness,
     solenessNotice: SOLENESS_COPY[locale][summary.soleness],
-    lead: optionCard(recommendation, locale, summary.lead),
+    lead: optionCard(recommendation, locale, lead),
     alternatives: summary.alternatives.map((option) => optionCard(recommendation, locale, option)),
     excluded: summary.excluded.map((candidate) => ({
       actionKind: candidate.action.kind,
@@ -585,20 +639,6 @@ export function evaluateReviewSubmission(input: DecideReviewInput): ReviewDecisi
   const { submission, recommendation, locale } = input;
   const chrome = REVIEW_CHROME[locale];
 
-  if (submission.recommendationId !== recommendation.recommendationId) {
-    return {
-      ok: false,
-      findings: [
-        finding(
-          'RECOMMENDATION_ID_MISMATCH',
-          'recommendationId',
-          null,
-          'the submission names a different recommendation than the one supplied',
-        ),
-      ],
-    };
-  }
-
   if (submission.target.mode !== input.mode) {
     return {
       ok: false,
@@ -655,45 +695,65 @@ export function evaluateReviewSubmission(input: DecideReviewInput): ReviewDecisi
   // `presentRecommendation` returned an offer view, which it does only for an
   // `offered` outcome, so this narrowing is the one the checker already made.
   const offered = recommendation as OfferedRecommendation;
-  const offerSize = offeredOptions(offered.options).length;
   const position = targetPosition(submission.target);
-  const wholeOffer = (WHOLE_OFFER_VERDICTS as readonly RecommendationDecisionVerdict[]).includes(
-    submission.verdict,
-  );
 
-  if (position === null) {
-    if (!wholeOffer) {
-      findings.push(
-        finding(
-          'TARGET_REQUIRED',
-          'target',
-          null,
-          'this verdict is about one option and the submission names no position',
-        ),
-      );
+  /**
+   * A blind slot is resolved to an offer position *before* the contract sees it.
+   *
+   * `checkRecommendationDecision` reasons about `optionIndex`, which is the only
+   * vocabulary the contract has. It cannot range-check a slot, because slots are
+   * this module's invention — so the one bound that stays here is "is this slot
+   * in the blind ordering", and everything downstream is the contract's.
+   */
+  let resolved = position;
+  if (submission.target.mode === 'blind' && position !== null) {
+    resolved = resolveBlindSlot(offered, submission.target.blindingSalt, position);
+    if (resolved === null) {
+      return {
+        ok: false,
+        findings: [
+          finding('TARGET_OUT_OF_RANGE', 'target', position, 'the submission names a slot this blind view does not have'),
+        ],
+      };
     }
-  } else if (!Number.isInteger(position) || position < 0 || position >= offerSize) {
-    findings.push(
-      finding(
-        'TARGET_OUT_OF_RANGE',
-        'target',
-        position,
-        `the submission names a position outside an offer of ${offerSize} options`,
-      ),
-    );
+  }
+
+  /**
+   * Index bounds, verdict validity, the whole-offer rule, the edit-title rule
+   * and the id match are all `checkRecommendationDecision`'s, as of `3a8158b`.
+   *
+   * They were re-derived here in the previous revision, which is the duplication
+   * this sprint keeps paying for: two implementations of "which option does this
+   * decision target" would disagree the day either moved. The codes are
+   * translated into this surface's taxonomy rather than passed through, because
+   * a *reviewer* is being told about the control they used — and `position` is
+   * reported in their own vocabulary, so a blind reviewer sees the slot they
+   * clicked and never the offer position it resolved to.
+   */
+  const decisionDefects = checkRecommendationDecision(recommendation, {
+    version: recommendation.version,
+    recommendationId: submission.recommendationId,
+    optionIndex: resolved,
+    verdict: submission.verdict,
+    ...(submission.editedTitle === undefined ? {} : { editedTitle: submission.editedTitle }),
+    decidedAt: submission.decidedAt,
+  });
+  const TRANSLATION: Readonly<Record<string, ReviewFindingCode>> = {
+    DECISION_RECOMMENDATION_MISMATCH: 'RECOMMENDATION_ID_MISMATCH',
+    DECISION_TARGETS_WITHHELD: 'NOTHING_OFFERED',
+    DECISION_TARGET_REQUIRED: 'TARGET_REQUIRED',
+    DECISION_TARGETS_UNKNOWN_OPTION: 'TARGET_OUT_OF_RANGE',
+    DECISION_EDIT_WITHOUT_TITLE: 'EDIT_TITLE_REQUIRED',
+    DECISION_UNKNOWN_VERDICT: 'MALFORMED_SUBMISSION',
+  };
+  for (let index = 0; index < decisionDefects.length; index += 1) {
+    const defect = decisionDefects[index];
+    findings.push(finding(TRANSLATION[defect.code], 'submission', position, defect.detail));
   }
 
   if (submission.verdict === 'edit') {
-    if (submission.editedTitle === undefined || isBlank(submission.editedTitle)) {
-      findings.push(
-        finding(
-          'EDIT_TITLE_REQUIRED',
-          'editedTitle',
-          position,
-          'an edit carries no replacement text, so the proposed wording would be recorded as what the reviewer wrote',
-        ),
-      );
-    } else if (submission.editedTitle.length > RECOMMENDATION_REVIEW_LIMITS.maxEditedTitleLength) {
+    if (submission.editedTitle !== undefined && !isBlank(submission.editedTitle)
+      && submission.editedTitle.length > RECOMMENDATION_REVIEW_LIMITS.maxEditedTitleLength) {
       // Unbounded by anything else in the pipeline: a five-million-character
       // title was accepted and echoed back before this existed.
       findings.push(
@@ -776,20 +836,12 @@ export function evaluateReviewSubmission(input: DecideReviewInput): ReviewDecisi
     };
   }
 
-  // Blind reviewers name a slot; an adapter needs an offer position. The
-  // translation happens here, from the salt. The range check above has already
-  // returned if the slot was out of range, so this resolves.
-  let optionIndex: number | null = position;
-  if (submission.target.mode === 'blind' && position !== null) {
-    optionIndex = resolveBlindSlot(offered, submission.target.blindingSalt, position);
-  }
-
   return {
     ok: true,
     outcome: { status: 'confirmed', persisted: false, notice: chrome.announceConfirmed },
     handoff: {
       recommendationId: recommendation.recommendationId,
-      optionIndex,
+      optionIndex: resolved,
       verdict: submission.verdict,
       ...(submission.verdict === 'edit' ? { editedTitle: submission.editedTitle as string } : {}),
       confirmedAt: confirmation.confirmedAt,
@@ -804,37 +856,40 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * A **total** structural check on a recommendation arriving as `unknown`.
+ * What is left for this boundary to check once #33 owns shape.
  *
- * The previous revision of this function was a deliberately shallow envelope
- * check that handed everything else to `checkRecommendation`, on the reasoning
- * that re-validating #33's invariants here would be a second, disagreeing copy
- * of that checker. That reasoning was right about *invariants* and wrong about
- * *shape*, and the difference cost a whole class of 500s.
+ * The first revision of this file had a shallow envelope check and handed
+ * everything else to `checkRecommendation`, which was typed
+ * `(recommendation: Recommendation)` and total over nothing else. Twelve
+ * malformed bodies escaped `POST` as unhandled `TypeError`s. The second
+ * revision over-corrected into a two-hundred-line deep validator that
+ * re-derived node kinds, parent lists, confidence shape, reason lists and the
+ * `choice` minimum — every one of which is a question about *meaning* that #33
+ * answers with a named code.
  *
- * `checkRecommendation` is typed `(recommendation: Recommendation)`. It is total
- * over that type and over nothing else — it reads `node.derivedFrom.length`,
- * `option.confidence.basis`, `candidate.exclusion`, and every one of those is a
- * `TypeError` on input a caller can send. Twelve hand-written malformed bodies
- * threw on both the `present` and the `decide` path, from a public route: an
- * `options` object with no `options` array, `[null, null]`, `kind: "nonsense"`,
- * `evidence.nodes: [null, 3, "x"]`, a `withheld` outcome with `reasons:
- * [null, 5]`. The route's `try` covered `request.json()` only, so every one of
- * them escaped `POST` as an unhandled `TypeError`.
+ * `3a8158b` made #33's checkers total over `unknown`-shaped input and gave the
+ * cases their own codes: `UNKNOWN_NODE_KIND`, `UNSOURCED_DERIVATION`,
+ * `CHOICE_BELOW_MINIMUM`, `EMPTY_REASON_LIST`, `UNKNOWN_OPTION_SET_KIND`. Ten of
+ * the twelve now come back as reported defects. Re-measured after the merge:
+ * with this function disabled entirely, **one** of the twelve still threw.
  *
- * The division of labour that is actually correct: **this file owns shape, #33
- * owns meaning.** "Is `derivedFrom` an array of strings" is a question about
- * whether the value is a `Recommendation` at all, and it has to be answered
- * before anything typed `(r: Recommendation)` may be called. "Does
- * `derivedFrom` name a node that exists, without a cycle" is #33's, and nothing
- * here duplicates it — this function never reports `UNKNOWN_EVIDENCE_NODE`,
- * `CYCLIC_EVIDENCE`, `CONFIDENCE_BAND_MISMATCH` or any other member of #33's
- * taxonomy.
+ * So this function shrank to the two things that are genuinely the boundary's:
  *
- * Gates are staged: each returns as soon as it has anything to say, because
- * every later gate reads through what an earlier one just reported broken.
- * That is `planningContracts`' suppression rule, and here it is also what keeps
- * the validator itself from crashing.
+ *  1. **The envelope**, so `checkRecommendation` can be *called* at all — an id,
+ *     a validity window, and an evidence node list that is a list.
+ *  2. **Resource limits**, which no contract-level checker can impose because
+ *     they are a property of being a public HTTP surface, not of being a
+ *     recommendation.
+ *
+ * Plus one narrow guard, `checkActionsAreObjects`, documented at its definition.
+ *
+ * Everything else is deliberately *not* checked here, and the difference is
+ * visible to callers: a malformed envelope is a `400`, while a structurally
+ * defective recommendation is a `200` carrying a `NothingToReviewView` whose
+ * `defectCodes` name what is wrong. A reviewer told "there is nothing to show
+ * you, and the code is `UNSOURCED_DERIVATION`" is better served than one handed
+ * a generic rejection, and that is what this contract said it would do from the
+ * start.
  */
 function malformed(field: string, detail: string): ReviewFinding {
   return finding('MALFORMED_RECOMMENDATION', field, null, detail);
@@ -844,189 +899,106 @@ function tooLarge(field: string, detail: string): ReviewFinding {
   return finding('RECOMMENDATION_TOO_LARGE', field, null, detail);
 }
 
-function isStringArray(value: unknown): value is readonly string[] {
-  if (!Array.isArray(value)) return false;
-  for (let index = 0; index < value.length; index += 1) {
-    if (typeof value[index] !== 'string') return false;
+/**
+ * Every `RecommendedAction` reachable from an offer must be an object.
+ *
+ * The one case that still threw after `3a8158b`: `actionKey` switches on
+ * `action.kind`, and `checkRecommendation` calls it on every offered and
+ * excluded action, so `action: null` is a `TypeError` from inside the contract
+ * at `recommendationContracts.ts:250`. That is a gap in #33 rather than here —
+ * reported upstream rather than patched, since this file must not edit the
+ * contract — and this is the local guard that keeps a public route from
+ * returning a 500 while the gap is open.
+ *
+ * Narrow on purpose. It asks only "is there an object with a string kind", not
+ * what the kind means or which fields it needs; `checkRecommendation` and
+ * `checkActionShape`-style questions belong to #33 and are reported by it.
+ */
+function checkActionsAreObjects(options: unknown): ReviewFinding[] {
+  if (!isRecord(options)) return [];
+  // Holders as well as actions. A `choice` legitimately has no `option` and a
+  // `sole_survivor` legitimately has no `options`, so an absent *holder* is
+  // normal — but a holder that is present and is not an object, or one with no
+  // readable `action`, is the defect. Three separate mutation-sweep runs were
+  // needed to get this predicate right: skipping `undefined` at the end let
+  // `{}` through, and testing only the action let `[]` through.
+  const holders: unknown[] = [];
+  if (Array.isArray(options.options)) {
+    for (let index = 0; index < options.options.length; index += 1) holders.push(options.options[index]);
   }
-  return true;
-}
-
-/** Shape of one `EvidenceBackedReason`, whichever partition it belongs to. */
-function checkReasonShape(value: unknown, field: string): ReviewFinding[] {
-  if (!isRecord(value)) return [malformed(field, 'a reason is not an object')];
-  if (typeof value.code !== 'string') return [malformed(field, 'a reason carries no code')];
-  if (typeof value.detail !== 'string') return [malformed(field, 'a reason carries no detail')];
-  if (!isStringArray(value.supportedBy) || value.supportedBy.length === 0) {
-    return [malformed(field, 'a reason names no evidence, or names it with something other than node ids')];
+  if (options.option !== undefined) holders.push(options.option);
+  if (Array.isArray(options.excluded)) {
+    for (let index = 0; index < options.excluded.length; index += 1) holders.push(options.excluded[index]);
   }
-  if (value.supportedBy.length > RECOMMENDATION_REVIEW_LIMITS.maxEvidenceRefsPerReason) {
-    return [tooLarge(field, `a reason cites more than ${RECOMMENDATION_REVIEW_LIMITS.maxEvidenceRefsPerReason} evidence nodes`)];
-  }
-  return [];
-}
-
-function checkActionShape(value: unknown, field: string): ReviewFinding[] {
-  if (!isRecord(value)) return [malformed(field, 'an action is not an object')];
-  if (typeof value.commitmentId !== 'string') return [malformed(field, 'an action names no commitment')];
-  switch (value.kind) {
-    case 'do_now':
-      return [];
-    case 'schedule':
-      if (!isRecord(value.slot) || typeof value.slot.startsAt !== 'string' || typeof value.slot.endsAt !== 'string') {
-        return [malformed(field, 'a schedule action carries no readable slot')];
-      }
-      return [];
-    case 'decompose':
-      return typeof value.proposalId === 'string' ? [] : [malformed(field, 'a decompose action names no proposal')];
-    case 'defer':
-      return typeof value.until === 'string' ? [] : [malformed(field, 'a defer action names no target instant')];
-    default:
-      return [malformed(field, 'an action names no supported kind')];
-  }
-}
-
-function checkOptionShape(value: unknown, field: string): ReviewFinding[] {
-  if (!isRecord(value)) return [malformed(field, 'an option is not an object')];
-  if (typeof value.optionIndex !== 'number' || !Number.isFinite(value.optionIndex)) {
-    return [malformed(field, 'an option carries no numeric index')];
-  }
-  const action = checkActionShape(value.action, `${field}.action`);
-  if (action.length > 0) return action;
-  if (!Array.isArray(value.support) || value.support.length === 0) {
-    return [malformed(field, 'an option states no support')];
-  }
-  if (value.support.length > RECOMMENDATION_REVIEW_LIMITS.maxReasonsPerOption) {
-    return [tooLarge(field, `an option states more than ${RECOMMENDATION_REVIEW_LIMITS.maxReasonsPerOption} reasons`)];
-  }
-  for (let index = 0; index < value.support.length; index += 1) {
-    const reason = checkReasonShape(value.support[index], `${field}.support[${index}]`);
-    if (reason.length > 0) return reason;
-  }
-  const confidence = value.confidence;
-  if (!isRecord(confidence)) return [malformed(field, 'an option carries no confidence')];
-  if (typeof confidence.value !== 'number') return [malformed(field, 'a confidence carries no numeric value')];
-  if (typeof confidence.band !== 'string') return [malformed(field, 'a confidence carries no band')];
-  if (!isStringArray(confidence.basis) || confidence.basis.length === 0) {
-    return [malformed(field, 'a confidence rests on no named evidence')];
-  }
-  return [];
-}
-
-function checkExcludedShape(value: unknown, field: string): ReviewFinding[] {
-  if (!isRecord(value)) return [malformed(field, 'an excluded candidate is not an object')];
-  const action = checkActionShape(value.action, `${field}.action`);
-  if (action.length > 0) return action;
-  if (!Array.isArray(value.exclusion) || value.exclusion.length === 0) {
-    return [malformed(field, 'an excluded candidate states no cause')];
-  }
-  if (value.exclusion.length > RECOMMENDATION_REVIEW_LIMITS.maxReasonsPerOption) {
-    return [tooLarge(field, 'an excluded candidate states too many reasons')];
-  }
-  for (let index = 0; index < value.exclusion.length; index += 1) {
-    const reason = checkReasonShape(value.exclusion[index], `${field}.exclusion[${index}]`);
-    if (reason.length > 0) return reason;
-  }
-  return [];
-}
-
-function checkEvidenceShape(value: unknown): ReviewFinding[] {
-  if (!isRecord(value) || !Array.isArray(value.nodes)) {
-    return [malformed('recommendation.evidence', 'the evidence graph carries no node list')];
-  }
-  if (value.nodes.length > RECOMMENDATION_REVIEW_LIMITS.maxEvidenceNodes) {
-    // Checked before the per-node walk, and before anything is handed to #33:
-    // this cap is what bounds both the recursion depth in `resolveEvidenceRoots`
-    // and the quadratic term in the cycle detector.
-    return [
-      tooLarge(
-        'recommendation.evidence.nodes',
-        `the evidence graph carries more than ${RECOMMENDATION_REVIEW_LIMITS.maxEvidenceNodes} nodes`,
-      ),
-    ];
-  }
-  for (let index = 0; index < value.nodes.length; index += 1) {
-    const node = value.nodes[index];
-    const field = `recommendation.evidence.nodes[${index}]`;
-    if (!isRecord(node)) return [malformed(field, 'an evidence node is not an object')];
-    if (typeof node.nodeId !== 'string') return [malformed(field, 'an evidence node carries no id')];
-    if (!isRecord(node.claim) || typeof node.claim.kind !== 'string') {
-      return [malformed(field, 'an evidence node carries no readable claim')];
+  for (let index = 0; index < holders.length; index += 1) {
+    const holder = holders[index];
+    if (!isRecord(holder)) {
+      return [malformed(`recommendation.options[${index}]`, 'an offered or excluded entry is not an object')];
     }
-    if (node.kind === 'observed') {
-      if (!isRecord(node.source) || typeof node.source.kind !== 'string') {
-        return [malformed(field, 'an observed node names no trusted source')];
-      }
-      if (typeof node.valueFingerprint !== 'string') {
-        return [malformed(field, 'an observed node carries no value fingerprint')];
-      }
-      if (node.observedAt !== null && typeof node.observedAt !== 'string') {
-        return [malformed(field, 'an observed node carries an unreadable observation instant')];
-      }
-      continue;
+    const action = holder.action;
+    if (!isRecord(action) || typeof action.kind !== 'string') {
+      return [
+        malformed(
+          `recommendation.options[${index}].action`,
+          'an action is not an object with a kind, which the contract checker cannot read',
+        ),
+      ];
     }
-    if (node.kind === 'derived') {
-      if (typeof node.rule !== 'string') return [malformed(field, 'a derived node names no rule')];
-      if (!isStringArray(node.derivedFrom) || node.derivedFrom.length === 0) {
-        return [malformed(field, 'a derived node names no parents, so it is an unsourced claim')];
-      }
+  }
+  return [];
+}
+
+/**
+ * Hard size limits, applied before anything reaches #33.
+ *
+ * The findings that produced these are now half-resolved upstream, and saying so
+ * matters more than keeping the original justification: `3a8158b` made
+ * `resolveEvidenceRoots` iterative and removed the quadratic term in the cycle
+ * detector, so the measured stack overflow at 8,000 nodes and the 55.9 seconds
+ * of CPU at 60,000 are both gone — re-measured here at 150,000 nodes and 19 MB,
+ * which now completes in 157ms.
+ *
+ * They are still enforced, for a reason that is about the route rather than the
+ * algorithm: App Router handlers have no default body cap, so without a limit
+ * this endpoint accepts a body of arbitrary size and allocates in proportion to
+ * it, unauthenticated. Refusing the input is the boundary's job whether or not
+ * the code behind it happens to be fast.
+ */
+function checkRecommendationSize(value: Record<string, unknown>): ReviewFinding[] {
+  const evidence = value.evidence;
+  if (isRecord(evidence) && Array.isArray(evidence.nodes)) {
+    if (evidence.nodes.length > RECOMMENDATION_REVIEW_LIMITS.maxEvidenceNodes) {
+      return [
+        tooLarge(
+          'recommendation.evidence.nodes',
+          `the evidence graph carries more than ${RECOMMENDATION_REVIEW_LIMITS.maxEvidenceNodes} nodes`,
+        ),
+      ];
+    }
+    for (let index = 0; index < evidence.nodes.length; index += 1) {
+      const node = evidence.nodes[index];
+      if (!isRecord(node) || !Array.isArray(node.derivedFrom)) continue;
       if (node.derivedFrom.length > RECOMMENDATION_REVIEW_LIMITS.maxParentsPerNode) {
-        return [tooLarge(field, 'a derived node names too many parents')];
+        return [tooLarge(`recommendation.evidence.nodes[${index}]`, 'a node names too many parents')];
       }
-      continue;
     }
-    return [malformed(field, 'an evidence node is neither observed nor derived')];
   }
-  return [];
-}
-
-function checkOptionSetShape(value: unknown): ReviewFinding[] {
-  if (!isRecord(value)) return [malformed('recommendation.options', 'the offer is not an object')];
-  const field = 'recommendation.options';
-  if (value.kind === 'choice') {
-    if (!Array.isArray(value.options)) return [malformed(field, 'a choice carries no option list')];
-    if (value.options.length > RECOMMENDATION_REVIEW_LIMITS.maxOfferedOptions) {
-      return [tooLarge(field, `a choice carries more than ${RECOMMENDATION_REVIEW_LIMITS.maxOfferedOptions} options`)];
+  const options = value.options;
+  if (isRecord(options)) {
+    if (Array.isArray(options.options) && options.options.length > RECOMMENDATION_REVIEW_LIMITS.maxOfferedOptions) {
+      return [
+        tooLarge(
+          'recommendation.options.options',
+          `the offer carries more than ${RECOMMENDATION_REVIEW_LIMITS.maxOfferedOptions} options`,
+        ),
+      ];
     }
-    if (value.options.length < 2) {
-      // #33's `choice` variant is a tuple of at least two. One option in a
-      // `choice` is the `{ primary, alternatives }` shape decision 2 forbids,
-      // arriving through a hole in the wire format instead of through the type.
-      return [malformed(field, 'a choice carries fewer than two options')];
+    if (Array.isArray(options.excluded) && options.excluded.length > RECOMMENDATION_REVIEW_LIMITS.maxExcludedCandidates) {
+      return [tooLarge('recommendation.options.excluded', 'the excluded list is longer than the limit')];
     }
-    for (let index = 0; index < value.options.length; index += 1) {
-      const option = checkOptionShape(value.options[index], `${field}.options[${index}]`);
-      if (option.length > 0) return option;
-    }
-    return checkExcludedListShape(value.excluded, field, false);
   }
-  if (value.kind === 'sole_survivor') {
-    const option = checkOptionShape(value.option, `${field}.option`);
-    if (option.length > 0) return option;
-    return checkExcludedListShape(value.excluded, field, true);
-  }
-  if (value.kind === 'only_candidate') {
-    const option = checkOptionShape(value.option, `${field}.option`);
-    if (option.length > 0) return option;
-    if (!isStringArray(value.attested) || value.attested.length === 0) {
-      return [malformed(field, 'an only-candidate offer attests to nothing, so "nothing else existed" is unsourced')];
-    }
-    return [];
-  }
-  return [malformed(field, 'the offer names no supported soleness kind')];
-}
-
-function checkExcludedListShape(value: unknown, field: string, required: boolean): ReviewFinding[] {
-  if (!Array.isArray(value)) return [malformed(field, 'the excluded list is not a list')];
-  if (required && value.length === 0) {
-    return [malformed(field, 'a sole survivor states nothing that was ruled out, which is what makes it a proposal')];
-  }
-  if (value.length > RECOMMENDATION_REVIEW_LIMITS.maxExcludedCandidates) {
-    return [tooLarge(field, 'the excluded list is longer than the limit')];
-  }
-  for (let index = 0; index < value.length; index += 1) {
-    const candidate = checkExcludedShape(value[index], `${field}.excluded[${index}]`);
-    if (candidate.length > 0) return candidate;
+  if (Array.isArray(value.reasons) && value.reasons.length > RECOMMENDATION_REVIEW_LIMITS.maxReasonsPerOption) {
+    return [tooLarge('recommendation.reasons', 'a withheld recommendation states too many reasons')];
   }
   return [];
 }
@@ -1039,24 +1011,15 @@ function checkRecommendationShape(value: unknown): ReviewFinding[] {
   if (!isRecord(value.validity) || typeof value.validity.basisAt !== 'string' || typeof value.validity.expiresAt !== 'string') {
     return [malformed('recommendation.validity', 'the recommendation carries no readable validity window')];
   }
-  const evidence = checkEvidenceShape(value.evidence);
-  if (evidence.length > 0) return evidence;
-
-  if (value.outcome === 'offered') return checkOptionSetShape(value.options);
-  if (value.outcome === 'withheld') {
-    if (!Array.isArray(value.reasons) || value.reasons.length === 0) {
-      return [malformed('recommendation.reasons', 'a withheld recommendation states no reason, so its refusal is unsourced')];
-    }
-    if (value.reasons.length > RECOMMENDATION_REVIEW_LIMITS.maxReasonsPerOption) {
-      return [tooLarge('recommendation.reasons', 'a withheld recommendation states too many reasons')];
-    }
-    for (let index = 0; index < value.reasons.length; index += 1) {
-      const reason = checkReasonShape(value.reasons[index], `recommendation.reasons[${index}]`);
-      if (reason.length > 0) return reason;
-    }
-    return [];
+  if (!isRecord(value.evidence) || !Array.isArray(value.evidence.nodes)) {
+    return [malformed('recommendation.evidence', 'the evidence graph carries no node list')];
   }
-  return [malformed('recommendation.outcome', 'the recommendation is neither offered nor withheld')];
+  if (value.outcome !== 'offered' && value.outcome !== 'withheld') {
+    return [malformed('recommendation.outcome', 'the recommendation is neither offered nor withheld')];
+  }
+  const size = checkRecommendationSize(value);
+  if (size.length > 0) return size;
+  return checkActionsAreObjects(value.options);
 }
 
 function readFingerprints(

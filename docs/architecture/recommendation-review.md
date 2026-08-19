@@ -69,9 +69,12 @@ This is a **shape** property, not a convention:
   re-rendered, the decision now targets the third) would silently authorise a
   write against something the user never saw.
 - `ReviewPersistenceHandoff` is the only value an adapter will accept as
-  authority to write, and it appears in exactly **one** branch of
-  `ReviewDecisionOutcome` — the branch reachable only from a confirmed
-  submission. `defer` and `dismiss` never produce one, confirmed or not.
+  authority to write. It is **not part of `ReviewDecisionOutcome` at all**, and
+  therefore not part of any HTTP response: `evaluateReviewSubmission` returns it
+  as a sibling of the outcome, and `handleReviewRequest` drops it. An earlier
+  revision put it inside the `confirmed` branch, which meant a *blind* reviewer's
+  confirmation came back carrying `handoff.optionIndex` — see the blind section
+  below. `defer` and `dismiss` never produce one, confirmed or not.
 - Every response and every outcome branch carries `persisted: false` as a
   *literal type*, so "we wrote it" is not expressible on this wire format.
 - The route's import closure reaches no writer. `reviewApi.test.ts` walks it and
@@ -99,13 +102,31 @@ What was done instead:
    headings descend without skipping; `dir` comes from the view model rather than
    being hardcoded; and no click handler sits on a non-interactive element.
 
+Three defects were found by *reading the JSX* after the first review, all of
+which the structural guards now pin:
+
+- **Focus was destroyed on every completed action.** Confirming or cancelling
+  unmounted the `div` holding the button that had focus, dropping it to `<body>`,
+  so a keyboard user restarted from the top of the document after every decision.
+  There is now one exit path that restores focus to the control that opened the
+  panel.
+- **No `aria-expanded`** on the verdict controls that open the confirmation
+  panel — a disclosure announced identically open or shut.
+- **The confirmation prompt was never announced.** The live region emitted
+  `confirmNotice`, which is the same sentence already rendered statically above
+  the cards, and `notice ?? …` meant a server notice permanently swallowed later
+  staged announcements.
+
 **What that proves, and what it does not.** It proves the markup carries the
-affordances. It does **not** prove focus order, that a real screen reader
-announces correctly or at the right moment, that `sr-only` is off-screen rather
-than `display: none`, contrast, reflow, or any runtime behaviour at all. A green
-run on `reviewAccessibility.test.ts` must not be reported as a passing
-accessibility audit. The test file says this in its own header for the same
-reason.
+affordances, and that a focus-restoration path exists. It does **not** prove
+focus *order*, that the restoration actually works in a browser, that a real
+screen reader announces at the right moment, contrast, or reflow. A green run on
+`reviewAccessibility.test.ts` must not be reported as a passing accessibility
+audit. The test file says this in its own header.
+
+(`sr-only` was previously listed here as unprovable. It is not: the component
+uses Tailwind's clip-based utility and the test asserts the project does not
+override it with `display: none`, which would silently mute the live region.)
 
 **Deferred:** driving this component in a real browser with a real assistive
 technology — focus order, announcement timing, and a manual WCAG audit. That
@@ -137,14 +158,35 @@ Redaction is a **shape** property, in three layers:
   does not move.
 - A blind reviewer's `ReviewTarget` carries `slotIndex`, not `optionIndex`, so a
   blind client cannot *express* an offer position. The slot→option mapping is
-  recomputed server-side from the salt and never leaves the server. Submitting an
-  attributed target against a blind review is `TARGET_MODE_MISMATCH`.
+  recomputed server-side from the salt and never leaves the server.
+- **Write authority is not part of the response type.** This is the third layer
+  and it exists because the first two were not enough: the resolved offer
+  position rode back inside `handoff.optionIndex` on a confirmed blind decision,
+  and three confirmed decisions recovered the whole permutation. Removing the
+  field from the response *type* — rather than redacting it for blind mode —
+  means there is no mode-dependent step to get wrong.
 
-**Residual signal this shape does not remove.** The number of support reasons on
-a card, and which reason codes appear, still correlate with rank — a lead option
-tends to have more support. Those are the substance a rater is meant to judge, so
-they are not redacted, but a study that needs the correlation gone will have to
-control for it rather than rely on this contract.
+`TARGET_MODE_MISMATCH` is **not** a defence against a hostile client: `mode` is
+declared by the same request, so a caller that wants an attributed exchange asks
+for one. It catches a client bug — a blind session wired to the attributed submit
+path — and a replayed submission from the other mode. The property that keeps
+offer order away from a blind reviewer is that a blind exchange never returns
+it.
+
+**Residual signal this shape does not remove, stated at its measured strength.**
+The number of support reasons on a card is not merely *correlated* with rank on
+this fixture — it is a **deterministic oracle**. Across 500 salts, "the slot with
+the most `whyThisNow` entries" identified the first pass's lead **500 times out
+of 500**. `citedNodeCount` and `rootSourceKinds` carry the same signal.
+
+At 100% accuracy from one visible attribute, **a blind arm is not blind** for
+offers shaped like this one, and an earlier draft of this document was wrong to
+call it a correlation a study could "control for". Reason multiplicity is the
+substance a rater is meant to judge, so it is not redacted — but any study using
+this surface must either equalise reason counts across options before blinding,
+or accept that the blind arm is unblinded. `reviewContract.test.ts` pins the
+measurement at 200 salts so that if the relationship changes, this paragraph is
+updated with it.
 
 **Not a secrecy mechanism.** The slot ordering uses a non-cryptographic FNV-1a
 mix. It hides the offer order from an evaluator; it does not defend against an
@@ -245,19 +287,10 @@ Additive. Nothing that shipped before this change behaves differently.
   feed it until #34 lands, so it is not wired into a page. That is deliberate:
   wiring it to a stub would put a fabricated recommendation in front of a pilot
   user.
-- **Test registration.** The three test files are *not* currently reachable from
-  any `package.json` script — there is no `test:sprint08` entry, and `npm test`
-  does not list them. Whoever adds `test:sprint08` should include:
-
-  ```
-  tests/recommendation/reviewContract.test.ts
-  tests/recommendation/reviewAccessibility.test.ts
-  tests/recommendation/reviewApi.test.ts
-  ```
-
-  Until then they run only when named explicitly, which means **they are not
-  gating anything in CI**. This is the single most important line in this
-  section.
+- **Test registration.** Resolved. `3a8158b` added `test:sprint08` to
+  `package.json` and it lists all three review test files, so they gate in CI.
+  They remain absent from the top-level `npm test` script, which is how every
+  other sprint's suite is arranged.
 
 ## Rollback
 
@@ -288,13 +321,87 @@ data.
    *that* change is the one that needs a flag, and it should reuse the existing
    runtime controls rather than inventing one here.
 
+## Input limits
+
+`RECOMMENDATION_REVIEW_LIMITS` bounds evidence nodes (500), parents per node,
+offered options, excluded candidates, reasons, evidence references per reason,
+and `editedTitle` length — all before anything reaches #33's checkers.
+
+**The original justification is now half-obsolete and saying so matters.** The
+limits were added because a structurally *valid* recommendation with an
+8,000-node linear derivation chain (~1 MB) took `resolveEvidenceRoots` past the
+stack limit and returned a 500, and 20,000 nodes burned 5.4 seconds of CPU first.
+#33's `3a8158b` made that walk iterative and removed the quadratic term in the
+cycle detector: re-measured here, **150,000 nodes / 19 MB now completes in
+157 ms**. Both original findings are resolved upstream.
+
+The limits are still enforced for a reason that is about the route rather than
+the algorithm: App Router handlers have no default body cap, so this
+unauthenticated endpoint would otherwise accept a body of arbitrary size and
+allocate in proportion to it. Refusing the input is the boundary's job whether or
+not the code behind it is fast.
+
+## Division of labour with #33
+
+The first revision of this boundary was a shallow envelope check that handed
+everything else to `checkRecommendation`, which was typed
+`(recommendation: Recommendation)` and total over nothing else — twelve malformed
+bodies escaped `POST` as unhandled `TypeError`s. The second over-corrected into a
+200-line validator that re-derived node kinds, parent lists, confidence shape,
+reason lists and the `choice` minimum, all of which are questions #33 answers with
+a named code.
+
+After merging `3a8158b`, this was **re-measured rather than assumed**: with the
+local validator disabled entirely, ten of the twelve came back as reported
+defects and only one still threw. So the validator shrank to what is genuinely
+the boundary's:
+
+1. **The envelope** — an id, a validity window, an evidence node list that is a
+   list, and a known outcome, so `checkRecommendation` can be *called*.
+2. **Resource limits** — a property of being a public HTTP surface, not of being
+   a recommendation.
+3. **One narrow guard** that every offered/excluded entry and its `action` is an
+   object, documented below.
+
+Decision validation is delegated to #33's `checkRecommendationDecision` — index
+bounds, the whole-offer rule, verdict validity, the edit-title rule and the id
+match — and its codes are translated into this surface's taxonomy so a reviewer
+is told about the control they used, with `position` reported in their own
+vocabulary. The only bound that stays here is "is this *slot* in the blind
+ordering", because slots are this module's invention and the contract has no
+vocabulary for them.
+
+The difference is visible to callers, and it is the behaviour this contract
+described from the start: a malformed **envelope** is a `400`, while a
+structurally **defective** recommendation is a `200` carrying a
+`NothingToReviewView` whose `defectCodes` name what is wrong.
+
+## Reported upstream to #33
+
+Neither is patched here; this surface must not edit the contract.
+
+1. **`actionKey` throws on a non-object action.** `checkRecommendation` calls
+   `actionKey` on every offered and excluded action, and `actionParts` switches
+   on `action.kind`, so `action: null` is a `TypeError` from
+   `recommendationContracts.ts:250`. This is the one case of twelve that still
+   threw after `3a8158b`. Guarded locally by `checkActionsAreObjects` so a public
+   route does not return a 500 while the gap is open.
+2. **`INSTANT_PATTERN` is not exported.** The instant ruling says a no-offset
+   instant is malformed, and this boundary must apply the same rule to
+   `decidedAt` and `confirmation.confirmedAt`, which no contract function checks.
+   `INSTANT_PATTERN` and `instantToMillis` are both module-private, so the rule is
+   currently spelled a second time in `present.ts` — marked at its definition as
+   a duplicate to be deleted the moment the constant is exported. `now` is
+   already delegated: `evaluateRecommendationStaleness` reports `INVALID_INSTANT`
+   for it.
+
 ## Known gaps
 
-- The three test files are not registered in any `package.json` script — see
-  Migration. They pass when run explicitly; they gate nothing until registered.
-- Real-browser and real-assistive-technology verification is deferred, as
-  described above.
-- Reason multiplicity is a residual rank signal in blind mode, as described
-  above.
+- Real-browser and real-assistive-technology verification is deferred: focus
+  *order*, whether the focus restoration works in practice, and announcement
+  timing. That needs a browser test stack and a decision about which one.
+- Reason multiplicity is a **deterministic** oracle for the lead in blind mode,
+  at measured 100% accuracy. See the blind section.
 - `present` cannot yet resolve a recommendation from a scope; it must be handed
-  one. That is #34's to change.
+  one. That is #34's to change, and it is the change that must add an
+  authentication gate to this route.

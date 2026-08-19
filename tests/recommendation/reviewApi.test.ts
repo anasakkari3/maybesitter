@@ -36,8 +36,13 @@ import { fileURLToPath } from 'node:url';
 
 import { POST } from '../../src/app/api/recommendation/review/route.ts';
 import * as routeModule from '../../src/app/api/recommendation/review/route.ts';
-import { blindSlotOrder } from '../../lib/recommendation/review/present.ts';
-import { BLIND_REDACTED_FIELDS, REVIEW_FINDING_CODES } from '../../lib/recommendation/review/reviewContract.ts';
+import { blindSlotOrder, evaluateReviewSubmission, handleReviewRequest } from '../../lib/recommendation/review/present.ts';
+import {
+  BLIND_VIEW_ALLOWED_FIELDS,
+  BLIND_REDACTED_FIELDS,
+  RECOMMENDATION_REVIEW_LIMITS,
+  REVIEW_FINDING_CODES,
+} from '../../lib/recommendation/review/reviewContract.ts';
 import {
   AFTER_EXPIRY,
   FRESH_FINGERPRINTS,
@@ -129,7 +134,12 @@ test('review api: a decision without confirmation returns no authority to write'
   assert.ok(!allKeys(body).has('handoff'));
 });
 
-test('review api: an explicit confirmation returns a handoff and still reports no write', async () => {
+test('review api: a confirmation is acknowledged without write authority crossing the wire', async () => {
+  // The earlier revision asserted the opposite — that the response *carried* the
+  // handoff — and that assertion was the leak: `handoff.optionIndex` is the
+  // offer position, so a blind reviewer's confirmation came back naming the
+  // thing a blind exchange exists to withhold. Write authority is now a sibling
+  // of the outcome inside the module and is not part of the response type.
   const { status, body } = await post(
     decideBody({}, {
       confirmation: { stage: 'confirmed', acknowledgedVerdict: 'accept', acknowledgedIndex: 0, confirmedAt: NOW },
@@ -140,10 +150,63 @@ test('review api: an explicit confirmation returns a handoff and still reports n
   const outcome = body.outcome as Record<string, unknown>;
   assert.equal(outcome.status, 'confirmed');
   assert.equal(outcome.persisted, false);
-  const handoff = outcome.handoff as Record<string, unknown>;
-  assert.equal(handoff.optionIndex, 0);
-  assert.equal(handoff.verdict, 'accept');
-  assert.equal(handoff.recommendationId, RECOMMENDATION_ID);
+  assert.ok(!allKeys(body).has('handoff'), 'write authority crossed the wire');
+  assert.ok(!allKeys(body).has('optionIndex'), 'an offer position crossed the wire');
+
+  // The module still produces the authority internally, for an adapter.
+  const internal = evaluateReviewSubmission({
+    recommendation: offeredChoice(),
+    locale: 'en',
+    mode: 'attributed',
+    now: NOW,
+    currentFingerprints: FRESH_FINGERPRINTS,
+    submission: {
+      recommendationId: RECOMMENDATION_ID,
+      target: { mode: 'attributed', optionIndex: 0 },
+      verdict: 'accept',
+      decidedAt: NOW,
+      confirmation: { stage: 'confirmed', acknowledgedVerdict: 'accept', acknowledgedIndex: 0, confirmedAt: NOW },
+    },
+  });
+  assert.equal(internal.ok, true);
+  if (!internal.ok) return;
+  assert.ok(internal.handoff !== null);
+  assert.equal(internal.handoff.optionIndex, 0);
+  assert.equal(internal.handoff.recommendationId, RECOMMENDATION_ID);
+});
+
+test('review api: a blind confirmation never returns the offer position it resolved to', async () => {
+  // Nothing touched the blind *decide* response before this test existed, which
+  // is how the leak survived. Three confirmed decisions recovered the whole
+  // permutation on this fixture with salt `study-salt-2026` (true order 0,2,1).
+  const salt = 'study-salt-2026';
+  const order = blindSlotOrder(offeredChoice(), salt);
+  assert.deepEqual([...order], [0, 2, 1], 'fixture ordering changed; the leak scenario needs rechecking');
+  for (let slot = 0; slot < order.length; slot += 1) {
+    const { status, body } = await post({
+      kind: 'decide',
+      recommendation: offeredChoice(),
+      locale: 'en',
+      mode: 'blind',
+      now: NOW,
+      currentFingerprints: FRESH_FINGERPRINTS,
+      submission: {
+        recommendationId: RECOMMENDATION_ID,
+        target: { mode: 'blind', slotIndex: slot, blindingSalt: salt },
+        verdict: 'accept',
+        decidedAt: NOW,
+        confirmation: { stage: 'confirmed', acknowledgedVerdict: 'accept', acknowledgedIndex: slot, confirmedAt: NOW },
+      },
+    });
+    assert.equal(status, 200);
+    assert.equal((body.outcome as Record<string, unknown>).status, 'confirmed');
+    const serialised = JSON.stringify(body);
+    assert.ok(!serialised.includes('handoff'), `slot ${slot} returned write authority`);
+    assert.ok(!serialised.includes('optionIndex'), `slot ${slot} returned an offer position`);
+    // The resolved position must not appear even as a bare number under another
+    // name: the only numbers in a confirmed blind response should be none.
+    assert.ok(!/\d/.test(String((body.outcome as Record<string, unknown>).notice ?? '')));
+  }
 });
 
 test('review api: declining costs nothing and produces no handoff even when confirmed', async () => {
@@ -309,6 +372,200 @@ test('review api: no refusal ever produces a handoff or claims a write', async (
     const { body } = await post(scenario);
     assert.ok(!allKeys(body).has('handoff'));
     assert.equal(body.persisted, false);
+  }
+});
+
+/* ── Totality: nothing reaches the caller as a throw ─────────────── */
+
+const VALIDITY = { basisAt: '2026-08-19T10:00:00.000Z', expiresAt: '2026-08-19T11:00:00.000Z' };
+const ONE_OBSERVED = [{
+  kind: 'observed', nodeId: 'a', source: { kind: 'commitment', commitmentId: 'c', field: 'due_at' },
+  claim: { kind: 'flag', value: true }, observedAt: null, valueFingerprint: 'f',
+}];
+
+/**
+ * Recommendation bodies that used to escape `POST` as an unhandled `TypeError`.
+ *
+ * Every one of these was measured throwing, on both the `present` and the
+ * `decide` path, before the boundary was made total. `HOSTILE_BODIES` above only
+ * ever covered the *envelope* — `kind`, arrays, bare strings — so the test named
+ * "every malformed envelope is reported rather than thrown" was green while this
+ * entire class was broken. These are the class.
+ *
+ * The assertion is deliberately not "each returns 400". After #33's `3a8158b`,
+ * ten of the twelve are *reported defects* and come back `200` with a
+ * `NothingToReviewView` naming the code — which is the better answer and the one
+ * this contract said it would give. What is asserted is the property that
+ * actually matters: **no input reaches the caller as an exception**, and the
+ * response is always one this surface's taxonomy describes.
+ */
+const HOSTILE_RECOMMENDATIONS: readonly { readonly name: string; readonly value: unknown }[] = [
+  { name: 'a choice with no option list', value: { options: { kind: 'choice' } } },
+  { name: 'a choice whose option list is null', value: { options: { kind: 'choice', options: null, excluded: [] } } },
+  { name: 'a choice of nulls', value: { options: { kind: 'choice', options: [null, null], excluded: [] } } },
+  { name: 'an unknown soleness kind', value: { options: { kind: 'nonsense' } } },
+  { name: 'a sole survivor with no option', value: { options: { kind: 'sole_survivor', excluded: [] } } },
+  { name: 'an only-candidate with no option', value: { options: { kind: 'only_candidate', attested: [] } } },
+  { name: 'an option with a null action', value: { options: { kind: 'choice', excluded: [], options: [
+      { optionIndex: 0, action: null, support: [{ code: 'OVERDUE', supportedBy: ['a'], detail: 'd' }], confidence: { value: 0.5, band: 'medium', basis: ['a'] } },
+      { optionIndex: 1, action: null, support: [{ code: 'OVERDUE', supportedBy: ['a'], detail: 'd' }], confidence: { value: 0.5, band: 'medium', basis: ['a'] } },
+    ] } } },
+  { name: 'an option with no confidence', value: { options: { kind: 'choice', excluded: [], options: [
+      { optionIndex: 0, action: { kind: 'do_now', commitmentId: 'c' }, support: [] },
+      { optionIndex: 1, action: { kind: 'do_now', commitmentId: 'd' }, support: [] },
+    ] } } },
+  { name: 'excluded entries that are null', value: { options: { kind: 'choice', options: [], excluded: [null] } } },
+  { name: 'evidence nodes of mixed junk', value: { evidence: { nodes: [null, 3, 'x'] }, options: { kind: 'choice', options: [], excluded: [] } } },
+  { name: 'a derived node with no parents', value: { evidence: { nodes: [{ kind: 'derived', nodeId: 'a', rule: 'OVERDUE_FROM_DUE_AT', claim: { kind: 'flag', value: true } }] }, options: { kind: 'choice', options: [], excluded: [] } } },
+  { name: 'a withheld outcome with junk reasons', value: { outcome: 'withheld', reasons: [null, 5] } },
+];
+
+function hostileRecommendation(patch: Record<string, unknown>): Record<string, unknown> {
+  return {
+    recommendationId: 'r', scopeId: 's', version: 'v1', schema: 'recommendation-v1', inputDigest: 'd',
+    validity: VALIDITY, evidence: { nodes: ONE_OBSERVED }, outcome: 'offered', ...patch,
+  };
+}
+
+test('review api: no malformed recommendation reaches the caller as an exception', async () => {
+  for (const hostile of HOSTILE_RECOMMENDATIONS) {
+    const recommendation = hostileRecommendation(hostile.value as Record<string, unknown>);
+    for (const shape of [presentBody({ recommendation }), decideBody({ recommendation })]) {
+      let status = 0;
+      let body: Record<string, unknown> = {};
+      try {
+        const result = await post(shape);
+        status = result.status;
+        body = result.body;
+      } catch (error) {
+        assert.fail(`${hostile.name} threw ${(error as Error).constructor.name}: ${(error as Error).message}`);
+      }
+      assert.ok(status === 200 || status === 400, `${hostile.name} returned ${status}`);
+      assert.equal(body.persisted, false, hostile.name);
+      if (status === 400) {
+        for (const code of findingCodes(body)) {
+          assert.ok((REVIEW_FINDING_CODES as readonly string[]).includes(code), `${hostile.name}: ${code} is not in the taxonomy`);
+        }
+      } else if (body.kind === 'presented') {
+        // A 200 must be a refusal to render, never a rendered offer built from junk.
+        const view = body.view as Record<string, unknown>;
+        assert.equal(view.mode, 'none', `${hostile.name} rendered an offer`);
+        assert.equal(view.cause, 'defective', `${hostile.name} was not reported defective`);
+      } else {
+        assert.equal(body.kind, 'decided', hostile.name);
+      }
+    }
+  }
+});
+
+/**
+ * A deterministic mutation sweep over a *valid* recommendation.
+ *
+ * Hand-written hostile bodies only cover shapes somebody imagined, which is how
+ * the original class was missed. This walks every path in a known-good
+ * recommendation and replaces each one with `null`, `undefined`, `{}`, `[]`, `0`
+ * and `''` in turn — several hundred single-site mutations — and asserts the
+ * boundary never throws for any of them.
+ *
+ * Deterministic by construction: paths are enumerated in object order and the
+ * substitutions are a fixed list, so there is no seed and no flake. One site at
+ * a time, because a mutation sweep that changes several fields at once proves
+ * only that *some* combination is handled.
+ */
+function mutationsOf(value: unknown, path: readonly string[] = []): { path: string[]; build: (replacement: unknown) => unknown }[] {
+  const out: { path: string[]; build: (replacement: unknown) => unknown }[] = [];
+  const replaceAt = (target: unknown, at: readonly string[], replacement: unknown): unknown => {
+    if (at.length === 0) return replacement;
+    if (Array.isArray(target)) {
+      const copy = target.slice();
+      copy[Number(at[0])] = replaceAt(target[Number(at[0])], at.slice(1), replacement);
+      return copy;
+    }
+    const copy = { ...(target as Record<string, unknown>) };
+    copy[at[0]] = replaceAt((target as Record<string, unknown>)[at[0]], at.slice(1), replacement);
+    return copy;
+  };
+  const walk = (node: unknown, at: string[]): void => {
+    if (at.length > 0) {
+      const here = at.slice();
+      out.push({ path: here, build: (replacement) => replaceAt(value, here, replacement) });
+    }
+    if (Array.isArray(node)) {
+      for (let index = 0; index < node.length; index += 1) walk(node[index], [...at, String(index)]);
+      return;
+    }
+    if (typeof node === 'object' && node !== null) {
+      for (const key of Object.keys(node)) walk((node as Record<string, unknown>)[key], [...at, key]);
+    }
+  };
+  walk(value, [...path]);
+  return out;
+}
+
+test('review api: a single-site mutation of any field never throws', async () => {
+  const valid = offeredChoice() as unknown as Record<string, unknown>;
+  const sites = mutationsOf(valid);
+  assert.ok(sites.length > 80, `expected a broad sweep, found ${sites.length} sites`);
+  const substitutions: unknown[] = [null, undefined, {}, [], 0, ''];
+  let checked = 0;
+  for (const site of sites) {
+    for (const replacement of substitutions) {
+      const mutated = site.build(replacement);
+      // Both entry points. `decide` runs everything `present` runs and then
+      // `checkRecommendationDecision` on top, so a site that is safe to render
+      // is not automatically safe to decide against.
+      for (const shape of [presentBody({ recommendation: mutated }), decideBody({ recommendation: mutated })]) {
+        let status = 0;
+        let body: Record<string, unknown> = {};
+        try {
+          const result = await post(shape);
+          status = result.status;
+          body = result.body;
+        } catch (error) {
+          assert.fail(`mutating ${site.path.join('.')} to ${JSON.stringify(replacement) ?? 'undefined'} threw ${(error as Error).message}`);
+        }
+        assert.ok(status === 200 || status === 400, `${site.path.join('.')} returned ${status}`);
+        assert.equal(body.persisted, false);
+        assert.ok(!allKeys(body).has('handoff'), `${site.path.join('.')} produced write authority`);
+        checked += 1;
+      }
+    }
+  }
+  assert.ok(checked > 500, `expected several hundred mutations, ran ${checked}`);
+});
+
+test('review api: an oversized recommendation is refused before it is processed', async () => {
+  // #33's `3a8158b` made `resolveEvidenceRoots` iterative and removed the
+  // quadratic term in the cycle detector, so the stack overflow at 8,000 nodes
+  // and the 55.9s of CPU at 60,000 are both gone upstream — 150,000 nodes now
+  // completes in about 150ms. The limit is still enforced, for a reason that is
+  // about the route rather than the algorithm: App Router handlers have no
+  // default body cap, so this endpoint would otherwise accept a body of
+  // arbitrary size and allocate in proportion, unauthenticated.
+  const nodes: unknown[] = [{ kind: 'observed', nodeId: 'n0', source: { kind: 'commitment', commitmentId: 'c', field: 'due_at' }, claim: { kind: 'flag', value: true }, observedAt: null, valueFingerprint: 'fp' }];
+  for (let index = 1; index <= RECOMMENDATION_REVIEW_LIMITS.maxEvidenceNodes + 1; index += 1) {
+    nodes.push({ kind: 'derived', nodeId: `n${index}`, rule: 'OVERDUE_FROM_DUE_AT', claim: { kind: 'flag', value: true }, derivedFrom: [`n${index - 1}`] });
+  }
+  const { status, body } = await post(presentBody({
+    recommendation: hostileRecommendation({ evidence: { nodes }, options: { kind: 'choice', options: [], excluded: [] } }),
+  }));
+  assert.equal(status, 400);
+  assert.deepEqual(findingCodes(body), ['RECOMMENDATION_TOO_LARGE']);
+
+  const longTitle = await post(decideBody({}, {
+    verdict: 'edit',
+    editedTitle: 'x'.repeat(RECOMMENDATION_REVIEW_LIMITS.maxEditedTitleLength + 1),
+  }));
+  assert.equal(longTitle.status, 400);
+  assert.ok(findingCodes(longTitle.body).includes('EDIT_TITLE_TOO_LONG'));
+});
+
+test('review api: a blind presentation carries only allow-listed fields on the wire', () => {
+  const outcome = handleReviewRequest(presentBody({ mode: 'blind', blindingSalt: SALT }));
+  const allowed = new Set<string>(BLIND_VIEW_ALLOWED_FIELDS);
+  const serialised = JSON.parse(JSON.stringify((outcome.response as { view: unknown }).view));
+  for (const key of Array.from(allKeys(serialised))) {
+    assert.ok(allowed.has(key), `the wire format carries an un-allowed field: ${key}`);
   }
 });
 

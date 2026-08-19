@@ -177,6 +177,37 @@ test('review: a defective recommendation is refused rather than rendered', () =>
   assert.equal(RECOMMENDATION_REVIEW_POLICY.validateBeforeRender, true);
 });
 
+test('review: an offer whose soleness this version does not know is refused, not rendered', () => {
+  // #33's `summarizeOptionSet` now returns `lead: null` and
+  // `soleness: 'unknown'` for an unrecognised `OptionSet.kind`. It used to
+  // return `lead: undefined` while still reporting `only_candidate`, so a
+  // presenter asserted "this was the only candidate" about a value that did not
+  // exist — and rendered without complaining. The presenter must handle the null
+  // explicitly rather than let it fall through.
+  const broken = { ...offeredChoice(), options: { kind: 'from_the_future', options: [] } };
+  const view = presentRecommendation({
+    recommendation: broken as unknown as ReturnType<typeof offeredChoice>,
+    locale: 'en',
+    mode: 'attributed',
+    now: NOW,
+    currentFingerprints: FRESH_FINGERPRINTS,
+  });
+  assert.equal(view.mode, 'none');
+  assert.equal((view as NothingToReviewView).cause, 'defective');
+
+  // Blind mode must refuse on the same grounds, or the redaction path becomes a
+  // way to render an offer the attributed path rejected.
+  const blindView = presentRecommendation({
+    recommendation: broken as unknown as ReturnType<typeof offeredChoice>,
+    locale: 'en',
+    mode: 'blind',
+    blindingSalt: SALT,
+    now: NOW,
+    currentFingerprints: FRESH_FINGERPRINTS,
+  });
+  assert.equal(blindView.mode, 'none');
+});
+
 test('review: an expired recommendation is refused', () => {
   const view = presentRecommendation({
     recommendation: offeredChoice(),
@@ -826,6 +857,39 @@ test('review: the review module reads no clock and no locale-dependent ordering'
     }
   }
   assert.equal(RECOMMENDATION_REVIEW_POLICY.noAmbientClock, true);
+});
+
+test('review: the duplicated instant rule is byte-identical to the contract', () => {
+  // A documented duplicate needs a guard or it is just a duplicate. #33's
+  // `INSTANT_PATTERN` is module-private, so `present.ts` spells the rule a
+  // second time for `decidedAt` and `confirmedAt`, which no contract function
+  // checks. This asserts the two spellings are the same characters, so the day
+  // the contract's rule moves, this fails instead of quietly accepting instants
+  // the contract now rejects.
+  const contractSource = readFileSync(join(repoRoot, 'src', 'contracts', 'v1', 'recommendationContracts.ts'), 'utf8');
+  const localSource = readFileSync(join(repoRoot, 'lib', 'recommendation', 'review', 'present.ts'), 'utf8');
+  const contractPattern = /const INSTANT_PATTERN = (\/.*\/);/.exec(contractSource);
+  const localPattern = /const CONTRACT_INSTANT_PATTERN = (\/.*\/);/.exec(localSource);
+  assert.ok(contractPattern !== null, 'the contract no longer defines INSTANT_PATTERN under that name');
+  assert.ok(localPattern !== null, 'the local copy is gone; if it was replaced by an import, delete this test');
+  assert.equal(
+    (localPattern as RegExpExecArray)[1],
+    (contractPattern as RegExpExecArray)[1],
+    'the local instant rule has drifted from the contract',
+  );
+});
+
+test('review: an instant without an explicit offset is refused', () => {
+  // The contract's ruling, applied at this boundary: a no-offset instant is
+  // malformed rather than read as host-local time, so the same wall-clock string
+  // cannot mean two instants on two machines.
+  for (const bad of ['2026-08-19T10:30:00.000', '2026-08-19 10:30:00Z', 'tomorrow']) {
+    const result = decide(submission({ decidedAt: bad }));
+    assert.equal(result.ok, false, `${bad} was accepted`);
+    if (result.ok) return;
+    assert.ok(result.findings.some((found) => found.code === 'INVALID_INSTANT'), bad);
+  }
+  assert.equal(decide(submission({ decidedAt: '2026-08-19T10:30:00+03:00' })).ok, true);
 });
 
 test('review: the presenter is deterministic for one input', () => {
