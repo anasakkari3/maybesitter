@@ -311,17 +311,20 @@ function staticFinding(
       detail: `effort is ${String(item.effort.minutes)} minutes`,
     };
   }
-  if (!Number.isFinite(item.bufferBeforeMinutes) || !Number.isFinite(item.bufferAfterMinutes)) {
-    // The taxonomy has no buffer-specific code and #29 reads this as
-    // `EFFORT_NOT_POSITIVE`. Agreeing with the other static reader matters more
-    // than the code this track would have picked alone: a disagreement here is
-    // exactly what the cross-track comparison exists to surface, and it would
-    // be a disagreement about nothing.
+  if (!isUsableBuffer(item.bufferBeforeMinutes) || !isUsableBuffer(item.bufferAfterMinutes)) {
+    // `EFFORT_NOT_POSITIVE` covers a buffer that is negative *or* not finite —
+    // the frozen list has no buffer-specific code, and this is the reading all
+    // three tracks now share.
     //
-    // A *negative* buffer is a different case and is still clamped to zero
-    // below — it is representable, the arithmetic survives it, and
-    // `reservedInterval` is documented as never narrower than `interval`.
-    return { code: 'EFFORT_NOT_POSITIVE', detail: 'a buffer is not a finite number of minutes' };
+    // The negative half of that rule was the last thing wrong in this sprint,
+    // and it survived a round because the guard here tested only finiteness.
+    // Non-finite input announces itself: the arithmetic collapses and something
+    // downstream raises. A negative buffer does not — it widens the reservation
+    // the wrong way and the plan looks fine, so both static readers called the
+    // item impossible while this scheduler placed it. That is the failure
+    // `PLANNING_INPUT_POLICY` exists to name: a value the taxonomy describes,
+    // silently repaired instead of reported.
+    return { code: 'EFFORT_NOT_POSITIVE', detail: 'a buffer is negative or not finite' };
   }
   const declared = declaredPrerequisites(item);
   if (declared.includes(item.itemId)) {
@@ -390,18 +393,27 @@ function staticFinding(
   return null;
 }
 
+/** A buffer this module can place work around. See `EFFORT_NOT_POSITIVE`. */
+function isUsableBuffer(minutes: number): boolean {
+  return Number.isFinite(minutes) && minutes >= 0;
+}
+
 /**
- * Buffers, clamped at zero rather than allowed to narrow the reservation:
- * `PlannedItem.reservedInterval` is documented as never narrower than
- * `interval`, and the reason taxonomy has no code for a malformed buffer —
- * well-formedness of the request is #29's job, and this module must not invent
- * a code to report it.
+ * Buffers, read as given.
+ *
+ * These used to be `Math.max(0, ...)`. Clamping looked like defensive tidying
+ * and was the more dangerous of the two available mistakes: it turns an input
+ * the taxonomy has a code for into a *feasible* verdict, so the contradiction
+ * disappears rather than being reported. Anything unusable is now
+ * `EFFORT_NOT_POSITIVE` in the static pass above and never reaches this
+ * arithmetic, which is why no clamp is needed to keep
+ * `PlannedItem.reservedInterval` from being narrower than `interval`.
  */
 function bufferBefore(item: PlanningItem): number {
-  return Math.max(0, item.bufferBeforeMinutes);
+  return item.bufferBeforeMinutes;
 }
 function bufferAfter(item: PlanningItem): number {
-  return Math.max(0, item.bufferAfterMinutes);
+  return item.bufferAfterMinutes;
 }
 function effortMinutes(item: PlanningItem): number {
   return item.effort.kind === 'known' ? item.effort.minutes : 0;
@@ -578,8 +590,9 @@ export function schedulePlan(constraints: PlanningConstraints, config: PlanningC
   const duplicateId = firstDuplicateItemId(constraints.items);
   if (duplicateId !== null) {
     // Thrown for the same reason as an unusable slot grid: there is no reason
-    // code for it, and the taxonomy is not the place to invent one — #29 owns
-    // whether a request is well formed. Two items sharing an id make
+    // code for it, which is exactly the case
+    // `PLANNING_INPUT_POLICY.throwOnlyWhenNoCodeApplies` reserves for throwing.
+    // Two items sharing an id make
     // `scheduled`, `unscheduled` and every diff keyed by `itemId` ambiguous:
     // the plan would carry two placements under one id, breaking the
     // exactly-once partition, and `diffPlans` would silently keep whichever it
@@ -848,11 +861,12 @@ export function schedulePlan(constraints: PlanningConstraints, config: PlanningC
     || compareByCodePoint(left.itemId ?? '', right.itemId ?? '')
     || compareByCodePoint(left.detail, right.detail));
 
-  // Computed here rather than as the first statement of this function. The
-  // digest is a description of the request, not a gate on it: anything it could
-  // object to is something the passes above have already described in the
-  // taxonomy, and running it first meant a bad value came back as an exception
-  // instead of as the finding both other tracks report for it.
+  // Computed here rather than as the first statement of this function —
+  // `PLANNING_INPUT_POLICY.digestAfterStaticPass`. The digest is a description
+  // of the request, not a gate on it: anything it could object to is something
+  // the passes above have already described in the taxonomy, and running it
+  // first meant a bad value came back as an exception instead of as the finding
+  // both other tracks report for it.
   const inputDigest = planningInputDigest(constraints, config);
 
   return {

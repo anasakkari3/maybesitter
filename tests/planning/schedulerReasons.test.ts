@@ -662,6 +662,36 @@ test('a non-finite effort is EFFORT_NOT_POSITIVE, not an exception', () => {
   }
 });
 
+test('every unusable buffer is EFFORT_NOT_POSITIVE, and zero is not one', () => {
+  // All five shapes in one table, deliberately. The non-finite half was fixed
+  // one round before the negative half, and the negative half survived because
+  // the guard read `!Number.isFinite(...)` with no `< 0` — a table split across
+  // two tests is exactly how a rule gets half-applied and stays that way.
+  //
+  // A negative buffer is the shape that matters most: it does not blow the
+  // arithmetic up, it quietly widens the reservation the wrong way, so both
+  // static readers called the item impossible while this scheduler placed it.
+  const unusable = [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, -5, -0.5];
+  for (const field of ['bufferBeforeMinutes', 'bufferAfterMinutes'] as const) {
+    for (const value of unusable) {
+      const plan = schedulePlan(constraints({ items: [item('a', { [field]: value })] }), config());
+      assert.equal(
+        reasonFor(plan, 'a'),
+        'EFFORT_NOT_POSITIVE',
+        `${field}=${String(value)} must be reported, not repaired`,
+      );
+      assert.equal(plan.scheduled.length, 0, `${field}=${String(value)} was placed anyway`);
+    }
+
+    // Zero stays legitimate: "no protected time around this" is a normal
+    // request, and a rule that swept it up would make every unbuffered item
+    // unschedulable.
+    const fine = schedulePlan(constraints({ items: [item('a', { [field]: 0 })] }), config());
+    assert.equal(fine.unscheduled.length, 0, `${field}=0 is a perfectly ordinary request`);
+    assert.equal(fine.scheduled.length, 1);
+  }
+});
+
 test('a non-finite buffer is EFFORT_NOT_POSITIVE, not an exception', () => {
   // The taxonomy has no buffer-specific code, and #29 reads this as
   // EFFORT_NOT_POSITIVE. Agreeing with the other static reader matters more
