@@ -22,6 +22,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  MAX_FIXED_EVENT_CONFLICT_REASONS,
   assessFeasibility,
   freeWorkingIntervals,
   workingIntervalsInHorizon,
@@ -1050,4 +1051,135 @@ test('a reason detail does not encode the position of an item in the input array
   // differ only in ordering would serialise to different bytes for one finding.
   // Windows and events use it because they have no id field to fall back on.
   assert.deepEqual(forwards.reasons, backwards.reasons);
+});
+
+/* ── Regressions from the sprint-level fuzzer ────────────────────── */
+
+test('a malformed buffer is reported, never floored into a feasible verdict', () => {
+  const cases: readonly [string, Partial<PlanningItem>][] = [
+    ['a negative buffer before', { bufferBeforeMinutes: -5 }],
+    ['a negative buffer after', { bufferAfterMinutes: -5 }],
+    ['a NaN buffer', { bufferBeforeMinutes: Number.NaN }],
+    ['an infinite buffer', { bufferAfterMinutes: Number.POSITIVE_INFINITY }],
+  ];
+
+  for (const [label, overrides] of cases) {
+    const verdict = assessFeasibility(
+      constraints({ items: [item({ itemId: 'i-bad-buffer', bufferBeforeMinutes: 0, bufferAfterMinutes: 0, ...overrides })] }),
+      CONFIG,
+    );
+
+    // `Math.max(0, buffer)` looked like defensive arithmetic and was a silent
+    // repair in the one direction that must never be silent: a contradiction
+    // became a *feasible* verdict. Three readings of this input gave three
+    // answers — #29 reported the code, this file reported nothing, #30 placed
+    // the item — which broke the only assertion spanning all three, that a
+    // static contradiction both readers agree on is never scheduled.
+    assert.equal(verdict.feasible, false, label);
+    assert.deepEqual(codesFor(verdict, 'i-bad-buffer'), ['EFFORT_NOT_POSITIVE'], label);
+    // Not floored into the aggregate either: a duration that is not a duration
+    // has no demand to state.
+    assert.equal(verdict.demandMinutes, 0, label);
+  }
+});
+
+test('a zero buffer stays legitimate: no recovery time is an ordinary item', () => {
+  const verdict = assessFeasibility(
+    constraints({ items: [item({ itemId: 'i-tight', bufferBeforeMinutes: 0, bufferAfterMinutes: 0 })] }),
+    CONFIG,
+  );
+
+  assert.equal(verdict.feasible, true);
+  assert.equal(verdict.demandMinutes, 60);
+});
+
+test('a malformed buffer does not discount the demand of the items around it', () => {
+  const verdict = assessFeasibility(
+    constraints({
+      items: [
+        item({ itemId: 'i-ok', bufferBeforeMinutes: 0, bufferAfterMinutes: 0 }),
+        item({ itemId: 'i-bad', bufferBeforeMinutes: -600, bufferAfterMinutes: 0 }),
+      ],
+    }),
+    CONFIG,
+  );
+
+  // Summing the raw value would have made a 60-minute week read as -540.
+  assert.equal(verdict.demandMinutes, 60);
+  assert.deepEqual(codesFor(verdict, 'i-ok'), []);
+  assert.deepEqual(codesFor(verdict, 'i-bad'), ['EFFORT_NOT_POSITIVE']);
+});
+
+test('a malformed buffer silences the effort-window arithmetic that would use it', () => {
+  const verdict = assessFeasibility(
+    constraints({
+      items: [item({
+        itemId: 'i-both',
+        bufferBeforeMinutes: -5,
+        bufferAfterMinutes: 0,
+        earliestStartAt: '2026-11-09T09:00:00.000Z',
+        deadlineAt: '2026-11-09T09:30:00.000Z',
+      })],
+    }),
+    CONFIG,
+  );
+
+  // The required-minutes sum borrows the buffer, and the buffer has just been
+  // reported as not a duration. An earlier draft floored it here but guarded it
+  // with `Number.isFinite` in the demand sum, so an infinite buffer produced
+  // EFFORT_EXCEEDS_ITEM_WINDOW in one place and nothing in the other.
+  assert.deepEqual(codesFor(verdict, 'i-both'), ['EFFORT_NOT_POSITIVE']);
+});
+
+test('assessFeasibility materialises the working windows exactly once', () => {
+  let reads = 0;
+  const probe = {
+    scopeId: 'scope-materialisation',
+    timezone: 'America/New_York',
+    horizon: { startsAt: '2026-11-09T00:00:00.000Z', endsAt: '2026-12-07T00:00:00.000Z' },
+    fixedEvents: [],
+    items: [],
+  };
+  const windows = [1, 2, 3].map((weekday) => ({
+    windowId: `w-${weekday}`,
+    weekday: weekday as 1,
+    startMinute: 9 * 60,
+    endMinute: 17 * 60,
+    timezone: 'America/New_York',
+  }));
+  Object.defineProperty(probe, 'workingWindows', {
+    get() { reads += 1; return windows; },
+    enumerable: true,
+  });
+
+  assessFeasibility(probe as unknown as PlanningConstraints, CONFIG);
+
+  // Two reads: the well-formedness loop, and the single materialisation. It was
+  // four — anomalies, the working union, and the free-time subtraction walking
+  // it all over again — which is a constant factor of three on the hottest path
+  // in the package, run once per scenario by the corpus gate.
+  //
+  // Counted rather than timed, so the guard is deterministic. Anyone re-adding
+  // a redundant walk fails here rather than on a stopwatch.
+  assert.equal(reads, 2, `expected one materialisation plus one validation pass, saw ${reads} reads`);
+});
+
+test('MAX_FIXED_EVENT_CONFLICT_REASONS is the bound the sweep actually honours', () => {
+  const overlapping = Array.from({ length: MAX_FIXED_EVENT_CONFLICT_REASONS + 20 }, (_, index) => event({
+    eventId: `e-${index}`,
+    interval: { startsAt: '2026-11-09T12:00:00.000Z', endsAt: '2026-11-09T13:00:00.000Z' },
+  }));
+  const verdict = assessFeasibility(constraints({ fixedEvents: overlapping }), CONFIG);
+  const conflicts = codesFor(verdict, null).filter((code) => code === 'FIXED_EVENT_CONFLICT');
+
+  // The constant is exported so it can be asserted rather than assumed. n events
+  // that all overlap yield n-1 sweep conflicts, of which the bound names
+  // MAX individually and the rest arrive as one counted summary.
+  assert.equal(conflicts.length, MAX_FIXED_EVENT_CONFLICT_REASONS + 1);
+  const summary = verdict.reasons.filter((reason) => /further overlapping/.test(reason.detail));
+  assert.equal(summary.length, 1);
+  assert.ok(
+    summary[0].detail.startsWith(String(overlapping.length - 1 - MAX_FIXED_EVENT_CONFLICT_REASONS)),
+    `the summary must state how many were not enumerated: ${summary[0].detail}`,
+  );
 });
