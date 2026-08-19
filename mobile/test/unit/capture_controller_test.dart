@@ -184,6 +184,31 @@ void main() {
       expect(analyticsService.events.last.properties['reason'], 'cancelled');
     });
 
+    test('clipboard import records privacy-safe intake analytics', () {
+      final notifier = container.read(captureControllerProvider.notifier);
+
+      notifier.noteSourceIntakeReviewed(
+        importSource: 'clipboard',
+        characterCount: 24,
+      );
+      notifier.applyImportedText(
+        'Call the school and pack lunch',
+        importSource: 'clipboard',
+      );
+
+      final state = container.read(captureControllerProvider);
+      expect(state.rawInput, 'Call the school and pack lunch');
+      expect(state.status, CaptureStatus.editing);
+      expect(analyticsService.events.map((event) => event.name), [
+        PilotLoopAnalyticsEventName.sourceIntakeReviewed,
+        PilotLoopAnalyticsEventName.sourceIntakeConfirmed,
+      ]);
+      expect(
+        analyticsService.events.last.properties,
+        isNot(containsPair('rawText', 'Call the school and pack lunch')),
+      );
+    });
+
     test('speech permission denial keeps typed capture usable', () async {
       speechService.startResult = const SpeechCaptureStartResult.failed(
         SpeechCaptureFailureReason.permissionDenied,

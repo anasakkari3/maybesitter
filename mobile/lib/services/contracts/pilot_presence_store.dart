@@ -11,6 +11,7 @@ abstract interface class PilotPresenceStore {
 class PilotPresenceStoreKeys {
   static const appGroupIdentifier = 'group.com.maybesitter.maybesitterMobile';
   static const snapshotV1 = 'pilot_presence_commitment_snapshot_v1';
+  static const watchEnabledV1 = 'pilot_presence_watch_enabled_v1';
 
   const PilotPresenceStoreKeys._();
 }

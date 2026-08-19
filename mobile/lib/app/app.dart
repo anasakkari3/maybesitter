@@ -23,6 +23,7 @@ class MaybesitterApp extends ConsumerStatefulWidget {
 class _MaybesitterAppState extends ConsumerState<MaybesitterApp> {
   final WidgetDeepLinkService _deepLinkService = const WidgetDeepLinkService();
   ProviderSubscription<AsyncValue<List<Commitment>>>? _presenceSubscription;
+  ProviderSubscription<Object?>? _watchFlagsSubscription;
   ProviderSubscription<Object?>? _awarenessSettingsSubscription;
   ProviderSubscription<Object?>? _awarenessRoutineSubscription;
   ProviderSubscription<Object?>? _awarenessFlagsSubscription;
@@ -34,6 +35,7 @@ class _MaybesitterAppState extends ConsumerState<MaybesitterApp> {
       commitmentsStreamProvider,
       (_, next) {
         final publisher = ref.read(pilotPresenceSnapshotPublisherProvider);
+        _syncWatchAvailability();
         if (!ref.read(pilotPresenceFeatureFlagsProvider).widget) {
           unawaited(publisher.clearWidgetSnapshot());
           return;
@@ -44,6 +46,11 @@ class _MaybesitterAppState extends ConsumerState<MaybesitterApp> {
         unawaited(publisher.publishWidgetSnapshot(commitments));
         _syncSoftAwarenessSchedules(commitments);
       },
+      fireImmediately: true,
+    );
+    _watchFlagsSubscription = ref.listenManual(
+      pilotPresenceFeatureFlagsProvider,
+      (_, __) => _syncWatchAvailability(),
       fireImmediately: true,
     );
     _awarenessSettingsSubscription = ref.listenManual(
@@ -68,6 +75,7 @@ class _MaybesitterAppState extends ConsumerState<MaybesitterApp> {
   @override
   void dispose() {
     _presenceSubscription?.close();
+    _watchFlagsSubscription?.close();
     _awarenessSettingsSubscription?.close();
     _awarenessRoutineSubscription?.close();
     _awarenessFlagsSubscription?.close();
@@ -159,6 +167,16 @@ class _MaybesitterAppState extends ConsumerState<MaybesitterApp> {
       ref
           .read(softAwarenessReminderEngineProvider)
           .syncCommitments(currentCommitments),
+    );
+  }
+
+  void _syncWatchAvailability() {
+    final enabled = ref.read(pilotPresenceFeatureFlagsProvider).watch;
+    unawaited(
+      ref
+          .read(pilotPresenceWatchConfigStoreProvider)
+          .setEnabled(enabled)
+          .catchError((_) {}),
     );
   }
 }

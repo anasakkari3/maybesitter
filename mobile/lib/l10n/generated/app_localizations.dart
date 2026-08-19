@@ -304,6 +304,36 @@ abstract class AppLocalizations {
   /// **'Typed capture still works. Use the keyboard or try voice again.'**
   String get spokenPromptFailureMessage;
 
+  /// No description provided for @importClipboardAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Import from clipboard'**
+  String get importClipboardAction;
+
+  /// No description provided for @importClipboardEmptyMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'There is no text on the clipboard right now.'**
+  String get importClipboardEmptyMessage;
+
+  /// No description provided for @importReviewTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Review imported text'**
+  String get importReviewTitle;
+
+  /// No description provided for @importReviewMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm this text before MaybeSitter analyzes or saves anything.'**
+  String get importReviewMessage;
+
+  /// No description provided for @importUseTextAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Use this text'**
+  String get importUseTextAction;
+
   /// No description provided for @editingDisabledExplanation.
   ///
   /// In en, this message translates to:
@@ -597,6 +627,150 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Disabled'**
   String get notificationsDisabled;
+
+  /// No description provided for @pilotFeedbackTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Pilot feedback'**
+  String get pilotFeedbackTitle;
+
+  /// No description provided for @pilotFeedbackSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Tell us which pilot moment mattered and how it felt.'**
+  String get pilotFeedbackSubtitle;
+
+  /// No description provided for @pilotFeedbackEntrySubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Usefulness, timing, and reminder feel'**
+  String get pilotFeedbackEntrySubtitle;
+
+  /// No description provided for @pilotFeedbackSurfaceTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Which surface are you rating?'**
+  String get pilotFeedbackSurfaceTitle;
+
+  /// No description provided for @pilotFeedbackSurfaceWidget.
+  ///
+  /// In en, this message translates to:
+  /// **'Widget'**
+  String get pilotFeedbackSurfaceWidget;
+
+  /// No description provided for @pilotFeedbackSurfaceVoice.
+  ///
+  /// In en, this message translates to:
+  /// **'Voice'**
+  String get pilotFeedbackSurfaceVoice;
+
+  /// No description provided for @pilotFeedbackSurfaceNotification.
+  ///
+  /// In en, this message translates to:
+  /// **'Notification'**
+  String get pilotFeedbackSurfaceNotification;
+
+  /// No description provided for @pilotFeedbackSurfaceCalendar.
+  ///
+  /// In en, this message translates to:
+  /// **'Calendar'**
+  String get pilotFeedbackSurfaceCalendar;
+
+  /// No description provided for @pilotFeedbackSurfaceImport.
+  ///
+  /// In en, this message translates to:
+  /// **'Import'**
+  String get pilotFeedbackSurfaceImport;
+
+  /// No description provided for @pilotFeedbackUsefulnessTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'How useful was it?'**
+  String get pilotFeedbackUsefulnessTitle;
+
+  /// No description provided for @pilotFeedbackUsefulnessHigh.
+  ///
+  /// In en, this message translates to:
+  /// **'Very useful'**
+  String get pilotFeedbackUsefulnessHigh;
+
+  /// No description provided for @pilotFeedbackUsefulnessSome.
+  ///
+  /// In en, this message translates to:
+  /// **'Somewhat'**
+  String get pilotFeedbackUsefulnessSome;
+
+  /// No description provided for @pilotFeedbackUsefulnessNotYet.
+  ///
+  /// In en, this message translates to:
+  /// **'Not yet'**
+  String get pilotFeedbackUsefulnessNotYet;
+
+  /// No description provided for @pilotFeedbackAnnoyanceTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'How did the reminder feel?'**
+  String get pilotFeedbackAnnoyanceTitle;
+
+  /// No description provided for @pilotFeedbackAnnoyanceCalm.
+  ///
+  /// In en, this message translates to:
+  /// **'Calm'**
+  String get pilotFeedbackAnnoyanceCalm;
+
+  /// No description provided for @pilotFeedbackAnnoyanceFine.
+  ///
+  /// In en, this message translates to:
+  /// **'Fine'**
+  String get pilotFeedbackAnnoyanceFine;
+
+  /// No description provided for @pilotFeedbackAnnoyanceTooMuch.
+  ///
+  /// In en, this message translates to:
+  /// **'Too much'**
+  String get pilotFeedbackAnnoyanceTooMuch;
+
+  /// No description provided for @pilotFeedbackTimingTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'How was the timing?'**
+  String get pilotFeedbackTimingTitle;
+
+  /// No description provided for @pilotFeedbackTimingEarly.
+  ///
+  /// In en, this message translates to:
+  /// **'Too early'**
+  String get pilotFeedbackTimingEarly;
+
+  /// No description provided for @pilotFeedbackTimingRight.
+  ///
+  /// In en, this message translates to:
+  /// **'About right'**
+  String get pilotFeedbackTimingRight;
+
+  /// No description provided for @pilotFeedbackTimingLate.
+  ///
+  /// In en, this message translates to:
+  /// **'Too late'**
+  String get pilotFeedbackTimingLate;
+
+  /// No description provided for @pilotFeedbackTimingNotUsing.
+  ///
+  /// In en, this message translates to:
+  /// **'Not using this'**
+  String get pilotFeedbackTimingNotUsing;
+
+  /// No description provided for @pilotFeedbackSubmitAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Send feedback'**
+  String get pilotFeedbackSubmitAction;
+
+  /// No description provided for @pilotFeedbackSavedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Thanks. Your pilot feedback was recorded.'**
+  String get pilotFeedbackSavedMessage;
 
   /// No description provided for @privacyTitle.
   ///

@@ -11,6 +11,9 @@ enum PilotLoopAnalyticsEventName {
   widgetImpression('widget_impression'),
   widgetTap('widget_tap'),
   deepLinkOpened('deep_link_opened'),
+  sourceIntakeReviewed('source_intake_reviewed'),
+  sourceIntakeConfirmed('source_intake_confirmed'),
+  pilotFeedbackSubmitted('pilot_feedback_submitted'),
   softAwarenessAction('soft_awareness_action'),
   softAwarenessMissed('soft_awareness_missed');
 
@@ -147,6 +150,55 @@ class PilotLoopAnalyticsEvent {
     );
   }
 
+  factory PilotLoopAnalyticsEvent.sourceIntakeReviewed({
+    required String importSource,
+    required int characterCount,
+    required PilotPresenceFeatureFlags flags,
+  }) {
+    return PilotLoopAnalyticsEvent(
+      name: PilotLoopAnalyticsEventName.sourceIntakeReviewed,
+      properties: {
+        'importSource': importSource,
+        'characterCount': characterCount,
+        ...flagProperties(flags),
+      },
+    );
+  }
+
+  factory PilotLoopAnalyticsEvent.sourceIntakeConfirmed({
+    required String importSource,
+    required int characterCount,
+    required PilotPresenceFeatureFlags flags,
+  }) {
+    return PilotLoopAnalyticsEvent(
+      name: PilotLoopAnalyticsEventName.sourceIntakeConfirmed,
+      properties: {
+        'importSource': importSource,
+        'characterCount': characterCount,
+        ...flagProperties(flags),
+      },
+    );
+  }
+
+  factory PilotLoopAnalyticsEvent.pilotFeedbackSubmitted({
+    required String feedbackSurface,
+    required String usefulness,
+    required String annoyance,
+    required String timing,
+    required PilotPresenceFeatureFlags flags,
+  }) {
+    return PilotLoopAnalyticsEvent(
+      name: PilotLoopAnalyticsEventName.pilotFeedbackSubmitted,
+      properties: {
+        'feedbackSurface': feedbackSurface,
+        'usefulness': usefulness,
+        'annoyance': annoyance,
+        'timing': timing,
+        ...flagProperties(flags),
+      },
+    );
+  }
+
   factory PilotLoopAnalyticsEvent.softAwarenessAction({
     required String action,
     required PilotPresenceFeatureFlags flags,
@@ -204,6 +256,32 @@ class PilotLoopAnalyticsEvent {
       if (entry.key == 'source' &&
           !const {'app', 'widget', 'external'}.contains(value)) {
         throw ArgumentError('Analytics source is not canonical');
+      }
+      if (entry.key == 'importSource' &&
+          !const {'clipboard', 'share_sheet', 'manual_paste'}.contains(value)) {
+        throw ArgumentError('Import source is not canonical');
+      }
+      if (entry.key == 'feedbackSurface' &&
+          !const {
+            'widget',
+            'voice',
+            'notification',
+            'calendar',
+            'import',
+          }.contains(value)) {
+        throw ArgumentError('Feedback surface is not canonical');
+      }
+      if (entry.key == 'usefulness' &&
+          !const {'high', 'some', 'not_yet'}.contains(value)) {
+        throw ArgumentError('Feedback usefulness is not canonical');
+      }
+      if (entry.key == 'annoyance' &&
+          !const {'calm', 'fine', 'too_much'}.contains(value)) {
+        throw ArgumentError('Feedback annoyance is not canonical');
+      }
+      if (entry.key == 'timing' &&
+          !const {'early', 'right', 'late', 'not_using'}.contains(value)) {
+        throw ArgumentError('Feedback timing is not canonical');
       }
       if (entry.key == 'action' &&
           !const {'aware', 'snooze', 'done'}.contains(value)) {

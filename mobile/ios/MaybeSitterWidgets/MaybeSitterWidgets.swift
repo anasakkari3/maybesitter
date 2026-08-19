@@ -4,6 +4,7 @@ import WidgetKit
 private enum PilotPresenceStoreKeys {
   static let appGroupIdentifier = "group.com.maybesitter.maybesitterMobile"
   static let snapshotV1 = "pilot_presence_commitment_snapshot_v1"
+  static let watchEnabledV1 = "pilot_presence_watch_enabled_v1"
 }
 
 private enum MaybeSitterDeepLink {
@@ -309,6 +310,13 @@ private struct MaybeSitterTimelineProvider: TimelineProvider {
   }
 }
 
+private func isWatchEnabled() -> Bool {
+  guard let defaults = UserDefaults(suiteName: PilotPresenceStoreKeys.appGroupIdentifier) else {
+    return false
+  }
+  return defaults.object(forKey: PilotPresenceStoreKeys.watchEnabledV1) as? Bool ?? false
+}
+
 private struct MaybeSitterHomeWidgetView: View {
   @Environment(\.widgetFamily) private var family
   let entry: MaybeSitterWidgetEntry
@@ -471,6 +479,110 @@ private struct MaybeSitterLockScreenWidgetView: View {
 
   private var lockScreenItems: [SafeCommitmentItem] {
     entry.snapshot?.safeItems(for: "lockScreen") ?? []
+  }
+}
+
+private struct MaybeSitterWatchComplicationWidgetView: View {
+  @Environment(\.widgetFamily) private var family
+  let entry: MaybeSitterWidgetEntry
+  let enabled: Bool
+
+  var body: some View {
+    Group {
+      switch family {
+      case .accessoryCircular:
+        circularContent
+      case .accessoryInline:
+        Text(inlineText)
+      default:
+        rectangularContent
+      }
+    }
+    .widgetURL(entry.primaryURL)
+    .privacySensitive()
+  }
+
+  private var watchItems: [SafeCommitmentItem] {
+    entry.snapshot?.safeItems(for: "watch") ?? []
+  }
+
+  @ViewBuilder
+  private var circularContent: some View {
+    ZStack {
+      AccessoryWidgetBackground()
+      if enabled, entry.displayState == .populated, let item = watchItems.first {
+        VStack(spacing: 2) {
+          Image(systemName: item.priority == "must" ? "exclamationmark.circle.fill" : "checkmark.circle")
+            .font(.system(size: 16, weight: .semibold))
+          Text(item.priorityLabel.prefix(1))
+            .font(.caption2.weight(.bold))
+        }
+      } else {
+        VStack(spacing: 2) {
+          Image(systemName: enabled ? "checkmark.seal" : "applewatch.slash")
+            .font(.system(size: 15, weight: .semibold))
+          Text(enabled ? "Next" : "Off")
+            .font(.caption2.weight(.bold))
+        }
+      }
+    }
+  }
+
+  private var rectangularContent: some View {
+    VStack(alignment: .leading, spacing: 3) {
+      Text("MaybeSitter")
+        .font(.caption2.weight(.semibold))
+      Text(rectangularTitle)
+        .font(.headline)
+        .lineLimit(1)
+        .minimumScaleFactor(0.72)
+      Text(rectangularDetail)
+        .font(.caption2)
+        .lineLimit(1)
+    }
+  }
+
+  private var inlineText: String {
+    guard enabled else { return "MaybeSitter watch off" }
+    switch entry.displayState {
+    case .loading:
+      return "MaybeSitter syncing"
+    case .empty:
+      return "MaybeSitter clear for now"
+    case .stale:
+      return "MaybeSitter needs refresh"
+    case .populated:
+      guard let item = watchItems.first else { return "MaybeSitter next" }
+      return "MaybeSitter: \(item.title)"
+    }
+  }
+
+  private var rectangularTitle: String {
+    guard enabled else { return "Watch off" }
+    switch entry.displayState {
+    case .loading:
+      return "Syncing"
+    case .empty:
+      return "Nothing due"
+    case .stale:
+      return "Refresh iPhone"
+    case .populated:
+      return watchItems.first?.title ?? "Open next"
+    }
+  }
+
+  private var rectangularDetail: String {
+    guard enabled else { return "Turn on from iPhone settings" }
+    switch entry.displayState {
+    case .loading:
+      return "Waiting for a fresh snapshot"
+    case .empty:
+      return "No item needs attention"
+    case .stale:
+      return "Open MaybeSitter on iPhone"
+    case .populated:
+      return watchItems.first?.detailText ?? "Ready"
+    }
   }
 }
 
@@ -648,11 +760,25 @@ struct MaybeSitterLockScreenWidget: Widget {
   }
 }
 
+struct MaybeSitterWatchComplicationWidget: Widget {
+  let kind = "MaybeSitterWatchComplicationWidget"
+
+  var body: some WidgetConfiguration {
+    StaticConfiguration(kind: kind, provider: MaybeSitterTimelineProvider()) { entry in
+      MaybeSitterWatchComplicationWidgetView(entry: entry, enabled: isWatchEnabled())
+    }
+    .configurationDisplayName("MaybeSitter Watch")
+    .description("Shows the next item or a clear watch state.")
+    .supportedFamilies([.accessoryCircular, .accessoryInline, .accessoryRectangular])
+  }
+}
+
 @main
 struct MaybeSitterWidgetsBundle: WidgetBundle {
   var body: some Widget {
     MaybeSitterHomeWidget()
     MaybeSitterLockScreenWidget()
+    MaybeSitterWatchComplicationWidget()
   }
 }
 
@@ -811,6 +937,15 @@ struct MaybeSitterWidgetsPreview: PreviewProvider {
         .environment(\.layoutDirection, .rightToLeft)
         .previewContext(WidgetPreviewContext(family: .accessoryInline))
         .previewDisplayName("Lock RTL")
+      MaybeSitterWatchComplicationWidgetView(entry: .previewPopulated, enabled: true)
+        .previewContext(WidgetPreviewContext(family: .accessoryRectangular))
+        .previewDisplayName("Watch Populated")
+      MaybeSitterWatchComplicationWidgetView(entry: .previewPrivate, enabled: true)
+        .previewContext(WidgetPreviewContext(family: .accessoryCircular))
+        .previewDisplayName("Watch Private")
+      MaybeSitterWatchComplicationWidgetView(entry: .previewEmpty, enabled: false)
+        .previewContext(WidgetPreviewContext(family: .accessoryInline))
+        .previewDisplayName("Watch Disabled")
     }
   }
 }

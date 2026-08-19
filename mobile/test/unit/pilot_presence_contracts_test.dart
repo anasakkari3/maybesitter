@@ -6,6 +6,7 @@ import 'package:maybesitter_mobile/models/pilot_presence.dart';
 import 'package:maybesitter_mobile/services/contracts/pilot_presence_store.dart';
 import 'package:maybesitter_mobile/services/mock/in_memory_pilot_loop_analytics_service.dart';
 import 'package:maybesitter_mobile/services/pilot_presence_snapshot_publisher.dart';
+import 'package:maybesitter_mobile/services/pilot_presence_watch_config_store.dart';
 import 'package:maybesitter_mobile/services/shared_preferences_pilot_presence_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -298,6 +299,29 @@ void main() {
       );
       expect(PilotPresenceStoreKeys.appGroupIdentifier, isNotEmpty);
     });
+
+    test('watch config store persists the independent watch flag', () async {
+      SharedPreferences.setMockInitialValues({});
+      final bridge = _FakePilotPresenceSharedStoreBridge();
+      final store = SharedPreferencesPilotPresenceWatchConfigStore(
+        sharedStoreBridge: bridge,
+        sharedPreferences: SharedPreferences.getInstance,
+      );
+
+      await store.setEnabled(true);
+
+      expect(await store.readEnabled(), isTrue);
+      expect(
+        bridge.boolWrites,
+        contains(
+          const _BridgeBoolWrite(
+            suiteName: PilotPresenceStoreKeys.appGroupIdentifier,
+            key: PilotPresenceStoreKeys.watchEnabledV1,
+            value: true,
+          ),
+        ),
+      );
+    });
   });
 
   group('PilotPresenceSnapshotPublisher', () {
@@ -402,7 +426,9 @@ void main() {
 class _FakePilotPresenceSharedStoreBridge
     implements PilotPresenceSharedStoreBridge {
   final List<_BridgeWrite> writes = [];
+  final List<_BridgeBoolWrite> boolWrites = [];
   final Map<String, String> _values = {};
+  final Map<String, bool> _boolValues = {};
 
   @override
   Future<String?> readString({
@@ -410,6 +436,14 @@ class _FakePilotPresenceSharedStoreBridge
     required String key,
   }) async {
     return _values['$suiteName:$key'];
+  }
+
+  @override
+  Future<bool?> readBool({
+    required String suiteName,
+    required String key,
+  }) async {
+    return _boolValues['$suiteName:$key'];
   }
 
   @override
@@ -424,11 +458,32 @@ class _FakePilotPresenceSharedStoreBridge
   }
 
   @override
+  Future<bool> writeBool({
+    required String suiteName,
+    required String key,
+    required bool value,
+  }) async {
+    boolWrites.add(
+      _BridgeBoolWrite(suiteName: suiteName, key: key, value: value),
+    );
+    _boolValues['$suiteName:$key'] = value;
+    return true;
+  }
+
+  @override
   Future<void> removeString({
     required String suiteName,
     required String key,
   }) async {
     _values.remove('$suiteName:$key');
+  }
+
+  @override
+  Future<void> removeBool({
+    required String suiteName,
+    required String key,
+  }) async {
+    _boolValues.remove('$suiteName:$key');
   }
 }
 
@@ -442,6 +497,29 @@ class _BridgeWrite {
     required this.key,
     required this.value,
   });
+}
+
+class _BridgeBoolWrite {
+  final String suiteName;
+  final String key;
+  final bool value;
+
+  const _BridgeBoolWrite({
+    required this.suiteName,
+    required this.key,
+    required this.value,
+  });
+
+  @override
+  bool operator ==(Object other) {
+    return other is _BridgeBoolWrite &&
+        other.suiteName == suiteName &&
+        other.key == key &&
+        other.value == value;
+  }
+
+  @override
+  int get hashCode => Object.hash(suiteName, key, value);
 }
 
 class _FakePilotPresenceStore implements PilotPresenceStore {

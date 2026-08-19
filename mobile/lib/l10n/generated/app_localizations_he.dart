@@ -131,6 +131,22 @@ class AppLocalizationsHe extends AppLocalizations {
       'לכידה בהקלדה עדיין זמינה. אפשר להשתמש במקלדת או לנסות שוב בקול.';
 
   @override
+  String get importClipboardAction => 'ייבוא מהלוח';
+
+  @override
+  String get importClipboardEmptyMessage => 'אין כרגע טקסט בלוח.';
+
+  @override
+  String get importReviewTitle => 'סקירת הטקסט שיובא';
+
+  @override
+  String get importReviewMessage =>
+      'אשרו את הטקסט הזה לפני ש-MaybeSitter ינתח או ישמור משהו.';
+
+  @override
+  String get importUseTextAction => 'להשתמש בטקסט הזה';
+
+  @override
   String get editingDisabledExplanation =>
       'העריכה אינה זמינה זמנית כדי להגן על מועד ההתחייבות.';
 
@@ -303,6 +319,79 @@ class AppLocalizationsHe extends AppLocalizations {
 
   @override
   String get notificationsDisabled => 'מושבת';
+
+  @override
+  String get pilotFeedbackTitle => 'משוב לפיילוט';
+
+  @override
+  String get pilotFeedbackSubtitle =>
+      'ספרו לנו איזה רגע בפיילוט היה משמעותי ואיך הוא הרגיש.';
+
+  @override
+  String get pilotFeedbackEntrySubtitle => 'שימושיות, תזמון והתחושה של התזכורת';
+
+  @override
+  String get pilotFeedbackSurfaceTitle => 'איזה משטח אתם מדרגים?';
+
+  @override
+  String get pilotFeedbackSurfaceWidget => 'ווידג׳ט';
+
+  @override
+  String get pilotFeedbackSurfaceVoice => 'קול';
+
+  @override
+  String get pilotFeedbackSurfaceNotification => 'התראה';
+
+  @override
+  String get pilotFeedbackSurfaceCalendar => 'יומן';
+
+  @override
+  String get pilotFeedbackSurfaceImport => 'ייבוא';
+
+  @override
+  String get pilotFeedbackUsefulnessTitle => 'עד כמה זה הועיל?';
+
+  @override
+  String get pilotFeedbackUsefulnessHigh => 'מאוד מועיל';
+
+  @override
+  String get pilotFeedbackUsefulnessSome => 'במידה מסוימת';
+
+  @override
+  String get pilotFeedbackUsefulnessNotYet => 'עוד לא';
+
+  @override
+  String get pilotFeedbackAnnoyanceTitle => 'איך התזכורת הרגישה?';
+
+  @override
+  String get pilotFeedbackAnnoyanceCalm => 'רגוע';
+
+  @override
+  String get pilotFeedbackAnnoyanceFine => 'בסדר';
+
+  @override
+  String get pilotFeedbackAnnoyanceTooMuch => 'יותר מדי';
+
+  @override
+  String get pilotFeedbackTimingTitle => 'איך היה התזמון?';
+
+  @override
+  String get pilotFeedbackTimingEarly => 'מוקדם מדי';
+
+  @override
+  String get pilotFeedbackTimingRight => 'בערך נכון';
+
+  @override
+  String get pilotFeedbackTimingLate => 'מאוחר מדי';
+
+  @override
+  String get pilotFeedbackTimingNotUsing => 'לא משתמש/ת בזה';
+
+  @override
+  String get pilotFeedbackSubmitAction => 'שליחת משוב';
+
+  @override
+  String get pilotFeedbackSavedMessage => 'תודה. משוב הפיילוט נרשם.';
 
   @override
   String get privacyTitle => 'פרטיות ונתונים';

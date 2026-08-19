@@ -36,6 +36,8 @@ class CaptureComposerScreen extends ConsumerStatefulWidget {
 }
 
 class _CaptureComposerScreenState extends ConsumerState<CaptureComposerScreen> {
+  static const _clipboardImportSource = 'clipboard';
+
   late TextEditingController _textController;
   late final FocusNode _focusNode = FocusNode()..addListener(_onFocusChanged);
   bool _inputFocused = false;
@@ -89,6 +91,75 @@ class _CaptureComposerScreenState extends ConsumerState<CaptureComposerScreen> {
     await ref.read(captureControllerProvider.notifier).stopSpokenPrompt();
   }
 
+  Future<void> _reviewClipboardImport() async {
+    final l10n = context.l10n;
+    final colors = context.colors;
+    final clipboardService = ref.read(clipboardImportServiceProvider);
+    final notifier = ref.read(captureControllerProvider.notifier);
+    final text = await clipboardService.readPlainText();
+
+    if (!mounted) return;
+    if (text == null || text.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l10n.importClipboardEmptyMessage)));
+      return;
+    }
+
+    notifier.noteSourceIntakeReviewed(
+      importSource: _clipboardImportSource,
+      characterCount: text.length,
+    );
+
+    final approved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(l10n.importReviewTitle),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(l10n.importReviewMessage),
+              const SizedBox(height: AppSpacing.md),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(AppSpacing.md),
+                decoration: BoxDecoration(
+                  color: colors.surfaceMuted,
+                  borderRadius: AppRadius.card,
+                  border: Border.all(color: colors.border),
+                ),
+                child: Text(
+                  text,
+                  maxLines: 8,
+                  overflow: TextOverflow.ellipsis,
+                  style: context.text.body.copyWith(height: 1.45),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(l10n.cancelAction),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            icon: const Icon(Icons.content_paste_go_rounded),
+            label: Text(l10n.importUseTextAction),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted || approved != true) return;
+    notifier.applyImportedText(text, importSource: _clipboardImportSource);
+    _focusNode.requestFocus();
+  }
+
   @override
   void dispose() {
     _focusNode
@@ -106,7 +177,9 @@ class _CaptureComposerScreenState extends ConsumerState<CaptureComposerScreen> {
     final captureState = ref.watch(captureControllerProvider);
     final captureNotifier = ref.read(captureControllerProvider.notifier);
     final todayCommitments = ref.watch(todayCommitmentsProvider);
-    final voiceEnabled = ref.watch(pilotPresenceFeatureFlagsProvider).voice;
+    final pilotFlags = ref.watch(pilotPresenceFeatureFlagsProvider);
+    final voiceEnabled = pilotFlags.voice;
+    final importsEnabled = pilotFlags.imports;
 
     ref.listen<CaptureState>(captureControllerProvider, (previous, next) {
       if (previous?.rawInput == next.rawInput ||
@@ -241,27 +314,55 @@ class _CaptureComposerScreenState extends ConsumerState<CaptureComposerScreen> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            // Secondary voice affordance for adding speech
-                            // after the first prompt.
-                            IconButton(
-                              onPressed: isSubmitting || !voiceEnabled
-                                  ? null
-                                  : (isListeningToSpeech
-                                        ? _stopSpokenPrompt
-                                        : _startSpokenPrompt),
-                              icon: Icon(
-                                isListeningToSpeech
-                                    ? Icons.stop_circle_outlined
-                                    : Icons.mic_none,
-                                color: isSubmitting || !voiceEnabled
-                                    ? colors.textMuted.withValues(alpha: 0.5)
-                                    : colors.brandStrong,
-                              ),
-                              tooltip: voiceEnabled
-                                  ? (isListeningToSpeech
-                                        ? l10n.voiceCaptureStopTooltip
-                                        : l10n.voiceCaptureTooltip)
-                                  : '${l10n.voiceCaptureTooltip} (Coming soon)',
+                            Row(
+                              children: [
+                                IconButton(
+                                  onPressed:
+                                      isSubmitting ||
+                                          isListeningToSpeech ||
+                                          !importsEnabled
+                                      ? null
+                                      : _reviewClipboardImport,
+                                  icon: Icon(
+                                    Icons.content_paste_go_rounded,
+                                    color:
+                                        isSubmitting ||
+                                            isListeningToSpeech ||
+                                            !importsEnabled
+                                        ? colors.textMuted.withValues(
+                                            alpha: 0.5,
+                                          )
+                                        : colors.brandStrong,
+                                  ),
+                                  tooltip: importsEnabled
+                                      ? l10n.importClipboardAction
+                                      : '${l10n.importClipboardAction} (Coming soon)',
+                                ),
+                                // Secondary voice affordance for adding speech
+                                // after the first prompt.
+                                IconButton(
+                                  onPressed: isSubmitting || !voiceEnabled
+                                      ? null
+                                      : (isListeningToSpeech
+                                            ? _stopSpokenPrompt
+                                            : _startSpokenPrompt),
+                                  icon: Icon(
+                                    isListeningToSpeech
+                                        ? Icons.stop_circle_outlined
+                                        : Icons.mic_none,
+                                    color: isSubmitting || !voiceEnabled
+                                        ? colors.textMuted.withValues(
+                                            alpha: 0.5,
+                                          )
+                                        : colors.brandStrong,
+                                  ),
+                                  tooltip: voiceEnabled
+                                      ? (isListeningToSpeech
+                                            ? l10n.voiceCaptureStopTooltip
+                                            : l10n.voiceCaptureTooltip)
+                                      : '${l10n.voiceCaptureTooltip} (Coming soon)',
+                                ),
+                              ],
                             ),
                             Text(
                               '${_textController.text.length} chars',

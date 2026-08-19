@@ -133,6 +133,22 @@ class AppLocalizationsAr extends AppLocalizations {
       'يبقى الالتقاط بالكتابة متاحًا. استخدم لوحة المفاتيح أو جرّب الصوت مرة أخرى.';
 
   @override
+  String get importClipboardAction => 'استيراد من الحافظة';
+
+  @override
+  String get importClipboardEmptyMessage => 'لا يوجد نص في الحافظة الآن.';
+
+  @override
+  String get importReviewTitle => 'راجع النص المستورد';
+
+  @override
+  String get importReviewMessage =>
+      'أكّد هذا النص قبل أن يحلّله MaybeSitter أو يحفظ أي شيء.';
+
+  @override
+  String get importUseTextAction => 'استخدم هذا النص';
+
+  @override
   String get editingDisabledExplanation =>
       'التعديل غير متاح مؤقتًا لحماية موعد الالتزام.';
 
@@ -308,6 +324,79 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get notificationsDisabled => 'معطلة';
+
+  @override
+  String get pilotFeedbackTitle => 'ملاحظات التجربة';
+
+  @override
+  String get pilotFeedbackSubtitle =>
+      'أخبرنا أي لحظة في النسخة التجريبية أفادتك وكيف كان إحساسها.';
+
+  @override
+  String get pilotFeedbackEntrySubtitle => 'الفائدة، التوقيت، وإحساس التذكير';
+
+  @override
+  String get pilotFeedbackSurfaceTitle => 'أي واجهة تقيّم الآن؟';
+
+  @override
+  String get pilotFeedbackSurfaceWidget => 'الويدجت';
+
+  @override
+  String get pilotFeedbackSurfaceVoice => 'الصوت';
+
+  @override
+  String get pilotFeedbackSurfaceNotification => 'الإشعار';
+
+  @override
+  String get pilotFeedbackSurfaceCalendar => 'التقويم';
+
+  @override
+  String get pilotFeedbackSurfaceImport => 'الاستيراد';
+
+  @override
+  String get pilotFeedbackUsefulnessTitle => 'ما مدى فائدتها؟';
+
+  @override
+  String get pilotFeedbackUsefulnessHigh => 'مفيدة جدًا';
+
+  @override
+  String get pilotFeedbackUsefulnessSome => 'إلى حد ما';
+
+  @override
+  String get pilotFeedbackUsefulnessNotYet => 'ليس بعد';
+
+  @override
+  String get pilotFeedbackAnnoyanceTitle => 'كيف كان إحساس التذكير؟';
+
+  @override
+  String get pilotFeedbackAnnoyanceCalm => 'هادئ';
+
+  @override
+  String get pilotFeedbackAnnoyanceFine => 'مناسب';
+
+  @override
+  String get pilotFeedbackAnnoyanceTooMuch => 'أكثر من اللازم';
+
+  @override
+  String get pilotFeedbackTimingTitle => 'كيف كان التوقيت؟';
+
+  @override
+  String get pilotFeedbackTimingEarly => 'مبكر جدًا';
+
+  @override
+  String get pilotFeedbackTimingRight => 'مناسب';
+
+  @override
+  String get pilotFeedbackTimingLate => 'متأخر جدًا';
+
+  @override
+  String get pilotFeedbackTimingNotUsing => 'لا أستخدم هذا';
+
+  @override
+  String get pilotFeedbackSubmitAction => 'إرسال الملاحظات';
+
+  @override
+  String get pilotFeedbackSavedMessage => 'شكرًا. تم تسجيل ملاحظاتك التجريبية.';
 
   @override
   String get privacyTitle => 'الخصوصية والبيانات';

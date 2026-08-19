@@ -9,13 +9,23 @@ import 'contracts/pilot_presence_store.dart';
 abstract interface class PilotPresenceSharedStoreBridge {
   Future<String?> readString({required String suiteName, required String key});
 
+  Future<bool?> readBool({required String suiteName, required String key});
+
   Future<bool> writeString({
     required String suiteName,
     required String key,
     required String value,
   });
 
+  Future<bool> writeBool({
+    required String suiteName,
+    required String key,
+    required bool value,
+  });
+
   Future<void> removeString({required String suiteName, required String key});
+
+  Future<void> removeBool({required String suiteName, required String key});
 }
 
 class MethodChannelPilotPresenceSharedStoreBridge
@@ -33,6 +43,23 @@ class MethodChannelPilotPresenceSharedStoreBridge
   }) async {
     try {
       return await _channel.invokeMethod<String>('readString', {
+        'suiteName': suiteName,
+        'key': key,
+      });
+    } on MissingPluginException {
+      return null;
+    } on PlatformException {
+      return null;
+    }
+  }
+
+  @override
+  Future<bool?> readBool({
+    required String suiteName,
+    required String key,
+  }) async {
+    try {
+      return await _channel.invokeMethod<bool>('readBool', {
         'suiteName': suiteName,
         'key': key,
       });
@@ -64,12 +91,49 @@ class MethodChannelPilotPresenceSharedStoreBridge
   }
 
   @override
+  Future<bool> writeBool({
+    required String suiteName,
+    required String key,
+    required bool value,
+  }) async {
+    try {
+      return await _channel.invokeMethod<bool>('writeBool', {
+            'suiteName': suiteName,
+            'key': key,
+            'value': value,
+          }) ??
+          false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  @override
   Future<void> removeString({
     required String suiteName,
     required String key,
   }) async {
     try {
       await _channel.invokeMethod<void>('removeString', {
+        'suiteName': suiteName,
+        'key': key,
+      });
+    } on MissingPluginException {
+      return;
+    } on PlatformException {
+      return;
+    }
+  }
+
+  @override
+  Future<void> removeBool({
+    required String suiteName,
+    required String key,
+  }) async {
+    try {
+      await _channel.invokeMethod<void>('removeBool', {
         'suiteName': suiteName,
         'key': key,
       });

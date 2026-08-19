@@ -16,6 +16,7 @@ import 'api/api_next_step_service.dart';
 import 'api/api_pilot_loop_analytics_service.dart';
 import 'api/api_pilot_trust_service.dart';
 import 'auth/pilot_credential_store.dart';
+import 'clipboard_import_service.dart';
 import 'contracts/commitment_repository.dart';
 import 'contracts/capture_service.dart';
 import 'contracts/feedback_history_service.dart';
@@ -30,6 +31,7 @@ import 'contracts/pilot_trust_service.dart';
 import 'contracts/speech_capture_service.dart';
 import 'contracts/timezone_service.dart';
 import 'pilot_presence_snapshot_publisher.dart';
+import 'pilot_presence_watch_config_store.dart';
 import 'shared_preferences_pilot_presence_store.dart';
 import 'speech_to_text_capture_service.dart';
 import 'timezone_service_impl.dart';
@@ -189,6 +191,11 @@ final pilotPresenceStoreProvider = Provider<PilotPresenceStore>((ref) {
   return SharedPreferencesPilotPresenceStore();
 });
 
+final pilotPresenceWatchConfigStoreProvider =
+    Provider<PilotPresenceWatchConfigStore>((ref) {
+      return const SharedPreferencesPilotPresenceWatchConfigStore();
+    });
+
 final _mockPilotLoopAnalyticsServiceProvider =
     Provider<InMemoryPilotLoopAnalyticsService>((ref) {
       return InMemoryPilotLoopAnalyticsService();
@@ -273,6 +280,10 @@ final connectivityServiceProvider = Provider<ConnectivityService>((ref) {
 
 final speechCaptureServiceProvider = Provider<SpeechCaptureService>((ref) {
   return SpeechToTextCaptureService();
+});
+
+final clipboardImportServiceProvider = Provider<ClipboardImportService>((ref) {
+  return const SystemClipboardImportService();
 });
 
 final commitmentsStreamProvider = StreamProvider<List<Commitment>>((

@@ -13,6 +13,7 @@ import '../features/onboarding/routine_survey_screen.dart';
 import '../features/settings/appearance_screen.dart';
 import '../features/settings/feedback_history_screen.dart';
 import '../features/settings/notifications_permission_screen.dart';
+import '../features/settings/pilot_feedback_screen.dart';
 import '../features/settings/privacy_screen.dart';
 import '../features/settings/settings_screen.dart';
 import '../features/trust/trust_center_screen.dart';
@@ -93,6 +94,11 @@ final appRouter = GoRouter(
               path: 'appearance',
               parentNavigatorKey: _rootNavigatorKey,
               builder: (context, state) => const AppearanceScreen(),
+            ),
+            GoRoute(
+              path: 'pilot-feedback',
+              parentNavigatorKey: _rootNavigatorKey,
+              builder: (context, state) => const PilotFeedbackScreen(),
             ),
             GoRoute(
               path: 'privacy',

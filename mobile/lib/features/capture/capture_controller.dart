@@ -203,6 +203,32 @@ class CaptureNotifier extends StateNotifier<CaptureState> {
     );
   }
 
+  void noteSourceIntakeReviewed({
+    required String importSource,
+    required int characterCount,
+  }) {
+    _recordPilotLoopAnalytics(
+      PilotLoopAnalyticsEvent.sourceIntakeReviewed(
+        importSource: importSource,
+        characterCount: characterCount,
+        flags: ref.read(pilotPresenceFeatureFlagsProvider),
+      ),
+    );
+  }
+
+  void applyImportedText(String text, {required String importSource}) {
+    final normalized = text.trim();
+    if (normalized.isEmpty) return;
+    state = state.copyWith(rawInput: normalized, status: CaptureStatus.editing);
+    _recordPilotLoopAnalytics(
+      PilotLoopAnalyticsEvent.sourceIntakeConfirmed(
+        importSource: importSource,
+        characterCount: normalized.length,
+        flags: ref.read(pilotPresenceFeatureFlagsProvider),
+      ),
+    );
+  }
+
   void _applySpeechTranscript(SpeechCaptureTranscript transcript) {
     if (!mounted) return;
     final mergedInput = _mergeSpeechTranscript(

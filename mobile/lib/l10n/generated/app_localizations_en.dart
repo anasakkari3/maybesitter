@@ -130,6 +130,23 @@ class AppLocalizationsEn extends AppLocalizations {
       'Typed capture still works. Use the keyboard or try voice again.';
 
   @override
+  String get importClipboardAction => 'Import from clipboard';
+
+  @override
+  String get importClipboardEmptyMessage =>
+      'There is no text on the clipboard right now.';
+
+  @override
+  String get importReviewTitle => 'Review imported text';
+
+  @override
+  String get importReviewMessage =>
+      'Confirm this text before MaybeSitter analyzes or saves anything.';
+
+  @override
+  String get importUseTextAction => 'Use this text';
+
+  @override
   String get editingDisabledExplanation =>
       'Editing is temporarily unavailable to protect your scheduled time.';
 
@@ -300,6 +317,81 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get notificationsDisabled => 'Disabled';
+
+  @override
+  String get pilotFeedbackTitle => 'Pilot feedback';
+
+  @override
+  String get pilotFeedbackSubtitle =>
+      'Tell us which pilot moment mattered and how it felt.';
+
+  @override
+  String get pilotFeedbackEntrySubtitle =>
+      'Usefulness, timing, and reminder feel';
+
+  @override
+  String get pilotFeedbackSurfaceTitle => 'Which surface are you rating?';
+
+  @override
+  String get pilotFeedbackSurfaceWidget => 'Widget';
+
+  @override
+  String get pilotFeedbackSurfaceVoice => 'Voice';
+
+  @override
+  String get pilotFeedbackSurfaceNotification => 'Notification';
+
+  @override
+  String get pilotFeedbackSurfaceCalendar => 'Calendar';
+
+  @override
+  String get pilotFeedbackSurfaceImport => 'Import';
+
+  @override
+  String get pilotFeedbackUsefulnessTitle => 'How useful was it?';
+
+  @override
+  String get pilotFeedbackUsefulnessHigh => 'Very useful';
+
+  @override
+  String get pilotFeedbackUsefulnessSome => 'Somewhat';
+
+  @override
+  String get pilotFeedbackUsefulnessNotYet => 'Not yet';
+
+  @override
+  String get pilotFeedbackAnnoyanceTitle => 'How did the reminder feel?';
+
+  @override
+  String get pilotFeedbackAnnoyanceCalm => 'Calm';
+
+  @override
+  String get pilotFeedbackAnnoyanceFine => 'Fine';
+
+  @override
+  String get pilotFeedbackAnnoyanceTooMuch => 'Too much';
+
+  @override
+  String get pilotFeedbackTimingTitle => 'How was the timing?';
+
+  @override
+  String get pilotFeedbackTimingEarly => 'Too early';
+
+  @override
+  String get pilotFeedbackTimingRight => 'About right';
+
+  @override
+  String get pilotFeedbackTimingLate => 'Too late';
+
+  @override
+  String get pilotFeedbackTimingNotUsing => 'Not using this';
+
+  @override
+  String get pilotFeedbackSubmitAction => 'Send feedback';
+
+  @override
+  String get pilotFeedbackSavedMessage =>
+      'Thanks. Your pilot feedback was recorded.';
 
   @override
   String get privacyTitle => 'Privacy & Data';

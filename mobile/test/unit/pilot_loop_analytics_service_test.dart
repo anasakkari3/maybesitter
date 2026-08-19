@@ -52,6 +52,42 @@ void main() {
       expect(jsonEncode(event), isNot(contains('title')));
     });
 
+    test(
+      'serializes pilot import and feedback events without private text',
+      () {
+        const flags = PilotPresenceFeatureFlags(
+          widget: true,
+          voice: true,
+          awareness: true,
+          watch: true,
+          imports: true,
+        );
+
+        final importEvent = PilotLoopAnalyticsEvent.sourceIntakeConfirmed(
+          importSource: 'clipboard',
+          characterCount: 84,
+          flags: flags,
+        ).toJson();
+        final feedbackEvent = PilotLoopAnalyticsEvent.pilotFeedbackSubmitted(
+          feedbackSurface: 'import',
+          usefulness: 'high',
+          annoyance: 'fine',
+          timing: 'right',
+          flags: flags,
+        ).toJson();
+
+        expect(importEvent['eventName'], 'source_intake_confirmed');
+        expect(
+          importEvent['properties'],
+          isNot(containsPair('rawText', anything)),
+        );
+        expect(feedbackEvent['eventName'], 'pilot_feedback_submitted');
+        expect(feedbackEvent['properties']['feedbackSurface'], 'import');
+        expect(feedbackEvent['properties']['timing'], 'right');
+        expect(jsonEncode(importEvent), isNot(contains('clipboard text')));
+      },
+    );
+
     test('rejects private analytics keys before network send', () {
       expect(
         () => const PilotLoopAnalyticsEvent(
