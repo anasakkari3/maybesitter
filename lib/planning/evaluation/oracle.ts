@@ -14,9 +14,25 @@
  * `lib/planning/constraints/validator.ts`, and it does not. Nor does it import
  * anything under `lib/planning/scheduler/`: an oracle that consulted the
  * scheduler would be comparing a thing with itself. What it *does* import is
- * `lib/planning/shared/time.ts`, because instant/wall-clock arithmetic is not a
- * judgement — a second copy of it would be the Sprint 06 gap rather than a
- * Sprint 06 check.
+ * `lib/planning/shared/time.ts` and `lib/planning/constraints/normalize.ts`,
+ * because instant/wall-clock arithmetic and the materialisation built on it are
+ * not judgements — a second copy of either would be the Sprint 06 gap rather
+ * than a Sprint 06 check.
+ *
+ * That distinction is the whole reason `normalize.ts` is imported by path and
+ * never through the `constraints/` barrel. The barrel re-exports the validator,
+ * and `tests/planning/planningBoundaries.test.ts` walks the *import closure*, so
+ * the barrel would put #29's judgement in this module's closure and make
+ * `planningCrossTrack` compare a thing with itself. The guard failing there
+ * would be correct behaviour, not an obstacle.
+ *
+ * This module carried its own `occurrencesOf` through the sprint, because #29
+ * did not exist when #31 started. Deleting it at integration found two real
+ * defects rather than an adaptation problem — a fold under an unrecognised
+ * policy silently resolving to `latest`, and a DST anomaly reported against a
+ * horizon it fell outside — and both were fixed at their source, in
+ * `shared/time.ts` and in `normalize.ts` respectively. What survives here is
+ * the *reading*: which findings those facts earn, which is #31's to decide.
  *
  * Every rule below is derived from the prose attached to its code in
  * `PlanningReasonCode`. Where the derivation required a decision the contract
@@ -73,8 +89,6 @@ import {
   MINUTES_PER_DAY,
   STATIC_INFEASIBILITY_CODES,
   type FeasibilityVerdict,
-  type FixedEvent,
-  type Instant,
   type PlanningConfig,
   type PlanningConstraints,
   type PlanningItem,
@@ -84,21 +98,32 @@ import {
   type WorkingWindow,
 } from '../../../src/contracts/v1/planningContracts';
 import {
-  instantFromResolution,
-  intersectIntervals,
   intervalMinutes,
   intervalsOverlap,
   isPositiveInterval,
-  resolveLocalTime,
-  subtractIntervals,
   toEpochMs,
-  toInstant,
-  wallClockAt,
-  type WallClockParts,
 } from '../shared/time';
+// The one string ordering the sprint sorts by. This module had its own
+// `byCodeUnit`, and #30 had three more copies of the same rule; #31 must order
+// strings exactly as #30 does, or the cross-track comparison of a verdict
+// against a plan becomes a comparison of two sort orders. Importing `shared/`
+// is not a track crossing — it is the same leaf `shared/time` already comes
+// from, and it carries no judgement. The rule is stricter than the code-unit
+// comparison it replaces (it pairs surrogates) and identical on every BMP
+// string, which is every id and code this module sorts.
+import { compareByCodePoint } from '../shared/compare';
+// #29 owns materialising a recurring wall-clock window against real dates.
+// Reached by path, never through `../constraints` — see the header.
+import {
+  freeRunsWithin,
+  mergeIntervals,
+  normalizeWorkingWindows,
+  windowDefect,
+  type MaterializedWindow,
+  type WindowAnomaly,
+} from '../constraints/normalize';
 
 const MS_PER_MINUTE = 60_000;
-const MS_PER_DAY = 86_400_000;
 
 /**
  * How many overlapping blocking-event pairs are named individually.
@@ -109,11 +134,6 @@ const MS_PER_DAY = 86_400_000;
  * as a count.
  */
 export const MAX_FIXED_EVENT_CONFLICT_REASONS = 32;
-
-/** Code-unit ordering, never `localeCompare`: a verdict must not depend on the host locale. */
-function byCodeUnit(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
-}
 
 function codeRank(code: StaticInfeasibilityCode): number {
   return (STATIC_INFEASIBILITY_CODES as readonly string[]).indexOf(code);
@@ -147,309 +167,104 @@ function positionRef(kind: string, index: number): string {
   return `${kind} at position ${index}`;
 }
 
-/**
- * Whether the runtime's tzdata knows this zone.
- *
- * `Intl.DateTimeFormat` *throws* on an unknown zone, and the throw surfaces far
- * from the field that caused it: an unparseable zone used to escape
- * `assessFeasibility` as a `RangeError`, which took `scenarioCorpusIssues` with
- * it — the one function whose whole job is to return a list of problems rather
- * than raise one. A misspelt zone is a defect in the input, and a defect in the
- * input is a finding, not a crash.
- *
- * Memoised because the corpus gate asks the same handful of zones thousands of
- * times and constructing a formatter is not cheap. The cache is a pure
- * function's memo, not state: the same zone always gives the same answer for a
- * given runtime.
- */
-const KNOWN_TIME_ZONES = new Map<string, boolean>();
-
-function isKnownTimeZone(timeZone: unknown): boolean {
-  if (typeof timeZone !== 'string' || timeZone.length === 0) return false;
-  const cached = KNOWN_TIME_ZONES.get(timeZone);
-  if (cached !== undefined) return cached;
-  let known = true;
-  try {
-    new Intl.DateTimeFormat('en-US', { timeZone });
-  } catch {
-    known = false;
-  }
-  KNOWN_TIME_ZONES.set(timeZone, known);
-  return known;
-}
-
-/* ── Window materialisation ──────────────────────────────────────── */
-
-/**
- * A single occurrence of a recurring wall-clock window on one local date.
- *
- * `interval` is null when the occurrence could not be resolved to instants at
- * all — the ambiguous-fold case. `probe` is a best-effort span used only to ask
- * whether the occurrence is anywhere near the horizon, so that a transition
- * anomaly on a date the plan never reaches is not reported as a finding about
- * this plan.
- */
-interface WindowOccurrence {
-  readonly windowIndex: number;
-  readonly localDate: string;
-  readonly interval: TimeInterval | null;
-  /**
-   * The span this occurrence could touch, as raw epoch milliseconds.
-   *
-   * Milliseconds rather than a `TimeInterval` because the probe is legitimately
-   * **empty** in the case that matters most: a window lying entirely inside a
-   * spring-forward gap resolves both of its ends to the same instant, the one
-   * the clock jumps to. `intersectIntervals` returns null for an empty interval
-   * by design — the empty set intersects nothing — so relevance asked through
-   * it silently dropped the anomaly, and the sharpest possible DST input was
-   * the one the DST code never fired on. Relevance is a containment question
-   * here, not an overlap question, and `touchesHorizon` answers the one asked.
-   */
-  readonly probeStartMs: number;
-  readonly probeEndMs: number;
-  readonly anomaly: 'none' | 'nonexistent' | 'ambiguous';
-}
-
-/**
- * Whether an occurrence is near enough to the horizon to be this plan's problem.
- *
- * A degenerate probe is a point, and a point is inside a half-open horizon when
- * it is at or after the start and strictly before the end. A non-empty probe is
- * the usual half-open overlap.
- */
-function touchesHorizon(startMs: number, endMs: number, horizonStartMs: number, horizonEndMs: number): boolean {
-  const low = Math.min(startMs, endMs);
-  const high = Math.max(startMs, endMs);
-  if (low === high) return low >= horizonStartMs && low < horizonEndMs;
-  return low < horizonEndMs && high > horizonStartMs;
-}
-
 function isFoldPolicy(value: unknown): value is 'earliest' | 'latest' {
   return value === 'earliest' || value === 'latest';
 }
 
-/** Civil (zone-free) arithmetic: a UTC midnight marker plus a minute count. */
-function civilPartsAt(dayMarkerMs: number, minuteOfDay: number): WallClockParts {
-  const moment = new Date(dayMarkerMs + minuteOfDay * MS_PER_MINUTE);
-  return {
-    year: moment.getUTCFullYear(),
-    month: moment.getUTCMonth() + 1,
-    day: moment.getUTCDate(),
-    hour: moment.getUTCHours(),
-    minute: moment.getUTCMinutes(),
-  };
-}
-
-function civilDayMarker(parts: WallClockParts): number {
-  return Date.UTC(parts.year, parts.month - 1, parts.day);
-}
-
-function isoDate(dayMarkerMs: number): string {
-  return new Date(dayMarkerMs).toISOString().slice(0, 10);
-}
-
 /**
- * Whether a working window is well-formed enough to materialise.
+ * The wording for a malformed window, or null when it is fine.
  *
- * The contract states `INVALID_INTERVAL` for `endMinute <= startMinute`. The
- * domain check is the same code for a reason the contract implies rather than
- * states: `MinuteOfDay` "ranges 0..1440", and a window claiming minute 2000
- * denotes no interval on any clock face. Silently accepting it would add 560
- * minutes of capacity that no clock ever showed, and the overload judgement
- * built on `availableMinutes` would then read as free time that does not exist.
- * That is a capacity bug, not a tidiness one, which is why it is reported here
- * rather than clamped.
+ * The *predicate* is #29's `windowDefect`; only the sentence is this module's.
+ * Both tracks had arrived at the same rule independently — a sprint sweep of
+ * 65,880 cases found them agreeing exactly — and agreement is not the point: a
+ * well-formedness check is a *verification predicate*, not a judgement, so by
+ * this sprint's own rule two implementations of it are a gap rather than a
+ * check. The judgements this module keeps to itself are which contract code a
+ * defect earns and how the finding reads.
+ *
+ * The domain rules are wider than the contract's letter and both tracks agree
+ * on the reason. `MinuteOfDay` "ranges 0..1440" and `Weekday` is 0..6; a window
+ * claiming minute 2000 or day 7 denotes no interval on any clock face, so its
+ * availability would either appear from nowhere or vanish without a word, and
+ * the overload judgement built on `availableMinutes` inherits the error either
+ * way. An unknown zone is the same defect once more: `Intl` *throws* on one, and
+ * that throw used to escape `assessFeasibility` and take the corpus gate with
+ * it — the one function whose whole job is to return a list of problems.
+ *
+ * No caller-supplied string appears in the result. The zone name is a caller
+ * string like any other, so the sentence describes the defect and never quotes
+ * it; numbers are quoted freely, and they are what makes the finding actionable.
  */
-function windowDefect(window: WorkingWindow): string | null {
-  // The same argument as the minute domain, one field over. A `weekday` of 7 or
-  // of 1.5 matches no day the calendar has, so the window silently never occurs
-  // and its availability disappears instead of being reported as the defect it
-  // is. `Weekday` states the domain; a value outside it denotes no day.
-  if (!Number.isInteger(window.weekday) || window.weekday < 0 || window.weekday > 6) {
-    return `weekday ${String(window.weekday)} is outside 0..6`;
+function windowDefectDetail(window: WorkingWindow): string | null {
+  const defect = windowDefect(window);
+  if (defect === null) return null;
+  switch (defect) {
+    case 'weekday':
+      return `weekday ${String(window.weekday)} is outside 0..6`;
+    case 'start_minute':
+      return `startMinute ${String(window.startMinute)} is not a whole minute in 0..${MINUTES_PER_DAY}`;
+    case 'end_minute':
+      return `endMinute ${String(window.endMinute)} is not a whole minute in 0..${MINUTES_PER_DAY}`;
+    case 'end_not_after_start':
+      return `endMinute ${String(window.endMinute)} does not follow startMinute ${String(window.startMinute)}`;
+    default:
+      return 'the named time zone is not one this runtime knows';
   }
-  // Checked here rather than left to Intl, so an unknown zone is a finding
-  // instead of a RangeError thrown from three frames down.
-  if (!isKnownTimeZone(window.timezone)) {
-    return 'the named time zone is not one this runtime knows';
-  }
-  if (!Number.isInteger(window.startMinute) || !Number.isInteger(window.endMinute)) {
-    return 'window minutes must be integers';
-  }
-  if (window.startMinute < 0 || window.startMinute >= MINUTES_PER_DAY) {
-    return `startMinute ${window.startMinute} is outside 0..${MINUTES_PER_DAY - 1}`;
-  }
-  if (window.endMinute < 0 || window.endMinute > MINUTES_PER_DAY) {
-    return `endMinute ${window.endMinute} is outside 0..${MINUTES_PER_DAY}`;
-  }
-  if (window.endMinute <= window.startMinute) {
-    return `endMinute ${window.endMinute} does not follow startMinute ${window.startMinute}`;
-  }
-  return null;
 }
 
-/**
- * Every occurrence of every well-formed window that could touch the horizon.
- *
- * Days are walked in the window's own zone, one civil day at a time, from a day
- * before the horizon starts to a day after it ends. The one-day margin is not
- * padding: a window in `Asia/Kolkata` starting at 09:00 local begins at 03:30Z,
- * so the local date that supplies the horizon's first minutes is the previous
- * one for zones east of UTC and the next one for zones west of it.
- */
-function occurrencesOf(
-  window: WorkingWindow,
-  windowIndex: number,
-  horizon: TimeInterval,
-  foldPolicy: unknown,
-): readonly WindowOccurrence[] {
-  const zone = window.timezone;
-  const horizonStartMs = toEpochMs(horizon.startsAt);
-  const horizonEndMs = toEpochMs(horizon.endsAt);
-
-  const firstDay = civilDayMarker(wallClockAt(horizonStartMs - MS_PER_DAY, zone));
-  const lastDay = civilDayMarker(wallClockAt(horizonEndMs + MS_PER_DAY, zone));
-
-  const occurrences: WindowOccurrence[] = [];
-  for (let day = firstDay; day <= lastDay; day += MS_PER_DAY) {
-    if (new Date(day).getUTCDay() !== window.weekday) continue;
-
-    const startResolution = resolveLocalTime(civilPartsAt(day, window.startMinute), zone);
-    const endResolution = resolveLocalTime(civilPartsAt(day, window.endMinute), zone);
-
-    // The probe answers "is this occurrence anywhere near the horizon" even when
-    // the occurrence itself is undecidable, so an unresolved fold six months
-    // away is not reported as a finding about this plan.
-    const probeStart = startResolution.kind === 'exact'
-      ? startResolution.instant
-      : startResolution.kind === 'gap' ? startResolution.resumesAt : startResolution.firstInstant;
-    const probeEnd = endResolution.kind === 'exact'
-      ? endResolution.instant
-      : endResolution.kind === 'gap' ? endResolution.resumesAt : endResolution.secondInstant;
-
-    let anomaly: WindowOccurrence['anomaly'] = 'none';
-    let startInstant: Instant | null;
-    if (startResolution.kind === 'exact') {
-      startInstant = startResolution.instant;
-    } else if (startResolution.kind === 'gap') {
-      // The clock skipped the window's start. `LocalTimeResolution` says the
-      // window resumes at the instant the clock jumps to, so the day is shorter
-      // rather than absent — and the fact is reported, because a caller that
-      // budgeted the full window would be over by exactly the transition.
-      anomaly = 'nonexistent';
-      startInstant = startResolution.resumesAt;
-    } else if (isFoldPolicy(foldPolicy)) {
-      startInstant = instantFromResolution(startResolution, foldPolicy);
-    } else {
-      // Two candidates an hour apart and no stated policy. Taking either would
-      // silently choose a side the config declined to choose, so the occurrence
-      // contributes nothing and the ambiguity is reported instead.
-      anomaly = 'ambiguous';
-      startInstant = null;
-    }
-
-    let endInstant: Instant | null;
-    if (endResolution.kind === 'exact') {
-      endInstant = endResolution.instant;
-    } else if (endResolution.kind === 'gap') {
-      // No code here: the contract scopes both DST codes to a window that
-      // *starts* in an anomaly. An end swallowed by a gap shortens the window
-      // and is not a separate contradiction.
-      endInstant = endResolution.resumesAt;
-    } else if (isFoldPolicy(foldPolicy)) {
-      endInstant = instantFromResolution(endResolution, foldPolicy);
-    } else {
-      endInstant = null;
-    }
-
-    const interval = startInstant !== null && endInstant !== null
-      && toEpochMs(endInstant) > toEpochMs(startInstant)
-      ? { startsAt: startInstant, endsAt: endInstant }
-      : null;
-
-    occurrences.push({
-      windowIndex,
-      localDate: isoDate(day),
-      interval,
-      probeStartMs: toEpochMs(probeStart),
-      probeEndMs: toEpochMs(probeEnd),
-      anomaly,
-    });
-  }
-  return occurrences;
-}
-
-/** Merge overlapping and abutting intervals into a sorted, disjoint cover. */
-function unionIntervals(intervals: readonly TimeInterval[]): readonly TimeInterval[] {
-  const ordered = intervals
-    .filter(isPositiveInterval)
-    .slice()
-    .sort((left, right) => toEpochMs(left.startsAt) - toEpochMs(right.startsAt));
-
-  const merged: { startsAt: number; endsAt: number }[] = [];
-  for (const interval of ordered) {
-    const startsAt = toEpochMs(interval.startsAt);
-    const endsAt = toEpochMs(interval.endsAt);
-    const open = merged.length > 0 ? merged[merged.length - 1] : null;
-    // Abutting runs are joined: 09:00-12:00 and 12:00-17:00 are eight hours of
-    // capacity, and leaving them as two rows would let a caller that measured
-    // "the longest free run" report three hours when there are eight.
-    if (open === null || startsAt > open.endsAt) merged.push({ startsAt, endsAt });
-    else if (endsAt > open.endsAt) open.endsAt = endsAt;
-  }
-  return merged.map((span) => ({ startsAt: toInstant(span.startsAt), endsAt: toInstant(span.endsAt) }));
-}
-
-/**
- * The working time inside the horizon, before anything is subtracted.
- *
- * Unioned rather than summed. Two windows a user wrote as 09:00-17:00 and
- * 12:00-20:00 are eleven hours of availability, not sixteen, and an
- * `availableMinutes` that double-counted them would make an overloaded plan
- * read as comfortable.
- */
 interface MaterialisedWindows {
-  /** Every occurrence of every well-formed window, anomalies included. */
-  readonly occurrences: readonly WindowOccurrence[];
-  /** Their union, clipped to the horizon. */
+  /** Every occurrence #29 materialised, already clipped to the horizon. */
+  readonly windows: readonly MaterializedWindow[];
+  /** Every anomalous local boundary it met on the way. */
+  readonly anomalies: readonly WindowAnomaly[];
+  /** The occurrences unioned: how much distinct working time exists. */
   readonly working: readonly TimeInterval[];
 }
 
 /**
- * Walk the windows across the horizon **once**, and return both things a caller
- * of this module ever wants from that walk.
+ * Materialise the working windows across the horizon **once**, and return
+ * everything this module ever wants from that walk.
  *
- * The single pass is the whole reason this function exists. `assessFeasibility`
- * used to make three: one to find transition anomalies, one for the working
- * union, and one more inside the free-time subtraction, all over identical
- * inputs. That is a constant factor of three on the hottest path in the package,
- * and the corpus gate runs it once per scenario — measured at 265 ms for a
- * 52-week horizon against 87 ms for a single materialisation.
+ * Two decisions meet in this function and both are load-bearing.
  *
- * Returning the occurrences alongside the union rather than recomputing them is
- * also the only way the two stay consistent: an anomaly reported from one walk
- * and capacity computed from another are two answers about the same window, and
- * nothing would have made them agree.
+ * **The walk is #29's.** `normalizeWorkingWindows` maps a recurring wall-clock
+ * rule onto real dates, and that is arithmetic rather than judgement — the
+ * sprint's rule is that two implementations of a judgement check each other
+ * while two copies of arithmetic are a gap waiting for whichever caller falls
+ * into it. This module carried its own copy for two rounds because
+ * `lib/planning/constraints/` did not exist on the branch it was written on;
+ * the copy is gone now and must not come back. What stays this module's own is
+ * the judgement built on top: which contract code each finding earns.
+ *
+ * **The single pass is this module's.** `assessFeasibility` used to walk the
+ * windows three times over identical inputs — once for transition anomalies,
+ * once for the working union, and again inside the free-time subtraction — a
+ * constant factor of three on the hottest path in the package, which the corpus
+ * gate runs once per scenario. Returning the occurrences *and* their anomalies
+ * *and* their union from one call is also the only thing that keeps them
+ * consistent: an anomaly found in one walk and capacity computed in another are
+ * two answers about the same window, and nothing would force them to agree.
+ *
+ * The horizon needs no guard here. `normalizeWorkingWindows` returns nothing for
+ * a horizon that is not a positive interval, because a degenerate horizon has no
+ * dates in it; saying so a second time would be a second answer to "is this
+ * input usable" depending on which caller asked first.
  */
 function materialiseWindows(
   constraints: PlanningConstraints,
   config: PlanningConfig,
 ): MaterialisedWindows {
-  const horizon: TimeInterval = { startsAt: constraints.horizon.startsAt, endsAt: constraints.horizon.endsAt };
-  if (!isPositiveInterval(horizon)) return { occurrences: [], working: [] };
-
-  const occurrences: WindowOccurrence[] = [];
-  const pieces: TimeInterval[] = [];
-  constraints.workingWindows.forEach((window, index) => {
-    if (windowDefect(window) !== null) return;
-    for (const occurrence of occurrencesOf(window, index, horizon, config.foldPolicy)) {
-      occurrences.push(occurrence);
-      if (occurrence.interval === null) continue;
-      const clipped = intersectIntervals(occurrence.interval, horizon);
-      if (clipped !== null) pieces.push(clipped);
-    }
-  });
-  return { occurrences, working: unionIntervals(pieces) };
+  const normalized = normalizeWorkingWindows(constraints.workingWindows, constraints.horizon, config);
+  return {
+    windows: normalized.windows,
+    anomalies: normalized.anomalies,
+    // Unioned, not concatenated. Two windows a user wrote as 09:00-17:00 and
+    // 12:00-20:00 are eleven hours of availability, not sixteen, and a count
+    // that double-counted them would make an overloaded plan read as
+    // comfortable. `mergeIntervals` is #29's, and it replaced one more copy of
+    // one more piece of arithmetic that used to live here as `unionIntervals`.
+    working: mergeIntervals(normalized.windows.map((occurrence) => occurrence.interval)),
+  };
 }
 
 export function workingIntervalsInHorizon(
@@ -459,36 +274,23 @@ export function workingIntervalsInHorizon(
   return materialiseWindows(constraints, config).working;
 }
 
-/** The blocking fixed events, as a disjoint cover. Non-blocking events are not time taken. */
-function blockingCover(events: readonly FixedEvent[]): readonly TimeInterval[] {
-  return unionIntervals(events.filter((event) => event.blocking).map((event) => event.interval));
-}
-
-/** What remains of an already-materialised working set once blocking events are removed. */
-function subtractBlocking(
-  working: readonly TimeInterval[],
-  events: readonly FixedEvent[],
-): readonly TimeInterval[] {
-  const cover = blockingCover(events);
-  const free: TimeInterval[] = [];
-  for (const span of working) {
-    for (const remaining of subtractIntervals(span, cover)) free.push(remaining);
-  }
-  return free;
-}
-
 /**
  * Working time inside the horizon that no blocking fixed event has taken.
  *
  * This is the capacity side of an overload judgement and nothing more. It says
  * how much legal, unclaimed time exists; it does not say whether any particular
  * item fits in a contiguous run of it, which is placement and belongs to #30.
+ *
+ * `freeRunsWithin` is #29's, and it subtracts only `blocking` events — the same
+ * rule the local `blockingCover` applied, for the same reason: a non-blocking
+ * event is one the user said work may happen inside, and removing it would
+ * shrink the day on the strength of a flag that says the opposite.
  */
 export function freeWorkingIntervals(
   constraints: PlanningConstraints,
   config: PlanningConfig,
 ): readonly TimeInterval[] {
-  return subtractBlocking(workingIntervalsInHorizon(constraints, config), constraints.fixedEvents);
+  return freeRunsWithin(materialiseWindows(constraints, config).windows, constraints.fixedEvents);
 }
 
 /* ── Dependency analysis ─────────────────────────────────────────── */
@@ -575,7 +377,7 @@ export function assessFeasibility(
   }
 
   constraints.workingWindows.forEach((window, index) => {
-    const defect = windowDefect(window);
+    const defect = windowDefectDetail(window);
     if (defect === null) return;
     reasons.push(reason('INVALID_INTERVAL', null, `${positionRef('working window', index)}: ${defect}`));
   });
@@ -592,40 +394,52 @@ export function assessFeasibility(
     ));
   });
 
-  /* The one materialisation. Everything below reads from it. */
+  /* The one materialisation. Every window-derived finding below reads from it. */
 
   const materialised = materialiseWindows(constraints, config);
 
   /* Constraint-level: DST anomalies in window starts. */
 
   const seenAnomalies = new Set<string>();
-  for (const occurrence of materialised.occurrences) {
-    if (occurrence.anomaly === 'none') continue;
-    if (!touchesHorizon(occurrence.probeStartMs, occurrence.probeEndMs, horizonStartMs, horizonEndMs)) continue;
-    const key = `${occurrence.anomaly}:${occurrence.windowIndex}:${occurrence.localDate}`;
+  for (const anomaly of materialised.anomalies) {
+    // Only `start` boundaries. #29 records an anomalous *end* too, because an
+    // end landing in a fold silently changes the length of the day and a report
+    // of why capacity moved needs somewhere to look. But the contract's two DST
+    // codes are defined over a window that *starts* in an anomaly, and
+    // inventing a third code here would put a vocabulary in the plan that
+    // neither #29 nor #30 has seen.
+    if (anomaly.boundary !== 'start') continue;
+    // A fold is a *finding* only when the config declined to resolve it. With a
+    // policy this runtime knows, the contract says the ambiguity is "resolved,
+    // not reported", and #29 has already resolved it.
+    if (anomaly.kind === 'fold' && isFoldPolicy(config.foldPolicy)) continue;
+    // #29 emits one record per anomalous boundary per occurrence, and two
+    // occurrences of one window can share a local date at the edges of the scan.
+    const key = `${anomaly.kind}:${anomaly.windowIndex}:${anomaly.localDate}`;
     if (seenAnomalies.has(key)) continue;
     seenAnomalies.add(key);
     reasons.push(
-      occurrence.anomaly === 'nonexistent'
+      anomaly.kind === 'gap'
         ? reason(
             'NONEXISTENT_LOCAL_TIME',
             null,
-            `${positionRef('working window', occurrence.windowIndex)} starts in a transition gap `
-              + `on ${occurrence.localDate}`,
+            `${positionRef('working window', anomaly.windowIndex)} starts in a transition gap `
+              + `on ${anomaly.localDate}`,
           )
         : reason(
             'AMBIGUOUS_LOCAL_TIME',
             null,
-            `${positionRef('working window', occurrence.windowIndex)} starts in a transition fold `
-              + `on ${occurrence.localDate} and the config states no fold policy`,
+            `${positionRef('working window', anomaly.windowIndex)} starts in a transition fold `
+              + `on ${anomaly.localDate} and the config states no fold policy`,
           ),
     );
   }
 
+
   /* Constraint-level: is there anywhere legal at all? */
 
   const working = materialised.working;
-  const availableIntervals = subtractBlocking(working, constraints.fixedEvents);
+  const availableIntervals = freeRunsWithin(materialised.windows, constraints.fixedEvents);
   const availableMinutes = availableIntervals.reduce((total, span) => total + intervalMinutes(span), 0);
 
   // An earlier draft suppressed this whenever some window had already been
@@ -909,10 +723,10 @@ export function assessFeasibility(
     if (leftItem !== rightItem) {
       if (left.itemId === null) return -1;
       if (right.itemId === null) return 1;
-      return byCodeUnit(leftItem, rightItem);
+      return compareByCodePoint(leftItem, rightItem);
     }
     const rank = codeRank(left.code as StaticInfeasibilityCode) - codeRank(right.code as StaticInfeasibilityCode);
-    return rank !== 0 ? rank : byCodeUnit(left.detail, right.detail);
+    return rank !== 0 ? rank : compareByCodePoint(left.detail, right.detail);
   });
 
   return Object.freeze({

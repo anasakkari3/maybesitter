@@ -47,21 +47,31 @@ import would make that comparison compare a thing with itself, which is the trap
 from Sprint 02 — "91 tests passed while they disagreed". `lib/planning/shared/time.ts` *is* imported,
 because arithmetic is not a judgement and a second copy of it would be a gap rather than a check.
 
-`lib/planning/constraints/normalize.ts` was permitted to this track by the design, and does not exist
-on the sprint base this branch was cut from. Window materialisation is therefore implemented here
-(`materialiseWindows` / `occurrencesOf` in `oracle.ts`), together with the window well-formedness
-predicate `windowDefect` and the zone check `isKnownTimeZone`. **This is the one place the sprint's
-"no second copy of arithmetic" rule is not satisfied.**
+`lib/planning/constraints/normalize.ts` was permitted to this track by the design and did not exist on
+the sprint base this branch was cut from, so window materialisation lived here for two rounds
+(`occurrencesOf`), together with a copy of the well-formedness predicate and the zone check. **All
+three copies are now gone.** `materialiseWindows` calls #29's `normalizeWorkingWindows`, the union is
+its `mergeIntervals`, the free runs are its `freeRunsWithin`, and the predicate is its `windowDefect`.
 
-A sprint-level sweep of 65,880 cases found the two copies agreeing exactly, and the integration
-branch confirmed the capacity numbers match across the shipped corpus and 17 adversarial inputs. That
-is reassurance, not a check: a *verification predicate* is not a judgement, so by this sprint's own
-rule two copies of it are a gap. The reconciliation is to import #29's predicate and delete the copy
-here, keeping this file's `detail` strings, which are its own reading. It could not be done on this
-branch because `lib/planning/constraints/` is not present in it at all.
+A sprint sweep of 65,880 cases had found the copies agreeing exactly. That was reassurance, not a
+check: a well-formedness rule is a *verification predicate*, not a judgement, so by this sprint's own
+rule two implementations of it were a gap. Deleting the copy also found two real defects that
+agreement had hidden — a fold under an unrecognised policy silently resolving to `latest`, and a DST
+anomaly reported against a horizon it fell outside — both fixed at their source.
 
-`isFoldPolicy` is **not** part of that reconciliation and stays here. It decides whether the config
-has chosen a side, which is a judgement about the config, not a check on a window's shape.
+What stays here is the **reading**, not the arithmetic: which contract code each fact earns, and how
+the finding reads. `windowDefectDetail` maps #29's typed defect to this module's wording;
+`isFoldPolicy` stays because it decides whether the *config* chose a side, which is a judgement about
+the config rather than a check on a window's shape.
+
+The single-pass structure also stays: `materialiseWindows` is called **once** per
+`assessFeasibility`, returning the occurrences, their anomalies and their union together, and a test
+counts property reads to keep it that way. Merging the two changes meant keeping this structure and
+swapping its *implementation* — the walk is #29's, the pass count is this module's.
+
+`normalize.ts` is reached by path, never through the `constraints/` barrel, which re-exports the
+validator; `tests/planning/planningBoundaries.test.ts` walks the import closure and the barrel would
+make the cross-track comparison vacuous.
 
 ### Decisions the contract does not spell out
 

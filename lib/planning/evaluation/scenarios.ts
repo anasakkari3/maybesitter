@@ -79,6 +79,9 @@ import {
 } from '../../../src/contracts/v1/planningContracts';
 import { canonicalJson, sha256Hex } from '../../evaluation/registry/fingerprint';
 import { toEpochMs, zoneOffsetMs } from '../shared/time';
+// Same rule as #30's plans and #31's verdicts sort by; see `shared/compare`.
+// This module's local copy was a fourth spelling of one ordering.
+import { compareByCodePoint } from '../shared/compare';
 import { assessFeasibility } from './oracle';
 
 export const PLANNING_SCENARIO_CORPUS_VERSION = '1.0.0' as const;
@@ -162,10 +165,6 @@ const DEFAULT_CONFIG: PlanningConfig = Object.freeze({
   foldPolicy: 'earliest',
   resourceDependenciesOrder: false,
 });
-
-function byCodeUnit(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
-}
 
 /**
  * Freeze a scenario and everything inside it.
@@ -1014,7 +1013,7 @@ export function scenarioCorpusIssues(scenarios: readonly PlanningScenario[]): re
     if (new Set(claimed).size !== claimed.length) {
       issues.push(`${ref}: an item is claimed both scheduled and unscheduled`);
     }
-    if (claimed.slice().sort(byCodeUnit).join('|') !== itemIds.slice().sort(byCodeUnit).join('|')) {
+    if (claimed.slice().sort(compareByCodePoint).join('|') !== itemIds.slice().sort(compareByCodePoint).join('|')) {
       // The same promise `Plan` makes. An expectation that skips an item asserts
       // nothing about it while looking complete.
       issues.push(`${ref}: the expectation does not account for every item exactly once`);
@@ -1032,8 +1031,8 @@ export function scenarioCorpusIssues(scenarios: readonly PlanningScenario[]): re
       .filter((reason) => reason.itemId === null)
       .map((reason) => reason.code)
       .slice()
-      .sort(byCodeUnit);
-    const expectedConstraint = scenario.expectation.expectedConstraintCodes.slice().sort(byCodeUnit);
+      .sort(compareByCodePoint);
+    const expectedConstraint = scenario.expectation.expectedConstraintCodes.slice().sort(compareByCodePoint);
     if (emittedConstraint.join('|') !== expectedConstraint.join('|')) {
       issues.push(
         `${ref}: constraint-level expectation [${expectedConstraint.join(', ')}] `
@@ -1157,7 +1156,7 @@ export function assemblePlanningCorpus(scenarios: readonly PlanningScenario[]): 
   // two would land in a list its own `lockState` disagrees with.
   const ordered = scenarios
     .slice()
-    .sort((left, right) => byCodeUnit(left.scenarioId, right.scenarioId))
+    .sort((left, right) => compareByCodePoint(left.scenarioId, right.scenarioId))
     .map(deepFreeze);
   const coverageByKind = {} as Record<PlanningScenarioKind, number>;
   for (const kind of PLANNING_SCENARIO_KINDS) coverageByKind[kind] = 0;

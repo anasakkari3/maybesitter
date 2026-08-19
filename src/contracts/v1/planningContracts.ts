@@ -243,9 +243,22 @@ export interface PlanningItem {
   readonly itemId: string;
   readonly title: string;
   readonly effort: Effort;
-  /** Item may not start before this instant. Null means "no lower bound". */
+  /**
+   * The **effort** may not start before this instant. Null means no lower bound.
+   *
+   * The effort, not the reserved span: a before-buffer may legally sit earlier
+   * than this. Stated because one track checked feasibility against the reserved
+   * span while placing against the effort, and so refused items it could
+   * demonstrably have placed.
+   */
   readonly earliestStartAt: Instant | null;
-  /** Item must be *finished* by this instant, exclusive. Null means no deadline. */
+  /**
+   * The **effort** must be finished by this instant, exclusive. Null means no
+   * deadline.
+   *
+   * An after-buffer may extend past it. Recovery time is not finishing, and a
+   * deadline is a statement about when the work is done.
+   */
   readonly deadlineAt: Instant | null;
   readonly priority: number;
   readonly dependsOn: readonly PlanningDependency[];
@@ -314,32 +327,136 @@ export interface PlanningConfig {
  * different messages to a user and different bugs to an engineer, and a single
  * flat list would let a scheduler report the second when the first was true.
  *
+ * "Constraints alone" means *without attempting placement*. `PlanningConfig` is
+ * an input to the static judgement, not an exception to it — both #29's
+ * validator and #31's oracle take one. What the partition forbids is a static
+ * verdict that changes with a config flag *for a code whose meaning does not
+ * mention ordering*: see the ruling under `SELF_DEPENDENCY` below, which the
+ * three tracks derived three different ways before it was written down here.
+ *
+ * **The suppression rule.** When one finding would be derived from data another
+ * finding has already condemned, only the first is reported. A judgement is
+ * suppressed *if and only if it borrows a bound from something already reported
+ * malformed* — no wider. An inverted horizon suppresses findings that read their
+ * window from the horizon; it does not suppress a finding about an item whose
+ * own `earliestStartAt` and `deadlineAt` contradict each other, because that
+ * item borrows nothing. Correspondingly, two independent defects earn two codes:
+ * every working window being malformed yields both `INVALID_INTERVAL` and
+ * `NO_WORKING_WINDOW`, which are two true facts rather than one fact told twice.
+ *
+ * "Borrows a bound" is decided **per item, per bound**, not per request. An item
+ * that states *both* of its own bounds borrows nothing from the horizon, so
+ * `DEADLINE_BEYOND_HORIZON` on it does not suppress `EFFORT_EXCEEDS_ITEM_WINDOW`
+ * — the effort still does not fit between two instants the caller supplied, and
+ * that is true whatever the horizon says. Suppressing it there was one of the
+ * two readers over-applying this rule, and the fuzz that found it needed no DST
+ * and no unusual zone: an ordinary item with a stale deadline.
+ *
+ * **Findings carry an `itemId`, and the two readers must agree on it.** Agreeing
+ * on the *set* of code names present somewhere in a request is a much weaker
+ * claim than agreeing on which item earns which code, and the weaker claim hides
+ * real defects: a cycle detector that missed a member reached through a cross
+ * edge left `CYCLIC_DEPENDENCY` in the set — contributed by the two members it
+ * did find — while telling the caller the third item was fine. Cross-track
+ * comparison is on `(itemId, code)` pairs.
+ *
+ * **Multiplicity is not contracted.** Whether three mutually-overlapping fixed
+ * events yield two reasons or three, and whether two dangling edges on one item
+ * yield one reason carrying a count or two reasons, is left to each
+ * implementation. Only the *set* of codes is compared across tracks. What is
+ * contracted is that the count stays bounded: an O(n²) enumeration of pairs is a
+ * defect, because reasons travel with plans into audit records and Sprint 06
+ * shipped a draft that produced 1.12 MB of `detail` before it was capped.
+ *
  * Static codes:
  * - `INVALID_INTERVAL`        — an interval with `endsAt <= startsAt`, or a
  *                               working window with `endMinute <= startMinute`.
  *                               Covers the degenerate zero-length case; see
  *                               `TimeInterval`.
+ *                               Also carries exactly four window defects that
+ *                               are not interval defects and have no better
+ *                               code in this frozen list:
+ *                                 (a) `weekday` outside 0..6 or non-integral;
+ *                                 (b) `startMinute` outside 0..1440, NaN, or
+ *                                     non-integral;
+ *                                 (c) `endMinute` likewise;
+ *                                 (d) a `timezone` this runtime's IANA data
+ *                                     does not know.
+ *                               (b) and (c) are not implied by the rule above:
+ *                               `NaN <= 540` and `1441 <= 540` are both false,
+ *                               so `endMinute <= startMinute` never fires on
+ *                               them, and an unguarded NaN reaches
+ *                               `resolveLocalTime` and yields corrupt instants.
+ *                               Licensed here rather than decided per track,
+ *                               because a malformed window that is *silently
+ *                               dropped* reports `NO_WORKING_WINDOW` instead —
+ *                               telling the user they have no availability when
+ *                               what they have is a typo. An unknown zone must
+ *                               likewise be reported rather than thrown on:
+ *                               a validator that raises cannot return the
+ *                               finding list it exists to return.
  * - `EFFORT_UNKNOWN`          — the item's duration is unknown, so no slot can
  *                               be sized for it. Reported, never guessed.
- * - `EFFORT_NOT_POSITIVE`     — a `known` effort of zero or less.
+ * - `EFFORT_NOT_POSITIVE`     — a `known` effort of zero or less, **or a buffer
+ *                               that is negative or not finite**. The buffers
+ *                               are covered here rather than by a code of their
+ *                               own because the frozen list has none, and the
+ *                               alternative shipped: one track reported it, one
+ *                               clamped it to zero with `Math.max`, and the
+ *                               scheduler placed the item — three readings of
+ *                               one input. Clamping is the dangerous one, since
+ *                               `NaN > available` is `false` and a
+ *                               silently-repaired buffer turns a contradiction
+ *                               into a *feasible* verdict.
  * - `DEADLINE_BEFORE_EARLIEST_START` — the item's own window is empty before
  *                               any other constraint is consulted.
- * - `DEADLINE_BEYOND_HORIZON` — the deadline sits outside the planning horizon.
- *                               Distinct from having no time: the plan simply
- *                               does not reach that far, and extending the
- *                               horizon would change the answer.
+ * - `DEADLINE_BEYOND_HORIZON` — the deadline falls at or before
+ *                               `horizon.startsAt`, so the item cannot be
+ *                               finished anywhere this plan reaches. Distinct
+ *                               from having no time: extending the horizon
+ *                               backwards would change the answer.
+ *                               **One-sided, deliberately.** An earlier reading
+ *                               of this line as "outside the horizon in either
+ *                               direction" made a deadline *after*
+ *                               `horizon.endsAt` unschedulable, which refuses
+ *                               the least constrained item in a request — with
+ *                               a two-week horizon it refuses most long-lead
+ *                               work. When the deadline sits beyond the
+ *                               horizon's end the horizon simply binds first,
+ *                               and the item is placed normally.
  * - `EFFORT_EXCEEDS_ITEM_WINDOW` — effort plus buffers does not fit between
  *                               `earliestStartAt` and `deadlineAt` even if
  *                               every minute between them were free.
  * - `NO_WORKING_WINDOW`       — no working window exists at all, or none
  *                               intersects the horizon. There is nowhere legal
  *                               to put anything.
- * - `SELF_DEPENDENCY`         — an item depending on itself. Takes precedence
- *                               over `CYCLIC_DEPENDENCY`, following the rule
+ * - `SELF_DEPENDENCY`         — an item depending on itself, **whatever the
+ *                               edge's `kind`**. Takes precedence over
+ *                               `CYCLIC_DEPENDENCY`, following the rule
  *                               `decompositionContracts` set: one defect earns
  *                               one code.
- * - `CYCLIC_DEPENDENCY`       — the dependency graph has a cycle of length > 1.
- * - `UNKNOWN_DEPENDENCY`      — an edge pointing at no item in this request.
+ * - `CYCLIC_DEPENDENCY`       — a cycle of length > 1 **in the ordering graph**:
+ *                               `temporal` edges, plus `resource` edges when
+ *                               `resourceDependenciesOrder` is set. A loop of
+ *                               edges that force no order is not a
+ *                               contradiction, and refusing it would leave a
+ *                               placeable request unplanned while sending the
+ *                               user to break a link that never moved anything.
+ * - `UNKNOWN_DEPENDENCY`      — an edge pointing at no item in this request,
+ *                               **whatever the edge's `kind`**.
+ *
+ *   The `kind`-independence of the two malformed-edge codes, against the
+ *   `kind`-sensitivity of the cycle code, is a ruling rather than a nuance. The
+ *   three tracks each derived it separately and one derived it differently, and
+ *   the argument that settles it needs no reading of the prose above: filtering
+ *   these two by kind makes the *same* `PlanningConstraints` produce a
+ *   different **static** verdict depending on `resourceDependenciesOrder` —
+ *   an edge naming a nonexistent item was reported under one flag and silently
+ *   accepted under the other. A static code that moves with a config flag
+ *   cannot be agreed on by a validator and an oracle that derive it from the
+ *   constraints, so no change on their side could have reconciled it. A
+ *   malformed edge is malformed whatever it would have meant; a cycle is a
+ *   statement about order and is read against the edges that carry order.
  * - `FIXED_EVENT_CONFLICT`    — two blocking fixed events overlap each other.
  *                               A contradiction in the input, not a scheduling
  *                               outcome: the user is claimed to be in two
@@ -427,6 +544,20 @@ export type AttemptInfeasibilityCode = (typeof ATTEMPT_INFEASIBILITY_CODES)[numb
  *
  * `detail` is for humans and never carries raw user text, matching the audit
  * policy Sprint 06 set for `DecompositionViolation.detail`.
+ *
+ * **"Raw user text" includes identifiers.** `windowId`, `eventId`, `itemId`,
+ * `scopeId` and `sourceCommitmentId` are all chosen by whoever built the
+ * request, and an id is a free string that people fill with content: one track
+ * shipped details reading `working window call-dr.cohen-about-the-biopsy` and
+ * `item tell-my-manager-i-am-quitting` while passing a test that checked only
+ * that `title` was absent. A character-class filter does not help, because the
+ * problem is not the characters.
+ *
+ * So a `detail` names windows and events **by position**, carries numbers
+ * derived from the input (minutes, counts, local dates), and carries nothing
+ * else. `itemId` is exempt only because the contract gives it its own field
+ * above; it is not repeated in the prose. Reasons travel with plans into audit
+ * records, which is the whole reason `rawInputInAudit` is false.
  */
 export interface PlanningReason {
   readonly code: PlanningReasonCode;
@@ -636,6 +767,33 @@ export interface PlanQualityMetrics {
 }
 
 /* ── Policy ──────────────────────────────────────────────────────── */
+
+/**
+ * What a planning entry point may do with input it cannot use.
+ *
+ * **If the taxonomy names it, report it. Throwing is reserved for input the
+ * taxonomy cannot describe.** `slotMinutes <= 0` and a duplicated `itemId` have
+ * no code and may throw; a NaN `startMinute`, a non-finite buffer and a
+ * zero-length interval all have codes and must come back as findings.
+ *
+ * This is a rule because it was broken three times in one sprint, each time by
+ * a helper raising several frames below the entry point: an unknown IANA zone
+ * reached `Intl` and threw a `RangeError` out of a feasibility check; a fold the
+ * config declined to resolve reached a cast and threw a `TypeError` out of a
+ * normalizer; and a canonical digest computed *before* the static pass threw on
+ * a NaN the static pass existed to report. Each was invisible to a typed caller
+ * and immediate for the untyped boundary the module was written to guard, which
+ * is why none of them failed a test.
+ *
+ * The ordering consequence is concrete: a module that hashes or serialises its
+ * input must do so *after* deciding what is wrong with it, or it will raise on
+ * exactly the inputs its report is for.
+ */
+export const PLANNING_INPUT_POLICY = Object.freeze({
+  reportWhatTheTaxonomyNames: true,
+  throwOnlyWhenNoCodeApplies: true,
+  digestAfterStaticPass: true,
+});
 
 export const PLANNING_PERSISTENCE_POLICY = Object.freeze({
   /** A plan is a proposal about time. It is never canonical user state. */
