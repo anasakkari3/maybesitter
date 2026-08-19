@@ -14,13 +14,18 @@
  * therefore proves nothing about:
  *
  *   - **focus order** — that Tab reaches the confirm button before the next
- *     card, or that focus is not lost when the confirmation panel unmounts;
+ *     card. It *does* now check that a focus-restoration path exists when the
+ *     confirmation panel unmounts, because that was a real defect readable from
+ *     the JSX: confirming or cancelling unmounted the button holding focus and
+ *     dropped it to `<body>`. Checking the path exists is not checking it works;
  *   - **what a screen reader actually announces** — whether NVDA, JAWS or
  *     VoiceOver reads the live region at the right moment, in the right voice,
  *     without interrupting itself;
- *   - **visual state** — focus rings, contrast, reflow at 400% zoom, or whether
- *     `sr-only` really is off-screen rather than `display: none` (which would
- *     make the live region silent);
+ *   - **visual state** — focus rings, contrast, and reflow at 400% zoom.
+ *     Whether `sr-only` is off-screen rather than `display: none` used to be
+ *     listed here as unprovable; it is not, and it is now checked — the project
+ *     does not override Tailwind's clip-based `.sr-only`, which is a one-line
+ *     guard against silently muting the live region;
  *   - **runtime behaviour** — that pressing a verdict actually stages it, or
  *     that the confirm button is reachable at all.
  *
@@ -190,14 +195,85 @@ test('a11y: the section, each card, and each button group carry a name', () => {
   assert.match(code, /<article[\s\S]{0,200}?aria-labelledby=/, 'an option card carries no accessible name');
 });
 
-test('a11y: headings are real headings and descend without skipping', () => {
+test('a11y: headings descend in document order without skipping a level', () => {
+  // The earlier version sorted the *set* of distinct levels and checked the set
+  // was contiguous, which is insensitive to the order they appear in — an
+  // `h3` mutated to `h5` survived it, because {2,4,5} sorted still looked fine
+  // once 3 appeared elsewhere. A screen reader reads the outline in document
+  // order, so the check has to be in document order too.
   const levels = allMatches(/<h([1-6])\b/g).map((match) => Number(match[1]));
-  assert.ok(levels.length >= 3, 'expected a surface heading, a card heading and a why heading');
+  assert.ok(levels.length >= 4, 'expected a surface, group, card and why heading');
   assert.equal(levels[0], 2, 'the surface heading should be an h2 under the page h1');
-  const distinct = levels.filter((level, index) => levels.indexOf(level) === index).sort((left, right) => left - right);
-  for (let index = 1; index < distinct.length; index += 1) {
-    assert.equal(distinct[index] - distinct[index - 1], 1, `heading levels skip from h${distinct[index - 1]} to h${distinct[index]}`);
+  for (let index = 1; index < levels.length; index += 1) {
+    assert.ok(
+      levels[index] - levels[index - 1] <= 1,
+      `heading outline jumps from h${levels[index - 1]} to h${levels[index]} at position ${index}`,
+    );
+    assert.ok(levels[index] >= 2, 'the surface must not emit an h1');
   }
+});
+
+test('a11y: focus is restored when the confirmation panel unmounts', () => {
+  // Confirming or cancelling unmounts the div holding the button that currently
+  // has focus. With nothing to catch it, focus falls to `<body>` and a keyboard
+  // user restarts from the top of the document after every decision — the most
+  // common way a two-step confirmation becomes unusable without being broken.
+  assert.match(code, /useRef<HTMLButtonElement \| null>/, 'no ref is kept for the control that opened the panel');
+  assert.match(code, /openerRef\.current = element/, 'the opening control is never recorded');
+  assert.match(code, /opener\.focus\(\)/, 'focus is never returned to the opening control');
+  // Both exits must go through the restoring path, not just the confirm one.
+  const closers = allMatches(/onClick=\{closeStaged\}/g);
+  assert.ok(closers.length >= 1, 'cancel does not use the focus-restoring handler');
+  assert.match(code, /const confirm = \(\) => \{[\s\S]*?closeStaged\(\);/, 'confirm does not restore focus');
+  assert.ok(!/setStaged\(null\);\s*\}\s*;?\s*$/m.test(code.replace(/const closeStaged[\s\S]*?\};/, '')), 'a bare setStaged(null) exit remains');
+});
+
+test('a11y: a control that opens the confirmation panel announces that it does', () => {
+  // A disclosure with no `aria-expanded` is a button a screen reader announces
+  // identically whether the panel is open or shut.
+  assert.match(code, /aria-expanded=\{/, 'no verdict control exposes its expanded state');
+  // Only the confirming verdicts open anything, so the others must not claim to.
+  assert.match(code, /action\.requiresConfirmation\s*\?[\s\S]{0,200}?:\s*undefined/, 'aria-expanded is set on controls that open nothing');
+});
+
+test('a11y: staging a decision announces the prompt, not the notice already on screen', () => {
+  // `notice ?? (staged ? view.confirmNotice : '')` had two defects: `??` only
+  // falls through on null/undefined, so a server notice permanently swallowed
+  // later staged announcements; and `confirmNotice` is the same sentence already
+  // rendered statically above the cards, so the live region said nothing new.
+  assert.match(
+    code,
+    /const announcement = staged !== null \? view\.confirmPrompt : notice \?\? ''/,
+    'the live region does not announce the confirmation prompt when a decision is staged',
+  );
+});
+
+test('a11y: the live region is clipped, not display:none', () => {
+  // `display: none` and `visibility: hidden` remove a node from the
+  // accessibility tree, so a live region styled that way is silent while looking
+  // correct. The component uses Tailwind's `sr-only`, which is clip-based; the
+  // risk is a project stylesheet overriding it.
+  assert.match(code, /className="sr-only"/, 'the live region is not visually hidden');
+  const globals = readFileSync(join(repoRoot, 'src', 'app', 'globals.css'), 'utf8');
+  assert.ok(!/\.sr-only\b/.test(globals), 'the project overrides .sr-only; check it is still clip-based, not display:none');
+});
+
+test('a11y: the component renders no caller-chosen identifier', () => {
+  // This is the check that was missing entirely. Every earlier id-leak test read
+  // the *view model*; none read what the component prints. Two mutations went
+  // green because of it, one of them `{view.recommendationId}` inside a card
+  // heading — and the component is where the Sprint 07 leak actually landed.
+  const forbidden = /\b(recommendationId|commitmentId|proposalId|itemId|scopeId)\b/;
+  // Every JSX expression rendered as a child, i.e. `>{expr}<` or `{expr}` on its
+  // own between tags — not attributes, which are checked separately.
+  const rendered = allMatches(/[>}]\s*\{([^{}]+)\}\s*[<{]/g).map((match) => match[1]);
+  assert.ok(rendered.length >= 6, `expected several rendered expressions, found ${rendered.length}`);
+  for (const expression of rendered) {
+    assert.ok(!forbidden.test(expression), `the component renders an identifier: {${expression.trim()}}`);
+  }
+  // `subject` is the object every identifier lives in. Rendering any part of it
+  // is the same leak one indirection away.
+  assert.ok(!/\{[^{}]*\bsubject\b[^{}]*\}/.test(code), 'the component renders the action subject');
 });
 
 /* ── The live region ─────────────────────────────────────────────── */

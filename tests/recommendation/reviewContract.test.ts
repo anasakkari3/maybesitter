@@ -34,7 +34,9 @@ import { fileURLToPath } from 'node:url';
 
 import {
   BLIND_REDACTED_FIELDS,
+  BLIND_VIEW_ALLOWED_FIELDS,
   CONFIRMING_VERDICTS,
+  RECOMMENDATION_REVIEW_LIMITS,
   RECOMMENDATION_REVIEW_POLICY,
   REVIEW_LOCALES,
   RTL_REVIEW_LOCALES,
@@ -95,7 +97,6 @@ function attributed(locale: ReviewLocale = 'en'): AttributedReviewView {
     recommendation: offeredChoice(),
     locale,
     mode: 'attributed',
-    blindingSalt: null,
     now: NOW,
     currentFingerprints: FRESH_FINGERPRINTS,
   });
@@ -151,7 +152,6 @@ test('review: every fixture satisfies #33 own structural checker', () => {
       recommendation: offeredWithBandMismatch(),
       locale: 'en',
       mode: 'attributed',
-      blindingSalt: null,
       now: NOW,
       currentFingerprints: FRESH_FINGERPRINTS,
     }).mode,
@@ -166,7 +166,6 @@ test('review: a defective recommendation is refused rather than rendered', () =>
     recommendation: offeredWithBandMismatch(),
     locale: 'en',
     mode: 'attributed',
-    blindingSalt: null,
     now: NOW,
     currentFingerprints: FRESH_FINGERPRINTS,
   }) as NothingToReviewView;
@@ -183,7 +182,6 @@ test('review: an expired recommendation is refused', () => {
     recommendation: offeredChoice(),
     locale: 'en',
     mode: 'attributed',
-    blindingSalt: null,
     now: AFTER_EXPIRY,
     currentFingerprints: FRESH_FINGERPRINTS,
   }) as NothingToReviewView;
@@ -200,7 +198,6 @@ test('review: staleness fails closed when a source cannot be verified', () => {
     recommendation: offeredChoice(),
     locale: 'en',
     mode: 'attributed',
-    blindingSalt: null,
     now: NOW,
     currentFingerprints: {},
   }) as NothingToReviewView;
@@ -214,7 +211,6 @@ test('review: a changed source invalidates even inside the validity window', () 
     recommendation: offeredChoice(),
     locale: 'en',
     mode: 'attributed',
-    blindingSalt: null,
     now: NOW,
     currentFingerprints: { ...FRESH_FINGERPRINTS, 'obs-due': 'fp-due-2' },
   }) as NothingToReviewView;
@@ -227,7 +223,6 @@ test('review: a withheld recommendation reports its codes and offers nothing', (
     recommendation: withheld(),
     locale: 'en',
     mode: 'attributed',
-    blindingSalt: null,
     now: NOW,
     currentFingerprints: FRESH_FINGERPRINTS,
   }) as NothingToReviewView;
@@ -258,7 +253,6 @@ test('review: a sole survivor states what was ruled out', () => {
     recommendation: offeredSoleSurvivor(),
     locale: 'en',
     mode: 'attributed',
-    blindingSalt: null,
     now: NOW,
     currentFingerprints: FRESH_FINGERPRINTS,
   }) as AttributedReviewView;
@@ -313,6 +307,34 @@ test('review: a blind view carries no first-pass judgement, at any depth', () =>
   for (const slot of view.slots) {
     assert.ok(slot.whyThisNow.length > 0);
     assert.ok(slot.actionLabel.length > 0);
+  }
+});
+
+test('review: a blind view carries only fields on the allow list', () => {
+  // The deny list above only catches leaks somebody thought of. Adding
+  // `rank: option.optionIndex` to a blind slot passed all sixty-five tests in an
+  // earlier revision, because `rank` was not on it — a leak under a name nobody
+  // remembered, which is the dangerous direction. This inverts the guard: every
+  // key that appears must have been *added to the allow list on purpose*, which
+  // is a line in a diff rather than an absence nobody can see.
+  const allowed = new Set<string>(BLIND_VIEW_ALLOWED_FIELDS);
+  for (const locale of REVIEW_LOCALES) {
+    const view = presentRecommendation({
+      recommendation: offeredChoice(),
+      locale,
+      mode: 'blind',
+      blindingSalt: SALT,
+      now: NOW,
+      currentFingerprints: FRESH_FINGERPRINTS,
+    });
+    const keys = Array.from(allKeys(view));
+    for (const key of keys) {
+      assert.ok(allowed.has(key), `blind view carries an un-allowed field: ${key} (locale ${locale})`);
+    }
+    // And the allow list is not simply everything: a field the attributed view
+    // has must still be absent here.
+    assert.ok(!allowed.has('confidence'));
+    assert.ok(!allowed.has('optionIndex'));
   }
 });
 
@@ -419,9 +441,10 @@ test('review: an explicit confirmation produces exactly one handoff, and still n
   if (!result.ok) return;
   assert.equal(result.outcome.status, 'confirmed');
   assert.equal(result.outcome.persisted, false);
-  assert.equal(result.outcome.status === 'confirmed' && result.outcome.handoff.optionIndex, 0);
-  assert.equal(result.outcome.status === 'confirmed' && result.outcome.handoff.verdict, 'accept');
-  assert.equal(result.outcome.status === 'confirmed' && result.outcome.handoff.confirmedAt, NOW);
+  assert.ok(result.handoff !== null);
+  assert.equal(result.handoff.optionIndex, 0);
+  assert.equal(result.handoff.verdict, 'accept');
+  assert.equal(result.handoff.confirmedAt, NOW);
   assert.equal(RECOMMENDATION_REVIEW_POLICY.reviewMayPersist, false);
   assert.equal(RECOMMENDATION_REVIEW_POLICY.handoffOnlyOnExplicitConfirmation, true);
 });
@@ -525,8 +548,9 @@ test('review: an edit must carry replacement text, and nothing else may', () => 
   );
   assert.equal(goodEdit.ok, true);
   if (!goodEdit.ok) return;
+  assert.ok(goodEdit.handoff !== null);
   assert.equal(
-    goodEdit.outcome.status === 'confirmed' && goodEdit.outcome.handoff.editedTitle,
+    goodEdit.handoff.editedTitle,
     'Call the clinic back',
   );
 });
@@ -571,7 +595,8 @@ test('review: a blind reviewer decision resolves to the offer position it never 
   );
   assert.equal(result.ok, true);
   if (!result.ok) return;
-  assert.equal(result.outcome.status === 'confirmed' && result.outcome.handoff.optionIndex, 2);
+  assert.ok(result.handoff !== null);
+  assert.equal(result.handoff.optionIndex, 2);
 });
 
 test('review: an attributed target against a blind review is refused', () => {
@@ -618,6 +643,73 @@ test('review: findings carry no caller-chosen identifier either', () => {
       assert.ok(!found.detail.includes(needle), `finding detail leaks ${needle}`);
     }
   }
+});
+
+test('review: no finding the module can produce carries a caller-chosen id', () => {
+  // The earlier version checked the findings from one rejection out of the
+  // seventeen codes. A mutation that rewrote the RECOMMENDATION_ID_MISMATCH
+  // detail to `working window ${recommendationId}` — reproducing the Sprint 07
+  // leak string verbatim — went green. This drives every refusal this module has
+  // and checks all of their details.
+  const baits = [SECRET_COMMITMENT, SECOND_COMMITMENT, SECRET_PROPOSAL, EXCLUDED_COMMITMENT, RECOMMENDATION_ID];
+  const rejections: ReviewDecisionSubmission[] = [
+    submission({ recommendationId: 'rec-elsewhere' }),
+    submission({ target: { mode: 'attributed', optionIndex: 99 } }),
+    submission({ target: { mode: 'attributed', optionIndex: null } }),
+    submission({ verdict: 'edit' }),
+    submission({ editedTitle: 'stray' }),
+    submission({ verdict: 'edit', editedTitle: 'x'.repeat(RECOMMENDATION_REVIEW_LIMITS.maxEditedTitleLength + 1) }),
+    submission({ decidedAt: 'not an instant' }),
+    submission({
+      confirmation: { stage: 'confirmed', acknowledgedVerdict: 'done', acknowledgedIndex: 0, confirmedAt: NOW },
+    }),
+    submission({
+      confirmation: { stage: 'confirmed', acknowledgedVerdict: 'accept', acknowledgedIndex: 0, confirmedAt: 'soon' },
+    }),
+    submission({ target: { mode: 'blind', slotIndex: 0, blindingSalt: '  ' } }),
+  ];
+  let seen = 0;
+  for (const sub of rejections) {
+    const result = decide(sub, sub.target.mode === 'blind' ? 'blind' : 'attributed');
+    if (result.ok) continue;
+    for (const found of result.findings) {
+      seen += 1;
+      for (const bait of baits) {
+        assert.ok(!found.detail.includes(bait), `${found.code} detail leaks ${bait}: ${found.detail}`);
+        assert.ok(found.field === null || !found.field.includes(bait), `${found.code} field leaks ${bait}`);
+      }
+    }
+  }
+  assert.ok(seen >= 9, `expected to exercise most refusal codes, saw ${seen} findings`);
+});
+
+test('review: the reason count is a deterministic oracle for the lead, not a correlation', () => {
+  // Recorded as a *measured* fact rather than a hedge. Across 200 salts, the
+  // blind slot with the most `whyThisNow` entries is the first pass's lead every
+  // single time on this fixture — 100% accuracy from one visible attribute. The
+  // documentation used to call this a "correlation" a study would "control
+  // for"; at this accuracy the blind arm is not blind for offers shaped like
+  // this one, and the doc now says so. Pinned here so that if a future change
+  // breaks the relationship, the claim in the docs is updated with it.
+  let identified = 0;
+  const trials = 200;
+  for (let index = 0; index < trials; index += 1) {
+    const salt = `oracle-salt-${index}`;
+    const view = presentRecommendation({
+      recommendation: offeredChoice(),
+      locale: 'en',
+      mode: 'blind',
+      blindingSalt: salt,
+      now: NOW,
+      currentFingerprints: FRESH_FINGERPRINTS,
+    }) as BlindReviewView;
+    let best = 0;
+    for (let slot = 1; slot < view.slots.length; slot += 1) {
+      if (view.slots[slot].whyThisNow.length > view.slots[best].whyThisNow.length) best = slot;
+    }
+    if (blindSlotOrder(offeredChoice(), salt)[best] === 0) identified += 1;
+  }
+  assert.equal(identified, trials, 'the documented oracle strength has changed; update the docs');
 });
 
 test('review: element ids are derived from position, never from input', () => {
@@ -682,6 +774,28 @@ test('review: every verdict button has a name, in every locale', () => {
       assert.equal(
         action.requiresConfirmation,
         (CONFIRMING_VERDICTS as readonly string[]).includes(action.verdict),
+      );
+    }
+  }
+});
+
+test('review: the verdict wording matches the shipped pilot, in every locale', () => {
+  // The PR claims the five verdicts are spelled exactly as `NextStepReview.tsx`
+  // spells them. That claim was true and untested, which is the Sprint 06
+  // mechanism this work cites: three mutations to the strings all survived.
+  // Read from the pilot's source because its COPY table is a module-private
+  // const behind a default-exported component.
+  const pilot = readFileSync(join(repoRoot, 'src', 'components', 'NextStepReview.tsx'), 'utf8');
+  for (const locale of REVIEW_LOCALES) {
+    const row = new RegExp(`\\b${locale}:\\s*\\{([^}]*)\\}`).exec(pilot);
+    assert.ok(row !== null, `the pilot has no ${locale} copy row`);
+    for (const verdict of ['accept', 'edit', 'defer', 'dismiss', 'done'] as const) {
+      const entry = new RegExp(`${verdict}:\\s*'([^']*)'`).exec((row as RegExpExecArray)[1]);
+      assert.ok(entry !== null, `the pilot has no ${locale}/${verdict} label`);
+      assert.equal(
+        VERDICT_COPY[locale][verdict],
+        (entry as RegExpExecArray)[1],
+        `${locale}/${verdict} has drifted from the shipped pilot`,
       );
     }
   }

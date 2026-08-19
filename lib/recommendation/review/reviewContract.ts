@@ -147,10 +147,16 @@ export const REVIEW_MODES = Object.freeze(['attributed', 'blind'] as const) sati
 /**
  * Field names a `BlindReviewView` must not carry, at any depth.
  *
- * Exported as data so `tests/recommendation/reviewContract.test.ts` can walk a
- * built blind view and assert their absence, rather than asserting the six
- * properties it happened to think of. A field added to the attributed view that
- * carries first-pass judgement gets added here, and the walk covers it for free.
+ * Kept because it names the *specific* things this surface is known to have to
+ * withhold, and a named check produces a better failure message than a
+ * set-difference. It is **not the guard**, though: a deny list only catches
+ * leaks somebody thought of. Adding `rank: option.optionIndex` to a blind slot
+ * passed all sixty-five tests in an earlier revision, because `rank` was not on
+ * this list — and a leak under a name nobody remembered is precisely the
+ * dangerous direction.
+ *
+ * `BLIND_VIEW_ALLOWED_FIELDS` below is the guard. This stays as the readable
+ * statement of intent.
  */
 export const BLIND_REDACTED_FIELDS = Object.freeze([
   'optionIndex',
@@ -162,6 +168,97 @@ export const BLIND_REDACTED_FIELDS = Object.freeze([
   'alternatives',
   'excluded',
 ] as const);
+
+/**
+ * Every key that may appear anywhere in a `BlindReviewView`.
+ *
+ * An **allow** list, and that inversion is the whole point. The test walks a
+ * built blind view and its JSON serialisation and asserts every key it finds is
+ * in here, so a new field leaks only if someone also adds its name to this list
+ * — which is a line in a diff a reviewer reads, rather than an absence nobody
+ * can see. `BLIND_REDACTED_FIELDS` answers "did we remove the things we know
+ * about"; this answers "did anything at all get added".
+ *
+ * Derived by hand rather than from the type because TypeScript types are erased
+ * before the test runs, and a runtime guard needs runtime data.
+ */
+export const BLIND_VIEW_ALLOWED_FIELDS = Object.freeze([
+  // ReviewViewBase
+  'schema',
+  'recommendationId',
+  'locale',
+  'direction',
+  'heading',
+  'headingElementId',
+  'confirmNotice',
+  'confirmPrompt',
+  'confirmLabel',
+  'cancelLabel',
+  'whyHeading',
+  // BlindReviewView
+  'mode',
+  'slotsHeading',
+  'slots',
+  'verdicts',
+  // BlindReviewSlot
+  'slotIndex',
+  'actionKind',
+  'actionLabel',
+  'subject',
+  'whyThisNow',
+  'elementId',
+  // ReviewActionSubject
+  'commitmentId',
+  'slot',
+  'until',
+  'proposalId',
+  // TimeInterval
+  'startsAt',
+  'endsAt',
+  // ReviewReasonLine
+  'code',
+  'text',
+  'citedNodeCount',
+  'rootSourceKinds',
+  'basisText',
+  // ReviewVerdictAction
+  'verdict',
+  'label',
+  'requiresConfirmation',
+] as const);
+
+/**
+ * Hard limits, enforced before any input reaches #33's checkers.
+ *
+ * These are **resource** limits, not semantic ones, and they exist because the
+ * route is public and unauthenticated. A structurally valid recommendation with
+ * a linear `derived` chain 8,000 nodes deep — about 1 MB of JSON — took
+ * `resolveEvidenceRoots` past Node's stack limit and returned a 500; at 20,000
+ * it burned 5.4 seconds of CPU first. Neither is malformed. Nothing in the
+ * pipeline bounded anything, and App Router routes have no default body cap, so
+ * one request per worker was enough.
+ *
+ * `maxEvidenceNodes` is the load-bearing one: a chain can be no deeper than the
+ * graph has nodes, so capping nodes caps recursion depth as well, and 500 frames
+ * is far inside any engine's limit. It also caps the quadratic term in #33's
+ * cycle detector, which intersects forward and backward reachability per node.
+ *
+ * `maxOfferedOptions` is deliberately much larger than
+ * `RECOMMENDATION_OPTION_POLICY.maxOptions` (3). Three is the *product* rule and
+ * #33 reports `OPTION_CAP_EXCEEDED` for it, which is a finding a caller should
+ * see; 64 is the point past which we decline to allocate rather than explain.
+ * Collapsing the two would replace a useful semantic finding with a resource
+ * refusal.
+ */
+export const RECOMMENDATION_REVIEW_LIMITS = Object.freeze({
+  maxEvidenceNodes: 500,
+  maxParentsPerNode: 64,
+  maxOfferedOptions: 64,
+  maxExcludedCandidates: 64,
+  maxReasonsPerOption: 32,
+  maxEvidenceRefsPerReason: 64,
+  maxEditedTitleLength: 500,
+});
 
 /* ── What a reviewer is shown ────────────────────────────────────── */
 
@@ -321,6 +418,13 @@ export interface AttributedReviewView extends ReviewViewBase {
   readonly solenessNotice: string;
   readonly lead: ReviewOptionCard;
   readonly alternatives: readonly ReviewOptionCard[];
+  /**
+   * Named even though it is obvious from position, because a group of cards
+   * with no heading forces the card headings up a level and the document then
+   * skips from h2 to h4. Every group carries a heading so the outline never
+   * jumps.
+   */
+  readonly leadHeading: string;
   readonly alternativesHeading: string;
   readonly excludedHeading: string;
   readonly excluded: readonly {
@@ -334,6 +438,8 @@ export interface AttributedReviewView extends ReviewViewBase {
 
 export interface BlindReviewView extends ReviewViewBase {
   readonly mode: 'blind';
+  /** One neutral group heading. It must not say which slot is which. */
+  readonly slotsHeading: string;
   readonly slots: readonly [BlindReviewSlot, ...BlindReviewSlot[]];
   readonly verdicts: readonly [ReviewVerdictAction, ...ReviewVerdictAction[]];
 }
@@ -442,15 +548,15 @@ export interface ReviewDecisionSubmission {
 /**
  * The only value in this module an adapter will accept as authority to write.
  *
- * It is constructible in exactly one place — the `confirmed` branch of
- * `evaluateReviewSubmission` — and reachable in exactly one branch of
- * `ReviewDecisionOutcome`. Nothing about it is optional: an adapter handed one
- * of these has a verdict, a resolved offer position, an instant the user
- * confirmed at, and the recommendation it belongs to.
+ * It is constructible in exactly one place — the confirmed branch of
+ * `evaluateReviewSubmission` — and it is **not reachable from
+ * `ReviewDecisionOutcome`**, so it is not part of any HTTP response. See the
+ * note on `ReviewDecisionOutcome` for the leak that made that separation
+ * necessary.
  *
  * `optionIndex` is the *offer* position even when the reviewer was blind: the
- * translation from slot to option happens here, server side, from the salt, and
- * the mapping never travels to a blind client.
+ * translation from slot to option happens server side, from the salt. That is
+ * exactly why this value must not travel — it is the mapping, resolved.
  */
 export interface ReviewPersistenceHandoff {
   readonly recommendationId: string;
@@ -463,12 +569,23 @@ export interface ReviewPersistenceHandoff {
 }
 
 /**
- * What came of a submission.
+ * What came of a submission — the part that is safe to send back.
  *
  * `persisted` is the literal type `false` on every branch, so this contract
  * cannot express a write having happened — the same device
  * `NextStepRecommendationContract.persistence.occurred` uses, at module scope.
- * `handoff` appears on one branch only.
+ *
+ * **There is deliberately no `handoff` on this type.** An earlier revision put
+ * the `ReviewPersistenceHandoff` inside the `confirmed` branch, which meant a
+ * *blind* reviewer's confirmation came back carrying `handoff.optionIndex` — the
+ * offer position, which is the first entry in `BLIND_REDACTED_FIELDS` and the
+ * single thing a blind exchange exists to withhold. Three confirmed decisions
+ * recovered the whole permutation. The fix is structural rather than a
+ * mode-dependent redaction step: write authority is **not part of the response
+ * shape at all**. `evaluateReviewSubmission` returns it as a sibling of the
+ * outcome, for a server-side adapter; `handleReviewRequest` returns only the
+ * outcome. A wire format with no field for write authority cannot leak one, in
+ * either mode, and cannot grow one without a visible change to this type.
  */
 export type ReviewDecisionOutcome =
   | {
@@ -481,7 +598,6 @@ export type ReviewDecisionOutcome =
   | {
       readonly status: 'confirmed';
       readonly persisted: false;
-      readonly handoff: ReviewPersistenceHandoff;
       readonly notice: string;
     }
   | {
@@ -533,9 +649,18 @@ export type ReviewDecisionOutcome =
  *                                     defective recommendation. There is no
  *                                     option to accept.
  * - `TARGET_MODE_MISMATCH`          — an attributed target against a blind
- *                                     exchange or the reverse. Silently
- *                                     coercing one to the other would let a
- *                                     blind client name an offer position.
+ *                                     exchange or the reverse. **Not a defence
+ *                                     against a hostile client**: `mode` is
+ *                                     declared by the same request, so a caller
+ *                                     that wants an attributed exchange simply
+ *                                     asks for one. It catches a *client bug* —
+ *                                     a blind session whose submit path was
+ *                                     wired to the attributed builder — and a
+ *                                     replayed submission from the other mode.
+ *                                     The property that actually keeps offer
+ *                                     order away from a blind reviewer is that
+ *                                     a blind exchange never returns it (see
+ *                                     `ReviewDecisionOutcome`).
  * - `TARGET_REQUIRED`               — a verdict that is about one option
  *                                     (`accept`, `edit`, `done`, `defer`)
  *                                     with a null position.
@@ -570,7 +695,9 @@ export type ReviewFindingCode =
   | 'EDIT_TITLE_REQUIRED'
   | 'EDIT_TITLE_NOT_APPLICABLE'
   | 'CONFIRMATION_TARGET_MISMATCH'
-  | 'INVALID_INSTANT';
+  | 'INVALID_INSTANT'
+  | 'RECOMMENDATION_TOO_LARGE'
+  | 'EDIT_TITLE_TOO_LONG';
 
 export const REVIEW_FINDING_CODES = Object.freeze([
   'MALFORMED_REQUEST_BODY',
@@ -590,6 +717,8 @@ export const REVIEW_FINDING_CODES = Object.freeze([
   'EDIT_TITLE_NOT_APPLICABLE',
   'CONFIRMATION_TARGET_MISMATCH',
   'INVALID_INSTANT',
+  'RECOMMENDATION_TOO_LARGE',
+  'EDIT_TITLE_TOO_LONG',
 ] as const) satisfies readonly ReviewFindingCode[];
 
 type _ReviewFindingCodesCovered =

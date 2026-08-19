@@ -48,13 +48,14 @@ export interface ReviewChromeCopy {
   readonly headingBlind: string;
   readonly headingNothing: string;
   readonly whyHeading: string;
+  readonly leadHeading: string;
+  readonly slotsHeading: string;
   readonly alternativesHeading: string;
   readonly excludedHeading: string;
   readonly confirmNotice: string;
   readonly confirmPrompt: string;
   readonly confirmButton: string;
   readonly cancelButton: string;
-  readonly announceStaged: string;
   readonly announceConfirmed: string;
   readonly announceRecorded: string;
   readonly basisPrefix: string;
@@ -69,13 +70,14 @@ export const REVIEW_CHROME: Readonly<Record<ReviewLocale, ReviewChromeCopy>> = O
     headingBlind: 'A proposal to review',
     headingNothing: 'Nothing to review',
     whyHeading: 'Why this now',
+    leadHeading: 'Suggested',
+    slotsHeading: 'Proposals to review',
     alternativesHeading: 'Other options',
     excludedHeading: 'What was ruled out',
     confirmNotice: 'Nothing is saved until you confirm.',
     confirmPrompt: 'Confirm to continue. Nothing has been saved yet.',
     confirmButton: 'Confirm',
     cancelButton: 'Back',
-    announceStaged: 'Nothing is saved until you confirm.',
     announceConfirmed: 'Confirmed.',
     announceRecorded: 'Recorded. Nothing was saved.',
     basisPrefix: 'Based on ',
@@ -88,13 +90,14 @@ export const REVIEW_CHROME: Readonly<Record<ReviewLocale, ReviewChromeCopy>> = O
     headingBlind: 'اقتراح للمراجعة',
     headingNothing: 'لا يوجد ما يُراجَع',
     whyHeading: 'لماذا هذا الآن',
+    leadHeading: 'المُقترَح',
+    slotsHeading: 'مقترحات للمراجعة',
     alternativesHeading: 'خيارات أخرى',
     excludedHeading: 'ما جرى استبعاده',
     confirmNotice: 'لا يُحفظ شيء حتى تؤكّد.',
     confirmPrompt: 'أكّد للمتابعة. لم يُحفظ شيء بعد.',
     confirmButton: 'تأكيد',
     cancelButton: 'رجوع',
-    announceStaged: 'لا يُحفظ شيء حتى تؤكّد.',
     announceConfirmed: 'تم التأكيد.',
     announceRecorded: 'سُجّل. لم يُحفظ شيء.',
     basisPrefix: 'استناداً إلى ',
@@ -107,13 +110,14 @@ export const REVIEW_CHROME: Readonly<Record<ReviewLocale, ReviewChromeCopy>> = O
     headingBlind: 'הצעה לבדיקה',
     headingNothing: 'אין מה לבדוק',
     whyHeading: 'למה זה עכשיו',
+    leadHeading: 'המוצע',
+    slotsHeading: 'הצעות לבדיקה',
     alternativesHeading: 'אפשרויות אחרות',
     excludedHeading: 'מה נפסל',
     confirmNotice: 'שום דבר לא נשמר עד לאישור.',
     confirmPrompt: 'יש לאשר כדי להמשיך. שום דבר עדיין לא נשמר.',
     confirmButton: 'אישור',
     cancelButton: 'חזרה',
-    announceStaged: 'שום דבר לא נשמר עד לאישור.',
     announceConfirmed: 'אושר.',
     announceRecorded: 'נרשם. שום דבר לא נשמר.',
     basisPrefix: 'מבוסס על ',

@@ -69,7 +69,7 @@
  * proves and what it does not.
  */
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type {
   BlindReviewSlot,
   ReviewIntent,
@@ -126,6 +126,17 @@ export interface RecommendationReviewProps {
 
 export default function RecommendationReview({ view, onIntent, notice }: RecommendationReviewProps) {
   const [staged, setStaged] = useState<{ verdict: ReviewVerdictAction['verdict']; position: number } | null>(null);
+  /**
+   * The control that opened the confirmation panel.
+   *
+   * Confirming or cancelling unmounts the panel, and the button that was
+   * unmounted **held the focus**. With nothing to catch it, focus falls to
+   * `<body>` and a keyboard user restarts from the top of the document after
+   * every single decision. Storing the opener and focusing it back is the whole
+   * fix; it is called synchronously in the handler, before React commits the
+   * unmount, and the opener is not itself unmounted, so the focus sticks.
+   */
+  const openerRef = useRef<HTMLButtonElement | null>(null);
 
   if (view.mode === 'none') {
     return (
@@ -141,31 +152,50 @@ export default function RecommendationReview({ view, onIntent, notice }: Recomme
   // them the second card is an alternative rather than a second instruction. A
   // blind review has one unlabelled group, because a group heading that said
   // "other options" would say which one was not other.
-  const groups: readonly { readonly heading: string | null; readonly cards: readonly RenderableCard[] }[] =
+  const groups: readonly { readonly heading: string; readonly cards: readonly RenderableCard[] }[] =
     view.mode === 'blind'
-      ? [{ heading: null, cards: view.slots.map(fromSlot) }]
+      ? [{ heading: view.slotsHeading, cards: view.slots.map(fromSlot) }]
       : [
-          { heading: null, cards: [fromOption(view.lead)] },
+          { heading: view.leadHeading, cards: [fromOption(view.lead)] },
           { heading: view.alternativesHeading, cards: view.alternatives.map(fromOption) },
         ];
 
-  // The live region text. `staged` is local, so the first press announces the
-  // standing "nothing is saved" notice; everything else is the server's word.
-  const announcement = notice ?? (staged === null ? '' : view.confirmNotice);
+  /**
+   * The live region text.
+   *
+   * Staged state wins over the server's last notice. The earlier form was
+   * `notice ?? (staged ? view.confirmNotice : '')`, which had two defects: `??`
+   * only falls through on null/undefined, so once the container set a notice it
+   * swallowed every later staged announcement; and it announced
+   * `view.confirmNotice`, which is the *same sentence already rendered
+   * statically above the cards*, so a screen reader was told nothing new. The
+   * prompt — "confirm to continue, nothing has been saved yet" — is the thing
+   * that actually changed, and it is what a reviewer needs to hear.
+   */
+  const announcement = staged !== null ? view.confirmPrompt : notice ?? '';
 
-  const press = (action: ReviewVerdictAction, position: number) => {
+  const press = (action: ReviewVerdictAction, position: number, element: HTMLButtonElement) => {
     if (action.requiresConfirmation) {
+      openerRef.current = element;
       setStaged({ verdict: action.verdict, position });
       return;
     }
+    openerRef.current = null;
     setStaged(null);
     onIntent({ verdict: action.verdict, position, stage: 'unconfirmed' });
+  };
+
+  const closeStaged = () => {
+    setStaged(null);
+    const opener = openerRef.current;
+    openerRef.current = null;
+    if (opener !== null) opener.focus();
   };
 
   const confirm = () => {
     if (staged === null) return;
     onIntent({ verdict: staged.verdict, position: staged.position, stage: 'confirmed' });
-    setStaged(null);
+    closeStaged();
   };
 
   return (
@@ -176,12 +206,12 @@ export default function RecommendationReview({ view, onIntent, notice }: Recomme
 
       {groups.map((group, groupIndex) => group.cards.length === 0 ? null : (
         <div key={`group-${groupIndex}`}>
-        {group.heading !== null && <h3 className="mt-4 text-sm font-semibold">{group.heading}</h3>}
+        <h3 className="mt-4 text-sm font-semibold">{group.heading}</h3>
         {group.cards.map((card) => (
         <article key={card.elementId} aria-labelledby={card.elementId} className="mt-4 border-t border-gray-100 pt-3">
-          <h3 id={card.elementId} className="text-lg">{card.actionLabel}</h3>
+          <h4 id={card.elementId} className="text-lg">{card.actionLabel}</h4>
           {card.confidenceLabel !== null && <p className="text-xs text-gray-500">{card.confidenceLabel}</p>}
-          <h4 className="mt-2 text-sm font-semibold">{view.whyHeading}</h4>
+          <h5 className="mt-2 text-sm font-semibold">{view.whyHeading}</h5>
           <ul className="text-sm text-gray-600">
             {card.whyThisNow.map((line, lineIndex) => (
               <li key={`${card.elementId}-reason-${lineIndex}`}>
@@ -194,7 +224,12 @@ export default function RecommendationReview({ view, onIntent, notice }: Recomme
               <button
                 key={action.verdict}
                 type="button"
-                onClick={() => press(action, card.position)}
+                aria-expanded={
+                  action.requiresConfirmation
+                    ? staged !== null && staged.position === card.position && staged.verdict === action.verdict
+                    : undefined
+                }
+                onClick={(event) => press(action, card.position, event.currentTarget)}
                 className="rounded-md border border-gray-300 px-3 py-2"
               >
                 {action.label}
@@ -207,7 +242,7 @@ export default function RecommendationReview({ view, onIntent, notice }: Recomme
               <button type="button" onClick={confirm} className="mt-2 rounded-md bg-gray-800 px-3 py-2 text-sm text-white">
                 {view.confirmLabel}
               </button>
-              <button type="button" onClick={() => setStaged(null)} className="mt-2 rounded-md border border-gray-300 px-3 py-2 text-sm">
+              <button type="button" onClick={closeStaged} className="mt-2 rounded-md border border-gray-300 px-3 py-2 text-sm">
                 {view.cancelLabel}
               </button>
             </div>
