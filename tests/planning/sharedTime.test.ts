@@ -24,6 +24,7 @@ import {
   intervalsOverlap,
   isPositiveInterval,
   minutesBetween,
+  nominalInstantBracket,
   resolveLocalTime,
   subtractIntervals,
   toEpochMs,
@@ -263,4 +264,61 @@ test('a zone with no DST has no anomalous times at all', () => {
     assert.equal(resolveLocalTime(parts, 'Asia/Kolkata').kind, 'exact');
     assert.equal(resolveLocalTime(parts, 'UTC').kind, 'exact');
   }
+});
+
+test('an unrecognised fold policy resolves to nothing rather than silently to "latest"', () => {
+  // The obvious spelling — `policy === 'earliest' ? first : second` — makes every
+  // value that is not 'earliest' mean 'latest'. That turns a fold nobody resolved
+  // into a definite instant, and the caller then counts working minutes that rest
+  // on a choice no config made. `FoldPolicy` makes it unreachable through the
+  // type; the callers that matter sit on an untyped boundary (a corpus loaded as
+  // data, an oracle whose job is to report rather than raise).
+  const fold = resolveLocalTime({ year: 2026, month: 11, day: 1, hour: 1, minute: 30 }, 'America/New_York');
+  assert.equal(fold.kind, 'fold');
+
+  assert.equal(instantFromResolution(fold, 'earliest'), '2026-11-01T05:30:00.000Z');
+  assert.equal(instantFromResolution(fold, 'latest'), '2026-11-01T06:30:00.000Z');
+  for (const bogus of ['ask-the-user', 'LATEST', '', 'first'] as unknown as Array<'earliest' | 'latest'>) {
+    assert.equal(
+      instantFromResolution(fold, bogus),
+      null,
+      `policy ${JSON.stringify(bogus)} must not be read as a side of the fold`,
+    );
+  }
+});
+
+test('an unrecognised fold policy does not disturb a time that is not folded', () => {
+  // The guard must not turn every resolution null: an unambiguous local time has
+  // one instant whatever the policy says, and a caller that lost those would
+  // report an empty calendar rather than an unresolved ambiguity.
+  const exact = resolveLocalTime({ year: 2026, month: 11, day: 9, hour: 9, minute: 0 }, 'America/New_York');
+  assert.equal(
+    instantFromResolution(exact, 'nonsense' as unknown as 'earliest'),
+    '2026-11-09T14:00:00.000Z',
+  );
+});
+
+test('the nominal bracket contains the real instant, and is a point when nothing is anomalous', () => {
+  // The half of resolveLocalTime a caller needs *before* verification: where
+  // would this reading have fallen had it not been skipped. Exported so #29
+  // stops recomputing it; asserted here so the two halves cannot drift.
+  const ordinary = { year: 2026, month: 11, day: 9, hour: 9, minute: 0 };
+  const point = nominalInstantBracket(ordinary, 'America/New_York');
+  assert.equal(point.earliestMs, point.latestMs, 'an unanomalous reading brackets to a point');
+  assert.equal(toInstant(point.earliestMs), '2026-11-09T14:00:00.000Z');
+
+  // A gap: neither endpoint is real, but the bracket still spans the transition.
+  const gap = nominalInstantBracket({ year: 2026, month: 3, day: 8, hour: 2, minute: 30 }, 'America/New_York');
+  assert.ok(gap.earliestMs < gap.latestMs, 'an anomalous reading brackets a range');
+  const transition = toEpochMs('2026-03-08T07:00:00.000Z');
+  assert.ok(gap.earliestMs < transition && transition <= gap.latestMs, 'the bracket must span the transition');
+
+  // A fold: both candidates are real, and the bracket is exactly the two.
+  const foldParts = { year: 2026, month: 11, day: 1, hour: 1, minute: 30 };
+  const fold = resolveLocalTime(foldParts, 'America/New_York');
+  const bracket = nominalInstantBracket(foldParts, 'America/New_York');
+  assert.equal(fold.kind, 'fold');
+  if (fold.kind !== 'fold') return;
+  assert.equal(toInstant(bracket.earliestMs), fold.firstInstant);
+  assert.equal(toInstant(bracket.latestMs), fold.secondInstant);
 });

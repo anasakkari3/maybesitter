@@ -190,9 +190,22 @@ export const INTELLIGENCE_MODULE_CONTRACTS: Record<IntelligenceModuleName, Intel
     owner: 'backend',
     allowsDirectStateWrites: false,
     allowedDependencyLayers: ['contracts', 'deterministic-services', 'adapters'],
-    inputDescription: 'Plan/schedule generation requests with hard constraints.',
-    outputDescription: 'Non-operative placeholder until Sprint 07+ gates pass.',
-    execute: async (invocation: ModuleInvocation<unknown>) => placeholderExecutor(invocation.provenance, { status: 'not_implemented_in_sprint_00' } satisfies GenericModuleOutput),
+    inputDescription: 'PlanningConstraints plus a PlanningConfig; no ambient clock, every instant from the input.',
+    outputDescription: 'A Plan; see planningContracts and lib/planning.',
+    execute: async (invocation: ModuleInvocation<unknown>) => placeholderExecutor(invocation.provenance, {
+      status: 'implemented',
+      module: 'planning',
+      // Spelled out for the same reason as `decomposition` above:
+      // `planningContracts` imports `MODULE_CONTRACT_VERSION` from this file,
+      // so importing `PLANNING_SCHEMA_VERSION` back closes a cycle that ESM
+      // resolves by evaluating `planningContracts` before this module's body
+      // has run — a TDZ ReferenceError at import time that `tsc` reports
+      // nothing about. `the planning module descriptor matches the planning
+      // schema version` in tests/contract/intelligenceModuleBoundaries.test.ts
+      // pins the two spellings together instead.
+      schemaVersion: 'planning-v1',
+      entryPoint: 'lib/planning/scheduler#schedulePlan',
+    } satisfies ImplementedModuleOutput),
   },
   recommendation: {
     version: MODULE_CONTRACT_VERSION,

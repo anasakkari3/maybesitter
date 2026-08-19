@@ -266,7 +266,16 @@ export function isMaterialisableWindow(window: WorkingWindow): boolean {
 }
 
 interface ResolvedBoundary {
-  readonly epochMs: number;
+  /**
+   * Null when no instant can be chosen at all.
+   *
+   * That is one case and only one: a boundary landing in a fold under a
+   * `foldPolicy` this runtime does not recognise. `FoldPolicy` makes it
+   * unreachable through the type, and every typed caller therefore never sees a
+   * null here — but #31's oracle sits on an untyped boundary by design, and a
+   * config loaded from data can carry anything.
+   */
+  readonly epochMs: number | null;
   readonly kind: BoundaryResolutionKind;
 }
 
@@ -299,8 +308,17 @@ function resolveBoundary(
     return { epochMs: toEpochMs(resolution.resumesAt), kind: 'gap' };
   }
   const instant = instantFromResolution(resolution, foldPolicy);
-  // `instantFromResolution` returns null only for a gap, handled above.
-  return { epochMs: toEpochMs(instant as string), kind: resolution.kind };
+  // Null reaches here only for a fold the configured policy does not resolve;
+  // the gap case returned above. It is passed on rather than cast away, and the
+  // cast is what this replaces: `toEpochMs(instant as string)` turned an
+  // unresolvable fold into `TypeError: not a parseable ISO-8601 instant: null`,
+  // thrown from three frames inside a function whose callers — a scenario
+  // corpus loaded from data, an oracle whose whole job is to *return* what is
+  // wrong with an input — must get a finding rather than an exception. Which
+  // finding is theirs to decide; this module records `kind: 'fold'` on the
+  // boundary and contributes no interval, which is the honest answer to "when
+  // is this window?" when nothing chose between the two candidates.
+  return { epochMs: instant === null ? null : toEpochMs(instant), kind: resolution.kind };
 }
 
 /**
@@ -480,12 +498,18 @@ export function normalizeWorkingWindows(
         }
       }
 
-      const occurrence: TimeInterval = { startsAt: toInstant(start.epochMs), endsAt: toInstant(end.epochMs) };
+      // An unresolved boundary yields no occurrence at either end. Applied to
+      // the *end* as well as the start for the reason the fold policy itself is:
+      // a rule that meant one thing at the start and another at the end would be
+      // constrained by no test of either.
+      const occurrence: TimeInterval | null = start.epochMs === null || end.epochMs === null
+        ? null
+        : { startsAt: toInstant(start.epochMs), endsAt: toInstant(end.epochMs) };
       // A window whose local hours were entirely skipped by a forward
       // transition collapses to nothing. It is not an error — the user named an
       // hour that did not happen that week — so it is simply absent, while the
       // anomaly above records that it was asked for.
-      if (isPositiveInterval(occurrence)) {
+      if (occurrence !== null && isPositiveInterval(occurrence)) {
         const clipped = intersectIntervals(occurrence, { startsAt: horizon.startsAt, endsAt: horizon.endsAt });
         if (clipped !== null) {
           materialized.push({
