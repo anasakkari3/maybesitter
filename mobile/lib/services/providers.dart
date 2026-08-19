@@ -31,6 +31,7 @@ import 'shared_preferences_pilot_presence_store.dart';
 import 'speech_to_text_capture_service.dart';
 import 'timezone_service_impl.dart';
 import 'routine_profile_notifier.dart';
+import 'soft_awareness_reminder_engine.dart';
 import 'mock/commitment_state_store.dart';
 import 'mock/in_memory_commitment_repository.dart';
 import 'mock/mock_capture_service.dart';
@@ -214,6 +215,30 @@ final reminderPolicyProvider = Provider<ReminderPolicy>((ref) {
 final reminderScheduleDecisionProvider =
     Provider.family<ReminderScheduleDecision, Commitment>((ref, commitment) {
       return ref.watch(reminderPolicyProvider).decisionFor(commitment);
+    });
+
+final softAwarenessReminderEngineProvider =
+    Provider<SoftAwarenessReminderEngine>((ref) {
+      return SoftAwarenessReminderEngine(
+        notificationService: ref.watch(notificationServiceProvider),
+        reminderPolicy: () => ref.read(reminderPolicyProvider),
+        routineProfile: () => ref.read(routineProfileProvider),
+        notificationsEnabled: () =>
+            ref.read(appSettingsProvider).notificationsEnabled,
+        flags: () => ref.read(pilotPresenceFeatureFlagsProvider),
+        now: DateTime.now,
+      );
+    });
+
+final softAwarenessCommandDispatcherProvider =
+    Provider<SoftAwarenessCommandDispatcher>((ref) {
+      return SoftAwarenessCommandDispatcher(
+        commitmentRepository: ref.watch(commitmentRepositoryProvider),
+        notificationService: ref.watch(notificationServiceProvider),
+        activityRepository: ref.watch(activityRepositoryProvider),
+        analyticsService: ref.watch(pilotLoopAnalyticsServiceProvider),
+        flags: ref.watch(pilotPresenceFeatureFlagsProvider),
+      );
     });
 
 final connectivityServiceProvider = Provider<ConnectivityService>((ref) {
