@@ -446,6 +446,27 @@ export const SAFETY_LIMIT_NAMES = Object.freeze(
   Object.keys(SAFETY_LIMITS).sort() as SafetyLimitName[],
 );
 
+/**
+ * Which side of the seam owns each bound.
+ *
+ * Total, so a limit added to `SAFETY_LIMITS` without a stage fails to typecheck
+ * — and `tests/safety/validators.test.ts` reads this to know whether to demand
+ * `REQUEST_EXCEEDS_LIMIT` or `CANDIDATE_EXCEEDS_LIMIT` for each key. Without it
+ * the enumeration test would have to hard-code the mapping, which is a second
+ * copy of a classification and the Sprint 06 gap in miniature.
+ */
+export const SAFETY_LIMIT_STAGES: Readonly<Record<SafetyLimitName, SafetyStage>> = Object.freeze({
+  maxUntrustedInputs: 'pre',
+  maxUntrustedInputChars: 'pre',
+  maxSegments: 'post',
+  maxSegmentChars: 'post',
+  maxClaims: 'post',
+  maxEvidenceNodes: 'post',
+  maxEvidenceRefsPerClaim: 'post',
+  maxEffects: 'post',
+  maxFindings: 'post',
+});
+
 /* ── The reason taxonomy ─────────────────────────────────────────── */
 
 /**
@@ -471,6 +492,16 @@ export type SafetyStage = 'pre' | 'post';
  *                           malformed input hands the decision back to whichever
  *                           caller forgot the try/catch, and the safe default of
  *                           an uncaught throw is whatever the framework does.
+ * - `REQUEST_EXCEEDS_LIMIT`
+ *                         — a bound in `SAFETY_LIMITS` owned by the request side
+ *                           was broken; carries the key. Separate from
+ *                           `CANDIDATE_EXCEEDS_LIMIT` because the partition
+ *                           contracts which position a code may appear in, and a
+ *                           pre-validator that reported a *candidate* limit
+ *                           would be reporting about something it has not been
+ *                           given. `SAFETY_LIMIT_STAGES` says which side owns
+ *                           each bound, so the enumeration test knows which code
+ *                           to demand.
  * - `EVALUATION_INSTANT_INVALID`
  *                         — `now` is absent or is not an `Instant` by
  *                           `isInstant`. Everything time-shaped is suppressed
@@ -519,6 +550,7 @@ export type SafetyStage = 'pre' | 'post';
  */
 export type SafetyPreCode =
   | 'REQUEST_UNREADABLE'
+  | 'REQUEST_EXCEEDS_LIMIT'
   | 'EVALUATION_INSTANT_INVALID'
   | 'INJECTED_INSTRUCTION'
   | 'UNTRUSTED_CONTENT_IN_TRUSTED_SLOT'
@@ -670,6 +702,7 @@ export type SafetyReasonCode = SafetyPreCode | SafetyPostCode;
 
 export const SAFETY_PRE_CODES = Object.freeze([
   'REQUEST_UNREADABLE',
+  'REQUEST_EXCEEDS_LIMIT',
   'EVALUATION_INSTANT_INVALID',
   'INJECTED_INSTRUCTION',
   'UNTRUSTED_CONTENT_IN_TRUSTED_SLOT',
@@ -766,6 +799,7 @@ export const SAFETY_BOUNDARIES = Object.freeze([
 /** Total: every code names exactly one boundary. */
 export const SAFETY_CODE_BOUNDARIES: Readonly<Record<SafetyReasonCode, SafetyBoundary>> = Object.freeze({
   REQUEST_UNREADABLE: 'integrity',
+  REQUEST_EXCEEDS_LIMIT: 'integrity',
   EVALUATION_INSTANT_INVALID: 'hallucinated_time',
   INJECTED_INSTRUCTION: 'injection',
   UNTRUSTED_CONTENT_IN_TRUSTED_SLOT: 'injection',
@@ -830,6 +864,7 @@ export const SAFETY_BLOCK_SCOPES = Object.freeze([
  */
 export const SAFETY_CODE_SCOPES: Readonly<Record<SafetyReasonCode, SafetyBlockScope>> = Object.freeze({
   REQUEST_UNREADABLE: 'candidate',
+  REQUEST_EXCEEDS_LIMIT: 'candidate',
   EVALUATION_INSTANT_INVALID: 'candidate',
   INJECTED_INSTRUCTION: 'candidate',
   UNTRUSTED_CONTENT_IN_TRUSTED_SLOT: 'candidate',
@@ -870,6 +905,7 @@ export type SafetySeverity = 'blocking' | 'redactable';
 
 export const SAFETY_CODE_SEVERITY: Readonly<Record<SafetyReasonCode, SafetySeverity>> = Object.freeze({
   REQUEST_UNREADABLE: 'blocking',
+  REQUEST_EXCEEDS_LIMIT: 'blocking',
   EVALUATION_INSTANT_INVALID: 'blocking',
   INJECTED_INSTRUCTION: 'blocking',
   UNTRUSTED_CONTENT_IN_TRUSTED_SLOT: 'blocking',
@@ -962,6 +998,7 @@ export interface SafeUserPath {
  */
 export const SAFETY_CODE_RECOVERY: Readonly<Record<SafetyReasonCode, SafeUserPathKind>> = Object.freeze({
   REQUEST_UNREADABLE: 'surface_nothing_and_explain',
+  REQUEST_EXCEEDS_LIMIT: 'surface_nothing_and_explain',
   EVALUATION_INSTANT_INVALID: 'show_evidence_only',
   INJECTED_INSTRUCTION: 'retry_without_sensitive_context',
   UNTRUSTED_CONTENT_IN_TRUSTED_SLOT: 'retry_without_sensitive_context',
@@ -1505,7 +1542,7 @@ export function checkSafetyAudit(
       }
     }
 
-    if (containsRunFrom(detail, texts, runLength)) {
+    if (sharesTextRunWith(detail, texts, runLength)) {
       defects.push({
         code: 'AUDIT_CONTAINS_RAW_TEXT',
         findingIndex: index,
@@ -1521,6 +1558,13 @@ export function checkSafetyAudit(
  * Does `haystack` contain any substring of `length` or more characters that also
  * appears in one of `sources`?
  *
+ * Exported because two callers need this judgement and neither should own a
+ * second copy of it: `checkSafetyAudit` asks it about a finding detail, and
+ * `lib/safety/postValidator.ts` asks it about a user-visible segment against a
+ * span classified `sensitive`. They are the same question — "does this text
+ * reproduce that text" — and Sprint 06's recorded cost of answering one question
+ * in two places is four review rounds.
+ *
  * A sliding window over the *source*, which is the direction that matters: the
  * detail is short static prose and the source can be long, so windowing the
  * source and probing the detail keeps the work proportional to the input the
@@ -1531,7 +1575,9 @@ export function checkSafetyAudit(
  * lowercasing is still a leak and Sprint 08's lesson about instruments is that
  * the comfortable check is the one that finds nothing.
  */
-function containsRunFrom(haystack: string, sources: readonly string[], length: number): boolean {
+export function sharesTextRunWith(haystack: string, sources: readonly string[], length: number): boolean {
+  if (typeof haystack !== 'string' || haystack.length === 0) return false;
+  if (!Number.isInteger(length) || length < 1) return false;
   const normalizedHaystack = haystack.toLowerCase().replace(/\s+/g, ' ');
   for (const source of sources) {
     if (typeof source !== 'string') continue;
@@ -1542,6 +1588,69 @@ function containsRunFrom(haystack: string, sources: readonly string[], length: n
     }
   }
   return false;
+}
+
+/* ── Instant arithmetic ──────────────────────────────────────────── */
+
+/**
+ * Epoch millis, or null when the value is not an `Instant`.
+ *
+ * **The judgement of what a valid instant is stays `isInstant`'s**, which is
+ * Sprint 08's and is imported, not re-derived. `Date.parse` is reached only for
+ * values `isInstant` has already accepted, so every permissive reading it would
+ * otherwise allow is unreachable from here: a bare `'2026'`, a date-time with no
+ * offset, and `'2026-02-30T00:00:00Z'` — which `Date.parse` silently repairs to
+ * the 2nd of March — are all rejected before this line runs.
+ *
+ * Writing a second regex here instead would be the exact duplication this sprint
+ * was told twice to avoid, and it would be the dangerous half of it: two
+ * spellings of "what is a valid instant" agree until one of them is tightened.
+ */
+function millisOf(value: unknown): number | null {
+  if (!isInstant(value)) return null;
+  const parsed = Date.parse(value as unknown as string);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+/**
+ * Do two instants denote the same moment?
+ *
+ * Numeric comparison, never string equality. `'2026-01-01T00:00:00Z'` and
+ * `'2026-01-01T00:00:00.000+00:00'` are the same moment and different strings,
+ * and the hallucinated-time check compares an instant a *candidate* states
+ * against an instant an *observation* carries — two fields written by two
+ * producers, which is precisely where the formats differ. String equality would
+ * report a fabrication for a correctly sourced time, and a suite built around it
+ * would then be "fixed" by loosening the check.
+ *
+ * Returns false when either side is not an instant: "these are equal" is a claim,
+ * and an unparseable value supports no claim. `INSTANT_MALFORMED` is the code
+ * for that condition, reported separately rather than folded in here.
+ */
+export function instantsEqual(left: unknown, right: unknown): boolean {
+  const leftMillis = millisOf(left);
+  if (leftMillis === null) return false;
+  const rightMillis = millisOf(right);
+  if (rightMillis === null) return false;
+  return leftMillis === rightMillis;
+}
+
+/**
+ * `to - from` in milliseconds, or null when either side is not an instant.
+ *
+ * Null rather than 0, and that is the fail-closed direction: 0 would read as
+ * "no time has passed", which is the answer that makes a cooldown check *pass*
+ * on an unreadable timestamp. A caller receiving null must decide explicitly,
+ * and `lib/safety/preValidator.ts` decides by reporting
+ * `EVALUATION_INSTANT_INVALID` and suppressing the interval judgement, because
+ * that judgement borrows its bound from the field that did not parse.
+ */
+export function millisBetweenInstants(from: unknown, to: unknown): number | null {
+  const fromMillis = millisOf(from);
+  if (fromMillis === null) return null;
+  const toMillis = millisOf(to);
+  if (toMillis === null) return null;
+  return toMillis - fromMillis;
 }
 
 /* ── Policy ──────────────────────────────────────────────────────── */
