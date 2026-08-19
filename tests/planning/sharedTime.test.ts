@@ -264,3 +264,35 @@ test('a zone with no DST has no anomalous times at all', () => {
     assert.equal(resolveLocalTime(parts, 'UTC').kind, 'exact');
   }
 });
+
+test('an unrecognised fold policy resolves to nothing rather than silently to "latest"', () => {
+  // The obvious spelling — `policy === 'earliest' ? first : second` — makes every
+  // value that is not 'earliest' mean 'latest'. That turns a fold nobody resolved
+  // into a definite instant, and the caller then counts working minutes that rest
+  // on a choice no config made. `FoldPolicy` makes it unreachable through the
+  // type; the callers that matter sit on an untyped boundary (a corpus loaded as
+  // data, an oracle whose job is to report rather than raise).
+  const fold = resolveLocalTime({ year: 2026, month: 11, day: 1, hour: 1, minute: 30 }, 'America/New_York');
+  assert.equal(fold.kind, 'fold');
+
+  assert.equal(instantFromResolution(fold, 'earliest'), '2026-11-01T05:30:00.000Z');
+  assert.equal(instantFromResolution(fold, 'latest'), '2026-11-01T06:30:00.000Z');
+  for (const bogus of ['ask-the-user', 'LATEST', '', 'first'] as unknown as Array<'earliest' | 'latest'>) {
+    assert.equal(
+      instantFromResolution(fold, bogus),
+      null,
+      `policy ${JSON.stringify(bogus)} must not be read as a side of the fold`,
+    );
+  }
+});
+
+test('an unrecognised fold policy does not disturb a time that is not folded', () => {
+  // The guard must not turn every resolution null: an unambiguous local time has
+  // one instant whatever the policy says, and a caller that lost those would
+  // report an empty calendar rather than an unresolved ambiguity.
+  const exact = resolveLocalTime({ year: 2026, month: 11, day: 9, hour: 9, minute: 0 }, 'America/New_York');
+  assert.equal(
+    instantFromResolution(exact, 'nonsense' as unknown as 'earliest'),
+    '2026-11-09T14:00:00.000Z',
+  );
+});

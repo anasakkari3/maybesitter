@@ -22,7 +22,7 @@
  * no determinism test could catch it.
  */
 
-import type { Instant, LocalTimeResolution, TimeInterval } from '../../../src/contracts/v1/planningContracts';
+import type { FoldPolicy, Instant, LocalTimeResolution, TimeInterval } from '../../../src/contracts/v1/planningContracts';
 
 /** Wall-clock fields, as they read on a clock face in some zone. */
 export interface WallClockParts {
@@ -283,12 +283,30 @@ export function resolveLocalTime(parts: WallClockParts, timeZone: string): Local
  * a window to resume after a gap read `resumesAt` themselves — the decision of
  * whether a skipped start shortens a window or invalidates it belongs to the
  * track that owns windows, not to this primitive.
+ *
+ * Returns null for an **unrecognised policy** too, and that case is worth its
+ * own paragraph because the obvious spelling of this function gets it wrong.
+ * Written as `foldPolicy === 'earliest' ? first : second`, every value that is
+ * not the string `'earliest'` silently becomes `'latest'` — so a config
+ * carrying a policy this module does not know would resolve a genuinely
+ * ambiguous local time to a definite instant and manufacture capacity out of an
+ * ambiguity nobody resolved. `FoldPolicy` makes that unreachable through the
+ * type, but the callers that matter here sit on an untyped boundary: a scenario
+ * corpus loaded from data, and an oracle whose entire job is to report what is
+ * wrong with an input rather than to raise on it.
+ *
+ * A null return therefore means "no instant can be chosen", and the caller
+ * decides which finding that is — `NONEXISTENT_LOCAL_TIME` for a gap,
+ * `AMBIGUOUS_LOCAL_TIME` for a fold the config declined to resolve. That split
+ * is the caller's because only the caller knows which it asked about.
  */
 export function instantFromResolution(
   resolution: LocalTimeResolution,
-  foldPolicy: 'earliest' | 'latest',
+  foldPolicy: FoldPolicy,
 ): Instant | null {
   if (resolution.kind === 'exact') return resolution.instant;
   if (resolution.kind === 'gap') return null;
-  return foldPolicy === 'earliest' ? resolution.firstInstant : resolution.secondInstant;
+  if (foldPolicy === 'earliest') return resolution.firstInstant;
+  if (foldPolicy === 'latest') return resolution.secondInstant;
+  return null;
 }
