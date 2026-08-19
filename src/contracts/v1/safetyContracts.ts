@@ -128,12 +128,15 @@
 
 import { MODULE_CONTRACT_VERSION } from './moduleContracts';
 import {
+  RECOMMENDATION_DECISION_VERDICTS,
   checkEvidenceGraph,
   isInstant,
   resolveEvidenceRoots,
   type EvidenceGraph,
   type EvidenceNodeId,
   type Instant,
+  type RecommendationDecision,
+  type RecommendationDecisionVerdict,
 } from './recommendationContracts';
 
 export const SAFETY_CONTRACT_VERSION = MODULE_CONTRACT_VERSION;
@@ -153,8 +156,8 @@ export const SAFETY_SCHEMA_VERSION = 'safety-v1' as const;
  * schema version back — and it is why the `safety` descriptor there spells
  * `'safety-v1'` as a literal instead of importing `SAFETY_SCHEMA_VERSION`.
  */
-export type { EvidenceGraph, EvidenceNodeId, Instant };
-export { checkEvidenceGraph, isInstant, resolveEvidenceRoots };
+export type { EvidenceGraph, EvidenceNodeId, Instant, RecommendationDecision, RecommendationDecisionVerdict };
+export { RECOMMENDATION_DECISION_VERDICTS, checkEvidenceGraph, isInstant, resolveEvidenceRoots };
 
 /* ── What is being judged ────────────────────────────────────────── */
 
@@ -323,16 +326,95 @@ export interface SafetyRequest {
   /** The most exposed class this surface may draw on. */
   readonly permittedSensitivity: SensitivityClass;
   readonly pressureBudget: PressureBudget;
+  /**
+   * The user acts the caller attests actually happened.
+   *
+   * Trusted state, on the same footing as an `ObservedEvidence`: it is what a
+   * `decision_echo` claim is checked against. `RecommendationDecision` is
+   * Sprint 08's shape, imported rather than restated — a second decision record
+   * here would be two copies of one dataset, which is the Sprint 06 gap, and the
+   * failure mode would be specific: the verdict vocabularies would diverge and
+   * `DECISION_ECHO_MISMATCHED` would start reporting a disagreement between two
+   * spellings rather than a fabrication.
+   *
+   * `checkRecommendationDecision` is deliberately **not** used on these.
+   * It judges a decision against the offer it targets, and the gateway holds no
+   * offer — it is given the record as an attestation, not as something to
+   * re-derive. Reaching for it would mean inventing an offer to satisfy a
+   * signature, which is how a check starts measuring its own fixture.
+   *
+   * Unbounded and deliberately not in `SAFETY_LIMITS`: the validator indexes
+   * into this array and never iterates it, so its length cannot make any pass
+   * more than constant-time. A bound declared here would be one nothing
+   * enforces, which is the exact shape Sprint 08 paid 8.2 seconds of CPU for.
+   */
+  readonly attestedDecisions: readonly RecommendationDecision[];
 }
 
-/** What a claim asserts, at the granularity the gateway can check. */
-export type CandidateClaimKind = 'statement' | 'time' | 'quantity' | 'commitment_state';
+/**
+ * What a claim asserts, at the granularity the gateway can check.
+ *
+ * `decision_echo` is the odd one and it is here because of a cross-track
+ * adjudication with #38, recorded so a future reader finds the ruling and not
+ * just its consequence.
+ *
+ * **The question.** #38 produces claims about the *user's own act* — "you marked
+ * that done". Their truth condition is a decision record, not an evidence node,
+ * so the first proposal was to drop them from `SafetyCandidate.claims`
+ * altogether. The reasoning was sound as far as it went: converting them with
+ * `supportedBy: []` fires `UNSOURCED_CLAIM` on every honest acknowledgement,
+ * and attaching the accepted option's evidence instead would make a *fabricated*
+ * completion look sourced, which is strictly worse than the gap.
+ *
+ * **The ruling, and why the third option beats both.** Dropping them leaves the
+ * sharpest thing the coaching module can emit checked by the coaching module
+ * alone — and this file's entire justification for refusing to import
+ * `lib/coaching/**` is Sprint 05's rule that a check owned by the thing it
+ * checks is not a check. Accepting that asymmetry would have been the gateway
+ * applying a rule to everyone but the one claim class where it matters most:
+ * #38's own contract calls a fabricated completion the worst output the module
+ * can produce and one field away from a correct one.
+ *
+ * The reason the claim looked uncheckable was not that its truth condition is
+ * unknowable. It was that `SafetyRequest` did not carry the record. That is a
+ * gap in this file, not a fact about the world — so the fix is
+ * `SafetyRequest.attestedDecisions`, and the class becomes checkable rather than
+ * exempt. Ruling it out of scope would have meant adding a code nothing could
+ * produce, which is the Sprint 08 unreachable-outcome defect committed
+ * deliberately.
+ *
+ * **What this deliberately is not.** It is not a second copy of #38's
+ * `DECISION_CLAIM_WITHOUT_DECISION` / `DECISION_CLAIM_VERDICT_MISMATCH`. Sprint
+ * 06's lesson distinguishes the two cases precisely: two independent
+ * implementations of a *judgement* check each other and that is what the
+ * cross-track test is for; two copies of *data* are a gap. So the **judgement**
+ * is made twice, on purpose, by a producer and by an independent guard — and the
+ * **data** is single-sourced, because `attestedDecisions` is Sprint 08's
+ * `RecommendationDecision`, imported rather than restated.
+ *
+ * **The limit of the check, stated rather than oversold.** The gateway compares
+ * what a producer *says* against what the request *attests*; a caller that
+ * forges the record defeats it. That is true of every check in this file —
+ * `valueFingerprint` is supplied by whoever read it, `sensitivity` is declared
+ * rather than inferred, the pressure budget is the caller's — and it is still a
+ * real check, because the realizer that writes the prose and the store that
+ * writes the decision are different places. A fabrication by the realizer is
+ * caught; only a compromised caller is not, and a compromised caller defeats
+ * everything.
+ */
+export type CandidateClaimKind =
+  | 'statement'
+  | 'time'
+  | 'quantity'
+  | 'commitment_state'
+  | 'decision_echo';
 
 export const CANDIDATE_CLAIM_KINDS = Object.freeze([
   'statement',
   'time',
   'quantity',
   'commitment_state',
+  'decision_echo',
 ] as const) satisfies readonly CandidateClaimKind[];
 
 /**
@@ -346,12 +428,31 @@ export const CANDIDATE_CLAIM_KINDS = Object.freeze([
  * hallucinated-time boundary is about: a time the candidate states must be a
  * time some observation actually carried, and `FABRICATED_INSTANT` fires when
  * `resolveEvidenceRoots` reaches no observation asserting it.
+ *
+ * `decisionIndex` and `echoedVerdict` are non-null only for
+ * `kind: 'decision_echo'`. `decisionIndex` is a **position** into
+ * `SafetyRequest.attestedDecisions`, never a decision id — the same rule every
+ * locator on `SafetyFinding` follows, and for the same reason: an index cannot
+ * carry content. `echoedVerdict` is what the prose says the user did, so that
+ * "you marked that done" resting on a record that says `defer` is a comparison
+ * rather than a guess.
+ *
+ * All four fields are required-and-nullable rather than optional. An optional
+ * field is one a producer can omit without the compiler saying anything, and the
+ * whole point of this change is that #38's existing conversion — which drops
+ * decision echoes entirely — must stop compiling until it is adjudicated. The
+ * compiler is the notification mechanism; a silent default would have preserved
+ * exactly the gap this exists to close.
  */
 export interface CandidateClaim {
   readonly claimId: string;
   readonly kind: CandidateClaimKind;
   /** For `kind: 'time'`; null otherwise. */
   readonly statedInstant: Instant | null;
+  /** For `kind: 'decision_echo'`: a position in `SafetyRequest.attestedDecisions`. */
+  readonly decisionIndex: number | null;
+  /** For `kind: 'decision_echo'`: the act the prose attributes to the user. */
+  readonly echoedVerdict: RecommendationDecisionVerdict | null;
   readonly supportedBy: readonly EvidenceNodeId[];
 }
 
@@ -674,6 +775,38 @@ export type SafetyPreCode =
  *                          The persistence boundary. `STATE_WRITE_POLICY` says
  *                          intelligence modules may not write canonical state
  *                          directly; this is the code that observes one trying.
+ * - `DECISION_ECHO_UNATTESTED`
+ *                        — a `decision_echo` claim naming no decision, naming a
+ *                          position the request does not carry, or naming one
+ *                          whose `decidedAt` is not before the evaluation
+ *                          instant. A fabricated completion, which #38's
+ *                          contract calls the worst output its module can
+ *                          produce.
+ *
+ *                          The third case is folded in rather than given a
+ *                          fourth code, and the folding is the claim that a
+ *                          decision recorded as happening *after* now is not
+ *                          "attested at this instant" at all — it is a record of
+ *                          something that has not happened, which is what this
+ *                          code means. Named here so a future reader can split
+ *                          it if it proves too coarse, on the terms Sprint 08
+ *                          named `defer` as an explicit exclusion rather than
+ *                          letting it become the place unexplained things go.
+ * - `DECISION_ECHO_MISMATCHED`
+ *                        — the act the prose attributes to the user is not the
+ *                          act the record carries: the message says "you marked
+ *                          that done" and the decision says `defer`. Distinct
+ *                          from `DECISION_ECHO_UNATTESTED` because citing
+ *                          nothing and citing something that says otherwise are
+ *                          different mistakes by different producers — the same
+ *                          distinction `recommendationContracts` draws between
+ *                          `UNSOURCED_CLAIM` and `UNKNOWN_EVIDENCE_NODE`.
+ *
+ *                          Both are filed under `provenance` rather than under a
+ *                          new boundary: a decision record is what this class of
+ *                          claim rests on, so "it rests on nothing" is the same
+ *                          boundary whether the source would have been an
+ *                          observation or an act.
  * - `INSTRUCTION_ECHOED` — the candidate reproduces text from a span that
  *                          `INJECTED_INSTRUCTION` fired on. The output half of
  *                          the injection boundary: the request being attacked is
@@ -696,7 +829,9 @@ export type SafetyPostCode =
   | 'PRESSURE_INTENSITY_EXCEEDED'
   | 'PERSISTENCE_CLAIMED'
   | 'UNCONFIRMED_WRITE_PROPOSED'
-  | 'INSTRUCTION_ECHOED';
+  | 'INSTRUCTION_ECHOED'
+  | 'DECISION_ECHO_UNATTESTED'
+  | 'DECISION_ECHO_MISMATCHED';
 
 export type SafetyReasonCode = SafetyPreCode | SafetyPostCode;
 
@@ -726,6 +861,8 @@ export const SAFETY_POST_CODES = Object.freeze([
   'PERSISTENCE_CLAIMED',
   'UNCONFIRMED_WRITE_PROPOSED',
   'INSTRUCTION_ECHOED',
+  'DECISION_ECHO_UNATTESTED',
+  'DECISION_ECHO_MISMATCHED',
 ] as const) satisfies readonly SafetyPostCode[];
 
 type _PreCodesCovered =
@@ -820,6 +957,8 @@ export const SAFETY_CODE_BOUNDARIES: Readonly<Record<SafetyReasonCode, SafetyBou
   PERSISTENCE_CLAIMED: 'persistence',
   UNCONFIRMED_WRITE_PROPOSED: 'persistence',
   INSTRUCTION_ECHOED: 'injection',
+  DECISION_ECHO_UNATTESTED: 'provenance',
+  DECISION_ECHO_MISMATCHED: 'provenance',
 });
 
 /** Derived, never listed twice. */
@@ -885,6 +1024,8 @@ export const SAFETY_CODE_SCOPES: Readonly<Record<SafetyReasonCode, SafetyBlockSc
   PERSISTENCE_CLAIMED: 'candidate',
   UNCONFIRMED_WRITE_PROPOSED: 'candidate',
   INSTRUCTION_ECHOED: 'candidate',
+  DECISION_ECHO_UNATTESTED: 'candidate',
+  DECISION_ECHO_MISMATCHED: 'candidate',
 });
 
 /**
@@ -926,6 +1067,11 @@ export const SAFETY_CODE_SEVERITY: Readonly<Record<SafetyReasonCode, SafetySever
   PERSISTENCE_CLAIMED: 'blocking',
   UNCONFIRMED_WRITE_PROPOSED: 'blocking',
   INSTRUCTION_ECHOED: 'redactable',
+  // Blocking, not redactable. Dropping the sentence does not make a false
+  // statement about what the person did into a true one, and a message that
+  // silently loses its acknowledgement reads as the system forgetting.
+  DECISION_ECHO_UNATTESTED: 'blocking',
+  DECISION_ECHO_MISMATCHED: 'blocking',
 });
 
 /**
@@ -1019,6 +1165,12 @@ export const SAFETY_CODE_RECOVERY: Readonly<Record<SafetyReasonCode, SafeUserPat
   PERSISTENCE_CLAIMED: 'ask_user_to_confirm',
   UNCONFIRMED_WRITE_PROPOSED: 'ask_user_to_confirm',
   INSTRUCTION_ECHOED: 'offer_neutral_acknowledgement',
+  // Asking is the honest repair for an assertion nothing attests: it turns a
+  // false statement about the person into a question for them.
+  DECISION_ECHO_UNATTESTED: 'ask_user_to_confirm',
+  // Here a record does exist and disagrees, so the repair is to show it rather
+  // than to ask a question the product can already answer.
+  DECISION_ECHO_MISMATCHED: 'show_evidence_only',
 });
 
 /* ── Findings ────────────────────────────────────────────────────── */

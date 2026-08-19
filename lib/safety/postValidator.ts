@@ -21,11 +21,15 @@
  */
 
 import {
+  CANDIDATE_CLAIM_KINDS,
+  PROPOSED_EFFECT_KINDS,
+  RECOMMENDATION_DECISION_VERDICTS,
   SAFETY_LIMITS,
   PRESSURE_INTENSITY_RANK,
   checkEvidenceGraph,
   instantsEqual,
   isInstant,
+  millisBetweenInstants,
   resolveEvidenceRoots,
   sharesTextRunWith,
   type CandidateClaim,
@@ -33,6 +37,7 @@ import {
   type EvidenceGraph,
   type PressureIntensityLevel,
   type ProposedEffect,
+  type RecommendationDecision,
   type SafetyCandidate,
   type SafetyFinding,
   type SafetyRequest,
@@ -49,8 +54,23 @@ import {
 } from './lexicon';
 import { asArray, capFindings, finding, isObject } from './findings';
 
-const CANDIDATE_CLAIM_KINDS = ['statement', 'time', 'quantity', 'commitment_state'] as const;
-const PROPOSED_EFFECT_KINDS = ['none', 'propose_write', 'notify', 'canonical_write'] as const;
+/**
+ * `CANDIDATE_CLAIM_KINDS` and `PROPOSED_EFFECT_KINDS` are imported from the
+ * contract, not restated here.
+ *
+ * They *were* restated, in the first draft, and the adjudication that added
+ * `decision_echo` is what surfaced it: adding a kind to the contract left this
+ * file's private copy behind, so the new kind would have been reported
+ * `UNKNOWN_CANDIDATE_SHAPE` by the very validator that is supposed to check it.
+ * That is Sprint 06's lesson exactly — two copies of one datum do not check each
+ * other, they wait for one of them to be edited — and it is worth recording that
+ * the copies were four days old and had already diverged once.
+ *
+ * `SEGMENT_ROLES` stays local because the contract does not export it as data.
+ * Named so the asymmetry is a decision rather than an oversight; the right fix
+ * is to export it from the contract, and that belongs with the next change that
+ * touches `CandidateSegment` rather than in a validator commit.
+ */
 const SEGMENT_ROLES = ['body', 'question', 'option_label', 'footnote'] as const;
 const AUDIT_RUN_FOR_SENSITIVE_TEXT = 12;
 
@@ -82,6 +102,8 @@ export function validateSafetyCandidate(
     .filter((input) => isObject(input) && typeof input.text === 'string' && matchesAny(input.text, INJECTION_PATTERNS))
     .map((input) => input.text);
   const identifiers = collectIdentifiers(candidate, claims, effects, nodes);
+  const attested = isObject(request) ? asArray<RecommendationDecision>(request.attestedDecisions) : [];
+  const nowInstant = isObject(request) ? request.now : undefined;
 
   /* ── Bounds first, and scanning stops at them ─────────────────── */
 
@@ -214,6 +236,24 @@ export function validateSafetyCandidate(
       continue;
     }
 
+    /**
+     * A decision echo rests on an attested act rather than on the evidence
+     * graph, so it takes the decision checks in place of `UNSOURCED_CLAIM` —
+     * never *instead of a check*. See `CandidateClaimKind` in the contract for
+     * the cross-track ruling this implements.
+     *
+     * The exemption is deliberately narrow, and `validators.test.ts` pins that:
+     * a claim of any other kind with an empty `supportedBy` still reports
+     * `UNSOURCED_CLAIM`, and a `decision_echo` that names nothing still reports
+     * `DECISION_ECHO_UNATTESTED`. Sprint 08 recorded what an exemption becomes
+     * when nothing stops it widening — the place whatever stopped working gets
+     * put.
+     */
+    if (claim.kind === 'decision_echo') {
+      findings.push(...decisionEchoFindings(claim, index, attested, nowInstant));
+      continue;
+    }
+
     const cited = asArray<string>(claim.supportedBy);
     if (cited.length === 0) {
       // The claim rests on nothing, and that is decidable without the graph, so
@@ -331,6 +371,87 @@ export function validateSafetyCandidate(
   }
 
   return capFindings(findings, 'CANDIDATE_EXCEEDS_LIMIT');
+}
+
+/**
+ * Judge one `decision_echo` claim against the acts the request attests to.
+ *
+ * Indexes into `attested`; never iterates it. That is why `attestedDecisions`
+ * carries no bound in `SAFETY_LIMITS` — a bound that constrains no work is the
+ * decorative kind Sprint 08 paid for.
+ *
+ * Reports at most one finding per claim: one defect earns one code, and an
+ * unattested echo has no verdict to disagree with.
+ */
+function decisionEchoFindings(
+  claim: CandidateClaim,
+  index: number,
+  attested: readonly RecommendationDecision[],
+  now: unknown,
+): readonly SafetyFinding[] {
+  const position = claim.decisionIndex;
+  if (typeof position !== 'number' || !Number.isInteger(position) || position < 0 || position >= attested.length) {
+    return [
+      finding(
+        'DECISION_ECHO_UNATTESTED',
+        `claim #${index} states that the person took an action, and the request attests to no such act at that position`,
+        { claimIndex: index },
+      ),
+    ];
+  }
+
+  const decision = attested[position];
+  if (!isObject(decision)) {
+    return [
+      finding('DECISION_ECHO_UNATTESTED', `claim #${index} names an attestation that is not readable`, {
+        claimIndex: index,
+      }),
+    ];
+  }
+
+  /**
+   * An act recorded as happening after the evaluation instant has not happened.
+   *
+   * Folded into `UNATTESTED` rather than given its own code, on the reading
+   * stated in the contract: such a record attests to nothing *at this instant*.
+   * Suppressed — not decided — when either instant is unusable, because the
+   * comparison would borrow its bound from a field already reported malformed by
+   * `EVALUATION_INSTANT_INVALID`. Deciding it anyway is the direction that makes
+   * a check pass hardest exactly when the caller has lost the clock.
+   */
+  const elapsed = millisBetweenInstants(decision.decidedAt, now);
+  if (elapsed !== null && elapsed < 0) {
+    return [
+      finding(
+        'DECISION_ECHO_UNATTESTED',
+        `claim #${index} states that the person took an action recorded as happening after the moment being judged`,
+        { claimIndex: index },
+      ),
+    ];
+  }
+
+  const echoed = claim.echoedVerdict;
+  if (!(RECOMMENDATION_DECISION_VERDICTS as readonly unknown[]).includes(echoed)) {
+    return [
+      finding(
+        'DECISION_ECHO_UNATTESTED',
+        `claim #${index} attributes an act to the person that this contract version does not recognise`,
+        { claimIndex: index },
+      ),
+    ];
+  }
+
+  if (echoed !== decision.verdict) {
+    return [
+      finding(
+        'DECISION_ECHO_MISMATCHED',
+        `claim #${index} attributes a different act to the person than the one the attested record carries`,
+        { claimIndex: index },
+      ),
+    ];
+  }
+
+  return [];
 }
 
 function limitFindings(

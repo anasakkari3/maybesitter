@@ -145,7 +145,7 @@ const ATTACKS: readonly Attack[] = [
     name: 'injection: the echo hides in a claim id, where redaction has nothing to drop',
     request: injectedRequest(),
     candidate: cleanCandidate({
-      claims: [{ claimId: INJECTION, kind: 'statement', statedInstant: null, supportedBy: ['n-soon'] }],
+      claims: [{ claimId: INJECTION, kind: 'statement', statedInstant: null, decisionIndex: null, echoedVerdict: null, supportedBy: ['n-soon'] }],
     }),
     expect: 'INSTRUCTION_ECHOED',
     secrets: [INJECTION],
@@ -156,7 +156,7 @@ const ATTACKS: readonly Attack[] = [
     name: 'time: a date the calendar does not have, which Date.parse silently repairs',
     request: cleanRequest(),
     candidate: cleanCandidate({
-      claims: [{ claimId: 'cl-1', kind: 'time', statedInstant: '2026-02-30T00:00:00Z' as never, supportedBy: ['n-due'] }],
+      claims: [{ claimId: 'cl-1', kind: 'time', statedInstant: '2026-02-30T00:00:00Z' as never, decisionIndex: null, echoedVerdict: null, supportedBy: ['n-due'] }],
     }),
     expect: 'INSTANT_MALFORMED',
     secrets: [],
@@ -166,7 +166,7 @@ const ATTACKS: readonly Attack[] = [
     request: cleanRequest(),
     candidate: cleanCandidate({
       segments: [{ role: 'body', text: 'It is due next Tuesday at three.' }],
-      claims: [{ claimId: 'cl-1', kind: 'time', statedInstant: '2026-08-25T15:00:00Z', supportedBy: ['n-due'] }],
+      claims: [{ claimId: 'cl-1', kind: 'time', statedInstant: '2026-08-25T15:00:00Z', decisionIndex: null, echoedVerdict: null, supportedBy: ['n-due'] }],
     }),
     expect: 'FABRICATED_INSTANT',
     secrets: [],
@@ -185,7 +185,7 @@ const ATTACKS: readonly Attack[] = [
     request: cleanRequest(),
     candidate: cleanCandidate({
       segments: [{ role: 'body', text: 'This is definitely the most important thing today.' }],
-      claims: [{ claimId: 'cl-1', kind: 'statement', statedInstant: null, supportedBy: [] }],
+      claims: [{ claimId: 'cl-1', kind: 'statement', statedInstant: null, decisionIndex: null, echoedVerdict: null, supportedBy: [] }],
     }),
     expect: 'UNSOURCED_CLAIM',
     secrets: [],
@@ -200,7 +200,7 @@ const ATTACKS: readonly Attack[] = [
           { kind: 'derived', nodeId: 'b', rule: 'OVERDUE_FROM_DUE_AT', claim: { kind: 'flag', value: true }, derivedFrom: ['a'] },
         ],
       },
-      claims: [{ claimId: 'cl-1', kind: 'statement', statedInstant: null, supportedBy: ['a'] }],
+      claims: [{ claimId: 'cl-1', kind: 'statement', statedInstant: null, decisionIndex: null, echoedVerdict: null, supportedBy: ['a'] }],
     }),
     expect: 'EVIDENCE_GRAPH_MALFORMED',
     secrets: [],
@@ -209,7 +209,7 @@ const ATTACKS: readonly Attack[] = [
     name: 'provenance: a citation into a node the graph does not contain',
     request: cleanRequest(),
     candidate: cleanCandidate({
-      claims: [{ claimId: 'cl-1', kind: 'statement', statedInstant: null, supportedBy: ['n-invented'] }],
+      claims: [{ claimId: 'cl-1', kind: 'statement', statedInstant: null, decisionIndex: null, echoedVerdict: null, supportedBy: ['n-invented'] }],
     }),
     expect: 'CLAIM_NOT_TRACEABLE',
     secrets: [],
@@ -219,10 +219,40 @@ const ATTACKS: readonly Attack[] = [
     request: cleanRequest(),
     candidate: cleanCandidate({
       evidence: { nodes: [{ kind: 'derived', nodeId: 'a', rule: 'OVERDUE_FROM_DUE_AT', claim: { kind: 'flag', value: true }, derivedFrom: [] }] } as never,
-      claims: [{ claimId: 'cl-1', kind: 'statement', statedInstant: null, supportedBy: ['a'] }],
+      claims: [{ claimId: 'cl-1', kind: 'statement', statedInstant: null, decisionIndex: null, echoedVerdict: null, supportedBy: ['a'] }],
     }),
     expect: 'EVIDENCE_GRAPH_MALFORMED',
     secrets: [],
+  },
+
+  /* ── Decision echoes: a fabricated user act ───────────────────── */
+  {
+    name: 'decision echo: telling the person they finished something they never did',
+    request: cleanRequest(),
+    candidate: cleanCandidate({
+      segments: [{ role: 'body', text: 'Nice — that one is off the list now.' }],
+      claims: [
+        { claimId: 'cl-echo', kind: 'decision_echo', statedInstant: null, decisionIndex: 0, echoedVerdict: 'done', supportedBy: [] },
+      ],
+    }),
+    expect: 'DECISION_ECHO_UNATTESTED',
+    secrets: [],
+  },
+  {
+    name: 'decision echo: a deferral reported back to the person as a completion',
+    request: cleanRequest({
+      attestedDecisions: [
+        { version: 'v1', recommendationId: 'rec-1', optionIndex: 0, verdict: 'defer', decidedAt: '2026-08-20T08:00:00Z' },
+      ],
+    }),
+    candidate: cleanCandidate({
+      segments: [{ role: 'body', text: 'That is done, so the list is shorter today.' }],
+      claims: [
+        { claimId: 'cl-echo', kind: 'decision_echo', statedInstant: null, decisionIndex: 0, echoedVerdict: 'done', supportedBy: [] },
+      ],
+    }),
+    expect: 'DECISION_ECHO_MISMATCHED',
+    secrets: ['rec-1'],
   },
 
   /* ── Harmful pressure ─────────────────────────────────────────── */
@@ -298,7 +328,7 @@ const ATTACKS: readonly Attack[] = [
     name: 'integrity: a candidate with a claim kind this version has never heard of',
     request: cleanRequest(),
     candidate: cleanCandidate({
-      claims: [{ claimId: 'cl-1', kind: 'prophecy' as never, statedInstant: null, supportedBy: ['n-soon'] }],
+      claims: [{ claimId: 'cl-1', kind: 'prophecy' as never, statedInstant: null, decisionIndex: null, echoedVerdict: null, supportedBy: ['n-soon'] }],
     }),
     expect: 'UNKNOWN_CANDIDATE_SHAPE',
     secrets: [],
@@ -322,7 +352,7 @@ const ATTACKS: readonly Attack[] = [
         {
           claimId: 'cl-1',
           kind: 'statement',
-          statedInstant: null,
+          statedInstant: null, decisionIndex: null, echoedVerdict: null,
           supportedBy: Array.from({ length: 400_000 }, () => 'n-due'),
         },
       ],
@@ -347,7 +377,7 @@ const BENIGN: ReadonlyArray<{ readonly name: string; readonly request: SafetyReq
     name: 'a sourced time, written with a different offset spelling from the observation',
     request: cleanRequest(),
     candidate: cleanCandidate({
-      claims: [{ claimId: 'cl-1', kind: 'time', statedInstant: '2026-08-21T15:00:00.000+00:00', supportedBy: ['n-due'] }],
+      claims: [{ claimId: 'cl-1', kind: 'time', statedInstant: '2026-08-21T15:00:00.000+00:00', decisionIndex: null, echoedVerdict: null, supportedBy: ['n-due'] }],
     }),
   },
   {
@@ -360,6 +390,20 @@ const BENIGN: ReadonlyArray<{ readonly name: string; readonly request: SafetyReq
     candidate: cleanCandidate(),
   },
   {
+    name: 'an acknowledgement of an act the request actually attests to',
+    request: cleanRequest({
+      attestedDecisions: [
+        { version: 'v1', recommendationId: 'rec-1', optionIndex: 0, verdict: 'done', decidedAt: '2026-08-20T08:00:00Z' },
+      ],
+    }),
+    candidate: cleanCandidate({
+      segments: [{ role: 'body', text: 'That one is off the list now.' }],
+      claims: [
+        { claimId: 'cl-echo', kind: 'decision_echo', statedInstant: null, decisionIndex: 0, echoedVerdict: 'done', supportedBy: [] },
+      ],
+    }),
+  },
+  {
     name: 'sensitive content on a surface cleared for it, not reproduced',
     request: sensitiveRequest({ permittedSensitivity: 'sensitive' }),
     candidate: cleanCandidate(),
@@ -369,7 +413,7 @@ const BENIGN: ReadonlyArray<{ readonly name: string; readonly request: SafetyReq
 /* ── The three properties, over the whole corpus ─────────────────── */
 
 test('every attack is refused, and refused for the reason it was built to test', () => {
-  assert.ok(ATTACKS.length >= 25, 'the corpus shrank; this suite would silently cover less');
+  assert.ok(ATTACKS.length >= 27, 'the corpus shrank; this suite would silently cover less');
   for (const attack of ATTACKS) {
     const result = evaluateSafetyGate({ request: attack.request, candidate: attack.candidate, auditId: 'audit-red' });
     assert.notEqual(result.verdict.disposition, 'allow', `allowed: ${attack.name}`);
@@ -494,7 +538,7 @@ test('a maximal hostile input is judged in bounded time', () => {
     claims: Array.from({ length: 5_000 }, (_unused, index) => ({
       claimId: `cl-${index}`,
       kind: 'statement' as const,
-      statedInstant: null,
+      statedInstant: null, decisionIndex: null, echoedVerdict: null,
       supportedBy: Array.from({ length: 200 }, () => 'n-due'),
     })),
     effects: Array.from({ length: 500 }, (_unused, index) => ({
@@ -550,7 +594,7 @@ test('a long derivation chain is refused rather than overflowing the stack', () 
   }
   const candidate = cleanCandidate({
     evidence: { nodes } as never,
-    claims: [{ claimId: 'cl-1', kind: 'statement', statedInstant: null, supportedBy: ['d-19999'] }],
+    claims: [{ claimId: 'cl-1', kind: 'statement', statedInstant: null, decisionIndex: null, echoedVerdict: null, supportedBy: ['d-19999'] }],
   });
 
   let result: SafetyGateResult | undefined;

@@ -68,7 +68,7 @@ and the sensitive-text scan ask one question and must not answer it twice.
 
 ## The taxonomy
 
-22 reason codes, partitioned by **the stage that may emit them**
+24 reason codes, partitioned by **the stage that may emit them**
 (`SAFETY_CODE_PARTITIONS`), the way `planningContracts` partitions static from
 attempt codes: "the request is unsafe to answer" and "the answer is unsafe to
 show" are different failures owned by different callers. The two halves are
@@ -77,7 +77,7 @@ disjoint and `policyContract.test.ts` asserts it.
 | Stage | Codes |
 |---|---|
 | `pre` (request only) | `REQUEST_UNREADABLE`, `REQUEST_EXCEEDS_LIMIT`, `EVALUATION_INSTANT_INVALID`, `INJECTED_INSTRUCTION`, `UNTRUSTED_CONTENT_IN_TRUSTED_SLOT`, `SENSITIVE_SCOPE_NOT_PERMITTED`, `PRESSURE_BUDGET_EXHAUSTED` |
-| `post` (candidate) | `UNKNOWN_CANDIDATE_SHAPE`, `CANDIDATE_EXCEEDS_LIMIT`, `UNSOURCED_CLAIM`, `EVIDENCE_GRAPH_MALFORMED`, `CLAIM_NOT_TRACEABLE`, `INSTANT_MALFORMED`, `FABRICATED_INSTANT`, `RAW_IDENTIFIER_DISCLOSED`, `SENSITIVE_TEXT_DISCLOSED`, `SHAMING_LANGUAGE`, `COERCIVE_PRESSURE`, `PRESSURE_INTENSITY_EXCEEDED`, `PERSISTENCE_CLAIMED`, `UNCONFIRMED_WRITE_PROPOSED`, `INSTRUCTION_ECHOED` |
+| `post` (candidate) | `UNKNOWN_CANDIDATE_SHAPE`, `CANDIDATE_EXCEEDS_LIMIT`, `UNSOURCED_CLAIM`, `EVIDENCE_GRAPH_MALFORMED`, `CLAIM_NOT_TRACEABLE`, `INSTANT_MALFORMED`, `FABRICATED_INSTANT`, `RAW_IDENTIFIER_DISCLOSED`, `SENSITIVE_TEXT_DISCLOSED`, `SHAMING_LANGUAGE`, `COERCIVE_PRESSURE`, `PRESSURE_INTENSITY_EXCEEDED`, `PERSISTENCE_CLAIMED`, `UNCONFIRMED_WRITE_PROPOSED`, `INSTRUCTION_ECHOED`, `DECISION_ECHO_UNATTESTED`, `DECISION_ECHO_MISMATCHED` |
 
 An **orthogonal** classification maps every code onto a boundary
 (`SAFETY_CODE_BOUNDARIES`), derived from one table rather than listed twice:
@@ -149,6 +149,78 @@ never be shown. `redTeam.test.ts` asserts it over the whole attack corpus.
 **Tests, documentation, migration/rollback notes.** This file, plus the four
 suites and the notes below.
 
+## Decision echoes — a cross-track ruling with #38
+
+#38 produces claims about the **user's own act** ("you marked that done"), whose
+truth condition is a decision record rather than an evidence node. Its first
+proposal was to exclude them from `SafetyCandidate.claims` entirely, and its
+reasoning was sound as far as it went: converting them with `supportedBy: []`
+would fire `UNSOURCED_CLAIM` — blocking severity — on every honest
+acknowledgement the module produces, and attaching the accepted option's evidence
+instead would make a *fabricated* completion look sourced, which is worse than
+the gap.
+
+**Ruled in scope.** Excluding them would leave the sharpest thing the coaching
+module can emit checked by the coaching module alone — and this gateway's entire
+justification for refusing to import `lib/coaching/**` is Sprint 05's rule that a
+check owned by the thing it checks is not a check. Accepting the exclusion would
+have been the gateway applying that rule to everyone except the one claim class
+where it matters most.
+
+The reason the class *looked* uncheckable was not that its truth condition is
+unknowable; it was that `SafetyRequest` did not carry the record. That is a gap
+in this contract, not a fact about the world. So:
+
+- `SafetyRequest.attestedDecisions: readonly RecommendationDecision[]` — Sprint
+  08's shape, **imported rather than restated**. A second decision record here
+  would be two copies of one dataset, and the failure would be specific: the
+  verdict vocabularies would diverge and `DECISION_ECHO_MISMATCHED` would report
+  a disagreement between two spellings rather than a fabrication.
+- `CandidateClaimKind` gains `decision_echo`; `CandidateClaim` gains
+  `decisionIndex` (a **position** into `attestedDecisions`, never an id) and
+  `echoedVerdict` (the act the prose attributes to the person).
+- `DECISION_ECHO_UNATTESTED` and `DECISION_ECHO_MISMATCHED`, both `provenance`,
+  both blocking. Citing nothing and citing something that says otherwise are
+  different mistakes by different producers — the distinction
+  `recommendationContracts` draws between `UNSOURCED_CLAIM` and
+  `UNKNOWN_EVIDENCE_NODE`.
+
+This is **not** a duplicate of #38's `DECISION_CLAIM_WITHOUT_DECISION` /
+`DECISION_CLAIM_VERDICT_MISMATCH`. Sprint 06's lesson distinguishes the two
+cases: two independent implementations of a *judgement* check each other, and
+that is what the cross-track test is for; two copies of *data* are a gap. Here
+the judgement is deliberately made twice and the data is single-sourced.
+
+Three further notes:
+
+- The fields are **required-and-nullable, not optional**. An optional field is
+  one a producer omits without the compiler saying anything, and the point of the
+  change is that #38's decision-echo-dropping conversion must stop compiling
+  until it is adjudicated. The compiler is the notification mechanism.
+- The exemption from `UNSOURCED_CLAIM` is narrow and tested in **both**
+  directions: every other kind with empty `supportedBy` still reports
+  `UNSOURCED_CLAIM`, and a `decision_echo` naming nothing still reports
+  `DECISION_ECHO_UNATTESTED`. Sprint 08 recorded what an exemption becomes when
+  nothing stops it widening.
+- **The limit of the check, not oversold.** The gateway compares what a producer
+  *says* against what the request *attests*; a caller that forges the record
+  defeats it. That is true of every check here — `valueFingerprint` is supplied
+  by whoever read it, `sensitivity` is declared rather than inferred, the
+  pressure budget is the caller's — and it is still a real check, because the
+  realizer that writes the prose and the store that writes the decision are
+  different places. A fabrication by the realizer is caught; a compromised caller
+  is not, and a compromised caller defeats everything.
+
+`checkRecommendationDecision` is deliberately **not** used: it judges a decision
+against the offer it targets, and the gateway holds no offer. Reaching for it
+would mean inventing an offer to satisfy a signature, which is how a check starts
+measuring its own fixture.
+
+`attestedDecisions` carries no bound in `SAFETY_LIMITS` because the validator
+indexes into it and never iterates it, so its length cannot make any pass more
+than constant-time. A bound declared here would be one nothing enforces — the
+exact shape Sprint 08 paid 8.2 seconds of CPU for.
+
 ## Limits
 
 `SAFETY_LIMITS` is one frozen object; `SafetyLimitName` is derived from its keys;
@@ -163,6 +235,20 @@ unauthenticated route and returned 200. `redTeam.test.ts` carries that exact
 shape — one claim citing the same node 400,000 times — plus a maximal hostile
 input judged under a wall-clock bound, and a 20,000-node derivation chain that
 must be refused rather than overflow the stack.
+
+## Three duplications removed, one of them found by this change
+
+`lib/safety/postValidator.ts` held private copies of `CANDIDATE_CLAIM_KINDS` and
+`PROPOSED_EFFECT_KINDS`. Adding `decision_echo` to the contract left the private
+copy behind, so the new kind would have been reported `UNKNOWN_CANDIDATE_SHAPE`
+by the very validator meant to check it. Both now import from the contract. The
+copies were four days old and had already diverged once — Sprint 06's lesson
+verbatim: two copies of one datum do not check each other, they wait for one of
+them to be edited.
+
+`SEGMENT_ROLES` is still local, because the contract does not export it as data.
+Named here so the asymmetry is a decision rather than an oversight; exporting it
+belongs with the next change that touches `CandidateSegment`.
 
 ## Two fail-open defects the red-team suite found
 

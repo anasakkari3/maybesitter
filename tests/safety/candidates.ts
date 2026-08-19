@@ -68,6 +68,7 @@ export function cleanRequest(overrides: Partial<SafetyRequest> = {}): SafetyRequ
       },
     ],
     permittedSensitivity: 'personal',
+    attestedDecisions: [],
     pressureBudget: {
       maxIntensity: 'low',
       minIntervalMinutes: 60,
@@ -91,13 +92,13 @@ export function cleanCandidate(overrides: Partial<SafetyCandidate> = {}): Safety
       {
         claimId: 'cl-1',
         kind: 'time',
-        statedInstant: DUE_AT,
+        statedInstant: DUE_AT, decisionIndex: null, echoedVerdict: null,
         supportedBy: ['n-due'],
       },
       {
         claimId: 'cl-2',
         kind: 'statement',
-        statedInstant: null,
+        statedInstant: null, decisionIndex: null, echoedVerdict: null,
         supportedBy: ['n-soon'],
       },
     ],
