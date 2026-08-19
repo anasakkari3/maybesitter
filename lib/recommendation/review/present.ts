@@ -63,6 +63,7 @@ import {
   offeredOptions,
   resolveEvidenceRoots,
   summarizeOptionSet,
+  isInstant,
 } from '../../../src/contracts/v1/recommendationContracts';
 import type {
   EvidenceNodeId,
@@ -132,32 +133,23 @@ function isBlank(value: string): boolean {
 }
 
 /**
- * Does this instant satisfy the contract's instant rule?
+ * Whether a value is an instant the contract would accept.
  *
- * **This is a deliberate, single-site duplicate, and it is marked so it can be
- * deleted.** `3a8158b` ruled that an instant must carry an explicit offset, so
- * that a no-offset string is malformed rather than silently read as host-local
- * time. The rule lives in `INSTANT_PATTERN` in `recommendationContracts.ts` —
- * which is **module-private**, along with `instantToMillis`, so there is nothing
- * to import.
+ * Delegated to `isInstant`, exported by `recommendationContracts` in `092d5e7`.
+ * This file previously carried a byte-for-byte copy of the contract's pattern,
+ * because the rule was module-private and `decidedAt`/`confirmedAt` are checked
+ * by no contract function. The copy was marked with the condition for its own
+ * deletion and that condition is now met.
  *
- * `now` is not affected: it is delegated, because
- * `evaluateRecommendationStaleness` already reports `INVALID_INSTANT` for it and
- * this file simply does not pre-empt that. `decidedAt` and
- * `confirmation.confirmedAt` are the gap — no contract function reads either,
- * and `checkRecommendationDecision` does not check instants.
- *
- * The pattern below is a **byte-for-byte copy** of the contract's, and the
- * request to export it is recorded in `docs/architecture/recommendation-review.md`
- * under "Reported upstream". When it is exported, delete this constant and
- * import it; a copy that outlives its reason is how two spellings of "what is a
- * valid instant" start disagreeing.
+ * The delegated check is also *stronger* than the copy it replaces. A pattern
+ * match accepts `2026-02-30T00:00:00Z`, which `Date.parse` silently rolls to
+ * March 2 — so an expiry written as a date that does not exist would have kept
+ * a recommendation live two days past its stated life, reported by nothing.
+ * `isInstant` is derived from `instantToMillis`, which round-trips the fields
+ * and rejects it.
  */
-const CONTRACT_INSTANT_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/;
-
 function parses(value: unknown): boolean {
-  if (typeof value !== 'string' || !CONTRACT_INSTANT_PATTERN.test(value)) return false;
-  return !Number.isNaN(Date.parse(value));
+  return isInstant(value);
 }
 
 function finding(

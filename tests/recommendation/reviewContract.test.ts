@@ -31,6 +31,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isInstant } from '../../src/contracts/v1/recommendationContracts.ts';
 
 import {
   BLIND_REDACTED_FIELDS,
@@ -859,24 +860,25 @@ test('review: the review module reads no clock and no locale-dependent ordering'
   assert.equal(RECOMMENDATION_REVIEW_POLICY.noAmbientClock, true);
 });
 
-test('review: the duplicated instant rule is byte-identical to the contract', () => {
-  // A documented duplicate needs a guard or it is just a duplicate. #33's
-  // `INSTANT_PATTERN` is module-private, so `present.ts` spells the rule a
-  // second time for `decidedAt` and `confirmedAt`, which no contract function
-  // checks. This asserts the two spellings are the same characters, so the day
-  // the contract's rule moves, this fails instead of quietly accepting instants
-  // the contract now rejects.
-  const contractSource = readFileSync(join(repoRoot, 'src', 'contracts', 'v1', 'recommendationContracts.ts'), 'utf8');
+test('review: the instant rule is the contract\'s, not a copy of it', () => {
+  // Replaces a drift guard over a byte-for-byte duplicate. The duplicate existed
+  // only because the rule was module-private; `092d5e7` exported `isInstant`, and
+  // this file's copy was retired at integration. What is worth asserting now is
+  // not that two spellings match but that there is only one — and that the one
+  // in use is the contract's, including the calendar round-trip a bare pattern
+  // match does not do.
   const localSource = readFileSync(join(repoRoot, 'lib', 'recommendation', 'review', 'present.ts'), 'utf8');
-  const contractPattern = /const INSTANT_PATTERN = (\/.*\/);/.exec(contractSource);
-  const localPattern = /const CONTRACT_INSTANT_PATTERN = (\/.*\/);/.exec(localSource);
-  assert.ok(contractPattern !== null, 'the contract no longer defines INSTANT_PATTERN under that name');
-  assert.ok(localPattern !== null, 'the local copy is gone; if it was replaced by an import, delete this test');
   assert.equal(
-    (localPattern as RegExpExecArray)[1],
-    (contractPattern as RegExpExecArray)[1],
-    'the local instant rule has drifted from the contract',
+    /const\s+\w*INSTANT_PATTERN\s*=/.test(localSource),
+    false,
+    'a second spelling of the instant rule has reappeared; import isInstant instead',
   );
+  assert.match(localSource, /\bisInstant\b/, 'the contract predicate must be the one in use');
+
+  // The strengthening the delegation buys: a pattern match accepts a date that
+  // does not exist, and Date.parse rolls it forward silently.
+  assert.equal(isInstant('2026-02-30T00:00:00.000Z'), false, 'February 30 must not be an instant');
+  assert.equal(isInstant('2026-08-19T10:00:00.000Z'), true);
 });
 
 test('review: an instant without an explicit offset is refused', () => {

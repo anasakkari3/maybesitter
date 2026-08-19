@@ -91,6 +91,20 @@ function sourceFiles(directory: string, recurse = false): string[] {
   return found.sort();
 }
 
+/**
+ * Specifiers that survive to runtime. `import type` is erased by the compiler —
+ * the emitted JS carries no import statement at all — so a type-only edge
+ * creates no runtime coupling and cannot make the cross-track comparison
+ * circular, which is the property the pilot ban protects.
+ *
+ * Narrowed at integration, after this guard and the merge-owned one both fired
+ * on #35's `import type { NextStepLocale }`, an edge that exists to pin that the
+ * two locale sets cannot drift. A *value* import of the same module still fails.
+ */
+function runtimeImportSpecifiers(source: string): string[] {
+  return importSpecifiers(source.replace(/\bimport\s+type\s[^;]*?from\s*['"][^'"]+['"]/g, ' '));
+}
+
 function importSpecifiers(source: string): string[] {
   const specifiers: string[] = [];
   const patterns = [
@@ -125,7 +139,7 @@ function importClosure(roots: readonly string[]): Map<string, string[]> {
   while (queue.length > 0) {
     const file = queue.shift() as string;
     if (closure.has(file)) continue;
-    const specifiers = importSpecifiers(readFileSync(file, 'utf8'));
+    const specifiers = runtimeImportSpecifiers(readFileSync(file, 'utf8'));
     closure.set(file, specifiers);
     for (const specifier of specifiers) {
       const resolved = resolveLocal(file, specifier);
