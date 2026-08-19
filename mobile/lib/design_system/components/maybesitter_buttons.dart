@@ -202,13 +202,11 @@ class TertiaryButton extends StatelessWidget {
         ),
         shape: const RoundedRectangleBorder(borderRadius: AppRadius.control),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      child: Wrap(
+        spacing: AppSpacing.sm,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          if (icon != null) ...[
-            Icon(icon, size: 18, color: tint),
-            const SizedBox(width: AppSpacing.sm),
-          ],
+          if (icon != null) Icon(icon, size: 18, color: tint),
           Text(
             label,
             style: context.text.button.copyWith(fontSize: 15, color: tint),
