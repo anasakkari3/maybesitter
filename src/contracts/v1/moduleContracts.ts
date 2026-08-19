@@ -257,9 +257,26 @@ export const INTELLIGENCE_MODULE_CONTRACTS: Record<IntelligenceModuleName, Intel
     owner: 'backend',
     allowsDirectStateWrites: false,
     allowedDependencyLayers: ['contracts', 'deterministic-services', 'adapters'],
-    inputDescription: 'Safety-policy evaluation for candidate outputs.',
-    outputDescription: 'Non-operative placeholder until Sprint 09+ gates pass.',
-    execute: async (invocation: ModuleInvocation<unknown>) => placeholderExecutor(invocation.provenance, { status: 'not_implemented_in_sprint_00' } satisfies GenericModuleOutput),
+    inputDescription: 'A candidate output carrying claims and evidence references, plus the request it answers and an explicit `now`; no ambient clock.',
+    outputDescription: 'A SafetyVerdict and its audit record; see safetyContracts and lib/safety.',
+    execute: async (invocation: ModuleInvocation<unknown>) => placeholderExecutor(invocation.provenance, {
+      status: 'implemented',
+      module: 'safety',
+      // Spelled out for the same reason as `decomposition`, `planning` and
+      // `recommendation` above: `safetyContracts` imports
+      // `MODULE_CONTRACT_VERSION` from this file, so importing
+      // `SAFETY_SCHEMA_VERSION` back closes a cycle that ESM resolves by
+      // evaluating `safetyContracts` before this module's body has run — a TDZ
+      // ReferenceError at import time that `tsc` reports nothing about. The
+      // cycle would be two hops long here rather than one, because
+      // `safetyContracts` also imports `recommendationContracts`, which imports
+      // this file; a longer cycle is not a safer one. `the safety module
+      // descriptor matches the safety schema version` in
+      // tests/contract/intelligenceModuleBoundaries.test.ts pins the two
+      // spellings together instead.
+      schemaVersion: 'safety-v1',
+      entryPoint: 'lib/safety#evaluateSafetyGate',
+    } satisfies ImplementedModuleOutput),
   },
   evaluation: {
     version: MODULE_CONTRACT_VERSION,

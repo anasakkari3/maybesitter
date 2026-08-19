@@ -12,6 +12,7 @@ import {
 } from '../../src/contracts/v1/moduleContracts.ts';
 import { PLANNING_SCHEMA_VERSION } from '../../src/contracts/v1/planningContracts.ts';
 import { RECOMMENDATION_SCHEMA_VERSION } from '../../src/contracts/v1/recommendationContracts.ts';
+import { SAFETY_SCHEMA_VERSION } from '../../src/contracts/v1/safetyContracts.ts';
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(testDir, '..', '..');
@@ -135,6 +136,22 @@ test('the recommendation module descriptor matches the recommendation schema ver
   // throws at runtime while typechecking clean; this is what keeps the two
   // spellings from drifting apart. Mirrors the planning pin below.
   assert.equal(output.schemaVersion, RECOMMENDATION_SCHEMA_VERSION);
+});
+
+test('the safety module descriptor matches the safety schema version', async () => {
+  const result = await INTELLIGENCE_MODULE_CONTRACTS.safety.execute({
+    provenance: { traceId: 't', producedAt: '2026-08-20T00:00:00.000Z', source: 'system', confidence: null },
+    input: {},
+  } as never);
+  assert.equal(result.ok, true);
+  const output = result.ok ? (result.output as { schemaVersion: string; entryPoint: string }) : { schemaVersion: '', entryPoint: '' };
+  // Sprint 09 issue #39 moved `safety` from placeholder to implemented.
+  // `moduleContracts` spells the version out as a literal to avoid an import
+  // cycle that throws at runtime while typechecking clean; this is what keeps
+  // the two spellings from drifting apart. Mirrors the recommendation and
+  // planning pins above.
+  assert.equal(output.schemaVersion, SAFETY_SCHEMA_VERSION);
+  assert.equal(output.entryPoint, 'lib/safety#evaluateSafetyGate');
 });
 
 test('the planning module descriptor matches the planning schema version', async () => {
