@@ -12,6 +12,7 @@ import EventKit
       PilotPresenceSharedStorePlugin.register(binaryMessenger: controller.binaryMessenger)
       PilotDeepLinkPlugin.register(binaryMessenger: controller.binaryMessenger)
       AppleCalendarImportPlugin.register(binaryMessenger: controller.binaryMessenger)
+      WatchSnapshotBridgePlugin.register(binaryMessenger: controller.binaryMessenger)
     }
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }

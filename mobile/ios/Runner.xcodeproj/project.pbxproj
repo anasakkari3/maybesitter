@@ -7,21 +7,27 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		1428056ECDC391CAA5EA655C /* MaybeSitterWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = A8CCC6B07F746B5BFAE1702C /* MaybeSitterWatch.app */; };
 		1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */ = {isa = PBXBuildFile; fileRef = 1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */; };
 		331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C807B294A618700263BE5 /* RunnerTests.swift */; };
 		3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */ = {isa = PBXBuildFile; fileRef = 3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */; };
+		42F88E9492410F6EFF15A94E /* WatchSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0473909A0468412B46324E2F /* WatchSnapshot.swift */; };
+		711828D49B81E45C528EB155 /* MaybeSitterWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C98CCE53B629F4AFAC05318 /* MaybeSitterWatchApp.swift */; };
 		74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74858FAE1ED2DC5600515810 /* AppDelegate.swift */; };
 		7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */; };
-		C04A00000000000000000001 /* MaybeSitterWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = C04A00000000000000000003 /* MaybeSitterWidgets.swift */; };
-		C04A00000000000000000002 /* MaybeSitterWidgets.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = C04A00000000000000000006 /* MaybeSitterWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		C04A00000000000000000015 /* PilotDeepLinkPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = C04A00000000000000000014 /* PilotDeepLinkPlugin.swift */; };
-		C01A11C02A5B4D7E9F000002 /* PilotPresenceSharedStorePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = C01A11C02A5B4D7E9F000003 /* PilotPresenceSharedStorePlugin.swift */; };
 		78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */ = {isa = PBXBuildFile; productRef = 78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */; };
 		8FAD106BF6E58CCFE0C3CE14 /* Pods_RunnerTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E59E8CD7F67461B27438E6D9 /* Pods_RunnerTests.framework */; };
 		97C146FC1CF9000F007C117D /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FA1CF9000F007C117D /* Main.storyboard */; };
 		97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FD1CF9000F007C117D /* Assets.xcassets */; };
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
+		BE2CDB536B957368261FCE5F /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 245C8C302148002D036C7BBC /* Foundation.framework */; };
+		C01A11C02A5B4D7E9F000002 /* PilotPresenceSharedStorePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = C01A11C02A5B4D7E9F000003 /* PilotPresenceSharedStorePlugin.swift */; };
+		C04A00000000000000000001 /* MaybeSitterWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = C04A00000000000000000003 /* MaybeSitterWidgets.swift */; };
+		C04A00000000000000000002 /* MaybeSitterWidgets.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = C04A00000000000000000006 /* MaybeSitterWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		C04A00000000000000000015 /* PilotDeepLinkPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = C04A00000000000000000014 /* PilotDeepLinkPlugin.swift */; };
+		CA31856944778F45A9DEB1DF /* WatchConnectivityReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = F52B5CE0CB21AE5BD4914160 /* WatchConnectivityReader.swift */; };
 		D37190DE26F91DB5928CA664 /* Pods_Runner.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A6EE6B7A16491C50D1F2E816 /* Pods_Runner.framework */; };
+		DF426E652258C46EC1B2A3FF /* WatchSnapshotBridgePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = B49E0785930F8C1798CEC83C /* WatchSnapshotBridgePlugin.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -39,9 +45,27 @@
 			remoteGlobalIDString = C04A0000000000000000000A;
 			remoteInfo = MaybeSitterWidgets;
 		};
+		C3F46DBB90EF448503EB7F2E /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 97C146E61CF9000F007C117D /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 37E9634E21433E74FF16B7BC;
+			remoteInfo = MaybeSitterWatch;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
+		2677119612C4AD8F2A1DC2A3 /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				1428056ECDC391CAA5EA655C /* MaybeSitterWatch.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		9705A1C41CF9048500538489 /* Embed Frameworks */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -66,11 +90,14 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		0473909A0468412B46324E2F /* WatchSnapshot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WatchSnapshot.swift; sourceTree = "<group>"; };
 		1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GeneratedPluginRegistrant.h; sourceTree = "<group>"; };
 		1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GeneratedPluginRegistrant.m; sourceTree = "<group>"; };
+		245C8C302148002D036C7BBC /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/WatchOS.platform/Developer/SDKs/WatchOS26.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		331C807B294A618700263BE5 /* RunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerTests.swift; sourceTree = "<group>"; };
 		331C8081294A63A400263BE5 /* RunnerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = AppFrameworkInfo.plist; path = Flutter/AppFrameworkInfo.plist; sourceTree = "<group>"; };
+		3C98CCE53B629F4AFAC05318 /* MaybeSitterWatchApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MaybeSitterWatchApp.swift; sourceTree = "<group>"; };
 		6C252EC395CAB209947AF744 /* Pods-Runner.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.release.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"; sourceTree = "<group>"; };
 		6F45615020DF20A31BEE9850 /* Pods-RunnerTests.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.profile.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.profile.xcconfig"; sourceTree = "<group>"; };
 		74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Runner-Bridging-Header.h"; sourceTree = "<group>"; };
@@ -79,11 +106,6 @@
 		7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		78E0A7A72DC9AD7400C4905E /* FlutterGeneratedPluginSwiftPackage */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = FlutterGeneratedPluginSwiftPackage; path = Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage; sourceTree = "<group>"; };
 		7AFA3C8E1D35360C0083082E /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Release.xcconfig; path = Flutter/Release.xcconfig; sourceTree = "<group>"; };
-		C04A00000000000000000003 /* MaybeSitterWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MaybeSitterWidgets.swift; sourceTree = "<group>"; };
-		C04A00000000000000000004 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		C04A00000000000000000005 /* MaybeSitterWidgets.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MaybeSitterWidgets.entitlements; sourceTree = "<group>"; };
-		C04A00000000000000000006 /* MaybeSitterWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MaybeSitterWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		C04A00000000000000000014 /* PilotDeepLinkPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PilotDeepLinkPlugin.swift; sourceTree = "<group>"; };
 		9740EEB21CF90195004384FC /* Debug.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; name = Debug.xcconfig; path = Flutter/Debug.xcconfig; sourceTree = "<group>"; };
 		9740EEB31CF90195004384FC /* Generated.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; name = Generated.xcconfig; path = Flutter/Generated.xcconfig; sourceTree = "<group>"; };
 		97C146EE1CF9000F007C117D /* Runner.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Runner.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -91,16 +113,32 @@
 		97C146FD1CF9000F007C117D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		97C147001CF9000F007C117D /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		97C147021CF9000F007C117D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A6EE6B7A16491C50D1F2E816 /* Pods_Runner.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Runner.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		A8CCC6B07F746B5BFAE1702C /* MaybeSitterWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MaybeSitterWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AEAEEB5362B809BFFAAF8BA3 /* Pods-RunnerTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.debug.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.debug.xcconfig"; sourceTree = "<group>"; };
+		B49E0785930F8C1798CEC83C /* WatchSnapshotBridgePlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WatchSnapshotBridgePlugin.swift; sourceTree = "<group>"; };
 		C01A11C02A5B4D7E9F000001 /* Runner.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Runner.entitlements; sourceTree = "<group>"; };
 		C01A11C02A5B4D7E9F000003 /* PilotPresenceSharedStorePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PilotPresenceSharedStorePlugin.swift; sourceTree = "<group>"; };
-		A6EE6B7A16491C50D1F2E816 /* Pods_Runner.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Runner.framework; sourceTree = BUILT_PRODUCTS_DIR; };
-		AEAEEB5362B809BFFAAF8BA3 /* Pods-RunnerTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.debug.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.debug.xcconfig"; sourceTree = "<group>"; };
+		C04A00000000000000000003 /* MaybeSitterWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MaybeSitterWidgets.swift; sourceTree = "<group>"; };
+		C04A00000000000000000004 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		C04A00000000000000000005 /* MaybeSitterWidgets.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MaybeSitterWidgets.entitlements; sourceTree = "<group>"; };
+		C04A00000000000000000006 /* MaybeSitterWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MaybeSitterWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		C04A00000000000000000014 /* PilotDeepLinkPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PilotDeepLinkPlugin.swift; sourceTree = "<group>"; };
 		DC98923B53CEC95827D79472 /* Pods-Runner.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.profile.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.profile.xcconfig"; sourceTree = "<group>"; };
 		E59E8CD7F67461B27438E6D9 /* Pods_RunnerTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_RunnerTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		F1027DC1D14624E817CA6F3C /* Pods-RunnerTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.release.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.release.xcconfig"; sourceTree = "<group>"; };
+		F52B5CE0CB21AE5BD4914160 /* WatchConnectivityReader.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WatchConnectivityReader.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		4F8120F334C1441CEEBB2660 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BE2CDB536B957368261FCE5F /* Foundation.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		675814BF0E0CF65A3C654B86 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -133,6 +171,7 @@
 			children = (
 				A6EE6B7A16491C50D1F2E816 /* Pods_Runner.framework */,
 				E59E8CD7F67461B27438E6D9 /* Pods_RunnerTests.framework */,
+				E021C8747F76DABBA8973BB4 /* watchOS */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -181,6 +220,7 @@
 				331C8082294A63A400263BE5 /* RunnerTests */,
 				1DB391C0F38F1A990021F081 /* Pods */,
 				1253BF7DE39E846F7F45E9F1 /* Frameworks */,
+				E95422BE70C270B0B778F55F /* MaybeSitterWatch */,
 			);
 			sourceTree = "<group>";
 		};
@@ -190,18 +230,9 @@
 				97C146EE1CF9000F007C117D /* Runner.app */,
 				C04A00000000000000000006 /* MaybeSitterWidgets.appex */,
 				331C8081294A63A400263BE5 /* RunnerTests.xctest */,
+				A8CCC6B07F746B5BFAE1702C /* MaybeSitterWatch.app */,
 			);
 			name = Products;
-			sourceTree = "<group>";
-		};
-		C04A0000000000000000000F /* MaybeSitterWidgets */ = {
-			isa = PBXGroup;
-			children = (
-				C04A00000000000000000003 /* MaybeSitterWidgets.swift */,
-				C04A00000000000000000004 /* Info.plist */,
-				C04A00000000000000000005 /* MaybeSitterWidgets.entitlements */,
-			);
-			path = MaybeSitterWidgets;
 			sourceTree = "<group>";
 		};
 		97C146F01CF9000F007C117D /* Runner */ = {
@@ -219,9 +250,39 @@
 				C01A11C02A5B4D7E9F000003 /* PilotPresenceSharedStorePlugin.swift */,
 				C04A00000000000000000014 /* PilotDeepLinkPlugin.swift */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
+				B49E0785930F8C1798CEC83C /* WatchSnapshotBridgePlugin.swift */,
 			);
 			path = Runner;
 			sourceTree = "<group>";
+		};
+		C04A0000000000000000000F /* MaybeSitterWidgets */ = {
+			isa = PBXGroup;
+			children = (
+				C04A00000000000000000003 /* MaybeSitterWidgets.swift */,
+				C04A00000000000000000004 /* Info.plist */,
+				C04A00000000000000000005 /* MaybeSitterWidgets.entitlements */,
+			);
+			path = MaybeSitterWidgets;
+			sourceTree = "<group>";
+		};
+		E021C8747F76DABBA8973BB4 /* watchOS */ = {
+			isa = PBXGroup;
+			children = (
+				245C8C302148002D036C7BBC /* Foundation.framework */,
+			);
+			name = watchOS;
+			sourceTree = "<group>";
+		};
+		E95422BE70C270B0B778F55F /* MaybeSitterWatch */ = {
+			isa = PBXGroup;
+			children = (
+				3C98CCE53B629F4AFAC05318 /* MaybeSitterWatchApp.swift */,
+				0473909A0468412B46324E2F /* WatchSnapshot.swift */,
+				F52B5CE0CB21AE5BD4914160 /* WatchConnectivityReader.swift */,
+			);
+			name = MaybeSitterWatch;
+			path = MaybeSitterWatch;
+			sourceTree = SOURCE_ROOT;
 		};
 /* End PBXGroup section */
 
@@ -245,6 +306,23 @@
 			productReference = 331C8081294A63A400263BE5 /* RunnerTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		37E9634E21433E74FF16B7BC /* MaybeSitterWatch */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 958BB56DE8A672779F2E1D7E /* Build configuration list for PBXNativeTarget "MaybeSitterWatch" */;
+			buildPhases = (
+				8AD1A61855E018DA963BCD25 /* Sources */,
+				4F8120F334C1441CEEBB2660 /* Frameworks */,
+				126ED08AD60A01F838286AAD /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = MaybeSitterWatch;
+			productName = MaybeSitterWatch;
+			productReference = A8CCC6B07F746B5BFAE1702C /* MaybeSitterWatch.app */;
+			productType = "com.apple.product-type.application";
+		};
 		97C146ED1CF9000F007C117D /* Runner */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 97C147051CF9000F007C117D /* Build configuration list for PBXNativeTarget "Runner" */;
@@ -256,6 +334,7 @@
 				97C146EC1CF9000F007C117D /* Resources */,
 				9705A1C41CF9048500538489 /* Embed Frameworks */,
 				C04A00000000000000000010 /* Embed App Extensions */,
+				2677119612C4AD8F2A1DC2A3 /* Embed Watch Content */,
 				3B06AD1E1E4923F5004D2608 /* Thin Binary */,
 				84FDBF96A9E6C566FA459728 /* [CP] Embed Pods Frameworks */,
 			);
@@ -263,6 +342,7 @@
 			);
 			dependencies = (
 				C04A00000000000000000011 /* PBXTargetDependency */,
+				74E39E38F2C59CBA38978D97 /* PBXTargetDependency */,
 			);
 			name = Runner;
 			packageProductDependencies = (
@@ -331,11 +411,19 @@
 				97C146ED1CF9000F007C117D /* Runner */,
 				C04A0000000000000000000A /* MaybeSitterWidgets */,
 				331C8080294A63A400263BE5 /* RunnerTests */,
+				37E9634E21433E74FF16B7BC /* MaybeSitterWatch */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		126ED08AD60A01F838286AAD /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		331C807F294A63A400263BE5 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -467,6 +555,16 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		8AD1A61855E018DA963BCD25 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				711828D49B81E45C528EB155 /* MaybeSitterWatchApp.swift in Sources */,
+				42F88E9492410F6EFF15A94E /* WatchSnapshot.swift in Sources */,
+				CA31856944778F45A9DEB1DF /* WatchConnectivityReader.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		97C146EA1CF9000F007C117D /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -476,6 +574,7 @@
 				7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */,
 				C04A00000000000000000015 /* PilotDeepLinkPlugin.swift in Sources */,
 				C01A11C02A5B4D7E9F000002 /* PilotPresenceSharedStorePlugin.swift in Sources */,
+				DF426E652258C46EC1B2A3FF /* WatchSnapshotBridgePlugin.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -494,6 +593,12 @@
 			isa = PBXTargetDependency;
 			target = 97C146ED1CF9000F007C117D /* Runner */;
 			targetProxy = 331C8085294A63A400263BE5 /* PBXContainerItemProxy */;
+		};
+		74E39E38F2C59CBA38978D97 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = MaybeSitterWatch;
+			target = 37E9634E21433E74FF16B7BC /* MaybeSitterWatch */;
+			targetProxy = C3F46DBB90EF448503EB7F2E /* PBXContainerItemProxy */;
 		};
 		C04A00000000000000000011 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -522,106 +627,26 @@
 /* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
-		C04A0000000000000000000C /* Debug */ = {
+		057D9E50BB4E6713C7C8A506 /* Profile */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 9740EEB21CF90195004384FC /* Debug.xcconfig */;
 			buildSettings = {
-				ALWAYS_SEARCH_USER_PATHS = NO;
-				APPLICATION_EXTENSION_API_ONLY = YES;
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
-				CLANG_ENABLE_MODULES = YES;
-				CODE_SIGN_ENTITLEMENTS = MaybeSitterWidgets/MaybeSitterWidgets.entitlements;
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
-				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = S44ZPQ3K3F;
+				ENABLE_BITCODE = NO;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = MaybeSitterWidgets/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				MARKETING_VERSION = "$(FLUTTER_BUILD_NAME)";
-				ONLY_ACTIVE_ARCH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = com.maybesitter.maybesitterMobile.MaybeSitterWidgets;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = iphoneos;
+				INFOPLIST_FILE = MaybeSitterWatch/Info.plist;
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.maybesitter.maybesitterMobile;
+				PRODUCT_BUNDLE_IDENTIFIER = com.maybesitter.maybesitterMobile.watchkitapp;
+				PRODUCT_NAME = MaybeSitterWatch;
+				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
-				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SUPPORTS_MACCATALYST = NO;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 1;
-			};
-			name = Debug;
-		};
-		C04A0000000000000000000D /* Release */ = {
-			isa = XCBuildConfiguration;
-			baseConfigurationReference = 7AFA3C8E1D35360C0083082E /* Release.xcconfig */;
-			buildSettings = {
-				ALWAYS_SEARCH_USER_PATHS = NO;
-				APPLICATION_EXTENSION_API_ONLY = YES;
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
-				CLANG_ENABLE_MODULES = YES;
-				CODE_SIGN_ENTITLEMENTS = MaybeSitterWidgets/MaybeSitterWidgets.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
-				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = S44ZPQ3K3F;
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = MaybeSitterWidgets/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				MARKETING_VERSION = "$(FLUTTER_BUILD_NAME)";
-				PRODUCT_BUNDLE_IDENTIFIER = com.maybesitter.maybesitterMobile.MaybeSitterWidgets;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = iphoneos;
-				SKIP_INSTALL = YES;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
-				SWIFT_COMPILATION_MODE = wholemodule;
-				SWIFT_OPTIMIZATION_LEVEL = "-O";
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 1;
-			};
-			name = Release;
-		};
-		C04A0000000000000000000E /* Profile */ = {
-			isa = XCBuildConfiguration;
-			baseConfigurationReference = 7AFA3C8E1D35360C0083082E /* Release.xcconfig */;
-			buildSettings = {
-				ALWAYS_SEARCH_USER_PATHS = NO;
-				APPLICATION_EXTENSION_API_ONLY = YES;
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
-				CLANG_ENABLE_MODULES = YES;
-				CODE_SIGN_ENTITLEMENTS = MaybeSitterWidgets/MaybeSitterWidgets.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
-				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = S44ZPQ3K3F;
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = MaybeSitterWidgets/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				MARKETING_VERSION = "$(FLUTTER_BUILD_NAME)";
-				PRODUCT_BUNDLE_IDENTIFIER = com.maybesitter.maybesitterMobile.MaybeSitterWidgets;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = iphoneos;
-				SKIP_INSTALL = YES;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
-				SWIFT_COMPILATION_MODE = wholemodule;
-				SWIFT_OPTIMIZATION_LEVEL = "-O";
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 1;
+				TARGETED_DEVICE_FAMILY = 4;
+				VALIDATE_PRODUCT = YES;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
 			};
 			name = Profile;
 		};
@@ -749,6 +774,28 @@
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Runner.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Runner";
 			};
 			name = Profile;
+		};
+		3492225839293A370FAEE329 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = S44ZPQ3K3F;
+				ENABLE_BITCODE = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = MaybeSitterWatch/Info.plist;
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.maybesitter.maybesitterMobile;
+				PRODUCT_BUNDLE_IDENTIFIER = com.maybesitter.maybesitterMobile.watchkitapp;
+				PRODUCT_NAME = MaybeSitterWatch;
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Debug;
 		};
 		97C147031CF9000F007C117D /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -908,6 +955,132 @@
 			};
 			name = Release;
 		};
+		A9BE2DAD31ECC7E2E9F4D636 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = S44ZPQ3K3F;
+				ENABLE_BITCODE = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = MaybeSitterWatch/Info.plist;
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.maybesitter.maybesitterMobile;
+				PRODUCT_BUNDLE_IDENTIFIER = com.maybesitter.maybesitterMobile.watchkitapp;
+				PRODUCT_NAME = MaybeSitterWatch;
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				VALIDATE_PRODUCT = YES;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Release;
+		};
+		C04A0000000000000000000C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 9740EEB21CF90195004384FC /* Debug.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = MaybeSitterWidgets/MaybeSitterWidgets.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = S44ZPQ3K3F;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = MaybeSitterWidgets/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = "$(FLUTTER_BUILD_NAME)";
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.maybesitter.maybesitterMobile.MaybeSitterWidgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		C04A0000000000000000000D /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 7AFA3C8E1D35360C0083082E /* Release.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = MaybeSitterWidgets/MaybeSitterWidgets.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = S44ZPQ3K3F;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = MaybeSitterWidgets/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = "$(FLUTTER_BUILD_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = com.maybesitter.maybesitterMobile.MaybeSitterWidgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		C04A0000000000000000000E /* Profile */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 7AFA3C8E1D35360C0083082E /* Release.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = MaybeSitterWidgets/MaybeSitterWidgets.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = S44ZPQ3K3F;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = MaybeSitterWidgets/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = "$(FLUTTER_BUILD_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = com.maybesitter.maybesitterMobile.MaybeSitterWidgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Profile;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -917,6 +1090,16 @@
 				331C8088294A63A400263BE5 /* Debug */,
 				331C8089294A63A400263BE5 /* Release */,
 				331C808A294A63A400263BE5 /* Profile */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		958BB56DE8A672779F2E1D7E /* Build configuration list for PBXNativeTarget "MaybeSitterWatch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A9BE2DAD31ECC7E2E9F4D636 /* Release */,
+				3492225839293A370FAEE329 /* Debug */,
+				057D9E50BB4E6713C7C8A506 /* Profile */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

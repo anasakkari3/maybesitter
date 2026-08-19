@@ -16,6 +16,7 @@ class SceneDelegate: FlutterSceneDelegate {
       // never runs -- and this one was missing, which left the calendar channel
       // unregistered on device while the Swift implementation looked present.
       AppleCalendarImportPlugin.register(binaryMessenger: controller.binaryMessenger)
+      WatchSnapshotBridgePlugin.register(binaryMessenger: controller.binaryMessenger)
     }
     if let url = connectionOptions.urlContexts.first?.url {
       PilotDeepLinkPlugin.handle(url: url)
