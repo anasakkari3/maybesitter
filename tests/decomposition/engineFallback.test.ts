@@ -16,10 +16,13 @@ import { proposeDecomposition } from '../../lib/decomposition/engine/index.ts';
 import type { DecompositionModelProvider } from '../../lib/decomposition/engine/modelProvider.ts';
 import { goldenById } from '../fixtures/decompositionGolden.ts';
 
-const ENABLED = readRuntimeControls({ MAYBESITTER_FEATURE_PLANNING: 'true' });
+// Decomposition is its own registered module as of integration; it borrowed
+// `planning` only while `INTELLIGENCE_MODULES` could not be edited mid-sprint.
+// These are the switches an operator actually reaches for.
+const ENABLED = readRuntimeControls({ MAYBESITTER_FEATURE_DECOMPOSITION: 'true' });
 const KILLED = readRuntimeControls({
-  MAYBESITTER_FEATURE_PLANNING: 'true',
-  MAYBESITTER_KILL_SWITCH_PLANNING: 'true',
+  MAYBESITTER_FEATURE_DECOMPOSITION: 'true',
+  MAYBESITTER_KILL_SWITCH_DECOMPOSITION: 'true',
 });
 
 const WEDDING = goldenById('en-multi-wedding');

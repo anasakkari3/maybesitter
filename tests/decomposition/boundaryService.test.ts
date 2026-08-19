@@ -267,7 +267,10 @@ test('a different confirmation of a spent proposal is not a replay', async () =>
     dependencies,
   );
   assert.equal(conflicting.success, false);
-  assert.equal(conflicting.failureCode, 'proposal_not_found');
+  // `already_confirmed`, not `proposal_not_found`: the caller holds a real
+  // proposal id and the reason its ruling was refused is that someone already
+  // ruled. A caller told "not found" retries; this one must stop.
+  assert.equal(conflicting.failureCode, 'already_confirmed');
   assert.equal(Object.keys(dependencies.persistence.snapshot().steps).length, 3);
 });
 
