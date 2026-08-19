@@ -18,9 +18,11 @@ import 'contracts/feedback_history_service.dart';
 import 'contracts/activity_repository.dart';
 import 'contracts/next_step_service.dart';
 import 'contracts/notification_service.dart';
+import 'contracts/pilot_presence_store.dart';
 import 'contracts/connectivity_service.dart';
 import 'contracts/pilot_trust_service.dart';
 import 'contracts/timezone_service.dart';
+import 'shared_preferences_pilot_presence_store.dart';
 import 'timezone_service_impl.dart';
 import 'mock/commitment_state_store.dart';
 import 'mock/in_memory_commitment_repository.dart';
@@ -148,11 +150,23 @@ final notificationServiceProvider = Provider<NotificationService>((ref) {
   return MockNotificationService();
 });
 
+final pilotPresenceStoreProvider = Provider<PilotPresenceStore>((ref) {
+  return SharedPreferencesPilotPresenceStore();
+});
+
+final pilotPresenceFeatureFlagsProvider = Provider<PilotPresenceFeatureFlags>((
+  ref,
+) {
+  return ref.watch(appConfigProvider).pilotPresenceFlags;
+});
+
 final connectivityServiceProvider = Provider<ConnectivityService>((ref) {
   return MockConnectivityService();
 });
 
-final commitmentsStreamProvider = StreamProvider<List<Commitment>>((ref) async* {
+final commitmentsStreamProvider = StreamProvider<List<Commitment>>((
+  ref,
+) async* {
   final repo = ref.watch(commitmentRepositoryProvider);
 
   // `watchCommitments()` is a broadcast stream with no replay: the in-memory
