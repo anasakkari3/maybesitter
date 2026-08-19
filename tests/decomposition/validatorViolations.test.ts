@@ -126,7 +126,14 @@ test('INFERRED_WITH_SPAN: claims inference while citing source text', () => {
   ]);
 });
 
-test('UNSOURCED_STEP: no span and no admission of inference', () => {
+/**
+ * `UNSOURCED_STEP` covers two shapes, pinned separately here so the pair cannot
+ * rot into one. The shared vocabulary carries both: a step with no span at all,
+ * and a step whose title its spans do not source. Both say the same thing —
+ * this step's content is not traceable to what the user wrote — and #26's
+ * evaluator counts them under the same code.
+ */
+test('UNSOURCED_STEP shape one: no span and no admission of inference', () => {
   const unsourced = step({ sourceSpans: [] });
   assert.deepEqual(codes(validateDecomposition({ sourceText: SOURCE, steps: [unsourced, second] })), [
     'UNSOURCED_STEP',
@@ -159,12 +166,41 @@ test('SELF_DEPENDENCY takes precedence over the cycle it also forms', () => {
   ]);
 });
 
-test('CYCLIC_DEPENDENCY: a two-step cycle', () => {
+test('CYCLIC_DEPENDENCY: one cycle is one proposal-level defect, not one per step', () => {
+  // A caller handed N rejections for one cycle cannot tell whether it has one
+  // problem or N, and #26's evaluator counts the cycle once. `stepId` is null
+  // because the contract reserves null for proposal-level violations and no
+  // single step in a cycle is more at fault than the others.
   const a = step({ dependsOn: [{ dependsOnStepId: 's2', kind: 'temporal' }] });
   const b = { ...second, dependsOn: [{ dependsOnStepId: 's1', kind: 'temporal' as const }] };
-  assert.deepEqual(codes(validateDecomposition({ sourceText: SOURCE, steps: [a, b] })), [
-    'CYCLIC_DEPENDENCY',
-  ]);
+  const violations = validateDecomposition({ sourceText: SOURCE, steps: [a, b] });
+
+  assert.deepEqual(codes(violations), ['CYCLIC_DEPENDENCY']);
+  assert.equal(violations.length, 1, 'one cycle must produce exactly one violation');
+  assert.equal(violations[0].stepId, null);
+  assert.match(violations[0].detail, /s1/);
+  assert.match(violations[0].detail, /s2/);
+});
+
+test('a longer cycle is still one violation, and names every participant', () => {
+  const third = step({
+    stepId: 's3',
+    title: 'invitations',
+    sourceSpans: [{ start: 28, end: 39, text: 'invitations' }],
+    dependsOn: [{ dependsOnStepId: 's2', kind: 'temporal' }],
+  });
+  const violations = validateDecomposition({
+    sourceText: SOURCE,
+    steps: [
+      step({ dependsOn: [{ dependsOnStepId: 's3', kind: 'temporal' }] }),
+      { ...second, title: 'send the', sourceSpans: [{ start: 19, end: 27, text: 'send the' }],
+        dependsOn: [{ dependsOnStepId: 's1', kind: 'temporal' as const }] },
+      third,
+    ],
+  });
+  assert.deepEqual(codes(violations), ['CYCLIC_DEPENDENCY']);
+  assert.equal(violations.length, 1);
+  for (const stepId of ['s1', 's2', 's3']) assert.match(violations[0].detail, new RegExp(stepId));
 });
 
 test('SPLIT_ATOMIC: a commitment declared do-not-split was split anyway', () => {
@@ -246,7 +282,7 @@ test('an empty statedTiming or statedOwner is a claim about nothing, not an abse
 
 /* ── Title provenance (Blocker 3) ────────────────────────────────── */
 
-test('UNSOURCED_STEP: a title the spans do not source', () => {
+test('UNSOURCED_STEP shape two: a title the spans do not source', () => {
   // The invention channel the validator used to leave open: a provider can cite
   // real spans and put anything at all in the title, and the title is the field
   // the user reads and the adapter persists. Provenance is only checkable if

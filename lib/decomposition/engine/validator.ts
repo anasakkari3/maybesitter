@@ -14,14 +14,20 @@
  *     every technically-true code would hand a reviewer four findings for one
  *     defect with no signal about which is the cause. Precedence is encoded by
  *     `continue`-ing past the implied checks, and pinned by tests asserting the
- *     *exact* code set rather than membership.
+ *     *exact* code set rather than membership. The same principle sets the
+ *     cardinality: a dependency cycle is one violation for the proposal, not
+ *     one per step caught in it.
  *
  *  2. **Provenance is re-derived for every field a step asserts, including the
  *     title.** Checking the spans alone leaves the invention channel that
  *     matters open: a provider can cite real offsets and put anything at all in
  *     the title, and the title is the field the user reads and the adapter
  *     persists. "This step came from these words" is only a checkable claim if
- *     the words the step states are the words its spans select.
+ *     the words the step states are the words its spans select. This reports as
+ *     `UNSOURCED_STEP`, which covers both shapes the name implies: a step with
+ *     no span at all, and a step whose title its spans do not source. #26's
+ *     evaluator counts them under the same code, so the two agree by
+ *     construction rather than by coincidence.
  *
  *  3. **`detail` never quotes the input.** Violations travel with proposals and
  *     into audit records, and a message that echoes the offending text would
@@ -257,8 +263,15 @@ export function validateDecomposition(
     }
   }
 
-  for (const stepId of Array.from(stepsInCycle(steps))) {
-    add('CYCLIC_DEPENDENCY', stepId, 'step participates in a dependency cycle');
+  // One cycle is one defect, attributed to the proposal rather than to any step
+  // in it. Emitting it per participant hands a caller N rejections for one
+  // problem with no way to tell N problems from one, and no step in a cycle is
+  // more at fault than the others. The contract reserves `stepId: null` for
+  // exactly this. Ids are engine-assigned, so naming them in `detail` keeps the
+  // no-user-text rule intact while still saying which steps to look at.
+  const cyclic = Array.from(stepsInCycle(steps)).sort();
+  if (cyclic.length > 0) {
+    add('CYCLIC_DEPENDENCY', null, `dependency cycle among steps: ${cyclic.join(', ')}`);
   }
 
   if (input.declaredAtomic === true && steps.length > 1) {

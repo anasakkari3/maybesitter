@@ -160,10 +160,10 @@ rather than a silent divergence.
 | `INVENTED_TIMING` | `statedTiming` is blank or not verbatim in the source. Absence is spelled `null`; `''` is a claim about nothing, and `includes('')` is always true. |
 | `INVENTED_OWNER` | `statedOwner` is blank or not verbatim in the source. |
 | `INFERRED_WITH_SPAN` | Claims inference while citing source text. |
-| `UNSOURCED_STEP` | No span and no admission of inference, **or** a title its own spans do not select. |
+| `UNSOURCED_STEP` | Two shapes under one code: no span and no admission of inference, **or** a title its own spans do not select. Both say the same thing — this step's content is not traceable to what the user wrote — and #26's evaluator counts them together. |
 | `DUPLICATE_STEP_ID` | Two steps share a `stepId`. |
 | `UNKNOWN_DEPENDENCY` | An edge names no step in this proposal. |
-| `CYCLIC_DEPENDENCY` | The dependency graph is not acyclic. |
+| `CYCLIC_DEPENDENCY` | The dependency graph is not acyclic. Emitted **once per proposal** with `stepId: null`, naming the participating ids in `detail`. |
 | `SELF_DEPENDENCY` | A step depends on itself. |
 | `SPLIT_ATOMIC` | A commitment declared do-not-split was split anyway. Over-split direction only; a `multi_step` row with too few steps is #26's corpus concern and is unreachable here, since `DecomposedProposal.steps` is a two-or-more tuple. |
 
@@ -177,6 +177,18 @@ persisted. The contract's premise is that provenance is a *round-trippable
 assertion*; a title nothing sources is not one. An edited title is exempt — it
 is confirmed at the boundary and never re-validated, because the user is allowed
 to say something the engine did not read.
+
+This reports as `UNSOURCED_STEP` rather than a private code. The merge-time
+cross-track run compares this validator against #26's evaluator code-for-code,
+and a finding only one side can name is a divergence by construction; both sides
+now implement the check under the shared name.
+
+**One defect reports one code, once.** Precedence decides *which* code; cardinality
+decides how many. A dependency cycle is one violation attributed to the proposal
+rather than one per step caught in it — a caller handed N rejections for one
+cycle cannot tell N problems from one, and no step in a cycle is more at fault
+than the others. `stepId: null` is what the contract reserves for proposal-level
+findings.
 
 **Codes have precedence, and one defect reports one code.** Several conditions
 imply each other: an out-of-range span also fails the round-trip and is excluded
