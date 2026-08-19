@@ -34,12 +34,14 @@
  *     travel. So titles enter as their own SHA-256, which is sensitive without
  *     being readable.
  *
- * Sorting uses code-point comparison, never `localeCompare`: the latter's
- * result depends on the runtime's ICU data and default locale, which would make
- * the digest differ between two machines running identical code.
+ * Sorting goes through `compareByCodePoint`, never `localeCompare`: the
+ * latter's result depends on the runtime's ICU data and default locale, which
+ * would make the digest differ between two machines running identical code.
  */
 
 import { createHash } from 'node:crypto';
+
+import { compareByCodePoint } from './compare';
 
 import type {
   Effort,
@@ -62,10 +64,6 @@ import type {
  */
 export const PLAN_INPUT_DIGEST_VERSION = 'plan-digest-v1' as const;
 
-function compareCodePoints(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
-}
-
 function scalar(value: string | number | boolean | null): string {
   if (typeof value === 'number' && !Number.isFinite(value)) {
     // A NaN or Infinity would serialise as `null` and make two different
@@ -83,7 +81,7 @@ function record(entries: readonly (readonly [string, string])[]): string {
 
 /** A list sorted by encoded content, so input order cannot leak in. */
 function sortedList(encodings: readonly string[]): string {
-  return `[${encodings.slice().sort(compareCodePoints).join(',')}]`;
+  return `[${encodings.slice().sort(compareByCodePoint).join(',')}]`;
 }
 
 function sha256Hex(input: string): string {

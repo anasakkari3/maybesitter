@@ -66,6 +66,7 @@ import {
   toEpochMs,
   toInstant,
 } from '../shared/time';
+import { compareByCodePoint } from './compare';
 import { planningInputDigest } from './digest';
 import { materializeWorkingWindows } from './windows';
 
@@ -89,10 +90,6 @@ interface PlanOrderFields {
   readonly itemId: string;
 }
 
-function compareCodePoints(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
-}
-
 /** Ascending, with null last. A missing deadline is not an early deadline. */
 function compareNullableInstant(left: Instant | null, right: Instant | null): number {
   if (left === right) return 0;
@@ -111,7 +108,7 @@ export function comparePlanOrder(left: PlanOrderFields, right: PlanOrderFields):
     } else if (key === 'earliestDeadline') {
       delta = compareNullableInstant(left.earliestDeadline, right.earliestDeadline);
     } else if (key === 'itemId') {
-      delta = compareCodePoints(left.itemId, right.itemId);
+      delta = compareByCodePoint(left.itemId, right.itemId);
     } else {
       // Unreachable while the contract lists exactly the four keys above. It is
       // here so that adding a fifth key to `PLAN_ORDERING_KEYS` fails loudly
@@ -142,18 +139,32 @@ function orderFields(item: PlanningItem, startsAt: Instant | null): PlanOrderFie
  * (false in v1). `informational` never orders — it records that one item
  * informs another, which is a fact about content, not about time.
  *
- * All three dependency reason codes below are computed over exactly this set,
- * not over every declared edge. The reason is that #30 answers "why could this
- * not be *placed*", and an edge this config never consults cannot be the
- * answer: reporting `CYCLIC_DEPENDENCY` for a loop of informational links would
- * refuse to schedule a request that is entirely feasible, and would send the
- * user to fix a link that was never going to move anything.
+ * Only `CYCLIC_DEPENDENCY` is computed over this set. `SELF_DEPENDENCY` and
+ * `UNKNOWN_DEPENDENCY` are read over *every declared edge* — see
+ * `declaredPrerequisites` — and the split is not a matter of taste.
+ *
+ * A cycle asks "can these be sequenced at all", and edges the config does not
+ * consult impose no sequence, so a loop of informational links constrains
+ * nothing and refusing it would leave a feasible request unplanned. But an item
+ * naming itself, or naming something absent from the request, is a defect in
+ * how the request was *written down*. Filtering those by kind made a **static**
+ * verdict depend on `PlanningConfig.resourceDependenciesOrder`: the same
+ * `PlanningConstraints` reported `UNKNOWN_DEPENDENCY` under one flag and
+ * scheduled cleanly under the other. `STATIC_INFEASIBILITY_CODES` means
+ * "decidable from the constraints alone", and it is the set #29's validator and
+ * #31's oracle are compared on — so a config-dependent answer there is one no
+ * change on either sibling track could have reconciled.
  */
 function orderingPrerequisites(item: PlanningItem, config: PlanningConfig): string[] {
   return item.dependsOn
     .filter((edge) => edge.kind === 'temporal'
       || (edge.kind === 'resource' && config.resourceDependenciesOrder))
     .map((edge) => edge.dependsOnItemId);
+}
+
+/** Every edge as declared, whatever its kind. The integrity codes read this. */
+function declaredPrerequisites(item: PlanningItem): string[] {
+  return item.dependsOn.map((edge) => edge.dependsOnItemId);
 }
 
 /** Item ids that sit on a cycle of length > 1 in the ordering graph. */
@@ -163,7 +174,7 @@ function itemsOnCycles(edges: ReadonlyMap<string, readonly string[]>): Set<strin
   // Iterative DFS: the recursion depth of a chain of steps is bounded by the
   // item count, and a stack overflow on a pathological request would surface as
   // a crash rather than as a reported cycle.
-  for (const root of Array.from(edges.keys()).sort(compareCodePoints)) {
+  for (const root of Array.from(edges.keys()).sort(compareByCodePoint)) {
     if (state.get(root) === 'done') continue;
     const path: string[] = [];
     const stack: { node: string; entered: boolean }[] = [{ node: root, entered: false }];
@@ -185,7 +196,7 @@ function itemsOnCycles(edges: ReadonlyMap<string, readonly string[]>): Set<strin
       state.set(frame.node, 'visiting');
       path.push(frame.node);
       stack.push({ node: frame.node, entered: true });
-      for (const next of (edges.get(frame.node) ?? []).slice().sort(compareCodePoints).reverse()) {
+      for (const next of (edges.get(frame.node) ?? []).slice().sort(compareByCodePoint).reverse()) {
         if (state.get(next) !== 'done') stack.push({ node: next, entered: false });
       }
     }
@@ -212,13 +223,10 @@ interface StaticFinding {
 function staticFinding(
   item: PlanningItem,
   constraints: PlanningConstraints,
-  config: PlanningConfig,
   onCycle: ReadonlySet<string>,
   knownItemIds: ReadonlySet<string>,
   hasWorkingTime: boolean,
 ): StaticFinding | null {
-  const prerequisites = orderingPrerequisites(item, config);
-
   if (item.effort.kind === 'unknown') {
     return { code: 'EFFORT_UNKNOWN', detail: `${item.itemId} has no duration estimate` };
   }
@@ -228,13 +236,14 @@ function staticFinding(
       detail: `${item.itemId} has an effort of ${item.effort.minutes} minutes`,
     };
   }
-  if (prerequisites.includes(item.itemId)) {
+  const declared = declaredPrerequisites(item);
+  if (declared.includes(item.itemId)) {
     return { code: 'SELF_DEPENDENCY', detail: `${item.itemId} is its own prerequisite` };
   }
   if (onCycle.has(item.itemId)) {
     return { code: 'CYCLIC_DEPENDENCY', detail: `${item.itemId} sits on a dependency cycle` };
   }
-  const dangling = prerequisites.filter((id) => !knownItemIds.has(id)).sort(compareCodePoints);
+  const dangling = declared.filter((id) => !knownItemIds.has(id)).sort(compareByCodePoint);
   if (dangling.length > 0) {
     return {
       code: 'UNKNOWN_DEPENDENCY',
@@ -252,36 +261,33 @@ function staticFinding(
       detail: `${item.itemId} may not start until after it is due`,
     };
   }
-  if (item.deadlineAt !== null) {
-    const deadlineMs = toEpochMs(item.deadlineAt);
-    // A deadline outside the horizon is reported rather than guessed at in
-    // either direction: earlier than the horizon there is no minute this plan
-    // could use, and later than it the plan simply does not reach that far —
-    // extending the horizon would change the answer, which is what makes this
-    // a different message from "there was no room".
-    if (deadlineMs < horizonStartMs || deadlineMs > horizonEndMs) {
-      return {
-        code: 'DEADLINE_BEYOND_HORIZON',
-        detail: `${item.itemId} is due outside the planning horizon`,
-      };
-    }
+  if (item.deadlineAt !== null && toEpochMs(item.deadlineAt) <= horizonStartMs) {
+    // Only this direction. A deadline at or before the horizon opens leaves no
+    // minute this plan could use — every instant it may place work in is
+    // already past due.
+    //
+    // A deadline *after* the horizon ends is not this code and is not a
+    // failure at all: such an item is the least constrained thing in the
+    // request, and the horizon binds long before the deadline does. Refusing it
+    // meant an item due in December went unplanned over a two-week horizon.
+    return {
+      code: 'DEADLINE_BEYOND_HORIZON',
+      detail: `${item.itemId} is due at or before the planning horizon opens`,
+    };
   }
 
-  // The item's own window, clipped to the horizon, with every minute in it
-  // assumed free. Effort that does not fit here cannot fit anywhere.
-  const windowStartMs = Math.max(
-    horizonStartMs,
-    item.earliestStartAt === null ? horizonStartMs : toEpochMs(item.earliestStartAt),
-  );
-  const windowEndMs = Math.min(
-    horizonEndMs,
-    item.deadlineAt === null ? horizonEndMs : toEpochMs(item.deadlineAt),
-  );
-  const reservedMs = reservedMinutes(item) * MS_PER_MINUTE;
-  if (windowEndMs - windowStartMs < reservedMs) {
+  // Is there any legal start at all, on a timeline where every minute is free?
+  // Computed by the same helper placement uses, so the two halves of this
+  // module cannot answer the question differently — which they did: the check
+  // here demanded the whole reserved span sit inside
+  // `[earliestStartAt, deadlineAt]` while placement deliberately let the
+  // before-buffer start earlier, so an item with a legal placement was reported
+  // `EFFORT_EXCEEDS_ITEM_WINDOW`.
+  const bounds = startBounds(item, horizonStartMs, horizonEndMs, horizonStartMs);
+  if (bounds.earliestMs > bounds.latestMs) {
     return {
       code: 'EFFORT_EXCEEDS_ITEM_WINDOW',
-      detail: `${item.itemId} needs ${reservedMinutes(item)} minutes and its window holds ${Math.max(0, (windowEndMs - windowStartMs) / MS_PER_MINUTE)}`,
+      detail: `${item.itemId} needs ${effortMinutes(item)} minutes of effort and its window admits no legal start`,
     };
   }
 
@@ -295,15 +301,63 @@ function staticFinding(
 }
 
 /**
- * Effort plus buffers. Negative buffers are clamped to zero rather than
- * narrowing the reservation: `PlannedItem.reservedInterval` is documented as
- * never narrower than `interval`, and the reason taxonomy has no code for a
- * malformed buffer — well-formedness of the request is #29's job, and this
- * module must not invent a code to report it.
+ * Buffers, clamped at zero rather than allowed to narrow the reservation:
+ * `PlannedItem.reservedInterval` is documented as never narrower than
+ * `interval`, and the reason taxonomy has no code for a malformed buffer —
+ * well-formedness of the request is #29's job, and this module must not invent
+ * a code to report it.
  */
-function reservedMinutes(item: PlanningItem): number {
-  const effort = item.effort.kind === 'known' ? item.effort.minutes : 0;
-  return Math.max(0, item.bufferBeforeMinutes) + effort + Math.max(0, item.bufferAfterMinutes);
+function bufferBefore(item: PlanningItem): number {
+  return Math.max(0, item.bufferBeforeMinutes);
+}
+function bufferAfter(item: PlanningItem): number {
+  return Math.max(0, item.bufferAfterMinutes);
+}
+function effortMinutes(item: PlanningItem): number {
+  return item.effort.kind === 'known' ? item.effort.minutes : 0;
+}
+
+/**
+ * The window of instants at which this item's *effort* may begin.
+ *
+ * Two different things are bounded here, and conflating them is what made the
+ * static check and the placement loop disagree:
+ *
+ *  - `earliestStartAt` and `deadlineAt` bound the **effort**. `deadlineAt` is
+ *    documented as "must be *finished* by this instant" and
+ *    `PlannedItem.interval` as "the effort itself"; recovery afterwards is not
+ *    finishing, so an after-buffer may cross the deadline, and preparation
+ *    beforehand may precede `earliestStartAt`.
+ *  - The **horizon** bounds the whole reservation. "Nothing is scheduled
+ *    outside it" is a statement about time the planner may occupy, and a buffer
+ *    occupies time.
+ *
+ * `floorMs` carries any additional lower bound the caller knows about — the
+ * horizon start in the static pass, and prerequisite reservation ends during
+ * placement. Returns a possibly-empty range; `earliestMs > latestMs` means no
+ * legal start exists even on a completely free timeline.
+ */
+function startBounds(
+  item: PlanningItem,
+  horizonStartMs: number,
+  horizonEndMs: number,
+  floorMs: number,
+): { earliestMs: number; latestMs: number } {
+  const beforeMs = bufferBefore(item) * MS_PER_MINUTE;
+  const afterMs = bufferAfter(item) * MS_PER_MINUTE;
+  const effortMs = effortMinutes(item) * MS_PER_MINUTE;
+
+  const earliestMs = Math.max(
+    floorMs,
+    horizonStartMs + beforeMs,
+    item.earliestStartAt === null ? floorMs : toEpochMs(item.earliestStartAt),
+  );
+  const latestMs = Math.min(
+    item.deadlineAt === null ? horizonEndMs : toEpochMs(item.deadlineAt),
+    horizonEndMs - afterMs,
+  ) - effortMs;
+
+  return { earliestMs, latestMs };
 }
 
 /* ── Constraint-level findings ──────────────────────────────────── */
@@ -316,7 +370,7 @@ function fixedEventFindings(constraints: PlanningConstraints): {
   const blocking: TimeInterval[] = [];
   const ordered = constraints.fixedEvents
     .slice()
-    .sort((left, right) => compareCodePoints(left.eventId, right.eventId));
+    .sort((left, right) => compareByCodePoint(left.eventId, right.eventId));
 
   for (const event of ordered) {
     if (!isPositiveInterval(event.interval)) {
@@ -351,6 +405,15 @@ function fixedEventFindings(constraints: PlanningConstraints): {
 
 /* ── Placement ──────────────────────────────────────────────────── */
 
+function firstDuplicateItemId(items: readonly PlanningItem[]): string | null {
+  const seen = new Set<string>();
+  for (const item of items) {
+    if (seen.has(item.itemId)) return item.itemId;
+    seen.add(item.itemId);
+  }
+  return null;
+}
+
 /** The first slot boundary at or after `ms`, measured from the horizon start. */
 function alignUp(ms: number, originMs: number, stepMs: number): number {
   return originMs + Math.ceil((ms - originMs) / stepMs) * stepMs;
@@ -370,6 +433,18 @@ export function schedulePlan(constraints: PlanningConstraints, config: PlanningC
     // with different configs produce the same plan while the digest recorded
     // that their inputs differed.
     throw new TypeError(`slotMinutes must be a positive number, received ${String(config.slotMinutes)}`);
+  }
+
+  const duplicateId = firstDuplicateItemId(constraints.items);
+  if (duplicateId !== null) {
+    // Thrown for the same reason as an unusable slot grid: there is no reason
+    // code for it, and the taxonomy is not the place to invent one — #29 owns
+    // whether a request is well formed. Two items sharing an id make
+    // `scheduled`, `unscheduled` and every diff keyed by `itemId` ambiguous:
+    // the plan would carry two placements under one id, breaking the
+    // exactly-once partition, and `diffPlans` would silently keep whichever it
+    // saw last.
+    throw new TypeError(`duplicate item id in planning request: ${JSON.stringify(duplicateId)}`);
   }
 
   const inputDigest = planningInputDigest(constraints, config);
@@ -441,7 +516,7 @@ export function schedulePlan(constraints: PlanningConstraints, config: PlanningC
 
   const pending: PlanningItem[] = [];
   for (const item of constraints.items) {
-    const finding = staticFinding(item, constraints, config, onCycle, knownItemIds, hasWorkingTime);
+    const finding = staticFinding(item, constraints, onCycle, knownItemIds, hasWorkingTime);
     if (finding === null) {
       pending.push(item);
     } else {
@@ -469,7 +544,18 @@ export function schedulePlan(constraints: PlanningConstraints, config: PlanningC
       if (reason.code !== 'BLOCKED_BY_DEPENDENCY') {
         return `unscheduled prerequisite; chain ${chain.join(' -> ')} ends at ${cursor} (${reason.code})`;
       }
-      const next = (orderingEdges.get(cursor) ?? []).find((id) => unscheduledById.has(id));
+      // Sorted before choosing, like every other traversal in this file. A bare
+      // `.find` over `dependsOn` walks the edges in the order the caller
+      // happened to declare them, so an item with two unscheduled prerequisites
+      // produced a different chain — and therefore a different
+      // `PlanningReason.detail` inside the returned `Plan` — for two requests
+      // the digest reported identical. That inverts the property the digest
+      // exists to provide: `sameInputDigest` would read true for a replay that
+      // produced a different plan.
+      const next = (orderingEdges.get(cursor) ?? [])
+        .slice()
+        .sort(compareByCodePoint)
+        .find((id) => unscheduledById.has(id));
       if (next === undefined) break;
       cursor = next;
     }
@@ -495,7 +581,7 @@ export function schedulePlan(constraints: PlanningConstraints, config: PlanningC
       break;
     }
     const item = remaining.splice(readyIndex, 1)[0];
-    const prerequisites = (orderingEdges.get(item.itemId) ?? []).slice().sort(compareCodePoints);
+    const prerequisites = (orderingEdges.get(item.itemId) ?? []).slice().sort(compareByCodePoint);
 
     const blocker = prerequisites.find((id) => unscheduledById.has(id));
     if (blocker !== undefined) {
@@ -503,38 +589,29 @@ export function schedulePlan(constraints: PlanningConstraints, config: PlanningC
       continue;
     }
 
-    const bufferBeforeMs = Math.max(0, item.bufferBeforeMinutes) * MS_PER_MINUTE;
-    const bufferAfterMs = Math.max(0, item.bufferAfterMinutes) * MS_PER_MINUTE;
-    const effortMs = (item.effort.kind === 'known' ? item.effort.minutes : 0) * MS_PER_MINUTE;
-    const totalMs = bufferBeforeMs + effortMs + bufferAfterMs;
+    const bufferBeforeMs = bufferBefore(item) * MS_PER_MINUTE;
+    const bufferAfterMs = bufferAfter(item) * MS_PER_MINUTE;
+    const effortMs = effortMinutes(item) * MS_PER_MINUTE;
 
-    // The earliest instant the *effort* may begin: the horizon, the item's own
-    // floor, and every prerequisite's reservation end. The prerequisite bound is
-    // stated here as well as being implied by the free runs, because it is the
-    // contract's rule ("an item starts only after all its temporal
-    // prerequisites' reservedIntervals have ended") and a reader should not have
-    // to derive it from interval subtraction.
-    let earliestStartMs = Math.max(
-      horizonStartMs,
-      item.earliestStartAt === null ? horizonStartMs : toEpochMs(item.earliestStartAt),
-    );
+    // The prerequisite floor is stated here as well as being implied by the
+    // free runs, because it is the contract's rule ("an item starts only after
+    // all its temporal prerequisites' reservedIntervals have ended") and a
+    // reader should not have to derive it from interval subtraction.
+    let floorMs = horizonStartMs;
     for (const id of prerequisites) {
       const prerequisite = placedById.get(id);
       if (prerequisite !== undefined) {
-        earliestStartMs = Math.max(earliestStartMs, toEpochMs(prerequisite.reservedInterval.endsAt));
+        floorMs = Math.max(floorMs, toEpochMs(prerequisite.reservedInterval.endsAt));
       }
     }
-    const latestEndMs = Math.min(
-      horizonEndMs,
-      item.deadlineAt === null ? horizonEndMs : toEpochMs(item.deadlineAt),
-    );
+    const bounds = startBounds(item, horizonStartMs, horizonEndMs, floorMs);
 
-    if (earliestStartMs >= horizonEndMs) {
+    if (bounds.earliestMs >= horizonEndMs) {
       resolveUnscheduled(item.itemId, 'HORIZON_EXHAUSTED', `${item.itemId} cannot begin before the horizon ends`);
       continue;
     }
-    if (latestEndMs - (earliestStartMs - bufferBeforeMs) < totalMs) {
-      // The item fit its own window in the static pass, so if it no longer fits
+    if (bounds.earliestMs > bounds.latestMs) {
+      // The item had a legal start in the static pass, so if it no longer does
       // the only thing that moved is where its prerequisites finished.
       const code: PlanningReasonCode = prerequisites.length > 0 ? 'DEPENDENCY_TOO_LATE' : 'NO_FEASIBLE_SLOT';
       resolveUnscheduled(item.itemId, code, `${item.itemId} has no room left before it is due`);
@@ -549,12 +626,15 @@ export function schedulePlan(constraints: PlanningConstraints, config: PlanningC
       // Grid-aligned on the *effort* start, which is the instant a user sees.
       // Within one run the first legal start is also the best one: moving later
       // only pushes the reservation end further past a fixed upper bound.
-      const startMs = alignUp(Math.max(earliestStartMs, runStartMs + bufferBeforeMs), horizonStartMs, slotMs);
+      const startMs = alignUp(Math.max(bounds.earliestMs, runStartMs + bufferBeforeMs), horizonStartMs, slotMs);
       const reservedStartMs = startMs - bufferBeforeMs;
       const reservedEndMs = startMs + effortMs + bufferAfterMs;
+      // The run bounds the whole reservation — runs are already clipped to the
+      // horizon, so this is also what keeps buffers inside it. The deadline
+      // bounds only the effort, via `bounds.latestMs`.
       if (reservedStartMs < runStartMs) continue;
       if (reservedEndMs > runEndMs) continue;
-      if (reservedEndMs > latestEndMs) continue;
+      if (startMs > bounds.latestMs) continue;
       placement = {
         itemId: item.itemId,
         interval: { startsAt: toInstant(startMs), endsAt: toInstant(startMs + effortMs) },
@@ -570,21 +650,23 @@ export function schedulePlan(constraints: PlanningConstraints, config: PlanningC
     }
   }
 
-  scheduled.sort((left, right) => {
-    const leftItem = constraints.items.find((item) => item.itemId === left.itemId) as PlanningItem;
-    const rightItem = constraints.items.find((item) => item.itemId === right.itemId) as PlanningItem;
-    return comparePlanOrder(
-      orderFields(leftItem, left.interval.startsAt),
-      orderFields(rightItem, right.interval.startsAt),
-    );
-  });
+  // Indexed once rather than scanned twice per comparison. The linear search
+  // this replaces was O(n^2 log n) and also silently took the first match, so a
+  // duplicate id would have ordered one placement by the other's priority —
+  // which is now refused outright above, but the index is what makes the
+  // lookup total rather than merely usually right.
+  const itemsById = new Map(constraints.items.map((item) => [item.itemId, item] as const));
+  scheduled.sort((left, right) => comparePlanOrder(
+    orderFields(itemsById.get(left.itemId) as PlanningItem, left.interval.startsAt),
+    orderFields(itemsById.get(right.itemId) as PlanningItem, right.interval.startsAt),
+  ));
   // `unscheduled` is sorted by id alone: `PLAN_ORDERING_KEYS` orders a plan's
   // placements and its first key does not exist for an item that has none, so
   // reusing it here would order by whatever the remaining keys happened to say.
-  unscheduled.sort((left, right) => compareCodePoints(left.itemId, right.itemId));
-  constraintReasons.sort((left, right) => compareCodePoints(left.code, right.code)
-    || compareCodePoints(left.itemId ?? '', right.itemId ?? '')
-    || compareCodePoints(left.detail, right.detail));
+  unscheduled.sort((left, right) => compareByCodePoint(left.itemId, right.itemId));
+  constraintReasons.sort((left, right) => compareByCodePoint(left.code, right.code)
+    || compareByCodePoint(left.itemId ?? '', right.itemId ?? '')
+    || compareByCodePoint(left.detail, right.detail));
 
   return {
     version: PLANNING_CONTRACT_VERSION,

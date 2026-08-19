@@ -179,6 +179,50 @@ test('the plan does not depend on the order the object keys were written in', ()
   assert.equal(canonicalPlanningInput(keyShuffled, config()), canonicalPlanningInput(BASE, config()));
 });
 
+test('an item with several ordering prerequisites does not leak their declared order', () => {
+  // The regression this file previously missed. `gamma` above has two edges but
+  // only one *ordering* edge, so nothing had to be chosen between — and the
+  // blocked-chain walk picked its next hop with a bare `.find` over
+  // `dependsOn` in declaration order. The result was two plans whose reason
+  // details differed while the digest reported the inputs identical, which
+  // inverts the one property the digest exists to provide: `sameInputDigest`
+  // would read true for a replay that produced a different plan.
+  const chain = (order: readonly string[]): PlanningConstraints => ({
+    ...BASE,
+    items: [
+      item('x', { effort: { kind: 'unknown' } }),
+      item('y', { effort: { kind: 'unknown' } }),
+      item('b', { dependsOn: order.map((id) => ({ dependsOnItemId: id, kind: 'temporal' as const })) }),
+      item('c', { dependsOn: [{ dependsOnItemId: 'b', kind: 'temporal' }] }),
+    ],
+  });
+
+  const forwards = chain(['x', 'y']);
+  const backwards = chain(['y', 'x']);
+  assert.equal(
+    planningInputDigest(forwards, config()),
+    planningInputDigest(backwards, config()),
+    'the two requests must be the same request, or this test proves nothing',
+  );
+  assert.equal(
+    planJson(forwards),
+    planJson(backwards),
+    'the transitive BLOCKED_BY_DEPENDENCY chain followed the order the edges were declared in',
+  );
+});
+
+test('duplicate item ids are refused rather than double-booked', () => {
+  // Two items sharing an id make `scheduled`, `unscheduled` and every diff
+  // keyed by `itemId` ambiguous: the plan would carry two placements for one
+  // id and `diffPlans` would silently keep whichever it saw last. There is no
+  // reason code for it — well-formedness of the request is #29's job — so this
+  // is a caller error, refused the same way an unusable slot grid is.
+  assert.throws(
+    () => schedulePlan({ ...BASE, items: [item('twin'), item('twin', { priority: 5 })] }, config()),
+    /duplicate item id/,
+  );
+});
+
 test('a tie on every ordering key but the last is broken by itemId, not by arrival', () => {
   // `alpha` and `beta` share a priority; only the id separates them. Presented
   // in either order they must come out the same way round.

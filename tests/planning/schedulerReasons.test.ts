@@ -122,18 +122,37 @@ test('DEADLINE_BEFORE_EARLIEST_START: the item window is empty before any other 
   assert.equal(reasonFor(plan, 'a'), 'DEADLINE_BEFORE_EARLIEST_START');
 });
 
-test('DEADLINE_BEYOND_HORIZON: this plan does not reach that far, in either direction', () => {
-  const later = schedulePlan(
-    constraints({ items: [item('a', { deadlineAt: '2026-08-25T09:00:00.000Z' })] }),
-    config(),
-  );
-  assert.equal(reasonFor(later, 'a'), 'DEADLINE_BEYOND_HORIZON');
-
+test('DEADLINE_BEYOND_HORIZON: the deadline is at or before the horizon opens', () => {
+  // There is no minute this plan could use: every instant it may place work in
+  // is already past the deadline.
   const earlier = schedulePlan(
     constraints({ items: [item('a', { deadlineAt: '2026-08-10T09:00:00.000Z' })] }),
     config(),
   );
   assert.equal(reasonFor(earlier, 'a'), 'DEADLINE_BEYOND_HORIZON');
+
+  const exactlyAtTheStart = schedulePlan(
+    constraints({ items: [item('a', { deadlineAt: HORIZON_START })] }),
+    config(),
+  );
+  assert.equal(reasonFor(exactlyAtTheStart, 'a'), 'DEADLINE_BEYOND_HORIZON');
+});
+
+test('an item due after the horizon ends is the least constrained item, and is placed', () => {
+  // It used to be refused. An item due in December, planned over one Monday, is
+  // not infeasible — it is the *easiest* thing in the request, and the horizon
+  // binds long before the deadline does.
+  const plan = schedulePlan(
+    constraints({ items: [item('a', { deadlineAt: '2026-12-01T00:00:00.000Z' })] }),
+    config(),
+  );
+
+  assert.equal(plan.unscheduled.length, 0);
+  assert.equal(plan.scheduled[0].interval.startsAt, '2026-08-17T09:00:00.000Z');
+  assert.ok(
+    plan.scheduled[0].reservedInterval.endsAt <= HORIZON_END,
+    'the horizon still binds, even though the deadline does not',
+  );
 });
 
 test('EFFORT_EXCEEDS_ITEM_WINDOW: it would not fit even if every minute were free', () => {
@@ -217,6 +236,57 @@ test('UNKNOWN_DEPENDENCY: an edge pointing at no item in this request', () => {
     config(),
   );
   assert.equal(reasonFor(plan, 'a'), 'UNKNOWN_DEPENDENCY');
+});
+
+test('SELF_DEPENDENCY and UNKNOWN_DEPENDENCY do not depend on the config', () => {
+  // These two are input-integrity defects: an item naming itself, or naming
+  // something that is not in the request. They are decidable from the
+  // constraints alone, which is what `STATIC_INFEASIBILITY_CODES` *means* — and
+  // #29's validator and #31's oracle are compared against exactly that claim.
+  //
+  // Computing them over ordering edges only made a static verdict depend on
+  // `PlanningConfig.resourceDependenciesOrder`: the same constraints reported
+  // UNKNOWN_DEPENDENCY under one flag and scheduled cleanly under the other,
+  // and no change on either sibling track could have made the comparison agree.
+  for (const kind of ['temporal', 'resource', 'informational'] as const) {
+    for (const resourceDependenciesOrder of [false, true]) {
+      const unknown = schedulePlan(
+        constraints({ items: [item('a', { dependsOn: [{ dependsOnItemId: 'ghost', kind }] })] }),
+        config({ resourceDependenciesOrder }),
+      );
+      assert.equal(
+        reasonFor(unknown, 'a'),
+        'UNKNOWN_DEPENDENCY',
+        `a dangling ${kind} edge is a defect in the request under either config`,
+      );
+
+      const self = schedulePlan(
+        constraints({ items: [item('a', { dependsOn: [{ dependsOnItemId: 'a', kind }] })] }),
+        config({ resourceDependenciesOrder }),
+      );
+      assert.equal(reasonFor(self, 'a'), 'SELF_DEPENDENCY', `a ${kind} self-edge is always a defect`);
+    }
+  }
+});
+
+test('CYCLIC_DEPENDENCY, by contrast, is a statement about whether an ordering exists', () => {
+  // A cycle asks "can these be sequenced", and edges the config does not
+  // consult impose no sequence — so unlike the two above, this one is read over
+  // the ordering edges. `resource` edges therefore cycle only when the config
+  // says they order, which is the same rule #29 applies.
+  const resourceCycle = constraints({
+    items: [
+      item('a', { dependsOn: [{ dependsOnItemId: 'b', kind: 'resource' }] }),
+      item('b', { dependsOn: [{ dependsOnItemId: 'a', kind: 'resource' }] }),
+    ],
+  });
+
+  const unordered = schedulePlan(resourceCycle, config({ resourceDependenciesOrder: false }));
+  assert.equal(unordered.unscheduled.length, 0, 'a loop nobody sequences is not a loop worth refusing');
+
+  const ordered = schedulePlan(resourceCycle, config({ resourceDependenciesOrder: true }));
+  assert.equal(reasonFor(ordered, 'a'), 'CYCLIC_DEPENDENCY');
+  assert.equal(reasonFor(ordered, 'b'), 'CYCLIC_DEPENDENCY');
 });
 
 /* ── Attempt codes: tried, and lost ─────────────────────────────── */

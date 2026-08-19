@@ -21,10 +21,13 @@
  *     An import in either direction would make the sprint's cross-track
  *     comparison compare a thing with itself — the Sprint 02 failure, where 91
  *     tests passed while three modules disagreed.
- *  3. **The scheduler imports #29's normalizer and never #29's validator.** The
- *     sprint design permits exactly one of those: materialising a window is
- *     arithmetic and a second copy is a gap, while validating constraints is a
- *     judgement and a second copy is a check.
+ *  3. **Across the #29 line, only the normalizer is reachable — and today
+ *     nothing is.** #29 does not exist yet, so the scheduler carries its own
+ *     `windows.ts` stand-in; the guard below therefore has a second half that
+ *     fires the moment #29 lands and the duplicate is still here. The sprint
+ *     design permits exactly one crossing: materialising a window is arithmetic
+ *     and a second copy is a gap, while validating constraints is a judgement
+ *     and a second copy is a check.
  *  4. **No ambient clock, anywhere in the closure.** Not `Date.now()`, not a
  *     no-argument `new Date()`, not `Math.random()`, not `randomUUID`. This is
  *     the one determinism property no behavioural test can catch: a scheduler
@@ -206,24 +209,78 @@ test('the scheduler reaches nothing under lib/planning/evaluation', () => {
   }
 });
 
-test('the scheduler may reach #29 normalizer but never #29 validator', () => {
-  // Matched on the *resolved* repo path rather than on the specifier text: this
-  // module would spell the import `../constraints/normalize`, and a pattern
-  // anchored on `planning/constraints` would never see it — reporting a clean
-  // separation across the very edge it exists to police.
+test('the only file the scheduler may reach across the #29 line is the normalizer', () => {
+  // Matched on the *resolved* repo path rather than on the specifier text: the
+  // import would be spelled `../constraints/normalize`, and a pattern anchored
+  // on `planning/constraints` would never see it — reporting a clean separation
+  // across the very edge it exists to police.
+  //
+  // Written as one assertion over a computed list rather than as a loop over a
+  // filtered one. The earlier shape was a `for` over a list that is empty on
+  // this branch, so its body never ran and it asserted nothing at all while
+  // reading like a guard.
   const closure = importClosure(sourceFiles(schedulerDir));
-  const constraintFiles = Array.from(closure.keys())
+  const crossing = Array.from(closure.keys())
     .map(relative)
     .filter((file) => file.startsWith('lib/planning/constraints/'))
+    .filter((file) => file !== 'lib/planning/constraints/normalize.ts')
     .sort();
 
-  for (const file of constraintFiles) {
+  assert.deepEqual(
+    crossing,
+    [],
+    'only #29\'s normalizer may cross this line: materialising a window is arithmetic and a '
+      + 'second copy is a gap, while validating constraints is a judgement and a second copy is a check',
+  );
+});
+
+test('the local window stand-in stays isolated, and deleting it is not optional', () => {
+  // The tripwire on the duplication `windows.ts` admits to being. It has two
+  // regimes and asserts something real in both, so it cannot go quiet the way
+  // the check above had.
+  const standIn = join(schedulerDir, 'windows.ts');
+  const normalizer = join(repoRoot, 'lib', 'planning', 'constraints', 'normalize.ts');
+
+  if (!existsSync(standIn)) {
+    // #29 landed and the stand-in was removed. Prove the scheduler now reaches
+    // the real normalizer rather than having quietly grown a third copy of the
+    // arithmetic somewhere else in this directory.
+    assert.ok(existsSync(normalizer), 'windows.ts is gone but there is no normalizer to have replaced it');
+    const closure = Array.from(importClosure(sourceFiles(schedulerDir)).keys()).map(relative);
     assert.ok(
-      /^lib\/planning\/constraints\/normalize\.ts$/.test(file),
-      `${file} is reachable from the scheduler; only #29's normalizer may cross this line, `
-        + 'because materialising a window is arithmetic while validating constraints is a judgement',
+      closure.includes('lib/planning/constraints/normalize.ts'),
+      'windows.ts was deleted without the scheduler picking up #29\'s normalizer',
     );
+    return;
   }
+
+  // The stand-in is still here, so #29 must not be. The moment
+  // `lib/planning/constraints/normalize.ts` appears, this fails until someone
+  // deletes `windows.ts` — which is the whole point of writing the duplicate
+  // down as temporary rather than trusting a comment to be read.
+  assert.equal(
+    existsSync(normalizer),
+    false,
+    'lib/planning/constraints/normalize.ts now exists: delete lib/planning/scheduler/windows.ts and '
+      + 'import it. Two copies of window arithmetic will not disagree loudly, only on one Sunday in October',
+  );
+
+  // Nothing outside this directory may depend on the stand-in, or its deletion
+  // stops being a local change.
+  const importers = sourceFiles(schedulerDir)
+    .filter((file) => importSpecifiers(readFileSync(file, 'utf8')).some((specifier) => /(^|\/)windows$/.test(specifier)))
+    .map(relative);
+  assert.deepEqual(
+    importers,
+    ['lib/planning/scheduler/scheduler.ts'],
+    'the stand-in must have exactly one importer, so replacing it is a one-line change',
+  );
+  assert.equal(
+    /\bwindows\b/.test(code(join(schedulerDir, 'index.ts'))),
+    false,
+    're-exporting the stand-in from the public surface would let a caller outside this module '
+      + 'depend on it and keep the duplicate alive past the integration meant to delete it',
+  );
 });
 
 /* ── No ambient clock ───────────────────────────────────────────── */

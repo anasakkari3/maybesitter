@@ -36,6 +36,7 @@ import type {
   TimeInterval,
 } from '../../../src/contracts/v1/planningContracts';
 import { minutesBetween, toEpochMs } from '../shared/time';
+import { compareByCodePoint } from './compare';
 
 function sameInterval(left: TimeInterval, right: TimeInterval): boolean {
   // Compared as instants rather than as strings: `2026-08-17T09:00:00Z` and
@@ -65,10 +66,7 @@ export function diffPlans(previous: Plan, next: Plan): PlanDiff {
     Array.from(nextPlacements.keys()),
     Array.from(previousReasons.keys()),
     Array.from(nextReasons.keys()),
-  // Sorted by code point, never `localeCompare`: the latter depends on the
-  // runtime's ICU data and default locale, and a diff whose order changed with
-  // the machine it ran on could not be compared between two runs.
-  ))).sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+  ))).sort(compareByCodePoint);
 
   const changes: PlanItemChange[] = [];
   for (const itemId of itemIds) {

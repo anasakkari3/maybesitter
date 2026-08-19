@@ -16,7 +16,11 @@
  * At integration: delete this file, import `materializeWorkingWindows` /
  * `freeRuns` from `lib/planning/constraints/normalize.ts`, and keep
  * `tests/planning/schedulerPlacement.test.ts` green as the proof the swap was
- * behaviour-preserving. Nothing outside `lib/planning/scheduler/` imports this.
+ * behaviour-preserving. Those tests assert at the scheduler level, so they
+ * carry over unchanged — in particular "a wider horizon never yields less
+ * availability across a spring-forward date", which is the property the first
+ * version of this file got wrong and which #29's normalizer must also hold.
+ * Nothing outside `lib/planning/scheduler/` imports this.
  *
  * What it deliberately does *not* do is judge. A gap or a malformed window is
  * returned as a finding for the caller to place in the plan; deciding whether a
@@ -104,12 +108,44 @@ export function mergeIntervals(intervals: readonly TimeInterval[]): TimeInterval
 }
 
 /**
- * Materialise every recurrence of every window that touches the horizon.
+ * The calendar dates, as `[year, month, day]` keys, that a zone shows between
+ * two instants — one day of slack either side.
  *
- * The scan runs over UTC days from one day before the horizon to one day after
- * it, because a window's local date can sit either side of the UTC date at
- * offsets up to ±14 hours; a scan bounded exactly by the horizon would drop the
- * first or last day's availability in roughly half the world's zones.
+ * Enumerating *local calendar dates* is the whole content of this helper, and
+ * the reason it exists rather than a loop that adds 24 hours to a probe. A
+ * fixed 24-hour step holds the probe's local time of day constant, which is
+ * only true on the 363 days a year the offset does not move. On a
+ * spring-forward date the local day is 23 hours long, so a probe phased into
+ * the last local hour steps clean over that date and the day is never
+ * enumerated at all — the window silently does not exist that Sunday. Worse, it
+ * depends on the probe's phase, which comes from the horizon's start instant:
+ * moving the horizon start half an hour *earlier* could delete a whole day of
+ * availability, so a strictly larger horizon returned strictly less time.
+ *
+ * The slack either side is because a local date can sit either side of the UTC
+ * date at offsets up to ±14 hours; bounding the scan exactly by the horizon
+ * would drop the first or last day's availability in roughly half the world's
+ * zones.
+ *
+ * The cursor arithmetic is UTC midnight plus 24 hours, which *is* exact: UTC
+ * has no transitions, so it is being used here as a calendar, not as a clock.
+ */
+function localDatesBetween(fromMs: number, toMs: number, timeZone: string): WallClockParts[] {
+  const first = wallClockAt(fromMs - MS_PER_DAY, timeZone);
+  const last = wallClockAt(toMs + MS_PER_DAY, timeZone);
+
+  const dates: WallClockParts[] = [];
+  let cursor = Date.UTC(first.year, first.month - 1, first.day);
+  const end = Date.UTC(last.year, last.month - 1, last.day);
+  while (cursor <= end) {
+    dates.push(wallClockAt(cursor, 'UTC'));
+    cursor += MS_PER_DAY;
+  }
+  return dates;
+}
+
+/**
+ * Materialise every recurrence of every window that touches the horizon.
  */
 export function materializeWorkingWindows(
   windows: readonly WorkingWindow[],
@@ -124,9 +160,6 @@ export function materializeWorkingWindows(
     return { intervals: [], reasons };
   }
 
-  const firstProbe = toEpochMs(horizon.startsAt) - MS_PER_DAY;
-  const lastProbe = toEpochMs(horizon.endsAt) + MS_PER_DAY;
-
   for (const window of windows) {
     if (window.endMinute <= window.startMinute) {
       reasons.push({
@@ -137,9 +170,17 @@ export function materializeWorkingWindows(
       continue;
     }
 
-    for (let probe = firstProbe; probe <= lastProbe; probe += MS_PER_DAY) {
-      if (weekdayAt(probe, window.timezone) !== window.weekday) continue;
-      const date = wallClockAt(probe, window.timezone);
+    const dates = localDatesBetween(
+      toEpochMs(horizon.startsAt),
+      toEpochMs(horizon.endsAt),
+      window.timezone,
+    );
+    for (const date of dates) {
+      // The weekday of a calendar date is a property of the date, not of the
+      // zone, so it is read off the UTC calendar rather than off an instant —
+      // which is what removes the probe phase from the answer entirely.
+      const weekday = weekdayAt(Date.UTC(date.year, date.month - 1, date.day), 'UTC');
+      if (weekday !== window.weekday) continue;
 
       const startResolution = resolveLocalTime(partsAt(date, window.startMinute), window.timezone);
       const endResolution = resolveLocalTime(partsAt(date, window.endMinute), window.timezone);

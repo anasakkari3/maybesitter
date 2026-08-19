@@ -115,6 +115,84 @@ test('placement starts on a slot boundary measured from the horizon start', () =
   assert.equal(placed(plan, 'a').interval.startsAt, '2026-08-17T09:10:00.000Z');
 });
 
+test('a wider horizon never yields less availability across a spring-forward date', () => {
+  // 2026-03-08 is spring forward in America/New_York: that local day is 23
+  // hours long. Materialising recurrences by stepping a probe forward in fixed
+  // 24-hour jumps keeps the probe's *local* time of day fixed, so a probe
+  // phased into the last local hour steps straight over the short day and the
+  // Sunday window is never seen at all. The symptom is absurd on its face —
+  // moving the horizon start half an hour earlier, which can only add time,
+  // deleted eight hours of availability.
+  //
+  // Asserted at the scheduler level rather than against the materialiser, so it
+  // still holds after #29's normalizer replaces `windows.ts`, and becomes a
+  // check on that normalizer too.
+  const dst = (startsAt: string): PlanningConstraints => ({
+    scopeId: 'scope-dst',
+    timezone: 'America/New_York',
+    horizon: { startsAt, endsAt: '2026-03-09T00:00:00.000Z' },
+    workingWindows: [{
+      windowId: 'w-sunday',
+      weekday: 0,
+      startMinute: 540,
+      endMinute: 1020,
+      timezone: 'America/New_York',
+    }],
+    fixedEvents: [],
+    items: [item('a')],
+  });
+
+  for (const startsAt of [
+    '2026-03-07T00:00:00.000Z',
+    '2026-03-07T04:00:00.000Z',
+    '2026-03-07T04:30:00.000Z',
+    '2026-03-07T05:00:00.000Z',
+    '2026-03-07T06:30:00.000Z',
+    '2026-03-07T12:00:00.000Z',
+    '2026-03-07T23:30:00.000Z',
+  ]) {
+    const plan = schedulePlan(dst(startsAt), config());
+    assert.equal(
+      plan.scheduled.length,
+      1,
+      `the Sunday window vanished for a horizon starting ${startsAt}: `
+        + JSON.stringify(plan.unscheduled.map((entry) => entry.reason.code)),
+    );
+    // 09:00 EDT is 13:00Z. Every horizon that contains the day must agree.
+    assert.equal(plan.scheduled[0].interval.startsAt, '2026-03-08T13:00:00.000Z');
+  }
+});
+
+test('the fall-back date is materialised once, not twice', () => {
+  // The 25-hour local day is probed twice by any date-stepping scheme, and
+  // `mergeIntervals` is what keeps that from becoming two overlapping windows.
+  const plan = schedulePlan(
+    {
+      scopeId: 'scope-dst',
+      timezone: 'America/New_York',
+      horizon: { startsAt: '2026-10-31T00:00:00.000Z', endsAt: '2026-11-02T00:00:00.000Z' },
+      workingWindows: [{
+        windowId: 'w-sunday',
+        weekday: 0,
+        startMinute: 540,
+        endMinute: 1020,
+        timezone: 'America/New_York',
+      }],
+      fixedEvents: [],
+      items: [item('a'), item('b', { priority: -1 })],
+    },
+    config(),
+  );
+
+  assert.equal(plan.scheduled.length, 2);
+  for (const left of plan.scheduled) {
+    for (const right of plan.scheduled) {
+      if (left.itemId === right.itemId) continue;
+      assert.equal(intervalsOverlap(left.reservedInterval, right.reservedInterval), false);
+    }
+  }
+});
+
 /* ── Fixed events ───────────────────────────────────────────────── */
 
 test('placed work never overlaps a blocking fixed event', () => {
@@ -315,24 +393,60 @@ test('an item does not start before its own earliestStartAt', () => {
   assert.equal(placed(plan, 'a').reservedInterval.startsAt, '2026-08-17T13:30:00.000Z');
 });
 
-test('it is the reserved interval, not the effort, that must land before the deadline', () => {
-  // 60 minutes of effort plus 30 of recovery, due at 10:30: it fits exactly.
-  const fits = schedulePlan(
-    constraints({ items: [item('a', { deadlineAt: '2026-08-17T10:30:00.000Z', bufferAfterMinutes: 30 })] }),
+test('the deadline bounds the effort; recovery time may run past it', () => {
+  // `deadlineAt` is documented as "must be *finished* by this instant" and
+  // `PlannedItem.interval` as "the effort itself". Recovery afterwards is not
+  // finishing, so an after-buffer crossing the deadline is not a late item —
+  // it is a protected half-hour the plan is honest about.
+  const plan = schedulePlan(
+    constraints({ items: [item('a', { deadlineAt: '2026-08-17T10:00:00.000Z', bufferAfterMinutes: 30 })] }),
     config(),
   );
-  assert.equal(placed(fits, 'a').reservedInterval.endsAt, '2026-08-17T10:30:00.000Z');
-  assert.ok(toEpochMs(placed(fits, 'a').interval.endsAt) < toEpochMs('2026-08-17T10:30:00.000Z'));
 
-  // The same item due fifteen minutes earlier does not. The effort alone would
-  // have finished at 10:00 and a scheduler that compared only `interval` would
-  // have placed it and quietly eaten the recovery time.
-  const doesNot = schedulePlan(
-    constraints({ items: [item('a', { deadlineAt: '2026-08-17T10:15:00.000Z', bufferAfterMinutes: 30 })] }),
+  assert.equal(placed(plan, 'a').interval.endsAt, '2026-08-17T10:00:00.000Z');
+  assert.equal(placed(plan, 'a').reservedInterval.endsAt, '2026-08-17T10:30:00.000Z');
+});
+
+test('the effort itself is genuinely bounded by the deadline', () => {
+  // Fifteen minutes less room and there is no legal start: the window opens at
+  // 09:00 and 60 minutes of work would run to 10:00, past a 09:45 deadline.
+  const plan = schedulePlan(
+    constraints({ items: [item('a', { deadlineAt: '2026-08-17T09:45:00.000Z' })] }),
     config(),
   );
-  assert.equal(doesNot.scheduled.length, 0);
-  assert.equal(doesNot.unscheduled[0].reason.code, 'NO_FEASIBLE_SLOT');
+
+  assert.equal(plan.scheduled.length, 0);
+  assert.equal(plan.unscheduled[0].reason.code, 'NO_FEASIBLE_SLOT');
+});
+
+test('a before-buffer may begin earlier than earliestStartAt, and the item still fits', () => {
+  // `earliestStartAt` bounds the effort, not the reservation: preparation
+  // before the earliest start is exactly what a before-buffer is for. The
+  // static feasibility check used to require the whole reserved span inside
+  // [earliestStartAt, deadlineAt] while placement allowed the buffer to sit
+  // earlier — so this item was reported EFFORT_EXCEEDS_ITEM_WINDOW although a
+  // legal placement existed, and the two halves of one module disagreed.
+  const plan = schedulePlan(
+    constraints({
+      items: [item('a', {
+        earliestStartAt: '2026-08-17T10:05:00.000Z',
+        deadlineAt: '2026-08-17T11:30:00.000Z',
+        bufferBeforeMinutes: 30,
+      })],
+    }),
+    config(),
+  );
+
+  const entry = placed(plan, 'a');
+  assert.ok(
+    toEpochMs(entry.interval.startsAt) >= toEpochMs('2026-08-17T10:05:00.000Z'),
+    'the effort must still respect earliestStartAt',
+  );
+  assert.ok(
+    toEpochMs(entry.reservedInterval.startsAt) < toEpochMs('2026-08-17T10:05:00.000Z'),
+    'and the buffer is allowed to precede it, or this test is not exercising the case',
+  );
+  assert.ok(toEpochMs(entry.interval.endsAt) <= toEpochMs('2026-08-17T11:30:00.000Z'));
 });
 
 /* ── Plan shape ─────────────────────────────────────────────────── */
