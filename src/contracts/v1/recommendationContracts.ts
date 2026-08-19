@@ -1032,9 +1032,17 @@ function isBlank(value: string): boolean {
  * repo's comparator (`compareByCodePoint`) lives in `lib/planning/shared/` and a
  * contract must not import `lib/`, so the only ways to sort by id here would be
  * a second copy of that arithmetic (the Sprint 06 gap) or `localeCompare`, whose
- * result depends on the runtime's ICU data and default locale. The pilot's
- * `nextStepBaseline.ts` uses `localeCompare` twice; that is a known pre-existing
- * defect recorded in the roadmap, not a precedent.
+ * result depends on the runtime's ICU data and default locale.
+ *
+ * The V03 pilot surface had four `localeCompare` sites — `nextStepBaseline.ts`
+ * twice, `nextStepReviewService.ts` and `experiments/nextStepArms.ts` once each —
+ * all of which now use `compareByCodePoint`. They are recorded here because a
+ * reader who finds them in the history should not read them as a precedent this
+ * module may follow: they were a pre-existing defect, and the count is worth
+ * stating because the first grep that went looking for them returned two. A
+ * truncated search over a rule that must hold everywhere reports a clean result
+ * for the part it saw, which is the same shape of failure as a cross-track test
+ * comparing at too coarse a granularity.
  *
  * **The suppression rule**, matching `planningContracts`: a finding is suppressed
  * only when it borrows a bound from something already reported malformed. A node
