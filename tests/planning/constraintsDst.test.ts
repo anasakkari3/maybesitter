@@ -258,6 +258,66 @@ test('Jerusalem fall back: the occurrence begins on the UTC day before its own l
   });
 });
 
+/* ── An anomaly is only this plan's problem if it lands in this plan ── */
+
+test('a transition anomaly on a date the horizon never reaches is not reported', () => {
+  // The cross-track disagreement, reproduced. The spring gap is Sunday
+  // 2026-03-08 and the horizon opens on the 9th, so the anomalous occurrence
+  // falls wholly outside the plan. Reporting it sends the user to fix a window
+  // that has no bearing on anything being planned — noise, not information, and
+  // #31's oracle said so first.
+  const horizon: PlanningHorizon = {
+    startsAt: '2026-03-09T00:00:00.000Z',
+    endsAt: '2026-03-10T00:00:00.000Z',
+  };
+  const normalized = normalizeWorkingWindows([window({ startMinute: 120, endMinute: 360 })], horizon, EARLIEST);
+
+  assert.deepEqual(normalized.windows, []);
+  assert.deepEqual(normalized.anomalies, []);
+});
+
+test('an occurrence the gap swallowed *inside* the horizon is still reported', () => {
+  // The case the filter above must not swallow with it, and the reason the test
+  // for it is written next to the test that motivated the filter.
+  //
+  // Both cases produce no materialised window, so "did anything survive?" cannot
+  // separate them. What separates them is the *nominal* extent — where the
+  // window would have sat had the offset not moved that day. Here that extent
+  // is 02:00-02:59 local on a date the horizon covers, so the user really has
+  // lost an hour they asked for and is told. Above, the nominal extent sits a
+  // day before the plan opens.
+  const horizon: PlanningHorizon = {
+    startsAt: '2026-03-07T00:00:00.000Z',
+    endsAt: '2026-03-10T00:00:00.000Z',
+  };
+  const normalized = normalizeWorkingWindows([window({ startMinute: 120, endMinute: 179 })], horizon, EARLIEST);
+
+  assert.deepEqual(normalized.windows, []);
+  assert.deepEqual(normalized.anomalies, [
+    { windowId: 'w1', windowIndex: 0, localDate: '2026-03-08', boundary: 'start', kind: 'gap' },
+    { windowId: 'w1', windowIndex: 0, localDate: '2026-03-08', boundary: 'end', kind: 'gap' },
+  ]);
+});
+
+test('the horizon edge decides, not the surviving remnant: a shortened window still reports', () => {
+  // A third case that would fall to a naive "did anything survive the clip"
+  // filter from the other side. The occurrence starts in the gap and *does*
+  // survive, but only a sliver of it is inside the horizon. The anomaly is real
+  // and inside the plan, so it is reported — the filter asks where the window
+  // was asked for, not how much of it is left.
+  const horizon: PlanningHorizon = {
+    startsAt: '2026-03-08T09:30:00.000Z',
+    endsAt: '2026-03-10T00:00:00.000Z',
+  };
+  const normalized = normalizeWorkingWindows([window({ startMinute: 150, endMinute: 360 })], horizon, EARLIEST);
+
+  assert.deepEqual(normalized.windows.map((materialized) => materialized.interval), [
+    { startsAt: '2026-03-08T09:30:00.000Z', endsAt: '2026-03-08T10:00:00.000Z' },
+  ]);
+  assert.equal(normalized.anomalies.length, 1);
+  assert.equal(normalized.anomalies[0].kind, 'gap');
+});
+
 /* ── An occurrence that outlives its own local date ──────────────── */
 
 test('an occurrence running past local midnight is found when the horizon starts inside it', () => {
