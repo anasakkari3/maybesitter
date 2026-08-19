@@ -1,0 +1,7 @@
+{
+  "contractVersion": "1.0.0",
+  "schema": "decomposition-v1",
+  "role": "reviewed",
+  "note": "The human-reviewed decomposition corpus. It ships EMPTY and must stay empty until real reviewer rows exist in data/quality/decomposition-annotation-reviews.json. A row here claims a person approved it; tests/decomposition/datasetCorpus.test.ts fails if one appears without that evidence.",
+  "examples": []
+}

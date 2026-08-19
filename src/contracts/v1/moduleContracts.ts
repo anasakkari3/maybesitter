@@ -8,6 +8,7 @@ export const INTELLIGENCE_MODULES = [
   'lifeState',
   'memory',
   'priority',
+  'decomposition',
   'planning',
   'recommendation',
   'coaching',
@@ -159,6 +160,29 @@ export const INTELLIGENCE_MODULE_CONTRACTS: Record<IntelligenceModuleName, Intel
     inputDescription: 'Priority scoring requests from deterministic features.',
     outputDescription: 'Non-operative placeholder until Sprint 04+ gates pass.',
     execute: async (invocation: ModuleInvocation<unknown>) => placeholderExecutor(invocation.provenance, { status: 'not_implemented_in_sprint_00' } satisfies GenericModuleOutput),
+  },
+  decomposition: {
+    version: MODULE_CONTRACT_VERSION,
+    module: 'decomposition',
+    owner: 'backend',
+    allowsDirectStateWrites: false,
+    allowedDependencyLayers: ['contracts', 'deterministic-services', 'adapters'],
+    inputDescription: 'One commitment\'s text, proposed as multiple steps without rewriting it.',
+    outputDescription: 'A DecompositionProposal; see decompositionContracts and lib/decomposition.',
+    execute: async (invocation: ModuleInvocation<unknown>) => placeholderExecutor(invocation.provenance, {
+      status: 'implemented',
+      module: 'decomposition',
+      // Spelled out rather than imported from `decompositionContracts`, which
+      // imports `MODULE_CONTRACT_VERSION` from this file. Importing it back
+      // closes a cycle, and ESM resolves that cycle by evaluating
+      // `decompositionContracts` while this module's body has not run — so
+      // `DECOMPOSITION_CONTRACT_VERSION = MODULE_CONTRACT_VERSION` throws a
+      // TDZ ReferenceError at import time. `tsc` reports nothing; the crash is
+      // runtime-only. `contract: the decomposition module descriptor matches
+      // the decomposition schema version` pins the two together instead.
+      schemaVersion: 'decomposition-v1',
+      entryPoint: 'lib/decomposition/engine#proposeDecomposition',
+    } satisfies ImplementedModuleOutput),
   },
   planning: {
     version: MODULE_CONTRACT_VERSION,
