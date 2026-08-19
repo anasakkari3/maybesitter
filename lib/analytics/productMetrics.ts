@@ -2,13 +2,15 @@ import type { AnalyticsEventName, PrivacySafeAnalyticsEvent } from '../../src/co
 import { requireValidAnalyticsEvent } from './privacySafeEvents';
 
 const FUNNEL: AnalyticsEventName[] = ['capture_submitted', 'commitment_detected', 'commitment_confirmed', 'recommendation_shown', 'recommendation_accepted', 'recommendation_completed'];
-const ACTIVITY = new Set<AnalyticsEventName>(['capture_submitted', 'commitment_confirmed', 'recommendation_accepted', 'recommendation_completed']);
+const ACTIVITY = new Set<AnalyticsEventName>(['capture_submitted', 'commitment_confirmed', 'recommendation_accepted', 'recommendation_completed', 'voice_capture_completed', 'widget_tap', 'first_value_reached']);
 const DAY = 86400000;
 
 export interface ProductMetricsReport {
   totalUsers: number;
   activatedUsers: number;
   activationRate: number;
+  activation: { denominator: number; activated: number; rate: number };
+  firstValue: { denominator: number; reached: number; rate: number };
   funnel: Record<string, number>;
   retention: { week4Eligible: number; week4Retained: number; week4Rate: number; week8Eligible: number; week8Retained: number; week8Rate: number };
   consent: { calendarStarted: number; calendarConnected: number; deletions: number };
@@ -25,6 +27,7 @@ export function buildProductMetricsReport(values: readonly unknown[], reportAt: 
   const confirmed = usersFor('commitment_confirmed');
   const shown = usersFor('recommendation_shown');
   const activated = new Set(Array.from(confirmed).filter((user) => shown.has(user)));
+  const firstValue = usersFor('first_value_reached');
   const firstActivity = new Map<string, number>();
   for (const event of events.filter((item) => ACTIVITY.has(item.eventName))) {
     const at = Date.parse(event.occurredAt);
@@ -41,6 +44,8 @@ export function buildProductMetricsReport(values: readonly unknown[], reportAt: 
     totalUsers: users.size,
     activatedUsers: activated.size,
     activationRate: rate(activated.size, users.size),
+    activation: { denominator: users.size, activated: activated.size, rate: rate(activated.size, users.size) },
+    firstValue: { denominator: users.size, reached: firstValue.size, rate: rate(firstValue.size, users.size) },
     funnel: Object.fromEntries(FUNNEL.map((name) => [name, usersFor(name).size])),
     retention: { week4Eligible: week4.eligible, week4Retained: week4.retained, week4Rate: week4.rate, week8Eligible: week8.eligible, week8Retained: week8.retained, week8Rate: week8.rate },
     consent: { calendarStarted: usersFor('calendar_connect_started').size, calendarConnected: usersFor('calendar_connected').size, deletions: events.filter((event) => event.eventName === 'data_deleted').length },

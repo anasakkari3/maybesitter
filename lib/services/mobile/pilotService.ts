@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { analyticsContextFrom } from '../../analytics/analyticsContext';
 import { appendAnalyticsEvent } from '../../analytics/eventStore';
-import { recordDataDeleted } from '../../analytics/loopAnalytics';
+import { isClientReportableEvent, recordClientEvent, recordDataDeleted, recordFirstValueReached } from '../../analytics/loopAnalytics';
 import { resolveNextStepArm } from '../../experiments/experimentControls';
 import {
   buildWhatMaybeSitterKnows,
@@ -132,6 +132,7 @@ export async function getMobileNextStep(participantId: string, input: MobilePilo
   const recommendation = getLiveNextStep(await readParticipantState(participantId), context);
   if (recommendation.state === 'ready' && !access.trust.firstValueAt) {
     getPilotTrustStore().apply(participantId, { type: 'record_first_value', at });
+    recordFirstValueReached(context, { surface: 'recommendation', reason: 'next_step_ready' });
   }
   const assignment = resolveNextStepArm(participantId);
   return {
@@ -140,6 +141,39 @@ export async function getMobileNextStep(participantId: string, input: MobilePilo
     recommendation,
     assignment,
     exposure: access.decision,
+  };
+}
+
+export function recordMobilePilotLoopEvent(participantId: string, input: MobilePilotSource) {
+  const now = new Date();
+  const at = now.toISOString();
+  const access = resolvePilotAccess(participantId, at, false);
+  if (!access.trust) {
+    throw new MobilePilotError(
+      'participant is not admitted to this pilot instance',
+      403,
+      access.decision.reason,
+    );
+  }
+  const eventName = input.eventName;
+  if (!isClientReportableEvent(eventName)) {
+    throw new MobilePilotError('eventName is not client reportable', 400);
+  }
+  const context = {
+    anonymousUserId: participantId,
+    consent: access.trust.analyticsConsent ? 'granted' as const : 'essential' as const,
+    now,
+    emit: appendAnalyticsEvent,
+  };
+  const properties = input.properties && typeof input.properties === 'object' && !Array.isArray(input.properties)
+    ? input.properties as Record<string, string | number | boolean | null>
+    : {};
+  const event = recordClientEvent(context, eventName, properties);
+  return {
+    success: true,
+    participantId,
+    recorded: event !== null,
+    eventId: event?.eventId ?? null,
   };
 }
 

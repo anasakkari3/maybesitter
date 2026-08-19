@@ -10,6 +10,9 @@ export const ANALYTICS_EVENT_NAMES = [
   'pricing_viewed', 'purchase_intent',
   // Additive V03 extension: self-reported utility and invasiveness for a shown proposal.
   'recommendation_rated',
+  // Additive C05 extension: first pilot value loop surface signals.
+  'voice_capture_started', 'voice_capture_completed', 'voice_capture_abandoned',
+  'widget_impression', 'widget_tap', 'deep_link_opened', 'first_value_reached',
 ] as const;
 
 export type AnalyticsEventName = typeof ANALYTICS_EVENT_NAMES[number];

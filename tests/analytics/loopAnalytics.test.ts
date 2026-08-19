@@ -7,9 +7,11 @@ import {
   CLIENT_REPORTABLE_EVENTS,
   changedFieldCount,
   isClientReportableEvent,
+  recordClientEvent,
   recordCaptureAnalytics,
   recordCommitmentEdited,
   recordDataDeleted,
+  recordFirstValueReached,
 } from '../../lib/analytics/loopAnalytics.ts';
 import { validateAnalyticsEvent } from '../../lib/analytics/privacySafeEvents.ts';
 import { buildProductMetricsReport } from '../../lib/analytics/productMetrics.ts';
@@ -97,12 +99,36 @@ test('analytics: experiment assignment is stable per user and split across arms'
 });
 
 test('analytics: forged loop events are not client-reportable and bad payloads are rejected at build time', () => {
-  for (const name of ['capture_submitted', 'commitment_confirmed', 'recommendation_accepted']) {
+  for (const name of ['capture_submitted', 'commitment_confirmed', 'recommendation_accepted', 'first_value_reached']) {
     assert.equal(isClientReportableEvent(name), false);
   }
   for (const name of CLIENT_REPORTABLE_EVENTS) assert.equal(isClientReportableEvent(name), true);
   assert.throws(() => buildAnalyticsEvent(context(), 'pricing_viewed', { rawMessage: 'private' }), /not allowed|forbidden/);
   assert.throws(() => buildAnalyticsEvent({ ...context(), anonymousUserId: 'bad id!' }, 'pricing_viewed', { surface: 'paywall' }), /valid user/);
+});
+
+test('analytics: phone-presence client events are privacy-safe and reportable', () => {
+  resetAnalyticsEventsForTests();
+  const event = recordClientEvent(context(), 'voice_capture_completed', {
+    source: 'widget',
+    locale: 'en-US',
+    inputLength: 42,
+    flagWidget: true,
+    flagVoice: true,
+    flagAwareness: false,
+    flagWatch: false,
+    flagImports: false,
+  });
+
+  assert.equal(event?.eventName, 'voice_capture_completed');
+  assert.equal(validateAnalyticsEvent(event).valid, true);
+  assert.throws(
+    () => buildAnalyticsEvent(context(), 'voice_capture_completed', {
+      rawText: 'call Maya',
+      source: 'widget',
+    }),
+    /not allowed|forbidden/,
+  );
 });
 
 test('analytics: an absent anonymous id disables collection rather than failing the request', () => {
@@ -127,11 +153,14 @@ test('analytics: live-wired events reconcile into the activation and funnel repo
   });
   emitAnalyticsEvent(context(), 'recommendation_shown', { proposalId: 'p1', commitmentId: 'c1', baselineVersion: 'v1' });
   emitAnalyticsEvent(context(), 'recommendation_accepted', { proposalId: 'p1' });
+  recordFirstValueReached(context(), { surface: 'recommendation', reason: 'next_step_ready' });
 
   const report = buildProductMetricsReport(getAnalyticsEvents(), new Date('2026-09-01T00:00:00.000Z'));
   assert.equal(report.totalUsers, 1);
   assert.equal(report.activatedUsers, 1);
   assert.equal(report.activationRate, 1);
+  assert.deepEqual(report.activation, { denominator: 1, activated: 1, rate: 1 });
+  assert.deepEqual(report.firstValue, { denominator: 1, reached: 1, rate: 1 });
   assert.deepEqual(report.funnel, {
     capture_submitted: 1, commitment_detected: 1, commitment_confirmed: 1,
     recommendation_shown: 1, recommendation_accepted: 1, recommendation_completed: 0,

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/commitment.dart';
+import '../models/pilot_loop_analytics.dart';
 import '../design_system/theme/app_theme.dart';
 import '../features/onboarding/onboarding_screen.dart';
 import '../features/pilot/pilot_access_screen.dart';
@@ -43,6 +44,7 @@ class _MaybesitterAppState extends ConsumerState<MaybesitterApp> {
     );
     _deepLinkService.start((location) {
       if (!mounted) return;
+      _recordPilotLoopDeepLink(location);
       appRouter.go(location);
     });
   }
@@ -81,6 +83,42 @@ class _MaybesitterAppState extends ConsumerState<MaybesitterApp> {
         GlobalCupertinoLocalizations.delegate,
       ],
     );
+  }
+
+  void _recordPilotLoopDeepLink(String location) {
+    final flags = ref.read(pilotPresenceFeatureFlagsProvider);
+    final parsed = Uri.tryParse(location);
+    final source = parsed?.queryParameters['source'] == 'widget'
+        ? 'widget'
+        : 'external';
+    try {
+      if (source == 'widget') {
+        unawaited(
+          ref
+              .read(pilotLoopAnalyticsServiceProvider)
+              .record(
+                PilotLoopAnalyticsEvent.widgetTap(
+                  surface: 'homeWidget',
+                  targetRoute: location,
+                  flags: flags,
+                ),
+              )
+              .catchError((_) {}),
+        );
+      }
+      unawaited(
+        ref
+            .read(pilotLoopAnalyticsServiceProvider)
+            .record(
+              PilotLoopAnalyticsEvent.deepLinkOpened(
+                source: source,
+                targetRoute: location,
+                flags: flags,
+              ),
+            )
+            .catchError((_) {}),
+      );
+    } catch (_) {}
   }
 }
 

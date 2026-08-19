@@ -80,6 +80,7 @@ class _CaptureComposerScreenState extends ConsumerState<CaptureComposerScreen> {
         .read(captureControllerProvider.notifier)
         .startSpokenPrompt(
           localeId: Localizations.localeOf(context).toLanguageTag(),
+          source: widget.launch.source,
         );
   }
 
