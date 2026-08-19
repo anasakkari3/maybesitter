@@ -505,9 +505,15 @@ test('clock: the contract reads no clock and no entropy source', () => {
   for (const forbidden of [/\bDate\s*\.\s*now\b/, /\bnew\s+Date\s*\(\s*\)/, /\bMath\s*\.\s*random\b/, /\brandomUUID\b/, /\bperformance\s*\.\s*now\b/]) {
     assert.equal(forbidden.test(code), false, `the contract must not use ${forbidden}`);
   }
-  // `Date.parse` is permitted and is the only Date use: it is a pure function of
-  // its argument, with no reference to the current time.
+  // `Date.parse` is permitted **and is not sufficient on its own**. This comment
+  // used to read "pure function of its argument, with no reference to the
+  // current time", which is true and was taken to mean more than it says: it
+  // does not read the clock, but it does read the *zone*, and this scan blessed
+  // a host-dependent verdict for a whole review round. The guard that actually
+  // holds it is `INSTANT_PATTERN` — see the offset tests above — so the scan now
+  // asserts the pattern exists rather than treating the parse as safe.
   assert.ok(/\bDate\s*\.\s*parse\b/.test(code), 'the scan must see the one permitted Date use');
+  assert.ok(/INSTANT_PATTERN/.test(code), 'Date.parse must be fenced by an explicit-offset pattern');
 });
 
 test('clock: the same inputs give the same verdict on repeated evaluation', () => {
@@ -539,4 +545,115 @@ test('clock: the default TTL is a constant, not something the module applies to 
     })).slice(),
     ['EXPIRED'],
   );
+});
+
+/* ── the instant format, and why the parse alone is not enough ────── */
+
+test('expiry: an instant without an explicit offset is rejected, not read as local time', () => {
+  // `Date.parse` follows the ECMAScript rule that a date-time with no offset is
+  // *local* time, so the same recommendation and the same `now` produced
+  // EXPIRED under TZ=UTC, FRESH under TZ=America/Los_Angeles and EXPIRED under
+  // TZ=Asia/Tokyo. That is the same class of defect this contract spends a long
+  // comment condemning under `localeCompare` — a verdict that moves with the
+  // host environment — and the source scan had blessed it.
+  const nodes = [observed('n1')];
+  const verdict = evaluateRecommendationStaleness({
+    recommendation: recommendation(nodes, { basisAt: '2026-11-23T00:00:00', expiresAt: '2026-11-23T10:00:00' }),
+    now: '2026-11-23T13:00:00Z',
+    currentFingerprints: fingerprintsFor(nodes),
+  });
+  assert.equal(verdict.fresh, false);
+  assert.deepEqual(
+    reasonsOf(verdict).filter((reason) => reason.code === 'INVALID_INSTANT').map((reason) => reason.field),
+    ['basisAt', 'expiresAt'],
+  );
+});
+
+test('expiry: a date-only instant is rejected even though the parser accepts it', () => {
+  // `Date.parse('2026')` succeeds and means "January the first". A recommendation
+  // whose expiry is the string `'2026'` is a producer bug, and silently reading
+  // it as a real instant is how that bug ships.
+  const nodes = [observed('n1')];
+  for (const bad of ['2026', '2026-11', '2026-11-23', '2026-11-23T10:00', '2026-11-23 10:00:00Z']) {
+    const verdict = evaluateRecommendationStaleness({
+      recommendation: recommendation(nodes, { basisAt: BASIS, expiresAt: bad }),
+      now: '2026-08-19T10:30:00.000Z',
+      currentFingerprints: fingerprintsFor(nodes),
+    });
+    assert.ok(
+      reasonsOf(verdict).some((reason) => reason.code === 'INVALID_INSTANT' && reason.field === 'expiresAt'),
+      `${bad} must not be accepted as an Instant`,
+    );
+  }
+});
+
+test('expiry: every accepted offset spelling denotes the same instant', () => {
+  const nodes = [observed('n1')];
+  const spellings = ['2026-08-19T11:00:00Z', '2026-08-19T11:00:00.000Z', '2026-08-19T11:00:00+00:00', '2026-08-19T14:00:00+03:00'];
+  for (const expiresAt of spellings) {
+    const rec = recommendation(nodes, { basisAt: BASIS, expiresAt });
+    assert.equal(
+      evaluateRecommendationStaleness({ recommendation: rec, now: '2026-08-19T10:59:59.999Z', currentFingerprints: fingerprintsFor(nodes) }).fresh,
+      true,
+      `${expiresAt} must be accepted and mean 11:00Z`,
+    );
+    assert.deepEqual(
+      codesOf(evaluateRecommendationStaleness({ recommendation: rec, now: '2026-08-19T11:00:00.000Z', currentFingerprints: fingerprintsFor(nodes) })).slice(),
+      ['EXPIRED'],
+      `${expiresAt} must expire at 11:00Z`,
+    );
+  }
+});
+
+/* ── totality at the untyped boundary ─────────────────────────────── */
+
+test('invalidation: a missing fingerprint map is stale, not a crash', () => {
+  // This raised a TypeError from `hasOwnProperty.call(undefined, …)` — on the
+  // one input the whole fail-closed rule exists for. "The caller has lost track
+  // of its sources" is not an edge case in this section, it is the case.
+  const nodes = [observed('n1')];
+  for (const map of [undefined, null, 'nope', 42]) {
+    const verdict = evaluateRecommendationStaleness({
+      recommendation: recommendation(nodes),
+      now: '2026-08-19T10:30:00.000Z',
+      currentFingerprints: map as unknown as Record<string, string | null>,
+    });
+    assert.equal(verdict.fresh, false, `${String(map)} must fail closed`);
+    assert.deepEqual(codesOf(verdict).slice(), ['SOURCE_UNVERIFIABLE']);
+  }
+});
+
+test('invalidation: a node of unrecognised kind is watched, not silently exempted', () => {
+  // Before this, an unknown kind was skipped by `node.kind !== 'observed'`, so it
+  // could never invalidate anything — which makes an unrecognised node the ideal
+  // hiding place for a claim that must never go stale.
+  const nodes = [{ kind: 'inferred', nodeId: 'x', claim: { kind: 'flag', value: true } }] as unknown as EvidenceNode[];
+  const verdict = evaluateRecommendationStaleness({
+    recommendation: recommendation(nodes),
+    now: '2026-08-19T10:30:00.000Z',
+    currentFingerprints: { x: 'anything' },
+  });
+  assert.equal(verdict.fresh, false);
+  assert.deepEqual(reasonsOf(verdict).map((reason) => `${reason.nodeId}:${reason.code}`).slice(), ['x:SOURCE_UNVERIFIABLE']);
+});
+
+test('expiry: no malformed input at all makes the staleness checker throw', () => {
+  const nodes = [observed('n1')];
+  const shapes: readonly unknown[] = [
+    { recommendation: undefined, now: BASIS, currentFingerprints: {} },
+    { recommendation: null, now: BASIS, currentFingerprints: {} },
+    { recommendation: { ...recommendation(nodes), validity: undefined }, now: BASIS, currentFingerprints: {} },
+    { recommendation: { ...recommendation(nodes), evidence: undefined }, now: BASIS, currentFingerprints: {} },
+    { recommendation: { ...recommendation(nodes), evidence: { nodes: 'nope' } }, now: BASIS, currentFingerprints: {} },
+    { recommendation: recommendation(nodes), now: undefined, currentFingerprints: {} },
+    { recommendation: recommendation(nodes), now: 42, currentFingerprints: {} },
+  ];
+  for (const shape of shapes) {
+    assert.doesNotThrow(
+      () => evaluateRecommendationStaleness(shape as unknown as Parameters<typeof evaluateRecommendationStaleness>[0]),
+      `threw on ${JSON.stringify(shape)?.slice(0, 70)}`,
+    );
+    const verdict = evaluateRecommendationStaleness(shape as unknown as Parameters<typeof evaluateRecommendationStaleness>[0]);
+    assert.equal(verdict.fresh, false, 'a malformed input must never resolve fresh');
+  }
 });

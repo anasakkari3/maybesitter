@@ -40,16 +40,31 @@ concept at module scope**, **superset**, or **deliberately different**:
 
 ## The five structural decisions
 
-1. **An unsourced claim is unrepresentable.** Evidence is a graph of `observed`
-   nodes (each naming a closed union of trusted-state loci) and `derived` nodes
-   (each naming a **non-empty tuple** of parents). With cycles and dangling
-   references rejected by `checkEvidenceGraph`, every ancestry path terminates at
-   an observation. `resolveEvidenceRoots` is the executable form, and
-   `evidenceGraph.test.ts` asserts the implication over 20,000 generated graphs.
+1. **An unsourced claim is unrepresentable in the type, and reported at the
+   boundary.** Evidence is a graph of `observed` nodes (each naming a closed
+   union of trusted-state loci) and `derived` nodes (each naming a **non-empty
+   tuple** of parents). `resolveEvidenceRoots` is the executable form, and
+   `evidenceGraph.test.ts` asserts the implication over 40,000 generated graphs.
+
+   **An earlier draft over-claimed here** and review falsified it in one line.
+   The argument was that the tuple arity plus cycle rejection makes the property
+   a theorem, so no runtime code was needed. That is true of the *type* and false
+   of the *value*: `JSON.parse` yields plain arrays, so `derivedFrom: []` crosses
+   any network, storage or cross-track boundary — and it passed both checkers and
+   the staleness verdict while `resolveEvidenceRoots` returned null for it. The
+   rule that generalises: **every non-empty tuple in the contract is a hole at
+   the untyped boundary**, and each now has a runtime code
+   (`UNSOURCED_DERIVATION`, `UNSOURCED_CLAIM`, `EMPTY_REASON_LIST`,
+   `CHOICE_BELOW_MINIMUM`, `SOLE_OPTION_WITHOUT_ACCOUNT`). The type keeps honest
+   producers honest; the checkers are what the guarantee rests on, because they
+   are what runs where the type is absent.
 2. **A lone option must say why it is alone.** `OptionSet` is `choice`,
    `sole_survivor` (one option plus a non-empty account of what was excluded) or
    `only_candidate` (one option plus evidence nothing else existed). There is no
-   `primary` field to read in isolation.
+   `primary` field to read in isolation. The arities are enforced by
+   `checkRecommendation`, not only by the tuple types: `minOptionsForChoice` was
+   exported as data and read by nothing, so a `choice` carrying one option — the
+   criterion's exact failure — passed every check.
 3. **Staleness is a computed verdict that fails closed.** Observed nodes carry a
    `valueFingerprint`; a node with no supplied current fingerprint is
    `SOURCE_UNVERIFIABLE` and the recommendation is stale.
@@ -65,6 +80,7 @@ and never reads a clock.
 
 | Code | Fires when |
 |---|---|
+| `SOURCE_UNVERIFIABLE` | an observed node has no supplied fingerprint, a node's kind is unrecognised, or the evidence graph is unreadable |
 | `EXPIRED` | `now >= validity.expiresAt` (exclusive upper bound) |
 | `NOT_YET_VALID` | `now < validity.basisAt` |
 | `EXPIRY_NOT_AFTER_BASIS` | `expiresAt <= basisAt` — valid at no instant |
@@ -83,10 +99,26 @@ Instants are compared as parsed epoch milliseconds, never lexicographically —
 
 ## Repo rules this contract holds
 
-- **No ambient clock.** No `Date.now()`, no zero-argument `new Date()`, no
-  `Math.random`, no `randomUUID`. `Date.parse` is the only `Date` use and is a
-  pure function of its argument. Enforced by a source scan in
-  `expiryRules.test.ts`.
+- **No ambient clock, and no ambient time zone.** No `Date.now()`, no
+  zero-argument `new Date()`, no `Math.random`, no `randomUUID`. `Date.parse` is
+  the only `Date` use — but "pure function of its argument" was an over-claim
+  that cost a review round: it does not read the clock, it reads the *zone*. A
+  date-time with no offset is local time per the ECMAScript spec, so one
+  recommendation with one `now` gave EXPIRED under `TZ=UTC`, FRESH under
+  `TZ=America/Los_Angeles` and EXPIRED under `TZ=Asia/Tokyo` — the same class of
+  host-dependence this contract condemns under `localeCompare`, and the source
+  scan had blessed it. `instantToMillis` now requires an explicit `Z` or
+  `±HH:MM` offset before parsing, and the scan asserts that fence exists rather
+  than treating the parse as safe.
+- **Report, never throw — four real defects, not a principle.**
+  `evaluateRecommendationStaleness` raised a `TypeError` on a missing fingerprint
+  map, which is the exact input the fail-closed rule exists for;
+  `checkEvidenceGraph` raised on a non-string `nodeId` though `BLANK_NODE_ID`
+  existed for it; `checkRecommendation` raised on an unrecognised
+  `OptionSet.kind`, which is precisely the version-skew case that motivates
+  running it at both ends; and `resolveEvidenceRoots` overflowed the stack at
+  ~12,000 chained nodes. All four now report, and totality is a fuzzed
+  property.
 - **Never `localeCompare`.** This file needs no string comparator at all:
   findings are ordered by input position. `RECOMMENDATION_ORDERING_KEYS` *names*
   `lib/planning/shared/compare.ts#compareByCodePoint` for #34 rather than
@@ -96,6 +128,32 @@ Instants are compared as parsed epoch milliseconds, never lexicographically —
   ids that are themselves sensitive sentences.
 - **Report, don't throw**, for everything the taxonomy names, and compute the
   input digest only *after* the structural pass.
+
+## How the checkers are held
+
+The checkers are the part #34 and #35 call instead of reimplementing, so their
+coverage is verified by **mutation**, one site at a time — 25 single-site
+mutants, each applied and reverted alone, all 25 killed by `npm run
+test:sprint08`. A batch mutation proves partial coverage while looking complete,
+which is why it is done singly.
+
+Two mutants survived the first pass, and both pointed at the same real problem:
+`resolveEvidenceRoots` had two guards for "this claim rests on nothing" — an
+early `parents.length === 0` return and a trailing emptiness check — that
+**masked each other**, so deleting either left every test green. The trailing
+check was provably unreachable and is gone; one load-bearing guard means its
+deletion now fails a test. That is the same finding as the provably-dead
+backward-reachability pass removed from `findCyclicNodeIndices`: a second check
+that reads as defence in depth is really an untested branch plus a hole in the
+first check's coverage.
+
+The fuzz generator is held the same way. Its distribution is asserted, not
+assumed — it must reach every one of the eight graph defect codes, more than 60%
+of accepted graphs must contain a derivation, and the deepest accepted chain must
+reach 8. The previous generator could not express three codes at all, and 62% of
+the graphs it accepted contained no derivation, so the property it proved held
+vacuously in most of its own iterations while the iteration count looked
+reassuring.
 
 ## Scope boundaries
 

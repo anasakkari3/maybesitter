@@ -253,41 +253,121 @@ function makeRandom(seed: number): () => number {
   };
 }
 
+/**
+ * The generator, rebuilt after a review measured what the first one actually
+ * produced.
+ *
+ * The first version emitted only well-formed unique ids and only non-empty
+ * parent lists, so it was **structurally incapable** of producing three of the
+ * eight defect codes — including `UNSOURCED_DERIVATION`, the counter-example
+ * that falsified the contract's central claim. Worse, 62% of the graphs it
+ * accepted contained no `derived` node at all, so the property it was proving
+ * held vacuously in the majority of its own iterations, and the `>2000 accepted`
+ * floor was satisfied entirely by trivial cases.
+ *
+ * That is Sprint 07's lesson turned inside out. The recorded version is "where a
+ * sprint's central claim is that two implementations agree, generate the
+ * inputs". The corollary this cost: *a generator is only as strong as the
+ * hardest case it can express*, and a count of iterations says nothing about
+ * that. So the distribution is now asserted, not assumed — see the
+ * `generator:` test below, which fails if the fuzz stops reaching a code or
+ * stops building depth.
+ *
+ * Parents are drawn from *earlier* indices most of the time, which is what
+ * actually builds depth: uniform selection over all ids produces wide, shallow
+ * graphs and a cycle almost immediately.
+ */
 function generateGraph(random: () => number): EvidenceGraph {
-  const size = 1 + Math.floor(random() * 7);
+  // Floor of three, not one: a one-node graph is almost always a lone
+  // observation, and it lands in the *accepted* bucket, so a low floor inflates
+  // the accepted count with cases that prove nothing.
+  const size = 3 + Math.floor(random() * 10);
   const ids: string[] = [];
   for (let index = 0; index < size; index += 1) ids.push(`n${index}`);
   const nodes: EvidenceNode[] = [];
+
   for (let index = 0; index < size; index += 1) {
-    // Bias toward derived nodes so cycles and dangling edges actually occur,
-    // but keep observations frequent enough that clean graphs are common.
-    if (index === 0 || random() < 0.35) {
+    const roll = random();
+
+    // A node this contract version does not recognise.
+    if (roll < 0.03) {
+      nodes.push({ kind: 'inferred', nodeId: ids[index], claim: { kind: 'flag', value: true } } as unknown as EvidenceNode);
+      continue;
+    }
+    // An unusable identifier: blank, whitespace, or not a string at all.
+    if (roll < 0.06) {
+      const bad = random() < 0.5 ? '' : random() < 0.5 ? '   ' : (index as unknown as string);
+      nodes.push(observed(bad as string));
+      continue;
+    }
+    // A repeated identifier.
+    if (roll < 0.09 && index > 0) {
+      nodes.push(observed(ids[Math.floor(random() * index)]));
+      continue;
+    }
+    if (index === 0 || roll < 0.30) {
       nodes.push(observed(ids[index], random() < 0.08 ? { valueFingerprint: '' } : {}));
       continue;
     }
+    // A derivation that names no parent at all — the BLOCKER 1 counter-example,
+    // which the previous generator could not express.
+    if (roll < 0.34) {
+      nodes.push({
+        kind: 'derived',
+        nodeId: ids[index],
+        rule: 'OVERDUE_FROM_DUE_AT',
+        claim: { kind: 'flag', value: true },
+        derivedFrom: [] as unknown as [string, ...string[]],
+      });
+      continue;
+    }
+
     const parentCount = 1 + Math.floor(random() * 3);
     const parents: string[] = [];
     for (let edge = 0; edge < parentCount; edge += 1) {
-      // Occasionally point at a node that is not in the graph at all.
-      parents.push(random() < 0.1 ? `ghost${edge}` : ids[Math.floor(random() * size)]);
+      const pick = random();
+      if (pick < 0.08) parents.push(`ghost${edge}`);
+      else if (pick < 0.14) parents.push(ids[index]);
+      else if (pick < 0.30) parents.push(ids[Math.floor(random() * size)]);
+      // The depth-building branch: a strictly earlier node, and mostly the
+      // immediately preceding one, which is what produces long chains.
+      else parents.push(ids[Math.max(0, index - 1 - Math.floor(random() * 2))]);
     }
     nodes.push(derived(ids[index], parents as [string, ...string[]]));
   }
   return { nodes };
 }
 
+/** Longest derivation path from a node, for the distribution assertions. */
+function derivationDepth(g: EvidenceGraph, nodeId: string): number {
+  const byId = new Map<string, EvidenceNode>();
+  for (const node of g.nodes) if (!byId.has(node.nodeId)) byId.set(node.nodeId, node);
+  const memo = new Map<string, number>();
+  const walk = (id: string, seen: Set<string>): number => {
+    const cached = memo.get(id);
+    if (cached !== undefined) return cached;
+    const node = byId.get(id);
+    if (node === undefined || node.kind !== 'derived' || seen.has(id)) return 0;
+    seen.add(id);
+    let best = 0;
+    for (const parent of node.derivedFrom) best = Math.max(best, 1 + walk(parent, seen));
+    seen.delete(id);
+    memo.set(id, best);
+    return best;
+  };
+  return walk(nodeId, new Set<string>());
+}
+
 test('graph: every claim in an accepted graph traces to an observation', () => {
   const random = makeRandom(0x5eed08);
   let accepted = 0;
   let rejected = 0;
-  const codesSeen = new Set<string>();
 
-  for (let iteration = 0; iteration < 20000; iteration += 1) {
+  for (let iteration = 0; iteration < 40000; iteration += 1) {
     const g = generateGraph(random);
     const defects = checkEvidenceGraph(g);
     if (defects.length > 0) {
       rejected += 1;
-      for (const defect of defects) codesSeen.add(defect.code);
       continue;
     }
     accepted += 1;
@@ -302,15 +382,49 @@ test('graph: every claim in an accepted graph traces to an observation', () => {
     }
   }
 
-  // A property test whose precondition never fires passes trivially. Both sides
-  // are asserted so a generator that drifted into producing only clean graphs —
-  // or only broken ones — fails here rather than quietly proving nothing.
+  // Both floors are absolute counts, and the iteration count was raised to keep
+  // them met after the generator got harder — never the floors lowered to fit
+  // the generator. Lowering an evidence threshold to match a weaker input set is
+  // how a suite ends up reporting the strength it used to have.
   assert.ok(accepted > 2000, `too few accepted graphs to be meaningful: ${accepted}`);
   assert.ok(rejected > 2000, `too few rejected graphs to be meaningful: ${rejected}`);
-  // And the generator must actually exercise the taxonomy it is meant to probe.
-  for (const code of ['UNKNOWN_EVIDENCE_NODE', 'SELF_DERIVED_EVIDENCE', 'CYCLIC_EVIDENCE', 'EMPTY_FINGERPRINT']) {
+});
+
+test('generator: the fuzz reaches every defect code and actually builds depth', () => {
+  // The assertion the first version of this file did not make, and the reason it
+  // proved less than it claimed. A fuzzer that cannot express a defect reports a
+  // clean result about it forever, and an iteration count hides that completely.
+  const random = makeRandom(0x5eed08);
+  const codesSeen = new Set<string>();
+  let acceptedWithDerived = 0;
+  let accepted = 0;
+  let deepestAccepted = 0;
+
+  for (let iteration = 0; iteration < 40000; iteration += 1) {
+    const g = generateGraph(random);
+    const defects = checkEvidenceGraph(g);
+    for (const defect of defects) codesSeen.add(defect.code);
+    if (defects.length > 0) continue;
+    accepted += 1;
+    let deepest = 0;
+    let hasDerived = false;
+    for (const node of g.nodes) {
+      if (node.kind === 'derived') hasDerived = true;
+      deepest = Math.max(deepest, derivationDepth(g, node.nodeId));
+    }
+    if (hasDerived) acceptedWithDerived += 1;
+    deepestAccepted = Math.max(deepestAccepted, deepest);
+  }
+
+  // Every code, not the four the old assertion happened to list — and the two it
+  // omitted were exactly the two the old generator could not produce.
+  for (const code of EVIDENCE_GRAPH_DEFECT_CODES) {
     assert.ok(codesSeen.has(code), `the generator never produced ${code}`);
   }
+  // The property must not be holding vacuously in most iterations.
+  const derivedShare = acceptedWithDerived / accepted;
+  assert.ok(derivedShare > 0.6, `only ${(derivedShare * 100).toFixed(1)}% of accepted graphs contain a derivation`);
+  assert.ok(deepestAccepted >= 8, `deepest accepted derivation chain was only ${deepestAccepted}`);
 });
 
 test('graph: checkEvidenceGraph is deterministic over generated input', () => {
@@ -318,6 +432,19 @@ test('graph: checkEvidenceGraph is deterministic over generated input', () => {
   for (let iteration = 0; iteration < 2000; iteration += 1) {
     const g = generateGraph(random);
     assert.deepEqual(checkEvidenceGraph(g).slice(), checkEvidenceGraph(g).slice());
+  }
+});
+
+test('graph: no generated input makes any checker throw', () => {
+  // The four throw sites review found were all reachable only from shapes the
+  // old generator could not build. Totality is now a fuzzed property.
+  const random = makeRandom(0xd15ea5e);
+  for (let iteration = 0; iteration < 5000; iteration += 1) {
+    const g = generateGraph(random);
+    assert.doesNotThrow(() => checkEvidenceGraph(g));
+    for (const node of g.nodes) {
+      assert.doesNotThrow(() => resolveEvidenceRoots(g, node.nodeId as string));
+    }
   }
 });
 
@@ -524,9 +651,213 @@ test('leak: the taxonomy is fully exercised by the leak fixture set', () => {
     derived('cyc-a', ['cyc-b']),
     derived('cyc-b', ['cyc-a']),
     derived('dangling', ['nowhere']),
+    { kind: 'derived', nodeId: 'parentless', rule: 'OVERDUE_FROM_DUE_AT', claim: { kind: 'flag', value: true }, derivedFrom: [] } as unknown as EvidenceNode,
+    { kind: 'inferred', nodeId: 'mystery', claim: { kind: 'flag', value: true } } as unknown as EvidenceNode,
   ];
   const found = new Set(checkEvidenceGraph({ nodes }).map((defect) => defect.code));
   for (const code of EVIDENCE_GRAPH_DEFECT_CODES) {
     assert.equal(found.has(code), true, `no fixture produces ${code}`);
+  }
+});
+
+/* ── the counter-examples review built ────────────────────────────── */
+
+test('graph: a derivation naming no parent is reported', () => {
+  // The case that falsified the contract's central claim. It passed both
+  // checkers and the staleness verdict while `resolveEvidenceRoots` returned
+  // null — the contract contradicting itself in one line of JSON.
+  const g = { nodes: [{ kind: 'derived', nodeId: 'd', rule: 'OVERDUE_FROM_DUE_AT', claim: { kind: 'flag', value: true }, derivedFrom: [] }] } as unknown as EvidenceGraph;
+  assert.deepEqual(pairs(checkEvidenceGraph(g)).slice(), ['d:UNSOURCED_DERIVATION']);
+  assert.equal(resolveEvidenceRoots(g, 'd'), null, 'and it must still not resolve');
+});
+
+test('graph: a node of unrecognised kind is reported, not silently exempted', () => {
+  // Every pass in the contract is written as `if (node.kind !== 'observed')
+  // continue`, so an unknown kind was exempt from all of them: never
+  // fingerprint-checked, so it could never invalidate anything.
+  const g = { nodes: [{ kind: 'inferred', nodeId: 'x', claim: { kind: 'flag', value: true } }] } as unknown as EvidenceGraph;
+  assert.deepEqual(pairs(checkEvidenceGraph(g)).slice(), ['x:UNKNOWN_NODE_KIND']);
+  assert.equal(resolveEvidenceRoots(g, 'x'), null, 'and it must not throw or resolve');
+});
+
+test('graph: a non-textual node id is reported under the code that exists for it', () => {
+  const g = { nodes: [{ kind: 'observed', nodeId: 123, source: {}, claim: {}, observedAt: null, valueFingerprint: 'f' }] } as unknown as EvidenceGraph;
+  assert.deepEqual(codesOf(checkEvidenceGraph(g)).slice(), ['BLANK_NODE_ID']);
+});
+
+test('graph: a malformed graph container is reported rather than thrown on', () => {
+  for (const bad of [undefined, null, {}, { nodes: null }, { nodes: 'x' }]) {
+    assert.doesNotThrow(() => checkEvidenceGraph(bad as unknown as EvidenceGraph));
+    assert.deepEqual(checkEvidenceGraph(bad as unknown as EvidenceGraph).slice(), []);
+    assert.equal(resolveEvidenceRoots(bad as unknown as EvidenceGraph, 'anything'), null);
+  }
+});
+
+test('graph: a very deep derivation chain resolves without exhausting the stack', () => {
+  // The recursive version raised a RangeError at roughly twelve thousand nodes,
+  // out of a function documented never to throw, on input whose depth the
+  // caller chooses.
+  const nodes: EvidenceNode[] = [observed('r0')];
+  for (let index = 1; index < 50000; index += 1) nodes.push(derived(`r${index}`, [`r${index - 1}`]));
+  const g = { nodes };
+  assert.deepEqual(checkEvidenceGraph(g).slice(), []);
+  const roots = resolveEvidenceRoots(g, 'r49999');
+  assert.notEqual(roots, null);
+  assert.deepEqual((roots as readonly ObservedEvidence[]).map((node) => node.nodeId), ['r0']);
+});
+
+test('graph: cycle detection stays linear at scale', () => {
+  // The previous detector was O(V·(V+E)) — 222ms at five thousand nodes — and
+  // its backward-reachability pass was provably dead: after the forward guard
+  // the node already reaches itself, so the intersection never excluded
+  // anything. Tarjan replaces both. The bound here is loose on purpose; it is
+  // guarding an order of growth, not a machine.
+  const nodes: EvidenceNode[] = [observed('root')];
+  for (let index = 1; index < 20000; index += 1) nodes.push(derived(`n${index}`, ['root']));
+  const started = process.hrtime.bigint();
+  assert.deepEqual(checkEvidenceGraph({ nodes }).slice(), []);
+  const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6;
+  assert.ok(elapsedMs < 2000, `checkEvidenceGraph took ${elapsedMs.toFixed(0)}ms on 20k nodes`);
+});
+
+/* ── mutation-killing assertions on resolveEvidenceRoots ──────────── */
+
+test('graph: resolving nothing is null, never an empty list', () => {
+  // Mutation that survived review: `return roots` instead of
+  // `return roots.length > 0 ? roots : null`. Every other test masked it,
+  // because the only graph reaching an empty root set is a parentless
+  // derivation — which nothing generated.
+  const g = { nodes: [{ kind: 'derived', nodeId: 'd', rule: 'OVERDUE_FROM_DUE_AT', claim: { kind: 'flag', value: true }, derivedFrom: [] }] } as unknown as EvidenceGraph;
+  const roots = resolveEvidenceRoots(g, 'd');
+  assert.equal(roots, null);
+  assert.notDeepEqual(roots, [], 'an empty root list read as success is the surviving mutation');
+});
+
+test('graph: a cycle is unresolvable even when an observation hangs off it', () => {
+  // Mutation that survived review: treating a re-entered node as settled. With
+  // an observation reachable from the cycle, the root set is non-empty, so the
+  // length check no longer masks it and this fails on the mutant.
+  const g = graph(observed('obs'), derived('a', ['b', 'obs']), derived('b', ['a']));
+  assert.equal(resolveEvidenceRoots(g, 'a'), null, 'a cycle must not resolve merely because a root is reachable');
+  assert.ok(checkEvidenceGraph(g).some((defect) => defect.code === 'CYCLIC_EVIDENCE'));
+});
+
+/* ── option-set cardinality at the untyped boundary ───────────────── */
+
+test('recommendation: a choice of one is reported', () => {
+  // The acceptance criterion's exact failure, and it passed every check while
+  // `minOptionsForChoice` sat exported and unread.
+  const rec = offeredWith({ kind: 'choice', options: [optionCiting(0, 'c1', 'a', 'a')], excluded: [] } as unknown as OptionSet, [observed('a')]);
+  assert.deepEqual(codesOf(checkRecommendation(rec)).slice(), ['CHOICE_BELOW_MINIMUM']);
+});
+
+test('recommendation: a lone option with no account of its solitude is reported', () => {
+  const nodes = [observed('a')];
+  const sole = offeredWith({ kind: 'sole_survivor', option: optionCiting(0, 'c1', 'a', 'a'), excluded: [] } as unknown as OptionSet, nodes);
+  assert.deepEqual(codesOf(checkRecommendation(sole)).slice(), ['SOLE_OPTION_WITHOUT_ACCOUNT']);
+  const only = offeredWith({ kind: 'only_candidate', option: optionCiting(0, 'c1', 'a', 'a'), attested: [] } as unknown as OptionSet, nodes);
+  assert.deepEqual(codesOf(checkRecommendation(only)).slice(), ['SOLE_OPTION_WITHOUT_ACCOUNT']);
+});
+
+test('recommendation: an empty reason list is reported wherever it appears', () => {
+  const nodes = [observed('a')];
+  const noSupport = offeredWith(
+    { kind: 'only_candidate', option: { ...optionCiting(0, 'c1', 'a', 'a'), support: [] }, attested: ['a'] } as unknown as OptionSet,
+    nodes,
+  );
+  assert.deepEqual(codesOf(checkRecommendation(noSupport)).slice(), ['EMPTY_REASON_LIST']);
+
+  const noExclusionReason = offeredWith(
+    {
+      kind: 'sole_survivor',
+      option: optionCiting(0, 'c1', 'a', 'a'),
+      excluded: [{ action: { kind: 'do_now', commitmentId: 'c2' }, exclusion: [] }],
+    } as unknown as OptionSet,
+    nodes,
+  );
+  assert.deepEqual(codesOf(checkRecommendation(noExclusionReason)).slice(), ['EMPTY_REASON_LIST']);
+
+  const noWithholdingReason: Recommendation = {
+    ...offeredWith({ kind: 'only_candidate', option: optionCiting(0, 'c1', 'a', 'a'), attested: ['a'] }, nodes),
+    outcome: 'withheld',
+    reasons: [],
+  } as unknown as Recommendation;
+  assert.deepEqual(codesOf(checkRecommendation(noWithholdingReason)).slice(), ['EMPTY_REASON_LIST']);
+});
+
+test('recommendation: citing nothing is a different finding from citing something absent', () => {
+  const nodes = [observed('a')];
+  const emptyBasis = offeredWith(
+    {
+      kind: 'only_candidate',
+      option: { ...optionCiting(0, 'c1', 'a', 'a'), confidence: { value: 0.8, band: 'high', basis: [] } },
+      attested: ['a'],
+    } as unknown as OptionSet,
+    nodes,
+  );
+  assert.deepEqual(codesOf(checkRecommendation(emptyBasis)).slice(), ['UNSOURCED_CLAIM']);
+
+  const emptySupportedBy = offeredWith(
+    {
+      kind: 'only_candidate',
+      option: { ...optionCiting(0, 'c1', 'a', 'a'), support: [{ code: 'OVERDUE', supportedBy: [], detail: 'x' }] },
+      attested: ['a'],
+    } as unknown as OptionSet,
+    nodes,
+  );
+  assert.deepEqual(codesOf(checkRecommendation(emptySupportedBy)).slice(), ['UNSOURCED_CLAIM']);
+});
+
+test('recommendation: an unrecognised option-set or action kind is reported, not thrown on', () => {
+  const nodes = [observed('a')];
+  const badSet = offeredWith({ kind: 'mystery' } as unknown as OptionSet, nodes);
+  assert.doesNotThrow(() => checkRecommendation(badSet));
+  assert.deepEqual(codesOf(checkRecommendation(badSet)).slice(), ['UNKNOWN_OPTION_SET_KIND']);
+
+  const badAction = offeredWith(
+    {
+      kind: 'only_candidate',
+      option: { ...optionCiting(0, 'c1', 'a', 'a'), action: { kind: 'teleport', commitmentId: 'c1' } },
+      attested: ['a'],
+    } as unknown as OptionSet,
+    nodes,
+  );
+  assert.deepEqual(codesOf(checkRecommendation(badAction)).slice(), ['UNKNOWN_ACTION_KIND']);
+});
+
+test('recommendation: two unrecognised actions do not collide into a false duplicate', () => {
+  // `actionKey` fell off the end of its switch and returned `undefined` for an
+  // unknown kind, so two *different* unrecognised actions compared equal and the
+  // checker invented a DUPLICATE_OPTION_ACTION. A checker fabricating findings
+  // is worse than one missing them, because the caller acts on it.
+  const nodes = [observed('a')];
+  const rec = offeredWith(
+    {
+      kind: 'choice',
+      options: [
+        { ...optionCiting(0, 'c1', 'a', 'a'), action: { kind: 'teleport', commitmentId: 'c1' } },
+        { ...optionCiting(1, 'c2', 'a', 'a'), action: { kind: 'teleport', commitmentId: 'c2' } },
+      ],
+      excluded: [],
+    } as unknown as OptionSet,
+    nodes,
+  );
+  const codes = codesOf(checkRecommendation(rec));
+  assert.equal(codes.includes('DUPLICATE_OPTION_ACTION'), false, 'two distinct unknown actions are not a duplicate');
+  assert.deepEqual(codes.filter((code) => code === 'UNKNOWN_ACTION_KIND').length, 2);
+});
+
+test('recommendation: no malformed offer makes the checker throw', () => {
+  const nodes = [observed('a')];
+  const shapes: readonly unknown[] = [
+    undefined,
+    null,
+    { ...offeredWith({ kind: 'only_candidate', option: optionCiting(0, 'c1', 'a', 'a'), attested: ['a'] }, nodes), options: undefined },
+    { ...offeredWith({ kind: 'only_candidate', option: optionCiting(0, 'c1', 'a', 'a'), attested: ['a'] }, nodes), evidence: undefined },
+    { ...offeredWith({ kind: 'choice', options: [optionCiting(0, 'c1', 'a', 'a'), optionCiting(1, 'c2', 'a', 'a')], excluded: [] }, nodes), options: { kind: 'choice', options: 'nope', excluded: 'nope' } },
+    { ...offeredWith({ kind: 'only_candidate', option: optionCiting(0, 'c1', 'a', 'a'), attested: ['a'] }, nodes), options: { kind: 'only_candidate', option: undefined, attested: ['a'] } },
+  ];
+  for (const shape of shapes) {
+    assert.doesNotThrow(() => checkRecommendation(shape as unknown as Recommendation), `threw on ${JSON.stringify(shape)?.slice(0, 60)}`);
   }
 });

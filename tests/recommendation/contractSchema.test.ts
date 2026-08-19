@@ -46,6 +46,8 @@ import {
   RECOMMENDATION_ORDERING_KEYS,
   RECOMMENDATION_PERSISTENCE_POLICY,
   RECOMMENDATION_SCHEMA_VERSION,
+  RECOMMENDATION_DECISION_DEFECT_CODES,
+  RECOMMENDATION_DECISION_VERDICTS,
   RECOMMENDATION_STRUCTURE_DEFECT_CODES,
   RECOMMENDED_ACTION_KINDS,
   REASON_CODE_PARTITIONS,
@@ -56,6 +58,7 @@ import {
   actionKey,
   bandForConfidence,
   checkRecommendation,
+  checkRecommendationDecision,
   offeredOptions,
   summarizeOptionSet,
 } from '../../src/contracts/v1/recommendationContracts.ts';
@@ -140,6 +143,8 @@ const VOCABULARIES: readonly (readonly [string, readonly string[]])[] = [
   ['EVIDENCE_GRAPH_DEFECT_CODES', EVIDENCE_GRAPH_DEFECT_CODES],
   ['RECOMMENDATION_STRUCTURE_DEFECT_CODES', RECOMMENDATION_STRUCTURE_DEFECT_CODES],
   ['STALENESS_REASON_CODES', STALENESS_REASON_CODES],
+  ['RECOMMENDATION_DECISION_DEFECT_CODES', RECOMMENDATION_DECISION_DEFECT_CODES],
+  ['RECOMMENDATION_DECISION_VERDICTS', RECOMMENDATION_DECISION_VERDICTS],
 ];
 
 test('contract: every exported vocabulary is frozen and duplicate-free', () => {
@@ -276,8 +281,11 @@ test('contract: actionKey separates every action kind and every payload differen
   const keys = actions.map(actionKey);
   assert.equal(new Set(keys).size, actions.length, 'every distinct action needs a distinct key');
   assert.equal(actionKey(actions[0]), actionKey({ kind: 'do_now', commitmentId: 'c1' }));
+  // Segments are length-prefixed (`6:do_now|…`) rather than `:`-joined, so the
+  // kind is matched as a whole segment. See the injectivity test below for why
+  // the plain join had to go.
   for (const kind of RECOMMENDED_ACTION_KINDS) {
-    assert.ok(keys.some((key) => key.startsWith(`${kind}:`)), `${kind} must be represented`);
+    assert.ok(keys.some((key) => key.startsWith(`${kind.length}:${kind}|`)), `${kind} must be represented`);
   }
 });
 
@@ -306,10 +314,68 @@ test('contract: no option set exposes a field that means "the recommendation" on
     const summary = summarizeOptionSet(set);
     assert.equal(summary.soleness, set.kind);
     assert.ok(summary.lead);
-    assert.ok(Array.isArray(summary.alternatives));
     assert.ok(Array.isArray(summary.excluded));
     assert.equal(checkRecommendation(offered(set, nodes)).length, 0, `${set.kind} fixture must be clean`);
   }
+});
+
+test('contract: summarizeOptionSet hands over every alternative, by identity', () => {
+  // **The assertion that was missing, and its absence let a real mutation live.**
+  // The old check was `assert.ok(Array.isArray(summary.alternatives))`, which
+  // passes on `[]` — so a `summarizeOptionSet` mutated to drop the alternatives
+  // for a `choice` kept all eighty tests green. `alternatives` is the *only*
+  // path by which a caller receives anything but the lead, so an assertion on
+  // its type rather than its contents leaves the third acceptance criterion
+  // unguarded on the one function that delivers it.
+  //
+  // Asserted by identity, not by length: a mutation returning a same-length
+  // array of the wrong options, or the lead repeated, passes a count.
+  const nodes = [observed('n1')];
+  const second = option(1, 'c2', 'n1', 0.5);
+  const third = option(2, 'c3', 'n1', 0.2);
+  const set: OptionSet = { kind: 'choice', options: [option(0, 'c1', 'n1'), second, third], excluded: [] };
+
+  const summary = summarizeOptionSet(set);
+  assert.equal(summary.alternatives.length, 2);
+  assert.equal(summary.alternatives[0], second, 'the first alternative must be the second option, by identity');
+  assert.equal(summary.alternatives[1], third, 'the second alternative must be the third option, by identity');
+  assert.equal(summary.lead, set.options[0]);
+  // And the round trip: lead plus alternatives must reconstruct the offer.
+  assert.deepEqual([summary.lead, ...summary.alternatives], set.options.slice());
+  assert.deepEqual(offeredOptions(set).slice(), set.options.slice());
+});
+
+test('contract: an unrecognised option set yields no lead and says so', () => {
+  // It used to fall through to the `only_candidate` branch and return
+  // `lead: undefined` under `soleness: 'only_candidate'` — telling a renderer
+  // "this is the only thing on your plate" about an offer it had failed to
+  // parse. Version skew between #34 and #35 is the documented reason this runs
+  // at both ends, so an unrecognised kind is the expected arrival, not an
+  // exotic one.
+  const summary = summarizeOptionSet({ kind: 'mystery' } as unknown as OptionSet);
+  assert.equal(summary.lead, null);
+  assert.equal(summary.soleness, 'unknown');
+  assert.deepEqual(summary.alternatives.slice(), []);
+  assert.deepEqual(offeredOptions({ kind: 'mystery' } as unknown as OptionSet).slice(), []);
+});
+
+test('contract: actionKey is injective across delimiter-bearing identifiers', () => {
+  // Ids are caller-chosen free strings, so a `:` inside one is not hypothetical.
+  // A plain join made a `schedule` of commitment `a:b` at `S` identical to a
+  // `schedule` of commitment `a` at `b:S`, and the collision surfaced as a
+  // DUPLICATE_OPTION_ACTION reported against two genuinely different actions.
+  const left = actionKey({ kind: 'schedule', commitmentId: 'a:b', slot: { startsAt: 'S', endsAt: 'E' } });
+  const right = actionKey({ kind: 'schedule', commitmentId: 'a', slot: { startsAt: 'b:S', endsAt: 'E' } });
+  assert.notEqual(left, right, 'a delimiter inside an id must not merge two actions');
+
+  const seen = new Set<string>();
+  const ids = ['a', 'a:b', 'a|b', '1:a', '', '::'];
+  for (const commitmentId of ids) {
+    for (const startsAt of ids) {
+      seen.add(actionKey({ kind: 'schedule', commitmentId, slot: { startsAt, endsAt: 'E' } }));
+    }
+  }
+  assert.equal(seen.size, ids.length * ids.length, 'every distinct pair must produce a distinct key');
 });
 
 test('contract: a lone offered option always carries an account of why it is alone', () => {
@@ -640,4 +706,112 @@ test('registration: a registered path that does not exist is one of the agreed n
   for (const file of SPRINT_08_TEST_FILES.slice(0, 3)) {
     assert.equal(existsSync(join(repoRoot, file)), true, `${file} is owned by #33 and must exist`);
   }
+});
+
+/* ── decisions are checked, not merely argued about ───────────────── */
+
+/**
+ * The contract argued at length that a drifted `optionIndex` "silently retargets
+ * a user's accept onto a different action", made that a defect of the *offer*,
+ * and then shipped nothing that checked a decision at all. An argument about why
+ * a field is dangerous, with no check on the field, reads as a guarantee and is
+ * not one.
+ */
+function offerOf(count: number): OfferedRecommendation {
+  const nodes = [observed('n1')];
+  const options = [option(0, 'c1', 'n1'), option(1, 'c2', 'n1', 0.5), option(2, 'c3', 'n1', 0.2)].slice(0, count);
+  const set: OptionSet =
+    count >= 2
+      ? { kind: 'choice', options: options as [RecommendationOption, RecommendationOption, ...RecommendationOption[]], excluded: [] }
+      : { kind: 'only_candidate', option: options[0], attested: ['n1'] };
+  return offered(set, nodes);
+}
+
+function decision(overrides: Partial<RecommendationDecision>): RecommendationDecision {
+  return {
+    version: RECOMMENDATION_CONTRACT_VERSION,
+    recommendationId: 'rec-1',
+    optionIndex: 0,
+    verdict: 'accept',
+    decidedAt: '2026-08-19T10:30:00.000Z',
+    ...overrides,
+  };
+}
+
+test('decision: a well-formed acceptance of an alternative is clean', () => {
+  assert.deepEqual(checkRecommendationDecision(offerOf(3), decision({ optionIndex: 2 })).slice(), []);
+});
+
+test('decision: an index outside the offer is reported', () => {
+  for (const optionIndex of [3, -1, 1.5, Number.NaN]) {
+    const defects = checkRecommendationDecision(offerOf(3), decision({ optionIndex }));
+    assert.deepEqual(defects.map((defect) => defect.code), ['DECISION_TARGETS_UNKNOWN_OPTION'], `index ${optionIndex}`);
+  }
+});
+
+test('decision: a decision naming a different offer is reported', () => {
+  const defects = checkRecommendationDecision(offerOf(2), decision({ recommendationId: 'rec-other' }));
+  assert.deepEqual(defects.map((defect) => defect.code), ['DECISION_RECOMMENDATION_MISMATCH']);
+  // The worst available outcome is a real user act recorded against an action
+  // they never saw, so the id must not be echoed into the message either.
+  assert.equal(defects[0].detail.includes('rec-other'), false);
+});
+
+test('decision: a verdict that applies to one option must name one', () => {
+  for (const verdict of ['accept', 'edit', 'defer', 'done'] as const) {
+    const defects = checkRecommendationDecision(
+      offerOf(2),
+      decision({ optionIndex: null, verdict, editedTitle: 'rewritten' }),
+    );
+    assert.ok(defects.some((defect) => defect.code === 'DECISION_TARGET_REQUIRED'), verdict);
+  }
+  // Dismissing the whole offer is the one verdict that legitimately targets none.
+  assert.deepEqual(checkRecommendationDecision(offerOf(2), decision({ optionIndex: null, verdict: 'dismiss' })).slice(), []);
+});
+
+test('decision: an edit with no replacement title is reported', () => {
+  for (const editedTitle of [undefined, '', '   ']) {
+    const defects = checkRecommendationDecision(offerOf(2), decision({ verdict: 'edit', editedTitle }));
+    assert.deepEqual(defects.map((defect) => defect.code), ['DECISION_EDIT_WITHOUT_TITLE'], String(editedTitle));
+  }
+  assert.deepEqual(checkRecommendationDecision(offerOf(2), decision({ verdict: 'edit', editedTitle: 'rewritten' })).slice(), []);
+});
+
+test('decision: a verdict on a withheld offer is reported', () => {
+  const nodes = [observed('n1')];
+  const withheld = {
+    ...offered({ kind: 'only_candidate', option: option(0, 'c1', 'n1'), attested: ['n1'] }, nodes),
+    outcome: 'withheld',
+    reasons: [{ code: 'NO_ELIGIBLE_CANDIDATE', supportedBy: ['n1'], detail: 'the scope holds no open commitment' }],
+  } as unknown as OfferedRecommendation;
+  assert.deepEqual(
+    checkRecommendationDecision(withheld, decision({ optionIndex: 0 })).map((defect) => defect.code),
+    ['DECISION_TARGETS_WITHHELD'],
+  );
+  assert.deepEqual(checkRecommendationDecision(withheld, decision({ optionIndex: null, verdict: 'dismiss' })).slice(), []);
+});
+
+test('decision: an unrecognised verdict is reported, not thrown on', () => {
+  const defects = checkRecommendationDecision(offerOf(2), decision({ verdict: 'annihilate' as RecommendationDecisionVerdict }));
+  assert.deepEqual(defects.map((defect) => defect.code), ['DECISION_UNKNOWN_VERDICT']);
+});
+
+test('decision: no malformed pair makes the decision checker throw', () => {
+  const pairs: readonly (readonly [unknown, unknown])[] = [
+    [undefined, decision({})],
+    [offerOf(2), undefined],
+    [null, null],
+    [{ ...offerOf(2), options: undefined }, decision({})],
+    [offerOf(2), { verdict: 'accept' }],
+  ];
+  for (const [rec, dec] of pairs) {
+    assert.doesNotThrow(() =>
+      checkRecommendationDecision(rec as OfferedRecommendation, dec as RecommendationDecision),
+    );
+  }
+});
+
+test('decision: the verdict vocabulary is the pilot’s, exposed as data', () => {
+  assert.deepEqual(RECOMMENDATION_DECISION_VERDICTS.slice(), ['accept', 'edit', 'defer', 'dismiss', 'done']);
+  assert.equal((RECOMMENDATION_DECISION_VERDICTS as readonly string[]).includes('choose_alternative'), false);
 });
