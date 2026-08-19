@@ -9,11 +9,25 @@
  * a parent, Sprint 07's scheduler reads that type, and Sprint 06 is not
  * production-routed — so extending `DomainState` would push a schema change
  * into a surface with no live consumer, for a feature nobody can reach yet.
- * Everything here is therefore a fold over proposal-local state, and the steps
- * a user confirmed leave through an injected port (`persistencePort.ts`) that
- * this module only *describes*. The original commitment stays canonical because
- * there is no code path from here to a writer, which is checked in
- * tests/decomposition/proposalBoundaries.test.ts rather than promised here.
+ * Everything here is therefore a fold over proposal-local state. The steps a
+ * user confirmed leave through the confirmation boundary in
+ * lib/decomposition/boundary/, which is the only thing in this sprint that
+ * writes; nothing in this module can reach it. The original commitment stays
+ * canonical because there is no code path from here to a writer, which is
+ * checked in tests/decomposition/proposalBoundaries.test.ts rather than
+ * promised here.
+ *
+ * ── Why this is the only reducer ────────────────────────────────────
+ *
+ * It was not. #25 shipped this fold and #27 shipped a second one inside
+ * `decompositionBoundaryService.resolveDecisions`, both deciding what an
+ * accept/edit/reject ruling means, from the same contract, with no import
+ * between them. Four review rounds each found a defect on one side that had
+ * already been fixed on the other — the unknown-verdict-reads-as-consent bug,
+ * the edit-held-to-a-weaker-standard bug, the read-the-verdict-twice bug. Two
+ * implementations of one judgement is the arrangement that generates that, so
+ * there is now one: the boundary normalises a request, hands the decisions
+ * here, and persists what `resolveConfirmedSteps` returns.
  *
  * ── Why silence is not consent ──────────────────────────────────────
  *
@@ -92,15 +106,14 @@ export interface ProposalState {
 }
 
 /**
- * A step that survived confirmation, on its way to the persistence port.
+ * A step that survived confirmation, on its way to persistence.
  *
- * Named for this track rather than for the domain. #27's boundary exports a
- * different `ConfirmedDecompositionStep`, and the two are not assignable; while
- * both carried that name a consumer importing the wrong one got
- * "Type 'ConfirmedDecompositionStep' is missing properties from type
- * 'ConfirmedDecompositionStep'", which says nothing about which two files are
- * involved. #27's is the one a future consumer reaches through the boundary, so
- * this side moved.
+ * Named for this track rather than for the domain. The boundary exports a
+ * different `ConfirmedDecompositionStep` — the flat record the adapter files —
+ * and the two are not assignable; while both carried that name a consumer
+ * importing the wrong one got "Type 'ConfirmedDecompositionStep' is missing
+ * properties from type 'ConfirmedDecompositionStep'", which says nothing about
+ * which two files are involved.
  */
 export interface ProposalConfirmedStep {
   readonly step: DecompositionStepProposal;
@@ -128,8 +141,8 @@ export interface ResolvedConfirmation {
  * The single standard for "this is not a step", applied both when a proposal is
  * admitted and when a user edits a step. Before, admission used this and the
  * edit path used `trim().length === 0`, so a user could edit a step into "and"
- * or "." — strings admission would have rejected outright — and the port
- * received them.
+ * or "." — strings admission would have rejected outright — and they were
+ * persisted.
  */
 function titleViolation(title: string): 'EMPTY_STEP' | 'CONJUNCTION_ONLY' | null {
   if (isEmptyTitle(title)) return 'EMPTY_STEP';
@@ -156,26 +169,77 @@ export function initialProposalState(proposal: DecomposedProposal): ProposalStat
  *
  * Checked at runtime because `StepDecision` is a TypeScript union and
  * TypeScript is erased: a version-skewed client, a typo, or a future fourth
- * verdict all arrive here as ordinary strings. #27's boundary keeps the same
- * set and answers with the same code, so the two reducers cannot give one
- * request two answers.
+ * verdict all arrive here as ordinary strings.
  */
 const KNOWN_VERDICTS: ReadonlySet<string> = new Set(['accept', 'reject', 'edit']);
 
 /**
- * Longest edited title accepted, matching #27's boundary.
+ * Longest edited title accepted.
  *
- * A title travels from here into the persistence port with no other limit on
- * the path, so without a cap a megabyte of pasted text is a valid step.
+ * A title travels from here into persistence with no other limit on the path,
+ * so without a cap a megabyte of pasted text is a valid step.
  */
 export const MAX_EDITED_TITLE_LENGTH = 500;
+
+/**
+ * C0 and C1 control characters, plus the line and paragraph separators.
+ *
+ * A title is something a person will read in a list. NUL and friends are not
+ * text a user typed on purpose, they survive JSON transport intact, and they
+ * are invisible in every surface that would show the title back — so `buy`,
+ * NUL, `milk` and `buy milk` look like the same step and are not. The
+ * connective normaliser cannot stand in for this: it treats NUL as neither
+ * punctuation nor whitespace, so two NULs normalised to a two-character
+ * "title" that was neither empty nor a connective, and persisted.
+ */
+const CONTROL_CHARACTERS = /[\u0000-\u001F\u007F-\u009F\u2028\u2029]/;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /**
- * Why this decision is not a ruling, or null when it is one.
+ * One ruling, read out of the request and into plain data.
+ *
+ * Plainness is the security property, not a tidiness preference: everything
+ * downstream reads this copy, so a value that answers differently between reads
+ * — or throws on the second one — has nothing left to change and nothing left
+ * to throw at.
+ */
+export interface NormalisedStepDecision {
+  readonly stepId: string;
+  readonly verdict: 'accept' | 'reject' | 'edit';
+  /** Trimmed. Empty string for any verdict that is not an edit. */
+  readonly editedTitle: string;
+}
+
+function isFailure(
+  value: NormalisedStepDecision | ProposalStateFailure,
+): value is ProposalStateFailure {
+  return (value as ProposalStateFailure).code !== undefined;
+}
+
+/**
+ * A field read exactly once, with a throw treated as "absent".
+ *
+ * A getter or a `Proxy` trap that throws is the same class of hostile input as
+ * one that answers differently each time, and both arrive by the same route: a
+ * `StepDecision` is a TypeScript type and TypeScript is erased. Answering
+ * `undefined` lets each field's own type check produce the right contract code
+ * — an unreadable `verdict` is a decision carrying no verdict, an unreadable
+ * `stepId` names no step — instead of a raw `Error` crossing the public
+ * surface, where a caller cannot tell a refusal from a crash.
+ */
+function readField(source: Record<string, unknown>, key: string): unknown {
+  try {
+    return source[key];
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Turn one untrusted decision into plain data, or say why it is not a ruling.
  *
  * An unrecognised verdict is `incomplete_decisions`, not a rejection. The
  * reducer used to read anything that was not `accept` as `reject`, which fails
@@ -185,33 +249,111 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * verdict the reducer invented. Silence is not consent and neither is a typo;
  * a verdict this reducer does not understand states no ruling for that step,
  * which is the same defect as omitting it.
+ *
+ * The title's *content* is deliberately not judged here. Whether an edited
+ * title is empty or a bare connective is checked once the step it names has
+ * been found, so that a ruling on a step the proposal does not contain reports
+ * `unknown_step` rather than a complaint about the wording of a decision that
+ * could never have applied to anything.
  */
-function malformedDecision(decision: StepDecision): ProposalStateFailure | null {
-  if (!isRecord(decision) || typeof decision.stepId !== 'string') {
+export function normaliseStepDecision(
+  decision: unknown,
+): NormalisedStepDecision | ProposalStateFailure {
+  if (!isRecord(decision)) {
     return {
       code: 'unknown_step',
       stepId: null,
       detail: 'decision is not a well-formed ruling and names no step',
     };
   }
-  const stepId = decision.stepId;
 
-  if (typeof decision.verdict !== 'string' || !KNOWN_VERDICTS.has(decision.verdict)) {
+  const stepId = readField(decision, 'stepId');
+  if (typeof stepId !== 'string') {
+    return {
+      code: 'unknown_step',
+      stepId: null,
+      detail: 'decision is not a well-formed ruling and names no step',
+    };
+  }
+
+  const verdict = readField(decision, 'verdict');
+  if (typeof verdict !== 'string' || !KNOWN_VERDICTS.has(verdict)) {
     return {
       code: 'incomplete_decisions',
       stepId,
       detail: 'decision carries no verdict this reducer understands; that is not a ruling',
     };
   }
-  if (decision.verdict === 'edit') {
-    if (typeof decision.editedTitle !== 'string') {
-      return { code: 'invalid_edit', stepId, detail: 'edited title is not text' };
-    }
-    if (decision.editedTitle.length > MAX_EDITED_TITLE_LENGTH) {
-      return { code: 'invalid_edit', stepId, detail: 'edited title is longer than the accepted maximum' };
-    }
+
+  if (verdict !== 'edit') {
+    return { stepId, verdict: verdict as 'accept' | 'reject', editedTitle: '' };
   }
-  return null;
+
+  const editedTitle = readField(decision, 'editedTitle');
+  if (typeof editedTitle !== 'string') {
+    return { code: 'invalid_edit', stepId, detail: 'edited title is not text' };
+  }
+  if (editedTitle.length > MAX_EDITED_TITLE_LENGTH) {
+    return { code: 'invalid_edit', stepId, detail: 'edited title is longer than the accepted maximum' };
+  }
+  if (CONTROL_CHARACTERS.test(editedTitle)) {
+    return { code: 'invalid_edit', stepId, detail: 'edited title carries control characters' };
+  }
+  // Trimmed here rather than at the point of use, so the value compared, the
+  // value stored and the value fingerprinted for idempotency are one string.
+  return { stepId, verdict: 'edit', editedTitle: editedTitle.trim() };
+}
+
+/**
+ * Read a whole decision list into plain data, or say why it is not one.
+ *
+ * Iterated by index over a length read once, rather than with `reduce`, `map`
+ * or `forEach`. Those three skip holes: a sparse list of three rulings for a
+ * three-step proposal validated as complete while a fourth entry nobody could
+ * read was dropped without a word. An index walk reads a hole as `undefined`,
+ * which is not a well-formed ruling — the same answer as an explicit `null`.
+ *
+ * Exported because the confirmation boundary needs the normalised list itself:
+ * its idempotency fingerprint has to be taken over the ruling that was applied,
+ * not over the request object it came from.
+ */
+export function normaliseStepDecisions(
+  decisions: unknown,
+): readonly NormalisedStepDecision[] | ProposalStateFailure {
+  const unreadableList: ProposalStateFailure = {
+    code: 'incomplete_decisions',
+    stepId: null,
+    detail: 'confirmation carries no list of decisions',
+  };
+  if (!Array.isArray(decisions)) return unreadableList;
+
+  let length: unknown;
+  try {
+    length = (decisions as readonly unknown[]).length;
+  } catch {
+    return unreadableList;
+  }
+  if (typeof length !== 'number' || !Number.isSafeInteger(length) || length < 0) {
+    return unreadableList;
+  }
+
+  const normalised: NormalisedStepDecision[] = [];
+  for (let index = 0; index < length; index += 1) {
+    let raw: unknown;
+    try {
+      raw = (decisions as readonly unknown[])[index];
+    } catch {
+      return {
+        code: 'unknown_step',
+        stepId: null,
+        detail: 'a decision in the list could not be read and so names no step',
+      };
+    }
+    const one = normaliseStepDecision(raw);
+    if (isFailure(one)) return one;
+    normalised.push(one);
+  }
+  return normalised;
 }
 
 function failed(state: ProposalState, failure: ProposalStateFailure): ProposalState {
@@ -219,19 +361,23 @@ function failed(state: ProposalState, failure: ProposalStateFailure): ProposalSt
 }
 
 /**
- * Applies one decision. Pure: returns a new state and mutates nothing.
+ * Applies one already-normalised ruling. Pure: returns a new state and mutates
+ * nothing.
  *
- * Exported separately from `reduceStepDecisions` so a caller collecting
- * decisions incrementally (a UI ruling on one step at a time) uses the same
- * transition the batch path does, rather than a second implementation of it.
+ * Every field of `decision` here is a plain string that was read once, so the
+ * repeated reads below cannot disagree with the reads that admitted it. That
+ * was not true before: `verdict` was read twice in the guard, again to ask
+ * whether it was an edit, and again to choose accepted or rejected, so an
+ * accessor answering `reject` for the guard and `accept` afterwards was
+ * validated as a rejection and recorded as an acceptance — and an `stepId` read
+ * once to find the target and again to rebuild the list wrote one step's ruling
+ * into another step's slot.
  */
-export function applyStepDecision(state: ProposalState, decision: StepDecision): ProposalState {
+export function applyNormalisedDecision(
+  state: ProposalState,
+  decision: NormalisedStepDecision,
+): ProposalState {
   if (state.failure !== null) return state;
-
-  // Before anything reads a field off it. Every property of `decision` is
-  // untrusted at runtime however well-typed the call site looked.
-  const malformed = malformedDecision(decision);
-  if (malformed !== null) return failed(state, malformed);
 
   const target = state.steps.find((entry) => entry.stepId === decision.stepId);
   if (!target) {
@@ -253,11 +399,10 @@ export function applyStepDecision(state: ProposalState, decision: StepDecision):
 
   let next: ProposalStepState;
   if (decision.verdict === 'edit') {
-    const editedTitle = decision.editedTitle.trim();
     // The same standard admission applies, not a weaker one. `invalid_edit` is
     // the code either way: the caller needs to know which decision to fix, and
     // EMPTY_STEP/CONJUNCTION_ONLY describe a proposal, not a request.
-    const titleProblem = titleViolation(editedTitle);
+    const titleProblem = titleViolation(decision.editedTitle);
     if (titleProblem !== null) {
       return failed(state, {
         code: 'invalid_edit',
@@ -273,13 +418,13 @@ export function applyStepDecision(state: ProposalState, decision: StepDecision):
       state: 'edited',
       // Spread rather than rebuild, so a field added to the contract later
       // survives an edit instead of being dropped by omission.
-      step: { ...target.step, title: editedTitle },
+      step: { ...target.step, title: decision.editedTitle },
       proposedTitle: target.proposedTitle,
     };
   } else {
-    // Reached only for a verdict `malformedDecision` admitted, so the remaining
-    // pair really is accept/reject. Reading "not accept" as a rejection without
-    // that guard is what turned a typo into a ruling the user never made.
+    // Reached only for a verdict normalisation admitted, so the remaining pair
+    // really is accept/reject. Reading "not accept" as a rejection without that
+    // guard is what turned a typo into a ruling the user never made.
     next = { ...target, state: decision.verdict === 'accept' ? 'accepted' : 'rejected' };
   }
 
@@ -288,6 +433,21 @@ export function applyStepDecision(state: ProposalState, decision: StepDecision):
     steps: state.steps.map((entry) => (entry.stepId === decision.stepId ? next : entry)),
     failure: null,
   };
+}
+
+/**
+ * Applies one untrusted decision: normalise, then act on the copy.
+ *
+ * Exported separately from `reduceStepDecisions` so a caller collecting
+ * decisions incrementally (a UI ruling on one step at a time) uses the same
+ * transition the batch path does, rather than a second implementation of it.
+ */
+export function applyStepDecision(state: ProposalState, decision: StepDecision): ProposalState {
+  if (state.failure !== null) return state;
+
+  const normalised = normaliseStepDecision(decision);
+  if (isFailure(normalised)) return failed(state, normalised);
+  return applyNormalisedDecision(state, normalised);
 }
 
 /**
@@ -310,23 +470,37 @@ export function finalizeProposalState(state: ProposalState): ProposalState {
   });
 }
 
-/** `initialProposalState` → every decision → `finalizeProposalState`. */
+/**
+ * `initialProposalState` → every normalised decision → `finalizeProposalState`.
+ *
+ * The entry point for a caller that has already normalised, which is the
+ * confirmation boundary: it needs the same list for its idempotency
+ * fingerprint, and normalising twice would reintroduce the second read this
+ * whole design exists to remove.
+ */
+export function reduceNormalisedDecisions(
+  proposal: DecomposedProposal,
+  decisions: readonly NormalisedStepDecision[],
+): ProposalState {
+  let state = initialProposalState(proposal);
+  for (let index = 0; index < decisions.length; index += 1) {
+    state = applyNormalisedDecision(state, decisions[index]);
+  }
+  return finalizeProposalState(state);
+}
+
+/** Normalise an untrusted decision list, then fold it. */
 export function reduceStepDecisions(
   proposal: DecomposedProposal,
   decisions: readonly StepDecision[],
 ): ProposalState {
-  const initial = initialProposalState(proposal);
-  if (!Array.isArray(decisions)) {
-    // `decisions.reduce` threw a raw TypeError out of the public surface. A
-    // request carrying no decision list states no rulings at all, which is the
-    // same finding as a list that misses a step.
-    return failed(initial, {
-      code: 'incomplete_decisions',
-      stepId: null,
-      detail: 'confirmation carries no list of decisions',
-    });
+  const normalised = normaliseStepDecisions(decisions);
+  if (!Array.isArray(normalised)) {
+    // A request carrying no readable list of decisions states no rulings at
+    // all, which is the same finding as a list that misses a step.
+    return failed(initialProposalState(proposal), normalised as ProposalStateFailure);
   }
-  return finalizeProposalState(decisions.reduce(applyStepDecision, initial));
+  return reduceNormalisedDecisions(proposal, normalised);
 }
 
 /**
@@ -336,9 +510,13 @@ export function reduceStepDecisions(
  * mid-fold has steps still pending, and reading one directly returned the
  * decided steps as confirmed with the undecided ones in neither list — silent
  * partial acceptance, reachable by anyone wiring the documented incremental
- * path (`applyStepDecision`) straight to a port. Finalizing here makes that
+ * path (`applyStepDecision`) straight to a writer. Finalizing here makes that
  * unreachable instead of merely discouraged; it is idempotent, so a caller that
  * already finalized loses nothing.
+ *
+ * Both lists come out in *proposal* order rather than decision order, so a
+ * client that shuffles its rulings cannot change the order the steps are
+ * written or reported in.
  *
  * A state carrying a failure yields nothing on either side: a refused request
  * has no rejected steps either, because the user's rejections were part of a
@@ -415,12 +593,12 @@ function hasCycle(steps: readonly DecompositionStepProposal[]): boolean {
 /**
  * What is structurally wrong with a proposal, in the shared vocabulary.
  *
- * Run at the boundary rather than only in #27's engine, so a proposal that
- * reached this module from anywhere — a different engine, a replay, a test
- * harness — is checked by whoever is about to offer it to a user. Every code
- * returned is a `DecompositionViolationCode`; this module invents none, because
- * a private code here would be one #26 could not count and #27 could not
- * reject.
+ * Run at the confirmation boundary rather than only in #27's engine, so a
+ * proposal that reached a store from anywhere — a different engine, a replay, a
+ * test harness — is checked by whoever is about to write steps from it. Every
+ * code returned is a `DecompositionViolationCode`; this module invents none,
+ * because a private code here would be one #26 could not count and #27 could
+ * not reject.
  *
  * `INFERRED_WITH_SPAN` and `UNSOURCED_STEP` are checked here because both are
  * decidable from the step alone — they are a consistency check between

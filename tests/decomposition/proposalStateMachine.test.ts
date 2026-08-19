@@ -734,3 +734,192 @@ test('applyStepDecision refuses an unrecognised verdict on its own', () => {
     ['pending', 'pending', 'pending'],
   );
 });
+
+/* ── The ruling is read once (consolidation review) ───────────────── */
+
+test('a verdict that changes between reads is applied as the value that was validated', () => {
+  // The reducer read `decision.verdict` up to five times: twice in the guard,
+  // once to ask whether it was an edit, and once more to choose accepted or
+  // rejected. An accessor answering `reject` for the guard and `accept`
+  // afterwards was validated as a rejection and recorded as an acceptance.
+  let reads = 0;
+  const shifty = {
+    stepId: 's1',
+    get verdict() {
+      reads += 1;
+      return reads <= 2 ? 'reject' : 'accept';
+    },
+  };
+  const state = reduceStepDecisions(
+    proposalFrom('en-multi-wedding'),
+    rawDecisions([shifty, accept('s2'), accept('s3')]),
+  );
+
+  assert.equal(state.failure, null);
+  assert.equal(
+    state.steps.find((entry) => entry.stepId === 's1')?.state,
+    'rejected',
+    'the verdict the guard admitted was "reject"; that is the ruling that must apply',
+  );
+});
+
+test('an edit validated as an edit is applied as an edit, never downgraded to an acceptance', () => {
+  // The mirror: the guard checked `editedTitle` because the verdict read `edit`,
+  // then the fold read `accept` and kept the engine wording -- a title the user
+  // explicitly rewrote, silently discarded.
+  let reads = 0;
+  const shifty = {
+    stepId: 's2',
+    editedTitle: 'Post the invitations',
+    get verdict() {
+      reads += 1;
+      return reads <= 3 ? 'edit' : 'accept';
+    },
+  };
+  const state = reduceStepDecisions(
+    proposalFrom('en-multi-wedding'),
+    rawDecisions([accept('s1'), shifty, accept('s3')]),
+  );
+  const entry = state.steps.find((candidate) => candidate.stepId === 's2');
+
+  assert.equal(state.failure, null);
+  assert.equal(entry?.state, 'edited');
+  assert.equal(entry?.step.title, 'Post the invitations');
+});
+
+test('a stepId that changes between reads rules on the step it was checked against', () => {
+  // `decision.stepId` was read for the guard, again to find the target, and
+  // again once per step while rebuilding the list -- so a decision validated
+  // against s1 overwrote s2's slot with s1's data and the request then failed
+  // as `unknown_step` on a step the proposal plainly contains.
+  let reads = 0;
+  const shifty = {
+    verdict: 'reject',
+    get stepId() {
+      reads += 1;
+      return reads <= 3 ? 's1' : 's2';
+    },
+  };
+  const state = reduceStepDecisions(
+    proposalFrom('en-multi-wedding'),
+    rawDecisions([shifty, accept('s2'), accept('s3')]),
+  );
+
+  assert.equal(state.failure, null);
+  assert.deepEqual(
+    state.steps.map((entry) => [entry.stepId, entry.state]),
+    [['s1', 'rejected'], ['s2', 'accepted'], ['s3', 'accepted']],
+  );
+});
+
+test('an edited title carrying control characters is invalid_edit', () => {
+  // A title is something a person reads in a list. C0/C1 controls and the line
+  // separators are not text anyone typed on purpose, they survive JSON
+  // transport intact, and two NULs were accepted as a step title because the
+  // connective normaliser treats them as neither punctuation nor whitespace.
+  for (const editedTitle of [
+    '\u0000\u0000',
+    '\u0007SEND a note',
+    'line\u000Bbreak',
+    'buy\r\nmilk',
+    'buy\tmilk',
+    'buy\u0000milk',
+    'buy\u0085milk',
+    'buy\u2028milk',
+    'buy\u009Fmilk',
+  ]) {
+    const state = reduceStepDecisions(proposalFrom('en-multi-wedding'), [
+      accept('s1'),
+      edit('s2', editedTitle),
+      accept('s3'),
+    ]);
+    assert.equal(state.failure?.code, 'invalid_edit', `${JSON.stringify(editedTitle)} must be refused`);
+    assert.equal(state.failure?.stepId, 's2');
+  }
+});
+
+test('a hole in the decisions array is a decision that names no step', () => {
+  // `Array.prototype.reduce` skips holes, so a sparse list of three rulings for
+  // a three-step proposal validated as complete while a fourth entry nobody
+  // could read was silently dropped.
+  const sparse = new Array(4) as StepDecision[];
+  sparse[0] = accept('s1');
+  sparse[1] = accept('s2');
+  sparse[2] = accept('s3');
+
+  const state = reduceStepDecisions(proposalFrom('en-multi-wedding'), sparse);
+
+  assert.equal(state.failure?.code, 'unknown_step');
+  assert.deepEqual(resolveConfirmedSteps(state).confirmed, []);
+});
+
+test('a decision whose fields throw when read answers in a contract code, not with an Error', () => {
+  // An accessor that answers differently between reads is already in scope for
+  // this reducer; one that throws is the same class of hostile input and must
+  // not become a raw TypeError on the public surface.
+  const throwingVerdict = new Proxy({} as Record<string, unknown>, {
+    get(_target, property) {
+      if (property === 'stepId') return 's1';
+      throw new Error('hostile trap');
+    },
+  });
+  const throwingStepId = {
+    verdict: 'accept',
+    get stepId(): string {
+      throw new Error('hostile getter');
+    },
+  };
+  const throwingEditedTitle = {
+    stepId: 's1',
+    verdict: 'edit',
+    get editedTitle(): string {
+      throw new Error('hostile getter');
+    },
+  };
+
+  const cases: readonly (readonly [string, unknown, string])[] = [
+    ['a proxy whose get throws on verdict', throwingVerdict, 'incomplete_decisions'],
+    ['a throwing getter on stepId', throwingStepId, 'unknown_step'],
+    ['a throwing getter on editedTitle', throwingEditedTitle, 'invalid_edit'],
+  ];
+
+  for (const [label, decision, expected] of cases) {
+    const state = reduceStepDecisions(
+      proposalFrom('en-multi-wedding'),
+      rawDecisions([decision, accept('s2'), accept('s3')]),
+    );
+    assert.equal(state.failure?.code, expected, label);
+  }
+});
+
+test('a decisions array whose element access throws is refused, not propagated', () => {
+  const hostileList = new Proxy([accept('s1'), accept('s2'), accept('s3')], {
+    get(target, property, receiver) {
+      if (property === '1') throw new Error('hostile element trap');
+      return Reflect.get(target, property, receiver);
+    },
+  });
+
+  const state = reduceStepDecisions(
+    proposalFrom('en-multi-wedding'),
+    hostileList as unknown as readonly StepDecision[],
+  );
+
+  assert.equal(state.failure?.code, 'unknown_step');
+});
+
+test('a decisions array whose length throws is refused, not propagated', () => {
+  const hostileList = new Proxy([accept('s1')], {
+    get(target, property, receiver) {
+      if (property === 'length') throw new Error('hostile length trap');
+      return Reflect.get(target, property, receiver);
+    },
+  });
+
+  const state = reduceStepDecisions(
+    proposalFrom('en-multi-wedding'),
+    hostileList as unknown as readonly StepDecision[],
+  );
+
+  assert.equal(state.failure?.code, 'incomplete_decisions');
+});

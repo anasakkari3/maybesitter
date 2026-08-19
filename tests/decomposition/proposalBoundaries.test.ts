@@ -336,19 +336,41 @@ test('scanner: each forbidden category is actually recognised', () => {
 test('scanner: the proposal module exists and is scanned, so these guards are never vacuous', () => {
   const files = sourceFilesUnder(proposalDir);
   assert.ok(files.length > 0, 'expected at least one source file under lib/decomposition/proposal');
-  for (const expected of ['proposalStateMachine.ts', 'proposalStore.ts', 'persistencePort.ts']) {
+  // `proposalStore.ts` and `persistencePort.ts` were named here until the
+  // sprint's two confirmation boundaries were consolidated. Both were deleted:
+  // #27's store and adapter are the ones with a writer behind them, and a
+  // second store over a port nothing implemented was the arrangement that kept
+  // producing the same defect twice. What is left in this directory is the pure
+  // reducer, which is #25's actual deliverable.
+  for (const expected of ['proposalStateMachine.ts']) {
     assert.ok(
       files.some((file) => file.endsWith(expected)),
       `expected ${expected} to be part of the scanned surface`,
     );
   }
+  assert.deepEqual(
+    files.map((file) => file.slice(proposalDir.length + 1)).sort(),
+    ['index.ts', 'proposalStateMachine.ts'],
+    'the proposal module is one reducer and its barrel; anything else here is a second confirmation path growing back',
+  );
 });
 
 test('scanner: the closure walks past the first hop', () => {
   // Without this, the whole file would silently degrade into a direct-import
   // check — which is exactly what a writer reached through one intermediate
   // module slips past.
-  const roots = sourceFilesUnder(proposalDir);
+  //
+  // Demonstrated on a real repo file with real depth rather than on the
+  // proposal module itself. Since the consolidation deleted the duplicate store,
+  // the reducer's only surviving *runtime* edge is the shared connective
+  // lexicon — its contract import is `import type` and therefore erased — so
+  // its own closure is one hop deep and could no longer show the walk working.
+  // That is the guarantee getting stronger, and it must not be allowed to make
+  // the scanner's self-test vacuous. The confirmation boundary is the natural
+  // stand-in: it reaches the engine at one hop and the engine's own modules at
+  // two, which is precisely the shape a writer-behind-an-intermediary takes.
+  const root = join(repoRoot, 'lib', 'decomposition', 'boundary', 'decompositionBoundaryService.ts');
+  const roots = [root];
   const closure = importClosure(roots);
   const directlyImported = new Set(
     roots.flatMap((file) =>
@@ -362,6 +384,23 @@ test('scanner: the closure walks past the first hop', () => {
     Array.from(closure.keys()).some((file) => !roots.includes(file) && !directlyImported.has(file)),
     'expected the closure to reach at least one module more than one hop away',
   );
+});
+
+test('the proposal module is a leaf: its only runtime dependency is the shared lexicon', () => {
+  // The consolidation's own guarantee, stated as a property. Before it, the
+  // proposal module carried a store that imported the contract for a runtime
+  // constant and a port declaring a persistence seam; now the reducer holds no
+  // runtime edge at all except the connective lexicon it must share with #26
+  // and #27 so the three cannot disagree about what a connective is. Anything
+  // else appearing here is a confirmation path being rebuilt beside the one
+  // that writes.
+  const closure = importClosure(sourceFilesUnder(proposalDir));
+  const external = Array.from(closure.keys())
+    .filter((file) => !file.startsWith(`${proposalDir}/`))
+    .map(relative)
+    .sort();
+
+  assert.deepEqual(external, ['lib/decomposition/shared/connectives.ts']);
 });
 
 /* ── The guarantees ───────────────────────────────────────────────── */
@@ -419,37 +458,27 @@ test('the reducer is deterministic at the source level: no clock, no randomness'
   }
 });
 
-test('the persistence port is a declaration and nothing else', () => {
-  // The structural half of "only a completed confirmation can reach
-  // persistence". An implementation living here would give the reducer's own
-  // module a code path to canonical state, and the guarantee would rest on
-  // nobody calling it.
-  const source = strippedSource(portFile);
-
-  assert.match(source, /export interface DecompositionPersistencePort/, 'the port must be declared here');
-  assert.equal(/\bclass\s+/.test(source), false, 'persistencePort.ts must not implement the port');
-  assert.equal(
-    /export\s+(?:async\s+)?function\s/.test(source),
-    false,
-    'persistencePort.ts must export no runtime function; it is types only',
-  );
-  assert.equal(/\bexport const\b/.test(source), false, 'persistencePort.ts must export no runtime value');
-});
-
-test('no proposal type carries an instruction to change the commitment', () => {
-  // The other half: a batch that could express "and rename the commitment"
-  // would let a malformed proposal talk an adapter into a canonical edit. The
-  // shape carries no such field, so there is nothing for an adapter to obey.
-  const source = strippedSource(portFile);
-  const batch = /export interface ConfirmedStepBatch \{([\s\S]*?)\n\}/.exec(source);
-  assert.ok(batch, 'expected to find the ConfirmedStepBatch declaration');
-
-  assert.match(batch[1], /readonly commitmentId: string;/, 'the batch says what the steps belong to');
-  for (const forbidden of ['commitmentTitle', 'commitmentUpdate', 'commitmentPatch', 'replaceCommitment']) {
+test('the proposal module declares types and pure functions, and nothing that writes', () => {
+  // What `persistencePort.ts` was for. That file declared the persistence seam
+  // and deliberately implemented nothing, so "only a completed confirmation can
+  // reach persistence" was structural rather than promised. The seam is now
+  // #27's `DecompositionPersistenceAdapter`, which is a sibling track this
+  // module may not import — enforced by FORBIDDEN_SIBLING_PATTERNS above — so
+  // the same guarantee is restated on what is left: no class, and no `new` of
+  // anything, in the whole module.
+  //
+  // The other half of that file's job, "no proposal type carries an instruction
+  // to change the commitment", moved to tests/decomposition/proposalStore.test.ts
+  // and is asserted about `ConfirmedDecompositionStep` — the shape that now
+  // actually reaches a writer, which is where the claim belongs.
+  for (const file of sourceFilesUnder(proposalDir)) {
+    const source = strippedSource(file);
+    const name = relative(file);
+    assert.equal(/\bclass\s+/.test(source), false, `${name} must not declare a class`);
     assert.equal(
-      new RegExp(`\\b${forbidden}\\b`).test(batch[1]),
+      /\bexport\s+(?:async\s+)?function\s+\w*[Pp]ersist/.test(source),
       false,
-      `ConfirmedStepBatch must not carry ${forbidden}; decomposition adds steps beside a commitment, never rewrites it`,
+      `${name} must export nothing that persists`,
     );
   }
 });
@@ -559,13 +588,32 @@ test('scanner: a value import of a banned module is still caught', () => {
   assert.notEqual(forbiddenReason(valueSpecifiers(source)[0]), null);
 });
 
-test('the contract chain reaches canonical state only through erased type imports', () => {
-  // Stated as a property rather than a footnote. If a future contract edit turns
-  // that edge into a value import, this fails and says so.
+test('the proposal module reaches canonical state through no edge at all', () => {
+  // Stated as a property rather than a footnote. This used to read "only
+  // through erased type imports", because the deleted store imported the
+  // contract for a runtime constant and the contract chain led — through two
+  // more hops and one `import type` — to `src/domain/stateMachine`. The reducer
+  // names the contract in `import type` only, so the chain is not walked at
+  // all; the assertion is correspondingly stronger. If a future edit turns the
+  // reducer's contract import into a value import, the closure grows and the
+  // leaf test above fails first, which is the earlier and clearer warning.
   const closure = importClosure(sourceFilesUnder(proposalDir));
+  const contract = join(repoRoot, 'src', 'contracts', 'v1', 'decompositionContracts.ts');
   const lifeState = join(repoRoot, 'src', 'contracts', 'v1', 'lifeStateContracts.ts');
 
-  assert.ok(closure.has(lifeState), 'the contract chain must still be walked');
+  assert.equal(closure.has(contract), false, 'the contract is named in `import type` only, so it is not a runtime edge');
+  for (const file of sourceFilesUnder(proposalDir)) {
+    const source = stripComments(readFileSync(file, 'utf8'));
+    if (!source.includes('decompositionContracts')) continue;
+    assert.ok(
+      typeOnlySpecifiers(source).some((specifier) => specifier.endsWith('decompositionContracts')),
+      `${relative(file)} must name the contract as a type, not import it as a value`,
+    );
+  }
+
+  // And the fact that edge used to be defended: the contract chain's own route
+  // to the domain machine is erased, so nothing that imports a contract — here
+  // or anywhere — picks up a runtime dependency on canonical state.
   assert.ok(
     typeOnlySpecifiers(stripComments(readFileSync(lifeState, 'utf8'))).some((specifier) =>
       specifier.endsWith('domain/stateMachine'),

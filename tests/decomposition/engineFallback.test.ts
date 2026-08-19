@@ -518,3 +518,52 @@ test('an unknown property, however deep, is dropped rather than carried', async 
     );
   }
 });
+
+/* ── Draft text is bounded, not just draft cardinality ───────────── */
+
+test('a draft carrying an unbounded title, timing or owner is refused before it is copied', async () => {
+  // `normaliseDraft` capped `stepId` at 64 characters and bounded how *many*
+  // steps, spans and edges a draft may carry, but left the three free-text
+  // fields unbounded. 200 steps carrying 5 MB titles cost 1.29 s and 1.2 GB of
+  // resident memory before the validator rejected them — the guard that exists
+  // to make a hostile draft cheap was the expensive part.
+  const huge = 'x'.repeat(5_000_000);
+  const fields: readonly (readonly [string, Record<string, unknown>])[] = [
+    ['title', { title: huge }],
+    ['statedTiming', { statedTiming: huge }],
+    ['statedOwner', { statedOwner: huge }],
+  ];
+
+  for (const [label, overrides] of fields) {
+    const provider: DecompositionModelProvider = {
+      async propose() {
+        return {
+          steps: WEDDING.expectedSteps.map((step, index) =>
+            (index === 0 ? { ...step, ...overrides } : step)),
+          confidence: 0.99,
+        } as never;
+      },
+    };
+    const proposal = await proposeDecomposition(base(), { modelProvider: provider, controls: ENABLED });
+
+    assert.equal(proposal.provenance.fallbackUsed, true, `${label} must not be admitted`);
+    assert.equal(
+      proposal.provenance.fallbackUsed === true && proposal.provenance.fallbackReason,
+      'model_output_invalid:malformed',
+      `${label} must be refused by the shape guard, not by the validator downstream`,
+    );
+  }
+});
+
+test('a draft whose text fields are ordinary length is still admitted', async () => {
+  // The mirror: the bound must not start refusing drafts a model could
+  // legitimately produce. A step title is a phrase a person reads in a list.
+  const provider: DecompositionModelProvider = {
+    async propose() {
+      return { steps: WEDDING.expectedSteps, confidence: 0.99 };
+    },
+  };
+  const proposal = await proposeDecomposition(base(), { modelProvider: provider, controls: ENABLED });
+  assert.equal(proposal.outcome, 'decomposed');
+  assert.equal(proposal.provenance.fallbackUsed, false);
+});

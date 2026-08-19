@@ -181,6 +181,25 @@ const DEPENDENCY_KINDS: ReadonlySet<string> = new Set(['temporal', 'resource', '
  */
 const DRAFT_STEP_ID = /^[A-Za-z0-9_.:-]{1,64}$/;
 
+/**
+ * Longest free text a draft step may carry in any one field.
+ *
+ * The cardinality bounds above are only half a guard. `stepId` was capped at 64
+ * characters and `title`, `statedTiming` and `statedOwner` were not capped at
+ * all, so a draft at the legal 200-step limit carrying 5 MB titles cost 1.29 s
+ * and 1.2 GB of resident memory *inside the guard written to make a hostile
+ * draft cheap*, before the validator ever saw it. Rejecting on length is O(1)
+ * per field and happens before anything is copied.
+ *
+ * A thousand characters, because a step is a phrase a person reads in a list:
+ * the confirmation boundary already refuses an edited title over 500, and a
+ * title a user may not substitute has no business being twice as long when a
+ * model proposes it. `statedTiming` and `statedOwner` must additionally occur
+ * verbatim in the source text to survive validation, which the boundary caps at
+ * 10,000 — so a legitimate value can never approach this.
+ */
+const MAX_DRAFT_TEXT_LENGTH = 1_000;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -237,10 +256,12 @@ function normaliseDraft(draft: unknown): NormalisedDraft | null {
       const rawEdges = raw.dependsOn;
 
       if (typeof stepId !== 'string' || !DRAFT_STEP_ID.test(stepId)) return null;
-      if (typeof title !== 'string') return null;
+      if (typeof title !== 'string' || title.length > MAX_DRAFT_TEXT_LENGTH) return null;
       if (typeof inferred !== 'boolean') return null;
-      if (statedTiming !== null && typeof statedTiming !== 'string') return null;
-      if (statedOwner !== null && typeof statedOwner !== 'string') return null;
+      if (statedTiming !== null
+        && (typeof statedTiming !== 'string' || statedTiming.length > MAX_DRAFT_TEXT_LENGTH)) return null;
+      if (statedOwner !== null
+        && (typeof statedOwner !== 'string' || statedOwner.length > MAX_DRAFT_TEXT_LENGTH)) return null;
       if (!Array.isArray(rawSpans) || rawSpans.length > MAX_SPANS_PER_STEP) return null;
       if (!Array.isArray(rawEdges) || rawEdges.length > MAX_EDGES_PER_STEP) return null;
 

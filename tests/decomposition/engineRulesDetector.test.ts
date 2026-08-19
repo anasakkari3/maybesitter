@@ -10,6 +10,13 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { isConnectiveOnly } from '../../lib/decomposition/shared/connectives.ts';
+import {
+  CONJUNCTION_WORDS,
+  DETECTOR_BOUNDARY_MARKERS,
+  SEQUENCE_PHRASES,
+  SEQUENCE_WORDS,
+} from '../../lib/decomposition/engine/rulesDetector.ts';
 import { detectSteps } from '../../lib/decomposition/engine/rulesDetector.ts';
 import { validateDecomposition } from '../../lib/decomposition/engine/validator.ts';
 import { DECOMPOSITION_GOLDEN, goldenById, goldenByLabel } from '../fixtures/decompositionGolden.ts';
@@ -298,4 +305,37 @@ test('a prefix of pure punctuation still does not hide real content', () => {
     ['Book the venue', 'send the invitations'],
   );
   assert.deepEqual(detectSteps(', then send the invitations.').steps, []);
+});
+
+/* ── The detector and the shared lexicon cannot drift ────────────── */
+
+test('every marker the detector cuts on is a connective to the shared lexicon', () => {
+  // Both directions of the same fact, and neither was enforced. A word the
+  // product's own splitter treats as a clause boundary is, by definition, a
+  // split artefact when it comes back as a whole step title — so if it is not
+  // in `CONNECTIVE_TITLE_LIST` the validator will not reject it, and the
+  // residue of the detector's own cut becomes a persisted step. That gap was
+  // real: five of these markers were added to the shared list by hand after a
+  // reviewer found them, and nothing stops the next one from being missed.
+  const markers = DETECTOR_BOUNDARY_MARKERS;
+
+  assert.ok(markers.length > 0, 'the marker list must not be empty, or this guard is vacuous');
+  for (const marker of markers) {
+    assert.ok(
+      isConnectiveOnly(marker),
+      `${JSON.stringify(marker)} is a boundary the detector cuts on, but the shared lexicon `
+        + 'does not call it a connective; a step whose entire title is that word would be admitted',
+    );
+  }
+});
+
+test('the marker list is the one the detector actually uses', () => {
+  // A separately-maintained copy would satisfy the test above while the real
+  // sets drifted, which is the failure mode the test exists to prevent.
+  const fromSets = Array.from(SEQUENCE_WORDS)
+    .concat(Array.from(SEQUENCE_PHRASES))
+    .concat(Array.from(CONJUNCTION_WORDS))
+    .sort();
+
+  assert.deepEqual(DETECTOR_BOUNDARY_MARKERS.slice().sort(), fromSets);
 });

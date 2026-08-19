@@ -12,6 +12,9 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { DECOMPOSITION_PERSISTENCE_POLICY } from '../../src/contracts/v1/decompositionContracts.ts';
 import type {
   DecompositionConfirmationRequest,
@@ -930,4 +933,147 @@ test('a holder of a stored proposal cannot rewrite its confirmation state', asyn
   assert.equal(replay.success, true);
   assert.equal(replay.replayed, true, 'the confirmation must have survived the tampering');
   assert.equal(Object.keys(dependencies.persistence.snapshot().steps).length, 3);
+});
+
+/* ── One reducer behind the one path that writes (consolidation) ─── */
+
+test('a decision whose fields throw when read answers in a contract code, not with an Error', async () => {
+  // Neither `normaliseRequest` nor the fold was wrapped, so a hostile accessor
+  // threw a raw Error out of `confirmDecomposition` — the function this module
+  // calls the boundary. A boundary that throws its implementation's internals
+  // at a caller has not refused the request; it has crashed, and the caller
+  // cannot tell which.
+  const dependencies = harness();
+  const proposal = await proposeWedding(dependencies);
+  if (proposal.outcome !== 'decomposed') throw new Error('setup');
+  const ids = proposal.steps.map((step) => step.stepId);
+
+  const throwingVerdict = new Proxy({} as Record<string, unknown>, {
+    get(_target, property) {
+      if (property === 'stepId') return ids[0];
+      throw new Error('hostile trap');
+    },
+  });
+  const throwingStepId = {
+    verdict: 'accept',
+    get stepId(): string {
+      throw new Error('hostile getter');
+    },
+  };
+  const throwingEditedTitle = {
+    stepId: ids[0],
+    verdict: 'edit',
+    get editedTitle(): string {
+      throw new Error('hostile getter');
+    },
+  };
+  const hostileList = new Proxy(
+    ids.map((stepId) => ({ stepId, verdict: 'accept' })),
+    {
+      get(target, property, receiver) {
+        if (property === '1') throw new Error('hostile element trap');
+        return Reflect.get(target, property, receiver);
+      },
+    },
+  );
+
+  const cases: readonly (readonly [string, unknown])[] = [
+    ['a proxy whose get throws on verdict', [throwingVerdict, { stepId: ids[1], verdict: 'accept' }, { stepId: ids[2], verdict: 'accept' }]],
+    ['a throwing getter on stepId', [throwingStepId, { stepId: ids[1], verdict: 'accept' }, { stepId: ids[2], verdict: 'accept' }]],
+    ['a throwing getter on editedTitle', [throwingEditedTitle, { stepId: ids[1], verdict: 'accept' }, { stepId: ids[2], verdict: 'accept' }]],
+    ['a decisions array whose element access throws', hostileList],
+  ];
+
+  for (const [label, decisions] of cases) {
+    const result = await confirmDecomposition(
+      { proposalId: proposal.proposalId, scopeId: 'scope-a', idempotencyKey: `hostile-${label}`, decisions } as never,
+      dependencies,
+    );
+    assert.equal(result.success, false, label);
+    assert.ok(result.failureCode, `${label} must name a contract code`);
+  }
+  assert.deepEqual(Object.keys(dependencies.persistence.snapshot().steps), []);
+});
+
+test('a request whose own envelope fields throw when read is refused, not propagated', async () => {
+  const dependencies = harness();
+  const hostileRequest = new Proxy({} as Record<string, unknown>, {
+    get(_target, property) {
+      if (property === 'proposalId') throw new Error('hostile envelope trap');
+      return undefined;
+    },
+  });
+
+  const result = await confirmDecomposition(hostileRequest as never, dependencies);
+  assert.equal(result.success, false);
+  assert.equal(result.failureCode, 'proposal_not_found');
+});
+
+test('a hole in the decisions array is a decision that names no step', async () => {
+  const dependencies = harness();
+  const proposal = await proposeWedding(dependencies);
+  if (proposal.outcome !== 'decomposed') throw new Error('setup');
+  const sparse = new Array(4) as StepDecision[];
+  proposal.steps.forEach((step, index) => {
+    sparse[index] = { stepId: step.stepId, verdict: 'accept' };
+  });
+
+  const result = await confirmDecomposition(request(proposal.proposalId, sparse), dependencies);
+
+  assert.equal(result.success, false);
+  assert.equal(result.failureCode, 'unknown_step');
+  assert.deepEqual(Object.keys(dependencies.persistence.snapshot().steps), []);
+});
+
+test('a stored proposal that fails entry validation can never be confirmed into persistence', async () => {
+  // #25's store refused to *admit* a structurally invalid proposal, and that
+  // store is gone. The property it existed for — a proposal nobody validated
+  // cannot become canonical steps — moves to the one path that writes, which
+  // is where it was always needed: the boundary store holds atomic and
+  // rejected proposals on purpose, so admission could never be the gate here.
+  const dependencies = harness();
+  const proposal = await proposeWedding(dependencies);
+  if (proposal.outcome !== 'decomposed') throw new Error('setup');
+
+  // A proposal admitted straight into the store without going through the
+  // engine, carrying a step that cites no source and does not admit inference.
+  const forged = {
+    ...proposal,
+    proposalId: 'p-forged',
+    steps: proposal.steps.map((step, index) =>
+      index === 0 ? { ...step, sourceSpans: [], inferred: false } : step),
+  };
+  dependencies.store.put({ proposal: forged as unknown as typeof proposal, scopeId: 'scope-a' });
+
+  const result = await confirmDecomposition(request(
+    'p-forged',
+    forged.steps.map((step): StepDecision => ({ stepId: step.stepId, verdict: 'accept' })),
+  ), dependencies);
+
+  assert.equal(result.success, false);
+  assert.equal(result.failureCode, 'proposal_not_decomposed');
+  assert.deepEqual(Object.keys(dependencies.persistence.snapshot().steps), []);
+});
+
+test('the boundary confirms through the proposal reducer, not a second copy of it', async () => {
+  // The structural half of the consolidation: if `confirmDecomposition` grows
+  // its own `resolveDecisions` again, this fails. A behavioural test cannot see
+  // the difference — that is exactly why the two implementations drifted for
+  // four review rounds.
+  const source = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'lib', 'decomposition', 'boundary', 'decompositionBoundaryService.ts'),
+    'utf8',
+  );
+  assert.match(
+    source,
+    /from '\.\.\/proposal\/proposalStateMachine'/,
+    'the boundary must reach the reducer directly, so there is one answer to "what does this ruling mean"',
+  );
+  for (const gone of ['function resolveDecisions', 'KNOWN_VERDICTS', 'CONTROL_CHARACTERS']) {
+    assert.equal(
+      source.includes(gone),
+      false,
+      `${gone} is the reducer's job; a copy here is how the two drifted apart`,
+    );
+  }
 });

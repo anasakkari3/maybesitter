@@ -24,6 +24,19 @@
  *     measured; the words are not copied anywhere an operator can read them.
  *     This matters more here than in Capture, because a decomposition's spans
  *     are *made of* the user's sentence.
+ *
+ * ── What this module does *not* decide ──────────────────────────────
+ *
+ * What an accept/edit/reject ruling means. That is `proposalStateMachine.ts`,
+ * and it used to be here as well: `resolveDecisions` was a second reducer over
+ * the same contract, written by a parallel track that could not import the
+ * first. Every review round found a defect on one side that had already been
+ * fixed on the other — an unknown verdict silently read as consent, an edit
+ * held to a weaker standard than an admission, a verdict read twice and
+ * answered differently. Two implementations of one judgement is the arrangement
+ * that produces that, so this module now normalises the request, hands the
+ * decisions to the reducer, and turns what comes back into the persistence
+ * shape. The reducer decides; this module writes.
  */
 
 import { createHash, randomUUID } from 'crypto';
@@ -31,10 +44,10 @@ import {
   DECOMPOSITION_CONTRACT_VERSION,
   DECOMPOSITION_SCHEMA_VERSION,
   type ConfirmationFailureCode,
+  type DecomposedProposal,
   type DecompositionConfirmationRequest,
   type DecompositionConfirmationResult,
   type DecompositionProposal,
-  type DecompositionStepProposal,
 } from '../../../src/contracts/v1/decompositionContracts';
 import {
   createAuditEvent,
@@ -43,6 +56,19 @@ import {
   type RuntimeControlSnapshot,
 } from '../../../src/contracts/v1/runtimeControls';
 import { proposeDecomposition, titleAdmission, type DecompositionModelProvider } from '../engine/index';
+// The one reducer. `resolveDecisions` used to live in this file and answer the
+// same question a second time; see the header of proposalStateMachine.ts for
+// what that cost. Nothing flows the other way: the reducer cannot import this
+// module, which tests/decomposition/proposalBoundaries.test.ts enforces.
+import {
+  normaliseStepDecisions,
+  reduceNormalisedDecisions,
+  resolveConfirmedSteps,
+  validateProposalEntry,
+  type NormalisedStepDecision,
+  type ProposalStateFailure,
+  type ResolvedConfirmation,
+} from '../proposal/proposalStateMachine';
 import type { ConfirmedDecompositionStep, DecompositionPersistenceAdapter } from './persistenceAdapter';
 import type { DecompositionProposalStore } from './proposalStore';
 
@@ -65,7 +91,6 @@ export interface DecompositionBoundaryDependencies {
  * commitment a person typed and stated rather than buried.
  */
 const MAX_SOURCE_TEXT_LENGTH = 10_000;
-const MAX_EDITED_TITLE_LENGTH = 500;
 
 export interface ProposeDecompositionOptions {
   readonly commitmentId: string;
@@ -183,100 +208,65 @@ export async function proposeDecompositionBoundary(
   return proposal;
 }
 
-/**
- * A canonical rendering of the decisions, used only to tell a replay from a new
- * request under a reused key.
- *
- * Order-sensitive on purpose: two decision lists differing in order are
- * different requests, and treating them as one would silently accept a ruling
- * the user did not make.
- */
-/**
- * The three verdicts that exist. Checked at runtime because `StepDecision` is a
- * TypeScript union and TypeScript is erased: a version-skewed client, a typo,
- * or a future fourth verdict all arrive here as ordinary strings.
- */
-const KNOWN_VERDICTS: ReadonlySet<string> = new Set(['accept', 'reject', 'edit']);
-
-/**
- * C0 and C1 control characters, plus the line separators.
- *
- * A title is something a person will read in a list. NUL and friends are not
- * text a user typed on purpose, they survive JSON transport intact, and two
- * NULs were persisted as a step title.
- */
-const CONTROL_CHARACTERS = /[\u0000-\u001F\u007F-\u009F\u2028\u2029]/;
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-/** One ruling, already read out of the request and into plain data. */
-interface NormalisedDecision {
-  readonly stepId: string;
-  readonly verdict: 'accept' | 'reject' | 'edit';
-  readonly editedTitle: string;
-}
-
+/** A confirmation request, already read out of the caller's object. */
 interface NormalisedRequest {
   readonly proposalId: string;
   readonly scopeId: string;
   readonly idempotencyKey: string;
-  readonly decisions: readonly NormalisedDecision[];
+  readonly decisions: readonly NormalisedStepDecision[];
   readonly fingerprint: string;
 }
 
 /**
- * Read the request once, into plain data, or say why it is not a confirmation.
+ * Read the request's own envelope once, into plain data, or say why it is not a
+ * confirmation.
  *
- * "Once" is the security property, not a tidiness preference. The verdict used
- * to be read in the guard, again when fingerprinting, and again in the reducer;
- * an accessor answering `reject` twice and `accept` afterwards was validated as
- * a rejection and then persisted. Everything downstream now sees this copy, so
- * a value that changes between reads has nothing left to change.
+ * "Once" is the security property, not a tidiness preference: a field read
+ * twice can answer differently the second time, and every value below is used
+ * to decide whether a write happens. The four reads sit in one `try` because a
+ * getter or a `Proxy` trap that throws is the same hostile input as one that
+ * lies, and a raw `Error` crossing this surface leaves a caller unable to tell
+ * a refusal from a crash. `proposal_not_found` is the honest answer to both: a
+ * request whose own fields cannot be read has not named a proposal, and it
+ * leaks nothing about which ids exist.
  *
  * The object-ness check comes first because the previous version dereferenced
  * `request.proposalId` before establishing there was a request at all — the
  * same defect one level up from the one it was written to fix.
+ *
+ * The *decisions* are not read here. They are handed to the proposal reducer's
+ * `normaliseStepDecisions`, which is the one place in the sprint that decides
+ * what a well-formed ruling is. This module used to decide that too, and the
+ * two answers drifted apart in every review round.
  */
 function normaliseRequest(
   request: unknown,
 ): NormalisedRequest | ConfirmationFailureCode {
   if (!isRecord(request)) return 'proposal_not_found';
 
-  const proposalId = request.proposalId;
-  const scopeId = request.scopeId;
-  const idempotencyKey = request.idempotencyKey;
+  let proposalId: unknown;
+  let scopeId: unknown;
+  let idempotencyKey: unknown;
+  let rawDecisions: unknown;
+  try {
+    proposalId = request.proposalId;
+    scopeId = request.scopeId;
+    idempotencyKey = request.idempotencyKey;
+    rawDecisions = request.decisions;
+  } catch {
+    return 'proposal_not_found';
+  }
+
   if (typeof proposalId !== 'string' || typeof scopeId !== 'string' || typeof idempotencyKey !== 'string') {
     return 'proposal_not_found';
   }
 
-  const rawDecisions = request.decisions;
-  if (!Array.isArray(rawDecisions)) return 'incomplete_decisions';
-
-  const decisions: NormalisedDecision[] = [];
-  for (const raw of rawDecisions) {
-    if (!isRecord(raw)) return 'unknown_step';
-    const stepId = raw.stepId;
-    const verdict = raw.verdict;
-    if (typeof stepId !== 'string') return 'unknown_step';
-    if (typeof verdict !== 'string' || !KNOWN_VERDICTS.has(verdict)) {
-      // Not an acceptance and not a rejection: the request states no ruling
-      // this reducer understands for that step, which is the same defect as
-      // omitting it.
-      return 'incomplete_decisions';
-    }
-
-    let editedTitle = '';
-    if (verdict === 'edit') {
-      const raw2 = raw.editedTitle;
-      if (typeof raw2 !== 'string') return 'invalid_edit';
-      if (raw2.length > MAX_EDITED_TITLE_LENGTH) return 'invalid_edit';
-      if (CONTROL_CHARACTERS.test(raw2)) return 'invalid_edit';
-      editedTitle = raw2.trim();
-    }
-    decisions.push({ stepId, verdict: verdict as NormalisedDecision['verdict'], editedTitle });
-  }
+  const decisions = normaliseStepDecisions(rawDecisions);
+  if (!Array.isArray(decisions)) return (decisions as ProposalStateFailure).code;
 
   return {
     proposalId,
@@ -285,7 +275,8 @@ function normaliseRequest(
     decisions,
     // Order-sensitive on purpose: two decision lists differing in order are
     // different requests, and treating them as one would silently accept a
-    // ruling the user did not make.
+    // ruling the user did not make. Taken over the *normalised* copy, so the
+    // ruling that is fingerprinted is the ruling that is applied.
     fingerprint: JSON.stringify(
       decisions.map((decision) => [decision.stepId, decision.verdict, decision.editedTitle]),
     ),
@@ -303,86 +294,55 @@ function failure(failureCode: ConfirmationFailureCode): DecompositionConfirmatio
   };
 }
 
-interface ResolvedDecisions {
-  readonly accepted: readonly ConfirmedDecompositionStep[];
-  readonly rejectedStepIds: readonly string[];
-}
-
 /**
- * Turn a decision set into the batch to write, or fail.
+ * Turn what the reducer confirmed into the batch the adapter files, or fail.
  *
- * The coverage check runs before anything else is derived, because every later
- * step assumes a one-to-one mapping between steps and rulings; deriving first
- * and checking after is how a missing decision turns into a defaulted one.
+ * The *judgement* — which steps the user accepted, which they rewrote, which
+ * they rejected, and whether the request was a ruling at all — belongs entirely
+ * to `reduceNormalisedDecisions`. Everything here is the persistence shape: the
+ * flat record keyed by `(proposalId, stepId)`, with the edges a rejection made
+ * dangling removed. Splitting it that way is the point of the consolidation:
+ * there is one implementation of what a ruling means, and it is not in the
+ * module that writes.
  */
-function resolveDecisions(
-  proposal: Extract<DecompositionProposal, { outcome: 'decomposed' }>,
-  request: NormalisedRequest,
-): ResolvedDecisions | ConfirmationFailureCode {
-  const byStepId = new Map<string, DecompositionStepProposal>();
-  for (const step of proposal.steps) byStepId.set(step.stepId, step);
+function persistableSteps(
+  proposal: DecomposedProposal,
+  confirmed: ResolvedConfirmation['confirmed'],
+): readonly ConfirmedDecompositionStep[] | ConfirmationFailureCode {
+  const acceptedIds = new Set(confirmed.map((entry) => entry.step.stepId));
+  const steps: ConfirmedDecompositionStep[] = [];
 
-  const seen = new Set<string>();
-  for (const decision of request.decisions) {
-    if (!byStepId.has(decision.stepId)) return 'unknown_step';
-    if (seen.has(decision.stepId)) return 'duplicate_decision';
-    seen.add(decision.stepId);
-  }
-  if (seen.size !== proposal.steps.length) return 'incomplete_decisions';
-
-  // Positive test. Anything that is not literally 'reject' used to be an
-  // acceptance, so an unknown verdict silently wrote; normalisation rejects
-  // those before we get here, and this stays positive so the two can never
-  // drift apart into "unknown means yes" again.
-  const acceptedIds = new Set(
-    request.decisions
-      .filter((decision) => decision.verdict === 'accept' || decision.verdict === 'edit')
-      .map((decision) => decision.stepId),
-  );
-  const accepted: ConfirmedDecompositionStep[] = [];
-  const rejectedStepIds: string[] = [];
-
-  for (const decision of request.decisions) {
-    const step = byStepId.get(decision.stepId) as DecompositionStepProposal;
-    if (decision.verdict !== 'accept' && decision.verdict !== 'edit') {
-      rejectedStepIds.push(step.stepId);
-      continue;
-    }
-    const title = decision.verdict === 'edit' ? decision.editedTitle : step.title;
-    // The same standard admission applies to an edit, not a weaker one. This
-    // used to check only for emptiness, so a step could be edited into "and" —
-    // a string the validator rejects outright as a split artefact — and written.
-    // `invalid_edit` is the right code either way: EMPTY_STEP and
-    // CONJUNCTION_ONLY describe a proposal, and this is a bad request.
-    if (decision.verdict === 'edit' && titleAdmission(title) !== null) return 'invalid_edit';
-    if (title.length === 0) return 'invalid_edit';
-    accepted.push({
-      stepId: step.stepId,
+  for (const entry of confirmed) {
+    // The reducer already held every *edited* title to this standard. This
+    // catches the other half — a step accepted as proposed, whose title came
+    // from the proposal rather than from the user. Engine output cannot reach
+    // here with a blank or connective-only title, but a proposal put into the
+    // store by any other producer can, and this is the last thing standing
+    // before a write. `invalid_edit` rather than a throw out of the adapter,
+    // because the caller can act on a code and cannot act on an exception.
+    if (titleAdmission(entry.step.title) !== null) return 'invalid_edit';
+    steps.push({
+      stepId: entry.step.stepId,
       proposalId: proposal.proposalId,
       commitmentId: proposal.commitmentId,
-      title,
+      title: entry.step.title,
       // The span survives the edit: the user rewrote the wording, not the
       // origin, and a step that dropped its provenance could never be checked
       // against the sentence it came from again.
-      sourceSpans: step.sourceSpans,
+      sourceSpans: entry.step.sourceSpans,
       // An edge to a step the user rejected is dropped rather than carried:
       // keeping it would persist a dependency on something that does not
       // exist, and the adapter would refuse the whole batch for it.
-      dependsOn: step.dependsOn.filter((edge) => acceptedIds.has(edge.dependsOnStepId)),
-      statedTiming: step.statedTiming,
-      statedOwner: step.statedOwner,
-      inferred: step.inferred,
+      dependsOn: entry.step.dependsOn.filter((edge) => acceptedIds.has(edge.dependsOnStepId)),
+      statedTiming: entry.step.statedTiming,
+      statedOwner: entry.step.statedOwner,
+      inferred: entry.step.inferred,
     });
   }
-
-  // Preserve proposal order rather than decision order, so the persisted batch
-  // reads in the order the user's sentence did.
-  const order = new Map(proposal.steps.map((step, index) => [step.stepId, index] as const));
-  return {
-    accepted: accepted.slice().sort((left, right) =>
-      (order.get(left.stepId) as number) - (order.get(right.stepId) as number)),
-    rejectedStepIds,
-  };
+  // Already in proposal order: `resolveConfirmedSteps` walks the proposal's own
+  // step list rather than the decision list, so a client that shuffles its
+  // rulings cannot change the order the batch is written in.
+  return steps;
 }
 
 /**
@@ -390,14 +350,15 @@ function resolveDecisions(
  * can be recorded synchronously, before this is awaited.
  */
 async function applyConfirmation(
-  proposal: Extract<DecompositionProposal, { outcome: 'decomposed' }>,
-  resolved: ResolvedDecisions,
+  proposal: DecomposedProposal,
+  accepted: readonly ConfirmedDecompositionStep[],
+  rejectedStepIds: readonly string[],
   dependencies: DecompositionBoundaryDependencies,
   now: Date,
 ): Promise<DecompositionConfirmationResult> {
-  if (resolved.accepted.length > 0) {
+  if (accepted.length > 0) {
     try {
-      await dependencies.persistence.persistAtomically(resolved.accepted);
+      await dependencies.persistence.persistAtomically(accepted);
     } catch {
       dependencies.audit?.(auditEvent('failed', proposal.sourceText, now, 'persistence_failed', 0));
       return failure('persistence_failed');
@@ -408,14 +369,14 @@ async function applyConfirmation(
     proposal.sourceText,
     now,
     'confirmed',
-    resolved.accepted.length,
+    accepted.length,
   ));
   return {
     version: DECOMPOSITION_CONTRACT_VERSION,
     success: true,
     replayed: false,
-    persistedStepIds: resolved.accepted.map((step) => step.stepId),
-    rejectedStepIds: resolved.rejectedStepIds,
+    persistedStepIds: accepted.map((step) => step.stepId),
+    rejectedStepIds,
   };
 }
 
@@ -461,10 +422,25 @@ export async function confirmDecomposition(
   const proposal = stored.proposal;
   if (proposal.outcome !== 'decomposed') return failure('proposal_not_decomposed');
 
-  const resolved = resolveDecisions(proposal, normalised);
-  if (typeof resolved === 'string') return failure(resolved);
+  // Structural entry validation, on the path that writes rather than on
+  // admission. #25's store validated on `admit` and refused to hold a
+  // malformed proposal; this store deliberately holds atomic and rejected ones
+  // so a later confirmation can say why they cannot be applied, so admission
+  // could never be the gate here. Engine output has already been through the
+  // strictly stronger `validateDecomposition`, so this fires only for a
+  // proposal some other producer put in the store — which is exactly the case
+  // #25 wrote the check for. `proposal_not_decomposed` because that is what a
+  // proposal whose steps do not hold together is: not a usable decomposition.
+  if (validateProposalEntry(proposal).length > 0) return failure('proposal_not_decomposed');
 
-  if (resolved.accepted.length === 0) {
+  const state = reduceNormalisedDecisions(proposal, normalised.decisions);
+  if (state.failure !== null) return failure(state.failure.code);
+
+  const resolved = resolveConfirmedSteps(state);
+  const accepted = persistableSteps(proposal, resolved.confirmed);
+  if (typeof accepted === 'string') return failure(accepted);
+
+  if (accepted.length === 0) {
     // Nothing to write, so nothing to race over; recorded without yielding.
     const result: DecompositionConfirmationResult = {
       version: DECOMPOSITION_CONTRACT_VERSION,
@@ -482,7 +458,7 @@ export async function confirmDecomposition(
   // Claim first, await second. Both assignments complete in this synchronous
   // turn — `applyConfirmation` runs only as far as its own first `await` before
   // handing the promise back — so any later caller sees the claim.
-  const inFlight = applyConfirmation(proposal, resolved, dependencies, now);
+  const inFlight = applyConfirmation(proposal, accepted, resolved.rejectedStepIds, dependencies, now);
   dependencies.store.claim(
     normalised.proposalId,
     normalised.idempotencyKey,
