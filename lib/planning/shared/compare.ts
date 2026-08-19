@@ -1,17 +1,20 @@
 /**
- * The one string ordering this module sorts by.
+ * The one string ordering the planning engine sorts by.
  *
- * It existed three times — once in `scheduler.ts`, once in `digest.ts`, once
- * inline in `diff.ts` — which is precisely the hazard the sprint design names:
- * "two independent copies of *data or arithmetic* are a gap waiting for
- * whichever caller falls into it". An ordering is arithmetic. Three copies do
- * not check each other; they wait for one of them to be edited.
+ * It existed three times inside #30 alone — once in `scheduler.ts`, once in
+ * `digest.ts`, once inline in `diff.ts` — and a fourth time in #31's
+ * `evaluation/` as a local `byCodeUnit`, which is precisely the hazard the
+ * sprint design names: "two independent copies of *data or arithmetic* are a
+ * gap waiting for whichever caller falls into it". An ordering is arithmetic.
+ * Four copies do not check each other; they wait for one of them to be edited.
  *
- * **Integration follow-up.** This belongs in `lib/planning/shared/`, next to
- * `intervalsOverlap`, because #31 must sort identically or the cross-track
- * comparison of two plans becomes a comparison of two sort orders. It is here
- * rather than there because `lib/planning/shared/**` is owned by the sprint
- * base and no track may edit it. Move it at integration.
+ * It lives in `shared/` rather than in `scheduler/` because #31 must sort
+ * identically or the cross-track comparison of two plans becomes a comparison
+ * of two sort orders. #30 consolidated the three copies but could not put the
+ * result here, because `lib/planning/shared/**` is owned by the sprint base and
+ * no track may edit it during the sprint; the move is the integration's to make,
+ * and this is it. `shared/` stays a leaf — this file imports nothing, so it
+ * cannot put one track's code into another's closure.
  *
  * Never `localeCompare`: its result depends on the runtime's ICU data and
  * default locale, so a digest built on it would differ between two machines

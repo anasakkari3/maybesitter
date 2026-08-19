@@ -41,7 +41,7 @@
 
 import { createHash } from 'node:crypto';
 
-import { compareByCodePoint } from './compare';
+import { compareByCodePoint } from '../shared/compare';
 
 import type {
   Effort,

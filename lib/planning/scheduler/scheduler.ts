@@ -66,9 +66,20 @@ import {
   toEpochMs,
   toInstant,
 } from '../shared/time';
-import { compareByCodePoint } from './compare';
+import { compareByCodePoint } from '../shared/compare';
 import { planningInputDigest } from './digest';
-import { materializeWorkingWindows } from './windows';
+// #29 owns turning a recurring wall-clock `WorkingWindow` into absolute
+// intervals. This track carried its own `windows.ts` copy while #29 did not
+// exist; that file is gone and this is the import that replaces it.
+//
+// Reached at `constraints/normalize` rather than at the `constraints/` barrel
+// on purpose. The barrel also re-exports `validator.ts`, and
+// `tests/planning/planningBoundaries.test.ts` walks the *import closure* — so
+// the barrel would put #29's judgement in the scheduler's closure and fail the
+// guard that keeps placement from reading the static verdict it is supposed to
+// be checked against. Materialising a window is arithmetic and may cross that
+// line; validating constraints is a judgement and may not.
+import { mergeIntervals, normalizeWorkingWindows } from '../constraints/normalize';
 
 const MS_PER_MINUTE = 60_000;
 
@@ -465,23 +476,66 @@ export function schedulePlan(constraints: PlanningConstraints, config: PlanningC
     });
   }
 
-  const materialized = materializeWorkingWindows(
-    constraints.workingWindows,
-    constraints.horizon,
-    config.foldPolicy,
-  );
-  constraintReasons.push(...materialized.reasons);
+  /* Two shapes meet here. #29's normalizer answers in *occurrences* —
+   * one `MaterializedWindow` per weekday the horizon touches, each still
+   * carrying which window it came from and how its local boundaries resolved —
+   * while placement needs a disjoint cover and a flat reason list. The
+   * translation is below and is the only thing this module does with windows;
+   * none of the arithmetic is repeated.
+   *
+   * `normalizeWorkingWindows` takes the whole config rather than a `foldPolicy`
+   * because the fold rule is config-level and #29 states it once. */
+  const normalized = normalizeWorkingWindows(constraints.workingWindows, constraints.horizon, config);
+
+  /* Occurrences may overlap — two windows can describe the same afternoon —
+   * and placement must not see that stretch twice or a reservation could be
+   * made against capacity that does not exist. #29's `mergeIntervals` is the
+   * union, abutting runs included, so an item spanning a seam between two
+   * windows the user happened to write separately is still placeable. */
+  const windowIntervals = mergeIntervals(normalized.windows.map((occurrence) => occurrence.interval));
+
+  /* A window #29 could not materialise at all. Named by index rather than by
+   * `windowId`: the index is what the normalizer reports, and #29's validator
+   * reports the same defect the same way, so the two readings of one bad window
+   * line up instead of being two sentences about it. The wording stays generic
+   * because the normalizer's malformed set is wider than "ends before it
+   * starts" — a weekday outside 0..6, a non-integer minute and a zone this
+   * runtime does not know all land here, and each of them denotes a window that
+   * occurs on no clock face rather than one that is merely backwards. */
+  for (const index of normalized.malformedWindowIndices) {
+    constraintReasons.push({
+      code: 'INVALID_INTERVAL',
+      itemId: null,
+      detail: `working window at index ${index} is not a well-formed recurring interval`,
+    });
+  }
+
+  /* Only a *start* landing in a forward transition becomes a reason, which is
+   * what `NONEXISTENT_LOCAL_TIME` describes. #29 also records anomalous *ends*
+   * and folds; an anomalous end shortens the day and is already visible in the
+   * interval, and a fold is resolved by `config.foldPolicy` rather than
+   * reported — the contract calls it "resolved, not reported", which is why
+   * this module never emits `AMBIGUOUS_LOCAL_TIME`. */
+  for (const anomaly of normalized.anomalies) {
+    if (anomaly.boundary !== 'start' || anomaly.kind !== 'gap') continue;
+    constraintReasons.push({
+      code: 'NONEXISTENT_LOCAL_TIME',
+      itemId: null,
+      detail: `working window at index ${anomaly.windowIndex} starts in a daylight-saving gap `
+        + `on ${anomaly.localDate}`,
+    });
+  }
 
   const fixed = fixedEventFindings(constraints);
   constraintReasons.push(...fixed.reasons);
 
-  const baseRuns = freeRunsAfter(materialized.intervals, fixed.blocking);
+  const baseRuns = freeRunsAfter(windowIntervals, fixed.blocking);
   // Measured on the materialised windows, *before* fixed events are subtracted.
   // `NO_WORKING_WINDOW` means the request declares nowhere legal to work; a day
   // that had availability and then lost all of it to meetings is contention,
   // and reporting it as a missing window sends the user to edit their
   // availability rules when what they need to move is a meeting.
-  const hasWorkingTime = materialized.intervals.length > 0;
+  const hasWorkingTime = windowIntervals.length > 0;
   if (!hasWorkingTime) {
     constraintReasons.push({
       code: 'NO_WORKING_WINDOW',

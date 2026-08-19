@@ -7,9 +7,13 @@
  * "these two plans came from the same request" checkable, and `diffPlans` is
  * what makes "and here is what changed" answerable.
  *
- * `windows.ts` is deliberately not re-exported: it is a temporary copy of #29's
- * normalizer, and a caller that reached it through this surface would keep the
- * duplicate alive past the integration that is supposed to delete it.
+ * Window materialisation is deliberately absent from this surface. It was a
+ * temporary `windows.ts` copy of #29's normalizer while #29 did not exist; the
+ * integration deleted that file and `scheduler.ts` now calls
+ * `lib/planning/constraints/normalize.ts`. A caller that wants absolute
+ * intervals from a wall-clock window asks #29 for them, not #30 — re-exporting
+ * the conversion here would put a second name on one piece of arithmetic and
+ * invite exactly the duplicate that was just removed.
  *
  * ## Migration and rollback
  *

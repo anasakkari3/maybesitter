@@ -96,6 +96,15 @@ import {
   wallClockAt,
   type WallClockParts,
 } from '../shared/time';
+// The one string ordering the sprint sorts by. This module had its own
+// `byCodeUnit`, and #30 had three more copies of the same rule; #31 must order
+// strings exactly as #30 does, or the cross-track comparison of a verdict
+// against a plan becomes a comparison of two sort orders. Importing `shared/`
+// is not a track crossing — it is the same leaf `shared/time` already comes
+// from, and it carries no judgement. The rule is stricter than the code-unit
+// comparison it replaces (it pairs surrogates) and identical on every BMP
+// string, which is every id and code this module sorts.
+import { compareByCodePoint } from '../shared/compare';
 
 const MS_PER_MINUTE = 60_000;
 const MS_PER_DAY = 86_400_000;
@@ -109,11 +118,6 @@ const MS_PER_DAY = 86_400_000;
  * as a count.
  */
 export const MAX_FIXED_EVENT_CONFLICT_REASONS = 32;
-
-/** Code-unit ordering, never `localeCompare`: a verdict must not depend on the host locale. */
-function byCodeUnit(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
-}
 
 function codeRank(code: StaticInfeasibilityCode): number {
   return (STATIC_INFEASIBILITY_CODES as readonly string[]).indexOf(code);
@@ -819,10 +823,10 @@ export function assessFeasibility(
     if (leftItem !== rightItem) {
       if (left.itemId === null) return -1;
       if (right.itemId === null) return 1;
-      return byCodeUnit(leftItem, rightItem);
+      return compareByCodePoint(leftItem, rightItem);
     }
     const rank = codeRank(left.code as StaticInfeasibilityCode) - codeRank(right.code as StaticInfeasibilityCode);
-    return rank !== 0 ? rank : byCodeUnit(left.detail, right.detail);
+    return rank !== 0 ? rank : compareByCodePoint(left.detail, right.detail);
   });
 
   return Object.freeze({

@@ -36,7 +36,7 @@ import type {
   TimeInterval,
 } from '../../../src/contracts/v1/planningContracts';
 import { minutesBetween, toEpochMs } from '../shared/time';
-import { compareByCodePoint } from './compare';
+import { compareByCodePoint } from '../shared/compare';
 
 function sameInterval(left: TimeInterval, right: TimeInterval): boolean {
   // Compared as instants rather than as strings: `2026-08-17T09:00:00Z` and
