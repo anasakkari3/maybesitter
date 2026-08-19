@@ -394,6 +394,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'Thanks. Your pilot feedback was recorded.';
 
   @override
+  String get pilotFeedbackFailedMessage =>
+      'Your feedback was not sent. Please try again.';
+
+  @override
   String get privacyTitle => 'Privacy & Data';
 
   @override

@@ -112,6 +112,7 @@
   "pilotFeedbackTimingNotUsing": "لا أستخدم هذا",
   "pilotFeedbackSubmitAction": "إرسال الملاحظات",
   "pilotFeedbackSavedMessage": "شكرًا. تم تسجيل ملاحظاتك التجريبية.",
+  "pilotFeedbackFailedMessage": "تعذّر إرسال ملاحظاتك. يرجى المحاولة مجددًا.",
   "privacyTitle": "الخصوصية والبيانات",
   "privacySubtitle": "البيانات المحلية والتحليلات",
   "encryptionLabel": "تشفير البيانات المحلية",

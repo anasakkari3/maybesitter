@@ -772,6 +772,12 @@ abstract class AppLocalizations {
   /// **'Thanks. Your pilot feedback was recorded.'**
   String get pilotFeedbackSavedMessage;
 
+  /// No description provided for @pilotFeedbackFailedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Your feedback was not sent. Please try again.'**
+  String get pilotFeedbackFailedMessage;
+
   /// No description provided for @privacyTitle.
   ///
   /// In en, this message translates to:

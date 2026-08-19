@@ -144,6 +144,14 @@ class _PilotFeedbackScreenState extends ConsumerState<PilotFeedbackScreen> {
       messenger.showSnackBar(
         SnackBar(content: Text(context.l10n.pilotFeedbackSavedMessage)),
       );
+    } catch (_) {
+      // Without this the throw escaped and the button simply reset: the user
+      // was told neither that it worked nor that it did not, and would have
+      // had no reason to try again.
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(content: Text(context.l10n.pilotFeedbackFailedMessage)),
+      );
     } finally {
       if (mounted) {
         setState(() => _submitting = false);

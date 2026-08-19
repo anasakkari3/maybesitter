@@ -394,6 +394,9 @@ class AppLocalizationsHe extends AppLocalizations {
   String get pilotFeedbackSavedMessage => 'תודה. משוב הפיילוט נרשם.';
 
   @override
+  String get pilotFeedbackFailedMessage => 'המשוב לא נשלח. נסה שוב.';
+
+  @override
   String get privacyTitle => 'פרטיות ונתונים';
 
   @override

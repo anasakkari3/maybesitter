@@ -399,6 +399,10 @@ class AppLocalizationsAr extends AppLocalizations {
   String get pilotFeedbackSavedMessage => 'شكرًا. تم تسجيل ملاحظاتك التجريبية.';
 
   @override
+  String get pilotFeedbackFailedMessage =>
+      'تعذّر إرسال ملاحظاتك. يرجى المحاولة مجددًا.';
+
+  @override
   String get privacyTitle => 'الخصوصية والبيانات';
 
   @override

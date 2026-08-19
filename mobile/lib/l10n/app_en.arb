@@ -160,6 +160,7 @@
   "pilotFeedbackTimingNotUsing": "Not using this",
   "pilotFeedbackSubmitAction": "Send feedback",
   "pilotFeedbackSavedMessage": "Thanks. Your pilot feedback was recorded.",
+  "pilotFeedbackFailedMessage": "Your feedback was not sent. Please try again.",
   "privacyTitle": "Privacy & Data",
   "privacySubtitle": "Local data & telemetry control",
   "encryptionLabel": "Local Data Encryption",

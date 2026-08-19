@@ -112,6 +112,7 @@
   "pilotFeedbackTimingNotUsing": "לא משתמש/ת בזה",
   "pilotFeedbackSubmitAction": "שליחת משוב",
   "pilotFeedbackSavedMessage": "תודה. משוב הפיילוט נרשם.",
+  "pilotFeedbackFailedMessage": "המשוב לא נשלח. נסה שוב.",
   "privacyTitle": "פרטיות ונתונים",
   "privacySubtitle": "נתונים מקומיים וטלמטריה",
   "encryptionLabel": "הצפנת נתונים מקומיים",
