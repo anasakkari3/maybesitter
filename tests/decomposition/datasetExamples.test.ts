@@ -21,6 +21,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  MAX_SPANS_PER_STEP,
+  exceedsValidationLimits,
+  isSafeRef,
   validateDecompositionExample,
   validateProposedSteps,
 } from '../../lib/decomposition/evaluation/example.ts';
@@ -633,4 +636,158 @@ test('a single step on an unsplittable row is still caught, as a corpus defect',
   assert.deepEqual(result.violations.map((violation) => violation.code), []);
   assert.equal(result.valid, false);
   assert.deepEqual(result.corpusIssues.map((issue) => issue.code), ['DXC032']);
+});
+
+/* ── SPAN_OVERLAP cardinality: one finding per step pair ────────── */
+
+function overlapping(stepId: string, spanCount: number): DecompositionStepProposal {
+  return step({
+    stepId,
+    title: 'Book the venue',
+    sourceSpans: Array.from({ length: spanCount }, () => span(SOURCE, 'Book the venue')),
+    inferred: false,
+  });
+}
+
+function overlapCount(steps: readonly DecompositionStepProposal[]): number {
+  return validateProposedSteps(SOURCE, steps, 'multi_step').filter(
+    (violation) => violation.code === 'SPAN_OVERLAP',
+  ).length;
+}
+
+test('SPAN_OVERLAP reports once per step pair, not once per span pair', () => {
+  // #27 moved to per-step-pair cardinality as part of its exhaustion fix. Every
+  // shape the cross-track table pins uses <=2 spans per step or exactly 1 span
+  // per step — the only shapes where per-span-pair and per-step-pair coincide.
+  // The divergence opens at the third span, which is why it survived.
+  //
+  // A step's own spans form the pair (i, i), so a step with N mutually
+  // overlapping spans is one finding, and two such steps are three: (a,a),
+  // (b,b), (a,b).
+  const empty = step({ stepId: 'z', title: 'Pay the deposit' });
+
+  assert.equal(overlapCount([overlapping('a', 2), empty]), 1, 'intra-step, 2 spans');
+  assert.equal(overlapCount([overlapping('a', 3), empty]), 1, 'intra-step, 3 spans');
+  assert.equal(overlapCount([overlapping('a', 5), empty]), 1, 'intra-step, 5 spans');
+
+  assert.equal(overlapCount([overlapping('a', 1), overlapping('b', 1)]), 1, 'inter-step, 2x1');
+  assert.equal(
+    overlapCount([overlapping('a', 1), overlapping('b', 1), overlapping('c', 1)]),
+    3,
+    'inter-step, 3x1',
+  );
+  assert.equal(overlapCount([overlapping('a', 3), overlapping('b', 3)]), 3, 'inter-step, 2x3');
+  assert.equal(
+    overlapCount([overlapping('a', 2), overlapping('b', 2), overlapping('c', 2), overlapping('d', 2)]),
+    10,
+    'inter-step, 4x2',
+  );
+});
+
+test('overlap findings are bounded by the step-pair count, not the span count', () => {
+  // The exhaustion #27 fixed was live here verbatim: one step with 4,000
+  // identical spans produced 7,998,000 violation objects in about a second.
+  const started = Date.now();
+  const violations = validateProposedSteps(SOURCE, [overlapping('a', 400)], 'multi_step');
+  const elapsed = Date.now() - started;
+
+  assert.equal(violations.filter((v) => v.code === 'SPAN_OVERLAP').length, 1);
+  assert.ok(elapsed < 1000, `bounded analysis should be fast, took ${elapsed} ms`);
+});
+
+test('a step carrying more spans than any decomposition could is refused outright', () => {
+  const absurd = overlapping('a', MAX_SPANS_PER_STEP + 1);
+  const codes = validateProposedSteps(SOURCE, [absurd], 'multi_step').map((v) => v.code);
+  assert.ok(exceedsValidationLimits([absurd]) !== null);
+  assert.ok(codes.length > 0, 'it must not validate silently');
+});
+
+/* ── Redaction is a content check, not only a shape check ───────── */
+
+test('an id that carries a sentence or a card number is redacted', () => {
+  // A shape check over [A-Za-z0-9_-] passes any prose written with hyphens for
+  // spaces. The prior test probed only an Arabic sentence, every character of
+  // which is outside the safe class, so it redacted trivially and proved little.
+  const payloads = [
+    'Tell-my-therapist-I-relapsed-on-Tuesday',
+    'card_4111111111111111_cvv_123',
+    '4111-1111-1111-1111',
+    'I_owe_Ahmed_40000_for_the_clinic',
+  ];
+  for (const payload of payloads) {
+    const violations = validateProposedSteps(
+      SOURCE,
+      [step({ stepId: payload, title: '   ' }), step({ stepId: 'z', title: 'Pay the deposit' })],
+      'multi_step',
+    );
+    const detail = violations.filter((v) => v.code === 'EMPTY_STEP')[0].detail;
+    assert.equal(detail.includes(payload), false, `leaked ${JSON.stringify(payload)}: ${detail}`);
+  }
+});
+
+test('ids of the shape this repository actually uses stay readable', () => {
+  // The fallback to position is the guarantee; keeping real ids is the
+  // readability the guarantee must not cost.
+  for (const id of ['s1', 's2', 'step_2', 'filler', 'copy-a', 'duplicate-of-s1']) {
+    const violations = validateProposedSteps(
+      SOURCE,
+      [step({ stepId: id, title: '   ' }), step({ stepId: 'z', title: 'Pay the deposit' })],
+      'multi_step',
+    );
+    assert.ok(
+      violations.filter((v) => v.code === 'EMPTY_STEP')[0].detail.includes(`'${id}'`),
+      `${id} should stay readable`,
+    );
+  }
+});
+
+test('the span backstop bounds comparison work, not just output', () => {
+  // Per-step-pair bounds how many findings are *built*; it does not bound how
+  // many span pairs are *compared*. Measured with the backstop removed, 12,000
+  // spans on one step cost 1,143 ms of comparisons against 2 ms with it — so
+  // the budget below has a ~500x margin and is not a flake risk.
+  const many = step({
+    stepId: 's1',
+    title: 'Book the venue',
+    sourceSpans: Array.from({ length: 12_000 }, () => span(SOURCE, 'Book the venue')),
+    inferred: false,
+  });
+
+  const started = Date.now();
+  const violations = validateProposedSteps(SOURCE, [many], 'multi_step');
+  const elapsed = Date.now() - started;
+
+  assert.equal(violations.filter((v) => v.code === 'SPAN_OVERLAP').length, 1);
+  assert.ok(elapsed < 200, `comparison work is unbounded: took ${elapsed} ms`);
+});
+
+test('each bound in the safe-id heuristic catches something the others do not', () => {
+  // Written so no bound can be deleted without a test failing. Each payload
+  // satisfies every bound except the one it targets — verified by construction:
+  //   length-only    : 29 chars, 0 separator runs, 0 digits
+  //   separator-only : 26 chars, 5 separator runs, 0 digits
+  //   digit-only     : 19 chars, 3 separator runs, 16 digits
+  const byBound: readonly (readonly [string, string])[] = [
+    ['length', 'IrelapsedOnTuesdayAndOweAhmed'],
+    ['separator runs', 'I-owe-Ahmed-for-the-clinic'],
+    ['digits', '4111-1111-1111-1111'],
+  ];
+  for (const [bound, payload] of byBound) {
+    assert.equal(isSafeRef(payload), false, `${bound}: ${JSON.stringify(payload)} must not be treated as safe`);
+    const violations = validateProposedSteps(
+      SOURCE,
+      [step({ stepId: payload, title: '   ' }), step({ stepId: 'z', title: 'Pay the deposit' })],
+      'multi_step',
+    );
+    assert.equal(
+      violations.filter((v) => v.code === 'EMPTY_STEP')[0].detail.includes(payload),
+      false,
+      `${bound}: leaked`,
+    );
+  }
+
+  // And the longest ids this repository actually ships still pass every bound.
+  for (const real of ['seed-he-nosplit-procedures', 'seed-ar-en-multi-invoice', 's1']) {
+    assert.equal(isSafeRef(real), true, `${real} must stay readable`);
+  }
 });

@@ -68,8 +68,13 @@ import {
   type AnnotationProvenance,
   type DecompositionExample,
   type DecompositionLabelKind,
+  type DecompositionStepProposal,
 } from '../../../src/contracts/v1/decompositionContracts';
-import { validateDecompositionExample } from './example';
+import {
+  exceedsValidationLimits,
+  isSafeRef,
+  validateDecompositionExample,
+} from './example';
 import { DECOMPOSITION_SPLITS, assignSplit, type DecompositionSplit } from './splits';
 
 export const DECOMPOSITION_CORPUS_CONTRACT_VERSION = '1.0.0' as const;
@@ -101,6 +106,32 @@ export const DECOMPOSITION_REVIEWED_CORPUS_PATH = fileURLToPath(
 export const DECOMPOSITION_REVIEW_LOG_PATH = fileURLToPath(
   new URL('../../../data/quality/decomposition-annotation-reviews.json', import.meta.url),
 );
+
+/**
+ * How a corpus row is named in an issue message or path.
+ *
+ * `exampleId` is constrained only by `isNonEmptyString`, and a corpus file is a
+ * trust boundary: a crafted row put the sentence
+ * "I owe Ahmed 40000 for the abortion clinic" verbatim into three issue
+ * messages. This is the same argument `stepRef` makes for `stepId` — a
+ * caller-supplied string is as untrusted as the source text — applied to the
+ * other caller-supplied string in this module.
+ *
+ * The row's position is always sufficient to find it, so an id that fails
+ * `isSafeRef` is replaced by one. Real corpus ids pass, which is the only
+ * reason to keep them at all.
+ */
+function exampleRef(exampleId: unknown, index: number): string {
+  return isSafeRef(exampleId) ? `'${exampleId}'` : `#${index}`;
+}
+
+/**
+ * The same, where no position is available — a thrown error names one example.
+ * "the example" is vague and safe; a leaked sentence is precise and not.
+ */
+function exampleLabel(exampleId: unknown): string {
+  return isSafeRef(exampleId) ? `'${exampleId}'` : 'the example';
+}
 
 function fail(message: string): never {
   throw new Error(`decomposition corpus: ${message}`);
@@ -587,7 +618,7 @@ export function parseExampleCorpus(
       return;
     }
     if (seenIds.has(row.exampleId)) {
-      collector.error('DXC013', `${path}.exampleId`, `duplicate exampleId '${row.exampleId}'`);
+      collector.error('DXC013', `${path}.exampleId`, `duplicate exampleId ${exampleRef(row.exampleId, index)}`);
     }
     seenIds.add(row.exampleId);
 
@@ -604,14 +635,14 @@ export function parseExampleCorpus(
       collector.error(
         'DXC020',
         `${path}.provenance`,
-        `'${row.exampleId}' claims '${String(row.provenance)}' in a seed file. Seed rows are written by ` +
+        `${exampleRef(row.exampleId, index)} claims '${String(row.provenance)}' in a seed file. Seed rows are written by ` +
           'engineering to prove the pipeline runs; a reviewed claim here is a claim no reviewer backs',
       );
     } else if (role === 'reviewed' && row.provenance !== 'human_reviewed') {
       collector.error(
         'DXC021',
         `${path}.provenance`,
-        `'${row.exampleId}' claims '${String(row.provenance)}' in the reviewed corpus; synthetic rows belong ` +
+        `${exampleRef(row.exampleId, index)} claims '${String(row.provenance)}' in the reviewed corpus; synthetic rows belong ` +
           'in the seed file, where nothing downstream will read them as evidence',
       );
     }
@@ -635,6 +666,22 @@ export function parseExampleCorpus(
       if (!validateStepShape(step, `${path}.expectedSteps[${stepIndex}]`, collector)) shapeOk = false;
     });
     if (!shapeOk) return;
+
+    // Size before semantics. Overlap analysis is bounded per step pair, but a
+    // row carrying thousands of spans still costs time to compare and produced,
+    // before that change, 1,279,201 issues and 253 MB of message strings out of
+    // 1,600 spans. A corpus file is a trust boundary; oversized input is
+    // refused here rather than absorbed.
+    const breach = exceedsValidationLimits(row.expectedSteps as DecompositionStepProposal[]);
+    if (breach !== null) {
+      collector.error(
+        'DXC034',
+        breach.stepIndex === null ? `${path}.expectedSteps` : `${path}.expectedSteps[${breach.stepIndex}]`,
+        `${breach.limit} is ${breach.observed}, above the limit of ${breach.allowed}; no decomposition of one ` +
+          'sentence reaches this, and analysing it costs more than refusing it',
+      );
+      return;
+    }
 
     const example = row as unknown as DecompositionExample;
     const validation = validateDecompositionExample(example);
@@ -817,14 +864,16 @@ export function verifyReviewedProvenance(options: VerifyReviewedProvenanceOption
     else backing.set(row.exampleId, [row]);
   }
 
+  let index = -1;
   for (const example of options.examples) {
+    index += 1;
     if (example.provenance !== 'human_reviewed') continue;
     const reviews = (backing.get(example.exampleId) ?? []).filter((row) => isBackingReview(example, row));
     if (reviews.length === 0) {
       collector.error(
         'DXP010',
-        `examples['${example.exampleId}'].provenance`,
-        `'${example.exampleId}' claims 'human_reviewed' but no review approves it as labelled. A rejection, ` +
+        `examples[${exampleRef(example.exampleId, index)}].provenance`,
+        `${exampleRef(example.exampleId, index)} claims 'human_reviewed' but no review approves it as labelled. A rejection, ` +
           'an abstention, and a relabel the row has not had applied are all reviews — none of them is an ' +
           'approval. A dataset that claims review it never had corrupts every number computed from it ' +
           'afterwards, and does so invisibly',
@@ -864,20 +913,20 @@ export function promoteToReviewed(
     );
     if (unchecked.length > 0) {
       fail(
-        `'${example.exampleId}' carries source spans and its only reviews were filed with ` +
+        `${exampleLabel(example.exampleId)} carries source spans and its only reviews were filed with ` +
           "spansVerified: false. An approval that did not check the spans is not evidence that the spans " +
           'are right, and promoting the row would certify offsets nobody read',
       );
     }
     if (pendingRelabel.length > 0) {
       fail(
-        `'${example.exampleId}' is labelled '${example.label}' but its only reviews propose a relabel to ` +
+        `${exampleLabel(example.exampleId)} is labelled '${example.label}' but its only reviews propose a relabel to ` +
           `'${String(pendingRelabel[0].label)}'. Apply the relabel to the row and promote that one, or the ` +
           'stamped row would certify the label the reviewer rejected',
       );
     }
     fail(
-      `'${example.exampleId}' has no 'approve' review from a named reviewer at a stated time, so it cannot be ` +
+      `${exampleLabel(example.exampleId)} has no 'approve' review from a named reviewer at a stated time, so it cannot be ` +
         "promoted to 'human_reviewed'. A reject and an abstention are reviews; neither is an approval",
     );
   }
@@ -1127,7 +1176,7 @@ export function ingestReviews(
       collector.error(
         'DXI010',
         `${path}.exampleId`,
-        `no queue item names example '${row.exampleId}'; a verdict about a row nobody defined refers to nothing`,
+        `no queue item names example ${exampleLabel(row.exampleId)}; a verdict about a row nobody defined refers to nothing`,
       );
       rejected.push({ reviewId: row.reviewId, code: 'UNKNOWN_EXAMPLE' });
       return;
@@ -1138,7 +1187,7 @@ export function ingestReviews(
       collector.error(
         'DXI011',
         path,
-        `reviewer '${row.reviewerId}' already reviewed '${row.exampleId}'; a second row would weight one ` +
+        `reviewer '${row.reviewerId}' already reviewed ${exampleLabel(row.exampleId)}; a second row would weight one ` +
           "person's opinion by however many times it was submitted",
       );
       rejected.push({ reviewId: row.reviewId, code: 'DUPLICATE_REVIEW' });
