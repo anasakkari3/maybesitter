@@ -14,9 +14,25 @@
  * `lib/planning/constraints/validator.ts`, and it does not. Nor does it import
  * anything under `lib/planning/scheduler/`: an oracle that consulted the
  * scheduler would be comparing a thing with itself. What it *does* import is
- * `lib/planning/shared/time.ts`, because instant/wall-clock arithmetic is not a
- * judgement — a second copy of it would be the Sprint 06 gap rather than a
- * Sprint 06 check.
+ * `lib/planning/shared/time.ts` and `lib/planning/constraints/normalize.ts`,
+ * because instant/wall-clock arithmetic and the materialisation built on it are
+ * not judgements — a second copy of either would be the Sprint 06 gap rather
+ * than a Sprint 06 check.
+ *
+ * That distinction is the whole reason `normalize.ts` is imported by path and
+ * never through the `constraints/` barrel. The barrel re-exports the validator,
+ * and `tests/planning/planningBoundaries.test.ts` walks the *import closure*, so
+ * the barrel would put #29's judgement in this module's closure and make
+ * `planningCrossTrack` compare a thing with itself. The guard failing there
+ * would be correct behaviour, not an obstacle.
+ *
+ * This module carried its own `occurrencesOf` through the sprint, because #29
+ * did not exist when #31 started. Deleting it at integration found two real
+ * defects rather than an adaptation problem — a fold under an unrecognised
+ * policy silently resolving to `latest`, and a DST anomaly reported against a
+ * horizon it fell outside — and both were fixed at their source, in
+ * `shared/time.ts` and in `normalize.ts` respectively. What survives here is
+ * the *reading*: which findings those facts earn, which is #31's to decide.
  *
  * Every rule below is derived from the prose attached to its code in
  * `PlanningReasonCode`. Where the derivation required a decision the contract
@@ -73,8 +89,6 @@ import {
   MINUTES_PER_DAY,
   STATIC_INFEASIBILITY_CODES,
   type FeasibilityVerdict,
-  type FixedEvent,
-  type Instant,
   type PlanningConfig,
   type PlanningConstraints,
   type PlanningItem,
@@ -84,17 +98,10 @@ import {
   type WorkingWindow,
 } from '../../../src/contracts/v1/planningContracts';
 import {
-  instantFromResolution,
-  intersectIntervals,
   intervalMinutes,
   intervalsOverlap,
   isPositiveInterval,
-  resolveLocalTime,
-  subtractIntervals,
   toEpochMs,
-  toInstant,
-  wallClockAt,
-  type WallClockParts,
 } from '../shared/time';
 // The one string ordering the sprint sorts by. This module had its own
 // `byCodeUnit`, and #30 had three more copies of the same rule; #31 must order
@@ -105,9 +112,11 @@ import {
 // comparison it replaces (it pairs surrogates) and identical on every BMP
 // string, which is every id and code this module sorts.
 import { compareByCodePoint } from '../shared/compare';
+// #29 owns materialising a recurring wall-clock window against real dates.
+// Reached by path, never through `../constraints` — see the header.
+import { freeRunsWithin, mergeIntervals, normalizeWorkingWindows } from '../constraints/normalize';
 
 const MS_PER_MINUTE = 60_000;
-const MS_PER_DAY = 86_400_000;
 
 /**
  * How many overlapping blocking-event pairs are named individually.
@@ -185,71 +194,18 @@ function isKnownTimeZone(timeZone: unknown): boolean {
 /* ── Window materialisation ──────────────────────────────────────── */
 
 /**
- * A single occurrence of a recurring wall-clock window on one local date.
+ * Whether the config resolved the fold ambiguity at all.
  *
- * `interval` is null when the occurrence could not be resolved to instants at
- * all — the ambiguous-fold case. `probe` is a best-effort span used only to ask
- * whether the occurrence is anywhere near the horizon, so that a transition
- * anomaly on a date the plan never reaches is not reported as a finding about
- * this plan.
+ * Asked *before* anything is materialised. `FoldPolicy` has two values and both
+ * choose a side; a config carrying anything else — which is what an untyped
+ * boundary supplies — has declined to choose, and picking either candidate here
+ * would manufacture capacity out of an ambiguity nobody resolved. #29's
+ * normalizer reaches the same conclusion independently and contributes no
+ * occurrence, so the two agree on the arithmetic; the code that names it is
+ * this module's to emit.
  */
-interface WindowOccurrence {
-  readonly windowIndex: number;
-  readonly localDate: string;
-  readonly interval: TimeInterval | null;
-  /**
-   * The span this occurrence could touch, as raw epoch milliseconds.
-   *
-   * Milliseconds rather than a `TimeInterval` because the probe is legitimately
-   * **empty** in the case that matters most: a window lying entirely inside a
-   * spring-forward gap resolves both of its ends to the same instant, the one
-   * the clock jumps to. `intersectIntervals` returns null for an empty interval
-   * by design — the empty set intersects nothing — so relevance asked through
-   * it silently dropped the anomaly, and the sharpest possible DST input was
-   * the one the DST code never fired on. Relevance is a containment question
-   * here, not an overlap question, and `touchesHorizon` answers the one asked.
-   */
-  readonly probeStartMs: number;
-  readonly probeEndMs: number;
-  readonly anomaly: 'none' | 'nonexistent' | 'ambiguous';
-}
-
-/**
- * Whether an occurrence is near enough to the horizon to be this plan's problem.
- *
- * A degenerate probe is a point, and a point is inside a half-open horizon when
- * it is at or after the start and strictly before the end. A non-empty probe is
- * the usual half-open overlap.
- */
-function touchesHorizon(startMs: number, endMs: number, horizonStartMs: number, horizonEndMs: number): boolean {
-  const low = Math.min(startMs, endMs);
-  const high = Math.max(startMs, endMs);
-  if (low === high) return low >= horizonStartMs && low < horizonEndMs;
-  return low < horizonEndMs && high > horizonStartMs;
-}
-
 function isFoldPolicy(value: unknown): value is 'earliest' | 'latest' {
   return value === 'earliest' || value === 'latest';
-}
-
-/** Civil (zone-free) arithmetic: a UTC midnight marker plus a minute count. */
-function civilPartsAt(dayMarkerMs: number, minuteOfDay: number): WallClockParts {
-  const moment = new Date(dayMarkerMs + minuteOfDay * MS_PER_MINUTE);
-  return {
-    year: moment.getUTCFullYear(),
-    month: moment.getUTCMonth() + 1,
-    day: moment.getUTCDate(),
-    hour: moment.getUTCHours(),
-    minute: moment.getUTCMinutes(),
-  };
-}
-
-function civilDayMarker(parts: WallClockParts): number {
-  return Date.UTC(parts.year, parts.month - 1, parts.day);
-}
-
-function isoDate(dayMarkerMs: number): string {
-  return new Date(dayMarkerMs).toISOString().slice(0, 10);
 }
 
 /**
@@ -293,118 +249,6 @@ function windowDefect(window: WorkingWindow): string | null {
 }
 
 /**
- * Every occurrence of every well-formed window that could touch the horizon.
- *
- * Days are walked in the window's own zone, one civil day at a time, from a day
- * before the horizon starts to a day after it ends. The one-day margin is not
- * padding: a window in `Asia/Kolkata` starting at 09:00 local begins at 03:30Z,
- * so the local date that supplies the horizon's first minutes is the previous
- * one for zones east of UTC and the next one for zones west of it.
- */
-function occurrencesOf(
-  window: WorkingWindow,
-  windowIndex: number,
-  horizon: TimeInterval,
-  foldPolicy: unknown,
-): readonly WindowOccurrence[] {
-  const zone = window.timezone;
-  const horizonStartMs = toEpochMs(horizon.startsAt);
-  const horizonEndMs = toEpochMs(horizon.endsAt);
-
-  const firstDay = civilDayMarker(wallClockAt(horizonStartMs - MS_PER_DAY, zone));
-  const lastDay = civilDayMarker(wallClockAt(horizonEndMs + MS_PER_DAY, zone));
-
-  const occurrences: WindowOccurrence[] = [];
-  for (let day = firstDay; day <= lastDay; day += MS_PER_DAY) {
-    if (new Date(day).getUTCDay() !== window.weekday) continue;
-
-    const startResolution = resolveLocalTime(civilPartsAt(day, window.startMinute), zone);
-    const endResolution = resolveLocalTime(civilPartsAt(day, window.endMinute), zone);
-
-    // The probe answers "is this occurrence anywhere near the horizon" even when
-    // the occurrence itself is undecidable, so an unresolved fold six months
-    // away is not reported as a finding about this plan.
-    const probeStart = startResolution.kind === 'exact'
-      ? startResolution.instant
-      : startResolution.kind === 'gap' ? startResolution.resumesAt : startResolution.firstInstant;
-    const probeEnd = endResolution.kind === 'exact'
-      ? endResolution.instant
-      : endResolution.kind === 'gap' ? endResolution.resumesAt : endResolution.secondInstant;
-
-    let anomaly: WindowOccurrence['anomaly'] = 'none';
-    let startInstant: Instant | null;
-    if (startResolution.kind === 'exact') {
-      startInstant = startResolution.instant;
-    } else if (startResolution.kind === 'gap') {
-      // The clock skipped the window's start. `LocalTimeResolution` says the
-      // window resumes at the instant the clock jumps to, so the day is shorter
-      // rather than absent — and the fact is reported, because a caller that
-      // budgeted the full window would be over by exactly the transition.
-      anomaly = 'nonexistent';
-      startInstant = startResolution.resumesAt;
-    } else if (isFoldPolicy(foldPolicy)) {
-      startInstant = instantFromResolution(startResolution, foldPolicy);
-    } else {
-      // Two candidates an hour apart and no stated policy. Taking either would
-      // silently choose a side the config declined to choose, so the occurrence
-      // contributes nothing and the ambiguity is reported instead.
-      anomaly = 'ambiguous';
-      startInstant = null;
-    }
-
-    let endInstant: Instant | null;
-    if (endResolution.kind === 'exact') {
-      endInstant = endResolution.instant;
-    } else if (endResolution.kind === 'gap') {
-      // No code here: the contract scopes both DST codes to a window that
-      // *starts* in an anomaly. An end swallowed by a gap shortens the window
-      // and is not a separate contradiction.
-      endInstant = endResolution.resumesAt;
-    } else if (isFoldPolicy(foldPolicy)) {
-      endInstant = instantFromResolution(endResolution, foldPolicy);
-    } else {
-      endInstant = null;
-    }
-
-    const interval = startInstant !== null && endInstant !== null
-      && toEpochMs(endInstant) > toEpochMs(startInstant)
-      ? { startsAt: startInstant, endsAt: endInstant }
-      : null;
-
-    occurrences.push({
-      windowIndex,
-      localDate: isoDate(day),
-      interval,
-      probeStartMs: toEpochMs(probeStart),
-      probeEndMs: toEpochMs(probeEnd),
-      anomaly,
-    });
-  }
-  return occurrences;
-}
-
-/** Merge overlapping and abutting intervals into a sorted, disjoint cover. */
-function unionIntervals(intervals: readonly TimeInterval[]): readonly TimeInterval[] {
-  const ordered = intervals
-    .filter(isPositiveInterval)
-    .slice()
-    .sort((left, right) => toEpochMs(left.startsAt) - toEpochMs(right.startsAt));
-
-  const merged: { startsAt: number; endsAt: number }[] = [];
-  for (const interval of ordered) {
-    const startsAt = toEpochMs(interval.startsAt);
-    const endsAt = toEpochMs(interval.endsAt);
-    const open = merged.length > 0 ? merged[merged.length - 1] : null;
-    // Abutting runs are joined: 09:00-12:00 and 12:00-17:00 are eight hours of
-    // capacity, and leaving them as two rows would let a caller that measured
-    // "the longest free run" report three hours when there are eight.
-    if (open === null || startsAt > open.endsAt) merged.push({ startsAt, endsAt });
-    else if (endsAt > open.endsAt) open.endsAt = endsAt;
-  }
-  return merged.map((span) => ({ startsAt: toInstant(span.startsAt), endsAt: toInstant(span.endsAt) }));
-}
-
-/**
  * The working time inside the horizon, before anything is subtracted.
  *
  * Unioned rather than summed. Two windows a user wrote as 09:00-17:00 and
@@ -419,22 +263,22 @@ export function workingIntervalsInHorizon(
   const horizon: TimeInterval = { startsAt: constraints.horizon.startsAt, endsAt: constraints.horizon.endsAt };
   if (!isPositiveInterval(horizon)) return [];
 
-  const pieces: TimeInterval[] = [];
-  constraints.workingWindows.forEach((window, index) => {
-    if (windowDefect(window) !== null) return;
-    for (const occurrence of occurrencesOf(window, index, horizon, config.foldPolicy)) {
-      if (occurrence.interval === null) continue;
-      const clipped = intersectIntervals(occurrence.interval, horizon);
-      if (clipped !== null) pieces.push(clipped);
-    }
-  });
-  return unionIntervals(pieces);
+  // #29 already skips the windows `windowDefect` rejects, already clips each
+  // occurrence to the horizon, and already drops a fold no policy resolved. The
+  // two malformed-window rules are the same set stated in a different order:
+  // a `startMinute` of 1440 is out of domain here and leaves no room for a
+  // positive window there. What is *not* shared is the wording — `windowDefect`
+  // still supplies the `detail` for each finding, because naming the defect is a
+  // reading and this module owes the contract its own.
+  const normalized = normalizeWorkingWindows(constraints.workingWindows, constraints.horizon, config);
+  // Unioned, not concatenated. Two windows a user wrote as 09:00-17:00 and
+  // 12:00-20:00 are eleven hours, not sixteen, and #29's `mergeIntervals` is the
+  // same union this module used to spell `unionIntervals` — one more copy of one
+  // more piece of arithmetic, now gone with it.
+  return mergeIntervals(normalized.windows.map((occurrence) => occurrence.interval));
 }
 
-/** The blocking fixed events, as a disjoint cover. Non-blocking events are not time taken. */
-function blockingCover(events: readonly FixedEvent[]): readonly TimeInterval[] {
-  return unionIntervals(events.filter((event) => event.blocking).map((event) => event.interval));
-}
+
 
 /**
  * Working time inside the horizon that no blocking fixed event has taken.
@@ -447,12 +291,15 @@ export function freeWorkingIntervals(
   constraints: PlanningConstraints,
   config: PlanningConfig,
 ): readonly TimeInterval[] {
-  const cover = blockingCover(constraints.fixedEvents);
-  const free: TimeInterval[] = [];
-  for (const working of workingIntervalsInHorizon(constraints, config)) {
-    for (const remaining of subtractIntervals(working, cover)) free.push(remaining);
-  }
-  return free;
+  const horizon: TimeInterval = { startsAt: constraints.horizon.startsAt, endsAt: constraints.horizon.endsAt };
+  if (!isPositiveInterval(horizon)) return [];
+
+  // `freeRunsWithin` is #29's, and it subtracts only `blocking` events — the
+  // same rule this module's `blockingCover` applied, for the same reason: a
+  // non-blocking event is one the user said work may happen inside, and removing
+  // it would shrink the day on the strength of a flag that says the opposite.
+  const normalized = normalizeWorkingWindows(constraints.workingWindows, constraints.horizon, config);
+  return freeRunsWithin(normalized.windows, constraints.fixedEvents);
 }
 
 /* ── Dependency analysis ─────────────────────────────────────────── */
@@ -559,32 +406,56 @@ export function assessFeasibility(
   /* Constraint-level: DST anomalies in window starts. */
 
   if (horizonValid) {
+    /* Two shapes meet here. #29 answers in typed `WindowAnomaly` records — one
+     * per anomalous *boundary* of one occurrence — and the contract's two DST
+     * codes are about a window that *starts* in an anomaly, so only `start`
+     * boundaries become reasons. An anomalous end shortens the day and is
+     * already visible in the materialised interval; inventing a third code for
+     * it would put a vocabulary here that neither #29 nor #30 has seen.
+     *
+     * Relevance is no longer asked here at all, and that is the substantive
+     * change. This module used to filter occurrences through `touchesHorizon`
+     * because its own walk reached a day either side of the horizon; #29 now
+     * scopes anomalies to the occurrence's *nominal* extent — where the boundary
+     * would have sat had the offset not moved — which is strictly better than
+     * the probe this replaces. The probe could not be computed for the case that
+     * matters most, a window lying entirely inside a spring-forward gap, whose
+     * ends resolve to the same instant; the nominal extent is a real stretch of
+     * local time there, so the sharpest DST input in the suite
+     * (`oracleFeasibility.test.ts:822`) stays reported rather than silently
+     * dropped. The cross-track test is what settled that this reading was the
+     * right one, and #29 adopted it.
+     *
+     * The de-duplication key survives because #29 emits one record per boundary
+     * per occurrence and two occurrences of one window can share a local date at
+     * the edges of the scan. */
     const seenAnomalies = new Set<string>();
-    constraints.workingWindows.forEach((window, index) => {
-      if (windowDefect(window) !== null) return;
-      for (const occurrence of occurrencesOf(window, index, horizon, config.foldPolicy)) {
-        if (occurrence.anomaly === 'none') continue;
-        if (!touchesHorizon(occurrence.probeStartMs, occurrence.probeEndMs, horizonStartMs, horizonEndMs)) continue;
-        const key = `${occurrence.anomaly}:${occurrence.windowIndex}:${occurrence.localDate}`;
-        if (seenAnomalies.has(key)) continue;
-        seenAnomalies.add(key);
-        reasons.push(
-          occurrence.anomaly === 'nonexistent'
-            ? reason(
-                'NONEXISTENT_LOCAL_TIME',
-                null,
-                `${positionRef('working window', occurrence.windowIndex)} starts in a transition gap `
-                  + `on ${occurrence.localDate}`,
-              )
-            : reason(
-                'AMBIGUOUS_LOCAL_TIME',
-                null,
-                `${positionRef('working window', occurrence.windowIndex)} starts in a transition fold `
-                  + `on ${occurrence.localDate} and the config states no fold policy`,
-              ),
-        );
-      }
-    });
+    const normalized = normalizeWorkingWindows(constraints.workingWindows, constraints.horizon, config);
+    for (const anomaly of normalized.anomalies) {
+      if (anomaly.boundary !== 'start') continue;
+      // A fold is only a *finding* when the config declined to resolve it. With
+      // a policy this runtime knows, the contract says the ambiguity is
+      // "resolved, not reported", and #29 has already resolved it.
+      if (anomaly.kind === 'fold' && isFoldPolicy(config.foldPolicy)) continue;
+      const key = `${anomaly.kind}:${anomaly.windowIndex}:${anomaly.localDate}`;
+      if (seenAnomalies.has(key)) continue;
+      seenAnomalies.add(key);
+      reasons.push(
+        anomaly.kind === 'gap'
+          ? reason(
+              'NONEXISTENT_LOCAL_TIME',
+              null,
+              `${positionRef('working window', anomaly.windowIndex)} starts in a transition gap `
+                + `on ${anomaly.localDate}`,
+            )
+          : reason(
+              'AMBIGUOUS_LOCAL_TIME',
+              null,
+              `${positionRef('working window', anomaly.windowIndex)} starts in a transition fold `
+                + `on ${anomaly.localDate} and the config states no fold policy`,
+            ),
+      );
+    }
   }
 
   /* Constraint-level: is there anywhere legal at all? */
