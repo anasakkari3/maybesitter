@@ -320,9 +320,15 @@ test('nothing in the closure logs, mutates process state, or touches the filesys
   // A log line is the one audit channel with no allowlist, and constraints
   // carry titles the user wrote. The other two would make a pure function's
   // result depend on where it ran.
+  //
+  // Comment-stripped, like the clock scan above and for the same reason. This
+  // scan read raw source while its neighbour did not, so writing a comment
+  // explaining *why* planning never reads `process.env` would have failed the
+  // suite — the exact trap the stripper exists to avoid, left open in the half
+  // of the file where nobody had hit it yet.
   const closure = importClosure(roots());
   for (const file of Array.from(closure.keys())) {
-    const source = readFileSync(file, 'utf8');
+    const source = stripComments(readFileSync(file, 'utf8'));
     for (const [pattern, why] of [
       [/console\s*\.\s*(log|info|warn|error|debug)\s*\(/, 'must not log; constraints carry user-written titles'],
       [/process\s*\.\s*env/, 'must not read the environment; config is an argument, not ambient'],
@@ -330,5 +336,20 @@ test('nothing in the closure logs, mutates process state, or touches the filesys
     ] as const) {
       assert.equal(pattern.test(source), false, `${relative(file)} ${why}`);
     }
+  }
+});
+
+test('the purity scan recognises what it forbids, in code but not in prose', () => {
+  // The same non-vacuity proof the clock scan carries. Both scans are negative
+  // assertions, and a negative assertion passes against a pattern that no longer
+  // matches anything.
+  const samples = [
+    ['console.warn("x");', /console\s*\.\s*(log|info|warn|error|debug)\s*\(/],
+    ['const v = process.env.HOME;', /process\s*\.\s*env/],
+    ["import { readFileSync } from 'node:fs';", /from\s*['\"]node:fs['\"]/],
+  ] as const;
+  for (const [sample, pattern] of samples) {
+    assert.equal(pattern.test(sample), true, `pattern no longer matches: ${sample}`);
+    assert.equal(pattern.test(stripComments(`// ${sample}`)), false, `prose still trips it: ${sample}`);
   }
 });

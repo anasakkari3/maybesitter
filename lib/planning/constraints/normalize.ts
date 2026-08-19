@@ -300,8 +300,28 @@ export function normalizeWorkingWindows(
     // would miss that day's window entirely.
     const firstLocal = wallClockAt(horizonStartMs, window.timezone);
     const lastLocal = wallClockAt(horizonEndMs, window.timezone);
-    const firstDate: CalendarDate = { year: firstLocal.year, month: firstLocal.month, day: firstLocal.day };
     const lastDateMs = calendarDateToUtcMs({ year: lastLocal.year, month: lastLocal.month, day: lastLocal.day });
+
+    // Backed up one calendar day, because an occurrence can outlive its own
+    // local date. A window ending at `endMinute: 1440` ends at midnight of the
+    // *next* local day, and in a zone whose midnight is the folded hour —
+    // America/Havana ends DST at 01:00 local, so 00:00 happens twice — a
+    // `latest` fold policy carries that end an hour further still. A horizon
+    // opening inside such an occurrence has a local date one day after the
+    // occurrence's, so scanning only from the horizon's own local date dropped
+    // it and reported no availability at all.
+    //
+    // One day is enough and not arbitrary: an occurrence for local date D ends
+    // no later than local midnight of D+1 plus a fold hour, so one whose end is
+    // still ahead of the horizon start cannot be older than the local date
+    // before it. Reaching back further would cost probes and find nothing. The
+    // extra day admits occurrences that finished before the horizon; the clip
+    // below discards them, which is exactly the division of labour that keeps
+    // "never extend past the horizon" true in one place.
+    const firstDate = addCalendarDays(
+      { year: firstLocal.year, month: firstLocal.month, day: firstLocal.day },
+      -1,
+    );
 
     // Step to the first matching weekday, then by whole weeks. Weekday
     // arithmetic is done on the calendar, where a week is always seven days,

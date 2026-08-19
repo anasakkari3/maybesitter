@@ -258,6 +258,48 @@ test('Jerusalem fall back: the occurrence begins on the UTC day before its own l
   });
 });
 
+/* ── An occurrence that outlives its own local date ──────────────── */
+
+test('an occurrence running past local midnight is found when the horizon starts inside it', () => {
+  // America/Havana ends DST at 01:00 local, so local *midnight* is the folded
+  // hour — 2026-11-01T00:00 local is both 04:00Z and 05:00Z. A Saturday window
+  // running to `endMinute: 1440` under `latest` therefore ends at 05:00Z on
+  // Sunday, an hour into the following local date.
+  //
+  // The scan enumerates local dates from the one containing `horizon.startsAt`,
+  // and a horizon opening at 04:30Z on Sunday sits *inside* that Saturday
+  // occurrence while its own local date is already Sunday. Anchoring the scan on
+  // the horizon's local date alone missed the occurrence entirely and reported
+  // no availability at all. Scanning from one calendar day earlier and letting
+  // the clip decide is what makes the two agree.
+  const horizon: PlanningHorizon = {
+    startsAt: '2026-11-01T04:30:00.000Z',
+    endsAt: '2026-11-03T00:00:00.000Z',
+  };
+  const saturday = window({ weekday: 6, startMinute: 0, endMinute: 1440, timezone: 'America/Havana' });
+
+  const normalized = normalizeWorkingWindows([saturday], horizon, LATEST);
+  assert.deepEqual(normalized.windows.map((materialized) => materialized.interval), [
+    { startsAt: '2026-11-01T04:30:00.000Z', endsAt: '2026-11-01T05:00:00.000Z' },
+  ]);
+  // Filed under the local date the window was declared for, not the one its
+  // surviving half happens to fall in.
+  assert.equal(normalized.windows[0].localDate, '2026-10-31');
+  assert.equal(normalized.windows[0].clippedToHorizon, true);
+});
+
+test('scanning a day earlier does not invent an occurrence that ends before the horizon', () => {
+  // The other half of the fix. Reaching back one local date must not admit a
+  // window that finished before the plan begins — the clip is what decides, and
+  // a clip that let an earlier day through would hand #30 time already past.
+  const horizon: PlanningHorizon = {
+    startsAt: '2026-11-01T06:00:00.000Z',
+    endsAt: '2026-11-03T00:00:00.000Z',
+  };
+  const saturday = window({ weekday: 6, startMinute: 0, endMinute: 1440, timezone: 'America/Havana' });
+  assert.deepEqual(normalizeWorkingWindows([saturday], horizon, LATEST).windows, []);
+});
+
 /* ── The control ─────────────────────────────────────────────────── */
 
 test('Asia/Kolkata has no transition, so the same window is 480 minutes in March and November', () => {

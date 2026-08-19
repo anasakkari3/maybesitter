@@ -35,6 +35,60 @@
  * substitutes a duration: a plan built on a guessed duration looks feasible and
  * is not, and nothing downstream can tell the difference.
  *
+ * ## Two rulings this module follows, decided at integration
+ *
+ * **`DEADLINE_BEYOND_HORIZON` means "before the plan begins", and only that.**
+ * It is emitted when `deadlineAt` is at or before `horizon.startsAt` — the item
+ * cannot be finished within this plan's reach, which is an ordinary daily input
+ * rather than an edge case, since a stale or missed commitment has exactly that
+ * shape. A deadline falling *after* `horizon.endsAt` is not reported at all: the
+ * horizon is the binding constraint there and the item is the least constrained
+ * thing in the request, so reporting it would be a manufactured failure. This
+ * module originally reported the opposite half, which put it in *disjoint*
+ * disagreement with #31's oracle on the same input — the worst shape a
+ * disagreement can take, because neither side looks partially right.
+ *
+ * **A judgement is suppressed only when it borrows a bound from something
+ * already reported invalid.** Nothing wider. The loose form — "one defect earns
+ * one code" — reads as "one item earns one code" on a bad day, and that is how
+ * this module briefly hid two real findings. `validator.ts` lists the four
+ * suppressions the principle licenses here and nothing else claims one.
+ *
+ * ## Where this module reads more into a code than the contract states
+ *
+ * Two places, both recorded here because a reading that lives only in an
+ * implementation is a reading #31's oracle has to guess at — and the sprint
+ * design is explicit that two self-consistent readings of a shared vocabulary
+ * leave both suites green and the disagreement invisible.
+ *
+ * **`INVALID_INTERVAL` covers four window defects that are not interval
+ * defects.** The contract defines it as "an interval with `endsAt <= startsAt`,
+ * or a working window with `endMinute <= startMinute`". These are also routed to
+ * it, for want of any better code in the frozen taxonomy:
+ *
+ *   1. `weekday` is not an integer in 0..6
+ *   2. `startMinute` is not a whole number in 0..1440
+ *   3. `endMinute` is not a whole number in 0..1440
+ *   4. `timezone` is not a zone this runtime knows
+ *
+ * Cases 2 and 3 are not redundant with the stated rule and cannot be folded into
+ * it: `NaN <= 540` is false and `1441 <= 540` is false, so a malformed minute
+ * passes the `endMinute <= startMinute` test and would otherwise reach
+ * `resolveLocalTime` and materialise garbage. Case 4 must not fall back to UTC —
+ * that would place a Kolkata user's morning five and a half hours from where
+ * they said it was, with nothing downstream able to tell.
+ *
+ * **`EFFORT_NOT_POSITIVE` covers a malformed buffer, not only a malformed
+ * effort.** The contract defines it as "a `known` effort of zero or less". A
+ * `bufferBeforeMinutes` or `bufferAfterMinutes` that is negative or non-finite is
+ * reported under the same code, because it is the same defect — a duration field
+ * on this item is not a usable number of minutes, so the total time the item
+ * requires cannot be computed. Leaving it unreported is strictly worse than
+ * reading the code slightly wide: `required` goes `NaN`, `required > available`
+ * is false, and the item is reported *feasible*. #30 then places nothing and
+ * reports `NO_FEASIBLE_SLOT` contention for what was a contradiction in the
+ * input, with no test on either side seeing a problem.
+ *
  * ## Migration and rollback
  *
  * **Migration: none required.** This module is additive and pure. It adds

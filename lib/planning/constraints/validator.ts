@@ -20,15 +20,27 @@
  *
  * Four rules govern what comes out.
  *
- *  1. **One defect earns one code.** Several conditions imply each other: a
- *     deadline before the earliest start also leaves no room for the effort, an
- *     item depending on itself is also in a cycle, an inverted horizon also
- *     contains no working time. Reporting every technically-true code hands a
- *     reader four findings for one defect with no signal about the cause.
- *     Precedence is expressed by skipping the implied check, and it is pinned by
- *     tests asserting the *exact* code set rather than membership. The contract
- *     states one of these orderings outright — `SELF_DEPENDENCY` over
- *     `CYCLIC_DEPENDENCY` — and the rest follow the same principle.
+ *  1. **A judgement is suppressed only when it borrows a bound from something
+ *     already reported invalid.** Nothing wider.
+ *
+ *     This is the integration ruling, and it is stated here because all three
+ *     tracks derived a suppression rule independently and all three came out
+ *     different. The loose version — "one defect earns one code" — reads as
+ *     "one item earns one code" on a bad day, and that is how this module
+ *     briefly came to hide a real finding: an item stating both of its own
+ *     bounds borrows nothing from the horizon, so an inverted horizon must not
+ *     silence the verdict on its window. It also came to suppress
+ *     `NO_WORKING_WINDOW` when every window was malformed, which borrows nothing
+ *     either — "these windows are unusable" and "you have no availability" are
+ *     two facts, and a reader needs both.
+ *
+ *     Applied here, the principle licenses exactly four suppressions:
+ *     `NO_WORKING_WINDOW` and `DEADLINE_BEYOND_HORIZON` under an inverted
+ *     horizon (both read the horizon), `EFFORT_EXCEEDS_ITEM_WINDOW` when the
+ *     window it measures was already reported (inverted, out of reach, or
+ *     leaning on a bad horizon), and `CYCLIC_DEPENDENCY` under
+ *     `SELF_DEPENDENCY`, which the contract states outright. Each is pinned by a
+ *     test asserting the *exact* code set rather than membership.
  *
  *  2. **A finding about an item carries its `itemId`; a finding about the
  *     constraints carries null.** `CYCLIC_DEPENDENCY` is per item rather than
@@ -335,9 +347,15 @@ export function validateConstraints(
     }
   }
 
-  // Only asked when the horizon is usable: an inverted horizon contains no
-  // working time by construction, and saying so as well would send the reader to
-  // the windows, which may be perfectly fine.
+  // Suppressed under an inverted horizon, and *only* there. This judgement asks
+  // whether any window falls inside the horizon, so it borrows the horizon —
+  // which was just reported invalid — and the answer it would give is an
+  // artefact of that.
+  //
+  // It is deliberately not suppressed when every window is malformed, though the
+  // one-defect-one-code instinct says otherwise. It borrows nothing from the
+  // windows: "these two windows are unusable" and "you now have no availability
+  // at all" are two independent facts, and a reader needs both.
   if (horizonUsable && normalized.windows.length === 0) {
     reasons.push(reason(
       'NO_WORKING_WINDOW',
@@ -357,6 +375,22 @@ export function validateConstraints(
     const effortMinutes = item.effort.kind === 'known' ? item.effort.minutes : Number.NaN;
     const effortUsable = effortKnown && Number.isFinite(effortMinutes) && effortMinutes > 0;
 
+    // Buffers are guarded exactly as effort is, and for a sharper reason. They
+    // are summed into the time an item requires, so a `NaN` buffer makes
+    // `required` NaN and `required > available` false — the window check falls
+    // through and the item is reported as perfectly feasible. A negative buffer
+    // does the same by shrinking `required` below the effort the item actually
+    // needs. Both are *false feasible*, which is the worse direction: an
+    // unreported contradiction reaches #30, which places nothing and reports
+    // `NO_FEASIBLE_SLOT` contention for what was a contradiction in the input,
+    // and no test of either module sees a problem.
+    //
+    // Zero is admitted, and must be: buffers default to zero throughout an
+    // ordinary request, so a guard demanding a positive number would report
+    // every item in it.
+    const bufferUsable = (minutes: number): boolean => Number.isFinite(minutes) && minutes >= 0;
+    const buffersUsable = bufferUsable(item.bufferBeforeMinutes) && bufferUsable(item.bufferAfterMinutes);
+
     if (!effortKnown) {
       reasons.push(reason(
         'EFFORT_UNKNOWN',
@@ -369,6 +403,18 @@ export function validateConstraints(
         item.itemId,
         'known effort is not a positive, finite number of minutes',
       ));
+    } else if (!buffersUsable) {
+      // Reported under the same code as a bad effort, because it is the same
+      // defect: a duration field on this item is not a usable number of minutes,
+      // so the total time the item requires cannot be computed. The frozen
+      // taxonomy has no separate code for a buffer, and inventing a private one
+      // is what a shared vocabulary exists to prevent.
+      reasons.push(reason(
+        'EFFORT_NOT_POSITIVE',
+        item.itemId,
+        'a buffer is not a finite, non-negative number of minutes, so the total time this item '
+        + 'requires cannot be computed',
+      ));
     }
 
     // The item's own window, before any working window or fixed event is
@@ -379,36 +425,64 @@ export function validateConstraints(
     const windowStartMs = item.earliestStartAt === null ? horizonStartMs : toEpochMs(item.earliestStartAt);
     const windowEndMs = item.deadlineAt === null ? horizonEndMs : toEpochMs(item.deadlineAt);
 
-    const deadlineBeforeStart =
-      item.deadlineAt !== null && item.earliestStartAt !== null && windowEndMs <= windowStartMs;
+    // An item stating both of its own bounds borrows nothing from the horizon,
+    // so it is judged on them whatever the horizon says. Only an item leaning on
+    // a substituted bound has to wait for the horizon to be sound — the
+    // suppression is per item and per bound, not a flag over the whole request.
+    // Written as one predicate because both item-window codes below consult it:
+    // gating one and not the other left `DEADLINE_BEFORE_EARLIEST_START` firing
+    // under an inverted horizon while its sibling stayed silent, which is two
+    // definitions of "the item's own window" for #31 to have to guess between.
+    const windowSelfSpecified = item.earliestStartAt !== null && item.deadlineAt !== null;
+    const windowJudgeable = windowSelfSpecified || horizonUsable;
+
+    // Speaks only about the two bounds the item itself states. A null
+    // `earliestStartAt` is deliberately *not* substituted from the horizon here,
+    // even though the window check below does substitute it: the ruling on
+    // DEADLINE_BEYOND_HORIZON gives "the deadline is before the plan begins" its
+    // own code, so this one is left saying exactly one thing and has no
+    // substitution to have an opinion about.
+    const deadlineBeforeStart = windowSelfSpecified && windowEndMs <= windowStartMs;
     if (deadlineBeforeStart) {
       reasons.push(reason(
         'DEADLINE_BEFORE_EARLIEST_START',
         item.itemId,
-        'the deadline is at or before the earliest start, so the item\'s own window is empty '
-        + 'before any other constraint is consulted',
+        'the deadline is at or before the earliest start the item may take, so its own window is '
+        + 'empty before any other constraint is consulted; an absent earliest start is the '
+        + 'horizon\'s',
       ));
     }
 
-    if (horizonUsable && item.deadlineAt !== null && toEpochMs(item.deadlineAt) > horizonEndMs) {
-      // Distinct from having no time. The plan does not reach that far, and
-      // extending the horizon would change the answer — which is a different
-      // thing to tell a user, and nothing else in the vocabulary says it.
+    // A deadline at or before the horizon start: the item cannot be finished
+    // within this plan's reach at all, which is an ordinary daily input — a
+    // stale or missed commitment — rather than an edge case.
+    //
+    // The *other* direction is deliberately not reported. A deadline after
+    // `horizon.endsAt` makes the horizon the binding constraint, and the item is
+    // the least constrained thing in the request: an item due in a month, planned
+    // over a fortnight, is placed like anything else. Reporting it would be a
+    // manufactured failure. This module used to report exactly that, and it put
+    // this validator and #31's oracle in *disjoint* disagreement on the same
+    // input — the worst shape a disagreement can take, since neither side looks
+    // partially right. The ruling is recorded in the contract at integration.
+    const deadlineOutsideHorizon =
+      horizonUsable && item.deadlineAt !== null && toEpochMs(item.deadlineAt) <= horizonStartMs;
+    if (deadlineOutsideHorizon) {
       reasons.push(reason(
         'DEADLINE_BEYOND_HORIZON',
         item.itemId,
-        'the deadline falls after the end of the planning horizon; extending the horizon would '
-        + 'change this answer',
+        'the deadline falls at or before the start of the planning horizon, so the item cannot be '
+        + 'finished within this plan\'s reach',
       ));
     }
 
-    // Skipped when the effort is unusable, when the item's window is already
-    // known empty, or when the horizon this check borrows its missing bounds
-    // from is not an interval at all. Each of those would make this check true
-    // as a *consequence*, and one defect earns one code — an inverted horizon
-    // that also reported every item as too large for its window would bury the
-    // one finding a reader can act on under one per item.
-    if (effortUsable && !deadlineBeforeStart && horizonUsable) {
+    // Skipped when a duration this check sums is unusable, or when the window it
+    // measures has itself already been reported — inverted by the item's own
+    // bounds, out of the plan's reach, or leaning on a horizon that is not an
+    // interval. Every one of those is the suppression principle rather than a
+    // taste: this check borrows a bound from something already reported invalid,
+    // so the answer it would give is an artefact of that finding.
+    if (effortUsable && buffersUsable && windowJudgeable && !deadlineBeforeStart && !deadlineOutsideHorizon) {
       // Buffers are protected time *around* the item and the contract keeps
       // them out of `Effort` on purpose, so a plan can report "this took 30
       // minutes and needed 15 minutes of recovery" rather than inflating one
