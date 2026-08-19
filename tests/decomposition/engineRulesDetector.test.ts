@@ -235,3 +235,37 @@ test('stripping an object pronoun cannot turn a noun into a boundary', () => {
     assert.deepEqual(detectSteps(text).steps, [], text);
   }
 });
+
+test('many short clauses do not make the detector quadratic', () => {
+  // Pass 2 used to drop one undersized boundary per iteration and re-cut the
+  // whole source each time, so a comma-separated list of one-word clauses cost
+  // O(n^2): 100 KB blocked the event loop for 36 seconds, all of it spent
+  // proving there was nothing to split. Decomposition runs rules-first by
+  // default, so this needed no model and no hostile provider — one request
+  // stalled the process.
+  //
+  // The bound is generous on purpose: the point is the growth curve, not a
+  // millisecond target. The old code needed ~36,000 ms here.
+  const text = `buy${', buy'.repeat(20000)}`;
+  const started = Date.now();
+  const detected = detectSteps(text);
+  const elapsed = Date.now() - started;
+
+  assert.deepEqual(detected.steps, [], 'one-word clauses are conjoined objects, not steps');
+  assert.ok(elapsed < 2000, `detectSteps took ${elapsed} ms on ${text.length} characters`);
+});
+
+test('dropping one boundary still lets a neighbouring boundary survive', () => {
+  // The one-at-a-time re-cut existed for a reason: folding a short clause into
+  // its neighbour can make the *next* boundary legal, and a single pass that
+  // dropped every undersized boundary at once would lose that split. The sweep
+  // that replaced it has to keep the same answer.
+  assert.deepEqual(
+    detectSteps('احجز القاعة ثم أرسل الدعوات وعمر.').steps.map((step) => step.title),
+    ['احجز القاعة', 'أرسل الدعوات وعمر'],
+  );
+  assert.deepEqual(
+    detectSteps('Email the client, then call.').steps.map((step) => step.title),
+    ['Email the client', 'call'],
+  );
+});

@@ -56,6 +56,17 @@ export interface DecompositionBoundaryDependencies {
   readonly newProposalId?: () => string;
 }
 
+/**
+ * Bounds on what the boundary will look at.
+ *
+ * Not tuning: an unbounded input is an unbounded amount of synchronous work on
+ * a single-threaded runtime, and decomposition runs rules-first by default, so
+ * one request is enough to stall the process. The limits are generous for a
+ * commitment a person typed and stated rather than buried.
+ */
+const MAX_SOURCE_TEXT_LENGTH = 10_000;
+const MAX_EDITED_TITLE_LENGTH = 500;
+
 export interface ProposeDecompositionOptions {
   readonly commitmentId: string;
   readonly scopeId: string;
@@ -108,7 +119,7 @@ export async function proposeDecompositionBoundary(
   // would record "we read this and it is one action" about input nobody read,
   // and audit it as a success. `engine_unavailable` is the honest answer: we
   // could not try.
-  if (typeof rawInput !== 'string') {
+  if (typeof rawInput !== 'string' || rawInput.length > MAX_SOURCE_TEXT_LENGTH) {
     const unreadable: DecompositionProposal = {
       version: DECOMPOSITION_CONTRACT_VERSION,
       schema: DECOMPOSITION_SCHEMA_VERSION,
@@ -124,7 +135,13 @@ export async function proposeDecompositionBoundary(
       reason: 'engine_unavailable',
     };
     dependencies.store.put({ proposal: unreadable, scopeId: options.scopeId });
-    dependencies.audit?.(auditEvent('failed', '', options.now, 'unreadable_input', 0));
+    dependencies.audit?.(auditEvent(
+      'failed',
+      '',
+      options.now,
+      typeof rawInput === 'string' ? 'input_too_long' : 'unreadable_input',
+      0,
+    ));
     return unreadable;
   }
 
@@ -174,6 +191,51 @@ export async function proposeDecompositionBoundary(
  * different requests, and treating them as one would silently accept a ruling
  * the user did not make.
  */
+/**
+ * The three verdicts that exist. Checked at runtime because `StepDecision` is a
+ * TypeScript union and TypeScript is erased: a version-skewed client, a typo,
+ * or a future fourth verdict all arrive here as ordinary strings.
+ */
+const KNOWN_VERDICTS: ReadonlySet<string> = new Set(['accept', 'reject', 'edit']);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Why this request is not a well-formed confirmation, or null.
+ *
+ * Everything below used to be assumed. `decisions` that was not an array threw
+ * a raw `TypeError` out of the function this module's own docblock calls "the
+ * boundary", and an unrecognised verdict was read as acceptance — on the one
+ * path here that writes, against a contract whose stated rule is that silence
+ * is not consent. Failing closed in the contract's own vocabulary is the whole
+ * job of this function.
+ */
+function malformedRequest(request: DecompositionConfirmationRequest): ConfirmationFailureCode | null {
+  if (typeof request.proposalId !== 'string'
+    || typeof request.scopeId !== 'string'
+    || typeof request.idempotencyKey !== 'string') {
+    return 'proposal_not_found';
+  }
+  if (!Array.isArray(request.decisions)) return 'incomplete_decisions';
+
+  for (const decision of request.decisions) {
+    if (!isRecord(decision) || typeof decision.stepId !== 'string') return 'unknown_step';
+    if (typeof decision.verdict !== 'string' || !KNOWN_VERDICTS.has(decision.verdict)) {
+      // Not an acceptance and not a rejection: the request states no ruling
+      // this reducer understands for that step, which is the same defect as
+      // omitting it.
+      return 'incomplete_decisions';
+    }
+    if (decision.verdict === 'edit') {
+      if (typeof decision.editedTitle !== 'string') return 'invalid_edit';
+      if (decision.editedTitle.length > MAX_EDITED_TITLE_LENGTH) return 'invalid_edit';
+    }
+  }
+  return null;
+}
+
 function decisionFingerprint(request: DecompositionConfirmationRequest): string {
   return JSON.stringify(
     request.decisions.map((decision) => [
@@ -222,15 +284,21 @@ function resolveDecisions(
   }
   if (seen.size !== proposal.steps.length) return 'incomplete_decisions';
 
+  // Positive test. Anything that is not literally 'reject' used to be an
+  // acceptance, so an unknown verdict silently wrote; the request-level guard
+  // rejects those before we get here, and this stays positive so the two can
+  // never drift apart into "unknown means yes" again.
   const acceptedIds = new Set(
-    request.decisions.filter((decision) => decision.verdict !== 'reject').map((decision) => decision.stepId),
+    request.decisions
+      .filter((decision) => decision.verdict === 'accept' || decision.verdict === 'edit')
+      .map((decision) => decision.stepId),
   );
   const accepted: ConfirmedDecompositionStep[] = [];
   const rejectedStepIds: string[] = [];
 
   for (const decision of request.decisions) {
     const step = byStepId.get(decision.stepId) as DecompositionStepProposal;
-    if (decision.verdict === 'reject') {
+    if (decision.verdict !== 'accept' && decision.verdict !== 'edit') {
       rejectedStepIds.push(step.stepId);
       continue;
     }
@@ -257,6 +325,7 @@ function resolveDecisions(
       dependsOn: step.dependsOn.filter((edge) => acceptedIds.has(edge.dependsOnStepId)),
       statedTiming: step.statedTiming,
       statedOwner: step.statedOwner,
+      inferred: step.inferred,
     });
   }
 
@@ -310,6 +379,9 @@ export async function confirmDecomposition(
   options: { readonly now?: Date } = {},
 ): Promise<DecompositionConfirmationResult> {
   const now = options.now ?? new Date(0);
+  const malformed = malformedRequest(request);
+  if (malformed !== null) return failure(malformed);
+
   const stored = dependencies.store.get(request.proposalId);
   if (!stored || stored.scopeId !== request.scopeId) return failure('proposal_not_found');
 

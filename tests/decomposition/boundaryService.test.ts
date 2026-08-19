@@ -43,7 +43,10 @@ interface Harness {
 function persistedById(
   adapter: DecompositionPersistenceAdapter,
 ): Record<string, ConfirmedDecompositionStep> {
-  const byId: Record<string, ConfirmedDecompositionStep> = {};
+  // Null prototype: a step legitimately named `__proto__` would otherwise set
+  // this object's prototype instead of a property, and the helper would report
+  // it as absent — the same trap the adapter itself has to avoid.
+  const byId = Object.create(null) as Record<string, ConfirmedDecompositionStep>;
   for (const step of Object.values(adapter.snapshot().steps)) byId[step.stepId] = step;
   return byId;
 }
@@ -302,7 +305,7 @@ test('the adapter evaluates the whole batch before committing any of it', async 
   const good: ConfirmedDecompositionStep = {
     stepId: 'a', proposalId: 'p', commitmentId: 'c', title: 'Book the venue',
     sourceSpans: [{ start: 0, end: 14, text: 'Book the venue' }],
-    dependsOn: [], statedTiming: null, statedOwner: null,
+    dependsOn: [], statedTiming: null, statedOwner: null, inferred: false,
   };
   const dangling: ConfirmedDecompositionStep = {
     ...good, stepId: 'b', title: 'Send invitations',
@@ -540,7 +543,7 @@ test('two proposals sharing a step id keep their own dependency edges', async ()
     stepId, proposalId, commitmentId: `c-${proposalId}`, title: `step ${stepId}`,
     sourceSpans: [{ start: 0, end: 4, text: 'Book' }],
     dependsOn: dependsOn.map((dependsOnStepId) => ({ dependsOnStepId, kind: 'temporal' as const })),
-    statedTiming: null, statedOwner: null,
+    statedTiming: null, statedOwner: null, inferred: false,
   });
 
   await adapter.persistAtomically([step('p1', 's1', []), step('p1', 's2', ['s1'])]);
@@ -596,7 +599,7 @@ test('mutating a batch after the write cannot change canonical state', async () 
   const mutable: ConfirmedDecompositionStep = {
     stepId: 's1', proposalId: 'p1', commitmentId: 'c1', title: 'Book the venue',
     sourceSpans: [{ start: 0, end: 14, text: 'Book the venue' }],
-    dependsOn: [], statedTiming: null, statedOwner: null,
+    dependsOn: [], statedTiming: null, statedOwner: null, inferred: false,
   };
   await adapter.persistAtomically([mutable]);
   (mutable.sourceSpans[0] as { text: string }).text = 'FORGED-AFTER-WRITE';
@@ -675,4 +678,124 @@ test('a step cannot be edited into a title an admission would reject', async () 
     assert.equal(result.failureCode, 'invalid_edit');
   }
   assert.deepEqual(Object.keys(dependencies.persistence.snapshot().steps), []);
+});
+
+/* ── The confirmation reducer fails closed (security review) ─────── */
+
+test('an unrecognised verdict is refused, never read as acceptance', async () => {
+  // The reducer accepted anything that was not literally 'reject', so a
+  // version-skewed client, a typo, or a future fourth verdict all became silent
+  // acceptance — on the one path in this module that writes, against a contract
+  // that says silence is not consent. #25's reducer does the opposite.
+  const dependencies = harness();
+  const proposal = await proposeWedding(dependencies);
+  if (proposal.outcome !== 'decomposed') throw new Error('setup');
+  const ids = proposal.steps.map((step) => step.stepId);
+
+  for (const verdict of ['maybe', 'ACCEPT', '', 'approve', 'defer']) {
+    const result = await confirmDecomposition(request(
+      proposal.proposalId,
+      [
+        { stepId: ids[0], verdict } as unknown as StepDecision,
+        { stepId: ids[1], verdict: 'accept' },
+        { stepId: ids[2], verdict: 'reject' },
+      ],
+      { idempotencyKey: `v-${verdict}` },
+    ), dependencies);
+    assert.equal(result.success, false, `verdict "${verdict}" must not succeed`);
+    assert.deepEqual(result.persistedStepIds, []);
+  }
+  assert.deepEqual(Object.keys(dependencies.persistence.snapshot().steps), []);
+});
+
+test('a malformed confirmation request fails in the contract vocabulary, not with a TypeError', async () => {
+  const dependencies = harness();
+  const proposal = await proposeWedding(dependencies);
+  if (proposal.outcome !== 'decomposed') throw new Error('setup');
+  const ids = proposal.steps.map((step) => step.stepId);
+
+  const malformed: readonly unknown[] = [
+    { proposalId: proposal.proposalId, scopeId: 'scope-a', idempotencyKey: 'a', decisions: { a: 'accept' } },
+    { proposalId: proposal.proposalId, scopeId: 'scope-a', idempotencyKey: 'b', decisions: null },
+    { proposalId: proposal.proposalId, scopeId: 'scope-a', idempotencyKey: 'c', decisions: 'accept' },
+    { proposalId: proposal.proposalId, scopeId: 'scope-a', idempotencyKey: 'd', decisions: [null] },
+    { proposalId: proposal.proposalId, scopeId: 'scope-a', idempotencyKey: 'e', decisions: [{ stepId: 7, verdict: 'accept' }] },
+    { proposalId: proposal.proposalId, scopeId: 'scope-a', idempotencyKey: 'f', decisions: ids.map((stepId, index) => index === 0 ? { stepId, verdict: 'edit' } : { stepId, verdict: 'accept' }) },
+    { proposalId: proposal.proposalId, scopeId: 'scope-a', idempotencyKey: 'g', decisions: ids.map((stepId, index) => index === 0 ? { stepId, verdict: 'edit', editedTitle: 42 } : { stepId, verdict: 'accept' }) },
+    { proposalId: 42, scopeId: 'scope-a', idempotencyKey: 'h', decisions: [] },
+    { proposalId: proposal.proposalId, scopeId: 'scope-a', idempotencyKey: null, decisions: [] },
+  ];
+
+  for (const bad of malformed) {
+    const result = await confirmDecomposition(bad as never, dependencies);
+    assert.equal(result.success, false, `${JSON.stringify(bad)} should fail`);
+    assert.ok(result.failureCode, 'a failure must name a contract code');
+  }
+  assert.deepEqual(Object.keys(dependencies.persistence.snapshot().steps), []);
+});
+
+/* ── Bounds ──────────────────────────────────────────────────────── */
+
+test('an oversized commitment is declined as an attempt, not judged as one task', async () => {
+  const dependencies = harness();
+  const proposal = await proposeDecompositionBoundary('buy'.repeat(200000), {
+    commitmentId: 'c1', scopeId: 'scope-a', now,
+  }, dependencies);
+  assert.equal(proposal.outcome, 'atomic');
+  assert.equal(proposal.outcome === 'atomic' && proposal.reason, 'engine_unavailable');
+  assert.equal(dependencies.events[dependencies.events.length - 1].fields.outcome, 'failed');
+});
+
+test('an oversized edited title is refused', async () => {
+  const dependencies = harness();
+  const proposal = await proposeWedding(dependencies);
+  if (proposal.outcome !== 'decomposed') throw new Error('setup');
+
+  const result = await confirmDecomposition(request(
+    proposal.proposalId,
+    proposal.steps.map((step, index): StepDecision => index === 0
+      ? { stepId: step.stepId, verdict: 'edit', editedTitle: 'x'.repeat(1_000_000) }
+      : { stepId: step.stepId, verdict: 'accept' }),
+  ), dependencies);
+  assert.equal(result.success, false);
+  assert.equal(result.failureCode, 'invalid_edit');
+  assert.deepEqual(Object.keys(dependencies.persistence.snapshot().steps), []);
+});
+
+/* ── Provenance survives to the persisted record ─────────────────── */
+
+test('a persisted step records whether it was inferred', async () => {
+  // The model's own admission that a step has no source was dropped at
+  // persistence, so the stored record could not say it was inferred and
+  // nothing downstream could tell a read step from an invented one.
+  const dependencies = harness();
+  const proposal = await proposeWedding(dependencies);
+  if (proposal.outcome !== 'decomposed') throw new Error('setup');
+
+  await confirmDecomposition(request(
+    proposal.proposalId,
+    proposal.steps.map((step): StepDecision => ({ stepId: step.stepId, verdict: 'accept' })),
+  ), dependencies);
+
+  const persisted = persistedById(dependencies.persistence);
+  for (const step of proposal.steps) {
+    assert.equal(persisted[step.stepId].inferred, step.inferred);
+  }
+});
+
+test('a prototype-named step id is stored, not mistaken for an inherited property', async () => {
+  // Keying on `(proposalId, stepId)` with a NUL separator already resolved
+  // this — no composite key can equal a bare prototype property name — but the
+  // guard no longer depends on that, because a truthiness check against a plain
+  // object is a trap that grows back.
+  const adapter = new TransactionalDecompositionPersistenceAdapter(createEmptyDecompositionState());
+  const named = (stepId: string): ConfirmedDecompositionStep => ({
+    stepId, proposalId: 'p1', commitmentId: 'c1', title: `step ${stepId}`,
+    sourceSpans: [{ start: 0, end: 4, text: 'Book' }],
+    dependsOn: [], statedTiming: null, statedOwner: null, inferred: false,
+  });
+  const hostile = ['__proto__', 'constructor', 'toString', 'valueOf', 'hasOwnProperty'];
+  await adapter.persistAtomically(hostile.map(named));
+  assert.deepEqual(Object.keys(persistedById(adapter)).sort(), hostile.slice().sort());
+  assert.equal(Object.getPrototypeOf({}), Object.prototype, 'no prototype was polluted');
 });

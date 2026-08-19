@@ -44,6 +44,15 @@ export interface ConfirmedDecompositionStep {
   readonly dependsOn: readonly StepDependency[];
   readonly statedTiming: string | null;
   readonly statedOwner: string | null;
+  /**
+   * Whether the engine admitted this step was not read from the source.
+   *
+   * Carried through because the admission is the only thing separating a step
+   * the user wrote from one the engine added around it, and dropping it at
+   * persistence left the stored record unable to say which it was — while
+   * `inferred: true` is precisely what exempts a step from title provenance.
+   */
+  readonly inferred: boolean;
 }
 
 /**
@@ -91,7 +100,12 @@ export class TransactionalDecompositionPersistenceAdapter implements Decompositi
     const candidate: Record<string, ConfirmedDecompositionStep> = structuredClone(this.state.steps);
     for (const step of steps) {
       const key = stepKey(step.proposalId, step.stepId);
-      if (candidate[key]) {
+      // `Object.hasOwn`, not truthiness: `candidate` is a plain object, so
+      // `candidate['constructor']` is truthy without anything being stored
+      // there. The composite key already makes a collision with an inherited
+      // name impossible, but a guard that depends on the key format is a trap
+      // that grows back the moment the format changes.
+      if (Object.hasOwn(candidate, key)) {
         throw new Error(`decomposition adapter: step ${step.stepId} already persisted for this proposal`);
       }
       if (step.title.trim().length === 0) {
@@ -110,7 +124,7 @@ export class TransactionalDecompositionPersistenceAdapter implements Decompositi
     // in which `dependsOnStepId` means anything.
     for (const step of steps) {
       for (const edge of step.dependsOn) {
-        if (!candidate[stepKey(step.proposalId, edge.dependsOnStepId)]) {
+        if (!Object.hasOwn(candidate, stepKey(step.proposalId, edge.dependsOnStepId))) {
           throw new Error(
             `decomposition adapter: step ${step.stepId} depends on unpersisted ${edge.dependsOnStepId}`,
           );

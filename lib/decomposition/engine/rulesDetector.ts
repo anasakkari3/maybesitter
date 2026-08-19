@@ -384,34 +384,78 @@ function trimRange(text: string, rawStart: number, rawEnd: number): { start: num
   return { start, end };
 }
 
-function firstWordAfter(tokens: readonly Token[], offset: number): string {
-  for (const token of tokens) {
-    if (token.start >= offset) return token.text;
+/**
+ * The first word at or after `offset`, resuming from `fromToken`.
+ *
+ * Returns the token index to resume from, so pass 1 can walk the marker list
+ * without rescanning the token array from zero each time — that rescan was one
+ * of the two things that made a long comma-separated list quadratic.
+ */
+function firstWordAfter(
+  tokens: readonly Token[],
+  offset: number,
+  fromToken: number,
+): { readonly word: string; readonly nextToken: number } {
+  for (let index = fromToken; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (token.start >= offset) return { word: token.text, nextToken: index };
     // A clitic marker ends inside a token, so the "next word" is the remainder
     // of the token it split — `واطلب` cut at offset 1 leaves `اطلب`, and asking
     // whether *that* is an imperative is the whole clitic discrimination.
-    if (token.end > offset) return token.text.slice(offset - token.start);
+    if (token.end > offset) return { word: token.text.slice(offset - token.start), nextToken: index };
   }
-  return '';
-}
-
-/** One clause, already trimmed and with any stated timing lifted out. */
-interface Clause {
-  readonly start: number;
-  readonly end: number;
-  readonly timing: string | null;
-  readonly tokenCount: number;
+  return { word: '', nextToken: tokens.length };
 }
 
 /**
- * Cut the text at the accepted markers and shape each piece into a clause.
+ * How many tokens intersect `[from, to)`, by binary search.
  *
- * Returns null when a piece is empty or is nothing but a time phrase: a
- * detector that can see its own output is malformed should not emit it and let
- * the validator find out.
+ * Token starts and ends are both strictly increasing, so both edges are
+ * findable in O(log n). Counting this way rather than re-tokenising a slice is
+ * what lets a clause be measured repeatedly as it grows without the
+ * measurement itself becoming quadratic.
  */
-function clausesFor(sourceText: string, accepted: readonly Marker[]): Clause[] | null {
-  const clauses: Clause[] = [];
+function countTokensIn(tokens: readonly Token[], from: number, to: number): number {
+  if (to <= from || tokens.length === 0) return 0;
+
+  let lo = 0;
+  let hi = tokens.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (tokens[mid].end > from) hi = mid;
+    else lo = mid + 1;
+  }
+  const first = lo;
+
+  lo = 0;
+  hi = tokens.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (tokens[mid].start >= to) hi = mid;
+    else lo = mid + 1;
+  }
+  return Math.max(0, lo - first);
+}
+
+/**
+ * One raw segment between two accepted markers, shaped once.
+ *
+ * `contentEnd` already excludes any trailing stated-timing phrase, so a merged
+ * clause needs no re-parsing: merging only ever prepends, so the merged
+ * clause's trailing timing is its last component's. (A timing phrase written
+ * across a dropped conjunction would be missed; the phrases are short trailing
+ * patterns and a marker sits between them, so this is a bound worth stating
+ * rather than a case worth parsing for.)
+ */
+interface Segment {
+  readonly trimStart: number;
+  readonly contentEnd: number;
+  readonly timing: string | null;
+}
+
+/** Shape every segment once. Linear in the length of the source. */
+function segmentsFor(sourceText: string, accepted: readonly Marker[]): Segment[] | null {
+  const segments: Segment[] = [];
   for (let index = 0; index <= accepted.length; index += 1) {
     const rawStart = index === 0 ? 0 : accepted[index - 1].end;
     const rawEnd = index === accepted.length ? sourceText.length : accepted[index].start;
@@ -420,33 +464,14 @@ function clausesFor(sourceText: string, accepted: readonly Marker[]): Clause[] |
 
     const timing = splitTiming(sourceText.slice(trimmed.start, trimmed.end));
     const bounded = trimRange(sourceText, trimmed.start, trimmed.end - timing.consumed);
+    // A segment that is nothing but a time phrase is not a step. Rather than
+    // emit it and rely on the validator, the whole split is abandoned: a
+    // detector that knows its output is wrong should not have produced it.
     if (bounded.start >= bounded.end) return null;
 
-    clauses.push({
-      start: bounded.start,
-      end: bounded.end,
-      timing: timing.timing,
-      tokenCount: tokenize(sourceText.slice(bounded.start, bounded.end)).length,
-    });
+    segments.push({ trimStart: bounded.start, contentEnd: bounded.end, timing: timing.timing });
   }
-  return clauses;
-}
-
-/**
- * The first boundary whose clauses are too short to be steps, or -1.
- *
- * Sequencing markers are exempt: an explicit `then`/`ثم`/`ואז` is the strongest
- * evidence available, and a token count must not overrule it.
- */
-function firstUndersizedBoundary(clauses: readonly Clause[], accepted: readonly Marker[]): number {
-  for (let index = 0; index < accepted.length; index += 1) {
-    if (accepted[index].sequencing) continue;
-    if (clauses[index].tokenCount < MINIMUM_CLAUSE_TOKENS
-      || clauses[index + 1].tokenCount < MINIMUM_CLAUSE_TOKENS) {
-      return index;
-    }
-  }
-  return -1;
+  return segments;
 }
 
 export interface RulesDetectionResult {
@@ -467,58 +492,79 @@ export function detectSteps(sourceText: string): RulesDetectionResult {
   const markers = collectMarkers(sourceText, tokens);
 
   // Pass 1: a marker survives only if a known imperative starts after it.
-  let accepted: Marker[] = [];
+  const accepted: Marker[] = [];
   let cursor = 0;
+  let tokenCursor = 0;
   for (const marker of markers) {
     if (marker.start < cursor) continue;
     const candidate = trimRange(sourceText, cursor, marker.start);
     if (candidate.start >= candidate.end) continue;
-    if (!beginsAction(firstWordAfter(tokens, marker.end))) continue;
+    const next = firstWordAfter(tokens, marker.end, tokenCursor);
+    tokenCursor = next.nextToken;
+    if (!beginsAction(next.word)) continue;
     accepted.push(marker);
     cursor = marker.end;
   }
+  if (accepted.length === 0) return NOTHING;
 
-  // Pass 2: drop undersized boundaries one at a time, re-cutting after each,
-  // because folding two clauses together can make the next boundary legal.
-  // Dropping the offending boundary rather than the whole split is what keeps
-  // an unrelated, well-evidenced seam alive.
-  let clauses: Clause[] | null = null;
-  while (accepted.length > 0) {
-    clauses = clausesFor(sourceText, accepted);
-    if (clauses === null) return NOTHING;
-    const undersized = firstUndersizedBoundary(clauses, accepted);
-    if (undersized < 0) break;
-    accepted = accepted.filter((_, index) => index !== undersized);
-    clauses = null;
+  const segments = segmentsFor(sourceText, accepted);
+  if (segments === null) return NOTHING;
+
+  // Pass 2: one left-to-right sweep. A boundary whose clauses are too short to
+  // be steps is dropped, which merges its left clause into the next candidate's
+  // left clause — so the sweep carries `groupStart` forward instead of
+  // re-cutting the whole source. Dropping only ever *grows* a clause, and a
+  // clause already long enough stays long enough, so a boundary that is kept
+  // never needs revisiting: one pass reaches the same answer the repeated
+  // re-cut did, without its quadratic cost.
+  //
+  // Sequencing markers are exempt. An explicit `then`/`ثم`/`ואז` is the
+  // strongest evidence available, and a token count must not overrule it.
+  const kept: number[] = [];
+  let groupStart = 0;
+  for (let index = 0; index < accepted.length; index += 1) {
+    const left = segments[index];
+    const right = segments[index + 1];
+    const longEnough = accepted[index].sequencing
+      || (countTokensIn(tokens, segments[groupStart].trimStart, left.contentEnd) >= MINIMUM_CLAUSE_TOKENS
+        && countTokensIn(tokens, right.trimStart, right.contentEnd) >= MINIMUM_CLAUSE_TOKENS);
+    if (!longEnough) continue;
+    kept.push(index);
+    groupStart = index + 1;
   }
-  if (accepted.length === 0 || clauses === null) return NOTHING;
+  if (kept.length === 0) return NOTHING;
 
-  const steps: DecompositionStepProposal[] = clauses.map((clause, index) => {
+  // Each surviving boundary closes a clause; a clause spans every segment from
+  // the last kept boundary to this one, and carries that last segment's timing.
+  const steps: DecompositionStepProposal[] = [];
+  for (let index = 0; index <= kept.length; index += 1) {
+    const firstSegment = index === 0 ? 0 : kept[index - 1] + 1;
+    const lastSegment = index === kept.length ? segments.length - 1 : kept[index];
     const span: SourceSpan = {
-      start: clause.start,
-      end: clause.end,
-      text: sourceText.slice(clause.start, clause.end),
+      start: segments[firstSegment].trimStart,
+      end: segments[lastSegment].contentEnd,
+      text: sourceText.slice(segments[firstSegment].trimStart, segments[lastSegment].contentEnd),
     };
-    const dependsOn: StepDependency[] = index > 0 && accepted[index - 1].sequencing
+    const dependsOn: StepDependency[] = index > 0 && accepted[kept[index - 1]].sequencing
       ? [{ dependsOnStepId: `s${index}`, kind: 'temporal' }]
       : [];
-    return {
+    steps.push({
       stepId: `s${index + 1}`,
       title: span.text,
       sourceSpans: [span],
       inferred: false,
       dependsOn,
-      statedTiming: clause.timing,
+      statedTiming: segments[lastSegment].timing,
       // Never populated. No rule distinguishes the person who must act from the
       // person acted upon — "send a note to Sarah" names a recipient, not an
       // owner — and guessing is exactly the `INVENTED_OWNER` failure.
       statedOwner: null,
-    };
-  });
+    });
+  }
 
   if (steps.length < 2) return NOTHING;
   return {
     steps,
-    confidence: accepted.reduce((weakest, marker) => Math.min(weakest, marker.confidence), 1),
+    confidence: kept.reduce((weakest, index) => Math.min(weakest, accepted[index].confidence), 1),
   };
 }
