@@ -19,9 +19,9 @@
  * written" and reports `persistence_failed`.
  */
 
-import type { ConfirmedDecompositionStep } from './proposalStateMachine';
+import type { ProposalConfirmedStep } from './proposalStateMachine';
 
-export type { ConfirmedDecompositionStep };
+export type { ProposalConfirmedStep };
 
 /**
  * Everything an adapter needs to attach steps beside a commitment.
@@ -37,7 +37,7 @@ export interface ConfirmedStepBatch {
   readonly commitmentId: string;
   readonly scopeId: string;
   /** Non-empty: the store does not call the port when nothing was confirmed. */
-  readonly steps: readonly ConfirmedDecompositionStep[];
+  readonly steps: readonly ProposalConfirmedStep[];
 }
 
 export interface DecompositionPersistencePort {

@@ -107,7 +107,14 @@ export interface ProposalStoreDependencies {
   readonly persistence: DecompositionPersistencePort;
 }
 
-export interface DecompositionProposalStore {
+/**
+ * The reducer-side store: admission, proposal state, and confirmation.
+ *
+ * Distinct from #27's `DecompositionProposalStore`, which is the boundary
+ * service's store and holds a different shape. The names collided until now,
+ * and a mistaken import failed with a message naming the same type twice.
+ */
+export interface ProposalStateStore {
   /** Validates on entry; an inadmissible proposal is not stored. */
   admit(entry: { readonly proposal: DecompositionProposal; readonly scopeId: string }): ProposalAdmission;
   get(proposalId: string): StoredProposal | undefined;
@@ -163,7 +170,7 @@ function fingerprint(request: DecompositionConfirmationRequest): string {
 
 export function createInMemoryProposalStore(
   dependencies: ProposalStoreDependencies,
-): DecompositionProposalStore {
+): ProposalStateStore {
   const proposals = new Map<string, StoredProposal>();
   /** Tail of the confirmation chain per proposalId. See the header. */
   const inFlight = new Map<string, Promise<void>>();
@@ -201,9 +208,32 @@ export function createInMemoryProposalStore(
     return { admitted: true };
   }
 
+  /**
+   * Why the request's own envelope is unusable, or null.
+   *
+   * The three identity fields are checked before anything reads them: a
+   * non-string `idempotencyKey` used to be stored verbatim and compared by
+   * `===` on replay, so a key of `{}` never matched itself and every retry read
+   * as a fresh confirmation of an applied proposal. `proposal_not_found` is the
+   * honest answer — a request that cannot name a proposal has not found one —
+   * and it leaks nothing about which ids exist.
+   *
+   * The decisions themselves are the reducer's to judge, and it does; this is
+   * only the envelope the reducer never sees.
+   */
+  function malformedEnvelope(request: DecompositionConfirmationRequest): boolean {
+    return (
+      typeof request?.proposalId !== 'string'
+      || typeof request.scopeId !== 'string'
+      || typeof request.idempotencyKey !== 'string'
+    );
+  }
+
   async function confirmExclusive(
     request: DecompositionConfirmationRequest,
   ): Promise<DecompositionConfirmationResult> {
+    if (malformedEnvelope(request)) return failure('proposal_not_found');
+
     const stored = proposals.get(request.proposalId);
     // Scope mismatch is reported as "not found" rather than "not yours": a
     // caller outside the scope must not learn the id exists.
@@ -266,6 +296,10 @@ export function createInMemoryProposalStore(
     // Everything up to the first `await` inside this function runs without
     // yielding, so registering the new tail here reserves the slot: a second
     // caller arriving later chains onto this call rather than racing it.
+    // A request that cannot name a proposal is refused before it can key the
+    // in-flight map with a non-string and share a chain with unrelated callers.
+    if (malformedEnvelope(request)) return Promise.resolve(failure('proposal_not_found'));
+
     const tail = inFlight.get(request.proposalId);
     const run = tail
       ? tail.then(() => confirmExclusive(request))
