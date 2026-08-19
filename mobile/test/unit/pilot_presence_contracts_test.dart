@@ -389,7 +389,7 @@ void main() {
       },
     );
 
-    test('records a content-free widget impression when publishing', () async {
+    test('records a content-free snapshot-published event, not an impression', () async {
       final store = _FakePilotPresenceStore();
       final analytics = InMemoryPilotLoopAnalyticsService();
       final publisher = PilotPresenceSnapshotPublisher(
@@ -413,11 +413,13 @@ void main() {
         ),
       ]);
 
+      // Publishing is a write, not a sighting. Only the widget extension can
+      // report an impression, because only it knows it was rendered.
       expect(
         analytics.events.single.name,
-        PilotLoopAnalyticsEventName.widgetImpression,
+        PilotLoopAnalyticsEventName.widgetSnapshotPublished,
       );
-      expect(analytics.events.single.properties['widgetState'], 'populated');
+      expect(analytics.events.single.properties['snapshotState'], 'populated');
       expect(analytics.events.single.properties, isNot(contains('title')));
     });
   });
