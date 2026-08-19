@@ -23,6 +23,7 @@ import 'contracts/feedback_history_service.dart';
 import 'contracts/activity_repository.dart';
 import 'contracts/calendar_import_service.dart';
 import 'contracts/next_step_service.dart';
+import '../features/trust/pilot_trust_controller.dart';
 import 'contracts/awareness_state_store.dart';
 import 'contracts/notification_service.dart';
 import 'contracts/pilot_loop_analytics_service.dart';
@@ -235,8 +236,13 @@ final _mockPilotLoopAnalyticsServiceProvider =
 final pilotLoopAnalyticsServiceProvider = Provider<PilotLoopAnalyticsService>((
   ref,
 ) {
-  final settings = ref.watch(appSettingsProvider);
-  if (settings.analyticsOptOut) {
+  // Consent the participant actually recorded, not a local flag. This used to
+  // read AppSettings.analyticsOptOut, which defaulted to true, was never
+  // persisted and had no setter anywhere -- so every pilot event was discarded
+  // while the Trust Center displayed a consent toggle that changed nothing.
+  // A snapshot we have not loaded yet is not consent either.
+  final trust = ref.watch(pilotTrustControllerProvider);
+  if (trust.snapshot?.trust.analyticsConsent != true) {
     return const DisabledPilotLoopAnalyticsService();
   }
 

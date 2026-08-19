@@ -36,7 +36,6 @@ class AppSettings {
   final bool notificationsEnabled;
   final bool soundEffectsEnabled;
   final bool hapticFeedbackEnabled;
-  final bool analyticsOptOut;
   final bool hasCompletedOnboarding;
   final bool hasLoadedSettings;
 
@@ -46,7 +45,6 @@ class AppSettings {
     this.notificationsEnabled = true,
     this.soundEffectsEnabled = true,
     this.hapticFeedbackEnabled = true,
-    this.analyticsOptOut = true,
     this.hasCompletedOnboarding = false,
     this.hasLoadedSettings = false,
   });
@@ -57,7 +55,6 @@ class AppSettings {
     bool? notificationsEnabled,
     bool? soundEffectsEnabled,
     bool? hapticFeedbackEnabled,
-    bool? analyticsOptOut,
     bool? hasCompletedOnboarding,
     bool? hasLoadedSettings,
   }) {
@@ -68,7 +65,6 @@ class AppSettings {
       soundEffectsEnabled: soundEffectsEnabled ?? this.soundEffectsEnabled,
       hapticFeedbackEnabled:
           hapticFeedbackEnabled ?? this.hapticFeedbackEnabled,
-      analyticsOptOut: analyticsOptOut ?? this.analyticsOptOut,
       hasCompletedOnboarding:
           hasCompletedOnboarding ?? this.hasCompletedOnboarding,
       hasLoadedSettings: hasLoadedSettings ?? this.hasLoadedSettings,
