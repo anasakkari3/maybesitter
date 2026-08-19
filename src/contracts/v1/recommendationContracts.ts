@@ -121,6 +121,10 @@ export const RECOMMENDATION_SCHEMA_VERSION = 'recommendation-v1' as const;
  * `schedule` action carries a planning slot must carry *planning's* interval, or
  * the half-open convention stated once in `planningContracts` would be stated
  * twice and eventually differently.
+ *
+ * `isInstant` (below, with the staleness rules) is the exported check for
+ * whether a value actually is one. It lives beside the expiry logic because that
+ * is the judgement it is derived from, not a second opinion about it.
  */
 export type { Instant, TimeInterval };
 
@@ -714,6 +718,15 @@ export function actionKey(action: RecommendedAction): string {
  * missing them, because the caller acts on it.
  */
 function actionParts(action: RecommendedAction): readonly string[] {
+  // `action.kind` on `null` raised a `TypeError` out of a function whose whole
+  // job is to produce a key. The first round fixed the object-with-unknown-kind
+  // case; this is the same function one step further out, where the caller hands
+  // it no object at all. `RECOMMENDATION_INPUT_POLICY.throwOnlyWhenNoCodeApplies`
+  // covers it: `UNKNOWN_ACTION_KIND` is the code, `isKnownActionKind` already
+  // reports it for these values, and the key only has to stay distinct.
+  if (action === null || action === undefined || typeof action !== 'object') {
+    return ['\u0000unknown', canonicalUnknown(action)];
+  }
   switch (action.kind) {
     case 'do_now':
       return ['do_now', String(action.commitmentId)];
@@ -734,7 +747,17 @@ function actionParts(action: RecommendedAction): readonly string[] {
 }
 
 /**
- * A deterministic encoding of a value this contract does not recognise.
+ * A deterministic, **injective** encoding of a value this contract does not
+ * recognise.
+ *
+ * The type tag is not decoration. An encoding built on `String(value)` alone
+ * collapses distinct values onto one key, and every collapse becomes a
+ * fabricated `DUPLICATE_OPTION_ACTION` — a checker inventing a finding, which is
+ * worse than one missing it because the caller acts on it. Measured on the
+ * previous version, four pairs already collided: `42`/`'42'`, `true`/`'true'`,
+ * `{}`/`[]`, and `[1]`/`{ '0': 1 }`. Guarding the `null` throw without fixing
+ * this would have added a fifth, `null`/`'null'`, while looking like a pure
+ * safety fix.
  *
  * Keys are sorted by code unit — `<` on strings, which is a code-*unit*
  * comparison and is exactly what is wanted here: the result must not move with
@@ -744,7 +767,10 @@ function actionParts(action: RecommendedAction): readonly string[] {
  * this needs.
  */
 function canonicalUnknown(value: unknown): string {
-  if (value === null || typeof value !== 'object') return String(value);
+  if (value === null) return 'null';
+  if (value === undefined) return 'undefined';
+  const kind = typeof value;
+  if (kind !== 'object') return `${kind}:${String(value)}`;
   const record = value as Record<string, unknown>;
   const keys = Object.keys(record).sort((left, right) => (left === right ? 0 : left < right ? -1 : 1));
   let encoded = '';
@@ -752,7 +778,9 @@ function canonicalUnknown(value: unknown): string {
     const inner = record[keys[index]];
     encoded += `${keys[index].length}:${keys[index]}=${canonicalUnknown(inner)};`;
   }
-  return `{${encoded}}`;
+  // Arrays and plain objects are tagged apart: `[1]` and `{ '0': 1 }` have the
+  // same own keys and the same values.
+  return `${Array.isArray(value) ? 'array' : 'object'}:{${encoded}}`;
 }
 
 /** Whether an action is one this contract version recognises. */
@@ -2020,7 +2048,8 @@ export type StalenessVerdict =
  * `'2026'` is a producer bug that should surface as `INVALID_INSTANT` rather
  * than as a silently-accepted January the first.
  */
-const INSTANT_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/;
+const INSTANT_PATTERN =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:\d{2})$/;
 
 /**
  * Epoch millis for an instant, or null when it is not a well-formed `Instant`.
@@ -2036,10 +2065,98 @@ const INSTANT_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[
  * superset of what `Instant` promises, so parsing first and validating second
  * would mean the permissive reading had already decided the answer.
  */
-function instantToMillis(value: Instant): number | null {
-  if (typeof value !== 'string' || !INSTANT_PATTERN.test(value)) return null;
+function instantToMillis(value: unknown): number | null {
+  if (typeof value !== 'string') return null;
+  const match = INSTANT_PATTERN.exec(value);
+  if (match === null) return null;
+
+  /**
+   * Reject a date the calendar does not have, instead of rolling it over.
+   *
+   * `Date.parse` silently repairs an impossible date rather than refusing it,
+   * and the repair is a real shift, not a rounding:
+   *
+   *     2026-02-30T00:00:00Z  ->  2026-03-02   (two days)
+   *     2026-02-29T00:00:00Z  ->  2026-03-01   (2026 is not a leap year)
+   *     2026-04-31T00:00:00Z  ->  2026-05-01
+   *     2026-08-19T24:00:00Z  ->  2026-08-20
+   *
+   * An expiry written as the 30th of February and read as the 2nd of March is a
+   * recommendation that stays offerable two days past its stated life, and
+   * nothing anywhere reports it. That is the same class as the `Math.max` buffer
+   * clamp recorded under `EFFORT_NOT_POSITIVE` in `planningContracts` — a
+   * silently repaired input turning a contradiction into a plausible answer —
+   * and it is worse here because the repaired value is still a perfectly
+   * well-formed instant, so no downstream check can notice.
+   *
+   * The test is a round trip through `Date.UTC`, which rolls over in exactly the
+   * same way: if the fields that come back differ from the fields that went in,
+   * the input named a moment that does not exist. This needs no leap-year table
+   * and no month-length table, so there is no second copy of the calendar to
+   * drift. The offset is deliberately not part of the round trip — it shifts the
+   * instant but cannot make a field valid or invalid — and an out-of-range
+   * offset like `+25:00` is what the `Date.parse` below still catches.
+   */
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = match[6] === undefined ? 0 : Number(match[6]);
+  const probe = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+  if (
+    probe.getUTCFullYear() !== year ||
+    probe.getUTCMonth() !== month - 1 ||
+    probe.getUTCDate() !== day ||
+    probe.getUTCHours() !== hour ||
+    probe.getUTCMinutes() !== minute ||
+    probe.getUTCSeconds() !== second
+  ) {
+    return null;
+  }
+
   const parsed = Date.parse(value);
   return Number.isNaN(parsed) ? null : parsed;
+}
+
+/**
+ * Whether a value is a well-formed `Instant`: an ISO-8601 date-time carrying an
+ * explicit `Z` or `±HH:MM` offset, denoting a real moment.
+ *
+ * Exported because two callers need this judgement at their own untrusted
+ * boundaries, and neither should own a second copy of it. #34 needed exactly
+ * this and, with nothing exported, did the right thing rather than the easy one:
+ * instead of re-writing the regex — a second spelling of "what is a valid
+ * instant", which is the duplication this sprint has paid for repeatedly — it
+ * delegated the judgement here, passing the value as `now` to
+ * `evaluateRecommendationStaleness` and reading `INVALID_INSTANT` on
+ * `field: 'now'`. That was correct and it stays correct; this export only
+ * removes the indirection and the validation object built per call to answer a
+ * question about a string.
+ *
+ * **A predicate rather than the `RegExp`, for two reasons.** A regular
+ * expression is mutable shared state: `INSTANT_PATTERN` carries no `g` flag
+ * today, but an exported `RegExp` is one edit away from carrying one, and then
+ * `lastIndex` persists across unrelated callers and `test` starts returning
+ * alternating answers for the same input. A predicate cannot be misused that
+ * way. And `RegExp.prototype.test` coerces its argument, so
+ * `INSTANT_PATTERN.test(20260819)` asks about the string `'20260819'` rather
+ * than rejecting a number.
+ *
+ * **Defined in terms of `instantToMillis`, not beside it.** This is the whole
+ * point of the export, and a shape check alone would already be wrong twice
+ * over: `'2026-13-45T99:99:99Z'` matches `INSTANT_PATTERN` while `Date.parse`
+ * returns `NaN`, and `'2026-02-30T00:00:00Z'` matches *and* parses — to the 2nd
+ * of March. A pattern-only predicate would answer `true` for both, one of which
+ * the staleness checker reports as `INVALID_INSTANT` and the other of which it
+ * silently reads as a different day. Deriving one from the other
+ * makes `isInstant(v) === (instantToMillis(v) !== null)` true by construction
+ * rather than by agreement, and `expiryRules.test.ts` pins that equivalence
+ * against the shared corpus both are tested with, so a future re-implementation
+ * of either fails rather than drifts.
+ */
+export function isInstant(value: unknown): value is Instant {
+  return instantToMillis(value) !== null;
 }
 
 /**

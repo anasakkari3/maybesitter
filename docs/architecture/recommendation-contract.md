@@ -97,6 +97,27 @@ survives.
 Instants are compared as parsed epoch milliseconds, never lexicographically —
 `…T11:00:00Z` and `…T11:00:00+00:00` are the same instant and unequal as text.
 
+`isInstant(value: unknown): value is Instant` is the exported check for whether a
+value is a usable instant. It is **derived from** the same `instantToMillis` the
+staleness checker uses, so `isInstant(v) === (instantToMillis(v) !== null)` holds
+by construction rather than by agreement — the point being that an exported
+predicate is otherwise an invitation to a second spelling of the rule. A
+predicate rather than the raw `RegExp`, because an exported pattern is one edit
+away from a `g` flag and then `lastIndex` persists across unrelated callers, and
+because `RegExp.prototype.test` coerces a number into a string instead of
+rejecting it.
+
+An `Instant` must carry an explicit offset **and name a moment that exists**.
+`Date.parse` silently rolls impossible dates over rather than refusing them —
+`2026-02-30T00:00:00Z` → 2026-03-02, `2026-02-29T00:00:00Z` → 2026-03-01 (2026 is
+not a leap year), `2026-08-19T24:00:00Z` → the next day. An expiry written as the
+30th of February and read as the 2nd of March leaves a recommendation offerable
+two days past its stated life, and because the repaired value is itself a
+well-formed instant no downstream check can notice. `instantToMillis` now round
+trips the calendar fields through `Date.UTC`, which rolls over identically, so a
+mismatch means the input named no real moment. There is no month-length or
+leap-year table anywhere, and therefore no second copy of the calendar to drift.
+
 ## Repo rules this contract holds
 
 - **No ambient clock, and no ambient time zone.** No `Date.now()`, no
@@ -132,8 +153,8 @@ Instants are compared as parsed epoch milliseconds, never lexicographically —
 ## How the checkers are held
 
 The checkers are the part #34 and #35 call instead of reimplementing, so their
-coverage is verified by **mutation**, one site at a time — 25 single-site
-mutants, each applied and reverted alone, all 25 killed by `npm run
+coverage is verified by **mutation**, one site at a time — 32 single-site
+mutants, each applied and reverted alone, all 32 killed by `npm run
 test:sprint08`. A batch mutation proves partial coverage while looking complete,
 which is why it is done singly.
 
@@ -147,6 +168,14 @@ backward-reachability pass removed from `findCyclicNodeIndices`: a second check
 that reads as defence in depth is really an untested branch plus a hole in the
 first check's coverage.
 
+Exported surfaces are held against the internal ones by *behaviour*, not by
+shared code: `expiryRules.test.ts` asserts `isInstant` agrees with the staleness
+checker's `INVALID_INSTANT` verdict across one shared corpus of valid and invalid
+instants, so a future independent re-implementation of either fails rather than
+drifts. One corpus, not two — two corpora would let each side stay green about
+the cases the other cares about, which is the duplication problem moved up a
+level into the tests.
+
 The fuzz generator is held the same way. Its distribution is asserted, not
 assumed — it must reach every one of the eight graph defect codes, more than 60%
 of accepted graphs must contain a derivation, and the deepest accepted chain must
@@ -154,6 +183,13 @@ reach 8. The previous generator could not express three codes at all, and 62% of
 the graphs it accepted contained no derivation, so the property it proved held
 vacuously in most of its own iterations while the iteration count looked
 reassuring.
+
+`actionKey` is total and injective over anything a boundary can hand it. It is
+used for identity, so a key shared by two different unusable actions fabricates a
+`DUPLICATE_OPTION_ACTION` — a checker inventing a finding, which is worse than
+one missing it because the caller acts on it. Unrecognised values are encoded
+with a type tag for that reason: before it, `42`/`'42'`, `true`/`'true'`,
+`{}`/`[]` and `[1]`/`{ '0': 1 }` all collided.
 
 ## Scope boundaries
 

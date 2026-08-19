@@ -856,8 +856,40 @@ test('recommendation: no malformed offer makes the checker throw', () => {
     { ...offeredWith({ kind: 'only_candidate', option: optionCiting(0, 'c1', 'a', 'a'), attested: ['a'] }, nodes), evidence: undefined },
     { ...offeredWith({ kind: 'choice', options: [optionCiting(0, 'c1', 'a', 'a'), optionCiting(1, 'c2', 'a', 'a')], excluded: [] }, nodes), options: { kind: 'choice', options: 'nope', excluded: 'nope' } },
     { ...offeredWith({ kind: 'only_candidate', option: optionCiting(0, 'c1', 'a', 'a'), attested: ['a'] }, nodes), options: { kind: 'only_candidate', option: undefined, attested: ['a'] } },
+    // An action that is not an object at all. #35's mutation sweep found this
+    // as the last throwing shape of twelve; it was reaching `action.kind` on
+    // `null` inside `actionKey`.
+    offeredWith({ kind: 'only_candidate', option: { ...optionCiting(0, 'c1', 'a', 'a'), action: null }, attested: ['a'] } as unknown as OptionSet, nodes),
+    offeredWith({ kind: 'only_candidate', option: { ...optionCiting(0, 'c1', 'a', 'a'), action: 'do_now' }, attested: ['a'] } as unknown as OptionSet, nodes),
+    offeredWith({ kind: 'only_candidate', option: { ...optionCiting(0, 'c1', 'a', 'a'), action: 42 }, attested: ['a'] } as unknown as OptionSet, nodes),
+    offeredWith(
+      {
+        kind: 'sole_survivor',
+        option: optionCiting(0, 'c1', 'a', 'a'),
+        excluded: [{ action: null, exclusion: [{ code: 'LOWER_RANKED', supportedBy: ['a'], detail: 'ranked below' }] }],
+      } as unknown as OptionSet,
+      nodes,
+    ),
   ];
   for (const shape of shapes) {
     assert.doesNotThrow(() => checkRecommendation(shape as unknown as Recommendation), `threw on ${JSON.stringify(shape)?.slice(0, 60)}`);
   }
+});
+
+test('recommendation: a non-object action is reported, and two of them are not a duplicate', () => {
+  const nodes = [observed('a')];
+  const rec = offeredWith(
+    {
+      kind: 'choice',
+      options: [
+        { ...optionCiting(0, 'c1', 'a', 'a'), action: null },
+        { ...optionCiting(1, 'c2', 'a', 'a'), action: 42 },
+      ],
+      excluded: [],
+    } as unknown as OptionSet,
+    nodes,
+  );
+  const codes = codesOf(checkRecommendation(rec));
+  assert.deepEqual(codes.filter((code) => code === 'UNKNOWN_ACTION_KIND').length, 2);
+  assert.equal(codes.includes('DUPLICATE_OPTION_ACTION'), false, 'null and 42 are not the same action');
 });

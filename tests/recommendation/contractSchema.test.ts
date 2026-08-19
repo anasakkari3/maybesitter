@@ -58,6 +58,7 @@ import {
   actionKey,
   bandForConfidence,
   checkRecommendation,
+  isKnownActionKind,
   checkRecommendationDecision,
   offeredOptions,
   summarizeOptionSet,
@@ -376,6 +377,73 @@ test('contract: actionKey is injective across delimiter-bearing identifiers', ()
     }
   }
   assert.equal(seen.size, ids.length * ids.length, 'every distinct pair must produce a distinct key');
+});
+
+/**
+ * Values an action can arrive as at an untrusted boundary. Shaped so that the
+ * type-collapsing pairs sit next to each other: `42`/`'42'`, `true`/`'true'`,
+ * `{}`/`[]`, `[1]`/`{ '0': 1 }`, `null`/`'null'`.
+ */
+const UNUSABLE_ACTIONS: readonly unknown[] = [
+  null,
+  undefined,
+  'null',
+  42,
+  '42',
+  true,
+  'true',
+  {},
+  [],
+  [1],
+  { 0: 1 },
+  { kind: 'teleport', commitmentId: 'c1' },
+  { kind: 'teleport', commitmentId: 'c2' },
+  { kind: null },
+  { commitmentId: 'c1' },
+];
+
+test('contract: actionKey is total over every shape an action can arrive as', () => {
+  // `action.kind` on `null` raised a TypeError out of a function whose whole job
+  // is to produce a key, so every caller had to know it was unsafe — #35 was
+  // carrying a local guard for exactly this. `throwOnlyWhenNoCodeApplies` is
+  // true, and `UNKNOWN_ACTION_KIND` is the code that applies.
+  for (const action of UNUSABLE_ACTIONS) {
+    assert.doesNotThrow(() => actionKey(action as RecommendedAction), `actionKey threw on ${String(action)}`);
+    assert.equal(typeof actionKey(action as RecommendedAction), 'string', `no key for ${String(action)}`);
+    assert.equal(isKnownActionKind(action as RecommendedAction), false, `${String(action)} must not read as a known kind`);
+  }
+});
+
+test('contract: no two unusable actions share a key', () => {
+  // The collision trap, and it was not hypothetical: before the type tag, four
+  // pairs already collided — 42/'42', true/'true', {}/[] and [1]/{'0':1} — and
+  // each collision is a fabricated DUPLICATE_OPTION_ACTION. Guarding the null
+  // throw alone would have added a fifth, null/'null', while looking like a pure
+  // safety fix.
+  const keys = UNUSABLE_ACTIONS.map((action) => actionKey(action as RecommendedAction));
+  const seen = new Map<string, unknown>();
+  for (let index = 0; index < keys.length; index += 1) {
+    const clash = seen.get(keys[index]);
+    assert.equal(
+      clash,
+      undefined,
+      `${String(UNUSABLE_ACTIONS[index])} and ${String(clash)} share a key, which fabricates a duplicate`,
+    );
+    seen.set(keys[index], UNUSABLE_ACTIONS[index]);
+  }
+  assert.equal(seen.size, UNUSABLE_ACTIONS.length);
+  // Equal values must still agree, or the key is not a key.
+  assert.equal(actionKey({ kind: 'teleport', commitmentId: 'c1' } as unknown as RecommendedAction), keys[11]);
+});
+
+test('contract: an unusable action never collides with a well-formed one', () => {
+  const real = [
+    actionKey({ kind: 'do_now', commitmentId: 'c1' }),
+    actionKey({ kind: 'defer', commitmentId: 'c1', until: '2026-08-20T10:00:00.000Z' }),
+  ];
+  for (const action of UNUSABLE_ACTIONS) {
+    assert.equal(real.includes(actionKey(action as RecommendedAction)), false, String(action));
+  }
 });
 
 test('contract: a lone offered option always carries an account of why it is alone', () => {

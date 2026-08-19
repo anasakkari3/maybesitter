@@ -42,6 +42,7 @@ import {
   STALENESS_REASON_CODES,
   bandForConfidence,
   evaluateRecommendationStaleness,
+  isInstant,
 } from '../../src/contracts/v1/recommendationContracts.ts';
 import type {
   EvidenceNode,
@@ -549,6 +550,61 @@ test('clock: the default TTL is a constant, not something the module applies to 
 
 /* ── the instant format, and why the parse alone is not enough ────── */
 
+/**
+ * The one corpus of instants this file judges anything against.
+ *
+ * A single list, shared by the staleness tests and by the `isInstant` tests
+ * below, because the whole risk in exporting a predicate is that it and the
+ * internal judgement acquire separate test sets and then drift apart quietly.
+ * Two corpora would let each side stay green about the cases the other cares
+ * about — which is the same failure as two copies of the rule itself, moved one
+ * level up into the tests.
+ */
+const VALID_INSTANTS: readonly string[] = [
+  '2026-08-19T11:00:00Z',
+  '2026-08-19T11:00:00.000Z',
+  '2026-08-19T11:00:00.123456789Z',
+  '2026-08-19T11:00:00+00:00',
+  '2026-08-19T14:00:00+03:00',
+  '2026-08-19T08:00:00-03:00',
+  '2026-08-19T11:00Z',
+  '2024-02-29T00:00:00Z', // a real leap day
+];
+
+const INVALID_INSTANTS: readonly string[] = [
+  // Parses, but as *local* time — the host-dependence this fence exists for.
+  '2026-11-23T00:00:00',
+  '2026-11-23T10:00:00.000',
+  // Parses, but is not a date-time at all.
+  '2026',
+  '2026-11',
+  '2026-11-23',
+  // Shape-incomplete or non-ISO separators.
+  '2026-11-23T10:00',
+  '2026-11-23 10:00:00Z',
+  '2026-11-23T10:00:00 Z',
+  // Matches INSTANT_PATTERN and yet denotes no moment: `Date.parse` returns NaN.
+  // This is the case that makes a shape-only predicate wrong, and the reason
+  // `isInstant` is derived from `instantToMillis` rather than from the regex.
+  '2026-13-45T99:99:99Z',
+  // Matches INSTANT_PATTERN *and* parses — to a different day. `Date.parse`
+  // rolls an impossible date over rather than refusing it, so these are the
+  // cases a pattern-plus-parse check would still let through.
+  '2026-02-30T00:00:00Z', // -> 2026-03-02, a two-day shift
+  '2026-02-29T00:00:00Z', // 2026 is not a leap year; -> 2026-03-01
+  '2026-04-31T00:00:00Z', // -> 2026-05-01
+  '2026-08-19T24:00:00Z', // -> 2026-08-20
+  '2026-08-19T11:00:00+25:00', // an offset that does not exist
+  // Not instants at all.
+  '',
+  '   ',
+  'not-a-date',
+  'Invalid Date',
+  'NaN',
+  '0000-00-00',
+];
+
+
 test('expiry: an instant without an explicit offset is rejected, not read as local time', () => {
   // `Date.parse` follows the ECMAScript rule that a date-time with no offset is
   // *local* time, so the same recommendation and the same `now` produced
@@ -574,7 +630,7 @@ test('expiry: a date-only instant is rejected even though the parser accepts it'
   // whose expiry is the string `'2026'` is a producer bug, and silently reading
   // it as a real instant is how that bug ships.
   const nodes = [observed('n1')];
-  for (const bad of ['2026', '2026-11', '2026-11-23', '2026-11-23T10:00', '2026-11-23 10:00:00Z']) {
+  for (const bad of INVALID_INSTANTS) {
     const verdict = evaluateRecommendationStaleness({
       recommendation: recommendation(nodes, { basisAt: BASIS, expiresAt: bad }),
       now: '2026-08-19T10:30:00.000Z',
@@ -589,7 +645,9 @@ test('expiry: a date-only instant is rejected even though the parser accepts it'
 
 test('expiry: every accepted offset spelling denotes the same instant', () => {
   const nodes = [observed('n1')];
-  const spellings = ['2026-08-19T11:00:00Z', '2026-08-19T11:00:00.000Z', '2026-08-19T11:00:00+00:00', '2026-08-19T14:00:00+03:00'];
+  // Every spelling below denotes 2026-08-19T11:00Z exactly; the ones that do not
+  // are covered by the corpus test rather than here.
+  const spellings = ['2026-08-19T11:00:00Z', '2026-08-19T11:00:00.000Z', '2026-08-19T11:00:00+00:00', '2026-08-19T14:00:00+03:00', '2026-08-19T08:00:00-03:00', '2026-08-19T11:00Z'];
   for (const expiresAt of spellings) {
     const rec = recommendation(nodes, { basisAt: BASIS, expiresAt });
     assert.equal(
@@ -603,6 +661,102 @@ test('expiry: every accepted offset spelling denotes the same instant', () => {
       `${expiresAt} must expire at 11:00Z`,
     );
   }
+});
+
+/* ── the exported predicate ───────────────────────────────────────── */
+
+test('isInstant: accepts every instant the corpus calls valid', () => {
+  for (const value of VALID_INSTANTS) {
+    assert.equal(isInstant(value), true, `${value} must be accepted`);
+  }
+});
+
+test('isInstant: rejects every instant the corpus calls invalid', () => {
+  for (const value of INVALID_INSTANTS) {
+    assert.equal(isInstant(value), false, `${value} must be rejected`);
+  }
+});
+
+test('isInstant: a shape-valid string denoting no moment is rejected', () => {
+  // The single case that makes a pattern-only predicate wrong, called out on its
+  // own so a future contributor who "simplifies" `isInstant` to
+  // `INSTANT_PATTERN.test(value)` gets a failure that names the reason.
+  assert.equal(isInstant('2026-13-45T99:99:99Z'), false);
+  assert.equal(Number.isNaN(Date.parse('2026-13-45T99:99:99Z')), true, 'the fixture must be shape-valid and parse-invalid');
+});
+
+test('isInstant: an impossible date is rejected, not rolled over', () => {
+  // Found by the corpus test, not predicted. `Date.parse` repairs an impossible
+  // date instead of refusing it, and the repair is a real shift: an expiry
+  // written as the 30th of February is read as the 2nd of March, so the
+  // recommendation stays offerable two days past its stated life with nothing
+  // anywhere reporting it. The repaired value is a perfectly well-formed
+  // instant, so no downstream check can notice — which is what makes it the
+  // silent-repair class the contract condemns under `EFFORT_NOT_POSITIVE`.
+  const rolled: readonly (readonly [string, string])[] = [
+    ['2026-02-30T00:00:00Z', '2026-03-02'],
+    ['2026-02-29T00:00:00Z', '2026-03-01'],
+    ['2026-04-31T00:00:00Z', '2026-05-01'],
+    ['2026-08-19T24:00:00Z', '2026-08-20'],
+  ];
+  for (const [written, wouldBecome] of rolled) {
+    assert.equal(
+      new Date(Date.parse(written)).toISOString().slice(0, 10),
+      wouldBecome,
+      `the fixture must actually roll: ${written}`,
+    );
+    assert.equal(isInstant(written), false, `${written} must be rejected rather than shifted to ${wouldBecome}`);
+  }
+  // The genuine leap day must still be accepted, or the calendar check has
+  // simply become a ban on late February.
+  assert.equal(isInstant('2024-02-29T00:00:00Z'), true);
+});
+
+test('isInstant: rejects every non-string without coercing it', () => {
+  // `RegExp.prototype.test` coerces, so an exported pattern would answer about
+  // the string `'20260819'` when handed the number. A predicate over `unknown`
+  // is the surface that cannot be misread that way.
+  for (const value of [undefined, null, 20260819, Number.NaN, true, {}, [], new Date(0), ['2026-08-19T11:00:00Z']]) {
+    assert.equal(isInstant(value), false, `${String(value)} must be rejected`);
+  }
+});
+
+test('isInstant: agrees with the staleness verdict on every corpus value', () => {
+  // **The anti-drift assertion.** It ties the exported predicate to the internal
+  // judgement through *observable behaviour* rather than through shared code, so
+  // it still fails if someone later re-implements `isInstant` independently —
+  // which is precisely the mistake exporting it could otherwise invite. #34
+  // reached this judgement by passing the value as `now` and reading
+  // `INVALID_INSTANT`; that indirection and this predicate must never disagree,
+  // because #34 and #35 will be using both spellings at the same time.
+  const nodes = [observed('n1')];
+  for (const value of [...VALID_INSTANTS, ...INVALID_INSTANTS]) {
+    const viaStaleness = evaluateRecommendationStaleness({
+      recommendation: recommendation(nodes),
+      now: value,
+      currentFingerprints: fingerprintsFor(nodes),
+    });
+    const rejectedByStaleness = reasonsOf(viaStaleness).some(
+      (reason) => reason.code === 'INVALID_INSTANT' && reason.field === 'now',
+    );
+    assert.equal(
+      isInstant(value),
+      !rejectedByStaleness,
+      `isInstant and the staleness checker disagree about ${JSON.stringify(value)}`,
+    );
+  }
+});
+
+test('isInstant: the corpus is not vacuous on either side', () => {
+  // A corpus that drifted to all-valid or all-invalid would make every
+  // assertion above pass while testing one direction only.
+  assert.ok(VALID_INSTANTS.length >= 6, 'too few valid instants to be meaningful');
+  assert.ok(INVALID_INSTANTS.length >= 10, 'too few invalid instants to be meaningful');
+  assert.equal(VALID_INSTANTS.some((value) => isInstant(value)), true);
+  assert.equal(INVALID_INSTANTS.some((value) => !isInstant(value)), true);
+  // And the two lists must not overlap, which a copy-paste edit could produce.
+  const valid = new Set<string>(VALID_INSTANTS);
+  assert.deepEqual(INVALID_INSTANTS.filter((value) => valid.has(value)), []);
 });
 
 /* ── totality at the untyped boundary ─────────────────────────────── */
