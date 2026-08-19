@@ -85,6 +85,51 @@ class AppLocalizationsEn extends AppLocalizations {
   String get voiceCaptureStopTooltip => 'Stop Recording';
 
   @override
+  String get spokenPromptPrimaryAction => 'Speak what is on your mind';
+
+  @override
+  String get spokenPromptStopAction => 'Stop and review';
+
+  @override
+  String get spokenPromptListeningTitle => 'Listening';
+
+  @override
+  String get spokenPromptPermissionRequestMessage =>
+      'Allow speech access, then say the messy commitment as it comes to mind.';
+
+  @override
+  String get spokenPromptListeningMessage =>
+      'Say the commitment naturally. No audio is kept after transcription.';
+
+  @override
+  String get spokenPromptReviewTitle => 'Review before analysis';
+
+  @override
+  String get spokenPromptReviewMessage =>
+      'Edit the transcript below, then analyze it when it says what you meant.';
+
+  @override
+  String get spokenPromptPermissionDeniedTitle => 'Speech access is off';
+
+  @override
+  String get spokenPromptPermissionDeniedMessage =>
+      'Typed capture still works. You can use the keyboard and analyze your note.';
+
+  @override
+  String get spokenPromptUnavailableTitle => 'Speech is unavailable';
+
+  @override
+  String get spokenPromptUnavailableMessage =>
+      'Typed capture still works. Use the keyboard and analyze your note.';
+
+  @override
+  String get spokenPromptFailureTitle => 'Speech capture failed';
+
+  @override
+  String get spokenPromptFailureMessage =>
+      'Typed capture still works. Use the keyboard or try voice again.';
+
+  @override
   String get editingDisabledExplanation =>
       'Editing is temporarily unavailable to protect your scheduled time.';
 

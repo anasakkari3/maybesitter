@@ -3,7 +3,18 @@ import '../../models/activity_event.dart';
 import '../../models/capture_result.dart';
 import '../../models/commitment.dart';
 import '../../services/api/dtos/proposal_dtos.dart';
+import '../../services/contracts/speech_capture_service.dart';
 import '../../services/providers.dart';
+
+enum SpokenPromptStatus {
+  idle,
+  requestingPermission,
+  listening,
+  reviewingTranscript,
+  permissionDenied,
+  unavailable,
+  failed,
+}
 
 class CaptureState {
   final CaptureStatus status;
@@ -19,6 +30,8 @@ class CaptureState {
   final List<ClarificationOption> clarificationOptions;
   final String? errorMessage;
   final String? analysisNote;
+  final SpokenPromptStatus spokenPromptStatus;
+  final String? spokenPromptMessage;
 
   const CaptureState({
     this.status = CaptureStatus.idle,
@@ -34,12 +47,18 @@ class CaptureState {
     this.clarificationOptions = const [],
     this.errorMessage,
     this.analysisNote,
+    this.spokenPromptStatus = SpokenPromptStatus.idle,
+    this.spokenPromptMessage,
   });
 
   bool get isSubmitting =>
       status == CaptureStatus.analyzing ||
       status == CaptureStatus.submitting ||
       status == CaptureStatus.confirming;
+
+  bool get isListeningToSpeech =>
+      spokenPromptStatus == SpokenPromptStatus.requestingPermission ||
+      spokenPromptStatus == SpokenPromptStatus.listening;
 
   CaptureState copyWith({
     CaptureStatus? status,
@@ -55,6 +74,9 @@ class CaptureState {
     List<ClarificationOption>? clarificationOptions,
     String? errorMessage,
     String? analysisNote,
+    SpokenPromptStatus? spokenPromptStatus,
+    String? spokenPromptMessage,
+    bool clearSpokenPromptMessage = false,
   }) {
     return CaptureState(
       status: status ?? this.status,
@@ -70,12 +92,17 @@ class CaptureState {
       clarificationOptions: clarificationOptions ?? this.clarificationOptions,
       errorMessage: errorMessage ?? this.errorMessage,
       analysisNote: analysisNote ?? this.analysisNote,
+      spokenPromptStatus: spokenPromptStatus ?? this.spokenPromptStatus,
+      spokenPromptMessage: clearSpokenPromptMessage
+          ? null
+          : (spokenPromptMessage ?? this.spokenPromptMessage),
     );
   }
 }
 
 class CaptureNotifier extends StateNotifier<CaptureState> {
   final Ref ref;
+  String _speechBaseInput = '';
 
   CaptureNotifier(this.ref) : super(const CaptureState());
 
@@ -86,6 +113,127 @@ class CaptureNotifier extends StateNotifier<CaptureState> {
           ? state.status
           : (text.isNotEmpty ? CaptureStatus.editing : CaptureStatus.idle),
     );
+  }
+
+  Future<void> startSpokenPrompt({required String localeId}) async {
+    if (state.isSubmitting || state.isListeningToSpeech) return;
+
+    if (!ref.read(pilotPresenceFeatureFlagsProvider).voice) {
+      state = state.copyWith(
+        spokenPromptStatus: SpokenPromptStatus.unavailable,
+        clearSpokenPromptMessage: true,
+      );
+      return;
+    }
+
+    _speechBaseInput = state.rawInput.trim();
+    state = state.copyWith(
+      spokenPromptStatus: SpokenPromptStatus.requestingPermission,
+      clearSpokenPromptMessage: true,
+    );
+
+    final speechService = ref.read(speechCaptureServiceProvider);
+
+    try {
+      final result = await speechService.startListening(
+        localeId: localeId,
+        onTranscript: _applySpeechTranscript,
+        onFailure: _applySpeechFailure,
+        onDone: _finishSpeechReview,
+      );
+
+      if (!mounted) return;
+
+      if (!result.started) {
+        _applySpeechFailure(result.failureReason, result.message);
+        return;
+      }
+
+      if (state.spokenPromptStatus == SpokenPromptStatus.requestingPermission) {
+        state = state.copyWith(
+          spokenPromptStatus: SpokenPromptStatus.listening,
+          clearSpokenPromptMessage: true,
+        );
+      }
+    } catch (error) {
+      _applySpeechFailure(SpeechCaptureFailureReason.failed, '$error');
+    }
+  }
+
+  Future<void> stopSpokenPrompt() async {
+    if (!state.isListeningToSpeech) return;
+
+    await ref.read(speechCaptureServiceProvider).stopListening();
+    _finishSpeechReview();
+  }
+
+  Future<void> cancelSpokenPrompt() async {
+    if (!state.isListeningToSpeech) return;
+
+    await ref.read(speechCaptureServiceProvider).cancelListening();
+    _speechBaseInput = '';
+    state = state.copyWith(
+      spokenPromptStatus: state.rawInput.trim().isEmpty
+          ? SpokenPromptStatus.idle
+          : SpokenPromptStatus.reviewingTranscript,
+      clearSpokenPromptMessage: true,
+    );
+  }
+
+  void _applySpeechTranscript(SpeechCaptureTranscript transcript) {
+    if (!mounted) return;
+
+    state = state.copyWith(
+      rawInput: _mergeSpeechTranscript(_speechBaseInput, transcript.text),
+      status: CaptureStatus.editing,
+      spokenPromptStatus: transcript.isFinal
+          ? SpokenPromptStatus.reviewingTranscript
+          : SpokenPromptStatus.listening,
+      clearSpokenPromptMessage: true,
+    );
+  }
+
+  String _mergeSpeechTranscript(String base, String transcript) {
+    final cleanTranscript = transcript.trim();
+    if (base.isEmpty) return cleanTranscript;
+    if (cleanTranscript.isEmpty) return base;
+    return '$base $cleanTranscript'.trim();
+  }
+
+  void _applySpeechFailure(
+    SpeechCaptureFailureReason? reason,
+    String? message,
+  ) {
+    if (!mounted) return;
+
+    final status = reason == SpeechCaptureFailureReason.permissionDenied
+        ? SpokenPromptStatus.permissionDenied
+        : reason == SpeechCaptureFailureReason.unavailable
+        ? SpokenPromptStatus.unavailable
+        : SpokenPromptStatus.failed;
+
+    state = state.copyWith(
+      status: state.rawInput.trim().isEmpty ? CaptureStatus.idle : state.status,
+      spokenPromptStatus: status,
+      spokenPromptMessage: message,
+    );
+  }
+
+  void _finishSpeechReview() {
+    if (!mounted) return;
+
+    if (state.spokenPromptStatus != SpokenPromptStatus.listening &&
+        state.spokenPromptStatus != SpokenPromptStatus.requestingPermission) {
+      return;
+    }
+
+    state = state.copyWith(
+      spokenPromptStatus: state.rawInput.trim().isEmpty
+          ? SpokenPromptStatus.idle
+          : SpokenPromptStatus.reviewingTranscript,
+      clearSpokenPromptMessage: true,
+    );
+    _speechBaseInput = '';
   }
 
   Future<void> submitIntent([String? customText]) async {
@@ -212,9 +360,8 @@ class CaptureNotifier extends StateNotifier<CaptureState> {
 
     final resolved = state.extractedCommitments
         .map(
-          (c) => c.needsClarification
-              ? c.copyWith(needsClarification: false)
-              : c,
+          (c) =>
+              c.needsClarification ? c.copyWith(needsClarification: false) : c,
         )
         .toList();
     final initialSelections = resolved

@@ -22,8 +22,10 @@ import 'contracts/notification_service.dart';
 import 'contracts/pilot_presence_store.dart';
 import 'contracts/connectivity_service.dart';
 import 'contracts/pilot_trust_service.dart';
+import 'contracts/speech_capture_service.dart';
 import 'contracts/timezone_service.dart';
 import 'shared_preferences_pilot_presence_store.dart';
+import 'speech_to_text_capture_service.dart';
 import 'timezone_service_impl.dart';
 import 'routine_profile_notifier.dart';
 import 'mock/commitment_state_store.dart';
@@ -180,6 +182,10 @@ final reminderScheduleDecisionProvider =
 
 final connectivityServiceProvider = Provider<ConnectivityService>((ref) {
   return MockConnectivityService();
+});
+
+final speechCaptureServiceProvider = Provider<SpeechCaptureService>((ref) {
+  return SpeechToTextCaptureService();
 });
 
 final commitmentsStreamProvider = StreamProvider<List<Commitment>>((

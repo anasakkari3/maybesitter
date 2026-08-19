@@ -24,6 +24,17 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.maybesitter.maybesitterMobile</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>maybesitter</string>
+			</array>
+		</dict>
+	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSAppTransportSecurity</key>
@@ -33,6 +44,10 @@
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Connect to the development server on your Mac while testing the app.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Maybesitter uses the microphone only to transcribe what you say into editable capture text.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Maybesitter uses speech recognition only to create editable text before commitment analysis.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
