@@ -34,6 +34,7 @@
  * its arguments.
  */
 
+import { isConnectiveOnly, isEmptyTitle } from '../shared/connectives';
 import type {
   ConfirmationFailureCode,
   DecomposedProposal,
@@ -118,22 +119,6 @@ export interface ResolvedConfirmation {
  * ("and order the cake", "واطلب الكعكة") is a real step, and rejecting those
  * would break the very rows the clitic handling exists to support.
  */
-const CONNECTIVE_TITLES: ReadonlySet<string> = new Set([
-  'and',
-  'then',
-  'and then',
-  'also',
-  'next',
-  'و',
-  'ثم',
-  'وثم',
-  'وبعدها',
-  'بعدها',
-  'ו',
-  'ואז',
-  'וגם',
-  'אחכ',
-]);
 
 /**
  * Combining marks and invisible format characters, removed before any lookup.
@@ -150,8 +135,6 @@ const CONNECTIVE_TITLES: ReadonlySet<string> = new Set([
  *  - `\u0610-\u061A \u064B-\u065F \u0670 \u06D6-\u06ED` Arabic harakat and Quranic marks
  *  - `\u200B-\u200F \u061C \u202A-\u202E \u2066-\u2069 \uFEFF` zero-width and bidi controls
  */
-const INVISIBLE_MARKS =
-  /[\u0300-\u036F\u0591-\u05BD\u05BF\u05C1\u05C2\u05C4\u05C5\u05C7\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u200B-\u200F\u061C\u202A-\u202E\u2066-\u2069\uFEFF]/g;
 
 /**
  * Punctuation, symbols and separators that carry no meaning on their own.
@@ -172,7 +155,6 @@ const INVISIBLE_MARKS =
  * No `u` flag: every character here is in the BMP, so the class means the same
  * thing without it.
  */
-const TITLE_NOISE = /[\s.,;:!?،؛؟"'`()[\]{}«»“”‘’\u2010-\u2015+/&*=~|_\\@#%^<>…·•—–－·、。「」\u00a0-]+/g;
 
 /**
  * A title reduced to the form the violation checks compare on.
@@ -182,9 +164,6 @@ const TITLE_NOISE = /[\s.,;:!?،؛؟"'`()[\]{}«»“”‘’\u2010-\u2015+/&*=
  * cannot drift apart, which is exactly what happened when the edit path used a
  * bare `trim()`.
  */
-function normalizeTitle(title: string): string {
-  return title.replace(INVISIBLE_MARKS, '').replace(TITLE_NOISE, ' ').trim().toLowerCase();
-}
 
 /**
  * What is wrong with a title on its own, or null when nothing is.
@@ -196,9 +175,8 @@ function normalizeTitle(title: string): string {
  * received them.
  */
 function titleViolation(title: string): 'EMPTY_STEP' | 'CONJUNCTION_ONLY' | null {
-  const normalized = normalizeTitle(title);
-  if (normalized.length === 0) return 'EMPTY_STEP';
-  return CONNECTIVE_TITLES.has(normalized) ? 'CONJUNCTION_ONLY' : null;
+  if (isEmptyTitle(title)) return 'EMPTY_STEP';
+  return isConnectiveOnly(title) ? 'CONJUNCTION_ONLY' : null;
 }
 
 /* ── The fold ─────────────────────────────────────────────────────── */

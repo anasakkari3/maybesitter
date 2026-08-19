@@ -61,6 +61,7 @@
  *     carry indices, ids and lengths only.
  */
 
+import { isConnectiveOnly, isEmptyTitle } from '../shared/connectives';
 import type {
   DecompositionStepProposal,
   DecompositionViolation,
@@ -73,25 +74,6 @@ import type {
  * Hebrew forms also appear as prefixed clitics, and a step whose entire title is
  * the clitic is the same artefact.
  */
-const CONNECTIVE_ONLY = new Set([
-  'and',
-  'then',
-  'and then',
-  'also',
-  'plus',
-  'or',
-  'after',
-  'after that',
-  'ثم',
-  'و',
-  'وبعدها',
-  'بعدها',
-  'بعد ذلك',
-  'ואז',
-  'ו',
-  'וגם',
-  'ואחר כך',
-]);
 
 export interface DecompositionValidationInput {
   readonly sourceText: string;
@@ -156,17 +138,10 @@ function mergedSpanText(sourceText: string, spans: readonly SourceSpan[]): strin
 export type TitleAdmissionProblem = 'EMPTY_STEP' | 'CONJUNCTION_ONLY';
 
 export function titleAdmission(title: string): TitleAdmissionProblem | null {
-  const trimmed = title.trim();
   // An empty title is also, trivially, "only a connective". Reporting the
   // emptier fact is the actionable one.
-  if (trimmed.length === 0) return 'EMPTY_STEP';
-  return CONNECTIVE_ONLY.has(normalizeConnective(trimmed)) ? 'CONJUNCTION_ONLY' : null;
-}
-
-function normalizeConnective(title: string): string {
-  // Strip trailing punctuation only; interior spacing is significant because
-  // "and then" is a connective while "and thennews" is not a word at all.
-  return title.trim().replace(/[.,;:،؛!?]+$/, '').trim().toLowerCase();
+  if (isEmptyTitle(title)) return 'EMPTY_STEP';
+  return isConnectiveOnly(title) ? 'CONJUNCTION_ONLY' : null;
 }
 
 /**

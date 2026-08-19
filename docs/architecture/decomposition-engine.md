@@ -267,14 +267,24 @@ migration owed to nobody.
 
 ## Runtime controls
 
-Decomposition runs under the **`planning`** runtime module. There is no
-`decomposition` entry in `INTELLIGENCE_MODULES`, and adding one would edit a
-contract three parallel tracks share mid-sprint; `planning` is the module the
-roadmap files this capability under. `MAYBESITTER_FEATURE_PLANNING` and
-`MAYBESITTER_KILL_SWITCH_PLANNING` therefore control it. A disabled or
-kill-switched model path selects the rules detector and decomposition stays
-available — the model changes the quality of a split, never whether one is
-offered.
+Decomposition runs under its own **`decomposition`** runtime module.
+`MAYBESITTER_FEATURE_DECOMPOSITION` and `MAYBESITTER_KILL_SWITCH_DECOMPOSITION`
+control it. A disabled or kill-switched model path selects the rules detector
+and decomposition stays available — the model changes the quality of a split,
+never whether one is offered.
+
+During the sprint this borrowed `planning`, because registering a module would
+have edited a contract three parallel tracks shared. Integration is where that
+edit is safe, and it had to happen: audit envelopes carry the module name, so
+the borrowed name filed every decomposition event under a capability that did
+not produce it, and an operator reaching for the obvious switch would have found
+nothing.
+
+**The feature flag defaults to off**, so out of the box `resolveModuleRuntime`
+returns `rules_only`, the model provider is never called, and every proposal
+carries `fallbackUsed: true`. Correct by default — but it also means the model
+path is exercised by nothing in a default environment, and the rules detector
+is what actually runs.
 
 ## Migration
 
@@ -292,9 +302,12 @@ node --no-warnings --loader ./scripts/ts-resolver.mjs --test tests/decomposition
 
 ## Rollback
 
-1. Set `MAYBESITTER_KILL_SWITCH_PLANNING=true` to force the deterministic
+1. Set `MAYBESITTER_KILL_SWITCH_DECOMPOSITION=true` to force the deterministic
    detector while keeping decomposition available. This is the whole rollback
-   for a model-provider problem.
+   for a model-provider problem — and only for that. Because the flag defaults
+   to off, the rules detector is already what runs in a default environment, so
+   this switch does nothing for a detector or validator defect. Step 2 is the
+   lever for those.
 2. For a detector or validator problem, stop callers from invoking
    `proposeDecompositionBoundary` and rule on already-issued proposals
    explicitly — a proposal is an offer and expires harmlessly if ignored.
@@ -302,14 +315,14 @@ node --no-warnings --loader ./scripts/ts-resolver.mjs --test tests/decomposition
 
 **The kill switch does not stop confirmations.** `proposeDecompositionBoundary`
 consults `resolveModuleRuntime`; `confirmDecomposition` does not, so setting
-`MAYBESITTER_KILL_SWITCH_PLANNING` stops new proposals from using the model but
+`MAYBESITTER_KILL_SWITCH_DECOMPOSITION` stops new proposals from using the model but
 does **not** block an already-issued proposal from being confirmed and written.
 This mirrors Sprint 01, where `confirmCapture` likewise does not consult runtime
 controls, and it is deliberate rather than overlooked: the rules-only contract's
 `allowsDirectStateWrites: false` governs writes the *module* makes on its own,
-not writes a user explicitly confirmed, and `planning` defaults to flag-off — so
-gating confirmation on it would block every confirmation by default and strand
-proposals a user had already ruled on. Step 2 below is therefore load-bearing
+not writes a user explicitly confirmed, and `decomposition` defaults to flag-off
+— so gating confirmation on it would block every confirmation by default and
+strand proposals a user had already ruled on. Step 2 below is therefore load-bearing
 and not optional: stopping callers is what stops writes.
 
 No canonical-state rollback is required at any step: proposing never writes, and

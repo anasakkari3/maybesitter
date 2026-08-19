@@ -30,6 +30,7 @@ import { validateDecompositionExample } from '../../lib/decomposition/evaluation
 import { reduceStepDecisions, finalizeProposalState, resolveConfirmedSteps } from '../../lib/decomposition/proposal/proposalStateMachine.ts';
 import { INTELLIGENCE_MODULES, INTELLIGENCE_MODULE_CONTRACTS } from '../../src/contracts/v1/moduleContracts.ts';
 import { DECOMPOSITION_SCHEMA_VERSION } from '../../src/contracts/v1/decompositionContracts.ts';
+import { CONNECTIVE_TITLE_LIST } from '../../lib/decomposition/shared/connectives.ts';
 import type {
   DecompositionExample,
   DecompositionStepProposal,
@@ -236,6 +237,99 @@ test('cross-track: a self-edge earns exactly one code, in both tracks', () => {
   ];
   assert.deepEqual(codesFromValidator(HOST.sourceText, mutated), ['SELF_DEPENDENCY']);
   assert.deepEqual(codesFromEvaluator(exampleWith(HOST, mutated)), ['SELF_DEPENDENCY']);
+});
+
+/**
+ * Every entry in the shared lexicon, through both tracks.
+ *
+ * The first version of this file probed `CONJUNCTION_ONLY` with the single
+ * string "and", and reported agreement. A differential fuzz later found the two
+ * tracks disagreeing on 8 of 9 connectives and a third reading in #25 that
+ * nothing compared at all — 20 of 31 probed titles diverged somewhere. One
+ * example per code is enough to check that a code exists; it is not enough to
+ * check that two implementations mean the same thing by it. This iterates the
+ * vocabulary instead of sampling it.
+ */
+for (const connective of CONNECTIVE_TITLE_LIST) {
+  test(`cross-track: both tracks call ${JSON.stringify(connective)} a connective`, () => {
+    const steps = [{ ...baseSteps()[0], title: connective }, baseSteps()[1], baseSteps()[2]];
+    const fromValidator = codesFromValidator(HOST.sourceText, steps);
+    const fromEvaluator = codesFromEvaluator(exampleWith(HOST, steps));
+    assert.ok(fromValidator.includes('CONJUNCTION_ONLY'), `#27 did not flag ${connective}`);
+    assert.deepEqual(fromEvaluator, fromValidator);
+  });
+}
+
+/**
+ * The forms a splitter actually leaves behind.
+ *
+ * Diacritics and pasted bidi marks are ordinary in this product's input and
+ * make a different string of the same visible word; punctuation clings to
+ * whichever side the cut was made. Each of these defeated at least one of the
+ * three lexicons before they were unified.
+ */
+const NORMALISATION_FORMS: readonly string[] = [
+  '  , and  ',
+  'and.',
+  'ثم،',
+  '  ثُمَّ  ',
+  'وَ',
+  '\u200Fو',
+  'AND',
+  'And Then',
+];
+
+for (const form of NORMALISATION_FORMS) {
+  test(`cross-track: both tracks normalise ${JSON.stringify(form)} to a connective`, () => {
+    const steps = [{ ...baseSteps()[0], title: form }, baseSteps()[1], baseSteps()[2]];
+    const fromValidator = codesFromValidator(HOST.sourceText, steps);
+    const fromEvaluator = codesFromEvaluator(exampleWith(HOST, steps));
+    assert.ok(fromValidator.includes('CONJUNCTION_ONLY'), `#27 did not flag ${JSON.stringify(form)}`);
+    assert.deepEqual(fromEvaluator, fromValidator);
+  });
+}
+
+/**
+ * The other direction, which matters more.
+ *
+ * A step that merely begins with a connective is a real step. Over-firing here
+ * would delete the Arabic and Hebrew clitic rows the sprint exists to support,
+ * so it is pinned alongside the under-firing cases rather than trusted.
+ */
+const REAL_STEPS: readonly string[] = [
+  'then call the bank',
+  'and order the cake',
+  'واطلب الكعكة',
+  'ותזמין עוגה',
+  'after the meeting call Sam',
+];
+
+for (const title of REAL_STEPS) {
+  test(`cross-track: neither track calls ${JSON.stringify(title)} a mere connective`, () => {
+    const steps = [{ ...baseSteps()[0], title }, baseSteps()[1], baseSteps()[2]];
+    assert.ok(!codesFromValidator(HOST.sourceText, steps).includes('CONJUNCTION_ONLY'));
+    assert.ok(!codesFromEvaluator(exampleWith(HOST, steps)).includes('CONJUNCTION_ONLY'));
+  });
+}
+
+/**
+ * A malformed span must earn one code, not two, in both tracks.
+ *
+ * #27 pushed a span into the overlap pass before checking its exactness, so a
+ * forged span both mismatched and collided with itself. A differential fuzz of
+ * 5000 cases found 562 divergences, every one this shape.
+ */
+test('cross-track: a forged span is a mismatch and nothing else, in both tracks', () => {
+  const steps = baseSteps();
+  const forged = [
+    { ...steps[0], sourceSpans: [{ start: 0, end: 14, text: 'WRONG' }, { start: 5, end: 14, text: 'ALSO WRONG' }] },
+    steps[1],
+    steps[2],
+  ];
+  const fromValidator = codesFromValidator(HOST.sourceText, forged);
+  const fromEvaluator = codesFromEvaluator(exampleWith(HOST, forged));
+  assert.deepEqual(fromEvaluator, fromValidator);
+  assert.ok(!fromValidator.includes('SPAN_OVERLAP'), 'a span already rejected as inexact must not also be charged as overlapping');
 });
 
 /* ── The path the sprint exists to build ─────────────────────────── */

@@ -52,6 +52,7 @@
  * produce identical violations in identical order, so a metric report built
  * from them is a committed artifact rather than a moving one.
  */
+import { isConnectiveOnly, isEmptyTitle } from '../shared/connectives';
 import type { ValidationIssue } from '../../evaluation/registry/contracts';
 import { IssueCollector } from '../../evaluation/registry/validationPrimitives';
 import type {
@@ -77,30 +78,6 @@ import type {
  * splitter that strips the prefix and keeps it as its own token produces
  * exactly that.
  */
-const CONJUNCTION_ONLY_TITLES: readonly string[] = Object.freeze([
-  // English
-  'and',
-  'then',
-  'and then',
-  'also',
-  'or',
-  'plus',
-  'after that',
-  // Arabic
-  'و',
-  'ثم',
-  'وثم',
-  'بعدها',
-  'وبعدها',
-  'أو',
-  'او',
-  // Hebrew
-  'ו',
-  'ואז',
-  'אז',
-  'או',
-  'ואחר כך',
-]);
 
 /**
  * Punctuation stripped before comparing a title against the connective list.
@@ -110,11 +87,7 @@ const CONJUNCTION_ONLY_TITLES: readonly string[] = Object.freeze([
  * a compile error. The class covers the separators a splitter actually leaves
  * behind, including the Arabic comma and full stop.
  */
-const TRIM_PUNCTUATION = /^[\s.,;:!?"'()[\]{}،؛؟۔׃–—-]+|[\s.,;:!?"'()[\]{}،؛؟۔׃–—-]+$/g;
 
-function normaliseTitle(title: string): string {
-  return title.replace(TRIM_PUNCTUATION, '').toLowerCase();
-}
 
 /**
  * The spans of a step, merged into non-overlapping ranges in offset order.
@@ -241,10 +214,9 @@ export function validateProposedSteps(
     }
     seenStepIds.add(stepId);
 
-    const normalised = normaliseTitle(step.title);
-    if (step.title.trim().length === 0) {
+    if (isEmptyTitle(step.title)) {
       violations.push(violation('EMPTY_STEP', stepId, `step '${stepId}' has a blank title`));
-    } else if (CONJUNCTION_ONLY_TITLES.indexOf(normalised) >= 0) {
+    } else if (isConnectiveOnly(step.title)) {
       violations.push(
         violation(
           'CONJUNCTION_ONLY',
