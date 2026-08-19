@@ -167,17 +167,58 @@ test('nothing under lib/decomposition reaches a route handler, the mobile app, o
   }
 });
 
-test('#27 imports neither sibling Sprint 06 track', () => {
+test('#27 reaches the proposal reducer and nothing else from a sibling track', () => {
+  // This test used to read "#27 imports neither sibling Sprint 06 track", and
+  // that was right while the three tracks were being built in parallel against
+  // contracts written first. It is deliberately no longer true. The sprint
+  // shipped two complete confirmation boundaries implementing the same
+  // mechanism — #25's reducer plus store plus declared port, and #27's boundary
+  // service plus store plus adapter — and four review rounds each found a
+  // defect on one side that had already been fixed on the other. The
+  // consolidation deleted #25's plumbing and made this module call #25's
+  // reducer, so there is one answer to "what does this ruling mean" and it sits
+  // behind the one path that writes.
+  //
+  // The rule that replaces the old one is narrower, not weaker: exactly one
+  // file from a sibling track, and it is the pure reducer. #26's evaluator is
+  // still forbidden outright — it is the independent second reading of the
+  // violation vocabulary, and an import would make the cross-track comparison
+  // compare a thing with itself.
+  //
+  // Matched on the *resolved* repo path, not on the specifier text. The old
+  // pattern was anchored on `decomposition/(proposal|evaluation)` and this
+  // module would spell the import `../proposal/...`, which that pattern never
+  // saw — so it would have gone on reporting a clean separation across the very
+  // edge it existed to forbid.
   const closure = importClosure(sourceFiles(engineDir).concat(sourceFiles(boundaryDir)));
-  for (const entry of Array.from(closure.entries())) {
-    const [file, specifiers] = entry;
-    for (const specifier of specifiers) {
-      assert.equal(
-        /decomposition\/(proposal|evaluation)/.test(specifier),
-        false,
-        `${relative(file)} reaches "${specifier}"; the three Sprint 06 tracks coordinate through contracts only`,
-      );
-    }
+  const siblingFiles = Array.from(closure.keys())
+    .map(relative)
+    .filter((file) => /^lib\/decomposition\/(proposal|evaluation)\//.test(file))
+    .sort();
+
+  assert.deepEqual(
+    siblingFiles,
+    ['lib/decomposition/proposal/proposalStateMachine.ts'],
+    'the boundary may reach the reducer and nothing else across a track line',
+  );
+});
+
+test('the reducer stays a leaf of #27: nothing it pulls in belongs to this track', () => {
+  // The edge runs boundary -> proposal and must never run back. The reverse
+  // direction is banned from the other side too
+  // (tests/decomposition/proposalBoundaries.test.ts), but a cycle would be
+  // reported there as a sibling-track violation and here as nothing at all, so
+  // it is worth one assertion in the direction the import actually exists.
+  const reducer = join(repoRoot, 'lib', 'decomposition', 'proposal', 'proposalStateMachine.ts');
+  const closure = importClosure([reducer]);
+
+  for (const file of Array.from(closure.keys())) {
+    const name = relative(file);
+    assert.equal(
+      /^lib\/decomposition\/(engine|boundary|evaluation)\//.test(name),
+      false,
+      `${name} is reachable from the reducer; the reducer must stay a pure leaf`,
+    );
   }
 });
 

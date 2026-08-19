@@ -238,7 +238,66 @@ function stepsInCycle(steps: readonly DecompositionStepProposal[]): ReadonlySet<
  * into every log line that prints violations. Ids that look like ids are named;
  * anything else is reported positionally, the way the `SPAN_*` codes already do.
  */
-const SAFE_STEP_ID = /^[A-Za-z0-9_.:-]{1,64}$/;
+const SAFE_STEP_ID = /^[A-Za-z0-9_.:-]{1,32}$/;
+
+/**
+ * Separator runs, and how many an id may contain.
+ *
+ * The character class alone is not a content test, and treating it as one was
+ * the defect. `[A-Za-z0-9_.:-]{1,64}` is exactly "a sentence with the spaces
+ * replaced": `Tell-my-therapist-I-relapsed-on-Tuesday` and
+ * `card_4111111111111111_cvv_123` both matched and were emitted verbatim into
+ * `detail`, which travels with the proposal and into every log line that prints
+ * a violation.
+ *
+ * Two bounds, because either alone is escapable. The length cap is well under
+ * the old 64 so a sentence does not fit; the separator-run cap is what a
+ * sentence cannot avoid, since the separators are where its spaces went. An id
+ * a detector or a person actually mints — `s1`, `step_3`, `a:b`, `A-1` — has at
+ * most a couple of them. Anything else is reported positionally, the way the
+ * `SPAN_*` codes already do.
+ *
+ * This is the same rule `lib/decomposition/evaluation/example.ts` applies, so
+ * the two tracks redact the same ids.
+ */
+const SEPARATOR_RUNS = /[_.:-]+/g;
+const MAX_SEPARATOR_RUNS = 2;
+
+function isNameableStepId(stepId: string): boolean {
+  if (!SAFE_STEP_ID.test(stepId)) return false;
+  const runs = stepId.match(SEPARATOR_RUNS);
+  return runs === null || runs.length <= MAX_SEPARATOR_RUNS;
+}
+
+/**
+ * How many findings one validation returns, and how much `detail` they may
+ * carry between them.
+ *
+ * `normaliseDraft` caps a draft at 200 steps and `validateDecomposition` had no
+ * step cap of its own, so a legal draft at that limit — every step claiming the
+ * same words — produced 19,900 `SPAN_OVERLAP` findings carrying 1.12 MB of
+ * `detail`. A violation list travels with the proposal and into audit records,
+ * so an unbounded report is an unbounded payload on a path nobody inspects.
+ *
+ * **What a caller sees when the cap is hit:** the first `MAX_VIOLATIONS`
+ * findings in the order they were derived, and no marker saying more were
+ * dropped. That is deliberate. `DecompositionViolationCode` is frozen in the
+ * contract and shared with #26's evaluator, so there is no "report truncated"
+ * code to emit, and inventing a private one here is precisely what the shared
+ * vocabulary exists to prevent. It costs nothing that matters: the *verdict* is
+ * "this list is non-empty, so the proposal is rejected", and that does not
+ * depend on the count. What a truncated report loses is diagnosis, and a
+ * proposal with more than two hundred findings is not one a reviewer was going
+ * to read to the end anyway.
+ *
+ * The one real consequence: the proposal-level codes (`CYCLIC_DEPENDENCY`,
+ * `SPLIT_ATOMIC`) are derived last, so a report already at the cap will not
+ * carry them. Findings are kept earliest-first rather than reordered, because
+ * a cap that reshuffles which defect is reported first would make the report
+ * depend on how full it was.
+ */
+export const MAX_VIOLATIONS = 200;
+export const MAX_VIOLATION_DETAIL_TOTAL = 20_000;
 
 /**
  * How many ids a `detail` will name before summarising the rest.
@@ -257,7 +316,7 @@ function nameSome(ids: readonly string[]): string {
 }
 
 function safeStepId(steps: readonly DecompositionStepProposal[], stepId: string): string {
-  if (SAFE_STEP_ID.test(stepId)) return stepId;
+  if (isNameableStepId(stepId)) return stepId;
   const index = steps.findIndex((step) => step.stepId === stepId);
   return index >= 0 ? `step#${index}` : 'step#unknown';
 }
@@ -267,11 +326,22 @@ export function validateDecomposition(
 ): readonly DecompositionViolation[] {
   const { sourceText, steps } = input;
   const violations: DecompositionViolation[] = [];
+  // Both bounds live in `add` rather than in a slice at the end, so the
+  // pathological input costs nothing rather than being built and then thrown
+  // away — the 19,900-finding case allocated 1.12 MB before anyone could
+  // truncate it.
+  let detailBudget = MAX_VIOLATION_DETAIL_TOTAL;
+  let capped = false;
   const add = (
     code: DecompositionViolation['code'],
     stepId: string | null,
     detail: string,
   ): void => {
+    if (violations.length >= MAX_VIOLATIONS || detail.length > detailBudget) {
+      capped = true;
+      return;
+    }
+    detailBudget -= detail.length;
     violations.push({ code, stepId, detail });
   };
 
@@ -403,8 +473,11 @@ export function validateDecomposition(
   const overlaps = (a: SourceSpan, b: SourceSpan): boolean =>
     a.start < b.end && b.start < a.end;
 
-  for (let leftIndex = 0; leftIndex < claimingSteps.length; leftIndex += 1) {
-    for (let rightIndex = leftIndex; rightIndex < claimingSteps.length; rightIndex += 1) {
+  for (let leftIndex = 0; leftIndex < claimingSteps.length && !capped; leftIndex += 1) {
+    // Once the report is full nothing further can be recorded, so the remaining
+    // pairs are pure work. Bailing here is what keeps a 200-step draft from
+    // walking 19,900 pairs to produce nothing.
+    for (let rightIndex = leftIndex; rightIndex < claimingSteps.length && !capped; rightIndex += 1) {
       const left = claimingSteps[leftIndex];
       const right = claimingSteps[rightIndex];
       const leftSpans = spansByStep.get(left) as SourceSpan[];

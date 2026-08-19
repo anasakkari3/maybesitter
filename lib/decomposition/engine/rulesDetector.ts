@@ -76,8 +76,10 @@ import type {
  * are both wanted, not that one waits for the other, and asserting a temporal
  * edge there would invent a constraint the user never stated.
  */
-const SEQUENCE_WORDS = new Set(['then', 'afterwards', 'ثم', 'وبعدها', 'بعدها', 'ואז', 'אז']);
-const SEQUENCE_PHRASES = new Set([
+const SEQUENCE_WORD_LIST: readonly string[] = Object.freeze([
+  'then', 'afterwards', 'ثم', 'وبعدها', 'بعدها', 'ואז', 'אז',
+]);
+const SEQUENCE_PHRASE_LIST: readonly string[] = Object.freeze([
   'and then',
   'after that',
   'بعد ذلك',
@@ -88,7 +90,39 @@ const SEQUENCE_PHRASES = new Set([
 ]);
 
 /** Coordination without ordering. */
-const CONJUNCTION_WORDS = new Set(['and', 'also', 'plus', 'و', 'وكذلك', 'ו', 'וגם']);
+const CONJUNCTION_WORD_LIST: readonly string[] = Object.freeze([
+  'and', 'also', 'plus', 'و', 'وكذلك', 'ו', 'וגם',
+]);
+
+export const SEQUENCE_WORDS: ReadonlySet<string> = new Set(SEQUENCE_WORD_LIST);
+export const SEQUENCE_PHRASES: ReadonlySet<string> = new Set(SEQUENCE_PHRASE_LIST);
+export const CONJUNCTION_WORDS: ReadonlySet<string> = new Set(CONJUNCTION_WORD_LIST);
+
+/**
+ * Every word or phrase this detector will cut a clause at.
+ *
+ * Derived from the three sets above rather than written out again, so it cannot
+ * become a stale copy of them — a separately-maintained list would keep the
+ * subset test green while the sets it claims to describe drifted.
+ *
+ * It exists because the relationship between these markers and
+ * `lib/decomposition/shared/connectives.ts` was maintained by hand. A word the
+ * splitter treats as a clause boundary is, by definition, a split artefact when
+ * it arrives back as a whole step title — so a marker missing from the shared
+ * lexicon is a residue the validator will not reject and the boundary will
+ * persist. Five markers were folded into that lexicon only after a reviewer
+ * noticed; tests/decomposition/engineRulesDetector.test.ts now fails if a sixth
+ * is ever added here without being added there. The lists must stay separate
+ * — the lexicon is a superset, containing artefacts this detector never emits
+ * — so the check is a subset assertion, not a shared constant.
+ *
+ * Exported for that test only. It is a description of this module's behaviour,
+ * which is why it lives here rather than in the test that reads it: a copy in a
+ * test file is a copy that can be wrong.
+ */
+export const DETECTOR_BOUNDARY_MARKERS: readonly string[] = Object.freeze(
+  SEQUENCE_WORD_LIST.concat(SEQUENCE_PHRASE_LIST).concat(CONJUNCTION_WORD_LIST),
+);
 
 const PUNCTUATION_BOUNDARY = /[,;،؛]/;
 

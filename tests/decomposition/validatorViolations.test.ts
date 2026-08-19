@@ -17,7 +17,11 @@ import type {
   DecompositionViolationCode,
   SourceSpan,
 } from '../../src/contracts/v1/decompositionContracts.ts';
-import { validateDecomposition } from '../../lib/decomposition/engine/validator.ts';
+import {
+  MAX_VIOLATIONS,
+  MAX_VIOLATION_DETAIL_TOTAL,
+  validateDecomposition,
+} from '../../lib/decomposition/engine/validator.ts';
 import { DECOMPOSITION_GOLDEN } from '../fixtures/decompositionGolden.ts';
 
 const SOURCE = 'Book the venue and send the invitations.';
@@ -524,4 +528,79 @@ test('a proposal of span-less steps costs nothing to check for overlap', () => {
   validateDecomposition({ sourceText: SOURCE, steps: spanless });
   const elapsed = Date.now() - started;
   assert.ok(elapsed < 400, `took ${elapsed} ms`);
+});
+
+/* ── The report itself is bounded (consolidation review) ─────────── */
+
+test('a legal 200-step draft cannot turn into a megabyte of violations', () => {
+  // `normaliseDraft` admits up to 200 steps, and `validateDecomposition` had no
+  // step cap of its own — so a draft at that limit, every step claiming the
+  // same words, produced 19,900 SPAN_OVERLAP findings carrying 1.12 MB of
+  // `detail`. A violation list travels with the proposal and into audit, so an
+  // unbounded report is an unbounded payload on that path.
+  const many = Array.from({ length: 200 }, (_, index) => step({
+    stepId: `s${index}`,
+    sourceSpans: [at(SOURCE, 'Book the venue')],
+  }));
+  const violations = validateDecomposition({ sourceText: SOURCE, steps: many });
+
+  assert.deepEqual(codes(violations), ['SPAN_OVERLAP']);
+  assert.ok(
+    violations.length <= MAX_VIOLATIONS,
+    `expected at most ${MAX_VIOLATIONS} violations, got ${violations.length}`,
+  );
+  const detailBytes = violations.reduce((total, violation) => total + violation.detail.length, 0);
+  assert.ok(
+    detailBytes <= MAX_VIOLATION_DETAIL_TOTAL,
+    `expected at most ${MAX_VIOLATION_DETAIL_TOTAL} characters of detail, got ${detailBytes}`,
+  );
+});
+
+test('the cap does not bite on a proposal a reviewer could actually read', () => {
+  // The bound must not turn an ordinary report into a truncated one. Three
+  // steps colliding pairwise is three findings and stays three.
+  const a = step({ stepId: 'a' });
+  const b = step({ stepId: 'b' });
+  const c = step({ stepId: 'c' });
+  assert.equal(validateDecomposition({ sourceText: SOURCE, steps: [a, b, c] }).length, 3);
+});
+
+test('a step id that reads like a sentence is reported positionally, never quoted', () => {
+  // `safeStepId` tested the character class and the length only, so any string
+  // of up to 64 characters over [A-Za-z0-9_.:-] was emitted verbatim — which is
+  // a sentence with the spaces replaced. `detail` is contractually free of raw
+  // user text, and a violation travels into every log line that prints it.
+  for (const smuggled of [
+    'Tell-my-therapist-I-relapsed-on-Tuesday',
+    'card_4111111111111111_cvv_123',
+    'she.said.she.is.leaving.me.in.March',
+  ]) {
+    const violations = validateDecomposition({
+      sourceText: SOURCE,
+      steps: [
+        step({ stepId: 'other', sourceSpans: [], inferred: true, title: 'x', dependsOn: [{ dependsOnStepId: smuggled, kind: 'temporal' }] }),
+        step({ stepId: smuggled, sourceSpans: [], inferred: true, title: 'x', dependsOn: [{ dependsOnStepId: 'other', kind: 'temporal' }] }),
+      ],
+    });
+    const serialized = JSON.stringify(violations.map((violation) => violation.detail));
+    assert.equal(serialized.includes(smuggled), false, `detail leaked ${smuggled}`);
+    assert.match(serialized, /other/, 'a well-formed id is still named, per the cardinality ruling');
+  }
+});
+
+test('the ids an engine actually mints are still named in a detail', () => {
+  // The mirror. Tightening the redaction must not turn every cycle report into
+  // a list of positions: `s1`, `s2`, `step.3`, `a:b` are ids, not sentences.
+  for (const id of ['s1', 's12', 'step_3', 'step.3', 'a:b', 'A-1']) {
+    const violations = validateDecomposition({
+      sourceText: SOURCE,
+      steps: [
+        step({ stepId: id, sourceSpans: [], inferred: true, title: 'x', dependsOn: [{ dependsOnStepId: 'other', kind: 'temporal' }] }),
+        step({ stepId: 'other', sourceSpans: [], inferred: true, title: 'x', dependsOn: [{ dependsOnStepId: id, kind: 'temporal' }] }),
+      ],
+    });
+    const cycle = violations.find((violation) => violation.code === 'CYCLIC_DEPENDENCY');
+    assert.ok(cycle, `${id} should have produced a cycle`);
+    assert.ok(cycle.detail.includes(id), `${id} is an ordinary id and must still be named`);
+  }
 });

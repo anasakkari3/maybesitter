@@ -1,7 +1,24 @@
 # Decomposition proposal and confirmation boundary
 
-Sprint 06, issue #25. Companion to `docs/architecture/capture-boundary.md`, which
-established the shape this follows.
+Sprint 06, issues #25 and #27. Companion to `docs/architecture/capture-boundary.md`,
+which established the shape this follows.
+
+## One confirmation path
+
+The sprint originally shipped **two** complete confirmation boundaries
+implementing the same mechanism: #25's reducer plus `proposalStore.ts` plus a
+declared `persistencePort.ts`, and #27's `decompositionBoundaryService.ts` plus
+`proposalStore.ts` plus `persistenceAdapter.ts`. They could not interoperate —
+`TransactionalDecompositionPersistenceAdapter` does not implement
+`DecompositionPersistencePort` — nothing outside the tests imported #25's side,
+and four review rounds each found a defect on one side that had already been
+fixed on the other.
+
+Integration consolidated them. #25's pure reducer and entry validation survive
+because they are that issue's actual deliverable; #25's store and port were
+deleted; and `confirmDecomposition` now calls the reducer instead of carrying
+its own `resolveDecisions`. There is one answer to "what does this ruling mean",
+and it sits behind the one path that writes.
 
 ## Contract and ownership
 
@@ -11,18 +28,22 @@ only produce a proposal. A proposal carries no persisted or applied field, and
 no proposal type carries a mutation of the commitment it describes: decomposition
 adds steps *beside* a commitment and never rewrites it.
 
-Canonical writes belong only to an implementation of
-`DecompositionPersistencePort`, which `lib/decomposition/proposal/persistencePort.ts`
-declares and deliberately does not implement. The adapter that satisfies it is
-#27's, and it is not production-routed in Sprint 06.
+Canonical writes belong only to `DecompositionPersistenceAdapter`, declared and
+implemented in `lib/decomposition/boundary/persistenceAdapter.ts`. The reducer
+cannot reach it: `lib/decomposition/proposal/**` may not import a sibling track,
+which `tests/decomposition/proposalBoundaries.test.ts` enforces by walking the
+transitive import closure. The dependency runs boundary → proposal only, and
+the boundary is not production-routed in Sprint 06.
 
 ```text
 commitment text
 → engine proposal (#27, untrusted)
-→ entry validation at admission (shared violation vocabulary)
+→ proposal store (in-memory, scoped, never persisted)
+→ request normalised once into plain data
+→ entry validation (shared violation vocabulary)
 → accept / edit / reject reducer, one explicit verdict per step
-→ complete, well-formed confirmation request
-→ injected persistence port
+→ complete, well-formed confirmation
+→ transactional persistence adapter
 → canonical state
 ```
 
@@ -30,8 +51,10 @@ commitment text
 |---|---|
 | Pure reducer over proposal state | `lib/decomposition/proposal/proposalStateMachine.ts` |
 | Entry validation | `validateProposalEntry` in the same file |
-| Persistence seam (interface only) | `lib/decomposition/proposal/persistencePort.ts` |
-| Store, scope check, idempotency | `lib/decomposition/proposal/proposalStore.ts` |
+| Request normalisation, one read per field | `normaliseStepDecisions` in the same file |
+| Propose, confirm, audit | `lib/decomposition/boundary/decompositionBoundaryService.ts` |
+| Store, scope check, idempotency, claim | `lib/decomposition/boundary/proposalStore.ts` |
+| Persistence seam and its transactional implementation | `lib/decomposition/boundary/persistenceAdapter.ts` |
 
 ## The corrected premise: not a domain state transition
 
@@ -43,7 +66,7 @@ reads that type, and Sprint 06 has no production route. Extending `DomainState`
 for a feature nobody can reach would push a schema change into a shared surface
 for no live consumer. So the state machine is a **pure reducer over proposal-local
 state**, `DomainState` is unchanged this sprint, and confirmed steps leave
-through the injected port.
+through the boundary's injected adapter.
 
 `tests/decomposition/proposalBoundaries.test.ts` bans `src/domain/stateMachine`
 from the module's transitive import closure, so this decision cannot quietly
@@ -204,11 +227,14 @@ a caller mutating its own object after admission cannot change what was admitted
     comment match the import pattern and consume past a real `import` statement
     — a false negative that hid the contract chain's edge to
     `src/domain/stateMachine` entirely.
-  - It distinguishes erased `import type` edges from value edges. The frozen
-    contract chain reaches `src/domain/stateMachine` through exactly one
-    `import type` (`lifeStateContracts.ts` naming `DomainState`) and no other
-    edge. A type import executes nothing and can write nothing; a test asserts
-    that this edge stays type-only and that no runtime path reaches that module.
+  - It distinguishes erased `import type` edges from value edges. Since the
+    consolidation the reducer names the decomposition contract in `import type`
+    only, so its entire runtime closure is `lib/decomposition/shared/connectives.ts`
+    and the contract chain is not walked at all; the test asserts that leaf
+    property directly, which is strictly stronger than the previous "the one
+    edge to `src/domain/stateMachine` is type-only". That older fact is still
+    asserted about `lifeStateContracts.ts` itself, because it is what keeps any
+    contract importer from picking up a runtime dependency on canonical state.
   - An unresolvable non-bare specifier throws rather than returning null, so an
     edge the scanner cannot follow is a failure instead of a silent gap.
 - Kill-switch behaviour follows the Sprint 00 runtime controls and lives with
@@ -234,21 +260,19 @@ migrated, this boundary has no production traffic and alters no existing route.
 
 Nothing was written to user data, so there is nothing in user data to undo.
 
-1. Stop new consumers from calling `createInMemoryProposalStore`. There are none
-   in Sprint 06; this step exists for the sprint that routes it.
+1. Stop new consumers from calling `confirmDecomposition`. There are none in
+   Sprint 06; this step exists for the sprint that routes it.
 2. Allow or reject already-issued proposals explicitly. In-flight proposals are
    in-memory and are lost on restart, which is a lost offer, never a lost or
    half-applied commitment — nothing reached canonical state without a completed
    confirmation.
-3. Revert the focused #25 commits. `lib/decomposition/proposal/**`,
-   `tests/decomposition/proposal*.test.ts` and this document are the whole
-   surface, plus one additive member (`already_confirmed`) on
-   `ConfirmationFailureCode` in `src/contracts/v1/decompositionContracts.ts`.
-   That member must be left in place on a rollback: it is additive and changes
-   no existing member, and #27's boundary service now returns it
-   (`lib/decomposition/boundary/decompositionBoundaryService.ts`). Removing it
-   while reverting this track would break a module this rollback does not
-   touch.
+3. Revert the focused decomposition commits. `lib/decomposition/**`,
+   `tests/decomposition/**` and this document are the whole surface, plus one
+   additive member (`already_confirmed`) on `ConfirmationFailureCode` in
+   `src/contracts/v1/decompositionContracts.ts`. That member must be left in
+   place on a rollback: it is additive and changes no existing member. Note
+   that #25 and #27 can no longer be reverted independently — the consolidation
+   made the boundary depend on the reducer, which is the point of it.
 
 No canonical-state rollback is required, because proposal creation writes nothing
 and confirmation writes only through an injected port that Sprint 06 ships no
