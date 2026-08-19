@@ -9,6 +9,7 @@ import '../design_system/theme/app_theme.dart';
 import '../features/onboarding/onboarding_screen.dart';
 import '../features/pilot/pilot_access_screen.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../services/native_notification_service.dart';
 import '../services/providers.dart';
 import '../services/widget_deep_link_service.dart';
 import 'router.dart';
@@ -70,6 +71,59 @@ class _MaybesitterAppState extends ConsumerState<MaybesitterApp> {
       _recordPilotLoopDeepLink(location);
       appRouter.go(location);
     });
+    unawaited(_startNotifications());
+  }
+
+  /// Bring the notification surface up and reconnect it to canonical state.
+  ///
+  /// Order matters. The gateway must be listening before we ask the platform
+  /// what it still holds, and an action that launched the app from a cold start
+  /// has to be replayed once -- otherwise pressing Done on a reminder while the
+  /// app is closed silently does nothing.
+  Future<void> _startNotifications() async {
+    final router = ref.read(notificationActionRouterProvider);
+    final gateway = ref.read(localNotificationsGatewayProvider);
+
+    try {
+      await gateway.initialize(
+        onAction: (event) => unawaited(_applyNotificationAction(event)),
+      );
+
+      final service = ref.read(notificationServiceProvider);
+      if (service is NativeNotificationService) {
+        // The platform outlived the process; adopt what it still has pending
+        // before scheduling anything new.
+        await service.restoreFromPlatform();
+      }
+
+      final launchAction = await gateway.takeLaunchAction();
+      if (launchAction != null) {
+        await router.handle(launchAction);
+      }
+    } catch (_) {
+      // A notification surface that fails to start must not take the app with
+      // it. Capture and the rest of the product still work without it.
+    }
+
+    _syncSoftAwarenessSchedules();
+  }
+
+  Future<void> _applyNotificationAction(
+    NativeNotificationActionEvent event,
+  ) async {
+    await ref.read(notificationActionRouterProvider).handle(event);
+    // The action just changed what is owed, so re-derive the schedule and the
+    // widget from the new state rather than assuming what changed.
+    _syncSoftAwarenessSchedules();
+    final commitments = ref.read(commitmentsStreamProvider).valueOrNull;
+    if (commitments != null &&
+        ref.read(pilotPresenceFeatureFlagsProvider).widget) {
+      unawaited(
+        ref
+            .read(pilotPresenceSnapshotPublisherProvider)
+            .publishWidgetSnapshot(commitments),
+      );
+    }
   }
 
   @override
