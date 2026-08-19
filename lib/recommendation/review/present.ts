@@ -992,7 +992,71 @@ function checkRecommendationSize(value: Record<string, unknown>): ReviewFinding[
   if (Array.isArray(value.reasons) && value.reasons.length > RECOMMENDATION_REVIEW_LIMITS.maxReasonsPerOption) {
     return [tooLarge('recommendation.reasons', 'a withheld recommendation states too many reasons')];
   }
+  // Every list of evidence references, wherever it hangs. This is the bound the
+  // other checks above do not imply and the one an attacker actually reaches:
+  // node *count* is linear and cheap, but each reference costs a
+  // `resolveEvidenceRoots` walk that rebuilds its node index, so refs × nodes
+  // is the real cost. A structurally valid, defect-free, fresh recommendation
+  // with 499 nodes and one reason repeating a single node id 400,000 times
+  // measured 8.2 seconds of CPU and returned 200 with a 3 KB body — nothing
+  // downstream saw anything wrong.
+  //
+  // `maxEvidenceRefsPerReason` was declared with the other limits and enforced
+  // nowhere; the sprint-level review found it by grepping for its own constant.
+  // A limit that exists only as a number is documentation of an intention.
+  const refsOverLimit = evidenceRefListsOverLimit(value);
+  if (refsOverLimit !== null) {
+    return [tooLarge(refsOverLimit, `a reason cites more than ${RECOMMENDATION_REVIEW_LIMITS.maxEvidenceRefsPerReason} evidence nodes`)];
+  }
   return [];
+}
+
+/**
+ * The first `supportedBy` list exceeding the per-reason bound, by path, or null.
+ *
+ * Walks the three places a reason can hang — an option's `support`, the
+ * `excluded` rows' reasons, and a withheld recommendation's top-level
+ * `reasons` — rather than trusting one shape, because the amplification does
+ * not care which list it arrived in.
+ */
+function evidenceRefListsOverLimit(value: Record<string, unknown>): string | null {
+  const limit = RECOMMENDATION_REVIEW_LIMITS.maxEvidenceRefsPerReason;
+
+  const overLimit = (reasons: unknown, path: string): string | null => {
+    if (!Array.isArray(reasons)) return null;
+    for (let index = 0; index < reasons.length; index += 1) {
+      const reason = reasons[index];
+      if (!isRecord(reason) || !Array.isArray(reason.supportedBy)) continue;
+      if (reason.supportedBy.length > limit) return `${path}[${index}].supportedBy`;
+    }
+    return null;
+  };
+
+  const options = value.options;
+  if (isRecord(options)) {
+    if (Array.isArray(options.options)) {
+      for (let index = 0; index < options.options.length; index += 1) {
+        const option = options.options[index];
+        if (!isRecord(option)) continue;
+        const found = overLimit(option.support, `recommendation.options.options[${index}].support`);
+        if (found !== null) return found;
+      }
+    }
+    if (Array.isArray(options.excluded)) {
+      for (let index = 0; index < options.excluded.length; index += 1) {
+        const row = options.excluded[index];
+        if (!isRecord(row)) continue;
+        const found = overLimit(row.reasons, `recommendation.options.excluded[${index}].reasons`);
+        if (found !== null) return found;
+      }
+    }
+    const soleOption = options.option;
+    if (isRecord(soleOption)) {
+      const found = overLimit(soleOption.support, 'recommendation.options.option.support');
+      if (found !== null) return found;
+    }
+  }
+  return overLimit(value.reasons, 'recommendation.reasons');
 }
 
 function checkRecommendationShape(value: unknown): ReviewFinding[] {

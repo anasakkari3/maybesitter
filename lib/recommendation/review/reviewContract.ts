@@ -251,10 +251,29 @@ export const BLIND_VIEW_ALLOWED_FIELDS = Object.freeze([
  * refusal.
  */
 export const RECOMMENDATION_REVIEW_LIMITS = Object.freeze({
-  maxEvidenceNodes: 500,
+  // 2048, not 500. At 500 the module's *own* selector output stopped being
+  // reviewable at roughly 55 commitments — it emits about nine evidence nodes
+  // per commitment, so a scope of 64 produced 579 nodes and the review surface
+  // returned RECOMMENDATION_TOO_LARGE for a recommendation the selector had
+  // just declared defect-free. Neither track could see that alone, and the
+  // cross-track corpus used four commitments.
+  //
+  // The original 500 was chosen to cap recursion depth and the quadratic term
+  // in the cycle detector. Both reasons have since weakened: resolveEvidenceRoots
+  // is iterative (tested at 50,000 nodes), and the amplification an attacker
+  // actually reaches is refs-per-reason, now bounded below. Measured on this
+  // runtime, checkEvidenceGraph over a flat 4,000-node graph is ~1ms.
+  //
+  // 2048 covers a scope of roughly 225 commitments. Beyond that the selector
+  // should bound its own evidence rather than the review surface refusing it —
+  // recorded as deferred work, and pinned by a cross-track test that fails if
+  // this limit and the selector's output-per-commitment drift apart again.
+  maxEvidenceNodes: 2048,
   maxParentsPerNode: 64,
   maxOfferedOptions: 64,
-  maxExcludedCandidates: 64,
+  // Raised with maxEvidenceNodes and for the same reason: the selector emits one
+  // excluded row per ineligible commitment, so 64 refused a scope of 65.
+  maxExcludedCandidates: 256,
   maxReasonsPerOption: 32,
   maxEvidenceRefsPerReason: 64,
   maxEditedTitleLength: 500,

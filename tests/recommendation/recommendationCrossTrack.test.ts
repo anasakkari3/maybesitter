@@ -135,6 +135,7 @@ import {
   handleReviewRequest,
   presentRecommendation,
 } from '../../lib/recommendation/review/present.ts';
+import { RECOMMENDATION_REVIEW_LIMITS } from '../../lib/recommendation/review/reviewContract.ts';
 import type { Field, LifeState } from '../../src/contracts/v1/lifeStateContracts.ts';
 import type { PriorityScore } from '../../src/contracts/v1/priorityContracts.ts';
 import type { Plan } from '../../src/contracts/v1/planningContracts.ts';
@@ -1641,5 +1642,95 @@ test('the sprint 08 script and the full test script register the same recommenda
     filesIn(packageJson.scripts['test:sprint08']),
     filesIn(packageJson.scripts.test),
     'test:sprint08 and test cover different recommendation files',
+  );
+});
+
+
+/**
+ * A selector input at an arbitrary scope, built from the same shapes the
+ * generator uses but sized deliberately. The generated corpus caps at five
+ * commitments because it probes shapes; this probes size, which is a different
+ * question and the one the two halves disagreed about.
+ */
+function scaledSelectorInput(count: number): RecommendationSelectorInput {
+  const commitments: CommitmentSnapshot[] = [];
+  const scores: PriorityScore[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const id = `scaled-${String(index).padStart(4, '0')}`;
+    commitments.push(commitment(id, { dueAt: '2026-08-19T09:00:00.000Z', importance: 'normal' }));
+    scores.push(score(id, 500));
+  }
+  return request({
+    scopeId: 'scaled-scope',
+    commitments,
+    priorityScores: scores,
+    lifeState: lifeState({ openCount: count }),
+  });
+}
+
+/* ── 8. The two halves must agree how large a recommendation may be ── */
+
+/**
+ * The selector's own output must be reviewable at a realistic scope.
+ *
+ * Found by the sprint-level review, and invisible to every track alone: the
+ * selector emits roughly nine evidence nodes per commitment and deliberately
+ * does not truncate, while the review surface capped the graph at 500 nodes. At
+ * about 55 commitments the review surface began returning
+ * `RECOMMENDATION_TOO_LARGE` for a recommendation the selector had just
+ * declared defect-free — the product refusing its own output.
+ *
+ * Neither suite could see it. The generated corpus above caps at five
+ * commitments and the end-to-end fixture uses four, because both were written
+ * to exercise *shapes* rather than *sizes*. A cross-track test that only ever
+ * builds small inputs cannot discover that two modules disagree about big ones.
+ *
+ * This asserts the coupling directly rather than the number, so raising one
+ * limit without the other fails here instead of at a user's scope.
+ */
+test('cross-track: the selector output is reviewable at a realistic scope', () => {
+  const SCOPE = 120;
+  const input = scaledSelectorInput(SCOPE);
+  const selection = selectRecommendation(input);
+
+  assert.deepEqual(
+    checkRecommendation(selection.recommendation),
+    [],
+    `the selector produced a defective recommendation at ${SCOPE} commitments`,
+  );
+
+  const outcome = handleReviewRequest({
+    kind: 'present',
+    locale: 'en',
+    mode: 'attributed',
+    now: input.now,
+    recommendation: selection.recommendation,
+  });
+
+  assert.equal(
+    outcome.status,
+    200,
+    `the review surface refused the selector's own output at ${SCOPE} commitments: `
+      + `${JSON.stringify(outcome.response).slice(0, 200)}`,
+  );
+});
+
+test('cross-track: the review limits leave headroom over what the selector emits', () => {
+  // The number-free form of the same coupling. If the selector's evidence per
+  // commitment grows, or a review limit shrinks, this fails while there is
+  // still margin — rather than at whatever scope happens to cross the line.
+  const small = selectRecommendation(scaledSelectorInput(10));
+  const large = selectRecommendation(scaledSelectorInput(60));
+  const nodesFor = (r: { evidence: { nodes: readonly unknown[] } }) => r.evidence.nodes.length;
+
+  const perCommitment = (nodesFor(large.recommendation) - nodesFor(small.recommendation)) / 50;
+  assert.ok(perCommitment > 0, 'evidence does not grow with scope; this guard has lost its subject');
+
+  const supportedScope = RECOMMENDATION_REVIEW_LIMITS.maxEvidenceNodes / perCommitment;
+  assert.ok(
+    supportedScope >= 100,
+    `the review node limit (${RECOMMENDATION_REVIEW_LIMITS.maxEvidenceNodes}) supports only `
+      + `~${Math.floor(supportedScope)} commitments at ${perCommitment.toFixed(1)} nodes each. `
+      + 'Raise the limit or bound the selector; the two halves must agree.',
   );
 });
