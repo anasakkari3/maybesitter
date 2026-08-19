@@ -118,6 +118,23 @@ function relative(file: string): string {
   return file.slice(repoRoot.length + 1);
 }
 
+/**
+ * Source with comments removed, for the scans that look for forbidden *calls*.
+ *
+ * Written after this file's own clock scan failed on `scheduler.ts`, whose
+ * header explains — in prose, correctly — why a planner must never call
+ * `Date.now()`. A raw-text scan cannot tell an explanation from a violation,
+ * and the cheapest way to make it pass would have been to delete the
+ * explanation. That is the wrong direction, and #29's boundary test had already
+ * reached the same conclusion for the same reason.
+ *
+ * The guard is not weakened: a call in code is still a call, and the test below
+ * proves the stripper leaves real code alone.
+ */
+function stripComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+}
+
 /** Repo-relative paths reachable from `roots`, excluding the roots themselves. */
 function reachablePaths(roots: readonly string[]): string[] {
   return Array.from(importClosure(roots).keys())
@@ -257,7 +274,7 @@ test('no module under lib/planning reads an ambient clock or a random source', (
   assert.ok(roots.length > 0, 'no planning sources were scanned');
 
   for (const file of roots) {
-    const source = readFileSync(file, 'utf8');
+    const source = stripComments(readFileSync(file, 'utf8'));
     for (const [pattern, why] of [
       [/Date\.now\s*\(/, 'must not call Date.now(); a plan does not depend on when it was computed'],
       [/new\s+Date\s*\(\s*\)/, 'must not construct a Date from the ambient clock; every instant comes from the input'],
@@ -267,4 +284,37 @@ test('no module under lib/planning reads an ambient clock or a random source', (
       assert.equal(pattern.test(source), false, `${relative(file)} ${why}`);
     }
   }
+});
+
+test('the clock scan still recognises a real clock, so stripping comments did not disarm it', () => {
+  // A negative-only assertion passes against a regex that matches nothing, and
+  // it passes just as well against a stripper that ate the whole file. Both
+  // halves are pinned: the patterns still match real calls, and the stripper
+  // still leaves real calls standing while removing prose about them.
+  const patterns = [
+    /Date\.now\s*\(/,
+    /new\s+Date\s*\(\s*\)/,
+    /Math\.random\s*\(/,
+    /randomUUID/,
+  ];
+  const samples = [
+    'const at = Date.now();',
+    'const at = new Date();',
+    'const r = Math.random();',
+    'const id = randomUUID();',
+  ];
+  for (let index = 0; index < samples.length; index += 1) {
+    assert.equal(patterns[index].test(samples[index]), true, `pattern ${index} no longer matches its own sample`);
+    assert.equal(
+      patterns[index].test(stripComments(samples[index])),
+      true,
+      `stripComments removed real code for pattern ${index}`,
+    );
+  }
+  // And the case that motivated the stripper: prose naming the forbidden call.
+  assert.equal(
+    /Date\.now\s*\(/.test(stripComments('/** never call Date.now() here */\nconst x = 1;')),
+    false,
+    'a comment explaining the rule must not read as a violation of it',
+  );
 });
