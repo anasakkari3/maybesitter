@@ -198,7 +198,37 @@ _Advisory: operates on commitments from Life-State (Sprint 02); stub/mock otherw
 - **[#27](https://github.com/anasakkari3/maybesitter/issues/27) — [S06][Backend] Implement Decomposition proposal engine and validator**
   Generate candidate steps and reject structurally or semantically unsafe proposals.
 
-### Sprint 07 — Planning Engine
+### Sprint 07 — Planning Engine ✅ DONE
+
+Merged 2026-08-19 via [#115](https://github.com/anasakkari3/maybesitter/pull/115). Design:
+`docs/superpowers/specs/2026-08-19-sprint-07-planning-engine-design.md`.
+
+**Contracts now available** — `src/contracts/v1/planningContracts.ts`, and `lib/planning/shared/`
+carries the time primitives every track shares. The `planning` entry in `moduleContracts.ts` is no
+longer a placeholder.
+
+**The lesson, and it is about the check rather than the code.** This sprint did what Sprint 02 and
+Sprint 06 said to do — contracts written first, arithmetic single-sourced, a merge-owned cross-track
+test at the end — and the cross-track test still reported perfect agreement while the two readers
+disagreed on 38% of inputs. It compared deduplicated *code names*, so its claim was only "both
+reached the same set of names somewhere in this request", never "both agree which item earns which
+code". Over 40,000 fuzzed requests the set comparison found 0 disagreements and the `(itemId, code)`
+pair comparison found 13 — every one the same defect, a cycle detector missing a member reached
+through a cross edge while `CYCLIC_DEPENDENCY` stayed in the set from the two members it did find.
+A cross-track test is only as strong as the granularity it compares at, and the weaker granularity
+is the comfortable one to write.
+
+The corollary cost a round to learn twice: a hand-built divergence table tests the shapes its author
+thought of. The fuzzer found three disagreement shapes the 44-case table missed, and the property
+test #29 wrote against a brute-force reachability oracle found what a fixed graph table could not.
+Where a sprint's central claim is "two implementations agree", generate the inputs.
+
+**The other repeated shape: throwing where the contract says report.** Three instances, each
+invisible to a typed caller and immediate at the untyped boundary the module existed to guard — an
+unknown IANA zone raising out of a feasibility check, an unresolved DST fold raising out of a
+normalizer, and a canonical digest computed *before* the static pass raising on the very NaN that
+pass existed to report. `PLANNING_INPUT_POLICY` now states the rule and its ordering consequence:
+hash or serialise the input only *after* deciding what is wrong with it.
 
 _Advisory: schedules against Priority output (Sprint 04-05) and Decomposition (Sprint 06); stub/mock otherwise._
 
