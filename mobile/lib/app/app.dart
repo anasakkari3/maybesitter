@@ -91,6 +91,8 @@ class _MaybesitterAppState extends ConsumerState<MaybesitterApp> {
     final source = parsed?.queryParameters['source'] == 'widget'
         ? 'widget'
         : 'external';
+    final targetRoute = _analyticsTargetRoute(parsed);
+    if (targetRoute == null) return;
     try {
       if (source == 'widget') {
         unawaited(
@@ -99,7 +101,7 @@ class _MaybesitterAppState extends ConsumerState<MaybesitterApp> {
               .record(
                 PilotLoopAnalyticsEvent.widgetTap(
                   surface: 'homeWidget',
-                  targetRoute: location,
+                  targetRoute: targetRoute,
                   flags: flags,
                 ),
               )
@@ -112,13 +114,22 @@ class _MaybesitterAppState extends ConsumerState<MaybesitterApp> {
             .record(
               PilotLoopAnalyticsEvent.deepLinkOpened(
                 source: source,
-                targetRoute: location,
+                targetRoute: targetRoute,
                 flags: flags,
               ),
             )
             .catchError((_) {}),
       );
     } catch (_) {}
+  }
+
+  String? _analyticsTargetRoute(Uri? uri) {
+    return switch (uri?.path) {
+      '/capture' => 'capture',
+      '/today' => 'today',
+      String path when path.startsWith('/commitments/') => 'commitment_detail',
+      _ => null,
+    };
   }
 }
 

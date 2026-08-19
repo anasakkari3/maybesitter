@@ -157,7 +157,7 @@ test('mobile pilot analytics records content-free phone-presence events by token
         eventName: 'widget_tap',
         properties: {
           surface: 'homeWidget',
-          targetRoute: '/capture?source=widget&input=voice',
+          targetRoute: 'capture',
           flagWidget: true,
           flagVoice: true,
           flagAwareness: false,
@@ -232,6 +232,33 @@ test('mobile pilot analytics rejects private content fields', async () => {
 
     assert.equal(response.status, 400);
     assert.equal(getAnalyticsEvents().length, 0);
+  } finally {
+    cleanup();
+  }
+});
+
+test('mobile pilot analytics rejects non-canonical deep-link targets', async () => {
+  const cleanup = setup();
+  try {
+    grantAnalytics(A);
+    const response = await analyticsPost(request('/api/mobile/analytics', {
+      participantId: A,
+      body: {
+        eventName: 'widget_tap',
+        properties: {
+          surface: 'homeWidget',
+          targetRoute: '/capture?source=Call%20Maya%20about%20hospital&input=voice',
+          flagWidget: true,
+          flagVoice: true,
+          flagAwareness: false,
+          flagWatch: false,
+          flagImports: false,
+        },
+      },
+    }));
+
+    assert.equal(response.status, 400);
+    assert.match(JSON.stringify(await json(response)), /targetRoute is not canonical/);
   } finally {
     cleanup();
   }

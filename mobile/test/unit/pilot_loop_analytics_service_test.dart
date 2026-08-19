@@ -71,7 +71,7 @@ void main() {
         await service.record(
           PilotLoopAnalyticsEvent.widgetTap(
             surface: 'homeWidget',
-            targetRoute: '/capture?source=widget&input=voice',
+            targetRoute: 'capture',
             flags: const PilotPresenceFeatureFlags(
               widget: true,
               voice: true,
@@ -90,6 +90,23 @@ void main() {
         expect(body.containsKey('participantId'), isFalse);
         expect(body.containsKey('anonymousUserId'), isFalse);
       },
+    );
+  });
+
+  test('rejects raw deep-link routes before network send', () {
+    expect(
+      () => PilotLoopAnalyticsEvent.widgetTap(
+        surface: 'homeWidget',
+        targetRoute: '/capture?source=Call%20Maya%20about%20hospital',
+        flags: const PilotPresenceFeatureFlags(
+          widget: true,
+          voice: true,
+          awareness: false,
+          watch: false,
+          imports: false,
+        ),
+      ).toJson(),
+      throwsArgumentError,
     );
   });
 }

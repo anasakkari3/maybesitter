@@ -15,6 +15,12 @@ void main() {
         '/capture?source=widget&input=voice',
       );
       expect(
+        WidgetDeepLinkService.routeForUri(
+          Uri.parse('maybesitter://capture?source=Call%20Maya&input=voice'),
+        ),
+        '/capture?input=voice',
+      );
+      expect(
         WidgetDeepLinkService.routeForUri(Uri.parse('maybesitter://today')),
         '/today',
       );

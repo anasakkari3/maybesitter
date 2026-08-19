@@ -129,6 +129,13 @@ test('analytics: phone-presence client events are privacy-safe and reportable', 
     }),
     /not allowed|forbidden/,
   );
+  assert.throws(
+    () => buildAnalyticsEvent(context(), 'widget_tap', {
+      surface: 'homeWidget',
+      targetRoute: '/capture?source=Call%20Maya%20about%20hospital&input=voice',
+    }),
+    /targetRoute is not canonical/,
+  );
 });
 
 test('analytics: an absent anonymous id disables collection rather than failing the request', () => {
