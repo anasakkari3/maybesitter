@@ -49,10 +49,19 @@ because arithmetic is not a judgement and a second copy of it would be a gap rat
 
 `lib/planning/constraints/normalize.ts` was permitted to this track by the design, and does not exist
 on the sprint base this branch was cut from. Window materialisation is therefore implemented here
-(`occurrencesOf` in `oracle.ts`). **This is the one place the sprint's "no second copy of arithmetic"
-rule is not satisfied**, and it is the first thing to reconcile at merge: if #29's normalizer and this
-materialisation disagree about a window's occurrences, `availableMinutes` and the scheduler's free
-runs will disagree about the same week.
+(`materialiseWindows` / `occurrencesOf` in `oracle.ts`), together with the window well-formedness
+predicate `windowDefect` and the zone check `isKnownTimeZone`. **This is the one place the sprint's
+"no second copy of arithmetic" rule is not satisfied.**
+
+A sprint-level sweep of 65,880 cases found the two copies agreeing exactly, and the integration
+branch confirmed the capacity numbers match across the shipped corpus and 17 adversarial inputs. That
+is reassurance, not a check: a *verification predicate* is not a judgement, so by this sprint's own
+rule two copies of it are a gap. The reconciliation is to import #29's predicate and delete the copy
+here, keeping this file's `detail` strings, which are its own reading. It could not be done on this
+branch because `lib/planning/constraints/` is not present in it at all.
+
+`isFoldPolicy` is **not** part of that reconciliation and stays here. It decides whether the config
+has chosen a side, which is a judgement about the config, not a check on a window's shape.
 
 ### Decisions the contract does not spell out
 
@@ -75,6 +84,16 @@ rule in `oracle.ts`; they are collected here so a merge does not have to find th
    An earlier, wider "otherwise clean" gate reported one code where the constraints held two.
 4. **`SELF_DEPENDENCY` and `UNKNOWN_DEPENDENCY` are charged regardless of dependency kind.** An
    informational edge forces no ordering, but an edge pointing at nothing is a broken reference.
+4b. **`EFFORT_NOT_POSITIVE` covers the buffers, not the effort alone** — a `bufferBeforeMinutes` or
+   `bufferAfterMinutes` that is negative or non-finite. Negative protected time is a contradiction
+   and `Infinity` is not a duration. Zero stays legitimate. **Now stated in the contract**, after a
+   sprint fuzzer found the three tracks giving three answers to it 3,735 times.
+4c. **`CYCLIC_DEPENDENCY` names every member of the cycle**, found by testing reachability from each
+   node back to itself rather than by marking a DFS path at the back edge. A path-marking walk misses
+   a member that reaches the cycle through a *cross* edge — given `a → [b, c]`, `b → [a]`, `c → [b]`
+   it reports `[a, b]` and leaves `c` out. **Adjudicated in this reading's favour**; #29 and #30
+   change to match, and #30 was additionally emitting an *attempt* code for a member of a static
+   contradiction.
 5. **`AMBIGUOUS_LOCAL_TIME` is reachable only through an unrecognised `foldPolicy`.** `FoldPolicy`
    always states a side, so with a well-typed config the fold is resolved rather than reported —
    which is what the contract says. The code exists for callers arriving across a trust boundary.
@@ -126,6 +145,38 @@ field of its own and repeating the id in prose is precisely what the policy forb
 *not* used for items on purpose: a position is a fact about the input array, and a detail that
 encoded it would leak input ordering into planning output — the defect `PLAN_ORDERING_KEYS` exists
 to prevent, one field over.
+
+### Nothing is floored
+
+`Math.max(0, …)` around a duration is a **silent repair**, and it ran in this file until a sprint
+fuzzer caught it. A negative `bufferBeforeMinutes` was flattened to zero and the verdict came back
+`feasible: true` — a contradiction converted into an approval, which is the one direction a
+correction must never go. Three readings then gave three answers to one input: #29 reported
+`EFFORT_NOT_POSITIVE`, this file reported nothing, and #30 placed the item. That broke the only
+assertion spanning all three tracks — *a static contradiction both readers agree on is never
+scheduled*.
+
+The flooring was not even self-consistent: `Number.isFinite` guarded the demand sum but not the
+effort-window arithmetic, so an infinite buffer produced `EFFORT_EXCEEDS_ITEM_WINDOW` in one place
+and silence in the other.
+
+There is no flooring anywhere now. A malformed term is reported, and the item contributes **no
+demand at all** — exactly as an item with unknown effort does. `demandMinutes` is a sum of *stated*
+durations, and an item whose stated durations contradict themselves has none to state; flooring
+would invent one, and summing raw would let one broken row discount the well-formed items around it.
+
+### One materialisation
+
+`assessFeasibility` walks the working windows across the horizon **once**. It used to walk them three
+times over identical inputs — for transition anomalies, for the working union, and again inside the
+free-time subtraction. Measured at 265 ms for a 52-week horizon against 87 ms for a single walk, on
+the hottest path in the package, run once per scenario by the corpus gate. It is now within noise of
+a single walk.
+
+The single pass is also what keeps the two outputs consistent: an anomaly found in one walk and
+capacity computed in another are two answers about the same window, and nothing would have forced
+them to agree. `tests/planning/oracleFeasibility.test.ts` pins it by **counting property reads**
+rather than by timing, so the guard is deterministic.
 
 ### One bound
 
