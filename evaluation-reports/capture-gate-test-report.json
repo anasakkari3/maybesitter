@@ -1,12 +1,12 @@
 {
-  "timestamp": "2026-08-19T18:02:41.190Z",
+  "timestamp": "2026-08-19T22:22:54.413Z",
   "datasetPath": "evaluation-data/capture-gate-suite.jsonl",
   "engine": "rule-based",
   "totalCases": 14,
   "overallPassed": true,
   "overallPassRatePercent": 100,
-  "medianLatencyMs": 4,
-  "p95LatencyMs": 42,
+  "medianLatencyMs": 7,
+  "p95LatencyMs": 110,
   "perSlice": {
     "gold": {
       "total": 3,
@@ -87,7 +87,7 @@
       "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 18,
+      "latencyMs": 17,
       "taxonomyErrors": [],
       "mismatches": [],
       "rawResult": {
@@ -124,7 +124,7 @@
       "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 42,
+      "latencyMs": 110,
       "taxonomyErrors": [],
       "mismatches": [],
       "rawResult": {
@@ -165,7 +165,7 @@
       "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 29,
+      "latencyMs": 19,
       "taxonomyErrors": [],
       "mismatches": [],
       "rawResult": {
@@ -243,7 +243,7 @@
       "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "semantic_safety:past_no_action",
-      "latencyMs": 1,
+      "latencyMs": 7,
       "taxonomyErrors": [],
       "mismatches": [],
       "rawResult": {
@@ -284,7 +284,7 @@
       "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 6,
+      "latencyMs": 15,
       "taxonomyErrors": [],
       "mismatches": [],
       "rawResult": {
@@ -449,7 +449,7 @@
       "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 5,
+      "latencyMs": 8,
       "taxonomyErrors": [],
       "mismatches": [],
       "rawResult": {
@@ -527,7 +527,7 @@
       "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 9,
+      "latencyMs": 5,
       "taxonomyErrors": [],
       "mismatches": [],
       "rawResult": {
@@ -564,7 +564,7 @@
       "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 4,
+      "latencyMs": 7,
       "taxonomyErrors": [],
       "mismatches": [],
       "rawResult": {
@@ -606,7 +606,7 @@
       "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 4,
+      "latencyMs": 7,
       "taxonomyErrors": [],
       "mismatches": [],
       "rawResult": {

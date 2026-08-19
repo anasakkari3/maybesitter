@@ -11,6 +11,11 @@ class SceneDelegate: FlutterSceneDelegate {
     if let controller = window?.rootViewController as? FlutterViewController {
       PilotPresenceSharedStorePlugin.register(binaryMessenger: controller.binaryMessenger)
       PilotDeepLinkPlugin.register(binaryMessenger: controller.binaryMessenger)
+      // Registered here, not only in AppDelegate. Under the scene lifecycle the
+      // app delegate's window is nil at didFinishLaunching, so the block there
+      // never runs -- and this one was missing, which left the calendar channel
+      // unregistered on device while the Swift implementation looked present.
+      AppleCalendarImportPlugin.register(binaryMessenger: controller.binaryMessenger)
     }
     if let url = connectionOptions.urlContexts.first?.url {
       PilotDeepLinkPlugin.handle(url: url)
