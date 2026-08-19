@@ -17,6 +17,7 @@ import {
   profileIsUsable,
   type BehaviorProfile,
 } from './behaviorProfile';
+import { compareByCodePoint } from '../planning/shared/compare';
 
 export interface ArmCandidate extends BaselineCandidate {
   kind: Commitment['kind'];
@@ -130,7 +131,10 @@ function baselineOrder(left: BaselineScore, right: BaselineScore): number {
     || right.urgencyBand - left.urgencyBand
     || right.importanceBand - left.importanceBand
     || right.effortTieBreak - left.effortTieBreak
-    || left.commitmentId.localeCompare(right.commitmentId);
+    // Code-unit ordering, never `localeCompare` — see the note on the same fix
+    // in lib/services/nextStepReviewService.ts. This is the final key of the
+    // baseline order, so on a fully-tied score it alone decides the selection.
+    || compareByCodePoint(left.commitmentId, right.commitmentId);
 }
 
 function explanation(labels: readonly string[]): string {

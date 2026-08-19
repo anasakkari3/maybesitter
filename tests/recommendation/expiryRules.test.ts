@@ -1,0 +1,813 @@
+/**
+ * Expiry and invalidation (Sprint 08, issue #33).
+ *
+ * This file carries the acceptance criterion **"stale recommendations are
+ * rejected"**, and the point of the section is that staleness is a *rule a
+ * checker evaluates*, not a convention a caller is trusted to follow.
+ *
+ * Four things are being defended, in rough order of how quietly they fail:
+ *
+ *  1. **Unverifiable is stale.** A node the caller supplies no current
+ *     fingerprint for fails closed. Every test written against a *complete*
+ *     fingerprint map passes under either default, so the wrong default is
+ *     invisible to a normal suite — and it is wrong in the worst direction: the
+ *     freshness check would get more confident as the caller lost track of more
+ *     sources. The prototype cases below are the sharp edge of this: a node
+ *     named `toString` reads a function off `Object.prototype` from a plain
+ *     record lookup, so a `!== undefined` guard silently answers "unchanged".
+ *  2. **The state moving underneath is the real invalidator**; wall-clock expiry
+ *     is the backstop. `SOURCE_CHANGED` and `SOURCE_REMOVED` are checked
+ *     independently of the validity window, because a malformed `expiresAt` says
+ *     nothing about whether a commitment was completed.
+ *  3. **Report, never throw.** Every malformed instant this taxonomy names comes
+ *     back as a finding. `planningContracts` records three sprint-07 defects of
+ *     exactly this shape, each a helper raising several frames below the entry
+ *     point, each invisible to a typed caller and immediate at the untyped
+ *     boundary the module existed to guard.
+ *  4. **No ambient clock.** Asserted structurally by scanning the contract
+ *     source, not just behaviourally: a behavioural test can only show that the
+ *     clock reads the module *happens* to make did not change the answer during
+ *     the test run.
+ */
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import {
+  DEFAULT_RECOMMENDATION_TTL_MINUTES,
+  RECOMMENDATION_CONTRACT_VERSION,
+  RECOMMENDATION_SCHEMA_VERSION,
+  STALENESS_REASON_CODES,
+  bandForConfidence,
+  evaluateRecommendationStaleness,
+  isInstant,
+} from '../../src/contracts/v1/recommendationContracts.ts';
+import type {
+  EvidenceNode,
+  Instant,
+  ObservedEvidence,
+  OfferedRecommendation,
+  Recommendation,
+  StalenessReason,
+  StalenessVerdict,
+  WithheldRecommendation,
+} from '../../src/contracts/v1/recommendationContracts.ts';
+
+const testDir = dirname(fileURLToPath(import.meta.url));
+const repoRoot = join(testDir, '..', '..');
+
+const BASIS = '2026-08-19T10:00:00.000Z';
+const EXPIRES = '2026-08-19T11:00:00.000Z';
+
+/* ── builders ─────────────────────────────────────────────────────── */
+
+function observed(nodeId: string, fingerprint = `fp-${nodeId}`): ObservedEvidence {
+  return {
+    kind: 'observed',
+    nodeId,
+    source: { kind: 'commitment', commitmentId: 'c1', field: 'status' },
+    claim: { kind: 'category', value: 'status_open' },
+    observedAt: '2026-08-19T09:00:00.000Z',
+    valueFingerprint: fingerprint,
+  };
+}
+
+function derived(nodeId: string, parents: readonly [string, ...string[]]): EvidenceNode {
+  return { kind: 'derived', nodeId, rule: 'ELIGIBLE_FROM_STATUS', claim: { kind: 'flag', value: true }, derivedFrom: parents };
+}
+
+function recommendation(
+  nodes: readonly EvidenceNode[],
+  validity: { basisAt: Instant; expiresAt: Instant } = { basisAt: BASIS, expiresAt: EXPIRES },
+): OfferedRecommendation {
+  const supportNode = nodes.length > 0 ? nodes[0].nodeId : 'n1';
+  return {
+    version: RECOMMENDATION_CONTRACT_VERSION,
+    schema: RECOMMENDATION_SCHEMA_VERSION,
+    recommendationId: 'rec-1',
+    scopeId: 'scope-1',
+    validity,
+    evidence: { nodes },
+    inputDigest: 'digest-1',
+    outcome: 'offered',
+    options: {
+      kind: 'only_candidate',
+      option: {
+        optionIndex: 0,
+        action: { kind: 'do_now', commitmentId: 'c1' },
+        support: [{ code: 'OVERDUE', supportedBy: [supportNode], detail: 'the stated deadline has passed' }],
+        confidence: { value: 0.8, band: bandForConfidence(0.8) as 'high', basis: [supportNode] },
+      },
+      attested: [supportNode],
+    },
+  };
+}
+
+function fingerprintsFor(nodes: readonly EvidenceNode[]): Record<string, string | null> {
+  const map: Record<string, string | null> = {};
+  for (const node of nodes) if (node.kind === 'observed') map[node.nodeId] = node.valueFingerprint;
+  return map;
+}
+
+function reasonsOf(verdict: StalenessVerdict): readonly StalenessReason[] {
+  return verdict.fresh ? [] : verdict.reasons;
+}
+
+function codesOf(verdict: StalenessVerdict): readonly string[] {
+  return reasonsOf(verdict).map((reason) => reason.code);
+}
+
+/* ── the validity window ──────────────────────────────────────────── */
+
+test('expiry: fresh strictly inside the window, at the lower bound, and one millisecond before the upper', () => {
+  const nodes = [observed('n1')];
+  const rec = recommendation(nodes);
+  const current = fingerprintsFor(nodes);
+  for (const now of [BASIS, '2026-08-19T10:30:00.000Z', '2026-08-19T10:59:59.999Z']) {
+    const verdict = evaluateRecommendationStaleness({ recommendation: rec, now, currentFingerprints: current });
+    assert.equal(verdict.fresh, true, `${now} must be fresh`);
+    assert.equal('reasons' in verdict, false, 'a fresh verdict carries no reasons');
+  }
+});
+
+test('expiry: the upper bound is exclusive, so the expiry instant itself is stale', () => {
+  // Inclusive-vs-exclusive at the boundary surfaces only on a tick that lands on
+  // a round instant, which is most of them.
+  const nodes = [observed('n1')];
+  const verdict = evaluateRecommendationStaleness({
+    recommendation: recommendation(nodes),
+    now: EXPIRES,
+    currentFingerprints: fingerprintsFor(nodes),
+  });
+  assert.equal(verdict.fresh, false);
+  assert.deepEqual(codesOf(verdict).slice(), ['EXPIRED']);
+});
+
+test('expiry: an instant after the window is stale', () => {
+  const nodes = [observed('n1')];
+  const verdict = evaluateRecommendationStaleness({
+    recommendation: recommendation(nodes),
+    now: '2026-08-19T11:00:00.001Z',
+    currentFingerprints: fingerprintsFor(nodes),
+  });
+  assert.deepEqual(codesOf(verdict).slice(), ['EXPIRED']);
+});
+
+test('expiry: an instant before the basis is stale, not fresh', () => {
+  // A replay or a clock defect. Answering "still good" to a question about a
+  // time the run had not yet seen is the wrong direction to be lenient in.
+  const nodes = [observed('n1')];
+  const verdict = evaluateRecommendationStaleness({
+    recommendation: recommendation(nodes),
+    now: '2026-08-19T09:59:59.999Z',
+    currentFingerprints: fingerprintsFor(nodes),
+  });
+  assert.deepEqual(codesOf(verdict).slice(), ['NOT_YET_VALID']);
+});
+
+test('expiry: a window that ends at or before it begins is reported as built broken, not as aged out', () => {
+  // "It aged out" and "it was built broken" send a reader to different places —
+  // TTL policy versus a construction defect.
+  const nodes = [observed('n1')];
+  for (const expiresAt of [BASIS, '2026-08-19T09:00:00.000Z']) {
+    const verdict = evaluateRecommendationStaleness({
+      recommendation: recommendation(nodes, { basisAt: BASIS, expiresAt }),
+      now: '2026-08-19T10:30:00.000Z',
+      currentFingerprints: fingerprintsFor(nodes),
+    });
+    assert.ok(codesOf(verdict).includes('EXPIRY_NOT_AFTER_BASIS'), `${expiresAt} must report the broken window`);
+    assert.equal(verdict.fresh, false);
+  }
+});
+
+/* ── malformed instants: report, never throw ──────────────────────── */
+
+test('expiry: a malformed instant is reported against the field it came from', () => {
+  const nodes = [observed('n1')];
+  const cases: readonly (readonly [string, { basisAt: string; expiresAt: string }, string])[] = [
+    ['not-a-date', { basisAt: BASIS, expiresAt: EXPIRES }, 'now'],
+    ['2026-08-19T10:30:00.000Z', { basisAt: 'nope', expiresAt: EXPIRES }, 'basisAt'],
+    ['2026-08-19T10:30:00.000Z', { basisAt: BASIS, expiresAt: '' }, 'expiresAt'],
+  ];
+  for (const [now, validity, field] of cases) {
+    const verdict = evaluateRecommendationStaleness({
+      recommendation: recommendation(nodes, validity),
+      now,
+      currentFingerprints: fingerprintsFor(nodes),
+    });
+    assert.equal(verdict.fresh, false, `${field} must not resolve fresh`);
+    const invalid = reasonsOf(verdict).filter((reason) => reason.code === 'INVALID_INSTANT');
+    assert.deepEqual(invalid.map((reason) => reason.field), [field]);
+  }
+});
+
+test('expiry: findings that borrow a bound from a malformed instant are suppressed', () => {
+  // The suppression rule, matching `planningContracts`: only findings that
+  // borrow a bound from something already reported malformed are withheld.
+  // EXPIRED and NOT_YET_VALID compare against the broken field, so they cannot
+  // be computed; nothing else here borrows from it.
+  const nodes = [observed('n1')];
+  const verdict = evaluateRecommendationStaleness({
+    recommendation: recommendation(nodes, { basisAt: 'nope', expiresAt: 'also-nope' }),
+    now: '2026-08-19T10:30:00.000Z',
+    currentFingerprints: fingerprintsFor(nodes),
+  });
+  const codes = codesOf(verdict);
+  assert.deepEqual(codes.slice(), ['INVALID_INSTANT', 'INVALID_INSTANT']);
+  assert.equal(codes.includes('EXPIRED'), false);
+  assert.equal(codes.includes('NOT_YET_VALID'), false);
+  assert.equal(codes.includes('EXPIRY_NOT_AFTER_BASIS'), false);
+});
+
+test('expiry: the fingerprint pass runs even when the validity window is malformed', () => {
+  // The two borrow nothing from each other. Suppressing the second would hide a
+  // real invalidation behind a formatting bug.
+  const nodes = [observed('n1')];
+  const verdict = evaluateRecommendationStaleness({
+    recommendation: recommendation(nodes, { basisAt: 'nope', expiresAt: 'also-nope' }),
+    now: 'nope-either',
+    currentFingerprints: { n1: 'changed' },
+  });
+  assert.ok(codesOf(verdict).includes('SOURCE_CHANGED'));
+});
+
+test('expiry: no input shape makes the checker throw', () => {
+  const nodes = [observed('n1'), derived('d1', ['n1'])];
+  const hostile: readonly (readonly [string, { basisAt: string; expiresAt: string }])[] = [
+    ['', { basisAt: '', expiresAt: '' }],
+    ['   ', { basisAt: '   ', expiresAt: '   ' }],
+    ['2026-13-45T99:99:99Z', { basisAt: 'Invalid Date', expiresAt: 'NaN' }],
+    ['0000-00-00', { basisAt: '2026-08-19', expiresAt: '2026-08-19' }],
+  ];
+  for (const [now, validity] of hostile) {
+    assert.doesNotThrow(() =>
+      evaluateRecommendationStaleness({
+        recommendation: recommendation(nodes, validity),
+        now,
+        currentFingerprints: {},
+      }),
+    );
+  }
+});
+
+/* ── instants compare numerically, never lexicographically ────────── */
+
+test('expiry: two spellings of one instant are the same instant', () => {
+  // Lexicographic ordering of ISO-8601 is sound only for identically formatted
+  // strings. `2026-08-19T11:00:00.000Z` and `2026-08-19T11:00:00+00:00` denote
+  // the same moment and compare unequal as text, so a string comparison would
+  // expire a recommendation early or late depending on which producer wrote the
+  // field. The pair below is chosen so a `<` comparison gives the wrong answer.
+  assert.ok('2026-08-19T11:00:00+00:00' < '2026-08-19T11:00:00.000Z', 'the fixture must discriminate the two orders');
+  const nodes = [observed('n1')];
+  const rec = recommendation(nodes, { basisAt: BASIS, expiresAt: '2026-08-19T11:00:00+00:00' });
+  const current = fingerprintsFor(nodes);
+
+  assert.equal(
+    evaluateRecommendationStaleness({ recommendation: rec, now: '2026-08-19T10:59:59.999Z', currentFingerprints: current }).fresh,
+    true,
+  );
+  assert.deepEqual(
+    codesOf(evaluateRecommendationStaleness({ recommendation: rec, now: '2026-08-19T11:00:00.000Z', currentFingerprints: current })).slice(),
+    ['EXPIRED'],
+  );
+});
+
+/* ── invalidation by the state moving ─────────────────────────────── */
+
+test('invalidation: a changed source fingerprint is stale inside the window', () => {
+  const nodes = [observed('n1'), observed('n2')];
+  const verdict = evaluateRecommendationStaleness({
+    recommendation: recommendation(nodes),
+    now: '2026-08-19T10:30:00.000Z',
+    currentFingerprints: { n1: 'fp-n1', n2: 'something-else' },
+  });
+  assert.equal(verdict.fresh, false);
+  assert.deepEqual(reasonsOf(verdict).map((reason) => `${reason.nodeId}:${reason.code}`).slice(), ['n2:SOURCE_CHANGED']);
+});
+
+test('invalidation: a removed source is distinguished from a changed one', () => {
+  const nodes = [observed('n1')];
+  const verdict = evaluateRecommendationStaleness({
+    recommendation: recommendation(nodes),
+    now: '2026-08-19T10:30:00.000Z',
+    currentFingerprints: { n1: null },
+  });
+  assert.deepEqual(codesOf(verdict).slice(), ['SOURCE_REMOVED']);
+});
+
+test('invalidation: only observations are re-verified', () => {
+  // A derived node has no source to re-read. Requiring a fingerprint for it
+  // would push implementations to fabricate one for a value nothing can check.
+  const nodes = [observed('n1'), derived('d1', ['n1']), derived('d2', ['d1'])];
+  const verdict = evaluateRecommendationStaleness({
+    recommendation: recommendation(nodes),
+    now: '2026-08-19T10:30:00.000Z',
+    currentFingerprints: { n1: 'fp-n1' },
+  });
+  assert.equal(verdict.fresh, true, 'derived nodes must not demand fingerprints');
+});
+
+/* ── fail closed ──────────────────────────────────────────────────── */
+
+test('invalidation: a node with no supplied fingerprint is stale, not fresh', () => {
+  // The single most important line in this section. The opposite default makes
+  // the check pass most confidently exactly when the caller has lost track of a
+  // source, and every test written against a complete map still passes.
+  const nodes = [observed('n1'), observed('n2')];
+  const verdict = evaluateRecommendationStaleness({
+    recommendation: recommendation(nodes),
+    now: '2026-08-19T10:30:00.000Z',
+    currentFingerprints: { n1: 'fp-n1' },
+  });
+  assert.equal(verdict.fresh, false);
+  assert.deepEqual(reasonsOf(verdict).map((reason) => `${reason.nodeId}:${reason.code}`).slice(), ['n2:SOURCE_UNVERIFIABLE']);
+});
+
+test('invalidation: an empty fingerprint map makes every observation unverifiable', () => {
+  const nodes = [observed('n1'), observed('n2'), derived('d1', ['n1'])];
+  const verdict = evaluateRecommendationStaleness({
+    recommendation: recommendation(nodes),
+    now: '2026-08-19T10:30:00.000Z',
+    currentFingerprints: {},
+  });
+  assert.deepEqual(codesOf(verdict).slice(), ['SOURCE_UNVERIFIABLE', 'SOURCE_UNVERIFIABLE']);
+});
+
+test('invalidation: an inherited property is not a supplied fingerprint', () => {
+  // A node named `toString` resolves to a function on `Object.prototype` from a
+  // plain record lookup. A `!== undefined` guard would read that as "supplied",
+  // then compare a function to a string, report SOURCE_CHANGED for the wrong
+  // reason — and for `valueOf`-shaped cases where the comparison happened to
+  // hold, report fresh. Membership is tested with `hasOwnProperty`.
+  const nodes = [observed('toString'), observed('constructor'), observed('valueOf')];
+  const verdict = evaluateRecommendationStaleness({
+    recommendation: recommendation(nodes),
+    now: '2026-08-19T10:30:00.000Z',
+    currentFingerprints: {},
+  });
+  assert.deepEqual(
+    reasonsOf(verdict).map((reason) => `${reason.nodeId}:${reason.code}`).slice(),
+    ['toString:SOURCE_UNVERIFIABLE', 'constructor:SOURCE_UNVERIFIABLE', 'valueOf:SOURCE_UNVERIFIABLE'],
+  );
+});
+
+test('invalidation: a prototype-free map behaves identically to a plain object', () => {
+  const nodes = [observed('n1')];
+  const bare = Object.create(null) as Record<string, string | null>;
+  bare.n1 = 'fp-n1';
+  assert.equal(
+    evaluateRecommendationStaleness({
+      recommendation: recommendation(nodes),
+      now: '2026-08-19T10:30:00.000Z',
+      currentFingerprints: bare,
+    }).fresh,
+    true,
+  );
+});
+
+test('invalidation: a node literally named __proto__ is still verified', () => {
+  const nodes = [observed('__proto__')];
+  const map = Object.create(null) as Record<string, string | null>;
+  Object.defineProperty(map, '__proto__', { value: 'fp-__proto__', enumerable: true, configurable: true, writable: true });
+  assert.equal(
+    evaluateRecommendationStaleness({
+      recommendation: recommendation(nodes),
+      now: '2026-08-19T10:30:00.000Z',
+      currentFingerprints: map,
+    }).fresh,
+    true,
+  );
+  const missing = evaluateRecommendationStaleness({
+    recommendation: recommendation(nodes),
+    now: '2026-08-19T10:30:00.000Z',
+    currentFingerprints: Object.create(null) as Record<string, string | null>,
+  });
+  assert.deepEqual(codesOf(missing).slice(), ['SOURCE_UNVERIFIABLE']);
+});
+
+/* ── withheld recommendations expire too ──────────────────────────── */
+
+test('expiry: a withheld verdict goes stale on the same terms as an offer', () => {
+  // "There is nothing for you to do" is a claim about trusted state with a shelf
+  // life. A withheld verdict that could not go stale would be cached past the
+  // moment the user added a commitment.
+  const nodes = [
+    observed('zero'),
+  ];
+  const withheld: WithheldRecommendation = {
+    version: RECOMMENDATION_CONTRACT_VERSION,
+    schema: RECOMMENDATION_SCHEMA_VERSION,
+    recommendationId: 'rec-2',
+    scopeId: 'scope-1',
+    validity: { basisAt: BASIS, expiresAt: EXPIRES },
+    evidence: { nodes },
+    inputDigest: 'digest-2',
+    outcome: 'withheld',
+    reasons: [{ code: 'NO_ELIGIBLE_CANDIDATE', supportedBy: ['zero'], detail: 'the scope holds no open commitment' }],
+  };
+  assert.equal(
+    evaluateRecommendationStaleness({ recommendation: withheld, now: '2026-08-19T10:30:00.000Z', currentFingerprints: { zero: 'fp-zero' } }).fresh,
+    true,
+  );
+  assert.deepEqual(
+    codesOf(evaluateRecommendationStaleness({ recommendation: withheld, now: '2026-08-19T10:30:00.000Z', currentFingerprints: { zero: 'a-commitment-appeared' } })).slice(),
+    ['SOURCE_CHANGED'],
+  );
+  assert.deepEqual(
+    codesOf(evaluateRecommendationStaleness({ recommendation: withheld, now: EXPIRES, currentFingerprints: { zero: 'fp-zero' } })).slice(),
+    ['EXPIRED'],
+  );
+});
+
+/* ── verdict shape and determinism ────────────────────────────────── */
+
+test('expiry: any reason at all means not fresh, and there is no soft staleness', () => {
+  // A verdict a caller can weigh is a verdict a caller can overrule. The
+  // acceptance criterion is rejection, so there is no severity field to weigh.
+  const nodes = [observed('n1')];
+  const verdict = evaluateRecommendationStaleness({
+    recommendation: recommendation(nodes),
+    now: EXPIRES,
+    currentFingerprints: fingerprintsFor(nodes),
+  });
+  assert.equal(verdict.fresh, false);
+  const reasons = reasonsOf(verdict);
+  assert.ok(reasons.length > 0);
+  for (const reason of reasons) {
+    assert.equal('severity' in reason, false, 'a staleness reason carries no weight to overrule it with');
+    assert.ok(STALENESS_REASON_CODES.includes(reason.code), `${reason.code} is outside the taxonomy`);
+  }
+});
+
+test('expiry: reasons come back in a fixed order — window findings, then nodes in graph order', () => {
+  // An inverted window evaluated inside it is the one input that fires all three
+  // window findings at once, which is what makes their relative order testable
+  // rather than assumed. It took a wrong expectation here to notice that a
+  // *degenerate* window (basis === expiry) evaluated before the basis fires only
+  // two — EXPIRED genuinely does not hold there, and asserting it would have
+  // pinned a bug rather than the behaviour.
+  const nodes = [observed('z'), observed('a'), observed('m')];
+  const input = {
+    recommendation: recommendation(nodes, { basisAt: BASIS, expiresAt: '2026-08-19T09:00:00.000Z' }),
+    now: '2026-08-19T09:30:00.000Z',
+    currentFingerprints: { a: null },
+  };
+  const first = evaluateRecommendationStaleness(input);
+  const second = evaluateRecommendationStaleness(input);
+  assert.deepEqual(reasonsOf(first).slice(), reasonsOf(second).slice());
+  assert.deepEqual(
+    reasonsOf(first).map((reason) => `${reason.nodeId ?? '-'}:${reason.code}`).slice(),
+    ['-:EXPIRY_NOT_AFTER_BASIS', '-:NOT_YET_VALID', '-:EXPIRED', 'z:SOURCE_UNVERIFIABLE', 'a:SOURCE_REMOVED', 'm:SOURCE_UNVERIFIABLE'],
+  );
+});
+
+test('expiry: only INVALID_INSTANT carries a field name', () => {
+  const nodes = [observed('n1')];
+  const verdict = evaluateRecommendationStaleness({
+    recommendation: recommendation(nodes, { basisAt: 'bad', expiresAt: EXPIRES }),
+    now: EXPIRES,
+    currentFingerprints: { n1: 'changed' },
+  });
+  for (const reason of reasonsOf(verdict)) {
+    if (reason.code === 'INVALID_INSTANT') assert.notEqual(reason.field, null);
+    else assert.equal(reason.field, null, `${reason.code} must not claim a field`);
+  }
+});
+
+test('leak: no staleness detail carries a caller-chosen identifier or a raw instant', () => {
+  const hostile = 'call-dr.cohen-about-the-biopsy';
+  const nodes = [observed(hostile), observed(`${hostile}-2`)];
+  const verdict = evaluateRecommendationStaleness({
+    recommendation: recommendation(nodes, { basisAt: hostile, expiresAt: hostile }),
+    now: hostile,
+    currentFingerprints: { [`${hostile}-2`]: 'changed' },
+  });
+  const reasons = reasonsOf(verdict);
+  assert.ok(reasons.length >= 4, 'the fixture must produce a spread of findings');
+  for (const reason of reasons) {
+    assert.equal(reason.detail.includes(hostile), false, `${reason.code} leaked an id into its detail: ${reason.detail}`);
+  }
+});
+
+/* ── no ambient clock ─────────────────────────────────────────────── */
+
+test('clock: the contract reads no clock and no entropy source', () => {
+  // Structural, not behavioural: a behavioural test can only show that whatever
+  // clock reads the module makes did not change the answer during this run.
+  // Determinism is the acceptance criterion and one `Date.now()` anywhere in
+  // this file would break it in a way no fixture would reliably catch.
+  const source = readFileSync(join(repoRoot, 'src', 'contracts', 'v1', 'recommendationContracts.ts'), 'utf8');
+  const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  assert.ok(code.includes('evaluateRecommendationStaleness'), 'the scan must actually see the code');
+
+  for (const forbidden of [/\bDate\s*\.\s*now\b/, /\bnew\s+Date\s*\(\s*\)/, /\bMath\s*\.\s*random\b/, /\brandomUUID\b/, /\bperformance\s*\.\s*now\b/]) {
+    assert.equal(forbidden.test(code), false, `the contract must not use ${forbidden}`);
+  }
+  // `Date.parse` is permitted **and is not sufficient on its own**. This comment
+  // used to read "pure function of its argument, with no reference to the
+  // current time", which is true and was taken to mean more than it says: it
+  // does not read the clock, but it does read the *zone*, and this scan blessed
+  // a host-dependent verdict for a whole review round. The guard that actually
+  // holds it is `INSTANT_PATTERN` — see the offset tests above — so the scan now
+  // asserts the pattern exists rather than treating the parse as safe.
+  assert.ok(/\bDate\s*\.\s*parse\b/.test(code), 'the scan must see the one permitted Date use');
+  assert.ok(/INSTANT_PATTERN/.test(code), 'Date.parse must be fenced by an explicit-offset pattern');
+});
+
+test('clock: the same inputs give the same verdict on repeated evaluation', () => {
+  const nodes = [observed('n1'), observed('n2')];
+  const input = {
+    recommendation: recommendation(nodes),
+    now: '2026-08-19T10:30:00.000Z',
+    currentFingerprints: { n1: 'fp-n1', n2: 'moved' },
+  };
+  const runs: StalenessVerdict[] = [];
+  for (let index = 0; index < 50; index += 1) runs.push(evaluateRecommendationStaleness(input));
+  for (const run of runs) assert.deepEqual(run, runs[0]);
+});
+
+test('clock: the default TTL is a constant, not something the module applies to a clock', () => {
+  // A default a caller may use, never an expiry this module computes. Nothing
+  // here turns minutes into an instant, which the clock scan above enforces.
+  assert.equal(typeof DEFAULT_RECOMMENDATION_TTL_MINUTES, 'number');
+  assert.ok(Number.isFinite(DEFAULT_RECOMMENDATION_TTL_MINUTES) && DEFAULT_RECOMMENDATION_TTL_MINUTES > 0);
+  const nodes = [observed('n1')];
+  // A recommendation whose window is *shorter* than the default is honoured as
+  // written: the default does not widen anything.
+  const shortWindow = recommendation(nodes, { basisAt: BASIS, expiresAt: '2026-08-19T10:05:00.000Z' });
+  assert.deepEqual(
+    codesOf(evaluateRecommendationStaleness({
+      recommendation: shortWindow as Recommendation,
+      now: '2026-08-19T10:06:00.000Z',
+      currentFingerprints: fingerprintsFor(nodes),
+    })).slice(),
+    ['EXPIRED'],
+  );
+});
+
+/* ── the instant format, and why the parse alone is not enough ────── */
+
+/**
+ * The one corpus of instants this file judges anything against.
+ *
+ * A single list, shared by the staleness tests and by the `isInstant` tests
+ * below, because the whole risk in exporting a predicate is that it and the
+ * internal judgement acquire separate test sets and then drift apart quietly.
+ * Two corpora would let each side stay green about the cases the other cares
+ * about — which is the same failure as two copies of the rule itself, moved one
+ * level up into the tests.
+ */
+const VALID_INSTANTS: readonly string[] = [
+  '2026-08-19T11:00:00Z',
+  '2026-08-19T11:00:00.000Z',
+  '2026-08-19T11:00:00.123456789Z',
+  '2026-08-19T11:00:00+00:00',
+  '2026-08-19T14:00:00+03:00',
+  '2026-08-19T08:00:00-03:00',
+  '2026-08-19T11:00Z',
+  '2024-02-29T00:00:00Z', // a real leap day
+];
+
+const INVALID_INSTANTS: readonly string[] = [
+  // Parses, but as *local* time — the host-dependence this fence exists for.
+  '2026-11-23T00:00:00',
+  '2026-11-23T10:00:00.000',
+  // Parses, but is not a date-time at all.
+  '2026',
+  '2026-11',
+  '2026-11-23',
+  // Shape-incomplete or non-ISO separators.
+  '2026-11-23T10:00',
+  '2026-11-23 10:00:00Z',
+  '2026-11-23T10:00:00 Z',
+  // Matches INSTANT_PATTERN and yet denotes no moment: `Date.parse` returns NaN.
+  // This is the case that makes a shape-only predicate wrong, and the reason
+  // `isInstant` is derived from `instantToMillis` rather than from the regex.
+  '2026-13-45T99:99:99Z',
+  // Matches INSTANT_PATTERN *and* parses — to a different day. `Date.parse`
+  // rolls an impossible date over rather than refusing it, so these are the
+  // cases a pattern-plus-parse check would still let through.
+  '2026-02-30T00:00:00Z', // -> 2026-03-02, a two-day shift
+  '2026-02-29T00:00:00Z', // 2026 is not a leap year; -> 2026-03-01
+  '2026-04-31T00:00:00Z', // -> 2026-05-01
+  '2026-08-19T24:00:00Z', // -> 2026-08-20
+  '2026-08-19T11:00:00+25:00', // an offset that does not exist
+  // Not instants at all.
+  '',
+  '   ',
+  'not-a-date',
+  'Invalid Date',
+  'NaN',
+  '0000-00-00',
+];
+
+
+test('expiry: an instant without an explicit offset is rejected, not read as local time', () => {
+  // `Date.parse` follows the ECMAScript rule that a date-time with no offset is
+  // *local* time, so the same recommendation and the same `now` produced
+  // EXPIRED under TZ=UTC, FRESH under TZ=America/Los_Angeles and EXPIRED under
+  // TZ=Asia/Tokyo. That is the same class of defect this contract spends a long
+  // comment condemning under `localeCompare` — a verdict that moves with the
+  // host environment — and the source scan had blessed it.
+  const nodes = [observed('n1')];
+  const verdict = evaluateRecommendationStaleness({
+    recommendation: recommendation(nodes, { basisAt: '2026-11-23T00:00:00', expiresAt: '2026-11-23T10:00:00' }),
+    now: '2026-11-23T13:00:00Z',
+    currentFingerprints: fingerprintsFor(nodes),
+  });
+  assert.equal(verdict.fresh, false);
+  assert.deepEqual(
+    reasonsOf(verdict).filter((reason) => reason.code === 'INVALID_INSTANT').map((reason) => reason.field),
+    ['basisAt', 'expiresAt'],
+  );
+});
+
+test('expiry: a date-only instant is rejected even though the parser accepts it', () => {
+  // `Date.parse('2026')` succeeds and means "January the first". A recommendation
+  // whose expiry is the string `'2026'` is a producer bug, and silently reading
+  // it as a real instant is how that bug ships.
+  const nodes = [observed('n1')];
+  for (const bad of INVALID_INSTANTS) {
+    const verdict = evaluateRecommendationStaleness({
+      recommendation: recommendation(nodes, { basisAt: BASIS, expiresAt: bad }),
+      now: '2026-08-19T10:30:00.000Z',
+      currentFingerprints: fingerprintsFor(nodes),
+    });
+    assert.ok(
+      reasonsOf(verdict).some((reason) => reason.code === 'INVALID_INSTANT' && reason.field === 'expiresAt'),
+      `${bad} must not be accepted as an Instant`,
+    );
+  }
+});
+
+test('expiry: every accepted offset spelling denotes the same instant', () => {
+  const nodes = [observed('n1')];
+  // Every spelling below denotes 2026-08-19T11:00Z exactly; the ones that do not
+  // are covered by the corpus test rather than here.
+  const spellings = ['2026-08-19T11:00:00Z', '2026-08-19T11:00:00.000Z', '2026-08-19T11:00:00+00:00', '2026-08-19T14:00:00+03:00', '2026-08-19T08:00:00-03:00', '2026-08-19T11:00Z'];
+  for (const expiresAt of spellings) {
+    const rec = recommendation(nodes, { basisAt: BASIS, expiresAt });
+    assert.equal(
+      evaluateRecommendationStaleness({ recommendation: rec, now: '2026-08-19T10:59:59.999Z', currentFingerprints: fingerprintsFor(nodes) }).fresh,
+      true,
+      `${expiresAt} must be accepted and mean 11:00Z`,
+    );
+    assert.deepEqual(
+      codesOf(evaluateRecommendationStaleness({ recommendation: rec, now: '2026-08-19T11:00:00.000Z', currentFingerprints: fingerprintsFor(nodes) })).slice(),
+      ['EXPIRED'],
+      `${expiresAt} must expire at 11:00Z`,
+    );
+  }
+});
+
+/* ── the exported predicate ───────────────────────────────────────── */
+
+test('isInstant: accepts every instant the corpus calls valid', () => {
+  for (const value of VALID_INSTANTS) {
+    assert.equal(isInstant(value), true, `${value} must be accepted`);
+  }
+});
+
+test('isInstant: rejects every instant the corpus calls invalid', () => {
+  for (const value of INVALID_INSTANTS) {
+    assert.equal(isInstant(value), false, `${value} must be rejected`);
+  }
+});
+
+test('isInstant: a shape-valid string denoting no moment is rejected', () => {
+  // The single case that makes a pattern-only predicate wrong, called out on its
+  // own so a future contributor who "simplifies" `isInstant` to
+  // `INSTANT_PATTERN.test(value)` gets a failure that names the reason.
+  assert.equal(isInstant('2026-13-45T99:99:99Z'), false);
+  assert.equal(Number.isNaN(Date.parse('2026-13-45T99:99:99Z')), true, 'the fixture must be shape-valid and parse-invalid');
+});
+
+test('isInstant: an impossible date is rejected, not rolled over', () => {
+  // Found by the corpus test, not predicted. `Date.parse` repairs an impossible
+  // date instead of refusing it, and the repair is a real shift: an expiry
+  // written as the 30th of February is read as the 2nd of March, so the
+  // recommendation stays offerable two days past its stated life with nothing
+  // anywhere reporting it. The repaired value is a perfectly well-formed
+  // instant, so no downstream check can notice — which is what makes it the
+  // silent-repair class the contract condemns under `EFFORT_NOT_POSITIVE`.
+  const rolled: readonly (readonly [string, string])[] = [
+    ['2026-02-30T00:00:00Z', '2026-03-02'],
+    ['2026-02-29T00:00:00Z', '2026-03-01'],
+    ['2026-04-31T00:00:00Z', '2026-05-01'],
+    ['2026-08-19T24:00:00Z', '2026-08-20'],
+  ];
+  for (const [written, wouldBecome] of rolled) {
+    assert.equal(
+      new Date(Date.parse(written)).toISOString().slice(0, 10),
+      wouldBecome,
+      `the fixture must actually roll: ${written}`,
+    );
+    assert.equal(isInstant(written), false, `${written} must be rejected rather than shifted to ${wouldBecome}`);
+  }
+  // The genuine leap day must still be accepted, or the calendar check has
+  // simply become a ban on late February.
+  assert.equal(isInstant('2024-02-29T00:00:00Z'), true);
+});
+
+test('isInstant: rejects every non-string without coercing it', () => {
+  // `RegExp.prototype.test` coerces, so an exported pattern would answer about
+  // the string `'20260819'` when handed the number. A predicate over `unknown`
+  // is the surface that cannot be misread that way.
+  for (const value of [undefined, null, 20260819, Number.NaN, true, {}, [], new Date(0), ['2026-08-19T11:00:00Z']]) {
+    assert.equal(isInstant(value), false, `${String(value)} must be rejected`);
+  }
+});
+
+test('isInstant: agrees with the staleness verdict on every corpus value', () => {
+  // **The anti-drift assertion.** It ties the exported predicate to the internal
+  // judgement through *observable behaviour* rather than through shared code, so
+  // it still fails if someone later re-implements `isInstant` independently —
+  // which is precisely the mistake exporting it could otherwise invite. #34
+  // reached this judgement by passing the value as `now` and reading
+  // `INVALID_INSTANT`; that indirection and this predicate must never disagree,
+  // because #34 and #35 will be using both spellings at the same time.
+  const nodes = [observed('n1')];
+  for (const value of [...VALID_INSTANTS, ...INVALID_INSTANTS]) {
+    const viaStaleness = evaluateRecommendationStaleness({
+      recommendation: recommendation(nodes),
+      now: value,
+      currentFingerprints: fingerprintsFor(nodes),
+    });
+    const rejectedByStaleness = reasonsOf(viaStaleness).some(
+      (reason) => reason.code === 'INVALID_INSTANT' && reason.field === 'now',
+    );
+    assert.equal(
+      isInstant(value),
+      !rejectedByStaleness,
+      `isInstant and the staleness checker disagree about ${JSON.stringify(value)}`,
+    );
+  }
+});
+
+test('isInstant: the corpus is not vacuous on either side', () => {
+  // A corpus that drifted to all-valid or all-invalid would make every
+  // assertion above pass while testing one direction only.
+  assert.ok(VALID_INSTANTS.length >= 6, 'too few valid instants to be meaningful');
+  assert.ok(INVALID_INSTANTS.length >= 10, 'too few invalid instants to be meaningful');
+  assert.equal(VALID_INSTANTS.some((value) => isInstant(value)), true);
+  assert.equal(INVALID_INSTANTS.some((value) => !isInstant(value)), true);
+  // And the two lists must not overlap, which a copy-paste edit could produce.
+  const valid = new Set<string>(VALID_INSTANTS);
+  assert.deepEqual(INVALID_INSTANTS.filter((value) => valid.has(value)), []);
+});
+
+/* ── totality at the untyped boundary ─────────────────────────────── */
+
+test('invalidation: a missing fingerprint map is stale, not a crash', () => {
+  // This raised a TypeError from `hasOwnProperty.call(undefined, …)` — on the
+  // one input the whole fail-closed rule exists for. "The caller has lost track
+  // of its sources" is not an edge case in this section, it is the case.
+  const nodes = [observed('n1')];
+  for (const map of [undefined, null, 'nope', 42]) {
+    const verdict = evaluateRecommendationStaleness({
+      recommendation: recommendation(nodes),
+      now: '2026-08-19T10:30:00.000Z',
+      currentFingerprints: map as unknown as Record<string, string | null>,
+    });
+    assert.equal(verdict.fresh, false, `${String(map)} must fail closed`);
+    assert.deepEqual(codesOf(verdict).slice(), ['SOURCE_UNVERIFIABLE']);
+  }
+});
+
+test('invalidation: a node of unrecognised kind is watched, not silently exempted', () => {
+  // Before this, an unknown kind was skipped by `node.kind !== 'observed'`, so it
+  // could never invalidate anything — which makes an unrecognised node the ideal
+  // hiding place for a claim that must never go stale.
+  const nodes = [{ kind: 'inferred', nodeId: 'x', claim: { kind: 'flag', value: true } }] as unknown as EvidenceNode[];
+  const verdict = evaluateRecommendationStaleness({
+    recommendation: recommendation(nodes),
+    now: '2026-08-19T10:30:00.000Z',
+    currentFingerprints: { x: 'anything' },
+  });
+  assert.equal(verdict.fresh, false);
+  assert.deepEqual(reasonsOf(verdict).map((reason) => `${reason.nodeId}:${reason.code}`).slice(), ['x:SOURCE_UNVERIFIABLE']);
+});
+
+test('expiry: no malformed input at all makes the staleness checker throw', () => {
+  const nodes = [observed('n1')];
+  const shapes: readonly unknown[] = [
+    { recommendation: undefined, now: BASIS, currentFingerprints: {} },
+    { recommendation: null, now: BASIS, currentFingerprints: {} },
+    { recommendation: { ...recommendation(nodes), validity: undefined }, now: BASIS, currentFingerprints: {} },
+    { recommendation: { ...recommendation(nodes), evidence: undefined }, now: BASIS, currentFingerprints: {} },
+    { recommendation: { ...recommendation(nodes), evidence: { nodes: 'nope' } }, now: BASIS, currentFingerprints: {} },
+    { recommendation: recommendation(nodes), now: undefined, currentFingerprints: {} },
+    { recommendation: recommendation(nodes), now: 42, currentFingerprints: {} },
+  ];
+  for (const shape of shapes) {
+    assert.doesNotThrow(
+      () => evaluateRecommendationStaleness(shape as unknown as Parameters<typeof evaluateRecommendationStaleness>[0]),
+      `threw on ${JSON.stringify(shape)?.slice(0, 70)}`,
+    );
+    const verdict = evaluateRecommendationStaleness(shape as unknown as Parameters<typeof evaluateRecommendationStaleness>[0]);
+    assert.equal(verdict.fresh, false, 'a malformed input must never resolve fresh');
+  }
+});

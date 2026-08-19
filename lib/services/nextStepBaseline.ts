@@ -1,6 +1,7 @@
 import type { Commitment, DomainState } from '../../src/domain/stateMachine';
 import type { NextStepLocale, NextStepRecommendationContract } from '../../src/contracts/v1/nextStepContracts';
 import { proposeNextStep } from './nextStepReviewService';
+import { compareByCodePoint } from '../planning/shared/compare';
 
 export interface BaselineCandidate {
   commitmentId: string;
@@ -85,7 +86,12 @@ function compareScores(left: BaselineScore, right: BaselineScore): number {
     || right.urgencyBand - left.urgencyBand
     || right.importanceBand - left.importanceBand
     || right.effortTieBreak - left.effortTieBreak
-    || left.commitmentId.localeCompare(right.commitmentId);
+    // Code-unit ordering, never `localeCompare`. This is the final key of the
+    // baseline order, so on a fully-tied score it alone decides which
+    // commitment the user is shown — and `localeCompare` with no argument
+    // resolves against the host's default locale. Measured: 'i-ITEM' and
+    // 'I-item' swap between en-US and tr-TR.
+    || compareByCodePoint(left.commitmentId, right.commitmentId);
 }
 
 function explanation(labels: readonly string[]): string {
@@ -100,7 +106,7 @@ export function selectBaselineNextStep(
 ): BaselineSelection {
   const scores = candidates
     .map((candidate) => scoreBaselineCandidate(candidate, now))
-    .sort((left, right) => left.commitmentId.localeCompare(right.commitmentId));
+    .sort((left, right) => compareByCodePoint(left.commitmentId, right.commitmentId));
   const byId = new Map(candidates.map((candidate) => [candidate.commitmentId, candidate]));
   const selectedScore = scores.filter((score) => score.evidenceSufficient).sort(compareScores)[0];
   const selected = selectedScore ? byId.get(selectedScore.commitmentId) : null;

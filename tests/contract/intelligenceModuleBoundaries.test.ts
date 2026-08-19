@@ -11,6 +11,7 @@ import {
   type ContractProvenance,
 } from '../../src/contracts/v1/moduleContracts.ts';
 import { PLANNING_SCHEMA_VERSION } from '../../src/contracts/v1/planningContracts.ts';
+import { RECOMMENDATION_SCHEMA_VERSION } from '../../src/contracts/v1/recommendationContracts.ts';
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(testDir, '..', '..');
@@ -88,9 +89,31 @@ test('module contracts execute with typed provenance envelope', async () => {
     });
   }
 
+  // Sprint 08 issue #34 moved `recommendation` from placeholder to implemented,
+  // on the same terms: the descriptor stays a descriptor and what is pinned is
+  // the entry point and the schema it speaks.
+  const recommendation = await INTELLIGENCE_MODULE_CONTRACTS.recommendation.execute({
+    scopeId: 'scope',
+    input: { payload: {} },
+    provenance,
+  });
+  assert.equal(recommendation.ok, true);
+  if (recommendation.ok) {
+    assert.deepEqual(recommendation.output, {
+      status: 'implemented',
+      module: 'recommendation',
+      schemaVersion: 'recommendation-v1',
+      entryPoint: 'lib/recommendation#selectRecommendation',
+    });
+  }
+
   // A module still awaiting its sprint keeps the placeholder shape, so this
   // test does not quietly stop checking that the two shapes are distinct.
-  const pending = await INTELLIGENCE_MODULE_CONTRACTS.recommendation.execute({
+  // `coaching` is Sprint 09's; it replaced `recommendation` here when #34
+  // landed, and whichever module holds this slot must be one no track has
+  // implemented — an assertion that both shapes exist is worthless the moment
+  // it is made about a module that has only one of them.
+  const pending = await INTELLIGENCE_MODULE_CONTRACTS.coaching.execute({
     scopeId: 'scope',
     input: { payload: {} },
     provenance,
@@ -99,6 +122,19 @@ test('module contracts execute with typed provenance envelope', async () => {
   if (pending.ok) {
     assert.deepEqual(pending.output, { status: 'not_implemented_in_sprint_00' });
   }
+});
+
+test('the recommendation module descriptor matches the recommendation schema version', async () => {
+  const result = await INTELLIGENCE_MODULE_CONTRACTS.recommendation.execute({
+    provenance: { traceId: 't', producedAt: '2026-08-19T00:00:00.000Z', source: 'system', confidence: null },
+    input: {},
+  } as never);
+  assert.equal(result.ok, true);
+  const output = result.ok ? (result.output as { schemaVersion: string }) : { schemaVersion: '' };
+  // `moduleContracts` spells this literal out to avoid an import cycle that
+  // throws at runtime while typechecking clean; this is what keeps the two
+  // spellings from drifting apart. Mirrors the planning pin below.
+  assert.equal(output.schemaVersion, RECOMMENDATION_SCHEMA_VERSION);
 });
 
 test('the planning module descriptor matches the planning schema version', async () => {

@@ -5,6 +5,7 @@ import {
   type NextStepLocale,
   type NextStepRecommendationContract,
 } from '../../src/contracts/v1/nextStepContracts';
+import { compareByCodePoint } from '../planning/shared/compare';
 
 export interface NextStepCandidate {
   commitmentId: string;
@@ -32,7 +33,14 @@ export function proposeNextStep(
 ): NextStepRecommendationContract {
   const eligible = candidates
     .filter((candidate) => isSafeText(cleanText(candidate.title, 120)))
-    .sort((left, right) => left.rank - right.rank || left.commitmentId.localeCompare(right.commitmentId));
+    // Code-unit ordering, never `localeCompare`: the no-argument form resolves
+    // against the host's default locale, which would make *which commitment the
+    // user is shown* depend on LANG/LC_ALL on the serving machine. Measured:
+    // 'i-ITEM' and 'I-item' swap between en-US and tr-TR. The same rule is
+    // stated in lib/runtimeMemory, lib/lifeState, lib/feedback and
+    // lib/planning/shared/compare.ts, whose compareByCodePoint this reuses.
+    .sort((left, right) => left.rank - right.rank
+      || compareByCodePoint(left.commitmentId, right.commitmentId));
   const selected = eligible[0];
 
   if (!selected) {

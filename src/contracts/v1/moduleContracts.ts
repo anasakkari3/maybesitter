@@ -213,9 +213,23 @@ export const INTELLIGENCE_MODULE_CONTRACTS: Record<IntelligenceModuleName, Intel
     owner: 'backend',
     allowsDirectStateWrites: false,
     allowedDependencyLayers: ['contracts', 'deterministic-services', 'adapters'],
-    inputDescription: 'Single next-step recommendation requests.',
-    outputDescription: 'Non-operative placeholder until Sprint 08+ gates pass.',
-    execute: async (invocation: ModuleInvocation<unknown>) => placeholderExecutor(invocation.provenance, { status: 'not_implemented_in_sprint_00' } satisfies GenericModuleOutput),
+    inputDescription: 'Priority and Planning outputs plus an explicit `now`; no ambient clock, every instant from the input.',
+    outputDescription: 'A Recommendation; see recommendationContracts and lib/recommendation.',
+    execute: async (invocation: ModuleInvocation<unknown>) => placeholderExecutor(invocation.provenance, {
+      status: 'implemented',
+      module: 'recommendation',
+      // Spelled out for the same reason as `decomposition` and `planning`
+      // above: `recommendationContracts` imports `MODULE_CONTRACT_VERSION`
+      // from this file, so importing `RECOMMENDATION_SCHEMA_VERSION` back
+      // closes a cycle that ESM resolves by evaluating `recommendationContracts`
+      // before this module's body has run — a TDZ ReferenceError at import
+      // time that `tsc` reports nothing about. `the recommendation module
+      // descriptor matches the recommendation schema version` in
+      // tests/contract/intelligenceModuleBoundaries.test.ts pins the two
+      // spellings together instead.
+      schemaVersion: 'recommendation-v1',
+      entryPoint: 'lib/recommendation#selectRecommendation',
+    } satisfies ImplementedModuleOutput),
   },
   coaching: {
     version: MODULE_CONTRACT_VERSION,
