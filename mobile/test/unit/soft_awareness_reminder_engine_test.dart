@@ -8,6 +8,7 @@ import 'package:maybesitter_mobile/services/contracts/notification_service.dart'
 import 'package:maybesitter_mobile/services/mock/in_memory_commitment_repository.dart';
 import 'package:maybesitter_mobile/services/mock/in_memory_pilot_loop_analytics_service.dart';
 import 'package:maybesitter_mobile/services/mock/mock_activity_repository.dart';
+import 'package:maybesitter_mobile/services/in_memory_awareness_state_store.dart';
 import 'package:maybesitter_mobile/services/mock/mock_notification_service.dart';
 import 'package:maybesitter_mobile/services/soft_awareness_reminder_engine.dart';
 
@@ -21,6 +22,7 @@ void main() {
         );
         final engine = SoftAwarenessReminderEngine(
           notificationService: notifications,
+          awarenessStateStore: InMemoryAwarenessStateStore(),
           reminderPolicy: () => const ReminderPolicy(),
           routineProfile: () => null,
           notificationsEnabled: () => true,
@@ -63,6 +65,7 @@ void main() {
       );
       final engine = SoftAwarenessReminderEngine(
         notificationService: notifications,
+        awarenessStateStore: InMemoryAwarenessStateStore(),
         reminderPolicy: () => const ReminderPolicy(),
         routineProfile: () => UserRoutineProfile(
           updatedAt: DateTime.utc(2026, 8, 19, 7),
@@ -102,6 +105,7 @@ void main() {
         );
         final engine = SoftAwarenessReminderEngine(
           notificationService: notifications,
+          awarenessStateStore: InMemoryAwarenessStateStore(),
           reminderPolicy: () => const ReminderPolicy(
             quietHoursRespectMode: QuietHoursRespectMode.allowUserOverride,
           ),
@@ -148,6 +152,7 @@ void main() {
         var awarenessEnabled = true;
         final engine = SoftAwarenessReminderEngine(
           notificationService: notifications,
+          awarenessStateStore: InMemoryAwarenessStateStore(),
           reminderPolicy: () => const ReminderPolicy(),
           routineProfile: () => null,
           notificationsEnabled: () => true,
@@ -238,6 +243,7 @@ void main() {
       final dispatcher = SoftAwarenessCommandDispatcher(
         commitmentRepository: repo,
         notificationService: notifications,
+        awarenessStateStore: InMemoryAwarenessStateStore(),
         activityRepository: activity,
         analyticsService: analytics,
         flags: const PilotPresenceFeatureFlags(
@@ -315,6 +321,7 @@ void main() {
         final dispatcher = SoftAwarenessCommandDispatcher(
           commitmentRepository: repo,
           notificationService: notifications,
+          awarenessStateStore: InMemoryAwarenessStateStore(),
           activityRepository: activity,
           analyticsService: analytics,
           flags: const PilotPresenceFeatureFlags(

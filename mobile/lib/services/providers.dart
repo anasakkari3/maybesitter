@@ -23,6 +23,7 @@ import 'contracts/feedback_history_service.dart';
 import 'contracts/activity_repository.dart';
 import 'contracts/calendar_import_service.dart';
 import 'contracts/next_step_service.dart';
+import 'contracts/awareness_state_store.dart';
 import 'contracts/notification_service.dart';
 import 'contracts/pilot_loop_analytics_service.dart';
 import 'contracts/pilot_presence_store.dart';
@@ -45,6 +46,7 @@ import 'mock/mock_calendar_import_service.dart';
 import 'mock/mock_feedback_history_service.dart';
 import 'mock/in_memory_pilot_loop_analytics_service.dart';
 import 'mock/mock_next_step_service.dart';
+import 'in_memory_awareness_state_store.dart';
 import 'mock/mock_notification_service.dart';
 import 'mock/mock_connectivity_service.dart';
 import 'mock/mock_pilot_trust_service.dart';
@@ -183,6 +185,10 @@ final pilotSessionControllerProvider =
       );
     });
 
+final awarenessStateStoreProvider = Provider<AwarenessStateStore>((ref) {
+  return InMemoryAwarenessStateStore();
+});
+
 final notificationServiceProvider = Provider<NotificationService>((ref) {
   return MockNotificationService();
 });
@@ -254,6 +260,7 @@ final softAwarenessReminderEngineProvider =
     Provider<SoftAwarenessReminderEngine>((ref) {
       return SoftAwarenessReminderEngine(
         notificationService: ref.watch(notificationServiceProvider),
+        awarenessStateStore: ref.watch(awarenessStateStoreProvider),
         reminderPolicy: () => ref.read(reminderPolicyProvider),
         routineProfile: () => ref.read(routineProfileProvider),
         notificationsEnabled: () =>
@@ -268,6 +275,7 @@ final softAwarenessCommandDispatcherProvider =
       return SoftAwarenessCommandDispatcher(
         commitmentRepository: ref.watch(commitmentRepositoryProvider),
         notificationService: ref.watch(notificationServiceProvider),
+        awarenessStateStore: ref.watch(awarenessStateStoreProvider),
         activityRepository: ref.watch(activityRepositoryProvider),
         analyticsService: ref.watch(pilotLoopAnalyticsServiceProvider),
         flags: ref.watch(pilotPresenceFeatureFlagsProvider),
