@@ -376,13 +376,39 @@ test('the digest is versioned, so a change to the encoding cannot pass as a chan
   assert.match(canonicalPlanningInput(BASE, config()), /^\{"digestVersion":"plan-digest-v1"/);
 });
 
-test('a non-finite number is refused rather than serialised as null', () => {
-  // `JSON.stringify(NaN)` is `"null"`, and so is `JSON.stringify(null)`. Two
-  // requests, one with a broken priority and one with none, would hash the same.
-  assert.throws(
-    () => planningInputDigest({ ...BASE, items: [{ ...ITEMS[0], priority: Number.NaN }] }, config()),
-    /non-finite/,
-  );
+test('non-finite numbers are encoded distinguishably rather than refused', () => {
+  // This used to throw. The rule is that if the taxonomy names a bad value the
+  // planner reports it, and throwing is reserved for input the taxonomy cannot
+  // describe — and the digest is computed for *every* request, including the
+  // ones whose findings are the whole answer, so it cannot be the thing that
+  // refuses them.
+  //
+  // The original reason for refusing them still stands and is what is asserted
+  // instead: `JSON.stringify(NaN)` is `"null"`, and so is
+  // `JSON.stringify(null)`, so a naive encoding would hash a broken priority
+  // and an absent one identically. Each non-finite value therefore has to be
+  // distinguishable from the others and from null.
+  const withPriority = (priority: number) => ({
+    ...BASE,
+    items: [{ ...ITEMS[0], priority }],
+  });
+
+  const digests = new Map<string, string>();
+  for (const [label, priority] of [
+    ['zero', 0],
+    ['NaN', Number.NaN],
+    ['Infinity', Number.POSITIVE_INFINITY],
+    ['-Infinity', Number.NEGATIVE_INFINITY],
+  ] as const) {
+    const digest = planningInputDigest(withPriority(priority), config());
+    const collision = digests.get(digest);
+    assert.equal(collision, undefined, `${label} hashes the same as ${collision ?? 'another value'}`);
+    digests.set(digest, label);
+  }
+
+  // And a null-valued field must not collide with any of them either.
+  const nullDeadline = planningInputDigest(BASE, config());
+  assert.equal(digests.has(nullDeadline), false);
 });
 
 test('an unusable slot grid is refused rather than silently defaulted', () => {

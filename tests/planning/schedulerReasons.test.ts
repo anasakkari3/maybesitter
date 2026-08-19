@@ -25,6 +25,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { schedulePlan } from '../../lib/planning/scheduler/index.ts';
+// Reached directly rather than through the public surface: `itemsOnCycles` is
+// an internal the exhaustive sweep below drives 4096 times, and widening the
+// module's exported surface for a test would be the wrong trade.
+import { itemsOnCycles } from '../../lib/planning/scheduler/scheduler.ts';
 import {
   ATTEMPT_INFEASIBILITY_CODES,
   STATIC_INFEASIBILITY_CODES,
@@ -289,6 +293,153 @@ test('CYCLIC_DEPENDENCY, by contrast, is a statement about whether an ordering e
   assert.equal(reasonFor(ordered, 'b'), 'CYCLIC_DEPENDENCY');
 });
 
+/**
+ * Whether each node can reach itself in one or more steps, computed directly
+ * from the definition of "sits on a cycle".
+ *
+ * Deliberately the slowest, most obvious formulation available — one search per
+ * node, no bookkeeping shared between them. It is the oracle, so it must be
+ * readable rather than fast: the scheduler computes the same set a different
+ * way, and a test that reimplemented the scheduler's method would agree with it
+ * about a shared mistake.
+ */
+function nodesOnCycles(
+  nodes: readonly string[],
+  edges: ReadonlyMap<string, readonly string[]>,
+): Set<string> {
+  const found = new Set<string>();
+  for (const start of nodes) {
+    const seen = new Set<string>();
+    const queue: string[] = (edges.get(start) ?? []).slice();
+    while (queue.length > 0) {
+      const node = queue.shift() as string;
+      if (node === start) {
+        found.add(start);
+        break;
+      }
+      if (seen.has(node)) continue;
+      seen.add(node);
+      for (const next of edges.get(node) ?? []) queue.push(next);
+    }
+  }
+  return found;
+}
+
+test('an item reaching a cycle through a cross edge is still on the cycle', () => {
+  // a -> b, a -> c, b -> a, c -> b. The cycle a -> c -> b -> a runs through c,
+  // but a depth-first walk that only marks the grey path on a *back* edge never
+  // sees it: by the time c is explored, b is already finished, so the edge
+  // c -> b is a cross edge and neither branch fires.
+  //
+  // The consequence was worse than a missing code. Falling through to the
+  // placement pass reported c as BLOCKED_BY_DEPENDENCY — an *attempt* code, for
+  // an item that can never start under any schedule. That crosses the partition
+  // the whole sprint is built around: it tells the user "this lost to
+  // contention" about a contradiction in their own request.
+  const plan = schedulePlan(
+    constraints({
+      items: [
+        item('a', { dependsOn: [{ dependsOnItemId: 'b', kind: 'temporal' }, { dependsOnItemId: 'c', kind: 'temporal' }] }),
+        item('b', { dependsOn: [{ dependsOnItemId: 'a', kind: 'temporal' }] }),
+        item('c', { dependsOn: [{ dependsOnItemId: 'b', kind: 'temporal' }] }),
+      ],
+    }),
+    config(),
+  );
+
+  assert.deepEqual(
+    plan.unscheduled.map((entry) => `${entry.itemId}:${entry.reason.code}`),
+    ['a:CYCLIC_DEPENDENCY', 'b:CYCLIC_DEPENDENCY', 'c:CYCLIC_DEPENDENCY'],
+  );
+  for (const entry of plan.unscheduled) {
+    assert.equal(
+      (ATTEMPT_INFEASIBILITY_CODES as readonly string[]).includes(entry.reason.code),
+      false,
+      `${entry.itemId} got an attempt code for a static contradiction`,
+    );
+  }
+});
+
+/** All directed graphs on `nodes` with no self-edges, as adjacency maps. */
+function everyGraph(nodes: readonly string[]): Map<string, string[]>[] {
+  const pairs: (readonly [string, string])[] = [];
+  for (const from of nodes) {
+    for (const to of nodes) {
+      if (from !== to) pairs.push([from, to] as const);
+    }
+  }
+
+  const graphs: Map<string, string[]>[] = [];
+  for (let mask = 0; mask < (1 << pairs.length); mask += 1) {
+    const edges = new Map<string, string[]>(nodes.map((node) => [node, [] as string[]]));
+    for (let bit = 0; bit < pairs.length; bit += 1) {
+      if ((mask & (1 << bit)) !== 0) {
+        const [from, to] = pairs[bit];
+        (edges.get(from) as string[]).push(to);
+      }
+    }
+    graphs.push(edges);
+  }
+  return graphs;
+}
+
+test('cycle membership matches the definition on every four-node graph', () => {
+  // All 4096 directed graphs on four nodes with no self-edges — self-edges are
+  // SELF_DEPENDENCY and take precedence, so they are a different question.
+  // Exhaustive rather than sampled: a fuzzer found the case above, and a
+  // property checkable in full at this size should be checked in full.
+  //
+  // Against the pure function, because 4096 whole planning runs cost a second
+  // and a half and would be paying that to re-test window materialisation. The
+  // sweep below covers the wiring end to end.
+  const nodes = ['n0', 'n1', 'n2', 'n3'] as const;
+  for (const edges of everyGraph(nodes)) {
+    assert.deepEqual(
+      Array.from(itemsOnCycles(edges)).sort(),
+      Array.from(nodesOnCycles(nodes, edges)).sort(),
+      `edges ${JSON.stringify(Array.from(edges.entries()))}`,
+    );
+  }
+});
+
+test('and the scheduler reports exactly those items, on every three-node graph', () => {
+  // End to end this time: the pure function above can be right while the code
+  // that consults it reports the wrong half of the taxonomy, which is what the
+  // cross-edge case actually did.
+  const nodes = ['n0', 'n1', 'n2'] as const;
+  for (const edges of everyGraph(nodes)) {
+    const plan = schedulePlan(
+      constraints({
+        items: nodes.map((node) => item(node, {
+          effort: { kind: 'known', minutes: 30 },
+          dependsOn: (edges.get(node) as string[]).map((to) => ({ dependsOnItemId: to, kind: 'temporal' as const })),
+        })),
+      }),
+      config(),
+    );
+
+    const expected = Array.from(nodesOnCycles(nodes, edges)).sort();
+    assert.deepEqual(
+      plan.unscheduled
+        .filter((entry) => entry.reason.code === 'CYCLIC_DEPENDENCY')
+        .map((entry) => entry.itemId)
+        .sort(),
+      expected,
+      `edges ${JSON.stringify(Array.from(edges.entries()))}`,
+    );
+
+    // And nothing on a cycle may be described with an attempt code.
+    for (const entry of plan.unscheduled) {
+      if (expected.indexOf(entry.itemId) === -1) continue;
+      assert.equal(
+        (ATTEMPT_INFEASIBILITY_CODES as readonly string[]).includes(entry.reason.code),
+        false,
+        `${entry.itemId} sits on a cycle and was given the attempt code ${entry.reason.code}`,
+      );
+    }
+  }
+});
+
 /* ── Attempt codes: tried, and lost ─────────────────────────────── */
 
 test('NO_FEASIBLE_SLOT: free time existed, but never a long enough contiguous run', () => {
@@ -322,10 +473,9 @@ test('BLOCKED_BY_DEPENDENCY is transitive and names the chain, not the root caus
     'the far end of the chain must not inherit the root defect as if it were its own',
   );
 
-  const leaf = plan.unscheduled.find((row) => row.itemId === 'leaf');
-  assert.ok(leaf);
-  assert.match(leaf.reason.detail, /leaf -> mid -> root/, 'the reason must say what it is waiting on');
-  assert.match(leaf.reason.detail, /EFFORT_UNKNOWN/, 'and where the chain bottoms out');
+  // What the detail may say is pinned by 'a blocked chain reports its depth and
+  // root cause without naming the chain' below; the identifier ruling forbids
+  // listing the intervening item ids here.
 });
 
 test('DEPENDENCY_TOO_LATE: every prerequisite was placed, and there is no room after them', () => {
@@ -474,6 +624,127 @@ test('AMBIGUOUS_LOCAL_TIME is never emitted, because the config always resolves 
   }
 });
 
+/* ── Values the taxonomy can describe are reported, not thrown ──── */
+
+/**
+ * If the taxonomy names it, report it; throwing is reserved for input the
+ * taxonomy cannot describe.
+ *
+ * The digest used to be the first thing `schedulePlan` did, and it refused any
+ * non-finite number — so a `NaN` minute count came back as a `TypeError`
+ * instead of as the `INVALID_INTERVAL` the contract names *by hand* for exactly
+ * that case. Both static readers report these; a third that throws is invisible
+ * to a typed caller and immediate at the untyped boundary, which is where these
+ * values come from in the first place.
+ */
+test('a non-finite window minute is INVALID_INTERVAL, not an exception', () => {
+  const plan = schedulePlan(
+    constraints({
+      workingWindows: [workingWindow('w-nan', { startMinute: Number.NaN })],
+      items: [item('a')],
+    }),
+    config(),
+  );
+
+  const codes = constraintCodes(plan);
+  assert.ok(codes.includes('INVALID_INTERVAL'), JSON.stringify(codes));
+  assert.ok(codes.includes('NO_WORKING_WINDOW'), JSON.stringify(codes));
+  assert.equal(reasonFor(plan, 'a'), 'NO_WORKING_WINDOW');
+});
+
+test('a non-finite effort is EFFORT_NOT_POSITIVE, not an exception', () => {
+  for (const minutes of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+    const plan = schedulePlan(
+      constraints({ items: [item('a', { effort: { kind: 'known', minutes } })] }),
+      config(),
+    );
+    assert.equal(reasonFor(plan, 'a'), 'EFFORT_NOT_POSITIVE', `effort ${String(minutes)}`);
+  }
+});
+
+test('a non-finite buffer is EFFORT_NOT_POSITIVE, not an exception', () => {
+  // The taxonomy has no buffer-specific code, and #29 reads this as
+  // EFFORT_NOT_POSITIVE. Agreeing with the other static reader matters more
+  // than the code being the one this track would have picked alone: a
+  // disagreement here is precisely what the cross-track comparison exists to
+  // surface, and it would be a disagreement about nothing.
+  for (const field of ['bufferBeforeMinutes', 'bufferAfterMinutes'] as const) {
+    for (const value of [Number.NaN, Number.POSITIVE_INFINITY]) {
+      const plan = schedulePlan(
+        constraints({ items: [item('a', { [field]: value })] }),
+        config(),
+      );
+      assert.equal(reasonFor(plan, 'a'), 'EFFORT_NOT_POSITIVE', `${field}=${String(value)}`);
+    }
+  }
+});
+
+test('a non-finite priority is not a defect at all, and does not destabilise the order', () => {
+  // Nothing in the taxonomy describes a priority, so there is nothing to
+  // report: the item schedules. The hazard is the comparator — `NaN - 0` is
+  // `NaN`, and a comparator returning `NaN` puts the sort into
+  // implementation-defined behaviour, which is exactly the kind of drift
+  // `PLAN_ORDERING_KEYS` exists to rule out.
+  const shape = constraints({
+    items: [item('a', { priority: Number.NaN }), item('b'), item('c', { priority: Number.POSITIVE_INFINITY })],
+  });
+  const plan = schedulePlan(shape, config());
+
+  assert.equal(plan.unscheduled.length, 0);
+  assert.equal(
+    JSON.stringify(plan),
+    JSON.stringify(schedulePlan({ ...shape, items: shape.items.slice().reverse() }, config())),
+    'the order must stay total when a priority cannot be compared',
+  );
+});
+
+/* ── Findings stay bounded ──────────────────────────────────────── */
+
+test('overlapping fixed events produce a linear number of findings, not a quadratic one', () => {
+  // A duplicated calendar feed is an ordinary shape, not an adversarial one.
+  // Enumerating every pair of 200 identical events produced 19,900 findings and
+  // three quarters of a megabyte of prose inside an object that travels into
+  // audit records — the Sprint 06 draft-size failure, in a new place.
+  const duplicated = Array.from({ length: 200 }, (_unused, index) => fixedEvent(
+    `evt-${index}`,
+    '2026-08-17T10:00:00.000Z',
+    '2026-08-17T11:00:00.000Z',
+  ));
+  const plan = schedulePlan(constraints({ fixedEvents: duplicated, items: [item('a')] }), config());
+
+  const conflicts = plan.constraintReasons.filter((row) => row.code === 'FIXED_EVENT_CONFLICT');
+  assert.ok(conflicts.length > 0, 'the conflict must still be reported');
+  assert.ok(
+    conflicts.length < duplicated.length,
+    `expected at most one finding per event, got ${conflicts.length} for ${duplicated.length} events`,
+  );
+  const bytes = conflicts.reduce((total, row) => total + row.detail.length, 0);
+  assert.ok(bytes < 20_000, `${bytes} bytes of conflict prose in a plan that travels into audit records`);
+});
+
+test('a genuine chain of distinct overlaps is still reported, one finding per event', () => {
+  const staircase = Array.from({ length: 4 }, (_unused, index) => fixedEvent(
+    `evt-${index}`,
+    `2026-08-17T1${index}:00:00.000Z`,
+    `2026-08-17T1${index + 2}:00:00.000Z`,
+  ));
+  const plan = schedulePlan(constraints({ fixedEvents: staircase }), config());
+  assert.equal(plan.constraintReasons.filter((row) => row.code === 'FIXED_EVENT_CONFLICT').length, 3);
+});
+
+test('fixed events that merely abut produce no conflict', () => {
+  const plan = schedulePlan(
+    constraints({
+      fixedEvents: [
+        fixedEvent('m-1', '2026-08-17T09:00:00.000Z', '2026-08-17T10:00:00.000Z'),
+        fixedEvent('m-2', '2026-08-17T10:00:00.000Z', '2026-08-17T11:00:00.000Z'),
+      ],
+    }),
+    config(),
+  );
+  assert.equal(constraintCodes(plan).includes('FIXED_EVENT_CONFLICT'), false);
+});
+
 /* ── The partition, and the static/attempt split ────────────────── */
 
 const PARTITION_FIXTURES: readonly PlanningConstraints[] = [
@@ -545,17 +816,76 @@ test('every unscheduled reason names the item it is about', () => {
   }
 });
 
-test('no reason detail repeats a title, because details are for humans and not from them', () => {
-  const shape = constraints({
-    items: [item('a', { title: 'CONFIDENTIAL-USER-TEXT', effort: { kind: 'unknown' } })],
-  });
+test('no reason detail carries a caller-chosen identifier or any user text', () => {
+  // `detail` is for humans and is never *from* them. The ruling is that "raw
+  // user text" covers identifiers too — a commitment id is as revealing as a
+  // title, and often is one — and that `itemId` is exempt only because it has
+  // its own field on `PlanningReason`, so it must not be repeated in the prose.
+  //
+  // Every id-bearing field gets a distinctive probe, including ids that belong
+  // to *other* items: listing an item's dangling prerequisites by name leaked
+  // identifiers the reason was not even about.
+  const probes = [
+    'PROBE-ITEM-QUITTING', 'PROBE-ITEM-OTHER', 'PROBE-GHOST-A', 'PROBE-GHOST-B',
+    'PROBE-WINDOW', 'PROBE-EVENT', 'PROBE-COMMITMENT', 'PROBE-TITLE', 'PROBE-SCOPE',
+  ];
+  const shape: PlanningConstraints = {
+    scopeId: 'PROBE-SCOPE',
+    timezone: 'UTC',
+    horizon: { startsAt: HORIZON_START, endsAt: HORIZON_END },
+    workingWindows: [workingWindow('PROBE-WINDOW', { startMinute: 600, endMinute: 600 })],
+    fixedEvents: [{
+      eventId: 'PROBE-EVENT',
+      interval: { startsAt: '2026-08-17T10:00:00.000Z', endsAt: '2026-08-17T10:00:00.000Z' },
+      sourceCommitmentId: 'PROBE-COMMITMENT',
+      blocking: true,
+    }],
+    items: [
+      item('PROBE-ITEM-QUITTING', { title: 'PROBE-TITLE', effort: { kind: 'unknown' } }),
+      item('PROBE-ITEM-OTHER', {
+        dependsOn: [
+          { dependsOnItemId: 'PROBE-GHOST-A', kind: 'temporal' },
+          { dependsOnItemId: 'PROBE-GHOST-B', kind: 'temporal' },
+        ],
+      }),
+    ],
+  };
+
   const plan = schedulePlan(shape, config());
-  const rendered = JSON.stringify(plan);
-  assert.equal(
-    rendered.includes('CONFIDENTIAL-USER-TEXT'),
-    false,
-    'a plan must not carry the user\'s own words, matching PLANNING_PERSISTENCE_POLICY.rawInputInAudit',
+  const prose = plan.constraintReasons.map((row) => row.detail)
+    .concat(plan.unscheduled.map((row) => row.reason.detail))
+    .join('\n');
+
+  assert.ok(prose.length > 0, 'the probe must actually produce findings, or it proves nothing');
+  for (const probe of probes) {
+    assert.equal(
+      prose.includes(probe),
+      false,
+      `a reason detail names ${probe}; identifiers travel in their own fields, never in prose:\n${prose}`,
+    );
+  }
+});
+
+test('a blocked chain reports its depth and root cause without naming the chain', () => {
+  const plan = schedulePlan(
+    constraints({
+      items: [
+        item('root', { effort: { kind: 'unknown' } }),
+        item('mid', { dependsOn: [{ dependsOnItemId: 'root', kind: 'temporal' }] }),
+        item('leaf', { dependsOn: [{ dependsOnItemId: 'mid', kind: 'temporal' }] }),
+      ],
+    }),
+    config(),
   );
+
+  const leaf = plan.unscheduled.find((row) => row.itemId === 'leaf');
+  assert.ok(leaf);
+  assert.equal(leaf.reason.code, 'BLOCKED_BY_DEPENDENCY');
+  // Still transitive, and still says so — the chain is described by its length
+  // and where it bottoms out rather than by listing other items' ids.
+  assert.match(leaf.reason.detail, /EFFORT_UNKNOWN/, 'the reason must say where the chain ends');
+  assert.equal(leaf.reason.detail.includes('mid'), false, 'and must not name the items along it');
+  assert.equal(leaf.reason.detail.includes('root'), false);
 });
 
 /* ── Coverage ───────────────────────────────────────────────────── */
