@@ -31,12 +31,16 @@
  * `tests/contract/intelligenceModuleBoundaries.test.ts` moves with it, which is
  * why the descriptor and its pin are edited by one track rather than two.
  *
- * **The one forward-looking obligation** is `windows.ts`. It is a second copy of
- * #29's window arithmetic, written because #29 did not exist when this track
- * was built, and it must be deleted at integration rather than left as a
- * fallback. It is not a rollback hazard — deleting it changes no stored state —
+ * **The one forward-looking obligation**, for as long as `windows.ts` is
+ * present, is deleting it. It is a second copy of #29's window arithmetic,
+ * written because #29 did not exist when this track was built, and it is meant
+ * to be replaced by that normalizer at integration rather than left as a
+ * fallback. It is not a rollback hazard — removing it changes no stored state —
  * but leaving it is the Sprint 06 gap: two copies of arithmetic that will not
- * disagree loudly, only on one Sunday in October.
+ * disagree loudly, only on one Sunday in October. Once the swap has happened
+ * this paragraph describes nothing, and
+ * `tests/planning/schedulerBoundaries.test.ts` is what enforces the transition
+ * in both directions rather than a note here being remembered.
  */
 
 export { schedulePlan, comparePlanOrder } from './scheduler';

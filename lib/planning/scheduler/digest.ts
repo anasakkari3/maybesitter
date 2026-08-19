@@ -66,10 +66,22 @@ export const PLAN_INPUT_DIGEST_VERSION = 'plan-digest-v1' as const;
 
 function scalar(value: string | number | boolean | null): string {
   if (typeof value === 'number' && !Number.isFinite(value)) {
-    // A NaN or Infinity would serialise as `null` and make two different
-    // requests hash identically, which is exactly the collision the digest
-    // exists to rule out.
-    throw new TypeError(`cannot digest a non-finite number: ${String(value)}`);
+    // Tagged rather than refused. `JSON.stringify(NaN)` is `"null"` — and so is
+    // `JSON.stringify(null)` — so a naive encoding would hash a broken priority
+    // and an absent one identically, which is a real collision and the reason
+    // this branch exists at all.
+    //
+    // It used to throw, and that was the wrong remedy. The digest is computed
+    // for every request, including the ones whose whole answer is a list of
+    // findings about bad values, so a digest that refuses those values is a
+    // planner that cannot report them. Non-finite input arrives from the
+    // untyped boundary and the taxonomy names it; the rule is to report it, and
+    // reporting requires getting far enough to produce a `Plan`.
+    //
+    // The tagged form cannot be produced by anything else: a finite number
+    // encodes as a bare JSON number, null as `null`, a string as a quoted
+    // string. Each non-finite value is distinguishable from the others.
+    return record([['nonFinite', JSON.stringify(String(value))]]);
   }
   return JSON.stringify(value);
 }

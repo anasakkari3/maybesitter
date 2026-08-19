@@ -104,7 +104,13 @@ export function comparePlanOrder(left: PlanOrderFields, right: PlanOrderFields):
     if (key === 'startsAt') {
       delta = compareNullableInstant(left.startsAt, right.startsAt);
     } else if (key === '-priority') {
-      delta = right.priority - left.priority;
+      // A non-finite priority is not a defect the taxonomy describes, so such
+      // an item schedules normally — but `NaN - 0` is `NaN`, and a comparator
+      // that returns `NaN` puts the sort into implementation-defined behaviour.
+      // Treating it as a tie makes the key inert for that pair and lets the
+      // later keys decide; `itemId` is unique, so the order stays total.
+      const difference = right.priority - left.priority;
+      delta = Number.isNaN(difference) ? 0 : difference;
     } else if (key === 'earliestDeadline') {
       delta = compareNullableInstant(left.earliestDeadline, right.earliestDeadline);
     } else if (key === 'itemId') {
@@ -167,37 +173,93 @@ function declaredPrerequisites(item: PlanningItem): string[] {
   return item.dependsOn.map((edge) => edge.dependsOnItemId);
 }
 
-/** Item ids that sit on a cycle of length > 1 in the ordering graph. */
-function itemsOnCycles(edges: ReadonlyMap<string, readonly string[]>): Set<string> {
+/**
+ * Item ids that sit on a cycle in the ordering graph.
+ *
+ * Tarjan's strongly-connected components: a node lies on a cycle exactly when
+ * its component has more than one member, or when it has an edge to itself.
+ *
+ * The previous implementation was a depth-first walk that marked the grey path
+ * whenever it found a **back edge**, and it was wrong in a way no small example
+ * shows. Given `a → b`, `a → c`, `b → a`, `c → b` the cycle `a → c → b → a`
+ * runs through `c`, but by the time `c` is explored `b` has already finished,
+ * so `c → b` is a *cross* edge and neither branch fires. `c` was then reported
+ * with an attempt code — `BLOCKED_BY_DEPENDENCY`, "you lost to contention" —
+ * for an item that cannot start under any schedule at all. Crossing the
+ * static/attempt partition is the more serious half of that bug: the partition
+ * is what lets a user tell "your request contradicts itself" apart from "your
+ * week is full".
+ *
+ * Reachability per node would give the same answer and is what #31's oracle
+ * does. This computes it a different way on purpose: the cross-track comparison
+ * is only evidence while the two derivations are independent, and two copies of
+ * one walk agree about a shared mistake as readily as about the truth.
+ */
+export function itemsOnCycles(edges: ReadonlyMap<string, readonly string[]>): Set<string> {
+  const index = new Map<string, number>();
+  const lowLink = new Map<string, number>();
+  const onStack = new Set<string>();
+  const componentStack: string[] = [];
   const onCycle = new Set<string>();
-  const state = new Map<string, 'visiting' | 'done'>();
-  // Iterative DFS: the recursion depth of a chain of steps is bounded by the
-  // item count, and a stack overflow on a pathological request would surface as
-  // a crash rather than as a reported cycle.
+  let counter = 0;
+
+  // Roots are taken in a fixed order so that, although the result is a set and
+  // its contents cannot depend on traversal order, a debugger stepping through
+  // this sees the same walk on every run.
   for (const root of Array.from(edges.keys()).sort(compareByCodePoint)) {
-    if (state.get(root) === 'done') continue;
-    const path: string[] = [];
-    const stack: { node: string; entered: boolean }[] = [{ node: root, entered: false }];
-    while (stack.length > 0) {
-      const frame = stack.pop() as { node: string; entered: boolean };
-      if (frame.entered) {
-        state.set(frame.node, 'done');
-        path.pop();
+    if (index.has(root)) continue;
+
+    // Explicit work stack rather than recursion: the depth is the length of a
+    // dependency chain, and a deep one should not be the difference between a
+    // reported cycle and a stack overflow.
+    const work: { node: string; nextEdge: number }[] = [];
+    const open = (node: string): void => {
+      index.set(node, counter);
+      lowLink.set(node, counter);
+      counter += 1;
+      componentStack.push(node);
+      onStack.add(node);
+      work.push({ node, nextEdge: 0 });
+    };
+    open(root);
+
+    while (work.length > 0) {
+      const frame = work[work.length - 1];
+      const successors = edges.get(frame.node) ?? [];
+
+      if (frame.nextEdge < successors.length) {
+        const child = successors[frame.nextEdge];
+        frame.nextEdge += 1;
+        if (!index.has(child)) {
+          open(child);
+        } else if (onStack.has(child)) {
+          lowLink.set(frame.node, Math.min(lowLink.get(frame.node) as number, index.get(child) as number));
+        }
         continue;
       }
-      if (state.get(frame.node) === 'done') continue;
-      if (state.get(frame.node) === 'visiting') {
-        // Everything from this node's first appearance on the current path
-        // back to here forms the cycle.
-        const from = path.indexOf(frame.node);
-        for (const node of path.slice(from === -1 ? 0 : from)) onCycle.add(node);
-        continue;
+
+      if (lowLink.get(frame.node) === index.get(frame.node)) {
+        const component: string[] = [];
+        for (;;) {
+          const member = componentStack.pop() as string;
+          onStack.delete(member);
+          component.push(member);
+          if (member === frame.node) break;
+        }
+        if (component.length > 1) {
+          for (const member of component) onCycle.add(member);
+        } else if ((edges.get(component[0]) ?? []).indexOf(component[0]) !== -1) {
+          // A one-node component with a self-edge is still a cycle. In practice
+          // `SELF_DEPENDENCY` claims these first, but "on a cycle" should not
+          // depend on which check happens to run earlier.
+          onCycle.add(component[0]);
+        }
       }
-      state.set(frame.node, 'visiting');
-      path.push(frame.node);
-      stack.push({ node: frame.node, entered: true });
-      for (const next of (edges.get(frame.node) ?? []).slice().sort(compareByCodePoint).reverse()) {
-        if (state.get(next) !== 'done') stack.push({ node: next, entered: false });
+
+      work.pop();
+      if (work.length > 0) {
+        const parent = work[work.length - 1];
+        lowLink.set(parent.node, Math.min(lowLink.get(parent.node) as number, lowLink.get(frame.node) as number));
       }
     }
   }
@@ -228,26 +290,43 @@ function staticFinding(
   hasWorkingTime: boolean,
 ): StaticFinding | null {
   if (item.effort.kind === 'unknown') {
-    return { code: 'EFFORT_UNKNOWN', detail: `${item.itemId} has no duration estimate` };
+    return { code: 'EFFORT_UNKNOWN', detail: 'no duration estimate' };
   }
-  if (item.effort.minutes <= 0) {
+  if (!Number.isFinite(item.effort.minutes) || item.effort.minutes <= 0) {
+    // `NaN <= 0` is false, so the ordering test alone let a non-finite duration
+    // through into arithmetic that produces `NaN` instants.
     return {
       code: 'EFFORT_NOT_POSITIVE',
-      detail: `${item.itemId} has an effort of ${item.effort.minutes} minutes`,
+      detail: `effort is ${String(item.effort.minutes)} minutes`,
     };
+  }
+  if (!Number.isFinite(item.bufferBeforeMinutes) || !Number.isFinite(item.bufferAfterMinutes)) {
+    // The taxonomy has no buffer-specific code and #29 reads this as
+    // `EFFORT_NOT_POSITIVE`. Agreeing with the other static reader matters more
+    // than the code this track would have picked alone: a disagreement here is
+    // exactly what the cross-track comparison exists to surface, and it would
+    // be a disagreement about nothing.
+    //
+    // A *negative* buffer is a different case and is still clamped to zero
+    // below — it is representable, the arithmetic survives it, and
+    // `reservedInterval` is documented as never narrower than `interval`.
+    return { code: 'EFFORT_NOT_POSITIVE', detail: 'a buffer is not a finite number of minutes' };
   }
   const declared = declaredPrerequisites(item);
   if (declared.includes(item.itemId)) {
-    return { code: 'SELF_DEPENDENCY', detail: `${item.itemId} is its own prerequisite` };
+    return { code: 'SELF_DEPENDENCY', detail: 'the item is its own prerequisite' };
   }
   if (onCycle.has(item.itemId)) {
-    return { code: 'CYCLIC_DEPENDENCY', detail: `${item.itemId} sits on a dependency cycle` };
+    return { code: 'CYCLIC_DEPENDENCY', detail: 'the item sits on a dependency cycle' };
   }
   const dangling = declared.filter((id) => !knownItemIds.has(id)).sort(compareByCodePoint);
   if (dangling.length > 0) {
     return {
       code: 'UNKNOWN_DEPENDENCY',
-      detail: `${item.itemId} depends on ${dangling.join(', ')}, absent from this request`,
+      // Counted, not listed. Naming them leaked the ids of *other* items —
+      // identifiers the finding was not even about — into a reason attributed
+      // to this one.
+      detail: `depends on ${dangling.length} item(s) absent from this request`,
     };
   }
 
@@ -258,7 +337,7 @@ function staticFinding(
     && toEpochMs(item.deadlineAt) <= toEpochMs(item.earliestStartAt)) {
     return {
       code: 'DEADLINE_BEFORE_EARLIEST_START',
-      detail: `${item.itemId} may not start until after it is due`,
+      detail: 'may not start until after it is due',
     };
   }
   if (item.deadlineAt !== null && toEpochMs(item.deadlineAt) <= horizonStartMs) {
@@ -272,7 +351,7 @@ function staticFinding(
     // meant an item due in December went unplanned over a two-week horizon.
     return {
       code: 'DEADLINE_BEYOND_HORIZON',
-      detail: `${item.itemId} is due at or before the planning horizon opens`,
+      detail: 'due at or before the planning horizon opens',
     };
   }
 
@@ -287,7 +366,7 @@ function staticFinding(
   if (bounds.earliestMs > bounds.latestMs) {
     return {
       code: 'EFFORT_EXCEEDS_ITEM_WINDOW',
-      detail: `${item.itemId} needs ${effortMinutes(item)} minutes of effort and its window admits no legal start`,
+      detail: `needs ${effortMinutes(item)} minutes of effort; its window admits no legal start`,
     };
   }
 
@@ -362,45 +441,95 @@ function startBounds(
 
 /* ── Constraint-level findings ──────────────────────────────────── */
 
+/**
+ * A canonical position for each element of an array, independent of the order
+ * it arrived in.
+ *
+ * Findings name windows and events by index rather than by id, because a
+ * `windowId` or `eventId` is caller-chosen text and often a description of the
+ * user's life. But an index into the *input* array would put the caller's array
+ * order into `PlanningReason.detail`, and input order is precisely what must
+ * not reach a plan. So elements are numbered by a canonical key instead.
+ *
+ * Two structurally identical elements can still swap numbers under a reordered
+ * input. That is harmless and deliberate: they produce identical findings apart
+ * from the number, and `constraintReasons` is sorted by detail before it is
+ * returned, so the sorted list is the same either way.
+ */
+function canonicalPositions(keys: readonly string[]): number[] {
+  const ordered = keys
+    .map((key, position) => ({ key, position }))
+    .sort((left, right) => compareByCodePoint(left.key, right.key) || left.position - right.position);
+
+  const positions = new Array<number>(keys.length);
+  ordered.forEach((entry, rank) => {
+    positions[entry.position] = rank;
+  });
+  return positions;
+}
+
 function fixedEventFindings(constraints: PlanningConstraints): {
   reasons: PlanningReason[];
   blocking: TimeInterval[];
 } {
   const reasons: PlanningReason[] = [];
-  const blocking: TimeInterval[] = [];
-  const ordered = constraints.fixedEvents
-    .slice()
-    .sort((left, right) => compareByCodePoint(left.eventId, right.eventId));
+  const events = constraints.fixedEvents;
+  const numbering = canonicalPositions(events.map((event) => [
+    event.interval.startsAt,
+    event.interval.endsAt,
+    String(event.blocking),
+    event.eventId,
+  ].join('\u0000')));
 
-  for (const event of ordered) {
+  const blocking: { interval: TimeInterval; label: number }[] = [];
+  events.forEach((event, position) => {
     if (!isPositiveInterval(event.interval)) {
       reasons.push({
         code: 'INVALID_INTERVAL',
         itemId: null,
-        detail: `fixed event ${event.eventId} ends at or before it starts`,
+        detail: `fixed event #${numbering[position]} ends at or before it starts`,
       });
-      continue;
+      return;
     }
-    if (event.blocking) blocking.push(event.interval);
+    if (event.blocking) blocking.push({ interval: event.interval, label: numbering[position] });
+  });
+
+  /* Two blocking events on top of each other is a contradiction in the input —
+   * the user is claimed to be in two places at once — and it is reported before
+   * planning rather than discovered as a scheduling outcome. Both are still
+   * subtracted: the plan must not place work in either.
+   *
+   * A sweep, not a pairwise enumeration. Every pair was O(n^2) in both time and
+   * in the size of the returned `Plan`: 200 events from a duplicated calendar
+   * feed — an ordinary shape, not an adversarial one — produced 19,900 findings
+   * and three quarters of a megabyte of prose inside an object that travels
+   * into audit records. Sorting by start and reporting each event that begins
+   * before the furthest end seen so far finds the same contradiction, reports
+   * at most one finding per event, and misses nothing: an event that overlaps
+   * anything at all overlaps something that started no later than it did. */
+  const ordered = blocking.slice().sort((left, right) => toEpochMs(left.interval.startsAt) - toEpochMs(right.interval.startsAt)
+    || toEpochMs(left.interval.endsAt) - toEpochMs(right.interval.endsAt)
+    || left.label - right.label);
+
+  let furthestEndMs = Number.NEGATIVE_INFINITY;
+  let furthestLabel = -1;
+  for (const entry of ordered) {
+    const startsAtMs = toEpochMs(entry.interval.startsAt);
+    if (startsAtMs < furthestEndMs) {
+      reasons.push({
+        code: 'FIXED_EVENT_CONFLICT',
+        itemId: null,
+        detail: `blocking fixed events #${Math.min(furthestLabel, entry.label)} and #${Math.max(furthestLabel, entry.label)} overlap`,
+      });
+    }
+    const endsAtMs = toEpochMs(entry.interval.endsAt);
+    if (endsAtMs > furthestEndMs) {
+      furthestEndMs = endsAtMs;
+      furthestLabel = entry.label;
+    }
   }
 
-  // Two blocking events on top of each other is a contradiction in the input —
-  // the user is claimed to be in two places at once — and it is reported before
-  // planning rather than discovered as a scheduling outcome. Both are still
-  // subtracted: the plan must not place work in either.
-  const blockingEvents = ordered.filter((event) => event.blocking && isPositiveInterval(event.interval));
-  for (let left = 0; left < blockingEvents.length; left += 1) {
-    for (let right = left + 1; right < blockingEvents.length; right += 1) {
-      if (intervalsOverlap(blockingEvents[left].interval, blockingEvents[right].interval)) {
-        reasons.push({
-          code: 'FIXED_EVENT_CONFLICT',
-          itemId: null,
-          detail: `fixed events ${blockingEvents[left].eventId} and ${blockingEvents[right].eventId} overlap`,
-        });
-      }
-    }
-  }
-  return { reasons, blocking };
+  return { reasons, blocking: ordered.map((entry) => entry.interval) };
 }
 
 /* ── Placement ──────────────────────────────────────────────────── */
@@ -447,7 +576,6 @@ export function schedulePlan(constraints: PlanningConstraints, config: PlanningC
     throw new TypeError(`duplicate item id in planning request: ${JSON.stringify(duplicateId)}`);
   }
 
-  const inputDigest = planningInputDigest(constraints, config);
   const horizonInterval: TimeInterval = {
     startsAt: constraints.horizon.startsAt,
     endsAt: constraints.horizon.endsAt,
@@ -531,35 +659,33 @@ export function schedulePlan(constraints: PlanningConstraints, config: PlanningC
    * prerequisite's own reason — reporting `EFFORT_UNKNOWN` on an item whose
    * duration is perfectly well known — would name a defect the user cannot find
    * in the item they are looking at.
+   *
+   * The chain is described by its length and by where it bottoms out, never by
+   * listing the ids along it. Those are other items' identifiers, they are
+   * caller-chosen text, and a reason attributed to one item has no business
+   * carrying them. The two facts a reader actually needs — how far away the
+   * real problem is, and what kind of problem it is — both survive.
    */
-  function blockedDetail(itemId: string, blockerId: string): string {
-    const chain = [itemId];
+  function blockedDetail(blockerId: string): string {
+    let depth = 1;
     let cursor = blockerId;
     // Bounded by the item count: every hop moves to a distinct already-resolved
     // item, and a repeat would mean a cycle, which the static pass removed.
-    while (chain.length <= constraints.items.length) {
-      chain.push(cursor);
+    while (depth <= constraints.items.length) {
       const reason = unscheduledById.get(cursor);
       if (reason === undefined) break;
       if (reason.code !== 'BLOCKED_BY_DEPENDENCY') {
-        return `unscheduled prerequisite; chain ${chain.join(' -> ')} ends at ${cursor} (${reason.code})`;
+        return `waiting on an unscheduled prerequisite ${depth} link(s) away; the chain ends in ${reason.code}`;
       }
-      // Sorted before choosing, like every other traversal in this file. A bare
-      // `.find` over `dependsOn` walks the edges in the order the caller
-      // happened to declare them, so an item with two unscheduled prerequisites
-      // produced a different chain — and therefore a different
-      // `PlanningReason.detail` inside the returned `Plan` — for two requests
-      // the digest reported identical. That inverts the property the digest
-      // exists to provide: `sameInputDigest` would read true for a replay that
-      // produced a different plan.
       const next = (orderingEdges.get(cursor) ?? [])
         .slice()
         .sort(compareByCodePoint)
         .find((id) => unscheduledById.has(id));
       if (next === undefined) break;
       cursor = next;
+      depth += 1;
     }
-    return `unscheduled prerequisite; chain ${chain.join(' -> ')}`;
+    return `waiting on an unscheduled prerequisite ${depth} link(s) away`;
   }
 
   /* Placement pass. Candidates are taken in plan order, subject to dependency
@@ -576,7 +702,7 @@ export function schedulePlan(constraints: PlanningConstraints, config: PlanningC
       // future change which breaks that assumption still leaves every item in
       // exactly one output list rather than dropping the remainder silently.
       for (const item of remaining) {
-        resolveUnscheduled(item.itemId, 'BLOCKED_BY_DEPENDENCY', `unscheduled prerequisite; ${item.itemId} has no resolvable dependency order`);
+        resolveUnscheduled(item.itemId, 'BLOCKED_BY_DEPENDENCY', 'no resolvable dependency order');
       }
       break;
     }
@@ -585,7 +711,7 @@ export function schedulePlan(constraints: PlanningConstraints, config: PlanningC
 
     const blocker = prerequisites.find((id) => unscheduledById.has(id));
     if (blocker !== undefined) {
-      resolveUnscheduled(item.itemId, 'BLOCKED_BY_DEPENDENCY', blockedDetail(item.itemId, blocker));
+      resolveUnscheduled(item.itemId, 'BLOCKED_BY_DEPENDENCY', blockedDetail(blocker));
       continue;
     }
 
@@ -607,14 +733,14 @@ export function schedulePlan(constraints: PlanningConstraints, config: PlanningC
     const bounds = startBounds(item, horizonStartMs, horizonEndMs, floorMs);
 
     if (bounds.earliestMs >= horizonEndMs) {
-      resolveUnscheduled(item.itemId, 'HORIZON_EXHAUSTED', `${item.itemId} cannot begin before the horizon ends`);
+      resolveUnscheduled(item.itemId, 'HORIZON_EXHAUSTED', 'cannot begin before the horizon ends');
       continue;
     }
     if (bounds.earliestMs > bounds.latestMs) {
       // The item had a legal start in the static pass, so if it no longer does
       // the only thing that moved is where its prerequisites finished.
       const code: PlanningReasonCode = prerequisites.length > 0 ? 'DEPENDENCY_TOO_LATE' : 'NO_FEASIBLE_SLOT';
-      resolveUnscheduled(item.itemId, code, `${item.itemId} has no room left before it is due`);
+      resolveUnscheduled(item.itemId, code, 'no room left before it is due');
       continue;
     }
 
@@ -644,7 +770,7 @@ export function schedulePlan(constraints: PlanningConstraints, config: PlanningC
     }
 
     if (placement === null) {
-      resolveUnscheduled(item.itemId, 'NO_FEASIBLE_SLOT', `${item.itemId} found no free run long enough`);
+      resolveUnscheduled(item.itemId, 'NO_FEASIBLE_SLOT', 'no free run long enough');
     } else {
       resolveScheduled(placement);
     }
@@ -667,6 +793,13 @@ export function schedulePlan(constraints: PlanningConstraints, config: PlanningC
   constraintReasons.sort((left, right) => compareByCodePoint(left.code, right.code)
     || compareByCodePoint(left.itemId ?? '', right.itemId ?? '')
     || compareByCodePoint(left.detail, right.detail));
+
+  // Computed here rather than as the first statement of this function. The
+  // digest is a description of the request, not a gate on it: anything it could
+  // object to is something the passes above have already described in the
+  // taxonomy, and running it first meant a bad value came back as an exception
+  // instead of as the finding both other tracks report for it.
+  const inputDigest = planningInputDigest(constraints, config);
 
   return {
     version: PLANNING_CONTRACT_VERSION,

@@ -160,12 +160,40 @@ export function materializeWorkingWindows(
     return { intervals: [], reasons };
   }
 
-  for (const window of windows) {
-    if (window.endMinute <= window.startMinute) {
+  // Numbered by a canonical key rather than by input position, so a finding
+  // names a window without carrying its caller-chosen `windowId` and without
+  // letting the caller's array order reach the plan.
+  const numbering = windows
+    .map((window, position) => ({
+      key: [
+        String(window.weekday),
+        String(window.startMinute),
+        String(window.endMinute),
+        window.timezone,
+        window.windowId,
+      ].join('\u0000'),
+      position,
+    }))
+    .sort((left, right) => (left.key < right.key ? -1 : left.key > right.key ? 1 : left.position - right.position))
+    .reduce((labels, entry, rank) => {
+      labels[entry.position] = rank;
+      return labels;
+    }, new Array<number>(windows.length));
+
+  for (let position = 0; position < windows.length; position += 1) {
+    const window = windows[position];
+    const label = numbering[position];
+    // `NaN <= NaN` is false, so a non-finite bound slips past an ordering test
+    // and turns every later instant into `NaN` — which `toInstant` throws on,
+    // from somewhere far away from the window that caused it. The taxonomy
+    // names this case by hand under `INVALID_INTERVAL`; it is reported here.
+    if (!Number.isFinite(window.startMinute)
+      || !Number.isFinite(window.endMinute)
+      || window.endMinute <= window.startMinute) {
       reasons.push({
         code: 'INVALID_INTERVAL',
         itemId: null,
-        detail: `working window ${window.windowId} ends at or before it starts`,
+        detail: `working window #${label} ends at or before it starts`,
       });
       continue;
     }
@@ -193,7 +221,7 @@ export function materializeWorkingWindows(
         reasons.push({
           code: 'NONEXISTENT_LOCAL_TIME',
           itemId: null,
-          detail: `working window ${window.windowId} starts in a daylight-saving gap on ${date.year}-${date.month}-${date.day}`,
+          detail: `working window #${label} starts in a daylight-saving gap on ${date.year}-${date.month}-${date.day}`,
         });
       }
 
