@@ -296,7 +296,37 @@ const ATTACKS: readonly Attack[] = [
       },
     }),
     candidate: cleanCandidate(),
-    expect: 'PRESSURE_BUDGET_EXHAUSTED',
+    expect: 'PRESSURE_UNANSWERED_CEILING',
+    secrets: [],
+  },
+  {
+    name: 'pressure: a cooldown of Infinity, the natural way to write "never press again"',
+    request: cleanRequest({
+      pressureBudget: {
+        maxIntensity: 'low',
+        minIntervalMinutes: Number.POSITIVE_INFINITY,
+        lastPressuredAt: '2026-08-20T08:59:00Z',
+        consecutiveUnansweredCount: 0,
+        maxConsecutiveUnanswered: 3,
+      },
+    }),
+    candidate: cleanCandidate(),
+    expect: 'PRESSURE_BUDGET_UNREADABLE',
+    secrets: [],
+  },
+  {
+    name: 'pressure: an interval large enough to overflow the instant it produces',
+    request: cleanRequest({
+      pressureBudget: {
+        maxIntensity: 'low',
+        minIntervalMinutes: 1.5e11,
+        lastPressuredAt: '2026-08-20T08:59:00Z',
+        consecutiveUnansweredCount: 0,
+        maxConsecutiveUnanswered: 3,
+      },
+    }),
+    candidate: cleanCandidate(),
+    expect: 'REQUEST_EXCEEDS_LIMIT',
     secrets: [],
   },
 
@@ -413,7 +443,7 @@ const BENIGN: ReadonlyArray<{ readonly name: string; readonly request: SafetyReq
 /* ── The three properties, over the whole corpus ─────────────────── */
 
 test('every attack is refused, and refused for the reason it was built to test', () => {
-  assert.ok(ATTACKS.length >= 27, 'the corpus shrank; this suite would silently cover less');
+  assert.ok(ATTACKS.length >= 29, 'the corpus shrank; this suite would silently cover less');
   for (const attack of ATTACKS) {
     const result = evaluateSafetyGate({ request: attack.request, candidate: attack.candidate, auditId: 'audit-red' });
     assert.notEqual(result.verdict.disposition, 'allow', `allowed: ${attack.name}`);
@@ -534,7 +564,16 @@ test('a maximal hostile input is judged in bounded time', () => {
   // deliberately loose — this is a check that the work is bounded at all, not a
   // benchmark, and a tight threshold on a shared runner is a flaky test.
   const candidate = cleanCandidate({
-    segments: Array.from({ length: 400 }, () => ({ role: 'body' as const, text: 'x'.repeat(5_000) })),
+    // 1,999 characters, **one below `maxSegmentChars`**, and that literal is the
+    // entire point of this fixture.
+    //
+    // It was 5,000. `maxSegmentChars` is 2,000, so every segment hit the
+    // over-length `continue` in `postValidator` before a single scan ran, and
+    // this test — the one test that exists to stop an unbounded scan — measured
+    // 39 ms of doing nothing against its own 2,000 ms assertion. Changing that
+    // one literal took it to 11,288 ms. A guard whose fixture cannot reach the
+    // guarded path is worse than no guard: it reports the property as held.
+    segments: Array.from({ length: 400 }, () => ({ role: 'body' as const, text: 'x'.repeat(1_999) })),
     claims: Array.from({ length: 5_000 }, (_unused, index) => ({
       claimId: `cl-${index}`,
       kind: 'statement' as const,
@@ -548,12 +587,14 @@ test('a maximal hostile input is judged in bounded time', () => {
     })),
   });
   const request = cleanRequest({
+    // Sensitive, so every span feeds `sharesTextRunWith` for every segment —
+    // the product the unbounded version turned into 78 seconds of CPU.
     inputs: Array.from({ length: 500 }, (_unused, index) => ({
       inputId: `in-${index}`,
       origin: 'user_text' as const,
       sensitivity: 'sensitive' as const,
       declaredTrust: 'data' as const,
-      text: 'y'.repeat(20_000),
+      text: 'y'.repeat(200_000),
     })),
   });
 
@@ -610,15 +651,39 @@ test('a long derivation chain is refused rather than overflowing the stack', () 
 
 /* ── Fail-closed on inputs no taxonomy anticipated ───────────────── */
 
-function throwingCandidate(): SafetyCandidate {
+/**
+ * A candidate whose named property throws when read.
+ *
+ * The property is a **parameter**, because the first version hard-coded
+ * `claims` — which is read only inside `validateSafetyCandidate`, itself already
+ * wrapped in `safely()`. The fixture therefore exercised the guard that was
+ * working and never touched the three reads that were not: `candidate.segments`,
+ * `request.now` and `surfaceOf`, all of which sat outside it in the gateway. On
+ * `segments`, `evaluateSafetyGate` threw.
+ *
+ * Every property the gateway reads is now enumerated by the caller below, so a
+ * new unguarded read fails here rather than in production.
+ */
+function throwingCandidate(property: string): SafetyCandidate {
   const candidate = cleanCandidate();
-  Object.defineProperty(candidate, 'claims', {
+  Object.defineProperty(candidate, property, {
     get() {
       throw new Error('reading this throws');
     },
     enumerable: true,
   });
   return candidate;
+}
+
+function throwingRequest(property: string): SafetyRequest {
+  const request = cleanRequest();
+  Object.defineProperty(request, property, {
+    get() {
+      throw new Error('reading this throws');
+    },
+    enumerable: true,
+  });
+  return request;
 }
 
 function cyclicCandidate(): SafetyCandidate {
@@ -631,7 +696,27 @@ test('inputs designed to break the gateway itself are refused rather than raised
   // Each of these is unjudgeable in some way, so the verdict must withhold.
   // `unjudgeableCandidateIsNotOfferable` is the policy; this is the assertion.
   const unjudgeable: ReadonlyArray<readonly [unknown, unknown]> = [
-    [cleanRequest(), throwingCandidate()],
+    // Every property the gateway or a validator actually reads. `claims` was the
+    // only one the first version covered, and it is the one that was already
+    // guarded; `segments`, `now` and `surface` are the three that were not.
+    //
+    // `candidate.surface` is deliberately **absent**: `surfaceOf` reads the
+    // request's first and returns, so nothing in this path reads it, and
+    // asserting a block would assert a property this module does not have. It
+    // is reached only by `digestOf`, which is documented never to fail and is
+    // covered by the cyclic-candidate test below.
+    [cleanRequest(), throwingCandidate('claims')],
+    [cleanRequest(), throwingCandidate('segments')],
+    [cleanRequest(), throwingCandidate('evidence')],
+    [cleanRequest(), throwingCandidate('effects')],
+    [cleanRequest(), throwingCandidate('candidateId')],
+    [cleanRequest(), throwingCandidate('pressure')],
+    [throwingRequest('now'), cleanCandidate()],
+    [throwingRequest('surface'), cleanCandidate()],
+    [throwingRequest('inputs'), cleanCandidate()],
+    [throwingRequest('pressureBudget'), cleanCandidate()],
+    [throwingRequest('permittedSensitivity'), cleanCandidate()],
+    [throwingRequest('attestedDecisions'), cleanCandidate()],
     [{ ...cleanRequest(), inputs: [{ inputId: 5, origin: 7, sensitivity: null, declaredTrust: 0, text: 9 }] }, cleanCandidate()],
     [cleanRequest(), { ...cleanCandidate(), evidence: { nodes: [{ nodeId: 4 }] } }],
     [cleanRequest(), { ...cleanCandidate(), segments: [{ role: 'body', text: { toString: () => 'no' } }] }],

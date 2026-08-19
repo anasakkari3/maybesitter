@@ -49,6 +49,8 @@
  * it, and a filter that only knows `'` reports clean on the text a renderer
  * actually produces.
  */
+import { INSTRUCTION_BEARING_ORIGINS, matchingVariants } from '../../src/contracts/v1/safetyContracts';
+
 export const SHAME_PATTERNS: readonly RegExp[] = Object.freeze([
   /\bavoidant\b/i,
   /\binconsistent\b/i,
@@ -60,6 +62,7 @@ export const SHAME_PATTERNS: readonly RegExp[] = Object.freeze([
   /\bdisappointed\b/i,
   /\byou always\b/i,
   /\byou never\b/i,
+  // Both apostrophes: NFKC does not fold U+2019 to U+0027, and real copy uses it.
   /\bwhy can[’']?t you\b/i,
   /\byou keep (failing|slipping|putting)\b/i,
   /\byou should be ashamed\b/i,
@@ -170,15 +173,68 @@ export const INSTRUCTION_ECHO_RUN_LENGTH = 16;
  */
 export const MIN_IDENTIFIER_MATCH_LENGTH = 4;
 
-/** Does any pattern in `patterns` match `text`? Total: a non-string matches nothing. */
+/**
+ * Does any pattern in `patterns` match `text`?
+ *
+ * **Matching is on `normalizeForComparison`, not on the raw string**, and that
+ * is a correctness fix rather than a nicety. The first version matched raw text
+ * while the echo comparison normalised, so the two disagreed about what "the
+ * same text" is — and one zero-width space defeated the entire injection filter:
+ *
+ *     ignore all previous instructions        -> INJECTED_INSTRUCTION
+ *     ignore<U+200B>all previous instructions -> nothing
+ *     ignore<U+200F>all previous instructions -> nothing
+ *     fullwidth i-g-n-o-r-e ...               -> nothing
+ *
+ * A model reads all four as the same instruction. `INSTRUCTION_ECHOED` went dark
+ * with the same bypass, because a payload the pre stage never flagged is a
+ * payload the post stage never looks for.
+ *
+ * Both normalisation variants are tested, because removing a format character
+ * and replacing it with a space each leave a different bypass — see
+ * `matchingVariants`. `ignore<ZWSP>all` needs the replacing form and
+ * `ig<ZWSP>nore all` needs the removing one, and an attacker picks whichever is
+ * missing.
+ *
+ * The patterns below are therefore written against normalised text: lower case,
+ * single spaces. A pattern with an upper-case letter in it would silently never
+ * fire, which is why the `i` flags are kept — they are belt and braces, not the
+ * mechanism.
+ *
+ * Total: a non-string matches nothing.
+ */
 export function matchesAny(text: unknown, patterns: readonly RegExp[]): boolean {
   if (typeof text !== 'string' || text.length === 0) return false;
+  const variants = matchingVariants(text);
   for (const pattern of patterns) {
     // Every pattern here is flagless, so `test` carries no `lastIndex` state
     // between calls. An exported RegExp with `g` would make this function return
     // alternating answers for the same input, which is why none is exported for
     // a caller to reuse directly.
-    if (pattern.test(text)) return true;
+    for (const variant of variants) {
+      if (pattern.test(variant)) return true;
+    }
   }
   return false;
+}
+
+/**
+ * Is this span an injection attempt?
+ *
+ * One definition, used by both stages. `preValidator` decides whether to report
+ * `INJECTED_INSTRUCTION` and `postValidator` decides which texts an echo is
+ * measured against, and the first version let those two disagree: the pre pass
+ * exempted instruction-bearing origins and the post pass did not. So a
+ * `system_template` whose text legitimately reads as an instruction was never
+ * flagged, and yet a candidate quoting it was reported `INSTRUCTION_ECHOED` —
+ * quoting the product's own template is not an attack succeeding.
+ *
+ * The mutation sweep is what surfaced it. With the two rules aligned, "flagged
+ * as an injection" means one thing, and the gateway's untargeted-redaction
+ * escalation becomes provably unreachable through the validators — which is a
+ * fact worth knowing, and was invisible while the two rules disagreed.
+ */
+export function isInjectedSpan(origin: unknown, text: unknown): boolean {
+  if ((INSTRUCTION_BEARING_ORIGINS as readonly unknown[]).includes(origin)) return false;
+  return matchesAny(text, INJECTION_PATTERNS);
 }

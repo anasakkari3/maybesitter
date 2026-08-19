@@ -31,8 +31,9 @@ import {
   type SensitivityClass,
   type UntrustedInput,
 } from '../../src/contracts/v1/safetyContracts';
-import { INJECTION_PATTERNS, matchesAny } from './lexicon';
+import { isInjectedSpan } from './lexicon';
 import { asArray, capFindings, finding, isObject } from './findings';
+import { scannableInputs } from './inputs';
 
 const MILLIS_PER_MINUTE = 60_000;
 
@@ -83,17 +84,18 @@ export function validateSafetyRequest(request: SafetyRequest): readonly SafetyFi
   }
 
   /**
-   * Scanning stops at the bound rather than continuing past it.
+   * Every span is reported here; only the ones `scannableInputs` returns are
+   * *scanned*, by this pass and by every later one.
    *
-   * That is what makes the limit load-bearing instead of decorative: Sprint 08's
-   * unenforced `maxEvidenceRefsPerReason` let a valid request spend 8.2 seconds
-   * of CPU on an unauthenticated route. Reporting the excess and then scanning
-   * all of it anyway would repeat exactly that.
+   * The split matters. Reporting an over-limit span and then scanning it anyway
+   * is what the first version did on the post side, and the bound bounded
+   * nothing: 78 seconds of CPU on a request already decided. So the report loop
+   * runs over the raw list and the pattern work runs over the bounded one.
    */
-  const scanned = Math.min(inputs.length, SAFETY_LIMITS.maxUntrustedInputs);
   const permitted = rankOfPermitted(request.permittedSensitivity);
+  const reportBound = Math.min(inputs.length, SAFETY_LIMITS.maxUntrustedInputs);
 
-  for (let index = 0; index < scanned; index += 1) {
+  for (let index = 0; index < reportBound; index += 1) {
     const input = inputs[index];
     if (!isObject(input)) {
       findings.push(
@@ -102,7 +104,24 @@ export function validateSafetyRequest(request: SafetyRequest): readonly SafetyFi
       continue;
     }
 
-    const text = typeof input.text === 'string' ? input.text : '';
+    /**
+     * A `text` that is not a string is an unreadable span, not an empty one.
+     *
+     * The first version coerced it to `''` and carried on, so `new String(x)`,
+     * `{ toString() {…} }`, `['x']` and `9` produced **no finding at all** while
+     * `SAFETY_INPUT_POLICY.unreadableInputIsBlocked` says otherwise — and each
+     * of those is a shape `JSON.parse` or a careless adapter really produces.
+     * The span is also excluded from `scannableInputs`, so refusing here is what
+     * keeps "not scanned" and "not reported" from being the same thing.
+     */
+    if (typeof input.text !== 'string') {
+      findings.push(
+        finding('REQUEST_UNREADABLE', `input span #${index} carries no readable text`, { inputIndex: index }),
+      );
+      continue;
+    }
+
+    const text = input.text;
     if (text.length > SAFETY_LIMITS.maxUntrustedInputChars) {
       findings.push(
         finding(
@@ -111,8 +130,8 @@ export function validateSafetyRequest(request: SafetyRequest): readonly SafetyFi
           { inputIndex: index, limitName: 'maxUntrustedInputChars' },
         ),
       );
-      // Not scanned further: the patterns below are linear in the text, and the
-      // bound exists so that a caller cannot choose how long that is.
+      // Not scanned further here, and excluded from `scannableInputs` so that no
+      // later pass scans it either. That second half is the fix.
       continue;
     }
 
@@ -140,7 +159,7 @@ export function validateSafetyRequest(request: SafetyRequest): readonly SafetyFi
       );
     }
 
-    if (!originBearsInstructions && matchesAny(text, INJECTION_PATTERNS)) {
+    if (isInjectedSpan(input.origin, text)) {
       findings.push(
         finding(
           'INJECTED_INSTRUCTION',
@@ -163,74 +182,169 @@ export function validateSafetyRequest(request: SafetyRequest): readonly SafetyFi
 }
 
 /**
- * The instant, in milliseconds, after which pressing again is admissible — or
- * null when nothing bounds it.
+ * What the pressure budget says about pressing again.
  *
- * Exported because the gateway needs the *same* arithmetic to build
- * `SafeUserPath.retryAfter`, and a second copy of it there would be a second
- * copy of a cooldown. The number itself is the caller's: this repo's product
- * cooldown lives in `lib/services/pressureService.ts` as
- * `PRESSURE_DELIVERY_COOLDOWN_MS` and is deliberately not restated here.
+ * A **discriminated result rather than `number | null`**, and that change is the
+ * whole of the fix. The first version returned `null` from eight different
+ * guards and the caller read `null` as "no cooldown applies", so every
+ * unreadable bound was maximally permissive:
+ *
+ *     interval 60, pressed 1 minute ago  ->  PRESSURE_BUDGET_EXHAUSTED   (correct)
+ *     interval Infinity                  ->  allowed
+ *     interval NaN / -5 / missing        ->  allowed
+ *     lastPressuredAt 'yesterday'        ->  allowed
+ *     lastPressuredAt '2026-02-30T…'     ->  allowed
+ *
+ * `Infinity` is the natural way a caller writes "never press again" and it was
+ * the single most permissive value the field accepted. This is the third
+ * instance of the same shape in this module — after the two the red-team suite
+ * found in the sensitivity and intensity ranks — and the reason it kept
+ * recurring is that `null` is a fine answer to "how long" and a terrible answer
+ * to "may I". The type now refuses to conflate them.
+ *
+ * Exactly one absence stays legitimate: `lastPressuredAt: null` means this
+ * subject has never been pressed, so the interval has nothing to measure from.
+ * That is `never_pressed`, and it is the only variant that permits.
  */
-export function pressureRetryAfterMillis(request: SafetyRequest): number | null {
-  if (!isObject(request)) return null;
+export type PressureIntervalState =
+  | { readonly kind: 'unreadable'; readonly field: string }
+  | { readonly kind: 'out_of_range'; readonly minutes: number }
+  | { readonly kind: 'never_pressed' }
+  | { readonly kind: 'now_unusable' }
+  | { readonly kind: 'elapsed' }
+  | { readonly kind: 'pending'; readonly retryAfterMillis: number; readonly minutes: number };
+
+export function pressureIntervalState(request: SafetyRequest): PressureIntervalState {
+  if (!isObject(request)) return { kind: 'unreadable', field: 'request' };
   const budget = request.pressureBudget;
-  if (!isObject(budget)) return null;
-  if (budget.lastPressuredAt === null || budget.lastPressuredAt === undefined) return null;
+  if (!isObject(budget)) return { kind: 'unreadable', field: 'pressureBudget' };
+
   const minutes = budget.minIntervalMinutes;
-  if (typeof minutes !== 'number' || !Number.isFinite(minutes) || minutes <= 0) return null;
-  const elapsed = millisBetweenInstants(budget.lastPressuredAt, request.now);
-  if (elapsed === null) return null;
-  const remaining = minutes * MILLIS_PER_MINUTE - elapsed;
-  if (remaining <= 0) return null;
+  if (typeof minutes !== 'number' || !Number.isFinite(minutes) || minutes <= 0) {
+    return { kind: 'unreadable', field: 'minIntervalMinutes' };
+  }
+  if (minutes > SAFETY_LIMITS.maxPressureIntervalMinutes) {
+    // Bounded because the value is arithmetic, not just work: added to an epoch
+    // instant it produced `+192159-01-24` at 1e11 and a `RangeError` at 1.5e11.
+    return { kind: 'out_of_range', minutes };
+  }
+
+  const last = budget.lastPressuredAt;
+  if (last === null || last === undefined) return { kind: 'never_pressed' };
+  if (!isInstant(last)) return { kind: 'unreadable', field: 'lastPressuredAt' };
+  if (!isInstant(request.now)) return { kind: 'now_unusable' };
+
+  const elapsed = millisBetweenInstants(last, request.now);
+  if (elapsed === null) return { kind: 'now_unusable' };
+  if (elapsed >= minutes * MILLIS_PER_MINUTE) return { kind: 'elapsed' };
+
   // Epoch millis of `lastPressuredAt`, obtained through the same single-sourced
   // arithmetic rather than a second parse of the string. `instantToMillis` is
   // private to the contract on purpose — exporting a raw parser is how a second
   // spelling of "what is a valid instant" gets written.
-  const from = millisBetweenInstants('1970-01-01T00:00:00Z', budget.lastPressuredAt);
-  if (from === null) return null;
-  return from + minutes * MILLIS_PER_MINUTE;
+  const from = millisBetweenInstants(EPOCH, last);
+  if (from === null) return { kind: 'unreadable', field: 'lastPressuredAt' };
+  return { kind: 'pending', retryAfterMillis: from + minutes * MILLIS_PER_MINUTE, minutes };
 }
 
-function pressureFindings(request: SafetyRequest, nowIsUsable: boolean): readonly SafetyFinding[] {
-  const budget = request.pressureBudget;
-  if (!isObject(budget)) return [];
+const EPOCH = '1970-01-01T00:00:00Z';
 
-  const consecutive = budget.consecutiveUnansweredCount;
-  const ceiling = budget.maxConsecutiveUnanswered;
-  if (
-    typeof consecutive === 'number' &&
-    typeof ceiling === 'number' &&
-    Number.isFinite(consecutive) &&
-    Number.isFinite(ceiling) &&
-    consecutive >= ceiling
-  ) {
-    // The clause the product's cooldown has no shape for: a cooldown alone
-    // permits an unbounded run of hourly nudges to someone who has answered
-    // none of them, and harmful pressure is exactly that sequence.
+/**
+ * The pressure-permission passes.
+ *
+ * Three codes, because there are three conditions with three different remedies
+ * and one code answering three questions is what this module's own taxonomy
+ * rules forbid: a ceiling is fixed by the person replying, an interval by
+ * waiting, and an unreadable budget by the caller sending a readable one. The
+ * split is also what makes `SafeUserPath`'s invariant true — `retryAfter` is
+ * non-null exactly for `PRESSURE_BUDGET_EXHAUSTED`.
+ */
+function pressureFindings(request: SafetyRequest, nowIsUsable: boolean): readonly SafetyFinding[] {
+  const budget = isObject(request) ? request.pressureBudget : undefined;
+  if (!isObject(budget)) {
     return [
       finding(
-        'PRESSURE_BUDGET_EXHAUSTED',
-        `this surface has pressed ${consecutive} times without an answer; the ceiling is ${ceiling}`,
+        'PRESSURE_BUDGET_UNREADABLE',
+        'the request carries no readable pressure budget, so nothing establishes that pressing is permitted',
       ),
     ];
   }
 
-  // Suppressed rather than decided: this judgement measures against `now`, and a
-  // check against an unusable bound reports a fact about the bound. The
-  // comfortable alternative — reading an unreadable `now` as "the interval has
-  // elapsed" — makes the cooldown pass hardest exactly when the caller has lost
-  // track of the clock.
-  if (!nowIsUsable) return [];
-  if (pressureRetryAfterMillis(request) === null) return [];
+  const findings: SafetyFinding[] = [];
 
-  const minutes = typeof budget.minIntervalMinutes === 'number' ? budget.minIntervalMinutes : 0;
-  return [
-    finding(
-      'PRESSURE_BUDGET_EXHAUSTED',
-      `less than the caller's own interval of ${minutes} minutes has passed since this surface last pressed`,
-    ),
-  ];
+  const consecutive = budget.consecutiveUnansweredCount;
+  const ceiling = budget.maxConsecutiveUnanswered;
+  const countsAreReadable =
+    typeof consecutive === 'number' &&
+    typeof ceiling === 'number' &&
+    Number.isFinite(consecutive) &&
+    Number.isFinite(ceiling) &&
+    consecutive >= 0 &&
+    ceiling >= 0;
+
+  if (!countsAreReadable) {
+    findings.push(
+      finding(
+        'PRESSURE_BUDGET_UNREADABLE',
+        'the pressure budget states no readable unanswered-attempt counts',
+      ),
+    );
+  } else if (consecutive >= ceiling) {
+    // The clause the product's cooldown has no shape for: a cooldown alone
+    // permits an unbounded run of hourly nudges to someone who has answered
+    // none of them, and harmful pressure is exactly that sequence. Waiting does
+    // not fix it, which is why it is not `PRESSURE_BUDGET_EXHAUSTED`.
+    findings.push(
+      finding(
+        'PRESSURE_UNANSWERED_CEILING',
+        `this surface has pressed ${consecutive} times without an answer; the ceiling is ${ceiling}`,
+      ),
+    );
+  }
+
+  const state = pressureIntervalState(request);
+  switch (state.kind) {
+    case 'unreadable':
+      findings.push(
+        finding(
+          'PRESSURE_BUDGET_UNREADABLE',
+          `the pressure budget's ${state.field} cannot be read, so no interval bounds the next attempt`,
+        ),
+      );
+      break;
+    case 'out_of_range':
+      findings.push(
+        finding(
+          'REQUEST_EXCEEDS_LIMIT',
+          `the pressure interval is ${state.minutes} minutes; the bound is ${SAFETY_LIMITS.maxPressureIntervalMinutes}`,
+          { limitName: 'maxPressureIntervalMinutes' },
+        ),
+      );
+      break;
+    case 'pending':
+      findings.push(
+        finding(
+          'PRESSURE_BUDGET_EXHAUSTED',
+          `less than the caller's own interval of ${state.minutes} minutes has passed since this surface last pressed`,
+        ),
+      );
+      break;
+    case 'now_unusable':
+      // Suppressed rather than decided: this judgement measures against `now`,
+      // and a check against an unusable bound reports a fact about the bound.
+      // `EVALUATION_INSTANT_INVALID` already names it — see the guard below,
+      // which exists so a future edit cannot make the suppression silent.
+      if (!nowIsUsable) break;
+      findings.push(
+        finding('PRESSURE_BUDGET_UNREADABLE', 'the interval could not be measured against the evaluation instant'),
+      );
+      break;
+    case 'never_pressed':
+    case 'elapsed':
+      break;
+  }
+
+  return findings;
 }
 
 /**

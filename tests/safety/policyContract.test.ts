@@ -175,9 +175,13 @@ test('no code can stop more than one surface', () => {
   const surfaceScoped = SAFETY_REASON_CODES.filter((code) => SAFETY_CODE_SCOPES[code] === 'surface');
   assert.deepEqual(
     surfaceScoped,
-    ['PRESSURE_BUDGET_EXHAUSTED'],
+    ['PRESSURE_BUDGET_EXHAUSTED', 'PRESSURE_UNANSWERED_CEILING'],
     'only a condition that rebuilding cannot fix may pause a whole surface',
   );
+  // The unreadable-budget code is deliberately *not* here: a malformed budget is
+  // fixed by resending, so pausing the surface would punish a caller bug with a
+  // user-visible outage.
+  assert.equal(SAFETY_CODE_SCOPES.PRESSURE_BUDGET_UNREADABLE, 'candidate');
 });
 
 test('every code names a safe user path, and every named path is one the vocabulary has', () => {

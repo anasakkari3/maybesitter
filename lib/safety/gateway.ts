@@ -38,6 +38,8 @@
 import {
   SAFETY_CODE_RECOVERY,
   SAFETY_CONTRACT_VERSION,
+  SAFETY_SURFACES,
+  instantFromMillis,
   SAFETY_SCHEMA_VERSION,
   type Instant,
   type SafeUserPath,
@@ -49,7 +51,7 @@ import {
   type SafetyVerdict,
 } from '../../src/contracts/v1/safetyContracts';
 import { asArray, capFindings, finding, isObject } from './findings';
-import { pressureRetryAfterMillis, validateSafetyRequest } from './preValidator';
+import { pressureIntervalState, validateSafetyRequest } from './preValidator';
 import { validateSafetyCandidate } from './postValidator';
 
 export interface SafetyGateInput {
@@ -65,18 +67,76 @@ export interface SafetyGateResult {
 }
 
 export function evaluateSafetyGate(input: SafetyGateInput): SafetyGateResult {
-  const request = isObject(input) ? (input.request as SafetyRequest) : (undefined as unknown as SafetyRequest);
-  const candidate = isObject(input) ? (input.candidate as SafetyCandidate) : (undefined as unknown as SafetyCandidate);
-  const auditId = isObject(input) && typeof input.auditId === 'string' ? input.auditId : '';
+  /**
+   * Every property read below is on an object a caller built, so every one can
+   * throw — and a read that throws is **reported**, never silently defaulted.
+   *
+   * The first version guarded only the two validator calls, leaving three reads
+   * outside: `candidate.segments`, `request.now` and `surfaceOf`. A getter on
+   * `segments` threw straight out of `evaluateSafetyGate`. The first repair
+   * wrapped them in a try/catch that returned a fallback — which fixed the throw
+   * and introduced the fail-open in its place: a candidate whose `surface`
+   * getter threw was read as `'audit_note'` and **allowed**, because no
+   * validator reads that property and nothing recorded that the read had failed.
+   *
+   * That is the third time in this module a `null`-or-default answer to "I could
+   * not read it" has been taken for "there is nothing there". So the collector
+   * makes the failure a finding, and `unjudgeableCandidateIsNotOfferable` holds
+   * for reads as well as for content.
+   */
+  const unreadable: SafetyFinding[] = [];
+  const read = <T>(code: 'REQUEST_UNREADABLE' | 'UNKNOWN_CANDIDATE_SHAPE', what: string, of: () => T, fallback: T): T => {
+    try {
+      return of();
+    } catch {
+      // `what` is a field name this module chose, never caller content.
+      unreadable.push(finding(code, `the ${what} of the input could not be read`));
+      return fallback;
+    }
+  };
+
+  const request = read('REQUEST_UNREADABLE', 'request', () => (isObject(input) ? (input.request as SafetyRequest) : undefined), undefined);
+  const candidate = read('UNKNOWN_CANDIDATE_SHAPE', 'candidate', () => (isObject(input) ? (input.candidate as SafetyCandidate) : undefined), undefined);
+  const auditId = read('REQUEST_UNREADABLE', 'audit id', () => (isObject(input) && typeof input.auditId === 'string' ? input.auditId : ''), '');
+
+  const segmentCount = read(
+    'UNKNOWN_CANDIDATE_SHAPE',
+    'segment list',
+    () => (isObject(candidate) ? asArray<unknown>((candidate as SafetyCandidate).segments).length : 0),
+    0,
+  );
+  const decidedAt = read(
+    'REQUEST_UNREADABLE',
+    'evaluation instant',
+    () => (isObject(request) ? ((request as SafetyRequest).now as Instant) : ('' as Instant)),
+    '' as Instant,
+  );
+  const surface = read(
+    'UNKNOWN_CANDIDATE_SHAPE',
+    'surface',
+    () => surfaceOf(request as SafetyRequest, candidate as SafetyCandidate),
+    'audit_note' as SafetySurface,
+  );
 
   const findings = capFindings(
-    [...safely(() => validateSafetyRequest(request), 'REQUEST_UNREADABLE'),
-     ...safely(() => validateSafetyCandidate(candidate, request), 'UNKNOWN_CANDIDATE_SHAPE')],
+    [...unreadable,
+     ...safely(() => validateSafetyRequest(request as SafetyRequest), 'REQUEST_UNREADABLE'),
+     ...safely(() => validateSafetyCandidate(candidate as SafetyCandidate, request as SafetyRequest), 'UNKNOWN_CANDIDATE_SHAPE')],
     'CANDIDATE_EXCEEDS_LIMIT',
   );
 
-  const segmentCount = isObject(candidate) ? asArray<unknown>(candidate.segments).length : 0;
-  const verdict = decide(findings, segmentCount, request);
+  const verdict = read(
+    'REQUEST_UNREADABLE',
+    'decision inputs',
+    () => decide(findings, segmentCount, request as SafetyRequest),
+    {
+      disposition: 'block',
+      findings: [
+        finding('UNKNOWN_CANDIDATE_SHAPE', 'the input could not be read at all; the gateway refused rather than guessed'),
+      ] as unknown as readonly [SafetyFinding, ...SafetyFinding[]],
+      recovery: { kind: 'surface_nothing_and_explain', retryAdmissible: true, retryAfter: null },
+    } as SafetyVerdict,
+  );
 
   return {
     verdict,
@@ -90,12 +150,16 @@ export function evaluateSafetyGate(input: SafetyGateInput): SafetyGateResult {
        * that was usable is `checkSafetyAudit`'s answer (`AUDIT_INSTANT_INVALID`)
        * and `EVALUATION_INSTANT_INVALID`'s. Substituting a clock reading here
        * would make the record say a thing the gateway never knew.
+       *
+       * It is still *scanned* — `checkSafetyAudit` reads every string field of
+       * the record, not a list of the ones anyone thought of — so passing a free
+       * string through cannot become a way to carry judged text.
        */
-      decidedAt: (isObject(request) ? request.now : '') as Instant,
-      surface: surfaceOf(request, candidate),
+      decidedAt,
+      surface,
       disposition: verdict.disposition,
       findings: verdict.findings,
-      candidateDigest: digestOf(candidate),
+      candidateDigest: digestOf(candidate as SafetyCandidate),
       recovery: verdict.disposition === 'allow' ? null : verdict.recovery,
     },
   };
@@ -124,7 +188,19 @@ function safely(run: () => readonly SafetyFinding[], code: 'REQUEST_UNREADABLE' 
   }
 }
 
-function decide(
+/**
+ * The disposition rule, exported so it can be tested on finding lists this
+ * module's validators do not currently produce.
+ *
+ * That is the point of exporting it. Two of its escalations turned out to be
+ * unreachable through the gateway — every untargeted redactable finding today
+ * co-occurs with a blocking one, so `blocking.length > 0` decides first — and a
+ * mutation sweep found both branches surviving deletion. The branches are not
+ * wrong; they are the rule this function is *for*, and a future redactable code
+ * makes them live. Testing them through an input that cannot reach them is how
+ * they stayed uncovered, so they are tested directly instead.
+ */
+export function decide(
   findings: readonly SafetyFinding[],
   segmentCount: number,
   request: SafetyRequest,
@@ -178,21 +254,62 @@ function decide(
  */
 function pathFor(deciding: SafetyFinding, request: SafetyRequest): SafeUserPath {
   const kind = SAFETY_CODE_RECOVERY[deciding.code] ?? 'surface_nothing_and_explain';
+
+  /**
+   * `retryAdmissible` is false when rebuilding the candidate cannot help, which
+   * is both pressure-permission codes; `retryAfter` is non-null **exactly** for
+   * `PRESSURE_BUDGET_EXHAUSTED`, the one condition waiting resolves. The
+   * ceiling is fixed by the person replying, not by time, and the first version
+   * returned `retryAdmissible: false` with `retryAfter: null` under the same
+   * code — contradicting the invariant `SafeUserPath` stated.
+   */
+  if (deciding.code === 'PRESSURE_UNANSWERED_CEILING') {
+    return { kind, retryAdmissible: false, retryAfter: null };
+  }
   if (deciding.code !== 'PRESSURE_BUDGET_EXHAUSTED') {
     return { kind, retryAdmissible: true, retryAfter: null };
   }
-  const millis = pressureRetryAfterMillis(request);
-  return {
-    kind,
-    retryAdmissible: false,
-    // `new Date(millis)` reads no clock — the ban is on the zero-argument form.
-    retryAfter: millis === null ? null : (new Date(millis).toISOString() as Instant),
-  };
+  /**
+   * A finding may name this code while the request no longer supports it —
+   * `decide` is reachable with any finding list — so the pending case is
+   * narrowed rather than assumed.
+   *
+   * Written as an early return rather than a ternary so the **type** carries the
+   * rule: `retryAfterMillis` exists only on the `pending` variant, so deleting
+   * this check does not compile. A ternary made the same guard a runtime one,
+   * and mutation testing showed it surviving deletion — `instantFromMillis`
+   * happened to return null for the `undefined` that resulted, so the two paths
+   * agreed by accident. A guard the compiler enforces cannot be an equivalent
+   * mutant.
+   */
+  const state = pressureIntervalState(request);
+  if (state.kind !== 'pending') {
+    return { kind, retryAdmissible: false, retryAfter: null };
+  }
+  return { kind, retryAdmissible: false, retryAfter: instantFromMillis(state.retryAfterMillis) };
 }
 
+/**
+ * The surface this decision is about, **validated against `SAFETY_SURFACES`**.
+ *
+ * The first version copied `request.surface` verbatim on the strength of
+ * `typeof === 'string'`, with the closed vocabulary exported three lines away.
+ * A probe put a patient's name in it and the value was written straight into the
+ * audit record: `checkSafetyAudit` returned `[]` and `JSON.stringify(record)`
+ * contained the name. A typed field is not a validated one at a boundary whose
+ * entire premise is that the types are absent.
+ *
+ * Validating here removes the hole from records this gateway writes;
+ * `checkSafetyAudit` still scans a `surface` outside the vocabulary, because
+ * records assembled elsewhere are exactly what that checker is for. The two are
+ * at different layers and each has its own test — this is not one guard masking
+ * another.
+ */
 function surfaceOf(request: SafetyRequest, candidate: SafetyCandidate): SafetySurface {
-  if (isObject(request) && typeof request.surface === 'string') return request.surface as SafetySurface;
-  if (isObject(candidate) && typeof candidate.surface === 'string') return candidate.surface as SafetySurface;
+  const known = (value: unknown): value is SafetySurface =>
+    typeof value === 'string' && (SAFETY_SURFACES as readonly string[]).includes(value);
+  if (isObject(request) && known(request.surface)) return request.surface;
+  if (isObject(candidate) && known(candidate.surface)) return candidate.surface;
   return 'audit_note';
 }
 

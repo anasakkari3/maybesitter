@@ -68,7 +68,7 @@ and the sensitive-text scan ask one question and must not answer it twice.
 
 ## The taxonomy
 
-24 reason codes, partitioned by **the stage that may emit them**
+27 reason codes, partitioned by **the stage that may emit them**
 (`SAFETY_CODE_PARTITIONS`), the way `planningContracts` partitions static from
 attempt codes: "the request is unsafe to answer" and "the answer is unsafe to
 show" are different failures owned by different callers. The two halves are
@@ -76,7 +76,7 @@ disjoint and `policyContract.test.ts` asserts it.
 
 | Stage | Codes |
 |---|---|
-| `pre` (request only) | `REQUEST_UNREADABLE`, `REQUEST_EXCEEDS_LIMIT`, `EVALUATION_INSTANT_INVALID`, `INJECTED_INSTRUCTION`, `UNTRUSTED_CONTENT_IN_TRUSTED_SLOT`, `SENSITIVE_SCOPE_NOT_PERMITTED`, `PRESSURE_BUDGET_EXHAUSTED` |
+| `pre` (request only) | `REQUEST_UNREADABLE`, `REQUEST_EXCEEDS_LIMIT`, `EVALUATION_INSTANT_INVALID`, `INJECTED_INSTRUCTION`, `UNTRUSTED_CONTENT_IN_TRUSTED_SLOT`, `SENSITIVE_SCOPE_NOT_PERMITTED`, `PRESSURE_BUDGET_UNREADABLE`, `PRESSURE_BUDGET_EXHAUSTED`, `PRESSURE_UNANSWERED_CEILING` |
 | `post` (candidate) | `UNKNOWN_CANDIDATE_SHAPE`, `CANDIDATE_EXCEEDS_LIMIT`, `UNSOURCED_CLAIM`, `EVIDENCE_GRAPH_MALFORMED`, `CLAIM_NOT_TRACEABLE`, `INSTANT_MALFORMED`, `FABRICATED_INSTANT`, `RAW_IDENTIFIER_DISCLOSED`, `SENSITIVE_TEXT_DISCLOSED`, `SHAMING_LANGUAGE`, `COERCIVE_PRESSURE`, `PRESSURE_INTENSITY_EXCEEDED`, `PERSISTENCE_CLAIMED`, `UNCONFIRMED_WRITE_PROPOSED`, `INSTRUCTION_ECHOED`, `DECISION_ECHO_UNATTESTED`, `DECISION_ECHO_MISMATCHED` |
 
 An **orthogonal** classification maps every code onto a boundary
@@ -236,6 +236,78 @@ shape — one claim citing the same node 400,000 times — plus a maximal hostil
 input judged under a wall-clock bound, and a 20,000-node derivation chain that
 must be refused rather than overflow the stack.
 
+## What an independent review found, and the pattern behind it
+
+An external reviewer ran executed probes and per-site mutation against the first
+version. Two blockers, two highs, four mediums — and the finding that matters
+more than any of them is that **every one of this module's headline claims had a
+hole its own suite was shaped to step over**. Recorded in full, because the
+pattern is the transferable part.
+
+| Claim the module made | The hole |
+|---|---|
+| "every declared bound is enforced" | The enumeration test asserted only that a *finding* naming each limit was emitted. Both input limits passed it while bounding no work: the pre pass stopped its own scan and the gateway then ran the post pass over the same unbounded list — 78 seconds of CPU on a request already decided to block. |
+| "a maximal hostile input is judged in bounded time" | The fixture used 5,000-character segments against a 2,000-character limit, so every segment hit the over-length `continue` before any scan ran. It measured 39 ms of doing nothing against its own 2,000 ms assertion. One literal changed to 1,999 took it to 11,288 ms. |
+| "report, don't throw" | `pathFor`, `candidate.segments`, `request.now` and `surfaceOf` all sat **outside** the gateway's `safely()` wrapper. The fixture written to catch exactly this put its throwing getter on `claims` — which is *inside* it. The test proved the guard it did not reach. |
+| "unknown ranks conservatively" | The third instance in this module, in the cooldown. Every guard returned `null` and the caller read `null` as "no cooldown applies", so `Infinity` — the natural way to write "never press again" — was the most permissive value the field accepted. |
+| "no audit field can hold judged text" | False for `auditId` and, at any untyped boundary, for `surface`, which the gateway copied verbatim without validating against the closed vocabulary exported three lines away. A probe put a patient name in it: `checkSafetyAudit` returned `[]` and `JSON.stringify(record)` contained the name. |
+| "the injection filter" | One zero-width or bidi character defeated it entirely, and `INSTRUCTION_ECHOED` went dark with it, because the matcher read raw text while the echo comparison normalised. |
+| `unreadableInputIsBlocked` | An `input.text` that was not a string produced **no finding at all** and dropped silently out of every scan. |
+
+The repairs are described at their sites. Four are worth naming here because the
+fix changed a design rather than a line:
+
+- **A bound is a bound on work, not a bound on findings.** Input spans now reach
+  every pass through one function, `lib/safety/inputs.ts#scannableInputs`, which
+  applies both limits. There is no other way to get the list, so a future pass
+  cannot forget. `sharesTextRunWith` was also rewritten from
+  `O(sources x haystack)` to `O(sources + haystack)`; bounding alone would not
+  have been enough.
+- **A `null` answer to "how long" is a terrible answer to "may I".**
+  `pressureIntervalState` returns a discriminated union — `unreadable`,
+  `out_of_range`, `never_pressed`, `now_unusable`, `elapsed`, `pending` — so the
+  one legitimate absence cannot be confused with the five failures. Two codes
+  were split out: `PRESSURE_BUDGET_UNREADABLE` and `PRESSURE_UNANSWERED_CEILING`.
+- **The leak scan is generic over every string field**, not a list of the fields
+  anyone thought of, with a narrow exemption for values that are valid members of
+  a closed vocabulary. A field added to the record tomorrow is scanned without
+  the checker being edited — the property a field list cannot have, and
+  enumerating fields is how the first version was wrong.
+- **A read that throws is reported, never defaulted.** The first repair for the
+  unguarded reads wrapped them in a try/catch returning a fallback, which fixed
+  the throw and introduced a fail-open in its place: a candidate whose `surface`
+  getter threw was read as `'audit_note'` and *allowed*. The collector now turns
+  every failed read into a finding.
+
+### Mutation
+
+33 one-site mutants across `lib/safety/**` and the contract's safety functions;
+**0 survive**. 32 are killed by `npm run test:sprint09`, 1 by `npm run typecheck`
+— `pathFor`'s pending-state check was rewritten from a ternary into a narrowing
+early return so that deleting it does not compile, because as a runtime guard it
+was an equivalent mutant.
+
+Nine survived the first sweep. Two were the reviewer's (`wouldEmptyTheMessage`,
+the untargeted-redaction escalation); the rest fell into three groups, and each
+group needed a different kind of fix:
+
+- **Guards no gateway input can reach.** Every untargeted redactable finding
+  today co-occurs with a blocking one, so `decide` never gets to its second
+  escalation. The branches are not wrong — they are the rule that function is
+  *for*, and a future redactable code makes them live. `decide` is now exported
+  and driven directly with synthetic finding lists, including one carrying a
+  severity this version does not recognise.
+- **Guards masking each other.** `instantFromMillis` had a range test *and* a
+  try/catch; deleting either left every test green because the other produced
+  null. One load-bearing guard now remains, so its deletion fails a test. Same
+  finding as the provably-dead pass Sprint 08 removed from
+  `findCyclicNodeIndices`.
+- **A real semantic bug.** `injectedTexts` ignored the origin rule the pre pass
+  applies, so a `system_template` that legitimately reads as an instruction was
+  never flagged and yet a candidate quoting it was reported `INSTRUCTION_ECHOED`.
+  Quoting the product's own template is not an attack succeeding. Both stages now
+  share one `isInjectedSpan`.
+
 ## Three duplications removed, one of them found by this change
 
 `lib/safety/postValidator.ts` held private copies of `CANDIDATE_CLAIM_KINDS` and
@@ -316,9 +388,31 @@ revert of this branch alone requires reverting #38 first.
   of a three-character id is not caught by that scan. It is the second line of
   defence; the structural rule — identifiers never enter prose at all — is the
   first.
-- **The shame and coercion lexicons are English-first.** The injection patterns
-  cover AR/HE/EN; the pressure lexicons do not, and a shaming Arabic or Hebrew
-  message would pass `SHAMING_LANGUAGE` today. #37's evaluation set is where the
-  multilingual corpus belongs, and the gap is named here rather than papered over.
+- **The shame, coercion _and persistence_ lexicons are English-first, and the
+  gap is now measured rather than estimated.** An independent probe scored the
+  content lexicons at **EN 10/10 caught, AR 0/10, HE 0/10**. The injection
+  patterns cover AR/HE/EN; the other three do not, so a shaming, coercive or
+  false-completion message in Arabic or Hebrew passes today. `PERSISTENCE_CLAIM_PATTERNS`
+  was missing from this list in the first version, which is its own defect — a
+  known-gaps section that omits a gap is worse than none.
+
+  No Arabic or Hebrew patterns were invented to close it. A lexicon written
+  without native review is a filter that looks multilingual and is not, which is
+  the failure this repo has already paid for twice with fabricated data (Sprint
+  04's empty judgment corpus, Sprint 06's synthetic-only dataset). #37's
+  evaluation set is where the multilingual corpus belongs, and the merge's
+  cross-track test will assert this module catches what that corpus provokes — so
+  the number moves or it is measured, never assumed.
+
+- **Format-character normalisation covers the classes it knows.** Zero-width,
+  bidi-override, soft hyphen and NFKC compatibility forms are folded, in two
+  variants because removing a character and replacing it with a space each leave
+  a different bypass. Homoglyph substitution across scripts (Cyrillic `а` for
+  Latin `a`) is **not** covered and would bypass the injection patterns.
+- **`decide`'s untargeted-redaction escalation is unreachable through the
+  validators.** It is covered by a direct test rather than an end-to-end one, and
+  that is stated rather than hidden: no current input produces an untargeted
+  redactable finding without also producing a blocking one.
+
 - **No caller yet.** The module is unrouted, so every claim above rests on its
   suites rather than on production traffic.

@@ -12,7 +12,8 @@
  */
 
 export { evaluateSafetyGate, type SafetyGateInput, type SafetyGateResult } from './gateway';
-export { validateSafetyRequest, pressureRetryAfterMillis } from './preValidator';
+export { validateSafetyRequest, pressureIntervalState, type PressureIntervalState } from './preValidator';
+export { scannableInputs, type ScannableInput } from './inputs';
 export { validateSafetyCandidate } from './postValidator';
 export {
   COERCION_PATTERNS,

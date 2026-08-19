@@ -80,8 +80,13 @@
  *     strings people fill with content. So `SafetyFinding` names inputs,
  *     segments, claims and evidence nodes by **index into the input array**, and
  *     `detail` carries static prose plus numbers derived from the input and
- *     nothing else. `SafetyAuditRecord` has no field of any type that can hold
- *     candidate text, and `checkSafetyAudit` is the runtime proof.
+ *     nothing else. `SafetyAuditRecord` carries no field that holds candidate
+ *     *content*, and `checkSafetyAudit` scans every string-valued field it does
+ *     carry — not a list of the fields anyone thought of. An earlier version of
+ *     this note claimed the stronger thing, that no field could hold text at
+ *     all; that was false for the caller-chosen `auditId` and, at any untyped
+ *     boundary, for `surface`, and a probe demonstrated it by putting a
+ *     patient's name in the latter.
  *
  *  4. **Reason codes are partitioned by the stage that may emit them**, the way
  *     `planningContracts` partitions static from attempt codes and for the same
@@ -539,6 +544,20 @@ export const SAFETY_LIMITS = Object.freeze({
   maxEvidenceRefsPerClaim: 16,
   maxEffects: 8,
   maxFindings: 128,
+  /**
+   * The longest cooldown a caller may express, in minutes — 365 days.
+   *
+   * A bound on a *number*, which the first draft did not have, and the defect it
+   * exists for is not a slow scan: `pressureRetryAfterMillis` adds this to an
+   * epoch instant and the gateway hands the result to `Date`. At 1e11 minutes
+   * that produced a `retryAfter` of `+192159-01-24`, which is absurd and was
+   * accepted; at 1.5e11 it produced a `RangeError` out of `evaluateSafetyGate`
+   * — the sixth report-don't-throw of this repo, reachable from plain JSON.
+   *
+   * Beyond a year the caller is expressing "never press again", which is
+   * `maxIntensity: 'none'` and not a cooldown at all.
+   */
+  maxPressureIntervalMinutes: 525_600,
 });
 
 export type SafetyLimitName = keyof typeof SAFETY_LIMITS;
@@ -566,6 +585,7 @@ export const SAFETY_LIMIT_STAGES: Readonly<Record<SafetyLimitName, SafetyStage>>
   maxEvidenceRefsPerClaim: 'post',
   maxEffects: 'post',
   maxFindings: 'post',
+  maxPressureIntervalMinutes: 'pre',
 });
 
 /* ── The reason taxonomy ─────────────────────────────────────────── */
@@ -631,9 +651,44 @@ export type SafetyStage = 'pre' | 'post';
  *                           may draw on `personal` content must never be built
  *                           from `sensitive` content, and the moment to say so is
  *                           before it is built, not after it is written.
+ * - `PRESSURE_BUDGET_UNREADABLE`
+ *                         — the pressure budget, or a field of it, cannot be
+ *                           read, so nothing establishes that pressing is
+ *                           permitted.
+ *
+ *                           This code exists because its absence was a
+ *                           fail-open. Every guard in the first draft returned
+ *                           `null` and the caller read `null` as "no cooldown
+ *                           applies" — so `Infinity`, `NaN`, a negative
+ *                           interval, a missing interval and an unparseable
+ *                           `lastPressuredAt` **all permitted pressure**, while
+ *                           a well-formed 60-minute budget correctly refused it.
+ *                           `Infinity` is the natural encoding of "never press
+ *                           again" and was the most permissive value available.
+ *                           Exactly one absence is legitimate and stays
+ *                           legitimate: `lastPressuredAt: null` means this
+ *                           subject has never been pressed, so the interval
+ *                           check has nothing to measure from.
  * - `PRESSURE_BUDGET_EXHAUSTED`
- *                         — pressing again would break the caller's own interval
- *                           or its consecutive-unanswered ceiling.
+ *                         — pressing again would break the caller's own
+ *                           interval. **Waiting is the fix**, so this is the one
+ *                           code whose `SafeUserPath` always carries a
+ *                           `retryAfter`.
+ * - `PRESSURE_UNANSWERED_CEILING`
+ *                         — this surface has pressed its consecutive-unanswered
+ *                           ceiling without a reply.
+ *
+ *                           Split out of `PRESSURE_BUDGET_EXHAUSTED`, which
+ *                           carried both conditions and therefore contradicted
+ *                           `SafeUserPath`: the ceiling branch returned
+ *                           `retryAdmissible: false` with `retryAfter: null`,
+ *                           which that type's doc said could not happen. They
+ *                           are two conditions with two remedies — waiting fixes
+ *                           an interval and only the person answering fixes a
+ *                           ceiling — and one code answering two questions is
+ *                           what this file's own taxonomy rules forbid. The
+ *                           invariant is now mechanical: `retryAfter` is
+ *                           non-null exactly for `PRESSURE_BUDGET_EXHAUSTED`.
  *
  *                           **Same rule at module scope as
  *                           `PRESSURE_DELIVERY_COOLDOWN_MS`** in
@@ -656,7 +711,9 @@ export type SafetyPreCode =
   | 'INJECTED_INSTRUCTION'
   | 'UNTRUSTED_CONTENT_IN_TRUSTED_SLOT'
   | 'SENSITIVE_SCOPE_NOT_PERMITTED'
-  | 'PRESSURE_BUDGET_EXHAUSTED';
+  | 'PRESSURE_BUDGET_UNREADABLE'
+  | 'PRESSURE_BUDGET_EXHAUSTED'
+  | 'PRESSURE_UNANSWERED_CEILING';
 
 /**
  * Codes decidable only about a produced candidate.
@@ -842,7 +899,9 @@ export const SAFETY_PRE_CODES = Object.freeze([
   'INJECTED_INSTRUCTION',
   'UNTRUSTED_CONTENT_IN_TRUSTED_SLOT',
   'SENSITIVE_SCOPE_NOT_PERMITTED',
+  'PRESSURE_BUDGET_UNREADABLE',
   'PRESSURE_BUDGET_EXHAUSTED',
+  'PRESSURE_UNANSWERED_CEILING',
 ] as const) satisfies readonly SafetyPreCode[];
 
 export const SAFETY_POST_CODES = Object.freeze([
@@ -941,7 +1000,12 @@ export const SAFETY_CODE_BOUNDARIES: Readonly<Record<SafetyReasonCode, SafetyBou
   INJECTED_INSTRUCTION: 'injection',
   UNTRUSTED_CONTENT_IN_TRUSTED_SLOT: 'injection',
   SENSITIVE_SCOPE_NOT_PERMITTED: 'privacy',
+  // Filed under `integrity`, not `harmful_pressure`, on the rule already stated
+  // for the boundary: an unreadability is the check failing to run, and putting
+  // it under a content boundary reports a content problem for a plumbing one.
+  PRESSURE_BUDGET_UNREADABLE: 'integrity',
   PRESSURE_BUDGET_EXHAUSTED: 'harmful_pressure',
+  PRESSURE_UNANSWERED_CEILING: 'harmful_pressure',
   UNKNOWN_CANDIDATE_SHAPE: 'integrity',
   CANDIDATE_EXCEEDS_LIMIT: 'integrity',
   UNSOURCED_CLAIM: 'provenance',
@@ -1008,7 +1072,10 @@ export const SAFETY_CODE_SCOPES: Readonly<Record<SafetyReasonCode, SafetyBlockSc
   INJECTED_INSTRUCTION: 'candidate',
   UNTRUSTED_CONTENT_IN_TRUSTED_SLOT: 'candidate',
   SENSITIVE_SCOPE_NOT_PERMITTED: 'candidate',
+  // Candidate-scoped: a malformed budget is fixed by resending, not by waiting.
+  PRESSURE_BUDGET_UNREADABLE: 'candidate',
   PRESSURE_BUDGET_EXHAUSTED: 'surface',
+  PRESSURE_UNANSWERED_CEILING: 'surface',
   UNKNOWN_CANDIDATE_SHAPE: 'candidate',
   CANDIDATE_EXCEEDS_LIMIT: 'candidate',
   UNSOURCED_CLAIM: 'candidate',
@@ -1051,7 +1118,9 @@ export const SAFETY_CODE_SEVERITY: Readonly<Record<SafetyReasonCode, SafetySever
   INJECTED_INSTRUCTION: 'blocking',
   UNTRUSTED_CONTENT_IN_TRUSTED_SLOT: 'blocking',
   SENSITIVE_SCOPE_NOT_PERMITTED: 'blocking',
+  PRESSURE_BUDGET_UNREADABLE: 'blocking',
   PRESSURE_BUDGET_EXHAUSTED: 'blocking',
+  PRESSURE_UNANSWERED_CEILING: 'blocking',
   UNKNOWN_CANDIDATE_SHAPE: 'blocking',
   CANDIDATE_EXCEEDS_LIMIT: 'blocking',
   UNSOURCED_CLAIM: 'blocking',
@@ -1119,9 +1188,17 @@ export const SAFE_USER_PATH_KINDS = Object.freeze([
  *
  * `retryAdmissible` is the recoverability half of the acceptance criterion,
  * stated as data: it says whether a corrected resubmission can succeed at all.
- * It is false only for `PRESSURE_BUDGET_EXHAUSTED`, where the fix is time rather
- * than a better candidate — and there `retryAfter` carries the instant, computed
- * from the request's `now` and the caller's own interval.
+ * It is false for the two pressure-permission codes, where rebuilding the
+ * candidate cannot help — the fix is time, or the person replying.
+ *
+ * `retryAfter` is non-null **exactly** for `PRESSURE_BUDGET_EXHAUSTED`, the one
+ * condition waiting resolves. That biconditional is asserted rather than
+ * asserted-about: the first draft stated it here and broke it in the ceiling
+ * branch, which returned `retryAdmissible: false` with `retryAfter: null` — a
+ * doc describing an invariant the code did not keep, which is the shape of
+ * documentation that reads as a guarantee. Splitting
+ * `PRESSURE_UNANSWERED_CEILING` out is what made the statement true rather than
+ * aspirational.
  *
  * No field here holds free text, so no field here can hold leaked text.
  */
@@ -1149,7 +1226,9 @@ export const SAFETY_CODE_RECOVERY: Readonly<Record<SafetyReasonCode, SafeUserPat
   INJECTED_INSTRUCTION: 'retry_without_sensitive_context',
   UNTRUSTED_CONTENT_IN_TRUSTED_SLOT: 'retry_without_sensitive_context',
   SENSITIVE_SCOPE_NOT_PERMITTED: 'retry_without_sensitive_context',
+  PRESSURE_BUDGET_UNREADABLE: 'surface_nothing_and_explain',
   PRESSURE_BUDGET_EXHAUSTED: 'defer_to_user_choice',
+  PRESSURE_UNANSWERED_CEILING: 'defer_to_user_choice',
   UNKNOWN_CANDIDATE_SHAPE: 'surface_nothing_and_explain',
   CANDIDATE_EXCEEDS_LIMIT: 'surface_nothing_and_explain',
   UNSOURCED_CLAIM: 'show_evidence_only',
@@ -1260,10 +1339,27 @@ export type SafetyVerdict =
 /**
  * The audit record.
  *
- * **There is no field of any type here that can hold candidate or input text.**
- * That is the acceptance criterion "sensitive raw text is not logged" expressed
- * structurally: a leak would have to be a `detail` string, and `checkSafetyAudit`
- * scans exactly those.
+ * **No field here carries candidate content, and every string field is scanned.**
+ *
+ * The stronger claim this comment used to make — that no field could hold text
+ * at all — was false in two places, and the correction is the shape of the
+ * criterion rather than a footnote to it:
+ *
+ *   - `auditId` is **caller-chosen and passed through verbatim**, because it is
+ *     the key that joins this record to the caller's own logs and the gateway
+ *     mints no identifiers. So an id filled with content stays in the record,
+ *     exactly as `RecommendationDefect.nodeId` does, and `checkSafetyAudit`
+ *     reports it (`AUDIT_CONTAINS_IDENTIFIER`, `AUDIT_CONTAINS_RAW_TEXT`) rather
+ *     than the type preventing it. Reporting is the only available mechanism:
+ *     the gateway does not know what the caller's secrets are, and truncating
+ *     the id would break the join it exists for.
+ *   - `surface` is typed and arrives as a string. `evaluateSafetyGate` now
+ *     validates it against `SAFETY_SURFACES` and falls back to `'audit_note'`,
+ *     so records this module writes cannot carry a free string there; records
+ *     assembled elsewhere are what the scan is for.
+ *
+ * `candidateDigest` is a digest precisely so the trail can prove two decisions
+ * concerned the same content without storing the content.
  *
  * `candidateDigest` is an opaque digest of what was judged, supplied by the
  * caller. Two consequences, both learned elsewhere:
@@ -1614,14 +1710,33 @@ export const AUDIT_LEAK_DEFAULT_RUN_LENGTH = 8;
 /**
  * Check an audit record against the content it is about.
  *
- * This is the executable form of "sensitive raw text is not logged". The record
- * type has no field that can hold text, so the only surface a leak can reach is
- * a `detail` string — and Sprint 07's real leak went out through exactly such a
- * field, reading `working window call-dr.cohen-about-the-biopsy`, past a test
- * that checked only that the title was absent. So identifiers are checked too,
- * on equal terms: an id is a free string people fill with content, and a
- * character-class filter does not help because the problem is not the
- * characters.
+ * This is the executable form of "sensitive raw text is not logged", and the
+ * shape of the scan is the correction of a claim this file used to make.
+ *
+ * The old claim was that the record "has no field that can hold text", so only
+ * `detail` needed scanning. That is false at the untyped boundary this whole
+ * contract exists for: `auditId` is a caller-chosen free string, `surface` and
+ * `decidedAt` are typed but arrive as strings, and a record assembled anywhere
+ * other than `evaluateSafetyGate` may put anything in any of them. A probe put
+ * a patient's name in `surface`, and this function returned `[]` while
+ * `JSON.stringify(record)` contained it.
+ *
+ * So the scan is **generic over every string-valued field**, not a list of the
+ * fields anyone thought of — which means a field added to `SafetyAuditRecord`
+ * tomorrow is scanned without this function being edited. That is the property a
+ * field list cannot have, and enumerating fields is how the first version was
+ * wrong.
+ *
+ * Values drawn from a **closed vocabulary** are exempt while they are valid, and
+ * only while: `'coaching_message'` is not caller content, but a `surface` that
+ * is not in `SAFETY_SURFACES` is a free string and is scanned like one. The
+ * exemption is therefore narrow and self-limiting rather than a hole.
+ *
+ * Identifiers are checked on equal terms with text, because Sprint 07's real
+ * leak went out through exactly such a field, reading
+ * `working window call-dr.cohen-about-the-biopsy`, past a test that checked only
+ * that the title was absent. A character-class filter does not help, because the
+ * problem is not the characters.
  *
  * Reports; never throws. Ordering is by finding position.
  */
@@ -1676,38 +1791,135 @@ export function checkSafetyAudit(
     leakSources === null || leakSources === undefined ? [] : leakSources.identifiers,
   );
 
-  const findings = asArray<SafetyFinding>(record.findings);
-  for (let index = 0; index < findings.length; index += 1) {
-    const finding = findings[index];
-    const detail = finding === null || finding === undefined ? '' : finding.detail;
-    if (typeof detail !== 'string' || detail.length === 0) continue;
-
+  const leaks = (value: unknown, findingIndex: number | null, where: string): void => {
+    if (typeof value !== 'string' || value.length === 0) return;
+    const normalized = normalizeForComparison(value);
     for (const identifier of identifiers) {
       if (typeof identifier !== 'string' || identifier.length === 0) continue;
-      if (detail.includes(identifier)) {
+      if (normalized.includes(normalizeForComparison(identifier))) {
         defects.push({
           code: 'AUDIT_CONTAINS_IDENTIFIER',
-          findingIndex: index,
-          detail: 'a finding detail reproduces a caller-chosen identifier',
+          findingIndex,
+          detail: `${where} reproduces a caller-chosen identifier`,
         });
         break;
       }
     }
-
-    if (sharesTextRunWith(detail, texts, runLength)) {
+    if (sharesTextRunWith(value, texts, runLength)) {
       defects.push({
         code: 'AUDIT_CONTAINS_RAW_TEXT',
-        findingIndex: index,
-        detail: 'a finding detail reproduces a run of the text it judged',
+        findingIndex,
+        detail: `${where} reproduces a run of the text it judged`,
       });
     }
+  };
+
+  // Every string-valued field of the record, not a list of the ones anyone
+  // thought of. `findings` is an array and is walked below; closed-vocabulary
+  // values are exempt only while they are valid members of their vocabulary.
+  for (const key of Object.keys(record)) {
+    const value = (record as unknown as Record<string, unknown>)[key];
+    if (typeof value !== 'string') continue;
+    if (isClosedVocabularyValue(key, value)) continue;
+    leaks(value, null, 'an audit record field');
+  }
+
+  const findings = asArray<SafetyFinding>(record.findings);
+  for (let index = 0; index < findings.length; index += 1) {
+    const finding = findings[index];
+    leaks(finding === null || finding === undefined ? '' : finding.detail, index, 'a finding detail');
   }
 
   return defects;
 }
 
 /**
- * Does `haystack` contain any substring of `length` or more characters that also
+ * Is this field's value a member of a closed vocabulary this contract owns?
+ *
+ * Such a value carries no caller content by construction, so scanning it would
+ * only produce false positives — a user note containing the word "coaching"
+ * would otherwise make every `surface: 'coaching_message'` read as a leak, and a
+ * scan that fires on every record is exactly as uninformative as one that never
+ * fires.
+ *
+ * The test is on the **value**, never on the field name. A `surface` outside
+ * `SAFETY_SURFACES` is a free string wearing a typed field's name, and that is
+ * precisely the case the generic scan was written for.
+ */
+function isClosedVocabularyValue(key: string, value: string): boolean {
+  if (key === 'version') return value === SAFETY_CONTRACT_VERSION;
+  if (key === 'schemaVersion') return value === SAFETY_SCHEMA_VERSION;
+  if (key === 'surface') return (SAFETY_SURFACES as readonly string[]).includes(value);
+  if (key === 'disposition') return (SAFETY_DISPOSITIONS as readonly string[]).includes(value);
+  return false;
+}
+
+/** Format characters that carry no meaning to a reader: zero-width, bidi, soft hyphen. */
+const FORMAT_CHARACTERS = /[\u00AD\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF]/g;
+
+/**
+ * Fold away the characters that change how a *machine* reads text but not how a
+ * person does.
+ *
+ * Exported because three callers need one answer: the injection patterns, the
+ * echo comparison and the audit leak scan. Without it, `ignore\u200Ball
+ * previous instructions` matched nothing while an LLM still read it as the
+ * instruction — one zero-width space defeated the entire injection filter, and
+ * `INSTRUCTION_ECHOED` went dark with it because the echo comparison normalised
+ * differently from the matcher. Two spellings of "the same text" is the Sprint
+ * 06 gap applied to string handling.
+ *
+ * NFKC folds fullwidth and compatibility forms; format characters become a
+ * **space**; case and whitespace are folded last. Arabic and Hebrew letters
+ * survive all three — the class targets format characters, not letters.
+ *
+ * This is the *canonical* form, used wherever two strings are compared with each
+ * other. Both sides get the same treatment, so any consistent choice works there.
+ * Pattern matching is different and needs `matchingVariants` — see below.
+ */
+export function normalizeForComparison(value: string): string {
+  return value
+    .normalize('NFKC')
+    .replace(FORMAT_CHARACTERS, ' ')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * The forms a *pattern* must be tested against, because removing a format
+ * character and replacing it with a space each leave a different bypass.
+ *
+ * The two are genuinely different attacks and neither normalisation catches
+ * both:
+ *
+ *     ignore<U+200B>all previous instructions   -> replaced: "ignore all …"  MATCHES
+ *                                               -> removed:  "ignoreall …"   misses
+ *     ig<U+200B>nore all previous instructions  -> replaced: "ig nore all …" misses
+ *                                               -> removed:  "ignore all …"  MATCHES
+ *
+ * An attacker picks whichever the filter does not do, so the filter does both. A
+ * reader sees one string in every case, which is the whole justification: these
+ * are not two readings of ambiguous text, they are two ways of writing one
+ * sentence that a person cannot tell apart.
+ *
+ * This does **not** apply to `sharesTextRunWith`, which compares two strings
+ * that both go through `normalizeForComparison` — any consistent choice is
+ * correct when both sides get it.
+ */
+export function matchingVariants(value: string): readonly string[] {
+  const replaced = normalizeForComparison(value);
+  const removed = value
+    .normalize('NFKC')
+    .replace(FORMAT_CHARACTERS, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+  return replaced === removed ? [replaced] : [replaced, removed];
+}
+
+/**
+ * Does `haystack` contain any run of `length` or more characters that also
  * appears in one of `sources`?
  *
  * Exported because two callers need this judgement and neither should own a
@@ -1717,26 +1929,35 @@ export function checkSafetyAudit(
  * reproduce that text" — and Sprint 06's recorded cost of answering one question
  * in two places is four review rounds.
  *
- * A sliding window over the *source*, which is the direction that matters: the
- * detail is short static prose and the source can be long, so windowing the
- * source and probing the detail keeps the work proportional to the input the
- * caller controls — bounded by `SAFETY_LIMITS.maxUntrustedInputChars`, which is
- * why that limit is enforced before this ever runs.
+ * **Linear in the total input, and that is a correctness property rather than a
+ * tuning one.** The first implementation slid a window over the *source* and
+ * called `includes` on the haystack for each position, which is
+ * `O(sources x haystack)`: with the inputs a caller may legitimately send it
+ * took 78 seconds of CPU on a request the gateway had already decided to block.
+ * Indexing the haystack's runs into a set and probing once per source position
+ * is `O(sources + haystack)` with the same semantics. The haystack is always the
+ * bounded side here — a finding detail or one segment — so the set stays small.
  *
- * Case-insensitive and whitespace-collapsed, because a leak that survives
- * lowercasing is still a leak and Sprint 08's lesson about instruments is that
- * the comfortable check is the one that finds nothing.
+ * Comparison is on `normalizeForComparison`, so a leak that survives lowercasing,
+ * re-spacing or a zero-width character is still a leak. Sprint 08's lesson about
+ * instruments applies: the comfortable check is the one that finds nothing.
  */
 export function sharesTextRunWith(haystack: string, sources: readonly string[], length: number): boolean {
   if (typeof haystack !== 'string' || haystack.length === 0) return false;
   if (!Number.isInteger(length) || length < 1) return false;
-  const normalizedHaystack = haystack.toLowerCase().replace(/\s+/g, ' ');
-  for (const source of sources) {
+  const normalizedHaystack = normalizeForComparison(haystack);
+  if (normalizedHaystack.length < length) return false;
+
+  const runs = new Set<string>();
+  for (let start = 0; start + length <= normalizedHaystack.length; start += 1) {
+    runs.add(normalizedHaystack.slice(start, start + length));
+  }
+
+  for (const source of asArray<string>(sources)) {
     if (typeof source !== 'string') continue;
-    const normalized = source.toLowerCase().replace(/\s+/g, ' ');
-    if (normalized.length < length) continue;
+    const normalized = normalizeForComparison(source);
     for (let start = 0; start + length <= normalized.length; start += 1) {
-      if (normalizedHaystack.includes(normalized.slice(start, start + length))) return true;
+      if (runs.has(normalized.slice(start, start + length))) return true;
     }
   }
   return false;
@@ -1803,6 +2024,35 @@ export function millisBetweenInstants(from: unknown, to: unknown): number | null
   const toMillis = millisOf(to);
   if (toMillis === null) return null;
   return toMillis - fromMillis;
+}
+
+/** The widest instant `Date` can represent: +-100,000,000 days from the epoch. */
+export const MAX_INSTANT_MILLIS = 8.64e15;
+
+/**
+ * An `Instant` from epoch millis, or null when the number does not name one.
+ *
+ * The inverse of `millisBetweenInstants`, and it lives beside it for the reason
+ * that one does: a caller that needed to go the other way wrote
+ * `new Date(millis).toISOString()` inline, and that raised
+ * `RangeError: Invalid time value` out of `evaluateSafetyGate` for a pressure
+ * interval of 1.5e11 minutes — reachable from plain JSON, and the sixth
+ * report-don't-throw this repo has recorded.
+ *
+ * Returns null rather than throwing, on the same terms as every other checker
+ * here. `new Date(millis)` reads no clock: the ban is on the zero-argument form.
+ *
+ * **The range test is the only guard, deliberately.** An earlier version wrapped
+ * the call in a `try/catch` as well, and mutation testing found the two masking
+ * each other: deleting either left every test green, because the other still
+ * produced null, so neither was covered. Inside the range `toISOString` cannot
+ * throw, so the test is sufficient — and it is now load-bearing, which makes its
+ * deletion a failing test. Same finding as the provably-dead pass Sprint 08
+ * removed from `findCyclicNodeIndices`.
+ */
+export function instantFromMillis(millis: unknown): Instant | null {
+  if (typeof millis !== 'number' || !Number.isFinite(millis) || Math.abs(millis) > MAX_INSTANT_MILLIS) return null;
+  return new Date(millis).toISOString() as Instant;
 }
 
 /* ── Policy ──────────────────────────────────────────────────────── */

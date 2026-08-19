@@ -41,18 +41,18 @@ import {
   type SafetyCandidate,
   type SafetyFinding,
   type SafetyRequest,
-  type UntrustedInput,
 } from '../../src/contracts/v1/safetyContracts';
 import {
   COERCION_PATTERNS,
-  INJECTION_PATTERNS,
   INSTRUCTION_ECHO_RUN_LENGTH,
   MIN_IDENTIFIER_MATCH_LENGTH,
   PERSISTENCE_CLAIM_PATTERNS,
   SHAME_PATTERNS,
+  isInjectedSpan,
   matchesAny,
 } from './lexicon';
 import { asArray, capFindings, finding, isObject } from './findings';
+import { scannableInputs } from './inputs';
 
 /**
  * `CANDIDATE_CLAIM_KINDS` and `PROPOSED_EFFECT_KINDS` are imported from the
@@ -94,13 +94,25 @@ export function validateSafetyCandidate(
   const graph: EvidenceGraph = isObject(candidate.evidence) ? (candidate.evidence as EvidenceGraph) : { nodes: [] };
   const nodes = asArray<{ nodeId?: unknown }>(graph.nodes);
 
-  const inputs = isObject(request) ? asArray<UntrustedInput>(request.inputs) : [];
-  const sensitiveTexts = inputs
-    .filter((input) => isObject(input) && input.sensitivity === 'sensitive' && typeof input.text === 'string')
-    .map((input) => input.text);
-  const injectedTexts = inputs
-    .filter((input) => isObject(input) && typeof input.text === 'string' && matchesAny(input.text, INJECTION_PATTERNS))
-    .map((input) => input.text);
+  /**
+   * Input spans reach this pass **only** through `scannableInputs`, which
+   * applies `maxUntrustedInputs` and `maxUntrustedInputChars`.
+   *
+   * The first version read `request.inputs` directly. `preValidator` reported
+   * both limits and stopped its own scan, but the gateway runs this pass
+   * unconditionally afterwards, so the bounds bounded nothing: 40 spans of 200K
+   * characters took 19 seconds and 200 spans took 78, on a request already
+   * decided to block. A bound is a bound on **work**, not a bound on findings —
+   * and the enumeration test passed the whole time, because it only ever
+   * asserted that a finding naming each limit was emitted.
+   */
+  const scannable = scannableInputs(request);
+  const sensitiveTexts = scannable
+    .filter((span) => span.input.sensitivity === 'sensitive')
+    .map((span) => span.text);
+  const injectedTexts = scannable
+    .filter((span) => isInjectedSpan(span.input.origin, span.text))
+    .map((span) => span.text);
   const identifiers = collectIdentifiers(candidate, claims, effects, nodes);
   const attested = isObject(request) ? asArray<RecommendationDecision>(request.attestedDecisions) : [];
   const nowInstant = isObject(request) ? request.now : undefined;
