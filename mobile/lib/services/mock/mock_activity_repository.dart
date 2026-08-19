@@ -54,7 +54,15 @@ class MockActivityRepository implements ActivityRepository {
   }
 
   @override
-  Stream<List<ActivityEvent>> watchActivity() {
-    return _controller.stream;
+  Stream<List<ActivityEvent>> watchActivity() async* {
+    // The current list first, then every later change.
+    //
+    // This used to return the broadcast stream alone. The constructor seeds
+    // three events and emits them before anything has subscribed, and a
+    // broadcast stream does not replay to a late subscriber — so the Activity
+    // screen, which subscribes when it is first built, received nothing and
+    // showed "No Activity Yet" over a repository that was not empty.
+    yield List.unmodifiable(_events);
+    yield* _controller.stream;
   }
 }

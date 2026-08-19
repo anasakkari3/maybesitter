@@ -22,6 +22,7 @@ import 'contracts/connectivity_service.dart';
 import 'contracts/pilot_trust_service.dart';
 import 'contracts/timezone_service.dart';
 import 'timezone_service_impl.dart';
+import 'mock/commitment_state_store.dart';
 import 'mock/in_memory_commitment_repository.dart';
 import 'mock/mock_capture_service.dart';
 import 'mock/mock_activity_repository.dart';
@@ -58,7 +59,14 @@ final commitmentRepositoryProvider = Provider<CommitmentRepository>((ref) {
       supportsSafeCommitmentPatch: config.supportsSafeCommitmentPatch,
     );
   }
-  return InMemoryCommitmentRepository();
+  // Mock mode is what a person running the app without a backend actually
+  // gets, so it persists what they do and records it in Activity. Without the
+  // store, completing everything and relaunching brought it all back; without
+  // the activity repository, completing and postponing left no trace.
+  return InMemoryCommitmentRepository(
+    activityRepository: ref.watch(activityRepositoryProvider),
+    stateStore: PreferencesStateStore(),
+  );
 });
 
 final captureServiceProvider = Provider<CaptureService>((ref) {
