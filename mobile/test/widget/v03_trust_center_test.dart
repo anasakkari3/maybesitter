@@ -11,10 +11,8 @@ import '../support/v03_pilot_harness.dart';
 void main() {
   final l10n = l10nFor('en');
 
-  Finder switchFor(String label) => find.ancestor(
-    of: find.text(label),
-    matching: find.byType(Row),
-  );
+  Finder switchFor(String label) =>
+      find.ancestor(of: find.text(label), matching: find.byType(Row));
 
   /// The "Stopping" section sits below the fold on a phone-sized surface, so
   /// scroll it into view before tapping rather than tapping a clipped centre.
@@ -60,32 +58,37 @@ void main() {
       expect(snapshot.exposure.allowed, isTrue);
     });
 
-    testWidgets('Suggestions OFF stops suggestions without revoking anything else', (
-      tester,
-    ) async {
-      final harness = V03Harness(
-        recommendationConsent: true,
-        analyticsConsent: true,
-        calendarConsent: true,
-        firstValueAt: DateTime.utc(2026, 8, 5),
-      );
-      await harness.pump(tester, const TrustCenterScreen(), isFullScreen: true);
+    testWidgets(
+      'Suggestions OFF stops suggestions without revoking anything else',
+      (tester) async {
+        final harness = V03Harness(
+          recommendationConsent: true,
+          analyticsConsent: true,
+          calendarConsent: true,
+          firstValueAt: DateTime.utc(2026, 8, 5),
+        );
+        await harness.pump(
+          tester,
+          const TrustCenterScreen(),
+          isFullScreen: true,
+        );
 
-      await toggle(tester, l10n.trustRecommendationConsentLabel);
+        await toggle(tester, l10n.trustRecommendationConsentLabel);
 
-      final snapshot = await harness.trust.getSnapshot();
-      expect(snapshot.trust.recommendationConsent, isFalse);
-      expect(snapshot.exposure.reason, PilotStopReason.consentRequired);
+        final snapshot = await harness.trust.getSnapshot();
+        expect(snapshot.trust.recommendationConsent, isFalse);
+        expect(snapshot.exposure.reason, PilotStopReason.consentRequired);
 
-      // The switch is not a revoke: nothing else the participant consented to
-      // may be withdrawn on their behalf.
-      expect(snapshot.trust.isRevoked, isFalse);
-      expect(snapshot.trust.revokedAt, isNull);
-      expect(snapshot.trust.analyticsConsent, isTrue);
-      expect(snapshot.trust.calendarConsent, isTrue);
-      expect(snapshot.trust.isDeleted, isFalse);
-      expect(snapshot.whatKnows.confirmedCommitmentCount, 3);
-    });
+        // The switch is not a revoke: nothing else the participant consented to
+        // may be withdrawn on their behalf.
+        expect(snapshot.trust.isRevoked, isFalse);
+        expect(snapshot.trust.revokedAt, isNull);
+        expect(snapshot.trust.analyticsConsent, isTrue);
+        expect(snapshot.trust.calendarConsent, isTrue);
+        expect(snapshot.trust.isDeleted, isFalse);
+        expect(snapshot.whatKnows.confirmedCommitmentCount, 3);
+      },
+    );
 
     testWidgets('Suggestions ON again restores exposure', (tester) async {
       final harness = V03Harness(recommendationConsent: false);
@@ -161,7 +164,10 @@ void main() {
         tester,
         find.widgetWithText(SecondaryButton, l10n.trustRevokeTitle),
       );
-      await tapVisible(tester, find.widgetWithText(TextButton, l10n.cancelAction));
+      await tapVisible(
+        tester,
+        find.widgetWithText(TextButton, l10n.cancelAction),
+      );
 
       final snapshot = await harness.trust.getSnapshot();
       expect(snapshot.trust.isRevoked, isFalse);
@@ -172,7 +178,11 @@ void main() {
       'deletion needs an explicit acknowledgement before it can be confirmed',
       (tester) async {
         final harness = V03Harness();
-        await harness.pump(tester, const TrustCenterScreen(), isFullScreen: true);
+        await harness.pump(
+          tester,
+          const TrustCenterScreen(),
+          isFullScreen: true,
+        );
 
         await tapVisible(
           tester,
@@ -196,7 +206,9 @@ void main() {
         );
         expect(armed.onPressed, isNotNull);
 
-        await tester.tap(find.widgetWithText(TextButton, l10n.trustDeleteTitle));
+        await tester.tap(
+          find.widgetWithText(TextButton, l10n.trustDeleteTitle),
+        );
         await tester.pumpAndSettle();
 
         final snapshot = await harness.trust.getSnapshot();
@@ -213,7 +225,10 @@ void main() {
         tester,
         find.widgetWithText(DestructiveButton, l10n.trustDeleteTitle),
       );
-      await tapVisible(tester, find.widgetWithText(TextButton, l10n.cancelAction));
+      await tapVisible(
+        tester,
+        find.widgetWithText(TextButton, l10n.cancelAction),
+      );
 
       final snapshot = await harness.trust.getSnapshot();
       expect(snapshot.trust.isDeleted, isFalse);
@@ -223,7 +238,11 @@ void main() {
     group('progressive calendar consent', () {
       testWidgets('is not offered before first value', (tester) async {
         final harness = V03Harness(firstValueAt: null);
-        await harness.pump(tester, const TrustCenterScreen(), isFullScreen: true);
+        await harness.pump(
+          tester,
+          const TrustCenterScreen(),
+          isFullScreen: true,
+        );
 
         expect(find.text(l10n.trustCalendarConsentLabel), findsNothing);
         expect(find.text(l10n.trustCalendarLockedTitle), findsOneWidget);
@@ -234,20 +253,66 @@ void main() {
         tester,
       ) async {
         final harness = V03Harness(firstValueAt: DateTime.utc(2026, 8, 5));
-        await harness.pump(tester, const TrustCenterScreen(), isFullScreen: true);
+        await harness.pump(
+          tester,
+          const TrustCenterScreen(),
+          isFullScreen: true,
+        );
 
         expect(find.text(l10n.trustCalendarConsentLabel), findsOneWidget);
         expect(find.text(l10n.trustCalendarLockedTitle), findsNothing);
+        expect(find.text(l10n.trustCalendarProviderApple), findsOneWidget);
       });
 
       testWidgets('cannot be granted early even if something asks', (
         tester,
       ) async {
         final harness = V03Harness(firstValueAt: null);
-        await harness.trust.apply(action: const SetCalendarConsent(true),
-        );
+        await harness.trust.apply(action: const SetCalendarConsent(true));
         final snapshot = await harness.trust.getSnapshot();
         expect(snapshot.trust.calendarConsent, isFalse);
+      });
+
+      testWidgets('connects Apple Calendar after opt-in', (tester) async {
+        final harness = V03Harness(firstValueAt: DateTime.utc(2026, 8, 5));
+        await harness.pump(
+          tester,
+          const TrustCenterScreen(),
+          isFullScreen: true,
+        );
+
+        await toggle(tester, l10n.trustCalendarConsentLabel);
+
+        final trustSnapshot = await harness.trust.getSnapshot();
+        final importSnapshot = await harness.calendarImport.getSnapshot();
+        expect(trustSnapshot.trust.calendarConsent, isTrue);
+        expect(importSnapshot.isConnected, isTrue);
+        expect(find.text(l10n.trustCalendarDisconnectAction), findsOneWidget);
+        expect(find.text(l10n.trustCalendarDeleteDataAction), findsOneWidget);
+      });
+
+      testWidgets('permission denial leaves consent off and the app usable', (
+        tester,
+      ) async {
+        final harness = V03Harness(firstValueAt: DateTime.utc(2026, 8, 5));
+        harness.calendarImport.permissionDeniedOnConnect = true;
+        await harness.pump(
+          tester,
+          const TrustCenterScreen(),
+          isFullScreen: true,
+        );
+
+        await toggle(tester, l10n.trustCalendarConsentLabel);
+
+        final trustSnapshot = await harness.trust.getSnapshot();
+        final importSnapshot = await harness.calendarImport.getSnapshot();
+        expect(trustSnapshot.trust.calendarConsent, isFalse);
+        expect(importSnapshot.isPermissionDenied, isTrue);
+        expect(
+          find.text(l10n.trustCalendarPermissionDeniedMessage),
+          findsOneWidget,
+        );
+        expect(find.text(l10n.trustRecommendationConsentLabel), findsOneWidget);
       });
     });
   });

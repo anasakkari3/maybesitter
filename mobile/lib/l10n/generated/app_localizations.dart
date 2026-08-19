@@ -1354,6 +1354,114 @@ abstract class AppLocalizations {
   /// **'MaybeSitter will offer to connect your calendar once it has actually been useful to you. It won\'t ask before then.'**
   String get trustCalendarLockedMessage;
 
+  /// No description provided for @trustCalendarProviderApple.
+  ///
+  /// In en, this message translates to:
+  /// **'Apple Calendar via EventKit'**
+  String get trustCalendarProviderApple;
+
+  /// No description provided for @trustCalendarConsentOffMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Calendar import is off. The app still works without it.'**
+  String get trustCalendarConsentOffMessage;
+
+  /// No description provided for @trustCalendarNotConnectedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Consent is on, but nothing is imported yet. Connect Apple Calendar when you want MaybeSitter to see busy time.'**
+  String get trustCalendarNotConnectedMessage;
+
+  /// No description provided for @trustCalendarPermissionDeniedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Calendar access is off in iPhone Settings, so MaybeSitter keeps working without it.'**
+  String get trustCalendarPermissionDeniedMessage;
+
+  /// No description provided for @trustCalendarUnsupportedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'This pilot starts with Apple Calendar on iPhone only. MaybeSitter still works without calendar access.'**
+  String get trustCalendarUnsupportedMessage;
+
+  /// No description provided for @trustCalendarImportedSummary.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{No busy blocks imported for the next {days} days yet.} =1{1 busy block imported for the next {days} days.} other{{count} busy blocks imported for the next {days} days.}}'**
+  String trustCalendarImportedSummary(int count, int days);
+
+  /// No description provided for @trustCalendarDisconnectedRetainedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{Apple Calendar is disconnected.} =1{Apple Calendar is disconnected. 1 imported busy block is still stored on this device until you delete it.} other{Apple Calendar is disconnected. {count} imported busy blocks are still stored on this device until you delete them.}}'**
+  String trustCalendarDisconnectedRetainedMessage(int count);
+
+  /// No description provided for @trustCalendarLastSynced.
+  ///
+  /// In en, this message translates to:
+  /// **'Last synced: {value}'**
+  String trustCalendarLastSynced(Object value);
+
+  /// No description provided for @trustCalendarConflictTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Schedule conflicts found'**
+  String get trustCalendarConflictTitle;
+
+  /// No description provided for @trustCalendarConflictMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'{commitments, plural, =1{1 MaybeSitter commitment overlaps} other{{commitments} MaybeSitter commitments overlap}} {busyBlocks, plural, =1{1 imported busy block.} other{{busyBlocks} imported busy blocks.}}'**
+  String trustCalendarConflictMessage(int commitments, int busyBlocks);
+
+  /// No description provided for @trustCalendarConnectAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect now'**
+  String get trustCalendarConnectAction;
+
+  /// No description provided for @trustCalendarRefreshAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Refresh import'**
+  String get trustCalendarRefreshAction;
+
+  /// No description provided for @trustCalendarDisconnectAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Disconnect'**
+  String get trustCalendarDisconnectAction;
+
+  /// No description provided for @trustCalendarDeleteDataAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete imported data'**
+  String get trustCalendarDeleteDataAction;
+
+  /// No description provided for @trustCalendarConnectedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Apple Calendar is connected.'**
+  String get trustCalendarConnectedMessage;
+
+  /// No description provided for @trustCalendarRefreshedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Calendar import refreshed.'**
+  String get trustCalendarRefreshedMessage;
+
+  /// No description provided for @trustCalendarDisconnectedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Apple Calendar disconnected.'**
+  String get trustCalendarDisconnectedMessage;
+
+  /// No description provided for @trustCalendarDeletedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Imported calendar data deleted.'**
+  String get trustCalendarDeletedMessage;
+
   /// No description provided for @trustWhatWeKnowAction.
   ///
   /// In en, this message translates to:

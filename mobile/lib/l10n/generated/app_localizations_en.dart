@@ -723,6 +723,100 @@ class AppLocalizationsEn extends AppLocalizations {
       'MaybeSitter will offer to connect your calendar once it has actually been useful to you. It won\'t ask before then.';
 
   @override
+  String get trustCalendarProviderApple => 'Apple Calendar via EventKit';
+
+  @override
+  String get trustCalendarConsentOffMessage =>
+      'Calendar import is off. The app still works without it.';
+
+  @override
+  String get trustCalendarNotConnectedMessage =>
+      'Consent is on, but nothing is imported yet. Connect Apple Calendar when you want MaybeSitter to see busy time.';
+
+  @override
+  String get trustCalendarPermissionDeniedMessage =>
+      'Calendar access is off in iPhone Settings, so MaybeSitter keeps working without it.';
+
+  @override
+  String get trustCalendarUnsupportedMessage =>
+      'This pilot starts with Apple Calendar on iPhone only. MaybeSitter still works without calendar access.';
+
+  @override
+  String trustCalendarImportedSummary(int count, int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count busy blocks imported for the next $days days.',
+      one: '1 busy block imported for the next $days days.',
+      zero: 'No busy blocks imported for the next $days days yet.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String trustCalendarDisconnectedRetainedMessage(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'Apple Calendar is disconnected. $count imported busy blocks are still stored on this device until you delete them.',
+      one:
+          'Apple Calendar is disconnected. 1 imported busy block is still stored on this device until you delete it.',
+      zero: 'Apple Calendar is disconnected.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String trustCalendarLastSynced(Object value) {
+    return 'Last synced: $value';
+  }
+
+  @override
+  String get trustCalendarConflictTitle => 'Schedule conflicts found';
+
+  @override
+  String trustCalendarConflictMessage(int commitments, int busyBlocks) {
+    String _temp0 = intl.Intl.pluralLogic(
+      commitments,
+      locale: localeName,
+      other: '$commitments MaybeSitter commitments overlap',
+      one: '1 MaybeSitter commitment overlaps',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      busyBlocks,
+      locale: localeName,
+      other: '$busyBlocks imported busy blocks.',
+      one: '1 imported busy block.',
+    );
+    return '$_temp0 $_temp1';
+  }
+
+  @override
+  String get trustCalendarConnectAction => 'Connect now';
+
+  @override
+  String get trustCalendarRefreshAction => 'Refresh import';
+
+  @override
+  String get trustCalendarDisconnectAction => 'Disconnect';
+
+  @override
+  String get trustCalendarDeleteDataAction => 'Delete imported data';
+
+  @override
+  String get trustCalendarConnectedMessage => 'Apple Calendar is connected.';
+
+  @override
+  String get trustCalendarRefreshedMessage => 'Calendar import refreshed.';
+
+  @override
+  String get trustCalendarDisconnectedMessage => 'Apple Calendar disconnected.';
+
+  @override
+  String get trustCalendarDeletedMessage => 'Imported calendar data deleted.';
+
+  @override
   String get trustWhatWeKnowAction => 'What MaybeSitter knows';
 
   @override

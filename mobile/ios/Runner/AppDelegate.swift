@@ -10,6 +10,7 @@ import UIKit
     if let controller = window?.rootViewController as? FlutterViewController {
       PilotPresenceSharedStorePlugin.register(binaryMessenger: controller.binaryMessenger)
       PilotDeepLinkPlugin.register(binaryMessenger: controller.binaryMessenger)
+      AppleCalendarImportPlugin.register(binaryMessenger: controller.binaryMessenger)
     }
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }

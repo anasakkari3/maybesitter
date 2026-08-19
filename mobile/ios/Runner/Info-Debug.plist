@@ -46,6 +46,10 @@
 	<string>Connect to the development server on your Mac while testing the app.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Maybesitter uses the microphone only to transcribe what you say into editable capture text.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Maybesitter imports only busy time from Apple Calendar so it can spot schedule conflicts without changing your calendar.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Maybesitter imports only busy time from Apple Calendar so it can spot schedule conflicts without changing your calendar.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Maybesitter uses speech recognition only to create editable text before commitment analysis.</string>
 	<key>UIApplicationSceneManifest</key>

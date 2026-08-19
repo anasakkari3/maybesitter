@@ -201,6 +201,9 @@ timing without requesting every external account.
 
 - Pick exactly one first provider for the pilot: Apple Calendar via EventKit or
   Google Calendar via OAuth.
+- First provider chosen for this pilot: Apple Calendar via EventKit, because
+  the current product is iPhone-first and EventKit avoids OAuth account setup
+  while keeping the MVP read-only and local to the Flutter/iOS boundary.
 - Read-only event import into a bounded availability/schedule context.
 - Calendar consent, disconnect, and deletion controls.
 - Conflict awareness between imported events and MaybeSitter commitments.

@@ -10,6 +10,17 @@ import 'package:maybesitter_mobile/services/api/api_pilot_loop_analytics_service
 
 void main() {
   group('PilotLoopAnalyticsEvent', () {
+    test('serializes calendar connection events without event details', () {
+      final event = PilotLoopAnalyticsEvent.calendarConnected(
+        provider: 'apple_calendar',
+      ).toJson();
+
+      expect(event['eventName'], 'calendar_connected');
+      expect(event['properties'], {'provider': 'apple_calendar'});
+      expect(jsonEncode(event), isNot(contains('title')));
+      expect(jsonEncode(event), isNot(contains('description')));
+    });
+
     test('serializes content-free voice and widget events', () {
       const flags = PilotPresenceFeatureFlags(
         widget: true,

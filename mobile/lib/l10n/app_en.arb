@@ -271,6 +271,56 @@
   "trustCalendarConsentDescription": "Optional and read-only. Disconnect whenever you want.",
   "trustCalendarLockedTitle": "Calendar comes later",
   "trustCalendarLockedMessage": "MaybeSitter will offer to connect your calendar once it has actually been useful to you. It won't ask before then.",
+  "trustCalendarProviderApple": "Apple Calendar via EventKit",
+  "trustCalendarConsentOffMessage": "Calendar import is off. The app still works without it.",
+  "trustCalendarNotConnectedMessage": "Consent is on, but nothing is imported yet. Connect Apple Calendar when you want MaybeSitter to see busy time.",
+  "trustCalendarPermissionDeniedMessage": "Calendar access is off in iPhone Settings, so MaybeSitter keeps working without it.",
+  "trustCalendarUnsupportedMessage": "This pilot starts with Apple Calendar on iPhone only. MaybeSitter still works without calendar access.",
+  "trustCalendarImportedSummary": "{count, plural, =0{No busy blocks imported for the next {days} days yet.} =1{1 busy block imported for the next {days} days.} other{{count} busy blocks imported for the next {days} days.}}",
+  "@trustCalendarImportedSummary": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "trustCalendarDisconnectedRetainedMessage": "{count, plural, =0{Apple Calendar is disconnected.} =1{Apple Calendar is disconnected. 1 imported busy block is still stored on this device until you delete it.} other{Apple Calendar is disconnected. {count} imported busy blocks are still stored on this device until you delete them.}}",
+  "@trustCalendarDisconnectedRetainedMessage": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "trustCalendarLastSynced": "Last synced: {value}",
+  "@trustCalendarLastSynced": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "trustCalendarConflictTitle": "Schedule conflicts found",
+  "trustCalendarConflictMessage": "{commitments, plural, =1{1 MaybeSitter commitment overlaps} other{{commitments} MaybeSitter commitments overlap}} {busyBlocks, plural, =1{1 imported busy block.} other{{busyBlocks} imported busy blocks.}}",
+  "@trustCalendarConflictMessage": {
+    "placeholders": {
+      "commitments": {
+        "type": "int"
+      },
+      "busyBlocks": {
+        "type": "int"
+      }
+    }
+  },
+  "trustCalendarConnectAction": "Connect now",
+  "trustCalendarRefreshAction": "Refresh import",
+  "trustCalendarDisconnectAction": "Disconnect",
+  "trustCalendarDeleteDataAction": "Delete imported data",
+  "trustCalendarConnectedMessage": "Apple Calendar is connected.",
+  "trustCalendarRefreshedMessage": "Calendar import refreshed.",
+  "trustCalendarDisconnectedMessage": "Apple Calendar disconnected.",
+  "trustCalendarDeletedMessage": "Imported calendar data deleted.",
   "trustWhatWeKnowAction": "What MaybeSitter knows",
   "trustWhatWeKnowSubtitle": "See everything it holds about you",
   "trustRevokeTitle": "Turn everything off",

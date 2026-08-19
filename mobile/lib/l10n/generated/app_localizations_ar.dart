@@ -727,6 +727,115 @@ class AppLocalizationsAr extends AppLocalizations {
       'سيعرض MaybeSitter ربط تقويمك بعد أن يكون قد أفادك فعلًا. ولن يطلب ذلك قبل هذا.';
 
   @override
+  String get trustCalendarProviderApple => 'تقويم Apple عبر EventKit';
+
+  @override
+  String get trustCalendarConsentOffMessage =>
+      'استيراد التقويم متوقف. التطبيق يعمل أيضًا بدونه.';
+
+  @override
+  String get trustCalendarNotConnectedMessage =>
+      'الموافقة مفعّلة، لكن لم يُستورد شيء بعد. اربط تقويم Apple عندما تريد أن يرى MaybeSitter أوقات انشغالك.';
+
+  @override
+  String get trustCalendarPermissionDeniedMessage =>
+      'وصول التقويم متوقف في إعدادات iPhone، لذلك يواصل MaybeSitter العمل بدونه.';
+
+  @override
+  String get trustCalendarUnsupportedMessage =>
+      'هذا الـ pilot يبدأ بتقويم Apple على iPhone فقط. يظل MaybeSitter يعمل بدون وصول للتقويم.';
+
+  @override
+  String trustCalendarImportedSummary(int count, int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'تم استيراد $count فترة انشغال للأيام الـ $days القادمة.',
+      many: 'تم استيراد $count فترة انشغال للأيام الـ $days القادمة.',
+      few: 'تم استيراد $count فترات انشغال للأيام الـ $days القادمة.',
+      two: 'تم استيراد فترتي انشغال للأيام الـ $days القادمة.',
+      one: 'تم استيراد فترة انشغال واحدة للأيام الـ $days القادمة.',
+      zero: 'لم تُستورد أي فترات انشغال للأيام الـ $days القادمة بعد.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String trustCalendarDisconnectedRetainedMessage(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'تم فصل تقويم Apple. ما زالت $count فترة انشغال محفوظة على هذا الجهاز حتى تحذفها.',
+      many:
+          'تم فصل تقويم Apple. ما زال $count من فترات الانشغال محفوظًا على هذا الجهاز حتى تحذفها.',
+      few:
+          'تم فصل تقويم Apple. ما زالت $count فترات انشغال محفوظة على هذا الجهاز حتى تحذفها.',
+      two:
+          'تم فصل تقويم Apple. ما زالت فترتا انشغال محفوظتين على هذا الجهاز حتى تحذفهُما.',
+      one:
+          'تم فصل تقويم Apple. ما زالت فترة انشغال واحدة محفوظة على هذا الجهاز حتى تحذفها.',
+      zero: 'تم فصل تقويم Apple.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String trustCalendarLastSynced(Object value) {
+    return 'آخر مزامنة: $value';
+  }
+
+  @override
+  String get trustCalendarConflictTitle => 'تم العثور على تعارضات';
+
+  @override
+  String trustCalendarConflictMessage(int commitments, int busyBlocks) {
+    String _temp0 = intl.Intl.pluralLogic(
+      commitments,
+      locale: localeName,
+      other: 'هناك $commitments التزام في MaybeSitter متداخل مع ',
+      many: 'هناك $commitments التزامًا في MaybeSitter متداخلة مع ',
+      few: 'هناك $commitments التزامات في MaybeSitter متداخلة مع ',
+      two: 'هناك التزامان في MaybeSitter متداخلان مع ',
+      one: 'هناك التزام واحد في MaybeSitter متداخل مع ',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      busyBlocks,
+      locale: localeName,
+      other: '$busyBlocks فترة انشغال مستوردة.',
+      many: '$busyBlocks فترة انشغال مستوردة.',
+      few: '$busyBlocks فترات انشغال مستوردة.',
+      two: 'فترتي انشغال مستوردتين.',
+      one: 'فترة انشغال مستوردة واحدة.',
+    );
+    return '$_temp0$_temp1';
+  }
+
+  @override
+  String get trustCalendarConnectAction => 'اربط الآن';
+
+  @override
+  String get trustCalendarRefreshAction => 'تحديث الاستيراد';
+
+  @override
+  String get trustCalendarDisconnectAction => 'فصل';
+
+  @override
+  String get trustCalendarDeleteDataAction => 'حذف البيانات المستوردة';
+
+  @override
+  String get trustCalendarConnectedMessage => 'تم ربط تقويم Apple.';
+
+  @override
+  String get trustCalendarRefreshedMessage => 'تم تحديث استيراد التقويم.';
+
+  @override
+  String get trustCalendarDisconnectedMessage => 'تم فصل تقويم Apple.';
+
+  @override
+  String get trustCalendarDeletedMessage => 'تم حذف بيانات التقويم المستوردة.';
+
+  @override
   String get trustWhatWeKnowAction => 'ما الذي يعرفه MaybeSitter';
 
   @override

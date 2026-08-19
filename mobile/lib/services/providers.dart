@@ -1,10 +1,12 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_config.dart';
+import '../models/calendar_import.dart';
 import '../models/app_settings.dart';
 import '../models/commitment.dart';
 import '../models/activity_event.dart';
 import '../models/pilot_presence.dart';
+import 'apple_calendar_import_service.dart';
 import 'api/api_client.dart';
 import 'api/api_alpha_feedback_service.dart';
 import 'api/api_capture_service.dart';
@@ -18,6 +20,7 @@ import 'contracts/commitment_repository.dart';
 import 'contracts/capture_service.dart';
 import 'contracts/feedback_history_service.dart';
 import 'contracts/activity_repository.dart';
+import 'contracts/calendar_import_service.dart';
 import 'contracts/next_step_service.dart';
 import 'contracts/notification_service.dart';
 import 'contracts/pilot_loop_analytics_service.dart';
@@ -36,6 +39,7 @@ import 'mock/commitment_state_store.dart';
 import 'mock/in_memory_commitment_repository.dart';
 import 'mock/mock_capture_service.dart';
 import 'mock/mock_activity_repository.dart';
+import 'mock/mock_calendar_import_service.dart';
 import 'mock/mock_feedback_history_service.dart';
 import 'mock/in_memory_pilot_loop_analytics_service.dart';
 import 'mock/mock_next_step_service.dart';
@@ -104,12 +108,34 @@ final _mockPilotTrustServiceProvider = Provider<MockPilotTrustService>((ref) {
   return MockPilotTrustService();
 });
 
+final _mockCalendarImportServiceProvider = Provider<MockCalendarImportService>((
+  ref,
+) {
+  return MockCalendarImportService(
+    snapshot: const CalendarImportSnapshot(
+      provider: CalendarImportProvider.appleCalendar,
+      connectionState: CalendarImportConnectionState.disconnected,
+      retainedBusyBlocks: <ImportedCalendarBusyBlock>[],
+    ),
+  );
+});
+
 final pilotTrustServiceProvider = Provider<PilotTrustService>((ref) {
   final config = ref.watch(appConfigProvider);
   if (config.isLocalBackend) {
     return ApiPilotTrustService(apiClient: ref.watch(apiClientProvider));
   }
   return ref.watch(_mockPilotTrustServiceProvider);
+});
+
+final calendarImportServiceProvider = Provider<CalendarImportService>((ref) {
+  final config = ref.watch(appConfigProvider);
+  if (config.isLocalBackend) {
+    return AppleCalendarImportService(
+      analyticsService: ref.watch(pilotLoopAnalyticsServiceProvider),
+    );
+  }
+  return ref.watch(_mockCalendarImportServiceProvider);
 });
 
 final nextStepServiceProvider = Provider<NextStepService>((ref) {

@@ -3,6 +3,8 @@ import 'package:flutter/foundation.dart';
 import '../config/app_config.dart';
 
 enum PilotLoopAnalyticsEventName {
+  calendarConnectStarted('calendar_connect_started'),
+  calendarConnected('calendar_connected'),
   voiceCaptureStarted('voice_capture_started'),
   voiceCaptureCompleted('voice_capture_completed'),
   voiceCaptureAbandoned('voice_capture_abandoned'),
@@ -28,6 +30,24 @@ class PilotLoopAnalyticsEvent {
   final Map<String, Object?> properties;
 
   const PilotLoopAnalyticsEvent({required this.name, required this.properties});
+
+  factory PilotLoopAnalyticsEvent.calendarConnectionStarted({
+    required String provider,
+  }) {
+    return PilotLoopAnalyticsEvent(
+      name: PilotLoopAnalyticsEventName.calendarConnectStarted,
+      properties: {'provider': provider},
+    );
+  }
+
+  factory PilotLoopAnalyticsEvent.calendarConnected({
+    required String provider,
+  }) {
+    return PilotLoopAnalyticsEvent(
+      name: PilotLoopAnalyticsEventName.calendarConnected,
+      properties: {'provider': provider},
+    );
+  }
 
   factory PilotLoopAnalyticsEvent.voiceCaptureStarted({
     required String source,
