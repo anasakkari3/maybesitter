@@ -42,7 +42,7 @@ import {
   type AuditOutcome,
   type RuntimeControlSnapshot,
 } from '../../../src/contracts/v1/runtimeControls';
-import { proposeDecomposition, type DecompositionModelProvider } from '../engine/index';
+import { proposeDecomposition, titleAdmission, type DecompositionModelProvider } from '../engine/index';
 import type { ConfirmedDecompositionStep, DecompositionPersistenceAdapter } from './persistenceAdapter';
 import type { DecompositionProposalStore } from './proposalStore';
 
@@ -166,6 +166,24 @@ export async function proposeDecompositionBoundary(
   return proposal;
 }
 
+/**
+ * A canonical rendering of the decisions, used only to tell a replay from a new
+ * request under a reused key.
+ *
+ * Order-sensitive on purpose: two decision lists differing in order are
+ * different requests, and treating them as one would silently accept a ruling
+ * the user did not make.
+ */
+function decisionFingerprint(request: DecompositionConfirmationRequest): string {
+  return JSON.stringify(
+    request.decisions.map((decision) => [
+      decision.stepId,
+      decision.verdict,
+      decision.verdict === 'edit' ? decision.editedTitle.trim() : '',
+    ]),
+  );
+}
+
 function failure(failureCode: ConfirmationFailureCode): DecompositionConfirmationResult {
   return {
     version: DECOMPOSITION_CONTRACT_VERSION,
@@ -217,6 +235,12 @@ function resolveDecisions(
       continue;
     }
     const title = decision.verdict === 'edit' ? decision.editedTitle.trim() : step.title;
+    // The same standard admission applies to an edit, not a weaker one. This
+    // used to check only for emptiness, so a step could be edited into "and" —
+    // a string the validator rejects outright as a split artefact — and written.
+    // `invalid_edit` is the right code either way: EMPTY_STEP and
+    // CONJUNCTION_ONLY describe a proposal, and this is a bad request.
+    if (decision.verdict === 'edit' && titleAdmission(title) !== null) return 'invalid_edit';
     if (title.length === 0) return 'invalid_edit';
     accepted.push({
       stepId: step.stepId,
@@ -289,17 +313,22 @@ export async function confirmDecomposition(
   const stored = dependencies.store.get(request.proposalId);
   if (!stored || stored.scopeId !== request.scopeId) return failure('proposal_not_found');
 
-  // A proposal already claimed by a different key is spent, whether the write
-  // has landed yet or not.
+  // A proposal already claimed is spent unless this request is the very same
+  // ruling arriving again. Matching on the key alone made a reused key with
+  // different decisions read as a retry: a user asking to reject all three
+  // steps was told all three had been saved.
   //
-  // TODO(integration): `already_confirmed` is being added to
-  // `ConfirmationFailureCode` by #25 and belongs at both of these call sites.
-  // `proposal_not_found` is right for the scope check above — telling a wrong
-  // scope that the proposal exists would be an enumeration oracle — but here it
-  // is merely misleading: the caller holds a real proposal id and the real
-  // reason is that someone else ruled first.
+  // TODO(integration): `already_confirmed` exists on the integration branch but
+  // not on this one, and `src/contracts/**` is out of scope here, so both
+  // branches below still answer `proposal_not_found`. That code is right for
+  // the scope check above — telling a wrong scope that the proposal exists
+  // would be an enumeration oracle — but merely misleading here, where the
+  // caller holds a real id and the real reason is that someone ruled first.
+  const fingerprint = decisionFingerprint(request);
   const claimed = stored.confirmedResult !== undefined || stored.inFlight !== undefined;
-  if (claimed && stored.idempotencyKey !== request.idempotencyKey) return failure('proposal_not_found');
+  const isSameRuling =
+    stored.idempotencyKey === request.idempotencyKey && stored.decisionFingerprint === fingerprint;
+  if (claimed && !isSameRuling) return failure('proposal_not_found');
 
   if (stored.confirmedResult) return { ...stored.confirmedResult, replayed: true };
   if (stored.inFlight) {
@@ -326,6 +355,7 @@ export async function confirmDecomposition(
     };
     stored.confirmedResult = result;
     stored.idempotencyKey = request.idempotencyKey;
+    stored.decisionFingerprint = fingerprint;
     dependencies.audit?.(auditEvent('succeeded', proposal.sourceText, now, 'confirmed', 0));
     return result;
   }
@@ -334,6 +364,7 @@ export async function confirmDecomposition(
   // turn — `applyConfirmation` runs only as far as its own first `await` before
   // handing the promise back — so any later caller sees the claim.
   stored.idempotencyKey = request.idempotencyKey;
+  stored.decisionFingerprint = fingerprint;
   stored.inFlight = applyConfirmation(proposal, resolved, dependencies, now);
 
   const result = await stored.inFlight;
@@ -345,6 +376,7 @@ export async function confirmDecomposition(
     // released; marking it confirmed would make the retry report a replay of a
     // batch nobody ever applied.
     stored.idempotencyKey = undefined;
+    stored.decisionFingerprint = undefined;
   }
   return result;
 }

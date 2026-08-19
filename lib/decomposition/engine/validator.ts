@@ -120,6 +120,27 @@ function mergedSpanText(sourceText: string, spans: readonly SourceSpan[]): strin
   );
 }
 
+/**
+ * What is wrong with a title on its own, or null when nothing is.
+ *
+ * Exported because it is the *single* standard for "this is not a step",
+ * applied both when a proposal is validated and when a user edits a step at the
+ * boundary. Those were two different rules before — admission used this one,
+ * the edit path used `trim().length === 0` — so a user could edit a step into
+ * "and" and have it written, a string admission would have rejected outright.
+ * Sharing the function is what makes the two agree by construction rather than
+ * by two authors remembering the same thing.
+ */
+export type TitleAdmissionProblem = 'EMPTY_STEP' | 'CONJUNCTION_ONLY';
+
+export function titleAdmission(title: string): TitleAdmissionProblem | null {
+  const trimmed = title.trim();
+  // An empty title is also, trivially, "only a connective". Reporting the
+  // emptier fact is the actionable one.
+  if (trimmed.length === 0) return 'EMPTY_STEP';
+  return CONNECTIVE_ONLY.has(normalizeConnective(trimmed)) ? 'CONJUNCTION_ONLY' : null;
+}
+
 function normalizeConnective(title: string): string {
   // Strip trailing punctuation only; interior spacing is significant because
   // "and then" is a connective while "and thennews" is not a word at all.
@@ -201,11 +222,10 @@ export function validateDecomposition(
     const step = steps[index];
     const trimmed = step.title.trim();
 
-    if (trimmed.length === 0) {
-      // An empty title is also, trivially, "only a connective". Reporting the
-      // emptier fact is the actionable one.
+    const titleProblem = titleAdmission(step.title);
+    if (titleProblem === 'EMPTY_STEP') {
       add('EMPTY_STEP', step.stepId, `step ${index} has a blank title`);
-    } else if (CONNECTIVE_ONLY.has(normalizeConnective(trimmed))) {
+    } else if (titleProblem === 'CONJUNCTION_ONLY') {
       add('CONJUNCTION_ONLY', step.stepId, `step ${index} title is a connective, not an action`);
     }
 
@@ -230,7 +250,6 @@ export function validateDecomposition(
         spansUsable = false;
         continue;
       }
-      claims.push({ stepIndex: index, span });
       if (sourceText.slice(span.start, span.end) !== span.text) {
         add(
           'SPAN_MISMATCH',
@@ -238,7 +257,14 @@ export function validateDecomposition(
           `span ${spanIndex} does not round-trip: sourceText.slice(start, end) !== text`,
         );
         spansUsable = false;
+        continue;
       }
+      // Registered only once the span has passed *both* checks. A span whose
+      // text does not match what its offsets select is not a claim on that
+      // range at all, so it has nothing to overlap with; letting it into the
+      // overlap pass billed one forged span as two defects and disagreed with
+      // #26, which excludes unusable spans for the same reason.
+      claims.push({ stepIndex: index, span });
     }
 
     if (step.inferred && step.sourceSpans.length > 0) {

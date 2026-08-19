@@ -39,6 +39,15 @@ interface Harness {
   readonly events: AuditEventEnvelope[];
 }
 
+/** Persisted steps by their own `stepId`, independent of how state is keyed. */
+function persistedById(
+  adapter: DecompositionPersistenceAdapter,
+): Record<string, ConfirmedDecompositionStep> {
+  const byId: Record<string, ConfirmedDecompositionStep> = {};
+  for (const step of Object.values(adapter.snapshot().steps)) byId[step.stepId] = step;
+  return byId;
+}
+
 function harness(persistence?: DecompositionPersistenceAdapter): Harness {
   const events: AuditEventEnvelope[] = [];
   return {
@@ -214,7 +223,7 @@ test('partial acceptance persists only the accepted and edited steps, and an edi
   assert.deepEqual(result.persistedStepIds, [first.stepId, second.stepId]);
   assert.deepEqual(result.rejectedStepIds, [third.stepId]);
 
-  const persisted = dependencies.persistence.snapshot().steps;
+  const persisted = persistedById(dependencies.persistence);
   assert.deepEqual(Object.keys(persisted).sort(), [first.stepId, second.stepId].sort());
   assert.equal(persisted[second.stepId].title, 'Post the invitations');
   assert.deepEqual(persisted[second.stepId].sourceSpans, second.sourceSpans);
@@ -234,8 +243,7 @@ test('a rejected step drops the dependency edges that pointed at it', async () =
   ]), dependencies);
 
   assert.equal(result.success, true);
-  const persisted = dependencies.persistence.snapshot().steps;
-  assert.deepEqual(persisted[second.stepId].dependsOn, []);
+  assert.deepEqual(persistedById(dependencies.persistence)[second.stepId].dependsOn, []);
 });
 
 test('a replayed confirmation returns replayed:true and does not apply twice', async () => {
@@ -305,9 +313,12 @@ test('the adapter evaluates the whole batch before committing any of it', async 
   assert.deepEqual(adapter.snapshot().steps, {}, 'the valid half of a failed batch must not survive');
 
   await adapter.persistAtomically([good]);
-  assert.deepEqual(Object.keys(adapter.snapshot().steps), ['a']);
-  await assert.rejects(adapter.persistAtomically([good]), 'a step id may not be persisted twice');
-  assert.deepEqual(Object.keys(adapter.snapshot().steps), ['a']);
+  assert.deepEqual(Object.keys(persistedById(adapter)), ['a']);
+  await assert.rejects(
+    adapter.persistAtomically([good]),
+    'a step id may not be persisted twice within one proposal',
+  );
+  assert.deepEqual(Object.keys(persistedById(adapter)), ['a']);
 });
 
 test('the adapter refuses an empty batch rather than reporting a successful no-op', async () => {
@@ -424,7 +435,7 @@ test('two concurrent confirmations with different rulings cannot both apply', as
   const winners = [first, second].filter((result) => result.success);
   assert.equal(winners.length, 1, 'exactly one ruling may apply');
   assert.deepEqual(
-    Object.keys(dependencies.persistence.snapshot().steps).sort(),
+    Object.keys(persistedById(dependencies.persistence)).sort(),
     winners[0].persistedStepIds.slice().sort(),
     'nothing outside the winning ruling may be persisted',
   );
@@ -479,4 +490,189 @@ test('a concurrent confirmation that fails to persist leaves the proposal retrya
   assert.equal(retried.failureCode, 'persistence_failed');
   assert.equal(retried.replayed, false);
   assert.ok(calls >= 2);
+});
+
+/* ── Canonical state spans proposals (sprint review) ─────────────── */
+
+test('two different commitments confirm through one adapter', async () => {
+  // Every test above builds a fresh adapter, which is the setup that hid this:
+  // the detector mints proposal-local ids (`s1`, `s2`, `s3` — the frozen golden
+  // set pins exactly those), so every proposal in the product carries the same
+  // three. Keyed on the bare stepId, canonical state collided on the second
+  // commitment and every later one failed forever.
+  const dependencies = harness();
+  const first = await proposeDecompositionBoundary(WEDDING.sourceText, {
+    commitmentId: 'c1', scopeId: 'scope-a', now,
+  }, dependencies);
+  const second = await proposeDecompositionBoundary('Call the plumber and schedule a visit.', {
+    commitmentId: 'c2', scopeId: 'scope-a', now,
+  }, dependencies);
+  if (first.outcome !== 'decomposed' || second.outcome !== 'decomposed') throw new Error('setup');
+  assert.deepEqual(
+    first.steps.map((step) => step.stepId).slice(0, 2),
+    second.steps.map((step) => step.stepId).slice(0, 2),
+    'the two proposals should share step ids; that is the condition under test',
+  );
+
+  const confirmAll = async (proposal: typeof first, key: string) => confirmDecomposition(
+    request(
+      proposal.proposalId,
+      proposal.steps.map((step): StepDecision => ({ stepId: step.stepId, verdict: 'accept' })),
+      { idempotencyKey: key },
+    ),
+    dependencies,
+  );
+  const firstResult = await confirmAll(first, 'key-1');
+  const secondResult = await confirmAll(second, 'key-2');
+
+  assert.equal(firstResult.success, true);
+  assert.equal(secondResult.success, true, `second commitment failed: ${secondResult.failureCode}`);
+  assert.equal(
+    Object.keys(dependencies.persistence.snapshot().steps).length,
+    first.steps.length + second.steps.length,
+    'both commitments must be present in canonical state',
+  );
+});
+
+test('two proposals sharing a step id keep their own dependency edges', async () => {
+  const adapter = new TransactionalDecompositionPersistenceAdapter(createEmptyDecompositionState());
+  const step = (proposalId: string, stepId: string, dependsOn: readonly string[]): ConfirmedDecompositionStep => ({
+    stepId, proposalId, commitmentId: `c-${proposalId}`, title: `step ${stepId}`,
+    sourceSpans: [{ start: 0, end: 4, text: 'Book' }],
+    dependsOn: dependsOn.map((dependsOnStepId) => ({ dependsOnStepId, kind: 'temporal' as const })),
+    statedTiming: null, statedOwner: null,
+  });
+
+  await adapter.persistAtomically([step('p1', 's1', []), step('p1', 's2', ['s1'])]);
+  await adapter.persistAtomically([step('p2', 's1', []), step('p2', 's2', ['s1'])]);
+  assert.equal(Object.keys(adapter.snapshot().steps).length, 4);
+
+  // An edge still resolves within its own proposal only: p3's s2 cannot lean on
+  // p1's s1 just because that id happens to be persisted.
+  await assert.rejects(adapter.persistAtomically([step('p3', 's2', ['s1'])]));
+});
+
+test('the store refuses to re-admit an id it already holds', async () => {
+  // Overwriting would reset the scope and the confirmation of a proposal that
+  // has already been ruled on and written.
+  const dependencies = harness();
+  const proposal = await proposeWedding(dependencies);
+  if (proposal.outcome !== 'decomposed') throw new Error('setup');
+  await confirmDecomposition(request(
+    proposal.proposalId,
+    proposal.steps.map((step): StepDecision => ({ stepId: step.stepId, verdict: 'accept' })),
+  ), dependencies);
+
+  assert.throws(() => dependencies.store.put({ proposal, scopeId: 'scope-b' }));
+  const stored = dependencies.store.get(proposal.proposalId);
+  assert.equal(stored?.scopeId, 'scope-a', 'scope must not move');
+  assert.ok(stored?.confirmedResult, 'the confirmation must survive');
+});
+
+/* ── Stored provenance is not a live reference ───────────────────── */
+
+test('mutating a stored proposal cannot forge what gets persisted', async () => {
+  const dependencies = harness();
+  const proposal = await proposeWedding(dependencies);
+  if (proposal.outcome !== 'decomposed') throw new Error('setup');
+
+  const stored = dependencies.store.get(proposal.proposalId) as { proposal: typeof proposal };
+  assert.throws(() => {
+    (stored.proposal.steps[0].sourceSpans[0] as { start: number }).start = 999;
+  }, 'a stored proposal must be frozen');
+
+  const result = await confirmDecomposition(request(
+    proposal.proposalId,
+    proposal.steps.map((step): StepDecision => ({ stepId: step.stepId, verdict: 'accept' })),
+  ), dependencies);
+  const persisted = Object.values(dependencies.persistence.snapshot().steps)
+    .find((step) => step.stepId === proposal.steps[0].stepId);
+  assert.deepEqual(persisted?.sourceSpans[0], proposal.steps[0].sourceSpans[0]);
+  assert.equal(result.success, true);
+});
+
+test('mutating a batch after the write cannot change canonical state', async () => {
+  const adapter = new TransactionalDecompositionPersistenceAdapter(createEmptyDecompositionState());
+  const mutable: ConfirmedDecompositionStep = {
+    stepId: 's1', proposalId: 'p1', commitmentId: 'c1', title: 'Book the venue',
+    sourceSpans: [{ start: 0, end: 14, text: 'Book the venue' }],
+    dependsOn: [], statedTiming: null, statedOwner: null,
+  };
+  await adapter.persistAtomically([mutable]);
+  (mutable.sourceSpans[0] as { text: string }).text = 'FORGED-AFTER-WRITE';
+
+  const persisted = Object.values(adapter.snapshot().steps)[0];
+  assert.equal(persisted.sourceSpans[0].text, 'Book the venue');
+});
+
+/* ── A reused key carrying different decisions is not a replay ───── */
+
+test('the same idempotency key with different decisions is refused, not replayed', async () => {
+  // The user asked to reject all three steps and was told all three were saved.
+  // A key is a retry token, not an identity: what makes a request a replay is
+  // that it carries the same ruling.
+  const dependencies = harness();
+  const proposal = await proposeWedding(dependencies);
+  if (proposal.outcome !== 'decomposed') throw new Error('setup');
+  const ids = proposal.steps.map((step) => step.stepId);
+
+  const first = await confirmDecomposition(request(
+    proposal.proposalId,
+    ids.map((stepId): StepDecision => ({ stepId, verdict: 'accept' })),
+    { idempotencyKey: 'K' },
+  ), dependencies);
+  assert.equal(first.success, true);
+
+  for (const decisions of [
+    ids.map((stepId): StepDecision => ({ stepId, verdict: 'reject' })),
+    [{ stepId: 'ghost', verdict: 'accept' } as StepDecision],
+    ids.map((stepId, index): StepDecision => index === 0
+      ? { stepId, verdict: 'edit', editedTitle: 'Reserve the hall' }
+      : { stepId, verdict: 'accept' }),
+  ]) {
+    const replayed = await confirmDecomposition(
+      request(proposal.proposalId, decisions, { idempotencyKey: 'K' }),
+      dependencies,
+    );
+    assert.equal(replayed.success, false, `a different ruling under key K must not succeed`);
+    assert.equal(replayed.replayed, false);
+  }
+  assert.equal(Object.keys(dependencies.persistence.snapshot().steps).length, 3);
+});
+
+test('a genuine retry carrying the same ruling still replays', async () => {
+  const dependencies = harness();
+  const proposal = await proposeWedding(dependencies);
+  if (proposal.outcome !== 'decomposed') throw new Error('setup');
+  const decisions = proposal.steps.map((step, index): StepDecision => index === 1
+    ? { stepId: step.stepId, verdict: 'edit', editedTitle: 'Post the invitations' }
+    : { stepId: step.stepId, verdict: 'accept' });
+
+  const first = await confirmDecomposition(request(proposal.proposalId, decisions), dependencies);
+  const again = await confirmDecomposition(request(proposal.proposalId, decisions), dependencies);
+  assert.equal(first.success, true);
+  assert.equal(again.success, true);
+  assert.equal(again.replayed, true);
+  assert.deepEqual(again.persistedStepIds, first.persistedStepIds);
+});
+
+/* ── An edit is held to the same standard as an admission ────────── */
+
+test('a step cannot be edited into a title an admission would reject', async () => {
+  const dependencies = harness();
+  const proposal = await proposeWedding(dependencies);
+  if (proposal.outcome !== 'decomposed') throw new Error('setup');
+
+  for (const editedTitle of ['and', 'ثم', 'ואז', '   ']) {
+    const result = await confirmDecomposition(request(
+      proposal.proposalId,
+      proposal.steps.map((step, index): StepDecision => index === 0
+        ? { stepId: step.stepId, verdict: 'edit', editedTitle }
+        : { stepId: step.stepId, verdict: 'accept' }),
+      { idempotencyKey: `edit-${editedTitle}` },
+    ), dependencies);
+    assert.equal(result.success, false, `"${editedTitle}" should be refused`);
+    assert.equal(result.failureCode, 'invalid_edit');
+  }
+  assert.deepEqual(Object.keys(dependencies.persistence.snapshot().steps), []);
 });

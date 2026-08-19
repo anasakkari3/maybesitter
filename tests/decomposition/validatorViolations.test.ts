@@ -375,3 +375,23 @@ test('no golden expected step is reported unsourced once title provenance is che
     );
   }
 });
+
+test('a span rejected for exactness is not also charged with overlapping', () => {
+  // The overlap pass ran over spans the exactness check had already rejected,
+  // so a forged span collided with a real one and the same defect was billed
+  // twice. A span whose text does not match what its offsets select is not a
+  // claim on that range at all — there is nothing for it to overlap with.
+  const forged = step({ title: 'x', sourceSpans: [{ start: 0, end: 14, text: 'WRONG TEXT!!!' }] });
+  const real = step({ stepId: 's2', title: 'Book the venue' });
+  assert.deepEqual(codes(validateDecomposition({ sourceText: SOURCE, steps: [forged, real] })), [
+    'SPAN_MISMATCH',
+  ]);
+});
+
+test('an out-of-range span is likewise not charged with overlapping', () => {
+  const beyond = step({ title: 'x', sourceSpans: [{ start: 0, end: SOURCE.length + 5, text: SOURCE }] });
+  const real = step({ stepId: 's2', title: 'Book the venue' });
+  assert.deepEqual(codes(validateDecomposition({ sourceText: SOURCE, steps: [beyond, real] })), [
+    'SPAN_OUT_OF_RANGE',
+  ]);
+});
