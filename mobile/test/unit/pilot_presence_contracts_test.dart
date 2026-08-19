@@ -3,6 +3,7 @@ import 'package:maybesitter_mobile/config/app_config.dart';
 import 'package:maybesitter_mobile/models/commitment.dart';
 import 'package:maybesitter_mobile/models/pilot_presence.dart';
 import 'package:maybesitter_mobile/services/contracts/pilot_presence_store.dart';
+import 'package:maybesitter_mobile/services/pilot_presence_snapshot_publisher.dart';
 import 'package:maybesitter_mobile/services/shared_preferences_pilot_presence_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -296,6 +297,72 @@ void main() {
       expect(PilotPresenceStoreKeys.appGroupIdentifier, isNotEmpty);
     });
   });
+
+  group('PilotPresenceSnapshotPublisher', () {
+    test(
+      'publishes a bounded widget snapshot from active commitments',
+      () async {
+        final store = _FakePilotPresenceStore();
+        final publisher = PilotPresenceSnapshotPublisher(
+          store: store,
+          now: () => DateTime.utc(2026, 8, 19, 12),
+        );
+
+        await publisher.publishWidgetSnapshot([
+          Commitment(
+            id: 'done',
+            title: 'Already done',
+            status: CommitmentStatus.completed,
+            priority: CommitmentPriority.must,
+            scheduledDate: DateTime.utc(2026, 8, 19, 8),
+          ),
+          Commitment(
+            id: 'nice',
+            title: 'Optional errand',
+            priority: CommitmentPriority.nice,
+            scheduledDate: DateTime.utc(2026, 8, 19, 9),
+          ),
+          Commitment(
+            id: 'must',
+            title: 'Private doctor appointment',
+            priority: CommitmentPriority.must,
+            scheduledDate: DateTime.utc(2026, 8, 19, 14),
+          ),
+        ]);
+
+        final snapshot = store.snapshot;
+        expect(snapshot, isNotNull);
+        expect(snapshot!.surface, PilotPresenceSurface.widget);
+        expect(snapshot.generatedAt, DateTime.utc(2026, 8, 19, 12));
+        expect(snapshot.expiresAt, DateTime.utc(2026, 8, 19, 12, 30));
+        expect(snapshot.items.map((item) => item.id), ['must', 'nice']);
+      },
+    );
+
+    test(
+      'redacts widget titles until an explicit title surface exists',
+      () async {
+        final store = _FakePilotPresenceStore();
+        final publisher = PilotPresenceSnapshotPublisher(
+          store: store,
+          now: () => DateTime.utc(2026, 8, 19, 12),
+        );
+
+        await publisher.publishWidgetSnapshot([
+          const Commitment(
+            id: 'private',
+            title: 'Call therapist',
+            priority: CommitmentPriority.must,
+          ),
+        ]);
+
+        final item = store.snapshot!.items.single;
+        expect(item.title, CommitmentSnapshotItem.redactedTitle);
+        expect(item.titleRedacted, isTrue);
+        expect(item.redactionReason, SnapshotRedactionReason.titlesDisabled);
+      },
+    );
+  });
 }
 
 class _FakePilotPresenceSharedStoreBridge
@@ -341,4 +408,23 @@ class _BridgeWrite {
     required this.key,
     required this.value,
   });
+}
+
+class _FakePilotPresenceStore implements PilotPresenceStore {
+  CommitmentSnapshot? snapshot;
+  var clearCalls = 0;
+
+  @override
+  Future<void> clearSnapshot() async {
+    clearCalls += 1;
+    snapshot = null;
+  }
+
+  @override
+  Future<void> publishSnapshot(CommitmentSnapshot snapshot) async {
+    this.snapshot = snapshot;
+  }
+
+  @override
+  Future<CommitmentSnapshot?> readSnapshot() async => snapshot;
 }

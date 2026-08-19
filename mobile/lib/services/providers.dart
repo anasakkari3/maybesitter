@@ -24,6 +24,7 @@ import 'contracts/connectivity_service.dart';
 import 'contracts/pilot_trust_service.dart';
 import 'contracts/speech_capture_service.dart';
 import 'contracts/timezone_service.dart';
+import 'pilot_presence_snapshot_publisher.dart';
 import 'shared_preferences_pilot_presence_store.dart';
 import 'speech_to_text_capture_service.dart';
 import 'timezone_service_impl.dart';
@@ -157,6 +158,14 @@ final notificationServiceProvider = Provider<NotificationService>((ref) {
 final pilotPresenceStoreProvider = Provider<PilotPresenceStore>((ref) {
   return SharedPreferencesPilotPresenceStore();
 });
+
+final pilotPresenceSnapshotPublisherProvider =
+    Provider<PilotPresenceSnapshotPublisher>((ref) {
+      return PilotPresenceSnapshotPublisher(
+        store: ref.watch(pilotPresenceStoreProvider),
+        now: DateTime.now,
+      );
+    });
 
 final pilotPresenceFeatureFlagsProvider = Provider<PilotPresenceFeatureFlags>((
   ref,

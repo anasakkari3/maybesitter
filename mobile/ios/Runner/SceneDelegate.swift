@@ -10,6 +10,17 @@ class SceneDelegate: FlutterSceneDelegate {
     super.scene(scene, willConnectTo: session, options: connectionOptions)
     if let controller = window?.rootViewController as? FlutterViewController {
       PilotPresenceSharedStorePlugin.register(binaryMessenger: controller.binaryMessenger)
+      PilotDeepLinkPlugin.register(binaryMessenger: controller.binaryMessenger)
     }
+    if let url = connectionOptions.urlContexts.first?.url {
+      PilotDeepLinkPlugin.handle(url: url)
+    }
+  }
+
+  override func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+    if URLContexts.contains(where: { PilotDeepLinkPlugin.handle(url: $0.url) }) {
+      return
+    }
+    super.scene(scene, openURLContexts: URLContexts)
   }
 }
