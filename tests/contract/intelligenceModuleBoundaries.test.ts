@@ -10,6 +10,7 @@ import {
   STATE_WRITE_POLICY,
   type ContractProvenance,
 } from '../../src/contracts/v1/moduleContracts.ts';
+import { PLANNING_SCHEMA_VERSION } from '../../src/contracts/v1/planningContracts.ts';
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(testDir, '..', '..');
@@ -60,7 +61,7 @@ test('capture and mobile capture do not import persistence internals directly', 
   }
 });
 
-test('placeholder module contracts execute with typed provenance envelope', async () => {
+test('module contracts execute with typed provenance envelope', async () => {
   const provenance: ContractProvenance = {
     traceId: 'test-trace',
     producedAt: '2026-01-01T00:00:00.000Z',
@@ -68,6 +69,10 @@ test('placeholder module contracts execute with typed provenance envelope', asyn
     confidence: null,
   };
 
+  // Sprint 07 issue #30 moved `planning` from placeholder to implemented. The
+  // descriptor stays a descriptor rather than a live call — modules are reached
+  // through their own entry points — so what is pinned here is the entry point
+  // and the schema it speaks, which is what a caller needs in order to find it.
   const result = await INTELLIGENCE_MODULE_CONTRACTS.planning.execute({
     scopeId: 'scope',
     input: { payload: {} },
@@ -75,6 +80,37 @@ test('placeholder module contracts execute with typed provenance envelope', asyn
   });
   assert.equal(result.ok, true);
   if (result.ok) {
-    assert.deepEqual(result.output, { status: 'not_implemented_in_sprint_00' });
+    assert.deepEqual(result.output, {
+      status: 'implemented',
+      module: 'planning',
+      schemaVersion: 'planning-v1',
+      entryPoint: 'lib/planning/scheduler#schedulePlan',
+    });
   }
+
+  // A module still awaiting its sprint keeps the placeholder shape, so this
+  // test does not quietly stop checking that the two shapes are distinct.
+  const pending = await INTELLIGENCE_MODULE_CONTRACTS.recommendation.execute({
+    scopeId: 'scope',
+    input: { payload: {} },
+    provenance,
+  });
+  assert.equal(pending.ok, true);
+  if (pending.ok) {
+    assert.deepEqual(pending.output, { status: 'not_implemented_in_sprint_00' });
+  }
+});
+
+test('the planning module descriptor matches the planning schema version', async () => {
+  const result = await INTELLIGENCE_MODULE_CONTRACTS.planning.execute({
+    provenance: { traceId: 't', producedAt: '2026-08-19T00:00:00.000Z', source: 'system', confidence: null },
+    input: {},
+  } as never);
+  assert.equal(result.ok, true);
+  const output = result.ok ? (result.output as { schemaVersion: string }) : { schemaVersion: '' };
+  // `moduleContracts` spells this literal out to avoid an import cycle that
+  // throws at runtime while typechecking clean; this is what keeps the two
+  // spellings from drifting apart. Mirrors the decomposition pin in
+  // tests/decomposition/decompositionCrossTrack.test.ts.
+  assert.equal(output.schemaVersion, PLANNING_SCHEMA_VERSION);
 });
