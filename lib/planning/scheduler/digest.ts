@@ -71,10 +71,11 @@ function scalar(value: string | number | boolean | null): string {
     // and an absent one identically, which is a real collision and the reason
     // this branch exists at all.
     //
-    // It used to throw, and that was the wrong remedy. The digest is computed
-    // for every request, including the ones whose whole answer is a list of
-    // findings about bad values, so a digest that refuses those values is a
-    // planner that cannot report them. Non-finite input arrives from the
+    // It used to throw, and that was the wrong remedy —
+    // `PLANNING_INPUT_POLICY.reportWhatTheTaxonomyNames`. The digest is
+    // computed for every request, including the ones whose whole answer is a
+    // list of findings about bad values, so a digest that refuses those values
+    // is a planner that cannot report them. Non-finite input arrives from the
     // untyped boundary and the taxonomy names it; the rule is to report it, and
     // reporting requires getting far enough to produce a `Plan`.
     //
