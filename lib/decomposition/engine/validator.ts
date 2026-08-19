@@ -48,6 +48,17 @@
  *         stated across discontinuous parts of one sentence — so requiring
  *         contiguity would contradict it, and is not done.
  *
+ *       - **An `inferred` step is exempt from this check entirely**, by design:
+ *         it admits having no source, so there is nothing to compare a title
+ *         against. Its title is therefore provider-authored text that nothing
+ *         here grounds — `titleAdmission` rejects a blank or connective-only
+ *         one and that is all. The engine bounds how *many* such steps a
+ *         proposal may carry (the sourced ones must outnumber them), not what
+ *         they say, and the admission survives to the persisted record as
+ *         `inferred: true` so a reader can tell the two apart. A minority
+ *         inferred step reaching the user with arbitrary text is in scope for
+ *         this design, not a gap in it.
+ *
  *     Closing these means reading the sentence, not checking offsets against
  *     it, which is a different piece of work. What is checkable is checked; the
  *     rest is stated rather than implied. The rules detector emits exactly one
@@ -197,16 +208,21 @@ function stepsInCycle(steps: readonly DecompositionStepProposal[]): ReadonlySet<
 
   const inCycle = new Set<string>();
   const state = new Map<string, 'visiting' | 'done'>();
-  /** The current gray path, mirrored as a set so a back edge is O(1) to spot. */
+  /**
+   * The current gray path, mirrored as a map from id to its index in it, so
+   * both "is this a back edge?" and "where does the cycle start?" are O(1).
+   * `lastIndexOf` made the second question O(depth), which a graph of many
+   * back edges to one root turned into a stall.
+   */
   const path: string[] = [];
-  const onPath = new Set<string>();
+  const onPath = new Map<string, number>();
 
   for (const root of Array.from(known)) {
     if (state.has(root)) continue;
     const stack: { readonly id: string; edgeIndex: number }[] = [{ id: root, edgeIndex: 0 }];
     state.set(root, 'visiting');
+    onPath.set(root, path.length);
     path.push(root);
-    onPath.add(root);
 
     while (stack.length > 0) {
       const frame = stack[stack.length - 1];
@@ -214,15 +230,16 @@ function stepsInCycle(steps: readonly DecompositionStepProposal[]): ReadonlySet<
       if (frame.edgeIndex < outgoing.length) {
         const next = outgoing[frame.edgeIndex];
         frame.edgeIndex += 1;
-        if (onPath.has(next)) {
+        const cycleStart = onPath.get(next);
+        if (cycleStart !== undefined) {
           // Back edge: everything from `next` to the top of the path is in it.
-          for (let index = path.lastIndexOf(next); index < path.length; index += 1) {
+          for (let index = cycleStart; index < path.length; index += 1) {
             inCycle.add(path[index]);
           }
         } else if (!state.has(next)) {
           state.set(next, 'visiting');
+          onPath.set(next, path.length);
           path.push(next);
-          onPath.add(next);
           stack.push({ id: next, edgeIndex: 0 });
         }
       } else {
@@ -247,6 +264,22 @@ function stepsInCycle(steps: readonly DecompositionStepProposal[]): ReadonlySet<
  * anything else is reported positionally, the way the `SPAN_*` codes already do.
  */
 const SAFE_STEP_ID = /^[A-Za-z0-9_.:-]{1,64}$/;
+
+/**
+ * How many ids a `detail` will name before summarising the rest.
+ *
+ * A violation travels with the proposal, so an unbounded `detail` is an
+ * unbounded string on that path: a 200,000-step cycle produced a 1.7 MB one.
+ * Naming a handful and counting the remainder keeps the finding actionable
+ * without making it a payload.
+ */
+const MAX_NAMED_IDS_IN_DETAIL = 8;
+
+function nameSome(ids: readonly string[]): string {
+  if (ids.length <= MAX_NAMED_IDS_IN_DETAIL) return ids.join(', ');
+  const named = ids.slice(0, MAX_NAMED_IDS_IN_DETAIL).join(', ');
+  return `${named} and ${ids.length - MAX_NAMED_IDS_IN_DETAIL} more`;
+}
 
 function safeStepId(steps: readonly DecompositionStepProposal[], stepId: string): string {
   if (SAFE_STEP_ID.test(stepId)) return stepId;
@@ -372,19 +405,54 @@ export function validateDecomposition(
     }
   }
 
-  for (let left = 0; left < claims.length; left += 1) {
-    for (let right = left + 1; right < claims.length; right += 1) {
-      const a = claims[left];
-      const b = claims[right];
-      if (a.span.start < b.span.end && b.span.start < a.span.end) {
-        add(
-          'SPAN_OVERLAP',
-          steps[b.stepIndex].stepId,
-          a.stepIndex === b.stepIndex
-            ? `step ${b.stepIndex} claims overlapping source ranges twice`
-            : `source range overlaps the range claimed by step index ${a.stepIndex}`,
-        );
+  // One finding per *pair of steps*, not per pair of spans.
+  //
+  // Emitting per span pair allocated a violation for every collision, so a step
+  // carrying 8,000 identical spans produced 32,004,000 objects and exhausted
+  // the heap. Two steps colliding is one defect however many ranges express it,
+  // which is the cardinality ruling already applied to dependency cycles; the
+  // inner scan stops at the first collision, so the pathological input costs
+  // nothing rather than everything.
+  const spansByStep = new Map<number, SourceSpan[]>();
+  for (const claim of claims) {
+    const existing = spansByStep.get(claim.stepIndex);
+    if (existing) existing.push(claim.span);
+    else spansByStep.set(claim.stepIndex, [claim.span]);
+  }
+  // Only steps that actually claim source text can collide. Walking every pair
+  // of *steps* instead would be quadratic in the proposal even when nothing
+  // carries a span — 40,000 span-less steps cost a second before this list
+  // replaced the full range.
+  const claimingSteps = Array.from(spansByStep.keys()).sort((a, b) => a - b);
+
+  const overlaps = (a: SourceSpan, b: SourceSpan): boolean =>
+    a.start < b.end && b.start < a.end;
+
+  for (let leftIndex = 0; leftIndex < claimingSteps.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex; rightIndex < claimingSteps.length; rightIndex += 1) {
+      const left = claimingSteps[leftIndex];
+      const right = claimingSteps[rightIndex];
+      const leftSpans = spansByStep.get(left) as SourceSpan[];
+      const rightSpans = spansByStep.get(right) as SourceSpan[];
+      let collided = false;
+      for (let a = 0; a < leftSpans.length && !collided; a += 1) {
+        // Within one step, compare each span only against the ones after it;
+        // across steps, against all of them.
+        for (let b = left === right ? a + 1 : 0; b < rightSpans.length; b += 1) {
+          if (overlaps(leftSpans[a], rightSpans[b])) {
+            collided = true;
+            break;
+          }
+        }
       }
+      if (!collided) continue;
+      add(
+        'SPAN_OVERLAP',
+        steps[right].stepId,
+        left === right
+          ? `step ${right} claims overlapping source ranges twice`
+          : `source range overlaps the range claimed by step index ${left}`,
+      );
     }
   }
 
@@ -396,7 +464,7 @@ export function validateDecomposition(
   // no-user-text rule intact while still saying which steps to look at.
   const cyclic = Array.from(stepsInCycle(steps)).map((id) => safeStepId(steps, id)).sort();
   if (cyclic.length > 0) {
-    add('CYCLIC_DEPENDENCY', null, `dependency cycle among steps: ${cyclic.join(', ')}`);
+    add('CYCLIC_DEPENDENCY', null, `dependency cycle among steps: ${nameSome(cyclic)}`);
   }
 
   if (input.declaredAtomic === true && steps.length > 1) {

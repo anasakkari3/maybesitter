@@ -22,28 +22,52 @@
 
 import type { DecompositionProposal, DecompositionConfirmationResult } from '../../../src/contracts/v1/decompositionContracts';
 
-/** Freeze in place, after the caller's copy has already been cloned away. */
+/**
+ * Freeze in place, after the caller's copy has already been cloned away.
+ *
+ * Iterative, with an explicit stack, for the same reason the cycle walker is:
+ * one JS frame per level means a deeply nested object overflows the stack, and
+ * this ran on data that had just come from a model provider. Fixing recursion
+ * in one place and leaving it in another is how a defect class survives a fix.
+ */
 function deepFreeze<T>(value: T): T {
-  if (value === null || typeof value !== 'object' || Object.isFrozen(value)) return value;
-  Object.freeze(value);
-  for (const key of Object.keys(value as Record<string, unknown>)) {
-    deepFreeze((value as Record<string, unknown>)[key]);
+  const pending: unknown[] = [value];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (current === null || typeof current !== 'object' || Object.isFrozen(current)) continue;
+    Object.freeze(current);
+    for (const key of Object.keys(current as Record<string, unknown>)) {
+      pending.push((current as Record<string, unknown>)[key]);
+    }
   }
   return value;
 }
 
+/** What a caller admits: a proposal and the scope it belongs to. */
 export interface StoredDecompositionProposal {
   readonly proposal: DecompositionProposal;
   readonly scopeId: string;
+}
+
+/**
+ * What a reader gets back: a snapshot, not a handle.
+ *
+ * `get` used to return the live internal record, so anyone holding it could
+ * clear the idempotency key or plant a confirmation — the proposal inside was
+ * cloned and frozen, but the record around it was not, and that record is what
+ * decides whether a write has already happened. Confirmation state changes only
+ * through `claim`, `settle` and `release`.
+ */
+export interface StoredDecompositionProposalView extends StoredDecompositionProposal {
   /** Set once the proposal has been confirmed; a spent proposal is not re-confirmable. */
-  confirmedResult?: DecompositionConfirmationResult;
+  readonly confirmedResult?: DecompositionConfirmationResult;
   /**
    * The key that claimed this proposal. Written *before* the adapter is
    * awaited, not after it returns: the window between reading the proposal and
    * recording the result is long enough for a second confirmation to walk
    * straight through, and a UI double-submit is enough to reach it.
    */
-  idempotencyKey?: string;
+  readonly idempotencyKey?: string;
   /**
    * A canonical rendering of the decisions that claimed this proposal.
    *
@@ -52,21 +76,41 @@ export interface StoredDecompositionProposal {
    * stored result told a user who asked to reject every step that every step
    * had been saved.
    */
-  decisionFingerprint?: string;
+  readonly decisionFingerprint?: string;
   /**
    * The confirmation currently in flight, so a concurrent replay of the same
    * key can await the one real attempt instead of starting a second write.
    */
-  inFlight?: Promise<DecompositionConfirmationResult>;
+  readonly inFlight?: Promise<DecompositionConfirmationResult>;
 }
 
 export interface DecompositionProposalStore {
   put(stored: StoredDecompositionProposal): void;
-  get(proposalId: string): StoredDecompositionProposal | undefined;
+  get(proposalId: string): StoredDecompositionProposalView | undefined;
+  /** Take the proposal, before the adapter is awaited. */
+  claim(
+    proposalId: string,
+    idempotencyKey: string,
+    decisionFingerprint: string,
+    inFlight?: Promise<DecompositionConfirmationResult>,
+  ): void;
+  /** Record the ruling that landed. */
+  settle(proposalId: string, result: DecompositionConfirmationResult): void;
+  /** Give the proposal back, because the write did not happen. */
+  release(proposalId: string): void;
+}
+
+interface StoreRecord {
+  readonly proposal: DecompositionProposal;
+  readonly scopeId: string;
+  confirmedResult?: DecompositionConfirmationResult;
+  idempotencyKey?: string;
+  decisionFingerprint?: string;
+  inFlight?: Promise<DecompositionConfirmationResult>;
 }
 
 export class MemoryDecompositionProposalStore implements DecompositionProposalStore {
-  private readonly proposals = new Map<string, StoredDecompositionProposal>();
+  private readonly proposals = new Map<string, StoreRecord>();
 
   put(stored: StoredDecompositionProposal): void {
     if (this.proposals.has(stored.proposal.proposalId)) {
@@ -76,12 +120,51 @@ export class MemoryDecompositionProposalStore implements DecompositionProposalSt
       throw new Error(`decomposition store: proposal ${stored.proposal.proposalId} is already admitted`);
     }
     this.proposals.set(stored.proposal.proposalId, {
-      ...stored,
       proposal: deepFreeze(structuredClone(stored.proposal)),
+      scopeId: stored.scopeId,
     });
   }
 
-  get(proposalId: string): StoredDecompositionProposal | undefined {
-    return this.proposals.get(proposalId);
+  get(proposalId: string): StoredDecompositionProposalView | undefined {
+    const record = this.proposals.get(proposalId);
+    if (!record) return undefined;
+    // A frozen snapshot. The proposal is already deeply frozen from `put`; this
+    // copies the mutable confirmation fields so a holder cannot rewrite them.
+    return Object.freeze({
+      proposal: record.proposal,
+      scopeId: record.scopeId,
+      confirmedResult: record.confirmedResult,
+      idempotencyKey: record.idempotencyKey,
+      decisionFingerprint: record.decisionFingerprint,
+      inFlight: record.inFlight,
+    });
+  }
+
+  claim(
+    proposalId: string,
+    idempotencyKey: string,
+    decisionFingerprint: string,
+    inFlight?: Promise<DecompositionConfirmationResult>,
+  ): void {
+    const record = this.proposals.get(proposalId);
+    if (!record) return;
+    record.idempotencyKey = idempotencyKey;
+    record.decisionFingerprint = decisionFingerprint;
+    record.inFlight = inFlight;
+  }
+
+  settle(proposalId: string, result: DecompositionConfirmationResult): void {
+    const record = this.proposals.get(proposalId);
+    if (!record) return;
+    record.confirmedResult = result;
+    record.inFlight = undefined;
+  }
+
+  release(proposalId: string): void {
+    const record = this.proposals.get(proposalId);
+    if (!record) return;
+    record.idempotencyKey = undefined;
+    record.decisionFingerprint = undefined;
+    record.inFlight = undefined;
   }
 }

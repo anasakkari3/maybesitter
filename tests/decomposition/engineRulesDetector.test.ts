@@ -269,3 +269,33 @@ test('dropping one boundary still lets a neighbouring boundary survive', () => {
     ['Email the client', 'call'],
   );
 });
+
+test('markers that never merge do not make the detector quadratic either', () => {
+  // The previous fix linearised pass 2 but left pass 1: when no marker is
+  // accepted the cursor never advances, so the "is there content before this
+  // marker?" scan re-walked the whole prefix for every marker — visible only
+  // when that prefix is entirely trimmable. `TRIMMABLE` includes `.` while
+  // `PUNCTUATION_BOUNDARY` does not, so `,.` pairs never merge and every comma
+  // rescans everything. 10 KB (the boundary's own cap) cost 195 ms.
+  //
+  // Fixing the case and not the class is what let this survive, so the check is
+  // now derived from the token index, which cannot rescan by construction.
+  for (const [length, budget] of [[10000, 400], [100000, 1500]] as const) {
+    const text = ',.'.repeat(length / 2);
+    const started = Date.now();
+    const detected = detectSteps(text);
+    const elapsed = Date.now() - started;
+    assert.deepEqual(detected.steps, []);
+    assert.ok(elapsed < budget, `${text.length} characters took ${elapsed} ms`);
+  }
+});
+
+test('a prefix of pure punctuation still does not hide real content', () => {
+  // The token-index check has to agree with the character scan it replaced:
+  // content before a marker still blocks the marker from opening step one.
+  assert.deepEqual(
+    detectSteps('...Book the venue, then send the invitations.').steps.map((step) => step.title),
+    ['Book the venue', 'send the invitations'],
+  );
+  assert.deepEqual(detectSteps(', then send the invitations.').steps, []);
+});

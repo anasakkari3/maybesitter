@@ -26,6 +26,13 @@
  */
 
 import type { SourceSpan, StepDependency } from '../../../src/contracts/v1/decompositionContracts';
+import { titleAdmission } from '../engine/validator';
+
+/**
+ * Ids the adapter will file. Constrained rather than trusted: they compose into
+ * the storage key, and this is the last thing standing before a write.
+ */
+const STORABLE_ID = /^[A-Za-z0-9_.:-]{1,64}$/;
 
 /**
  * A step the user actually ruled on.
@@ -58,9 +65,13 @@ export interface ConfirmedDecompositionStep {
 /**
  * The key a confirmed step is filed under.
  *
- * Exported because a consumer cannot reconstruct it by guessing: the separator
- * is a NUL, which cannot occur in an id, so `(p1, s2)` and `(p1s, 2)` cannot
- * collide the way a `-` or `:` separator would allow.
+ * Exported because a consumer cannot reconstruct it by guessing.
+ *
+ * The separator is a NUL. That alone does *not* make collisions impossible —
+ * `('p', NUL + 's1')` and `('p' + NUL, 's1')` build the same key — so the
+ * guarantee comes from refusing ids that contain a NUL at all, not from the
+ * separator. An invariant that does not hold is not a defence; this one is
+ * enforced in `persistAtomically` rather than assumed here.
  */
 export function stepKey(proposalId: string, stepId: string): string {
   return `${proposalId}\u0000${stepId}`;
@@ -99,6 +110,9 @@ export class TransactionalDecompositionPersistenceAdapter implements Decompositi
 
     const candidate: Record<string, ConfirmedDecompositionStep> = structuredClone(this.state.steps);
     for (const step of steps) {
+      if (!STORABLE_ID.test(step.proposalId) || !STORABLE_ID.test(step.stepId)) {
+        throw new Error('decomposition adapter: proposalId and stepId must be plain identifiers');
+      }
       const key = stepKey(step.proposalId, step.stepId);
       // `Object.hasOwn`, not truthiness: `candidate` is a plain object, so
       // `candidate['constructor']` is truthy without anything being stored
@@ -108,8 +122,12 @@ export class TransactionalDecompositionPersistenceAdapter implements Decompositi
       if (Object.hasOwn(candidate, key)) {
         throw new Error(`decomposition adapter: step ${step.stepId} already persisted for this proposal`);
       }
-      if (step.title.trim().length === 0) {
-        throw new Error(`decomposition adapter: step ${step.stepId} has a blank title`);
+      // The same standard the boundary applies, from the same function. These
+      // used to be two rules — `trim().length === 0` here and `titleAdmission`
+      // there — which disagreed about "and", and this is the one that writes.
+      const titleProblem = titleAdmission(step.title);
+      if (titleProblem !== null) {
+        throw new Error(`decomposition adapter: step ${step.stepId} title is ${titleProblem}`);
       }
       // Cloned on the way in. The caller keeps a reference to the batch it
       // passed, and without this a mutation *after* the write would silently

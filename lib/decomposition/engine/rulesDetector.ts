@@ -497,8 +497,14 @@ export function detectSteps(sourceText: string): RulesDetectionResult {
   let tokenCursor = 0;
   for (const marker of markers) {
     if (marker.start < cursor) continue;
-    const candidate = trimRange(sourceText, cursor, marker.start);
-    if (candidate.start >= candidate.end) continue;
+    // "Is there anything but punctuation and space between the cursor and this
+    // marker?" — asked of the token index rather than by walking the characters.
+    // The character walk restarted at `cursor`, which does not move while
+    // markers are being rejected, so a long run of trimmable text was rescanned
+    // once per marker. `SEPARATOR` and `TRIMMABLE` are the same class, so a
+    // token intersecting the range is exactly equivalent, and binary search
+    // cannot rescan.
+    if (countTokensIn(tokens, cursor, marker.start) === 0) continue;
     const next = firstWordAfter(tokens, marker.end, tokenCursor);
     tokenCursor = next.nextToken;
     if (!beginsAction(next.word)) continue;
