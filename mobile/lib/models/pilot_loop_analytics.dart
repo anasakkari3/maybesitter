@@ -8,6 +8,16 @@ enum PilotLoopAnalyticsEventName {
   voiceCaptureStarted('voice_capture_started'),
   voiceCaptureCompleted('voice_capture_completed'),
   voiceCaptureAbandoned('voice_capture_abandoned'),
+  /// The app wrote a new snapshot for the widget to read.
+  ///
+  /// This is a delivery, not an exposure. It says the data was made
+  /// available -- not that anyone looked at it.
+  widgetSnapshotPublished('widget_snapshot_published'),
+
+  /// The widget extension rendered and reported itself.
+  ///
+  /// Only the widget may record this, because only the widget knows it was
+  /// drawn. The app publishing a snapshot is not evidence of it.
   widgetImpression('widget_impression'),
   widgetTap('widget_tap'),
   deepLinkOpened('deep_link_opened'),
@@ -98,6 +108,25 @@ class PilotLoopAnalyticsEvent {
         'locale': locale,
         'reason': reason,
         'inputLength': inputLength,
+        ...flagProperties(flags),
+      },
+    );
+  }
+
+  /// Recorded by the app when it publishes a snapshot for the widget.
+  ///
+  /// Carries no widget family, because at publish time no widget has rendered
+  /// and the app does not know which family, if any, will.
+  factory PilotLoopAnalyticsEvent.widgetSnapshotPublished({
+    required String surface,
+    required String snapshotState,
+    required PilotPresenceFeatureFlags flags,
+  }) {
+    return PilotLoopAnalyticsEvent(
+      name: PilotLoopAnalyticsEventName.widgetSnapshotPublished,
+      properties: {
+        'surface': surface,
+        'snapshotState': snapshotState,
         ...flagProperties(flags),
       },
     );

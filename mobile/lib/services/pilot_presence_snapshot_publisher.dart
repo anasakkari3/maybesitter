@@ -42,10 +42,11 @@ class PilotPresenceSnapshotPublisher {
     await store.publishSnapshot(snapshot);
     try {
       await analyticsService?.record(
-        PilotLoopAnalyticsEvent.widgetImpression(
+        // Publishing the snapshot is all that happened here. Calling it an
+        // impression would count a write as something a person saw.
+        PilotLoopAnalyticsEvent.widgetSnapshotPublished(
           surface: 'homeWidget',
-          widgetFamily: 'unknown',
-          widgetState: snapshot.displayState(generatedAt).name,
+          snapshotState: snapshot.displayState(generatedAt).name,
           flags: flags,
         ),
       );
