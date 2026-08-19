@@ -4,6 +4,7 @@ import '../config/app_config.dart';
 import '../models/app_settings.dart';
 import '../models/commitment.dart';
 import '../models/activity_event.dart';
+import '../models/pilot_presence.dart';
 import 'api/api_client.dart';
 import 'api/api_alpha_feedback_service.dart';
 import 'api/api_capture_service.dart';
@@ -24,6 +25,7 @@ import 'contracts/pilot_trust_service.dart';
 import 'contracts/timezone_service.dart';
 import 'shared_preferences_pilot_presence_store.dart';
 import 'timezone_service_impl.dart';
+import 'routine_profile_notifier.dart';
 import 'mock/commitment_state_store.dart';
 import 'mock/in_memory_commitment_repository.dart';
 import 'mock/mock_capture_service.dart';
@@ -160,6 +162,22 @@ final pilotPresenceFeatureFlagsProvider = Provider<PilotPresenceFeatureFlags>((
   return ref.watch(appConfigProvider).pilotPresenceFlags;
 });
 
+final routineProfileProvider =
+    StateNotifierProvider<RoutineProfileNotifier, UserRoutineProfile?>((ref) {
+      return RoutineProfileNotifier(
+        timezoneService: ref.watch(timezoneServiceProvider),
+      );
+    });
+
+final reminderPolicyProvider = Provider<ReminderPolicy>((ref) {
+  return reminderPolicyForRoutineProfile(ref.watch(routineProfileProvider));
+});
+
+final reminderScheduleDecisionProvider =
+    Provider.family<ReminderScheduleDecision, Commitment>((ref, commitment) {
+      return ref.watch(reminderPolicyProvider).decisionFor(commitment);
+    });
+
 final connectivityServiceProvider = Provider<ConnectivityService>((ref) {
   return MockConnectivityService();
 });
@@ -257,6 +275,7 @@ final activityStreamProvider = StreamProvider<List<ActivityEvent>>((ref) {
 class AppSettingsNotifier extends StateNotifier<AppSettings> {
   static const String _localeKey = 'locale_option';
   static const String _themeKey = 'theme_mode';
+  static const String _onboardingKey = 'has_completed_onboarding';
 
   AppSettingsNotifier() : super(const AppSettings()) {
     _loadSettings();
@@ -285,11 +304,14 @@ class AppSettingsNotifier extends StateNotifier<AppSettings> {
         }
       }
 
-      if (loadedOption != null) {
-        state = state.copyWith(localeOption: loadedOption);
-      }
+      state = state.copyWith(
+        localeOption: loadedOption,
+        hasCompletedOnboarding:
+            prefs.getBool(_onboardingKey) ?? state.hasCompletedOnboarding,
+        hasLoadedSettings: true,
+      );
     } catch (_) {
-      // Memory fallback for test environment
+      state = state.copyWith(hasLoadedSettings: true);
     }
   }
 
@@ -318,8 +340,12 @@ class AppSettingsNotifier extends StateNotifier<AppSettings> {
     state = state.copyWith(hapticFeedbackEnabled: enabled);
   }
 
-  void completeOnboarding() {
+  Future<void> completeOnboarding() async {
     state = state.copyWith(hasCompletedOnboarding: true);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_onboardingKey, true);
+    } catch (_) {}
   }
 }
 

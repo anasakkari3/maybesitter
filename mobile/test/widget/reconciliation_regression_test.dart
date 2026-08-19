@@ -13,6 +13,7 @@ import 'package:maybesitter_mobile/features/today/today_screen.dart';
 import 'package:maybesitter_mobile/l10n/generated/app_localizations.dart';
 import 'package:maybesitter_mobile/models/app_settings.dart';
 import 'package:maybesitter_mobile/services/providers.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 Widget _wrap(Widget child, {Locale locale = const Locale('en')}) {
   return ProviderScope(
@@ -182,9 +183,11 @@ void main() {
     });
 
     testWidgets('8. Arabic RTL layout builds', (tester) async {
+      SharedPreferences.setMockInitialValues({});
       final container = ProviderContainer();
       addTearDown(container.dispose);
-      container
+      await container.read(appSettingsProvider.notifier).completeOnboarding();
+      await container
           .read(appSettingsProvider.notifier)
           .updateLocale(AppLocaleOption.arabic);
 
@@ -204,9 +207,11 @@ void main() {
     });
 
     testWidgets('9. Hebrew RTL layout builds', (tester) async {
+      SharedPreferences.setMockInitialValues({});
       final container = ProviderContainer();
       addTearDown(container.dispose);
-      container
+      await container.read(appSettingsProvider.notifier).completeOnboarding();
+      await container
           .read(appSettingsProvider.notifier)
           .updateLocale(AppLocaleOption.hebrew);
 

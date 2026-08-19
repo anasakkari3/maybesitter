@@ -7,6 +7,7 @@ import 'package:maybesitter_mobile/features/today/today_screen.dart';
 import 'package:maybesitter_mobile/l10n/generated/app_localizations.dart';
 import 'package:maybesitter_mobile/models/commitment.dart';
 import 'package:maybesitter_mobile/services/providers.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   final testCommitments = [
@@ -64,6 +65,10 @@ void main() {
     testWidgets('MaybesitterApp renders full app with router', (
       WidgetTester tester,
     ) async {
+      SharedPreferences.setMockInitialValues({
+        'has_completed_onboarding': true,
+      });
+
       await tester.pumpWidget(const ProviderScope(child: MaybesitterApp()));
       await tester.pump();
       await tester.pumpAndSettle();

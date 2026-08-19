@@ -1026,6 +1026,93 @@ class AppLocalizationsAr extends AppLocalizations {
   String get feedbackBaselineClarificationFailures => 'أسئلتنا التي لم تساعد';
 
   @override
+  String get routineSurveyTitle => 'روتينك اليومي';
+
+  @override
+  String get routineSurveySubtitle =>
+      'خمسة اختيارات سريعة كي تتجنب التذكيرات أوقاتك غير المناسبة بوضوح.';
+
+  @override
+  String get routineSleepQuestion => 'متى تنام عادة؟';
+
+  @override
+  String get routineSleepEarly => '10:30 م - 6:30 ص';
+
+  @override
+  String get routineSleepStandard => '11:30 م - 7:30 ص';
+
+  @override
+  String get routineSleepLate => '12:30 ص - 8:30 ص';
+
+  @override
+  String get routineFocusQuestion => 'متى تكون فترة العمل أو الدراسة المعتادة؟';
+
+  @override
+  String get routineFocusWorkday => '9:00 ص - 5:00 م';
+
+  @override
+  String get routineFocusEarly => '8:00 ص - 4:00 م';
+
+  @override
+  String get routineFocusAfternoon => '12:00 م - 6:00 م';
+
+  @override
+  String get routineFixedQuestion => 'هل لديك نافذة التزامات ثابتة متكررة؟';
+
+  @override
+  String get routineFixedMorning => 'الصباح، 7:00 - 9:00';
+
+  @override
+  String get routineFixedAfternoon => 'بعد الظهر، 2:00 - 4:00';
+
+  @override
+  String get routineFixedEvening => 'المساء، 6:00 - 8:00';
+
+  @override
+  String get routineReminderQuestion => 'ما درجة إلحاح التذكيرات المناسبة لك؟';
+
+  @override
+  String get routineReminderSoft => 'هادئة فقط';
+
+  @override
+  String get routineReminderFollowUp => 'هادئة + متابعة';
+
+  @override
+  String get routineReminderStrong => 'قوية عند الحاجة';
+
+  @override
+  String get routineQuietQuestion => 'متى يجب أن تبقى التذكيرات هادئة؟';
+
+  @override
+  String get routineQuietEarly => '9:30 م - 6:30 ص';
+
+  @override
+  String get routineQuietStandard => '10:30 م - 7:30 ص';
+
+  @override
+  String get routineQuietLate => '11:30 م - 8:30 ص';
+
+  @override
+  String get routineNoneRegular => 'لا توجد نافذة ثابتة';
+
+  @override
+  String get routineCompleteAction => 'إنهاء الإعداد';
+
+  @override
+  String get routineSaveAction => 'حفظ الروتين';
+
+  @override
+  String get routineSettingsTitle => 'ملف الروتين';
+
+  @override
+  String get routineSettingsSubtitle =>
+      'النوم، وقت التركيز، النوافذ الثابتة، وساعات الهدوء';
+
+  @override
+  String get routineSettingsConfiguredSubtitle =>
+      'يُستخدم لتوقيت التذكيرات القادمة';
+
+  @override
   String get privacyStorageTitle => 'أين تُحفظ بياناتك';
 
   @override
