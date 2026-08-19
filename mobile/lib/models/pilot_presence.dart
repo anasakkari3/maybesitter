@@ -330,6 +330,45 @@ class ReminderScheduleDecision {
   });
 }
 
+/// One timed step in a commitment's reminder sequence.
+///
+/// A commitment is not reminded once. It is reminded softly first, and then --
+/// only if the user never acknowledged it -- escalated closer to the event.
+/// Each step is its own stage so that acknowledging the soft stage can cancel
+/// the later ones without cancelling the concept of the reminder.
+@immutable
+class ReminderStage {
+  final ReminderIntensity intensity;
+  final Duration leadTime;
+  final bool respectsQuietHours;
+
+  /// Whether acknowledging awareness cancels this stage.
+  ///
+  /// The opening soft stage is what asks for awareness, so it is never
+  /// suppressed by awareness. Every escalation after it exists only because
+  /// awareness was missing, so awareness cancels it.
+  final bool suppressedByAwareness;
+
+  const ReminderStage({
+    required this.intensity,
+    required this.leadTime,
+    required this.respectsQuietHours,
+    required this.suppressedByAwareness,
+  });
+}
+
+/// The full ordered reminder sequence for one commitment, soft stage first.
+@immutable
+class ReminderPlan {
+  final List<ReminderStage> stages;
+
+  const ReminderPlan({required this.stages});
+
+  static const empty = ReminderPlan(stages: []);
+
+  bool get isEmpty => stages.isEmpty;
+}
+
 @immutable
 class ReminderPolicy {
   static const currentSchemaVersion = 1;
@@ -351,6 +390,55 @@ class ReminderPolicy {
     this.strongRemindersRequireExplicitOptIn = true,
     this.quietHoursRespectMode = QuietHoursRespectMode.alwaysDefer,
   });
+
+  /// The ordered reminder sequence for [commitment].
+  ///
+  /// Stages run from the softest and earliest to the strongest and latest, so
+  /// each stage is strictly closer to the event than the one before it.
+  ReminderPlan planFor(Commitment commitment) {
+    final ceiling = _capIntensity(_ceilingFor(commitment.priority));
+    if (ceiling == ReminderIntensity.none) return ReminderPlan.empty;
+
+    final respectsQuietHours =
+        quietHoursRespectMode != QuietHoursRespectMode.allowUserOverride;
+
+    ReminderStage stage(ReminderIntensity intensity, {required bool escalation}) {
+      return ReminderStage(
+        intensity: intensity,
+        leadTime: _leadTimeFor(intensity),
+        respectsQuietHours: respectsQuietHours,
+        suppressedByAwareness: escalation,
+      );
+    }
+
+    // Every plan opens by asking for awareness, then escalates at most once.
+    // A ladder of three notifications for a single commitment is the noise
+    // this product exists to avoid.
+    final stages = <ReminderStage>[
+      stage(ReminderIntensity.softAwareness, escalation: false),
+    ];
+
+    final escalatesTo = ceiling;
+    final blockedByOptIn =
+        escalatesTo == ReminderIntensity.strongReminder &&
+        strongRemindersRequireExplicitOptIn;
+    if (_intensityRank(escalatesTo) >
+            _intensityRank(ReminderIntensity.softAwareness) &&
+        !blockedByOptIn) {
+      stages.add(stage(escalatesTo, escalation: true));
+    }
+
+    return ReminderPlan(stages: List.unmodifiable(stages));
+  }
+
+  /// The strongest reminder a priority is ever allowed to reach.
+  ReminderIntensity _ceilingFor(CommitmentPriority priority) {
+    return switch (priority) {
+      CommitmentPriority.must => ReminderIntensity.strongReminder,
+      CommitmentPriority.should => ReminderIntensity.followUp,
+      CommitmentPriority.nice => ReminderIntensity.softAwareness,
+    };
+  }
 
   ReminderScheduleDecision decisionFor(Commitment commitment) {
     final requestedIntensity = switch (commitment.priority) {

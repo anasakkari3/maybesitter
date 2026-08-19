@@ -23,6 +23,7 @@ import 'contracts/feedback_history_service.dart';
 import 'contracts/activity_repository.dart';
 import 'contracts/calendar_import_service.dart';
 import 'contracts/next_step_service.dart';
+import 'contracts/awareness_state_store.dart';
 import 'contracts/notification_service.dart';
 import 'contracts/pilot_loop_analytics_service.dart';
 import 'contracts/pilot_presence_store.dart';
@@ -45,7 +46,10 @@ import 'mock/mock_calendar_import_service.dart';
 import 'mock/mock_feedback_history_service.dart';
 import 'mock/in_memory_pilot_loop_analytics_service.dart';
 import 'mock/mock_next_step_service.dart';
-import 'mock/mock_notification_service.dart';
+import 'flutter_local_notifications_gateway.dart';
+import 'in_memory_awareness_state_store.dart';
+import 'native_notification_service.dart';
+import 'notification_action_router.dart';
 import 'mock/mock_connectivity_service.dart';
 import 'mock/mock_pilot_trust_service.dart';
 import '../features/pilot/pilot_session_controller.dart';
@@ -183,8 +187,35 @@ final pilotSessionControllerProvider =
       );
     });
 
+final awarenessStateStoreProvider = Provider<AwarenessStateStore>((ref) {
+  return InMemoryAwarenessStateStore();
+});
+
+/// The platform seam for notifications.
+///
+/// Real by default. Overridden in tests, never swapped for a mock in a build a
+/// participant runs -- a mock here is what made the app report that reminders
+/// were on while nothing was ever scheduled.
+final localNotificationsGatewayProvider = Provider<LocalNotificationsGateway>((
+  ref,
+) {
+  return FlutterLocalNotificationsGateway(
+    localTimezoneName: () => ref.read(appConfigProvider).timezone,
+  );
+});
+
 final notificationServiceProvider = Provider<NotificationService>((ref) {
-  return MockNotificationService();
+  return NativeNotificationService(
+    gateway: ref.watch(localNotificationsGatewayProvider),
+  );
+});
+
+final notificationActionRouterProvider = Provider<NotificationActionRouter>((
+  ref,
+) {
+  return NotificationActionRouter(
+    dispatcher: ref.watch(softAwarenessCommandDispatcherProvider),
+  );
 });
 
 final pilotPresenceStoreProvider = Provider<PilotPresenceStore>((ref) {
@@ -254,6 +285,7 @@ final softAwarenessReminderEngineProvider =
     Provider<SoftAwarenessReminderEngine>((ref) {
       return SoftAwarenessReminderEngine(
         notificationService: ref.watch(notificationServiceProvider),
+        awarenessStateStore: ref.watch(awarenessStateStoreProvider),
         reminderPolicy: () => ref.read(reminderPolicyProvider),
         routineProfile: () => ref.read(routineProfileProvider),
         notificationsEnabled: () =>
@@ -268,6 +300,7 @@ final softAwarenessCommandDispatcherProvider =
       return SoftAwarenessCommandDispatcher(
         commitmentRepository: ref.watch(commitmentRepositoryProvider),
         notificationService: ref.watch(notificationServiceProvider),
+        awarenessStateStore: ref.watch(awarenessStateStoreProvider),
         activityRepository: ref.watch(activityRepositoryProvider),
         analyticsService: ref.watch(pilotLoopAnalyticsServiceProvider),
         flags: ref.watch(pilotPresenceFeatureFlagsProvider),

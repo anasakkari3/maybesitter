@@ -3,7 +3,10 @@ import '../contracts/notification_service.dart';
 class MockNotificationService implements NotificationService {
   NotificationPermissionState _state;
   final NotificationPermissionState? requestedPermissionState;
-  final Map<String, ScheduledNotificationRequest> _requestsByCommitmentId = {};
+  // Keyed by notification id, the way a real platform keys pending requests.
+  // A commitment owns several -- a soft stage and an escalation -- so keying
+  // by commitment would silently collapse a sequence into its last stage.
+  final Map<String, ScheduledNotificationRequest> _requestsByNotificationId = {};
   final List<String> cancelledCommitmentIds = [];
   int requestPermissionCallCount = 0;
 
@@ -14,10 +17,15 @@ class MockNotificationService implements NotificationService {
   }) : _state = initialPermissionState;
 
   List<ScheduledNotificationRequest> get scheduledRequests =>
-      _requestsByCommitmentId.values.toList(growable: false);
+      _requestsByNotificationId.values.toList(growable: false);
+
+  List<ScheduledNotificationRequest> requestsFor(String commitmentId) =>
+      _requestsByNotificationId.values
+          .where((request) => request.commitmentId == commitmentId)
+          .toList(growable: false);
 
   ScheduledNotificationRequest? requestFor(String commitmentId) =>
-      _requestsByCommitmentId[commitmentId];
+      requestsFor(commitmentId).firstOrNull;
 
   @override
   Future<NotificationPermissionState> permissionState() async {
@@ -33,12 +41,14 @@ class MockNotificationService implements NotificationService {
 
   @override
   Future<void> schedule(ScheduledNotificationRequest request) async {
-    _requestsByCommitmentId[request.commitmentId] = request;
+    _requestsByNotificationId[request.notificationId] = request;
   }
 
   @override
   Future<void> cancelFor(String commitmentId) async {
     cancelledCommitmentIds.add(commitmentId);
-    _requestsByCommitmentId.remove(commitmentId);
+    _requestsByNotificationId.removeWhere(
+      (_, request) => request.commitmentId == commitmentId,
+    );
   }
 }

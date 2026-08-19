@@ -4,6 +4,7 @@ import '../models/commitment.dart';
 import '../models/pilot_loop_analytics.dart';
 import '../models/pilot_presence.dart';
 import 'contracts/activity_repository.dart';
+import 'contracts/awareness_state_store.dart';
 import 'contracts/commitment_repository.dart';
 import 'contracts/notification_service.dart';
 import 'contracts/pilot_loop_analytics_service.dart';
@@ -100,6 +101,7 @@ class SoftAwarenessReminderEngine {
   final UserRoutineProfile? Function() routineProfile;
   final bool Function() notificationsEnabled;
   final PilotPresenceFeatureFlags Function() flags;
+  final AwarenessStateStore awarenessStateStore;
   final DateTime Function() now;
   final Set<String> _scheduledCommitmentIds = <String>{};
 
@@ -109,6 +111,7 @@ class SoftAwarenessReminderEngine {
     required this.routineProfile,
     required this.notificationsEnabled,
     required this.flags,
+    required this.awarenessStateStore,
     DateTime Function()? now,
   }) : now = now ?? DateTime.now;
 
@@ -127,13 +130,23 @@ class SoftAwarenessReminderEngine {
     final policy = reminderPolicy();
     final profile = routineProfile();
 
+    // An acknowledgement only means anything while its commitment is still
+    // live. Drop the rest so a recycled id can never inherit stale awareness.
+    await awarenessStateStore.retainOnly(trackedIds);
+
     for (final commitment in commitments) {
-      final plan = _planFor(commitment, policy: policy, profile: profile);
-      if (plan == null) {
+      final requests = await _requestsFor(
+        commitment,
+        policy: policy,
+        profile: profile,
+      );
+      if (requests.isEmpty) {
         await notificationService.cancelFor(commitment.id);
         continue;
       }
-      await notificationService.schedule(plan);
+      for (final request in requests) {
+        await notificationService.schedule(request);
+      }
       nextScheduledIds.add(commitment.id);
     }
 
@@ -148,41 +161,66 @@ class SoftAwarenessReminderEngine {
       ..addAll(nextScheduledIds);
   }
 
-  ScheduledNotificationRequest? _planFor(
+  /// Every notification still owed for [commitment], soft stage first.
+  Future<List<ScheduledNotificationRequest>> _requestsFor(
     Commitment commitment, {
     required ReminderPolicy policy,
     required UserRoutineProfile? profile,
-  }) {
+  }) async {
     if (commitment.status.isCompleted ||
         commitment.status == CommitmentStatus.cancelled) {
-      return null;
-    }
-
-    final decision = policy.decisionFor(commitment);
-    if (decision.intensity == ReminderIntensity.none ||
-        decision.requiresExplicitOptIn) {
-      return null;
+      return const [];
     }
 
     final scheduledStart = _scheduledStartFor(commitment);
-    if (scheduledStart == null) return null;
+    if (scheduledStart == null) return const [];
 
-    final scheduledAt = scheduledStart.subtract(decision.leadTime);
-    if (!scheduledAt.isAfter(now())) return null;
+    final plan = policy.planFor(commitment);
+    if (plan.isEmpty) return const [];
 
-    if (decision.respectsQuietHours &&
-        _isWithinQuietHours(scheduledAt, profile)) {
-      return null;
+    // Awareness cancels what escalation was for. It does not complete the
+    // commitment, and it does not touch any other commitment's reminders.
+    final isAware = await awarenessStateStore.isAware(commitment.id);
+
+    final requests = <ScheduledNotificationRequest>[];
+    for (final stage in plan.stages) {
+      if (isAware && stage.suppressedByAwareness) continue;
+      if (isAware && !stage.suppressedByAwareness) {
+        // The soft stage is what earned the acknowledgement; re-arming it
+        // would remind the user of something they just told us they know.
+        continue;
+      }
+
+      final scheduledAt = scheduledStart.subtract(stage.leadTime);
+      if (!scheduledAt.isAfter(now())) continue;
+      if (stage.respectsQuietHours &&
+          _isWithinQuietHours(scheduledAt, profile)) {
+        continue;
+      }
+
+      requests.add(
+        ScheduledNotificationRequest(
+          notificationId: notificationIdFor(
+            commitmentId: commitment.id,
+            intensity: stage.intensity,
+          ),
+          commitmentId: commitment.id,
+          scheduledAt: scheduledAt,
+          intensity: stage.intensity,
+        ),
+      );
     }
-
-    return ScheduledNotificationRequest(
-      notificationId:
-          'soft-awareness-${commitment.id}-${decision.intensity.name}-${scheduledAt.toUtc().millisecondsSinceEpoch}',
-      commitmentId: commitment.id,
-      scheduledAt: scheduledAt,
-      intensity: decision.intensity,
-    );
+    return requests;
   }
+
+  /// A notification id that depends only on the commitment and the stage.
+  ///
+  /// Re-syncing must land on the same id so the platform replaces a pending
+  /// notification instead of stacking a duplicate beside it.
+  static String notificationIdFor({
+    required String commitmentId,
+    required ReminderIntensity intensity,
+  }) => 'soft-awareness-$commitmentId-${intensity.name}';
 
   DateTime? _scheduledStartFor(Commitment commitment) {
     final scheduledDate = commitment.scheduledDate;
@@ -281,6 +319,7 @@ class SoftAwarenessCommandDispatcher {
   final CommitmentRepository commitmentRepository;
   final NotificationService notificationService;
   final ActivityRepository activityRepository;
+  final AwarenessStateStore awarenessStateStore;
   final PilotLoopAnalyticsService? analyticsService;
   final PilotPresenceFeatureFlags flags;
 
@@ -288,6 +327,7 @@ class SoftAwarenessCommandDispatcher {
     required this.commitmentRepository,
     required this.notificationService,
     required this.activityRepository,
+    required this.awarenessStateStore,
     this.analyticsService,
     required this.flags,
   });
@@ -295,6 +335,11 @@ class SoftAwarenessCommandDispatcher {
   Future<void> dispatch(SoftAwarenessCommand command) async {
     switch (command) {
       case MarkAwareNotificationCommand():
+        // Awareness is recorded, never inferred, and never mistaken for done.
+        await awarenessStateStore.markAware(
+          command.commitmentId,
+          command.occurredAt,
+        );
         await notificationService.cancelFor(command.commitmentId);
         await _recordActivity(
           type: ActivityEventType.softAwarenessAcknowledged,
@@ -325,6 +370,7 @@ class SoftAwarenessCommandDispatcher {
         break;
       case DoneNotificationCommand():
         await notificationService.cancelFor(command.commitmentId);
+        await awarenessStateStore.clear(command.commitmentId);
         await commitmentRepository.complete(command.commitmentId);
         await _recordAction('done');
         break;
