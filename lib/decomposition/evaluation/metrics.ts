@@ -68,7 +68,7 @@ import type {
   SourceSpan,
 } from '../../../src/contracts/v1/decompositionContracts';
 import { isIsoTimestamp } from '../../evaluation/registry/validationPrimitives';
-import { validateProposedSteps } from './example';
+import { mergedSpanRanges, validateProposedSteps } from './example';
 
 function fail(message: string): never {
   throw new Error(`decomposition metrics: ${message}`);
@@ -279,26 +279,8 @@ function buildBoundaryMetrics(cases: readonly EvaluationCase[]): BoundaryMetrics
  * for the source text.
  */
 export function coveredCodeUnits(steps: readonly DecompositionStepProposal[]): number {
-  const ranges = steps
-    .reduce<SourceSpan[]>((all, step) => all.concat(step.sourceSpans), [])
-    .slice()
-    .sort((a, b) => (a.start === b.start ? a.end - b.end : a.start - b.start));
-
-  let total = 0;
-  let openStart = -1;
-  let openEnd = -1;
-  for (const range of ranges) {
-    if (range.end <= range.start) continue;
-    if (openEnd < range.start) {
-      if (openStart >= 0) total += openEnd - openStart;
-      openStart = range.start;
-      openEnd = range.end;
-    } else if (range.end > openEnd) {
-      openEnd = range.end;
-    }
-  }
-  if (openStart >= 0) total += openEnd - openStart;
-  return total;
+  const spans = steps.reduce<SourceSpan[]>((all, step) => all.concat(step.sourceSpans), []);
+  return mergedSpanRanges(spans).reduce((total, range) => total + (range.end - range.start), 0);
 }
 
 export interface CoverageRow {
