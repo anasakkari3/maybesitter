@@ -226,6 +226,84 @@ abstract class AppLocalizations {
   /// **'Stop Recording'**
   String get voiceCaptureStopTooltip;
 
+  /// No description provided for @spokenPromptPrimaryAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Speak what is on your mind'**
+  String get spokenPromptPrimaryAction;
+
+  /// No description provided for @spokenPromptStopAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Stop and review'**
+  String get spokenPromptStopAction;
+
+  /// No description provided for @spokenPromptListeningTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Listening'**
+  String get spokenPromptListeningTitle;
+
+  /// No description provided for @spokenPromptPermissionRequestMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow speech access, then say the messy commitment as it comes to mind.'**
+  String get spokenPromptPermissionRequestMessage;
+
+  /// No description provided for @spokenPromptListeningMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Say the commitment naturally. No audio is kept after transcription.'**
+  String get spokenPromptListeningMessage;
+
+  /// No description provided for @spokenPromptReviewTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Review before analysis'**
+  String get spokenPromptReviewTitle;
+
+  /// No description provided for @spokenPromptReviewMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit the transcript below, then analyze it when it says what you meant.'**
+  String get spokenPromptReviewMessage;
+
+  /// No description provided for @spokenPromptPermissionDeniedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Speech access is off'**
+  String get spokenPromptPermissionDeniedTitle;
+
+  /// No description provided for @spokenPromptPermissionDeniedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Typed capture still works. You can use the keyboard and analyze your note.'**
+  String get spokenPromptPermissionDeniedMessage;
+
+  /// No description provided for @spokenPromptUnavailableTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Speech is unavailable'**
+  String get spokenPromptUnavailableTitle;
+
+  /// No description provided for @spokenPromptUnavailableMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Typed capture still works. Use the keyboard and analyze your note.'**
+  String get spokenPromptUnavailableMessage;
+
+  /// No description provided for @spokenPromptFailureTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Speech capture failed'**
+  String get spokenPromptFailureTitle;
+
+  /// No description provided for @spokenPromptFailureMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Typed capture still works. Use the keyboard or try voice again.'**
+  String get spokenPromptFailureMessage;
+
   /// No description provided for @editingDisabledExplanation.
   ///
   /// In en, this message translates to:

@@ -1,15 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:maybesitter_mobile/config/app_config.dart';
 import 'package:maybesitter_mobile/design_system/components/commitment_status_badge.dart';
 import 'package:maybesitter_mobile/design_system/components/extraction_review_card.dart';
 import 'package:maybesitter_mobile/design_system/components/maybesitter_buttons.dart';
 import 'package:maybesitter_mobile/features/capture/capture_composer_screen.dart';
 import 'package:maybesitter_mobile/l10n/generated/app_localizations.dart';
 import 'package:maybesitter_mobile/models/commitment.dart';
+import 'package:maybesitter_mobile/services/providers.dart';
 
-Widget _wrapWithApp(Widget child, {Locale locale = const Locale('en')}) {
+Widget _wrapWithApp(
+  Widget child, {
+  Locale locale = const Locale('en'),
+  List<Override> overrides = const [],
+}) {
   return ProviderScope(
+    overrides: overrides,
     child: MaterialApp(
       locale: locale,
       localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -192,13 +199,19 @@ void main() {
     );
 
     testWidgets(
-      '6. Capture composer voice button is disabled with coming-soon tooltip',
+      '6. Capture composer exposes enabled voice action when voice is enabled',
       (tester) async {
-        await tester.pumpWidget(_wrapWithApp(const CaptureComposerScreen()));
+        await tester.pumpWidget(
+          _wrapWithApp(
+            const CaptureComposerScreen(key: ValueKey('voice-killed')),
+            overrides: [
+              appConfigProvider.overrideWith(
+                (ref) => const AppConfig(enablePilotVoice: true),
+              ),
+            ],
+          ),
+        );
         await tester.pumpAndSettle();
-
-        final tooltipFinder = find.byTooltip('Voice Capture (Coming soon)');
-        expect(tooltipFinder, findsOneWidget);
 
         final iconButtonFinder = find.ancestor(
           of: find.byIcon(Icons.mic_none),
@@ -206,7 +219,9 @@ void main() {
         );
         expect(iconButtonFinder, findsOneWidget);
         final iconButton = tester.widget<IconButton>(iconButtonFinder);
-        expect(iconButton.onPressed, isNull);
+        expect(iconButton.tooltip, 'Voice Capture');
+        expect(iconButton.onPressed, isNotNull);
+        expect(find.text('Speak what is on your mind'), findsOneWidget);
       },
     );
 

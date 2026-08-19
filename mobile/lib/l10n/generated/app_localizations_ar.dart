@@ -88,6 +88,51 @@ class AppLocalizationsAr extends AppLocalizations {
   String get voiceCaptureStopTooltip => 'إيقاف التسجيل';
 
   @override
+  String get spokenPromptPrimaryAction => 'قل ما يدور في بالك';
+
+  @override
+  String get spokenPromptStopAction => 'إيقاف ومراجعة';
+
+  @override
+  String get spokenPromptListeningTitle => 'جارٍ الاستماع';
+
+  @override
+  String get spokenPromptPermissionRequestMessage =>
+      'اسمح بالوصول للصوت، ثم قل الالتزام كما يخطر لك.';
+
+  @override
+  String get spokenPromptListeningMessage =>
+      'تحدث بشكل طبيعي. لا يتم الاحتفاظ بأي صوت بعد تحويله إلى نص.';
+
+  @override
+  String get spokenPromptReviewTitle => 'راجِع قبل التحليل';
+
+  @override
+  String get spokenPromptReviewMessage =>
+      'عدّل النص أدناه، ثم حلّله عندما يصبح مطابقًا لما قصدته.';
+
+  @override
+  String get spokenPromptPermissionDeniedTitle => 'الوصول للصوت متوقف';
+
+  @override
+  String get spokenPromptPermissionDeniedMessage =>
+      'يبقى الالتقاط بالكتابة متاحًا. استخدم لوحة المفاتيح ثم حلّل الملاحظة.';
+
+  @override
+  String get spokenPromptUnavailableTitle => 'الصوت غير متاح';
+
+  @override
+  String get spokenPromptUnavailableMessage =>
+      'يبقى الالتقاط بالكتابة متاحًا. استخدم لوحة المفاتيح ثم حلّل الملاحظة.';
+
+  @override
+  String get spokenPromptFailureTitle => 'فشل الالتقاط الصوتي';
+
+  @override
+  String get spokenPromptFailureMessage =>
+      'يبقى الالتقاط بالكتابة متاحًا. استخدم لوحة المفاتيح أو جرّب الصوت مرة أخرى.';
+
+  @override
   String get editingDisabledExplanation =>
       'التعديل غير متاح مؤقتًا لحماية موعد الالتزام.';
 

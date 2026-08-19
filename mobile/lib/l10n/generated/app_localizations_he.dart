@@ -86,6 +86,51 @@ class AppLocalizationsHe extends AppLocalizations {
   String get voiceCaptureStopTooltip => 'עצירת הקלטה';
 
   @override
+  String get spokenPromptPrimaryAction => 'אמרי מה עובר לך בראש';
+
+  @override
+  String get spokenPromptStopAction => 'עצירה ובדיקה';
+
+  @override
+  String get spokenPromptListeningTitle => 'מקשיב';
+
+  @override
+  String get spokenPromptPermissionRequestMessage =>
+      'אפשרי גישה לדיבור ואז אמרי את ההתחייבות כפי שהיא עולה לך.';
+
+  @override
+  String get spokenPromptListeningMessage =>
+      'דברי טבעי. שום אודיו לא נשמר אחרי התמלול.';
+
+  @override
+  String get spokenPromptReviewTitle => 'בדיקה לפני ניתוח';
+
+  @override
+  String get spokenPromptReviewMessage =>
+      'ערכי את התמלול למטה ואז נתחי אותו כשהוא אומר את מה שהתכוונת.';
+
+  @override
+  String get spokenPromptPermissionDeniedTitle => 'הגישה לדיבור כבויה';
+
+  @override
+  String get spokenPromptPermissionDeniedMessage =>
+      'לכידה בהקלדה עדיין זמינה. אפשר להשתמש במקלדת ואז לנתח את ההערה.';
+
+  @override
+  String get spokenPromptUnavailableTitle => 'דיבור לא זמין';
+
+  @override
+  String get spokenPromptUnavailableMessage =>
+      'לכידה בהקלדה עדיין זמינה. אפשר להשתמש במקלדת ואז לנתח את ההערה.';
+
+  @override
+  String get spokenPromptFailureTitle => 'הלכידה הקולית נכשלה';
+
+  @override
+  String get spokenPromptFailureMessage =>
+      'לכידה בהקלדה עדיין זמינה. אפשר להשתמש במקלדת או לנסות שוב בקול.';
+
+  @override
   String get editingDisabledExplanation =>
       'העריכה אינה זמינה זמנית כדי להגן על מועד ההתחייבות.';
 

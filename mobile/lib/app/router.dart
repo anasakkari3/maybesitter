@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../design_system/components/maybesitter_bottom_navigation.dart';
 import '../features/activity/activity_screen.dart';
+import '../features/capture/capture_flow_launch.dart';
 import '../features/capture/capture_composer_screen.dart';
 import '../features/capture/clarification_sheet_screen.dart';
 import '../features/capture/extraction_review_screen.dart';
@@ -137,9 +138,11 @@ final appRouter = GoRouter(
 
     // Modal Capture Routes
     GoRoute(
-      path: '/capture',
+      path: CaptureFlowLaunch.routePath,
       parentNavigatorKey: _rootNavigatorKey,
-      builder: (context, state) => const CaptureComposerScreen(),
+      builder: (context, state) => CaptureComposerScreen(
+        launch: CaptureFlowLaunch.fromRouteState(state),
+      ),
       routes: [
         GoRoute(
           path: 'review',
