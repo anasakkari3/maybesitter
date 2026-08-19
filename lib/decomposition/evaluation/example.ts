@@ -8,6 +8,18 @@
  * neither track names its own: two self-consistent, mutually incompatible ideas
  * of "a correct decomposition" would both pass their own suites.
  *
+ * ── UNSOURCED_STEP has two shapes ───────────────────────────────────
+ *
+ * A step is unsourced when it cites no span and does not admit to being
+ * inferred, **and** when it cites spans that do not source its `title`. The
+ * second is the one a checker forgets, because every other rule here
+ * interrogates the span and none interrogates the claim the span is offered in
+ * support of: a provider returning a perfect citation of "Book the venue" under
+ * the title "Wire $9,000 to account 12345" passes exactness, range, overlap,
+ * timing and owner. #27 found that hole from the adapter side; the code is
+ * shared, so the check has to be too, or the evaluator would score a corpus
+ * clean that the validator rejects.
+ *
  * ── Exactness is computed, never trusted ────────────────────────────
  *
  * `SPAN_MISMATCH` is decided by `sourceText.slice(start, end) !== span.text`.
@@ -104,6 +116,50 @@ function normaliseTitle(title: string): string {
   return title.replace(TRIM_PUNCTUATION, '').toLowerCase();
 }
 
+/**
+ * The spans of a step, merged into non-overlapping ranges in offset order.
+ *
+ * Exported and shared with `metrics.ts` rather than written twice. "What text
+ * does this step cover" has to mean one thing: if the coverage metric and the
+ * title-provenance check computed it separately they could disagree, and the
+ * disagreement would surface as a step that is unsourced according to one and
+ * fully covered according to the other.
+ */
+export function mergedSpanRanges(
+  spans: readonly SourceSpan[],
+): readonly { readonly start: number; readonly end: number }[] {
+  const ordered = spans
+    .slice()
+    .sort((a, b) => (a.start === b.start ? a.end - b.end : a.start - b.start));
+
+  const merged: { start: number; end: number }[] = [];
+  for (const span of ordered) {
+    if (span.end <= span.start) continue;
+    const open = merged.length > 0 ? merged[merged.length - 1] : null;
+    if (open === null || open.end < span.start) merged.push({ start: span.start, end: span.end });
+    else if (span.end > open.end) open.end = span.end;
+  }
+  return merged;
+}
+
+/**
+ * Whitespace is not provenance.
+ *
+ * Two spans joined across a gap produce one space where the source had a comma
+ * and a space, and a title carrying a trailing newline is the same title. The
+ * comparison is over what the words are, not how they were spaced.
+ */
+function normaliseForSourcing(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+/** The text a step's spans actually cover, segments joined in offset order. */
+function coveredTextOf(sourceText: string, spans: readonly SourceSpan[]): string {
+  return mergedSpanRanges(spans)
+    .map((range) => sourceText.slice(range.start, range.end))
+    .join(' ');
+}
+
 export interface ExampleValidationResult {
   readonly exampleId: string;
   /** False when either list below is non-empty. */
@@ -175,6 +231,8 @@ export function validateProposedSteps(
 
   for (const step of steps) {
     const stepId = step.stepId;
+    const stepUsableSpans: SourceSpan[] = [];
+    let stepHadUnusableSpan = false;
 
     if (seenStepIds.has(stepId)) {
       violations.push(
@@ -217,6 +275,7 @@ export function validateProposedSteps(
     step.sourceSpans.forEach((span, index) => {
       const where = `step '${stepId}' span[${index}]`;
       if (!spanIsInRange(span, length)) {
+        stepHadUnusableSpan = true;
         violations.push(
           violation(
             'SPAN_OUT_OF_RANGE',
@@ -227,6 +286,7 @@ export function validateProposedSteps(
         return;
       }
       if (sourceText.slice(span.start, span.end) !== span.text) {
+        stepHadUnusableSpan = true;
         violations.push(
           violation(
             'SPAN_MISMATCH',
@@ -237,7 +297,44 @@ export function validateProposedSteps(
         return;
       }
       usableSpans.push({ stepId, span });
+      stepUsableSpans.push(span);
     });
+
+    // `UNSOURCED_STEP`, second shape: the spans check out and the *title* is
+    // something they do not support.
+    //
+    // The first shape (no span at all, no admission of inference) is checked
+    // above. This one is what a hostile or hallucinating provider produces: a
+    // span that round-trips perfectly beside a title that was never in the
+    // text — `Wire $9,000 to account 12345` next to a clean citation of
+    // something else entirely. Every other provenance check passes it, because
+    // every other check interrogates the span and none interrogates the claim
+    // the span is offered in support of.
+    //
+    // Skipped in two cases, each because the defect is already named and a
+    // second code would send a maintainer to the wrong place:
+    //
+    //  - a blank title is `EMPTY_STEP`; whether nothing is sourced is not a
+    //    meaningful question;
+    //  - a step carrying an unusable span has no trustworthy text to compare
+    //    against, so its title cannot be judged at all. Same reasoning as an
+    //    out-of-range span not also being a mismatch.
+    if (
+      !step.inferred &&
+      step.sourceSpans.length > 0 &&
+      !stepHadUnusableSpan &&
+      step.title.trim().length > 0 &&
+      normaliseForSourcing(step.title) !== normaliseForSourcing(coveredTextOf(sourceText, stepUsableSpans))
+    ) {
+      violations.push(
+        violation(
+          'UNSOURCED_STEP',
+          stepId,
+          `step '${stepId}' has a title of ${step.title.length} code units that its ${stepUsableSpans.length} ` +
+            'span(s) do not source; the spans check out and the title is not what they select',
+        ),
+      );
+    }
 
     // A blank string is checked before the containment test, because
     // `indexOf('')` is 0: an empty timing "occurs verbatim" in every source text

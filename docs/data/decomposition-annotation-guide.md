@@ -142,9 +142,29 @@ Rules for the span set:
   field already has a way to say nothing: `null`. A blank is reported as `INVENTED_TIMING` /
   `INVENTED_OWNER`.
 
-A step with no span must set `inferred: true` and admit it. A step with no span that does not admit
-it is `UNSOURCED_STEP`; a step that claims inference *and* cites text is `INFERRED_WITH_SPAN`. A step
-with neither a span nor an admission is indistinguishable from an invented one.
+A step with no span must set `inferred: true` and admit it. A step that claims inference *and* cites
+text is `INFERRED_WITH_SPAN`.
+
+**`UNSOURCED_STEP` has two shapes, and the second is the one that is easy to miss:**
+
+1. A step with **no span at all** that does not admit to being inferred. It is indistinguishable
+   from an invented one.
+2. A step whose **spans do not source its `title`**. The title must be what its spans cover — equal
+   to the spanned text, or the concatenation of it across disjoint spans — unless `inferred` is true.
+
+Shape 2 is what a hostile or hallucinating provider produces: a span that round-trips perfectly
+beside a title that was never in the text — a clean citation of "Book the venue" under the title
+`Wire $9,000 to account 12345`. It passes exactness, range, overlap, timing and owner, because every
+one of those interrogates the *span* and none interrogates the claim the span is offered in support
+of. #27 found the hole from the adapter side; the code is shared, so the check is too, or the
+evaluator would score a corpus clean that the validator rejects.
+
+Two deliberate exemptions, each because the defect is already named and a second code would send you
+looking in the wrong place: a **blank** title is `EMPTY_STEP`, and a step carrying an **unusable**
+span (failed range or exactness) has no trustworthy text to be judged against at all.
+
+Whitespace is not provenance: the comparison collapses whitespace runs and trims, so a title spanning
+a comma-and-space gap in the source is sourced by the two spans either side of it.
 
 ### 2.4 Record only the dependencies the text states
 
@@ -462,7 +482,7 @@ node --no-warnings --loader ./scripts/ts-resolver.mjs --test tests/decomposition
 
 | File | Covers |
 |---|---|
-| `tests/decomposition/datasetExamples.test.ts` | Every violation code, span exactness by slicing, the audit-policy rule that no detail carries raw user text. |
+| `tests/decomposition/datasetExamples.test.ts` | Every violation code, both `UNSOURCED_STEP` shapes, span exactness by slicing, the audit-policy rule that no detail carries raw user text. |
 | `tests/decomposition/splitsDeterminism.test.ts` | Determinism, order-independence, leak-freedom, and that a mutated corpus fails the sealed checksums. |
 | `tests/decomposition/evaluatorMetrics.test.ts` | The three metrics and their denominators, run over `DECOMPOSITION_GOLDEN`. |
 | `tests/decomposition/evaluatorPipeline.test.ts` | The seam: shipped corpus → split → report, and that the locked split shares no row with train or valid. |

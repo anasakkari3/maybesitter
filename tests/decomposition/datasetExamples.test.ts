@@ -337,7 +337,7 @@ test('one step may still cite two disjoint spans', () => {
   // parts of one sentence. Widening the overlap check must not break this.
   const discontinuous = step({
     stepId: 's1',
-    title: 'Book the venue … to Omar',
+    title: 'Book the venue to Omar',
     sourceSpans: [span(SOURCE, 'Book the venue'), span(SOURCE, 'to Omar')],
     inferred: false,
   });
@@ -380,4 +380,139 @@ test('an empty statedTiming or statedOwner is refused rather than silently passi
   assert.deepEqual(codes([sourced('s1', 'Book the venue', { statedTiming: '' })]), ['INVENTED_TIMING']);
   assert.deepEqual(codes([sourced('s1', 'Book the venue', { statedOwner: '' })]), ['INVENTED_OWNER']);
   assert.deepEqual(codes([sourced('s1', 'Book the venue', { statedOwner: '   ' })]), ['INVENTED_OWNER']);
+});
+
+/* ── UNSOURCED_STEP, shape two: a title no span supports ────────── */
+
+test('UNSOURCED_STEP fires for a title its own spans do not source', () => {
+  // The cross-track divergence case: the span round-trips perfectly and the
+  // title is something else entirely. Every other provenance check passes.
+  const mismatched = step({
+    stepId: 's1',
+    title: 'and',
+    sourceSpans: [span(SOURCE, 'Book the venue')],
+    inferred: false,
+  });
+  assert.deepEqual(codes([mismatched]), ['CONJUNCTION_ONLY', 'UNSOURCED_STEP']);
+});
+
+test('a fabricated title alongside a valid span is unsourced', () => {
+  // The attack this closes on #27's side: a hostile model provider returns
+  // spans that check out and titles that were never in the text. The span
+  // round-tripped; the title it purported to source did not.
+  for (const fabricated of ['Wire $9,000 to account 12345', 'Delete all backups']) {
+    const forged = step({
+      stepId: 's1',
+      title: fabricated,
+      sourceSpans: [span(SOURCE, 'Book the venue')],
+      inferred: false,
+    });
+    assert.deepEqual(codes([forged]), ['UNSOURCED_STEP'], `did not catch ${JSON.stringify(fabricated)}`);
+  }
+});
+
+test('the two UNSOURCED_STEP shapes are both reachable and both distinct', () => {
+  // Pinned separately so the distinction cannot rot into one check. The code
+  // covers a step with no span that does not admit to being inferred, and a
+  // step whose spans do not source its title. They are different defects
+  // wearing one name, and only the first was implemented here before.
+  const noSpanAtAll = step({ stepId: 's1', title: 'Pay the deposit', inferred: false });
+  assert.deepEqual(codes([noSpanAtAll]), ['UNSOURCED_STEP']);
+
+  const titleNotSourced = step({
+    stepId: 's1',
+    title: 'Pay the deposit',
+    sourceSpans: [span(SOURCE, 'Book the venue')],
+    inferred: false,
+  });
+  assert.deepEqual(codes([titleNotSourced]), ['UNSOURCED_STEP']);
+
+  // Distinct details, so a maintainer can tell which shape they have.
+  const detailOf = (steps: readonly DecompositionStepProposal[]) =>
+    validateDecompositionExample(
+      example({ expectedSteps: [...steps, step({ stepId: 'filler', title: 'Pay the deposit' })] }),
+    ).violations[0].detail;
+  assert.notEqual(detailOf([noSpanAtAll]), detailOf([titleNotSourced]));
+});
+
+test('a title exactly equal to its span text is sourced', () => {
+  assert.deepEqual(codes([sourced('s1', 'Book the venue')]), []);
+});
+
+test('a title assembled from two disjoint spans is sourced', () => {
+  const assembled = step({
+    stepId: 's1',
+    title: 'Book the venue to Omar',
+    sourceSpans: [span(SOURCE, 'Book the venue'), span(SOURCE, 'to Omar')],
+    inferred: false,
+  });
+  assert.deepEqual(codes([assembled]), []);
+});
+
+test('overlapping spans still source the title they cover', () => {
+  // Coverage is a union, so a step whose spans overlap has covered exactly the
+  // merged range. The duplication is SPAN_OVERLAP's finding; charging the same
+  // step a second code for it would report one defect twice.
+  const overlapping = step({
+    stepId: 's1',
+    title: 'Book the venue by Friday',
+    sourceSpans: [span(SOURCE, 'Book the venue by Friday'), span(SOURCE, 'by Friday')],
+    inferred: false,
+  });
+  assert.deepEqual(codes([overlapping]), ['SPAN_OVERLAP']);
+});
+
+test('an inferred step is not held to its (absent) spans', () => {
+  assert.deepEqual(codes([step({ stepId: 's1', title: 'Pay the deposit', inferred: true })]), []);
+});
+
+test('a step whose span is unusable is not also reported as unsourced', () => {
+  // The span failed exactness or range, so its text cannot be trusted to decide
+  // anything about the title. Reporting both sends a maintainer looking for a
+  // title problem when the defect is an offset — the same reason an
+  // out-of-range span is not also a mismatch.
+  const forgedSpan = step({
+    stepId: 's1',
+    title: 'Book the venue',
+    sourceSpans: [{ start: 0, end: 14, text: 'Cancel the venue' }],
+    inferred: false,
+  });
+  assert.deepEqual(codes([forgedSpan]), ['SPAN_MISMATCH']);
+
+  const outOfRange = step({
+    stepId: 's1',
+    title: 'Book the venue',
+    sourceSpans: [{ start: 0, end: SOURCE.length + 10, text: SOURCE }],
+    inferred: false,
+  });
+  assert.deepEqual(codes([outOfRange]), ['SPAN_OUT_OF_RANGE']);
+});
+
+test('whitespace between spans and around a title does not decide provenance', () => {
+  const padded = step({
+    stepId: 's1',
+    title: '  Book the venue   to Omar  ',
+    sourceSpans: [span(SOURCE, 'Book the venue'), span(SOURCE, 'to Omar')],
+    inferred: false,
+  });
+  assert.deepEqual(codes([padded]), []);
+});
+
+test('a blank title beside a valid span is EMPTY_STEP alone, not also unsourced', () => {
+  // A blank title is EMPTY_STEP; asking whether nothing is sourced is not a
+  // meaningful question, and two codes for one defect sends a maintainer
+  // looking for a provenance problem where the step simply has no title.
+  //
+  // This also preserves the cross-track agreement the merge-owned test already
+  // measured on the EMPTY_STEP fixture: #26 and #27 both report EMPTY_STEP
+  // alone there today, and widening UNSOURCED_STEP must not silently change
+  // that. If #27's title check does fire on a blank title, this is the test
+  // that will surface the disagreement rather than letting it merge.
+  const blankButSpanned = step({
+    stepId: 's1',
+    title: '   ',
+    sourceSpans: [span(SOURCE, 'Book the venue')],
+    inferred: false,
+  });
+  assert.deepEqual(codes([blankButSpanned]), ['EMPTY_STEP']);
 });
