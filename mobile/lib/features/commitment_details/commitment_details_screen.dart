@@ -75,7 +75,12 @@ class CommitmentDetailsScreen extends ConsumerWidget {
     }
 
     Future<void> postpone() async {
-      final newDate = await PostponeSheet.show(context);
+      // Measured from where the commitment already sits, not from now — see
+      // `postponeOptionsFor`.
+      final newDate = await PostponeSheet.show(
+        context,
+        scheduledAt: commitment!.scheduledDate,
+      );
       if (newDate != null) {
         await ref.read(commitmentRepositoryProvider).postpone(id, newDate);
       }
