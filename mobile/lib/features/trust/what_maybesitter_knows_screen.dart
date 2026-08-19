@@ -10,6 +10,7 @@ import '../../design_system/tokens/radius.dart';
 import '../../design_system/tokens/spacing.dart';
 import '../../models/pilot_trust.dart';
 import '../pilot/pilot_state_notice.dart';
+import 'calendar_import_controller.dart';
 import 'pilot_trust_controller.dart';
 
 /// The "What MaybeSitter knows" inspection surface required by V03.
@@ -26,6 +27,7 @@ class WhatMaybeSitterKnowsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = context.l10n;
     final state = ref.watch(pilotTrustControllerProvider);
+    final calendarImport = ref.watch(calendarImportControllerProvider);
 
     return MaybesitterScaffold(
       appBar: MaybesitterAppBar(
@@ -50,7 +52,12 @@ class WhatMaybeSitterKnowsScreen extends ConsumerWidget {
           retryLabel: l10n.retryAction,
           onRetry: () => ref.read(pilotTrustControllerProvider.notifier).load(),
         ),
-        _ => _KnowsBody(knows: state.snapshot!.whatKnows),
+        _ => _KnowsBody(
+          knows: state.snapshot!.whatKnows,
+          calendarConnected:
+              calendarImport.snapshot?.isConnected ??
+              state.snapshot!.whatKnows.calendarConnected,
+        ),
       },
     );
   }
@@ -58,7 +65,8 @@ class WhatMaybeSitterKnowsScreen extends ConsumerWidget {
 
 class _KnowsBody extends StatelessWidget {
   final WhatMaybeSitterKnows knows;
-  const _KnowsBody({required this.knows});
+  final bool calendarConnected;
+  const _KnowsBody({required this.knows, required this.calendarConnected});
 
   @override
   Widget build(BuildContext context) {
@@ -73,12 +81,16 @@ class _KnowsBody extends StatelessWidget {
               _Row(
                 icon: Icons.checklist_rounded,
                 label: l10n.knowsCommitmentsLabel,
-                value: l10n.knowsCommitmentsCount(knows.confirmedCommitmentCount),
+                value: l10n.knowsCommitmentsCount(
+                  knows.confirmedCommitmentCount,
+                ),
               ),
               _Row(
                 icon: Icons.lightbulb_outline_rounded,
                 label: l10n.knowsRecommendationLabel,
-                value: knows.recommendationConsent ? l10n.knowsOn : l10n.knowsOff,
+                value: knows.recommendationConsent
+                    ? l10n.knowsOn
+                    : l10n.knowsOff,
               ),
               _Row(
                 icon: Icons.insights_outlined,
@@ -88,7 +100,7 @@ class _KnowsBody extends StatelessWidget {
               _Row(
                 icon: Icons.calendar_today_outlined,
                 label: l10n.knowsCalendarLabel,
-                value: knows.calendarConnected
+                value: calendarConnected
                     ? l10n.knowsConnected
                     : l10n.knowsNotConnected,
               ),

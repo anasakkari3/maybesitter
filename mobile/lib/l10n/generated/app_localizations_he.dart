@@ -720,6 +720,105 @@ class AppLocalizationsHe extends AppLocalizations {
       'MaybeSitter יציע לחבר את היומן שלך רק אחרי שבאמת יועיל לך. עד אז הוא לא יבקש.';
 
   @override
+  String get trustCalendarProviderApple => 'Apple Calendar דרך EventKit';
+
+  @override
+  String get trustCalendarConsentOffMessage =>
+      'ייבוא היומן כבוי. האפליקציה עדיין עובדת בלעדיו.';
+
+  @override
+  String get trustCalendarNotConnectedMessage =>
+      'ההסכמה פעילה, אבל עדיין לא יובא דבר. חבר את Apple Calendar כשתרצה ש-MaybeSitter יראה זמנים תפוסים.';
+
+  @override
+  String get trustCalendarPermissionDeniedMessage =>
+      'הגישה ליומן כבויה בהגדרות ה-iPhone, ולכן MaybeSitter ממשיך לעבוד גם בלעדיה.';
+
+  @override
+  String get trustCalendarUnsupportedMessage =>
+      'הפיילוט מתחיל עם Apple Calendar ב-iPhone בלבד. MaybeSitter עדיין עובד בלי גישה ליומן.';
+
+  @override
+  String trustCalendarImportedSummary(int count, int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'יובאו $count זמנים תפוסים ל-$days הימים הקרובים.',
+      two: 'יובאו שני זמנים תפוסים ל-$days הימים הקרובים.',
+      one: 'יובא זמן תפוס אחד ל-$days הימים הקרובים.',
+      zero: 'עדיין לא יובאו זמנים תפוסים ל-$days הימים הקרובים.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String trustCalendarDisconnectedRetainedMessage(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'Apple Calendar מנותק. $count זמנים תפוסים שיובאו עדיין שמורים במכשיר הזה עד שתמחק אותם.',
+      two:
+          'Apple Calendar מנותק. שני זמנים תפוסים שיובאו עדיין שמורים במכשיר הזה עד שתמחק אותם.',
+      one:
+          'Apple Calendar מנותק. זמן תפוס אחד שיובא עדיין שמור במכשיר הזה עד שתמחק אותו.',
+      zero: 'Apple Calendar מנותק.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String trustCalendarLastSynced(Object value) {
+    return 'סונכרן לאחרונה: $value';
+  }
+
+  @override
+  String get trustCalendarConflictTitle => 'נמצאו התנגשויות בלו\"ז';
+
+  @override
+  String trustCalendarConflictMessage(int commitments, int busyBlocks) {
+    String _temp0 = intl.Intl.pluralLogic(
+      commitments,
+      locale: localeName,
+      other: '$commitments התחייבויות ב-MaybeSitter חופפות ל-',
+      two: 'שתי התחייבויות ב-MaybeSitter חופפות ל-',
+      one: 'התחייבות אחת ב-MaybeSitter חופפת ל-',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      busyBlocks,
+      locale: localeName,
+      other: '$busyBlocks זמנים תפוסים מיובאים.',
+      two: 'שני זמנים תפוסים מיובאים.',
+      one: 'זמן תפוס מיובא אחד.',
+    );
+    return '$_temp0$_temp1';
+  }
+
+  @override
+  String get trustCalendarConnectAction => 'לחבר עכשיו';
+
+  @override
+  String get trustCalendarRefreshAction => 'רענון הייבוא';
+
+  @override
+  String get trustCalendarDisconnectAction => 'ניתוק';
+
+  @override
+  String get trustCalendarDeleteDataAction => 'מחיקת הנתונים שיובאו';
+
+  @override
+  String get trustCalendarConnectedMessage => 'Apple Calendar מחובר.';
+
+  @override
+  String get trustCalendarRefreshedMessage => 'ייבוא היומן רוענן.';
+
+  @override
+  String get trustCalendarDisconnectedMessage => 'Apple Calendar נותק.';
+
+  @override
+  String get trustCalendarDeletedMessage => 'נתוני היומן שיובאו נמחקו.';
+
+  @override
   String get trustWhatWeKnowAction => 'מה MaybeSitter יודע';
 
   @override
