@@ -228,11 +228,12 @@ test('the coaching module never reaches the safety module, and #39 never reaches
   for (const file of Array.from(importClosure(sourceFilesUnder(moduleDir)).keys())) {
     assert.equal(relative(file).startsWith('lib/safety/'), false, `${relative(file)} is reachable from lib/coaching`);
   }
-  const safetyDir = join(repoRoot, 'lib', 'safety');
-  const safetyFiles = sourceFilesUnder(safetyDir);
-  // Skipped rather than failed while #39 is in flight: this track must not turn
-  // red because another track has not landed its module yet. When it lands, the
-  // assertion below runs for real.
+  const safetyFiles = sourceFilesUnder(join(repoRoot, 'lib', 'safety'));
+  // #39's module has landed, so this half is no longer vacuous — and saying so
+  // with a count is the difference between "nothing reaches coaching" and
+  // "nothing was scanned". The suite exercises the two together in
+  // `claimValidator.test.ts`, which is a test-level edge and not a module one.
+  assert.ok(safetyFiles.length > 0, 'lib/safety was not found; this guard would pass by scanning nothing');
   for (const file of Array.from(importClosure(safetyFiles).keys())) {
     assert.equal(relative(file).startsWith('lib/coaching/'), false, `${relative(file)} is reachable from lib/safety`);
   }

@@ -116,6 +116,31 @@
  * in `COACHING_REALIZATION_POLICY.excludedModes` so that it is a decision
  * someone recorded rather than an omission nothing notices.
  *
+' * ## The decision-echo ruling (#39), adopted in full
+ *
+ * `toSafetyCandidate` once **dropped** decision echoes, on the reasoning that a
+ * claim about the user's own act has no evidence node to cite and that both
+ * available alternatives were worse. #39 ruled against the exclusion and found
+ * a third option: the class only looked uncheckable because `SafetyRequest` did
+ * not carry the decision record, which is a gap in the safety contract rather
+ * than a fact about the world. The request now carries `attestedDecisions`,
+ * `CandidateClaimKind` gained `decision_echo`, and echoes are emitted with
+ * `supportedBy: []` — correct rather than a violation, because the exemption is
+ * explicit there and tested in both directions.
+ *
+ * The ruling corrects this module's earlier reasoning and the correction is
+ * worth keeping: excluding the class would have left the sharpest thing this
+ * module can emit checked by this module alone, which is what #39 refuses to
+ * import `lib/coaching/**` in order to prevent. This module's own contract
+ * calls a fabricated completion the worst output it can produce and one field
+ * away from a correct one.
+ *
+ * `DECISION_CLAIM_WITHOUT_DECISION` and `DECISION_CLAIM_VERDICT_MISMATCH` stay
+ * beside #39's two new codes. Sprint 06's line runs exactly here: the
+ * *judgement* is made twice on purpose, by a producer and by an independent
+ * guard, and the merge compares them; the *data* is single-sourced, because
+ * `attestedDecisions` is Sprint 08's `RecommendationDecision`.
+ *
  * ## Known gap, with its deletion condition
  *
  * The forbidden-language lexicons are **English**. An Arabic or Hebrew template

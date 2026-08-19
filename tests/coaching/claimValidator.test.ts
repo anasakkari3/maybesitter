@@ -25,7 +25,11 @@ import {
   COACHING_CLAIM_SUPPORT_RECOVERY,
   CANDIDATE_CLAIM_KIND_FOR_COACHING_CLAIM,
   COACHING_CLAIM_KINDS,
+  DECISION_ECHO_CLAIM_KINDS,
+  EVIDENCE_BACKED_CLAIM_KINDS,
   PRESSURE_INTENSITY_FOR_INTENT,
+  UNKNOWN_COACHING_CLAIM_CANDIDATE_KIND,
+  UNKNOWN_INTENT_PRESSURE_INTENSITY,
   type CoachingOutput,
   type CoachingPlan,
 } from '../../src/contracts/v1/coachingContracts';
@@ -38,13 +42,16 @@ import {
   type RecommendationDecision,
 } from '../../src/contracts/v1/recommendationContracts';
 import {
+  CANDIDATE_CLAIM_KINDS,
   SAFETY_CODE_BOUNDARIES,
   SAFETY_CODE_SCOPES,
   SAFETY_CODE_SEVERITY,
   SAFETY_CODE_STAGES,
   type SafetyFinding,
+  type SafetyRequest,
   type SafetyVerdict,
 } from '../../src/contracts/v1/safetyContracts';
+import { evaluateSafetyGate } from '../../lib/safety';
 import {
   checkClaimSupport,
   checkCoachingLanguage,
@@ -350,38 +357,152 @@ test('identifiersOf collects every free string the recommendation carries', () =
 
 /* ── The conversion to #39 candidate ─────────────────────────────── */
 
-test('every converted claim is a statement carrying no instant', () => {
+test('every evidence-backed claim converts to a statement carrying no instant', () => {
   // The pin behind `FABRICATED_INSTANT` being unreachable for this producer.
   // The reason it is unreachable is proved in `realizer.test.ts`, against the
   // templates rather than against this mapping.
   for (const source of [soleSurvivor('OVERDUE', 0.9), choiceOffer(), onlyCandidate(), withheld()]) {
-    const candidate = toSafetyCandidate(outputFor(source), 'candidate-fixed');
+    const candidate = toSafetyCandidate(outputFor(source), 'candidate-fixed', []);
     for (const claim of candidate.claims) {
       assert.equal(claim.kind, 'statement');
       assert.equal(claim.statedInstant, null);
+      assert.equal(claim.decisionIndex, null, 'only a decision echo names an attested decision');
+      assert.equal(claim.echoedVerdict, null, 'only a decision echo attributes an act to the user');
       assert.ok(claim.supportedBy.length > 0, 'this module must never hand the gateway an unsourced claim');
     }
   }
-  for (const kind of COACHING_CLAIM_KINDS) {
+  for (const kind of EVIDENCE_BACKED_CLAIM_KINDS) {
     assert.equal((CANDIDATE_CLAIM_KIND_FOR_COACHING_CLAIM as Readonly<Record<string, string>>)[kind], 'statement');
+  }
+  for (const kind of COACHING_CLAIM_KINDS) {
+    const mapped = (CANDIDATE_CLAIM_KIND_FOR_COACHING_CLAIM as Readonly<Record<string, string>>)[kind];
+    assert.ok(mapped !== undefined, `no candidate kind is mapped for coaching claim kind ${kind}`);
+    assert.ok((CANDIDATE_CLAIM_KINDS as readonly string[]).includes(mapped), `${kind} maps outside #39's frozen list`);
   }
 });
 
-test('a decision echo contributes a segment and no claim, by count', () => {
-  // Deliberate: an echo has no evidence, and `supportedBy: []` would earn
-  // #39's blocking `UNSOURCED_CLAIM` on every honest acknowledgement. Pinned
-  // with a count so it reads as a decision rather than a claim gone missing.
+/* ── The decision-echo ruling (#39) ──────────────────────────────── */
+
+test('a decision echo is emitted, not dropped, and names its attested record', () => {
+  // #39 ruled against the earlier exclusion: the class only looked uncheckable
+  // because `SafetyRequest` did not carry the record. Dropping echoes would
+  // have left a fabricated completion — the worst output this module can
+  // produce — checked by this module alone.
   const base = soleSurvivor();
   const decision = doneDecision(base.recommendationId);
   const output = outputFor(base, decision);
-  const candidate = toSafetyCandidate(output, 'candidate-fixed');
+  const candidate = toSafetyCandidate(output, 'candidate-fixed', [decision]);
+
   assert.equal(output.claims.length, 1, 'the fixture must produce exactly one echo');
-  assert.equal(candidate.segments.length, 1, 'the prose still reaches the gateway');
-  assert.equal(candidate.claims.length, 0, 'an echo asserts nothing about trusted state');
+  assert.equal(candidate.segments.length, 1, 'the prose reaches the gateway');
+  assert.equal(candidate.claims.length, 1, 'the echo reaches the gateway too, and is no longer dropped');
+
+  const echo = candidate.claims[0];
+  assert.equal(echo.kind, 'decision_echo');
+  assert.equal(echo.decisionIndex, 0, 'the index must name the attested record, by position');
+  assert.equal(echo.echoedVerdict, 'done');
+  assert.deepEqual(echo.supportedBy, [], "empty is correct here; #39's exemption is explicit");
+  assert.equal(echo.statedInstant, null);
+  for (const kind of DECISION_ECHO_CLAIM_KINDS) {
+    assert.equal((CANDIDATE_CLAIM_KIND_FOR_COACHING_CLAIM as Readonly<Record<string, string>>)[kind], 'decision_echo');
+  }
+});
+
+test('an unattested decision converts to a null index, which is what #39 blocks', () => {
+  // Attestation is the gateway's judgement, not this module's. Re-deriving it
+  // here would be the second *copy of data* Sprint 06 forbids, as opposed to
+  // the second *judgement* it endorses — which this module already makes, in
+  // `DECISION_CLAIM_WITHOUT_DECISION` and `DECISION_CLAIM_VERDICT_MISMATCH`.
+  const base = soleSurvivor();
+  const decision = doneDecision(base.recommendationId);
+  const output = outputFor(base, decision);
+
+  const cases: ReadonlyArray<readonly [string, readonly RecommendationDecision[]]> = [
+    ['nothing attested at all', []],
+    ['a record for a different recommendation', [{ ...decision, recommendationId: 'some-other-recommendation' }]],
+    ['a record targeting a different option', [{ ...decision, optionIndex: 3 }]],
+    ['a whole-offer dismissal where the echo names an option', [{ ...decision, optionIndex: null }]],
+  ];
+  for (const [why, attested] of cases) {
+    const candidate = toSafetyCandidate(output, 'candidate-fixed', attested);
+    assert.equal(candidate.claims[0].decisionIndex, null, `expected a null index when ${why}`);
+    assert.equal(candidate.claims[0].echoedVerdict, 'done', 'the echo still says what the prose attributes');
+  }
+  // Defaulting the argument away is the same fail-closed direction.
+  assert.equal(toSafetyCandidate(output, 'candidate-fixed').claims[0].decisionIndex, null);
+});
+
+test('the attestation match is on recommendation and option, never on the verdict', () => {
+  // Matching on the verdict is the shortcut that destroys the check: a
+  // fabricated `done` would find whichever record happens to say `done`, so
+  // `DECISION_ECHO_MISMATCHED` could never fire. The index must name the record
+  // the echo is *about*, so the gateway can compare the two.
+  const base = soleSurvivor();
+  const done = doneDecision(base.recommendationId);
+  const output = outputFor(base, done);
+  const deferred: RecommendationDecision = { ...done, verdict: 'defer' };
+
+  const candidate = toSafetyCandidate(output, 'candidate-fixed', [deferred]);
+  assert.equal(candidate.claims[0].decisionIndex, 0, 'the record about this option must still be located');
+  assert.equal(candidate.claims[0].echoedVerdict, 'done', 'and the echo must still say what the prose says');
+  assert.notEqual(
+    candidate.claims[0].echoedVerdict,
+    deferred.verdict,
+    "the disagreement must survive into the candidate for #39's DECISION_ECHO_MISMATCHED to see it",
+  );
+});
+
+test('every decision verdict produces an echo the gateway can locate', () => {
+  const base = soleSurvivor();
+  for (const verdict of ['accept', 'edit', 'done', 'dismiss', 'defer'] as const) {
+    const decision: RecommendationDecision = {
+      version: RECOMMENDATION_CONTRACT_VERSION,
+      recommendationId: base.recommendationId,
+      optionIndex: verdict === 'dismiss' ? null : 0,
+      verdict,
+      ...(verdict === 'edit' ? { editedTitle: 'a replacement the user wrote' } : {}),
+      decidedAt: NOW,
+    };
+    const candidate = toSafetyCandidate(outputFor(base, decision), 'candidate-fixed', [decision]);
+    assert.equal(candidate.claims.length, 1, `no echo emitted for ${verdict}`);
+    assert.equal(candidate.claims[0].kind, 'decision_echo');
+    assert.equal(candidate.claims[0].decisionIndex, 0, `${verdict} echo did not locate its record`);
+    assert.equal(candidate.claims[0].echoedVerdict, verdict);
+  }
+});
+
+/* ── Both fallbacks fail closed ──────────────────────────────────── */
+
+test('an unrecognised claim kind converts to a blocking kind, never to a statement', () => {
+  // #39 recorded that `postValidator.ts` held private copies of
+  // `CANDIDATE_CLAIM_KINDS` and `PROPOSED_EFFECT_KINDS` that had already
+  // diverged once. A quiet `?? 'statement'` default is the same shape: a local
+  // opinion about a contract-owned vocabulary, substituting its most permissive
+  // member.
+  const source = soleSurvivor('OVERDUE', 0.9);
+  const output = outputFor(source);
+  const mutated = {
+    ...output,
+    claims: output.claims.map((claim, index) => (index === 0 ? { ...claim, kind: 'motivational' } : claim)),
+  } as unknown as CoachingOutput;
+  const candidate = toSafetyCandidate(mutated, 'candidate-fixed', []);
+  assert.equal(candidate.claims[0].kind, UNKNOWN_COACHING_CLAIM_CANDIDATE_KIND);
+  assert.equal(candidate.claims[0].kind, 'decision_echo');
+  assert.equal(candidate.claims[0].decisionIndex, null, 'so #39 blocks it with DECISION_ECHO_UNATTESTED');
+  assert.notEqual(candidate.claims[0].kind, 'statement', 'a statement default would slip through as ordinary prose');
+});
+
+test('an unrecognised intent overstates its pressure rather than declaring none', () => {
+  const source = soleSurvivor('OVERDUE', 0.9);
+  const mutated = { ...outputFor(source), intent: 'unheard_of' } as unknown as CoachingOutput;
+  const candidate = toSafetyCandidate(mutated, 'candidate-fixed', []);
+  assert.equal(candidate.pressure, UNKNOWN_INTENT_PRESSURE_INTENSITY);
+  assert.notEqual(candidate.pressure, 'none', 'a none default is how an unknown intent slips under the budget');
+  assert.notEqual(candidate.pressure, 'high', 'and no coaching intent may claim the engine escalation band');
 });
 
 test('a coaching candidate declares no effect and never overstates its pressure', () => {
-  const candidate = toSafetyCandidate(outputFor(soleSurvivor('OVERDUE', 0.9)), 'candidate-fixed');
+  const candidate = toSafetyCandidate(outputFor(soleSurvivor('OVERDUE', 0.9)), 'candidate-fixed', []);
   assert.equal(candidate.surface, 'coaching_message');
   assert.deepEqual(candidate.effects.map((effect) => effect.kind), ['none']);
   for (const level of Object.values(PRESSURE_INTENSITY_FOR_INTENT)) {
@@ -538,4 +659,122 @@ test('no defect detail from any pass quotes an identifier', () => {
       assert.equal(one.detail.includes(identifier), false, `a defect detail quoted ${identifier}`);
     }
   }
+});
+
+/* ── End to end against #39's real gateway ───────────────────────── */
+
+/**
+ * The conformance proof.
+ *
+ * Everything above checks the *conversion* against what #39's contract says.
+ * These run the conversion's output through `evaluateSafetyGate` itself, which
+ * is the only thing that proves the two tracks agree rather than that this
+ * track read the contract carefully. Sprint 07's recorded lesson is that a
+ * cross-track claim is only as strong as the granularity it is checked at, and
+ * "the shapes typecheck" is the weakest granularity available.
+ *
+ * The import runs test → `lib/safety`, which is a direction
+ * `coachingBoundaries.test.ts` permits: it forbids `lib/coaching/**` reaching
+ * `lib/safety/**` at runtime and the reverse, and a test that exercises both is
+ * neither.
+ */
+
+function safetyRequestFor(attested: readonly RecommendationDecision[]): SafetyRequest {
+  return {
+    requestId: 'request-fixed',
+    surface: 'coaching_message',
+    now: NOW,
+    inputs: [],
+    permittedSensitivity: 'personal',
+    pressureBudget: {
+      maxIntensity: 'medium',
+      minIntervalMinutes: 0,
+      lastPressuredAt: null,
+      consecutiveUnansweredCount: 0,
+      maxConsecutiveUnanswered: 3,
+    },
+    attestedDecisions: attested,
+  };
+}
+
+test('an honest coaching turn is allowed by the real gateway, in every locale', () => {
+  for (const source of [soleSurvivor('OVERDUE', 0.9), choiceOffer(), onlyCandidate(), withheld()]) {
+    const candidate = toSafetyCandidate(outputFor(source), 'candidate-fixed', []);
+    const result = evaluateSafetyGate({ request: safetyRequestFor([]), candidate, auditId: 'audit-fixed' });
+    assert.equal(
+      result.verdict.disposition,
+      'allow',
+      `an honest ${candidate.surface} turn was refused: ${JSON.stringify(result.verdict.findings.map((one) => one.code))}`,
+    );
+  }
+});
+
+test('an honest completion acknowledgement is allowed once its decision is attested', () => {
+  const base = soleSurvivor();
+  const decision = doneDecision(base.recommendationId);
+  const candidate = toSafetyCandidate(outputFor(base, decision), 'candidate-fixed', [decision]);
+  const result = evaluateSafetyGate({ request: safetyRequestFor([decision]), candidate, auditId: 'audit-fixed' });
+  assert.equal(
+    result.verdict.disposition,
+    'allow',
+    `refused: ${JSON.stringify(result.verdict.findings.map((one) => one.code))}`,
+  );
+});
+
+test('the real gateway blocks a completion echo nothing attests', () => {
+  // The class #39 ruled back into scope. Under the earlier dropping conversion
+  // this candidate carried no claim at all, so the gateway had nothing to
+  // check and would have allowed it.
+  const base = soleSurvivor();
+  const decision = doneDecision(base.recommendationId);
+  const candidate = toSafetyCandidate(outputFor(base, decision), 'candidate-fixed', []);
+  const result = evaluateSafetyGate({ request: safetyRequestFor([]), candidate, auditId: 'audit-fixed' });
+  assert.equal(result.verdict.disposition, 'block');
+  const codes = result.verdict.findings.map((one) => one.code);
+  assert.ok(codes.includes('DECISION_ECHO_UNATTESTED'), `expected DECISION_ECHO_UNATTESTED, got ${JSON.stringify(codes)}`);
+});
+
+test('the real gateway blocks a completion echo the record contradicts', () => {
+  // A fabrication by the realizer: the store recorded `defer`, the prose says
+  // the user closed it out. This is what the attestation match on
+  // (recommendation, option) rather than on verdict exists to make visible.
+  const base = soleSurvivor();
+  const done = doneDecision(base.recommendationId);
+  const deferred: RecommendationDecision = { ...done, verdict: 'defer' };
+  const candidate = toSafetyCandidate(outputFor(base, done), 'candidate-fixed', [deferred]);
+  const result = evaluateSafetyGate({ request: safetyRequestFor([deferred]), candidate, auditId: 'audit-fixed' });
+  assert.equal(result.verdict.disposition, 'block');
+  const codes = result.verdict.findings.map((one) => one.code);
+  assert.ok(codes.includes('DECISION_ECHO_MISMATCHED'), `expected DECISION_ECHO_MISMATCHED, got ${JSON.stringify(codes)}`);
+});
+
+test('the full delivery path allows an honest turn and withholds a fabricated one', () => {
+  const base = soleSurvivor();
+  const done = doneDecision(base.recommendationId);
+  const deferred: RecommendationDecision = { ...done, verdict: 'defer' };
+  const output = outputFor(base, done);
+  const gate = (attested: readonly RecommendationDecision[]) => (candidate: Parameters<typeof evaluateSafetyGate>[0]['candidate']) =>
+    evaluateSafetyGate({ request: safetyRequestFor(attested), candidate, auditId: 'audit-fixed' }).verdict;
+
+  const honest = deliverCoaching({
+    output,
+    recommendation: base,
+    decision: done,
+    candidateId: 'candidate-fixed',
+    attestedDecisions: [done],
+    gate: gate([done]),
+  });
+  assert.equal(honest.disposition, 'delivered');
+
+  const fabricated = deliverCoaching({
+    output,
+    recommendation: base,
+    decision: done,
+    candidateId: 'candidate-fixed',
+    attestedDecisions: [deferred],
+    gate: gate([deferred]),
+  });
+  assert.equal(fabricated.disposition, 'withheld');
+  assert.deepEqual(fabricated.blockedBy, ['safety_gateway'], 'this module own gate cannot see an attestation mismatch');
+  assert.equal(fabricated.recovery.kind, 'show_evidence_only', "#39's recovery for DECISION_ECHO_MISMATCHED, carried verbatim");
 });

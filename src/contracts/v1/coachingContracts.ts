@@ -806,21 +806,60 @@ export const COACHING_ABSENT_GATEWAY_RECOVERY: SafeUserPath = Object.freeze({
 export const COACHING_SAFETY_SURFACE: SafetySurface = 'coaching_message';
 
 /**
- * How each coaching intent maps onto #39's `CandidateClaim` kinds.
+ * How each coaching claim kind maps onto #39's `CandidateClaim` kinds.
  *
  * Total over `CoachingClaimKind`, so a claim kind added here without deciding
  * what the gateway should see is a compile error.
  *
- * **Every coaching claim is a `statement`, and that is a property rather than a
- * default.** `time` is the kind whose `statedInstant` the hallucinated-time
- * boundary reads, and this module's realizer never renders an instant: its
- * templates are *selected* from a closed table and never assembled from input
- * (`COACHING_REALIZATION_POLICY.templatesAreSelectedNotAssembled`), so there is
- * no path by which a time reaches prose. `FABRICATED_INSTANT` therefore cannot
- * fire on this producer, and `tests/coaching/claimValidator.test.ts` pins the
- * reason it cannot — every converted claim carries `statedInstant: null` — so
- * the day a template grows an interpolated time, the pin fails rather than the
- * gateway silently starting to matter.
+ * ── The decision-echo ruling (#39, cross-track adjudication) ──────
+ *
+ * An earlier version of this table mapped all eleven kinds to `'statement'`,
+ * and `toSafetyCandidate` **dropped** the three decision echoes rather than
+ * emit them with `supportedBy: []` — which would have fired #39's blocking
+ * `UNSOURCED_CLAIM` on every honest acknowledgement this module can produce.
+ * The two alternatives available at the time were both worse and are recorded
+ * on `DecisionEchoClaim`: attaching the accepted option's evidence makes a
+ * *fabricated* completion look sourced, and a nullable evidence field makes
+ * "rests on nothing" and "we forgot to attach it" the same value.
+ *
+ * #39 found a third option and ruled against the exclusion. The class only
+ * looked uncheckable because `SafetyRequest` did not carry the decision
+ * record; that is a gap in the safety contract, not a fact about the world. So
+ * the request now carries `attestedDecisions`, `CandidateClaimKind` gained
+ * `decision_echo`, and the class is **checkable rather than exempt**.
+ *
+ * The ruling is adopted here in full, and the reasoning is worth keeping
+ * because it corrects this file's earlier one: excluding the class would have
+ * left the sharpest thing this module can emit checked by this module alone —
+ * and #39 refuses to import `lib/coaching/**` precisely to preserve Sprint 05's
+ * rule that a check owned by the thing it checks is not a check. This file's
+ * own comment calls a fabricated completion the worst output the module can
+ * produce and one field away from a correct one. That is the last claim class
+ * that should have been trusted to its producer.
+ *
+ * ── Why this is not a second copy of this file's own codes ────────
+ *
+ * `DECISION_CLAIM_WITHOUT_DECISION` and `DECISION_CLAIM_VERDICT_MISMATCH` stay,
+ * and #39's `DECISION_ECHO_UNATTESTED` and `DECISION_ECHO_MISMATCHED` sit
+ * beside them deliberately. Sprint 06's line runs exactly here: two independent
+ * implementations of a *judgement* are a check on each other — which is what
+ * the merge's cross-track test compares, at `(claimIndex, code)` granularity —
+ * while two copies of *data* are a gap waiting for whichever caller falls into
+ * it. The judgement is made twice on purpose. The **data** is single-sourced:
+ * `attestedDecisions` is Sprint 08's `RecommendationDecision`, imported by #39
+ * rather than restated, so a mismatch finding reports a fabrication and never a
+ * disagreement between two spellings of a verdict.
+ *
+ * ── What still holds: no claim states an instant ──────────────────
+ *
+ * The eight evidence-backed kinds remain `'statement'`. `time` is the kind
+ * whose `statedInstant` the hallucinated-time boundary reads, and this module's
+ * realizer never renders an instant: its templates are *selected* from a closed
+ * table and never assembled from input
+ * (`COACHING_REALIZATION_POLICY.templatesAreSelectedNotAssembled`), so no time
+ * can reach prose. `tests/coaching/realizer.test.ts` proves that against **the
+ * template table**, not against this mapping — the mapping is what this track
+ * decided, and the table is where a time would actually get interpolated.
  *
  * `quantity` and `commitment_state` are the tempting mappings for `effort` and
  * `nothing_to_offer`, and both are wrong for the same reason: they promise the
@@ -838,10 +877,28 @@ export const CANDIDATE_CLAIM_KIND_FOR_COACHING_CLAIM = Object.freeze({
   effort: 'statement',
   sole_option: 'statement',
   nothing_to_offer: 'statement',
-  user_accepted: 'statement',
-  user_completed: 'statement',
-  user_dismissed: 'statement',
+  user_accepted: 'decision_echo',
+  user_completed: 'decision_echo',
+  user_dismissed: 'decision_echo',
 }) satisfies Readonly<Record<CoachingClaimKind, CandidateClaimKind>>;
+
+/**
+ * The `CandidateClaim` kind a claim of unrecognised coaching kind is given.
+ *
+ * `decision_echo`, deliberately, and **not** `'statement'`. This is the
+ * fail-closed direction: an unrecognised kind converted to `'statement'` slips
+ * through as an ordinary sourced assertion, while one converted to
+ * `decision_echo` with a null `decisionIndex` earns #39's blocking
+ * `DECISION_ECHO_UNATTESTED` and cannot be delivered.
+ *
+ * It exists as a named constant because #39 recorded that `postValidator.ts`
+ * held private copies of `CANDIDATE_CLAIM_KINDS` and `PROPOSED_EFFECT_KINDS`
+ * that had already diverged once — a local opinion about a contract-owned
+ * vocabulary, spelled as a quiet `?? 'statement'` default. A default that
+ * substitutes a vocabulary member is that same shape, and the only safe
+ * substitute is one that blocks.
+ */
+export const UNKNOWN_COACHING_CLAIM_CANDIDATE_KIND: CandidateClaimKind = 'decision_echo';
 
 /**
  * The pressure intensity each intent declares to the gateway.
@@ -870,6 +927,22 @@ export const PRESSURE_INTENSITY_FOR_INTENT = Object.freeze({
 /** Levels no coaching intent declares. See above; a named exclusion, not a gap. */
 export const COACHING_EXCLUDED_PRESSURE_LEVELS = Object.freeze(['high'] as const) satisfies
   readonly PressureIntensityLevel[];
+
+/**
+ * The level declared for an intent this version does not recognise.
+ *
+ * The **highest** any coaching intent declares, not the lowest. A `'none'`
+ * default would make an unrecognised intent the one that slips under the
+ * pressure budget entirely — a fail-open default wearing the costume of a safe
+ * one, and the same shape as the `?? 'statement'` claim-kind default that
+ * `UNKNOWN_COACHING_CLAIM_CANDIDATE_KIND` exists to refuse.
+ *
+ * Not `'high'`: that is the engine's escalation band and no coaching intent may
+ * honestly claim it, so defaulting there would trade a fail-open for a false
+ * declaration. The rule is "overstate within what this module can truthfully
+ * say", which is `'medium'`.
+ */
+export const UNKNOWN_INTENT_PRESSURE_INTENSITY: PressureIntensityLevel = 'medium';
 
 /* ── Defects ─────────────────────────────────────────────────────── */
 

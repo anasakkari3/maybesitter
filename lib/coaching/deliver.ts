@@ -40,6 +40,8 @@ import {
   COACHING_SAFETY_SURFACE,
   CANDIDATE_CLAIM_KIND_FOR_COACHING_CLAIM,
   PRESSURE_INTENSITY_FOR_INTENT,
+  UNKNOWN_COACHING_CLAIM_CANDIDATE_KIND,
+  UNKNOWN_INTENT_PRESSURE_INTENSITY,
   isEvidenceBackedClaim,
   type CoachingDefect,
   type CoachingDelivery,
@@ -52,7 +54,11 @@ import type {
   ProposedEffect,
   SafetyCandidate,
 } from '../../src/contracts/v1/safetyContracts';
-import { offeredOptions, type Recommendation } from '../../src/contracts/v1/recommendationContracts';
+import {
+  offeredOptions,
+  type Recommendation,
+  type RecommendationDecision,
+} from '../../src/contracts/v1/recommendationContracts';
 import { checkClaimSupport, type ClaimSupportInput } from './validator/claimSupport';
 import { checkCoachingLanguage } from './validator/language';
 
@@ -112,56 +118,99 @@ export function identifiersOf(recommendation: Recommendation): readonly string[]
  * `candidateId` is **supplied**, never minted: `randomUUID` is banned under
  * `lib/coaching/**` and two runs of one request must agree.
  *
- * ## Every claim is a `statement`, and no claim states an instant
+ * `attestedDecisions` is the same array the caller will put on the
+ * `SafetyRequest`. It is a parameter rather than something derived here,
+ * because the whole value of the check is that the producer and the request
+ * are different places: a `decisionIndex` computed against a list this function
+ * invented would be a claim measuring its own fixture.
  *
- * `CANDIDATE_CLAIM_KIND_FOR_COACHING_CLAIM` maps all eleven coaching claim
- * kinds to `'statement'`, so every converted claim carries
- * `statedInstant: null` and #39's `FABRICATED_INSTANT` cannot fire on this
- * producer. That is a property rather than a default, and the property rests on
- * `COACHING_TEMPLATES` interpolating nothing — which is what
- * `tests/coaching/realizer.test.ts` scans, rather than scanning this mapping.
+ * ## Decision echoes are emitted, not dropped
  *
- * ## Decision echoes are omitted from `claims`, and this is deliberate
+ * An earlier version of this function dropped them. #39 ruled against that and
+ * the ruling is adopted in full — see the long note on
+ * `CANDIDATE_CLAIM_KIND_FOR_COACHING_CLAIM`. The short version: the class only
+ * looked uncheckable because `SafetyRequest` did not carry the decision record,
+ * which is a gap in the safety contract rather than a fact about the world.
+ * Dropping them would have left the sharpest thing this module can emit —
+ * a fabricated completion, which this module's own contract calls the worst
+ * output it can produce — checked by this module alone, which is exactly what
+ * #39 refuses to import `lib/coaching/**` in order to prevent.
  *
- * A `DecisionEchoClaim` has no evidence, because the user's own act is not a
- * fact about trusted state that the recommendation read. Converting it to
- * `supportedBy: []` would make #39 report `UNSOURCED_CLAIM` — a **blocking**
- * severity — on every honest acknowledgement this module can produce, and the
- * only ways to avoid that would be to attach the accepted option's evidence to
- * it (which makes a fabricated completion look sourced) or to suppress the
- * gateway for those turns (which removes the guard exactly where a false
- * completion would live).
+ * So an echo now travels as `kind: 'decision_echo'`, `supportedBy: []` (correct
+ * rather than a violation, because the exemption is explicit in #39's contract
+ * and tested there in both directions), `echoedVerdict` set to what the prose
+ * attributes to the user, and `decisionIndex` pointing at the attested record.
  *
- * So an echo contributes its **segment** and not a claim: the gateway still
- * scans the prose for shame language, persistence claims and identifiers, and
- * still sees `effects: [{ kind: 'none' }]` — so "you finished that, I am
- * tracking it" is still caught by `PERSISTENCE_CLAIMED`. What it does not do is
- * ask the gateway to trace a claim about the world where the module is making
- * none.
+ * **A decision this function was handed but which is not attested gets
+ * `decisionIndex: null`**, and #39 blocks it with `DECISION_ECHO_UNATTESTED`.
+ * That is deliberate and is the division of labour: attestation is the
+ * gateway's judgement, not this module's, and re-deriving it here would be the
+ * second *copy of data* Sprint 06's lesson forbids — as opposed to the second
+ * *judgement* it endorses, which is what this module's own
+ * `DECISION_CLAIM_WITHOUT_DECISION` and `DECISION_CLAIM_VERDICT_MISMATCH`
+ * already are.
  *
- * `tests/coaching/claimValidator.test.ts` pins the omission with a count, so it
- * reads as a decision rather than as a claim that went missing. **Revisit if**
- * #39 grows a claim kind for a user act; that is #39's taxonomy to extend, not
- * this module's.
+ * ## Every other claim is a statement, and no claim states an instant
+ *
+ * The eight evidence-backed kinds map to `'statement'`, so every one of them
+ * carries `statedInstant: null` and #39's `FABRICATED_INSTANT` cannot fire on
+ * this producer. That property rests on `COACHING_TEMPLATES` interpolating
+ * nothing, which is what `tests/coaching/realizer.test.ts` scans — rather than
+ * on this mapping, which is only what this track decided.
+ *
+ * ## The two fallbacks both fail closed
+ *
+ * An unrecognised claim kind becomes `UNKNOWN_COACHING_CLAIM_CANDIDATE_KIND`
+ * (`decision_echo`, with a null index, so #39 blocks it) rather than
+ * `'statement'`, and an unrecognised intent declares
+ * `UNKNOWN_INTENT_PRESSURE_INTENSITY` rather than `'none'`. Both were quiet
+ * `??` defaults that substituted the *most permissive* member of a
+ * contract-owned vocabulary — the same shape as the private copies of
+ * `CANDIDATE_CLAIM_KINDS` and `PROPOSED_EFFECT_KINDS` that #39 found in its own
+ * `postValidator.ts`, where the new kind would have been reported
+ * `UNKNOWN_CANDIDATE_SHAPE` by the very validator meant to check it.
  */
-export function toSafetyCandidate(output: CoachingOutput, candidateId: string): SafetyCandidate {
+export function toSafetyCandidate(
+  output: CoachingOutput,
+  candidateId: string,
+  attestedDecisions: readonly RecommendationDecision[] = [],
+): SafetyCandidate {
   const sentences = Array.isArray(output?.sentences) ? output.sentences : [];
   const segments: CandidateSegment[] = sentences.map((sentence) => ({
     role: 'body' as const,
     text: typeof sentence?.text === 'string' ? sentence.text : '',
   }));
 
+  const attested = Array.isArray(attestedDecisions) ? attestedDecisions : [];
   const claims: CandidateClaim[] = [];
   const source = Array.isArray(output?.claims) ? output.claims : [];
   for (let index = 0; index < source.length; index += 1) {
     const claim = source[index];
-    if (claim === null || claim === undefined || !isEvidenceBackedClaim(claim)) continue;
+    if (claim === null || claim === undefined || typeof claim !== 'object') continue;
     const table = CANDIDATE_CLAIM_KIND_FOR_COACHING_CLAIM as Readonly<Record<string, CandidateClaim['kind']>>;
+    const kind = Object.prototype.hasOwnProperty.call(table, claim.kind as string)
+      ? table[claim.kind as string]
+      : UNKNOWN_COACHING_CLAIM_CANDIDATE_KIND;
+
+    if (!isEvidenceBackedClaim(claim)) {
+      claims.push({
+        // Positional, not caller-chosen. An index cannot carry content.
+        claimId: `claim-${index}`,
+        kind,
+        statedInstant: null,
+        decisionIndex: attestationIndexOf(attested, output, claim.source.optionIndex ?? null),
+        echoedVerdict: claim.source.verdict,
+        supportedBy: [],
+      });
+      continue;
+    }
+
     claims.push({
-      // Positional, not caller-chosen. An index cannot carry content.
       claimId: `claim-${index}`,
-      kind: table[claim.kind] ?? 'statement',
+      kind,
       statedInstant: null,
+      decisionIndex: null,
+      echoedVerdict: null,
       supportedBy: Array.isArray(claim.supportedBy) ? claim.supportedBy : [],
     });
   }
@@ -177,12 +226,49 @@ export function toSafetyCandidate(output: CoachingOutput, candidateId: string): 
     claims,
     evidence: output?.evidence ?? { nodes: [] },
     effects: COACHING_PROPOSED_EFFECTS,
-    pressure: pressure ?? 'none',
+    pressure: pressure ?? UNKNOWN_INTENT_PRESSURE_INTENSITY,
   };
+}
+
+/**
+ * The position of the attested record this echo is about, or null.
+ *
+ * Matched on `recommendationId` **and** `optionIndex`, never on the verdict.
+ * Matching on the verdict is the tempting shortcut and it destroys the check:
+ * an echo claiming `done` would then find whichever record happens to say
+ * `done`, so a fabricated completion would locate an attestation for itself and
+ * `DECISION_ECHO_MISMATCHED` could never fire. The index must name the record
+ * the echo is *about*, so that #39 can compare what the prose says against what
+ * that record actually carries.
+ *
+ * Null when nothing matches — which #39 blocks as `DECISION_ECHO_UNATTESTED`.
+ * That is the right answer rather than a gap: this module is saying "I name no
+ * attested decision", and it is the gateway's job to decide what that means.
+ */
+function attestationIndexOf(
+  attested: readonly RecommendationDecision[],
+  output: CoachingOutput,
+  optionIndex: number | null,
+): number | null {
+  for (let index = 0; index < attested.length; index += 1) {
+    const record = attested[index];
+    if (record === null || record === undefined || typeof record !== 'object') continue;
+    if (record.recommendationId !== output?.recommendationId) continue;
+    if ((record.optionIndex ?? null) !== optionIndex) continue;
+    return index;
+  }
+  return null;
 }
 
 export interface CoachingDeliveryInput extends ClaimSupportInput {
   readonly candidateId: string;
+  /**
+   * The user acts the caller attests happened — the same array it will put on
+   * the `SafetyRequest`. Defaults to empty, which means every decision echo
+   * converts with a null `decisionIndex` and #39 blocks it: the fail-closed
+   * direction, on the same terms as `absentGatewayBlocksDelivery`.
+   */
+  readonly attestedDecisions?: readonly RecommendationDecision[];
   /** #39's gateway. Null is refusal, never permission. */
   readonly gate: CoachingGatewayGate;
 }
@@ -225,7 +311,7 @@ export function deliverCoaching(input: CoachingDeliveryInput): CoachingDelivery 
     };
   }
 
-  const verdict = safe.gate(toSafetyCandidate(output, safe.candidateId));
+  const verdict = safe.gate(toSafetyCandidate(output, safe.candidateId, safe.attestedDecisions ?? []));
   if (verdict === null || verdict === undefined || typeof verdict !== 'object') {
     return {
       disposition: 'withheld',
