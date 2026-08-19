@@ -357,16 +357,28 @@ export interface PlanningConfig {
  *                               working window with `endMinute <= startMinute`.
  *                               Covers the degenerate zero-length case; see
  *                               `TimeInterval`.
- *                               Also carries three window defects that are not
- *                               interval defects and have no better code in this
- *                               frozen list: a `weekday` outside 0..6, a
- *                               `startMinute`/`endMinute` outside 0..1440 or
- *                               non-integral, and an IANA zone the runtime does
- *                               not know. Licensed here rather than decided per
- *                               track, because a malformed window that is
- *                               *silently dropped* reports `NO_WORKING_WINDOW`
- *                               instead — telling the user they have no
- *                               availability when what they have is a typo.
+ *                               Also carries exactly four window defects that
+ *                               are not interval defects and have no better
+ *                               code in this frozen list:
+ *                                 (a) `weekday` outside 0..6 or non-integral;
+ *                                 (b) `startMinute` outside 0..1440, NaN, or
+ *                                     non-integral;
+ *                                 (c) `endMinute` likewise;
+ *                                 (d) a `timezone` this runtime's IANA data
+ *                                     does not know.
+ *                               (b) and (c) are not implied by the rule above:
+ *                               `NaN <= 540` and `1441 <= 540` are both false,
+ *                               so `endMinute <= startMinute` never fires on
+ *                               them, and an unguarded NaN reaches
+ *                               `resolveLocalTime` and yields corrupt instants.
+ *                               Licensed here rather than decided per track,
+ *                               because a malformed window that is *silently
+ *                               dropped* reports `NO_WORKING_WINDOW` instead —
+ *                               telling the user they have no availability when
+ *                               what they have is a typo. An unknown zone must
+ *                               likewise be reported rather than thrown on:
+ *                               a validator that raises cannot return the
+ *                               finding list it exists to return.
  * - `EFFORT_UNKNOWN`          — the item's duration is unknown, so no slot can
  *                               be sized for it. Reported, never guessed.
  * - `EFFORT_NOT_POSITIVE`     — a `known` effort of zero or less.
