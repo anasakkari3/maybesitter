@@ -90,9 +90,10 @@ class FlutterLocalNotificationsGateway implements LocalNotificationsGateway {
 
     final options = await ios.checkPermissions();
     if (options == null) return NativeNotificationPermission.notDetermined;
-    return options.isEnabled
-        ? NativeNotificationPermission.granted
-        : NativeNotificationPermission.denied;
+    return nativePermissionFrom(
+      isEnabled: options.isEnabled,
+      isProvisionalEnabled: options.isProvisionalEnabled,
+    );
   }
 
   @override

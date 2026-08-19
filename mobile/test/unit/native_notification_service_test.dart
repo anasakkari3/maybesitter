@@ -78,6 +78,8 @@ ScheduledNotificationRequest _request({
 );
 
 void main() {
+  _permissionMapping();
+
   group('permission is the platform\'s answer, never our own', () {
     test('reports denied when the platform denied', () async {
       final gateway = _FakeGateway(
@@ -277,6 +279,39 @@ void main() {
         gateway.scheduled.map((n) => n.commitmentId),
         ['c2'],
       );
+    });
+  });
+}
+
+// The plugin reports iOS authorization as a set of booleans. Mapping them is
+// real logic: provisional authorization delivers notifications quietly, so
+// treating it as a denial would make the app refuse to schedule reminders that
+// iOS would in fact deliver.
+void _permissionMapping() {
+  group('reading the platform\'s authorization', () {
+    test('full authorization is granted', () {
+      expect(
+        nativePermissionFrom(isEnabled: true, isProvisionalEnabled: false),
+        NativeNotificationPermission.granted,
+      );
+    });
+
+    test('provisional authorization is granted, not denied', () {
+      expect(
+        nativePermissionFrom(isEnabled: false, isProvisionalEnabled: true),
+        NativeNotificationPermission.granted,
+      );
+    });
+
+    test('no authorization of any kind is denied', () {
+      expect(
+        nativePermissionFrom(isEnabled: false, isProvisionalEnabled: false),
+        NativeNotificationPermission.denied,
+      );
+    });
+
+    test('an absent answer is not determined, not denied', () {
+      expect(nativePermissionFrom(), NativeNotificationPermission.notDetermined);
     });
   });
 }

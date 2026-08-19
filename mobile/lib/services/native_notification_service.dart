@@ -49,6 +49,25 @@ class NativeNotificationActionEvent {
   });
 }
 
+/// Read iOS's authorization booleans as one permission state.
+///
+/// Provisional authorization counts as granted. It is a real grant -- iOS
+/// delivers the notification, quietly, without a prompt -- so reporting it as
+/// denied would make the app refuse to schedule reminders that would have
+/// arrived. Absent settings mean not determined, which is a question, not a no.
+NativeNotificationPermission nativePermissionFrom({
+  bool? isEnabled,
+  bool? isProvisionalEnabled,
+}) {
+  if (isEnabled == null && isProvisionalEnabled == null) {
+    return NativeNotificationPermission.notDetermined;
+  }
+  if (isEnabled == true || isProvisionalEnabled == true) {
+    return NativeNotificationPermission.granted;
+  }
+  return NativeNotificationPermission.denied;
+}
+
 /// A notification the platform still has pending for us.
 @immutable
 class PendingNativeNotification {
