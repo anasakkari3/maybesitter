@@ -31,16 +31,23 @@
  * knowable after placement was tried, and an oracle that guessed at them would
  * be a scheduler with no plan to show for it.
  *
- * ── One defect earns one code ───────────────────────────────────────
+ * ── One defect earns one code, and only one defect ──────────────────
  *
  * `decompositionContracts` set the rule and `PlanningReasonCode` restates it
- * for `SELF_DEPENDENCY` over `CYCLIC_DEPENDENCY`. It is applied consistently
- * here, and the two places it goes beyond the contract's letter are called out
- * where they happen: `EFFORT_EXCEEDS_ITEM_WINDOW` is only considered for an
- * item that is otherwise clean, and `NO_WORKING_WINDOW` is suppressed when a
- * window-level finding already explains why there is no time. Both are the
- * difference between a maintainer reading one finding and reading three that
- * co-vary.
+ * for `SELF_DEPENDENCY` over `CYCLIC_DEPENDENCY`. The rule is about one
+ * *subject* earning one code — not about a request earning as few as possible.
+ *
+ * The line this file draws: **a judgement is suppressed only where it would
+ * borrow a bound from something already reported invalid.**
+ * `EFFORT_EXCEEDS_ITEM_WINDOW` is silent when the effort has no size, when the
+ * item's own window was already reported empty, or when it would measure
+ * against a horizon that is itself the broken thing. It is *not* silent merely
+ * because some unrelated code fired: a dangling dependency edge supplies none
+ * of that arithmetic's bounds, and an earlier, wider gate reported one code
+ * where the constraints held two.
+ *
+ * Nothing suppresses `NO_WORKING_WINDOW` on the strength of a window-level
+ * finding. See the rule for why that reasoning did not survive.
  *
  * ── No clock, no randomness ─────────────────────────────────────────
  *
@@ -52,9 +59,15 @@
  * ── Details never carry user text ───────────────────────────────────
  *
  * `PLANNING_PERSISTENCE_POLICY.rawInputInAudit` is false and `PlanningReason`
- * says `detail` "never carries raw user text". Every message here is built from
- * ids, minute counts and dates. `PlanningItem.title` is never read by this
- * module at all, which is the strongest form of that guarantee available.
+ * says `detail` "never carries raw user text". **No caller-supplied string of
+ * any kind reaches a `detail`** — not a title, not an id, not a zone name, not
+ * an instant. Windows, events and items are named by their position in the
+ * request; numbers and derived dates are quoted freely.
+ *
+ * A shape filter is not enough and was tried: 64 characters of
+ * `[A-Za-z0-9._:-]` admits `call-dr.cohen-about-the-biopsy`, and a caller
+ * chooses ids as freely as titles. `PlanningItem.title` is never read by this
+ * module at all, which is the strongest form of the guarantee available.
  */
 import {
   MINUTES_PER_DAY,
@@ -87,6 +100,16 @@ import {
 const MS_PER_MINUTE = 60_000;
 const MS_PER_DAY = 86_400_000;
 
+/**
+ * How many overlapping blocking-event pairs are named individually.
+ *
+ * A bound, not a preference: `PlanningReason` values travel with a plan into
+ * audit records, and an unbounded enumeration of a duplicated calendar feed is
+ * a memory amplifier rather than a diagnosis. Anything beyond this is reported
+ * as a count.
+ */
+export const MAX_FIXED_EVENT_CONFLICT_REASONS = 32;
+
 /** Code-unit ordering, never `localeCompare`: a verdict must not depend on the host locale. */
 function byCodeUnit(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
@@ -101,20 +124,58 @@ function reason(code: StaticInfeasibilityCode, itemId: string | null, detail: st
 }
 
 /**
- * A caller-supplied identifier, reduced to something safe to quote.
+ * No caller-supplied string ever reaches a `PlanningReason.detail`.
  *
- * Ids in this repository are machine-minted, but `PlanningConstraints` arrives
- * from a request and every string in it is as untrusted as a title. Sprint 06
- * found a corpus row that put a user's sentence verbatim into three issue
- * messages by way of an "id". The position of the row locates the defect just
- * as well and carries nothing, so anything that does not look like an id is
- * replaced by its index.
+ * An earlier draft quoted ids that "looked safe" — 64 characters of
+ * `[A-Za-z0-9._:-]`. That filter admits `call-dr.cohen-about-the-biopsy` and
+ * `anasakkari04-gmail.com`, both of which a caller can put in a `windowId` or an
+ * `eventId`, and `detail` is the field most likely to reach a log. There is no
+ * shape test that separates an identifier from a sentence, because the caller
+ * chooses both.
+ *
+ * So windows, events and items are named by their **position in the request**.
+ * The position locates the defect exactly as well and carries nothing. An
+ * item's identity is not lost: `PlanningReason.itemId` is a typed field of its
+ * own, and repeating the id in the prose would put it in the one place the
+ * policy says it must not be.
+ *
+ * Numbers are quoted freely. A minute count is not user text, and the number is
+ * what makes the finding actionable.
  */
-function safeRef(value: unknown, index: number, kind: string): string {
-  if (typeof value === 'string' && value.length > 0 && value.length <= 64 && /^[A-Za-z0-9._:-]+$/.test(value)) {
-    return value;
+function positionRef(kind: string, index: number): string {
+  // Windows and events only. Items are located by `PlanningReason.itemId`.
+  return `${kind} at position ${index}`;
+}
+
+/**
+ * Whether the runtime's tzdata knows this zone.
+ *
+ * `Intl.DateTimeFormat` *throws* on an unknown zone, and the throw surfaces far
+ * from the field that caused it: an unparseable zone used to escape
+ * `assessFeasibility` as a `RangeError`, which took `scenarioCorpusIssues` with
+ * it — the one function whose whole job is to return a list of problems rather
+ * than raise one. A misspelt zone is a defect in the input, and a defect in the
+ * input is a finding, not a crash.
+ *
+ * Memoised because the corpus gate asks the same handful of zones thousands of
+ * times and constructing a formatter is not cheap. The cache is a pure
+ * function's memo, not state: the same zone always gives the same answer for a
+ * given runtime.
+ */
+const KNOWN_TIME_ZONES = new Map<string, boolean>();
+
+function isKnownTimeZone(timeZone: unknown): boolean {
+  if (typeof timeZone !== 'string' || timeZone.length === 0) return false;
+  const cached = KNOWN_TIME_ZONES.get(timeZone);
+  if (cached !== undefined) return cached;
+  let known = true;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone });
+  } catch {
+    known = false;
   }
-  return `${kind}#${index}`;
+  KNOWN_TIME_ZONES.set(timeZone, known);
+  return known;
 }
 
 /* ── Window materialisation ──────────────────────────────────────── */
@@ -129,12 +190,38 @@ function safeRef(value: unknown, index: number, kind: string): string {
  * this plan.
  */
 interface WindowOccurrence {
-  readonly windowId: string;
   readonly windowIndex: number;
   readonly localDate: string;
   readonly interval: TimeInterval | null;
-  readonly probe: TimeInterval;
+  /**
+   * The span this occurrence could touch, as raw epoch milliseconds.
+   *
+   * Milliseconds rather than a `TimeInterval` because the probe is legitimately
+   * **empty** in the case that matters most: a window lying entirely inside a
+   * spring-forward gap resolves both of its ends to the same instant, the one
+   * the clock jumps to. `intersectIntervals` returns null for an empty interval
+   * by design — the empty set intersects nothing — so relevance asked through
+   * it silently dropped the anomaly, and the sharpest possible DST input was
+   * the one the DST code never fired on. Relevance is a containment question
+   * here, not an overlap question, and `touchesHorizon` answers the one asked.
+   */
+  readonly probeStartMs: number;
+  readonly probeEndMs: number;
   readonly anomaly: 'none' | 'nonexistent' | 'ambiguous';
+}
+
+/**
+ * Whether an occurrence is near enough to the horizon to be this plan's problem.
+ *
+ * A degenerate probe is a point, and a point is inside a half-open horizon when
+ * it is at or after the start and strictly before the end. A non-empty probe is
+ * the usual half-open overlap.
+ */
+function touchesHorizon(startMs: number, endMs: number, horizonStartMs: number, horizonEndMs: number): boolean {
+  const low = Math.min(startMs, endMs);
+  const high = Math.max(startMs, endMs);
+  if (low === high) return low >= horizonStartMs && low < horizonEndMs;
+  return low < horizonEndMs && high > horizonStartMs;
 }
 
 function isFoldPolicy(value: unknown): value is 'earliest' | 'latest' {
@@ -174,6 +261,18 @@ function isoDate(dayMarkerMs: number): string {
  * rather than clamped.
  */
 function windowDefect(window: WorkingWindow): string | null {
+  // The same argument as the minute domain, one field over. A `weekday` of 7 or
+  // of 1.5 matches no day the calendar has, so the window silently never occurs
+  // and its availability disappears instead of being reported as the defect it
+  // is. `Weekday` states the domain; a value outside it denotes no day.
+  if (!Number.isInteger(window.weekday) || window.weekday < 0 || window.weekday > 6) {
+    return `weekday ${String(window.weekday)} is outside 0..6`;
+  }
+  // Checked here rather than left to Intl, so an unknown zone is a finding
+  // instead of a RangeError thrown from three frames down.
+  if (!isKnownTimeZone(window.timezone)) {
+    return 'the named time zone is not one this runtime knows';
+  }
   if (!Number.isInteger(window.startMinute) || !Number.isInteger(window.endMinute)) {
     return 'window minutes must be integers';
   }
@@ -227,7 +326,6 @@ function occurrencesOf(
     const probeEnd = endResolution.kind === 'exact'
       ? endResolution.instant
       : endResolution.kind === 'gap' ? endResolution.resumesAt : endResolution.secondInstant;
-    const probe: TimeInterval = { startsAt: probeStart, endsAt: probeEnd };
 
     let anomaly: WindowOccurrence['anomaly'] = 'none';
     let startInstant: Instant | null;
@@ -270,11 +368,11 @@ function occurrencesOf(
       : null;
 
     occurrences.push({
-      windowId: safeRef(window.windowId, windowIndex, 'window'),
       windowIndex,
       localDate: isoDate(day),
       interval,
-      probe,
+      probeStartMs: toEpochMs(probeStart),
+      probeEndMs: toEpochMs(probeEnd),
       anomaly,
     });
   }
@@ -431,23 +529,15 @@ export function assessFeasibility(
   /* Constraint-level: intervals. */
 
   if (!horizonValid) {
-    reasons.push(reason(
-      'INVALID_INTERVAL',
-      null,
-      `horizon ends at or before it starts (${horizon.startsAt} .. ${horizon.endsAt})`,
-    ));
+    // No instants quoted: `startsAt` is a caller-supplied string like every
+    // other, and there is only one horizon, so naming it locates the defect.
+    reasons.push(reason('INVALID_INTERVAL', null, 'the horizon ends at or before it starts'));
   }
 
-  let windowLevelFinding = false;
   constraints.workingWindows.forEach((window, index) => {
     const defect = windowDefect(window);
     if (defect === null) return;
-    windowLevelFinding = true;
-    reasons.push(reason(
-      'INVALID_INTERVAL',
-      null,
-      `working window ${safeRef(window.windowId, index, 'window')}: ${defect}`,
-    ));
+    reasons.push(reason('INVALID_INTERVAL', null, `${positionRef('working window', index)}: ${defect}`));
   });
 
   constraints.fixedEvents.forEach((event, index) => {
@@ -458,7 +548,7 @@ export function assessFeasibility(
       // A zero-length event occupies no time while claiming a position: it
       // conflicts with nothing and nothing conflicts with it, so no overlap
       // assertion anywhere could see it. That is the whole reason it is a code.
-      `fixed event ${safeRef(event.eventId, index, 'event')} ends at or before it starts`,
+      `${positionRef('fixed event', index)} ends at or before it starts`,
     ));
   });
 
@@ -470,24 +560,23 @@ export function assessFeasibility(
       if (windowDefect(window) !== null) return;
       for (const occurrence of occurrencesOf(window, index, horizon, config.foldPolicy)) {
         if (occurrence.anomaly === 'none') continue;
-        if (intersectIntervals(occurrence.probe, horizon) === null) continue;
-        const key = `${occurrence.anomaly}:${occurrence.windowId}:${occurrence.localDate}`;
+        if (!touchesHorizon(occurrence.probeStartMs, occurrence.probeEndMs, horizonStartMs, horizonEndMs)) continue;
+        const key = `${occurrence.anomaly}:${occurrence.windowIndex}:${occurrence.localDate}`;
         if (seenAnomalies.has(key)) continue;
         seenAnomalies.add(key);
-        windowLevelFinding = true;
         reasons.push(
           occurrence.anomaly === 'nonexistent'
             ? reason(
                 'NONEXISTENT_LOCAL_TIME',
                 null,
-                `working window ${occurrence.windowId} starts in a transition gap on ${occurrence.localDate} `
-                  + `in ${window.timezone}`,
+                `${positionRef('working window', occurrence.windowIndex)} starts in a transition gap `
+                  + `on ${occurrence.localDate}`,
               )
             : reason(
                 'AMBIGUOUS_LOCAL_TIME',
                 null,
-                `working window ${occurrence.windowId} starts in a transition fold on ${occurrence.localDate} `
-                  + `in ${window.timezone} and the config states no fold policy`,
+                `${positionRef('working window', occurrence.windowIndex)} starts in a transition fold `
+                  + `on ${occurrence.localDate} and the config states no fold policy`,
               ),
         );
       }
@@ -500,17 +589,31 @@ export function assessFeasibility(
   const availableIntervals = freeWorkingIntervals(constraints, config);
   const availableMinutes = availableIntervals.reduce((total, span) => total + intervalMinutes(span), 0);
 
-  // Suppressed when the input is already known malformed. "Your horizon is
-  // degenerate" and "and therefore you have no windows" are one defect, and a
-  // second code that only ever co-occurs with the first tells a maintainer
-  // nothing while making the two look like independent evidence.
-  if (working.length === 0 && horizonValid && !windowLevelFinding) {
+  // An earlier draft suppressed this whenever some window had already been
+  // reported malformed, on the ground that a code which only ever co-occurs
+  // with another is not independent evidence. That ground does not hold, and
+  // the suppression was removed rather than tested:
+  //
+  //  - NO_WORKING_WINDOW fires on its own (no windows supplied, or a weekday the
+  //    horizon never reaches), and INVALID_INTERVAL fires on its own (one bad
+  //    window among four good ones). They co-occur only when the malformed
+  //    window happened to be the *only* source of time — and there both are
+  //    true, at different scopes: one names a window, one describes the request.
+  //  - The contract's "one defect earns one code" precedent is about one *item*
+  //    earning one code, not about findings with different subjects.
+  //  - Suppressing it hid a real answer to "can anything be placed at all"
+  //    behind an unrelated field-level complaint.
+  //
+  // The horizon remains a gate. With a degenerate horizon, "no window intersects
+  // it" is trivially true of every input ever submitted, so the code would carry
+  // no information at all — that one really is purely derived.
+  if (working.length === 0 && horizonValid) {
     reasons.push(reason(
       'NO_WORKING_WINDOW',
       null,
       constraints.workingWindows.length === 0
         ? 'no working windows were supplied'
-        : `none of the ${constraints.workingWindows.length} working window(s) occurs inside the horizon`,
+        : `none of the ${constraints.workingWindows.length} working window(s) yields time inside the horizon`,
     ));
   }
 
@@ -519,27 +622,61 @@ export function assessFeasibility(
   const blocking = constraints.fixedEvents
     .map((event, index) => ({ event, index }))
     .filter((entry) => entry.event.blocking && isPositiveInterval(entry.event.interval))
-    .sort((left, right) =>
-      byCodeUnit(
-        safeRef(left.event.eventId, left.index, 'event'),
-        safeRef(right.event.eventId, right.index, 'event'),
-      ),
-    );
+    .sort((left, right) => {
+      const byStart = toEpochMs(left.event.interval.startsAt) - toEpochMs(right.event.interval.startsAt);
+      if (byStart !== 0) return byStart;
+      const byEnd = toEpochMs(left.event.interval.endsAt) - toEpochMs(right.event.interval.endsAt);
+      // Position last, and it is unique, so the order is total and neither input
+      // array order nor sort stability can reach the output.
+      return byEnd !== 0 ? byEnd : left.index - right.index;
+    });
 
-  for (let outer = 0; outer < blocking.length; outer += 1) {
-    for (let inner = outer + 1; inner < blocking.length; inner += 1) {
-      // Through the shared `intervalsOverlap`, so abutting events do not
-      // conflict. A local `<=` here would make the oracle refuse back-to-back
-      // meetings that #30 places deliberately, and both would be self-consistent.
-      if (!intervalsOverlap(blocking[outer].event.interval, blocking[inner].event.interval)) continue;
-      const left = safeRef(blocking[outer].event.eventId, blocking[outer].index, 'event');
-      const right = safeRef(blocking[inner].event.eventId, blocking[inner].index, 'event');
-      reasons.push(reason(
-        'FIXED_EVENT_CONFLICT',
-        null,
-        `blocking fixed events ${left} and ${right} overlap`,
-      ));
+  // A sweep, not every pair. Pairwise enumeration is quadratic in a shape that
+  // occurs for ordinary reasons — a duplicated calendar feed — and it was
+  // measured at 19,900 reasons and 874 KB of `detail` for 200 events, which then
+  // travel with the plan into audit records. #29's validator was bounded for
+  // exactly this after a Sprint 06 draft produced 1.12 MB of `detail`; running
+  // into it again here would be a regression into a failure this repository has
+  // already paid for and written down.
+  //
+  // The sweep is complete for the question the cross-track test asks. That
+  // comparison is over code *sets*: if any two blocking events overlap, sorting
+  // by start guarantees at least one adjacent-in-sweep pair does too, so the
+  // code is emitted whenever it is true. What is bounded is how many times.
+  let openEnd = -Infinity;
+  let openIndex = -1;
+  let conflictsFound = 0;
+  for (const entry of blocking) {
+    const startsAt = toEpochMs(entry.event.interval.startsAt);
+    const endsAt = toEpochMs(entry.event.interval.endsAt);
+    // Strict `<`, matching the shared `intervalsOverlap`: abutting events share
+    // the instant one ends and the other begins and do not conflict. A local
+    // `<=` here would make the oracle refuse back-to-back meetings that #30
+    // places deliberately, and both would be self-consistent.
+    if (openIndex >= 0 && startsAt < openEnd) {
+      conflictsFound += 1;
+      if (conflictsFound <= MAX_FIXED_EVENT_CONFLICT_REASONS) {
+        reasons.push(reason(
+          'FIXED_EVENT_CONFLICT',
+          null,
+          `blocking fixed events at positions ${openIndex} and ${entry.index} overlap`,
+        ));
+      }
     }
+    if (endsAt > openEnd) {
+      openEnd = endsAt;
+      openIndex = entry.index;
+    }
+  }
+  if (conflictsFound > MAX_FIXED_EVENT_CONFLICT_REASONS) {
+    // Reported as a count rather than dropped. Truncating in silence would let a
+    // calendar with thousands of collisions look like one with a few dozen.
+    reasons.push(reason(
+      'FIXED_EVENT_CONFLICT',
+      null,
+      `${conflictsFound - MAX_FIXED_EVENT_CONFLICT_REASONS} further overlapping blocking event(s) `
+        + 'were found and not enumerated individually',
+    ));
   }
 
   /* Per item. */
@@ -548,18 +685,28 @@ export function assessFeasibility(
   const onCycle = itemsOnCycles(constraints.items, config);
   let demandMinutes = 0;
 
-  constraints.items.forEach((item, index) => {
-    const ref = safeRef(item.itemId, index, 'item');
+  constraints.items.forEach((item) => {
+    // No locator in the prose at all, and not even a position. `PlanningReason`
+    // carries `itemId` as a typed field of its own, so the prose adds nothing by
+    // repeating it — and repeating it is how a title-shaped id reaches a log.
+    //
+    // Position would have been the safe substitute, and is what windows and
+    // events use because they have no id field to fall back on. It is wrong
+    // here: a position is a fact about the input *array*, so two requests that
+    // differ only in item order would produce different `detail` bytes for the
+    // same finding. `PLAN_ORDERING_KEYS` exists to keep input array order out of
+    // planning output; a diagnostic that leaked it would be the same defect one
+    // field over.
     const itemReasons: PlanningReason[] = [];
 
     const effortMinutes = item.effort.kind === 'known' ? item.effort.minutes : null;
     if (item.effort.kind === 'unknown') {
-      itemReasons.push(reason('EFFORT_UNKNOWN', item.itemId, `item ${ref} has no known duration`));
+      itemReasons.push(reason('EFFORT_UNKNOWN', item.itemId, "the item's duration is unknown, so no slot can be sized for it"));
     } else if (!(effortMinutes !== null && Number.isFinite(effortMinutes) && effortMinutes > 0)) {
       itemReasons.push(reason(
         'EFFORT_NOT_POSITIVE',
         item.itemId,
-        `item ${ref} has an effort of ${String(effortMinutes)} minutes`,
+        `the item's known effort is ${String(effortMinutes)} minute(s)`,
       ));
     }
 
@@ -582,7 +729,7 @@ export function assessFeasibility(
       itemReasons.push(reason(
         'DEADLINE_BEFORE_EARLIEST_START',
         item.itemId,
-        `item ${ref} may not start before its own deadline`,
+        'the item may not start before its own deadline',
       ));
     }
 
@@ -593,17 +740,17 @@ export function assessFeasibility(
       itemReasons.push(reason(
         'DEADLINE_BEYOND_HORIZON',
         item.itemId,
-        `item ${ref} has a deadline outside the horizon`,
+        'the deadline falls outside the planning horizon',
       ));
     }
 
     const selfDependent = item.dependsOn.some((edge) => edge.dependsOnItemId === item.itemId);
     if (selfDependent) {
-      itemReasons.push(reason('SELF_DEPENDENCY', item.itemId, `item ${ref} depends on itself`));
+      itemReasons.push(reason('SELF_DEPENDENCY', item.itemId, 'the item depends on itself'));
     } else if (onCycle.has(item.itemId)) {
       // Precedence stated by the contract: a self-edge earns SELF_DEPENDENCY and
       // not also CYCLIC_DEPENDENCY.
-      itemReasons.push(reason('CYCLIC_DEPENDENCY', item.itemId, `item ${ref} lies on a dependency cycle`));
+      itemReasons.push(reason('CYCLIC_DEPENDENCY', item.itemId, 'the item lies on a dependency cycle'));
     }
 
     const dangling = item.dependsOn
@@ -616,16 +763,36 @@ export function assessFeasibility(
       itemReasons.push(reason(
         'UNKNOWN_DEPENDENCY',
         item.itemId,
-        `item ${ref} has ${dangling} dependency edge(s) naming no item in this request`,
+        `${dangling} dependency edge(s) name no item in this request`,
       ));
     }
 
-    // Considered only for an item that is otherwise clean. "Your effort does not
-    // fit" is derived arithmetic, and an item whose effort is unknown, whose
-    // window is empty, or whose deadline is outside the horizon has already been
-    // told the thing that is wrong with it. Reporting the derived consequence
-    // too gives a maintainer two findings that always move together.
-    if (itemReasons.length === 0 && effortMinutes !== null && effortMinutes > 0) {
+    // Suppressed only where this judgement would *borrow a bound* from something
+    // already reported invalid. The earlier "otherwise clean" gate was wider
+    // than that and wrong for it: an item with a dangling dependency edge and an
+    // effort window too small for its own effort has two independent defects,
+    // and the dependency graph supplies neither of the bounds this arithmetic
+    // uses. Silencing the second made the oracle report one code where the
+    // constraints hold two.
+    //
+    // The three borrowings, each of which really does make the result derived:
+    //  1. no size to compare — the effort is unknown or not positive;
+    //  2. the item's own window was already reported empty
+    //     (DEADLINE_BEFORE_EARLIEST_START);
+    //  3. a bound was taken from the horizon and the horizon is the thing that
+    //     is broken — either it is itself degenerate, or the deadline sits
+    //     before it starts, which was already reported as DEADLINE_BEYOND_HORIZON.
+    //     Without (3) an inverted horizon manufactured a spurious finding
+    //     against *every* item in the request.
+    const emptyOwnWindow = itemReasons.some((found) => found.code === 'DEADLINE_BEFORE_EARLIEST_START');
+    const borrowsBrokenHorizon = (earliestMs === null || deadlineMs === null) && !horizonValid;
+    const deadlinePrecedesHorizon = earliestMs === null && deadlineMs !== null && horizonValid
+      && deadlineMs < horizonStartMs;
+
+    if (
+      effortMinutes !== null && effortMinutes > 0
+      && !emptyOwnWindow && !borrowsBrokenHorizon && !deadlinePrecedesHorizon
+    ) {
       const lowerMs = earliestMs !== null ? earliestMs : horizonStartMs;
       const upperMs = deadlineMs !== null ? deadlineMs : horizonEndMs;
       const requiredMinutes = effortMinutes
@@ -636,7 +803,7 @@ export function assessFeasibility(
         itemReasons.push(reason(
           'EFFORT_EXCEEDS_ITEM_WINDOW',
           item.itemId,
-          `item ${ref} needs ${requiredMinutes} minute(s) including buffers but its window holds ${windowMinutes}`,
+          `the item needs ${requiredMinutes} minute(s) including buffers but its window holds ${windowMinutes}`,
         ));
       }
     }

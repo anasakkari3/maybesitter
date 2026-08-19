@@ -161,3 +161,35 @@ test('the lock policy is exported as a value a caller can assert against', () =>
   assert.equal(LOCKED_SCENARIO_POLICY.generatorMayMintLocked, false);
   assert.equal(Object.isFrozen(LOCKED_SCENARIO_POLICY), true);
 });
+
+/* ── Regressions from independent review ─────────────────────────── */
+
+test('every row is frozen, so the lock cannot be edited after the partition is taken', () => {
+  for (const scenario of CORPUS.scenarios) {
+    assert.equal(Object.isFrozen(scenario), true, `${scenario.scenarioId} is mutable`);
+    assert.equal(Object.isFrozen(scenario.constraints), true, `${scenario.scenarioId} constraints are mutable`);
+    assert.equal(Object.isFrozen(scenario.expectation), true, `${scenario.scenarioId} expectation is mutable`);
+  }
+});
+
+test('assigning to a locked row is refused in process, not merely discouraged', () => {
+  const lockedRow = CORPUS.locked[0] as { lockState: string };
+
+  // Freezing the array left every row mutable, and the row is where the lock
+  // lives. `corpus.locked[0].lockState = 'tunable'` succeeded, after which the
+  // corpus held a row whose own field contradicted the list it was in — with no
+  // refusal anywhere, because the partition had already been computed.
+  assert.throws(() => { lockedRow.lockState = 'tunable'; }, TypeError);
+  assert.equal(CORPUS.locked[0].lockState, 'locked');
+});
+
+test('curated and generated rows are frozen the same way', () => {
+  const curated = CORPUS.scenarios.find((scenario) => !scenario.scenarioId.startsWith('gen-'));
+  const generated = CORPUS.scenarios.find((scenario) => scenario.scenarioId.startsWith('gen-'));
+
+  // They were not: generated rows were frozen individually and curated ones were
+  // not, which is the kind of difference that survives review because both read
+  // as `Object.freeze` at a glance.
+  assert.equal(Object.isFrozen(curated), true);
+  assert.equal(Object.isFrozen(generated), true);
+});

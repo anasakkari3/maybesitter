@@ -78,7 +78,7 @@ import {
   type WorkingWindow,
 } from '../../../src/contracts/v1/planningContracts';
 import { canonicalJson, sha256Hex } from '../../evaluation/registry/fingerprint';
-import { zoneOffsetMs } from '../shared/time';
+import { toEpochMs, zoneOffsetMs } from '../shared/time';
 import { assessFeasibility } from './oracle';
 
 export const PLANNING_SCENARIO_CORPUS_VERSION = '1.0.0' as const;
@@ -165,6 +165,39 @@ const DEFAULT_CONFIG: PlanningConfig = Object.freeze({
 
 function byCodeUnit(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
+}
+
+/**
+ * Freeze a scenario and everything inside it.
+ *
+ * A shallow `Object.freeze` on the array left every row mutable, and the row is
+ * where the lock lives: `corpus.locked[0].lockState = 'tunable'` succeeded, and
+ * with it the guarantee that "locked cases never enter tuning" — the partition
+ * had already been computed, so the corpus then held a row whose own field
+ * contradicted the list it was in. The generated rows were frozen individually
+ * and the curated ones were not, which is exactly the kind of difference that
+ * survives review because both look like `Object.freeze` at a glance.
+ *
+ * Deep rather than shallow, because `lockState` is not the only field worth
+ * protecting: an edited `constraints` would change what a locked row *means*
+ * without changing which list it is in, and that is the edit no membership
+ * check can see.
+ */
+const DEEP_FROZEN = new WeakSet<object>();
+
+function deepFreeze<T>(value: T): T {
+  if (value === null || typeof value !== 'object') return value;
+  const node = value as unknown as object;
+  // The recursion guard is a set of things this function has finished, not
+  // `Object.isFrozen`. Using frozen-ness was wrong and failed silently: the
+  // generated rows are built with `Object.freeze({...})`, which is shallow, so
+  // the guard fired on the row and never reached its `constraints` — the rows
+  // that looked most protected were the ones left open.
+  if (DEEP_FROZEN.has(node)) return value;
+  DEEP_FROZEN.add(node);
+  Object.freeze(node);
+  for (const nested of Object.values(node as Record<string, unknown>)) deepFreeze(nested);
+  return value;
 }
 
 function workWindow(
@@ -713,11 +746,11 @@ const CURATED_ROWS: readonly PlanningScenario[] = [
       expectedUnscheduledReasons: {},
       expectedConstraintCodes: [],
     },
-    note: 'Same scope, same item, one new blocking meeting. The item still places, one hour later — churn is non-zero while the placement rate is unchanged, which is why the two metrics are reported separately.',
+    note: 'Same scope, same item, one new blocking meeting. The window is 14:00Z-18:00Z and the meeting takes 14:00Z-17:00Z, so the only free hour is the last one and the item moves three hours. Churn is non-zero while the placement rate is unchanged, which is why the two are reported separately.',
   },
 ];
 
-export const CURATED_PLANNING_SCENARIOS: readonly PlanningScenario[] = Object.freeze(CURATED_ROWS);
+export const CURATED_PLANNING_SCENARIOS: readonly PlanningScenario[] = Object.freeze(CURATED_ROWS.map(deepFreeze));
 
 /* ── The generator ───────────────────────────────────────────────── */
 
@@ -982,7 +1015,12 @@ export function scenarioCorpusIssues(scenarios: readonly PlanningScenario[]): re
       );
     }
 
-    for (const item of scenario.constraints.items) {
+    // Items are named by position. `scenarioId` is quoted because the gate
+    // validates its shape and falls back to a position when it does not match —
+    // it is this module's own row identity, and an author needs it to find the
+    // row. `itemId` is validated by nothing at all, so it is never quoted.
+    scenario.constraints.items.forEach((item, itemIndex) => {
+      const itemRef = `${ref}: item at position ${itemIndex}`;
       const emitted = verdict.reasons
         .filter((reason) => reason.itemId === item.itemId)
         .map((reason) => reason.code);
@@ -990,23 +1028,23 @@ export function scenarioCorpusIssues(scenarios: readonly PlanningScenario[]): re
 
       if (emitted.length > 1) {
         issues.push(
-          `${ref}/${item.itemId}: trips ${emitted.length} static codes at once (${emitted.join(', ')}); `
+          `${itemRef}: trips ${emitted.length} static codes at once (${emitted.join(', ')}); `
             + 'a case that compares two implementations must isolate one defect',
         );
-        continue;
+        return;
       }
       if (emitted.length === 1) {
         if (expected !== emitted[0]) {
-          issues.push(`${ref}/${item.itemId}: expected ${String(expected)} but the oracle reports ${emitted[0]}`);
+          issues.push(`${itemRef}: expected ${String(expected)} but the oracle reports ${emitted[0]}`);
         }
-        continue;
+        return;
       }
       if (expected !== undefined && !ATTEMPT_CODES.includes(expected)) {
         issues.push(
-          `${ref}/${item.itemId}: expects the static code ${expected} but the oracle finds no defect in the input`,
+          `${itemRef}: expects the static code ${expected} but the oracle finds no defect in the input`,
         );
       }
-    }
+    });
 
     /* Kind-specific: the label must be evidence, not decoration. */
 
@@ -1019,9 +1057,14 @@ export function scenarioCorpusIssues(scenarios: readonly PlanningScenario[]): re
       );
     }
     if (scenario.kind === 'dst') {
+      // `toEpochMs`, not `Date.parse`: the shared parser throws on an
+      // unparseable instant, where `Date.parse` returns NaN — and NaN compares
+      // false against everything, so a malformed horizon would have made every
+      // DST row look like it straddled nothing and the gate would have blamed
+      // the row for a defect in its timestamps.
       const straddles = scenario.constraints.workingWindows.some((window) =>
-        zoneOffsetMs(Date.parse(scenario.constraints.horizon.startsAt), window.timezone)
-        !== zoneOffsetMs(Date.parse(scenario.constraints.horizon.endsAt), window.timezone));
+        zoneOffsetMs(toEpochMs(scenario.constraints.horizon.startsAt), window.timezone)
+        !== zoneOffsetMs(toEpochMs(scenario.constraints.horizon.endsAt), window.timezone));
       if (!straddles) {
         // A `dst` row whose horizon sits inside one offset tests nothing, and a
         // tzdata update that moved a transition would turn every DST case into
@@ -1084,7 +1127,12 @@ export function assemblePlanningCorpus(scenarios: readonly PlanningScenario[]): 
     throw new Error(`planning scenario corpus: ${issues.length} issue(s)\n  - ${issues.join('\n  - ')}`);
   }
 
-  const ordered = scenarios.slice().sort((left, right) => byCodeUnit(left.scenarioId, right.scenarioId));
+  // Frozen before the partition is taken, not after: a row edited between the
+  // two would land in a list its own `lockState` disagrees with.
+  const ordered = scenarios
+    .slice()
+    .sort((left, right) => byCodeUnit(left.scenarioId, right.scenarioId))
+    .map(deepFreeze);
   const coverageByKind = {} as Record<PlanningScenarioKind, number>;
   for (const kind of PLANNING_SCENARIO_KINDS) coverageByKind[kind] = 0;
   for (const scenario of ordered) coverageByKind[scenario.kind] += 1;
@@ -1119,13 +1167,24 @@ export function defaultPlanningScenarioCorpus(): PlanningScenarioCorpus {
 /**
  * The scenarios tuning may see.
  *
- * Re-derives the partition from the rows instead of trusting the list it was
- * handed, and **throws** rather than filtering. A filter would repair the leak
- * and hide it, so a corpus assembled somewhere else — from JSON, through a
- * cast, across a merge — would quietly stop holding anything out and every
- * subsequent score would be fitted to its own test set. That is issue #31's
- * "locked cases never enter tuning", enforced at the only place it can be
- * enforced at runtime.
+ * Re-reads `lockState` off every row it is about to return and **throws**,
+ * naming the row, rather than filtering. A filter would repair the leak and
+ * hide it, so a corpus assembled somewhere else would quietly stop holding
+ * anything out and every subsequent score would be fitted to its own test set.
+ *
+ * **What this check is, precisely.** For a corpus built by
+ * `assemblePlanningCorpus`, it is a tautology: that function fills `tunable` by
+ * filtering on the same field this reads, so it cannot fail. It is not a second
+ * independent judgement and must not be described as one. It is a **boundary
+ * guard**, and it earns its place at exactly one kind of caller — a
+ * `PlanningScenarioCorpus` that did not come from `assemblePlanningCorpus`:
+ * parsed from JSON, rebuilt by a merge, or produced by a cast. Those are the
+ * paths where `TunableScenario` was never enforced, and they are the paths a
+ * hold-out actually leaks through.
+ *
+ * The guarantee for in-process corpora is carried by two other things instead:
+ * the partition is derived from the row rather than from an id or a file, and
+ * every row is deep-frozen so the field cannot be edited after the fact.
  */
 export function selectTunableScenarios(corpus: PlanningScenarioCorpus): readonly TunableScenario[] {
   const leaked = corpus.tunable.filter((scenario) => scenario.lockState !== 'tunable');
@@ -1138,7 +1197,11 @@ export function selectTunableScenarios(corpus: PlanningScenarioCorpus): readonly
   return corpus.tunable;
 }
 
-/** The held-out scenarios. Symmetric refusal: a tunable row here is the same leak seen from the other side. */
+/**
+ * The held-out scenarios. Symmetric refusal — a tunable row here is the same
+ * leak seen from the other side — and the same boundary guard, with the same
+ * limits as `selectTunableScenarios`.
+ */
 export function selectLockedScenarios(corpus: PlanningScenarioCorpus): readonly LockedScenario[] {
   const leaked = corpus.locked.filter((scenario) => scenario.lockState !== 'locked');
   if (leaked.length > 0) {

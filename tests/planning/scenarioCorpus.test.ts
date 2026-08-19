@@ -387,3 +387,71 @@ test('the digest changes when a scenario changes and not when it is reordered', 
   assert.notEqual(assemblePlanningCorpus(edited).digest, CORPUS.digest);
   assert.equal(assemblePlanningCorpus(CORPUS.scenarios.slice().reverse()).digest, CORPUS.digest);
 });
+
+/* ── Regressions from independent review ─────────────────────────── */
+
+test('a row naming an unknown time zone yields an issue, and does not blow up the gate', () => {
+  const broken = CORPUS.scenarios.map((scenario) =>
+    scenario.scenarioId !== 'feasible-en-workweek' ? scenario : {
+      ...scenario,
+      constraints: {
+        ...scenario.constraints,
+        workingWindows: scenario.constraints.workingWindows.map((window) => ({
+          ...window,
+          timezone: 'America/New_Yrok',
+        })),
+      },
+    });
+
+  // `scenarioCorpusIssues` exists to *return* a list of problems. A misspelt
+  // zone used to reach `Intl` through the oracle and escape as a RangeError,
+  // so the one function that must never throw was the one a typo took out.
+  let issues: readonly string[] = [];
+  assert.doesNotThrow(() => { issues = scenarioCorpusIssues(broken); });
+  assert.ok(issues.length > 0, 'a misspelt zone must be reported');
+  assert.throws(() => assemblePlanningCorpus(broken), (error: unknown) => {
+    assert.ok(error instanceof Error && !(error instanceof RangeError));
+    return true;
+  });
+});
+
+test('the gate never quotes an item id, which nothing validates', () => {
+  const leaky = CORPUS.scenarios.map((scenario) =>
+    scenario.scenarioId !== 'feasible-en-workweek' ? scenario : {
+      ...scenario,
+      constraints: {
+        ...scenario.constraints,
+        items: scenario.constraints.items.map((item) => ({ ...item, itemId: 'tell-my-manager-i-am-quitting' })),
+      },
+    });
+
+  // `scenarioId` is quoted because the gate validates its shape and falls back
+  // to a position when it does not match. `itemId` is validated by nothing at
+  // all, and an issue list travels into CI logs.
+  for (const issue of scenarioCorpusIssues(leaky)) {
+    assert.ok(!issue.includes('tell-my-manager-i-am-quitting'), `issue leaked an item id: ${issue}`);
+  }
+});
+
+test('the gate does NOT verify an attempt-code expectation; the cross-track test does', () => {
+  const inverted = CORPUS.scenarios.map((scenario) =>
+    scenario.scenarioId !== 'overload-en-single-afternoon' ? scenario : {
+      ...scenario,
+      expectation: {
+        // Deliberately false under PLAN_ORDERING_KEYS: the priority-90 item is
+        // the one that must place, and here it is claimed to be the loser.
+        expectedScheduledItemIds: ['i-low', 'i-mid'],
+        expectedUnscheduledReasons: { 'i-high': 'NO_FEASIBLE_SLOT' as const },
+        expectedConstraintCodes: [],
+      },
+    });
+
+  // Pinned as a *limitation*, not as a feature. The gate checks that the
+  // expectation partitions the items and that its static half matches the
+  // oracle; which item wins a contended hour is #30's judgement, and confirming
+  // it needs #30. A green corpus suite is therefore not a certification of any
+  // attempt-code row, and this test exists so that sentence cannot quietly stop
+  // being true — if a future gate does verify them, this fails and the claim in
+  // docs/data/planning-scenario-corpus.md gets revisited.
+  assert.deepEqual(scenarioCorpusIssues(inverted), []);
+});

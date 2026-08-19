@@ -172,7 +172,11 @@ test('INVALID_INTERVAL: a window whose end minute does not follow its start does
     CONFIG,
   );
 
-  assert.ok(codesFor(verdict, null).includes('INVALID_INTERVAL'));
+  assert.deepEqual(
+    codesFor(verdict, null),
+    ['INVALID_INTERVAL', 'NO_WORKING_WINDOW'],
+    'the malformed window was the only source of time, so both findings are true',
+  );
   assert.equal(verdict.availableMinutes, 0, 'an ill-formed window contributes no capacity');
 });
 
@@ -184,7 +188,7 @@ test('INVALID_INTERVAL: a window minute outside 0..1440 denotes no interval on a
 
   // The point of the code is capacity, not tidiness: counted naively this window
   // would contribute 1460 minutes of availability that no clock ever showed.
-  assert.ok(codesFor(verdict, null).includes('INVALID_INTERVAL'));
+  assert.deepEqual(codesFor(verdict, null), ['INVALID_INTERVAL', 'NO_WORKING_WINDOW']);
   assert.equal(verdict.availableMinutes, 0);
 });
 
@@ -504,15 +508,19 @@ test('a non-blocking event neither conflicts nor consumes capacity', () => {
   const verdict = assessFeasibility(
     constraints({
       fixedEvents: [
-        event({ eventId: 'e-a' }),
-        event({ eventId: 'e-b', blocking: false }),
+        // Deliberately at *different* hours. An earlier version of this test gave
+        // both events the same interval, so their union was 60 minutes whether or
+        // not the `blocking` flag was read at all — the assertion held with the
+        // filter deleted, which is the definition of a test that is not testing.
+        event({ eventId: 'e-a', interval: { startsAt: '2026-11-09T12:00:00.000Z', endsAt: '2026-11-09T13:00:00.000Z' } }),
+        event({ eventId: 'e-b', blocking: false, interval: { startsAt: '2026-11-09T14:00:00.000Z', endsAt: '2026-11-09T15:00:00.000Z' } }),
       ],
     }),
     CONFIG,
   );
 
-  assert.deepEqual(verdict.reasons, [], 'overlapping a non-blocking event is not being in two places');
-  assert.equal(verdict.availableMinutes, 420);
+  assert.deepEqual(verdict.reasons, [], 'a non-blocking event is not being in two places');
+  assert.equal(verdict.availableMinutes, 420, 'only the blocking hour is spent; 360 would mean the flag was ignored');
 });
 
 test('a blocking event outside every working window costs no capacity', () => {
@@ -682,7 +690,7 @@ test('AMBIGUOUS_LOCAL_TIME: a fold the config declines to resolve costs the whol
   const undecided = { ...CONFIG, foldPolicy: 'ask-the-user' } as unknown as PlanningConfig;
   const verdict = assessFeasibility(input, undecided);
 
-  assert.ok(codesFor(verdict, null).includes('AMBIGUOUS_LOCAL_TIME'));
+  assert.deepEqual(codesFor(verdict, null), ['NO_WORKING_WINDOW', 'AMBIGUOUS_LOCAL_TIME']);
   assert.equal(
     verdict.availableMinutes,
     0,
@@ -777,4 +785,231 @@ test('a reason detail carries ids and numbers, never an item title', () => {
       `detail leaked user text: ${reason.detail}`,
     );
   }
+});
+
+/* ── Regressions from independent review ─────────────────────────── */
+
+test('an unknown time zone is a finding, not a RangeError from three frames down', () => {
+  const input = constraints({
+    workingWindows: [{ ...MONDAY_NINE_TO_FIVE_UTC, timezone: 'Mars/Phobos' }],
+  });
+
+  // `Intl.DateTimeFormat` throws on an unknown zone. Left unchecked, that throw
+  // escaped `assessFeasibility` — and took `scenarioCorpusIssues` with it, the
+  // one function whose whole job is to *return* a list of problems.
+  assert.doesNotThrow(() => assessFeasibility(input, CONFIG));
+  assert.deepEqual(codesFor(assessFeasibility(input, CONFIG), null), ['INVALID_INTERVAL', 'NO_WORKING_WINDOW']);
+});
+
+test('a weekday outside 0..6 is reported, not silently never scheduled', () => {
+  for (const weekday of [7, -1, 1.5]) {
+    const verdict = assessFeasibility(
+      constraints({ workingWindows: [{ ...MONDAY_NINE_TO_FIVE_UTC, weekday: weekday as 0 }] }),
+      CONFIG,
+    );
+
+    // The same argument as the minute domain: a window claiming day 7 denotes no
+    // day the calendar has, so its availability disappeared instead of being
+    // reported as the defect it is.
+    assert.deepEqual(
+      codesFor(verdict, null),
+      ['INVALID_INTERVAL', 'NO_WORKING_WINDOW'],
+      `weekday ${weekday} must be reported`,
+    );
+  }
+});
+
+test('a window lying entirely inside a spring-forward gap still reports NONEXISTENT_LOCAL_TIME', () => {
+  // 02:00-02:30 on 2026-03-08 in New York: both ends are skipped, so both
+  // resolve to the instant the clock jumps to and the occurrence is empty. An
+  // emptiness-guarding overlap test then reported the window as irrelevant, and
+  // the DST code went silent on the sharpest DST input there is.
+  const input = constraints({
+    timezone: 'America/New_York',
+    horizon: SPRING_FORWARD_HORIZON,
+    workingWindows: [
+      { windowId: 'w-inside-gap', weekday: 0, startMinute: 2 * 60, endMinute: 2 * 60 + 30, timezone: 'America/New_York' },
+    ],
+  });
+  const verdict = assessFeasibility(input, CONFIG);
+
+  assert.deepEqual(codesFor(verdict, null), ['NO_WORKING_WINDOW', 'NONEXISTENT_LOCAL_TIME']);
+  assert.equal(verdict.availableMinutes, 0, 'the whole window fell into the hour that did not happen');
+});
+
+test('a transition anomaly outside the horizon is not this plan is problem', () => {
+  // Sunday 2026-03-08 carries the gap and is walked, because day iteration
+  // reaches a day either side of the horizon for zones east and west of UTC.
+  // The horizon starts on the Monday, so the anomaly is not a finding about it.
+  const verdict = assessFeasibility(
+    constraints({
+      timezone: 'America/New_York',
+      horizon: { startsAt: '2026-03-09T00:00:00.000Z', endsAt: '2026-03-10T00:00:00.000Z' },
+      workingWindows: [
+        { windowId: 'w-sun-gap', weekday: 0, startMinute: 2 * 60, endMinute: 6 * 60, timezone: 'America/New_York' },
+      ],
+    }),
+    CONFIG,
+  );
+
+  assert.deepEqual(codesFor(verdict, null), ['NO_WORKING_WINDOW']);
+});
+
+test('an inverted horizon does not manufacture a finding against every item', () => {
+  const verdict = assessFeasibility(
+    constraints({
+      horizon: { startsAt: '2026-11-16T00:00:00.000Z', endsAt: '2026-11-09T00:00:00.000Z' },
+      items: [item({ itemId: 'i-1' }), item({ itemId: 'i-2' }), item({ itemId: 'i-3' })],
+    }),
+    CONFIG,
+  );
+
+  // The horizon is the broken thing and is reported once. Measuring each item's
+  // effort against a negative window charged all three of them for it.
+  assert.deepEqual(codesFor(verdict, null), ['INVALID_INTERVAL']);
+  for (const itemId of ['i-1', 'i-2', 'i-3']) {
+    assert.deepEqual(codesFor(verdict, itemId), [], `${itemId} has no defect of its own`);
+  }
+});
+
+test('a defect that supplies no bound does not silence the effort-window arithmetic', () => {
+  const tightWindow = {
+    earliestStartAt: '2026-11-09T09:00:00.000Z',
+    deadlineAt: '2026-11-09T10:00:00.000Z',
+  };
+  const dangling = assessFeasibility(
+    constraints({
+      items: [item({
+        itemId: 'i-x',
+        ...tightWindow,
+        dependsOn: [{ dependsOnItemId: 'i-ghost', kind: 'temporal' }],
+      })],
+    }),
+    CONFIG,
+  );
+  const selfEdge = assessFeasibility(
+    constraints({
+      items: [item({ itemId: 'i-y', ...tightWindow, dependsOn: [{ dependsOnItemId: 'i-y', kind: 'temporal' }] })],
+    }),
+    CONFIG,
+  );
+
+  // Two independent defects: 90 minutes of effort plus buffers in a 60-minute
+  // window, and a dependency edge naming nothing. The dependency graph supplies
+  // neither bound of that arithmetic, so suppressing the second reported one
+  // code where the constraints hold two.
+  assert.deepEqual(codesFor(dangling, 'i-x'), ['EFFORT_EXCEEDS_ITEM_WINDOW', 'UNKNOWN_DEPENDENCY']);
+  assert.deepEqual(codesFor(selfEdge, 'i-y'), ['EFFORT_EXCEEDS_ITEM_WINDOW', 'SELF_DEPENDENCY']);
+});
+
+test('NO_WORKING_WINDOW and a malformed window are independent findings', () => {
+  const onlyWindowIsBad = assessFeasibility(
+    constraints({ workingWindows: [{ ...MONDAY_NINE_TO_FIVE_UTC, endMinute: 0 }] }),
+    CONFIG,
+  );
+  const oneBadAmongGood = assessFeasibility(
+    constraints({
+      workingWindows: [
+        MONDAY_NINE_TO_FIVE_UTC,
+        { ...MONDAY_NINE_TO_FIVE_UTC, windowId: 'w-bad', endMinute: 0 },
+      ],
+    }),
+    CONFIG,
+  );
+
+  // This pair is why the two codes are not folded into one. They co-occur only
+  // when the malformed window was the only source of time; with a good window
+  // beside it, one fires and the other does not.
+  assert.deepEqual(codesFor(onlyWindowIsBad, null), ['INVALID_INTERVAL', 'NO_WORKING_WINDOW']);
+  assert.deepEqual(codesFor(oneBadAmongGood, null), ['INVALID_INTERVAL']);
+  assert.equal(oneBadAmongGood.availableMinutes, 480);
+});
+
+test('overlapping blocking events are reported by a bounded sweep, not by every pair', () => {
+  const duplicatedFeed = Array.from({ length: 200 }, (_, index) => event({
+    eventId: `e-${index}`,
+    interval: { startsAt: '2026-11-09T12:00:00.000Z', endsAt: '2026-11-09T13:00:00.000Z' },
+  }));
+  const verdict = assessFeasibility(constraints({ fixedEvents: duplicatedFeed }), CONFIG);
+  const detailBytes = verdict.reasons.reduce((total, reason) => total + reason.detail.length, 0);
+
+  // A duplicated calendar feed is an ordinary shape, and pairwise enumeration
+  // made it 19,900 reasons and 874 KB of `detail` — which then travels with the
+  // plan into audit records. #29 was bounded for exactly this after a Sprint 06
+  // draft produced 1.12 MB.
+  assert.ok(verdict.reasons.length <= 40, `expected a bounded list, got ${verdict.reasons.length}`);
+  assert.ok(detailBytes < 8_000, `expected bounded detail, got ${detailBytes} bytes`);
+  assert.ok(allCodes(verdict).includes('FIXED_EVENT_CONFLICT'), 'the code must still be emitted whenever it is true');
+  assert.ok(
+    verdict.reasons.some((reason) => /further overlapping/.test(reason.detail)),
+    'the remainder is reported as a count rather than dropped in silence',
+  );
+});
+
+test('the sweep still finds a conflict between events that are far apart in the list', () => {
+  const spread = [
+    event({ eventId: 'e-a', interval: { startsAt: '2026-11-09T09:00:00.000Z', endsAt: '2026-11-09T16:00:00.000Z' } }),
+    event({ eventId: 'e-b', interval: { startsAt: '2026-11-09T10:00:00.000Z', endsAt: '2026-11-09T10:30:00.000Z' } }),
+    event({ eventId: 'e-c', interval: { startsAt: '2026-11-09T11:00:00.000Z', endsAt: '2026-11-09T11:30:00.000Z' } }),
+  ];
+
+  // Sorting by start is what makes the sweep complete: the long event stays open
+  // across both short ones, so neither is missed.
+  assert.equal(
+    codesFor(assessFeasibility(constraints({ fixedEvents: spread }), CONFIG), null)
+      .filter((code) => code === 'FIXED_EVENT_CONFLICT').length,
+    2,
+  );
+});
+
+test('no caller-supplied string of any kind reaches a reason detail', () => {
+  const sensitive = [
+    'call-dr.cohen-about-the-biopsy',
+    'anasakkari04-gmail.com',
+    'tell-my-manager-i-am-quitting',
+    'scope-i-owe-ahmed-40000',
+  ];
+  const verdict = assessFeasibility(
+    {
+      scopeId: sensitive[3],
+      timezone: 'UTC',
+      horizon: UTC_HORIZON,
+      workingWindows: [{ ...MONDAY_NINE_TO_FIVE_UTC, windowId: sensitive[0], endMinute: 0 }],
+      fixedEvents: [event({
+        eventId: sensitive[1],
+        interval: { startsAt: '2026-11-09T12:00:00.000Z', endsAt: '2026-11-09T12:00:00.000Z' },
+      })],
+      items: [item({ itemId: sensitive[2], title: 'أدفع 9000 شيكل لعيادة الدكتور سمير', effort: { kind: 'unknown' } })],
+    },
+    CONFIG,
+  );
+
+  // Every one of these passes a "looks like an identifier" filter, which is why
+  // there is no such filter here any more: a caller chooses ids as freely as
+  // titles, and `detail` is the field most likely to reach a log.
+  assert.ok(verdict.reasons.length >= 3, 'the battery must actually produce findings to inspect');
+  for (const reason of verdict.reasons) {
+    for (const secret of sensitive) {
+      assert.ok(!reason.detail.includes(secret), `detail leaked ${secret}: ${reason.detail}`);
+    }
+  }
+  // The item is still locatable — through the typed field that exists for it.
+  assert.ok(verdict.reasons.some((reason) => reason.itemId === sensitive[2]));
+});
+
+test('a reason detail does not encode the position of an item in the input array', () => {
+  const forwards = assessFeasibility(
+    constraints({ items: [item({ itemId: 'i-a', effort: { kind: 'unknown' } }), item({ itemId: 'i-b' })] }),
+    CONFIG,
+  );
+  const backwards = assessFeasibility(
+    constraints({ items: [item({ itemId: 'i-b' }), item({ itemId: 'i-a', effort: { kind: 'unknown' } })] }),
+    CONFIG,
+  );
+
+  // Position was the obvious substitute for a leaked id, and it is wrong for
+  // items: a position is a fact about the input array, so two requests that
+  // differ only in ordering would serialise to different bytes for one finding.
+  // Windows and events use it because they have no id field to fall back on.
+  assert.deepEqual(forwards.reasons, backwards.reasons);
 });

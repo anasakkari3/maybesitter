@@ -60,28 +60,65 @@ The cross-track test compares code *sets*, so every place this oracle went beyon
 letter is a place the two implementations may legitimately differ. All of them are commented at the
 rule in `oracle.ts`; they are collected here so a merge does not have to find them:
 
-1. **`INVALID_INTERVAL` covers a window minute outside `0..1440`.** The contract documents
-   `endMinute <= startMinute`. A window claiming minute 2000 is not merely untidy: counted naively it
-   adds capacity no clock ever showed, and the overload judgement built on `availableMinutes` then
-   reads as free time that does not exist.
+1. **`INVALID_INTERVAL` covers a window field outside its stated domain** — a minute outside
+   `0..1440`, a `weekday` outside `0..6`, or a `timezone` this runtime's tzdata does not know. The
+   contract documents only `endMinute <= startMinute`. The rest is the same argument one field over:
+   a window claiming minute 2000 or day 7 denotes no interval on any clock face, so its availability
+   either appears from nowhere or disappears without a word, and the overload judgement built on
+   `availableMinutes` inherits the error.
 2. **`DEADLINE_BEYOND_HORIZON` is symmetric.** A deadline *before* the horizon starts is outside it
    just as much as one after it ends, and extending the horizon backwards would change the answer —
-   which is the property the contract uses to separate this code from having no time.
-3. **`EFFORT_EXCEEDS_ITEM_WINDOW` is only considered for an item that is otherwise clean.** It is a
-   derived consequence, and an item already told its effort is unknown does not need to be told the
-   arithmetic that follows from it.
-4. **`NO_WORKING_WINDOW` is suppressed when a window-level finding already explains the emptiness.**
-   A code that only ever co-occurs with another looks like independent evidence and is not.
-5. **`SELF_DEPENDENCY` and `UNKNOWN_DEPENDENCY` are charged regardless of dependency kind.** An
+   which is the property the contract uses to separate this code from having no time. **Adjudicated
+   in this reading's favour**; #29 changes to match.
+3. **`EFFORT_EXCEEDS_ITEM_WINDOW` is suppressed only where it would borrow a bound from something
+   already reported invalid** — no size to compare, an item window already reported empty, or a
+   bound taken from a horizon that is itself the broken thing. It is *not* suppressed merely because
+   some unrelated code fired: a dangling dependency edge supplies neither bound of that arithmetic.
+   An earlier, wider "otherwise clean" gate reported one code where the constraints held two.
+4. **`SELF_DEPENDENCY` and `UNKNOWN_DEPENDENCY` are charged regardless of dependency kind.** An
    informational edge forces no ordering, but an edge pointing at nothing is a broken reference.
-6. **`AMBIGUOUS_LOCAL_TIME` is reachable only through an unrecognised `foldPolicy`.** `FoldPolicy`
+5. **`AMBIGUOUS_LOCAL_TIME` is reachable only through an unrecognised `foldPolicy`.** `FoldPolicy`
    always states a side, so with a well-typed config the fold is resolved rather than reported —
    which is what the contract says. The code exists for callers arriving across a trust boundary.
-7. **An unresolved fold drops the occurrence from `availableMinutes`.** Taking either candidate would
+6. **An unresolved fold drops the occurrence from `availableMinutes`.** Taking either candidate would
    silently choose a side the config declined to choose.
 
 If #29 reads any of these differently, that disagreement is the finding the sprint was designed to
 surface. It is not a bug in one side to be quietly patched to match the other.
+
+### Two rules an earlier draft had and this one does not
+
+**`NO_WORKING_WINDOW` is no longer suppressed by a window-level finding.** The original ground was
+that a code which only ever co-occurs with another is not independent evidence. It does not hold:
+`NO_WORKING_WINDOW` fires alone (no windows supplied, or a weekday the horizon never reaches) and
+`INVALID_INTERVAL` fires alone (one bad window among four good ones). They co-occur only when the
+malformed window was the *only* source of time, and there both are true at different scopes — one
+names a window, the other describes the request. The contract's "one defect earns one code"
+precedent is about one *item* earning one code, not about a request earning as few as possible.
+`tests/planning/oracleFeasibility.test.ts` pins the pair. The horizon remains a gate: with a
+degenerate horizon, "no window intersects it" is trivially true of every input ever submitted.
+
+**`PlanningReason.detail` no longer quotes any caller-supplied string.** An earlier draft admitted
+ids matching 64 characters of `[A-Za-z0-9._:-]`, which passes `call-dr.cohen-about-the-biopsy` and
+`anasakkari04-gmail.com` — both of which a caller can put in a `windowId` or an `eventId`, and
+`detail` is the field most likely to reach a log. There is no shape test that separates an
+identifier from a sentence, because the caller chooses both. Windows and events are now named by
+**position in the request**; items are named by nothing, because `PlanningReason.itemId` is a typed
+field of its own and repeating the id in prose is precisely what the policy forbids. Position is
+*not* used for items on purpose: a position is a fact about the input array, and a detail that
+encoded it would leak input ordering into planning output — the defect `PLAN_ORDERING_KEYS` exists
+to prevent, one field over.
+
+### One bound
+
+`FIXED_EVENT_CONFLICT` is found by a **sweep** over blocking events sorted by start, and at most
+`MAX_FIXED_EVENT_CONFLICT_REASONS` (32) overlapping pairs are named individually; the remainder is
+reported as a count. Pairwise enumeration is quadratic in a shape that occurs for ordinary reasons —
+a duplicated calendar feed — and was measured at 19,900 reasons and 874 KB of `detail` for 200
+events, which then travels with the plan into audit records. #29 was bounded for exactly this after
+a Sprint 06 draft produced 1.12 MB. The sweep is complete for the question the cross-track test asks:
+that comparison is over code *sets*, and sorting by start guarantees that if any two blocking events
+overlap then at least one adjacent-in-sweep pair does too.
 
 ## 3. Kind coverage is a refusal
 
@@ -134,9 +171,20 @@ A consequence worth knowing before adding a row: a curated case may trip **one**
 item. Two at once cannot be used to compare two implementations, because the comparison would pass
 while each side was reading a different one of them. The gate says so by name.
 
-Attempt codes (`NO_FEASIBLE_SLOT` and friends) may appear in `expectedUnscheduledReasons`. Those are
-claims about #30's scheduler, not about the oracle, and the oracle is not asked to confirm them —
-the merge-owned cross-track test is.
+Attempt codes (`NO_FEASIBLE_SLOT` and friends) may appear in `expectedUnscheduledReasons`.
+
+**Nothing in this package verifies them, and a green corpus suite is not a certification of any row
+that carries one.** The gate checks that such an expectation *partitions* the items; it does not
+check its content. A reviewer inverted `overload-en-single-afternoon` into a claim that is false
+under `PLAN_ORDERING_KEYS` — the priority-90 item named as the loser — and `scenarioCorpusIssues`
+returned an empty list.
+
+That is a deliberate limit, not an oversight: confirming which item loses a contended hour needs
+#30's scheduler, and an oracle that reimplemented it would be comparing a thing with itself. The
+confirmation belongs to `tests/planning/planningCrossTrack.test.ts`, which runs these scenarios
+against the real scheduler. Until that test runs, **read attempt-code expectations as documented
+intent rather than as verified fact.** The limitation is itself pinned by a test, so this paragraph
+cannot quietly stop being true.
 
 ## 5. Locked cases never enter tuning
 
@@ -144,11 +192,21 @@ Three guards, because a label check would prove only that a string is a string:
 
 1. **The type.** `TunableScenario = PlanningScenario & { lockState: 'tunable' }`. A locked row is not
    assignable, so the only way one reaches a tuning list is across a boundary where the type was lost.
-2. **The selection path refuses.** `selectTunableScenarios` re-derives the partition from the rows and
-   **throws**, naming the offending id, rather than filtering the list clean. A filter would repair
-   the leak and hide it, and every score afterwards would be fitted to its own test set.
+2. **Rows are deep-frozen.** The lock lives on the row, and freezing only the array left it
+   editable: `corpus.locked[0].lockState = 'tunable'` used to succeed, after which the corpus held a
+   row whose own field contradicted the list it was in, with no refusal anywhere. Deep rather than
+   shallow, because an edited `constraints` changes what a locked row *means* without changing which
+   list it is in — the edit no membership check can see.
 3. **The generator cannot mint one.** Generated rows are always `tunable`: a hold-out a seed can
    regenerate is not held out.
+
+`selectTunableScenarios` additionally re-reads `lockState` off every row and **throws**, naming the
+offending id, rather than filtering. Be precise about what that buys: for a corpus built by
+`assemblePlanningCorpus` it is a **tautology**, because that function fills `tunable` by filtering on
+the same field the check reads. It is a **boundary guard**, not a second independent judgement, and
+it earns its place at exactly one kind of caller — a `PlanningScenarioCorpus` that did not come from
+`assemblePlanningCorpus`: parsed from JSON, rebuilt by a merge, or produced by a cast. Those are the
+paths where `TunableScenario` was never enforced, and they are the paths a hold-out leaks through.
 
 Lock state is **carried in the row**, never inferred from an id, a file or a position. The test that
 proves it flips one row's `lockState` with everything else unchanged and asserts the row moves
