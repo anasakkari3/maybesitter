@@ -588,3 +588,149 @@ test('an edit cannot mutate the spans of the step it came from', () => {
     'the proposal the edit came from must be unchanged',
   );
 });
+
+/* ── Untrusted decisions: the verdict is data, not a type ─────────── */
+
+/**
+ * `StepDecision` is a TypeScript union and TypeScript is erased, so every
+ * verdict arriving here is an ordinary string. A version-skewed client, a typo,
+ * or a future fourth verdict all land in the same branch.
+ */
+function rawDecisions(decisions: readonly unknown[]): readonly StepDecision[] {
+  return decisions as readonly StepDecision[];
+}
+
+test('an unrecognised verdict is not a rejection', () => {
+  // The reducer read anything that was not 'accept' as 'reject', so a typo
+  // became a recorded ruling the user never made and the request still reported
+  // success. Fail-closed in the write direction is not enough: the contract's
+  // rule is that every step needs an *explicit* decision, and an invented
+  // rejection satisfies `everyStepNeedsExplicitDecision` with a fiction.
+  for (const verdict of ['maybe', '__proto__', 'Accept', 'ACCEPT', 'reject ', '']) {
+    const state = reduceStepDecisions(
+      proposalFrom('en-multi-wedding'),
+      rawDecisions([{ stepId: 's1', verdict }, accept('s2'), accept('s3')]),
+    );
+
+    assert.equal(
+      state.failure?.code,
+      'incomplete_decisions',
+      `${JSON.stringify(verdict)} must not be read as a ruling`,
+    );
+    assert.equal(state.failure?.stepId, 's1');
+    assert.deepEqual(resolveConfirmedSteps(state).rejectedStepIds, []);
+  }
+});
+
+test('a decision carrying no verdict at all is incomplete', () => {
+  const state = reduceStepDecisions(
+    proposalFrom('en-multi-wedding'),
+    rawDecisions([{ stepId: 's1' }, accept('s2'), accept('s3')]),
+  );
+
+  assert.equal(state.failure?.code, 'incomplete_decisions');
+  assert.deepEqual(resolveConfirmedSteps(state).rejectedStepIds, []);
+});
+
+test('a non-string verdict is incomplete rather than coerced', () => {
+  for (const verdict of [null, undefined, 1, true, {}, ['accept']]) {
+    const state = reduceStepDecisions(
+      proposalFrom('en-multi-wedding'),
+      rawDecisions([{ stepId: 's1', verdict }, accept('s2'), accept('s3')]),
+    );
+    assert.equal(state.failure?.code, 'incomplete_decisions', `${String(verdict)} must be refused`);
+  }
+});
+
+test('the three real verdicts are still the three real verdicts', () => {
+  // The guard must not have narrowed the contract it is protecting.
+  const state = reduceStepDecisions(proposalFrom('en-multi-wedding'), [
+    accept('s1'),
+    edit('s2', 'Post the invitations'),
+    reject('s3'),
+  ]);
+
+  assert.equal(state.failure, null);
+  assert.deepEqual(
+    state.steps.map((entry) => entry.state),
+    ['accepted', 'edited', 'rejected'],
+  );
+});
+
+test('a decision that is not a record names no step', () => {
+  for (const decision of [null, undefined, 'accept', 7, ['s1', 'accept']]) {
+    const state = reduceStepDecisions(
+      proposalFrom('en-multi-wedding'),
+      rawDecisions([decision, accept('s2'), accept('s3')]),
+    );
+    assert.equal(state.failure?.code, 'unknown_step', `${String(decision)} must be refused`);
+  }
+});
+
+test('a non-string stepId names no step', () => {
+  for (const stepId of [null, undefined, 1, {}]) {
+    const state = reduceStepDecisions(
+      proposalFrom('en-multi-wedding'),
+      rawDecisions([{ stepId, verdict: 'accept' }, accept('s2'), accept('s3')]),
+    );
+    assert.equal(state.failure?.code, 'unknown_step', `${String(stepId)} must be refused`);
+  }
+});
+
+test('an edit whose title is not a string is invalid_edit, not a crash', () => {
+  for (const editedTitle of [undefined, null, 5, {}, ['x']]) {
+    const state = reduceStepDecisions(
+      proposalFrom('en-multi-wedding'),
+      rawDecisions([accept('s1'), { stepId: 's2', verdict: 'edit', editedTitle }, accept('s3')]),
+    );
+    assert.equal(state.failure?.code, 'invalid_edit', `${String(editedTitle)} must be refused`);
+    assert.equal(state.failure?.stepId, 's2');
+  }
+});
+
+test('an edited title longer than the cap is invalid_edit', () => {
+  // 500 characters, matching #27's boundary. Without a cap a megabyte of text
+  // travels through the reducer into the port on a path with no other limit.
+  const atCap = 'x'.repeat(500);
+  const overCap = 'x'.repeat(501);
+
+  const ok = reduceStepDecisions(proposalFrom('en-multi-wedding'), [
+    accept('s1'),
+    edit('s2', atCap),
+    accept('s3'),
+  ]);
+  assert.equal(ok.failure, null, '500 characters must still be accepted');
+
+  const tooLong = reduceStepDecisions(proposalFrom('en-multi-wedding'), [
+    accept('s1'),
+    edit('s2', overCap),
+    accept('s3'),
+  ]);
+  assert.equal(tooLong.failure?.code, 'invalid_edit');
+  assert.equal(tooLong.failure?.stepId, 's2');
+});
+
+test('a decisions list that is not an array is incomplete, not a crash', () => {
+  for (const decisions of [null, undefined, 'abc', 7, { 0: accept('s1') }]) {
+    const state = reduceStepDecisions(
+      proposalFrom('en-multi-wedding'),
+      decisions as unknown as readonly StepDecision[],
+    );
+    assert.equal(state.failure?.code, 'incomplete_decisions', `${String(decisions)} must be refused`);
+  }
+});
+
+test('applyStepDecision refuses an unrecognised verdict on its own', () => {
+  // The incremental path is documented for UI use, so it must not be the soft
+  // way in to the behaviour the batch path refuses.
+  const state = applyStepDecision(
+    initialProposalState(proposalFrom('en-multi-wedding')),
+    rawDecisions([{ stepId: 's1', verdict: 'maybe' }])[0],
+  );
+
+  assert.equal(state.failure?.code, 'incomplete_decisions');
+  assert.deepEqual(
+    state.steps.map((entry) => entry.state),
+    ['pending', 'pending', 'pending'],
+  );
+});

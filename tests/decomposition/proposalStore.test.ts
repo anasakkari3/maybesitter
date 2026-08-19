@@ -545,3 +545,87 @@ test('mutating the proposal object after admission cannot change what is stored'
 
   assert.deepEqual(JSON.parse(JSON.stringify(store.get('p1')?.proposal)) as unknown, before);
 });
+
+/* ── Untrusted requests reach the public confirm ──────────────────── */
+
+/** `DecompositionConfirmationRequest` is erased at runtime like every other type here. */
+function rawRequest(overrides: Record<string, unknown>): DecompositionConfirmationRequest {
+  return { ...request(), ...overrides } as unknown as DecompositionConfirmationRequest;
+}
+
+test('a malformed request answers in contract codes instead of throwing', async () => {
+  // Every one of these threw a raw TypeError out of `confirm` — the function
+  // this module's own docblock calls the boundary. A boundary that throws its
+  // implementation's internals at a caller has not refused the request; it has
+  // crashed, and the caller cannot tell which.
+  const cases: readonly (readonly [string, Record<string, unknown>, string])[] = [
+    ['edit without editedTitle', { decisions: [{ stepId: 's1', verdict: 'edit' }] }, 'invalid_edit'],
+    ['editedTitle: 5', { decisions: [{ stepId: 's1', verdict: 'edit', editedTitle: 5 }] }, 'invalid_edit'],
+    ['decisions: null', { decisions: null }, 'incomplete_decisions'],
+    ['decisions: a string', { decisions: 'abc' }, 'incomplete_decisions'],
+    ['decisions: [null]', { decisions: [null] }, 'unknown_step'],
+    ['verdict: maybe', { decisions: [{ stepId: 's1', verdict: 'maybe' }] }, 'incomplete_decisions'],
+    ['proposalId not a string', { proposalId: 7 }, 'proposal_not_found'],
+    ['scopeId not a string', { scopeId: null }, 'proposal_not_found'],
+    ['idempotencyKey not a string', { idempotencyKey: {} }, 'proposal_not_found'],
+  ];
+
+  for (const [label, overrides, expected] of cases) {
+    const { store, recorder } = setup();
+    const result = await store.confirm(rawRequest(overrides));
+
+    assert.equal(result.success, false, label);
+    assert.equal(result.failureCode, expected, label);
+    assert.deepEqual(result.persistedStepIds, [], label);
+    assert.deepEqual(recorder.batches, [], `${label} must not reach the port`);
+  }
+});
+
+test('an unrecognised verdict persists nothing and rejects nothing', async () => {
+  // The measured symptom: success:true with rejectedStepIds:["s1"] — a recorded
+  // rejection the user never made, reported as a completed confirmation.
+  const { store, recorder } = setup();
+  const result = await store.confirm(
+    rawRequest({
+      decisions: [
+        { stepId: 's1', verdict: 'maybe' },
+        { stepId: 's2', verdict: 'accept' },
+        { stepId: 's3', verdict: 'accept' },
+      ],
+    }),
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.failureCode, 'incomplete_decisions');
+  assert.deepEqual(result.rejectedStepIds, []);
+  assert.deepEqual(result.persistedStepIds, []);
+  assert.deepEqual(recorder.batches, []);
+});
+
+test('an oversized edited title never reaches the port', async () => {
+  const { store, recorder } = setup();
+  const result = await store.confirm(
+    request({
+      decisions: [
+        { stepId: 's1', verdict: 'edit', editedTitle: 'x'.repeat(1000000) },
+        { stepId: 's2', verdict: 'accept' },
+        { stepId: 's3', verdict: 'accept' },
+      ],
+    }),
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.failureCode, 'invalid_edit');
+  assert.deepEqual(recorder.batches, []);
+});
+
+test('a malformed request does not consume the proposal', async () => {
+  // A refusal must leave the proposal confirmable, or one bad client request
+  // would strand a user's proposal permanently.
+  const { store, recorder } = setup();
+  await store.confirm(rawRequest({ decisions: [{ stepId: 's1', verdict: 'maybe' }] }));
+
+  const good = await store.confirm(request());
+  assert.equal(good.success, true);
+  assert.equal(recorder.batches.length, 1);
+});

@@ -91,8 +91,18 @@ export interface ProposalState {
   readonly failure: ProposalStateFailure | null;
 }
 
-/** A step that survived confirmation, on its way to the persistence port. */
-export interface ConfirmedDecompositionStep {
+/**
+ * A step that survived confirmation, on its way to the persistence port.
+ *
+ * Named for this track rather than for the domain. #27's boundary exports a
+ * different `ConfirmedDecompositionStep`, and the two are not assignable; while
+ * both carried that name a consumer importing the wrong one got
+ * "Type 'ConfirmedDecompositionStep' is missing properties from type
+ * 'ConfirmedDecompositionStep'", which says nothing about which two files are
+ * involved. #27's is the one a future consumer reaches through the boundary, so
+ * this side moved.
+ */
+export interface ProposalConfirmedStep {
   readonly step: DecompositionStepProposal;
   readonly disposition: 'accepted' | 'edited';
   /** The engine wording, so an adapter can record what was changed. */
@@ -100,69 +110,16 @@ export interface ConfirmedDecompositionStep {
 }
 
 export interface ResolvedConfirmation {
-  readonly confirmed: readonly ConfirmedDecompositionStep[];
+  readonly confirmed: readonly ProposalConfirmedStep[];
   readonly rejectedStepIds: readonly string[];
 }
 
 /**
- * Titles that are only a connective.
- *
- * English `and`/`then` are the obvious ones. Arabic `و` and Hebrew `ו` are here
- * because both languages write the conjunction as a clitic prefixed onto the
- * next word with no whitespace (`واطلب`, `ותזמין`), so a splitter that strips
- * the prefix to find the boundary emits the bare letter as if it were a step.
- * That artefact is a single character and would pass any "non-empty title"
- * check, which is exactly why `CONJUNCTION_ONLY` is a separate code from
- * `EMPTY_STEP`.
- *
- * Matching is whole-title only. A title that merely *starts* with a connective
- * ("and order the cake", "واطلب الكعكة") is a real step, and rejecting those
- * would break the very rows the clitic handling exists to support.
- */
-
-/**
- * Combining marks and invisible format characters, removed before any lookup.
- *
- * Both are ordinary in this product's real input and both defeated the
- * connective list outright: vocalized Arabic (`وَ` is waw + fatha) and a
- * right-to-left mark pasted in ahead of a word (`‏و`) are different strings
- * from the bare conjunction, so the artefact walked straight through while
- * looking identical on screen. Explicit BMP ranges rather than `\p{M}` with the
- * `u` flag, because the repo compiles to es5 and `u` is unavailable there.
- *
- *  - `\u0300-\u036F` Latin combining diacritics
- *  - `\u0591-\u05BD \u05BF \u05C1-\u05C2 \u05C4-\u05C5 \u05C7` Hebrew niqqud and cantillation
- *  - `\u0610-\u061A \u064B-\u065F \u0670 \u06D6-\u06ED` Arabic harakat and Quranic marks
- *  - `\u200B-\u200F \u061C \u202A-\u202E \u2066-\u2069 \uFEFF` zero-width and bidi controls
- */
-
-/**
- * Punctuation, symbols and separators that carry no meaning on their own.
- *
- * Stripped before the connective lookup so " , then " and "and." are recognised
- * as the same artefact as "then" — a splitter that leaves the delimiter attached
- * would otherwise walk straight through the check. Arabic comma, semicolon and
- * question mark are listed explicitly: they are separate code points from their
- * Latin lookalikes, so a class built only from ASCII punctuation would leave an
- * Arabic split artefact looking like a real title.
- *
- * The hyphen is last in the class and unescaped-by-position on purpose. It used
- * to sit inside `‐-―`, which a regex reads as the *range* U+2010–U+2015 — so the
- * ASCII hyphen was a range delimiter and never a member, and a title of "-" was
- * not empty. The dash range is spelled with explicit escapes now so no character
- * can be silently swallowed into a range again.
- *
- * No `u` flag: every character here is in the BMP, so the class means the same
- * thing without it.
- */
-
-/**
- * A title reduced to the form the violation checks compare on.
- *
- * Lowercased, stripped of invisible marks and of punctuation. Exported nowhere:
- * every caller goes through `titleViolation` so the entry path and the edit path
- * cannot drift apart, which is exactly what happened when the edit path used a
- * bare `trim()`.
+ * The connective lexicon and the title normalisation it needs live in
+ * `lib/decomposition/shared/connectives.ts`, shared with #26 and #27 so the
+ * three tracks cannot disagree about what a connective is. `isEmptyTitle` and
+ * `isConnectiveOnly` are the only entry points; nothing here re-implements
+ * either.
  */
 
 /**
@@ -194,6 +151,69 @@ export function initialProposalState(proposal: DecomposedProposal): ProposalStat
   };
 }
 
+/**
+ * The three verdicts that exist.
+ *
+ * Checked at runtime because `StepDecision` is a TypeScript union and
+ * TypeScript is erased: a version-skewed client, a typo, or a future fourth
+ * verdict all arrive here as ordinary strings. #27's boundary keeps the same
+ * set and answers with the same code, so the two reducers cannot give one
+ * request two answers.
+ */
+const KNOWN_VERDICTS: ReadonlySet<string> = new Set(['accept', 'reject', 'edit']);
+
+/**
+ * Longest edited title accepted, matching #27's boundary.
+ *
+ * A title travels from here into the persistence port with no other limit on
+ * the path, so without a cap a megabyte of pasted text is a valid step.
+ */
+export const MAX_EDITED_TITLE_LENGTH = 500;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Why this decision is not a ruling, or null when it is one.
+ *
+ * An unrecognised verdict is `incomplete_decisions`, not a rejection. The
+ * reducer used to read anything that was not `accept` as `reject`, which fails
+ * closed in the write direction — nothing extra persisted — but inverts the
+ * contract from the other side: the request reported success while carrying a
+ * ruling nobody made, so `everyStepNeedsExplicitDecision` was satisfied by a
+ * verdict the reducer invented. Silence is not consent and neither is a typo;
+ * a verdict this reducer does not understand states no ruling for that step,
+ * which is the same defect as omitting it.
+ */
+function malformedDecision(decision: StepDecision): ProposalStateFailure | null {
+  if (!isRecord(decision) || typeof decision.stepId !== 'string') {
+    return {
+      code: 'unknown_step',
+      stepId: null,
+      detail: 'decision is not a well-formed ruling and names no step',
+    };
+  }
+  const stepId = decision.stepId;
+
+  if (typeof decision.verdict !== 'string' || !KNOWN_VERDICTS.has(decision.verdict)) {
+    return {
+      code: 'incomplete_decisions',
+      stepId,
+      detail: 'decision carries no verdict this reducer understands; that is not a ruling',
+    };
+  }
+  if (decision.verdict === 'edit') {
+    if (typeof decision.editedTitle !== 'string') {
+      return { code: 'invalid_edit', stepId, detail: 'edited title is not text' };
+    }
+    if (decision.editedTitle.length > MAX_EDITED_TITLE_LENGTH) {
+      return { code: 'invalid_edit', stepId, detail: 'edited title is longer than the accepted maximum' };
+    }
+  }
+  return null;
+}
+
 function failed(state: ProposalState, failure: ProposalStateFailure): ProposalState {
   return { proposalId: state.proposalId, steps: state.steps, failure };
 }
@@ -207,6 +227,11 @@ function failed(state: ProposalState, failure: ProposalStateFailure): ProposalSt
  */
 export function applyStepDecision(state: ProposalState, decision: StepDecision): ProposalState {
   if (state.failure !== null) return state;
+
+  // Before anything reads a field off it. Every property of `decision` is
+  // untrusted at runtime however well-typed the call site looked.
+  const malformed = malformedDecision(decision);
+  if (malformed !== null) return failed(state, malformed);
 
   const target = state.steps.find((entry) => entry.stepId === decision.stepId);
   if (!target) {
@@ -252,6 +277,9 @@ export function applyStepDecision(state: ProposalState, decision: StepDecision):
       proposedTitle: target.proposedTitle,
     };
   } else {
+    // Reached only for a verdict `malformedDecision` admitted, so the remaining
+    // pair really is accept/reject. Reading "not accept" as a rejection without
+    // that guard is what turned a typo into a ruling the user never made.
     next = { ...target, state: decision.verdict === 'accept' ? 'accepted' : 'rejected' };
   }
 
@@ -287,7 +315,18 @@ export function reduceStepDecisions(
   proposal: DecomposedProposal,
   decisions: readonly StepDecision[],
 ): ProposalState {
-  return finalizeProposalState(decisions.reduce(applyStepDecision, initialProposalState(proposal)));
+  const initial = initialProposalState(proposal);
+  if (!Array.isArray(decisions)) {
+    // `decisions.reduce` threw a raw TypeError out of the public surface. A
+    // request carrying no decision list states no rulings at all, which is the
+    // same finding as a list that misses a step.
+    return failed(initial, {
+      code: 'incomplete_decisions',
+      stepId: null,
+      detail: 'confirmation carries no list of decisions',
+    });
+  }
+  return finalizeProposalState(decisions.reduce(applyStepDecision, initial));
 }
 
 /**
@@ -309,7 +348,7 @@ export function resolveConfirmedSteps(input: ProposalState): ResolvedConfirmatio
   const state = finalizeProposalState(input);
   if (state.failure !== null) return { confirmed: [], rejectedStepIds: [] };
 
-  const confirmed: ConfirmedDecompositionStep[] = [];
+  const confirmed: ProposalConfirmedStep[] = [];
   const rejectedStepIds: string[] = [];
   for (const entry of state.steps) {
     if (entry.state === 'accepted' || entry.state === 'edited') {
