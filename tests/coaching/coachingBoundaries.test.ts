@@ -304,11 +304,24 @@ test('no module under lib/coaching orders by locale', () => {
   }
 });
 
-test('no module under lib/coaching throws', () => {
+test('no module under lib/coaching contains a throw statement', () => {
   // `COACHING_INPUT_POLICY.reportWhatTheTaxonomyNames`. Sprint 07 shipped three
   // throws where the contract said report and Sprint 08 shipped five more; each
   // was invisible to a typed caller and immediate at the untyped boundary the
   // module existed to guard.
+  //
+  // **This scan is necessary and nowhere near sufficient, and believing
+  // otherwise cost five defects.** It looks for the literal word `throw`, so it
+  // is blind to the way this module actually violated the rule: a `TypeError`
+  // raised by dereferencing a field the untyped boundary did not supply. Five
+  // such sites shipped — `claimSupport.ts`, `deliver.ts` twice, `policy.ts`,
+  // `language.ts` — while this test stayed green, because none of them contains
+  // the word.
+  //
+  // The sufficient half is the robustness sweep below, which *executes* every
+  // exported entry point against malformed input. A text scan cannot decide
+  // whether an expression can raise; only running it can. This one is kept
+  // because it catches the explicit form cheaply, and it is named honestly.
   for (const file of sourceFilesUnder(moduleDir)) {
     const source = stripComments(readFileSync(file, 'utf8'));
     assert.equal(/\bthrow\b/.test(source), false, `${relative(file)} throws; every named condition must come back as a defect`);
@@ -367,4 +380,81 @@ test('the import scan runs on raw source, so a commented-out import cannot hide 
   // commented-out block invisible.
   const source = "// import { x } from './hidden';\nimport { y } from './real';";
   assert.deepEqual(importSpecifiers(source), ['./hidden', './real'], 'the import scan must over-report, never under-report');
+});
+
+/* ── The half a text scan cannot do ──────────────────────────────── */
+
+/**
+ * Every exported entry point, executed against malformed input.
+ *
+ * This is the guard the `throw` scan could not be. `COACHING_INPUT_POLICY`
+ * says every condition the taxonomy names comes back as data, and the way this
+ * module broke that rule five times was not a `throw` statement — it was
+ * `claim.source.verdict` on an object whose `source` the boundary never
+ * supplied. `isEvidenceBackedClaim` returns false for such a claim, correctly,
+ * and four call sites treated "not evidence-backed" as "therefore an echo".
+ *
+ * The corpus is deliberately shapeless: nulls, wrong primitives, arrays where
+ * objects go, objects missing exactly one required field. It is the untyped
+ * boundary written down, and it is applied to *every* export rather than to the
+ * ones whose failure someone already imagined — a hand-picked list tests the
+ * shapes its author thought of, which is the Sprint 07 lesson about hand-built
+ * divergence tables applied to robustness.
+ */
+test('no exported entry point throws on malformed input', async () => {
+  const module = (await import('../../lib/coaching/index')) as Record<string, unknown>;
+  const exported = Object.entries(module).filter(([, value]) => typeof value === 'function');
+  assert.ok(exported.length >= 12, `expected the module surface to be scanned; found ${exported.length} functions`);
+
+  const shapes: readonly unknown[] = [
+    undefined,
+    null,
+    0,
+    '',
+    'a string',
+    true,
+    [],
+    [null],
+    {},
+    { kind: 'unheard_of' },
+    { claimIndex: 0, kind: 'user_completed' },
+    { source: null },
+    { source: {} },
+    { source: { kind: 'user_decision' } },
+    { output: null, recommendation: null },
+    { plan: {}, evidence: null, basisAt: null },
+    { sentences: [null], claims: [null], evidence: {} },
+    { recommendation: {}, locale: 'en', now: 'nope' },
+    { verdict: 'done' },
+    { nodes: 'not-an-array' },
+  ];
+
+  const failures: string[] = [];
+  for (const [name, value] of exported) {
+    const call = value as (...args: unknown[]) => unknown;
+    for (const first of shapes) {
+      for (const second of [undefined, null, '', [], {}]) {
+        try {
+          call(first, second, second);
+        } catch (error) {
+          failures.push(`${name}(${JSON.stringify(first)?.slice(0, 40)}, …) threw ${(error as Error).constructor.name}: ${(error as Error).message.slice(0, 70)}`);
+        }
+      }
+    }
+  }
+  assert.deepEqual(failures, [], `entry points raised instead of reporting:\n  ${failures.join('\n  ')}`);
+});
+
+test('the robustness sweep would catch a real dereference, so it is not vacuous', () => {
+  // The sweep asserts an empty list, which passes just as well against a loop
+  // that ran nothing. This pins that the harness sees a raise of exactly the
+  // shape the five real defects had.
+  const victim = (input: { source: { verdict: string } }) => input.source.verdict;
+  let caught = false;
+  try {
+    victim({} as never);
+  } catch {
+    caught = true;
+  }
+  assert.equal(caught, true, 'the harness must be able to observe a TypeError from a missing field');
 });

@@ -56,7 +56,8 @@
 
 import {
   COACHING_FORBIDDEN_LANGUAGE,
-  isEvidenceBackedClaim,
+  COACHING_FORBIDDEN_TIME_PATTERNS,
+  isDecisionEchoClaim,
   type CoachingDefect,
   type CoachingOutput,
 } from '../../../src/contracts/v1/coachingContracts';
@@ -82,9 +83,27 @@ export interface CoachingLexicons {
   readonly shame: readonly string[];
   readonly scaffold: readonly string[];
   readonly trackingVerbs: readonly string[];
+  /** Regular-expression **sources**, compiled fresh per call. */
+  readonly machineTimePatterns: readonly string[];
 }
 
-export const DEFAULT_COACHING_LEXICONS: CoachingLexicons = COACHING_FORBIDDEN_LANGUAGE;
+export const DEFAULT_COACHING_LEXICONS: CoachingLexicons = Object.freeze({
+  ...COACHING_FORBIDDEN_LANGUAGE,
+  machineTimePatterns: COACHING_FORBIDDEN_TIME_PATTERNS,
+});
+
+/**
+ * A lexicon list, read defensively.
+ *
+ * `for (const word of lexicons.shame)` raised a `TypeError` on a partial
+ * lexicon object — a caller-supplied structure, which is exactly what this
+ * parameter exists to accept, and exactly the untyped boundary the module is
+ * written to guard.
+ */
+function wordsOf(lexicons: CoachingLexicons, key: keyof CoachingLexicons): readonly string[] {
+  const list = lexicons === null || lexicons === undefined ? undefined : lexicons[key];
+  return Array.isArray(list) ? list : (DEFAULT_COACHING_LEXICONS[key] as readonly string[]);
+}
 
 function escapeForPattern(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -112,6 +131,25 @@ function escapeForPattern(value: string): string {
 export function containsToken(text: string, word: string): boolean {
   if (typeof text !== 'string' || typeof word !== 'string' || word.length === 0) return false;
   const pattern = new RegExp(`(^|[^\\p{L}\\p{N}])${escapeForPattern(word)}`, 'iu');
+  return pattern.test(text);
+}
+
+/**
+ * Whether `text` matches a pattern source.
+ *
+ * Compiles a fresh `RegExp` per call and never shares one, on the same terms as
+ * `containsToken`. An invalid source is reported as *no match* rather than
+ * raised: a caller-supplied lexicon is the untyped boundary, and a checker that
+ * raises cannot return the list it exists to return.
+ */
+export function matchesPattern(text: string, source: string): boolean {
+  if (typeof text !== 'string' || typeof source !== 'string' || source.length === 0) return false;
+  let pattern: RegExp;
+  try {
+    pattern = new RegExp(source, 'i');
+  } catch {
+    return false;
+  }
   return pattern.test(text);
 }
 
@@ -146,7 +184,7 @@ export function checkCoachingLanguage(
   // tracking it" and "I saved that for you" are different lies told by
   // different templates and fixed in different places.
   const acknowledgesCompletion = claims.some(
-    (claim) => claim !== null && claim !== undefined && !isEvidenceBackedClaim(claim) && claim.kind === 'user_completed',
+    (claim) => isDecisionEchoClaim(claim) && claim.kind === 'user_completed',
   );
 
   for (let index = 0; index < sentences.length; index += 1) {
@@ -154,17 +192,17 @@ export function checkCoachingLanguage(
     const text = sentence === null || sentence === undefined ? undefined : sentence.text;
     if (typeof text !== 'string' || text.trim().length === 0) continue;
 
-    for (const word of lexicons.shame) {
+    for (const word of wordsOf(lexicons, 'shame')) {
       if (containsToken(text, word)) {
         defects.push({ code: 'FORBIDDEN_LANGUAGE', claimIndex: null, sentenceIndex: index, detail: 'sentence carries shame language' });
       }
     }
-    for (const word of lexicons.scaffold) {
+    for (const word of wordsOf(lexicons, 'scaffold')) {
       if (containsToken(text, word)) {
         defects.push({ code: 'FORBIDDEN_LANGUAGE', claimIndex: null, sentenceIndex: index, detail: 'sentence carries internal scaffolding language' });
       }
     }
-    for (const word of lexicons.trackingVerbs) {
+    for (const word of wordsOf(lexicons, 'trackingVerbs')) {
       if (!containsToken(text, word)) continue;
       defects.push(
         acknowledgesCompletion
@@ -181,6 +219,19 @@ export function checkCoachingLanguage(
               detail: 'sentence claims a write this module never performs',
             },
       );
+    }
+
+    for (const source of wordsOf(lexicons, 'machineTimePatterns')) {
+      // A machine-formatted time in prose. The whole argument that
+      // `FABRICATED_INSTANT` is unreachable for this producer rests on no time
+      // reaching the text, and nothing was checking the text for one.
+      if (!matchesPattern(text, source)) continue;
+      defects.push({
+        code: 'COMPLETION_DESCRIBED_AS_TRACKING',
+        claimIndex: null,
+        sentenceIndex: index,
+        detail: 'sentence states a machine-formatted time, which no coaching template may carry',
+      });
     }
 
     if (text.includes(';')) {

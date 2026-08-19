@@ -19,13 +19,22 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import {
   COACHING_ABSENT_GATEWAY_RECOVERY,
   COACHING_CLAIM_SUPPORT_RECOVERY,
   CANDIDATE_CLAIM_KIND_FOR_COACHING_CLAIM,
   COACHING_CLAIM_KINDS,
+  COACHING_SENTENCE_POLICY,
   DECISION_ECHO_CLAIM_KINDS,
+  ENGINE_LEXICON_PARITY,
+  checkCoachingOutput,
+  checkCoachingPlan,
+  isDecisionEchoClaim,
+  isEvidenceBackedClaim,
   EVIDENCE_BACKED_CLAIM_KINDS,
   PRESSURE_INTENSITY_FOR_INTENT,
   UNKNOWN_COACHING_CLAIM_CANDIDATE_KIND,
@@ -53,15 +62,19 @@ import {
 } from '../../src/contracts/v1/safetyContracts';
 import { evaluateSafetyGate } from '../../lib/safety';
 import {
+  DEFAULT_COACHING_LEXICONS,
   checkClaimSupport,
   checkCoachingLanguage,
   containsToken,
+  matchesPattern,
   deliverCoaching,
   identifiersOf,
   planCoaching,
   realizeCoachingPlan,
   toSafetyCandidate,
 } from '../../lib/coaching';
+import { realizeCoachingPlan as _realize } from '../../lib/coaching';
+void _realize;
 import { NOW, choiceOffer, fingerprintsFor, observed, onlyCandidate, soleSurvivor, withheld } from './fixtures';
 
 function planFor(recommendation: Recommendation, decision: RecommendationDecision | null = null): CoachingPlan {
@@ -76,11 +89,22 @@ function planFor(recommendation: Recommendation, decision: RecommendationDecisio
   return (outcome as { plan: CoachingPlan }).plan;
 }
 
+const PLAN_OF = new WeakMap<CoachingOutput, CoachingPlan>();
+
 function outputFor(recommendation: Recommendation, decision: RecommendationDecision | null = null): CoachingOutput {
   const plan = planFor(recommendation, decision);
   const outcome = realizeCoachingPlan({ plan, evidence: recommendation.evidence, basisAt: NOW });
   assert.equal(outcome.outcome, 'realized', `realization refused: ${JSON.stringify(outcome)}`);
-  return (outcome as { output: CoachingOutput }).output;
+  const output = (outcome as { output: CoachingOutput }).output;
+  PLAN_OF.set(output, plan);
+  return output;
+}
+
+/** The plan an output was realized from, for the delivery gate's structural pass. */
+function planOf(output: CoachingOutput): CoachingPlan {
+  const plan = PLAN_OF.get(output);
+  assert.ok(plan !== undefined, 'no plan was recorded for this output');
+  return plan as CoachingPlan;
 }
 
 function doneDecision(recommendationId: string): RecommendationDecision {
@@ -524,6 +548,7 @@ test('an unsupported claim blocks delivery, and the gateway is not consulted', (
   let consulted = 0;
   const delivery = deliverCoaching({
     output: smuggled,
+    plan: planOf(output),
     recommendation: source,
     candidateId: 'candidate-fixed',
     gate: () => {
@@ -540,8 +565,10 @@ test('an unsupported claim blocks delivery, and the gateway is not consulted', (
 
 test('an absent gateway blocks delivery; it is refusal, never permission', () => {
   const source = soleSurvivor('OVERDUE', 0.9);
+  const output = outputFor(source);
   const delivery = deliverCoaching({
-    output: outputFor(source),
+    output,
+    plan: planOf(output),
     recommendation: source,
     candidateId: 'candidate-fixed',
     gate: null,
@@ -557,6 +584,7 @@ test('a gateway allow delivers, and a gateway block withholds with its own recov
   const output = outputFor(source);
   const allowed = deliverCoaching({
     output,
+    plan: planOf(output),
     recommendation: source,
     candidateId: 'candidate-fixed',
     gate: () => ({ disposition: 'allow', findings: [] }),
@@ -571,6 +599,7 @@ test('a gateway allow delivers, and a gateway block withholds with its own recov
   };
   const blocked = deliverCoaching({
     output,
+    plan: planOf(output),
     recommendation: source,
     candidateId: 'candidate-fixed',
     gate: () => blockVerdict,
@@ -589,8 +618,10 @@ test('allow_with_redaction withholds in v1, and still carries a way out', () => 
     redactedSegmentIndices: [1],
     recovery: { kind: 'offer_neutral_acknowledgement', retryAdmissible: true, retryAfter: null },
   };
+  const redactedOutput = outputFor(source);
   const delivery = deliverCoaching({
-    output: outputFor(source),
+    output: redactedOutput,
+    plan: planOf(redactedOutput),
     recommendation: source,
     candidateId: 'candidate-fixed',
     gate: () => redaction,
@@ -604,8 +635,10 @@ test('allow_with_redaction withholds in v1, and still carries a way out', () => 
 test('a verdict this version does not recognise is a refusal, not a pass', () => {
   const source = soleSurvivor('OVERDUE', 0.9);
   for (const bad of [null, undefined, {}, { disposition: 'probably_fine' }, 'allow']) {
+    const badOutput = outputFor(source);
     const delivery = deliverCoaching({
-      output: outputFor(source),
+      output: badOutput,
+      plan: planOf(badOutput),
       recommendation: source,
       candidateId: 'candidate-fixed',
       gate: (() => bad) as never,
@@ -758,6 +791,7 @@ test('the full delivery path allows an honest turn and withholds a fabricated on
 
   const honest = deliverCoaching({
     output,
+    plan: planOf(output),
     recommendation: base,
     decision: done,
     candidateId: 'candidate-fixed',
@@ -768,6 +802,7 @@ test('the full delivery path allows an honest turn and withholds a fabricated on
 
   const fabricated = deliverCoaching({
     output,
+    plan: planOf(output),
     recommendation: base,
     decision: done,
     candidateId: 'candidate-fixed',
@@ -777,4 +812,520 @@ test('the full delivery path allows an honest turn and withholds a fabricated on
   assert.equal(fabricated.disposition, 'withheld');
   assert.deepEqual(fabricated.blockedBy, ['safety_gateway'], 'this module own gate cannot see an attestation mismatch');
   assert.equal(fabricated.recovery.kind, 'show_evidence_only', "#39's recovery for DECISION_ECHO_MISMATCHED, carried verbatim");
+});
+
+/* ── Review findings: regressions, one per defect ────────────────── */
+
+/**
+ * The blocker, as a single reproduced input.
+ *
+ * `deliverCoaching` ran only the claim-support and language passes, so every
+ * structural code was unenforced at the one place both this file and `index.ts`
+ * document as the gate. The compounding half is what made it deliverable:
+ * `checkClaimSupport` iterates `output.claims`, so **zero claims produced zero
+ * findings**, and the candidate handed to the gateway declared no claims either
+ * — so #39 found nothing too. One empty field silenced two independent gates.
+ */
+test('the delivery gate runs the structural pass, and the reviewer exploit is refused', () => {
+  // The recommendation actually carries the leaked identifier, on a
+  // `TrustedSource` — which is the shape `identifiersOf` used to walk past.
+  const source = {
+    ...soleSurvivor('OVERDUE', 0.9),
+    evidence: {
+      nodes: [
+        {
+          ...observed('n-reason', 'fp-reason'),
+          source: { kind: 'plan_slot', itemId: 'call-dr-cohen-about-the-biopsy', planDigest: 'digest-secret-value' },
+        },
+        observed('n-basis', 'fp-basis'),
+      ],
+    },
+  } as unknown as Recommendation;
+  const honest = outputFor(source);
+  const exploit = {
+    ...honest,
+    realization: 'model',
+    claims: [],
+    sentences: [
+      { sentenceIndex: 0, text: 'Your call-dr-cohen-about-the-biopsy is due 2026-08-21 at 16:00.', templateId: 'x', claimIndices: [7] },
+      { sentenceIndex: 1, text: 'I have put it on your list and I will keep an eye on it.', templateId: 'y', claimIndices: [9] },
+    ],
+  } as unknown as CoachingOutput;
+
+  let consulted = 0;
+  const delivery = deliverCoaching({
+    output: exploit,
+    plan: planOf(honest),
+    recommendation: source,
+    candidateId: 'candidate-fixed',
+    gate: () => {
+      consulted += 1;
+      return { disposition: 'allow', findings: [] };
+    },
+  });
+
+  assert.equal(delivery.disposition, 'withheld', 'the reviewer exploit was delivered');
+  assert.equal(consulted, 0, 'a permissive gateway must not be reached once this module own gate refuses');
+  const codes = codesOf(delivery.defects);
+  // Each of the five things wrong with that one output earns its own code.
+  for (const expected of [
+    'MODEL_REALIZATION_NOT_ENABLED',
+    'EMPTY_CLAIM_LIST',
+    'UNKNOWN_CLAIM_REFERENCE',
+    'IDENTIFIER_IN_PROSE',
+  ]) {
+    assert.ok(codes.includes(expected), `expected ${expected}; got ${JSON.stringify(codes)}`);
+  }
+  assert.ok(
+    codes.includes('COMPLETION_DESCRIBED_AS_TRACKING') || codes.includes('FORBIDDEN_LANGUAGE'),
+    `the persistence claim and the machine time must both be caught; got ${JSON.stringify(codes)}`,
+  );
+});
+
+test('the delivery gate refuses an output that disagrees with its plan', () => {
+  const source = soleSurvivor('OVERDUE', 0.9);
+  const output = outputFor(source);
+  const delivery = deliverCoaching({
+    output: { ...output, intent: 'explain_withholding' } as unknown as CoachingOutput,
+    plan: planOf(output),
+    recommendation: source,
+    candidateId: 'candidate-fixed',
+    gate: () => ({ disposition: 'allow', findings: [] }),
+  });
+  assert.equal(delivery.disposition, 'withheld');
+  assert.ok(codesOf(delivery.defects).includes('PLAN_OUTPUT_MISMATCH'));
+});
+
+/**
+ * The superset claim, **checked against the shipped file rather than read**.
+ *
+ * The claim "everything the engine forbids, this module forbids" was written
+ * from a reading of `validation.ts` and was false in six places. A reading is
+ * not a check, and it stops being true silently the day the engine's list
+ * grows. So this reads the engine's source from disk, pins that the recorded
+ * patterns still match it, and then runs a corpus through both.
+ */
+function engineSource(): string {
+  return readFileSync(join(repoRootFromTest(), 'lib', 'services', 'responseEngine', 'validation.ts'), 'utf8');
+}
+
+function repoRootFromTest(): string {
+  return join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+}
+
+test("the engine's patterns have not drifted from the copies recorded in the contract", () => {
+  const source = engineSource();
+  assert.ok(
+    source.includes(ENGINE_LEXICON_PARITY.creationOrTracking),
+    'the engine CREATION_OR_TRACKING_CLAIM no longer matches the recorded source; the superset claim must be re-derived',
+  );
+  for (const pattern of ENGINE_LEXICON_PARITY.machineTime) {
+    assert.ok(source.includes(pattern), `the engine no longer carries the recorded machine-time pattern ${pattern}`);
+  }
+  for (const word of ENGINE_LEXICON_PARITY.shame) {
+    assert.ok(source.includes(word), `the engine SHAME_PATTERNS no longer carries ${word}`);
+  }
+});
+
+test('everything the engine forbids, this module forbids — over a real corpus', () => {
+  const engine = new RegExp(ENGINE_LEXICON_PARITY.creationOrTracking, 'i');
+  const engineTime = ENGINE_LEXICON_PARITY.machineTime.map((pattern) => new RegExp(pattern, 'i'));
+  const engineShame = ENGINE_LEXICON_PARITY.shame.map((word) => new RegExp(`\\b${word}\\b`, 'i'));
+  const mine = (text: string) =>
+    DEFAULT_COACHING_LEXICONS.trackingVerbs.some((word) => containsToken(text, word)) ||
+    DEFAULT_COACHING_LEXICONS.scaffold.some((word) => containsToken(text, word)) ||
+    DEFAULT_COACHING_LEXICONS.shame.some((word) => containsToken(text, word)) ||
+    DEFAULT_COACHING_LEXICONS.machineTimePatterns.some((pattern) => matchesPattern(text, pattern));
+
+  const corpus = [
+    // The three bare stems the inflected list missed entirely.
+    'I will save that for you.',
+    'I will create that.',
+    'I will schedule that.',
+    'I save it.',
+    'Creating that now.',
+    'A reminder is set.',
+    'I remind you later.',
+    'It is tracked.',
+    'I am tracking it.',
+    // The machine-time forms, which a word list cannot express.
+    'It is due 2026-08-21.',
+    'It is due 2026-08-21 at 16:00.',
+    'It is due 2026-08-21T16:00:00Z.',
+    // Shame, which must remain word-for-word identical.
+    'You have been inconsistent.',
+    'That is your fault.',
+    'You failed to get to it.',
+    'You are avoidant.',
+    'I am disappointed.',
+    'That was lazy.',
+    'There is no shame in it.',
+    'No guilt here.',
+  ];
+  for (const text of corpus) {
+    const engineSays = engine.test(text) || engineTime.some((p) => p.test(text)) || engineShame.some((p) => p.test(text));
+    if (!engineSays) continue;
+    assert.ok(mine(text), `the engine forbids this and this module does not: ${text}`);
+  }
+});
+
+test('the surveillance sentences a template author actually writes are caught', () => {
+  // The list previously spelled `watching`, `monitoring`, `noting` and
+  // `keeping track` — none of which is what anyone writes. The engine misses
+  // most of these too; that is why the superset exists, and why missing them
+  // was worse than a parity gap.
+  const base = soleSurvivor();
+  const decision = doneDecision(base.recommendationId);
+  const output = outputFor(base, decision);
+  for (const text of [
+    'You closed that one out. I will keep an eye on it.',
+    'You closed that one out. I will track it from here.',
+    'You closed that one out. I have noted it.',
+    'You closed that one out. I will watch the rest.',
+    'You closed that one out. I put it on your list.',
+    'You closed that one out. I recorded it.',
+    'You closed that one out. It is stored now.',
+    'You closed that one out. I am monitoring the others.',
+    'You closed that one out. I will log it.',
+  ]) {
+    const mutated = { ...output, sentences: [{ ...output.sentences[0], text }] } as unknown as CoachingOutput;
+    assert.ok(
+      codesOf(checkCoachingLanguage(mutated, identifiersOf(base))).includes('COMPLETION_DESCRIBED_AS_TRACKING'),
+      `a completion described as tracking was not caught: ${text}`,
+    );
+  }
+});
+
+test('a machine-formatted time in prose is caught', () => {
+  // The whole argument that `FABRICATED_INSTANT` is unreachable for this
+  // producer rests on no time reaching the text.
+  const source = soleSurvivor('OVERDUE', 0.9);
+  const output = outputFor(source);
+  for (const text of ['It is due 2026-08-21.', 'It is due 2026-08-21 at 16:00.', 'Try again at 16:00.']) {
+    const mutated = { ...output, sentences: [{ ...output.sentences[0], text }, output.sentences[1]] } as unknown as CoachingOutput;
+    assert.ok(
+      codesOf(checkCoachingLanguage(mutated, identifiersOf(source))).length > 0,
+      `a machine-formatted time was not caught: ${text}`,
+    );
+  }
+});
+
+/**
+ * Every word in every lexicon is exercised.
+ *
+ * 25 of 34 words could be deleted with the suite still green, and all nine
+ * `scaffold` entries were exercised by nothing at all. A lexicon nothing probes
+ * is a lexicon that can be silently emptied — and the test that *looked* like
+ * it pinned `keep an eye on` was in fact being caught by `monitoring` in the
+ * same sentence.
+ */
+test('deleting any single word from any lexicon is detectable', () => {
+  for (const key of ['shame', 'scaffold', 'trackingVerbs'] as const) {
+    const words = DEFAULT_COACHING_LEXICONS[key];
+    assert.ok(words.length > 0, `${key} is empty`);
+    for (const word of words) {
+      const text = `A sentence carrying ${word} alone.`;
+      const withAll = containsToken(text, word);
+      assert.ok(withAll, `${key}/${word} does not match its own probe`);
+      // The probe must be caught by *this* word and by no other in the list,
+      // or its deletion would be masked by a neighbour.
+      const others = words.filter((other) => other !== word).filter((other) => containsToken(text, other));
+      assert.deepEqual(others, [], `${key}/${word} is masked by ${JSON.stringify(others)}; deleting it would not turn the suite red`);
+    }
+  }
+  for (const pattern of DEFAULT_COACHING_LEXICONS.machineTimePatterns) {
+    assert.ok(pattern.length > 0, 'an empty time pattern matches nothing and would pass silently');
+  }
+});
+
+test('every lexicon word is refused in a real coaching sentence, one at a time', () => {
+  const source = soleSurvivor('OVERDUE', 0.9);
+  const output = outputFor(source);
+  for (const key of ['shame', 'scaffold', 'trackingVerbs'] as const) {
+    for (const word of DEFAULT_COACHING_LEXICONS[key]) {
+      const mutated = {
+        ...output,
+        sentences: [{ ...output.sentences[0], text: `A sentence carrying ${word} alone.` }, output.sentences[1]],
+      } as unknown as CoachingOutput;
+      const codes = codesOf(checkCoachingLanguage(mutated, identifiersOf(source)));
+      assert.ok(
+        codes.includes('FORBIDDEN_LANGUAGE') || codes.includes('COMPLETION_DESCRIBED_AS_TRACKING'),
+        `${key}/${word} is in the lexicon and nothing rejects a sentence containing it`,
+      );
+    }
+  }
+});
+
+/**
+ * Sprint 07's recorded leak, reproduced by the check written to prevent it.
+ *
+ * `identifiersOf` walked `nodeId` and the actions but never
+ * `ObservedEvidence.source`, so a `plan_slot.itemId` reached prose unreported —
+ * against a recommendation `checkRecommendation` calls defect-free. The
+ * previous fixture passed by coincidence: its node source happened to reuse the
+ * same `commitmentId` the action walk already collected.
+ */
+test('an identifier on a TrustedSource is collected, and reaching prose is caught', () => {
+  const leaky = {
+    ...soleSurvivor('OVERDUE', 0.9),
+    evidence: {
+      nodes: [
+        {
+          ...observed('n-reason', 'fp-reason'),
+          source: { kind: 'plan_slot', itemId: 'call-dr-cohen-about-the-biopsy', planDigest: 'digest-secret-value' },
+        },
+        {
+          ...observed('n-basis', 'fp-basis'),
+          source: { kind: 'priority_score', commitmentId: 'commitment-gamma', policyVersion: 'policy-secret-version' },
+        },
+      ],
+    },
+  } as unknown as Recommendation;
+  assert.deepEqual(checkRecommendation(leaky), [], 'the leaky fixture must itself be a valid recommendation');
+
+  const found = identifiersOf(leaky);
+  for (const expected of [
+    'call-dr-cohen-about-the-biopsy',
+    'digest-secret-value',
+    'commitment-gamma',
+    'policy-secret-version',
+    'digest-fixture-one',
+  ]) {
+    assert.ok(found.includes(expected), `identifiersOf missed ${expected}`);
+  }
+  // `kind` is deliberately not collected: scanning for it would make the word
+  // "commitment" a forbidden substring of ordinary prose.
+  assert.equal(found.includes('plan_slot'), false);
+
+  const output = outputFor(soleSurvivor('OVERDUE', 0.9));
+  const leaked = {
+    ...output,
+    sentences: [
+      { ...output.sentences[0], text: 'Your call-dr-cohen-about-the-biopsy is the next one.' },
+      output.sentences[1],
+    ],
+  } as unknown as CoachingOutput;
+  assert.ok(codesOf(checkCoachingLanguage(leaked, found)).includes('IDENTIFIER_IN_PROSE'));
+});
+
+/**
+ * The three-case claim shape.
+ *
+ * `isEvidenceBackedClaim` returns false for a claim with no `source` at all —
+ * correctly — and four call sites read `claim.source.verdict` on the `else`
+ * branch, raising a `TypeError` out of functions documented never to throw.
+ * Neither predicate is a partition; there is a third case.
+ */
+test('a claim carrying no source is reported, never routed down the echo branch', () => {
+  const base = soleSurvivor();
+  const decision = doneDecision(base.recommendationId);
+  const output = outputFor(base, decision);
+  const noSource = { claimIndex: 0, kind: 'user_completed' } as unknown as CoachingOutput['claims'][number];
+  const broken = { ...output, claims: [noSource] } as unknown as CoachingOutput;
+
+  assert.equal(isEvidenceBackedClaim(noSource), false);
+  assert.equal(isDecisionEchoClaim(noSource), false, 'the third case must be neither, not silently an echo');
+
+  const defects = checkClaimSupport({ output: broken, recommendation: base, decision });
+  assert.ok(codesOf(defects).includes('UNKNOWN_SOURCE_REASON'), `got ${JSON.stringify(codesOf(defects))}`);
+
+  const candidate = toSafetyCandidate(broken, 'candidate-fixed', [decision]);
+  assert.equal(candidate.claims[0].kind, 'decision_echo', 'it converts to the blocking kind');
+  assert.equal(candidate.claims[0].decisionIndex, null, 'with no attestation, so #39 refuses it');
+  assert.equal(candidate.claims[0].echoedVerdict, null, 'and it attributes no act to the user');
+});
+
+test('the delivery gate survives a claim carrying no source', () => {
+  const base = soleSurvivor();
+  const decision = doneDecision(base.recommendationId);
+  const output = outputFor(base, decision);
+  const broken = { ...output, claims: [{ claimIndex: 0, kind: 'user_completed' }] } as unknown as CoachingOutput;
+  const delivery = deliverCoaching({
+    output: broken,
+    plan: planOf(output),
+    recommendation: base,
+    decision,
+    candidateId: 'candidate-fixed',
+    gate: () => ({ disposition: 'allow', findings: [] }),
+  });
+  assert.equal(delivery.disposition, 'withheld');
+});
+
+/* ── The two MEDIUMs ─────────────────────────────────────────────── */
+
+test('the sentence limit is clamped by the policy, not taken from the plan', () => {
+  const source = soleSurvivor('OVERDUE', 0.9);
+  const output = outputFor(source);
+  const forty = Array.from({ length: 40 }, (_, index) => ({
+    sentenceIndex: index,
+    text: 'This one is short.',
+    templateId: 'lead.effort',
+    claimIndices: [index % 2],
+  }));
+  const defects = checkCoachingOutput(
+    { ...output, sentences: forty } as unknown as CoachingOutput,
+    { ...planOf(output), maxSentences: 500 } as unknown as CoachingPlan,
+  );
+  assert.ok(
+    codesOf(defects).includes('SENTENCE_LIMIT_EXCEEDED'),
+    `a plan claiming maxSentences 500 must not license 40 sentences; got ${JSON.stringify(codesOf(defects))}`,
+  );
+  assert.equal(COACHING_SENTENCE_POLICY.maxSentences, 2);
+});
+
+test('attestation picks the latest matching record, not the first, and refuses a tie', () => {
+  // Taking the first made the verdict depend on the order of an array this
+  // module does not own: `[accept@0, done@0]` blocked an honest completion and
+  // the same two reversed allowed it.
+  const base = soleSurvivor();
+  const at = (verdict: RecommendationDecision['verdict'], decidedAt: string): RecommendationDecision => ({
+    version: RECOMMENDATION_CONTRACT_VERSION,
+    recommendationId: base.recommendationId,
+    optionIndex: 0,
+    verdict,
+    decidedAt: decidedAt as RecommendationDecision['decidedAt'],
+  });
+  const accepted = at('accept', '2026-08-20T09:00:00Z');
+  const completed = at('done', '2026-08-20T09:10:00Z');
+  const output = outputFor(base, completed);
+
+  for (const order of [[accepted, completed], [completed, accepted]]) {
+    const candidate = toSafetyCandidate(output, 'candidate-fixed', order);
+    const chosen = order[candidate.claims[0].decisionIndex as number];
+    assert.equal(chosen.verdict, 'done', 'the latest act on the option must be the one located, whatever the array order');
+  }
+
+  // Two records claiming the same instant for the same option is an ambiguity
+  // this module must not resolve by guessing.
+  const tied = toSafetyCandidate(output, 'candidate-fixed', [at('accept', '2026-08-20T09:00:00Z'), at('done', '2026-08-20T09:00:00Z')]);
+  assert.equal(tied.claims[0].decisionIndex, null);
+
+  // An unparseable timestamp fails closed rather than being ordered arbitrarily.
+  const unparseable = toSafetyCandidate(output, 'candidate-fixed', [at('done', 'not-an-instant')]);
+  assert.equal(unparseable.claims[0].decisionIndex, null);
+});
+
+test('the real gateway still allows the honest turn under the latest-record rule', () => {
+  const base = soleSurvivor();
+  const accepted: RecommendationDecision = {
+    version: RECOMMENDATION_CONTRACT_VERSION,
+    recommendationId: base.recommendationId,
+    optionIndex: 0,
+    verdict: 'accept',
+    decidedAt: '2026-08-20T09:00:00Z' as RecommendationDecision['decidedAt'],
+  };
+  const completed: RecommendationDecision = { ...accepted, verdict: 'done', decidedAt: '2026-08-20T09:10:00Z' as RecommendationDecision['decidedAt'] };
+  const output = outputFor(base, completed);
+  for (const order of [[accepted, completed], [completed, accepted]]) {
+    const candidate = toSafetyCandidate(output, 'candidate-fixed', order);
+    const result = evaluateSafetyGate({ request: safetyRequestFor(order), candidate, auditId: 'audit-fixed' });
+    assert.equal(
+      result.verdict.disposition,
+      'allow',
+      `array order changed the verdict: ${JSON.stringify(result.verdict.findings.map((one) => one.code))}`,
+    );
+  }
+});
+
+/* ── Robustness: systematic, not hand-picked ─────────────────────── */
+
+/**
+ * Every field of a real input, deleted one at a time.
+ *
+ * The first version of this guard lived in `coachingBoundaries.test.ts` and was
+ * a cartesian sweep of shapeless values over every export. It passed — and then
+ * passed again with one of the five real defects deliberately reverted, because
+ * none of its hand-picked shapes produced the combination that triggers it: a
+ * *valid* recommendation beside an output whose claim is an object missing
+ * exactly one field. A robustness harness that cannot reproduce the defects it
+ * was written for is a harness reporting a strength it does not have, which is
+ * the instrument Sprint 08 recorded two tracks catching in the act.
+ *
+ * So the corpus is generated from the real fixtures rather than imagined:
+ * every path in the object tree, each in turn deleted, set to null, and set to
+ * a primitive. That is the untyped boundary as it actually arrives — JSON with
+ * a field missing — and it is what the five `TypeError`s all were.
+ */
+function paths(value: unknown, prefix: readonly string[] = [], depth = 0): ReadonlyArray<readonly string[]> {
+  if (depth > 4 || value === null || typeof value !== 'object') return [];
+  const found: Array<readonly string[]> = [];
+  for (const key of Object.keys(value as Record<string, unknown>)) {
+    const here = [...prefix, key];
+    found.push(here);
+    found.push(...paths((value as Record<string, unknown>)[key], here, depth + 1));
+  }
+  return found;
+}
+
+function withMutation(root: unknown, path: readonly string[], mode: 'delete' | 'null' | 'primitive'): unknown {
+  const copy = JSON.parse(JSON.stringify(root)) as Record<string, unknown>;
+  let cursor: Record<string, unknown> = copy;
+  for (let index = 0; index < path.length - 1; index += 1) {
+    const next = cursor[path[index]];
+    if (next === null || typeof next !== 'object') return copy;
+    cursor = next as Record<string, unknown>;
+  }
+  const leaf = path[path.length - 1];
+  if (mode === 'delete') delete cursor[leaf];
+  else if (mode === 'null') cursor[leaf] = null;
+  else cursor[leaf] = 7;
+  return copy;
+}
+
+test('no entry point throws when any single field of a real input is missing, null, or wrong', () => {
+  const base = soleSurvivor('OVERDUE', 0.9);
+  const decision = doneDecision(base.recommendationId);
+  const echoOutput = outputFor(base, decision);
+  const echoPlan = planOf(echoOutput);
+  const plainOutput = outputFor(base);
+  const plainPlan = planOf(plainOutput);
+
+  const subjects: ReadonlyArray<readonly [string, unknown, (mutated: unknown) => void]> = [
+    ['output', plainOutput, (m) => {
+      checkClaimSupport({ output: m as CoachingOutput, recommendation: base });
+      checkCoachingLanguage(m as CoachingOutput, identifiersOf(base));
+      toSafetyCandidate(m as CoachingOutput, 'c', [decision]);
+      checkCoachingOutput(m as CoachingOutput, plainPlan);
+      deliverCoaching({ output: m as CoachingOutput, plan: plainPlan, recommendation: base, candidateId: 'c', gate: null });
+    }],
+    ['echo output', echoOutput, (m) => {
+      checkClaimSupport({ output: m as CoachingOutput, recommendation: base, decision });
+      checkCoachingLanguage(m as CoachingOutput, identifiersOf(base));
+      toSafetyCandidate(m as CoachingOutput, 'c', [decision]);
+      checkCoachingOutput(m as CoachingOutput, echoPlan);
+      deliverCoaching({ output: m as CoachingOutput, plan: echoPlan, recommendation: base, decision, candidateId: 'c', gate: null });
+    }],
+    ['plan', plainPlan, (m) => {
+      checkCoachingPlan(m as CoachingPlan);
+      realizeCoachingPlan({ plan: m as CoachingPlan, evidence: base.evidence, basisAt: NOW });
+      checkCoachingOutput(plainOutput, m as CoachingPlan);
+    }],
+    ['recommendation', base, (m) => {
+      identifiersOf(m as Recommendation);
+      checkClaimSupport({ output: plainOutput, recommendation: m as Recommendation });
+      planCoaching({ recommendation: m as Recommendation, locale: 'en', now: NOW, currentFingerprints: {} });
+    }],
+    ['decision', decision, (m) => {
+      checkClaimSupport({ output: echoOutput, recommendation: base, decision: m as RecommendationDecision });
+      toSafetyCandidate(echoOutput, 'c', [m as RecommendationDecision]);
+      planCoaching({ recommendation: base, decision: m as RecommendationDecision, locale: 'en', now: NOW, currentFingerprints: {} });
+    }],
+  ];
+
+  const failures: string[] = [];
+  let probes = 0;
+  for (const [name, root, run] of subjects) {
+    for (const path of paths(root)) {
+      for (const mode of ['delete', 'null', 'primitive'] as const) {
+        probes += 1;
+        try {
+          run(withMutation(root, path, mode));
+        } catch (error) {
+          failures.push(`${name}: ${mode} ${path.join('.')} -> ${(error as Error).constructor.name}: ${(error as Error).message.slice(0, 60)}`);
+        }
+      }
+    }
+  }
+  assert.ok(probes > 400, `the fuzz must actually run; only ${probes} probes`);
+  assert.deepEqual(failures.slice(0, 8), [], `${failures.length} entry points raised instead of reporting`);
 });

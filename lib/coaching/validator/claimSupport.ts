@@ -53,6 +53,7 @@ import {
   CLAIM_KIND_FOR_DECISION_VERDICT,
   CLAIM_KIND_FOR_SUPPORT_REASON,
   checkCarriedEvidence,
+  isDecisionEchoClaim,
   isEvidenceBackedClaim,
   type CoachingClaim,
   type CoachingDefect,
@@ -100,7 +101,7 @@ function resolveSource(
   if (source.kind === 'withholding_reason') {
     if (recommendation.outcome !== 'withheld') return null;
     const reason = asList<{ code: string; supportedBy: readonly EvidenceNodeId[] }>(recommendation.reasons)[source.reasonIndex];
-    if (reason === undefined) return null;
+    if (reason === null || reason === undefined || typeof reason !== 'object') return null;
     return { evidence: asList<EvidenceNodeId>(reason.supportedBy), licensedKind: 'nothing_to_offer' };
   }
 
@@ -118,7 +119,7 @@ function resolveSource(
   // disagree about which option index 1 is.
   const options = offeredOptions(recommendation.options);
   const option = options[source.optionIndex];
-  if (option === undefined) return null;
+  if (option === null || option === undefined || typeof option !== 'object') return null;
 
   if (source.kind === 'option_confidence') {
     const confidence = option.confidence;
@@ -128,7 +129,10 @@ function resolveSource(
 
   if (source.kind === 'support_reason') {
     const reason = asList<{ code: string; supportedBy: readonly EvidenceNodeId[] }>(option.support)[source.reasonIndex];
-    if (reason === undefined) return null;
+    // A null entry in a list the type says is a non-empty tuple of objects.
+    // `reason.code` raised on it; the tuple is a compile-time claim and
+    // `JSON.parse` does not honour it.
+    if (reason === null || reason === undefined || typeof reason !== 'object') return null;
     const table = CLAIM_KIND_FOR_SUPPORT_REASON as Readonly<Record<string, string>>;
     const licensed = Object.prototype.hasOwnProperty.call(table, reason.code) ? table[reason.code] : null;
     return { evidence: asList<EvidenceNodeId>(reason.supportedBy), licensedKind: licensed };
@@ -184,7 +188,17 @@ export function checkClaimSupport(input: ClaimSupportInput): readonly CoachingDe
       continue;
     }
 
-    if (!isEvidenceBackedClaim(claim)) {
+    if (!isEvidenceBackedClaim(claim) && !isDecisionEchoClaim(claim)) {
+      // The third case, and the one that used to raise a `TypeError` several
+      // frames below a function documented never to throw:
+      // `isEvidenceBackedClaim` returns false for a claim with no `source` at
+      // all, and the `else` branch below dereferences `claim.source.verdict`.
+      // Neither predicate is a partition; see `isEvidenceBackedClaim`.
+      defects.push(defect('UNKNOWN_SOURCE_REASON', 'claim carries no source this version recognises', index));
+      continue;
+    }
+
+    if (isDecisionEchoClaim(claim)) {
       const source = claim.source;
       if (decision === null) {
         defects.push(defect('DECISION_CLAIM_WITHOUT_DECISION', 'the output echoes a decision that was not supplied', index));

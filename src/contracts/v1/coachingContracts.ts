@@ -516,12 +516,44 @@ export interface DecisionEchoClaim {
 
 export type CoachingClaim = EvidenceBackedCoachingClaim | DecisionEchoClaim;
 
-/** Whether a claim rests on the evidence graph rather than on a user decision. */
+/**
+ * Whether a claim rests on the evidence graph rather than on a user decision.
+ *
+ * **This predicate is not a partition, and treating it as one was a real
+ * defect.** A claim arriving from the untyped boundary with no `source` field
+ * at all makes this return `false` — correctly, it is not evidence-backed — and
+ * four call sites then read `claim.source.verdict` on the `else` branch and
+ * raised a `TypeError` out of functions documented never to throw. That is the
+ * Sprint 07 shape recorded in `PLANNING_INPUT_POLICY`: a helper raising several
+ * frames below the entry point, invisible to a typed caller and immediate at
+ * the untyped boundary the module exists to guard.
+ *
+ * There are **three** cases, not two: evidence-backed, decision echo, and
+ * neither. `isDecisionEchoClaim` names the second, and every caller must handle
+ * the third — `UNKNOWN_CLAIM_SOURCE_KIND` is its code.
+ */
 export function isEvidenceBackedClaim(claim: CoachingClaim): claim is EvidenceBackedCoachingClaim {
-  if (claim === null || claim === undefined) return false;
-  const source = (claim as { source?: { kind?: unknown } }).source;
-  if (source === null || source === undefined) return false;
-  return source.kind !== 'user_decision';
+  const source = claimSourceKind(claim);
+  return source !== null && source !== 'user_decision';
+}
+
+/** Whether a claim echoes a user decision. See `isEvidenceBackedClaim`. */
+export function isDecisionEchoClaim(claim: CoachingClaim): claim is DecisionEchoClaim {
+  return claimSourceKind(claim) === 'user_decision';
+}
+
+/**
+ * The claim's source kind, or null when it has none this version recognises.
+ *
+ * Total on purpose: the typed signature says `CoachingClaim` and the runtime
+ * receives whatever the boundary produced.
+ */
+function claimSourceKind(claim: CoachingClaim): string | null {
+  if (claim === null || claim === undefined || typeof claim !== 'object') return null;
+  const source = (claim as { source?: unknown }).source;
+  if (source === null || source === undefined || typeof source !== 'object') return null;
+  const kind = (source as { kind?: unknown }).kind;
+  return typeof kind === 'string' ? kind : null;
 }
 
 /* ── The plan ────────────────────────────────────────────────────── */
@@ -1260,26 +1292,121 @@ export const COACHING_FORBIDDEN_LANGUAGE = Object.freeze({
     'raw output',
     'debug meta',
   ] as const),
-  /** Strict superset of the engine's `CREATION_OR_TRACKING_CLAIM`. */
+  /**
+   * Persistence and surveillance language. **Roots, not inflections.**
+   *
+   * This list previously spelled inflected forms — `saved`, `saving`,
+   * `created` — while `containsToken` is anchored on the left and open on the
+   * right. A shorter root therefore could not match a longer listed word, so
+   * the list caught `saved` and missed **`save`**. The engine's
+   * `CREATION_OR_TRACKING_CLAIM` uses `saved?`, `created?`, `scheduled?`, which
+   * catch the bare stems — so the "strict superset" claim was false in exactly
+   * the three places a template author is most likely to write:
+   * `"I will save that for you."`, `"I will create that."`,
+   * `"I will schedule that."`
+   *
+   * Worse, and this is the one that mattered: in a turn acknowledging a
+   * completion, the sentence this file names **by name** as the criterion's
+   * exact failure passed clean —
+   * `"You closed that one out. I will keep an eye on it."` The list spelled
+   * `watching`, `monitoring`, `noting` and `keeping track`, and none of them is
+   * what anyone actually writes. `keep an eye`, `track`, `note`, `watch`,
+   * `record`, `store` and `on your list` are.
+   *
+   * Roots over-catch by design — `note` also matches `notebook`, `record` also
+   * matches `recording`. That is the right direction for a forbidden list: a
+   * false positive against a closed template table is a test failure someone
+   * fixes in one line, and a false negative is a sentence a user reads.
+   * `tests/coaching/realizer.test.ts` scans the whole table in all three
+   * locales, so an over-catch cannot reach production unnoticed.
+   *
+   * The list carries **no entry another entry already masks**. `keep track` and
+   * `keeping track` were both dropped because the root `track` catches them,
+   * and a masked entry is one whose deletion no test can detect — which is the
+   * property `tests/coaching/claimValidator.test.ts` now asserts word by word,
+   * after 25 of 34 entries turned out to be deletable with the suite green.
+   *
+   * The superset claim is no longer asserted by reading. It is **checked
+   * against the shipped file** — see `ENGINE_LEXICON_PARITY` and
+   * `tests/coaching/claimValidator.test.ts`.
+   */
   trackingVerbs: Object.freeze([
-    'saved',
+    'save',
     'saving',
-    'created',
+    'create',
     'creating',
-    'scheduled',
-    'scheduling',
-    'reminder',
+    'schedul',
     'remind',
-    'tracking',
-    'tracked',
-    'logging',
-    'logged',
-    'noting',
-    'monitoring',
-    'watching',
-    'keeping track',
+    'track',
+    'log',
+    'note',
+    'monitor',
+    'watch',
+    'keep an eye',
+    'keeping an eye',
+    'follow up on',
     'following up on',
+    'on your list',
+    'record',
+    'store',
   ] as const),
+});
+
+/**
+ * Machine-formatted times, as **regular-expression sources** rather than tokens.
+ *
+ * A word list cannot express `2026-08-21`, so the engine's two date patterns —
+ * which live in its `LEGACY_AND_INTERNAL_PATTERNS` — had no counterpart here
+ * and a sentence reading `"...is due 2026-08-21 at 16:00."` passed every check
+ * this module ran. That is the fabricated-instant boundary itself: the whole
+ * argument that `FABRICATED_INSTANT` is unreachable for this producer rests on
+ * no time reaching prose, and nothing was checking the prose for one.
+ *
+ * Sources rather than `RegExp` values, for the reason `isInstant` is a
+ * predicate rather than an exported pattern: an exported `RegExp` is one edit
+ * from carrying a `g` flag, after which `lastIndex` persists across unrelated
+ * callers and `test` returns alternating answers for the same input. The
+ * matcher compiles a fresh one per call.
+ */
+export const COACHING_FORBIDDEN_TIME_PATTERNS = Object.freeze([
+  '20\\d\\d-\\d\\d-\\d\\d(?:T|\\b)',
+  '20\\d\\d-\\d\\d-\\d\\d at \\d\\d:\\d\\d',
+  '\\b\\d{1,2}:\\d{2}\\b',
+]);
+
+/**
+ * The shipped engine's patterns, recorded so the superset claim is **checked
+ * rather than asserted**.
+ *
+ * The claim "everything the engine forbids, this module forbids" was written
+ * from a reading of `validation.ts` and was false in six places. A reading is
+ * not a check, and it silently stops being true the day the engine's list
+ * grows.
+ *
+ * `tests/coaching/claimValidator.test.ts` reads
+ * `lib/services/responseEngine/validation.ts` **from disk**, extracts these
+ * patterns, asserts the recorded sources still match the shipped ones, and then
+ * runs a corpus through both — asserting engine-positive implies
+ * coaching-positive. So engine drift turns this track red rather than making
+ * its central claim quietly false. Recorded as data because a contract must not
+ * import `lib/`.
+ */
+export const ENGINE_LEXICON_PARITY = Object.freeze({
+  creationOrTracking: '\\b(saved?|saving|created?|creating|scheduled?|scheduling|reminder|remind|tracking?|tracked)\\b',
+  machineTime: Object.freeze([
+    '\\b20\\d\\d-\\d\\d-\\d\\d(?:T|\\b)',
+    '\\b20\\d\\d-\\d\\d-\\d\\d at \\d\\d:\\d\\d\\b',
+  ]),
+  shame: Object.freeze([
+    'avoidant',
+    'inconsistent',
+    'lazy',
+    'fault',
+    'failed',
+    'shame',
+    'guilt',
+    'disappointed',
+  ]),
 });
 
 /* ── Policies ────────────────────────────────────────────────────── */
@@ -1668,10 +1795,28 @@ export function checkCoachingOutput(output: CoachingOutput, plan: CoachingPlan):
   }
 
   const sentences = asList<CoachingSentence>(safe.sentences);
-  const limit =
+  /**
+   * The plan's limit, **clamped by the policy**.
+   *
+   * Taking the plan's number unclamped was the third instance of one defect
+   * shape — a `??`-style default that lets a caller-supplied value stand in for
+   * a contract-owned bound. `maxSentences: 500` passed a forty-sentence output
+   * with no finding, which defeats the concision criterion outright and does it
+   * at the one checker a delivery path is most likely to call.
+   *
+   * `checkCoachingPlan` already reports an out-of-policy `maxSentences`, but a
+   * checker that is only correct when another checker was also run is a checker
+   * with a precondition nothing enforces — and `deliverCoaching` demonstrated
+   * exactly that by calling neither.
+   */
+  const declared =
     typeof safePlan.maxSentences === 'number' && Number.isInteger(safePlan.maxSentences)
       ? safePlan.maxSentences
       : COACHING_SENTENCE_POLICY.maxSentences;
+  const limit = Math.max(
+    COACHING_SENTENCE_POLICY.minSentences,
+    Math.min(declared, COACHING_SENTENCE_POLICY.maxSentences),
+  );
   if (sentences.length === 0 || sentences.length > limit) {
     defects.push({
       code: 'SENTENCE_LIMIT_EXCEEDED',

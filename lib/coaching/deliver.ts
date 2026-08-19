@@ -42,11 +42,14 @@ import {
   PRESSURE_INTENSITY_FOR_INTENT,
   UNKNOWN_COACHING_CLAIM_CANDIDATE_KIND,
   UNKNOWN_INTENT_PRESSURE_INTENSITY,
+  checkCoachingOutput,
+  isDecisionEchoClaim,
   isEvidenceBackedClaim,
   type CoachingDefect,
   type CoachingDelivery,
   type CoachingGatewayGate,
   type CoachingOutput,
+  type CoachingPlan,
 } from '../../src/contracts/v1/coachingContracts';
 import type {
   CandidateClaim,
@@ -55,10 +58,12 @@ import type {
   SafetyCandidate,
 } from '../../src/contracts/v1/safetyContracts';
 import {
+  isInstant,
   offeredOptions,
   type Recommendation,
   type RecommendationDecision,
 } from '../../src/contracts/v1/recommendationContracts';
+import { toEpochMs } from '../planning/shared/time';
 import { checkClaimSupport, type ClaimSupportInput } from './validator/claimSupport';
 import { checkCoachingLanguage } from './validator/language';
 
@@ -92,22 +97,62 @@ export function identifiersOf(recommendation: Recommendation): readonly string[]
   if (recommendation === null || recommendation === undefined || typeof recommendation !== 'object') return found;
   if (typeof recommendation.recommendationId === 'string') found.push(recommendation.recommendationId);
   if (typeof recommendation.scopeId === 'string') found.push(recommendation.scopeId);
+  if (typeof recommendation.inputDigest === 'string') found.push(recommendation.inputDigest);
   const nodes = Array.isArray(recommendation.evidence?.nodes) ? recommendation.evidence.nodes : [];
   for (const node of nodes) {
-    if (node !== null && node !== undefined && typeof node.nodeId === 'string') found.push(node.nodeId);
+    if (node === null || node === undefined || typeof node !== 'object') continue;
+    if (typeof node.nodeId === 'string') found.push(node.nodeId);
+    found.push(...sourceIdentifiers((node as { source?: unknown }).source));
   }
   if (recommendation.outcome !== 'offered') return found;
   const options = recommendation.options;
-  const actions = [
-    ...offeredOptions(options).map((option) => option.action),
-    ...(options !== null && options !== undefined && 'excluded' in options && Array.isArray(options.excluded)
-      ? options.excluded.map((excluded) => excluded.action)
-      : []),
+  // `'excluded' in options` raised a `TypeError` on a primitive `options`, and
+  // `excluded.action` raised on a null entry. Both found by the field-deletion
+  // fuzz rather than by review — the shapes are ones `JSON.parse` produces and
+  // no hand-picked corpus contained.
+  const excluded =
+    options !== null && options !== undefined && typeof options === 'object' && Array.isArray((options as { excluded?: unknown }).excluded)
+      ? ((options as { excluded: readonly { action?: unknown }[] }).excluded)
+      : [];
+  const actions: unknown[] = [
+    ...offeredOptions(options).map((option) => (option === null || option === undefined ? null : option.action)),
+    ...excluded.map((entry) => (entry === null || entry === undefined ? null : entry.action)),
   ];
-  for (const action of actions) {
-    if (action === null || action === undefined || typeof action !== 'object') continue;
+  for (const entry of actions) {
+    if (entry === null || entry === undefined || typeof entry !== 'object') continue;
+    const action = entry as { commitmentId?: unknown; kind?: unknown; proposalId?: unknown };
     if (typeof action.commitmentId === 'string') found.push(action.commitmentId);
     if (action.kind === 'decompose' && typeof action.proposalId === 'string') found.push(action.proposalId);
+  }
+  return found;
+}
+
+/**
+ * Every caller-chosen string on a `TrustedSource`, read **generically**.
+ *
+ * `Object.values` rather than a variant-by-variant switch, and that is the
+ * whole point. The hand-written version of this function did not exist at all,
+ * so `plan_slot.itemId` never reached the identifier scan — and a sentence
+ * reading `"Your call-dr-cohen-about-the-biopsy is due ..."` earned no
+ * `IDENTIFIER_IN_PROSE` against a recommendation `checkRecommendation` reports
+ * defect-free. That is Sprint 07's recorded leak, reproduced by the check
+ * written to prevent it.
+ *
+ * A switch would have fixed today's six variants and missed the seventh.
+ * `TrustedSource` is a closed union in a contract this module does not own, and
+ * `commitmentId`, `policyVersion`, `itemId`, `planDigest`, `proposalId` and
+ * `stepId` are all free strings; a generic walk cannot fall behind it.
+ *
+ * `kind` is skipped because it is a closed vocabulary rather than
+ * caller-chosen — and because scanning for it would make the word
+ * `commitment` a forbidden substring of ordinary prose.
+ */
+function sourceIdentifiers(source: unknown): readonly string[] {
+  if (source === null || source === undefined || typeof source !== 'object') return [];
+  const found: string[] = [];
+  for (const [key, value] of Object.entries(source as Record<string, unknown>)) {
+    if (key === 'kind') continue;
+    if (typeof value === 'string') found.push(value);
   }
   return found;
 }
@@ -192,7 +237,7 @@ export function toSafetyCandidate(
       ? table[claim.kind as string]
       : UNKNOWN_COACHING_CLAIM_CANDIDATE_KIND;
 
-    if (!isEvidenceBackedClaim(claim)) {
+    if (isDecisionEchoClaim(claim)) {
       claims.push({
         // Positional, not caller-chosen. An index cannot carry content.
         claimId: `claim-${index}`,
@@ -200,6 +245,23 @@ export function toSafetyCandidate(
         statedInstant: null,
         decisionIndex: attestationIndexOf(attested, output, claim.source.optionIndex ?? null),
         echoedVerdict: claim.source.verdict,
+        supportedBy: [],
+      });
+      continue;
+    }
+
+    if (!isEvidenceBackedClaim(claim)) {
+      // The third case. A claim whose `source` this version does not recognise
+      // is neither evidence-backed nor an echo, and the previous code routed it
+      // down the echo branch — where `claim.source.verdict` raised a
+      // `TypeError` out of a function documented never to throw. It converts to
+      // the blocking kind with a null index, so #39 refuses it.
+      claims.push({
+        claimId: `claim-${index}`,
+        kind: UNKNOWN_COACHING_CLAIM_CANDIDATE_KIND,
+        statedInstant: null,
+        decisionIndex: null,
+        echoedVerdict: null,
         supportedBy: [],
       });
       continue;
@@ -237,31 +299,62 @@ export function toSafetyCandidate(
  * Matching on the verdict is the tempting shortcut and it destroys the check:
  * an echo claiming `done` would then find whichever record happens to say
  * `done`, so a fabricated completion would locate an attestation for itself and
- * `DECISION_ECHO_MISMATCHED` could never fire. The index must name the record
- * the echo is *about*, so that #39 can compare what the prose says against what
- * that record actually carries.
+ * `DECISION_ECHO_MISMATCHED` could never fire.
  *
- * Null when nothing matches — which #39 blocks as `DECISION_ECHO_UNATTESTED`.
- * That is the right answer rather than a gap: this module is saying "I name no
- * attested decision", and it is the gateway's job to decide what that means.
+ * **Among several matches, the latest by `decidedAt` wins — not the first.**
+ * Taking the first made the verdict depend on the order of an array this module
+ * does not own: with `[accept@0, done@0]` an honest completion echo was blocked,
+ * and with the same two records reversed it was allowed. A guard whose answer
+ * changes when a caller reorders a list is not a guard, and the direction it
+ * failed in was the worse one — the array most likely to be built in chronological
+ * order is exactly the one that blocked the honest turn.
+ *
+ * The most recent act on an option is the one a coaching sentence should be
+ * about, so recency is the principled tie-break rather than a convenient one.
+ * `isInstant` gates the parse and `toEpochMs` performs it: the repo's single
+ * predicate and its single instant arithmetic, composed rather than re-spelled,
+ * and the guard is what makes the parser unable to throw behind it.
+ *
+ * Ties and unparseable timestamps resolve to **null**, which #39 blocks as
+ * `DECISION_ECHO_UNATTESTED`. Two records claiming the same instant for the
+ * same option is an ambiguity this module must not resolve by guessing.
  */
 function attestationIndexOf(
   attested: readonly RecommendationDecision[],
   output: CoachingOutput,
   optionIndex: number | null,
 ): number | null {
+  let best: number | null = null;
+  let bestMs = Number.NEGATIVE_INFINITY;
+  let tied = false;
   for (let index = 0; index < attested.length; index += 1) {
     const record = attested[index];
     if (record === null || record === undefined || typeof record !== 'object') continue;
     if (record.recommendationId !== output?.recommendationId) continue;
     if ((record.optionIndex ?? null) !== optionIndex) continue;
-    return index;
+    if (!isInstant(record.decidedAt)) return null;
+    const ms = toEpochMs(record.decidedAt);
+    if (best === null || ms > bestMs) {
+      best = index;
+      bestMs = ms;
+      tied = false;
+      continue;
+    }
+    if (ms === bestMs) tied = true;
   }
-  return null;
+  return tied ? null : best;
 }
 
 export interface CoachingDeliveryInput extends ClaimSupportInput {
   readonly candidateId: string;
+  /**
+   * The plan the output claims to realize.
+   *
+   * Required, because `checkCoachingOutput` is only answerable against it — and
+   * because a delivery path that could not run the structural pass is the
+   * defect this field was added to close. See `deliverCoaching`.
+   */
+  readonly plan: CoachingPlan;
   /**
    * The user acts the caller attests happened — the same array it will put on
    * the `SafetyRequest`. Defaults to empty, which means every decision echo
@@ -284,7 +377,27 @@ export function deliverCoaching(input: CoachingDeliveryInput): CoachingDelivery 
   const safe = input === null || input === undefined || typeof input !== 'object' ? ({} as CoachingDeliveryInput) : input;
   const output = safe.output;
 
+  /**
+   * The structural pass runs **first**, and its absence here was the defect.
+   *
+   * `deliverCoaching` is documented in this file and in `index.ts` as the gate
+   * where "unsupported claims block delivery" is decided, and it ran only the
+   * claim-support and language passes. Every structural code — `PLAN_OUTPUT_MISMATCH`,
+   * `MODEL_REALIZATION_NOT_ENABLED`, `UNKNOWN_CLAIM_REFERENCE`,
+   * `SENTENCE_LIMIT_EXCEEDED` — was therefore unenforced at the only place it
+   * mattered.
+   *
+   * The compounding failure is what made it a blocker rather than a gap:
+   * `checkClaimSupport` iterates `output.claims`, so an output declaring
+   * **zero** claims produced zero findings, and the candidate handed to the
+   * gateway then declared no claims either — so #39 found nothing too. A single
+   * output carrying a fabricated instant, a leaked identifier, a false
+   * persistence claim, a disabled realization mode and references to claims
+   * that did not exist was delivered with an empty finding list from both
+   * gates. Two independent gates, and the same empty input silenced both.
+   */
   const defects: CoachingDefect[] = [
+    ...checkCoachingOutput(output, safe.plan),
     ...checkClaimSupport(safe),
     ...checkCoachingLanguage(output, identifiersOf(safe.recommendation)),
   ];

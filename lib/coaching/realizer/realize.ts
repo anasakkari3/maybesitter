@@ -101,7 +101,11 @@ export function templateIdFor(plan: CoachingPlan, claim: CoachingClaim, position
     const candidate = `lead.${claim.kind}`;
     return (COACHING_TEMPLATE_IDS as readonly string[]).includes(candidate) ? (candidate as CoachingTemplateId) : null;
   }
-  const family = plan.strategy === 'name_the_alternatives' ? 'alternative' : 'support';
+  // `plan` is exported-function input and a null one raised a `TypeError` here,
+  // several frames below any entry point. `support` is the conservative default
+  // because it is the family every non-choice turn uses.
+  const strategy = plan === null || plan === undefined || typeof plan !== 'object' ? undefined : plan.strategy;
+  const family = strategy === 'name_the_alternatives' ? 'alternative' : 'support';
   const candidate = `${family}.${claim.kind}`;
   return (COACHING_TEMPLATE_IDS as readonly string[]).includes(candidate) ? (candidate as CoachingTemplateId) : null;
 }

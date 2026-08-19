@@ -195,6 +195,7 @@ export {
   MIN_SCANNED_IDENTIFIER_LENGTH,
   checkCoachingLanguage,
   containsToken,
+  matchesPattern,
   type CoachingLexicons,
 } from './validator/language';
 

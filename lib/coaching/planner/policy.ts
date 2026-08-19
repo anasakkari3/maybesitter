@@ -137,7 +137,11 @@ export function shapeOf(
  * still a claim about the user's act rather than about the world.
  */
 export function intentFor(shape: PlanShape): CoachingIntent | null {
-  if (shape.verdict !== null) {
+  // Total on purpose. `shapeOf` always returns an object, but this is exported
+  // and a null shape raised a `TypeError` out of a function whose contract is
+  // to *return* null for a shape it does not cover.
+  if (shape === null || shape === undefined || typeof shape !== 'object') return null;
+  if (shape.verdict !== null && shape.verdict !== undefined) {
     if (shape.verdict === 'accept' || shape.verdict === 'edit') return 'acknowledge_acceptance';
     if (shape.verdict === 'done') return 'acknowledge_completion';
     if (shape.verdict === 'dismiss' || shape.verdict === 'defer') return 'acknowledge_dismissal';
@@ -171,8 +175,12 @@ export function intentFor(shape: PlanShape): CoachingIntent | null {
  * not spend authority the module has not established it has.
  */
 export function strategyFor(intent: CoachingIntent, shape: PlanShape): CoachingStrategy | null {
+  const band = shape === null || shape === undefined || typeof shape !== 'object' ? null : shape.leadBand;
   if (intent === 'present_choice') return 'name_the_alternatives';
-  if (intent === 'present_sole_option') return shape.leadBand === 'high' ? 'lead_with_action' : 'lead_with_reason';
+  // A null band leads with the reason, exactly as a low one does: the
+  // conservative branch is the one that does not spend authority the module has
+  // not established it has.
+  if (intent === 'present_sole_option') return band === 'high' ? 'lead_with_action' : 'lead_with_reason';
   if (intent === 'explain_withholding') return 'state_the_gap';
   if (
     intent === 'acknowledge_acceptance' ||
