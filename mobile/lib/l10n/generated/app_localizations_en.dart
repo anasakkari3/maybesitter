@@ -1251,6 +1251,40 @@ class AppLocalizationsEn extends AppLocalizations {
       'Used for future reminder timing';
 
   @override
+  String get routineEscalationTitle => 'How reminder strength works';
+
+  @override
+  String get routineEscalationNice => 'Nice items stay at soft awareness only.';
+
+  @override
+  String get routineEscalationShouldSoft =>
+      'Should items stay soft with this setting.';
+
+  @override
+  String get routineEscalationShouldFollowUp =>
+      'Should items can add a follow-up when timing matters.';
+
+  @override
+  String get routineEscalationMustSoft =>
+      'Must items stay at soft awareness with this setting.';
+
+  @override
+  String get routineEscalationMustFollowUp =>
+      'Must items can follow up before timed items with this setting.';
+
+  @override
+  String get routineEscalationMustStrong =>
+      'Must items can use a stronger reminder about 10 minutes before a timed item because you opted in.';
+
+  @override
+  String get routineEscalationQuietHours =>
+      'Quiet hours still defer reminders.';
+
+  @override
+  String get routineEscalationNoFakeCalls =>
+      'MaybeSitter never uses fake phone calls or deceptive system UI.';
+
+  @override
   String get privacyStorageTitle => 'Where your data lives';
 
   @override

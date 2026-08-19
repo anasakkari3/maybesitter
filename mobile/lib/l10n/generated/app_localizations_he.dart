@@ -1246,6 +1246,40 @@ class AppLocalizationsHe extends AppLocalizations {
   String get routineSettingsConfiguredSubtitle => 'משמש לתזמון תזכורות עתידיות';
 
   @override
+  String get routineEscalationTitle => 'כך עובדת עוצמת התזכורת';
+
+  @override
+  String get routineEscalationNice =>
+      'פריטים \"נחמד אם\" נשארים בתזכורת רכה בלבד.';
+
+  @override
+  String get routineEscalationShouldSoft =>
+      'פריטי \"כדאי\" נשארים רכים עם ההגדרה הזאת.';
+
+  @override
+  String get routineEscalationShouldFollowUp =>
+      'פריטי \"כדאי\" יכולים לקבל תזכורת המשך כשהתזמון חשוב.';
+
+  @override
+  String get routineEscalationMustSoft =>
+      'פריטי \"חייב\" נשארים בתזכורת רכה עם ההגדרה הזאת.';
+
+  @override
+  String get routineEscalationMustFollowUp =>
+      'פריטי \"חייב\" יכולים לקבל תזכורת המשך לפני פריטים מתוזמנים עם ההגדרה הזאת.';
+
+  @override
+  String get routineEscalationMustStrong =>
+      'פריטי \"חייב\" יכולים להשתמש בתזכורת חזקה יותר בערך 10 דקות לפני פריט מתוזמן כי בחרת בכך.';
+
+  @override
+  String get routineEscalationQuietHours => 'שעות השקט עדיין דוחות תזכורות.';
+
+  @override
+  String get routineEscalationNoFakeCalls =>
+      'MaybeSitter אף פעם לא משתמש בשיחות טלפון מזויפות או בממשק מערכת מטעה.';
+
+  @override
   String get privacyStorageTitle => 'היכן הנתונים שלך נשמרים';
 
   @override

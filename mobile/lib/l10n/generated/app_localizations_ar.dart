@@ -1267,6 +1267,41 @@ class AppLocalizationsAr extends AppLocalizations {
       'يُستخدم لتوقيت التذكيرات القادمة';
 
   @override
+  String get routineEscalationTitle => 'كيف تعمل قوة التذكير';
+
+  @override
+  String get routineEscalationNice =>
+      'العناصر الأقل أهمية تبقى عند تذكير هادئ فقط.';
+
+  @override
+  String get routineEscalationShouldSoft =>
+      'عناصر \"ينبغي\" تبقى هادئة مع هذا الإعداد.';
+
+  @override
+  String get routineEscalationShouldFollowUp =>
+      'عناصر \"ينبغي\" يمكن أن تحصل على متابعة إضافية عندما يهم التوقيت.';
+
+  @override
+  String get routineEscalationMustSoft =>
+      'عناصر \"لازم\" تبقى عند تذكير هادئ مع هذا الإعداد.';
+
+  @override
+  String get routineEscalationMustFollowUp =>
+      'عناصر \"لازم\" يمكن أن تحصل على متابعة قبل العناصر الموقّتة مع هذا الإعداد.';
+
+  @override
+  String get routineEscalationMustStrong =>
+      'عناصر \"لازم\" يمكن أن تستخدم تذكيرًا أقوى قبل نحو 10 دقائق من العنصر الموقّت لأنك وافقت على ذلك.';
+
+  @override
+  String get routineEscalationQuietHours =>
+      'الساعات الهادئة ما زالت تؤجّل التذكيرات.';
+
+  @override
+  String get routineEscalationNoFakeCalls =>
+      'لا يستخدم MaybeSitter مكالمات هاتفية مزيفة ولا واجهات نظام مضللة.';
+
+  @override
   String get privacyStorageTitle => 'أين تُحفظ بياناتك';
 
   @override

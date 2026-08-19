@@ -77,6 +77,10 @@ void main() {
     tester,
   ) async {
     SharedPreferences.setMockInitialValues({});
+    tester.view.physicalSize = const Size(1200, 3000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
     final container = ProviderContainer(
       overrides: [
         timezoneServiceProvider.overrideWithValue(
@@ -175,6 +179,69 @@ void main() {
       ReminderIntensity.followUp,
     );
     expect(find.text('settings-return'), findsOneWidget);
+  });
+
+  testWidgets('routine settings explain reminder escalation boundaries', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    tester.view.physicalSize = const Size(1200, 3000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    final container = ProviderContainer(
+      overrides: [
+        timezoneServiceProvider.overrideWithValue(
+          const _FakeTimezoneService('Asia/Hebron'),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          localizationsDelegates: const [
+            AppLocalizations.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const RoutineSurveyScreen(mode: RoutineSurveyMode.settings),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.scrollUntilVisible(find.text('How reminder strength works'), 320);
+    expect(find.text('How reminder strength works'), findsOneWidget);
+    expect(
+      find.text('Nice items stay at soft awareness only.'),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Should items stay soft with this setting.'),
+      findsOneWidget,
+    );
+    expect(
+      find.text(
+        'MaybeSitter never uses fake phone calls or deceptive system UI.',
+      ),
+      findsOneWidget,
+    );
+
+    await tester.scrollUntilVisible(find.text('Strong when needed'), 320);
+    await tester.tap(find.text('Strong when needed'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(
+        'Must items can use a stronger reminder about 10 minutes before a timed item because you opted in.',
+      ),
+      findsOneWidget,
+    );
   });
 }
 

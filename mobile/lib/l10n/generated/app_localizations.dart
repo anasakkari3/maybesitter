@@ -2230,6 +2230,60 @@ abstract class AppLocalizations {
   /// **'Used for future reminder timing'**
   String get routineSettingsConfiguredSubtitle;
 
+  /// No description provided for @routineEscalationTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'How reminder strength works'**
+  String get routineEscalationTitle;
+
+  /// No description provided for @routineEscalationNice.
+  ///
+  /// In en, this message translates to:
+  /// **'Nice items stay at soft awareness only.'**
+  String get routineEscalationNice;
+
+  /// No description provided for @routineEscalationShouldSoft.
+  ///
+  /// In en, this message translates to:
+  /// **'Should items stay soft with this setting.'**
+  String get routineEscalationShouldSoft;
+
+  /// No description provided for @routineEscalationShouldFollowUp.
+  ///
+  /// In en, this message translates to:
+  /// **'Should items can add a follow-up when timing matters.'**
+  String get routineEscalationShouldFollowUp;
+
+  /// No description provided for @routineEscalationMustSoft.
+  ///
+  /// In en, this message translates to:
+  /// **'Must items stay at soft awareness with this setting.'**
+  String get routineEscalationMustSoft;
+
+  /// No description provided for @routineEscalationMustFollowUp.
+  ///
+  /// In en, this message translates to:
+  /// **'Must items can follow up before timed items with this setting.'**
+  String get routineEscalationMustFollowUp;
+
+  /// No description provided for @routineEscalationMustStrong.
+  ///
+  /// In en, this message translates to:
+  /// **'Must items can use a stronger reminder about 10 minutes before a timed item because you opted in.'**
+  String get routineEscalationMustStrong;
+
+  /// No description provided for @routineEscalationQuietHours.
+  ///
+  /// In en, this message translates to:
+  /// **'Quiet hours still defer reminders.'**
+  String get routineEscalationQuietHours;
+
+  /// No description provided for @routineEscalationNoFakeCalls.
+  ///
+  /// In en, this message translates to:
+  /// **'MaybeSitter never uses fake phone calls or deceptive system UI.'**
+  String get routineEscalationNoFakeCalls;
+
   /// No description provided for @privacyStorageTitle.
   ///
   /// In en, this message translates to:

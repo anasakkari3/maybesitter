@@ -120,6 +120,10 @@ class _RoutineSurveyScreenState extends ConsumerState<RoutineSurveyScreen> {
             },
             onSelected: (value) => setState(() => _quietHours = value),
           ),
+          _ReminderPolicySummary(
+            reminderChoice: _reminder,
+            quietHoursChoice: _quietHours,
+          ),
           const SizedBox(height: AppSpacing.lg),
           PrimaryButton(
             key: const Key('routine-save'),
@@ -202,6 +206,88 @@ class _RoutineSurveyScreenState extends ConsumerState<RoutineSurveyScreen> {
     await ref.read(appSettingsProvider.notifier).completeOnboarding();
     if (!mounted) return;
     router?.go('/today');
+  }
+}
+
+class _ReminderPolicySummary extends StatelessWidget {
+  final _ReminderChoice reminderChoice;
+  final _QuietHoursChoice quietHoursChoice;
+
+  const _ReminderPolicySummary({
+    required this.reminderChoice,
+    required this.quietHoursChoice,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final colors = context.colors;
+    final shouldLine = switch (reminderChoice) {
+      _ReminderChoice.soft => l10n.routineEscalationShouldSoft,
+      _ReminderChoice.followUp || _ReminderChoice.strong =>
+        l10n.routineEscalationShouldFollowUp,
+    };
+    final mustLine = switch (reminderChoice) {
+      _ReminderChoice.soft => l10n.routineEscalationMustSoft,
+      _ReminderChoice.followUp => l10n.routineEscalationMustFollowUp,
+      _ReminderChoice.strong => l10n.routineEscalationMustStrong,
+    };
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: AppSpacing.md),
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: AppRadius.card,
+        border: Border.all(color: colors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(l10n.routineEscalationTitle, style: context.text.cardTitle),
+          const SizedBox(height: AppSpacing.sm),
+          _PolicyLine(text: l10n.routineEscalationNice),
+          _PolicyLine(text: shouldLine),
+          _PolicyLine(text: mustLine),
+          if (quietHoursChoice != _QuietHoursChoice.none)
+            _PolicyLine(text: l10n.routineEscalationQuietHours),
+          _PolicyLine(text: l10n.routineEscalationNoFakeCalls),
+        ],
+      ),
+    );
+  }
+}
+
+class _PolicyLine extends StatelessWidget {
+  final String text;
+
+  const _PolicyLine({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Icon(
+              Icons.circle,
+              size: 8,
+              color: context.colors.brandPrimary,
+            ),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Text(
+              text,
+              style: context.text.supporting,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

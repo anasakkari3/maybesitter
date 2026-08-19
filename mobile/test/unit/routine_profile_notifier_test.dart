@@ -110,6 +110,90 @@ void main() {
         expect(container.read(routineProfileProvider)!.surveySkipped, isFalse);
       },
     );
+
+    test('policy mapping keeps stronger escalation behind explicit opt-in', () {
+      const nice = Commitment(
+        id: 'nice-1',
+        title: 'Stretch',
+        priority: CommitmentPriority.nice,
+      );
+      const should = Commitment(
+        id: 'should-1',
+        title: 'Reply to advisor',
+        priority: CommitmentPriority.should,
+      );
+      const must = Commitment(
+        id: 'must-1',
+        title: 'Exam arrival',
+        priority: CommitmentPriority.must,
+      );
+
+      const defaultPolicy = ReminderPolicy();
+      expect(
+        defaultPolicy.decisionFor(nice).intensity,
+        ReminderIntensity.softAwareness,
+      );
+      expect(
+        defaultPolicy.decisionFor(should).intensity,
+        ReminderIntensity.softAwareness,
+      );
+      expect(
+        defaultPolicy.decisionFor(must).intensity,
+        ReminderIntensity.softAwareness,
+      );
+
+      final followUpPolicy = reminderPolicyForRoutineProfile(
+        UserRoutineProfile(
+          updatedAt: DateTime.utc(2026, 8, 19, 10),
+          timezone: 'Asia/Hebron',
+          preferredReminderIntensity: ReminderIntensity.followUp,
+        ),
+      );
+      expect(
+        followUpPolicy.decisionFor(nice).intensity,
+        ReminderIntensity.softAwareness,
+      );
+      expect(
+        followUpPolicy.decisionFor(should).intensity,
+        ReminderIntensity.followUp,
+      );
+      expect(
+        followUpPolicy.decisionFor(must).intensity,
+        ReminderIntensity.followUp,
+      );
+      expect(
+        followUpPolicy.decisionFor(must).requiresExplicitOptIn,
+        isFalse,
+      );
+
+      final strongPolicy = reminderPolicyForRoutineProfile(
+        UserRoutineProfile(
+          updatedAt: DateTime.utc(2026, 8, 19, 10),
+          timezone: 'Asia/Hebron',
+          preferredReminderIntensity: ReminderIntensity.strongReminder,
+        ),
+      );
+      expect(
+        strongPolicy.decisionFor(nice).intensity,
+        ReminderIntensity.softAwareness,
+      );
+      expect(
+        strongPolicy.decisionFor(should).intensity,
+        ReminderIntensity.followUp,
+      );
+      expect(
+        strongPolicy.decisionFor(must).intensity,
+        ReminderIntensity.strongReminder,
+      );
+      expect(
+        strongPolicy.decisionFor(must).leadTime,
+        const Duration(minutes: 10),
+      );
+      expect(
+        strongPolicy.decisionFor(must).requiresExplicitOptIn,
+        isFalse,
+      );
+    });
   });
 
   group('Routine survey localization', () {
