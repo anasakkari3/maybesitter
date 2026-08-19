@@ -32,6 +32,7 @@ import {
   buildReviewCoverage,
   createDecompositionReview,
   createInMemoryReviewStore,
+  isBackingReview,
   detectReviewConflicts,
   ingestReviews,
   loadReviewedCorpus,
@@ -397,6 +398,38 @@ test('coverage over the shipped corpora reports emptiness rather than a page of 
 
 /* ── No clock anywhere in the module ────────────────────────────── */
 
+test('the corpus parser reads no file of its own', () => {
+  // `parseExampleCorpus` defaults its `reviews` to empty rather than to the
+  // shipped review log, so a reviewed row fails unless a caller supplies its
+  // evidence. Swapping that default for the shipped log is behaviourally
+  // invisible while the log is empty — it becomes visible only once real
+  // reviews exist, which is exactly too late — so the property is pinned
+  // structurally instead, the same technique the no-clock test below uses.
+  const source = readFileSync(
+    join(
+      dirname(dirname(dirname(fileURLToPath(import.meta.url)))),
+      'lib',
+      'decomposition',
+      'evaluation',
+      'corpus.ts',
+    ),
+    'utf8',
+  );
+  const parser = source.slice(
+    source.indexOf('export function parseExampleCorpus('),
+    source.indexOf('export interface LoadCorpusOptions'),
+  );
+  assert.ok(parser.length > 0, 'anchor for the parser body not found');
+  for (const forbidden of ['loadShippedReviewLog', 'readReviewLogFile', 'readFileSync']) {
+    assert.equal(
+      parser.includes(forbidden),
+      false,
+      `parseExampleCorpus reaches for ${forbidden}: evidence must be passed in, not picked up from ` +
+        'ambient state, or "no evidence supplied" stops being the safe default',
+    );
+  }
+});
+
 test('no module under lib/decomposition/evaluation reads the system clock', () => {
   const dir = join(
     dirname(dirname(dirname(fileURLToPath(import.meta.url)))),
@@ -561,4 +594,107 @@ test('a multi_step row carrying one step is a corpus defect, not a proposal viol
   });
   assert.equal(parsed.valid, false);
   assert.ok(hasIssue(parsed, 'DXC031'), JSON.stringify(parsed.issues, null, 2));
+});
+
+/* ── M5: the honesty check has no doors around it ───────────────── */
+
+test('parseExampleCorpus fails closed: no supplied evidence, no reviewed row', () => {
+  // The parser is exported from evaluation/index.ts and is directly reachable,
+  // so putting the provenance check only in loadReviewedCorpus left the
+  // guarantee one import away from being bypassed. The default is [] rather
+  // than "read the shipped log" so the parser stays pure — and so the unsafe
+  // direction is the one a caller has to opt into.
+  const file = {
+    contractVersion: '1.0.0',
+    schema: 'decomposition-v1',
+    role: 'reviewed',
+    note: 'forged for this test',
+    examples: [{ ...SEED.examples[0], provenance: 'human_reviewed' }],
+  };
+
+  const unbacked = parseExampleCorpus(file);
+  assert.equal(unbacked.valid, false, 'a reviewed row with no evidence supplied must not parse');
+  assert.ok(hasIssue(unbacked, 'DXP010'), JSON.stringify(unbacked.issues, null, 2));
+  assert.deepEqual(unbacked.examples, []);
+
+  const backed = parseExampleCorpus(file, { reviews: [review({ exampleId: SEED.examples[0].exampleId })] });
+  assert.equal(backed.valid, true, JSON.stringify(backed.issues, null, 2));
+  assert.equal(backed.examples.length, 1);
+});
+
+test('a corpus loader refuses a file playing the other role', () => {
+  // loadReviewedCorpus pointed at the seed file returned all 23 synthetic rows
+  // and called them valid: verifyReviewedProvenance skips anything that is not
+  // human_reviewed, so a file with no reviewed rows sailed through the check
+  // meant to police reviewed rows. The function whose whole job is "return only
+  // rows a person approved" returned rows nobody had looked at.
+  const wrongWay = loadReviewedCorpus({ path: DECOMPOSITION_SEED_CORPUS_PATH });
+  assert.equal(wrongWay.valid, false);
+  assert.ok(hasIssue(wrongWay, 'DXC022'), JSON.stringify(wrongWay.issues, null, 2));
+  assert.deepEqual(wrongWay.examples, [], 'and it must not hand back the rows it just refused');
+
+  // The symmetric hole, closed at the same time rather than left for the next review.
+  const otherWay = loadSeedCorpus({ path: DECOMPOSITION_REVIEWED_CORPUS_PATH });
+  assert.equal(otherWay.valid, false);
+  assert.ok(hasIssue(otherWay, 'DXC022'), JSON.stringify(otherWay.issues, null, 2));
+});
+
+test('the shipped loaders still read their own files', () => {
+  // The role guard must not break the path that matters.
+  assert.equal(loadSeedCorpus().valid, true);
+  assert.equal(loadSeedCorpus().examples.length, 23);
+  assert.equal(loadReviewedCorpus().valid, true);
+  assert.equal(loadReviewedCorpus().examples.length, 0);
+});
+
+/* ── L3: evidence is validated before it is counted as evidence ── */
+
+test('a structurally invalid review is not evidence', () => {
+  // Minted by hand rather than through createDecompositionReview: no version,
+  // no reviewId, no rationale. It used to promote a row.
+  //
+  // `spansVerified: true` is deliberate. Without it the L4 span-attestation
+  // guard rejects this object first and this test passes for the wrong reason —
+  // it did, until a mutation that removed the validation left it green.
+  const bare = {
+    exampleId: SEED.examples[0].exampleId,
+    reviewerId: 'rev-a',
+    verdict: 'approve',
+    spansVerified: true,
+    reviewedAt: '2026-08-19T09:00:00.000Z',
+  } as unknown as DecompositionReview;
+
+  assert.equal(isBackingReview(SEED.examples[0], bare), false);
+  assert.throws(() => promoteToReviewed(SEED.examples[0], [bare]), /approve/);
+  assert.equal(
+    verifyReviewedProvenance({
+      examples: [{ ...SEED.examples[0], provenance: 'human_reviewed' }],
+      reviews: [bare],
+    }).valid,
+    false,
+  );
+});
+
+/* ── L4: spansVerified is load-bearing or it is a lie ───────────── */
+
+test('an approval that did not check the spans is not evidence for a row that has spans', () => {
+  // A field that looks like a check and is not is worse than no field. An
+  // approval certifies the whole row, spans included; a reviewer who did not
+  // look at them has not certified them.
+  const withSpans = SEED.examples.filter((example) =>
+    example.expectedSteps.some((step) => step.sourceSpans.length > 0),
+  )[0];
+  const unchecked = review({ exampleId: withSpans.exampleId, spansVerified: false });
+
+  assert.equal(isBackingReview(withSpans, unchecked), false);
+  assert.throws(() => promoteToReviewed(withSpans, [unchecked]), /spans/);
+  assert.equal(isBackingReview(withSpans, review({ exampleId: withSpans.exampleId })), true);
+});
+
+test('a row with no spans does not require a span attestation', () => {
+  // atomic and do_not_split rows carry no spans, so there is nothing to verify.
+  // Demanding an attestation about nothing is how a checkbox becomes a reflex.
+  const noSpans = SEED.examples.filter((example) => example.expectedSteps.length === 0)[0];
+  assert.equal(noSpans.label === 'atomic' || noSpans.label === 'do_not_split', true);
+  assert.equal(isBackingReview(noSpans, review({ exampleId: noSpans.exampleId, spansVerified: false })), true);
 });
