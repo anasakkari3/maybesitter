@@ -655,7 +655,44 @@ export function bandForConfidence(value: number): ConfidenceBand | null {
  * something up is a coaching and safety judgement (Sprint 09), not a selection
  * one, and shipping the shape before the policy that governs it is how the shape
  * becomes the policy.
+ *
+ * **`defer` is a decision verdict, not a proposable action in v1.** It is a real
+ * member of this union because a user may defer a recommendation they were
+ * shown, and the review surface renders it in all three locales — but the
+ * selector never *proposes* deferral as the move itself, and cannot: a `defer`
+ * needs a target instant that `RecommendationSelectorInput` does not carry.
+ *
+ * This is written down because the merge-owned cross-track test found it, and
+ * found it as the same shape as an earlier defect in the selector: a *reachable
+ * code path with an unreachable outcome*. Four kinds are declared here, three
+ * are constructed, `ACTION_KIND_RANK` ranks four and the review copy renders
+ * four — so every surface downstream reads as though a user could be shown a
+ * proposed `defer`, and no input can produce one. An unreachable outcome is
+ * invisible to any assertion about the thing itself; only an assertion that
+ * *enumerates the kinds and demands each be produced* can see it.
+ *
+ * So the reachability assertion in `recommendationCrossTrack` is over
+ * `PROPOSABLE_ACTION_KINDS` below, and `defer` is the named exclusion. A fifth
+ * kind added to `RECOMMENDED_ACTION_KINDS` is not silently exempt: it must be
+ * added to one list or the other, and the test pins that the two partition the
+ * union exactly.
  */
+
+/**
+ * The kinds the selector may propose — `RECOMMENDED_ACTION_KINDS` minus the
+ * verdict-only ones. Exported as data because the cross-track reachability
+ * check has to iterate it at runtime, and because "which kinds must a selector
+ * be able to produce" is a contract question rather than a selector one.
+ */
+export const PROPOSABLE_ACTION_KINDS = Object.freeze([
+  'do_now',
+  'schedule',
+  'decompose',
+] as const);
+
+/** Kinds a user may choose but the selector never proposes. See above. */
+export const VERDICT_ONLY_ACTION_KINDS = Object.freeze(['defer'] as const);
+
 export type RecommendedAction =
   | { readonly kind: 'do_now'; readonly commitmentId: string }
   | {

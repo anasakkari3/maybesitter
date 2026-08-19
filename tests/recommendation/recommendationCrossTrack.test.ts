@@ -110,6 +110,8 @@ import {
 import {
   RECOMMENDATION_OPTION_POLICY,
   RECOMMENDED_ACTION_KINDS,
+  PROPOSABLE_ACTION_KINDS,
+  VERDICT_ONLY_ACTION_KINDS,
   SUPPORT_REASON_CODES,
   WITHHOLDING_REASON_CODES,
   checkEvidenceGraph,
@@ -872,22 +874,60 @@ test('cross-track: every action kind the selector constructs is reachable as an 
  * not a proposable action in v1 — the way that file already states there is no
  * `drop` variant. Either way this test is the thing that has to change.
  */
-test(
-  'cross-track: every action kind in the contract is actually offered by some input',
-  { todo: 'defer is structurally unreachable: select.ts constructs no defer action. See the note above.' },
-  () => {
-    const unreachable = RECOMMENDED_ACTION_KINDS.filter(
-      (kind) => (OFFERED_ACTION_KINDS.get(kind) ?? 0) === 0,
+test('cross-track: every proposable action kind is actually offered by some input', () => {
+  // The assertion that found the defect, now strict rather than `todo`.
+  //
+  // It was written over every kind in `RECOMMENDED_ACTION_KINDS` and failed on
+  // `defer`, which no input can produce because a deferral needs a target
+  // instant `RecommendationSelectorInput` does not carry. The contract now says
+  // so at `RecommendedAction`: `defer` is a decision verdict a user may choose,
+  // not a move the selector proposes.
+  //
+  // So this iterates `PROPOSABLE_ACTION_KINDS` — and the partition test below is
+  // what stops that from being a way to make the assertion vacuous by moving an
+  // inconvenient kind into the exclusion list.
+  const unreachable = PROPOSABLE_ACTION_KINDS.filter(
+    (kind) => (OFFERED_ACTION_KINDS.get(kind) ?? 0) === 0,
+  );
+  assert.deepEqual(
+    unreachable,
+    [],
+    `these kinds are proposable by the contract and offered by no input in ${CASE_COUNT} generated cases plus the isolating probes: [${unreachable.join(', ')}]. `
+      + `Reached: ${describe(OFFERED_ACTION_KINDS)}. `
+      + 'A reachable code path with an unreachable outcome is invisible to any assertion about the thing itself.',
+  );
+});
+
+test('cross-track: the proposable and verdict-only kinds partition the action union exactly', () => {
+  // Without this, the test above is weakened by moving a kind that stopped being
+  // reachable into VERDICT_ONLY_ACTION_KINDS — which is how a reachability check
+  // quietly becomes a list of whatever currently works. A fifth kind added to
+  // RECOMMENDED_ACTION_KINDS belongs to one list or the other, and adding it to
+  // neither fails here.
+  const partitioned = [...PROPOSABLE_ACTION_KINDS, ...VERDICT_ONLY_ACTION_KINDS].slice().sort();
+  assert.deepEqual(
+    partitioned,
+    RECOMMENDED_ACTION_KINDS.slice().sort(),
+    'every action kind must be declared either proposable or verdict-only, and none may be both',
+  );
+  const overlap = PROPOSABLE_ACTION_KINDS.filter((kind) =>
+    (VERDICT_ONLY_ACTION_KINDS as readonly string[]).includes(kind));
+  assert.deepEqual(overlap, [], 'a kind cannot be both proposable and verdict-only');
+});
+
+test('cross-track: a verdict-only kind is still renderable, so excluding it is not deleting it', () => {
+  // `defer` is excluded from the reachability check but is not dead: the review
+  // surface offers it as a verdict in all three locales, and a user choosing it
+  // is the whole reason it is in the union. If that stopped being true, the
+  // right fix would be removing the kind, not the exclusion.
+  for (const kind of VERDICT_ONLY_ACTION_KINDS) {
+    assert.ok(
+      (RECOMMENDED_ACTION_KINDS as readonly string[]).includes(kind),
+      `${kind} is declared verdict-only but is not an action kind at all`,
     );
-    assert.deepEqual(
-      unreachable,
-      [],
-      `these action kinds are named by the contract and offered by no input in ${CASE_COUNT} generated cases plus the isolating probes: [${unreachable.join(', ')}]. `
-        + `Reached: ${describe(OFFERED_ACTION_KINDS)}. `
-        + 'An action kind nothing can produce is a vocabulary entry #35 renders copy for and no user can ever be shown.',
-    );
-  },
-);
+  }
+  assert.ok(VERDICT_ONLY_ACTION_KINDS.length > 0, 'the exclusion list is empty; delete it rather than keeping an empty carve-out');
+});
 
 /* ── 2. Agreement with the shipped pilot ─────────────────────────── */
 
