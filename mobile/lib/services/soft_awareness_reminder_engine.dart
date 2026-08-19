@@ -178,19 +178,14 @@ class SoftAwarenessReminderEngine {
     final plan = policy.planFor(commitment);
     if (plan.isEmpty) return const [];
 
-    // Awareness cancels what escalation was for. It does not complete the
-    // commitment, and it does not touch any other commitment's reminders.
-    final isAware = await awarenessStateStore.isAware(commitment.id);
+    // Acknowledgement answers the whole sequence. The soft stage is what
+    // earned it, and every escalation after that stage exists only because
+    // awareness was missing -- so once the user says they know, nothing in the
+    // plan is still owed. The commitment stays pending: they know, not done.
+    if (await awarenessStateStore.isAware(commitment.id)) return const [];
 
     final requests = <ScheduledNotificationRequest>[];
     for (final stage in plan.stages) {
-      if (isAware && stage.suppressedByAwareness) continue;
-      if (isAware && !stage.suppressedByAwareness) {
-        // The soft stage is what earned the acknowledgement; re-arming it
-        // would remind the user of something they just told us they know.
-        continue;
-      }
-
       final scheduledAt = scheduledStart.subtract(stage.leadTime);
       if (!scheduledAt.isAfter(now())) continue;
       if (stage.respectsQuietHours &&

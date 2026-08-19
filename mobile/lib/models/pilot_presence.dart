@@ -342,18 +342,18 @@ class ReminderStage {
   final Duration leadTime;
   final bool respectsQuietHours;
 
-  /// Whether acknowledging awareness cancels this stage.
+  /// Whether this stage exists only because awareness was missing.
   ///
-  /// The opening soft stage is what asks for awareness, so it is never
-  /// suppressed by awareness. Every escalation after it exists only because
-  /// awareness was missing, so awareness cancels it.
-  final bool suppressedByAwareness;
+  /// The opening soft stage is what asks for awareness; everything after it is
+  /// an escalation. Kept because it is what distinguishes the two, and read by
+  /// [ReminderPlan.escalationStages].
+  final bool isEscalation;
 
   const ReminderStage({
     required this.intensity,
     required this.leadTime,
     required this.respectsQuietHours,
-    required this.suppressedByAwareness,
+    required this.isEscalation,
   });
 }
 
@@ -367,6 +367,10 @@ class ReminderPlan {
   static const empty = ReminderPlan(stages: []);
 
   bool get isEmpty => stages.isEmpty;
+
+  /// The stages that only happen when the user never acknowledged.
+  Iterable<ReminderStage> get escalationStages =>
+      stages.where((stage) => stage.isEscalation);
 }
 
 @immutable
@@ -407,7 +411,7 @@ class ReminderPolicy {
         intensity: intensity,
         leadTime: _leadTimeFor(intensity),
         respectsQuietHours: respectsQuietHours,
-        suppressedByAwareness: escalation,
+        isEscalation: escalation,
       );
     }
 
