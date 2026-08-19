@@ -139,11 +139,27 @@ function forcesOrdering(kind: PlanningDependencyKind, config: PlanningConfig): b
  * dangling edge cannot be part of a cycle at all, and following it would either
  * crash or invent one.
  *
- * Iterative with an explicit stack, for the reason
- * `lib/decomposition/engine/validator.ts` records: the recursive version cost
- * one JS frame per edge, and a few thousand chained items threw a `RangeError`
- * out past the only `try`/`catch` on the path — so a deep graph produced no
- * verdict at all rather than a wrong one, which is the harder failure to notice.
+ * **Strongly connected components, not a back-edge walk.** This was a
+ * depth-first search that marked the current gray path whenever it found a back
+ * edge, copied from `lib/decomposition/engine/validator.ts`, and it silently
+ * missed members. Given `a -> b, a -> c, b -> a, c -> b`, the item `c` sits on
+ * the cycle `a -> c -> b -> a`, but by the time `c` is visited `b` has already
+ * finished, so `c -> b` is a *cross* edge: not a back edge, not an unvisited
+ * node, so neither branch fires and `c` is reported feasible. It can never
+ * start. The integration fuzzer found it in 13 of 40,000 cases; a fixed table of
+ * 44 hand-written graphs had not.
+ *
+ * A node is on a cycle exactly when its strongly connected component has more
+ * than one member — self-edges being already excluded, an SCC of one is
+ * acyclic. That is a reachability question, and answering it directly is why
+ * #31's oracle was right. Tarjan's algorithm computes every component in one
+ * pass, so this costs the same single walk the broken version did.
+ *
+ * Iterative with an explicit stack, for the reason the Sprint 06 module records:
+ * the recursive form cost one JS frame per edge, and a few thousand chained
+ * items threw a `RangeError` out past the only `try`/`catch` on the path — so a
+ * deep graph produced no verdict at all rather than a wrong one, which is the
+ * harder failure to notice.
  */
 function itemsInCycle(
   items: readonly PlanningItem[],
@@ -162,41 +178,62 @@ function itemsInCycle(
   }
 
   const inCycle = new Set<string>();
-  const state = new Map<string, 'visiting' | 'done'>();
-  // The current gray path, mirrored as a map from id to its index in it, so
-  // both "is this a back edge?" and "where does the cycle start?" are O(1).
-  const path: string[] = [];
-  const onPath = new Map<string, number>();
+  const index = new Map<string, number>();
+  const lowLink = new Map<string, number>();
+  const onComponentStack = new Set<string>();
+  const componentStack: string[] = [];
+  let nextIndex = 0;
 
   for (const root of Array.from(known)) {
-    if (state.has(root)) continue;
-    const stack: { readonly id: string; edgeIndex: number }[] = [{ id: root, edgeIndex: 0 }];
-    state.set(root, 'visiting');
-    onPath.set(root, path.length);
-    path.push(root);
+    if (index.has(root)) continue;
 
-    while (stack.length > 0) {
-      const frame = stack[stack.length - 1];
+    index.set(root, nextIndex);
+    lowLink.set(root, nextIndex);
+    nextIndex += 1;
+    componentStack.push(root);
+    onComponentStack.add(root);
+    const work: { readonly id: string; edgeIndex: number }[] = [{ id: root, edgeIndex: 0 }];
+
+    while (work.length > 0) {
+      const frame = work[work.length - 1];
       const outgoing = edges.get(frame.id) ?? [];
+
       if (frame.edgeIndex < outgoing.length) {
         const next = outgoing[frame.edgeIndex];
         frame.edgeIndex += 1;
-        const cycleStart = onPath.get(next);
-        if (cycleStart !== undefined) {
-          for (let index = cycleStart; index < path.length; index += 1) {
-            inCycle.add(path[index]);
-          }
-        } else if (!state.has(next)) {
-          state.set(next, 'visiting');
-          onPath.set(next, path.length);
-          path.push(next);
-          stack.push({ id: next, edgeIndex: 0 });
+        if (!index.has(next)) {
+          index.set(next, nextIndex);
+          lowLink.set(next, nextIndex);
+          nextIndex += 1;
+          componentStack.push(next);
+          onComponentStack.add(next);
+          work.push({ id: next, edgeIndex: 0 });
+        } else if (onComponentStack.has(next)) {
+          // The edge reaches a node still open in this component. A cross edge
+          // to a *closed* node is correctly ignored here — it cannot join two
+          // components — which is precisely the case the old walk conflated
+          // with "not on a cycle".
+          lowLink.set(frame.id, Math.min(lowLink.get(frame.id) as number, index.get(next) as number));
         }
-      } else {
-        stack.pop();
-        onPath.delete(frame.id);
-        path.pop();
-        state.set(frame.id, 'done');
+        continue;
+      }
+
+      work.pop();
+      const parent = work[work.length - 1];
+      if (parent !== undefined) {
+        lowLink.set(parent.id, Math.min(lowLink.get(parent.id) as number, lowLink.get(frame.id) as number));
+      }
+      if (lowLink.get(frame.id) === index.get(frame.id)) {
+        const component: string[] = [];
+        for (;;) {
+          const member = componentStack.pop() as string;
+          onComponentStack.delete(member);
+          component.push(member);
+          if (member === frame.id) break;
+        }
+        if (component.length > 1) {
+          for (const member of component) inCycle.add(member);
+        }
       }
     }
   }
@@ -482,7 +519,16 @@ export function validateConstraints(
     // interval. Every one of those is the suppression principle rather than a
     // taste: this check borrows a bound from something already reported invalid,
     // so the answer it would give is an artefact of that finding.
-    if (effortUsable && buffersUsable && windowJudgeable && !deadlineBeforeStart && !deadlineOutsideHorizon) {
+    // `deadlineOutsideHorizon` suppresses this only when the window actually
+    // leans on the horizon. An item stating both of its own bounds borrows
+    // nothing, and 10,000 minutes not fitting in one day is true whatever the
+    // horizon says — the ruling is per item and per *bound*, not per request,
+    // and reading it per request was the same mistake one level down from where
+    // I first made it.
+    const windowMeasuresAReportedBound =
+      deadlineBeforeStart || (deadlineOutsideHorizon && !windowSelfSpecified);
+
+    if (effortUsable && buffersUsable && windowJudgeable && !windowMeasuresAReportedBound) {
       // Buffers are protected time *around* the item and the contract keeps
       // them out of `Effort` on purpose, so a plan can report "this took 30
       // minutes and needed 15 minutes of recovery" rather than inflating one

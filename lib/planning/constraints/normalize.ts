@@ -73,6 +73,27 @@ import {
 
 const MS_PER_DAY = 86_400_000;
 
+/**
+ * The one spelling of string ordering in this module.
+ *
+ * There were two, inlined at the two sort sites, and they are the fifth
+ * independent spelling of string ordering in a sprint whose deduplication pass
+ * was named for removing the other four — surviving in the one module all three
+ * tracks share. The impact is small and the shape is the one
+ * `lib/planning/shared/` exists to prevent, so it gets a name and one
+ * definition.
+ *
+ * Code-unit order, deliberately, not a locale collation: this orders machine
+ * output for determinism, and a locale-aware comparator would make a plan's
+ * ordering depend on the machine that produced it. Hoisted here so that when
+ * the sprint's shared comparator lands there is a single call site to swap; it
+ * does not exist on this branch yet.
+ */
+function compareStrings(left: string, right: string): number {
+  if (left < right) return -1;
+  return left > right ? 1 : 0;
+}
+
 /** How a window's local boundary resolved on the date it landed on. */
 export type BoundaryResolutionKind = 'exact' | 'gap' | 'fold';
 
@@ -138,13 +159,30 @@ export interface NormalizedWindows {
  * place a Kolkata user's morning five and a half hours from where they said it
  * was, with nothing downstream able to tell that had happened.
  */
-function isKnownTimeZone(timeZone: string): boolean {
+const knownTimeZoneCache = new Map<string, boolean>();
+
+/**
+ * Memoised because #31 calls this per window on a hot path and constructing an
+ * `Intl.DateTimeFormat` to throw it away is the expensive part. Bounded because
+ * the key is a caller-supplied string: an unbounded cache keyed on user input is
+ * a slow leak on a path that never restarts. The bound is far above any real
+ * request, which names a handful of zones.
+ */
+const MAX_CACHED_TIME_ZONES = 512;
+
+export function isKnownTimeZone(timeZone: string): boolean {
+  const cached = knownTimeZoneCache.get(timeZone);
+  if (cached !== undefined) return cached;
+
+  let known: boolean;
   try {
     new Intl.DateTimeFormat('en-US', { timeZone });
-    return true;
+    known = true;
   } catch {
-    return false;
+    known = false;
   }
+  if (knownTimeZoneCache.size < MAX_CACHED_TIME_ZONES) knownTimeZoneCache.set(timeZone, known);
+  return known;
 }
 
 /** A calendar date, independent of any zone. */
@@ -209,8 +247,16 @@ function isWholeMinuteInDay(value: number): boolean {
  * unusual, so there is nothing to place and nothing to clip. The window's index
  * is returned to the caller instead, and the validator turns it into exactly one
  * `INVALID_INTERVAL`.
+ *
+ * **Exported because it is a validity predicate, not a judgement.** #31 had an
+ * independent implementation of the same rule. The two agreed across 65,880
+ * sampled cases, which is exactly the situation the sprint design calls a gap
+ * rather than a check: two readings of a *judgement* check each other, two
+ * copies of a *predicate* are a place to drift. The four conditions it enforces
+ * beyond the contract's stated interval rule are listed in `index.ts`, so there
+ * is one statement of them and one implementation.
  */
-function isMaterialisable(window: WorkingWindow): boolean {
+export function isMaterialisableWindow(window: WorkingWindow): boolean {
   if (!Number.isInteger(window.weekday) || window.weekday < 0 || window.weekday > 6) return false;
   if (!isWholeMinuteInDay(window.startMinute) || !isWholeMinuteInDay(window.endMinute)) return false;
   // A window occupying the whole day starts at minute 0; `startMinute === 1440`
@@ -274,6 +320,26 @@ function resolveBoundary(
  * anchor would need the very machinery it is meant to stand in for. The bracket
  * needs no anchor and errs outward, which is the safe direction: it can only
  * make this module report an anomaly it might have filtered, never hide one.
+ *
+ * **This belongs in `lib/planning/shared/time.ts` and is only here because this
+ * branch may not edit that file.** `resolveLocalTime` already computes exactly
+ * these two candidates and then discards the ones that do not verify — this
+ * needs them *before* that filtering, which is the one thing that module does
+ * not expose. That makes this a second site of DST arithmetic in the sprint,
+ * which is the failure `shared/time.ts` was written to prevent. The signature
+ * requested, matching that module's existing style:
+ *
+ *     export function nominalInstantBracket(
+ *       parts: WallClockParts,
+ *       timeZone: string,
+ *     ): { readonly earliestMs: number; readonly latestMs: number };
+ *
+ * Semantics: form the naive UTC reading of `parts`, correct it by the zone's
+ * offsets one day before and one day after, and return the min and max of the
+ * two candidates — no verification, no fold policy, no gap handling. For a local
+ * time with no anomaly both candidates coincide and the bracket is a point. When
+ * that lands, this function becomes a call to it and the `MS_PER_DAY` and
+ * `zoneOffsetMs` uses here go away.
  */
 function nominalBracket(
   date: CalendarDate,
@@ -317,7 +383,7 @@ export function normalizeWorkingWindows(
   const horizonEndMs = toEpochMs(horizon.endsAt);
 
   for (let index = 0; index < windows.length; index += 1) {
-    if (!isMaterialisable(windows[index])) malformedWindowIndices.push(index);
+    if (!isMaterialisableWindow(windows[index])) malformedWindowIndices.push(index);
   }
 
   // A horizon that is not a positive interval has no dates in it. Reporting it
@@ -330,7 +396,7 @@ export function normalizeWorkingWindows(
 
   for (let index = 0; index < windows.length; index += 1) {
     const window = windows[index];
-    if (!isMaterialisable(window)) continue;
+    if (!isMaterialisableWindow(window)) continue;
 
     // The local dates the horizon touches, in this window's own zone. Read from
     // the zone rather than from UTC because a horizon starting at 23:30Z is
@@ -446,12 +512,12 @@ export function normalizeWorkingWindows(
   materialized.sort(
     (left, right) =>
       toEpochMs(left.interval.startsAt) - toEpochMs(right.interval.startsAt)
-      || (left.windowId < right.windowId ? -1 : left.windowId > right.windowId ? 1 : 0)
+      || compareStrings(left.windowId, right.windowId)
       || left.windowIndex - right.windowIndex,
   );
   anomalies.sort(
     (left, right) =>
-      (left.localDate < right.localDate ? -1 : left.localDate > right.localDate ? 1 : 0)
+      compareStrings(left.localDate, right.localDate)
       || left.windowIndex - right.windowIndex
       || (left.boundary === right.boundary ? 0 : left.boundary === 'start' ? -1 : 1),
   );

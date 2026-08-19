@@ -24,6 +24,8 @@ import type {
 } from '../../src/contracts/v1/planningContracts.ts';
 import {
   freeRunsWithin,
+  isKnownTimeZone,
+  isMaterialisableWindow,
   mergeIntervals,
   normalizeWorkingWindows,
 } from '../../lib/planning/constraints/index.ts';
@@ -347,4 +349,51 @@ test('normalizing is a pure function of its arguments: two runs agree exactly', 
   const first = normalizeWorkingWindows([window(), window({ windowId: 'w2', weekday: 3 })], HORIZON, CONFIG);
   const second = normalizeWorkingWindows([window(), window({ windowId: 'w2', weekday: 3 })], HORIZON, CONFIG);
   assert.deepEqual(first, second);
+});
+
+/* ── The exported validity predicate ─────────────────────────────── */
+
+test('isMaterialisableWindow is the same rule the normalizer applies, not a second one', () => {
+  // Exported so #31 imports it instead of keeping its own copy: a predicate is
+  // data, and two copies of data drift. This test pins the two to each other, so
+  // the export cannot quietly diverge from what the normalizer actually does —
+  // which is the only way the shared-predicate arrangement could fail while both
+  // sides stayed green.
+  const cases: Partial<WorkingWindow>[] = [
+    {},
+    { weekday: 9 as WorkingWindow['weekday'] },
+    { weekday: -1 as WorkingWindow['weekday'] },
+    { startMinute: -30 },
+    { endMinute: 1441 },
+    { startMinute: 9.5 },
+    { endMinute: Number.NaN },
+    { startMinute: 600, endMinute: 60 },
+    { startMinute: 540, endMinute: 540 },
+    { timezone: 'Mars/Olympus_Mons' },
+    { startMinute: 0, endMinute: 1440 },
+  ];
+
+  for (const overrides of cases) {
+    const candidate = window(overrides);
+    const normalized = normalizeWorkingWindows([candidate], HORIZON, CONFIG);
+    const rejectedByNormalizer = normalized.malformedWindowIndices.includes(0);
+    assert.equal(
+      isMaterialisableWindow(candidate),
+      !rejectedByNormalizer,
+      `predicate and normalizer disagree on ${JSON.stringify(overrides)}`,
+    );
+  }
+});
+
+test('isKnownTimeZone answers the same way twice, memo or no memo', () => {
+  // The memo is keyed on a caller-supplied string, so it is worth one assertion
+  // that it caches the answer rather than the question.
+  for (const zone of ['Asia/Kolkata', 'America/New_York', 'UTC']) {
+    assert.equal(isKnownTimeZone(zone), true, zone);
+    assert.equal(isKnownTimeZone(zone), true, `${zone} on the second call`);
+  }
+  for (const zone of ['Mars/Olympus_Mons', '', 'Not/A/Zone']) {
+    assert.equal(isKnownTimeZone(zone), false, zone);
+    assert.equal(isKnownTimeZone(zone), false, `${zone} on the second call`);
+  }
 });
