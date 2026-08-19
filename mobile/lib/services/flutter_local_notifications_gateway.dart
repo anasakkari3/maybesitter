@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_local_notifications_platform_interface/flutter_local_notifications_platform_interface.dart';
 import 'package:timezone/timezone.dart' as tz;
 
 import '../models/pilot_presence.dart';
@@ -80,36 +81,61 @@ class FlutterLocalNotificationsGateway implements LocalNotificationsGateway {
     );
   }
 
+  /// Resolve a platform implementation, or null when there is no platform.
+  ///
+  /// The plugin throws rather than returning null when its platform instance
+  /// was never registered -- in a unit test, or on a target where the plugin
+  /// is absent. Not knowing the permission is a legitimate answer; taking the
+  /// app down over it is not.
+  T? _resolve<T extends FlutterLocalNotificationsPlatform>() {
+    try {
+      return _plugin.resolvePlatformSpecificImplementation<T>();
+    } catch (_) {
+      return null;
+    }
+  }
+
   @override
   Future<NativeNotificationPermission> checkPermission() async {
-    final ios = _plugin
-        .resolvePlatformSpecificImplementation<
-          IOSFlutterLocalNotificationsPlugin
-        >();
-    if (ios == null) return NativeNotificationPermission.notDetermined;
+    final ios = _resolve<IOSFlutterLocalNotificationsPlugin>();
+    if (ios != null) {
+      final options = await ios.checkPermissions();
+      if (options == null) return NativeNotificationPermission.notDetermined;
+      return nativePermissionFrom(
+        isEnabled: options.isEnabled,
+        isProvisionalEnabled: options.isProvisionalEnabled,
+      );
+    }
 
-    final options = await ios.checkPermissions();
-    if (options == null) return NativeNotificationPermission.notDetermined;
+    // Resolving only the iOS implementation left Android permanently
+    // "notDetermined", which the engine reads as "not granted" -- so an Android
+    // build scheduled nothing and the settings screen turned reminders off.
+    final android = _resolve<AndroidFlutterLocalNotificationsPlugin>();
+    if (android == null) return NativeNotificationPermission.notDetermined;
     return nativePermissionFrom(
-      isEnabled: options.isEnabled,
-      isProvisionalEnabled: options.isProvisionalEnabled,
+      isEnabled: await android.areNotificationsEnabled(),
     );
   }
 
   @override
   Future<NativeNotificationPermission> requestPermission() async {
-    final ios = _plugin
-        .resolvePlatformSpecificImplementation<
-          IOSFlutterLocalNotificationsPlugin
-        >();
-    if (ios == null) return NativeNotificationPermission.notDetermined;
+    final ios = _resolve<IOSFlutterLocalNotificationsPlugin>();
+    if (ios != null) {
+      // The OS decides. We report what it says -- never a hopeful default.
+      final granted = await ios.requestPermissions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+      if (granted == null) return NativeNotificationPermission.notDetermined;
+      return granted
+          ? NativeNotificationPermission.granted
+          : NativeNotificationPermission.denied;
+    }
 
-    // The OS decides. We report what it says -- never a hopeful default.
-    final granted = await ios.requestPermissions(
-      alert: true,
-      badge: true,
-      sound: true,
-    );
+    final android = _resolve<AndroidFlutterLocalNotificationsPlugin>();
+    if (android == null) return NativeNotificationPermission.notDetermined;
+    final granted = await android.requestNotificationsPermission();
     if (granted == null) return NativeNotificationPermission.notDetermined;
     return granted
         ? NativeNotificationPermission.granted

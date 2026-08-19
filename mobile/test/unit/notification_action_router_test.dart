@@ -125,10 +125,27 @@ void main() {
   group('the same action is never applied twice', () {
     test('a redelivered action event is ignored', () async {
       final harness = _build();
-      final event = _event(NotificationActionType.snooze);
 
-      await harness.router.handle(event);
-      await harness.router.handle(event);
+      // The two delivery paths -- the live callback and the cold-start launch
+      // details -- each stamp their own DateTime.now(), so a replay of one tap
+      // never carries the same instant twice. Deduping on the instant would
+      // therefore never fire.
+      await harness.router.handle(
+        NativeNotificationActionEvent(
+          commitmentId: 'c1',
+          notificationId: 'soft-awareness-c1-softAwareness',
+          action: NotificationActionType.snooze,
+          occurredAt: DateTime(2026, 8, 19, 9, 31, 0),
+        ),
+      );
+      await harness.router.handle(
+        NativeNotificationActionEvent(
+          commitmentId: 'c1',
+          notificationId: 'soft-awareness-c1-softAwareness',
+          action: NotificationActionType.snooze,
+          occurredAt: DateTime(2026, 8, 19, 9, 31, 2),
+        ),
+      );
 
       // A second snooze from the same delivery would push the reminder out
       // twice for one tap.
@@ -136,6 +153,33 @@ void main() {
       expect(
         harness.notifications.requestsFor('c1').single.scheduledAt,
         DateTime(2026, 8, 19, 9, 46),
+      );
+    });
+
+    test('the same action long afterwards is a new tap, not a replay', () async {
+      final harness = _build();
+
+      await harness.router.handle(
+        NativeNotificationActionEvent(
+          commitmentId: 'c1',
+          notificationId: 'soft-awareness-c1-softAwareness',
+          action: NotificationActionType.snooze,
+          occurredAt: DateTime(2026, 8, 19, 9, 31),
+        ),
+      );
+      await harness.router.handle(
+        NativeNotificationActionEvent(
+          commitmentId: 'c1',
+          notificationId: 'soft-awareness-c1-softAwareness',
+          action: NotificationActionType.snooze,
+          occurredAt: DateTime(2026, 8, 19, 9, 46),
+        ),
+      );
+
+      // Snoozed again a quarter of an hour later: a real second decision.
+      expect(
+        harness.notifications.requestsFor('c1').single.scheduledAt,
+        DateTime(2026, 8, 19, 10, 1),
       );
     });
 

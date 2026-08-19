@@ -134,7 +134,7 @@ void main() {
       expect(plan.stages, isEmpty);
     });
 
-    test('only escalation stages are suppressed once the user is aware', () {
+    test('the opening stage is not an escalation, the later one is', () {
       const policy = ReminderPolicy(
         maxIntensity: ReminderIntensity.strongReminder,
         strongRemindersRequireExplicitOptIn: false,
@@ -144,8 +144,11 @@ void main() {
         _commitment(priority: CommitmentPriority.must),
       );
 
-      expect(plan.stages.first.suppressedByAwareness, isFalse);
-      expect(plan.stages.last.suppressedByAwareness, isTrue);
+      expect(plan.stages.first.isEscalation, isFalse);
+      expect(plan.stages.last.isEscalation, isTrue);
+      expect(plan.escalationStages.map((stage) => stage.intensity), [
+        ReminderIntensity.strongReminder,
+      ]);
     });
   });
 }

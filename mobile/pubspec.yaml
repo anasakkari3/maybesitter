@@ -49,6 +49,7 @@ dependencies:
   flutter_slidable: ^4.0.3
   speech_to_text: ^7.4.0
   flutter_local_notifications: ^18.0.1
+  flutter_local_notifications_platform_interface: ^8.0.0
 
 dev_dependencies:
   flutter_test:

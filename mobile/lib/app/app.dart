@@ -37,14 +37,20 @@ class _MaybesitterAppState extends ConsumerState<MaybesitterApp> {
       (_, next) {
         final publisher = ref.read(pilotPresenceSnapshotPublisherProvider);
         _syncWatchAvailability();
-        if (!ref.read(pilotPresenceFeatureFlagsProvider).widget) {
-          unawaited(publisher.clearWidgetSnapshot());
-          return;
-        }
 
         final commitments = next.valueOrNull;
         if (commitments == null) return;
-        unawaited(publisher.publishWidgetSnapshot(commitments));
+
+        // The widget and the reminders are separate surfaces with separate
+        // kill switches. Turning the widget off used to return early from
+        // here, which silently stopped scheduling reminders as well -- so a
+        // participant with the widget disabled got no reminders at all.
+        if (ref.read(pilotPresenceFeatureFlagsProvider).widget) {
+          unawaited(publisher.publishWidgetSnapshot(commitments));
+        } else {
+          unawaited(publisher.clearWidgetSnapshot());
+        }
+
         _syncSoftAwarenessSchedules(commitments);
       },
       fireImmediately: true,
