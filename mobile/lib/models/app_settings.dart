@@ -34,6 +34,12 @@ class AppSettings {
   final AppThemeMode themeMode;
   final AppLocaleOption localeOption;
   final bool notificationsEnabled;
+
+  /// Whether the Home Screen widget may show commitment titles.
+  ///
+  /// Off by default. A widget is visible to anyone who can see the phone, so
+  /// naming what the user has to do is their call to make.
+  final bool widgetShowsTitles;
   final bool soundEffectsEnabled;
   final bool hapticFeedbackEnabled;
   final bool hasCompletedOnboarding;
@@ -43,6 +49,7 @@ class AppSettings {
     this.themeMode = AppThemeMode.system,
     this.localeOption = AppLocaleOption.system,
     this.notificationsEnabled = true,
+    this.widgetShowsTitles = false,
     this.soundEffectsEnabled = true,
     this.hapticFeedbackEnabled = true,
     this.hasCompletedOnboarding = false,
@@ -53,6 +60,7 @@ class AppSettings {
     AppThemeMode? themeMode,
     AppLocaleOption? localeOption,
     bool? notificationsEnabled,
+    bool? widgetShowsTitles,
     bool? soundEffectsEnabled,
     bool? hapticFeedbackEnabled,
     bool? hasCompletedOnboarding,
@@ -62,6 +70,7 @@ class AppSettings {
       themeMode: themeMode ?? this.themeMode,
       localeOption: localeOption ?? this.localeOption,
       notificationsEnabled: notificationsEnabled ?? this.notificationsEnabled,
+      widgetShowsTitles: widgetShowsTitles ?? this.widgetShowsTitles,
       soundEffectsEnabled: soundEffectsEnabled ?? this.soundEffectsEnabled,
       hapticFeedbackEnabled:
           hapticFeedbackEnabled ?? this.hapticFeedbackEnabled,

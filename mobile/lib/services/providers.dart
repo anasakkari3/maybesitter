@@ -262,6 +262,7 @@ final pilotPresenceSnapshotPublisherProvider =
         now: DateTime.now,
         analyticsService: ref.watch(pilotLoopAnalyticsServiceProvider),
         flags: ref.watch(pilotPresenceFeatureFlagsProvider),
+        widgetShowsTitles: ref.watch(appSettingsProvider).widgetShowsTitles,
       );
     });
 
@@ -477,6 +478,10 @@ class AppSettingsNotifier extends StateNotifier<AppSettings> {
 
   void toggleNotifications(bool enabled) {
     state = state.copyWith(notificationsEnabled: enabled);
+  }
+
+  void toggleWidgetShowsTitles(bool enabled) {
+    state = state.copyWith(widgetShowsTitles: enabled);
   }
 
   void toggleHaptics(bool enabled) {

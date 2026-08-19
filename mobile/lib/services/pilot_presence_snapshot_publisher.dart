@@ -12,6 +12,14 @@ class PilotPresenceSnapshotPublisher {
   final DateTime Function() now;
   final Duration snapshotTtl;
 
+  /// Whether the user has allowed the widget to name commitments.
+  ///
+  /// Off by default: a Home Screen widget is read by whoever is standing
+  /// nearby, so naming a commitment is the user's decision to make, not ours.
+  /// On, the widget can finally answer what deserves attention now instead of
+  /// listing rows that all read "Private commitment".
+  final bool widgetShowsTitles;
+
   const PilotPresenceSnapshotPublisher({
     required this.store,
     required this.now,
@@ -24,6 +32,7 @@ class PilotPresenceSnapshotPublisher {
       imports: false,
     ),
     this.snapshotTtl = const Duration(minutes: 30),
+    this.widgetShowsTitles = false,
   });
 
   Future<void> publishWidgetSnapshot(List<Commitment> commitments) async {
@@ -34,9 +43,16 @@ class PilotPresenceSnapshotPublisher {
       generatedAt: generatedAt,
       expiresAt: generatedAt.add(snapshotTtl),
       surface: PilotPresenceSurface.widget,
-      titlePrivacy: const SnapshotTitlePrivacy(
-        mode: SnapshotTitlePrivacyMode.neverIncludeTitles,
-      ),
+      titlePrivacy: widgetShowsTitles
+          // Named for the widget alone. Every other surface -- the watch above
+          // all -- makes its own decision rather than inheriting this one.
+          ? SnapshotTitlePrivacy(
+              mode: SnapshotTitlePrivacyMode.explicitlyAllowed,
+              allowedSurfaceIds: {PilotPresenceSurface.widget.surfaceId},
+            )
+          : const SnapshotTitlePrivacy(
+              mode: SnapshotTitlePrivacyMode.neverIncludeTitles,
+            ),
     );
 
     await store.publishSnapshot(snapshot);
