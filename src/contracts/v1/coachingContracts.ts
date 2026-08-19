@@ -720,8 +720,20 @@ export const COACHING_BLOCK_ORIGINS = Object.freeze(['claim_support', 'safety_ga
  * prose resting on claims nothing realizes — `PLANNED_CLAIM_NOT_REALIZED` for
  * an output already out the door. The conservative direction is the one "adds
  * no new facts" points in, and a fragment of a coaching sentence is not a
- * shorter coaching sentence. Stated here rather than discovered downstream; a
- * later version that composes a redacted turn is a change with its own note.
+ * shorter coaching sentence.
+ *
+ * This is a **deliberate narrowing with a deletion condition**, recorded the
+ * way Sprint 08's tracks recorded their temporary copies — that habit is what
+ * let its merge retire them cleanly instead of arguing about them. **Revisit
+ * when** composing a redacted turn exists as its own capability: re-planning
+ * under a constraint means re-running claim selection over the surviving
+ * segments and re-checking faithfulness on the remainder, which is a v2
+ * feature with its own acceptance criteria, not a branch inside a v1 realizer.
+ *
+ * The conservatism is only defensible because the refusal carries its way out.
+ * A withheld turn that could reach a surface without a `SafeUserPath` would be
+ * the defect — which is why `recovery` is required on this variant rather than
+ * nullable.
  */
 export type CoachingDelivery =
   | {
@@ -757,6 +769,28 @@ export type CoachingDelivery =
  */
 export const COACHING_CLAIM_SUPPORT_RECOVERY: SafeUserPath = Object.freeze({
   kind: 'show_evidence_only',
+  retryAdmissible: true,
+  retryAfter: null,
+});
+
+/**
+ * The safe path offered when **no gateway was wired at all**.
+ *
+ * `surface_nothing_and_explain`, which is what `SAFETY_CODE_RECOVERY` maps
+ * `REQUEST_UNREADABLE` and `UNKNOWN_CANDIDATE_SHAPE` to — the two of #39's
+ * codes that mean "the guard could not judge this", which is what an absent
+ * gateway is. Read off that table for the same reason
+ * `COACHING_CLAIM_SUPPORT_RECOVERY` is: a coaching block and a gateway block
+ * for the same underlying problem must not offer two different ways forward.
+ *
+ * Deliberately not `show_evidence_only`. That path is defensible when the
+ * *prose* is the problem and the facts were read correctly; here nothing has
+ * judged the candidate at all, and showing the evidence would be a surface
+ * deciding on its own that the facts are safe to display — the decision the
+ * gateway exists to make.
+ */
+export const COACHING_ABSENT_GATEWAY_RECOVERY: SafeUserPath = Object.freeze({
+  kind: 'surface_nothing_and_explain',
   retryAdmissible: true,
   retryAfter: null,
 });
@@ -1113,8 +1147,13 @@ export interface CoachingDefect {
  *     verbs are honest — the engine *does* create reminders and says so. This
  *     module never writes anything (`COACHING_PERSISTENCE_POLICY`), so
  *     **every** one of these verbs is a false claim of persistence here,
- *     whatever the intent, and `COMPLETION_DESCRIBED_AS_TRACKING` fires on any
- *     of them.
+ *     whatever the intent. *Which* code fires depends on what the turn is
+ *     about: a tracking verb in a turn acknowledging a completion is
+ *     `COMPLETION_DESCRIBED_AS_TRACKING`, the acceptance criterion by name;
+ *     anywhere else it is `FORBIDDEN_LANGUAGE`. One condition, two codes,
+ *     because "you finished that, I'm tracking it" and "I saved that for you"
+ *     are different lies told by different templates and fixed in different
+ *     places.
  *
  *     The extra members over the engine's list are `logging`, `noting`,
  *     `monitoring`, `watching`, `keeping track` and `following up on` — the
@@ -1192,8 +1231,33 @@ export const COACHING_FORBIDDEN_LANGUAGE = Object.freeze({
 export const COACHING_SENTENCE_POLICY = Object.freeze({
   minSentences: 1,
   maxSentences: 2,
-  maxClaimsPerPlan: 4,
-  maxClaimsPerSentence: 3,
+  /**
+   * Two, because `PLANNED_CLAIM_NOT_REALIZED` ties the claim count to the
+   * sentence count. A cap of four with two realizable would be a bound nothing
+   * can reach — the Sprint 08 unreachable-outcome shape applied to a limit
+   * rather than to a vocabulary, and just as invisible to any assertion about
+   * the limit itself.
+   */
+  maxClaimsPerPlan: 2,
+  /**
+   * One claim per sentence in v1. A scope decision worth stating rather than a
+   * stub, and it has a deletion condition.
+   *
+   * A sentence carrying two claims needs a template per claim *pair*: with
+   * eight evidence-backed kinds that is dozens of strings in three locales, and
+   * long before a template author finishes writing them they reach for the
+   * obvious shortcut — build the sentence by joining fragments around the
+   * facts. That shortcut is assembly, and assembly is the path by which a title
+   * or an id reaches prose (`IDENTIFIER_IN_PROSE`). One claim per sentence
+   * keeps `templatesAreSelectedNotAssembled` true by construction rather than
+   * by discipline.
+   *
+   * **Revisit when** a pair table exists in all three locales and
+   * `tests/coaching/realizer.test.ts` scans it for interpolation the way it
+   * scans the single table today. Raising this number without that table is
+   * how the assembly path gets opened.
+   */
+  maxClaimsPerSentence: 1,
   maxEvidenceRefsPerClaim: 8,
 });
 
