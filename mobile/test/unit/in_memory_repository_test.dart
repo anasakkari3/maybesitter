@@ -7,7 +7,7 @@ void main() {
     late InMemoryCommitmentRepository repo;
 
     setUp(() {
-      repo = InMemoryCommitmentRepository();
+      repo = InMemoryCommitmentRepository(seedDemoData: true);
     });
 
     test('Initial seeded data contains today and upcoming items', () async {

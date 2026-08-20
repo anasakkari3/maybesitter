@@ -15,7 +15,7 @@ void main() {
       final container = ProviderContainer(
         overrides: [
           commitmentRepositoryProvider.overrideWithValue(
-            InMemoryCommitmentRepository(),
+            InMemoryCommitmentRepository(seedDemoData: true),
           ),
         ],
       );
@@ -35,7 +35,7 @@ void main() {
   );
 
   test('later mutations still flow through the stream', () async {
-    final repository = InMemoryCommitmentRepository();
+    final repository = InMemoryCommitmentRepository(seedDemoData: true);
     final container = ProviderContainer(
       overrides: [
         commitmentRepositoryProvider.overrideWithValue(repository),

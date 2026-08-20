@@ -41,7 +41,6 @@ import 'routine_profile_notifier.dart';
 import 'soft_awareness_reminder_engine.dart';
 import 'mock/commitment_state_store.dart';
 import 'mock/in_memory_commitment_repository.dart';
-import 'mock/mock_capture_service.dart';
 import 'mock/mock_activity_repository.dart';
 import 'mock/mock_calendar_import_service.dart';
 import 'mock/mock_feedback_history_service.dart';
@@ -51,6 +50,7 @@ import 'flutter_local_notifications_gateway.dart';
 import 'in_memory_awareness_state_store.dart';
 import 'native_notification_service.dart';
 import 'notification_action_router.dart';
+import 'rule_based_capture_service.dart';
 import 'participant_data_eraser.dart';
 import 'mock/mock_connectivity_service.dart';
 import 'mock/mock_pilot_trust_service.dart';
@@ -102,7 +102,10 @@ final captureServiceProvider = Provider<CaptureService>((ref) {
       defaultTimezone: config.timezone,
     );
   }
-  return MockCaptureService();
+  // Real extraction, on the device. The mock this replaces answered every
+  // input identically -- one commitment, tomorrow, 10:00, "should" -- having
+  // read none of it.
+  return RuleBasedCaptureService();
 });
 
 final activityRepositoryProvider = Provider<ActivityRepository>((ref) {

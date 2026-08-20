@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:maybesitter_mobile/services/mock/in_memory_commitment_repository.dart';
+import 'package:maybesitter_mobile/services/providers.dart';
 import 'package:maybesitter_mobile/app/app.dart';
 import 'package:maybesitter_mobile/features/capture/capture_composer_screen.dart';
 import 'package:maybesitter_mobile/models/app_settings.dart';
-import 'package:maybesitter_mobile/services/providers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -16,7 +17,13 @@ void main() {
       SharedPreferences.setMockInitialValues({
         'has_completed_onboarding': true,
       });
-      final container = ProviderContainer();
+      final container = ProviderContainer(
+          overrides: [
+            commitmentRepositoryProvider.overrideWithValue(
+              InMemoryCommitmentRepository(seedDemoData: true),
+            ),
+          ],
+        );
 
       await tester.pumpWidget(
         UncontrolledProviderScope(
@@ -68,7 +75,7 @@ void main() {
       // text pre-fill), then tap Analyze button (Arabic label: تحليل النص)
       await tester.enterText(
         find.byType(TextField),
-        'Tomorrow I will go to the doctor and then work.',
+        'Tomorrow I will go to the doctor and then work',
       );
       await tester.pump();
       final analyzeBtn = find.text('تحليل النص');
@@ -79,8 +86,9 @@ void main() {
 
       // 6. Verify Arabic Extraction Review screen & confirm
       expect(find.text('مراجعة خطتك'), findsOneWidget);
-      expect(find.text('Go to the doctor'), findsOneWidget);
-      expect(find.text('Work afterward'), findsOneWidget);
+      // Titles now come from reading the sentence, not from a canned response.
+      expect(find.text('go to the doctor'), findsOneWidget);
+      expect(find.text('work'), findsOneWidget);
 
       final confirmBtn = find.text('تأكيد التزامين');
       expect(confirmBtn, findsOneWidget);
@@ -123,7 +131,8 @@ void main() {
       await tester.tap(upcomingTabIcon);
       await tester.pumpAndSettle();
 
-      expect(find.text('Go to the doctor'), findsOneWidget);
+      // Titles now come from reading the sentence, not from a canned response.
+      expect(find.text('go to the doctor'), findsOneWidget);
       semantics.dispose();
     },
   );

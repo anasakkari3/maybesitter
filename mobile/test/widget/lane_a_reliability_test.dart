@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:maybesitter_mobile/services/mock/in_memory_commitment_repository.dart';
+import 'package:maybesitter_mobile/services/providers.dart';
 import 'package:go_router/go_router.dart';
 import 'package:maybesitter_mobile/features/capture/capture_composer_screen.dart';
 import 'package:maybesitter_mobile/features/capture/capture_controller.dart';
@@ -14,7 +16,6 @@ import 'package:maybesitter_mobile/design_system/components/capture_primary_acti
 import 'package:maybesitter_mobile/design_system/components/maybesitter_bottom_navigation.dart';
 import 'package:maybesitter_mobile/l10n/generated/app_localizations.dart';
 import 'package:maybesitter_mobile/models/capture_result.dart';
-import 'package:maybesitter_mobile/services/providers.dart';
 
 Widget _buildLocalizedApp(Widget home) {
   return MaterialApp(
@@ -37,6 +38,11 @@ void main() {
       (WidgetTester tester) async {
         await tester.pumpWidget(
           ProviderScope(
+            overrides: [
+              commitmentRepositoryProvider.overrideWithValue(
+                InMemoryCommitmentRepository(seedDemoData: true),
+              ),
+            ],
             child: _buildLocalizedApp(const CaptureComposerScreen()),
           ),
         );
@@ -56,7 +62,13 @@ void main() {
     testWidgets(
       'Success screen reports only the commitments that were actually saved',
       (WidgetTester tester) async {
-        final container = ProviderContainer();
+        final container = ProviderContainer(
+          overrides: [
+            commitmentRepositoryProvider.overrideWithValue(
+              InMemoryCommitmentRepository(seedDemoData: true),
+            ),
+          ],
+        );
         addTearDown(container.dispose);
 
         final notifier = container.read(captureControllerProvider.notifier);
@@ -93,7 +105,13 @@ void main() {
     testWidgets(
       'Resolving a clarification keeps the real extracted items, not fixture data',
       (WidgetTester tester) async {
-        final container = ProviderContainer();
+        final container = ProviderContainer(
+          overrides: [
+            commitmentRepositoryProvider.overrideWithValue(
+              InMemoryCommitmentRepository(seedDemoData: true),
+            ),
+          ],
+        );
         addTearDown(container.dispose);
 
         container
@@ -150,7 +168,13 @@ void main() {
     testWidgets(
       'Edit icon on commitment details actually lets the participant edit',
       (WidgetTester tester) async {
-        final container = ProviderContainer();
+        final container = ProviderContainer(
+          overrides: [
+            commitmentRepositoryProvider.overrideWithValue(
+              InMemoryCommitmentRepository(seedDemoData: true),
+            ),
+          ],
+        );
         addTearDown(container.dispose);
 
         await tester.pumpWidget(
@@ -200,7 +224,13 @@ void main() {
     testWidgets(
       'Capture FAB does not cover the next-step "Not now" action on Today',
       (WidgetTester tester) async {
-        final container = ProviderContainer();
+        final container = ProviderContainer(
+          overrides: [
+            commitmentRepositoryProvider.overrideWithValue(
+              InMemoryCommitmentRepository(seedDemoData: true),
+            ),
+          ],
+        );
         addTearDown(container.dispose);
 
         // The default test surface (800x600, a wide/short window) has a

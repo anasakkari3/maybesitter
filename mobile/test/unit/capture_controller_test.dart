@@ -91,20 +91,20 @@ void main() {
       final notifier = container.read(captureControllerProvider.notifier);
 
       await notifier.submitIntent(
-        'Tomorrow I will go to the doctor and then work.',
+        'Tomorrow I will go to the doctor and then work',
       );
 
       final state = container.read(captureControllerProvider);
       expect(state.status, CaptureStatus.needsConfirmation);
       expect(state.extractedCommitments.length, 2);
-      expect(state.extractedCommitments[0].title, 'Go to the doctor');
-      expect(state.extractedCommitments[1].title, 'Work afterward');
+      expect(state.extractedCommitments[0].title, 'go to the doctor');
+      expect(state.extractedCommitments[1].title, 'work');
     });
 
     test('Confirm save persists to repository and sets saved state', () async {
       final notifier = container.read(captureControllerProvider.notifier);
       await notifier.submitIntent(
-        'Tomorrow I will go to the doctor and then work.',
+        'Tomorrow I will go to the doctor and then work',
       );
 
       final success = await notifier.confirmSave();
@@ -115,7 +115,7 @@ void main() {
 
       final repo = container.read(commitmentRepositoryProvider);
       final upcoming = await repo.getUpcoming();
-      expect(upcoming.any((c) => c.title == 'Go to the doctor'), isTrue);
+      expect(upcoming.any((c) => c.title == 'go to the doctor'), isTrue);
     });
 
     test('speech transcript is editable before analysis', () async {

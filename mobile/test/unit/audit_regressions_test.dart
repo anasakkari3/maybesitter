@@ -87,7 +87,9 @@ void main() {
 
     test('completing a commitment records it in activity', () async {
       final activity = MockActivityRepository();
-      final repo = InMemoryCommitmentRepository(activityRepository: activity);
+      final repo = InMemoryCommitmentRepository(
+      seedDemoData: true,
+      activityRepository: activity);
       final before = (await activity.getActivity()).length;
 
       final target = (await repo.getToday()).first;
@@ -101,7 +103,9 @@ void main() {
 
     test('postponing a commitment records it in activity', () async {
       final activity = MockActivityRepository();
-      final repo = InMemoryCommitmentRepository(activityRepository: activity);
+      final repo = InMemoryCommitmentRepository(
+      seedDemoData: true,
+      activityRepository: activity);
       final before = (await activity.getActivity()).length;
 
       final target = (await repo.getToday()).first;
@@ -120,12 +124,16 @@ void main() {
       // Today" empty state; after terminating and relaunching, the app was
       // back to "3 commitments remaining for today".
       final store = InMemoryStateStore();
-      final first = InMemoryCommitmentRepository(stateStore: store);
+      final first = InMemoryCommitmentRepository(
+      seedDemoData: true,
+      stateStore: store);
       await first.ready;
       final target = (await first.getToday()).first;
       await first.complete(target.id);
 
-      final relaunched = InMemoryCommitmentRepository(stateStore: store);
+      final relaunched = InMemoryCommitmentRepository(
+      seedDemoData: true,
+      stateStore: store);
       await relaunched.ready;
       final restored = (await relaunched.getToday())
           .firstWhere((commitment) => commitment.id == target.id);
@@ -136,12 +144,16 @@ void main() {
     test('a postponed date survives a relaunch', () async {
       final store = InMemoryStateStore();
       final newDate = DateTime(2026, 8, 21, 9, 0);
-      final first = InMemoryCommitmentRepository(stateStore: store);
+      final first = InMemoryCommitmentRepository(
+      seedDemoData: true,
+      stateStore: store);
       await first.ready;
       final target = (await first.getToday()).first;
       await first.postpone(target.id, newDate);
 
-      final relaunched = InMemoryCommitmentRepository(stateStore: store);
+      final relaunched = InMemoryCommitmentRepository(
+      seedDemoData: true,
+      stateStore: store);
       await relaunched.ready;
       // Postponing moved it off today, which is the point — look wherever it
       // landed rather than where it used to be.

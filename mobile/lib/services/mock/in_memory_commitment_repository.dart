@@ -27,8 +27,21 @@ class InMemoryCommitmentRepository implements CommitmentRepository {
   /// immediately would otherwise race the restore and see the seed.
   late final Future<void> ready;
 
-  InMemoryCommitmentRepository({this.activityRepository, this.stateStore}) {
-    _seedInitialData();
+  /// Whether to fill the repository with demo commitments.
+  ///
+  /// Off in the app. The seven English demo items -- "Pet-Sitter Briefing",
+  /// "Weekly Meal Prep" -- used to load unconditionally, so they appeared
+  /// inside an Arabic interface as though the user had written them, and a
+  /// genuinely empty list could never be seen. Tests that need a populated
+  /// repository ask for one.
+  final bool seedDemoData;
+
+  InMemoryCommitmentRepository({
+    this.activityRepository,
+    this.stateStore,
+    this.seedDemoData = false,
+  }) {
+    if (seedDemoData) _seedInitialData();
     ready = _restore();
   }
 

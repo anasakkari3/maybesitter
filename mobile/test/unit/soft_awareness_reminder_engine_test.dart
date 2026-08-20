@@ -239,7 +239,9 @@ void main() {
       final notifications = MockNotificationService();
       final activity = MockActivityRepository();
       final analytics = InMemoryPilotLoopAnalyticsService();
-      final repo = InMemoryCommitmentRepository(activityRepository: activity);
+      final repo = InMemoryCommitmentRepository(
+        seedDemoData: true,
+        activityRepository: activity);
       final dispatcher = SoftAwarenessCommandDispatcher(
         commitmentRepository: repo,
         notificationService: notifications,
@@ -317,7 +319,9 @@ void main() {
         final notifications = MockNotificationService();
         final activity = MockActivityRepository();
         final analytics = InMemoryPilotLoopAnalyticsService();
-        final repo = InMemoryCommitmentRepository(activityRepository: activity);
+        final repo = InMemoryCommitmentRepository(
+        seedDemoData: true,
+        activityRepository: activity);
         final dispatcher = SoftAwarenessCommandDispatcher(
           commitmentRepository: repo,
           notificationService: notifications,
