@@ -229,6 +229,23 @@ test('evidence moving is reported even when level and confidence hold still', ()
   assert.ok(!fields.includes('level'), 'the fixture was supposed to hold the level still');
 });
 
+test('two evidence sets differing only in counts do not compare equal', () => {
+  // `renderEvidence` joins rungIndex, outcome and count. Dropping the count —
+  // or the rung — from that string passed the whole suite, which made evidence
+  // comparison decorative in exactly the case the module says it exists for:
+  // a reading whose level and confidence hold still on different facts.
+  const before = profileFor(many('reject', 6, 1));
+  const after = profileFor(many('reject', 9, 1));
+  const ceiling = comparePersonalizationProfiles(before, after).changes.filter(
+    (change) => change.dimension === 'pressure_ceiling',
+  );
+  const evidence = ceiling.find((change) => change.field === 'evidence');
+  assert.ok(evidence, 'more evidence of the same kind reported no evidence change');
+  assert.notEqual(evidence?.before, evidence?.after);
+  // And the rendering really carries both parts, so neither can be dropped.
+  assert.match(evidence?.before ?? '', /^\d+:[a-z]+:\d+/);
+});
+
 test('a consent flip is reported as consent, not as four preference reversals', () => {
   const events = many('accept', 8, 1);
   const diff = comparePersonalizationProfiles(profileFor(events), profileFor(events, DISABLED));

@@ -105,6 +105,74 @@ test('every rejection code the handler can emit is declared', () => {
   }
 });
 
+/* ── Scope isolation ─────────────────────────────────────────────── */
+
+test('one scope cannot revoke another scope’s feedback event or memory record', () => {
+  // Neither store's `revoke(id, at)` takes a scope, so ownership is this
+  // module's job and nothing above it will catch a miss. Without the check, an
+  // unauthenticated POST naming someone else's record id and your own scopeId
+  // returned 200 and stamped their record revoked — and a revoked feedback
+  // event stops contributing to its owner's profile, so it reshapes a
+  // stranger's personalization.
+  const port = makePort();
+  const victimEvent = port.feedback.append(
+    { scopeId: 'victim', outcome: 'accept', subjectId: 's-1', actor: 'user', source: 'mobile_action', occurredAt: NOW },
+    NOW,
+  );
+  const victimRecord = port.memory.put(
+    { scopeId: 'victim', kind: 'fact', content: 'theirs', language: 'en', source: 'user_stated', confidence: 1, observedAt: NOW },
+    NOW,
+  );
+
+  const stolenEvent = call(port, { scopeId: 'attacker', now: NOW, action: 'revoke_feedback', eventId: victimEvent.id });
+  assert.equal(rejectionOf(stolenEvent), 'UNKNOWN_RECORD');
+  assert.equal(port.feedback.get(victimEvent.id)?.revokedAt ?? null, null, 'the victim’s event was revoked');
+
+  const stolenRecord = call(port, { scopeId: 'attacker', now: NOW, action: 'revoke_memory', recordId: victimRecord.id });
+  assert.equal(rejectionOf(stolenRecord), 'UNKNOWN_RECORD');
+  assert.equal(port.memory.get(victimRecord.id)?.status, 'active', 'the victim’s record was revoked');
+});
+
+test('the owner can still revoke their own', () => {
+  // The other half: a scope check that refuses everything is not a fix.
+  const port = makePort();
+  const own = port.feedback.append(
+    { scopeId: SCOPE, outcome: 'accept', subjectId: 's-1', actor: 'user', source: 'mobile_action', occurredAt: NOW },
+    NOW,
+  );
+  const outcome = call(port, { scopeId: SCOPE, now: NOW, action: 'revoke_feedback', eventId: own.id });
+  assert.equal(outcome.status, 200);
+  assert.ok(port.feedback.get(own.id)?.revokedAt);
+});
+
+/* ── A malformed instant is reported, not thrown ─────────────────── */
+
+test('a `now` that is not an instant is rejected rather than raised out of a store', () => {
+  // Every store parses this value and throws its own error on a bad one, so
+  // before the check these were 500s with stack traces out of a module
+  // documented to report rather than throw. Each action below reached a
+  // different store, which is why all of them are swept.
+  const port = makePort();
+  for (const now of ['not-a-date', '2026-02-30T00:00:00Z', '2026-08-20T09:00:00', '', '   ']) {
+    for (const action of ['inventory', 'enable', 'export', 'correct']) {
+      let outcome: ReturnType<typeof call> | undefined;
+      assert.doesNotThrow(() => {
+        outcome = call(port, { scopeId: SCOPE, now, action, dimension: 'pressure_tone', level: 'firm' });
+      }, `${action} threw on now=${JSON.stringify(now)}`);
+      const code = rejectionOf(outcome!);
+      assert.ok(
+        code === 'MALFORMED_INSTANT' || code === 'MISSING_INSTANT',
+        `${action} on now=${JSON.stringify(now)} answered ${code}`,
+      );
+    }
+  }
+});
+
+test('a well-formed instant still passes', () => {
+  const port = makePort();
+  assert.equal(call(port, { scopeId: SCOPE, now: NOW, action: 'inventory' }).status, 200);
+});
+
 /* ── Consent ─────────────────────────────────────────────────────── */
 
 test('enabling and disabling take effect in the same response', () => {

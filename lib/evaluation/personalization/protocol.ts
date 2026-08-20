@@ -355,8 +355,30 @@ export function scoreSlice(
   const readings: MetricReading[] = [];
   for (const metric of EVALUATION_METRICS) {
     const pool = metric === 'cold_start_invention' ? members : scored;
-    if (pool.length === 0) {
-      readings.push({ metric, kind: 'inconclusive', reason: 'no_member_reached_a_reading', memberCount });
+    // The floor applies to the **pool that is actually averaged**, not to the
+    // slice it was drawn from.
+    //
+    // The first version checked `members.length` at the top and then averaged
+    // the four behavioural metrics over `scored` — the subset above
+    // `MIN_MEMBER_EVENTS` — with only an `=== 0` guard. In the shipped synthetic
+    // report that published `outcome_mix:behavioral_led` as a *measured* value
+    // averaged over three members against a floor of six, and a constructed
+    // slice of six with one active member published a mean of one. The
+    // rollback gate treats any `measured` harm reading as authoritative
+    // regardless of how many members stand behind it, so a mean over one member
+    // could have rolled a release back — or, worse, let one through by looking
+    // clean.
+    //
+    // `memberCount` on the reading is the pool size for the same reason: a
+    // reader must be told what the number is a mean *of*, not how big the slice
+    // it came from was.
+    if (pool.length < MIN_SLICE_MEMBERS) {
+      readings.push({
+        metric,
+        kind: 'inconclusive',
+        reason: pool.length === 0 ? 'no_member_reached_a_reading' : 'slice_below_member_floor',
+        memberCount: pool.length,
+      });
       continue;
     }
     const pairs = pool.map((member) => {

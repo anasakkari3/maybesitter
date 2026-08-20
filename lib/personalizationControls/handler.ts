@@ -31,6 +31,7 @@
  * marks each record so the caller can see which side of that line it sits on.
  */
 import {
+  isInstant,
   PREFERENCE_DIMENSIONS,
   PREFERENCE_LEVEL_VOCABULARY,
   type Instant,
@@ -46,6 +47,7 @@ export const CONTROLS_REJECTION_CODES = Object.freeze([
   'MALFORMED_REQUEST_BODY',
   'MISSING_SCOPE',
   'MISSING_INSTANT',
+  'MALFORMED_INSTANT',
   'UNKNOWN_ACTION',
   'UNKNOWN_DIMENSION',
   'UNKNOWN_LEVEL',
@@ -144,6 +146,15 @@ export function handleControlsRequest(deps: ControlsHandlerDeps, body: unknown):
 
   const now = readString(parsed, 'now');
   if (now === null) return reject('MISSING_INSTANT', 'now is required; this module never reads a clock');
+  // Checked with `isInstant`, not merely for being a non-empty string. Every
+  // store below parses this value and *throws* on a bad one — the consent store,
+  // the aggregator and the memory query each raise their own error — so a
+  // caller who sent `now: "yesterday"` got a 500 and a stack trace out of the
+  // module whose header promises it reports rather than throws. `2026-02-30`
+  // is the case a regex would miss: it parses, to the 2nd of March.
+  if (!isInstant(now)) {
+    return reject('MALFORMED_INSTANT', `now is not an ISO instant with an explicit offset: ${now}`);
+  }
 
   const action = readString(parsed, 'action');
   const { port } = deps;
@@ -199,6 +210,15 @@ export function handleControlsRequest(deps: ControlsHandlerDeps, body: unknown):
     case 'revoke_memory': {
       const recordId = readString(parsed, 'recordId');
       if (recordId === null) return reject('UNKNOWN_RECORD', 'recordId is required');
+      // Ownership, before the write. `RuntimeMemoryStore.revoke(id, at)` takes
+      // no scope and revokes by id alone, so without this check any caller
+      // could revoke any other user's record by supplying its id and their own
+      // `scopeId` — a cross-scope write through an endpoint with no auth. The
+      // rejection copy below already claimed "in this scope"; now it is true.
+      const record = port.memory.get(recordId);
+      if (record === null || record.scopeId !== scopeId) {
+        return reject('UNKNOWN_RECORD', 'no revocable record with that id in this scope');
+      }
       if (!port.memory.revoke(recordId, now)) {
         // False means absent or already revoked. Both are "there is nothing here
         // to revoke", and distinguishing them for a caller who supplied an id
@@ -211,6 +231,13 @@ export function handleControlsRequest(deps: ControlsHandlerDeps, body: unknown):
     case 'revoke_feedback': {
       const eventId = readString(parsed, 'eventId');
       if (eventId === null) return reject('UNKNOWN_RECORD', 'eventId is required');
+      // Same cross-scope hole as `revoke_memory`, same fix. A revoked feedback
+      // event stops contributing to its owner's profile, so this was a way to
+      // reshape a stranger's personalization from an unauthenticated route.
+      const event = port.feedback.get(eventId);
+      if (event === null || event.scopeId !== scopeId) {
+        return reject('UNKNOWN_RECORD', 'no revocable event with that id in this scope');
+      }
       if (!port.feedback.revoke(eventId, now)) {
         return reject('UNKNOWN_RECORD', 'no revocable event with that id in this scope');
       }

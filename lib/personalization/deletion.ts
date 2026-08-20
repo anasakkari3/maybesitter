@@ -63,6 +63,20 @@ export interface PersonalizationDeletionInput {
 /**
  * The digest of the derivation input for a scope holding nothing.
  *
+ * **This function never reads a store, and that limits what the digest proves.**
+ * It is a pure function of `(scopeId, now, windowDays)`, so
+ * `receipt.emptyStateDigest === emptyStateDigestFor(scopeId, now)` holds even if
+ * the deletion did nothing at all — a verifier comparing only those two is
+ * comparing one function with itself.
+ *
+ * What it *does* give the verifier is a value bound to this scope and this
+ * instant, which is what stops one user's receipt from verifying another's
+ * deletion, or last week's from verifying today's. The load-bearing proof of
+ * emptiness is the remainder counts, which are re-listed from the stores after
+ * the deletes — and `list()` includes revoked events by default while
+ * `listAll()` shows revoked records, so a partial purge or a revoke-instead-of-
+ * purge is caught there. The tests assert both, and say which is doing the work.
+ *
  * Exported because **#42 has to be able to compute this without calling us**.
  * A receipt whose proof can only be produced by the module under test is not a
  * proof; the verifier needs its own path to the same number.

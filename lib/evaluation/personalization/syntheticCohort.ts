@@ -120,7 +120,7 @@ export const SYNTHETIC_ARCHETYPES = Object.freeze([
 ] as const);
 export type SyntheticArchetype = (typeof SYNTHETIC_ARCHETYPES)[number];
 
-export const SYNTHETIC_ACTIVITY_BANDS = Object.freeze(['none', 'light', 'active'] as const);
+export const SYNTHETIC_ACTIVITY_BANDS = Object.freeze(['none', 'light', 'moderate', 'active'] as const);
 export type SyntheticActivityBand = (typeof SYNTHETIC_ACTIVITY_BANDS)[number];
 
 /**
@@ -152,12 +152,27 @@ export const ARCHETYPE_OUTCOME_CYCLES: Readonly<
  * is below the operative sample floor by construction, which is what makes
  * "small samples are labeled inconclusive" reachable from the cohort rather
  * than only from hand-built readings.
+ *
+ * `moderate` was added at integration, and the reason is worth recording. With
+ * three bands, exactly one of them (`active`) cleared the protocol's
+ * `MIN_MEMBER_EVENTS`, so each archetype had **three** members the behavioural
+ * metrics could score — one per locale — against a slice floor of six. No
+ * archetype-homogeneous slice could ever be reported, which is precisely the
+ * population where usefulness is informative: a mean over a *balanced* cohort
+ * cancels, because every dimension a quieter product wins from a `quiet_seeker`
+ * it loses from a `content_accepter`.
+ *
+ * So the cohort was structurally incapable of exercising the case that matters,
+ * behind healthy-looking member counts — the failure this file's header claims
+ * cannot recur here. Two qualifying bands give six scoreable members per
+ * archetype, which is the floor exactly.
  */
 export const ACTIVITY_BAND_EVENT_BOUNDS: Readonly<
   Record<SyntheticActivityBand, { readonly min: number; readonly max: number }>
 > = Object.freeze({
   none: Object.freeze({ min: 0, max: 0 }),
   light: Object.freeze({ min: 1, max: MIN_OPERATIVE_SAMPLE_EVENTS - 1 }),
+  moderate: Object.freeze({ min: MIN_OPERATIVE_SAMPLE_EVENTS, max: MIN_OPERATIVE_SAMPLE_EVENTS + 4 }),
   active: Object.freeze({ min: 24, max: 40 }),
 });
 
