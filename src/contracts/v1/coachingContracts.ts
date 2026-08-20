@@ -1331,31 +1331,41 @@ export const COACHING_FORBIDDEN_LANGUAGE = Object.freeze({
    * `tests/coaching/claimValidator.test.ts`.
    */
   trackingVerbs: Object.freeze([
-    'save',
-    'saving',
-    'create',
-    'creating',
-    'schedul',
-    'remind',
-    'track',
-    'log',
-    'note',
-    // `noting` separately: English drops the `e` before `-ing`, so the stem
-    // `note` does not prefix it. Every other inflection this list covers by
-    // stem — logged/logging, monitoring, watching, tracking, scheduling,
-    // recorded, stored, noted — and `noting` was the single form the rewrite
-    // from inflected forms to stems silently dropped. Found at integration,
-    // by the cross-track assertion, not by either track's own suite.
-    'noting',
-    'monitor',
-    'watch',
-    'keep an eye',
-    'keeping an eye',
-    'follow up on',
-    'following up on',
+    // Explicit inflected forms, matched word-anchored — not stems matched by
+    // prefix. Both defects this list has carried are recorded here because the
+    // second was introduced by the fix for the first.
+    //
+    // It began as inflected forms only, and review found the bare stems escaped:
+    // "I will save that", "I will create that", "I will schedule that" were all
+    // accepted while the engine rejected them. The repair truncated the list to
+    // stems and opened the matcher at the right-hand end — which caught the bare
+    // forms, and also fired on `shameless`, `logician`, `storefront` and
+    // `notebook`. Trading a miss for a false accusation is not a repair; a
+    // coaching turn refused for containing the word "logician" is worse than one
+    // that slipped through, because the user sees it.
+    //
+    // So: every form is spelled, and matching stays anchored at both ends. The
+    // list is longer and that is the whole cost. #37's per-word sweep pins each
+    // entry individually, so a deletion is caught and a shadowed duplicate is
+    // reported rather than sitting inert.
+    'save', 'saves', 'saved', 'saving',
+    'create', 'creates', 'created', 'creating',
+    'schedule', 'schedules', 'scheduled', 'scheduling',
+    'remind', 'reminds', 'reminded', 'reminding', 'reminder', 'reminders',
+    'track', 'tracks', 'tracked', 'tracking',
+    'log', 'logs', 'logged', 'logging',
+    'note', 'notes', 'noted', 'noting',
+    'monitor', 'monitors', 'monitored', 'monitoring',
+    'watch', 'watches', 'watched', 'watching',
+    'record', 'records', 'recorded', 'recording',
+    'store', 'stores', 'stored', 'storing',
+    'keep an eye', 'keeps an eye', 'keeping an eye',
+    // No `keep track` family: the word `track` already catches every one of
+    // them under closed matching, and #37's per-word sweep reports a masked
+    // entry rather than letting it sit inert looking like coverage.
+    'keep tabs', 'keeps tabs', 'keeping tabs',
+    'follow up on', 'follows up on', 'following up on',
     'on your list',
-    'record',
-    'store',
   ] as const),
 });
 

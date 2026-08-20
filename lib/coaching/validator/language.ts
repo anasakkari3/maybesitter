@@ -130,7 +130,13 @@ function escapeForPattern(value: string): string {
  */
 export function containsToken(text: string, word: string): boolean {
   if (typeof text !== 'string' || typeof word !== 'string' || word.length === 0) return false;
-  const pattern = new RegExp(`(^|[^\\p{L}\\p{N}])${escapeForPattern(word)}`, 'iu');
+  // Anchored at **both** ends. The right-open form caught bare stems and also
+  // fired on `shameless`, `logician`, `storefront`, `notebook`. The list spells
+  // every inflection instead, so nothing is lost by closing this.
+  const pattern = new RegExp(
+    `(^|[^\\p{L}\\p{N}])${escapeForPattern(word)}([^\\p{L}\\p{N}]|$)`,
+    'iu',
+  );
   return pattern.test(text);
 }
 

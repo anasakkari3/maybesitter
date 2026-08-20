@@ -345,10 +345,20 @@ test('shame language is caught, and the lexicon matches the shipped engine word 
   }
 });
 
-test('the token matcher is prefix-anchored and Unicode-aware, proved both ways', () => {
+test('the token matcher is anchored at both ends and Unicode-aware, proved both ways', () => {
+  // Was prefix-anchored, and that was the defect integration found. Opening the
+  // right-hand end let the stem `log` catch `logging` — and also fired on
+  // `logician`, `shameless`, `storefront` and `notebook`. A coaching turn
+  // refused for containing the word "logician" is worse than one that slipped
+  // through, because the user sees it. Every inflection is spelled in the list
+  // instead, so closing this end loses nothing.
+  //
   // A negative-only assertion passes against a matcher that matches nothing.
   assert.equal(containsToken('I am tracking that.', 'tracking'), true);
-  assert.equal(containsToken('A reminder about it.', 'remind'), true, 'prefix-anchored: remind must catch reminder');
+  assert.equal(containsToken('A reminder about it.', 'reminder'), true, 'the listed form must match');
+  assert.equal(containsToken('A reminder about it.', 'remind'), false, 'the right boundary must hold too');
+  assert.equal(containsToken('He is a logician.', 'log'), false, 'an ordinary word must not read as a tracking claim');
+  assert.equal(containsToken('This is a shameless plug.', 'shame'), false);
   assert.equal(containsToken('هذه tracking للمهام.', 'tracking'), true, 'an English word inside Arabic text must still match');
   assert.equal(containsToken('There is nothing here.', 'noting'), false, 'nothing must not read as noting');
   assert.equal(containsToken('This is retracking.', 'tracking'), false, 'the left boundary must hold');

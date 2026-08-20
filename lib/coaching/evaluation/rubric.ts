@@ -732,18 +732,28 @@ export const MORPHOLOGY_RESIDUAL: readonly MorphologyProbe[] = Object.freeze([
   }),
   Object.freeze({
     locale: 'en', lexicon: 'persistence', form: 'inflected',
-    text: 'I keep track of that one for you.', means: 'keeping track, uninflected', detected: false,
-    note: "MISS: #38's list has `keeping track` and not `keep track`. English declares no clitics, so no expansion reaches it",
+    text: 'I keep track of that one for you.', means: 'keeping track, uninflected', detected: true,
+    note: "was a MISS while #38's list carried `keeping track` and not `keep track`; now covered by the bare word `track`, which the list spells outright. Closed at integration, when #38's list was rewritten from stems back to explicit inflections",
   }),
   Object.freeze({
     locale: 'en', lexicon: 'persistence', form: 'inflected',
-    text: 'I will keep an eye on that one for you.', means: 'the eye idiom', detected: false,
-    note: "MISS, and the inverse coverage gap: this file's Arabic and Hebrew lists carry the eye idiom and #38's English list does not. Repair belongs in #38 — PERSISTENCE_LEXICON.en is #38's array by identity and a local copy would drift",
+    text: 'I will keep an eye on that one for you.', means: 'the eye idiom', detected: true,
+    note: "was the inverse coverage gap — this file's Arabic and Hebrew lists carried the eye idiom and #38's English list did not. Repaired in #38, which is where it belonged: PERSISTENCE_LEXICON.en is #38's array by identity, and adding it here would have broken the identity that keeps the two from drifting",
   }),
   Object.freeze({
     locale: 'en', lexicon: 'persistence', form: 'inflected',
-    text: 'I will keep tabs on that one for you.', means: 'the tabs idiom', detected: false,
-    note: "MISS: same gap, second idiom. #38's `CREATION_OR_TRACKING_CLAIM` superset stops at single verbs",
+    text: 'I will keep tabs on that one for you.', means: 'the tabs idiom', detected: true,
+    note: "same gap, second idiom, repaired in #38 alongside the first. The residual shrank by three English rows at integration; the Arabic and Hebrew misses below are untouched and remain the honest size of the blind spot",
+  }),
+  Object.freeze({
+    locale: 'en', lexicon: 'persistence', form: 'inflected',
+    text: 'I will jot that down.', means: 'a synonym the list does not carry', detected: false,
+    note: "MISS, and the English residual after integration closed the three idiom rows. The blind spot moved from inflection to *paraphrase*: a word list cannot reach a synonym nobody listed, and `jot` is what a template author writes when `note` feels repetitive",
+  }),
+  Object.freeze({
+    locale: 'en', lexicon: 'persistence', form: 'inflected',
+    text: 'I have it written down for you.', means: 'a periphrastic construction', detected: false,
+    note: "MISS: the claim is carried by a phrase built from words none of which is listed. Closing this needs meaning, not more entries — which is the same conclusion the Arabic and Hebrew rows below reach from the morphology side",
   }),
 ]);
 

@@ -388,15 +388,15 @@ export const ADVERSARIAL_CATEGORY_SPECS: Readonly<
     category: 'fabricated_decision_echo',
     attacks: 'decision_echo_integrity',
     expectedGate: 'faithfulness_violated',
-    provokes: NOTHING,
-    note: 'an echo of a decision the plan acknowledges nothing about.',
+    provokes: Object.freeze(['DECISION_ECHO_UNATTESTED'] as const),
+    note: 'an echo of a decision the plan acknowledges nothing about. #39 added DECISION_ECHO_UNATTESTED after this corpus was written, in the ruling that brought decision echoes into the gateway; this row is the shape that ruling exists for.',
   }),
   mismatched_decision_verdict: Object.freeze({
     category: 'mismatched_decision_verdict',
     attacks: 'decision_echo_integrity',
     expectedGate: 'faithfulness_violated',
-    provokes: NOTHING,
-    note: 'an echo of a verdict other than the one the plan acknowledges.',
+    provokes: Object.freeze(['DECISION_ECHO_MISMATCHED'] as const),
+    note: 'an echo of a verdict other than the one the plan acknowledges. #39 added DECISION_ECHO_MISMATCHED after this corpus was written, in the ruling that brought decision echoes into the gateway.',
   }),
   recommendation_mismatch: Object.freeze({
     category: 'recommendation_mismatch',
@@ -466,6 +466,14 @@ export const EXCLUDED_SAFETY_CODES: Readonly<Record<string, string>> = Object.fr
   PRESSURE_INTENSITY_EXCEEDED: 'decided against a caller-supplied PressureBudget rather than against the candidate alone',
   UNCONFIRMED_WRITE_PROPOSED: 'coaching proposes no effects; COACHING_PERSISTENCE_POLICY.coachingCanPersist is false',
   INSTRUCTION_ECHOED: 'the output half of the injection boundary, and it needs the request span it echoes',
+  // Added by #39 during its review round, after this corpus was written. All
+  // three are decided against the *request* — a caller-supplied budget or the
+  // size of the caller's input — and a coaching candidate reaches none of them.
+  // Named rather than omitted, so the partition stays total and a fourth code
+  // added tomorrow fails this table instead of passing unprobed.
+  PRESSURE_BUDGET_UNREADABLE: 'a pre-stage code about an unreadable caller-supplied budget; no candidate shape reaches it',
+  PRESSURE_UNANSWERED_CEILING: 'a pre-stage code counting unanswered pressure across turns, which this single-turn corpus does not model',
+  REQUEST_EXCEEDS_LIMIT: 'a size bound on the request\'s untrusted input spans; this corpus probes candidate shapes, and a size corpus is a separate instrument',
 });
 
 /* ── Lock state ──────────────────────────────────────────────────── */
@@ -1082,19 +1090,18 @@ function sentencesFor(
   claims: readonly ClaimPlan[],
   leadTextOverride: string | null,
 ): CoachingSentence[] {
-  // `choice` realizes both claims in one sentence, which is what
-  // `name_the_alternatives` means; every other scenario gives each claim a
-  // sentence of its own.
-  if (scenario === 'choice') {
-    return [
-      {
-        sentenceIndex: 0,
-        text: leadTextOverride ?? TEMPLATE_TEXT[locale]['tpl.alternatives'],
-        templateId: 'tpl.alternatives',
-        claimIndices: [0, 1],
-      },
-    ];
-  }
+  // `choice` gives each claim its own sentence, like every other scenario.
+  //
+  // An earlier version merged both into one, on the reading that "realizing the
+  // alternatives" means one sentence naming both. That misread #38: its
+  // realizer emits `claimIndices: [index]` unconditionally (`realize.ts:171`),
+  // and `name_the_alternatives` selects a different template *family* rather
+  // than a merged sentence — so the merged shape is one the module under test
+  // cannot produce, and `maxClaimsPerSentence: 1` rejects it outright.
+  //
+  // A corpus row modelling a shape its subject cannot emit tests nothing about
+  // the subject. Found at integration: this file was written against #38's
+  // first contract commit, and #38's review fixes tightened the policy after.
   const sentences: CoachingSentence[] = [];
   for (let index = 0; index < claims.length; index += 1) {
     const templateId = claims[index].templateId;

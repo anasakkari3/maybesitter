@@ -256,19 +256,21 @@ test('the surveillance half of trackingVerbs fires in English', () => {
   // persistence in friendlier words and is the phrasing a template author
   // reaches for. Each of the six members #38 adds over the shipped engine's list
   // is probed individually; a spot check of one would pass while five sat dead.
+  // Asked through #38's own matcher, and asserting only that the phrase is
+  // *caught* — not which entry catches it. `keeping track` is covered by the
+  // bare word `track`, and #37's per-word sweep reports the redundant multi-word
+  // entry as masked rather than letting it sit inert looking like coverage.
   for (const phrase of ['logging', 'noting', 'monitoring', 'watching', 'keeping track', 'following up on']) {
-    // Asked through #38's own matcher, not this file's. `matchedPhrases` here is
-    // word-anchored; `containsToken` there is prefix-anchored, which is what
-    // lets the stem `log` catch `logging`. Testing #38's list with #37's matcher
-    // reports `logging` uncaught while #38 catches it — a disagreement between
-    // two matchers dressed up as a defect. The question the criterion actually
-    // asks is "does #38 catch this phrase", and only #38's rule answers it.
     assert.ok(
       (COACHING_FORBIDDEN_LANGUAGE.trackingVerbs as readonly string[])
         .some((word) => containsToken(`I am ${phrase} that for you.`, word)),
       `"${phrase}" is caught by no entry in #38's trackingVerbs`,
     );
-    assert.deepEqual(matchedPhrases('en', `I am ${phrase} that for you.`, PERSISTENCE_LEXICON.en), [phrase]);
+    // Non-empty, not equal to `[phrase]`: `keeping track` is reported as the
+    // stored entry that matched it, which is the bare word `track`. Asserting
+    // the identity of the matching entry pins the list's shape, not the rule's
+    // effect — and the list's shape changed twice this sprint.
+    assert.notDeepEqual(matchedPhrases('en', `I am ${phrase} that for you.`, PERSISTENCE_LEXICON.en), []);
   }
 });
 
@@ -743,15 +745,26 @@ test('the residual probes cover every locale and every form, and both answers', 
   }
 });
 
-test("the English residual records #38's inverse coverage gap rather than patching it locally", () => {
-  // `PERSISTENCE_LEXICON.en` IS #38's array by identity. Adding the eye idiom
-  // here would break that identity and start the drift the identity prevents,
-  // so the gap is recorded as a measured miss and the repair is #38's.
+test("the English inverse coverage gap was repaired in #38, not patched here", () => {
+  // `PERSISTENCE_LEXICON.en` IS #38's array by identity, so adding the eye idiom
+  // *here* would have broken the identity that keeps the two lists from
+  // drifting. It was recorded as a measured miss instead, and the repair landed
+  // where it belonged. This test now pins the closure rather than the gap —
+  // and pins the reason, so a future local patch is still wrong even though the
+  // words are present.
   const eye = MORPHOLOGY_RESIDUAL.find((probe) => probe.locale === 'en' && probe.means === 'the eye idiom');
   assert.ok(eye !== undefined);
-  assert.equal(eye?.detected, false);
-  assert.equal((COACHING_FORBIDDEN_LANGUAGE.trackingVerbs as readonly string[]).includes('keep an eye on'), false);
-  // And the Arabic and Hebrew lists, which this file owns, do carry it.
+  assert.equal(eye?.detected, true, 'the eye idiom is now caught; the residual records measurement, not history');
+  assert.ok(
+    (COACHING_FORBIDDEN_LANGUAGE.trackingVerbs as readonly string[]).includes('keep an eye'),
+    "#38's list must carry the idiom; this file must never add it locally",
+  );
+  assert.equal(
+    PERSISTENCE_LEXICON.en,
+    COACHING_FORBIDDEN_LANGUAGE.trackingVerbs as unknown,
+    'the identity is the whole anti-drift mechanism and must survive the repair',
+  );
+  // And the Arabic and Hebrew lists, which this file owns, carry it too.
   assert.ok(PERSISTENCE_LEXICON.ar.includes('أبقي عيني على'));
   assert.ok(PERSISTENCE_LEXICON.he.includes('אשים עין'));
 });

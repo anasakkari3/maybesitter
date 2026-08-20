@@ -353,7 +353,16 @@ test('some categories provoke no safety code at all, and that is the point', () 
   // both gates catch would report an agreement it never measured.
   assert.deepEqual(ADVERSARIAL_CATEGORY_SPECS.evidence_not_in_reason.provokes, []);
   assert.deepEqual(ADVERSARIAL_CATEGORY_SPECS.echo_kind_not_licensed.provokes, []);
-  assert.deepEqual(ADVERSARIAL_CATEGORY_SPECS.fabricated_decision_echo.provokes, []);
+  // `fabricated_decision_echo` used to be a third, and is deliberately no longer
+  // one. #39's ruling brought decision echoes into the gateway *after* this
+  // corpus was written, so the row that models a fabricated completion now has
+  // a safety code behind it. A category moving out of this list is the sprint
+  // closing a gap; a category moving *into* it would be the opposite, and the
+  // two above are here because both gates genuinely cannot see them.
+  assert.deepEqual(
+    ADVERSARIAL_CATEGORY_SPECS.fabricated_decision_echo.provokes,
+    ['DECISION_ECHO_UNATTESTED'],
+  );
   // And some are #39's alone, where this rubric scores a clean pass.
   assert.deepEqual(ADVERSARIAL_CATEGORY_SPECS.identifier_in_prose.provokes, ['RAW_IDENTIFIER_DISCLOSED']);
   assert.equal(ADVERSARIAL_CATEGORY_SPECS.identifier_in_prose.attacks, null);
