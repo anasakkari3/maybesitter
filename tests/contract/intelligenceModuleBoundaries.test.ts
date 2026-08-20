@@ -13,6 +13,7 @@ import {
 import { PLANNING_SCHEMA_VERSION } from '../../src/contracts/v1/planningContracts.ts';
 import { RECOMMENDATION_SCHEMA_VERSION } from '../../src/contracts/v1/recommendationContracts.ts';
 import { SAFETY_SCHEMA_VERSION } from '../../src/contracts/v1/safetyContracts.ts';
+import { COACHING_SCHEMA_VERSION } from '../../src/contracts/v1/coachingContracts.ts';
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(testDir, '..', '..');
@@ -110,11 +111,14 @@ test('module contracts execute with typed provenance envelope', async () => {
 
   // A module still awaiting its sprint keeps the placeholder shape, so this
   // test does not quietly stop checking that the two shapes are distinct.
-  // `coaching` is Sprint 09's; it replaced `recommendation` here when #34
-  // landed, and whichever module holds this slot must be one no track has
-  // implemented — an assertion that both shapes exist is worthless the moment
-  // it is made about a module that has only one of them.
-  const pending = await INTELLIGENCE_MODULE_CONTRACTS.coaching.execute({
+  // Whichever module holds this slot must be one no track has implemented — an
+  // assertion that both shapes exist is worthless the moment it is made about a
+  // module that has only one of them.
+  //
+  // The slot has moved twice for exactly that reason: `recommendation` gave it
+  // up when #34 landed, `coaching` when #38 did. `feedback` holds it now, and
+  // the placeholders remaining beside it are `priority` and `evaluation`.
+  const pending = await INTELLIGENCE_MODULE_CONTRACTS.feedback.execute({
     scopeId: 'scope',
     input: { payload: {} },
     provenance,
@@ -136,6 +140,21 @@ test('the recommendation module descriptor matches the recommendation schema ver
   // throws at runtime while typechecking clean; this is what keeps the two
   // spellings from drifting apart. Mirrors the planning pin below.
   assert.equal(output.schemaVersion, RECOMMENDATION_SCHEMA_VERSION);
+});
+
+test('the coaching module descriptor matches the coaching schema version', async () => {
+  const result = await INTELLIGENCE_MODULE_CONTRACTS.coaching.execute({
+    provenance: { traceId: 't', producedAt: '2026-08-20T00:00:00.000Z', source: 'system', confidence: null },
+    input: {},
+  } as never);
+  assert.equal(result.ok, true);
+  const output = result.ok ? (result.output as { schemaVersion: string; entryPoint: string }) : { schemaVersion: '', entryPoint: '' };
+  // Sprint 09 issue #38 moved `coaching` from placeholder to implemented.
+  // `moduleContracts` spells the version out as a literal to avoid an import
+  // cycle that throws at runtime while typechecking clean; this is what keeps
+  // the two spellings from drifting apart.
+  assert.equal(output.schemaVersion, COACHING_SCHEMA_VERSION);
+  assert.equal(output.entryPoint, 'lib/coaching#deliverCoaching');
 });
 
 test('the safety module descriptor matches the safety schema version', async () => {

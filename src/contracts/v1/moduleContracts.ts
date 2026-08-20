@@ -237,9 +237,22 @@ export const INTELLIGENCE_MODULE_CONTRACTS: Record<IntelligenceModuleName, Intel
     owner: 'backend',
     allowsDirectStateWrites: false,
     allowedDependencyLayers: ['contracts', 'deterministic-services', 'adapters'],
-    inputDescription: 'Coaching response planning requests bounded by safety policies.',
-    outputDescription: 'Non-operative placeholder until Sprint 09+ gates pass.',
-    execute: async (invocation: ModuleInvocation<unknown>) => placeholderExecutor(invocation.provenance, { status: 'not_implemented_in_sprint_00' } satisfies GenericModuleOutput),
+    inputDescription: 'A Recommendation and an explicit `now`, with the decisions already attested; no ambient clock.',
+    outputDescription: 'A CoachingDelivery, withheld unless the Safety gateway allows it; see coachingContracts and lib/coaching.',
+    execute: async (invocation: ModuleInvocation<unknown>) => placeholderExecutor(invocation.provenance, {
+      status: 'implemented',
+      module: 'coaching',
+      // Spelled out as a literal for the same reason as `recommendation` and
+      // `safety`: `coachingContracts` imports `MODULE_CONTRACT_VERSION` from
+      // this file, so importing `COACHING_SCHEMA_VERSION` back closes a cycle
+      // ESM resolves by evaluating `coachingContracts` before this module's
+      // body has run — a TDZ ReferenceError at import time that `tsc` reports
+      // nothing about. `the coaching module descriptor matches the coaching
+      // schema version` in tests/contract/intelligenceModuleBoundaries.test.ts
+      // pins the two spellings together instead.
+      schemaVersion: 'coaching-v1',
+      entryPoint: 'lib/coaching#deliverCoaching',
+    } satisfies ImplementedModuleOutput),
   },
   feedback: {
     version: MODULE_CONTRACT_VERSION,
