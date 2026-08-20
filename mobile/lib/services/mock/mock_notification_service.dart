@@ -45,6 +45,14 @@ class MockNotificationService implements NotificationService {
   }
 
   @override
+  Future<void> cancelAll() async {
+    cancelledCommitmentIds.addAll(
+      _requestsByNotificationId.values.map((request) => request.commitmentId),
+    );
+    _requestsByNotificationId.clear();
+  }
+
+  @override
   Future<void> cancelFor(String commitmentId) async {
     cancelledCommitmentIds.add(commitmentId);
     _requestsByNotificationId.removeWhere(

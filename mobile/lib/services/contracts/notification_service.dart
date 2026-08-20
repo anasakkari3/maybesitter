@@ -32,4 +32,10 @@ abstract interface class NotificationService {
   Future<NotificationPermissionState> requestPermission();
   Future<void> schedule(ScheduledNotificationRequest request);
   Future<void> cancelFor(String commitmentId);
+
+  /// Cancel every reminder this app has pending with the platform.
+  ///
+  /// Needed for deletion, where the commitments whose ids [cancelFor] wants are
+  /// themselves being erased.
+  Future<void> cancelAll();
 }

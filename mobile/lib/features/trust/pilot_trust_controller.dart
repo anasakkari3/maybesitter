@@ -107,13 +107,19 @@ class PilotTrustNotifier extends StateNotifier<PilotTrustUiState> {
   }
 }
 
-final pilotTrustControllerProvider =
+final StateNotifierProvider<PilotTrustNotifier, PilotTrustUiState>
+pilotTrustControllerProvider =
     StateNotifierProvider<PilotTrustNotifier, PilotTrustUiState>((ref) {
       return PilotTrustNotifier(
         service: ref.watch(pilotTrustServiceProvider),
         onRevoked: () =>
             ref.read(pilotSessionControllerProvider.notifier).markRevoked(),
-        onDeleted: () =>
-            ref.read(pilotSessionControllerProvider.notifier).markDeleted(),
+        onDeleted: () async {
+          // Deletion has to reach the device, not just the session. Erase
+          // first: if the app is torn down right after, the data is already
+          // gone rather than orphaned behind a dropped credential.
+          await ref.read(participantDataEraserProvider).eraseEverything();
+          await ref.read(pilotSessionControllerProvider.notifier).markDeleted();
+        },
       );
     });

@@ -109,7 +109,9 @@ class TrustCenterScreen extends ConsumerWidget {
       const SetCalendarConsent(false),
     );
     if (!applied) return;
-    await ref.read(calendarImportControllerProvider.notifier).disconnect();
+    // Withdrawing consent, not merely disconnecting: what was imported under
+    // that consent goes with it.
+    await ref.read(calendarImportControllerProvider.notifier).withdrawConsent();
   }
 
   Future<void> _refreshCalendarImport(

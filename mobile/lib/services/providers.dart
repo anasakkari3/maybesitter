@@ -51,6 +51,7 @@ import 'flutter_local_notifications_gateway.dart';
 import 'in_memory_awareness_state_store.dart';
 import 'native_notification_service.dart';
 import 'notification_action_router.dart';
+import 'participant_data_eraser.dart';
 import 'mock/mock_connectivity_service.dart';
 import 'mock/mock_pilot_trust_service.dart';
 import '../features/pilot/pilot_session_controller.dart';
@@ -135,7 +136,8 @@ final pilotTrustServiceProvider = Provider<PilotTrustService>((ref) {
   return ref.watch(_mockPilotTrustServiceProvider);
 });
 
-final calendarImportServiceProvider = Provider<CalendarImportService>((ref) {
+final Provider<CalendarImportService> calendarImportServiceProvider =
+    Provider<CalendarImportService>((ref) {
   final config = ref.watch(appConfigProvider);
   if (config.isLocalBackend) {
     return AppleCalendarImportService(
@@ -233,9 +235,8 @@ final _mockPilotLoopAnalyticsServiceProvider =
       return InMemoryPilotLoopAnalyticsService();
     });
 
-final pilotLoopAnalyticsServiceProvider = Provider<PilotLoopAnalyticsService>((
-  ref,
-) {
+final Provider<PilotLoopAnalyticsService> pilotLoopAnalyticsServiceProvider =
+    Provider<PilotLoopAnalyticsService>((ref) {
   // Consent the participant actually recorded, not a local flag. This used to
   // read AppSettings.analyticsOptOut, which defaulted to true, was never
   // persisted and had no setter anywhere -- so every pilot event was discarded
@@ -313,6 +314,20 @@ final softAwarenessCommandDispatcherProvider =
         flags: ref.watch(pilotPresenceFeatureFlagsProvider),
       );
     });
+
+// Explicitly typed: the eraser reaches the calendar, which reaches analytics,
+// which reads recorded consent from the trust controller. No cycle at runtime --
+// the eraser is only read when a deletion happens -- but the analyser cannot
+// infer types around the loop without being told.
+final Provider<ParticipantDataEraser> participantDataEraserProvider =
+    Provider<ParticipantDataEraser>((ref) {
+  return ParticipantDataEraser(
+    calendarImportService: ref.watch(calendarImportServiceProvider),
+    notificationService: ref.watch(notificationServiceProvider),
+    awarenessStateStore: ref.watch(awarenessStateStoreProvider),
+    snapshotPublisher: ref.watch(pilotPresenceSnapshotPublisherProvider),
+  );
+});
 
 final connectivityServiceProvider = Provider<ConnectivityService>((ref) {
   return MockConnectivityService();

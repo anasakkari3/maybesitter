@@ -58,7 +58,19 @@ class CalendarImportNotifier extends StateNotifier<CalendarImportUiState> {
 
   Future<CalendarImportSnapshot?> refresh() => _run(service.refresh);
 
+  /// Stop syncing, and keep what was already imported.
+  ///
+  /// Distinct from [withdrawConsent]: disconnecting says "no more", not
+  /// "you may not have had this".
   Future<CalendarImportSnapshot?> disconnect() => _run(service.disconnect);
+
+  /// The user has taken back permission for the calendar.
+  ///
+  /// Consent is the basis for holding the imported busy blocks, so removing it
+  /// removes them. Anything less keeps a copy of someone's calendar after they
+  /// said it may not be kept, which is the same as never having asked.
+  Future<CalendarImportSnapshot?> withdrawConsent() =>
+      _run(service.deleteImportedData);
 
   Future<CalendarImportSnapshot?> deleteImportedData() =>
       _run(service.deleteImportedData);

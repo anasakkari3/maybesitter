@@ -173,6 +173,18 @@ class NativeNotificationService implements NotificationService {
   }
 
   @override
+  Future<void> cancelAll() async {
+    for (final platformId in _commitmentIdByPlatformId.keys.toList()) {
+      try {
+        await gateway.cancel(platformId);
+      } catch (error) {
+        onDeliveryFailure?.call('', error);
+      }
+    }
+    _commitmentIdByPlatformId.clear();
+  }
+
+  @override
   Future<void> cancelFor(String commitmentId) async {
     final owned = _commitmentIdByPlatformId.entries
         .where((entry) => entry.value == commitmentId)

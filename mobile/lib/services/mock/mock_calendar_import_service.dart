@@ -6,6 +6,10 @@ class MockCalendarImportService implements CalendarImportService {
   bool connectSucceeds;
   bool permissionDeniedOnConnect;
 
+  /// Makes the next operation throw, so callers that must survive a failing
+  /// store can be tested against one.
+  bool failNextOperation = false;
+
   MockCalendarImportService({
     CalendarImportSnapshot? snapshot,
     this.connectSucceeds = true,
@@ -75,6 +79,10 @@ class MockCalendarImportService implements CalendarImportService {
 
   @override
   Future<CalendarImportSnapshot> deleteImportedData() async {
+    if (failNextOperation) {
+      failNextOperation = false;
+      throw StateError('calendar store refused');
+    }
     _snapshot = _snapshot.copyWith(
       connectionState: _snapshot.isSupported
           ? CalendarImportConnectionState.disconnected
