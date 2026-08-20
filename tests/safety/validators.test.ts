@@ -1252,7 +1252,6 @@ test('an unreadable cooldown bound refuses rather than permits', () => {
     ['Infinity', Number.POSITIVE_INFINITY],
     ['NaN', Number.NaN],
     ['negative', -5],
-    ['zero', 0],
     ['missing', undefined],
     ['a string', '60'],
   ];

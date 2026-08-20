@@ -1340,6 +1340,13 @@ export const COACHING_FORBIDDEN_LANGUAGE = Object.freeze({
     'track',
     'log',
     'note',
+    // `noting` separately: English drops the `e` before `-ing`, so the stem
+    // `note` does not prefix it. Every other inflection this list covers by
+    // stem — logged/logging, monitoring, watching, tracking, scheduling,
+    // recorded, stored, noted — and `noting` was the single form the rewrite
+    // from inflected forms to stems silently dropped. Found at integration,
+    // by the cross-track assertion, not by either track's own suite.
+    'noting',
     'monitor',
     'watch',
     'keep an eye',

@@ -62,6 +62,7 @@ import {
   type RubricDimension,
   type ToneDimension,
 } from '../../lib/coaching/evaluation/rubric.ts';
+import { containsToken } from '../../lib/coaching/validator/language.ts';
 import { TEMPLATE_TEXT, buildRow } from '../../lib/coaching/evaluation/evaluationSet.ts';
 
 const testDir = dirname(fileURLToPath(import.meta.url));
@@ -256,9 +257,16 @@ test('the surveillance half of trackingVerbs fires in English', () => {
   // reaches for. Each of the six members #38 adds over the shipped engine's list
   // is probed individually; a spot check of one would pass while five sat dead.
   for (const phrase of ['logging', 'noting', 'monitoring', 'watching', 'keeping track', 'following up on']) {
+    // Asked through #38's own matcher, not this file's. `matchedPhrases` here is
+    // word-anchored; `containsToken` there is prefix-anchored, which is what
+    // lets the stem `log` catch `logging`. Testing #38's list with #37's matcher
+    // reports `logging` uncaught while #38 catches it — a disagreement between
+    // two matchers dressed up as a defect. The question the criterion actually
+    // asks is "does #38 catch this phrase", and only #38's rule answers it.
     assert.ok(
-      (COACHING_FORBIDDEN_LANGUAGE.trackingVerbs as readonly string[]).includes(phrase),
-      `${phrase} is missing from #38's trackingVerbs`,
+      (COACHING_FORBIDDEN_LANGUAGE.trackingVerbs as readonly string[])
+        .some((word) => containsToken(`I am ${phrase} that for you.`, word)),
+      `"${phrase}" is caught by no entry in #38's trackingVerbs`,
     );
     assert.deepEqual(matchedPhrases('en', `I am ${phrase} that for you.`, PERSISTENCE_LEXICON.en), [phrase]);
   }

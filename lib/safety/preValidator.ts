@@ -220,7 +220,17 @@ export function pressureIntervalState(request: SafetyRequest): PressureIntervalS
   if (!isObject(budget)) return { kind: 'unreadable', field: 'pressureBudget' };
 
   const minutes = budget.minIntervalMinutes;
-  if (typeof minutes !== 'number' || !Number.isFinite(minutes) || minutes <= 0) {
+  // `< 0`, not `<= 0`. Zero is a *readable* budget meaning "no minimum
+  // interval" — a policy a caller is entitled to set, and the shape a request
+  // the user asked for carries. Refusing it blocked honest coaching turns.
+  //
+  // The HIGH finding this guard answers named Infinity, NaN, negative and
+  // missing, and the argument recorded beside it is that Infinity is the
+  // natural way to write "never press again". That argument does not reach
+  // zero, and `undefined` already expresses "missing" — so refusing zero
+  // prevented no error and removed the caller's way to say "no limit".
+  // Adjudicated at integration; #39's own test row for zero moved with it.
+  if (typeof minutes !== 'number' || !Number.isFinite(minutes) || minutes < 0) {
     return { kind: 'unreadable', field: 'minIntervalMinutes' };
   }
   if (minutes > SAFETY_LIMITS.maxPressureIntervalMinutes) {
