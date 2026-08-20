@@ -382,6 +382,30 @@ abstract class AppLocalizations {
   /// **'Edit Commitment'**
   String get editCommitmentTitle;
 
+  /// No description provided for @editCommitmentNoDate.
+  ///
+  /// In en, this message translates to:
+  /// **'No date'**
+  String get editCommitmentNoDate;
+
+  /// No description provided for @editCommitmentNoTime.
+  ///
+  /// In en, this message translates to:
+  /// **'No time'**
+  String get editCommitmentNoTime;
+
+  /// No description provided for @editCommitmentClearWhen.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove date and time'**
+  String get editCommitmentClearWhen;
+
+  /// No description provided for @editCommitmentPriority.
+  ///
+  /// In en, this message translates to:
+  /// **'How much does this matter?'**
+  String get editCommitmentPriority;
+
   /// No description provided for @clarificationTitle.
   ///
   /// In en, this message translates to:

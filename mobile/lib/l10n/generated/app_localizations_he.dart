@@ -184,6 +184,18 @@ class AppLocalizationsHe extends AppLocalizations {
   String get editCommitmentTitle => 'עריכת התחייבות';
 
   @override
+  String get editCommitmentNoDate => 'ללא תאריך';
+
+  @override
+  String get editCommitmentNoTime => 'ללא שעה';
+
+  @override
+  String get editCommitmentClearWhen => 'הסרת תאריך ושעה';
+
+  @override
+  String get editCommitmentPriority => 'עד כמה זה חשוב?';
+
+  @override
   String get clarificationTitle => 'הבהרה';
 
   @override

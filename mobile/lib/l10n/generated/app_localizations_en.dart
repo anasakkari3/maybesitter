@@ -183,6 +183,18 @@ class AppLocalizationsEn extends AppLocalizations {
   String get editCommitmentTitle => 'Edit Commitment';
 
   @override
+  String get editCommitmentNoDate => 'No date';
+
+  @override
+  String get editCommitmentNoTime => 'No time';
+
+  @override
+  String get editCommitmentClearWhen => 'Remove date and time';
+
+  @override
+  String get editCommitmentPriority => 'How much does this matter?';
+
+  @override
   String get clarificationTitle => 'Clarification';
 
   @override

@@ -187,6 +187,18 @@ class AppLocalizationsAr extends AppLocalizations {
   String get editCommitmentTitle => 'تعديل الالتزام';
 
   @override
+  String get editCommitmentNoDate => 'بلا تاريخ';
+
+  @override
+  String get editCommitmentNoTime => 'بلا وقت';
+
+  @override
+  String get editCommitmentClearWhen => 'إزالة التاريخ والوقت';
+
+  @override
+  String get editCommitmentPriority => 'ما مدى أهميته؟';
+
+  @override
   String get clarificationTitle => 'توضيح';
 
   @override

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'commitment_edit_sheet.dart';
 import '../../core/utilities/l10n_extensions.dart';
 import '../../design_system/components/empty_state.dart';
 import '../../design_system/components/error_state.dart';
@@ -8,7 +9,6 @@ import '../../design_system/components/extraction_review_card.dart';
 import '../../design_system/components/maybesitter_app_bar.dart';
 import '../../design_system/components/maybesitter_buttons.dart';
 import '../../design_system/components/maybesitter_scaffold.dart';
-import '../../design_system/components/maybesitter_text_field.dart';
 import '../../design_system/components/section_header.dart';
 import '../../design_system/components/status_banner.dart';
 import '../../design_system/theme/app_theme.dart';
@@ -143,40 +143,15 @@ class ExtractionReviewScreen extends ConsumerWidget {
                   onToggleSelect: (val) =>
                       notifier.toggleItemSelection(item.id),
                   onRemove: () => notifier.removeCommitment(item.id),
-                  onEdit: () {
-                    final editController = TextEditingController(
-                      text: item.title,
+                  // Title, date, time and priority. Reading guesses at all
+                  // four, so all four have to be correctable before saving --
+                  // this used to offer the title alone.
+                  onEdit: () async {
+                    final edited = await CommitmentEditSheet.show(
+                      context,
+                      item,
                     );
-                    showDialog(
-                      context: context,
-                      builder: (ctx) {
-                        return AlertDialog(
-                          title: Text(l10n.editCommitmentTitle),
-                          content: MaybesitterTextField(
-                            controller: editController,
-                            label: l10n.commitmentDetailTitle,
-                          ),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.pop(ctx),
-                              child: Text(l10n.cancelAction),
-                            ),
-                            ElevatedButton(
-                              onPressed: () {
-                                notifier.updateCommitment(
-                                  item.copyWith(
-                                    title: editController.text,
-                                    needsClarification: false,
-                                  ),
-                                );
-                                Navigator.pop(ctx);
-                              },
-                              child: Text(l10n.saveAction),
-                            ),
-                          ],
-                        );
-                      },
-                    );
+                    if (edited != null) notifier.updateCommitment(edited);
                   },
                 );
               }).toList(),

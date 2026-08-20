@@ -81,6 +81,8 @@ class Commitment {
     DateTime? scheduledDate,
     bool clearScheduledDate = false,
     String? startTime,
+    /// Remove the time entirely, for a commitment whose hour was never given.
+    bool clearStartTime = false,
     String? endTime,
     String? location,
     CommitmentPriority? priority,
@@ -99,7 +101,7 @@ class Commitment {
       scheduledDate: clearScheduledDate
           ? null
           : (scheduledDate ?? this.scheduledDate),
-      startTime: startTime ?? this.startTime,
+      startTime: clearStartTime ? null : (startTime ?? this.startTime),
       endTime: endTime ?? this.endTime,
       location: location ?? this.location,
       priority: priority ?? this.priority,
