@@ -28,6 +28,7 @@ import assert from 'node:assert/strict';
 import {
   SAFETY_BOUNDARIES,
   SAFETY_CODE_BOUNDARIES,
+  SAFETY_LIMITS,
   SAFE_USER_PATH_KINDS,
   checkSafetyAudit,
   isInstant,
@@ -38,6 +39,7 @@ import {
   type SafetyRequest,
 } from '../../src/contracts/v1/safetyContracts.ts';
 import { evaluateSafetyGate, type SafetyGateResult } from '../../lib/safety/gateway.ts';
+import { scannableInputs } from '../../lib/safety/inputs.ts';
 import { DUE_AT, NOW, cleanCandidate, cleanGraph, cleanRequest } from './candidates.ts';
 
 interface Attack {
@@ -589,14 +591,44 @@ test('a maximal hostile input is judged in bounded time', () => {
   const request = cleanRequest({
     // Sensitive, so every span feeds `sharesTextRunWith` for every segment —
     // the product the unbounded version turned into 78 seconds of CPU.
+    //
+    // 7,999 characters, **one below `maxUntrustedInputChars`**, for the reason
+    // the segment comment above already gives. It was 200,000 against a bound of
+    // 8,000: `scannableInputs` dropped every single span, so the quadratic this
+    // test exists to bound was fed **zero** spans and the fixture ran in 3 ms.
+    //
+    // The comment directly above it — "every span feeds `sharesTextRunWith`" —
+    // was false at the time it was written. That is worth stating plainly: this
+    // same defect was found, understood, and fixed for `segments` in this very
+    // fixture, and the field immediately below it kept it. Fixing an instance is
+    // not fixing the class, and the sweep is what tells the two apart.
+    //
+    // 500 inputs, not 64: the count bound must have work to do. Supplying
+    // exactly the limit would leave `maxUntrustedInputs` unexercised, which is
+    // how it came to be that deleting that bound failed no timing test at all.
     inputs: Array.from({ length: 500 }, (_unused, index) => ({
       inputId: `in-${index}`,
       origin: 'user_text' as const,
       sensitivity: 'sensitive' as const,
       declaredTrust: 'data' as const,
-      text: 'y'.repeat(200_000),
+      text: 'y'.repeat(7_999),
     })),
   });
+
+  // Structural, and separate from the timing assertion on purpose. A wall-clock
+  // bound cannot distinguish "the guard held" from "the fixture never reached
+  // the guard" — that is precisely how both halves of this test came to pass
+  // while measuring nothing. This says how much work actually crossed the line.
+  const scannable = scannableInputs(request);
+  assert.equal(
+    scannable.length,
+    SAFETY_LIMITS.maxUntrustedInputs,
+    'the count bound admitted the wrong number of spans, so the timing below measures something else',
+  );
+  assert.ok(
+    scannable.every((span) => span.text.length === 7_999),
+    'a span was dropped by the character bound, which empties the quadratic this test bounds',
+  );
 
   const startedAt = process.hrtime.bigint();
   const result = evaluateSafetyGate({ request, candidate, auditId: 'audit-big' });

@@ -92,7 +92,7 @@ export const COERCION_PATTERNS: readonly RegExp[] = Object.freeze([
 ]);
 
 /**
- * Speaking in the perfect tense about a write.
+ * Speaking about a write this module cannot perform — in any tense.
  *
  * **Deliberately stricter than the product's rule and narrower than its word
  * list, and both halves matter.**
@@ -107,15 +107,67 @@ export const COERCION_PATTERNS: readonly RegExp[] = Object.freeze([
  * and `remind`, which would make "shall I set a reminder?" a persistence claim.
  * An offer is not a claim, and a check that cannot tell them apart is one a
  * coaching track will be forced to route around. So every pattern below is
- * anchored on a completed assertion: a sentence-initial past participle, a first
- * person subject with a past-tense verb, or an explicit `has been`.
+ * anchored on a **first-person subject**: the product asserting something about
+ * its own capability, never a question about one and never a description of what
+ * the user did.
+ *
+ * ── Why the tense anchor was not enough ──────────────────────────────────
+ *
+ * The first five patterns are anchored on a *completed* assertion — a
+ * sentence-initial past participle, `I have saved`, an explicit `has been`. That
+ * reading was too narrow by exactly one tense, and the gap was measured through
+ * the real `evaluateSafetyGate` rather than argued:
+ *
+ *     "I'm keeping track of that for you."  -> allow
+ *     "I'll keep an eye on that for you."   -> allow
+ *     "I will save that for you."           -> allow
+ *     "I'm tracking that one."              -> allow      … 12 of 12 allowed
+ *     "I saved that for you."               -> PERSISTENCE_CLAIMED
+ *
+ * The product cannot keep track of anything, so "I will keep track" is exactly
+ * as false as "I kept track" — the two are different tenses of one lie about one
+ * non-existent capability, and #37's surveillance corpus is written in the tense
+ * this list did not read. The final pattern closes it.
+ *
+ * ── And why it does not close it with a root list ────────────────────────
+ *
+ * #38 fixed the mirror of this defect by switching to roots and bought false
+ * positives on `shameless`, `logician`, `storefront` and `notebook`. The cost is
+ * asymmetric between the two modules: #38's list is checked against a *closed
+ * template table*, where an over-catch is a test failure someone fixes in one
+ * line. This one judges free text a producer wrote, where an over-catch blocks a
+ * message a person was supposed to read, so the direction that is right there is
+ * wrong here.
+ *
+ * The anchor is therefore the **subject and the auxiliary**, not the verb:
+ * `I will`, `I'll`, `I am`, `I'm`, optionally `going to` / `about to` / `be`.
+ * "Would you like me to keep an eye on it?" is an offer, "You said you'd keep an
+ * eye on it" is about the user, and neither carries that anchor — which is what
+ * `tests/safety/validators.test.ts`'s negative corpus pins, sentence by
+ * sentence, alongside the twelve that must block.
  */
 export const PERSISTENCE_CLAIM_PATTERNS: readonly RegExp[] = Object.freeze([
   /(^|[.!?]\s+)(saved|created|scheduled|updated|moved|cancelled|canceled|deleted|marked|added|removed)\b/i,
-  /\bi\s*([’']ve|\s+have)?\s*(saved|created|scheduled|updated|moved|cancelled|canceled|deleted|marked|added|removed)\b/i,
+  // The surveillance verbs are here as well as in the future-tense pattern
+  // below. "I logged that one for you." is a completed claim about a write this
+  // module cannot perform, and it was reaching no pattern at all: the perfect
+  // tense listed only the calendar verbs, so closing the future tense alone
+  // still left two of #37's four English rows allowed.
+  //
+  // `noted` and `watched` are deliberately absent. "I noted that" ordinarily
+  // means *understood*, and "I watched that happen" is a description, so both
+  // would block ordinary sentences to catch a rarer phrasing — the trade this
+  // list refuses everywhere else.
+  /\bi\s*([’']ve|\s+have)?\s*(saved|created|scheduled|updated|moved|cancelled|canceled|deleted|marked|added|removed|logged|tracked|monitored|recorded|stored)\b/i,
+  /\bi\s*(?:[’']ve|\s+have)?\s*kept\s+(track|tabs|an\s+eye)\b/i,
   /\b(has|have|had)\s+been\s+(saved|created|scheduled|updated|moved|cancelled|canceled|deleted|added|removed)\b/i,
   /\bit[’']?s\s+(done|saved|scheduled|created)\b/i,
   /\ball set\b/i,
+  // Future and progressive, anchored on the first-person subject rather than on
+  // the verb — see the "one tense" note above. Both inflections of each verb are
+  // spelled out because `be` splits them: "I'll save" and "I'll be saving" are
+  // the same promise.
+  /\bi\s*(?:[’']ll|[’']m|\s+will|\s+am)\s+(?:(?:going|about)\s+to\s+)?(?:be\s+)?(?:sav(?:e|ing)|creat(?:e|ing)|schedul(?:e|ing)|updat(?:e|ing)|mov(?:e|ing)|cancel(?:l?ing)?|delet(?:e|ing)|mark(?:ing)?|add(?:ing)?|remov(?:e|ing)|track(?:ing)?|log(?:ging)?|not(?:e|ing)|record(?:ing)?|stor(?:e|ing)|monitor(?:ing)?|watch(?:ing)?|remind(?:ing)?|keep(?:ing)?\s+(?:track|an\s+eye|tabs|a\s+(?:note|record)))\b/i,
 ]);
 
 /**

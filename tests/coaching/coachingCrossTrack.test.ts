@@ -266,6 +266,7 @@ const GATEWAY_LOCATOR: Readonly<Record<string, string>> = Object.freeze({
   DECISION_ECHO_MISMATCHED: 'claim:0/segment:null',
   SHAMING_LANGUAGE: 'claim:null/segment:0',
   COERCIVE_PRESSURE: 'claim:null/segment:0',
+  PERSISTENCE_CLAIMED: 'claim:null/segment:0',
 });
 
 /**
@@ -286,7 +287,7 @@ const GATEWAY_LOCATOR: Readonly<Record<string, string>> = Object.freeze({
  *    are English regular expressions. Group 3 turns this into counts.
  *
  *  - `not_carried_across_the_seam` — #39 reports it for **no** row, in **no**
- *    locale, and the reason is structural rather than linguistic in all three
+ *    locale, and the reason is structural rather than linguistic in both
  *    cases. These are the genuine cross-track gaps, and each one is asserted
  *    together with the checker that does catch it, so "#39 is silent here" can
  *    never quietly become "nothing sees this".
@@ -304,21 +305,25 @@ const CODE_REACHABILITY: Readonly<Record<string, Reachability>> = Object.freeze(
   DECISION_ECHO_MISMATCHED: { kind: 'decided_by_the_gateway' },
   SHAMING_LANGUAGE: { kind: 'english_lexicon_only' },
   COERCIVE_PRESSURE: { kind: 'english_lexicon_only' },
-  PERSISTENCE_CLAIMED: {
-    kind: 'not_carried_across_the_seam',
-    why:
-      "#39's PERSISTENCE_CLAIM_PATTERNS are anchored on a completed assertion — a sentence-initial past " +
-      'participle, a first-person past-tense verb, or an explicit "has been" — because its header rules that ' +
-      'an offer is not a claim. #37\'s surveillance rows promise future or ongoing watching ("I am keeping ' +
-      'track of that one for you"), which is a false claim of persistence and is not a claim that a write ' +
-      'already happened. The two rules are about different tenses of the same lie.',
-  },
+  // Was `not_carried_across_the_seam`, on the reasoning that #39 read only a
+  // *completed* assertion while #37's rows promise future watching — "different
+  // tenses of the same lie". That reading was right about the cause and wrong
+  // about what to do with it: the product cannot keep track of anything, so
+  // both tenses are false and the gateway now reads both. The integration fix
+  // added the future/progressive form and the perfect-tense surveillance verbs
+  // (`I logged that one for you.` reached no pattern at all), taking English
+  // from 0 of 4 to 4 of 4. What remains is the same RTL lexicon gap the two
+  // codes above carry, so it is classified with them.
+  PERSISTENCE_CLAIMED: { kind: 'english_lexicon_only' },
   RAW_IDENTIFIER_DISCLOSED: {
     kind: 'not_carried_across_the_seam',
     why:
       "#39's collectIdentifiers reads only identifiers the *candidate* carries — candidateId, claimId, " +
-      "effectId, nodeId. #37 plants a commitment id, which lives on the recommendation, and #38's " +
-      'toSafetyCandidate carries no recommendation identifier across the seam. identifiersOf() sits in the ' +
+      'effectId, nodeId — and prose quoting any of those is caught: evidence nodeIds do cross the seam and ' +
+      'do produce this code. What does not cross is the identifier #37 actually plants. Its rows quote a ' +
+      "commitment id, which lives on the recommendation, and #38's toSafetyCandidate carries no " +
+      'recommendation identifier over. So the classification is right for this corpus and the reason is ' +
+      'specific to it: not "no identifier crosses", but "this one does not". identifiersOf() sits in the ' +
       "same file and feeds #38's own language gate, so the leak is caught — one seam earlier than #37 expected.",
   },
   UNKNOWN_CANDIDATE_SHAPE: {
@@ -437,7 +442,7 @@ test("#37's declared codes are the codes #39 reports on #38's candidate, at the 
   );
 });
 
-test('the three codes that do not cross the seam are caught one seam earlier, not lost', () => {
+test('the two codes that do not cross the seam are caught one seam earlier, not lost', () => {
   // `not_carried_across_the_seam` is only defensible while something else
   // catches the row. If nothing did, the classification above would be a way of
   // spelling "we decided not to look".
@@ -475,21 +480,6 @@ test('the three codes that do not cross the seam are caught one seam earlier, no
     );
   }
 
-  // PERSISTENCE_CLAIMED — caught by #38's tracking-verb list in English and by
-  // #37's per-locale persistence lexicon everywhere. Group 3 counts the half of
-  // that sentence that is doing the work.
-  const surveillance = rows.filter(
-    (row) => row.category === 'surveillance_phrasing' || row.category === 'affixed_surveillance',
-  );
-  assert.ok(surveillance.length >= 6, 'the corpus no longer carries surveillance rows');
-  for (const row of surveillance) {
-    assert.deepEqual(pairsOf(judge(row)), [], `${row.rowId}: #39 now reads a promise to watch as a completed write`);
-    const codes = rubricLanguagePass(row.input.output, []).map((defect) => defect.code);
-    assert.ok(
-      codes.includes('COMPLETION_DESCRIBED_AS_TRACKING'),
-      `${row.rowId}: no track now catches a false claim of persistence in ${row.locale}`,
-    );
-  }
 });
 
 /* ── 2. The decision-echo path, end to end ───────────────────────── */
@@ -665,7 +655,7 @@ const LEXICAL_DETECTION: readonly {
   { code: 'SHAMING_LANGUAGE', locale: 'en', rows: 4, gateway: 4, rubric: 4 },
   { code: 'SHAMING_LANGUAGE', locale: 'ar', rows: 6, gateway: 0, rubric: 6 },
   { code: 'SHAMING_LANGUAGE', locale: 'he', rows: 6, gateway: 0, rubric: 6 },
-  { code: 'PERSISTENCE_CLAIMED', locale: 'en', rows: 4, gateway: 0, rubric: 4 },
+  { code: 'PERSISTENCE_CLAIMED', locale: 'en', rows: 4, gateway: 4, rubric: 4 },
   { code: 'PERSISTENCE_CLAIMED', locale: 'ar', rows: 6, gateway: 0, rubric: 6 },
   { code: 'PERSISTENCE_CLAIMED', locale: 'he', rows: 6, gateway: 0, rubric: 6 },
 ];

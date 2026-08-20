@@ -526,6 +526,35 @@ test('an unrecognised claim kind converts to a blocking kind, never to a stateme
   assert.notEqual(candidate.claims[0].kind, 'statement', 'a statement default would slip through as ordinary prose');
 });
 
+test('a claim whose source this version cannot read converts to the blocking kind', () => {
+  // The third case in `toSafetyCandidate`, and it was reachable by no test at
+  // all: disabling the branch outright left the whole suite green. The test
+  // above covers an unrecognised `kind`; this covers an unrecognised `source`,
+  // which is a different branch reached by a different shape.
+  //
+  // The routing is worth stating, because the branch's own comment had it
+  // backwards. A `source` object carrying an unfamiliar string `kind` is read as
+  // evidence-backed and never arrives here. What arrives here is a claim with no
+  // readable `source` at all — and the previous code sent that down the echo
+  // branch, where reading `claim.source.verdict` threw a TypeError out of a
+  // function documented never to throw.
+  const output = outputFor(soleSurvivor('OVERDUE', 0.9));
+  const mutated = {
+    ...output,
+    claims: output.claims.map((claim, index) => {
+      if (index !== 0) return claim;
+      const { source: _dropped, ...rest } = claim as { source?: unknown };
+      return rest;
+    }),
+  } as unknown as CoachingOutput;
+
+  const candidate = toSafetyCandidate(mutated, 'candidate-fixed', []);
+  assert.equal(candidate.claims[0].kind, UNKNOWN_COACHING_CLAIM_CANDIDATE_KIND);
+  assert.equal(candidate.claims[0].decisionIndex, null);
+  assert.deepEqual(candidate.claims[0].supportedBy, [], 'an unreadable source may not carry support it never named');
+  assert.notEqual(candidate.claims[0].kind, 'statement', 'a statement default would ship it as ordinary prose');
+});
+
 test('an unrecognised intent overstates its pressure rather than declaring none', () => {
   const source = soleSurvivor('OVERDUE', 0.9);
   const mutated = { ...outputFor(source), intent: 'unheard_of' } as unknown as CoachingOutput;
@@ -1213,6 +1242,25 @@ test('attestation picks the latest matching record, not the first, and refuses a
   // An unparseable timestamp fails closed rather than being ordered arbitrarily.
   const unparseable = toSafetyCandidate(output, 'candidate-fixed', [at('done', 'not-an-instant')]);
   assert.equal(unparseable.claims[0].decisionIndex, null);
+
+  // The line above cannot tell `return null` from `continue`: with one record,
+  // skipping it and refusing on it both leave nothing selected, so the mutation
+  // that turns the fail-closed into a skip survives it. This is the case that
+  // separates them — a malformed record *beside* a usable one.
+  //
+  // The distinction is the whole point of failing closed. `continue` would let
+  // the valid `accept` be selected as the completion's alibi, so a caller who
+  // can get one unreadable timestamp into the list chooses which record the
+  // echo is checked against. One unreadable record poisons the lookup.
+  const poisoned = toSafetyCandidate(output, 'candidate-fixed', [
+    at('accept', '2026-08-20T09:00:00Z'),
+    at('done', 'not-an-instant'),
+  ]);
+  assert.equal(
+    poisoned.claims[0].decisionIndex,
+    null,
+    'an unreadable record was skipped rather than refused, so a neighbouring record became the alibi',
+  );
 });
 
 test('the real gateway still allows the honest turn under the latest-record rule', () => {

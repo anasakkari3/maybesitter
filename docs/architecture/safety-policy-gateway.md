@@ -389,12 +389,23 @@ revert of this branch alone requires reverting #38 first.
   defence; the structural rule — identifiers never enter prose at all — is the
   first.
 - **The shame, coercion _and persistence_ lexicons are English-first, and the
-  gap is now measured rather than estimated.** An independent probe scored the
-  content lexicons at **EN 10/10 caught, AR 0/10, HE 0/10**. The injection
-  patterns cover AR/HE/EN; the other three do not, so a shaming, coercive or
-  false-completion message in Arabic or Hebrew passes today. `PERSISTENCE_CLAIM_PATTERNS`
-  was missing from this list in the first version, which is its own defect — a
+  gap is now measured rather than estimated.** The injection patterns cover
+  AR/HE/EN; the other three do not, so a shaming, coercive or false-completion
+  message in Arabic or Hebrew passes today. `PERSISTENCE_CLAIM_PATTERNS` was
+  missing from this list in the first version, which is its own defect — a
   known-gaps section that omits a gap is worse than none.
+
+  The live figures are `LEXICAL_DETECTION` in
+  `tests/coaching/coachingCrossTrack.test.ts`, which re-measures them on every
+  run against #37's corpus and fails when one moves. They are quoted from there
+  rather than restated here on purpose: this section previously carried
+  **EN 10/10 caught** from a one-off probe, and that number was wrong for
+  persistence — English scored **0 of 4** against the corpus, because the
+  patterns read only a completed assertion and #37's rows promise future
+  watching, and `I logged that one for you.` reached no pattern at all. Both are
+  closed now and English reads 4 of 4; AR and HE remain 0. A figure that no test
+  re-derives is a claim, not a measurement, and this one drifted the moment the
+  lexicon it described did.
 
   No Arabic or Hebrew patterns were invented to close it. A lexicon written
   without native review is a filter that looks multilingual and is not, which is

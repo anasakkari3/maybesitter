@@ -251,11 +251,22 @@ export function toSafetyCandidate(
     }
 
     if (!isEvidenceBackedClaim(claim)) {
-      // The third case. A claim whose `source` this version does not recognise
-      // is neither evidence-backed nor an echo, and the previous code routed it
-      // down the echo branch — where `claim.source.verdict` raised a
-      // `TypeError` out of a function documented never to throw. It converts to
-      // the blocking kind with a null index, so #39 refuses it.
+      // The third case. A claim with no readable `source` is neither
+      // evidence-backed nor an echo, and the previous code routed it down the
+      // echo branch — where `claim.source.verdict` raised a `TypeError` out of a
+      // function documented never to throw.
+      //
+      // What reaches here is narrower than "a source this version does not
+      // recognise", which is what this comment used to say. `isEvidenceBacked`
+      // accepts any string `kind` other than `user_decision`, so a source object
+      // carrying an unfamiliar kind is read as evidence-backed and never arrives
+      // — only a missing or non-object source does.
+      //
+      // It converts to the blocking kind with a null index. The claim is then
+      // refused by #38's own structural pass, which reports
+      // `UNKNOWN_CLAIM_SOURCE_KIND`; #39 alone does not refuse it, and the
+      // earlier note here saying it did was wrong. This is defence in depth on
+      // #38's side of the seam, not a gateway guarantee.
       claims.push({
         claimId: `claim-${index}`,
         kind: UNKNOWN_COACHING_CLAIM_CANDIDATE_KIND,
