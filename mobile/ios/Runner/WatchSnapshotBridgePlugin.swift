@@ -14,6 +14,10 @@ final class WatchSnapshotBridgePlugin: NSObject, WCSessionDelegate {
   private static let contextKey = "pilot_presence_commitment_snapshot_v1"
   private static var shared: WatchSnapshotBridgePlugin?
 
+  /// Why the last publish failed. A swallowed error makes a watch that never
+  /// updates indistinguishable from a watch nobody owns.
+  private var lastError: String?
+
   static func register(binaryMessenger: FlutterBinaryMessenger) {
     let plugin = shared ?? WatchSnapshotBridgePlugin()
     shared = plugin
@@ -34,10 +38,30 @@ final class WatchSnapshotBridgePlugin: NSObject, WCSessionDelegate {
         result(plugin.publish(json: json))
       case "clearSnapshot":
         result(plugin.publish(json: nil))
+      case "diagnostics":
+        result(plugin.diagnostics())
       default:
         result(FlutterMethodNotImplemented)
       }
     }
+  }
+
+  /// Why a publish would be refused, in the session's own terms.
+  ///
+  /// "No watch accepted it" is true of a missing watch, an inactive session and
+  /// an uninstalled companion app alike, and the three want different answers.
+  private func diagnostics() -> [String: Any] {
+    guard WCSession.isSupported() else { return ["supported": false] }
+    let session = WCSession.default
+    return [
+      "supported": true,
+      "activationState": session.activationState.rawValue,
+      "isPaired": session.isPaired,
+      "isWatchAppInstalled": session.isWatchAppInstalled,
+      "isReachable": session.isReachable,
+      "isComplicationEnabled": session.isComplicationEnabled,
+      "lastError": lastError ?? "none",
+    ]
   }
 
   private func activateIfPossible() {
@@ -52,9 +76,22 @@ final class WatchSnapshotBridgePlugin: NSObject, WCSessionDelegate {
   private func publish(json: String?) -> Bool {
     guard WCSession.isSupported() else { return false }
     let session = WCSession.default
-    guard session.activationState == .activated, session.isPaired,
-          session.isWatchAppInstalled
-    else { return false }
+    guard session.activationState == .activated else {
+      lastError = "session not activated"
+      return false
+    }
+    guard session.isPaired else {
+      lastError = "no paired watch"
+      return false
+    }
+    // iOS enforces this inside updateApplicationContext too, refusing with
+    // WCErrorDomain 7006 "Watch app is not installed." Checking first turns a
+    // thrown error into a stated reason; skipping the check does not make the
+    // context arrive.
+    guard session.isWatchAppInstalled else {
+      lastError = "watch app not installed on the paired watch"
+      return false
+    }
 
     do {
       if let json {
@@ -62,8 +99,10 @@ final class WatchSnapshotBridgePlugin: NSObject, WCSessionDelegate {
       } else {
         try session.updateApplicationContext([:])
       }
+      lastError = nil
       return true
     } catch {
+      lastError = String(describing: error)
       return false
     }
   }

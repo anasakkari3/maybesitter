@@ -16,6 +16,9 @@ abstract interface class WatchSnapshotBridge {
   Future<bool> publishSnapshot(String json);
 
   Future<bool> clearSnapshot();
+
+  /// What the platform says about the watch link, for diagnosing a refusal.
+  Future<Map<String, Object?>> diagnostics();
 }
 
 class MethodChannelWatchSnapshotBridge implements WatchSnapshotBridge {
@@ -34,6 +37,19 @@ class MethodChannelWatchSnapshotBridge implements WatchSnapshotBridge {
       return false;
     } on MissingPluginException {
       return false;
+    }
+  }
+
+  @override
+  Future<Map<String, Object?>> diagnostics() async {
+    if (!PlatformAdaptive.isIOS) return const {'supported': false};
+    try {
+      final raw = await _channel.invokeMapMethod<String, Object?>('diagnostics');
+      return raw ?? const {};
+    } on PlatformException {
+      return const {};
+    } on MissingPluginException {
+      return const {};
     }
   }
 

@@ -35,6 +35,12 @@ class _RecordingWatchBridge implements WatchSnapshotBridge {
     published.add(null);
     return reachable;
   }
+
+  @override
+  Future<Map<String, Object?>> diagnostics() async => {
+    'supported': supported,
+    'isWatchAppInstalled': reachable,
+  };
 }
 
 final _must = Commitment(
