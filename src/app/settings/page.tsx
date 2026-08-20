@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import Navbar from '@/components/Navbar';
 import PilotTrustPanel from '@/components/PilotTrustPanel';
+import PersonalizationPanel from '@/components/PersonalizationPanel';
 import { pilotIdentity } from '@/utils/pilotIdentity';
 
 type Tab = 'profile' | 'preferences' | 'notifications' | 'data';
@@ -327,6 +328,7 @@ export default function SettingsPage() {
         {activeTab === 'data' && (
           <div className="space-y-4">
             <PilotTrustPanel />
+            <PersonalizationPanel scopeId={pilotIdentity()} />
             <div className="bg-white border border-blue-200 rounded-2xl p-6">
               <h2 className="text-lg font-bold text-gray-800 mb-1">iPhone Calendar Feed</h2>
               <p className="text-sm text-gray-500 mb-4">
