@@ -1,0 +1,260 @@
+{
+  "datasetStatus": "seed-only: 8 of 50 cases; 42 owner-authored cases pending",
+  "dataset": "evaluation-data/dialect-suite.jsonl",
+  "measuredAt": "2026-08-21",
+  "harness": {
+    "runner": "scripts/run-dialect-eval.ts",
+    "path": "extractWithOllama -> callOllama (src/extraction/localLLMProvider.ts)",
+    "baseUrl": "http://localhost:11434",
+    "timeoutMs": 10000,
+    "timezone": "Asia/Jerusalem"
+  },
+  "runs": [
+    {
+      "model": "ov_intent_analysis_sft",
+      "total": 8,
+      "passed": 0,
+      "passRate": 0,
+      "byLanguage": {
+        "ar": {
+          "total": 4,
+          "passed": 0
+        },
+        "he": {
+          "total": 2,
+          "passed": 0
+        },
+        "en": {
+          "total": 2,
+          "passed": 0
+        }
+      },
+      "failures": [
+        {
+          "id": "ar-1",
+          "text": "بكرة الصبح بدي أنزل على الشغل على الخمسة لازم أكون بالنادي على السبعة",
+          "expected": 2,
+          "actual": {
+            "error": "Error: LLM repair failed: LLM output must be one JSON object with no prose or Markdown"
+          }
+        },
+        {
+          "id": "ar-2",
+          "text": "بعد ما أخلص شغل بمرّ على أمي",
+          "expected": 1,
+          "actual": {
+            "error": "Error: LLM repair failed: LLM output must be one JSON object with no prose or Markdown"
+          }
+        },
+        {
+          "id": "ar-3",
+          "text": "نفس موعد الأسبوع الماضي بس أبكر شوي",
+          "expected": 1,
+          "actual": {
+            "error": "Error: LLM repair failed: LLM output must be one JSON object with no prose or Markdown"
+          }
+        },
+        {
+          "id": "ar-4",
+          "text": "ضروري أدفع الفاتورة قبل ما تسكّر الصيدلية",
+          "expected": 1,
+          "actual": {
+            "error": "Error: LLM repair failed: LLM output must be one JSON object with no prose or Markdown"
+          }
+        },
+        {
+          "id": "he-1",
+          "text": "מחר בבוקר אני חייב להיות במשרד בשמונה",
+          "expected": 1,
+          "actual": {
+            "error": "Error: LLM repair failed: LLM output must be one JSON object with no prose or Markdown"
+          }
+        },
+        {
+          "id": "he-2",
+          "text": "תזכיר לי להתקשר לאמא אחרי העבודה",
+          "expected": 1,
+          "actual": {
+            "error": "Error: LLM repair failed: LLM output must be one JSON object with no prose or Markdown"
+          }
+        },
+        {
+          "id": "en-1",
+          "text": "I must call Ahmad tomorrow at 3pm",
+          "expected": 1,
+          "actual": {
+            "error": "Error: LLM repair failed: LLM output must be one JSON object with no prose or Markdown"
+          }
+        },
+        {
+          "id": "en-2",
+          "text": "pick up the kids then get groceries before the shop closes",
+          "expected": 2,
+          "actual": {
+            "error": "Error: LLM repair failed: LLM output must be one JSON object with no prose or Markdown"
+          }
+        }
+      ]
+    },
+    {
+      "model": "gemma3:4b",
+      "total": 8,
+      "passed": 5,
+      "passRate": 0.625,
+      "byLanguage": {
+        "ar": {
+          "total": 4,
+          "passed": 3
+        },
+        "he": {
+          "total": 2,
+          "passed": 2
+        },
+        "en": {
+          "total": 2,
+          "passed": 0
+        }
+      },
+      "failures": [
+        {
+          "id": "ar-1",
+          "text": "بكرة الصبح بدي أنزل على الشغل على الخمسة لازم أكون بالنادي على السبعة",
+          "expected": 2,
+          "actual": {
+            "dueAt": "2026-08-22T03:00:00.000Z",
+            "title": "Go to work",
+            "flags": [
+              "vague_time"
+            ]
+          }
+        },
+        {
+          "id": "en-1",
+          "text": "I must call Ahmad tomorrow at 3pm",
+          "expected": 1,
+          "actual": {
+            "dueAt": "2026-08-22T08:00:00.000Z",
+            "title": "Call Ahmad",
+            "flags": [
+              "vague_time"
+            ]
+          }
+        },
+        {
+          "id": "en-2",
+          "text": "pick up the kids then get groceries before the shop closes",
+          "expected": 2,
+          "actual": {
+            "dueAt": null,
+            "title": "Pick up kids and groceries",
+            "flags": [
+              "vague_time",
+              "weak_commitment_language"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "model": "qwen3.5:9b",
+      "total": 8,
+      "passed": 0,
+      "passRate": 0,
+      "byLanguage": {
+        "ar": {
+          "total": 4,
+          "passed": 0
+        },
+        "he": {
+          "total": 2,
+          "passed": 0
+        },
+        "en": {
+          "total": 2,
+          "passed": 0
+        }
+      },
+      "failures": [
+        {
+          "id": "ar-1",
+          "text": "بكرة الصبح بدي أنزل على الشغل على الخمسة لازم أكون بالنادي على السبعة",
+          "expected": 2,
+          "actual": {
+            "error": "LLMUnavailableError: Ollama unreachable: This operation was aborted"
+          }
+        },
+        {
+          "id": "ar-2",
+          "text": "بعد ما أخلص شغل بمرّ على أمي",
+          "expected": 1,
+          "actual": {
+            "error": "Error: LLM repair failed: LLM output must be one JSON object with no prose or Markdown"
+          }
+        },
+        {
+          "id": "ar-3",
+          "text": "نفس موعد الأسبوع الماضي بس أبكر شوي",
+          "expected": 1,
+          "actual": {
+            "error": "Error: LLM repair failed: LLM output must be one JSON object with no prose or Markdown"
+          }
+        },
+        {
+          "id": "ar-4",
+          "text": "ضروري أدفع الفاتورة قبل ما تسكّر الصيدلية",
+          "expected": 1,
+          "actual": {
+            "error": "Error: LLM repair failed: LLM output must be one JSON object with no prose or Markdown"
+          }
+        },
+        {
+          "id": "he-1",
+          "text": "מחר בבוקר אני חייב להיות במשרד בשמונה",
+          "expected": 1,
+          "actual": {
+            "error": "Error: LLM repair failed: LLM output must be one JSON object with no prose or Markdown"
+          }
+        },
+        {
+          "id": "he-2",
+          "text": "תזכיר לי להתקשר לאמא אחרי העבודה",
+          "expected": 1,
+          "actual": {
+            "error": "Error: LLM repair failed: LLM output must be one JSON object with no prose or Markdown"
+          }
+        },
+        {
+          "id": "en-1",
+          "text": "I must call Ahmad tomorrow at 3pm",
+          "expected": 1,
+          "actual": {
+            "error": "Error: LLM repair failed: LLM output must be one JSON object with no prose or Markdown"
+          }
+        },
+        {
+          "id": "en-2",
+          "text": "pick up the kids then get groceries before the shop closes",
+          "expected": 2,
+          "actual": {
+            "error": "LLMUnavailableError: Ollama unreachable: This operation was aborted"
+          }
+        }
+      ]
+    }
+  ],
+  "arabicPassRateByModel": {
+    "ov_intent_analysis_sft": 0.0,
+    "gemma3:4b": 0.75,
+    "qwen3.5:9b": 0.0
+  },
+  "bestArabic": {
+    "model": "gemma3:4b",
+    "arabicPassRate": 0.75
+  },
+  "caveats": [
+    "Two of the three candidates score 0/8 for a harness reason, not a dialect reason. guoxuter/ov_intent_analysis_sft:v7_q8 and qwen3.5:9b are thinking-capable models; Ollama returns their output in the `thinking` field and leaves `response` empty. callOllama reads only `response` and never sends `think:false`, so both models return an empty string on every call. Verified by curl: with \"think\": false both models return JSON in `response`. Their 0.0 pass rates measure the harness, not the model.",
+    "qwen3.5:9b additionally hit the 10000 ms callOllama timeout on 2 of 8 cases (ar-1, en-2), recorded verbatim as LLMUnavailableError.",
+    "The runner's expectedTimes check compares local wall-clock strings such as \"05:00\" against a UTC ISO dueAt (schemaValidator normalises dueAt with new Date(ts).toISOString()). At Asia/Jerusalem UTC+3 a correct local 05:00 serialises as 02:00Z, so a correct answer scores as a failure. The 3 cases carrying expectedTimes (ar-1, he-1, en-1) are therefore structurally unpassable on the time half of the check. This is the plan's scoring code, implemented verbatim.",
+    "8 seed cases is far too small to calibrate a threshold from. The per-language denominators are 4/2/2."
+  ]
+}
