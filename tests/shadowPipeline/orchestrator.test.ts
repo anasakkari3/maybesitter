@@ -101,8 +101,19 @@ test('no run is ever complete, because the chain contains a placeholder', async 
   // The consequence the contract states rather than discovers: `priority` is
   // `not_implemented_in_sprint_00` in `INTELLIGENCE_MODULE_CONTRACTS`, a
   // placeholder can never report `completed`, so `degraded` is the ceiling for
-  // this sprint. If someone implements priority and updates the registry, this
-  // test fails and the update becomes a decision rather than a drift.
+  // this sprint.
+  //
+  // This comment used to end "if someone implements priority and updates the
+  // registry, this test fails and the update becomes a decision rather than a
+  // drift". That was false, and integration proved it by doing exactly that:
+  // the registry entry was corrected and **nothing failed here**, because the
+  // orchestrator reads `SHADOW_MODULE_ROLES` — a second, hand-maintained copy
+  // of the same fact — and not the registry.
+  //
+  // The check that comment described now exists, as
+  // `tests/shadowPipeline/registryDrift.test.ts`, and it does fail on that
+  // mutation. This test asserts the behaviour that follows from the role table;
+  // that one asserts the role table still means what the registry says.
   const { bundle } = await runWith();
   assert.equal(bundle.outcome.completeness, 'degraded');
   assert.deepEqual(nonContributingModules(bundle.outcome), ['priority']);
