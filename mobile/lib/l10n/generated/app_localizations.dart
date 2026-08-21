@@ -343,8 +343,14 @@ abstract class AppLocalizations {
   /// No description provided for @privacyNote.
   ///
   /// In en, this message translates to:
-  /// **'Your plan is analyzed privately with Quiet Intelligence.'**
+  /// **'What you write is analyzed inside MaybeSitter: on your device, or on our server when it is connected.'**
   String get privacyNote;
+
+  /// No description provided for @privacyEscalationNote.
+  ///
+  /// In en, this message translates to:
+  /// **'No sentence is sent to an outside model today. If we turn on a second reading for unclear sentences, we will ask you first, and we cannot promise it is deleted at the model provider.'**
+  String get privacyEscalationNote;
 
   /// No description provided for @analyzeAction.
   ///

@@ -153,7 +153,12 @@ class AppLocalizationsAr extends AppLocalizations {
       'التعديل غير متاح مؤقتًا لحماية موعد الالتزام.';
 
   @override
-  String get privacyNote => 'يتم تحليل خطتك بخصوصية تامة عبر الذكاء الهادئ.';
+  String get privacyNote =>
+      'ما تكتبه يُحلَّل داخل MaybeSitter: على جهازك، أو على خادمنا عند الاتصال به.';
+
+  @override
+  String get privacyEscalationNote =>
+      'لا تُرسَل أي جملة إلى نموذج خارجي اليوم. إن فعّلنا قراءة ثانية للجمل الغامضة، سنسألك أولاً، ولا يمكننا ضمان حذفها لدى مزوّد النموذج.';
 
   @override
   String get analyzeAction => 'تحليل النص';

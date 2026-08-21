@@ -152,7 +152,11 @@ class AppLocalizationsHe extends AppLocalizations {
 
   @override
   String get privacyNote =>
-      'התוכנית שלך מנותחת בפרטיות מלאה באמצעות אינטליגנציה שקטה.';
+      'הטקסט שלך מנותח בתוך MaybeSitter: במכשיר שלך, או בשרת שלנו כשהוא מחובר.';
+
+  @override
+  String get privacyEscalationNote =>
+      'היום שום משפט לא נשלח למודל חיצוני. אם נפעיל קריאה שנייה למשפטים לא ברורים, נבקש את אישורך תחילה, ואיננו יכולים להבטיח שהוא נמחק אצל ספק המודל.';
 
   @override
   String get analyzeAction => 'ניתוח הטקסט';

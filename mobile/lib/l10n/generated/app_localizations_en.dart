@@ -152,7 +152,11 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get privacyNote =>
-      'Your plan is analyzed privately with Quiet Intelligence.';
+      'What you write is analyzed inside MaybeSitter: on your device, or on our server when it is connected.';
+
+  @override
+  String get privacyEscalationNote =>
+      'No sentence is sent to an outside model today. If we turn on a second reading for unclear sentences, we will ask you first, and we cannot promise it is deleted at the model provider.';
 
   @override
   String get analyzeAction => 'Analyze';
