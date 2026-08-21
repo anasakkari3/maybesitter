@@ -30,8 +30,11 @@ export type ArbiterFunction = (
 /**
  * No second opinion was obtained. Behaviourally identical to agreement -- the
  * local proposal stands untouched -- but never counted as one.
+ *
+ * Exported so the extraction path can reuse the one shape for a call that
+ * never happened, rather than inventing a second one that drifts from it.
  */
-const UNAVAILABLE: ArbitrationVerdict = {
+export const ARBITRATION_UNAVAILABLE: ArbitrationVerdict = {
   agrees: true,
   outcome: 'unavailable',
   correctedSplit: null,
@@ -73,7 +76,7 @@ export function parseArbitrationVerdict(raw: string): ArbitrationVerdict {
   try {
     const parsed = JSON.parse(raw) as Partial<ArbitrationVerdict>;
     // A reply that does not answer the one question asked is no answer at all.
-    if (typeof parsed.agrees !== 'boolean') return UNAVAILABLE;
+    if (typeof parsed.agrees !== 'boolean') return ARBITRATION_UNAVAILABLE;
     return {
       agrees: parsed.agrees,
       // Derived here, never read off the wire: the remote model does not get
@@ -89,7 +92,7 @@ export function parseArbitrationVerdict(raw: string): ArbitrationVerdict {
   } catch {
     // A model that answered with prose has not disagreed with anything -- but
     // it has not agreed either.
-    return UNAVAILABLE;
+    return ARBITRATION_UNAVAILABLE;
   }
 }
 
@@ -98,7 +101,7 @@ export function createAnthropicArbiter(client: {
 }): ArbiterFunction {
   return async (rawText, proposal) => {
     // Same boundary as the local path. Escalation must not route around it.
-    if (screenForInjection(rawText) !== null) return UNAVAILABLE;
+    if (screenForInjection(rawText) !== null) return ARBITRATION_UNAVAILABLE;
 
     try {
       const response = await client.messages.create({
@@ -112,7 +115,7 @@ export function createAnthropicArbiter(client: {
       return parseArbitrationVerdict(block?.text ?? '');
     } catch {
       // The remote model is an improvement, never a dependency.
-      return UNAVAILABLE;
+      return ARBITRATION_UNAVAILABLE;
     }
   };
 }
