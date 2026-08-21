@@ -1,4 +1,5 @@
-import { detectPromptInjection, extractWithOllama, type LLMProviderFunction } from './ollamaExtractor';
+import { extractWithOllama, type LLMProviderFunction } from './ollamaExtractor';
+import { screenForInjection } from './injectionBoundary';
 import { extract as ruleBasedExtract } from './ruleBasedExtractor';
 import { decideExtractionDisposition } from './extractionPolicy';
 import { mapExtractionToCommand } from './mapExtractionToCommand';
@@ -70,7 +71,7 @@ export async function extractWithFallback(
   context: ExtractionContext,
   options: ExtractAndMapOptions = {}
 ): Promise<ExtractWithFallbackResult> {
-  const injection = detectPromptInjection(rawText);
+  const injection = screenForInjection(rawText);
   if (injection) {
     return { result: safeNegativeResult(rawText, 'unknown'), engine: 'rule-based', fallbackReason: `prompt_injection:${injection}` };
   }
