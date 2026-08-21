@@ -66,8 +66,13 @@ test('high confidence alone never promotes — confidence is not consent', () =>
 test('every entry shown to the user carries its provenance', () => {
   const entries = sendableToUser([
     createEntry({ id: 'e6', key: 'a', value: '1', source: 'model', confidence: 0.5, now }),
+    createEntry({ id: 'e7', key: 'b', value: '2', source: 'user_constraint', confidence: 0.5, now }),
   ]);
-  assert.equal(entries.every((e) => e.provenance !== undefined), true);
+  // `.every` on an empty array is vacuously true, and `provenance` is
+  // non-optional in the type, so checking it is merely defined could not fail.
+  // Assert the count and the actual classes instead.
+  assert.equal(entries.length, 2);
+  assert.deepEqual(entries.map((e) => e.provenance), ['INFERENCE', 'CONSTRAINT']);
 });
 
 test('all six provenance classes exist and none is an alias of another', () => {

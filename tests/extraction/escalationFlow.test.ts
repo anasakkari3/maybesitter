@@ -146,3 +146,60 @@ test('a capture blocked by the injection screen never reaches the arbiter', asyn
   assert.equal(arbiter.calls(), 0, 'escalation must not route around the screen');
   assert.equal(out.escalation.escalated, false);
 });
+
+test('a capture the semantic-safety gate refused never reaches the arbiter', async () => {
+  const arbiter = countingArbiter(AGREES);
+
+  // Past tense with no request: the pipeline creates nothing from this. Paying
+  // to disclose a sentence the app itself threw away is the worst of both.
+  const out = await extractAndMap('I saw her yesterday at the clinic', context, {
+    llmProvider: confidentLocal,
+    arbiter: arbiter.fn,
+  });
+
+  assert.equal(out.result.type, 'informational_context');
+  assert.equal(arbiter.calls(), 0, 'a discarded capture must not leave the device');
+  assert.equal(out.escalation.escalated, false);
+});
+
+test('a rule-based fallback never reaches the arbiter', async () => {
+  const arbiter = countingArbiter(AGREES);
+
+  // The rule-based path caps overall confidence at 0.68 and time at 0.1, both
+  // under the gate. Left unguarded, the outage that costs the cheap path would
+  // escalate every capture -- maximum spend and maximum disclosure at exactly
+  // the moment nothing is working.
+  const out = await extractAndMap('لازم أروح عالدكتور', context, {
+    llmProvider: async () => { throw new Error('Ollama unreachable'); },
+    arbiter: arbiter.fn,
+  });
+
+  assert.equal(out.engine, 'rule-based');
+  assert.equal(arbiter.calls(), 0, 'an outage must not become a remote spend');
+  assert.equal(out.escalation.escalated, false);
+  assert.equal(out.escalation.verdict, null);
+});
+
+test('an arbiter failure records why, not just that', async () => {
+  const out = await extractAndMap('لازم أنزل عالشغل وبعدين النادي', context, {
+    llmProvider: unsureLocal,
+    arbiter: async () => { throw new TypeError('client.messages is undefined'); },
+  });
+
+  // A misconfigured arbiter reports 'unavailable' on every capture and every
+  // downstream number reads normal. Without the reason, thresholds get tuned
+  // against a hard zero produced by a typo.
+  assert.match(out.escalation.unavailableReason ?? '', /TypeError/);
+  assert.equal(out.escalation.escalated, false);
+});
+
+test('a successful second opinion records no failure reason', async () => {
+  const out = await extractAndMap('لازم أنزل عالشغل وبعدين النادي', context, {
+    llmProvider: unsureLocal,
+    arbiter: async () => ({
+      agrees: false, outcome: 'disagreed', correctedSplit: 2, correctedTimes: [], note: null,
+    }),
+  });
+
+  assert.equal(out.escalation.unavailableReason, null);
+});

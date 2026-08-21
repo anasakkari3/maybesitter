@@ -39,12 +39,27 @@ export function recordDisagreement(input: {
   return {
     id: input.id,
     recordedAt: input.now.toISOString(),
-    language: input.language,
+    // Both of these are narrowed rather than copied. `options.arbiter` is
+    // caller-supplied, so parseArbitrationVerdict never runs on its result and
+    // the types are erased by the time this executes -- a `correctedSplit`
+    // carrying a sentence would otherwise land in a record whose whole purpose
+    // is to hold no text.
+    language: LANGUAGE_TAG.test(input.language) ? input.language : UNKNOWN_LANGUAGE,
     reasons: [...input.reasons],
     localSplit: input.localSplit,
-    remoteSplit: input.verdict.correctedSplit,
+    remoteSplit: asCount(input.verdict.correctedSplit),
     reviewed: false,
   };
+}
+
+/** BCP-47-ish: a language subtag, optionally with a region. Never a sentence. */
+const LANGUAGE_TAG = /^[a-z]{2,3}(-[A-Za-z0-9]{2,8})?$/;
+
+/** Recorded when the caller's language tag is not one. */
+export const UNKNOWN_LANGUAGE = 'und';
+
+function asCount(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : null;
 }
 
 /** The measured uncertainty rate -- the number the threshold tuning needs. */
@@ -60,5 +75,8 @@ export function disagreementRate(
       `more disagreements (${records.length}) than captures (${totalCaptures})`,
     );
   }
-  return Number((records.length / totalCaptures).toFixed(3));
+  // Returned unrounded. Rounding to three places reported one disagreement in
+  // three thousand as 0, which a tuner cannot tell apart from a pipeline that
+  // is not running. Round at the display site instead.
+  return records.length / totalCaptures;
 }

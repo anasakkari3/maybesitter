@@ -141,9 +141,9 @@ void main() {
       expect(choice.needsUserChoice, isTrue);
     });
 
-    test('a clock claim against a date-only reading is a disagreement', () {
-      // One reading pins 16:00, the other says only "that day". Those are
-      // different schedules, so the user picks.
+    test('two clocks on the same day are a disagreement', () {
+      // Both readings pin an hour and the hours differ, so the user picks.
+      // (The clock-against-no-clock case lives in the granularity group.)
       final choice = buildSplitChoice(
         local: [
           _c('1', 'לאסוף את הילדים', at: DateTime(2026, 8, 22, 16),
@@ -193,6 +193,77 @@ void main() {
         choice.options.expand((o) => o.commitments).map((c) => c.title),
         everyElement(isNotEmpty),
       );
+    });
+  });
+
+  group('clock formats the rest of the app writes', () {
+    test('a meridiem reading disagreeing with a 24-hour one is a dispute', () {
+      // Commitment.startTime carries '7:00 PM' -- soft_awareness_reminder_engine
+      // parses exactly that. A parser that only reads HH:MM returns null here,
+      // and a null silently means "no claim", so the app shipped the local
+      // reading. That is the very AM/PM case this module exists to catch.
+      final choice = buildSplitChoice(
+        local: [_c('1', 'أروح عالنادي', clock: '7:00 PM')],
+        remote: [_c('1', 'أروح עالنادي', clock: '19:00')],
+      );
+      expect(choice.needsUserChoice, isFalse);
+    });
+
+    test('a meridiem reading against a different hour is a dispute', () {
+      final choice = buildSplitChoice(
+        local: [_c('1', 'أروح عالنادي', clock: '7:00 PM')],
+        remote: [_c('1', 'أروح عالنادي', clock: '07:00')],
+      );
+      expect(choice.needsUserChoice, isTrue);
+    });
+
+    test('midnight noon boundaries are read correctly', () {
+      expect(
+        buildSplitChoice(
+          local: [_c('1', 'x', clock: '12:00 AM')],
+          remote: [_c('1', 'x', clock: '00:00')],
+        ).needsUserChoice,
+        isFalse,
+      );
+      expect(
+        buildSplitChoice(
+          local: [_c('1', 'x', clock: '12:00 PM')],
+          remote: [_c('1', 'x', clock: '12:00')],
+        ).needsUserChoice,
+        isFalse,
+      );
+    });
+  });
+
+  group('granularity', () {
+    test('a date with no clock is not a midnight claim', () {
+      // TimeGranularity defaults to exact, so a producer that sets a date and
+      // forgets the granularity had its midnight artefact read as a 00:00
+      // claim -- interrupting the user over nothing.
+      final choice = buildSplitChoice(
+        local: [_c('1', 'להתקשר לאמא', at: DateTime(2026, 8, 22))],
+        remote: [_c('1', 'להתקשר לאמא', at: DateTime(2026, 8, 22), clock: '09:00')],
+      );
+      expect(choice.needsUserChoice, isFalse);
+    });
+
+    test('an explicit date-only reading still pins no clock', () {
+      final choice = buildSplitChoice(
+        local: [
+          _c('1', 'לאסוף את הילדים',
+              at: DateTime(2026, 8, 22), granularity: TimeGranularity.dateOnly),
+        ],
+        remote: [_c('1', 'לאסוף את הילדים', at: DateTime(2026, 8, 22), clock: '14:00')],
+      );
+      expect(choice.needsUserChoice, isFalse);
+    });
+
+    test('two real clocks on the same day still disagree', () {
+      final choice = buildSplitChoice(
+        local: [_c('1', 'x', at: DateTime(2026, 8, 22), clock: '09:00')],
+        remote: [_c('1', 'x', at: DateTime(2026, 8, 22), clock: '16:00')],
+      );
+      expect(choice.needsUserChoice, isTrue);
     });
   });
 

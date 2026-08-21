@@ -62,6 +62,30 @@ function normaliseKind(kind: string): string {
   return KIND_SLUG.test(kind) ? kind : UNCLASSIFIED_KIND;
 }
 
+function withinWindow(at: Date, window: { from: Date; to: Date }): boolean {
+  return at >= window.from && at <= window.to;
+}
+
+/**
+ * The hour the person experienced, not the hour UTC recorded.
+ *
+ * A completion at 09:00 in Asia/Jerusalem is 06:00Z in summer and 07:00Z in
+ * winter, so reading UTC both shifts every habit by the offset and smears one
+ * routine across two buckets at the DST boundary. This repo is careful about
+ * that everywhere else (see src/planning/sharedTime); the cold path should
+ * not be the exception. Falling back to UTC when no timezone is given is a
+ * caller's choice, not a silent default we can improve on.
+ */
+function localHour(at: Date, timezone: string | undefined): number {
+  if (!timezone) return at.getUTCHours();
+  const hour = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    hour: 'numeric',
+    hour12: false,
+  }).format(at);
+  return Number(hour) % 24;
+}
+
 /**
  * Everything the cold path is allowed to know: counts, kinds and hours.
  *
@@ -79,29 +103,44 @@ function normaliseKind(kind: string): string {
 export function buildDerivedProjection(
   events: ProjectionEvent[],
   window: { from: Date; to: Date },
+  options: { timezone?: string } = {},
 ): DerivedProjection {
-  const byKind: Record<string, number> = {};
+  // Object.create(null) rather than {}: 'constructor' and 'toString' pass the
+  // slug test, and on a plain object `byKind[kind] ?? 0` reads an inherited
+  // function instead of undefined -- so the count became a string while the
+  // type still said number.
+  const byKind: Record<string, number> = Object.create(null);
   const completionHours: number[] = [];
   let completed = 0;
   let dropped = 0;
+  let observations = 0;
 
   for (const event of events) {
+    // The window is part of the payload, so it has to be true of the payload.
+    // Counting an event from 2019 inside a August-2026 window makes the
+    // projection assert something it does not represent.
+    if (event.completedAt && !withinWindow(event.completedAt, window)) continue;
+    observations += 1;
+
     const kind = normaliseKind(event.kind);
     byKind[kind] = (byKind[kind] ?? 0) + 1;
     if (event.dropped) dropped += 1;
     if (event.completedAt) {
       completed += 1;
-      completionHours.push(event.completedAt.getUTCHours());
+      completionHours.push(localHour(event.completedAt, options.timezone));
     }
   }
 
   return {
     window: { from: window.from.toISOString(), to: window.to.toISOString() },
-    byKind,
+    // Back to a plain object for the payload: JSON.stringify handles a
+    // null-prototype object fine, but the guard's typeof/Object.entries
+    // checks read more predictably against an ordinary one.
+    byKind: { ...byKind },
     completionHours,
     completed,
     dropped,
-    observations: events.length,
+    observations,
   };
 }
 
@@ -117,6 +156,14 @@ export function buildDerivedProjection(
 export function projectionCarriesNoText(projection: DerivedProjection): boolean {
   if (projection === null || typeof projection !== 'object') return false;
 
+  // Object.keys is not what goes on the wire. JSON.stringify ignores the own
+  // keys entirely when the object has a toJSON method, and a method on the
+  // prototype is invisible to Object.keys -- so a class instance could pass
+  // every check below and still serialise titles and a person's name. Only a
+  // plain object serialises to what this function inspected.
+  if (Object.getPrototypeOf(projection) !== Object.prototype) return false;
+  if ('toJSON' in projection) return false;
+
   const keys = Object.keys(projection);
   if (keys.length !== ALLOWED_PROJECTION_KEYS.length) return false;
   if (!keys.every((key) => (ALLOWED_PROJECTION_KEYS as readonly string[]).includes(key))) {
@@ -128,6 +175,8 @@ export function projectionCarriesNoText(projection: DerivedProjection): boolean 
   const windowKeys = Object.keys(window);
   if (windowKeys.length !== 2) return false;
   if (!ISO_INSTANT.test(window.from) || !ISO_INSTANT.test(window.to)) return false;
+  // A window that runs backwards describes no period at all.
+  if (window.from > window.to) return false;
 
   if (!Array.isArray(projection.completionHours)) return false;
   if (

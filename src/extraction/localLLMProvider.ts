@@ -26,6 +26,8 @@ export class LLMUnavailableError extends Error {
 
 interface OllamaGenerateResponse {
   response: string;
+  /** Thinking models put their answer here instead when thinking is enabled. */
+  thinking?: string;
   done: boolean;
 }
 
@@ -49,6 +51,13 @@ export async function callOllama(prompt: string): Promise<string> {
         prompt,
         stream: false,
         format: 'json',
+        // Thinking-capable models default to thinking on, and then return
+        // their answer in `thinking` with `response` empty. Reading only
+        // `response` scored two of the three evaluated models 0/8 -- including
+        // the one the plan designates for production -- which measured this
+        // client, not the models. Verified against Ollama directly: the same
+        // call with think:false returns real JSON from both.
+        think: false,
       }),
       signal: controller.signal,
     });
@@ -71,5 +80,8 @@ export async function callOllama(prompt: string): Promise<string> {
   }
 
   const data = (await response.json()) as OllamaGenerateResponse;
-  return data.response ?? '';
+  // `think: false` should keep the answer in `response`, but older Ollama
+  // builds ignore the flag rather than erroring, so fall back rather than
+  // silently returning an empty string.
+  return data.response || data.thinking || '';
 }

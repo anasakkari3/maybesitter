@@ -127,16 +127,42 @@ int? _minuteOfDay(Commitment c) {
   if (fromClock != null) return fromClock;
 
   final date = c.scheduledDate;
-  return date == null ? null : date.hour * 60 + date.minute;
+  if (date == null) return null;
+
+  // `timeGranularity` defaults to exact, so a producer that sets a date and
+  // never sets a clock reaches here with the same midnight artefact the branch
+  // above exists to ignore. Treating it as a 00:00 claim manufactured disputes
+  // out of readings that pinned no time at all.
+  if (date.hour == 0 && date.minute == 0) return null;
+
+  return date.hour * 60 + date.minute;
 }
 
-/// Parse `H:MM`, `HH:MM` or `HH:MM:SS` into minutes past midnight.
+/// Parse `H:MM`, `HH:MM`, `HH:MM:SS` or `H:MM AM/PM` into minutes past midnight.
 ///
 /// Normalising first means '7:00' and '07:00' compare equal: a formatting
 /// difference is not a disagreement worth interrupting anyone for.
+///
+/// The meridiem form is not optional. `Commitment.startTime` really does carry
+/// '7:00 PM' -- soft_awareness_reminder_engine.dart and commitment_edit_sheet
+/// both parse it -- and a parser that returns null for it reads as "this
+/// reading pins no time", so '7:00 PM' against '19:00' silently shipped the
+/// local guess. That is exactly the AM/PM confusion this file exists to catch.
+/// Those two other parsers should migrate here; until they do this is the one
+/// that must not be the weakest.
 int? _parseClock(String? raw) {
-  final text = raw?.trim();
+  final text = raw?.trim().toUpperCase();
   if (text == null || text.isEmpty) return null;
+
+  final meridiem = RegExp(r'^(\d{1,2}):(\d{2})\s*([AP])\.?M\.?$').firstMatch(text);
+  if (meridiem != null) {
+    var hour = int.parse(meridiem.group(1)!);
+    final minute = int.parse(meridiem.group(2)!);
+    if (hour < 1 || hour > 12 || minute > 59) return null;
+    if (meridiem.group(3) == 'P' && hour != 12) hour += 12;
+    if (meridiem.group(3) == 'A' && hour == 12) hour = 0;
+    return hour * 60 + minute;
+  }
 
   final match = RegExp(r'^(\d{1,2}):(\d{2})(?::\d{2})?$').firstMatch(text);
   if (match == null) return null;
