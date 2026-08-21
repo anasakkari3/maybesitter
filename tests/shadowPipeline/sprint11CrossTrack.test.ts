@@ -83,7 +83,32 @@ const OBSERVED_AT = '2027-01-05T10:00:00.000Z';
  */
 const SHADOW_RUN_PROVENANCE = 'simulated' as const satisfies ShadowEvidenceProvenance;
 
-/** One run of the **real** orchestrator over the real adapter surface. */
+/**
+ * One run of the **real orchestrator** over **stub adapters**.
+ *
+ * Read that precisely, because an earlier version of this file claimed more.
+ * `createShadowPipelineRun` is #45's real implementation — the chain walk, the
+ * runtime decisions, the timeout race, the trace assembly and the digest are
+ * all the shipped code. The eight adapters are not: `stubAdapters()` returns
+ * fixtures, so no real module executes and every `outputDigest` is the harness
+ * constant.
+ *
+ * That still tests the join this file exists for. #46 reads a *trace*, and the
+ * trace is produced by the real orchestrator from real runtime decisions;
+ * #47 reads *readings*, which are computed from that trace. Neither reads a
+ * module's payload. What it does **not** test is #45's adapter surface against
+ * the other tracks, and the honest name for that is a remaining gap rather than
+ * a covered one.
+ *
+ * Closing it means using `createShadowAdapterSet`, which needs a `ShadowRunSeed`
+ * and a `ShadowMemoryReader`. Both exist, as local builders inside
+ * `adapters.test.ts` alongside a `runRealChain` that already drives the real
+ * adapters — so the work is to lift those builders into `harness.ts` and use
+ * them from both files, not to write anything new. An independent review
+ * verified the swap passes and that the two orchestrations agree in shape.
+ * Deliberately not done at integration time: it is a four-function move across
+ * a file this track did not write.
+ */
 async function realRun(runId: string = RUN_ID) {
   const clock = createTestClock();
   const deadline = createTestDeadline({ clock });
@@ -118,8 +143,9 @@ test('every Sprint 11 run is degraded and priority is the only non-contributor',
 /* ── 2. #46 reads #45's real trace ───────────────────────────────── */
 
 test('#46 reconciles its log lines against a real trace, at (runId, module) pairs', async () => {
-  // #46's own suite reconciled against its fixture pipeline's traces. This is
-  // the first time its emitter meets #45's.
+  // #46's own suite reconciled against traces from `createShadowDrillRun` — its
+  // own 617-line pipeline. This is the first time its emitter meets a trace
+  // #45's orchestrator assembled.
   //
   // Pairs, not a set of ids: a duplicate in one run and an absence in another
   // cancel out for a set and are two separate defects for a pair count. That is
@@ -160,9 +186,10 @@ test('#46 reconciles its log lines against a real trace, at (runId, module) pair
 });
 
 test('no line emitted from a real trace carries anything the privacy rules forbid', async () => {
-  // The trace is built from real module outcomes now, not fixtures, so this is
-  // the first time the emitter is exposed to whatever the real chain puts in a
-  // stage record.
+  // The trace is assembled by the real orchestrator, so this is the first time
+  // the emitter meets whatever #45's trace assembly puts in a stage record —
+  // the module names, positions, reasons and runtime decisions. The stage
+  // *payloads* are still fixtures; see `realRun`'s header.
   const bundle = await realRun();
   const { lines } = emitAndReconcileShadowRunLogs([
     { trace: bundle.trace, bundleDigest: bundle.bundleDigest },
@@ -207,8 +234,10 @@ test('#46 computes readings over real runs, and the catalog is fully exercised',
 /* ── 3. #47 scores what #46 measured over what #45 ran ───────────── */
 
 test('the reliability pillar assembles from readings taken over real runs', async () => {
-  // The full three-track chain in one assertion: #45 runs, #46 measures, #47
-  // turns the measurement into evidence. Every link is the real implementation.
+  // The three-track chain in one assertion: #45's orchestrator runs, #46's
+  // reader measures, #47's generator turns the measurement into evidence. Each
+  // of those three is the shipped implementation; the module adapters beneath
+  // them are not, per `realRun`'s header.
   const bundles = await Promise.all(
     Array.from({ length: 3 }, (_unused, index) => realRun(`run-y-000${index}`)),
   );
