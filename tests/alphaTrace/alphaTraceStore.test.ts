@@ -8,7 +8,10 @@ import {
   type AlphaTraceSession,
   type AlphaTraceStageRecord,
 } from '../../src/contracts/v1/alphaTraceContracts';
-import { createInMemoryAlphaTraceStore } from '../../lib/alphaTrace/alphaTraceStore';
+import { mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createFileAlphaTraceStore, createInMemoryAlphaTraceStore } from '../../lib/alphaTrace/alphaTraceStore';
 import { recordTraceStage, resolveTraceSessionId, setTraceStoreForTesting, stage } from '../../lib/alphaTrace/traceRecorder';
 
 const participantId = 'p001';
@@ -210,4 +213,24 @@ test('trace store: a malformed session id reads as nothing, not an error', () =>
   // must be a not-found, never a 500 that leaks a stack.
   assert.equal(store.get('../../../../etc/passwd'), null);
   assert.equal(store.deleteSession('../../../../etc/passwd'), false);
+});
+
+test('trace store: deletion reaches a file whose contents disagree with its name', () => {
+  // Anything written before session ids were validated can carry a different
+  // id inside the file. Deleting by the id in the contents would miss it, and
+  // a participant asking for their data to be erased would not be told.
+  const dir = mkdtempSync(join(tmpdir(), 'trace-legacy-'));
+  const legacy = {
+    version: ALPHA_TRACE_VERSION,
+    sessionId: '../../../../elsewhere',
+    participantId: 'p_victim',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    stages: [stage('input_received', { inputText: 'MRI at the oncology clinic' })],
+  };
+  writeFileSync(join(dir, 'legacy-session.trace.json'), JSON.stringify(legacy));
+
+  const store = createFileAlphaTraceStore({ dataDir: dir });
+  assert.equal(store.deleteParticipant('p_victim'), 1);
+  assert.equal(readdirSync(dir).length, 0);
 });
