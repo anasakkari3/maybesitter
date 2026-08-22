@@ -25,21 +25,27 @@ abstract class CommitmentStateStore {
 /// Deliberately not the whole `Commitment`: persisting the entire object would
 /// mean a change to the seeded title or location never reaches anyone who had
 /// once opened the app.
+///
+/// For new commitments not in the seed, fullCommitment carries the entire
+/// object; for seed mutations, only status/date/completedAt are set.
 class CommitmentStateChange {
   final CommitmentStatus status;
   final DateTime? scheduledDate;
   final DateTime? completedAt;
+  final Commitment? fullCommitment;
 
   const CommitmentStateChange({
     required this.status,
     this.scheduledDate,
     this.completedAt,
+    this.fullCommitment,
   });
 
   Map<String, dynamic> toJson() => {
     'status': status.name,
     'scheduledDate': scheduledDate?.toIso8601String(),
     'completedAt': completedAt?.toIso8601String(),
+    'fullCommitment': fullCommitment?.toJson(),
   };
 
   static CommitmentStateChange? fromJson(Map<String, dynamic> json) {
@@ -53,10 +59,16 @@ class CommitmentStateChange {
     // reading it. Dropping the row restores the seed rather than crashing or
     // inventing a state this build does not have.
     if (status == null) return null;
+    final fullCommitmentJson = json['fullCommitment'];
+    Commitment? fullCommitment;
+    if (fullCommitmentJson is Map<String, dynamic>) {
+      fullCommitment = Commitment.fromJson(fullCommitmentJson);
+    }
     return CommitmentStateChange(
       status: status,
       scheduledDate: _parseDate(json['scheduledDate']),
       completedAt: _parseDate(json['completedAt']),
+      fullCommitment: fullCommitment,
     );
   }
 

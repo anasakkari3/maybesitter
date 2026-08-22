@@ -7,6 +7,7 @@ import 'commitment_state_store.dart';
 
 class InMemoryCommitmentRepository implements CommitmentRepository {
   final List<Commitment> _commitments = [];
+  final Set<String> _seedIds = {};
   final _controller = StreamController<List<Commitment>>.broadcast();
 
   /// Where a completion or a postpone is recorded so Activity can show it.
@@ -62,6 +63,16 @@ class InMemoryCommitmentRepository implements CommitmentRepository {
       );
       restored = true;
     }
+
+    final existingIds = _commitments.map((c) => c.id).toSet();
+    for (final change in changes.values) {
+      final saved = change.fullCommitment;
+      if (saved != null && !existingIds.contains(saved.id)) {
+        _commitments.add(saved);
+        restored = true;
+      }
+    }
+
     if (restored) _notify();
   }
 
@@ -70,16 +81,22 @@ class InMemoryCommitmentRepository implements CommitmentRepository {
     if (store == null) return;
     final changes = <String, CommitmentStateChange>{};
     for (final commitment in _commitments) {
-      // Only what a person changed. A pending commitment with no completion is
-      // the seed as shipped and needs no row.
-      if (commitment.status == CommitmentStatus.pending &&
-          commitment.completedAt == null) {
+      // Seed data as shipped needs no row unless the user changed it. Any
+      // commitment not in the original seed set is new — created by the
+      // user via capture — and must be written regardless of its status,
+      // since "pending" is indistinguishable from "seed" by status alone.
+      final isUnmodifiedSeed = _seedIds.contains(commitment.id) &&
+          commitment.status == CommitmentStatus.pending &&
+          commitment.completedAt == null;
+      if (isUnmodifiedSeed) {
         continue;
       }
+      final isNew = !_seedIds.contains(commitment.id);
       changes[commitment.id] = CommitmentStateChange(
         status: commitment.status,
         scheduledDate: commitment.scheduledDate,
         completedAt: commitment.completedAt,
+        fullCommitment: isNew ? commitment : null,
       );
     }
     // Same reasoning as `_restore`: a failed write must not turn a completed
@@ -192,6 +209,7 @@ class InMemoryCommitmentRepository implements CommitmentRepository {
         category: 'Personal',
       ),
     ]);
+    _seedIds.addAll(_commitments.map((c) => c.id));
 
     _notify();
   }
@@ -250,6 +268,7 @@ class InMemoryCommitmentRepository implements CommitmentRepository {
       }
     }
     _notify();
+    await _persist();
   }
 
   @override
