@@ -110,7 +110,16 @@ export function createFileAlphaTraceStore(options?: AlphaTraceStoreOptions): Alp
     ensureDir();
     return readdirSync(dataDir)
       .filter((e) => e.endsWith(TRACE_FILE_EXT))
-      .map((e) => readSession(path.join(dataDir, e)))
+      .map((entry) => {
+        const session = readSession(path.join(dataDir, entry));
+        if (!session) return null;
+        // The filename is the authority, not the id inside the file. Deletion
+        // and pruning both delete by the id they read here, so a file whose
+        // contents disagree with its name -- anything written before session
+        // ids were validated -- would otherwise be unreachable by either, and
+        // a participant's deletion request would quietly skip it.
+        return { ...session, sessionId: entry.slice(0, -TRACE_FILE_EXT.length) };
+      })
       .filter((s): s is AlphaTraceSession => s !== null)
       .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
   }
