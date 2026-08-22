@@ -106,9 +106,17 @@ All three tie on Arabic. The previous report's 0/8 figures are marked
 `supersedes` in the file and must not be cited. The dataset is still 8 of 50;
 `ESCALATION_THRESHOLDS` stays provisional.
 
-## G. Outside this plan's code — reported, NOT fixed
+## G. Outside this plan's code
 
-**G1. CRITICAL, remotely exploitable: alpha trace session hijack.**
+> **Update 2026-08-22:** G1 and G2 are fixed on branch
+> `fix/alpha-trace-session-isolation` (worktree
+> `worktrees-core-value/alpha-trace-hardening`, commits `62d3ce9` and `970b9af`),
+> based on `main` rather than this branch so a critical security fix is not
+> gated behind work marked NOT READY. Full suite there: 2851 pass, `tsc` clean.
+> G3–G7 remain open.
+
+
+**G1. FIXED (`fix/alpha-trace-session-isolation`). CRITICAL, remotely exploitable: alpha trace session hijack.**
 `sessionId` comes from the request body (`lib/alphaTrace/traceRecorder.ts:40-45`)
 with no charset check, and `alphaTraceStore.append` overwrites `participantId`
 while preserving the existing `stages`. An enrolled participant can read another
@@ -119,7 +127,7 @@ so the victim's data survives their own deletion request. Gated behind
 describes enabling for alpha review. Fix: reject `sessionId` not matching
 `/^[A-Za-z0-9_-]{1,128}$/`, and refuse an `append` whose `participantId` differs.
 
-**G2. CRITICAL: path traversal.** The same unvalidated `sessionId` is the
+**G2. FIXED (`fix/alpha-trace-session-isolation`). CRITICAL: path traversal.** The same unvalidated `sessionId` is the
 filename (`alphaTraceStore.ts:36-38`), giving arbitrary file write outside the
 data dir with attacker-influenced content.
 
@@ -198,7 +206,8 @@ still needed.
 
 **NOT READY** — for turning the feature on. The plan is fully implemented,
 tested and independently reviewed, and every defect the reviews found in this
-branch is fixed. It must not be wired until, at minimum: G1 and G2 are closed,
+branch is fixed. It must not be wired until, at minimum: G1 and G2 are merged (they are fixed
+on `fix/alpha-trace-session-isolation` but not yet on `main`),
 `privacyEscalationNote` has a render site and a consent gate, and the escalation
 path has an owner-approved cost model. The branch itself is sound to merge as
 primitives.
