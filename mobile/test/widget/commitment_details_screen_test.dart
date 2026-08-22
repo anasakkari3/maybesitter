@@ -86,7 +86,28 @@ void main() {
           reason:
               'Tapping the Time row must open a picker, not do nothing.',
         );
-        // Keep the same date - only the time is under test here.
+        // Advance to tomorrow rather than keeping today's date. editTime()
+        // rejects any combined date+time that isn't after DateTime.now(), so
+        // picking today's date and a fixed clock time (3:45 PM below) would
+        // flake depending on what time of day the suite happens to run -
+        // failing whenever the real clock is already past 3:45 PM. Tomorrow
+        // is unconditionally in the future regardless of wall-clock time.
+        final dateEntryModeButton = find.descendant(
+          of: find.byType(DatePickerDialog),
+          matching: find.byIcon(Icons.edit_outlined),
+        );
+        expect(dateEntryModeButton, findsOneWidget);
+        await tester.tap(dateEntryModeButton);
+        await tester.pumpAndSettle();
+        final tomorrow = DateTime.now().add(const Duration(days: 1));
+        final dateInputField = find.byType(TextField);
+        expect(dateInputField, findsOneWidget);
+        await tester.enterText(
+          dateInputField,
+          '${tomorrow.month.toString().padLeft(2, '0')}/'
+          '${tomorrow.day.toString().padLeft(2, '0')}/'
+          '${tomorrow.year}',
+        );
         await tester.tap(find.text('OK'));
         await tester.pumpAndSettle();
 
