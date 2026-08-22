@@ -4,7 +4,7 @@ import {
   applyParticipantCommand,
   getParticipantStateSnapshot,
 } from './participantState';
-import { localDayKey, normalizeTimezone, parseIsoDate, resolvedCommitmentTime } from './time';
+import { localDayKey, normalizeTimezone, parseIsoInstant, resolvedCommitmentTime } from './time';
 
 const HIDDEN_LIST_STATUSES = new Set<Commitment['status']>(['dropped', 'archived']);
 
@@ -86,9 +86,9 @@ function patchTimeSpec(current: TimeSpec, input: PatchCommitmentInput): Partial<
   const hasReminderTime = input.reminderTime !== undefined;
   if (!hasDueDate && !hasReminderTime) return undefined;
 
-  const dueAt = hasDueDate ? parseIsoDate(input.dueDate, 'dueDate').toISOString() : current.dueAt;
+  const dueAt = hasDueDate ? parseIsoInstant(input.dueDate, 'dueDate').toISOString() : current.dueAt;
   const remindAt = hasReminderTime
-    ? parseIsoDate(input.reminderTime, 'reminderTime').toISOString()
+    ? parseIsoInstant(input.reminderTime, 'reminderTime').toISOString()
     : hasDueDate
       ? dueAt
       : current.remindAt;
@@ -157,7 +157,7 @@ export async function postponeCommitment(
   now: Date = new Date(),
   options: { participantId?: string } = {},
 ): Promise<Commitment> {
-  const parsed = parseIsoDate(postponedUntil, 'postponedUntil');
+  const parsed = parseIsoInstant(postponedUntil, 'postponedUntil');
   if (parsed.getTime() <= now.getTime()) throw new Error('postponedUntil must be after now');
   const command: Command = {
     type: 'Postpone',
