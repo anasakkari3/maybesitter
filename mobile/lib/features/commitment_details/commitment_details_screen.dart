@@ -89,15 +89,6 @@ class CommitmentDetailsScreen extends ConsumerWidget {
     }
 
     Future<void> editTime() async {
-      // postpone() is the only repository call that both (a) accepts a full
-      // DateTime, not just a date, and (b) is already proven to persist
-      // correctly on both backends - the mock repository calls `_persist()`
-      // and the API repository posts a `postpone` action the server already
-      // validates and stores. `update()` was deliberately not used here: it
-      // never persists in mock mode, and the API implementation's `update()`
-      // drops the time-of-day entirely (and throws when
-      // `supportsSafeCommitmentPatch` is off), so it cannot carry a time
-      // edit safely on either backend.
       final current = commitment!.scheduledDate ?? DateTime.now();
       final newDate = await AdaptiveDateTimePicker.pickDate(
         context: context,
@@ -132,49 +123,27 @@ class CommitmentDetailsScreen extends ConsumerWidget {
         return;
       }
 
-      await ref.read(commitmentRepositoryProvider).postpone(id, combined);
-
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l10n.timeUpdatedAlsoPostponedNotice)),
-        );
-      }
-
-      // postpone() only ever touches `scheduledDate` (and status) on both
-      // backends - it does not update the separate `startTime`/`endTime`
-      // display strings this screen's Time row actually reads. Layer that
-      // update on top so the new time is visible immediately. Built from the
-      // pre-postpone `commitment` plus what postpone() is known to have just
-      // set (scheduledDate, status: postponed) rather than reading the
-      // commitment back through commitmentsStreamProvider: the repository's
-      // stream notification is dispatched asynchronously, so a read-back
-      // immediately after the await is not guaranteed to observe it yet.
-      //
-      // Guarded and best-effort: on the API backend, update() throws
-      // UnsupportedError whenever `!config.supportsSafeCommitmentPatch`
-      // (the default, when the safe-patch flag is off). postpone() above
-      // has already succeeded and committed scheduledDate/status by this
-      // point, so a failure here must not surface as a crash or undo that -
-      // the display simply falls back to whatever the next fetch returns.
-      // This update() call also shares editTitle()'s known limitation: in
-      // mock mode it does not survive a relaunch (update() does not call
-      // _persist()); the scheduledDate change from postpone() above does.
-      if (config.supportsSafeCommitmentPatch) {
-        final newStartTime = DateFormat('hh:mm a').format(combined);
-        try {
-          await ref.read(commitmentRepositoryProvider).update(
-                commitment.copyWith(
-                  scheduledDate: combined,
-                  status: CommitmentStatus.postponed,
-                  startTime: newStartTime,
-                ),
-              );
-        } catch (_) {
-          // Best-effort only - postpone() already committed the date/time
-          // and status; a failure here just means the startTime display
-          // string will lag until the next fetch instead of updating now.
+      // Correcting a time is not postponing. postpone() exists for "I can't
+      // make this, move it", and says so: it sets status to postponed and
+      // writes a "Postponed" entry to Activity. Editing goes through
+      // update(), which the domain's UpdateCommitment command has always
+      // supported for timeSpec without touching status.
+      if (!config.supportsSafeCommitmentPatch) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(l10n.editingDisabledExplanation)),
+          );
         }
+        return;
       }
+
+      await ref.read(commitmentRepositoryProvider).update(
+            commitment.copyWith(
+              scheduledDate: combined,
+              startTime: DateFormat('hh:mm a').format(combined),
+            ),
+          );
+
     }
 
     Future<void> editTitle() async {

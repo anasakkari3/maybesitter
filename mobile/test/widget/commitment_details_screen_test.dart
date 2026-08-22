@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:maybesitter_mobile/config/app_config.dart';
 import 'package:maybesitter_mobile/features/commitment_details/commitment_details_screen.dart';
 import 'package:maybesitter_mobile/l10n/generated/app_localizations.dart';
+import 'package:maybesitter_mobile/models/activity_event.dart';
 import 'package:maybesitter_mobile/models/commitment.dart';
 import 'package:maybesitter_mobile/services/providers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -243,6 +244,71 @@ void main() {
             .firstWhere((c) => c.id == 'c-today-1');
         expect(restored.startTime, '10:30 AM');
         expect(restored.status, CommitmentStatus.pending);
+      },
+    );
+
+    testWidgets(
+      'editing the time does not mark the commitment postponed',
+      (WidgetTester tester) async {
+        SharedPreferences.setMockInitialValues({});
+        final container = _buildMockModeContainer();
+        addTearDown(container.dispose);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: _buildLocalizedApp(
+              const CommitmentDetailsScreen(id: 'c-today-1'),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byIcon(Icons.schedule));
+        await tester.pumpAndSettle();
+        await tester.tap(find.descendant(
+          of: find.byType(DatePickerDialog),
+          matching: find.byIcon(Icons.edit_outlined),
+        ));
+        await tester.pumpAndSettle();
+        final tomorrow = DateTime.now().add(const Duration(days: 1));
+        await tester.enterText(
+          find.byType(TextField),
+          '${tomorrow.month.toString().padLeft(2, '0')}/'
+          '${tomorrow.day.toString().padLeft(2, '0')}/'
+          '${tomorrow.year}',
+        );
+        await tester.tap(find.text('OK'));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byIcon(Icons.keyboard_outlined));
+        await tester.pumpAndSettle();
+        final timeFields = find.byType(TextField);
+        await tester.enterText(timeFields.first, '03');
+        await tester.enterText(timeFields.last, '45');
+        final pm = find.text('PM');
+        if (tester.any(pm)) {
+          await tester.tap(pm);
+          await tester.pumpAndSettle();
+        }
+        await tester.tap(find.text('OK'));
+        await tester.pumpAndSettle();
+
+        final stored =
+            await container.read(commitmentRepositoryProvider).getById('c-today-1');
+        expect(
+          stored?.status,
+          CommitmentStatus.pending,
+          reason: 'correcting a time is not the same act as postponing',
+        );
+        expect(stored?.startTime, '03:45 PM');
+
+        final activity = await container.read(activityRepositoryProvider).getActivity();
+        expect(
+          activity.where((e) => e.type == ActivityEventType.commitmentPostponed),
+          isEmpty,
+          reason: 'a time edit wrote a "Postponed" entry to Activity',
+        );
       },
     );
   });

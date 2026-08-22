@@ -104,7 +104,6 @@
   "scheduledDateLabel": "Scheduled Date",
   "timeLabel": "Time",
   "pastTimeNotAllowed": "Please choose a time in the future.",
-  "timeUpdatedAlsoPostponedNotice": "Time updated. Note: this also marks the commitment as postponed.",
   "locationLabel": "Location",
   "categoryLabel": "Category",
   "markCompleteAction": "Mark as Complete",
@@ -422,14 +421,12 @@
   "alphaFlagSubmit": "Send report",
   "alphaFlagSent": "Thank you — report received.",
   "alphaFlagDisabled": "Reporting is not enabled in this build.",
-
   "feedbackHistoryTitle": "What we noticed",
   "feedbackHistorySubtitle": "Moments we recorded, and how to correct them",
   "feedbackHistoryEntryTitle": "What we noticed",
   "feedbackHistoryEntrySubtitle": "See and correct what we recorded about your actions",
   "feedbackHistoryIntro": "Each line below is one moment we observed. None of it is stored as a preference, and none of it is a description of who you are.",
   "feedbackHistoryRevokeNote": "If we got one wrong, turn it off. It stops counting from then on, and it stays listed here so you can see what changed.",
-
   "feedbackObservedAccept": "We saw you accept this suggestion.",
   "feedbackObservedEdit": "We saw you change this before saving it.",
   "feedbackObservedReject": "We saw you turn this down.",
@@ -438,7 +435,6 @@
   "feedbackObservedIgnore": "We saw this go unanswered.",
   "feedbackObservedUndo": "We saw you reverse this.",
   "feedbackObservedUnknown": "We recorded something here that this version of the app cannot describe.",
-
   "feedbackHistoryWhen": "On {date}",
   "@feedbackHistoryWhen": {
     "placeholders": {
@@ -476,14 +472,12 @@
   },
   "feedbackRevokeDoneMessage": "Done. We no longer learn from that one.",
   "feedbackRevokeFailedMessage": "That did not go through. Nothing changed.",
-
   "feedbackHistoryEmptyTitle": "Nothing recorded yet",
   "feedbackHistoryEmptyMessage": "After you act on a suggestion, what we observed will appear here.",
   "feedbackHistoryLoadFailedTitle": "We could not load this",
   "feedbackHistoryLoadFailedMessage": "The record could not be reached. Nothing has changed.",
   "feedbackHistoryUnavailableTitle": "Not connected in this build",
   "feedbackHistoryUnavailableMessage": "This build has no behaviour record connected, so there is nothing to show. That is not the same as an empty history.",
-
   "feedbackBaselineTitle": "From before we kept dates",
   "feedbackBaselineMessage": "These totals come from before we started recording dates. Without a date, a total cannot be shown as a moment, and it cannot be turned off one at a time.",
   "feedbackBaselineUpdated": "Last changed {date}.",
@@ -499,7 +493,6 @@
   "feedbackBaselineDelayedActions": "Things you put off",
   "feedbackBaselineClarificationSuccesses": "Our questions that helped",
   "feedbackBaselineClarificationFailures": "Our questions that did not help",
-
   "routineSurveyTitle": "Your daily routine",
   "routineSurveySubtitle": "Five quick picks so reminders avoid your obvious no-go times.",
   "routineSleepQuestion": "When do you usually sleep?",
@@ -537,7 +530,6 @@
   "routineEscalationMustStrong": "Must items can use a stronger reminder about 10 minutes before a timed item because you opted in.",
   "routineEscalationQuietHours": "Quiet hours still defer reminders.",
   "routineEscalationNoFakeCalls": "MaybeSitter never uses fake phone calls or deceptive system UI.",
-
   "privacyStorageTitle": "Where your data lives",
   "privacyTokenStorageLabel": "Pilot access token",
   "privacyTokenStorageValue": "Device keychain",

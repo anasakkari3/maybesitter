@@ -3,6 +3,7 @@ import '../../models/commitment.dart';
 import '../contracts/commitment_repository.dart';
 import 'api_client.dart';
 import 'dtos/commitment_dtos.dart';
+import 'mappers/backend_time_mapper.dart';
 import 'mappers/commitment_mapper.dart';
 
 class ApiCommitmentRepository implements CommitmentRepository {
@@ -61,11 +62,21 @@ class ApiCommitmentRepository implements CommitmentRepository {
       );
     }
 
+    // The scheduled date and the time of day are one instant, named
+    // explicitly: a bare local toIso8601String() carries no offset and left
+    // the server guessing. Sending reminderTime as well is what makes editing
+    // a *time* reach the backend at all — update() used to drop it.
+    final instant = BackendTimeMapper.instantFrom(
+      commitment.scheduledDate,
+      commitment.startTime,
+    );
+
     final req = PatchCommitmentRequestDto(
       title: commitment.title,
       description: commitment.description,
       priority: CommitmentMapper.mapPriorityToBackendLevel(commitment.priority),
-      dueDate: commitment.scheduledDate?.toIso8601String(),
+      dueDate: instant,
+      reminderTime: instant,
     );
 
     await apiClient.patch(

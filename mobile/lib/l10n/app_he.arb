@@ -63,7 +63,6 @@
   "scheduledDateLabel": "תאריך מתוכנן",
   "timeLabel": "שעה",
   "pastTimeNotAllowed": "יש לבחור שעה בעתיד.",
-  "timeUpdatedAlsoPostponedNotice": "השעה עודכנה. לתשומת לבך: פעולה זו מסמנת את ההתחייבות גם כנדחית.",
   "locationLabel": "מיקום",
   "categoryLabel": "קטגוריה",
   "markCompleteAction": "סימון כהושלמה",
@@ -321,14 +320,12 @@
   "alphaFlagSubmit": "שלח דוח",
   "alphaFlagSent": "תודה — הדוח התקבל.",
   "alphaFlagDisabled": "הדיווח אינו מופעל בגרסה זו.",
-
   "feedbackHistoryTitle": "מה שמנו לב אליו",
   "feedbackHistorySubtitle": "רגעים שתיעדנו, ואיך לתקן אותם",
   "feedbackHistoryEntryTitle": "מה שמנו לב אליו",
   "feedbackHistoryEntrySubtitle": "לראות ולתקן את מה שתיעדנו על הפעולות שלך",
   "feedbackHistoryIntro": "כל שורה כאן היא רגע אחד שראינו. אף אחת מהן אינה נשמרת כהעדפה, ואף אחת מהן אינה תיאור שלך.",
   "feedbackHistoryRevokeNote": "אם טעינו באחת, אפשר לכבות אותה. היא תפסיק להיספר מכאן והלאה, ותישאר מוצגת כאן כדי שאפשר יהיה לראות מה השתנה.",
-
   "feedbackObservedAccept": "ראינו שאישרת את ההצעה הזו.",
   "feedbackObservedEdit": "ראינו ששינית את זה לפני השמירה.",
   "feedbackObservedReject": "ראינו שסירבת לזה.",
@@ -337,7 +334,6 @@
   "feedbackObservedIgnore": "ראינו שזה עבר בלי תגובה.",
   "feedbackObservedUndo": "ראינו שביטלת את זה.",
   "feedbackObservedUnknown": "תיעדנו כאן משהו שגרסה זו של האפליקציה לא יודעת לתאר.",
-
   "feedbackHistoryWhen": "בתאריך {date}",
   "feedbackHistoryAboutItem": "בנוגע ל: {title}",
   "feedbackHistorySubjectUnknown": "הפריט שזה נגע אליו כבר לא נמצא ברשימה שלך.",
@@ -347,14 +343,12 @@
   "feedbackRevokedOn": "כיבית את זה בתאריך {date}.",
   "feedbackRevokeDoneMessage": "בוצע. אנחנו כבר לא לומדים מזה.",
   "feedbackRevokeFailedMessage": "הפעולה לא עברה. שום דבר לא השתנה.",
-
   "feedbackHistoryEmptyTitle": "עדיין לא תועד דבר",
   "feedbackHistoryEmptyMessage": "לאחר פעולה על הצעה, מה שראינו יופיע כאן.",
   "feedbackHistoryLoadFailedTitle": "לא הצלחנו לטעון את זה",
   "feedbackHistoryLoadFailedMessage": "לא ניתן היה להגיע ליומן. שום דבר לא השתנה.",
   "feedbackHistoryUnavailableTitle": "לא מחובר בגרסה זו",
   "feedbackHistoryUnavailableMessage": "בגרסה זו אין יומן התנהגות מחובר, ולכן אין מה להציג. זה אינו זהה להיסטוריה ריקה.",
-
   "feedbackBaselineTitle": "מלפני שהתחלנו לתעד תאריכים",
   "feedbackBaselineMessage": "הסכומים האלה מגיעים מהתקופה שלפני תיעוד התאריכים. בלי תאריך אי אפשר להציג סכום כרגע בודד, ואי אפשר לכבות אותו אחד-אחד.",
   "feedbackBaselineUpdated": "שינוי אחרון בתאריך {date}.",
@@ -363,7 +357,6 @@
   "feedbackBaselineDelayedActions": "דברים שדחית",
   "feedbackBaselineClarificationSuccesses": "שאלות שלנו שעזרו",
   "feedbackBaselineClarificationFailures": "שאלות שלנו שלא עזרו",
-
   "routineSurveyTitle": "השגרה היומית שלך",
   "routineSurveySubtitle": "חמש בחירות מהירות כדי שתזכורות יימנעו מזמנים שבבירור לא מתאימים.",
   "routineSleepQuestion": "מתי בדרך כלל ישנים?",
@@ -401,7 +394,6 @@
   "routineEscalationMustStrong": "פריטי \"חייב\" יכולים להשתמש בתזכורת חזקה יותר בערך 10 דקות לפני פריט מתוזמן כי בחרת בכך.",
   "routineEscalationQuietHours": "שעות השקט עדיין דוחות תזכורות.",
   "routineEscalationNoFakeCalls": "MaybeSitter אף פעם לא משתמש בשיחות טלפון מזויפות או בממשק מערכת מטעה.",
-
   "privacyStorageTitle": "היכן הנתונים שלך נשמרים",
   "privacyTokenStorageLabel": "אסימון גישה לפיילוט",
   "privacyTokenStorageValue": "מחסן המפתחות של המכשיר",

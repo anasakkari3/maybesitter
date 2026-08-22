@@ -242,10 +242,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get pastTimeNotAllowed => 'Please choose a time in the future.';
 
   @override
-  String get timeUpdatedAlsoPostponedNotice =>
-      'Time updated. Note: this also marks the commitment as postponed.';
-
-  @override
   String get locationLabel => 'Location';
 
   @override

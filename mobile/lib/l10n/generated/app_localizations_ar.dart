@@ -249,10 +249,6 @@ class AppLocalizationsAr extends AppLocalizations {
   String get pastTimeNotAllowed => 'الرجاء اختيار وقت في المستقبل.';
 
   @override
-  String get timeUpdatedAlsoPostponedNotice =>
-      'تم تحديث الوقت. ملاحظة: هذا يؤدي أيضًا إلى تحديد الالتزام كمؤجَّل.';
-
-  @override
   String get locationLabel => 'الموقع';
 
   @override

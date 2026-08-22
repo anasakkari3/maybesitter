@@ -63,7 +63,6 @@
   "scheduledDateLabel": "التاريخ المحدد",
   "timeLabel": "الوقت",
   "pastTimeNotAllowed": "الرجاء اختيار وقت في المستقبل.",
-  "timeUpdatedAlsoPostponedNotice": "تم تحديث الوقت. ملاحظة: هذا يؤدي أيضًا إلى تحديد الالتزام كمؤجَّل.",
   "locationLabel": "الموقع",
   "categoryLabel": "الفئة",
   "markCompleteAction": "تحديد كمكتمل",
@@ -321,14 +320,12 @@
   "alphaFlagSubmit": "إرسال التقرير",
   "alphaFlagSent": "شكرًا — تم استلام التقرير.",
   "alphaFlagDisabled": "الإبلاغ غير مفعّل في هذا الإصدار.",
-
   "feedbackHistoryTitle": "ما لاحظناه",
   "feedbackHistorySubtitle": "لحظات سجّلناها، وكيفية تصحيحها",
   "feedbackHistoryEntryTitle": "ما لاحظناه",
   "feedbackHistoryEntrySubtitle": "اطّلع على ما سجّلناه عن أفعالك وصحّحه",
   "feedbackHistoryIntro": "كل سطر هنا هو لحظة واحدة لاحظناها. لا يُحفظ أي منها كتفضيل، ولا يصف أي منها من أنت.",
   "feedbackHistoryRevokeNote": "إذا أخطأنا في واحدة، أوقفها. لن تُحتسب بعد ذلك، وتبقى ظاهرة هنا لترى ما الذي تغيّر.",
-
   "feedbackObservedAccept": "رأيناك تقبل هذا الاقتراح.",
   "feedbackObservedEdit": "رأيناك تعدّل هذا قبل حفظه.",
   "feedbackObservedReject": "رأيناك ترفض هذا.",
@@ -337,7 +334,6 @@
   "feedbackObservedIgnore": "رأينا هذا يمرّ دون ردّ.",
   "feedbackObservedUndo": "رأيناك تتراجع عن هذا.",
   "feedbackObservedUnknown": "سجّلنا هنا شيئًا لا يستطيع هذا الإصدار من التطبيق وصفه.",
-
   "feedbackHistoryWhen": "في {date}",
   "feedbackHistoryAboutItem": "بخصوص: {title}",
   "feedbackHistorySubjectUnknown": "العنصر الذي يخصّه هذا لم يعد في قائمتك.",
@@ -347,14 +343,12 @@
   "feedbackRevokedOn": "أوقفت هذا في {date}.",
   "feedbackRevokeDoneMessage": "تم. لم نعد نتعلّم من ذلك.",
   "feedbackRevokeFailedMessage": "لم تتم العملية. لم يتغيّر شيء.",
-
   "feedbackHistoryEmptyTitle": "لا شيء مسجّل بعد",
   "feedbackHistoryEmptyMessage": "بعد أن تتصرّف تجاه اقتراح، سيظهر هنا ما لاحظناه.",
   "feedbackHistoryLoadFailedTitle": "تعذّر تحميل هذا",
   "feedbackHistoryLoadFailedMessage": "تعذّر الوصول إلى السجل. لم يتغيّر شيء.",
   "feedbackHistoryUnavailableTitle": "غير موصول في هذا الإصدار",
   "feedbackHistoryUnavailableMessage": "هذا الإصدار لا يتضمّن سجل سلوك موصولًا، لذا لا يوجد ما يُعرض. وهذا ليس مثل سجل فارغ.",
-
   "feedbackBaselineTitle": "من قبل أن نسجّل التواريخ",
   "feedbackBaselineMessage": "هذه المجاميع تعود إلى ما قبل بدء تسجيل التواريخ. بلا تاريخ، لا يمكن عرض المجموع كلحظة، ولا يمكن إيقافه واحدًا واحدًا.",
   "feedbackBaselineUpdated": "آخر تغيير في {date}.",
@@ -363,7 +357,6 @@
   "feedbackBaselineDelayedActions": "أشياء أجّلتها",
   "feedbackBaselineClarificationSuccesses": "أسئلتنا التي ساعدت",
   "feedbackBaselineClarificationFailures": "أسئلتنا التي لم تساعد",
-
   "routineSurveyTitle": "روتينك اليومي",
   "routineSurveySubtitle": "خمسة اختيارات سريعة كي تتجنب التذكيرات أوقاتك غير المناسبة بوضوح.",
   "routineSleepQuestion": "متى تنام عادة؟",
@@ -401,7 +394,6 @@
   "routineEscalationMustStrong": "عناصر \"لازم\" يمكن أن تستخدم تذكيرًا أقوى قبل نحو 10 دقائق من العنصر الموقّت لأنك وافقت على ذلك.",
   "routineEscalationQuietHours": "الساعات الهادئة ما زالت تؤجّل التذكيرات.",
   "routineEscalationNoFakeCalls": "لا يستخدم MaybeSitter مكالمات هاتفية مزيفة ولا واجهات نظام مضللة.",
-
   "privacyStorageTitle": "أين تُحفظ بياناتك",
   "privacyTokenStorageLabel": "رمز الوصول التجريبي",
   "privacyTokenStorageValue": "سلسلة مفاتيح الجهاز",
