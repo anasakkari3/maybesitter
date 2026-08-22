@@ -1,10 +1,49 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:maybesitter_mobile/config/app_config.dart';
 import 'package:maybesitter_mobile/models/calendar_import.dart';
 import 'package:maybesitter_mobile/services/apple_calendar_import_service.dart';
+import 'package:maybesitter_mobile/services/providers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  group('calendarImportServiceProvider selection', () {
+    test(
+      'resolves to AppleCalendarImportService by default (no overrides)',
+      () {
+        SharedPreferences.setMockInitialValues({});
+        final container = ProviderContainer();
+        addTearDown(container.dispose);
+
+        final service = container.read(calendarImportServiceProvider);
+
+        expect(service, isA<AppleCalendarImportService>());
+      },
+    );
+
+    test(
+      'stays AppleCalendarImportService even when AppConfig is in mock '
+      'apiMode -- calendar import is a native bridge, not a backend HTTP '
+      'concern, so it must not be gated by isLocalBackend',
+      () {
+        SharedPreferences.setMockInitialValues({});
+        final container = ProviderContainer(
+          overrides: [
+            appConfigProvider.overrideWith(
+              (ref) => const AppConfig(apiMode: ApiMode.mock),
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        final service = container.read(calendarImportServiceProvider);
+
+        expect(service, isA<AppleCalendarImportService>());
+      },
+    );
+  });
 
   group('AppleCalendarImportService', () {
     late FakeAppleCalendarBridge bridge;

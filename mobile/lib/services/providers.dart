@@ -122,7 +122,11 @@ final _mockPilotTrustServiceProvider = Provider<MockPilotTrustService>((ref) {
   return MockPilotTrustService();
 });
 
-final _mockCalendarImportServiceProvider = Provider<MockCalendarImportService>((
+/// Not wired as calendarImportServiceProvider's default (see below) -- kept
+/// public so tests and widget previews can opt into the mock explicitly via
+/// an override, e.g. `calendarImportServiceProvider.overrideWith((ref) =>
+/// ref.watch(mockCalendarImportServiceProvider))`.
+final mockCalendarImportServiceProvider = Provider<MockCalendarImportService>((
   ref,
 ) {
   return MockCalendarImportService(
@@ -142,14 +146,19 @@ final pilotTrustServiceProvider = Provider<PilotTrustService>((ref) {
   return ref.watch(_mockPilotTrustServiceProvider);
 });
 
+/// Always the real AppleCalendarImportService: unlike the backend-HTTP
+/// providers above, calendar import talks to a native platform channel
+/// (MethodChannelAppleCalendarBridge), not the Next.js backend, so it has no
+/// dependency on AppConfig.isLocalBackend / API_BASE_URL reachability.
+/// MockCalendarImportService remains available via
+/// mockCalendarImportServiceProvider for tests and widget previews to wire
+/// in explicitly (see V03Harness), but it is never a silent default -- that
+/// used to make every import resolve to a fabricated "connected" state and a
+/// synthetic event without ever calling a real permission API.
 final calendarImportServiceProvider = Provider<CalendarImportService>((ref) {
-  final config = ref.watch(appConfigProvider);
-  if (config.isLocalBackend) {
-    return AppleCalendarImportService(
-      analyticsService: ref.watch(pilotLoopAnalyticsServiceProvider),
-    );
-  }
-  return ref.watch(_mockCalendarImportServiceProvider);
+  return AppleCalendarImportService(
+    analyticsService: ref.watch(pilotLoopAnalyticsServiceProvider),
+  );
 });
 
 final nextStepServiceProvider = Provider<NextStepService>((ref) {
