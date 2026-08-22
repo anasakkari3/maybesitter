@@ -15,17 +15,11 @@ import 'package:maybesitter_mobile/models/app_settings.dart';
 import 'package:maybesitter_mobile/services/providers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// TodayScreen (and, transitively, CaptureComposerScreen's own dependencies)
-/// can reach NextStepCard, which fires a real network fetch on first frame.
-/// Explicit mock mode keeps these widget tests settle-able without a live
-/// backend; none of them assert on real-vs-mock capture/backend behaviour.
-final _mockModeOverride = appConfigProvider.overrideWith(
-  (ref) => const AppConfig(apiMode: ApiMode.mock),
-);
+import '../support/mock_mode_override.dart';
 
 Widget _wrap(Widget child, {Locale locale = const Locale('en')}) {
   return ProviderScope(
-    overrides: [_mockModeOverride],
+    overrides: [mockModeProviderOverride],
     child: MaterialApp(
       locale: locale,
       theme: AppTheme.lightTheme,
@@ -204,7 +198,7 @@ void main() {
 
     testWidgets('8. Arabic RTL layout builds', (tester) async {
       SharedPreferences.setMockInitialValues({});
-      final container = ProviderContainer(overrides: [_mockModeOverride]);
+      final container = ProviderContainer(overrides: [mockModeProviderOverride]);
       addTearDown(container.dispose);
       await container.read(appSettingsProvider.notifier).completeOnboarding();
       await container
@@ -228,7 +222,7 @@ void main() {
 
     testWidgets('9. Hebrew RTL layout builds', (tester) async {
       SharedPreferences.setMockInitialValues({});
-      final container = ProviderContainer(overrides: [_mockModeOverride]);
+      final container = ProviderContainer(overrides: [mockModeProviderOverride]);
       addTearDown(container.dispose);
       await container.read(appSettingsProvider.notifier).completeOnboarding();
       await container

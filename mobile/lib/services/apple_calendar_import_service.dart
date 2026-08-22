@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -157,10 +158,20 @@ class AppleCalendarImportService implements CalendarImportService {
 
   @override
   Future<CalendarImportSnapshot> connect() async {
-    await analyticsService?.record(
-      PilotLoopAnalyticsEvent.calendarConnectionStarted(
-        provider: CalendarImportProvider.appleCalendar.analyticsValue,
-      ),
+    // Fire-and-forget: ApiPilotLoopAnalyticsService.record has no internal
+    // error handling, and with the mobile app now defaulting to a real
+    // backend (ApiMode.localBackend), an unreachable backend would otherwise
+    // let this throw after ApiClient's timeout and fail the entire connect
+    // flow over a telemetry call, before any real calendar work happens.
+    // Analytics must never gate this feature.
+    unawaited(
+      analyticsService
+          ?.record(
+            PilotLoopAnalyticsEvent.calendarConnectionStarted(
+              provider: CalendarImportProvider.appleCalendar.analyticsValue,
+            ),
+          )
+          .catchError((_) {}),
     );
     final result = await bridge.requestAccessAndFetchEvents(
       lookAheadDays: lookAheadDays,
