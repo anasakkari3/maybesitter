@@ -16,7 +16,11 @@ class PilotBootstrapGate extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final config = ref.watch(appConfigProvider);
-    if (config.isMock) return child;
+    // Gated on its own flag, never on apiMode. Pilot access control protects
+    // the pilot program; which capture backend is default is unrelated. When
+    // this was `config.isMock`, flipping the default apiMode to localBackend
+    // put every default build behind a token screen it could not pass.
+    if (!config.requirePilotAccessGate) return child;
 
     final session = ref.watch(pilotSessionControllerProvider);
     if (session.status == PilotSessionStatus.authorized) return child;

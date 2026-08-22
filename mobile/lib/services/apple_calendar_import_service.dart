@@ -178,10 +178,17 @@ class AppleCalendarImportService implements CalendarImportService {
     );
     final snapshot = await _snapshotFromFetch(result);
     if (snapshot.isConnected) {
-      await analyticsService?.record(
-        PilotLoopAnalyticsEvent.calendarConnected(
-          provider: CalendarImportProvider.appleCalendar.analyticsValue,
-        ),
+      // Same fire-and-forget treatment as calendarConnectionStarted above: a
+      // bare await here could still fail the whole connect() call over an
+      // unreachable telemetry endpoint, on the success path no less.
+      unawaited(
+        analyticsService
+            ?.record(
+              PilotLoopAnalyticsEvent.calendarConnected(
+                provider: CalendarImportProvider.appleCalendar.analyticsValue,
+              ),
+            )
+            .catchError((_) {}),
       );
     }
     return snapshot;

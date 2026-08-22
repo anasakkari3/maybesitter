@@ -38,6 +38,7 @@ class AppConfig {
   final String scopeId;
   final String timezone;
   final bool enableSafeCommitmentPatch;
+  final bool requirePilotAccessGate;
   final bool enablePilotWidget;
   final bool enablePilotVoice;
   final bool enablePilotAwareness;
@@ -56,6 +57,10 @@ class AppConfig {
     this.timezone = 'Asia/Jerusalem',
     this.enableSafeCommitmentPatch = const bool.fromEnvironment(
       'ENABLE_SAFE_COMMITMENT_PATCH',
+      defaultValue: false,
+    ),
+    this.requirePilotAccessGate = const bool.fromEnvironment(
+      'REQUIRE_PILOT_ACCESS_GATE',
       defaultValue: false,
     ),
     this.enablePilotWidget = const bool.fromEnvironment(
@@ -119,6 +124,10 @@ class AppConfig {
         'ENABLE_SAFE_COMMITMENT_PATCH',
         defaultValue: false,
       ),
+      requirePilotAccessGate = const bool.fromEnvironment(
+        'REQUIRE_PILOT_ACCESS_GATE',
+        defaultValue: false,
+      ),
       enablePilotWidget = const bool.fromEnvironment(
         'ENABLE_PILOT_WIDGET',
         defaultValue: false,
@@ -163,9 +172,28 @@ class AppConfig {
   bool get isMock => apiMode == ApiMode.mock;
   bool get isLocalBackend => apiMode == ApiMode.localBackend;
 
-  /// Capability flag protecting users from backend timezone offset data-corruption defect.
-  /// Enabled for mock mode OR when explicit deployment capability ENABLE_SAFE_COMMITMENT_PATCH=true (paired with backend commit 87408da+).
-  bool get supportsSafeCommitmentPatch => isMock || enableSafeCommitmentPatch;
+  /// True when [baseUrl] points at a developer machine rather than a deployed
+  /// environment. Used to decide capabilities that are safe to assume locally
+  /// (where the backend is built from the same checkout) but must stay opt-in
+  /// against a deployed backend of unknown vintage.
+  bool get isLocalDevBackend {
+    final host = Uri.tryParse(baseUrl)?.host;
+    return host == 'localhost' || host == '127.0.0.1' || host == '::1';
+  }
+
+  /// Capability flag protecting users from a backend timezone-offset
+  /// data-corruption defect: the patch endpoint is only safe against a backend
+  /// carrying commit 87408da+.
+  ///
+  /// Deliberately NOT keyed on [isMock]. It used to be, which silently
+  /// disabled title/time editing the moment the default [apiMode] flipped to
+  /// localBackend -- the flags mean different things and must not be coupled.
+  /// A localhost backend is built from this same checkout, so it necessarily
+  /// has the paired fix and the capability is on. Any deployed backend still
+  /// requires an explicit ENABLE_SAFE_COMMITMENT_PATCH=true, because we cannot
+  /// know its vintage from the client.
+  bool get supportsSafeCommitmentPatch =>
+      isMock || isLocalDevBackend || enableSafeCommitmentPatch;
 
   PilotPresenceFeatureFlags get pilotPresenceFlags {
     return PilotPresenceFeatureFlags(
@@ -200,6 +228,7 @@ class AppConfig {
     String? scopeId,
     String? timezone,
     bool? enableSafeCommitmentPatch,
+    bool? requirePilotAccessGate,
     bool? enablePilotWidget,
     bool? enablePilotVoice,
     bool? enablePilotAwareness,
@@ -218,6 +247,8 @@ class AppConfig {
       timezone: timezone ?? this.timezone,
       enableSafeCommitmentPatch:
           enableSafeCommitmentPatch ?? this.enableSafeCommitmentPatch,
+      requirePilotAccessGate:
+          requirePilotAccessGate ?? this.requirePilotAccessGate,
       enablePilotWidget: enablePilotWidget ?? this.enablePilotWidget,
       enablePilotVoice: enablePilotVoice ?? this.enablePilotVoice,
       enablePilotAwareness: enablePilotAwareness ?? this.enablePilotAwareness,

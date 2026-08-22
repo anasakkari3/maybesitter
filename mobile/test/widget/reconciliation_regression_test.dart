@@ -160,17 +160,23 @@ void main() {
       const mock = AppConfig(apiMode: ApiMode.mock);
       expect(mock.supportsSafeCommitmentPatch, isTrue);
 
+      // Deployed backend of unknown vintage: capability stays opt-in.
       const backendWithout = AppConfig(
         apiMode: ApiMode.localBackend,
+        baseUrl: 'https://api.maybesitter.example',
         enableSafeCommitmentPatch: false,
       );
       expect(backendWithout.supportsSafeCommitmentPatch, isFalse);
 
       const backendWith = AppConfig(
         apiMode: ApiMode.localBackend,
+        baseUrl: 'https://api.maybesitter.example',
         enableSafeCommitmentPatch: true,
       );
       expect(backendWith.supportsSafeCommitmentPatch, isTrue);
+
+      // Default local build keeps title/time editing enabled.
+      expect(const AppConfig().supportsSafeCommitmentPatch, isTrue);
     });
 
     test('7. API base URL still activates local-backend mode', () {

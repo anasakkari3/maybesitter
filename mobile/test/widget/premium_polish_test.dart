@@ -375,9 +375,12 @@ void main() {
         const AppConfig(apiMode: ApiMode.mock).supportsSafeCommitmentPatch,
         isTrue,
       );
+      // A deployed backend's vintage is unknown from the client, so the
+      // capability stays opt-in there and requires the explicit flag.
       expect(
         const AppConfig(
           apiMode: ApiMode.localBackend,
+          baseUrl: 'https://api.maybesitter.example',
           enableSafeCommitmentPatch: false,
         ).supportsSafeCommitmentPatch,
         isFalse,
@@ -385,6 +388,7 @@ void main() {
       expect(
         const AppConfig(
           apiMode: ApiMode.localBackend,
+          baseUrl: 'https://api.maybesitter.example',
           enableSafeCommitmentPatch: true,
         ).supportsSafeCommitmentPatch,
         isTrue,
