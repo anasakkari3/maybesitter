@@ -311,5 +311,64 @@ void main() {
         );
       },
     );
+
+    testWidgets(
+      'editing the start time never leaves an end time before it',
+      (WidgetTester tester) async {
+        SharedPreferences.setMockInitialValues({});
+        final container = _buildMockModeContainer();
+        addTearDown(container.dispose);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: _buildLocalizedApp(
+              const CommitmentDetailsScreen(id: 'c-today-1'),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byIcon(Icons.schedule));
+        await tester.pumpAndSettle();
+        await tester.tap(find.descendant(
+          of: find.byType(DatePickerDialog),
+          matching: find.byIcon(Icons.edit_outlined),
+        ));
+        await tester.pumpAndSettle();
+        final tomorrow = DateTime.now().add(const Duration(days: 1));
+        await tester.enterText(
+          find.byType(TextField),
+          '${tomorrow.month.toString().padLeft(2, '0')}/'
+          '${tomorrow.day.toString().padLeft(2, '0')}/'
+          '${tomorrow.year}',
+        );
+        await tester.tap(find.text('OK'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byIcon(Icons.keyboard_outlined));
+        await tester.pumpAndSettle();
+        final timeFields = find.byType(TextField);
+        await tester.enterText(timeFields.first, '03');
+        await tester.enterText(timeFields.last, '45');
+        final pm = find.text('PM');
+        if (tester.any(pm)) {
+          await tester.tap(pm);
+          await tester.pumpAndSettle();
+        }
+        await tester.tap(find.text('OK'));
+        await tester.pumpAndSettle();
+
+        final stored = await container
+            .read(commitmentRepositoryProvider)
+            .getById('c-today-1');
+        expect(stored?.startTime, '03:45 PM');
+        // The seed runs 10:30 AM to 11:15 AM: 45 minutes.
+        expect(
+          stored?.endTime,
+          '04:30 PM',
+          reason: 'the end time should follow the start, keeping the duration',
+        );
+      },
+    );
   });
 }

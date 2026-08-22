@@ -80,6 +80,7 @@ class Commitment {
     String? description,
     DateTime? scheduledDate,
     bool clearScheduledDate = false,
+    bool clearEndTime = false,
     String? startTime,
     String? endTime,
     String? location,
@@ -100,7 +101,7 @@ class Commitment {
           ? null
           : (scheduledDate ?? this.scheduledDate),
       startTime: startTime ?? this.startTime,
-      endTime: endTime ?? this.endTime,
+      endTime: clearEndTime ? null : (endTime ?? this.endTime),
       location: location ?? this.location,
       priority: priority ?? this.priority,
       status: status ?? this.status,

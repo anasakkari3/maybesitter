@@ -137,10 +137,38 @@ class CommitmentDetailsScreen extends ConsumerWidget {
         return;
       }
 
+      // Carry the commitment's duration across the move. Leaving the old end
+      // time in place renders ranges like "3:45 PM — 11:15 AM"; an end time we
+      // cannot read is cleared rather than shown as nonsense.
+      String? nextEndTime;
+      final previousStartText = commitment.startTime;
+      final previousEndText = commitment.endTime;
+      if (previousStartText != null && previousEndText != null) {
+        try {
+          // The duration lives between the two clock strings. scheduledDate is
+          // midnight for seeded commitments, so measuring from it would stretch
+          // a 45-minute errand into most of a day.
+          final format = DateFormat('h:mm a');
+          final startClock = format.parseLoose(previousStartText);
+          final endClock = format.parseLoose(previousEndText);
+          var duration = Duration(
+            hours: endClock.hour - startClock.hour,
+            minutes: endClock.minute - startClock.minute,
+          );
+          // A negative span means the range crossed midnight.
+          if (duration.isNegative) duration += const Duration(days: 1);
+          nextEndTime = DateFormat('hh:mm a').format(combined.add(duration));
+        } catch (_) {
+          nextEndTime = null;
+        }
+      }
+
       await ref.read(commitmentRepositoryProvider).update(
             commitment.copyWith(
               scheduledDate: combined,
               startTime: DateFormat('hh:mm a').format(combined),
+              endTime: nextEndTime,
+              clearEndTime: nextEndTime == null,
             ),
           );
 
