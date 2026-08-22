@@ -135,7 +135,8 @@ void main() {
 
     test('a postponed date survives a relaunch', () async {
       final store = InMemoryStateStore();
-      final newDate = DateTime(2026, 8, 21, 9, 0);
+      final now = DateTime.now();
+      final newDate = DateTime(now.year, now.month, now.day + 3, 9, 0);
       final first = InMemoryCommitmentRepository(stateStore: store);
       await first.ready;
       final target = (await first.getToday()).first;
