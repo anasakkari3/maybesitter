@@ -3,10 +3,12 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:maybesitter_mobile/app/app.dart';
+import 'package:maybesitter_mobile/config/app_config.dart';
 import 'package:maybesitter_mobile/features/today/today_screen.dart';
 import 'package:maybesitter_mobile/l10n/generated/app_localizations.dart';
 import 'package:maybesitter_mobile/models/commitment.dart';
 import 'package:maybesitter_mobile/services/providers.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   final testCommitments = [
@@ -41,6 +43,12 @@ void main() {
         ProviderScope(
           overrides: [
             todayCommitmentsProvider.overrideWithValue(testCommitments),
+            // TodayScreen embeds NextStepCard, which fires a real network
+            // fetch on its first frame. Explicit mock mode keeps this test
+            // settle-able without a live backend.
+            appConfigProvider.overrideWith(
+              (ref) => const AppConfig(apiMode: ApiMode.mock),
+            ),
           ],
           child: const MaterialApp(
             supportedLocales: AppLocalizations.supportedLocales,
@@ -64,7 +72,20 @@ void main() {
     testWidgets('MaybesitterApp renders full app with router', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const ProviderScope(child: MaybesitterApp()));
+      SharedPreferences.setMockInitialValues({
+        'has_completed_onboarding': true,
+      });
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            appConfigProvider.overrideWith(
+              (ref) => const AppConfig(apiMode: ApiMode.mock),
+            ),
+          ],
+          child: const MaybesitterApp(),
+        ),
+      );
       await tester.pump();
       await tester.pumpAndSettle();
 

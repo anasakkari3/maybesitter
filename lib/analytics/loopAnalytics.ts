@@ -13,6 +13,17 @@ export const CLIENT_REPORTABLE_EVENTS = [
   'pricing_viewed', 'purchase_intent', 'data_deleted',
   // Self-reported utility and invasiveness for the V03 arm experiment.
   'recommendation_rated',
+  // Phone-presence loop events are observed by the client but carry only scalar,
+  // content-free context. Server-side validation rejects raw content keys.
+  'voice_capture_started', 'voice_capture_completed', 'voice_capture_abandoned',
+  'widget_impression', 'widget_tap', 'deep_link_opened',
+  // Presence, intake, and awareness signals the device observes and the server
+  // cannot. All content-free; server-side validation still rejects raw content
+  // keys. None of them feed activation or retention -- those stay derived from
+  // domain state so a client cannot forge funnel progress.
+  'widget_snapshot_published',
+  'source_intake_reviewed', 'source_intake_confirmed',
+  'pilot_feedback_submitted', 'soft_awareness_action', 'soft_awareness_missed',
 ] as const;
 
 export type ClientReportableEvent = typeof CLIENT_REPORTABLE_EVENTS[number];
@@ -66,6 +77,13 @@ export function recordCommitmentEdited(context: AnalyticsContext, commitmentId: 
 
 export function recordDataDeleted(context: AnalyticsContext, deletionScope: string): PrivacySafeAnalyticsEvent | null {
   return emitAnalyticsEvent(context, 'data_deleted', { deletionScope });
+}
+
+export function recordFirstValueReached(
+  context: AnalyticsContext,
+  properties: { surface: string; reason: string },
+): PrivacySafeAnalyticsEvent | null {
+  return emitAnalyticsEvent(context, 'first_value_reached', properties);
 }
 
 export function recordClientEvent(

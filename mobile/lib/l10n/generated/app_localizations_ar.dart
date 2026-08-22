@@ -88,6 +88,67 @@ class AppLocalizationsAr extends AppLocalizations {
   String get voiceCaptureStopTooltip => 'إيقاف التسجيل';
 
   @override
+  String get spokenPromptPrimaryAction => 'قل ما يدور في بالك';
+
+  @override
+  String get spokenPromptStopAction => 'إيقاف ومراجعة';
+
+  @override
+  String get spokenPromptListeningTitle => 'جارٍ الاستماع';
+
+  @override
+  String get spokenPromptPermissionRequestMessage =>
+      'اسمح بالوصول للصوت، ثم قل الالتزام كما يخطر لك.';
+
+  @override
+  String get spokenPromptListeningMessage =>
+      'تحدث بشكل طبيعي. لا يتم الاحتفاظ بأي صوت بعد تحويله إلى نص.';
+
+  @override
+  String get spokenPromptReviewTitle => 'راجِع قبل التحليل';
+
+  @override
+  String get spokenPromptReviewMessage =>
+      'عدّل النص أدناه، ثم حلّله عندما يصبح مطابقًا لما قصدته.';
+
+  @override
+  String get spokenPromptPermissionDeniedTitle => 'الوصول للصوت متوقف';
+
+  @override
+  String get spokenPromptPermissionDeniedMessage =>
+      'يبقى الالتقاط بالكتابة متاحًا. استخدم لوحة المفاتيح ثم حلّل الملاحظة.';
+
+  @override
+  String get spokenPromptUnavailableTitle => 'الصوت غير متاح';
+
+  @override
+  String get spokenPromptUnavailableMessage =>
+      'يبقى الالتقاط بالكتابة متاحًا. استخدم لوحة المفاتيح ثم حلّل الملاحظة.';
+
+  @override
+  String get spokenPromptFailureTitle => 'فشل الالتقاط الصوتي';
+
+  @override
+  String get spokenPromptFailureMessage =>
+      'يبقى الالتقاط بالكتابة متاحًا. استخدم لوحة المفاتيح أو جرّب الصوت مرة أخرى.';
+
+  @override
+  String get importClipboardAction => 'استيراد من الحافظة';
+
+  @override
+  String get importClipboardEmptyMessage => 'لا يوجد نص في الحافظة الآن.';
+
+  @override
+  String get importReviewTitle => 'راجع النص المستورد';
+
+  @override
+  String get importReviewMessage =>
+      'أكّد هذا النص قبل أن يحلّله MaybeSitter أو يحفظ أي شيء.';
+
+  @override
+  String get importUseTextAction => 'استخدم هذا النص';
+
+  @override
   String get editingDisabledExplanation =>
       'التعديل غير متاح مؤقتًا لحماية موعد الالتزام.';
 
@@ -185,6 +246,13 @@ class AppLocalizationsAr extends AppLocalizations {
   String get timeLabel => 'الوقت';
 
   @override
+  String get pastTimeNotAllowed => 'الرجاء اختيار وقت في المستقبل.';
+
+  @override
+  String get timeUpdatedAlsoPostponedNotice =>
+      'تم تحديث الوقت. ملاحظة: هذا يؤدي أيضًا إلى تحديد الالتزام كمؤجَّل.';
+
+  @override
   String get locationLabel => 'الموقع';
 
   @override
@@ -263,6 +331,79 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get notificationsDisabled => 'معطلة';
+
+  @override
+  String get pilotFeedbackTitle => 'ملاحظات التجربة';
+
+  @override
+  String get pilotFeedbackSubtitle =>
+      'أخبرنا أي لحظة في النسخة التجريبية أفادتك وكيف كان إحساسها.';
+
+  @override
+  String get pilotFeedbackEntrySubtitle => 'الفائدة، التوقيت، وإحساس التذكير';
+
+  @override
+  String get pilotFeedbackSurfaceTitle => 'أي واجهة تقيّم الآن؟';
+
+  @override
+  String get pilotFeedbackSurfaceWidget => 'الويدجت';
+
+  @override
+  String get pilotFeedbackSurfaceVoice => 'الصوت';
+
+  @override
+  String get pilotFeedbackSurfaceNotification => 'الإشعار';
+
+  @override
+  String get pilotFeedbackSurfaceCalendar => 'التقويم';
+
+  @override
+  String get pilotFeedbackSurfaceImport => 'الاستيراد';
+
+  @override
+  String get pilotFeedbackUsefulnessTitle => 'ما مدى فائدتها؟';
+
+  @override
+  String get pilotFeedbackUsefulnessHigh => 'مفيدة جدًا';
+
+  @override
+  String get pilotFeedbackUsefulnessSome => 'إلى حد ما';
+
+  @override
+  String get pilotFeedbackUsefulnessNotYet => 'ليس بعد';
+
+  @override
+  String get pilotFeedbackAnnoyanceTitle => 'كيف كان إحساس التذكير؟';
+
+  @override
+  String get pilotFeedbackAnnoyanceCalm => 'هادئ';
+
+  @override
+  String get pilotFeedbackAnnoyanceFine => 'مناسب';
+
+  @override
+  String get pilotFeedbackAnnoyanceTooMuch => 'أكثر من اللازم';
+
+  @override
+  String get pilotFeedbackTimingTitle => 'كيف كان التوقيت؟';
+
+  @override
+  String get pilotFeedbackTimingEarly => 'مبكر جدًا';
+
+  @override
+  String get pilotFeedbackTimingRight => 'مناسب';
+
+  @override
+  String get pilotFeedbackTimingLate => 'متأخر جدًا';
+
+  @override
+  String get pilotFeedbackTimingNotUsing => 'لا أستخدم هذا';
+
+  @override
+  String get pilotFeedbackSubmitAction => 'إرسال الملاحظات';
+
+  @override
+  String get pilotFeedbackSavedMessage => 'شكرًا. تم تسجيل ملاحظاتك التجريبية.';
 
   @override
   String get privacyTitle => 'الخصوصية والبيانات';
@@ -682,6 +823,115 @@ class AppLocalizationsAr extends AppLocalizations {
       'سيعرض MaybeSitter ربط تقويمك بعد أن يكون قد أفادك فعلًا. ولن يطلب ذلك قبل هذا.';
 
   @override
+  String get trustCalendarProviderApple => 'تقويم Apple عبر EventKit';
+
+  @override
+  String get trustCalendarConsentOffMessage =>
+      'استيراد التقويم متوقف. التطبيق يعمل أيضًا بدونه.';
+
+  @override
+  String get trustCalendarNotConnectedMessage =>
+      'الموافقة مفعّلة، لكن لم يُستورد شيء بعد. اربط تقويم Apple عندما تريد أن يرى MaybeSitter أوقات انشغالك.';
+
+  @override
+  String get trustCalendarPermissionDeniedMessage =>
+      'وصول التقويم متوقف في إعدادات iPhone، لذلك يواصل MaybeSitter العمل بدونه.';
+
+  @override
+  String get trustCalendarUnsupportedMessage =>
+      'هذا الـ pilot يبدأ بتقويم Apple على iPhone فقط. يظل MaybeSitter يعمل بدون وصول للتقويم.';
+
+  @override
+  String trustCalendarImportedSummary(int count, int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'تم استيراد $count فترة انشغال للأيام الـ $days القادمة.',
+      many: 'تم استيراد $count فترة انشغال للأيام الـ $days القادمة.',
+      few: 'تم استيراد $count فترات انشغال للأيام الـ $days القادمة.',
+      two: 'تم استيراد فترتي انشغال للأيام الـ $days القادمة.',
+      one: 'تم استيراد فترة انشغال واحدة للأيام الـ $days القادمة.',
+      zero: 'لم تُستورد أي فترات انشغال للأيام الـ $days القادمة بعد.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String trustCalendarDisconnectedRetainedMessage(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'تم فصل تقويم Apple. ما زالت $count فترة انشغال محفوظة على هذا الجهاز حتى تحذفها.',
+      many:
+          'تم فصل تقويم Apple. ما زال $count من فترات الانشغال محفوظًا على هذا الجهاز حتى تحذفها.',
+      few:
+          'تم فصل تقويم Apple. ما زالت $count فترات انشغال محفوظة على هذا الجهاز حتى تحذفها.',
+      two:
+          'تم فصل تقويم Apple. ما زالت فترتا انشغال محفوظتين على هذا الجهاز حتى تحذفهُما.',
+      one:
+          'تم فصل تقويم Apple. ما زالت فترة انشغال واحدة محفوظة على هذا الجهاز حتى تحذفها.',
+      zero: 'تم فصل تقويم Apple.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String trustCalendarLastSynced(Object value) {
+    return 'آخر مزامنة: $value';
+  }
+
+  @override
+  String get trustCalendarConflictTitle => 'تم العثور على تعارضات';
+
+  @override
+  String trustCalendarConflictMessage(int commitments, int busyBlocks) {
+    String _temp0 = intl.Intl.pluralLogic(
+      commitments,
+      locale: localeName,
+      other: 'هناك $commitments التزام في MaybeSitter متداخل مع ',
+      many: 'هناك $commitments التزامًا في MaybeSitter متداخلة مع ',
+      few: 'هناك $commitments التزامات في MaybeSitter متداخلة مع ',
+      two: 'هناك التزامان في MaybeSitter متداخلان مع ',
+      one: 'هناك التزام واحد في MaybeSitter متداخل مع ',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      busyBlocks,
+      locale: localeName,
+      other: '$busyBlocks فترة انشغال مستوردة.',
+      many: '$busyBlocks فترة انشغال مستوردة.',
+      few: '$busyBlocks فترات انشغال مستوردة.',
+      two: 'فترتي انشغال مستوردتين.',
+      one: 'فترة انشغال مستوردة واحدة.',
+    );
+    return '$_temp0$_temp1';
+  }
+
+  @override
+  String get trustCalendarConnectAction => 'اربط الآن';
+
+  @override
+  String get trustCalendarRefreshAction => 'تحديث الاستيراد';
+
+  @override
+  String get trustCalendarDisconnectAction => 'فصل';
+
+  @override
+  String get trustCalendarDeleteDataAction => 'حذف البيانات المستوردة';
+
+  @override
+  String get trustCalendarConnectedMessage => 'تم ربط تقويم Apple.';
+
+  @override
+  String get trustCalendarRefreshedMessage => 'تم تحديث استيراد التقويم.';
+
+  @override
+  String get trustCalendarDisconnectedMessage => 'تم فصل تقويم Apple.';
+
+  @override
+  String get trustCalendarDeletedMessage => 'تم حذف بيانات التقويم المستوردة.';
+
+  @override
   String get trustWhatWeKnowAction => 'ما الذي يعرفه MaybeSitter';
 
   @override
@@ -1024,6 +1274,128 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get feedbackBaselineClarificationFailures => 'أسئلتنا التي لم تساعد';
+
+  @override
+  String get routineSurveyTitle => 'روتينك اليومي';
+
+  @override
+  String get routineSurveySubtitle =>
+      'خمسة اختيارات سريعة كي تتجنب التذكيرات أوقاتك غير المناسبة بوضوح.';
+
+  @override
+  String get routineSleepQuestion => 'متى تنام عادة؟';
+
+  @override
+  String get routineSleepEarly => '10:30 م - 6:30 ص';
+
+  @override
+  String get routineSleepStandard => '11:30 م - 7:30 ص';
+
+  @override
+  String get routineSleepLate => '12:30 ص - 8:30 ص';
+
+  @override
+  String get routineFocusQuestion => 'متى تكون فترة العمل أو الدراسة المعتادة؟';
+
+  @override
+  String get routineFocusWorkday => '9:00 ص - 5:00 م';
+
+  @override
+  String get routineFocusEarly => '8:00 ص - 4:00 م';
+
+  @override
+  String get routineFocusAfternoon => '12:00 م - 6:00 م';
+
+  @override
+  String get routineFixedQuestion => 'هل لديك نافذة التزامات ثابتة متكررة؟';
+
+  @override
+  String get routineFixedMorning => 'الصباح، 7:00 - 9:00';
+
+  @override
+  String get routineFixedAfternoon => 'بعد الظهر، 2:00 - 4:00';
+
+  @override
+  String get routineFixedEvening => 'المساء، 6:00 - 8:00';
+
+  @override
+  String get routineReminderQuestion => 'ما درجة إلحاح التذكيرات المناسبة لك؟';
+
+  @override
+  String get routineReminderSoft => 'هادئة فقط';
+
+  @override
+  String get routineReminderFollowUp => 'هادئة + متابعة';
+
+  @override
+  String get routineReminderStrong => 'قوية عند الحاجة';
+
+  @override
+  String get routineQuietQuestion => 'متى يجب أن تبقى التذكيرات هادئة؟';
+
+  @override
+  String get routineQuietEarly => '9:30 م - 6:30 ص';
+
+  @override
+  String get routineQuietStandard => '10:30 م - 7:30 ص';
+
+  @override
+  String get routineQuietLate => '11:30 م - 8:30 ص';
+
+  @override
+  String get routineNoneRegular => 'لا توجد نافذة ثابتة';
+
+  @override
+  String get routineCompleteAction => 'إنهاء الإعداد';
+
+  @override
+  String get routineSaveAction => 'حفظ الروتين';
+
+  @override
+  String get routineSettingsTitle => 'ملف الروتين';
+
+  @override
+  String get routineSettingsSubtitle =>
+      'النوم، وقت التركيز، النوافذ الثابتة، وساعات الهدوء';
+
+  @override
+  String get routineSettingsConfiguredSubtitle =>
+      'يُستخدم لتوقيت التذكيرات القادمة';
+
+  @override
+  String get routineEscalationTitle => 'كيف تعمل قوة التذكير';
+
+  @override
+  String get routineEscalationNice =>
+      'العناصر الأقل أهمية تبقى عند تذكير هادئ فقط.';
+
+  @override
+  String get routineEscalationShouldSoft =>
+      'عناصر \"ينبغي\" تبقى هادئة مع هذا الإعداد.';
+
+  @override
+  String get routineEscalationShouldFollowUp =>
+      'عناصر \"ينبغي\" يمكن أن تحصل على متابعة إضافية عندما يهم التوقيت.';
+
+  @override
+  String get routineEscalationMustSoft =>
+      'عناصر \"لازم\" تبقى عند تذكير هادئ مع هذا الإعداد.';
+
+  @override
+  String get routineEscalationMustFollowUp =>
+      'عناصر \"لازم\" يمكن أن تحصل على متابعة قبل العناصر الموقّتة مع هذا الإعداد.';
+
+  @override
+  String get routineEscalationMustStrong =>
+      'عناصر \"لازم\" يمكن أن تستخدم تذكيرًا أقوى قبل نحو 10 دقائق من العنصر الموقّت لأنك وافقت على ذلك.';
+
+  @override
+  String get routineEscalationQuietHours =>
+      'الساعات الهادئة ما زالت تؤجّل التذكيرات.';
+
+  @override
+  String get routineEscalationNoFakeCalls =>
+      'لا يستخدم MaybeSitter مكالمات هاتفية مزيفة ولا واجهات نظام مضللة.';
 
   @override
   String get privacyStorageTitle => 'أين تُحفظ بياناتك';

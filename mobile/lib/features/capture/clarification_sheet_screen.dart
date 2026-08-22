@@ -5,7 +5,6 @@ import '../../core/utilities/l10n_extensions.dart';
 import '../../design_system/components/clarification_card.dart';
 import '../../design_system/components/maybesitter_scaffold.dart';
 import '../../design_system/tokens/spacing.dart';
-import '../../models/capture_result.dart';
 import 'capture_controller.dart';
 
 class ClarificationSheetScreen extends ConsumerWidget {

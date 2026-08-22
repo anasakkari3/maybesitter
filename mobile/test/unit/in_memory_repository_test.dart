@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:maybesitter_mobile/models/commitment.dart';
 import 'package:maybesitter_mobile/services/mock/in_memory_commitment_repository.dart';
+import 'package:maybesitter_mobile/services/mock/commitment_state_store.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   group('InMemoryCommitmentRepository Tests', () {
@@ -38,6 +40,67 @@ void main() {
 
       expect(updated?.scheduledDate, futureDate);
       expect(updated?.status, CommitmentStatus.postponed);
+    });
+
+    test('a newly confirmed commitment survives a relaunch', () async {
+      final store = InMemoryStateStore();
+      final first = InMemoryCommitmentRepository(stateStore: store);
+      await first.ready;
+
+      final newCommitment = Commitment(
+        id: 'new-1',
+        title: 'Remind me to call Ahmad tomorrow at 3 PM',
+        description: 'Captured via text input',
+        scheduledDate: DateTime.now().add(const Duration(days: 1)),
+        startTime: '10:00 AM',
+        priority: CommitmentPriority.should,
+        status: CommitmentStatus.pending,
+        category: 'Personal',
+      );
+      await first.saveAll([newCommitment]);
+
+      final relaunched = InMemoryCommitmentRepository(stateStore: store);
+      await relaunched.ready;
+      final restored = await relaunched.getById('new-1');
+
+      expect(restored, isNotNull);
+      expect(restored!.title, 'Remind me to call Ahmad tomorrow at 3 PM');
+    });
+
+    test('a newly confirmed commitment survives JSON serialization through SharedPreferences', () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      SharedPreferences.setMockInitialValues({});
+
+      final store = PreferencesStateStore();
+      final first = InMemoryCommitmentRepository(stateStore: store);
+      await first.ready;
+
+      final scheduledDate = DateTime.now().add(const Duration(days: 1));
+      final newCommitment = Commitment(
+        id: 'new-json-1',
+        title: 'Remind me to call Ahmad tomorrow at 3 PM',
+        description: 'Captured via text input',
+        scheduledDate: scheduledDate,
+        startTime: '10:00 AM',
+        priority: CommitmentPriority.should,
+        status: CommitmentStatus.pending,
+        category: 'Personal',
+      );
+      await first.saveAll([newCommitment]);
+
+      // Create a new repository instance with the same SharedPreferences backing
+      final relaunched = PreferencesStateStore();
+      final secondRepo = InMemoryCommitmentRepository(stateStore: relaunched);
+      await secondRepo.ready;
+      final restored = await secondRepo.getById('new-json-1');
+
+      expect(restored, isNotNull);
+      expect(restored!.title, 'Remind me to call Ahmad tomorrow at 3 PM');
+      expect(restored!.description, 'Captured via text input');
+      expect(restored!.startTime, '10:00 AM');
+      expect(restored!.priority, CommitmentPriority.should);
+      expect(restored!.category, 'Personal');
+      expect(restored!.status, CommitmentStatus.pending);
     });
   });
 }

@@ -53,7 +53,7 @@ class PilotSessionNotifier extends StateNotifier<PilotSessionState> {
   }
 
   Future<void> load() async {
-    if (config.isMock) {
+    if (!config.requirePilotAccessGate) {
       state = const PilotSessionState(status: PilotSessionStatus.authorized);
       return;
     }
@@ -71,7 +71,7 @@ class PilotSessionNotifier extends StateNotifier<PilotSessionState> {
   }
 
   Future<void> submitToken(String token) async {
-    if (config.isMock) {
+    if (!config.requirePilotAccessGate) {
       state = const PilotSessionState(status: PilotSessionStatus.authorized);
       return;
     }

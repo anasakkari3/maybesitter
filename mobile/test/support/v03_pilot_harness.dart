@@ -6,7 +6,9 @@ import 'package:maybesitter_mobile/config/app_config.dart';
 import 'package:maybesitter_mobile/l10n/generated/app_localizations.dart';
 import 'package:maybesitter_mobile/models/next_step.dart';
 import 'package:maybesitter_mobile/services/contracts/next_step_service.dart';
+import 'package:maybesitter_mobile/services/contracts/calendar_import_service.dart';
 import 'package:maybesitter_mobile/services/contracts/pilot_trust_service.dart';
+import 'package:maybesitter_mobile/services/mock/mock_calendar_import_service.dart';
 import 'package:maybesitter_mobile/services/mock/mock_next_step_service.dart';
 import 'package:maybesitter_mobile/services/mock/mock_pilot_trust_service.dart';
 import 'package:maybesitter_mobile/services/providers.dart';
@@ -19,8 +21,9 @@ import 'package:maybesitter_mobile/services/providers.dart';
 class V03Harness {
   final MockPilotTrustService trust;
   final MockNextStepService nextStep;
+  final MockCalendarImportService calendarImport;
 
-  V03Harness._(this.trust, this.nextStep);
+  V03Harness._(this.trust, this.nextStep, this.calendarImport);
 
   factory V03Harness({
     bool recommendationConsent = true,
@@ -61,12 +64,14 @@ class V03Harness {
         emptyState: emptyState,
         failWith: failWith,
       ),
+      MockCalendarImportService(),
     );
   }
 
   List<Override> get overrides => [
-    appConfigProvider.overrideWith(
-      (ref) => const AppConfig(),
+    appConfigProvider.overrideWith((ref) => const AppConfig()),
+    calendarImportServiceProvider.overrideWithValue(
+      calendarImport as CalendarImportService,
     ),
     pilotTrustServiceProvider.overrideWithValue(trust as PilotTrustService),
     nextStepServiceProvider.overrideWithValue(nextStep as NextStepService),

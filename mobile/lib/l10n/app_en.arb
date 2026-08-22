@@ -38,6 +38,24 @@
   "composerInputHint": "e.g. \"Tomorrow morning at 9am doctor visit, then meet Sarah for coffee at 2pm...\"",
   "voiceCaptureTooltip": "Voice Capture",
   "voiceCaptureStopTooltip": "Stop Recording",
+  "spokenPromptPrimaryAction": "Speak what is on your mind",
+  "spokenPromptStopAction": "Stop and review",
+  "spokenPromptListeningTitle": "Listening",
+  "spokenPromptPermissionRequestMessage": "Allow speech access, then say the messy commitment as it comes to mind.",
+  "spokenPromptListeningMessage": "Say the commitment naturally. No audio is kept after transcription.",
+  "spokenPromptReviewTitle": "Review before analysis",
+  "spokenPromptReviewMessage": "Edit the transcript below, then analyze it when it says what you meant.",
+  "spokenPromptPermissionDeniedTitle": "Speech access is off",
+  "spokenPromptPermissionDeniedMessage": "Typed capture still works. You can use the keyboard and analyze your note.",
+  "spokenPromptUnavailableTitle": "Speech is unavailable",
+  "spokenPromptUnavailableMessage": "Typed capture still works. Use the keyboard and analyze your note.",
+  "spokenPromptFailureTitle": "Speech capture failed",
+  "spokenPromptFailureMessage": "Typed capture still works. Use the keyboard or try voice again.",
+  "importClipboardAction": "Import from clipboard",
+  "importClipboardEmptyMessage": "There is no text on the clipboard right now.",
+  "importReviewTitle": "Review imported text",
+  "importReviewMessage": "Confirm this text before MaybeSitter analyzes or saves anything.",
+  "importUseTextAction": "Use this text",
   "editingDisabledExplanation": "Editing is temporarily unavailable to protect your scheduled time.",
   "privacyNote": "Your plan is analyzed privately with Quiet Intelligence.",
   "analyzeAction": "Analyze",
@@ -85,6 +103,8 @@
   "commitmentDetailTitle": "Commitment Detail",
   "scheduledDateLabel": "Scheduled Date",
   "timeLabel": "Time",
+  "pastTimeNotAllowed": "Please choose a time in the future.",
+  "timeUpdatedAlsoPostponedNotice": "Time updated. Note: this also marks the commitment as postponed.",
   "locationLabel": "Location",
   "categoryLabel": "Category",
   "markCompleteAction": "Mark as Complete",
@@ -118,6 +138,30 @@
   "notificationsSubtitle": "Reminders & quiet updates",
   "notificationsEnabled": "Enabled",
   "notificationsDisabled": "Disabled",
+  "pilotFeedbackTitle": "Pilot feedback",
+  "pilotFeedbackSubtitle": "Tell us which pilot moment mattered and how it felt.",
+  "pilotFeedbackEntrySubtitle": "Usefulness, timing, and reminder feel",
+  "pilotFeedbackSurfaceTitle": "Which surface are you rating?",
+  "pilotFeedbackSurfaceWidget": "Widget",
+  "pilotFeedbackSurfaceVoice": "Voice",
+  "pilotFeedbackSurfaceNotification": "Notification",
+  "pilotFeedbackSurfaceCalendar": "Calendar",
+  "pilotFeedbackSurfaceImport": "Import",
+  "pilotFeedbackUsefulnessTitle": "How useful was it?",
+  "pilotFeedbackUsefulnessHigh": "Very useful",
+  "pilotFeedbackUsefulnessSome": "Somewhat",
+  "pilotFeedbackUsefulnessNotYet": "Not yet",
+  "pilotFeedbackAnnoyanceTitle": "How did the reminder feel?",
+  "pilotFeedbackAnnoyanceCalm": "Calm",
+  "pilotFeedbackAnnoyanceFine": "Fine",
+  "pilotFeedbackAnnoyanceTooMuch": "Too much",
+  "pilotFeedbackTimingTitle": "How was the timing?",
+  "pilotFeedbackTimingEarly": "Too early",
+  "pilotFeedbackTimingRight": "About right",
+  "pilotFeedbackTimingLate": "Too late",
+  "pilotFeedbackTimingNotUsing": "Not using this",
+  "pilotFeedbackSubmitAction": "Send feedback",
+  "pilotFeedbackSavedMessage": "Thanks. Your pilot feedback was recorded.",
   "privacyTitle": "Privacy & Data",
   "privacySubtitle": "Local data & telemetry control",
   "encryptionLabel": "Local Data Encryption",
@@ -258,6 +302,56 @@
   "trustCalendarConsentDescription": "Optional and read-only. Disconnect whenever you want.",
   "trustCalendarLockedTitle": "Calendar comes later",
   "trustCalendarLockedMessage": "MaybeSitter will offer to connect your calendar once it has actually been useful to you. It won't ask before then.",
+  "trustCalendarProviderApple": "Apple Calendar via EventKit",
+  "trustCalendarConsentOffMessage": "Calendar import is off. The app still works without it.",
+  "trustCalendarNotConnectedMessage": "Consent is on, but nothing is imported yet. Connect Apple Calendar when you want MaybeSitter to see busy time.",
+  "trustCalendarPermissionDeniedMessage": "Calendar access is off in iPhone Settings, so MaybeSitter keeps working without it.",
+  "trustCalendarUnsupportedMessage": "This pilot starts with Apple Calendar on iPhone only. MaybeSitter still works without calendar access.",
+  "trustCalendarImportedSummary": "{count, plural, =0{No busy blocks imported for the next {days} days yet.} =1{1 busy block imported for the next {days} days.} other{{count} busy blocks imported for the next {days} days.}}",
+  "@trustCalendarImportedSummary": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "trustCalendarDisconnectedRetainedMessage": "{count, plural, =0{Apple Calendar is disconnected.} =1{Apple Calendar is disconnected. 1 imported busy block is still stored on this device until you delete it.} other{Apple Calendar is disconnected. {count} imported busy blocks are still stored on this device until you delete them.}}",
+  "@trustCalendarDisconnectedRetainedMessage": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "trustCalendarLastSynced": "Last synced: {value}",
+  "@trustCalendarLastSynced": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "trustCalendarConflictTitle": "Schedule conflicts found",
+  "trustCalendarConflictMessage": "{commitments, plural, =1{1 MaybeSitter commitment overlaps} other{{commitments} MaybeSitter commitments overlap}} {busyBlocks, plural, =1{1 imported busy block.} other{{busyBlocks} imported busy blocks.}}",
+  "@trustCalendarConflictMessage": {
+    "placeholders": {
+      "commitments": {
+        "type": "int"
+      },
+      "busyBlocks": {
+        "type": "int"
+      }
+    }
+  },
+  "trustCalendarConnectAction": "Connect now",
+  "trustCalendarRefreshAction": "Refresh import",
+  "trustCalendarDisconnectAction": "Disconnect",
+  "trustCalendarDeleteDataAction": "Delete imported data",
+  "trustCalendarConnectedMessage": "Apple Calendar is connected.",
+  "trustCalendarRefreshedMessage": "Calendar import refreshed.",
+  "trustCalendarDisconnectedMessage": "Apple Calendar disconnected.",
+  "trustCalendarDeletedMessage": "Imported calendar data deleted.",
   "trustWhatWeKnowAction": "What MaybeSitter knows",
   "trustWhatWeKnowSubtitle": "See everything it holds about you",
   "trustRevokeTitle": "Turn everything off",
@@ -405,6 +499,44 @@
   "feedbackBaselineDelayedActions": "Things you put off",
   "feedbackBaselineClarificationSuccesses": "Our questions that helped",
   "feedbackBaselineClarificationFailures": "Our questions that did not help",
+
+  "routineSurveyTitle": "Your daily routine",
+  "routineSurveySubtitle": "Five quick picks so reminders avoid your obvious no-go times.",
+  "routineSleepQuestion": "When do you usually sleep?",
+  "routineSleepEarly": "10:30 PM - 6:30 AM",
+  "routineSleepStandard": "11:30 PM - 7:30 AM",
+  "routineSleepLate": "12:30 AM - 8:30 AM",
+  "routineFocusQuestion": "When is your usual work or study block?",
+  "routineFocusWorkday": "9:00 AM - 5:00 PM",
+  "routineFocusEarly": "8:00 AM - 4:00 PM",
+  "routineFocusAfternoon": "12:00 PM - 6:00 PM",
+  "routineFixedQuestion": "Any regular fixed commitment window?",
+  "routineFixedMorning": "Morning, 7:00 - 9:00",
+  "routineFixedAfternoon": "Afternoon, 2:00 - 4:00",
+  "routineFixedEvening": "Evening, 6:00 - 8:00",
+  "routineReminderQuestion": "How persistent should reminders be?",
+  "routineReminderSoft": "Soft only",
+  "routineReminderFollowUp": "Soft + follow-up",
+  "routineReminderStrong": "Strong when needed",
+  "routineQuietQuestion": "When should reminders stay quiet?",
+  "routineQuietEarly": "9:30 PM - 6:30 AM",
+  "routineQuietStandard": "10:30 PM - 7:30 AM",
+  "routineQuietLate": "11:30 PM - 8:30 AM",
+  "routineNoneRegular": "No regular window",
+  "routineCompleteAction": "Finish setup",
+  "routineSaveAction": "Save routine",
+  "routineSettingsTitle": "Routine profile",
+  "routineSettingsSubtitle": "Sleep, focus time, fixed windows, and quiet hours",
+  "routineSettingsConfiguredSubtitle": "Used for future reminder timing",
+  "routineEscalationTitle": "How reminder strength works",
+  "routineEscalationNice": "Nice items stay at soft awareness only.",
+  "routineEscalationShouldSoft": "Should items stay soft with this setting.",
+  "routineEscalationShouldFollowUp": "Should items can add a follow-up when timing matters.",
+  "routineEscalationMustSoft": "Must items stay at soft awareness with this setting.",
+  "routineEscalationMustFollowUp": "Must items can follow up before timed items with this setting.",
+  "routineEscalationMustStrong": "Must items can use a stronger reminder about 10 minutes before a timed item because you opted in.",
+  "routineEscalationQuietHours": "Quiet hours still defer reminders.",
+  "routineEscalationNoFakeCalls": "MaybeSitter never uses fake phone calls or deceptive system UI.",
 
   "privacyStorageTitle": "Where your data lives",
   "privacyTokenStorageLabel": "Pilot access token",

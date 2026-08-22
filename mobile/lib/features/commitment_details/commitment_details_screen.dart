@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 import '../../core/utilities/date_formatter.dart';
 import '../../core/utilities/l10n_extensions.dart';
 import '../../design_system/adaptive/adaptive_action_sheet.dart';
+import '../../design_system/adaptive/adaptive_date_time_picker.dart';
 import '../../design_system/adaptive/adaptive_dialog.dart';
 import '../../design_system/adaptive/adaptive_haptics.dart';
 import '../../design_system/adaptive/app_icons.dart';
@@ -86,6 +88,95 @@ class CommitmentDetailsScreen extends ConsumerWidget {
       }
     }
 
+    Future<void> editTime() async {
+      // postpone() is the only repository call that both (a) accepts a full
+      // DateTime, not just a date, and (b) is already proven to persist
+      // correctly on both backends - the mock repository calls `_persist()`
+      // and the API repository posts a `postpone` action the server already
+      // validates and stores. `update()` was deliberately not used here: it
+      // never persists in mock mode, and the API implementation's `update()`
+      // drops the time-of-day entirely (and throws when
+      // `supportsSafeCommitmentPatch` is off), so it cannot carry a time
+      // edit safely on either backend.
+      final current = commitment!.scheduledDate ?? DateTime.now();
+      final newDate = await AdaptiveDateTimePicker.pickDate(
+        context: context,
+        initial: current,
+      );
+      if (newDate == null || !context.mounted) return;
+
+      final currentTimeOfDay = TimeOfDay.fromDateTime(current);
+      final newTime = await AdaptiveDateTimePicker.pickTime(
+        context: context,
+        initial: currentTimeOfDay,
+      );
+      if (newTime == null || !context.mounted) return;
+
+      final combined = DateTime(
+        newDate.year,
+        newDate.month,
+        newDate.day,
+        newTime.hour,
+        newTime.minute,
+      );
+
+      // The backend rejects a postponedUntil at or before now; catch it here
+      // so the picker's own UI is the feedback, not a thrown error surfacing
+      // from the repository call.
+      if (!combined.isAfter(DateTime.now())) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(l10n.pastTimeNotAllowed)),
+          );
+        }
+        return;
+      }
+
+      await ref.read(commitmentRepositoryProvider).postpone(id, combined);
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(l10n.timeUpdatedAlsoPostponedNotice)),
+        );
+      }
+
+      // postpone() only ever touches `scheduledDate` (and status) on both
+      // backends - it does not update the separate `startTime`/`endTime`
+      // display strings this screen's Time row actually reads. Layer that
+      // update on top so the new time is visible immediately. Built from the
+      // pre-postpone `commitment` plus what postpone() is known to have just
+      // set (scheduledDate, status: postponed) rather than reading the
+      // commitment back through commitmentsStreamProvider: the repository's
+      // stream notification is dispatched asynchronously, so a read-back
+      // immediately after the await is not guaranteed to observe it yet.
+      //
+      // Guarded and best-effort: on the API backend, update() throws
+      // UnsupportedError whenever `!config.supportsSafeCommitmentPatch`
+      // (the default, when the safe-patch flag is off). postpone() above
+      // has already succeeded and committed scheduledDate/status by this
+      // point, so a failure here must not surface as a crash or undo that -
+      // the display simply falls back to whatever the next fetch returns.
+      // This update() call also shares editTitle()'s known limitation: in
+      // mock mode it does not survive a relaunch (update() does not call
+      // _persist()); the scheduledDate change from postpone() above does.
+      if (config.supportsSafeCommitmentPatch) {
+        final newStartTime = DateFormat('hh:mm a').format(combined);
+        try {
+          await ref.read(commitmentRepositoryProvider).update(
+                commitment.copyWith(
+                  scheduledDate: combined,
+                  status: CommitmentStatus.postponed,
+                  startTime: newStartTime,
+                ),
+              );
+        } catch (_) {
+          // Best-effort only - postpone() already committed the date/time
+          // and status; a failure here just means the startTime display
+          // string will lag until the next fetch instead of updating now.
+        }
+      }
+    }
+
     Future<void> editTitle() async {
       final editController = TextEditingController(text: commitment!.title);
       final newTitle = await showDialog<String>(
@@ -115,7 +206,7 @@ class CommitmentDetailsScreen extends ConsumerWidget {
       if (trimmed != null && trimmed.isNotEmpty) {
         await ref
             .read(commitmentRepositoryProvider)
-            .update(commitment!.copyWith(title: trimmed));
+            .update(commitment.copyWith(title: trimmed));
       }
     }
 
@@ -278,14 +369,27 @@ class CommitmentDetailsScreen extends ConsumerWidget {
                     ),
                   ),
                   const Divider(),
-                  ListTile(
-                    leading: Icon(Icons.schedule, color: colors.brandPrimary),
-                    title: Text(l10n.timeLabel),
-                    subtitle: Text(
-                      DateFormatter.formatTimeRange(
-                        commitment.startTime,
-                        commitment.endTime,
+                  // Wrapped in its own Material: ListTile paints its ink
+                  // splash on the nearest Material ancestor, and the
+                  // surrounding Container above uses a plain BoxDecoration,
+                  // not a Material. The other ListTiles in this list have no
+                  // onTap, so they never exercised this; this one does.
+                  Material(
+                    type: MaterialType.transparency,
+                    child: ListTile(
+                      leading: Icon(
+                        Icons.schedule,
+                        color: colors.brandPrimary,
                       ),
+                      title: Text(l10n.timeLabel),
+                      subtitle: Text(
+                        DateFormatter.formatTimeRange(
+                          commitment.startTime,
+                          commitment.endTime,
+                        ),
+                      ),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: editTime,
                     ),
                   ),
                   if (commitment.location != null) ...[

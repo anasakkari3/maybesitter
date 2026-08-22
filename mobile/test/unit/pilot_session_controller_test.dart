@@ -106,7 +106,13 @@ void main() {
   });
 }
 
-const _backendConfig = AppConfig(apiMode: ApiMode.localBackend);
+// These tests exercise real token validation, which only runs when the pilot
+// access gate is active. That used to be implied by `!isMock`; it is now its
+// own flag, so it is requested explicitly here rather than riding on apiMode.
+const _backendConfig = AppConfig(
+  apiMode: ApiMode.localBackend,
+  requirePilotAccessGate: true,
+);
 
 Future<void> _settle() => Future<void>.delayed(Duration.zero);
 

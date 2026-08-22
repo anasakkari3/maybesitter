@@ -15,17 +15,27 @@ void main() {
         const mockConfig = AppConfig(apiMode: ApiMode.mock);
         expect(mockConfig.supportsSafeCommitmentPatch, isTrue);
 
+        // A *deployed* backend (non-localhost) is of unknown vintage, so the
+        // capability stays opt-in and requires the explicit flag.
         const realDisabled = AppConfig(
           apiMode: ApiMode.localBackend,
+          baseUrl: 'https://api.maybesitter.example',
           enableSafeCommitmentPatch: false,
         );
         expect(realDisabled.supportsSafeCommitmentPatch, isFalse);
 
         const realEnabled = AppConfig(
           apiMode: ApiMode.localBackend,
+          baseUrl: 'https://api.maybesitter.example',
           enableSafeCommitmentPatch: true,
         );
         expect(realEnabled.supportsSafeCommitmentPatch, isTrue);
+
+        // A localhost backend is built from this same checkout, so it carries
+        // the paired fix and the capability is on without an explicit flag --
+        // this is what keeps title/time editing working in a default build.
+        const localDefault = AppConfig(apiMode: ApiMode.localBackend);
+        expect(localDefault.supportsSafeCommitmentPatch, isTrue);
       },
     );
 

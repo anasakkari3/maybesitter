@@ -1,34 +1,55 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_config.dart';
+import '../models/calendar_import.dart';
 import '../models/app_settings.dart';
 import '../models/commitment.dart';
 import '../models/activity_event.dart';
+import '../models/pilot_presence.dart';
+import 'apple_calendar_import_service.dart';
 import 'api/api_client.dart';
 import 'api/api_alpha_feedback_service.dart';
 import 'api/api_capture_service.dart';
 import 'api/api_feedback_history_service.dart';
 import 'api/api_commitment_repository.dart';
 import 'api/api_next_step_service.dart';
+import 'api/api_pilot_loop_analytics_service.dart';
 import 'api/api_pilot_trust_service.dart';
 import 'auth/pilot_credential_store.dart';
+import 'clipboard_import_service.dart';
 import 'contracts/commitment_repository.dart';
 import 'contracts/capture_service.dart';
 import 'contracts/feedback_history_service.dart';
 import 'contracts/activity_repository.dart';
+import 'contracts/calendar_import_service.dart';
 import 'contracts/next_step_service.dart';
+import 'contracts/awareness_state_store.dart';
 import 'contracts/notification_service.dart';
+import 'contracts/pilot_loop_analytics_service.dart';
+import 'contracts/pilot_presence_store.dart';
 import 'contracts/connectivity_service.dart';
 import 'contracts/pilot_trust_service.dart';
+import 'contracts/speech_capture_service.dart';
 import 'contracts/timezone_service.dart';
+import 'pilot_presence_snapshot_publisher.dart';
+import 'pilot_presence_watch_config_store.dart';
+import 'shared_preferences_pilot_presence_store.dart';
+import 'speech_to_text_capture_service.dart';
 import 'timezone_service_impl.dart';
+import 'routine_profile_notifier.dart';
+import 'soft_awareness_reminder_engine.dart';
 import 'mock/commitment_state_store.dart';
 import 'mock/in_memory_commitment_repository.dart';
 import 'mock/mock_capture_service.dart';
 import 'mock/mock_activity_repository.dart';
+import 'mock/mock_calendar_import_service.dart';
 import 'mock/mock_feedback_history_service.dart';
+import 'mock/in_memory_pilot_loop_analytics_service.dart';
 import 'mock/mock_next_step_service.dart';
-import 'mock/mock_notification_service.dart';
+import 'flutter_local_notifications_gateway.dart';
+import 'in_memory_awareness_state_store.dart';
+import 'native_notification_service.dart';
+import 'notification_action_router.dart';
 import 'mock/mock_connectivity_service.dart';
 import 'mock/mock_pilot_trust_service.dart';
 import '../features/pilot/pilot_session_controller.dart';
@@ -69,6 +90,14 @@ final commitmentRepositoryProvider = Provider<CommitmentRepository>((ref) {
   );
 });
 
+/// Real extraction (ApiCaptureService) by default: AppConfig.isLocalBackend
+/// is true unless explicitly overridden to ApiMode.mock. MockCaptureService
+/// is only used when a caller deliberately configures mock mode (e.g. a demo
+/// build, or a test injecting it via ProviderScope overrides) -- not as a
+/// silent fallback for "no backend configured", which used to make every
+/// capture resolve to a hardcoded "tomorrow at 10:00 AM" regardless of what
+/// was typed. If the backend is unreachable, ApiCaptureService itself
+/// surfaces a graceful networkError CaptureResult rather than throwing.
 final captureServiceProvider = Provider<CaptureService>((ref) {
   final config = ref.watch(appConfigProvider);
   if (config.isLocalBackend) {
@@ -93,12 +122,43 @@ final _mockPilotTrustServiceProvider = Provider<MockPilotTrustService>((ref) {
   return MockPilotTrustService();
 });
 
+/// Not wired as calendarImportServiceProvider's default (see below) -- kept
+/// public so tests and widget previews can opt into the mock explicitly via
+/// an override, e.g. `calendarImportServiceProvider.overrideWith((ref) =>
+/// ref.watch(mockCalendarImportServiceProvider))`.
+final mockCalendarImportServiceProvider = Provider<MockCalendarImportService>((
+  ref,
+) {
+  return MockCalendarImportService(
+    snapshot: const CalendarImportSnapshot(
+      provider: CalendarImportProvider.appleCalendar,
+      connectionState: CalendarImportConnectionState.disconnected,
+      retainedBusyBlocks: <ImportedCalendarBusyBlock>[],
+    ),
+  );
+});
+
 final pilotTrustServiceProvider = Provider<PilotTrustService>((ref) {
   final config = ref.watch(appConfigProvider);
   if (config.isLocalBackend) {
     return ApiPilotTrustService(apiClient: ref.watch(apiClientProvider));
   }
   return ref.watch(_mockPilotTrustServiceProvider);
+});
+
+/// Always the real AppleCalendarImportService: unlike the backend-HTTP
+/// providers above, calendar import talks to a native platform channel
+/// (MethodChannelAppleCalendarBridge), not the Next.js backend, so it has no
+/// dependency on AppConfig.isLocalBackend / API_BASE_URL reachability.
+/// MockCalendarImportService remains available via
+/// mockCalendarImportServiceProvider for tests and widget previews to wire
+/// in explicitly (see V03Harness), but it is never a silent default -- that
+/// used to make every import resolve to a fabricated "connected" state and a
+/// synthetic event without ever calling a real permission API.
+final calendarImportServiceProvider = Provider<CalendarImportService>((ref) {
+  return AppleCalendarImportService(
+    analyticsService: ref.watch(pilotLoopAnalyticsServiceProvider),
+  );
 });
 
 final nextStepServiceProvider = Provider<NextStepService>((ref) {
@@ -144,15 +204,141 @@ final pilotSessionControllerProvider =
       );
     });
 
-final notificationServiceProvider = Provider<NotificationService>((ref) {
-  return MockNotificationService();
+final awarenessStateStoreProvider = Provider<AwarenessStateStore>((ref) {
+  return InMemoryAwarenessStateStore();
 });
+
+/// The platform seam for notifications.
+///
+/// Real by default. Overridden in tests, never swapped for a mock in a build a
+/// participant runs -- a mock here is what made the app report that reminders
+/// were on while nothing was ever scheduled.
+final localNotificationsGatewayProvider = Provider<LocalNotificationsGateway>((
+  ref,
+) {
+  return FlutterLocalNotificationsGateway(
+    localTimezoneName: () => ref.read(appConfigProvider).timezone,
+  );
+});
+
+final notificationServiceProvider = Provider<NotificationService>((ref) {
+  return NativeNotificationService(
+    gateway: ref.watch(localNotificationsGatewayProvider),
+  );
+});
+
+final notificationActionRouterProvider = Provider<NotificationActionRouter>((
+  ref,
+) {
+  return NotificationActionRouter(
+    dispatcher: ref.watch(softAwarenessCommandDispatcherProvider),
+  );
+});
+
+final pilotPresenceStoreProvider = Provider<PilotPresenceStore>((ref) {
+  return SharedPreferencesPilotPresenceStore();
+});
+
+final pilotPresenceWatchConfigStoreProvider =
+    Provider<PilotPresenceWatchConfigStore>((ref) {
+      return const SharedPreferencesPilotPresenceWatchConfigStore();
+    });
+
+final _mockPilotLoopAnalyticsServiceProvider =
+    Provider<InMemoryPilotLoopAnalyticsService>((ref) {
+      return InMemoryPilotLoopAnalyticsService();
+    });
+
+final pilotLoopAnalyticsServiceProvider = Provider<PilotLoopAnalyticsService>((
+  ref,
+) {
+  final settings = ref.watch(appSettingsProvider);
+  if (settings.analyticsOptOut) {
+    return const DisabledPilotLoopAnalyticsService();
+  }
+
+  final config = ref.watch(appConfigProvider);
+  if (config.isLocalBackend) {
+    return ApiPilotLoopAnalyticsService(
+      apiClient: ref.watch(apiClientProvider),
+    );
+  }
+  return ref.watch(_mockPilotLoopAnalyticsServiceProvider);
+});
+
+final pilotPresenceSnapshotPublisherProvider =
+    Provider<PilotPresenceSnapshotPublisher>((ref) {
+      return PilotPresenceSnapshotPublisher(
+        store: ref.watch(pilotPresenceStoreProvider),
+        now: DateTime.now,
+        analyticsService: ref.watch(pilotLoopAnalyticsServiceProvider),
+        flags: ref.watch(pilotPresenceFeatureFlagsProvider),
+      );
+    });
+
+final pilotPresenceFeatureFlagsProvider = Provider<PilotPresenceFeatureFlags>((
+  ref,
+) {
+  return ref.watch(appConfigProvider).pilotPresenceFlags;
+});
+
+final routineProfileProvider =
+    StateNotifierProvider<RoutineProfileNotifier, UserRoutineProfile?>((ref) {
+      return RoutineProfileNotifier(
+        timezoneService: ref.watch(timezoneServiceProvider),
+      );
+    });
+
+final reminderPolicyProvider = Provider<ReminderPolicy>((ref) {
+  return reminderPolicyForRoutineProfile(ref.watch(routineProfileProvider));
+});
+
+final reminderScheduleDecisionProvider =
+    Provider.family<ReminderScheduleDecision, Commitment>((ref, commitment) {
+      return ref.watch(reminderPolicyProvider).decisionFor(commitment);
+    });
+
+final softAwarenessReminderEngineProvider =
+    Provider<SoftAwarenessReminderEngine>((ref) {
+      return SoftAwarenessReminderEngine(
+        notificationService: ref.watch(notificationServiceProvider),
+        awarenessStateStore: ref.watch(awarenessStateStoreProvider),
+        reminderPolicy: () => ref.read(reminderPolicyProvider),
+        routineProfile: () => ref.read(routineProfileProvider),
+        notificationsEnabled: () =>
+            ref.read(appSettingsProvider).notificationsEnabled,
+        flags: () => ref.read(pilotPresenceFeatureFlagsProvider),
+        now: DateTime.now,
+      );
+    });
+
+final softAwarenessCommandDispatcherProvider =
+    Provider<SoftAwarenessCommandDispatcher>((ref) {
+      return SoftAwarenessCommandDispatcher(
+        commitmentRepository: ref.watch(commitmentRepositoryProvider),
+        notificationService: ref.watch(notificationServiceProvider),
+        awarenessStateStore: ref.watch(awarenessStateStoreProvider),
+        activityRepository: ref.watch(activityRepositoryProvider),
+        analyticsService: ref.watch(pilotLoopAnalyticsServiceProvider),
+        flags: ref.watch(pilotPresenceFeatureFlagsProvider),
+      );
+    });
 
 final connectivityServiceProvider = Provider<ConnectivityService>((ref) {
   return MockConnectivityService();
 });
 
-final commitmentsStreamProvider = StreamProvider<List<Commitment>>((ref) async* {
+final speechCaptureServiceProvider = Provider<SpeechCaptureService>((ref) {
+  return SpeechToTextCaptureService();
+});
+
+final clipboardImportServiceProvider = Provider<ClipboardImportService>((ref) {
+  return const SystemClipboardImportService();
+});
+
+final commitmentsStreamProvider = StreamProvider<List<Commitment>>((
+  ref,
+) async* {
   final repo = ref.watch(commitmentRepositoryProvider);
 
   // `watchCommitments()` is a broadcast stream with no replay: the in-memory
@@ -243,6 +429,7 @@ final activityStreamProvider = StreamProvider<List<ActivityEvent>>((ref) {
 class AppSettingsNotifier extends StateNotifier<AppSettings> {
   static const String _localeKey = 'locale_option';
   static const String _themeKey = 'theme_mode';
+  static const String _onboardingKey = 'has_completed_onboarding';
 
   AppSettingsNotifier() : super(const AppSettings()) {
     _loadSettings();
@@ -271,11 +458,14 @@ class AppSettingsNotifier extends StateNotifier<AppSettings> {
         }
       }
 
-      if (loadedOption != null) {
-        state = state.copyWith(localeOption: loadedOption);
-      }
+      state = state.copyWith(
+        localeOption: loadedOption,
+        hasCompletedOnboarding:
+            prefs.getBool(_onboardingKey) ?? state.hasCompletedOnboarding,
+        hasLoadedSettings: true,
+      );
     } catch (_) {
-      // Memory fallback for test environment
+      state = state.copyWith(hasLoadedSettings: true);
     }
   }
 
@@ -300,12 +490,33 @@ class AppSettingsNotifier extends StateNotifier<AppSettings> {
     state = state.copyWith(notificationsEnabled: enabled);
   }
 
+  /// Re-sync [AppSettings.notificationsEnabled] with what the OS actually
+  /// reports right now.
+  ///
+  /// `toggleNotifications` only ever runs once, at the initial permission
+  /// request; nothing else re-reads native state afterward, so revoking
+  /// permission in system Settings would otherwise leave the app claiming
+  /// notifications are enabled forever. Call this whenever the settings UI
+  /// that shows this value is about to be displayed.
+  Future<void> refreshNotificationPermission(
+    NotificationService service,
+  ) async {
+    final permission = await service.permissionState();
+    state = state.copyWith(
+      notificationsEnabled: permission == NotificationPermissionState.granted,
+    );
+  }
+
   void toggleHaptics(bool enabled) {
     state = state.copyWith(hapticFeedbackEnabled: enabled);
   }
 
-  void completeOnboarding() {
+  Future<void> completeOnboarding() async {
     state = state.copyWith(hasCompletedOnboarding: true);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_onboardingKey, true);
+    } catch (_) {}
   }
 }
 

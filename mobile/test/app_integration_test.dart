@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:maybesitter_mobile/app/app.dart';
+import 'package:maybesitter_mobile/config/app_config.dart';
 import 'package:maybesitter_mobile/features/capture/capture_composer_screen.dart';
 import 'package:maybesitter_mobile/models/app_settings.dart';
 import 'package:maybesitter_mobile/services/providers.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   testWidgets(
@@ -12,7 +14,21 @@ void main() {
     (WidgetTester tester) async {
       // bySemanticsLabel needs the semantics tree built.
       final SemanticsHandle semantics = tester.ensureSemantics();
-      final container = ProviderContainer();
+      SharedPreferences.setMockInitialValues({
+        'has_completed_onboarding': true,
+      });
+      // This flow types real input and asserts on MockCaptureService's
+      // keyword-fixture split ("doctor and work" -> two named commitments)
+      // end-to-end through the whole app -- explicit mock mode preserves
+      // that intent rather than relying on AppConfig's default, which is now
+      // real-extraction (ApiMode.localBackend) instead of mock.
+      final container = ProviderContainer(
+        overrides: [
+          appConfigProvider.overrideWith(
+            (ref) => const AppConfig(apiMode: ApiMode.mock),
+          ),
+        ],
+      );
 
       await tester.pumpWidget(
         UncontrolledProviderScope(

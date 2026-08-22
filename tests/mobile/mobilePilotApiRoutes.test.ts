@@ -13,6 +13,7 @@ import { GET as getNextStep } from '../../src/app/api/mobile/recommendations/nex
 import { POST as recordNextStepAction } from '../../src/app/api/mobile/recommendations/next-step/actions/route.ts';
 import { GET as getTrust, POST as updateTrust } from '../../src/app/api/mobile/pilot/trust/route.ts';
 import { POST as reportIncident } from '../../src/app/api/mobile/pilot/incidents/route.ts';
+import { POST as analyticsPost } from '../../src/app/api/mobile/analytics/route.ts';
 import { POST as capturePost } from '../../src/app/api/mobile/capture/route.ts';
 import { POST as confirmPost } from '../../src/app/api/mobile/capture/confirm/route.ts';
 import { GET as todayGet } from '../../src/app/api/mobile/commitments/today/route.ts';
@@ -145,6 +146,123 @@ async function createConfirmedCommitment(
   assert.equal(confirmation.success, true);
   return ((confirmation.persisted as Array<{ commitmentId: string }>)[0]).commitmentId;
 }
+
+test('mobile pilot analytics records content-free phone-presence events by token participant', async () => {
+  const cleanup = setup();
+  try {
+    grantAnalytics(A);
+    const response = await analyticsPost(request('/api/mobile/analytics', {
+      participantId: A,
+      body: {
+        eventName: 'widget_tap',
+        properties: {
+          surface: 'homeWidget',
+          targetRoute: 'capture',
+          flagWidget: true,
+          flagVoice: true,
+          flagAwareness: false,
+          flagWatch: false,
+          flagImports: false,
+        },
+      },
+    }));
+
+    assert.equal(response.status, 200);
+    const body = await json(response);
+    assert.equal(body.recorded, true);
+    assert.equal(body.participantId, A);
+    const event = getAnalyticsEvents().at(-1);
+    assert.equal(event?.anonymousUserId, A);
+    assert.equal(event?.eventName, 'widget_tap');
+    assert.doesNotMatch(JSON.stringify(event), /raw|title|message|email|content/i);
+  } finally {
+    cleanup();
+  }
+});
+
+test('mobile pilot analytics can be disabled without breaking product use', async () => {
+  const cleanup = setup();
+  try {
+    const response = await analyticsPost(request('/api/mobile/analytics', {
+      participantId: A,
+      body: {
+        eventName: 'voice_capture_started',
+        properties: {
+          source: 'app',
+          locale: 'en-US',
+          flagWidget: false,
+          flagVoice: true,
+          flagAwareness: false,
+          flagWatch: false,
+          flagImports: false,
+        },
+      },
+    }));
+
+    assert.equal(response.status, 200);
+    const body = await json(response);
+    assert.equal(body.recorded, false);
+    assert.equal(getAnalyticsEvents().length, 0);
+  } finally {
+    cleanup();
+  }
+});
+
+test('mobile pilot analytics rejects private content fields', async () => {
+  const cleanup = setup();
+  try {
+    grantAnalytics(A);
+    const response = await analyticsPost(request('/api/mobile/analytics', {
+      participantId: A,
+      body: {
+        eventName: 'voice_capture_completed',
+        properties: {
+          source: 'app',
+          locale: 'en-US',
+          inputLength: 20,
+          rawText: 'call Maya',
+          flagWidget: false,
+          flagVoice: true,
+          flagAwareness: false,
+          flagWatch: false,
+          flagImports: false,
+        },
+      },
+    }));
+
+    assert.equal(response.status, 400);
+    assert.equal(getAnalyticsEvents().length, 0);
+  } finally {
+    cleanup();
+  }
+});
+
+test('mobile pilot analytics rejects non-canonical deep-link targets', async () => {
+  const cleanup = setup();
+  try {
+    grantAnalytics(A);
+    const response = await analyticsPost(request('/api/mobile/analytics', {
+      participantId: A,
+      body: {
+        eventName: 'widget_tap',
+        properties: {
+          surface: 'homeWidget',
+          targetRoute: '/capture?source=Call%20Maya%20about%20hospital&input=voice',
+          flagWidget: true,
+          flagVoice: true,
+          flagAwareness: false,
+          flagWatch: false,
+          flagImports: false,
+        },
+      },
+    }));
+
+    assert.equal(response.status, 400);
+    assert.match(JSON.stringify(await json(response)), /targetRoute is not canonical/);
+  } finally {
+    cleanup();
+  }
+});
 
 async function nextStep(participantId: string, spoofedScope?: string): Promise<Record<string, unknown>> {
   const query = spoofedScope ? `?participantId=${spoofedScope}&scopeId=${spoofedScope}&timezone=UTC` : '?timezone=UTC';
@@ -381,6 +499,8 @@ test('trust and recommendation decisions are isolated per authenticated particip
     assert.equal(aStillOpen.status, 200);
 
     assert.deepEqual(getAnalyticsEvents().map((event) => event.eventName), [
+      'first_value_reached',
+      'first_value_reached',
       'recommendation_shown',
       'recommendation_accepted',
       'recommendation_shown',

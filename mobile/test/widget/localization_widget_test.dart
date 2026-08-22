@@ -8,11 +8,25 @@ import 'package:maybesitter_mobile/l10n/generated/app_localizations.dart';
 import 'package:maybesitter_mobile/models/app_settings.dart';
 import 'package:maybesitter_mobile/models/commitment.dart';
 import 'package:maybesitter_mobile/services/providers.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../support/mock_mode_override.dart';
 
 void main() {
   group('Localization Widget Tests', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({
+        'has_completed_onboarding': true,
+      });
+    });
+
     testWidgets('Renders English Today Screen', (WidgetTester tester) async {
-      await tester.pumpWidget(const ProviderScope(child: MaybesitterApp()));
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [mockModeProviderOverride],
+          child: const MaybesitterApp(),
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('Maybesitter'), findsOneWidget);
@@ -46,6 +60,7 @@ void main() {
 
       final container = ProviderContainer(
         overrides: [
+          mockModeProviderOverride,
           commitmentsStreamProvider.overrideWith((ref) => Stream.value([c])),
           todayCommitmentsProvider.overrideWithValue([c]),
         ],
@@ -100,6 +115,7 @@ void main() {
 
       final container = ProviderContainer(
         overrides: [
+          mockModeProviderOverride,
           commitmentsStreamProvider.overrideWith((ref) => Stream.value([c])),
           todayCommitmentsProvider.overrideWithValue([c]),
         ],
@@ -129,7 +145,7 @@ void main() {
     testWidgets('Language switching in Settings without restart', (
       WidgetTester tester,
     ) async {
-      final container = ProviderContainer();
+      final container = ProviderContainer(overrides: [mockModeProviderOverride]);
 
       await tester.pumpWidget(
         UncontrolledProviderScope(
@@ -161,7 +177,7 @@ void main() {
     testWidgets('Arabic & Hebrew Accessibility Semantics & Tooltips', (
       WidgetTester tester,
     ) async {
-      final container = ProviderContainer();
+      final container = ProviderContainer(overrides: [mockModeProviderOverride]);
       container
           .read(appSettingsProvider.notifier)
           .updateLocale(AppLocaleOption.arabic);
@@ -231,7 +247,7 @@ void main() {
     testWidgets('Arabic Large-Text 2.0x scale does not overflow', (
       WidgetTester tester,
     ) async {
-      final container = ProviderContainer();
+      final container = ProviderContainer(overrides: [mockModeProviderOverride]);
       container
           .read(appSettingsProvider.notifier)
           .updateLocale(AppLocaleOption.arabic);
@@ -254,7 +270,7 @@ void main() {
     testWidgets('Hebrew Large-Text 2.0x scale does not overflow', (
       WidgetTester tester,
     ) async {
-      final container = ProviderContainer();
+      final container = ProviderContainer(overrides: [mockModeProviderOverride]);
       container
           .read(appSettingsProvider.notifier)
           .updateLocale(AppLocaleOption.hebrew);
