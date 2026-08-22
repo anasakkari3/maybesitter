@@ -103,4 +103,78 @@ void main() {
       expect(restored!.status, CommitmentStatus.pending);
     });
   });
+
+  group('what the user changed survives a relaunch', () {
+    test('an edited title on a seeded commitment survives', () async {
+      final store = InMemoryStateStore();
+      final first = InMemoryCommitmentRepository(stateStore: store);
+      await first.ready;
+      final target = (await first.getToday()).first;
+
+      await first.update(target.copyWith(title: 'Renamed by the user'));
+
+      final relaunched = InMemoryCommitmentRepository(stateStore: store);
+      await relaunched.ready;
+      expect((await relaunched.getById(target.id))?.title, 'Renamed by the user');
+    });
+
+    test('an edited start time on a seeded commitment survives', () async {
+      final store = InMemoryStateStore();
+      final first = InMemoryCommitmentRepository(stateStore: store);
+      await first.ready;
+      final target = (await first.getToday()).first;
+
+      await first.update(target.copyWith(startTime: '11:45 PM'));
+
+      final relaunched = InMemoryCommitmentRepository(stateStore: store);
+      await relaunched.ready;
+      expect((await relaunched.getById(target.id))?.startTime, '11:45 PM');
+    });
+
+    test('a deleted seeded commitment does not come back', () async {
+      final store = InMemoryStateStore();
+      final first = InMemoryCommitmentRepository(stateStore: store);
+      await first.ready;
+      final target = (await first.getToday()).first;
+
+      await first.delete(target.id);
+
+      final relaunched = InMemoryCommitmentRepository(stateStore: store);
+      await relaunched.ready;
+      expect(
+        await relaunched.getById(target.id),
+        isNull,
+        reason: 'a commitment the user deleted reappeared after relaunch',
+      );
+    });
+
+    test('a cancelled seeded commitment stays cancelled', () async {
+      final store = InMemoryStateStore();
+      final first = InMemoryCommitmentRepository(stateStore: store);
+      await first.ready;
+      final target = (await first.getToday()).first;
+
+      await first.cancel(target.id);
+      final expected = (await first.getById(target.id))?.status;
+
+      final relaunched = InMemoryCommitmentRepository(stateStore: store);
+      await relaunched.ready;
+      expect((await relaunched.getById(target.id))?.status, expected);
+    });
+
+    test('a title containing the fingerprint delimiter is still distinguishable', () async {
+      // A naive "join fields with |" fingerprint would let a crafted title
+      // impersonate a different field layout and read as unmodified.
+      final store = InMemoryStateStore();
+      final first = InMemoryCommitmentRepository(stateStore: store);
+      await first.ready;
+      final target = (await first.getToday()).first;
+
+      await first.update(target.copyWith(title: 'a|b|c|${target.startTime}'));
+
+      final relaunched = InMemoryCommitmentRepository(stateStore: store);
+      await relaunched.ready;
+      expect((await relaunched.getById(target.id))?.title, 'a|b|c|${target.startTime}');
+    });
+  });
 }

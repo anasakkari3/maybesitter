@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import '../../models/activity_event.dart';
 import '../../models/commitment.dart';
 import '../contracts/activity_repository.dart';
@@ -8,6 +9,22 @@ import 'commitment_state_store.dart';
 class InMemoryCommitmentRepository implements CommitmentRepository {
   final List<Commitment> _commitments = [];
   final Set<String> _seedIds = {};
+
+  /// The seeded commitments exactly as shipped, so a later edit can be told
+  /// apart from an untouched seed by comparing whole records rather than by
+  /// guessing from status.
+  final Map<String, String> _seedFingerprints = {};
+
+  /// Seeded commitments the user deleted. The seed is re-laid on every launch,
+  /// so this is the only thing that keeps them gone.
+  final Set<String> _deletedSeedIds = {};
+
+  /// A commitment's whole content as one collision-proof string.
+  ///
+  /// JSON rather than a delimiter join: a user is free to type the delimiter
+  /// into a title, and a join would let `a|b` in one field impersonate two
+  /// fields — reading an edited commitment back as unmodified.
+  static String _fingerprint(Commitment c) => jsonEncode(c.toJson());
   final _controller = StreamController<List<Commitment>>.broadcast();
 
   /// Where a completion or a postpone is recorded so Activity can show it.
@@ -56,21 +73,39 @@ class InMemoryCommitmentRepository implements CommitmentRepository {
     for (var i = 0; i < _commitments.length; i++) {
       final change = changes[_commitments[i].id];
       if (change == null) continue;
-      _commitments[i] = _commitments[i].copyWith(
-        status: change.status,
-        scheduledDate: change.scheduledDate,
-        completedAt: change.completedAt,
-      );
+      // A stored whole record is the user's version of this commitment and
+      // wins outright; the field-by-field path remains for rows written before
+      // whole records were stored.
+      _commitments[i] = change.fullCommitment ??
+          _commitments[i].copyWith(
+            status: change.status,
+            scheduledDate: change.scheduledDate,
+            completedAt: change.completedAt,
+          );
       restored = true;
     }
 
     final existingIds = _commitments.map((c) => c.id).toSet();
     for (final change in changes.values) {
       final saved = change.fullCommitment;
-      if (saved != null && !existingIds.contains(saved.id)) {
+      if (saved != null && !change.deleted && !existingIds.contains(saved.id)) {
         _commitments.add(saved);
         restored = true;
       }
+    }
+
+    // Deletions are applied last so a row cannot both restore a commitment and
+    // delete it. Remembering the ids keeps them deleted through the next save,
+    // which rebuilds the change set from what is currently in the list.
+    final deletedIds = changes.entries
+        .where((e) => e.value.deleted)
+        .map((e) => e.key)
+        .toSet();
+    if (deletedIds.isNotEmpty) {
+      _deletedSeedIds.addAll(deletedIds);
+      final before = _commitments.length;
+      _commitments.removeWhere((c) => deletedIds.contains(c.id));
+      if (_commitments.length != before) restored = true;
     }
 
     if (restored) _notify();
@@ -81,22 +116,31 @@ class InMemoryCommitmentRepository implements CommitmentRepository {
     if (store == null) return;
     final changes = <String, CommitmentStateChange>{};
     for (final commitment in _commitments) {
-      // Seed data as shipped needs no row unless the user changed it. Any
-      // commitment not in the original seed set is new — created by the
-      // user via capture — and must be written regardless of its status,
-      // since "pending" is indistinguishable from "seed" by status alone.
-      final isUnmodifiedSeed = _seedIds.contains(commitment.id) &&
-          commitment.status == CommitmentStatus.pending &&
-          commitment.completedAt == null;
+      // Seed data as shipped needs no row. Anything else does — whether it is
+      // new, or a seed the user has since changed in any field at all. Status
+      // alone cannot tell those apart, so compare whole records.
+      final seedFingerprint = _seedFingerprints[commitment.id];
+      final isUnmodifiedSeed =
+          seedFingerprint != null && seedFingerprint == _fingerprint(commitment);
       if (isUnmodifiedSeed) {
         continue;
       }
-      final isNew = !_seedIds.contains(commitment.id);
       changes[commitment.id] = CommitmentStateChange(
         status: commitment.status,
         scheduledDate: commitment.scheduledDate,
         completedAt: commitment.completedAt,
-        fullCommitment: isNew ? commitment : null,
+        // Store the whole record for anything that differs from the seed, so a
+        // title or time edit survives instead of only status and date.
+        fullCommitment: commitment,
+      );
+    }
+
+    // Deletions live outside the loop: a deleted commitment is, by definition,
+    // no longer in the list to be iterated.
+    for (final id in _deletedSeedIds) {
+      changes[id] = const CommitmentStateChange(
+        status: CommitmentStatus.cancelled,
+        deleted: true,
       );
     }
     // Same reasoning as `_restore`: a failed write must not turn a completed
@@ -210,6 +254,9 @@ class InMemoryCommitmentRepository implements CommitmentRepository {
       ),
     ]);
     _seedIds.addAll(_commitments.map((c) => c.id));
+    for (final c in _commitments) {
+      _seedFingerprints[c.id] = _fingerprint(c);
+    }
 
     _notify();
   }
@@ -277,6 +324,7 @@ class InMemoryCommitmentRepository implements CommitmentRepository {
     if (idx >= 0) {
       _commitments[idx] = commitment;
       _notify();
+      await _persist();
     }
   }
 
@@ -324,13 +372,18 @@ class InMemoryCommitmentRepository implements CommitmentRepository {
         status: CommitmentStatus.cancelled,
       );
       _notify();
+      await _persist();
     }
   }
 
   @override
   Future<void> delete(String id) async {
+    final existed = _commitments.any((c) => c.id == id);
+    if (!existed) return;
+    if (_seedIds.contains(id)) _deletedSeedIds.add(id);
     _commitments.removeWhere((c) => c.id == id);
     _notify();
+    await _persist();
   }
 
   @override

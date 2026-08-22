@@ -34,11 +34,19 @@ class CommitmentStateChange {
   final DateTime? completedAt;
   final Commitment? fullCommitment;
 
+  /// The user deleted this commitment.
+  ///
+  /// Deleting a seeded commitment is otherwise unrepresentable: the seed is
+  /// laid down fresh on every launch, so without a row saying "this one is
+  /// gone" it simply comes back.
+  final bool deleted;
+
   const CommitmentStateChange({
     required this.status,
     this.scheduledDate,
     this.completedAt,
     this.fullCommitment,
+    this.deleted = false,
   });
 
   Map<String, dynamic> toJson() => {
@@ -46,6 +54,7 @@ class CommitmentStateChange {
     'scheduledDate': scheduledDate?.toIso8601String(),
     'completedAt': completedAt?.toIso8601String(),
     'fullCommitment': fullCommitment?.toJson(),
+    'deleted': deleted,
   };
 
   static CommitmentStateChange? fromJson(Map<String, dynamic> json) {
@@ -69,6 +78,9 @@ class CommitmentStateChange {
       scheduledDate: _parseDate(json['scheduledDate']),
       completedAt: _parseDate(json['completedAt']),
       fullCommitment: fullCommitment,
+      // Absent in rows written before deletion was representable, which is
+      // exactly what "not deleted" should read as.
+      deleted: json['deleted'] == true,
     );
   }
 
