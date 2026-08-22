@@ -63,6 +63,7 @@
   "scheduledDateLabel": "التاريخ المحدد",
   "timeLabel": "الوقت",
   "pastTimeNotAllowed": "الرجاء اختيار وقت في المستقبل.",
+  "timeUpdatedAlsoPostponedNotice": "تم تحديث الوقت. ملاحظة: هذا يؤدي أيضًا إلى تحديد الالتزام كمؤجَّل.",
   "locationLabel": "الموقع",
   "categoryLabel": "الفئة",
   "markCompleteAction": "تحديد كمكتمل",

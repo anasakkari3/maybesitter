@@ -110,7 +110,7 @@ class CommitmentDetailsScreen extends ConsumerWidget {
         context: context,
         initial: currentTimeOfDay,
       );
-      if (newTime == null) return;
+      if (newTime == null || !context.mounted) return;
 
       final combined = DateTime(
         newDate.year,
@@ -134,6 +134,12 @@ class CommitmentDetailsScreen extends ConsumerWidget {
 
       await ref.read(commitmentRepositoryProvider).postpone(id, combined);
 
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(l10n.timeUpdatedAlsoPostponedNotice)),
+        );
+      }
+
       // postpone() only ever touches `scheduledDate` (and status) on both
       // backends - it does not update the separate `startTime`/`endTime`
       // display strings this screen's Time row actually reads. Layer that
@@ -144,17 +150,31 @@ class CommitmentDetailsScreen extends ConsumerWidget {
       // stream notification is dispatched asynchronously, so a read-back
       // immediately after the await is not guaranteed to observe it yet.
       //
-      // This update() call shares editTitle()'s known limitation: in mock
-      // mode it does not survive a relaunch (update() does not call
+      // Guarded and best-effort: on the API backend, update() throws
+      // UnsupportedError whenever `!config.supportsSafeCommitmentPatch`
+      // (the default, when the safe-patch flag is off). postpone() above
+      // has already succeeded and committed scheduledDate/status by this
+      // point, so a failure here must not surface as a crash or undo that -
+      // the display simply falls back to whatever the next fetch returns.
+      // This update() call also shares editTitle()'s known limitation: in
+      // mock mode it does not survive a relaunch (update() does not call
       // _persist()); the scheduledDate change from postpone() above does.
-      final newStartTime = DateFormat('h:mm a').format(combined);
-      await ref.read(commitmentRepositoryProvider).update(
-            commitment.copyWith(
-              scheduledDate: combined,
-              status: CommitmentStatus.postponed,
-              startTime: newStartTime,
-            ),
-          );
+      if (config.supportsSafeCommitmentPatch) {
+        final newStartTime = DateFormat('hh:mm a').format(combined);
+        try {
+          await ref.read(commitmentRepositoryProvider).update(
+                commitment.copyWith(
+                  scheduledDate: combined,
+                  status: CommitmentStatus.postponed,
+                  startTime: newStartTime,
+                ),
+              );
+        } catch (_) {
+          // Best-effort only - postpone() already committed the date/time
+          // and status; a failure here just means the startTime display
+          // string will lag until the next fetch instead of updating now.
+        }
+      }
     }
 
     Future<void> editTitle() async {

@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:maybesitter_mobile/config/app_config.dart';
 import 'package:maybesitter_mobile/features/commitment_details/commitment_details_screen.dart';
 import 'package:maybesitter_mobile/l10n/generated/app_localizations.dart';
+import 'package:maybesitter_mobile/models/commitment.dart';
 import 'package:maybesitter_mobile/services/providers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -98,20 +99,11 @@ void main() {
           reason: 'Confirming the date must lead into a time picker.',
         );
 
-        // Drive the picker's dial to a new time via its Input entry mode is
-        // fiddly to simulate; instead confirm the picker with its default
-        // initial selection is NOT what we assert on - select via the
-        // widget's public API isn't exposed, so we cancel this run and
-        // instead verify the affordance opens correctly. The actual value
-        // change is verified below by calling through the same code path
-        // the UI uses (tapping OK keeps whatever the dial shows, and the
-        // Flutter TimePickerDialog defaults its dial to the `initialTime`
-        // passed in - i.e. the commitment's *current* time - so simply
-        // confirming would be a same-value no-op assertion).
-        //
-        // Instead, switch the dialog to text input mode, type an
-        // unambiguous new time, and confirm - this reliably drives a real
-        // value change through the exact widget the app shows.
+        // The dial defaults its selection to `initialTime` (the
+        // commitment's *current* time), so simply confirming it would be a
+        // same-value no-op. Switch to text input mode and type an
+        // unambiguous new time instead - this reliably drives a real value
+        // change through the exact widget the app shows.
         final entryModeButton = find.byIcon(Icons.keyboard_outlined);
         expect(entryModeButton, findsOneWidget);
         await tester.tap(entryModeButton);
@@ -150,8 +142,86 @@ void main() {
               .value!
               .firstWhere((c) => c.id == 'c-today-1')
               .startTime,
-          '3:45 PM',
+          '03:45 PM',
         );
+      },
+    );
+
+    testWidgets(
+      'picking a time in the past is rejected and nothing changes',
+      (WidgetTester tester) async {
+        SharedPreferences.setMockInitialValues({});
+
+        final container = _buildMockModeContainer();
+        addTearDown(container.dispose);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: _buildLocalizedApp(
+              const CommitmentDetailsScreen(id: 'c-today-1'),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.textContaining('10:30 AM'), findsOneWidget);
+
+        await tester.tap(find.byIcon(Icons.schedule));
+        await tester.pumpAndSettle();
+
+        // Pick a date safely in the past (well before today, so it stays
+        // in the past regardless of what wall-clock time the suite runs
+        // at) via the date picker's text input mode - the calendar grid
+        // can only reach dates the visible month page shows, but typed
+        // input accepts any date within firstDate/lastDate.
+        //
+        // Icons.edit_outlined also appears on the app bar's title-edit
+        // button, so scope the finder to inside the DatePickerDialog.
+        final dateEntryModeButton = find.descendant(
+          of: find.byType(DatePickerDialog),
+          matching: find.byIcon(Icons.edit_outlined),
+        );
+        expect(dateEntryModeButton, findsOneWidget);
+        await tester.tap(dateEntryModeButton);
+        await tester.pumpAndSettle();
+
+        final pastYear = DateTime.now().year - 1;
+        await tester.enterText(
+          find.byType(TextField).first,
+          '01/01/$pastYear',
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('OK'));
+        await tester.pumpAndSettle();
+
+        // A date a year in the past is always before "now" regardless of
+        // what time is picked, so any confirmed time keeps the combined
+        // DateTime in the past - the guard must fire before either
+        // repository call, without needing to also drive the time
+        // picker's dial to a specific value.
+        expect(find.byType(TimePickerDialog), findsOneWidget);
+        await tester.tap(find.text('OK'));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.textContaining('Please choose a time in the future'),
+          findsOneWidget,
+          reason:
+              'Picking a past date/time must surface the rejection message, '
+              'not silently proceed.',
+        );
+
+        // Nothing must have changed: no postpone, no status flip, no
+        // display update - the guard runs before either repository call.
+        expect(find.textContaining('10:30 AM'), findsOneWidget);
+        expect(find.textContaining('Postponed'), findsNothing);
+        final restored = container
+            .read(commitmentsStreamProvider)
+            .value!
+            .firstWhere((c) => c.id == 'c-today-1');
+        expect(restored.startTime, '10:30 AM');
+        expect(restored.status, CommitmentStatus.pending);
       },
     );
   });

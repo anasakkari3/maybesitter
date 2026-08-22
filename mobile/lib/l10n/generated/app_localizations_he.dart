@@ -244,6 +244,10 @@ class AppLocalizationsHe extends AppLocalizations {
   String get pastTimeNotAllowed => 'יש לבחור שעה בעתיד.';
 
   @override
+  String get timeUpdatedAlsoPostponedNotice =>
+      'השעה עודכנה. לתשומת לבך: פעולה זו מסמנת את ההתחייבות גם כנדחית.';
+
+  @override
   String get locationLabel => 'מיקום';
 
   @override

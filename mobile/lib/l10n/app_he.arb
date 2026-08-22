@@ -63,6 +63,7 @@
   "scheduledDateLabel": "תאריך מתוכנן",
   "timeLabel": "שעה",
   "pastTimeNotAllowed": "יש לבחור שעה בעתיד.",
+  "timeUpdatedAlsoPostponedNotice": "השעה עודכנה. לתשומת לבך: פעולה זו מסמנת את ההתחייבות גם כנדחית.",
   "locationLabel": "מיקום",
   "categoryLabel": "קטגוריה",
   "markCompleteAction": "סימון כהושלמה",

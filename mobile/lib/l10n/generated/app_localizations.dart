@@ -478,6 +478,12 @@ abstract class AppLocalizations {
   /// **'Please choose a time in the future.'**
   String get pastTimeNotAllowed;
 
+  /// No description provided for @timeUpdatedAlsoPostponedNotice.
+  ///
+  /// In en, this message translates to:
+  /// **'Time updated. Note: this also marks the commitment as postponed.'**
+  String get timeUpdatedAlsoPostponedNotice;
+
   /// No description provided for @locationLabel.
   ///
   /// In en, this message translates to:

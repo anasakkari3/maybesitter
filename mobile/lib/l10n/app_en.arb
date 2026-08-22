@@ -104,6 +104,7 @@
   "scheduledDateLabel": "Scheduled Date",
   "timeLabel": "Time",
   "pastTimeNotAllowed": "Please choose a time in the future.",
+  "timeUpdatedAlsoPostponedNotice": "Time updated. Note: this also marks the commitment as postponed.",
   "locationLabel": "Location",
   "categoryLabel": "Category",
   "markCompleteAction": "Mark as Complete",
