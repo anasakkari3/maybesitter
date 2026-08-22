@@ -117,6 +117,24 @@ void main() {
 
       expect(gateway.scheduled, isEmpty);
     });
+
+    test(
+      'permissionState reflects a permission revoked after the initial grant',
+      () async {
+        final gateway = _FakeGateway(
+          permission: NativeNotificationPermission.granted,
+        );
+        final service = NativeNotificationService(gateway: gateway);
+
+        // Simulate the user revoking permission in system settings, out from
+        // under a service that already reported "granted" once before.
+        gateway.permission = NativeNotificationPermission.denied;
+
+        final current = await service.permissionState();
+
+        expect(current, NotificationPermissionState.denied);
+      },
+    );
   });
 
   group('scheduling', () {
@@ -130,7 +148,10 @@ void main() {
 
       expect(gateway.scheduled, hasLength(1));
       expect(gateway.scheduled.single.commitmentId, 'c1');
-      expect(gateway.scheduled.single.scheduledAt, DateTime(2026, 8, 19, 9, 30));
+      expect(
+        gateway.scheduled.single.scheduledAt,
+        DateTime(2026, 8, 19, 9, 30),
+      );
     });
 
     test('scheduling the same request twice leaves one pending', () async {
@@ -145,38 +166,44 @@ void main() {
       expect(gateway.scheduled, hasLength(1));
     });
 
-    test('the same notification id always maps to the same platform id', () async {
-      final gateway = _FakeGateway(
-        permission: NativeNotificationPermission.granted,
-      );
-      final service = NativeNotificationService(gateway: gateway);
+    test(
+      'the same notification id always maps to the same platform id',
+      () async {
+        final gateway = _FakeGateway(
+          permission: NativeNotificationPermission.granted,
+        );
+        final service = NativeNotificationService(gateway: gateway);
 
-      await service.schedule(_request());
-      final first = gateway.scheduled.single.id;
-      await service.cancelFor('c1');
-      await service.schedule(_request());
+        await service.schedule(_request());
+        final first = gateway.scheduled.single.id;
+        await service.cancelFor('c1');
+        await service.schedule(_request());
 
-      expect(gateway.scheduled.single.id, first);
-    });
+        expect(gateway.scheduled.single.id, first);
+      },
+    );
 
-    test('different stages of one commitment get different platform ids', () async {
-      final gateway = _FakeGateway(
-        permission: NativeNotificationPermission.granted,
-      );
-      final service = NativeNotificationService(gateway: gateway);
+    test(
+      'different stages of one commitment get different platform ids',
+      () async {
+        final gateway = _FakeGateway(
+          permission: NativeNotificationPermission.granted,
+        );
+        final service = NativeNotificationService(gateway: gateway);
 
-      await service.schedule(_request());
-      await service.schedule(
-        _request(
-          notificationId: 'soft-awareness-c1-strongReminder',
-          intensity: ReminderIntensity.strongReminder,
-          at: DateTime(2026, 8, 19, 10, 20),
-        ),
-      );
+        await service.schedule(_request());
+        await service.schedule(
+          _request(
+            notificationId: 'soft-awareness-c1-strongReminder',
+            intensity: ReminderIntensity.strongReminder,
+            at: DateTime(2026, 8, 19, 10, 20),
+          ),
+        );
 
-      final ids = gateway.scheduled.map((n) => n.id).toSet();
-      expect(ids, hasLength(2));
-    });
+        final ids = gateway.scheduled.map((n) => n.id).toSet();
+        expect(ids, hasLength(2));
+      },
+    );
 
     test('a stage carries the actions the user can take on it', () async {
       final gateway = _FakeGateway(
@@ -210,33 +237,39 @@ void main() {
   });
 
   group('surviving a restart', () {
-    test('a relaunched app can still cancel what it scheduled before', () async {
-      final gateway = _FakeGateway(
-        permission: NativeNotificationPermission.granted,
-      );
-      await NativeNotificationService(gateway: gateway).schedule(_request());
+    test(
+      'a relaunched app can still cancel what it scheduled before',
+      () async {
+        final gateway = _FakeGateway(
+          permission: NativeNotificationPermission.granted,
+        );
+        await NativeNotificationService(gateway: gateway).schedule(_request());
 
-      // A fresh service instance is what a relaunch produces: same pending
-      // notifications on the platform, no in-memory bookkeeping.
-      final afterRestart = NativeNotificationService(gateway: gateway);
-      await afterRestart.restoreFromPlatform();
-      await afterRestart.cancelFor('c1');
+        // A fresh service instance is what a relaunch produces: same pending
+        // notifications on the platform, no in-memory bookkeeping.
+        final afterRestart = NativeNotificationService(gateway: gateway);
+        await afterRestart.restoreFromPlatform();
+        await afterRestart.cancelFor('c1');
 
-      expect(gateway.scheduled, isEmpty);
-    });
+        expect(gateway.scheduled, isEmpty);
+      },
+    );
 
-    test('a relaunched app does not duplicate an already pending stage', () async {
-      final gateway = _FakeGateway(
-        permission: NativeNotificationPermission.granted,
-      );
-      await NativeNotificationService(gateway: gateway).schedule(_request());
+    test(
+      'a relaunched app does not duplicate an already pending stage',
+      () async {
+        final gateway = _FakeGateway(
+          permission: NativeNotificationPermission.granted,
+        );
+        await NativeNotificationService(gateway: gateway).schedule(_request());
 
-      final afterRestart = NativeNotificationService(gateway: gateway);
-      await afterRestart.restoreFromPlatform();
-      await afterRestart.schedule(_request());
+        final afterRestart = NativeNotificationService(gateway: gateway);
+        await afterRestart.restoreFromPlatform();
+        await afterRestart.schedule(_request());
 
-      expect(gateway.scheduled, hasLength(1));
-    });
+        expect(gateway.scheduled, hasLength(1));
+      },
+    );
   });
 
   group('cancellation', () {
@@ -275,10 +308,7 @@ void main() {
 
       await service.cancelFor('c1');
 
-      expect(
-        gateway.scheduled.map((n) => n.commitmentId),
-        ['c2'],
-      );
+      expect(gateway.scheduled.map((n) => n.commitmentId), ['c2']);
     });
   });
 }
@@ -311,7 +341,10 @@ void _permissionMapping() {
     });
 
     test('an absent answer is not determined, not denied', () {
-      expect(nativePermissionFrom(), NativeNotificationPermission.notDetermined);
+      expect(
+        nativePermissionFrom(),
+        NativeNotificationPermission.notDetermined,
+      );
     });
   });
 }

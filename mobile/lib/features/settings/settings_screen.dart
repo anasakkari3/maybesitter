@@ -10,11 +10,47 @@ import '../../design_system/tokens/spacing.dart';
 import '../../models/app_settings.dart';
 import '../../services/providers.dart';
 
-class SettingsScreen extends ConsumerWidget {
+class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends ConsumerState<SettingsScreen>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _refreshNotificationPermission();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // The user may have just come back from the system Settings app after
+    // revoking (or granting) notification permission there -- re-check
+    // rather than keep showing whatever we last cached.
+    if (state == AppLifecycleState.resumed) {
+      _refreshNotificationPermission();
+    }
+  }
+
+  void _refreshNotificationPermission() {
+    final service = ref.read(notificationServiceProvider);
+    ref
+        .read(appSettingsProvider.notifier)
+        .refreshNotificationPermission(service);
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final colors = context.colors;
     final l10n = context.l10n;
     final settings = ref.watch(appSettingsProvider);

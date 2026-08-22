@@ -481,6 +481,23 @@ class AppSettingsNotifier extends StateNotifier<AppSettings> {
     state = state.copyWith(notificationsEnabled: enabled);
   }
 
+  /// Re-sync [AppSettings.notificationsEnabled] with what the OS actually
+  /// reports right now.
+  ///
+  /// `toggleNotifications` only ever runs once, at the initial permission
+  /// request; nothing else re-reads native state afterward, so revoking
+  /// permission in system Settings would otherwise leave the app claiming
+  /// notifications are enabled forever. Call this whenever the settings UI
+  /// that shows this value is about to be displayed.
+  Future<void> refreshNotificationPermission(
+    NotificationService service,
+  ) async {
+    final permission = await service.permissionState();
+    state = state.copyWith(
+      notificationsEnabled: permission == NotificationPermissionState.granted,
+    );
+  }
+
   void toggleHaptics(bool enabled) {
     state = state.copyWith(hapticFeedbackEnabled: enabled);
   }
