@@ -288,3 +288,17 @@ tests. The acceptance criteria map to:
 | Users can opt out | `exposure.test.ts` — "opting out takes effect on the very next read, with no exposure surviving it"; `handler.test.ts` — "opting out lands on the next exposure read" |
 | Users can delete data | `deletion.test.ts` — "the receipt is verified by re-listing every store, not by trusting its counts"; `handler.test.ts` — "a complete delete returns a receipt, and the stores agree when asked again" |
 | Decision includes quality, safety and reliability evidence | `evidence.test.ts` — "a package always carries every pillar…", "an unavailable pillar is an honest 'not available' item, never a missing pillar" |
+
+
+## Precondition: this endpoint has no authentication
+
+`/api/release` reads `participantId` from the request body and verifies no
+credential, so any caller who can reach it can read or delete any participant's
+consent record and study answers. The repo has no session layer for any route to
+use; this is the first surface where that gap has a multi-occupant namespace
+behind it — a closed pilot admits 25 to 40 people, and the data behind an id is
+their consent and their answers.
+
+**Do not expose this endpoint beyond a trusted network until a session layer
+exists.** Staged exposure, caps and consent all work as specified; none of them
+is an access control, and none of them was designed to be one.

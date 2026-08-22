@@ -35,6 +35,9 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import {
   SHADOW_PIPELINE_CHAIN,
@@ -305,11 +308,31 @@ test('the release route’s two unwired pillars are exactly the two this join co
   // wiring a file-backed store into a Next.js route is a deployment decision
   // rather than a test one. This asserts that the *reason* it is unwired is the
   // one recorded, so the gap cannot silently become a different gap.
-  const source = await import('node:fs').then((fs) =>
-    fs.readFileSync('src/app/api/release/route.ts', 'utf8'),
+  // Resolved from this module's own location, not from `process.cwd()`. The
+  // relative form passed locally and failed from any other directory, which is
+  // the shape that only shows up in CI.
+  const here = fileURLToPath(import.meta.url);
+  const repoRoot = path.resolve(path.dirname(here), '..', '..');
+  const source = readFileSync(path.join(repoRoot, 'src', 'app', 'api', 'release', 'route.ts'), 'utf8');
+  // Four markers, not two. The commit that introduced this test named only the
+  // pillar seams; the route also leaves both archives unwired, and the
+  // consequence is concrete — every deletion through the live route today
+  // returns `deleted_unproven` and issues no receipt at all. Honest behaviour,
+  // and a gap that has to be named to stay one.
+  for (const marker of [
+    'issue_45_shadow_traces',
+    'issue_46_slo_readings',
+    'issue_45_shadow_trace_store',
+    'issue_45_replay_bundle_store',
+  ]) {
+    assert.ok(source.includes(marker), `the route no longer names ${marker}`);
+  }
+  // And nothing else is unwired: a fifth marker would be a gap nobody recorded.
+  assert.equal(
+    (source.match(/not_available|notWiredArchive/g) ?? []).length,
+    4,
+    'the number of unwired seams changed; the count is the record of what is owed',
   );
-  assert.match(source, /issue_45_shadow_traces/);
-  assert.match(source, /issue_46_slo_readings/);
   // And both of those inputs demonstrably exist now, which is what makes the
   // gap a wiring task rather than a missing capability.
   const bundle = await realRun();

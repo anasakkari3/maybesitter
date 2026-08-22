@@ -70,8 +70,21 @@ test('work slower than its budget is really abandoned, and really takes the budg
   assert.equal(measured.value.kind, 'timed_out');
   // The half Sprint 09 forgot: a deadline that returns `timed_out` instantly
   // would satisfy the line above and nothing else here.
+  //
+  // The tolerance is not slack, it is a second clock. `setTimeout` expires
+  // against libuv's cached loop time, refreshed once per iteration, while this
+  // measurement reads `process.hrtime.bigint()` just before the timer is armed —
+  // so under load the loop's clock can already sit a fraction ahead and a 40ms
+  // timer legitimately reports 39.8ms. An integration review reproduced exactly
+  // that under eight concurrent suite runs; it is clean in isolation, which is
+  // the worst kind of flake because it only appears in CI.
+  //
+  // One millisecond is far below anything that would let a genuinely instant
+  // return through: the falsifier this line exists to catch returns in
+  // microseconds, and `SLOW_WORK_MS` is 200ms away on the other side.
+  const CLOCK_SKEW_TOLERANCE_MS = 1;
   assert.ok(
-    measured.ms >= SHORT_BUDGET_MS,
+    measured.ms >= SHORT_BUDGET_MS - CLOCK_SKEW_TOLERANCE_MS,
     `the race returned after ${measured.ms.toFixed(1)}ms; the budget was ${SHORT_BUDGET_MS}ms, so nothing was waited on`,
   );
   // And it did not wait for the work: the whole point of a budget.

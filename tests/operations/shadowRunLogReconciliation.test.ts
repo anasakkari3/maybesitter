@@ -371,15 +371,23 @@ test('every forbidden key class is refused by the shipped validator, one at a ti
     );
 
     const leaky: Record<string, unknown> = { ...stageLine, [property]: 'call dr cohen about the biopsy' };
-    assert.deepEqual(
-      shadowLogPrivacyErrors(leaky),
-      [`private property is forbidden: ${property}`],
+    // `includes`, not `deepEqual`: the gate now reports two independent reasons
+    // for a stray key — the shipped validator's name verdict, which is what this
+    // test is about, and the closed-vocabulary refusal added beside it. Pinning
+    // the exact list would make this test about the second reason too, and it
+    // would then pass if the validator stopped being consulted at all.
+    assert.ok(
+      shadowLogPrivacyErrors(leaky).includes(`private property is forbidden: ${property}`),
       `the shipped validator does not refuse the "${forbidden}" class`,
     );
     const report = reconcileShadowRunLogs([run], [leaky]);
     assert.equal(report.reconciled, false);
-    assert.equal(report.privacyViolations.length, 1);
-    assert.equal(report.privacyViolations[0].key, property);
+    // One offending key, two reasons: the forbidden name and the closed
+    // vocabulary. Counted by distinct key, because that is what a reader acts on.
+    assert.deepEqual(
+      Array.from(new Set(report.privacyViolations.map((violation) => violation.key))),
+      [property],
+    );
     assert.ok(report.defects.some((defect) => defect.code === 'LOG_CARRIES_FORBIDDEN_KEY'));
   }
 });
@@ -397,26 +405,54 @@ test('the privacy gate reads the shipped validator rather than a copy of its rul
     properties: { commitmentTitle: 'x' },
   });
   assert.ok(probe.errors.includes('private property is forbidden: commitmentTitle'));
-  assert.deepEqual(shadowLogPrivacyErrors({ commitmentTitle: 'x' }), [
-    'private property is forbidden: commitmentTitle',
-  ]);
+  assert.ok(
+    shadowLogPrivacyErrors({ commitmentTitle: 'x' }).includes(
+      'private property is forbidden: commitmentTitle',
+    ),
+    'the gate no longer reports the shipped validator’s own verdict',
+  );
 });
 
 test('raw content cannot ride along under an innocent key name', async () => {
+  // This test used to end by asserting that a *short scalar under a safe name*
+  // produced no error, on the reasoning that only long or structured values can
+  // be content. That was the hole, not the rule: an integration review put
+  //
+  //     properties.note = "relapsed tuesday, has not told wife, clinic on Elm St 4pm"
+  //
+  // — 56 characters, scalar, innocuous key — through the gate and got an empty
+  // error list and `reconciled: true`. The module header had claimed the
+  // value-shaped verdicts closed exactly that case. They do not; a closed key
+  // vocabulary does.
   const run = await runFor('drill-run-log-014');
   const stageLine = emitShadowRunLog(run.trace, run.bundleDigest).find((line) => line.module === 'capture');
   assert.ok(stageLine);
 
   const nested = { ...stageLine, note: { transcript: 'she said she would call the school' } };
-  assert.deepEqual(shadowLogPrivacyErrors(nested), ['property must be scalar: note']);
+  assert.ok(shadowLogPrivacyErrors(nested).includes('property must be scalar: note'));
   assert.equal(reconcileShadowRunLogs([run], [nested]).reconciled, false);
 
   const overlong = { ...stageLine, label: 'a'.repeat(200) };
-  assert.deepEqual(shadowLogPrivacyErrors(overlong), ['property is too long: label']);
+  assert.ok(shadowLogPrivacyErrors(overlong).includes('property is too long: label'));
   assert.equal(reconcileShadowRunLogs([run], [overlong]).reconciled, false);
 
-  const short = { ...stageLine, label: 'scheduled' };
-  assert.deepEqual(shadowLogPrivacyErrors(short), [], 'a short scalar under a safe name is not content');
+  // The reviewer's line, verbatim, and the shape the header always claimed to
+  // catch. Refused for the reason that actually applies: `note` is not a field
+  // a shadow log line has.
+  const sentence = { ...stageLine, note: 'relapsed tuesday, has not told wife, clinic on Elm St 4pm' };
+  assert.ok(
+    shadowLogPrivacyErrors(sentence).includes('key is not part of the shadow log vocabulary: note'),
+    'a short scalar sentence under an innocuous key still passes the gate',
+  );
+  assert.equal(reconcileShadowRunLogs([run], [sentence]).reconciled, false);
+
+  // And a stray key is refused whatever it holds — the closure is about the key.
+  const harmless = { ...stageLine, label: 'scheduled' };
+  assert.ok(shadowLogPrivacyErrors(harmless).includes('key is not part of the shadow log vocabulary: label'));
+
+  // The other direction: every key the line is *supposed* to carry passes, or
+  // the gate would refuse every real line and no emitter could satisfy it.
+  assert.deepEqual(shadowLogPrivacyErrors(stageLine), []);
 });
 
 test('a half-located line is refused rather than silently reconciled', async () => {

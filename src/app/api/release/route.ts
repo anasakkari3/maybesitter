@@ -6,12 +6,26 @@
  * `lib/release` so it is reachable from a test that binds no port.
  * `api/personalization` is the same shape.
  *
+ * ── No authentication, and why that matters more here ────────────
+ *
+ * `participantId` is read from the request body with no credential of any kind,
+ * so any caller can read or delete any participant's consent and study data.
+ * This repo has no session layer anywhere and `api/personalization/route.ts`
+ * carries the same caveat, but it matters more on this surface: this is the
+ * first endpoint where participant ids are a genuine multi-occupant namespace —
+ * a closed pilot admits between 25 and 40 people, and the data behind an id is
+ * that person's consent record and their answers to a feedback study.
+ *
+ * Nothing here should be exposed beyond a trusted network until a session layer
+ * exists. That is a deployment precondition, not something this route can fix,
+ * and `docs/release/controlled-internal-release.md` carries it as one.
+ *
  * ── What is wired, and what honestly is not ──────────────────────
  *
  * `consent`, `responses`, the staged exposure gate and the study collection API
  * are fully wired against real file-backed stores and the shipped pilot gate.
  *
- * Three seams are **deliberately left saying "not available"** rather than
+ * Four seams are **deliberately left saying "not available"** rather than
  * stubbed to a reassuring value:
  *
  *   - `traces` / `replayBundles` are `notWiredArchive(...)` until #45's

@@ -54,6 +54,7 @@ import {
 } from '../../src/contracts/v1/analyticsEventContracts';
 import { validateAnalyticsEvent } from '../analytics/privacySafeEvents';
 import {
+  SHADOW_LOG_RECONCILIATION_FIELDS,
   SHADOW_PIPELINE_CHAIN,
   checkShadowLogReconciliation,
   type Instant,
@@ -190,12 +191,61 @@ export interface ShadowLogPrivacyViolation {
 }
 
 /**
- * The shipped validator's privacy judgement about one line, property by
- * property. Empty means the line carries nothing that could hold content.
+ * The keys a privacy-safe line may carry: the reconciliation vocabulary the
+ * contract names, plus the line's own `kind`.
+ *
+ * Derived from `SHADOW_LOG_RECONCILIATION_FIELDS` rather than listed, so a field
+ * added to the contract arrives here without an edit and a field removed from it
+ * stops being permitted.
+ */
+const PERMITTED_LOG_KEYS: readonly string[] = Object.freeze([
+  ...SHADOW_LOG_RECONCILIATION_FIELDS,
+  'kind',
+]);
+
+/**
+ * The privacy judgement about one line, property by property.
+ * Empty means the line carries nothing that could hold content.
+ *
+ * ── Why a closed vocabulary, and not only the validator ──────────
+ *
+ * This module's header argues that "a key-name scan alone would ship the
+ * transcript in `properties.note`; the value-shaped verdicts are what close
+ * that". They did not. The shipped validator's value-shaped verdicts are
+ * *longer than 128 characters* and *not scalar* — so a 56-character sentence
+ * under an innocuous key passed the gate, and an integration review demonstrated
+ * exactly the case the header names:
+ *
+ *     properties.note = "relapsed tuesday, has not told wife, clinic on Elm St 4pm"
+ *     -> shadowLogPrivacyErrors: []      reconciled: true      violations: 0
+ *
+ * The reason the validator could not catch it is that this module deliberately
+ * ignores its `property is not allowed for …` verdict — the one verdict that
+ * enforces a closed vocabulary — because the shadow line is not a registered
+ * analytics event and every key would be refused.
+ *
+ * So the closure is enforced here, against the contract's own field list. A
+ * `ShadowRunLogLine` has five fields and a kind; anything else on a line handed
+ * to this function is refused whatever it contains. The validator still runs,
+ * and still contributes the three value- and name-shaped verdicts, because a
+ * permitted key can also carry an impermissible value — `occurredAt` holding a
+ * paragraph is a real thing to catch.
+ *
+ * This is a check, not a restatement of the emitter: the emitter never produces
+ * a stray key, and the whole point is that `shadowLogPrivacyErrors` judges
+ * whatever line it is handed.
  */
 export function shadowLogPrivacyErrors(line: Readonly<Record<string, unknown>>): readonly string[] {
   const errors: string[] = [];
   for (const key of Object.keys(line)) {
+    // Both checks run on every key. Not `continue`: the validator's verdicts
+    // are what make this a judgement by the shipped rules rather than a copy
+    // of them, and short-circuiting past it would hide the evidence for that.
+    // A stray key named `email` is reported as a forbidden name *and* as
+    // outside the vocabulary, because those are two different reasons.
+    if (!PERMITTED_LOG_KEYS.includes(key)) {
+      errors.push(`key is not part of the shadow log vocabulary: ${key}`);
+    }
     const result = validateAnalyticsEvent({ ...PROBE_ENVELOPE, properties: { [key]: line[key] } });
     for (const error of result.errors) {
       for (const verdict of PRIVACY_VERDICTS) {
