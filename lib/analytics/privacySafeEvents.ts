@@ -49,6 +49,33 @@ const EVENT_PROPERTIES: Record<AnalyticsEventName, readonly string[]> = {
     'source', 'targetRoute',
     'flagWidget', 'flagVoice', 'flagAwareness', 'flagWatch', 'flagImports',
   ],
+  // Presence, intake, and awareness signals. Property names are taken from the
+  // factory constructors in mobile/lib/models/pilot_loop_analytics.dart; every
+  // one of them also carries the five feature flags via flagProperties().
+  widget_snapshot_published: [
+    'surface', 'itemCount',
+    'flagWidget', 'flagVoice', 'flagAwareness', 'flagWatch', 'flagImports',
+  ],
+  source_intake_reviewed: [
+    'importSource', 'characterCount',
+    'flagWidget', 'flagVoice', 'flagAwareness', 'flagWatch', 'flagImports',
+  ],
+  source_intake_confirmed: [
+    'importSource', 'characterCount',
+    'flagWidget', 'flagVoice', 'flagAwareness', 'flagWatch', 'flagImports',
+  ],
+  pilot_feedback_submitted: [
+    'feedbackSurface', 'usefulness', 'annoyance', 'timing',
+    'flagWidget', 'flagVoice', 'flagAwareness', 'flagWatch', 'flagImports',
+  ],
+  soft_awareness_action: [
+    'action',
+    'flagWidget', 'flagVoice', 'flagAwareness', 'flagWatch', 'flagImports',
+  ],
+  soft_awareness_missed: [
+    'outcome',
+    'flagWidget', 'flagVoice', 'flagAwareness', 'flagWatch', 'flagImports',
+  ],
   first_value_reached: ['surface', 'reason'],
 };
 
