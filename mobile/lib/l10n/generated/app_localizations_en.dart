@@ -239,6 +239,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get timeLabel => 'Time';
 
   @override
+  String get pastTimeNotAllowed => 'Please choose a time in the future.';
+
+  @override
   String get locationLabel => 'Location';
 
   @override

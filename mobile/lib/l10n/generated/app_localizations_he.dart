@@ -241,6 +241,9 @@ class AppLocalizationsHe extends AppLocalizations {
   String get timeLabel => 'שעה';
 
   @override
+  String get pastTimeNotAllowed => 'יש לבחור שעה בעתיד.';
+
+  @override
   String get locationLabel => 'מיקום';
 
   @override

@@ -62,6 +62,7 @@
   "commitmentDetailTitle": "פרטי התחייבות",
   "scheduledDateLabel": "תאריך מתוכנן",
   "timeLabel": "שעה",
+  "pastTimeNotAllowed": "יש לבחור שעה בעתיד.",
   "locationLabel": "מיקום",
   "categoryLabel": "קטגוריה",
   "markCompleteAction": "סימון כהושלמה",

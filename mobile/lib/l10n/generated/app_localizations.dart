@@ -472,6 +472,12 @@ abstract class AppLocalizations {
   /// **'Time'**
   String get timeLabel;
 
+  /// No description provided for @pastTimeNotAllowed.
+  ///
+  /// In en, this message translates to:
+  /// **'Please choose a time in the future.'**
+  String get pastTimeNotAllowed;
+
   /// No description provided for @locationLabel.
   ///
   /// In en, this message translates to:

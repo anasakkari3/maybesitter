@@ -62,6 +62,7 @@
   "commitmentDetailTitle": "تفاصيل الالتزام",
   "scheduledDateLabel": "التاريخ المحدد",
   "timeLabel": "الوقت",
+  "pastTimeNotAllowed": "الرجاء اختيار وقت في المستقبل.",
   "locationLabel": "الموقع",
   "categoryLabel": "الفئة",
   "markCompleteAction": "تحديد كمكتمل",

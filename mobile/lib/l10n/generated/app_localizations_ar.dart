@@ -246,6 +246,9 @@ class AppLocalizationsAr extends AppLocalizations {
   String get timeLabel => 'الوقت';
 
   @override
+  String get pastTimeNotAllowed => 'الرجاء اختيار وقت في المستقبل.';
+
+  @override
   String get locationLabel => 'الموقع';
 
   @override

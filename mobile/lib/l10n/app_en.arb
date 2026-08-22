@@ -103,6 +103,7 @@
   "commitmentDetailTitle": "Commitment Detail",
   "scheduledDateLabel": "Scheduled Date",
   "timeLabel": "Time",
+  "pastTimeNotAllowed": "Please choose a time in the future.",
   "locationLabel": "Location",
   "categoryLabel": "Category",
   "markCompleteAction": "Mark as Complete",
