@@ -45,3 +45,6 @@ Thumbs.db
 # Sprint 07 worktrees symlink a shared node_modules; the trailing-slash rule
 # above matches a directory, not a symlink to one.
 node_modules
+
+# Isolated agent worktrees
+.worktrees/
