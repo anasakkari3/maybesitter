@@ -26,19 +26,24 @@ import assert from 'node:assert/strict';
 
 import {
   MIN_SLO_SAMPLE_COUNT,
+  SHADOW_MODULE_STATUSES,
+  SHADOW_PIPELINE_CHAIN,
   SHADOW_SLO_WINDOW_MILLIS,
   checkShadowPipelineOutcome,
   checkShadowSloReading,
   checkShadowTrace,
   millisBetweenInstants,
   type Instant,
+  type ShadowPipelineModule,
   type ShadowPipelineTrace,
   type ShadowSloReading,
 } from '../../src/contracts/v1/shadowPipelineContracts.ts';
 import { shadowSloById } from '../../lib/operations/shadowSloCatalog.ts';
 import {
+  MODULE_EXECUTION_STATUSES,
   computeShadowSloReading,
   computeShadowSloReadings,
+  measureShadowSloMetric,
   shadowLatencyP95,
   shadowRunObservation,
   shadowSloWindowStart,
@@ -99,6 +104,91 @@ async function observations(
 function collected(items: readonly ShadowRunObservation[]) {
   return { status: 'collected' as const, observations: items };
 }
+
+/* ── The denominator of a module-scoped rate ─────────────────────── */
+
+/**
+ * `SHADOW_SLO_SAMPLE_UNIT` calls this metric's unit `module_run`, and a module
+ * that never ran is not a run.
+ *
+ * The first implementation incremented the denominator once per member of
+ * `SHADOW_PIPELINE_CHAIN`, executed or not, and nothing tested the denominator
+ * at all. Two consequences, both measured before the fix:
+ *
+ *   - `priority` is `skipped` in every real run, so one slot sat in the
+ *     denominator the numerator could never match;
+ *   - the dilution scaled with kill switches. Two modules run, both time out,
+ *     six switched off — a total failure of everything that executed — read
+ *     0.25 against a 0.02 threshold. The more of the pipeline you disabled, the
+ *     calmer the timeout rate read, which is backwards during exactly the
+ *     incident that causes switches to be pulled.
+ *
+ * These build outcomes directly rather than through `runShadowDrill`, because
+ * the shape that matters — most of the chain switched off — is not one the
+ * fixture pipeline produces.
+ */
+function outcomeWithStatuses(statuses: Partial<Record<ShadowPipelineModule, string>>) {
+  const moduleOutcomes: Record<string, unknown> = {};
+  for (const module of SHADOW_PIPELINE_CHAIN) {
+    moduleOutcomes[module] = { status: statuses[module] ?? 'completed', module };
+  }
+  return {
+    outcome: { moduleOutcomes, completeness: 'degraded', totalElapsedMs: 1, deliverable: null },
+    trace: { stages: [] },
+    costMicros: 0,
+    replayAgreed: true,
+  } as unknown as ShadowRunObservation;
+}
+
+test('a module-scoped rate divides by executions, not by chain slots', () => {
+  const chain = SHADOW_PIPELINE_CHAIN;
+  const mostlyOff: Partial<Record<ShadowPipelineModule, string>> = {};
+  for (const module of chain.slice(2)) mostlyOff[module] = 'skipped';
+  mostlyOff[chain[0]] = 'timed_out';
+  mostlyOff[chain[1]] = 'timed_out';
+
+  const measured = measureShadowSloMetric('module_timeout_rate', [outcomeWithStatuses(mostlyOff)]);
+  assert.equal(measured.sampleCount, 2, 'skipped modules were counted as executions');
+  assert.equal(measured.value, 1, 'everything that ran timed out and the rate did not read 1');
+});
+
+test('turning modules off cannot make a timeout rate read calmer', () => {
+  // The property, stated directly: hold the failures fixed, switch more of the
+  // chain off, and the rate must not fall.
+  const chain = SHADOW_PIPELINE_CHAIN;
+  const withSkips = (skipCount: number) => {
+    const statuses: Partial<Record<ShadowPipelineModule, string>> = { [chain[0]]: 'timed_out' };
+    for (const module of chain.slice(chain.length - skipCount)) statuses[module] = 'skipped';
+    return measureShadowSloMetric('module_timeout_rate', [outcomeWithStatuses(statuses)]).value;
+  };
+  const none = withSkips(0);
+  const some = withSkips(3);
+  const most = withSkips(6);
+  assert.ok(some >= none, `rate fell from ${none} to ${some} when three modules were switched off`);
+  assert.ok(most >= some, `rate fell from ${some} to ${most} when six modules were switched off`);
+});
+
+test('the execution statuses are derived from the contract, and exclude exactly the two that never ran', () => {
+  // Derived by exclusion, so a status added to the contract must be classified
+  // here rather than silently counting as an execution.
+  assert.deepEqual(
+    SHADOW_MODULE_STATUSES.filter((status) => !MODULE_EXECUTION_STATUSES.includes(status)),
+    ['skipped', 'unavailable'],
+  );
+  assert.deepEqual([...MODULE_EXECUTION_STATUSES], ['completed', 'fell_back', 'timed_out']);
+});
+
+test('a fallback is an attempt: it stays in the denominator of the timeout rate', () => {
+  // `fell_back` is deliberately an execution. A module that fell back attempted
+  // the work and could have timed out instead, so excluding it would inflate
+  // the timeout rate every time the kill switches did their job.
+  const chain = SHADOW_PIPELINE_CHAIN;
+  const statuses: Partial<Record<ShadowPipelineModule, string>> = { [chain[0]]: 'timed_out' };
+  for (const module of chain.slice(1)) statuses[module] = 'fell_back';
+  const measured = measureShadowSloMetric('module_timeout_rate', [outcomeWithStatuses(statuses)]);
+  assert.equal(measured.sampleCount, chain.length);
+  assert.equal(measured.value, 1 / chain.length);
+});
 
 /* ── The floor, from both sides, with literal counts ─────────────── */
 
@@ -195,17 +285,44 @@ test('the module timeout rate counts module executions, not runs', async () => {
   );
   const reading = computeShadowSloReading(definition, collected(items), OBSERVED_AT);
   assert.equal(reading.status, 'measured');
-  assert.equal(reading.sampleCount, 160, 'twenty runs of an eight-module chain is 160 executions');
-  assert.equal(reading.value, 0.025);
+  // 140, not 160: `priority` is a placeholder and is skipped in every run, and
+  // a module that never ran is not a module run. Seven executing modules across
+  // twenty runs. The literal is spelled out rather than derived from the chain
+  // length so that implementing `priority` fails here and the floor beside it
+  // becomes a deliberate edit.
+  assert.equal(reading.sampleCount, 140, 'twenty runs of a seven-executing-module chain is 140 executions');
+  // Measured, not inconclusive, even though 140 is not compared against the
+  // floor: sufficiency is the twenty runs. See `Measurement.sufficiencyCount`.
+  assert.equal(reading.value, 4 / 140);
   assert.equal(reading.breached, true);
 });
 
-test('nineteen runs cannot satisfy a module-run floor of 160 either', async () => {
+test('nineteen runs cannot satisfy the run floor, and the reported count is still executions', async () => {
   const definition = definitionFor('shadow-module-timeout-rate');
   const reading = computeShadowSloReading(definition, collected(await observations(19)), OBSERVED_AT);
   assert.equal(reading.status, 'inconclusive');
-  assert.equal(reading.sampleCount, 152);
   assert.equal(reading.inconclusiveReason, 'insufficient_sample');
+  // The floor was compared against nineteen runs; the count reported to an
+  // operator is what the rate would have divided by. The two are deliberately
+  // different numbers and this pins both.
+  assert.equal(reading.sampleCount, 133, 'nineteen runs times seven executing modules');
+});
+
+test('a degraded incident still reaches the floor: sufficiency does not shrink with failure', async () => {
+  // The defect this split exists to prevent, as a test. A coaching timeout also
+  // skips the fail-closed gate downstream, so a degraded run executes six
+  // modules rather than seven. With sufficiency counted in executions, twenty
+  // such runs produced 120 against a floor of 140 and a rate of 0.167 against a
+  // 0.02 threshold read `inconclusive` — the worse the incident, the less
+  // measurable it became.
+  const definition = definitionFor('shadow-module-timeout-rate');
+  const items = await observations(20, () => ({ plan: { behaviours: { coaching: { kind: 'times_out' } } } }));
+  const reading = computeShadowSloReading(definition, collected(items), OBSERVED_AT);
+
+  assert.equal(reading.status, 'measured', 'a severe, sustained incident reported inconclusive');
+  assert.equal(reading.sampleCount, 120, 'twenty degraded runs of six executing modules');
+  assert.equal(reading.breached, true);
+  assert.ok((reading.value ?? 0) > definition.threshold);
 });
 
 test('the latency reading is a nearest-rank p95 over run totals', async () => {

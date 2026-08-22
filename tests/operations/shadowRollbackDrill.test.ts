@@ -171,8 +171,12 @@ test('the drill trips two SLOs from one cause and arms the switches they name', 
   assert.equal(withheld.escalated, true);
   assert.equal(withheld.notifyRotationId, 'shadow-oncall-backend-lead');
   const timeouts = report.triggers[1];
-  assert.equal(timeouts.latestValue, 0.025);
-  assert.equal(timeouts.latestSampleCount, 160);
+  // 4 timeouts over 136 executions, not over 160 chain slots: a module that was
+  // skipped never ran. The value rose when the denominator was corrected —
+  // which is the direction a correction to a *rate* denominator should move a
+  // breach, and it is why the floor beside it is now counted in runs instead.
+  assert.equal(timeouts.latestValue, 4 / 136);
+  assert.equal(timeouts.latestSampleCount, 136);
 });
 
 test('the drill demonstrates recovery rather than asserting it', async () => {

@@ -29,18 +29,27 @@ concerns against this set so a concern that loses its SLO fails the build.
 | SLO | concern | metric | comparison | threshold | window | min samples | rotation | escalation | arms |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `shadow-pipeline-withheld-rate` | reliability | pipeline_withheld_rate | at_most | 0.05 | rolling_1h | 20 | shadow-oncall-backend | shadow-oncall-backend-lead | safety |
-| `shadow-module-timeout-rate` | reliability | module_timeout_rate | at_most | 0.02 | rolling_1h | 160 | shadow-oncall-backend | shadow-oncall-backend-lead | coaching |
+| `shadow-module-timeout-rate` | reliability | module_timeout_rate | at_most | 0.02 | rolling_1h | 20 | shadow-oncall-backend | shadow-oncall-backend-lead | coaching |
 | `shadow-replay-divergence-rate` | drift | replay_divergence_rate | at_most | 0.01 | rolling_24h | 20 | shadow-oncall-quality | shadow-oncall-quality-lead | coaching |
 | `shadow-safety-block-rate` | safety | safety_block_rate | at_most | 0.1 | rolling_24h | 40 | shadow-oncall-quality | shadow-oncall-quality-lead | coaching |
 | `shadow-trace-completeness-rate` | safety | trace_completeness_rate | at_least | 0.99 | rolling_1h | 20 | shadow-oncall-quality | shadow-oncall-quality-lead | — |
 | `shadow-pipeline-latency-p95` | latency | pipeline_latency_p95_ms | at_most | 6000 | rolling_1h | 50 | shadow-oncall-backend | shadow-oncall-backend-lead | coaching |
 | `shadow-cost-micros-per-run` | cost | shadow_cost_micros_per_run | at_most | 2500 | rolling_24h | 50 | shadow-oncall-product | shadow-oncall-product-lead | — |
 
-**Sample units differ.** `module_timeout_rate` counts *module executions*, so
-its floor of 160 is twenty runs of an eight-module chain rather than twenty
-stages. `safety_block_rate` counts only runs that produced a deliverable — a
-withheld run has no disposition to read, and counting it as "not blocked" would
-make the gate look calmer the more often it failed to answer.
+**Sample units differ, and sufficiency does not.** `module_timeout_rate` counts
+*module executions* in its denominator — a module that was skipped or switched
+off never ran, so it is not in it. But every SLO's **floor** is a plain count of
+runs, and that separation is deliberate: a floor expressed in executions rises
+out of reach exactly when the pipeline degrades and executes fewer of them. This
+floor was 160, then 140, before that was measured — twenty runs of a coaching
+timeout scored 0.167 against the 0.02 threshold and reported `inconclusive`,
+because a degraded run executes six modules rather than seven. "Have we seen
+enough traffic to judge?" is a question about runs; "what is the rate?" is a
+question about executions.
+
+`safety_block_rate` counts only runs that produced a deliverable — a withheld
+run has no disposition to read, and counting it as "not blocked" would make the
+gate look calmer the more often it failed to answer.
 
 **Two metrics in the contract vocabulary deliberately have no SLO**, and the
 test requires each to be named with a reason rather than silently unwatched:

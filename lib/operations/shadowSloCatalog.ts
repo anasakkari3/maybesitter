@@ -290,7 +290,20 @@ export const SHADOW_SLO_CATALOG: readonly ShadowSloCatalogEntry[] = Object.freez
       comparison: 'at_most',
       threshold: 0.02,
       window: 'rolling_1h',
-      minimumSampleCount: 160,
+      // Twenty runs, like every other SLO here.
+      //
+      // This was 160, then briefly 140, and the history is the point. Both were
+      // attempts to express "twenty runs' worth" in *module executions*, which
+      // is the unit this metric's rate divides by. Both were wrong in the same
+      // direction: a degraded run executes fewer modules, so a floor counted in
+      // executions rises out of reach exactly when the pipeline is failing.
+      // Measured at 140: twenty runs of a coaching timeout produced a rate of
+      // 0.167 against this 0.02 threshold and reported `inconclusive`.
+      //
+      // Sufficiency is now counted in runs for every metric (see
+      // `Measurement.sufficiencyCount`), so this is a plain run count and the
+      // rate keeps its per-execution denominator.
+      minimumSampleCount: 20,
       owner: BACKEND,
       killSwitchModule: 'coaching',
     }),

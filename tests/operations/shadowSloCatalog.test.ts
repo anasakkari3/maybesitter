@@ -26,6 +26,7 @@ import assert from 'node:assert/strict';
 
 import {
   MIN_SLO_SAMPLE_COUNT,
+  SHADOW_MODULE_ROLES,
   SHADOW_PIPELINE_CHAIN,
   SHADOW_PIPELINE_TOTAL_BUDGET_MS,
   SHADOW_SLO_METRICS,
@@ -107,7 +108,7 @@ const EXPECTED: readonly {
     comparison: 'at_most',
     threshold: 0.02,
     window: 'rolling_1h',
-    minimumSampleCount: 160,
+    minimumSampleCount: 20,
     rotationId: 'shadow-oncall-backend',
     escalationRotationId: 'shadow-oncall-backend-lead',
     killSwitchModule: 'coaching',
@@ -290,13 +291,30 @@ test('the contract sample floor is 20 and no definition sits below it', () => {
   }
 });
 
-test('a module-run metric carries a sample floor scaled by the chain length', () => {
-  assert.equal(SHADOW_PIPELINE_CHAIN.length, 8);
+test('every sample floor is a run count, whatever unit the rate divides by', () => {
+  // This test used to require module-run metrics to carry a floor scaled by the
+  // chain length — 20 x 8. That reasoning was wrong twice over: the denominator
+  // counted a module that never runs, and, once corrected, a floor counted in
+  // executions rises out of reach exactly when the pipeline degrades and
+  // executes fewer of them. Measured: twenty runs of a coaching timeout scored
+  // 0.167 against a 0.02 threshold and reported `inconclusive`.
+  //
+  // Sufficiency is now traffic seen, in runs, for every metric. The rate keeps
+  // its own denominator; `SHADOW_SLO_SAMPLE_UNIT` still records what that is.
   for (const entry of SHADOW_SLO_CATALOG) {
-    if (SHADOW_SLO_SAMPLE_UNIT[entry.definition.metric] !== 'module_run') continue;
     assert.ok(
-      entry.definition.minimumSampleCount >= 20 * 8,
-      `${entry.definition.sloId} counts module executions, so twenty samples is two and a half runs`,
+      entry.definition.minimumSampleCount >= MIN_SLO_SAMPLE_COUNT,
+      `${entry.definition.sloId} sits below the contract floor`,
+    );
+  }
+  const moduleScoped = SHADOW_SLO_CATALOG.filter(
+    (entry) => SHADOW_SLO_SAMPLE_UNIT[entry.definition.metric] === 'module_run',
+  );
+  assert.ok(moduleScoped.length > 0, 'no module-scoped metric, so this asserted nothing');
+  for (const entry of moduleScoped) {
+    assert.ok(
+      entry.definition.minimumSampleCount <= 60,
+      `${entry.definition.sloId} carries a floor that looks scaled by the chain rather than counted in runs`,
     );
   }
 });

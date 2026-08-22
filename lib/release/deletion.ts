@@ -252,11 +252,42 @@ export function deleteShadowStudyParticipant(
     personalization: personalization === null ? null : 1,
   };
 
-  // One condition, and `unprovable` is derived from the same three reads rather
-  // than accumulated beside them. A second list built from a second set of
-  // checks would agree with this guard until one of them was edited.
-  if (remainingTraceCount === null || remainingReplayBundleCount === null || personalization === null) {
+  // One condition, and `unprovable` is derived from the same reads rather than
+  // accumulated beside them. A second list built from a second set of checks
+  // would agree with this guard until one of them was edited.
+  //
+  // ── Why consent, and only consent, is checked for survival here ──
+  //
+  // The first version asked only "could emptiness be *read*", never "was it
+  // *empty*". For three of the stores that is right: their remainders are
+  // fields of the receipt, so a leftover row is caught by
+  // `checkShadowStudyDeletionReceipt` and the tests below prove it, one field
+  // at a time. Issuing the receipt and letting its own checker refuse it is the
+  // stronger arrangement — the lie is recorded in the artifact rather than
+  // swallowed by the producer.
+  //
+  // Consent has no such field. `ShadowStudyDeletionReceipt` carries three
+  // remainders and cannot take a fourth, so `remainingConsentRecordCount` was
+  // re-listed on the line above, returned beside the receipt, and acted on by
+  // nothing. An integration review handed this a consent store whose
+  // `deleteParticipant` returns 1 and removes nothing, and got back
+  // `status: 'deleted'`, **zero defects from the contract checker**, and a
+  // digest that recomputes — while the participant's granted scopes stayed
+  // fully readable. A receipt is a claim of emptiness; this module may not make
+  // one for a scope it can see is not empty and cannot show.
+  //
+  // Not symmetric with `removed`: a store that removed nothing because there
+  // was nothing is fine. Only a remainder refuses.
+  const survivingConsent = remainingConsentRecordCount > 0;
+
+  if (
+    remainingTraceCount === null ||
+    remainingReplayBundleCount === null ||
+    personalization === null ||
+    survivingConsent
+  ) {
     const missing: [ShadowDeletableStore, string | null][] = [
+      ['consent', survivingConsent ? `${remainingConsentRecordCount} record(s) survived the delete` : null],
       ['traces', remainingTraceCount === null && input.traces.status === 'not_wired' ? input.traces.owner : null],
       ['replay_bundles', remainingReplayBundleCount === null && input.replayBundles.status === 'not_wired' ? input.replayBundles.owner : null],
       ['personalization', personalization === null ? 'no deleter wired in this build' : null],

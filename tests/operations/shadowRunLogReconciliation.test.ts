@@ -82,6 +82,101 @@ function setBasedAgreement(
   );
 }
 
+/* ── What a line *says*, not merely how many there are ───────────── */
+
+/**
+ * Everything below exists because the emitter's whole output vocabulary was
+ * unasserted.
+ *
+ * An integration review replaced every `kind` and every `occurredAt` in
+ * `emitShadowRunLog` with a wrong value — `run_finished` emitted as
+ * `run_started`, stage lines stamped with `startedAt` instead of `endedAt`, the
+ * run's opening line stamped with the trace's closing instant — and the full
+ * 3229-test suite passed on all five. `grep -rn "run_finished" tests/` returned
+ * nothing at all.
+ *
+ * The tests that existed counted run-level lines (`runLines.length === 2`) and
+ * never read one. That is the Sprint 10 "metric replaceable with a literal
+ * constant" shape applied to an emitter: the module's own header calls the kind
+ * vocabulary closed because "'the run started' and 'the run finished' are the
+ * two lines an operator looks for first", and it could have stopped producing
+ * either.
+ */
+
+test('the run-level lines are one opening and one closing, in that order', async () => {
+  const run = await runFor('drill-run-log-kinds');
+  const lines = emitShadowRunLog(run.trace, run.bundleDigest);
+  const runLevel = lines.filter((line) => line.module === null);
+
+  assert.deepEqual(
+    runLevel.map((line) => line.kind),
+    ['run_started', 'run_finished'],
+    'the two lines an operator looks for first are not the two lines emitted',
+  );
+  // Positional, not just present: an operator scanning a merged log reads order.
+  assert.equal(lines[0].kind, 'run_started');
+  assert.equal(lines[lines.length - 1].kind, 'run_finished');
+});
+
+test('every stage line is a stage_recorded, and no stage line claims a run kind', async () => {
+  const run = await runFor('drill-run-log-stagekind');
+  const lines = emitShadowRunLog(run.trace, run.bundleDigest);
+  const stageLines = lines.filter((line) => line.module !== null);
+
+  assert.equal(stageLines.length, run.trace.stages.length);
+  for (const line of stageLines) {
+    assert.equal(line.kind, 'stage_recorded', `a stage line was emitted as ${line.kind}`);
+  }
+  // And the converse: a run-level kind never carries a module.
+  for (const line of lines) {
+    if (line.kind === 'stage_recorded') assert.notEqual(line.module, null);
+    else assert.equal(line.module, null, `${line.kind} carried a module`);
+  }
+});
+
+test('each line is stamped with the instant it is about, not merely with some instant', async () => {
+  // The three stamps are three different values in a real trace, so a fixture
+  // where they coincided would make any of these assertions vacuous. Checked
+  // first, then asserted.
+  const run = await runFor('drill-run-log-instants');
+  const lines = emitShadowRunLog(run.trace, run.bundleDigest);
+  const stages = run.trace.stages;
+  assert.ok(stages.length > 0, 'no stages, so nothing below asserts anything');
+
+  const opening = stages[0].startedAt;
+  const closing = run.trace.recordedAt;
+  assert.notEqual(opening, closing, 'the fixture opens and closes at one instant; the stamps cannot be told apart');
+
+  assert.equal(lines[0].occurredAt, opening, 'the opening line is not stamped with the first stage’s start');
+  assert.equal(lines[lines.length - 1].occurredAt, closing, 'the closing line is not stamped with the trace’s record instant');
+
+  // Stage lines carry the instant the stage *ended*. A stage whose start and end
+  // differ is what separates that from `startedAt`; assert at least one exists
+  // before relying on the comparison.
+  const movingStages = stages.filter((stage) => stage.startedAt !== stage.endedAt);
+  assert.ok(movingStages.length > 0, 'every stage started and ended at one instant; endedAt is untestable here');
+  for (const stage of stages) {
+    const line = lines.find((entry) => entry.module === stage.module);
+    assert.ok(line, `no line for ${stage.module}`);
+    assert.equal(
+      line?.occurredAt,
+      stage.endedAt,
+      `${stage.module}'s line is stamped with something other than the instant the stage ended`,
+    );
+  }
+});
+
+test('the log’s instants are non-decreasing, so a merged operator view reads in order', async () => {
+  const run = await runFor('drill-run-log-order');
+  const lines = emitShadowRunLog(run.trace, run.bundleDigest);
+  for (let index = 1; index < lines.length; index += 1) {
+    assert.ok(
+      Date.parse(lines[index].occurredAt) >= Date.parse(lines[index - 1].occurredAt),
+      `line ${index} (${lines[index].kind}) is stamped before line ${index - 1} (${lines[index - 1].kind})`,
+    );
+  }
+});
+
 /* ── What a line carries ─────────────────────────────────────────── */
 
 test('every emitted line carries the reconciliation fields the contract names', async () => {

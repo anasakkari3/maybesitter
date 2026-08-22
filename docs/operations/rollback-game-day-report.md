@@ -13,7 +13,7 @@
 | SLO | concern | consecutive breaches | latest value | samples | paged | escalated | arms |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `shadow-pipeline-withheld-rate` | reliability | 3 | 0.2 | 20 | `shadow-oncall-backend-lead` | true | `safety` |
-| `shadow-module-timeout-rate` | reliability | 3 | 0.025 | 160 | `shadow-oncall-backend-lead` | true | `coaching` |
+| `shadow-module-timeout-rate` | reliability | 3 | 0.029411764705882353 | 136 | `shadow-oncall-backend-lead` | true | `coaching` |
 
 Kill switches armed: `safety`, `coaching`.
 
@@ -44,5 +44,5 @@ Kill switches armed: `safety`, `coaching`.
 | SLO | status | value | samples | breached |
 | --- | --- | --- | --- | --- |
 | `shadow-pipeline-withheld-rate` | measured | 0 | 20 | false |
-| `shadow-module-timeout-rate` | measured | 0 | 160 | false |
+| `shadow-module-timeout-rate` | measured | 0 | 140 | false |
 

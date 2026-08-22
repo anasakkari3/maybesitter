@@ -34,6 +34,7 @@
 
 import { instantFromMillis } from '../../src/contracts/v1/safetyContracts';
 import {
+  SHADOW_MODULE_STATUSES,
   SHADOW_PIPELINE_CHAIN,
   SHADOW_SLO_WINDOW_MILLIS,
   checkShadowTrace,
@@ -43,6 +44,7 @@ import {
   type ShadowPipelineOutcome,
   type ShadowPipelineTrace,
   type ShadowSloDefinition,
+  type ShadowModuleStatus,
   type ShadowSloMetric,
   type ShadowSloReading,
   type ShadowSloWindow,
@@ -131,12 +133,35 @@ export function shadowLatencyP95(values: readonly number[]): number {
 }
 
 interface Measurement {
+  /** The denominator the value was computed over. Reported on the reading. */
   readonly sampleCount: number;
+  /**
+   * What the definition's floor is compared against — **how much traffic was
+   * seen**, which is not always the same as what the rate divides by.
+   *
+   * They diverge for module-scoped rates, and the divergence matters. A
+   * degraded run executes fewer modules: coaching times out, the fail-closed
+   * gate downstream is skipped, and six modules run where seven would have.
+   * Comparing a floor of "twenty runs' worth of executions" against that count
+   * means **the worse the incident, the harder it is to reach the floor** —
+   * measured, before this split: twenty runs of a coaching timeout produced a
+   * timeout rate of 0.167 against a 0.02 threshold and reported it
+   * `inconclusive`, because 120 executions fell short of 140.
+   *
+   * That is the same backwardness as the denominator defect this file already
+   * fixed once, arriving from the other side. Sufficiency is therefore counted
+   * in runs for every metric, and the floors are all plain run counts again.
+   */
+  readonly sufficiencyCount: number;
   readonly value: number;
 }
 
-function rate(numerator: number, denominator: number): Measurement {
-  return { sampleCount: denominator, value: denominator === 0 ? Number.NaN : numerator / denominator };
+function rate(numerator: number, denominator: number, sufficiencyCount = denominator): Measurement {
+  return {
+    sampleCount: denominator,
+    sufficiencyCount,
+    value: denominator === 0 ? Number.NaN : numerator / denominator,
+  };
 }
 
 /**
@@ -148,6 +173,21 @@ function rate(numerator: number, denominator: number): Measurement {
  * withheld run has no disposition to read and counting it as "not blocked"
  * would make the gate look calmer the more often it failed to answer.
  */
+/**
+ * The statuses that mean the module actually ran. Derived by exclusion from
+ * `SHADOW_MODULE_STATUSES` rather than listed, so a status added to the
+ * contract has to be classified here instead of silently counting as an
+ * execution.
+ */
+const MODULE_NON_EXECUTION_STATUSES: readonly ShadowModuleStatus[] = Object.freeze([
+  'skipped',
+  'unavailable',
+]);
+
+export const MODULE_EXECUTION_STATUSES: readonly ShadowModuleStatus[] = Object.freeze(
+  SHADOW_MODULE_STATUSES.filter((status) => !MODULE_NON_EXECUTION_STATUSES.includes(status)),
+);
+
 export function measureShadowSloMetric(
   metric: ShadowSloMetric,
   observations: readonly ShadowRunObservation[],
@@ -157,6 +197,7 @@ export function measureShadowSloMetric(
   if (metric === 'pipeline_latency_p95_ms') {
     return {
       sampleCount: runs,
+      sufficiencyCount: runs,
       value: shadowLatencyP95(observations.map((item) => item.outcome.totalElapsedMs)),
     };
   }
@@ -164,7 +205,7 @@ export function measureShadowSloMetric(
   if (metric === 'shadow_cost_micros_per_run') {
     let total = 0;
     for (const item of observations) total += item.costMicros;
-    return { sampleCount: runs, value: runs === 0 ? Number.NaN : total / runs };
+    return { sampleCount: runs, sufficiencyCount: runs, value: runs === 0 ? Number.NaN : total / runs };
   }
 
   if (metric === 'module_timeout_rate' || metric === 'module_fallback_rate') {
@@ -174,13 +215,34 @@ export function measureShadowSloMetric(
     for (const item of observations) {
       for (const module of SHADOW_PIPELINE_CHAIN) {
         const moduleOutcome = item.outcome.moduleOutcomes[module];
+        if (moduleOutcome === undefined || moduleOutcome === null) continue;
+        // Executions, not chain slots. `SHADOW_SLO_SAMPLE_UNIT` calls this
+        // metric's unit `module_run`, and a module that never ran is not a run.
+        //
+        // The first version incremented for every member of the chain. Two
+        // consequences, both measured:
+        //
+        //   - `priority` is `skipped` in every real run, so one slot sat in the
+        //     denominator that the numerator could never match, and the rate
+        //     could not reach 1.0 however completely the pipeline failed;
+        //   - worse, the dilution scaled with kill switches. Two modules run,
+        //     both time out, six are switched off — a total failure of
+        //     everything that executed — read **0.25** against a 0.02 threshold.
+        //     The more of the pipeline you disabled, the calmer the timeout rate
+        //     became, which is backwards during exactly the incident that causes
+        //     switches to be pulled.
+        //
+        // `skipped` and `unavailable` are the two statuses where no work
+        // happened. The remaining three — completed, fell_back, timed_out — are
+        // all attempts, and an attempt that fell back is still an attempt that
+        // could have timed out.
+        if (!MODULE_EXECUTION_STATUSES.includes(moduleOutcome.status)) continue;
         executions += 1;
-        if (moduleOutcome !== undefined && moduleOutcome !== null && moduleOutcome.status === wanted) {
-          matching += 1;
-        }
+        if (moduleOutcome.status === wanted) matching += 1;
       }
     }
-    return rate(matching, executions);
+    // Runs, not executions, for sufficiency — see `Measurement.sufficiencyCount`.
+    return rate(matching, executions, runs);
   }
 
   if (metric === 'pipeline_degraded_rate' || metric === 'pipeline_withheld_rate') {
@@ -261,10 +323,12 @@ export function computeShadowSloReading(
   }
 
   const measurement = measureShadowSloMetric(definition.metric, batch.observations);
-  if (measurement.sampleCount === 0) {
+  if (measurement.sampleCount === 0 || measurement.sufficiencyCount === 0) {
     return inconclusiveReading(definition, 'no_data_in_window', 0, observedAt);
   }
-  if (measurement.sampleCount < definition.minimumSampleCount) {
+  // Against `sufficiencyCount`, which is traffic seen, not the rate's
+  // denominator. See `Measurement` for why they must not be the same number.
+  if (measurement.sufficiencyCount < definition.minimumSampleCount) {
     return inconclusiveReading(definition, 'insufficient_sample', measurement.sampleCount, observedAt);
   }
 

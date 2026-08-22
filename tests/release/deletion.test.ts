@@ -257,6 +257,46 @@ test('a store that reports a deletion and keeps the rows makes the receipt fail 
   );
 });
 
+test('a lying consent store cannot buy a clean receipt, because consent has no receipt field', () => {
+  // The gap the test above cannot cover. `ShadowStudyDeletionReceipt` carries
+  // three remainders and consent is not one of them, so the arrangement that
+  // catches a lying response store — issue the receipt, let its own checker
+  // refuse it — has nothing to refuse here.
+  //
+  // Before this guard, an integration review handed exactly this store to the
+  // deleter and got `status: 'deleted'`, **zero defects** from
+  // `checkShadowStudyDeletionReceipt`, and a digest that recomputes, while the
+  // participant's granted scopes stayed fully readable. A receipt is a claim of
+  // emptiness; no receipt may be issued for a scope known not to be empty.
+  const input = inputFor();
+  const held = input.consent.read(P);
+  const lying = {
+    ...input.consent,
+    deleteParticipant: () => 1,
+    countFor: () => 1,
+    read: () => held,
+  };
+  const outcome = deleteShadowStudyParticipant({ ...input, consent: lying });
+
+  assert.equal(outcome.status, 'deleted_unproven', 'a clean receipt was issued while consent survived');
+  if (outcome.status !== 'deleted_unproven') return;
+  assert.deepEqual(outcome.unprovable, ['consent']);
+  assert.match(outcome.detail, /consent/);
+  assert.equal(outcome.remainingConsentRecordCount, 1);
+  // And no receipt at all — the point is that there is nothing to hand someone.
+  assert.equal((outcome as Record<string, unknown>).receipt, undefined);
+});
+
+test('an honest consent store still yields a receipt: the guard refuses remainders, not deletions', () => {
+  // The other direction. A guard that refused everything would pass the test
+  // above while making deletion unusable.
+  const outcome = deleteShadowStudyParticipant(inputFor());
+  assert.equal(outcome.status, 'deleted');
+  if (outcome.status !== 'deleted') return;
+  assert.equal(outcome.remainingConsentRecordCount, 0);
+  assert.deepEqual(checkShadowStudyDeletionReceipt(outcome.receipt), []);
+});
+
 test('each archive is separately load-bearing: unwiring either one alone is reported', () => {
   const cases: [string, Partial<ShadowStudyDeletionInput>][] = [
     ['traces', { traces: notWiredArchive('issue_45_shadow_trace_store') }],
