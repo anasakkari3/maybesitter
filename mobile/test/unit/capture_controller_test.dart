@@ -68,8 +68,16 @@ void main() {
       analyticsService = FakePilotLoopAnalyticsService();
       container = ProviderContainer(
         overrides: [
+          // Explicit mock mode: these tests assert on MockCaptureService's
+          // exact keyword-fixture behavior (e.g. "doctor and work" splitting
+          // into two named commitments), which is mock-specific and not
+          // something a real backend call would deterministically reproduce
+          // in a unit test sandbox with no network access.
           appConfigProvider.overrideWith(
-            (ref) => const AppConfig(enablePilotVoice: true),
+            (ref) => const AppConfig(
+              apiMode: ApiMode.mock,
+              enablePilotVoice: true,
+            ),
           ),
           speechCaptureServiceProvider.overrideWithValue(speechService),
           pilotLoopAnalyticsServiceProvider.overrideWithValue(analyticsService),

@@ -50,7 +50,7 @@ class AppConfig {
   final bool killPilotImports;
 
   const AppConfig({
-    this.apiMode = ApiMode.mock,
+    this.apiMode = ApiMode.localBackend,
     this.baseUrl = 'http://localhost:3000',
     this.scopeId = 'default',
     this.timezone = 'Asia/Jerusalem',
@@ -100,8 +100,16 @@ class AppConfig {
     ),
   });
 
+  // An empty API_BASE_URL (the common case: no build-time override supplied)
+  // no longer selects mock mode. It selects local-backend mode against the
+  // default localhost URL instead, so a default build talks to a real
+  // extraction backend rather than silently hardcoding fixture data. If that
+  // backend isn't reachable, ApiCaptureService/ApiClient surface a graceful,
+  // in-product error (see ApiCaptureService.capture's catch-all ->
+  // CaptureStatus.networkError) rather than hanging or crashing -- so this is
+  // safe for a fresh checkout or CI with no backend running.
   const AppConfig.fromEnvironment()
-    : apiMode = _configuredBaseUrl == '' ? ApiMode.mock : ApiMode.localBackend,
+    : apiMode = ApiMode.localBackend,
       baseUrl = _configuredBaseUrl == ''
           ? 'http://localhost:3000'
           : _configuredBaseUrl,

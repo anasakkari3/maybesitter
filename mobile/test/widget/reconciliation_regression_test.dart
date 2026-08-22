@@ -15,8 +15,17 @@ import 'package:maybesitter_mobile/models/app_settings.dart';
 import 'package:maybesitter_mobile/services/providers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// TodayScreen (and, transitively, CaptureComposerScreen's own dependencies)
+/// can reach NextStepCard, which fires a real network fetch on first frame.
+/// Explicit mock mode keeps these widget tests settle-able without a live
+/// backend; none of them assert on real-vs-mock capture/backend behaviour.
+final _mockModeOverride = appConfigProvider.overrideWith(
+  (ref) => const AppConfig(apiMode: ApiMode.mock),
+);
+
 Widget _wrap(Widget child, {Locale locale = const Locale('en')}) {
   return ProviderScope(
+    overrides: [_mockModeOverride],
     child: MaterialApp(
       locale: locale,
       theme: AppTheme.lightTheme,
@@ -152,7 +161,9 @@ void main() {
     });
 
     test('6. Safe PATCH capability remains functional', () {
-      const mock = AppConfig();
+      // Explicit mock mode: tests mock mode's capability behaviour, not
+      // AppConfig's unlabeled default (now ApiMode.localBackend).
+      const mock = AppConfig(apiMode: ApiMode.mock);
       expect(mock.supportsSafeCommitmentPatch, isTrue);
 
       const backendWithout = AppConfig(
@@ -177,14 +188,23 @@ void main() {
       expect(withUrl.isMock, isFalse);
       expect(withUrl.baseUrl, 'http://192.168.1.20:3000');
 
+      // Real extraction is the default now, not mock: a fresh checkout with
+      // no explicit apiMode still resolves to local-backend mode (against
+      // the default localhost URL via AppConfig.fromEnvironment when no
+      // API_BASE_URL is supplied at build time), so a default build talks to
+      // a real backend instead of silently hardcoding fixture data. Mock
+      // mode is only reached by explicitly asking for it.
       const noUrl = AppConfig();
-      expect(noUrl.isMock, isTrue);
-      expect(noUrl.apiMode, ApiMode.mock);
+      expect(noUrl.isLocalBackend, isTrue);
+      expect(noUrl.apiMode, ApiMode.localBackend);
+
+      const explicitMock = AppConfig(apiMode: ApiMode.mock);
+      expect(explicitMock.isMock, isTrue);
     });
 
     testWidgets('8. Arabic RTL layout builds', (tester) async {
       SharedPreferences.setMockInitialValues({});
-      final container = ProviderContainer();
+      final container = ProviderContainer(overrides: [_mockModeOverride]);
       addTearDown(container.dispose);
       await container.read(appSettingsProvider.notifier).completeOnboarding();
       await container
@@ -208,7 +228,7 @@ void main() {
 
     testWidgets('9. Hebrew RTL layout builds', (tester) async {
       SharedPreferences.setMockInitialValues({});
-      final container = ProviderContainer();
+      final container = ProviderContainer(overrides: [_mockModeOverride]);
       addTearDown(container.dispose);
       await container.read(appSettingsProvider.notifier).completeOnboarding();
       await container

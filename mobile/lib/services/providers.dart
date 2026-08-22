@@ -90,6 +90,14 @@ final commitmentRepositoryProvider = Provider<CommitmentRepository>((ref) {
   );
 });
 
+/// Real extraction (ApiCaptureService) by default: AppConfig.isLocalBackend
+/// is true unless explicitly overridden to ApiMode.mock. MockCaptureService
+/// is only used when a caller deliberately configures mock mode (e.g. a demo
+/// build, or a test injecting it via ProviderScope overrides) -- not as a
+/// silent fallback for "no backend configured", which used to make every
+/// capture resolve to a hardcoded "tomorrow at 10:00 AM" regardless of what
+/// was typed. If the backend is unreachable, ApiCaptureService itself
+/// surfaces a graceful networkError CaptureResult rather than throwing.
 final captureServiceProvider = Provider<CaptureService>((ref) {
   final config = ref.watch(appConfigProvider);
   if (config.isLocalBackend) {

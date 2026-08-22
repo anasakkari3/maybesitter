@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:maybesitter_mobile/app/app.dart';
+import 'package:maybesitter_mobile/config/app_config.dart';
 import 'package:maybesitter_mobile/features/onboarding/routine_survey_screen.dart';
 import 'package:maybesitter_mobile/l10n/generated/app_localizations.dart';
 import 'package:maybesitter_mobile/models/pilot_presence.dart';
@@ -22,6 +23,12 @@ void main() {
       overrides: [
         timezoneServiceProvider.overrideWithValue(
           const _FakeTimezoneService('Asia/Hebron'),
+        ),
+        // MaybesitterApp reaches Today, whose NextStepCard fires a real
+        // network fetch on its first frame -- explicit mock mode keeps this
+        // settle-able without a live backend.
+        appConfigProvider.overrideWith(
+          (ref) => const AppConfig(apiMode: ApiMode.mock),
         ),
       ],
     );
@@ -56,6 +63,12 @@ void main() {
         timezoneServiceProvider.overrideWithValue(
           const _FakeTimezoneService('Asia/Hebron'),
         ),
+        // MaybesitterApp reaches Today, whose NextStepCard fires a real
+        // network fetch on its first frame -- explicit mock mode keeps this
+        // settle-able without a live backend.
+        appConfigProvider.overrideWith(
+          (ref) => const AppConfig(apiMode: ApiMode.mock),
+        ),
       ],
     );
     addTearDown(container.dispose);
@@ -85,6 +98,12 @@ void main() {
       overrides: [
         timezoneServiceProvider.overrideWithValue(
           const _FakeTimezoneService('Asia/Hebron'),
+        ),
+        // MaybesitterApp reaches Today, whose NextStepCard fires a real
+        // network fetch on its first frame -- explicit mock mode keeps this
+        // settle-able without a live backend.
+        appConfigProvider.overrideWith(
+          (ref) => const AppConfig(apiMode: ApiMode.mock),
         ),
       ],
     );
@@ -134,6 +153,12 @@ void main() {
       overrides: [
         timezoneServiceProvider.overrideWithValue(
           const _FakeTimezoneService('Asia/Hebron'),
+        ),
+        // MaybesitterApp reaches Today, whose NextStepCard fires a real
+        // network fetch on its first frame -- explicit mock mode keeps this
+        // settle-able without a live backend.
+        appConfigProvider.overrideWith(
+          (ref) => const AppConfig(apiMode: ApiMode.mock),
         ),
       ],
     );
@@ -193,6 +218,12 @@ void main() {
       overrides: [
         timezoneServiceProvider.overrideWithValue(
           const _FakeTimezoneService('Asia/Hebron'),
+        ),
+        // MaybesitterApp reaches Today, whose NextStepCard fires a real
+        // network fetch on its first frame -- explicit mock mode keeps this
+        // settle-able without a live backend.
+        appConfigProvider.overrideWith(
+          (ref) => const AppConfig(apiMode: ApiMode.mock),
         ),
       ],
     );

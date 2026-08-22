@@ -3,12 +3,21 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:maybesitter_mobile/app/app.dart';
+import 'package:maybesitter_mobile/config/app_config.dart';
 import 'package:maybesitter_mobile/design_system/components/commitment_card.dart';
 import 'package:maybesitter_mobile/l10n/generated/app_localizations.dart';
 import 'package:maybesitter_mobile/models/app_settings.dart';
 import 'package:maybesitter_mobile/models/commitment.dart';
 import 'package:maybesitter_mobile/services/providers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+/// These tests exercise MaybesitterApp's full tree, whose Today screen embeds
+/// NextStepCard -- it fires a real network fetch on first frame. Explicit
+/// mock mode keeps them settle-able without a live backend; none of them are
+/// asserting on real-vs-mock capture behaviour, only on locale/RTL rendering.
+final _mockModeOverride = appConfigProvider.overrideWith(
+  (ref) => const AppConfig(apiMode: ApiMode.mock),
+);
 
 void main() {
   group('Localization Widget Tests', () {
@@ -19,7 +28,12 @@ void main() {
     });
 
     testWidgets('Renders English Today Screen', (WidgetTester tester) async {
-      await tester.pumpWidget(const ProviderScope(child: MaybesitterApp()));
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [_mockModeOverride],
+          child: const MaybesitterApp(),
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('Maybesitter'), findsOneWidget);
@@ -53,6 +67,7 @@ void main() {
 
       final container = ProviderContainer(
         overrides: [
+          _mockModeOverride,
           commitmentsStreamProvider.overrideWith((ref) => Stream.value([c])),
           todayCommitmentsProvider.overrideWithValue([c]),
         ],
@@ -107,6 +122,7 @@ void main() {
 
       final container = ProviderContainer(
         overrides: [
+          _mockModeOverride,
           commitmentsStreamProvider.overrideWith((ref) => Stream.value([c])),
           todayCommitmentsProvider.overrideWithValue([c]),
         ],
@@ -136,7 +152,7 @@ void main() {
     testWidgets('Language switching in Settings without restart', (
       WidgetTester tester,
     ) async {
-      final container = ProviderContainer();
+      final container = ProviderContainer(overrides: [_mockModeOverride]);
 
       await tester.pumpWidget(
         UncontrolledProviderScope(
@@ -168,7 +184,7 @@ void main() {
     testWidgets('Arabic & Hebrew Accessibility Semantics & Tooltips', (
       WidgetTester tester,
     ) async {
-      final container = ProviderContainer();
+      final container = ProviderContainer(overrides: [_mockModeOverride]);
       container
           .read(appSettingsProvider.notifier)
           .updateLocale(AppLocaleOption.arabic);
@@ -238,7 +254,7 @@ void main() {
     testWidgets('Arabic Large-Text 2.0x scale does not overflow', (
       WidgetTester tester,
     ) async {
-      final container = ProviderContainer();
+      final container = ProviderContainer(overrides: [_mockModeOverride]);
       container
           .read(appSettingsProvider.notifier)
           .updateLocale(AppLocaleOption.arabic);
@@ -261,7 +277,7 @@ void main() {
     testWidgets('Hebrew Large-Text 2.0x scale does not overflow', (
       WidgetTester tester,
     ) async {
-      final container = ProviderContainer();
+      final container = ProviderContainer(overrides: [_mockModeOverride]);
       container
           .read(appSettingsProvider.notifier)
           .updateLocale(AppLocaleOption.hebrew);
