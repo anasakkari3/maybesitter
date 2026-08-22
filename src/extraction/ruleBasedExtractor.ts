@@ -334,3 +334,50 @@ export function extract(rawText: string, context: ExtractionContext): Extraction
     parserVersion: PARSER_VERSION,
   };
 }
+
+/**
+ * How many distinct clock times the raw text names.
+ *
+ * The extractor reads a time with `String.match` against a non-global regex,
+ * which returns the first match and silently discards the rest. A sentence
+ * carrying three times can therefore produce one commitment that looks
+ * complete, and the confidence policy — which only ever sees that one
+ * result — reports no clarification needed.
+ *
+ * These are the same patterns `stripTiming` already uses to remove clock
+ * tokens from a title, kept in one place so the counter and the parser can
+ * never disagree about what a time looks like. Fresh RegExp objects per call:
+ * a shared global regex carries `lastIndex` between calls.
+ */
+export function countTimeExpressions(text: string): number {
+  if (typeof text !== 'string' || !text.trim()) return 0;
+  const patterns = [
+    /\b(?:at|by|around)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/gi,
+    /\b(?:at|by|around)\s*\d{1,2}(?::\d{2})?(?=$|[\s,.،])/gi,
+    /\b\d{1,2}:\d{2}(?=$|[\s,.،])/gi,
+    /(?:الساعة|الساعه|عند|على)?\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\s*(?:صباحا|صباحاً|الصبح|ص|مساء|مساءً|المسا|المساء|بالليل|م)(?=$|[\s,.،])/gi,
+    /(?:الساعة|الساعه|عند|على)\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?(?=$|[\s,.،])/gi,
+  ];
+
+  // Count positions, not matches: two patterns can describe the same mention
+  // ("at 9am" matches both the am-suffixed and the bare-hour shape), and
+  // counting each would invent a time the sentence never had.
+  const covered = new Set<number>();
+  for (const pattern of patterns) {
+    let match: RegExpExecArray | null;
+    // Each pattern is a fresh literal, so lastIndex starts at 0 every call.
+    while ((match = pattern.exec(text)) !== null) {
+      // A zero-width match would spin forever; step past it.
+      if (match[0].length === 0) {
+        pattern.lastIndex += 1;
+        continue;
+      }
+      // Anchor on where the digits sit, so overlapping shapes of one mention
+      // collapse onto a single position.
+      const digitOffset = match[0].search(/[0-9٠-٩۰-۹]/);
+      if (digitOffset < 0) continue;
+      covered.add(match.index + digitOffset);
+    }
+  }
+  return covered.size;
+}
