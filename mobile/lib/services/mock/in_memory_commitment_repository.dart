@@ -19,6 +19,10 @@ class InMemoryCommitmentRepository implements CommitmentRepository {
   /// so this is the only thing that keeps them gone.
   final Set<String> _deletedSeedIds = {};
 
+  /// A failed restore means the stored state is unknown, not empty. Writing
+  /// after one would replace real saved changes with a rebuild of the seed.
+  bool _restoreFailed = false;
+
   /// A commitment's whole content as one collision-proof string.
   ///
   /// JSON rather than a delimiter join: a user is free to type the delimiter
@@ -65,6 +69,11 @@ class InMemoryCommitmentRepository implements CommitmentRepository {
     try {
       changes = await store.load();
     } catch (_) {
+      // A read that failed tells us nothing about what is stored. Saving now
+      // would rebuild the change set from the bare seed and overwrite every
+      // edit and tombstone the user actually has — a transient read error
+      // would become permanent data loss.
+      _restoreFailed = true;
       return;
     }
     if (changes.isEmpty) return;
@@ -113,7 +122,7 @@ class InMemoryCommitmentRepository implements CommitmentRepository {
 
   Future<void> _persist() async {
     final store = stateStore;
-    if (store == null) return;
+    if (store == null || _restoreFailed) return;
     final changes = <String, CommitmentStateChange>{};
     for (final commitment in _commitments) {
       // Seed data as shipped needs no row. Anything else does — whether it is

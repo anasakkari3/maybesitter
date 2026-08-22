@@ -20,7 +20,7 @@ class ApiCaptureService implements CaptureService {
     try {
       final payload = {
         'text': request.rawInput,
-        'referenceTime': request.capturedAt.toIso8601String(),
+        'referenceTime': request.capturedAt.toUtc().toIso8601String(),
         'timezone': request.timezone ?? defaultTimezone,
         'scopeId': request.scopeId ?? defaultScopeId,
       };
@@ -63,7 +63,7 @@ class ApiCaptureService implements CaptureService {
       'scopeId': scopeId.isNotEmpty ? scopeId : defaultScopeId,
       'itemIds': itemIds,
       if (referenceTime != null)
-        'referenceTime': referenceTime.toIso8601String(),
+        'referenceTime': referenceTime.toUtc().toIso8601String(),
     };
 
     try {

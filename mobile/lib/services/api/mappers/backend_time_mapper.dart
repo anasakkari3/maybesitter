@@ -21,17 +21,17 @@ class BackendTimeMapper {
   static String? instantFrom(DateTime? date, String? clockTime) {
     if (date == null) return null;
 
-    var local = DateTime(date.year, date.month, date.day);
+    // Start from whatever time the date already carries. A clock string we
+    // cannot read must cost nothing: falling back to midnight would let an
+    // unrelated edit — renaming a commitment — silently reschedule it.
+    var local = date;
     final clock = clockTime?.trim();
     if (clock != null && clock.isNotEmpty) {
-      for (final pattern in const ['h:mm a', 'H:mm']) {
-        try {
-          final parsed = DateFormat(pattern).parseLoose(clock);
-          local = DateTime(date.year, date.month, date.day, parsed.hour, parsed.minute);
-          break;
-        } catch (_) {
-          // Try the next shape before giving up on the time.
-        }
+      try {
+        final parsed = DateFormat('h:mm a').parseLoose(clock);
+        local = DateTime(date.year, date.month, date.day, parsed.hour, parsed.minute);
+      } catch (_) {
+        // Keep the date's own time rather than inventing one.
       }
     }
     return local.toUtc().toIso8601String();

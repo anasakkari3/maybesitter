@@ -357,8 +357,20 @@ class CommitmentDetailsScreen extends ConsumerWidget {
                           commitment.endTime,
                         ),
                       ),
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: editTime,
+                      // Gated at the tap, the way the title's pencil is:
+                      // refusing only after the user has picked a date and a
+                      // time makes them do the work before hearing no.
+                      trailing: config.supportsSafeCommitmentPatch
+                          ? const Icon(Icons.chevron_right)
+                          : null,
+                      onTap: config.supportsSafeCommitmentPatch
+                          ? editTime
+                          : () => ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(l10n.editingDisabledExplanation),
+                                  duration: const Duration(seconds: 3),
+                                ),
+                              ),
                     ),
                   ),
                   if (commitment.location != null) ...[

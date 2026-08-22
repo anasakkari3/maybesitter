@@ -49,9 +49,16 @@ const EVENT_PROPERTIES: Record<AnalyticsEventName, readonly string[]> = {
     'source', 'targetRoute',
     'flagWidget', 'flagVoice', 'flagAwareness', 'flagWatch', 'flagImports',
   ],
-  // Presence, intake, and awareness signals. Property names are taken from the
-  // factory constructors in mobile/lib/models/pilot_loop_analytics.dart; every
-  // one of them also carries the five feature flags via flagProperties().
+  // Presence, intake, and awareness signals. Property names for the five
+  // events below are taken from the factory constructors in
+  // mobile/lib/models/pilot_loop_analytics.dart; each also carries the five
+  // feature flags via flagProperties().
+  //
+  // widget_snapshot_published is the exception: it is named in the contract
+  // and client-reportable, but nothing emits it yet — there is no factory for
+  // it in PilotLoopAnalyticsEventName. These two properties are a provisional,
+  // deliberately content-free guess. Whoever writes the emitter should confirm
+  // them rather than assume they were derived from a real call site.
   widget_snapshot_published: [
     'surface', 'itemCount',
     'flagWidget', 'flagVoice', 'flagAwareness', 'flagWatch', 'flagImports',
