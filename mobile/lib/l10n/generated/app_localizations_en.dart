@@ -1397,4 +1397,25 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get privacyOpenTrustCenterAction => 'Open Trust & privacy';
+
+  @override
+  String get recentCommitments => 'Recent Commitments';
+
+  @override
+  String get overdueBadge => 'Overdue';
+
+  @override
+  String get tryAgainAction => 'Try Again';
+
+  @override
+  String get extractionFailedTitle => 'Extraction Failed';
+
+  @override
+  String get stationaryOnDevice => 'This stays on your device.';
+
+  @override
+  String get noDateSet => 'No date set';
+
+  @override
+  String get fullDay => 'Full day';
 }

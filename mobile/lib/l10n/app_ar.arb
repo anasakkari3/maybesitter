@@ -399,5 +399,12 @@
   "privacyTokenStorageValue": "سلسلة مفاتيح الجهاز",
   "privacyRealControlsTitle": "التحليلات والموافقة والحذف",
   "privacyRealControlsMessage": "تُدار هذه من شاشة الثقة والخصوصية. كل عنصر هناك يؤثّر على الخادم، لا على هذا الجهاز وحده.",
-  "privacyOpenTrustCenterAction": "فتح الثقة والخصوصية"
+  "privacyOpenTrustCenterAction": "فتح الثقة والخصوصية",
+  "recentCommitments": "الالتزامات الأخيرة",
+  "overdueBadge": "متأخر",
+  "tryAgainAction": "حاول مرة أخرى",
+  "extractionFailedTitle": "تعذّر الاستخراج",
+  "stationaryOnDevice": "يبقى هذا على جهازك.",
+  "noDateSet": "بلا تاريخ",
+  "fullDay": "طوال اليوم"
 }

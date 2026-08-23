@@ -1389,4 +1389,25 @@ class AppLocalizationsHe extends AppLocalizations {
 
   @override
   String get privacyOpenTrustCenterAction => 'פתיחת אמון ופרטיות';
+
+  @override
+  String get recentCommitments => 'התחייבויות אחרונות';
+
+  @override
+  String get overdueBadge => 'באיחור';
+
+  @override
+  String get tryAgainAction => 'נסה שוב';
+
+  @override
+  String get extractionFailedTitle => 'החילוץ נכשל';
+
+  @override
+  String get stationaryOnDevice => 'זה נשאר במכשיר שלך.';
+
+  @override
+  String get noDateSet => 'לא נקבע תאריך';
+
+  @override
+  String get fullDay => 'כל היום';
 }

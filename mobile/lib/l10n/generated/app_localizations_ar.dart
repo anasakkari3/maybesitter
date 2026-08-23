@@ -1411,4 +1411,25 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get privacyOpenTrustCenterAction => 'فتح الثقة والخصوصية';
+
+  @override
+  String get recentCommitments => 'الالتزامات الأخيرة';
+
+  @override
+  String get overdueBadge => 'متأخر';
+
+  @override
+  String get tryAgainAction => 'حاول مرة أخرى';
+
+  @override
+  String get extractionFailedTitle => 'تعذّر الاستخراج';
+
+  @override
+  String get stationaryOnDevice => 'يبقى هذا على جهازك.';
+
+  @override
+  String get noDateSet => 'بلا تاريخ';
+
+  @override
+  String get fullDay => 'طوال اليوم';
 }

@@ -2499,6 +2499,48 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Open Trust & privacy'**
   String get privacyOpenTrustCenterAction;
+
+  /// No description provided for @recentCommitments.
+  ///
+  /// In en, this message translates to:
+  /// **'Recent Commitments'**
+  String get recentCommitments;
+
+  /// No description provided for @overdueBadge.
+  ///
+  /// In en, this message translates to:
+  /// **'Overdue'**
+  String get overdueBadge;
+
+  /// No description provided for @tryAgainAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Try Again'**
+  String get tryAgainAction;
+
+  /// No description provided for @extractionFailedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Extraction Failed'**
+  String get extractionFailedTitle;
+
+  /// No description provided for @stationaryOnDevice.
+  ///
+  /// In en, this message translates to:
+  /// **'This stays on your device.'**
+  String get stationaryOnDevice;
+
+  /// No description provided for @noDateSet.
+  ///
+  /// In en, this message translates to:
+  /// **'No date set'**
+  String get noDateSet;
+
+  /// No description provided for @fullDay.
+  ///
+  /// In en, this message translates to:
+  /// **'Full day'**
+  String get fullDay;
 }
 
 class _AppLocalizationsDelegate

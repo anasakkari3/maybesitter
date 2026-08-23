@@ -535,5 +535,12 @@
   "privacyTokenStorageValue": "Device keychain",
   "privacyRealControlsTitle": "Analytics, consent and deletion",
   "privacyRealControlsMessage": "These are handled in Trust & privacy. Each control there acts on the server, not only on this device.",
-  "privacyOpenTrustCenterAction": "Open Trust & privacy"
+  "privacyOpenTrustCenterAction": "Open Trust & privacy",
+  "recentCommitments": "Recent Commitments",
+  "overdueBadge": "Overdue",
+  "tryAgainAction": "Try Again",
+  "extractionFailedTitle": "Extraction Failed",
+  "stationaryOnDevice": "This stays on your device.",
+  "noDateSet": "No date set",
+  "fullDay": "Full day"
 }

@@ -399,5 +399,12 @@
   "privacyTokenStorageValue": "מחסן המפתחות של המכשיר",
   "privacyRealControlsTitle": "נתוני שימוש, הסכמה ומחיקה",
   "privacyRealControlsMessage": "אלה מנוהלים במסך אמון ופרטיות. כל פקד שם משפיע על השרת, לא רק על המכשיר הזה.",
-  "privacyOpenTrustCenterAction": "פתיחת אמון ופרטיות"
+  "privacyOpenTrustCenterAction": "פתיחת אמון ופרטיות",
+  "recentCommitments": "התחייבויות אחרונות",
+  "overdueBadge": "באיחור",
+  "tryAgainAction": "נסה שוב",
+  "extractionFailedTitle": "החילוץ נכשל",
+  "stationaryOnDevice": "זה נשאר במכשיר שלך.",
+  "noDateSet": "לא נקבע תאריך",
+  "fullDay": "כל היום"
 }
