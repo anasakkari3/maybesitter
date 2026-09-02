@@ -33,7 +33,43 @@ const DEFAULT_DATA_DIR = path.join(process.cwd(), '.maybesitter', 'alpha-traces'
 const DEFAULT_RETENTION_TTL_MS = 30 * 24 * 60 * 60 * 1_000; // 30 days
 const TRACE_FILE_EXT = '.trace.json';
 
+/**
+ * A session id is an opaque token, never a path segment and never a filename
+ * fragment the caller gets to shape.
+ *
+ * It arrives from the request body, so an unvalidated one is both an arbitrary
+ * file write outside the data dir and a way to name another participant's
+ * session. Anything outside this alphabet is rejected rather than sanitised:
+ * a rewritten id would silently split one session in two.
+ */
+const SESSION_ID = /^[A-Za-z0-9_-]{1,128}$/;
+
+export function isValidTraceSessionId(sessionId: string): boolean {
+  return SESSION_ID.test(sessionId);
+}
+
+function assertSessionId(sessionId: string): void {
+  if (!isValidTraceSessionId(sessionId)) {
+    throw new Error('alpha trace: session id must be 1-128 chars of [A-Za-z0-9_-]');
+  }
+}
+
+/**
+ * A session belongs to the participant who opened it, for its whole life.
+ *
+ * Without this the store rewrote `participantId` on every append while keeping
+ * the existing stages, so anyone who guessed a session id became its owner --
+ * which both exposed the previous owner's raw capture text through the trace
+ * read route and made their deletion request match nothing.
+ */
+function assertOwner(existing: AlphaTraceSession | null, participantId: string): void {
+  if (existing && existing.participantId !== participantId) {
+    throw new Error('alpha trace: session belongs to a different participant');
+  }
+}
+
 function sessionFilePath(dataDir: string, sessionId: string): string {
+  assertSessionId(sessionId);
   return path.join(dataDir, `${sessionId}${TRACE_FILE_EXT}`);
 }
 
@@ -74,7 +110,16 @@ export function createFileAlphaTraceStore(options?: AlphaTraceStoreOptions): Alp
     ensureDir();
     return readdirSync(dataDir)
       .filter((e) => e.endsWith(TRACE_FILE_EXT))
-      .map((e) => readSession(path.join(dataDir, e)))
+      .map((entry) => {
+        const session = readSession(path.join(dataDir, entry));
+        if (!session) return null;
+        // The filename is the authority, not the id inside the file. Deletion
+        // and pruning both delete by the id they read here, so a file whose
+        // contents disagree with its name -- anything written before session
+        // ids were validated -- would otherwise be unreachable by either, and
+        // a participant's deletion request would quietly skip it.
+        return { ...session, sessionId: entry.slice(0, -TRACE_FILE_EXT.length) };
+      })
       .filter((s): s is AlphaTraceSession => s !== null)
       .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
   }
@@ -84,6 +129,7 @@ export function createFileAlphaTraceStore(options?: AlphaTraceStoreOptions): Alp
       ensureDir();
       const filePath = sessionFilePath(dataDir, sessionId);
       const existing = existsSync(filePath) ? readSession(filePath) : null;
+      assertOwner(existing, participantId);
       const now = new Date().toISOString();
       const session: AlphaTraceSession = {
         version: ALPHA_TRACE_VERSION,
@@ -98,6 +144,10 @@ export function createFileAlphaTraceStore(options?: AlphaTraceStoreOptions): Alp
     },
 
     get(sessionId): AlphaTraceSession | null {
+      // A lookup names nothing rather than throwing: the id reaches here
+      // straight off a query string, and a malformed one is a 404, not a 500.
+      // The write path still refuses loudly.
+      if (!isValidTraceSessionId(sessionId)) return null;
       ensureDir();
       const filePath = sessionFilePath(dataDir, sessionId);
       return existsSync(filePath) ? readSession(filePath) : null;
@@ -114,6 +164,7 @@ export function createFileAlphaTraceStore(options?: AlphaTraceStoreOptions): Alp
     },
 
     deleteSession(sessionId): boolean {
+      if (!isValidTraceSessionId(sessionId)) return false;
       ensureDir();
       const filePath = sessionFilePath(dataDir, sessionId);
       if (!existsSync(filePath)) return false;
@@ -147,7 +198,9 @@ export function createInMemoryAlphaTraceStore(sessions?: AlphaTraceSession[]): A
   for (const session of sessions ?? []) map.set(session.sessionId, session);
   return {
     append(sessionId, participantId, stage): AlphaTraceSession {
-      const existing = map.get(sessionId);
+      assertSessionId(sessionId);
+      const existing = map.get(sessionId) ?? null;
+      assertOwner(existing, participantId);
       const now = new Date().toISOString();
       const session: AlphaTraceSession = {
         version: ALPHA_TRACE_VERSION,
