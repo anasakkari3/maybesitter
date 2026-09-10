@@ -17,12 +17,19 @@ import '../tokens/colors.dart';
 /// apart the cursive joins in Arabic. The two styles that do carry tracking
 /// ([overline] and [badge]) are stripped of it in RTL via `context.text`.
 ///
-/// Poppins covers Latin only. Where a glyph is missing — Arabic, Hebrew — the
-/// engine falls through to the platform font, exactly as the previous face
-/// did, so those scripts keep rendering.
+/// Poppins covers Latin only. Arabic and Hebrew are named explicitly in
+/// [fontFamilyFallback] rather than left to the engine's implicit per-glyph
+/// fallback: an implicit fallback can straddle two faces inside a single word,
+/// and the cursive joins break where the run crosses over.
 abstract class AppTextStyles {
   /// The bundled Latin family.
   static const String fontFamily = 'Poppins';
+
+  /// The bundled family that carries Arabic (and Hebrew) shaping tables.
+  static const String arabicFontFamily = 'IBMPlexSansArabic';
+
+  /// Applied to every style so a non-Latin run resolves to one shaping face.
+  static const List<String> fontFamilyFallback = <String>[arabicFontFamily];
 
   static TextStyle _base({
     required double size,
@@ -33,9 +40,10 @@ abstract class AppTextStyles {
   }) {
     return TextStyle(
       // Bundled family (see pubspec). Arabic and Hebrew have no Poppins
-      // coverage and fall through to the platform font automatically, which
-      // is what we want for joining and glyph metrics.
+      // coverage, so they resolve to the Arabic face named below instead of
+      // to whatever the platform picks glyph by glyph.
       fontFamily: fontFamily,
+      fontFamilyFallback: fontFamilyFallback,
       fontSize: size,
       fontWeight: weight,
       height: height,

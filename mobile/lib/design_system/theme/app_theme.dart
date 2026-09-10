@@ -31,6 +31,7 @@ class AppTheme {
       canvasColor: colors.background,
       extensions: <ThemeExtension<dynamic>>[colors],
       fontFamily: AppTextStyles.fontFamily,
+      fontFamilyFallback: AppTextStyles.fontFamilyFallback,
       textTheme: textTheme,
       colorScheme: ColorScheme(
         brightness: brightness,
