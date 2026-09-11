@@ -1,0 +1,31 @@
+{
+  "expo": {
+    "name": "MaybeSitter",
+    "slug": "maybesitter",
+    "scheme": "maybesitter",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.maybesitter.app"
+    },
+    "android": {
+      "package": "com.maybesitter.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#DFEFF3",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-font"
+    ]
+  }
+}
