@@ -33,7 +33,7 @@ export async function POST(request: Request) {
         payload.originalTitle = originalTitle ?? null;
         payload.editedTitle = editedTitle ?? null;
       }
-      recordTraceStage(
+      await recordTraceStage(
         resolveTraceSessionId(body.sessionId, auth.participantId),
         auth.participantId,
         stage('proposal_decided', payload),

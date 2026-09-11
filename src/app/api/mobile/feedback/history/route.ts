@@ -35,5 +35,5 @@ export async function GET(request: Request) {
   if (!port) return feedbackHistoryUnavailableResponse();
 
   const limit = resolveHistoryLimit(new URL(request.url).searchParams.get('limit'));
-  return Response.json(buildHistoryResponse(port, scopeId, limit));
+  return Response.json(await buildHistoryResponse(port, scopeId, limit));
 }

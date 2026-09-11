@@ -75,17 +75,17 @@ export interface FeedbackHistoryPort {
    * Ordering is not part of this contract — the route imposes its own total
    * order so the response never depends on a store's iteration order.
    */
-  listForScope(scopeId: string): readonly FeedbackEvent[];
+  listForScope(scopeId: string): Promise<readonly FeedbackEvent[]>;
 
   /** The scope's pre-event-log counters, or null when it has no history. */
-  readBaseline(scopeId: string): FeedbackBaseline | null;
+  readBaseline(scopeId: string): Promise<FeedbackBaseline | null>;
 
   /**
    * Stamps the revocation on one event, and only if that event belongs to
    * `scopeId`. Re-revoking returns the event unchanged: the correction keeps
    * the timestamp it originally had.
    */
-  revokeForScope(request: FeedbackRevokeRequest): FeedbackRevokeResult;
+  revokeForScope(request: FeedbackRevokeRequest): Promise<FeedbackRevokeResult>;
 }
 
 /**
@@ -96,21 +96,21 @@ export interface FeedbackHistoryPort {
  */
 export function createFeedbackHistoryPort(store: FeedbackEventStore): FeedbackHistoryPort {
   return {
-    listForScope(scopeId: string): readonly FeedbackEvent[] {
+    async listForScope(scopeId: string): Promise<readonly FeedbackEvent[]> {
       return store.list({ scopeId, includeRevoked: true, newestFirst: true });
     },
 
-    readBaseline(scopeId: string): FeedbackBaseline | null {
+    async readBaseline(scopeId: string): Promise<FeedbackBaseline | null> {
       return store.readBaseline(scopeId);
     },
 
-    revokeForScope({ scopeId, eventId, at }: FeedbackRevokeRequest): FeedbackRevokeResult {
+    async revokeForScope({ scopeId, eventId, at }: FeedbackRevokeRequest): Promise<FeedbackRevokeResult> {
       // The ownership check happens here, before the store is asked to do
       // anything. `FeedbackEventStore.revoke(id, at)` takes no scope and will
       // revoke whatever id it is handed, so this is the only place isolation
       // can be enforced — and event ids are derived from their own contents,
       // so knowing an id proves nothing about who it belongs to.
-      const existing = store.get(eventId);
+      const existing = await store.get(eventId);
       if (!existing || existing.scopeId !== scopeId) return { outcome: 'not_found', event: null };
 
       // `revoke()` answers false for "missing" and "already revoked" alike, so
@@ -118,8 +118,8 @@ export function createFeedbackHistoryPort(store: FeedbackEventStore): FeedbackHi
       // Re-revoking is a benign no-op, not an error.
       if (existing.revokedAt) return { outcome: 'already_revoked', event: existing };
 
-      const applied = store.revoke(eventId, at);
-      const after = store.get(eventId);
+      const applied = await store.revoke(eventId, at);
+      const after = await store.get(eventId);
       // A store that declines, or that claims success without stamping, must
       // not be reported to the user as a correction that took effect.
       if (!applied || !after?.revokedAt) return { outcome: 'failed', event: null };

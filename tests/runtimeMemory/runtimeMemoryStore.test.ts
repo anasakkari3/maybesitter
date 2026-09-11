@@ -11,6 +11,10 @@
  *    (removed outright).
  *  - "personal memory excluded from fine-tuning exports" -> see
  *    exportPolicy.test.ts, which pins the guard itself.
+ *
+ * Async since UC-1.0c (#142): the store is on the storage adapter. Rejections
+ * are `assert.rejects` rather than `assert.throws` — the validation still
+ * happens before any write, but it now surfaces as a rejected promise.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -43,9 +47,9 @@ function isoAfter(base: string, ms: number): string {
   return new Date(Date.parse(base) + ms).toISOString();
 }
 
-test('put assigns server-owned fields and defaults exportPolicy to personal_never_export', () => {
+test('put assigns server-owned fields and defaults exportPolicy to personal_never_export', async () => {
   const store = createInMemoryRuntimeMemoryStore();
-  const record = store.put(input(), NOW);
+  const record = await store.put(input(), NOW);
 
   assert.equal(record.version, MEMORY_RECORD_SCHEMA_VERSION);
   assert.ok(record.id.length > 0);
@@ -62,7 +66,7 @@ test('put assigns server-owned fields and defaults exportPolicy to personal_neve
   assert.deepEqual(record.evidenceIds, ['obs-1']);
 });
 
-test('put ignores caller-supplied server-assigned fields', () => {
+test('put ignores caller-supplied server-assigned fields', async () => {
   const store = createInMemoryRuntimeMemoryStore();
   // A caller trying to forge provenance: pre-picked id, faked timestamps, a
   // staleAfter far in the future, and forged supersession/revocation links.
@@ -79,10 +83,10 @@ test('put ignores caller-supplied server-assigned fields', () => {
     revokedAt: '1999-01-01T00:00:00.000Z',
   } as unknown as CreateMemoryInput;
 
-  const record = store.put(hostile, NOW);
+  const record = await store.put(hostile, NOW);
 
   assert.notEqual(record.id, 'attacker-chosen-id');
-  assert.equal(store.get('attacker-chosen-id'), null);
+  assert.equal(await store.get('attacker-chosen-id'), null);
   assert.equal(record.version, MEMORY_RECORD_SCHEMA_VERSION);
   assert.equal(record.status, 'active');
   assert.equal(record.createdAt, NOW);
@@ -93,68 +97,68 @@ test('put ignores caller-supplied server-assigned fields', () => {
   assert.equal(record.revokedAt, undefined);
 });
 
-test('put rejects malformed input rather than storing it', () => {
+test('put rejects malformed input rather than storing it', async () => {
   const store = createInMemoryRuntimeMemoryStore();
-  assert.throws(() => store.put(input({ scopeId: '  ' }), NOW), /scopeId/);
-  assert.throws(() => store.put(input({ content: '' }), NOW), /content/);
-  assert.throws(() => store.put(input({ confidence: 1.5 }), NOW), /confidence/);
-  assert.throws(() => store.put(input({ confidence: Number.NaN }), NOW), /confidence/);
-  assert.throws(() => store.put(input({ kind: 'observation' as never }), NOW), /kind/);
-  assert.throws(() => store.put(input({ language: 'fr' as never }), NOW), /language/);
-  assert.throws(() => store.put(input({ source: 'guessed' as never }), NOW), /source/);
-  assert.throws(() => store.put(input({ observedAt: 'yesterday' }), NOW), /observedAt/);
-  assert.throws(() => store.put(input({ ttlMs: 0 }), NOW), /ttlMs/);
-  assert.throws(() => store.put(input(), 'not-a-timestamp'), /now/);
-  assert.equal(store.listAll('scope-a').length, 0);
+  await assert.rejects(store.put(input({ scopeId: '  ' }), NOW), /scopeId/);
+  await assert.rejects(store.put(input({ content: '' }), NOW), /content/);
+  await assert.rejects(store.put(input({ confidence: 1.5 }), NOW), /confidence/);
+  await assert.rejects(store.put(input({ confidence: Number.NaN }), NOW), /confidence/);
+  await assert.rejects(store.put(input({ kind: 'observation' as never }), NOW), /kind/);
+  await assert.rejects(store.put(input({ language: 'fr' as never }), NOW), /language/);
+  await assert.rejects(store.put(input({ source: 'guessed' as never }), NOW), /source/);
+  await assert.rejects(store.put(input({ observedAt: 'yesterday' }), NOW), /observedAt/);
+  await assert.rejects(store.put(input({ ttlMs: 0 }), NOW), /ttlMs/);
+  await assert.rejects(store.put(input(), 'not-a-timestamp'), /now/);
+  assert.equal((await store.listAll('scope-a')).length, 0);
 });
 
-test('stored records are frozen so a consumer cannot mutate store state', () => {
+test('stored records are frozen so a consumer cannot mutate store state', async () => {
   const store = createInMemoryRuntimeMemoryStore();
-  const record = store.put(input(), NOW);
+  const record = await store.put(input(), NOW);
   assert.throws(() => {
     (record as { content: string }).content = 'tampered';
   }, TypeError);
-  assert.equal(store.get(record.id)?.content, 'Prefers morning reminders');
+  assert.equal((await store.get(record.id))?.content, 'Prefers morning reminders');
 });
 
-test('retrieve returns active in-window records newest-observedAt first', () => {
+test('retrieve returns active in-window records newest-observedAt first', async () => {
   const store = createInMemoryRuntimeMemoryStore();
-  const older = store.put(input({ content: 'older', observedAt: '2026-08-10T08:00:00.000Z' }), NOW);
-  const newer = store.put(input({ content: 'newer', observedAt: '2026-08-17T08:00:00.000Z' }), NOW);
+  const older = await store.put(input({ content: 'older', observedAt: '2026-08-10T08:00:00.000Z' }), NOW);
+  const newer = await store.put(input({ content: 'newer', observedAt: '2026-08-17T08:00:00.000Z' }), NOW);
 
-  const found = store.retrieve({ scopeId: 'scope-a', now: NOW });
+  const found = await store.retrieve({ scopeId: 'scope-a', now: NOW });
   assert.deepEqual(found.map((r) => r.id), [newer.id, older.id]);
 });
 
-test('retrieve honors kind, minConfidence, language, and limit filters', () => {
+test('retrieve honors kind, minConfidence, language, and limit filters', async () => {
   const store = createInMemoryRuntimeMemoryStore();
-  store.put(input({ kind: 'fact', confidence: 0.95, language: 'ar', observedAt: '2026-08-17T09:00:00.000Z' }), NOW);
-  store.put(input({ kind: 'preference', confidence: 0.4, language: 'en', observedAt: '2026-08-17T08:00:00.000Z' }), NOW);
-  store.put(input({ kind: 'hypothesis', confidence: 0.7, language: 'he', observedAt: '2026-08-17T07:00:00.000Z' }), NOW);
+  await store.put(input({ kind: 'fact', confidence: 0.95, language: 'ar', observedAt: '2026-08-17T09:00:00.000Z' }), NOW);
+  await store.put(input({ kind: 'preference', confidence: 0.4, language: 'en', observedAt: '2026-08-17T08:00:00.000Z' }), NOW);
+  await store.put(input({ kind: 'hypothesis', confidence: 0.7, language: 'he', observedAt: '2026-08-17T07:00:00.000Z' }), NOW);
 
-  assert.equal(store.retrieve({ scopeId: 'scope-a', now: NOW, kind: 'fact' }).length, 1);
-  assert.equal(store.retrieve({ scopeId: 'scope-a', now: NOW, minConfidence: 0.5 }).length, 2);
-  assert.equal(store.retrieve({ scopeId: 'scope-a', now: NOW, language: 'he' }).length, 1);
-  assert.equal(store.retrieve({ scopeId: 'scope-a', now: NOW, limit: 2 }).length, 2);
+  assert.equal((await store.retrieve({ scopeId: 'scope-a', now: NOW, kind: 'fact' })).length, 1);
+  assert.equal((await store.retrieve({ scopeId: 'scope-a', now: NOW, minConfidence: 0.5 })).length, 2);
+  assert.equal((await store.retrieve({ scopeId: 'scope-a', now: NOW, language: 'he' })).length, 1);
+  assert.equal((await store.retrieve({ scopeId: 'scope-a', now: NOW, limit: 2 })).length, 2);
 });
 
-test('retrieve never crosses scope boundaries', () => {
+test('retrieve never crosses scope boundaries', async () => {
   const store = createInMemoryRuntimeMemoryStore();
-  store.put(input({ scopeId: 'scope-a', content: 'a-only' }), NOW);
-  store.put(input({ scopeId: 'scope-b', content: 'b-only' }), NOW);
+  await store.put(input({ scopeId: 'scope-a', content: 'a-only' }), NOW);
+  await store.put(input({ scopeId: 'scope-b', content: 'b-only' }), NOW);
 
-  assert.deepEqual(store.retrieve({ scopeId: 'scope-a', now: NOW }).map((r) => r.content), ['a-only']);
-  assert.deepEqual(store.retrieve({ scopeId: 'scope-b', now: NOW }).map((r) => r.content), ['b-only']);
+  assert.deepEqual((await store.retrieve({ scopeId: 'scope-a', now: NOW })).map((r) => r.content), ['a-only']);
+  assert.deepEqual((await store.retrieve({ scopeId: 'scope-b', now: NOW })).map((r) => r.content), ['b-only']);
 });
 
-test('criterion 1: supersede keeps the prior record inspectable and linked', () => {
+test('criterion 1: supersede keeps the prior record inspectable and linked', async () => {
   const store = createInMemoryRuntimeMemoryStore();
-  const original = store.put(input({ content: 'Prefers morning reminders' }), NOW);
-  const replacement = store.supersede(original.id, input({ content: 'Prefers evening reminders' }), LATER);
+  const original = await store.put(input({ content: 'Prefers morning reminders' }), NOW);
+  const replacement = await store.supersede(original.id, input({ content: 'Prefers evening reminders' }), LATER);
 
   // Both directions of the link exist, so the conflict is traceable either way.
   assert.equal(replacement.supersedesId, original.id);
-  const priorAfter = store.get(original.id);
+  const priorAfter = await store.get(original.id);
   assert.ok(priorAfter, 'superseding must never destroy the prior record');
   assert.equal(priorAfter.status, 'superseded');
   assert.equal(priorAfter.supersededById, replacement.id);
@@ -162,126 +166,126 @@ test('criterion 1: supersede keeps the prior record inspectable and linked', () 
   assert.equal(priorAfter.content, 'Prefers morning reminders');
 
   // retrieve() shows only the winner; listAll() shows the whole chain.
-  assert.deepEqual(store.retrieve({ scopeId: 'scope-a', now: LATER }).map((r) => r.id), [replacement.id]);
+  assert.deepEqual((await store.retrieve({ scopeId: 'scope-a', now: LATER })).map((r) => r.id), [replacement.id]);
   assert.deepEqual(
-    store.listAll('scope-a').map((r) => r.id).sort(),
+    (await store.listAll('scope-a')).map((r) => r.id).sort(),
     [original.id, replacement.id].sort(),
   );
 });
 
-test('supersede refuses forks, cross-scope links, and reviving revoked records', () => {
+test('supersede refuses forks, cross-scope links, and reviving revoked records', async () => {
   const store = createInMemoryRuntimeMemoryStore();
-  const original = store.put(input(), NOW);
-  store.supersede(original.id, input({ content: 'second' }), LATER);
+  const original = await store.put(input(), NOW);
+  await store.supersede(original.id, input({ content: 'second' }), LATER);
 
   // Already has a successor: a second supersede would orphan the first link.
-  assert.throws(() => store.supersede(original.id, input({ content: 'third' }), LATER), /already superseded/);
-  assert.throws(() => store.supersede('mem_missing', input(), LATER), /not found/);
+  await assert.rejects(store.supersede(original.id, input({ content: 'third' }), LATER), /already superseded/);
+  await assert.rejects(store.supersede('mem_missing', input(), LATER), /not found/);
 
-  const other = store.put(input({ content: 'cross' }), NOW);
-  assert.throws(
-    () => store.supersede(other.id, input({ scopeId: 'scope-b' }), LATER),
+  const other = await store.put(input({ content: 'cross' }), NOW);
+  await assert.rejects(
+    store.supersede(other.id, input({ scopeId: 'scope-b' }), LATER),
     /scope/,
     'a replacement must not link across scopes',
   );
 
-  const revoked = store.put(input({ content: 'revoked' }), NOW);
-  assert.equal(store.revoke(revoked.id, LATER), true);
-  assert.throws(
-    () => store.supersede(revoked.id, input(), LATER),
+  const revoked = await store.put(input({ content: 'revoked' }), NOW);
+  assert.equal(await store.revoke(revoked.id, LATER), true);
+  await assert.rejects(
+    store.supersede(revoked.id, input(), LATER),
     /revoked/,
     'superseding a revoked record would silently undo the revocation',
   );
 });
 
-test('criterion 2a: revoke hides from retrieval but keeps the record auditable', () => {
+test('criterion 2a: revoke hides from retrieval but keeps the record auditable', async () => {
   const store = createInMemoryRuntimeMemoryStore();
-  const record = store.put(input(), NOW);
+  const record = await store.put(input(), NOW);
 
-  assert.equal(store.revoke(record.id, LATER), true);
-  assert.equal(store.revoke('mem_missing', LATER), false);
+  assert.equal(await store.revoke(record.id, LATER), true);
+  assert.equal(await store.revoke('mem_missing', LATER), false);
 
-  assert.equal(store.retrieve({ scopeId: 'scope-a', now: LATER }).length, 0);
-  const audited = store.get(record.id);
+  assert.equal((await store.retrieve({ scopeId: 'scope-a', now: LATER })).length, 0);
+  const audited = await store.get(record.id);
   assert.ok(audited, 'revoke must keep the record for audit');
   assert.equal(audited.status, 'revoked');
   assert.equal(audited.revokedAt, LATER);
-  assert.deepEqual(store.listAll('scope-a').map((r) => r.id), [record.id]);
+  assert.deepEqual((await store.listAll('scope-a')).map((r) => r.id), [record.id]);
 });
 
-test('criterion 2b: deleteById removes outright — retrieve and get both miss', () => {
+test('criterion 2b: deleteById removes outright — retrieve and get both miss', async () => {
   const store = createInMemoryRuntimeMemoryStore();
-  const record = store.put(input(), NOW);
+  const record = await store.put(input(), NOW);
 
-  assert.equal(store.deleteById(record.id), true);
-  assert.equal(store.deleteById(record.id), false);
+  assert.equal(await store.deleteById(record.id), true);
+  assert.equal(await store.deleteById(record.id), false);
 
-  assert.equal(store.retrieve({ scopeId: 'scope-a', now: NOW }).length, 0);
-  assert.equal(store.get(record.id), null, 'deletion is not revocation: nothing remains');
-  assert.equal(store.listAll('scope-a').length, 0);
-  assert.equal(store.export('scope-a', NOW).records.length, 0);
+  assert.equal((await store.retrieve({ scopeId: 'scope-a', now: NOW })).length, 0);
+  assert.equal(await store.get(record.id), null, 'deletion is not revocation: nothing remains');
+  assert.equal((await store.listAll('scope-a')).length, 0);
+  assert.equal((await store.export('scope-a', NOW)).records.length, 0);
 });
 
-test('deleteScope removes only the target scope', () => {
+test('deleteScope removes only the target scope', async () => {
   const store = createInMemoryRuntimeMemoryStore();
-  store.put(input({ scopeId: 'scope-a', content: 'a-1' }), NOW);
-  store.put(input({ scopeId: 'scope-a', content: 'a-2' }), NOW);
-  const kept = store.put(input({ scopeId: 'scope-b', content: 'b-1' }), NOW);
+  await store.put(input({ scopeId: 'scope-a', content: 'a-1' }), NOW);
+  await store.put(input({ scopeId: 'scope-a', content: 'a-2' }), NOW);
+  const kept = await store.put(input({ scopeId: 'scope-b', content: 'b-1' }), NOW);
 
-  assert.equal(store.deleteScope('scope-a'), 2);
-  assert.equal(store.listAll('scope-a').length, 0);
-  assert.deepEqual(store.listAll('scope-b').map((r) => r.id), [kept.id]);
-  assert.equal(store.deleteScope('scope-a'), 0);
+  assert.equal(await store.deleteScope('scope-a'), 2);
+  assert.equal((await store.listAll('scope-a')).length, 0);
+  assert.deepEqual((await store.listAll('scope-b')).map((r) => r.id), [kept.id]);
+  assert.equal(await store.deleteScope('scope-a'), 0);
 });
 
-test('ids that could escape the record namespace are treated as not found', () => {
+test('ids that could escape the record namespace are treated as not found', async () => {
   const store = createInMemoryRuntimeMemoryStore();
-  store.put(input(), NOW);
+  await store.put(input(), NOW);
   for (const unsafe of ['../../etc/passwd', 'a/b', 'a\\b', '..', '', 'a.memory']) {
-    assert.equal(store.get(unsafe), null, `get(${JSON.stringify(unsafe)}) must not resolve`);
-    assert.equal(store.deleteById(unsafe), false, `deleteById(${JSON.stringify(unsafe)}) must not resolve`);
-    assert.equal(store.revoke(unsafe, LATER), false);
+    assert.equal(await store.get(unsafe), null, `get(${JSON.stringify(unsafe)}) must not resolve`);
+    assert.equal(await store.deleteById(unsafe), false, `deleteById(${JSON.stringify(unsafe)}) must not resolve`);
+    assert.equal(await store.revoke(unsafe, LATER), false);
   }
-  assert.equal(store.listAll('scope-a').length, 1);
+  assert.equal((await store.listAll('scope-a')).length, 1);
 });
 
-test('prune expires stale records and removes them from retrieval', () => {
+test('prune expires stale records and removes them from retrieval', async () => {
   const store = createInMemoryRuntimeMemoryStore();
-  const shortLived = store.put(input({ content: 'stale soon', ttlMs: 1_000 }), NOW);
-  const longLived = store.put(input({ content: 'still fresh' }), NOW);
+  const shortLived = await store.put(input({ content: 'stale soon', ttlMs: 1_000 }), NOW);
+  const longLived = await store.put(input({ content: 'still fresh' }), NOW);
   const afterExpiry = isoAfter(NOW, 2_000);
 
   // retrieve() already excludes it on staleness alone, before prune runs.
-  assert.deepEqual(store.retrieve({ scopeId: 'scope-a', now: afterExpiry }).map((r) => r.id), [longLived.id]);
+  assert.deepEqual((await store.retrieve({ scopeId: 'scope-a', now: afterExpiry })).map((r) => r.id), [longLived.id]);
 
-  assert.equal(store.prune(afterExpiry), 1);
-  assert.equal(store.get(shortLived.id)?.status, 'expired');
-  assert.equal(store.get(shortLived.id)?.updatedAt, afterExpiry);
-  assert.equal(store.get(longLived.id)?.status, 'active');
-  assert.equal(store.prune(afterExpiry), 0, 'prune is idempotent');
+  assert.equal(await store.prune(afterExpiry), 1);
+  assert.equal((await store.get(shortLived.id))?.status, 'expired');
+  assert.equal((await store.get(shortLived.id))?.updatedAt, afterExpiry);
+  assert.equal((await store.get(longLived.id))?.status, 'active');
+  assert.equal(await store.prune(afterExpiry), 0, 'prune is idempotent');
 });
 
-test('prune leaves revoked and superseded statuses intact for audit', () => {
+test('prune leaves revoked and superseded statuses intact for audit', async () => {
   const store = createInMemoryRuntimeMemoryStore();
-  const revoked = store.put(input({ content: 'revoked', ttlMs: 1_000 }), NOW);
-  const original = store.put(input({ content: 'original', ttlMs: 1_000 }), NOW);
-  store.supersede(original.id, input({ content: 'replacement', ttlMs: 1_000 }), NOW);
-  assert.equal(store.revoke(revoked.id, NOW), true);
+  const revoked = await store.put(input({ content: 'revoked', ttlMs: 1_000 }), NOW);
+  const original = await store.put(input({ content: 'original', ttlMs: 1_000 }), NOW);
+  await store.supersede(original.id, input({ content: 'replacement', ttlMs: 1_000 }), NOW);
+  assert.equal(await store.revoke(revoked.id, NOW), true);
 
   const afterExpiry = isoAfter(NOW, 2_000);
-  assert.equal(store.prune(afterExpiry), 1, 'only the active replacement expires');
-  assert.equal(store.get(revoked.id)?.status, 'revoked');
-  assert.equal(store.get(original.id)?.status, 'superseded');
+  assert.equal(await store.prune(afterExpiry), 1, 'only the active replacement expires');
+  assert.equal((await store.get(revoked.id))?.status, 'revoked');
+  assert.equal((await store.get(original.id))?.status, 'superseded');
 });
 
-test('export returns every status in the scope, including personal records', () => {
+test('export returns every status in the scope, including personal records', async () => {
   const store = createInMemoryRuntimeMemoryStore();
-  const active = store.put(input({ content: 'active' }), NOW);
-  const revoked = store.put(input({ content: 'revoked' }), NOW);
-  store.revoke(revoked.id, NOW);
-  store.put(input({ scopeId: 'scope-b', content: 'other scope' }), NOW);
+  const active = await store.put(input({ content: 'active' }), NOW);
+  const revoked = await store.put(input({ content: 'revoked' }), NOW);
+  await store.revoke(revoked.id, NOW);
+  await store.put(input({ scopeId: 'scope-b', content: 'other scope' }), NOW);
 
-  const exported = store.export('scope-a', LATER);
+  const exported = await store.export('scope-a', LATER);
   assert.equal(exported.version, MEMORY_RECORD_SCHEMA_VERSION);
   assert.equal(exported.scopeId, 'scope-a');
   assert.equal(exported.exportedAt, LATER);

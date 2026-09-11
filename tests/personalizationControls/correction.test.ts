@@ -48,9 +48,9 @@ test('the parser refuses anything outside the closed vocabulary', () => {
   assert.equal(parseCorrectionContent(`${CORRECTION_CONTENT_PREFIX}pressure_tone=lean`), null);
 });
 
-test('applying a correction writes a user_stated preference record that reads back', () => {
+test('applying a correction writes a user_stated preference record that reads back', async () => {
   const memory = createInMemoryRuntimeMemoryStore();
-  const applied = applyCorrection(memory, SCOPE, 'reminder_density', 'lean', NOW);
+  const applied = await applyCorrection(memory, SCOPE, 'reminder_density', 'lean', NOW);
   assert.equal(applied.ok, true);
   if (!applied.ok) return;
   assert.equal(applied.record.kind, 'preference');
@@ -58,7 +58,7 @@ test('applying a correction writes a user_stated preference record that reads ba
   assert.equal(applied.record.exportPolicy, 'personal_never_export');
   assert.equal(applied.record.content, `${CORRECTION_CONTENT_PREFIX}reminder_density=lean`);
 
-  const corrections = readCorrections(memory, SCOPE, NOW);
+  const corrections = await readCorrections(memory, SCOPE, NOW);
   assert.deepEqual(corrections.reminder_density, {
     level: 'lean',
     recordId: applied.record.id,
@@ -66,61 +66,61 @@ test('applying a correction writes a user_stated preference record that reads ba
   });
 });
 
-test('a second correction on the same dimension supersedes the first, keeping the chain', () => {
+test('a second correction on the same dimension supersedes the first, keeping the chain', async () => {
   const memory = createInMemoryRuntimeMemoryStore();
-  const first = applyCorrection(memory, SCOPE, 'pressure_tone', 'firm', NOW);
-  const second = applyCorrection(memory, SCOPE, 'pressure_tone', 'soft', LATER);
+  const first = await applyCorrection(memory, SCOPE, 'pressure_tone', 'firm', NOW);
+  const second = await applyCorrection(memory, SCOPE, 'pressure_tone', 'soft', LATER);
   assert.equal(first.ok && second.ok, true);
   if (!first.ok || !second.ok) return;
 
-  const corrections = readCorrections(memory, SCOPE, LATER);
+  const corrections = await readCorrections(memory, SCOPE, LATER);
   assert.equal(corrections.pressure_tone?.level, 'soft');
   assert.equal(corrections.pressure_tone?.recordId, second.record.id);
 
   // The prior statement is superseded, not destroyed.
-  const prior = memory.get(first.record.id);
+  const prior = await memory.get(first.record.id);
   assert.equal(prior?.status, 'superseded');
   assert.equal(prior?.supersededById, second.record.id);
 });
 
-test('corrections on different dimensions do not interfere', () => {
+test('corrections on different dimensions do not interfere', async () => {
   const memory = createInMemoryRuntimeMemoryStore();
-  applyCorrection(memory, SCOPE, 'pressure_tone', 'firm', NOW);
-  applyCorrection(memory, SCOPE, 'reminder_density', 'rich', NOW);
-  const corrections = readCorrections(memory, SCOPE, NOW);
+  await applyCorrection(memory, SCOPE, 'pressure_tone', 'firm', NOW);
+  await applyCorrection(memory, SCOPE, 'reminder_density', 'rich', NOW);
+  const corrections = await readCorrections(memory, SCOPE, NOW);
   assert.equal(corrections.pressure_tone?.level, 'firm');
   assert.equal(corrections.reminder_density?.level, 'rich');
   assert.equal(corrections.pressure_ceiling, null);
   assert.equal(corrections.suggestion_directness, null);
 });
 
-test('clearing a correction revokes the statement, and the dimension reads as uncorrected', () => {
+test('clearing a correction revokes the statement, and the dimension reads as uncorrected', async () => {
   const memory = createInMemoryRuntimeMemoryStore();
-  const applied = applyCorrection(memory, SCOPE, 'pressure_tone', 'firm', NOW);
+  const applied = await applyCorrection(memory, SCOPE, 'pressure_tone', 'firm', NOW);
   assert.equal(applied.ok, true);
-  assert.equal(clearCorrection(memory, SCOPE, 'pressure_tone', LATER), true);
-  assert.equal(readCorrections(memory, SCOPE, LATER).pressure_tone, null);
+  assert.equal(await clearCorrection(memory, SCOPE, 'pressure_tone', LATER), true);
+  assert.equal((await readCorrections(memory, SCOPE, LATER)).pressure_tone, null);
   // Revoked, not deleted: the record stays inspectable.
-  if (applied.ok) assert.equal(memory.get(applied.record.id)?.status, 'revoked');
+  if (applied.ok) assert.equal((await memory.get(applied.record.id))?.status, 'revoked');
 });
 
-test('clearing a dimension with no correction reports false rather than inventing one', () => {
+test('clearing a dimension with no correction reports false rather than inventing one', async () => {
   const memory = createInMemoryRuntimeMemoryStore();
-  assert.equal(clearCorrection(memory, SCOPE, 'pressure_tone', NOW), false);
+  assert.equal(await clearCorrection(memory, SCOPE, 'pressure_tone', NOW), false);
 });
 
-test('an unknown dimension or level is reported, never written', () => {
+test('an unknown dimension or level is reported, never written', async () => {
   const memory = createInMemoryRuntimeMemoryStore();
-  const badDimension = applyCorrection(memory, SCOPE, 'mood' as never, 'firm', NOW);
+  const badDimension = await applyCorrection(memory, SCOPE, 'mood' as never, 'firm', NOW);
   assert.deepEqual(badDimension, { ok: false, reason: 'unknown_dimension' });
-  const badLevel = applyCorrection(memory, SCOPE, 'pressure_tone', 'shouty' as never, NOW);
+  const badLevel = await applyCorrection(memory, SCOPE, 'pressure_tone', 'shouty' as never, NOW);
   assert.deepEqual(badLevel, { ok: false, reason: 'unknown_level' });
-  assert.equal(memory.listAll(SCOPE).length, 0);
+  assert.equal((await memory.listAll(SCOPE)).length, 0);
 });
 
-test('free-text preference records in the store are not read as corrections', () => {
+test('free-text preference records in the store are not read as corrections', async () => {
   const memory = createInMemoryRuntimeMemoryStore();
-  memory.put({
+  await memory.put({
     scopeId: SCOPE,
     kind: 'preference',
     content: 'I prefer gentle nudges in the morning',
@@ -129,14 +129,14 @@ test('free-text preference records in the store are not read as corrections', ()
     confidence: 1,
     observedAt: NOW,
   }, NOW);
-  const corrections = readCorrections(memory, SCOPE, NOW);
+  const corrections = await readCorrections(memory, SCOPE, NOW);
   assert.equal(corrections.pressure_tone, null);
   assert.equal(corrections.reminder_density, null);
 });
 
-test('a model-inferred record spelling the canonical content is not a user correction', () => {
+test('a model-inferred record spelling the canonical content is not a user correction', async () => {
   const memory = createInMemoryRuntimeMemoryStore();
-  memory.put({
+  await memory.put({
     scopeId: SCOPE,
     kind: 'preference',
     content: formatCorrectionContent('pressure_tone', 'firm'),
@@ -145,11 +145,11 @@ test('a model-inferred record spelling the canonical content is not a user corre
     confidence: 0.9,
     observedAt: NOW,
   }, NOW);
-  assert.equal(readCorrections(memory, SCOPE, NOW).pressure_tone, null);
+  assert.equal((await readCorrections(memory, SCOPE, NOW)).pressure_tone, null);
 });
 
-test("a correction never leaves the user's scope", () => {
+test("a correction never leaves the user's scope", async () => {
   const memory = createInMemoryRuntimeMemoryStore();
-  applyCorrection(memory, 'scope-a', 'pressure_tone', 'firm', NOW);
-  assert.equal(readCorrections(memory, 'scope-b', NOW).pressure_tone, null);
+  await applyCorrection(memory, 'scope-a', 'pressure_tone', 'firm', NOW);
+  assert.equal((await readCorrections(memory, 'scope-b', NOW)).pressure_tone, null);
 });

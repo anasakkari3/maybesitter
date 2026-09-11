@@ -67,20 +67,20 @@ function assertFieldMatches<T extends object>(
 }
 
 /** Writes a fixture's memory records in order, returning handle -> stored record. */
-function writeMemoryRecords(
+async function writeMemoryRecords(
   fixture: LifeStateMemoryFixture,
   store: ReturnType<typeof createInMemoryRuntimeMemoryStore>,
-): Map<string, RuntimeMemoryRecord> {
+): Promise<Map<string, RuntimeMemoryRecord>> {
   const byHandle = new Map<string, RuntimeMemoryRecord>();
 
   for (const record of fixture.memory.records as readonly MemoryFixtureRecord[]) {
     const written = record.supersedesHandle
-      ? store.supersede(
+      ? await store.supersede(
           requireHandle(byHandle, record.supersedesHandle).id,
           record.input,
           record.putAt,
         )
-      : store.put(record.input, record.putAt);
+      : await store.put(record.input, record.putAt);
     byHandle.set(record.handle, written);
   }
 
@@ -141,27 +141,27 @@ for (const fixture of LIFE_STATE_MEMORY_FIXTURES) {
     }
   });
 
-  test(`fixture ${fixture.id}: the real memory store matches the expected record states`, () => {
+  test(`fixture ${fixture.id}: the real memory store matches the expected record states`, async () => {
     const store = createInMemoryRuntimeMemoryStore();
-    const byHandle = writeMemoryRecords(fixture, store);
+    const byHandle = await writeMemoryRecords(fixture, store);
 
     for (const record of fixture.memory.records) {
       const stored = requireHandle(byHandle, record.handle);
-      const current = store.get(stored.id);
+      const current = await store.get(stored.id);
       assert.ok(current, `${record.handle}: record should exist before prune`);
       assert.equal(current.status, record.expected.statusBeforePrune, `${record.handle}: statusBeforePrune`);
       assert.equal(current.exportPolicy, record.expected.exportPolicy, `${record.handle}: exportPolicy`);
       assert.equal(current.staleAfter, record.expected.staleAfter, `${record.handle}: staleAfter`);
     }
 
-    const retrieved = store.retrieve({ scopeId: fixture.scopeId, now: FIXTURE_CLOCK_ISO });
+    const retrieved = await store.retrieve({ scopeId: fixture.scopeId, now: FIXTURE_CLOCK_ISO });
     assert.deepEqual(
       handlesOf(byHandle, retrieved),
       [...fixture.memory.expectedRetrieveHandles],
       'retrieve returned the wrong records or the wrong order',
     );
 
-    const listed = store.listAll(fixture.scopeId);
+    const listed = await store.listAll(fixture.scopeId);
     assert.deepEqual(
       handlesOf(byHandle, listed).sort(),
       [...fixture.memory.expectedListAllHandles].sort(),
@@ -169,24 +169,24 @@ for (const fixture of LIFE_STATE_MEMORY_FIXTURES) {
     );
   });
 
-  test(`fixture ${fixture.id}: prune and the fine-tuning guard behave as pinned`, () => {
+  test(`fixture ${fixture.id}: prune and the fine-tuning guard behave as pinned`, async () => {
     const store = createInMemoryRuntimeMemoryStore();
-    const byHandle = writeMemoryRecords(fixture, store);
+    const byHandle = await writeMemoryRecords(fixture, store);
 
     assert.equal(
-      store.prune(FIXTURE_CLOCK_ISO),
+      await store.prune(FIXTURE_CLOCK_ISO),
       fixture.memory.expectedPrunedCount,
       'prune expired a different number of records than the fixture pins',
     );
 
     for (const record of fixture.memory.records) {
       const stored = requireHandle(byHandle, record.handle);
-      const current = store.get(stored.id);
+      const current = await store.get(stored.id);
       assert.ok(current, `${record.handle}: record should survive prune as a status change`);
       assert.equal(current.status, record.expected.statusAfterPrune, `${record.handle}: statusAfterPrune`);
     }
 
-    const inScope = store.listAll(fixture.scopeId);
+    const inScope = await store.listAll(fixture.scopeId);
     if (fixture.memory.expectedAssertNoPersonalMemoryThrows) {
       assert.throws(
         () => assertNoPersonalMemory(inScope),
@@ -197,13 +197,13 @@ for (const fixture of LIFE_STATE_MEMORY_FIXTURES) {
     }
   });
 
-  test(`fixture ${fixture.id}: multilingual content survives the store byte-identically`, () => {
+  test(`fixture ${fixture.id}: multilingual content survives the store byte-identically`, async () => {
     const store = createInMemoryRuntimeMemoryStore();
-    const byHandle = writeMemoryRecords(fixture, store);
+    const byHandle = await writeMemoryRecords(fixture, store);
 
     for (const record of fixture.memory.records) {
       const stored = requireHandle(byHandle, record.handle);
-      const roundTripped = store.get(stored.id);
+      const roundTripped = await store.get(stored.id);
       assert.ok(roundTripped);
       assert.equal(
         roundTripped.content,

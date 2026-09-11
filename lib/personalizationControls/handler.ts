@@ -106,14 +106,14 @@ export interface ExportedInventory {
   }[];
 }
 
-export function exportInventory(
+export async function exportInventory(
   port: PersonalizationControlsPort,
   scopeId: string,
   now: Instant,
-): ExportedInventory {
+): Promise<ExportedInventory> {
   return {
-    view: buildPersonalizationInventory(port, scopeId, now),
-    memoryRecords: port.memory.listAll(scopeId).map((record) => ({
+    view: await buildPersonalizationInventory(port, scopeId, now),
+    memoryRecords: (await port.memory.listAll(scopeId)).map((record) => ({
       id: record.id,
       kind: record.kind,
       content: record.content,
@@ -134,10 +134,10 @@ export function exportInventory(
  */
 export interface ControlsHandlerDeps {
   readonly port: PersonalizationControlsPort;
-  readonly deleteScope?: (scopeId: string, now: Instant) => unknown;
+  readonly deleteScope?: (scopeId: string, now: Instant) => unknown | Promise<unknown>;
 }
 
-export function handleControlsRequest(deps: ControlsHandlerDeps, body: unknown): ControlsOutcome {
+export async function handleControlsRequest(deps: ControlsHandlerDeps, body: unknown): Promise<ControlsOutcome> {
   const parsed = asObject(body);
   if (parsed === null) return reject('MALFORMED_REQUEST_BODY', 'the request body is not an object');
 
@@ -161,20 +161,20 @@ export function handleControlsRequest(deps: ControlsHandlerDeps, body: unknown):
 
   switch (action) {
     case 'inventory':
-      return { status: 200, response: buildPersonalizationInventory(port, scopeId, now) };
+      return { status: 200, response: await buildPersonalizationInventory(port, scopeId, now) };
 
     case 'export':
-      return { status: 200, response: exportInventory(port, scopeId, now) };
+      return { status: 200, response: await exportInventory(port, scopeId, now) };
 
     case 'enable':
     case 'disable': {
       const state = action === 'enable' ? 'enabled' : 'disabled';
-      const consent = port.consent.write(scopeId, state, now);
+      const consent = await port.consent.write(scopeId, state, now);
       // The inventory is rebuilt in the same response, so a client cannot show
       // a stale profile beside a flipped toggle even if it wanted to.
       return {
         status: 200,
-        response: { kind: 'consent_written', consent, view: buildPersonalizationInventory(port, scopeId, now) },
+        response: { kind: 'consent_written', consent, view: await buildPersonalizationInventory(port, scopeId, now) },
       };
     }
 
@@ -187,11 +187,11 @@ export function handleControlsRequest(deps: ControlsHandlerDeps, body: unknown):
       if (level === null || !isLevelFor(dimension, level)) {
         return reject('UNKNOWN_LEVEL', `not a level of ${dimension}: ${String(parsed.level)}`);
       }
-      const result = applyCorrection(port.memory, scopeId, dimension, level, now);
+      const result = await applyCorrection(port.memory, scopeId, dimension, level, now);
       if (!result.ok) return reject('STORE_REJECTED', `the correction was not stored: ${result.reason}`);
       return {
         status: 200,
-        response: { kind: 'corrected', record: result.record, view: buildPersonalizationInventory(port, scopeId, now) },
+        response: { kind: 'corrected', record: result.record, view: await buildPersonalizationInventory(port, scopeId, now) },
       };
     }
 
@@ -200,10 +200,10 @@ export function handleControlsRequest(deps: ControlsHandlerDeps, body: unknown):
       if (dimension === null || !isDimension(dimension)) {
         return reject('UNKNOWN_DIMENSION', `not a preference dimension: ${String(parsed.dimension)}`);
       }
-      const cleared = clearCorrection(port.memory, scopeId, dimension, now);
+      const cleared = await clearCorrection(port.memory, scopeId, dimension, now);
       return {
         status: 200,
-        response: { kind: 'correction_cleared', cleared, view: buildPersonalizationInventory(port, scopeId, now) },
+        response: { kind: 'correction_cleared', cleared, view: await buildPersonalizationInventory(port, scopeId, now) },
       };
     }
 
@@ -215,17 +215,17 @@ export function handleControlsRequest(deps: ControlsHandlerDeps, body: unknown):
       // could revoke any other user's record by supplying its id and their own
       // `scopeId` — a cross-scope write through an endpoint with no auth. The
       // rejection copy below already claimed "in this scope"; now it is true.
-      const record = port.memory.get(recordId);
+      const record = await port.memory.get(recordId);
       if (record === null || record.scopeId !== scopeId) {
         return reject('UNKNOWN_RECORD', 'no revocable record with that id in this scope');
       }
-      if (!port.memory.revoke(recordId, now)) {
+      if (!(await port.memory.revoke(recordId, now))) {
         // False means absent or already revoked. Both are "there is nothing here
         // to revoke", and distinguishing them for a caller who supplied an id
         // would confirm whether that id exists.
         return reject('UNKNOWN_RECORD', 'no revocable record with that id in this scope');
       }
-      return { status: 200, response: { kind: 'memory_revoked', view: buildPersonalizationInventory(port, scopeId, now) } };
+      return { status: 200, response: { kind: 'memory_revoked', view: await buildPersonalizationInventory(port, scopeId, now) } };
     }
 
     case 'revoke_feedback': {
@@ -234,25 +234,25 @@ export function handleControlsRequest(deps: ControlsHandlerDeps, body: unknown):
       // Same cross-scope hole as `revoke_memory`, same fix. A revoked feedback
       // event stops contributing to its owner's profile, so this was a way to
       // reshape a stranger's personalization from an unauthenticated route.
-      const event = port.feedback.get(eventId);
+      const event = await port.feedback.get(eventId);
       if (event === null || event.scopeId !== scopeId) {
         return reject('UNKNOWN_RECORD', 'no revocable event with that id in this scope');
       }
-      if (!port.feedback.revoke(eventId, now)) {
+      if (!(await port.feedback.revoke(eventId, now))) {
         return reject('UNKNOWN_RECORD', 'no revocable event with that id in this scope');
       }
-      return { status: 200, response: { kind: 'feedback_revoked', view: buildPersonalizationInventory(port, scopeId, now) } };
+      return { status: 200, response: { kind: 'feedback_revoked', view: await buildPersonalizationInventory(port, scopeId, now) } };
     }
 
     case 'delete': {
       if (deps.deleteScope === undefined) {
         return reject('STORE_REJECTED', 'deletion is not wired in this build', 501);
       }
-      const receipt = deps.deleteScope(scopeId, now);
-      port.consent.deleteScope(scopeId);
+      const receipt = await deps.deleteScope(scopeId, now);
+      await port.consent.deleteScope(scopeId);
       return {
         status: 200,
-        response: { kind: 'deleted', receipt, view: buildPersonalizationInventory(port, scopeId, now) },
+        response: { kind: 'deleted', receipt, view: await buildPersonalizationInventory(port, scopeId, now) },
       };
     }
 

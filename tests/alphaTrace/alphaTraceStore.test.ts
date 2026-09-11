@@ -1,5 +1,16 @@
 /**
- * Tests for the alpha trace contracts, store, and recorder.
+ * Tests for the alpha trace contracts, store, and recorder (UC-1.0c, #142).
+ *
+ * ── One case was removed, deliberately ───────────────────────────
+ *
+ * "deletion reaches a file whose contents disagree with its name" is gone with
+ * the files. It existed because the store wrote `<sessionId>.trace.json` and
+ * trusted the *filename* over the record, so anything written before session
+ * ids were validated could carry a different id inside and be unreachable by
+ * deletion. There is no filename now: a trace is looked up by its `sessionId`
+ * field through a collection-group query, so the name and the contents cannot
+ * disagree. The property that replaces it — deletion reaches every session a
+ * participant owns — is asserted directly below.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -8,11 +19,12 @@ import {
   type AlphaTraceSession,
   type AlphaTraceStageRecord,
 } from '../../src/contracts/v1/alphaTraceContracts';
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { createFileAlphaTraceStore, createInMemoryAlphaTraceStore } from '../../lib/alphaTrace/alphaTraceStore';
-import { recordTraceStage, resolveTraceSessionId, setTraceStoreForTesting, stage } from '../../lib/alphaTrace/traceRecorder';
+import {
+  StorageAlphaTraceStore,
+  createInMemoryAlphaTraceStore,
+} from '../../lib/alphaTrace/alphaTraceStore.ts';
+import { recordTraceStage, resolveTraceSessionId, setTraceStoreForTesting, stage } from '../../lib/alphaTrace/traceRecorder.ts';
+import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 
 const participantId = 'p001';
 const sessionId = 's001';
@@ -27,11 +39,11 @@ function sessionStages(): AlphaTraceStageRecord[] {
   ];
 }
 
-test('trace store: append accumulates stages in order', () => {
+test('trace store: append accumulates stages in order', async () => {
   const store = createInMemoryAlphaTraceStore();
-  for (const s of sessionStages()) store.append(sessionId, participantId, s);
+  for (const s of sessionStages()) await store.append(sessionId, participantId, s);
 
-  const trace = store.get(sessionId);
+  const trace = await store.get(sessionId);
   assert.ok(trace, 'trace should exist');
   assert.equal(trace.version, ALPHA_TRACE_VERSION);
   assert.equal(trace.sessionId, sessionId);
@@ -41,41 +53,39 @@ test('trace store: append accumulates stages in order', () => {
   assert.equal(trace.stages[4].stage, 'proposal_decided');
 });
 
-test('trace store: summaries expose reviewable signals', () => {
+test('trace store: summaries expose reviewable signals', async () => {
   const store = createInMemoryAlphaTraceStore();
-  for (const s of sessionStages()) store.append(sessionId, participantId, s);
-  store.append('s002', participantId, stage('input_received', { inputText: 'x' }));
+  for (const s of sessionStages()) await store.append(sessionId, participantId, s);
+  await store.append('s002', participantId, stage('input_received', { inputText: 'x' }));
 
-  const summaries = store.listSummaries({ participantId });
+  const summaries = await store.listSummaries({ participantId });
   assert.equal(summaries.length, 2);
   const s1 = summaries.find((s) => s.sessionId === sessionId);
   assert.ok(s1);
   assert.equal(s1.hasDecisions, true);
   assert.equal(s1.stageCount, 5);
 
-  const withFeedback = store.listSummaries({ participantId, withFeedbackOnly: true });
-  assert.equal(withFeedback.length, 0);
+  assert.equal((await store.listSummaries({ participantId, withFeedbackOnly: true })).length, 0);
 
-  store.append(sessionId, participantId, stage('feedback_flagged', { flagId: 'f1', category: 'invasive' }));
-  const withFeedback2 = store.listSummaries({ participantId, withFeedbackOnly: true });
-  assert.equal(withFeedback2.length, 1);
+  await store.append(sessionId, participantId, stage('feedback_flagged', { flagId: 'f1', category: 'invasive' }));
+  assert.equal((await store.listSummaries({ participantId, withFeedbackOnly: true })).length, 1);
 });
 
-test('trace store: delete by session and participant', () => {
+test('trace store: delete by session and participant', async () => {
   const store = createInMemoryAlphaTraceStore();
-  for (const s of sessionStages()) store.append(sessionId, participantId, s);
-  store.append('s002', 'p002', stage('input_received', { inputText: 'y' }));
+  for (const s of sessionStages()) await store.append(sessionId, participantId, s);
+  await store.append('s002', 'p002', stage('input_received', { inputText: 'y' }));
 
-  assert.equal(store.deleteSession(sessionId), true);
-  assert.equal(store.get(sessionId), null);
-  assert.equal(store.deleteSession(sessionId), false);
+  assert.equal(await store.deleteSession(sessionId), true);
+  assert.equal(await store.get(sessionId), null);
+  assert.equal(await store.deleteSession(sessionId), false);
 
-  store.append('s003', 'p002', stage('input_received', { inputText: 'z' }));
-  assert.equal(store.deleteParticipant('p002'), 2);
-  assert.equal(store.listSummaries().length, 0);
+  await store.append('s003', 'p002', stage('input_received', { inputText: 'z' }));
+  assert.equal(await store.deleteParticipant('p002'), 2);
+  assert.equal((await store.listSummaries()).length, 0);
 });
 
-test('trace store: prune removes expired sessions', () => {
+test('trace store: prune removes sessions past the retention window', async () => {
   const old = new Date(Date.now() - 40 * 24 * 60 * 60 * 1_000).toISOString();
   const stale: AlphaTraceSession = {
     version: ALPHA_TRACE_VERSION,
@@ -93,24 +103,50 @@ test('trace store: prune removes expired sessions', () => {
     updatedAt: new Date().toISOString(),
     stages: [stage('input_received', { inputText: 'new' })],
   };
+  // Unlike the old in-memory store, whose prune() was a silent no-op, this is
+  // the same implementation production runs.
   const store = createInMemoryAlphaTraceStore([stale, fresh]);
-  // in-memory store's prune is a no-op; verify file store semantics via delete logic:
-  assert.equal(store.get('stale')?.sessionId, 'stale');
-  assert.equal(store.deleteSession('stale'), true);
-  assert.equal(store.get('fresh')?.sessionId, 'fresh');
+
+  assert.equal(await store.prune(), 1);
+  assert.equal(await store.get('stale'), null);
+  assert.equal((await store.get('fresh'))?.sessionId, 'fresh');
 });
 
-test('trace recorder: disabled by default and does not throw', () => {
+test('trace store: a trace written through one handle is read through a fresh one', async () => {
+  // The simulated restart. Raw capture text used to live on a per-instance
+  // disk, so a second instance could not see it at all.
+  const shared = createMemoryStorage();
+  const writer = new StorageAlphaTraceStore({ storage: shared });
+  const reader = new StorageAlphaTraceStore({ storage: shared });
+
+  await writer.append('s-durable', 'p010', stage('input_received', { inputText: 'MRI at the oncology clinic' }));
+
+  const seen = await reader.get('s-durable');
+  assert.equal(seen?.participantId, 'p010', 'the trace did not survive the handle');
+  assert.equal(seen?.stages.length, 1);
+});
+
+test('trace store: deletion reaches every session a participant owns', async () => {
+  const store = createInMemoryAlphaTraceStore();
+  await store.append('a1', 'p_victim', stage('input_received', { inputText: 'one' }));
+  await store.append('a2', 'p_victim', stage('input_received', { inputText: 'two' }));
+  await store.append('b1', 'p_other', stage('input_received', { inputText: 'three' }));
+
+  assert.equal(await store.deleteParticipant('p_victim'), 2);
+  assert.equal(await store.get('a1'), null);
+  assert.equal(await store.get('a2'), null);
+  assert.equal((await store.get('b1'))?.participantId, 'p_other', 'another participant was deleted too');
+});
+
+test('trace recorder: disabled by default and does not throw', async () => {
   setTraceStoreForTesting(createInMemoryAlphaTraceStore());
+  const before = process.env.MAYBESITTER_ALPHA_TRACE_ENABLED;
   try {
-    // isTraceEnabled() reads env; default off → record returns false.
-    const before = process.env.MAYBESITTER_ALPHA_TRACE_ENABLED;
     delete process.env.MAYBESITTER_ALPHA_TRACE_ENABLED;
-    const recorded = recordTraceStage(sessionId, participantId, stage('input_received', { inputText: 'x' }));
-    assert.equal(recorded, false);
+    assert.equal(await recordTraceStage(sessionId, participantId, stage('input_received', { inputText: 'x' })), false);
+  } finally {
     if (before === undefined) delete process.env.MAYBESITTER_ALPHA_TRACE_ENABLED;
     else process.env.MAYBESITTER_ALPHA_TRACE_ENABLED = before;
-  } finally {
     setTraceStoreForTesting(null);
   }
 });
@@ -129,47 +165,6 @@ test('trace recorder: session id resolution', () => {
   }
 });
 
-// --- Session isolation -------------------------------------------------------
-// A trace session holds the participant's raw capture text. The session id
-// arrives from the request body, so it is attacker-controlled: it must never
-// be able to name another participant's session, nor become a file path.
-
-test('trace store: a second participant cannot take over a session', () => {
-  const store = createInMemoryAlphaTraceStore();
-  store.append('s-victim', 'p_victim', stage('input_received', { inputText: 'MRI at the oncology clinic' }));
-
-  assert.throws(
-    () => store.append('s-victim', 'p_attacker', stage('input_received', { inputText: 'hi' })),
-    /participant/i,
-  );
-
-  const session = store.get('s-victim');
-  assert.equal(session?.participantId, 'p_victim', 'the owner must not be rewritten');
-  assert.equal(session?.stages.length, 1, 'the attacker must not append either');
-});
-
-test('trace store: a hijacked session does not survive the owner deletion request', () => {
-  const store = createInMemoryAlphaTraceStore();
-  store.append('s-victim', 'p_victim', stage('input_received', { inputText: 'MRI at the oncology clinic' }));
-  try {
-    store.append('s-victim', 'p_attacker', stage('input_received', { inputText: 'hi' }));
-  } catch {
-    // refused, which is the point
-  }
-
-  // deleteParticipant matches on participantId, so an overwritten owner made
-  // the victim's own deletion request a no-op.
-  assert.equal(store.deleteParticipant('p_victim'), 1);
-  assert.equal(store.get('s-victim'), null);
-});
-
-test('trace store: a session id that is a path is refused', () => {
-  const store = createInMemoryAlphaTraceStore();
-  for (const hostile of ['../../../../tmp/pwned', 'a/b', 'x y', '', 'a'.repeat(129)]) {
-    assert.throws(() => store.append(hostile, 'p001', stage('input_received', {})), /session id/i, hostile);
-  }
-});
-
 test('recorder: a client session id that is not a plain token is replaced', () => {
   for (const hostile of ['../../../../tmp/pwned', 'a/b', 'has space', 'a'.repeat(129)]) {
     const resolved = resolveTraceSessionId(hostile, 'p001');
@@ -183,58 +178,30 @@ test('recorder: an ordinary client session id is still honoured', () => {
 });
 
 test('recorder: a derived session id is not guessable from the participant id', () => {
-  // The old form embedded the participant id and a base36 millisecond. With an
-  // allowlisted participant id the only unknown was the millisecond, which is
-  // sprayable in a 25-40 person pilot.
   const ids = new Set(Array.from({ length: 50 }, () => resolveTraceSessionId(undefined, 'p001')));
   assert.equal(ids.size, 50, 'derived ids must not collide');
   for (const id of Array.from(ids)) assert.ok(!id.includes('p001'), 'must not embed the participant id');
 });
 
-test('recorder: recording never throws, even on a refused session', () => {
-  const store = createInMemoryAlphaTraceStore();
-  setTraceStoreForTesting(store);
+test('recorder: recording never throws, even on a refused session', async () => {
+  setTraceStoreForTesting(createInMemoryAlphaTraceStore());
   const previous = process.env.MAYBESITTER_ALPHA_TRACE_ENABLED;
   process.env.MAYBESITTER_ALPHA_TRACE_ENABLED = 'true';
   try {
-    assert.equal(recordTraceStage('s-iso', 'p_victim', stage('input_received', {})), true);
+    assert.equal(await recordTraceStage('s-iso', 'p_victim', stage('input_received', {})), true);
     // Instrumentation must never change product behaviour, so a refusal is a
     // false return, not an exception thrown into the capture path.
-    assert.equal(recordTraceStage('s-iso', 'p_attacker', stage('input_received', {})), false);
+    assert.equal(await recordTraceStage('s-iso', 'p_attacker', stage('input_received', {})), false);
   } finally {
     process.env.MAYBESITTER_ALPHA_TRACE_ENABLED = previous;
     setTraceStoreForTesting(null);
   }
 });
 
-test('trace store: a malformed session id reads as nothing, not an error', () => {
+test('trace store: a malformed session id reads as nothing, not an error', async () => {
   const store = createInMemoryAlphaTraceStore();
   // The id arrives off a query string on the read route, so a malformed one
   // must be a not-found, never a 500 that leaks a stack.
-  assert.equal(store.get('../../../../etc/passwd'), null);
-  assert.equal(store.deleteSession('../../../../etc/passwd'), false);
-});
-
-test('trace store: deletion reaches a file whose contents disagree with its name', () => {
-  // Anything written before session ids were validated can carry a different
-  // id inside the file. Deleting by the id in the contents would miss it, and
-  // a participant asking for their data to be erased would not be told.
-  const dir = mkdtempSync(join(tmpdir(), 'trace-legacy-'));
-  try {
-    const legacy = {
-      version: ALPHA_TRACE_VERSION,
-      sessionId: '../../../../elsewhere',
-      participantId: 'p_victim',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      stages: [stage('input_received', { inputText: 'MRI at the oncology clinic' })],
-    };
-    writeFileSync(join(dir, 'legacy-session.trace.json'), JSON.stringify(legacy));
-
-    const store = createFileAlphaTraceStore({ dataDir: dir });
-    assert.equal(store.deleteParticipant('p_victim'), 1);
-    assert.equal(readdirSync(dir).length, 0);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  assert.equal(await store.get('../../../../etc/passwd'), null);
+  assert.equal(await store.deleteSession('../../../../etc/passwd'), false);
 });

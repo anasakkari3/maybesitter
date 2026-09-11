@@ -27,7 +27,7 @@
  *     migrateLegacyBaseline({
  *       scopeId: scopeBehaviorFeedback(options),
  *       reader: createDefaultBehaviorFeedbackStore(),
- *       store: createFileFeedbackEventStore(),
+ *       store: createStorageFeedbackEventStore(),
  *       migratedAt: now.toISOString(),
  *     });
  *
@@ -132,7 +132,11 @@ export async function migrateLegacyBaseline(
 
   // Write-once, and checked before the legacy store is read at all: the counters
   // that grew since the first migration must not even be observed here.
-  const existing = store.readBaseline(scopeId);
+  //
+  // Awaited, and that is load-bearing: `readBaseline` returns a promise now,
+  // and a promise is always truthy, so an unawaited check here would return
+  // early on every call and never write a baseline at all.
+  const existing = await store.readBaseline(scopeId);
   if (existing) return existing;
 
   const snapshot = await reader.get(scopeId);
@@ -152,7 +156,7 @@ export async function migrateLegacyBaseline(
     timestampsUnavailable: true,
     migratedAt,
   };
-  store.writeBaseline(baseline);
+  await store.writeBaseline(baseline);
   // Re-read so the caller holds what was actually persisted rather than what we
   // intended to persist, which is the value #14 will aggregate from.
   return store.readBaseline(scopeId);

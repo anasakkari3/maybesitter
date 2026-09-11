@@ -124,7 +124,9 @@ export interface ReleaseHandlerDeps {
   readonly traces: ShadowArchiveAccess;
   readonly replayBundles: ShadowArchiveAccess;
   readonly deletePersonalization?: ShadowStudyDeletionInput['deletePersonalization'];
-  readonly evidenceSources?: () => Readonly<Record<ShadowEvidencePillar, ShadowPillarSource>>;
+  readonly evidenceSources?: () =>
+    | Readonly<Record<ShadowEvidencePillar, ShadowPillarSource>>
+    | Promise<Readonly<Record<ShadowEvidencePillar, ShadowPillarSource>>>;
 }
 
 function reject(code: ReleaseRejectionCode, detail: string, status = 400): ReleaseOutcome {
@@ -180,7 +182,7 @@ export async function handleReleaseRequest(deps: ReleaseHandlerDeps, body: unkno
         status: 200,
         response: {
           kind: 'consent',
-          consent: deps.consent.read(who),
+          consent: await deps.consent.read(who),
           exposure: await resolveStagedExposure(port, who, now),
         },
       };
@@ -197,7 +199,7 @@ export async function handleReleaseRequest(deps: ReleaseHandlerDeps, body: unkno
       if (unknown.length > 0) {
         return reject('UNKNOWN_SCOPE', `not a study consent scope: ${unknown.map((scope) => String(scope)).join(', ')}`);
       }
-      const result = deps.consent.grant(who, raw as readonly ShadowConsentScope[], now);
+      const result = await deps.consent.grant(who, raw as readonly ShadowConsentScope[], now);
       if (result.status === 'rejected') {
         return reject('CONSENT_REJECTED', `${result.reason}: ${result.detail}`);
       }
@@ -214,7 +216,7 @@ export async function handleReleaseRequest(deps: ReleaseHandlerDeps, body: unkno
     case 'revoke_consent': {
       const who = requireParticipant();
       if (isRejection(who)) return who;
-      const result = deps.consent.revoke(who, now);
+      const result = await deps.consent.revoke(who, now);
       if (result.status === 'rejected') {
         return reject('CONSENT_REJECTED', `${result.reason}: ${result.detail}`);
       }
@@ -261,7 +263,7 @@ export async function handleReleaseRequest(deps: ReleaseHandlerDeps, body: unkno
       if (parsedResponse.status === 'rejected') {
         return reject('RESPONSE_REJECTED', `${parsedResponse.reason}: ${parsedResponse.detail}`);
       }
-      const stored = deps.responses.record(parsedResponse.response);
+      const stored = await deps.responses.record(parsedResponse.response);
       if (stored.status === 'rejected') {
         return reject('RESPONSE_REJECTED', `${stored.reason}: ${stored.detail}`);
       }
@@ -274,7 +276,7 @@ export async function handleReleaseRequest(deps: ReleaseHandlerDeps, body: unkno
     case 'study_summary':
       return {
         status: 200,
-        response: { kind: 'study_summary', summary: summarizeStudyResponses(deps.responses.listAll()) },
+        response: { kind: 'study_summary', summary: summarizeStudyResponses(await deps.responses.listAll()) },
       };
 
     case 'evidence_package': {
@@ -286,7 +288,7 @@ export async function handleReleaseRequest(deps: ReleaseHandlerDeps, body: unkno
         packageId: packageId ?? '',
         assembledAt: now,
         stage: deps.configuration.stage,
-        sources: deps.evidenceSources(),
+        sources: await deps.evidenceSources(),
       });
       if (outcome.status === 'refused') {
         return reject('EVIDENCE_REFUSED', `${outcome.reason}: ${outcome.detail}`);
@@ -306,7 +308,7 @@ export async function handleReleaseRequest(deps: ReleaseHandlerDeps, body: unkno
     case 'delete': {
       const who = requireParticipant();
       if (isRejection(who)) return who;
-      const outcome = deleteShadowStudyParticipant({
+      const outcome = await deleteShadowStudyParticipant({
         participantId: who,
         now,
         consent: deps.consent,

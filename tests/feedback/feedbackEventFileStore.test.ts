@@ -1,24 +1,40 @@
 /**
- * File-backed feedback event store (Sprint 03, issue #13).
+ * The feedback event log on durable storage — the durability half (UC-1.0c, #142).
  *
- * Covers what only the on-disk backend can prove: that a user's own words
- * survive a write/read cycle byte for byte, that one damaged file cannot deny
- * them the rest of their history, that a hand-placed file cannot serve one
- * scope's data to another, and that a completed write leaves nothing behind.
+ * This was the file-backed store's test and covered what only the on-disk
+ * backend could prove. With the backend gone the cases split, and which way
+ * each went is stated here rather than left to a diff:
  *
- * Uses the mkdtempSync + MAYBESITTER_DATA_DIR override + rmSync cleanup idiom
- * from tests/runtimeMemory/runtimeMemoryFileStore.test.ts.
+ *  - **Kept, and now stronger.** A restart (a second store over the same
+ *    backend — what a second Cloud Run instance is), idempotency surviving
+ *    that restart, and Arabic/Hebrew ids stored byte for byte.
+ *  - **Kept, in the form that still exists.** A damaged record is skipped
+ *    rather than fatal; a record from another schema version is skipped; a
+ *    record whose id contradicts its location is not served; a damaged or
+ *    misattributed baseline reads as absent. Each plants the malformed record
+ *    directly in storage at the path the store would read, which is the
+ *    equivalent of a half-applied write or a hand edit.
+ *  - **Removed, because the mechanism is gone.** "one file per event at 0600"
+ *    and "a completed write leaves no temp file" were about the filesystem.
+ *    The adapter writes a document atomically; there is no mode bit and no
+ *    temp-then-rename window to leave residue in.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import {
   FEEDBACK_EVENT_SCHEMA_VERSION,
   type AppendFeedbackEventInput,
+  type FeedbackBaseline,
 } from '../../src/contracts/v1/feedbackContracts.ts';
-import { createFileFeedbackEventStore } from '../../lib/feedback/feedbackEventStore.ts';
+import { StorageFeedbackEventStore } from '../../lib/feedback/feedbackEventStore.ts';
+import { createMemoryStorage, type MemoryStorageAdapter } from '../../lib/storage/memoryAdapter.ts';
+import {
+  FEEDBACK_BASELINES,
+  FEEDBACK_EVENTS,
+  docIdForKey,
+  userCol,
+  userIdForKey,
+} from '../../lib/storage/paths.ts';
 
 const OCCURRED = '2026-08-18T09:00:00.000Z';
 const RECORDED = '2026-08-18T09:00:03.000Z';
@@ -27,23 +43,6 @@ const ARABIC = 'التزام: الاتصال بالطبيب قبل الساعة 
 const HEBREW = 'התחייבות: להתקשר לרופא לפני 9 — לא לדחות';
 /** Bidi controls and presentation forms a re-encoding pass would introduce. */
 const BIDI_MARKS = /[‎‏‪-‮⁦-⁩ﭐ-﷿ﹰ-﻿]/;
-
-let directory = '';
-
-function setup(): () => void {
-  directory = mkdtempSync(join(tmpdir(), 'maybesitter-feedback-file-'));
-  const previous = process.env.MAYBESITTER_DATA_DIR;
-  process.env.MAYBESITTER_DATA_DIR = directory;
-  return () => {
-    if (previous === undefined) delete process.env.MAYBESITTER_DATA_DIR;
-    else process.env.MAYBESITTER_DATA_DIR = previous;
-    rmSync(directory, { recursive: true, force: true });
-  };
-}
-
-function eventDir(): string {
-  return join(directory, 'feedback-events');
-}
 
 function input(overrides: Partial<AppendFeedbackEventInput> = {}): AppendFeedbackEventInput {
   return {
@@ -57,173 +56,102 @@ function input(overrides: Partial<AppendFeedbackEventInput> = {}): AppendFeedbac
   };
 }
 
-test('the file store honours MAYBESITTER_DATA_DIR and writes one file per event at 0600', () => {
-  const cleanup = setup();
-  try {
-    const store = createFileFeedbackEventStore();
-    const event = store.append(input(), RECORDED);
+function baseline(scopeId: string, completedActions = 1): FeedbackBaseline {
+  return {
+    version: FEEDBACK_EVENT_SCHEMA_VERSION,
+    scopeId,
+    counters: {
+      ignoredSuggestions: 4, completedActions, delayedActions: 0,
+      clarificationSuccesses: 0, clarificationFailures: 2,
+    },
+    lastUpdatedAt: '2026-08-10T20:00:00.000Z',
+    timestampsUnavailable: true,
+    migratedAt: RECORDED,
+  };
+}
 
-    const files = readdirSync(eventDir());
-    assert.deepEqual(files, [`${event.id}.feedback.json`]);
-    assert.equal(
-      statSync(join(eventDir(), files[0])).mode & 0o777,
-      0o600,
-      'every event is personal, so the file is owner-only',
-    );
-  } finally {
-    cleanup();
-  }
+function eventPath(scopeId: string, id: string): string {
+  return `${userCol(userIdForKey(scopeId), FEEDBACK_EVENTS)}/${id}`;
+}
+
+function baselinePath(scopeId: string): string {
+  return `${userCol(userIdForKey(scopeId), FEEDBACK_BASELINES)}/${docIdForKey(scopeId)}`;
+}
+
+function setup(): { storage: MemoryStorageAdapter; store: StorageFeedbackEventStore } {
+  const storage = createMemoryStorage();
+  return { storage, store: new StorageFeedbackEventStore(storage) };
+}
+
+test('events survive a restart of the store over the same backend', async () => {
+  const shared = createMemoryStorage();
+  const written = await new StorageFeedbackEventStore(shared).append(input(), RECORDED);
+  const reopened = new StorageFeedbackEventStore(shared);
+  assert.deepEqual(await reopened.get(written.id), written);
+  // The key is derived, not remembered, so idempotency outlives the process.
+  assert.deepEqual(await reopened.append(input(), '2026-08-19T09:00:00.000Z'), written);
+  assert.equal((await reopened.list({ scopeId: 'scope-a' })).length, 1);
 });
 
-test('a completed write leaves no temp file behind', () => {
-  const cleanup = setup();
-  try {
-    const store = createFileFeedbackEventStore();
-    store.append(input(), RECORDED);
-    store.revoke(store.list({ scopeId: 'scope-a' })[0].id, RECORDED);
-    store.writeBaseline({
-      version: FEEDBACK_EVENT_SCHEMA_VERSION,
-      scopeId: 'scope-a',
-      counters: {
-        ignoredSuggestions: 1, completedActions: 2, delayedActions: 0,
-        clarificationSuccesses: 0, clarificationFailures: 0,
-      },
-      lastUpdatedAt: null,
-      timestampsUnavailable: true,
-      migratedAt: RECORDED,
-    });
+test('Arabic and Hebrew ids are stored as the user wrote them', async () => {
+  const { storage, store } = setup();
+  const event = await store.append(input({ scopeId: ARABIC, subjectId: HEBREW }), RECORDED);
 
-    assert.equal(
-      readdirSync(eventDir()).some((entry) => entry.endsWith('.tmp')),
-      false,
-      'temp-then-rename must not leave residue after a successful write',
-    );
-  } finally {
-    cleanup();
-  }
+  const stored = await storage.get<{ scopeId: string; subjectId: string }>(eventPath(ARABIC, event.id));
+  assert.ok(stored, 'the event was not stored under its scope');
+  assert.equal(stored.scopeId, ARABIC);
+  assert.equal(stored.subjectId, HEBREW);
+  assert.equal(BIDI_MARKS.test(JSON.stringify(stored)), false, 'no bidi control or presentation form may be introduced');
+  assert.equal(
+    Buffer.from(stored.subjectId, 'utf8').equals(Buffer.from(HEBREW, 'utf8')),
+    true,
+    'the stored bytes must be the ones the user supplied',
+  );
+  assert.equal((await store.get(event.id))?.scopeId, ARABIC);
 });
 
-test('events survive a restart of the store over the same directory', () => {
-  const cleanup = setup();
-  try {
-    const written = createFileFeedbackEventStore().append(input(), RECORDED);
-    const reopened = createFileFeedbackEventStore();
-    assert.deepEqual(reopened.get(written.id), written);
-    // The key is derived, not remembered, so idempotency outlives the process.
-    assert.deepEqual(reopened.append(input(), '2026-08-19T09:00:00.000Z'), written);
-    assert.equal(reopened.list({ scopeId: 'scope-a' }).length, 1);
-  } finally {
-    cleanup();
-  }
+test('a damaged event record is skipped rather than fatal', async () => {
+  const { storage, store } = setup();
+  const healthy = await store.append(input(), RECORDED);
+  const damaged = await store.append(input({ subjectId: 'commitment-2' }), RECORDED);
+  await storage.set(eventPath('scope-a', damaged.id), { scopeId: 'scope-a', outcome: 'comp' });
+
+  assert.deepEqual((await store.list({ scopeId: 'scope-a' })).map((event) => event.id), [healthy.id]);
+  assert.equal(await store.get(damaged.id), null, 'a partial record must never surface as an event');
+  assert.equal(await store.revoke(damaged.id, RECORDED), false);
 });
 
-test('Arabic and Hebrew ids are stored as the user wrote them', () => {
-  const cleanup = setup();
-  try {
-    const store = createFileFeedbackEventStore();
-    const event = store.append(input({ scopeId: ARABIC, subjectId: HEBREW }), RECORDED);
+test('an event record written by another schema version is skipped', async () => {
+  const { storage, store } = setup();
+  const event = await store.append(input(), RECORDED);
+  await storage.set(eventPath('scope-a', event.id), { ...event, version: 'feedback-event-v0' });
 
-    const raw = readFileSync(join(eventDir(), `${event.id}.feedback.json`), 'utf8');
-    const parsed = JSON.parse(raw) as { scopeId: string; subjectId: string };
-    assert.equal(parsed.scopeId, ARABIC);
-    assert.equal(parsed.subjectId, HEBREW);
-    assert.equal(BIDI_MARKS.test(raw), false, 'no bidi control or presentation form may be introduced on write');
-    assert.equal(
-      Buffer.from(parsed.subjectId, 'utf8').equals(Buffer.from(HEBREW, 'utf8')),
-      true,
-      'the stored bytes must be the ones the user supplied',
-    );
-    assert.equal(store.get(event.id)?.scopeId, ARABIC);
-  } finally {
-    cleanup();
-  }
+  assert.equal(await store.get(event.id), null);
+  assert.equal((await store.list({ scopeId: 'scope-a' })).length, 0);
 });
 
-test('a corrupt event file is skipped rather than fatal', () => {
-  const cleanup = setup();
-  try {
-    const store = createFileFeedbackEventStore();
-    const healthy = store.append(input(), RECORDED);
-    const damaged = store.append(input({ subjectId: 'commitment-2' }), RECORDED);
-    writeFileSync(join(eventDir(), `${damaged.id}.feedback.json`), '{"scopeId":"scope-a","outcome":"comp');
+test('a record whose id contradicts its location is not served', async () => {
+  const { storage, store } = setup();
+  const mine = await store.append(input(), RECORDED);
+  const other = await store.append(input({ scopeId: 'scope-b' }), RECORDED);
+  // A hand-placed record claiming to be one it is not: the id is what a revoke
+  // endpoint addresses, so serving it at the wrong location would let one
+  // lookup return another event entirely.
+  await storage.set(eventPath('scope-a', mine.id), { ...other, id: other.id });
 
-    assert.deepEqual(store.list({ scopeId: 'scope-a' }).map((event) => event.id), [healthy.id]);
-    assert.equal(store.get(damaged.id), null, 'a partial record must never surface as an event');
-    assert.equal(store.revoke(damaged.id, RECORDED), false);
-  } finally {
-    cleanup();
-  }
+  assert.equal(await store.get(mine.id), null);
 });
 
-test('an event file written by another schema version is skipped', () => {
-  const cleanup = setup();
-  try {
-    const store = createFileFeedbackEventStore();
-    const event = store.append(input(), RECORDED);
-    const stale = { ...event, version: 'feedback-event-v0' };
-    writeFileSync(join(eventDir(), `${event.id}.feedback.json`), JSON.stringify(stale));
+test('a damaged or misattributed baseline reads as absent rather than throwing', async () => {
+  const { storage, store } = setup();
+  await store.writeBaseline(baseline('scope-a'));
+  assert.ok(await storage.get(baselinePath('scope-a')), 'the baseline is stored as its own document');
 
-    assert.equal(store.get(event.id), null);
-    assert.equal(store.list({ scopeId: 'scope-a' }).length, 0);
-  } finally {
-    cleanup();
-  }
-});
+  // Re-point the record at another scope: the id is a digest of the scopeId,
+  // but the id is never trusted over the record itself.
+  await storage.set(baselinePath('scope-a'), baseline('scope-b', 9));
+  assert.equal(await store.readBaseline('scope-a'), null, "another scope's counters must not be served here");
 
-test('an event file whose id contradicts its filename is not served', () => {
-  const cleanup = setup();
-  try {
-    const store = createFileFeedbackEventStore();
-    const mine = store.append(input(), RECORDED);
-    const other = store.append(input({ scopeId: 'scope-b' }), RECORDED);
-    // A hand-placed file claiming to be a record it is not: the id is what a
-    // revoke endpoint addresses, so serving it under the wrong path would let
-    // one lookup return another event entirely.
-    writeFileSync(join(eventDir(), `${mine.id}.feedback.json`), JSON.stringify({ ...other, id: other.id }));
-
-    assert.equal(store.get(mine.id), null);
-  } finally {
-    cleanup();
-  }
-});
-
-test('a damaged or misattributed baseline reads as absent rather than throwing', () => {
-  const cleanup = setup();
-  try {
-    const store = createFileFeedbackEventStore();
-    store.writeBaseline({
-      version: FEEDBACK_EVENT_SCHEMA_VERSION,
-      scopeId: 'scope-a',
-      counters: {
-        ignoredSuggestions: 4, completedActions: 1, delayedActions: 0,
-        clarificationSuccesses: 0, clarificationFailures: 2,
-      },
-      lastUpdatedAt: '2026-08-10T20:00:00.000Z',
-      timestampsUnavailable: true,
-      migratedAt: RECORDED,
-    });
-
-    const baselineFile = readdirSync(eventDir()).find((entry) => entry.endsWith('.feedback-baseline.json'));
-    assert.ok(baselineFile, 'the baseline is stored as its own file');
-
-    // Re-point the file's contents at another scope: the filename is a digest
-    // of the scopeId, but the name is never trusted over the record itself.
-    writeFileSync(join(eventDir(), baselineFile), JSON.stringify({
-      version: FEEDBACK_EVENT_SCHEMA_VERSION,
-      scopeId: 'scope-b',
-      counters: {
-        ignoredSuggestions: 9, completedActions: 9, delayedActions: 9,
-        clarificationSuccesses: 9, clarificationFailures: 9,
-      },
-      lastUpdatedAt: null,
-      timestampsUnavailable: true,
-      migratedAt: RECORDED,
-    }));
-    assert.equal(store.readBaseline('scope-a'), null, "another scope's counters must not be served here");
-
-    writeFileSync(join(eventDir(), baselineFile), '{"scopeId":"scope-a","counters":');
-    assert.equal(store.readBaseline('scope-a'), null);
-  } finally {
-    cleanup();
-  }
+  await storage.set(baselinePath('scope-a'), { scopeId: 'scope-a', counters: {} });
+  assert.equal(await store.readBaseline('scope-a'), null);
 });

@@ -9,7 +9,7 @@ import {
   type BehaviorFeedbackScopeOptions,
   type BehaviorFeedbackStore,
 } from './behaviorFeedbackService';
-import { createFileFeedbackEventStore } from '../feedback/feedbackEventStore';
+import { createStorageFeedbackEventStore } from '../feedback/feedbackEventStore';
 import type { FeedbackEventStore, FeedbackOutcome } from '../../src/contracts/v1/feedbackContracts';
 import type { Command, Commitment } from '../../src/domain/stateMachine';
 
@@ -22,7 +22,7 @@ export interface AgendaActionResult {
 
 export interface AgendaActionOptions extends BehaviorFeedbackScopeOptions {
   feedbackStore?: BehaviorFeedbackStore;
-  /** Injected in tests; defaults to the shared file-backed event store. */
+  /** Injected in tests; defaults to the shared storage-backed event store. */
   feedbackEventStore?: FeedbackEventStore;
 }
 
@@ -177,7 +177,7 @@ const FEEDBACK_OUTCOME_BY_ACTION: Readonly<Partial<Record<AgendaActionType, Feed
 let sharedFeedbackEventStore: FeedbackEventStore | null = null;
 
 function defaultFeedbackEventStore(): FeedbackEventStore {
-  sharedFeedbackEventStore ??= createFileFeedbackEventStore();
+  sharedFeedbackEventStore ??= createStorageFeedbackEventStore();
   return sharedFeedbackEventStore;
 }
 

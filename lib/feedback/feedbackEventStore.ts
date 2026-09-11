@@ -1,5 +1,5 @@
 /**
- * Append-only behavioural feedback event store (Sprint 03, issue #13).
+ * Append-only behavioural feedback events, in the user's own tree (UC-1.0c, #142).
  *
  * Holds what the user did with what we proposed. Three properties are
  * structural here rather than conventional, because each of them is a way the
@@ -8,28 +8,37 @@
  *  1. One behaviour is one record. The idempotency key is a digest of
  *     scopeId + subjectId + outcome + occurredAt, and the record id is that
  *     same digest, so a resubmitted outcome cannot occupy a second slot even
- *     if two writers race: they address the same path. append() reads before
- *     writing and returns the stored event untouched, so a retry never moves
- *     recordedAt either. A double-counted outcome is a false claim about how
- *     often the user behaved that way.
+ *     if two writers race: they address the same document. append() reads
+ *     before writing *inside a transaction* and returns the stored event
+ *     untouched, so a retry never moves recordedAt either. A double-counted
+ *     outcome is a false claim about how often the user behaved that way.
  *
  *  2. Nothing is rewritten. revoke() adds revokedAt and copies every other
  *     field forward unchanged; a second revoke is refused rather than
  *     re-stamped, because revokedAt records when the *user* made the
- *     correction and overwriting it would misdate their objection. A reversal
- *     of behaviour is not a revocation — it is a new `undo` event, appended by
- *     the caller.
+ *     correction and overwriting it would misdate their objection.
  *
  *  3. This module observes, it never writes canonical state. It imports no
- *     command handler, no state gateway, no persistence outside its own
- *     directory, and not the legacy counter service — a feedback event must
- *     never be able to edit the commitment it describes.
+ *     command handler, no state gateway and not the legacy counter service —
+ *     a feedback event must never be able to edit the commitment it describes.
  *     tests/feedback/feedbackBoundaries.test.ts enforces that over the whole
  *     transitive import closure.
  *
- * Both backends share createStore() and differ only in persistence, following
- * lib/runtimeMemory/runtimeMemoryStore.ts: the sibling alpha stores duplicated
- * their logic per backend, which is how one of them drifted into a no-op.
+ * ── What the move fixes ──────────────────────────────────────────
+ *
+ * One file per event under `MAYBESITTER_DATA_DIR/feedback-events`. On Cloud
+ * Run the history a user is shown on `/settings/privacy/feedback-history` —
+ * and the evidence behind every personalization reading — was per-instance and
+ * erased on deploy. Events now live at `users/{uid}/feedbackEvents/{id}` and
+ * baselines at `users/{uid}/feedbackBaselines/{sha256(scopeId)}`.
+ *
+ * ── Why some reads are collection-group queries ──────────────────
+ *
+ * `get` and `revoke` are addressed by event id alone, so they resolve through
+ * a group query on the `id` field rather than demanding a scope the caller
+ * does not have. The ownership check that makes revocation safe lives in
+ * `feedbackHistoryPort`, which compares the found event's scope to the
+ * caller's before asking for the write.
  *
  * No function here reads the system clock or any source of randomness. Every
  * timestamp is a parameter and every id is derived, so an append is fully
@@ -37,8 +46,6 @@
  * than merely likely.
  */
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
-import path from 'node:path';
 import {
   FEEDBACK_EVENT_SCHEMA_VERSION,
   type AppendFeedbackEventInput,
@@ -47,27 +54,29 @@ import {
   type FeedbackEvent,
   type FeedbackEventQuery,
   type FeedbackEventStore,
-  type FeedbackEventStoreOptions,
   type FeedbackOutcome,
   type FeedbackSource,
   type LegacyCounterName,
 } from '../../src/contracts/v1/feedbackContracts';
 import { isIsoTimestamp, isNonEmptyString } from '../evaluation/registry/validationPrimitives';
-import { resolveDataDir } from '../runtime/dataDir';
+import {
+  FEEDBACK_BASELINES,
+  FEEDBACK_EVENTS,
+  createMemoryStorage,
+  docIdForKey,
+  getStorage,
+  requireDocId,
+  userCol,
+  userIdForKey,
+  type StorageAdapter,
+} from '../storage';
 
-const FEEDBACK_SUBDIR = 'feedback-events';
-const EVENT_FILE_EXT = '.feedback.json';
-const BASELINE_FILE_EXT = '.feedback-baseline.json';
-/** Suffix of a temp file written before the atomic rename. */
-const TEMP_FILE_EXT = '.tmp';
 const EVENT_ID_PREFIX = 'fbk_';
-const BASELINE_ID_PREFIX = 'bsl_';
 
 /**
- * Ids reach the filesystem as `<id>.feedback.json`, so an id containing `/`,
- * `\` or `..` would let a caller read or unlink files outside the store. Ids
- * are derived digests, never caller text, so the pattern can be exact:
- * anything failing it cannot name a record this store ever wrote.
+ * Ids are derived digests, never caller text, so the pattern can be exact:
+ * anything failing it cannot name an event this store ever wrote. It is also
+ * the document id, so it has to stay a legal path segment.
  */
 const EVENT_ID_PATTERN = /^fbk_[0-9a-f]{64}$/;
 
@@ -129,11 +138,6 @@ function idempotencyKeyOf(input: AppendFeedbackEventInput): string {
   return createHash('sha256').update(canonical, 'utf8').digest('hex');
 }
 
-/** Scope ids are caller text, so they are hashed rather than used as filenames. */
-function baselineFileId(scopeId: string): string {
-  return `${BASELINE_ID_PREFIX}${createHash('sha256').update(scopeId, 'utf8').digest('hex')}`;
-}
-
 /** Frozen records make the readonly contract enforceable at runtime, not only in types. */
 function freezeEvent(event: FeedbackEvent): FeedbackEvent {
   return Object.freeze(event);
@@ -169,7 +173,7 @@ function buildEvent(input: AppendFeedbackEventInput, recordedAt: string): Feedba
 
 /**
  * Copies a stored event forward with its revocation stamped. Written field by
- * field rather than spread so that nothing a hand-edited file smuggled in
+ * field rather than spread so that nothing a hand-edited record smuggled in
  * survives a revocation, and so the append-only guarantee is visible here: this
  * is the only place a stored event is ever rewritten, and it adds one field.
  */
@@ -190,9 +194,9 @@ function withRevocation(event: FeedbackEvent, at: string): FeedbackEvent {
 }
 
 /**
- * Shape guard for anything read back from disk. A half-written or hand-edited
- * file must be skipped rather than surface as a partial event, so this checks
- * the schema version and every field a consumer filters or aggregates on.
+ * Shape guard for anything read back. A half-written or hand-edited record must
+ * be skipped rather than surface as a partial event, so this checks the schema
+ * version and every field a consumer filters or aggregates on.
  */
 function isFeedbackEvent(value: unknown): value is FeedbackEvent {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
@@ -210,6 +214,15 @@ function isFeedbackEvent(value: unknown): value is FeedbackEvent {
     && (raw.revokedAt === undefined || isIsoTimestamp(raw.revokedAt));
 }
 
+function hasLegacyCounters(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const counters = value as Record<string, unknown>;
+  return LEGACY_COUNTER_NAMES.every((name) => {
+    const count = counters[name];
+    return typeof count === 'number' && Number.isInteger(count) && count >= 0;
+  });
+}
+
 function isFeedbackBaseline(value: unknown): value is FeedbackBaseline {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const raw = value as Record<string, unknown>;
@@ -219,15 +232,6 @@ function isFeedbackBaseline(value: unknown): value is FeedbackBaseline {
     && isIsoTimestamp(raw.migratedAt)
     && (raw.lastUpdatedAt === null || isIsoTimestamp(raw.lastUpdatedAt))
     && hasLegacyCounters(raw.counters);
-}
-
-function hasLegacyCounters(value: unknown): boolean {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const counters = value as Record<string, unknown>;
-  return LEGACY_COUNTER_NAMES.every((name) => {
-    const count = counters[name];
-    return typeof count === 'number' && Number.isInteger(count) && count >= 0;
-  });
 }
 
 /**
@@ -287,282 +291,150 @@ function byOldestOccurred(a: FeedbackEvent, b: FeedbackEvent): number {
     || compareStrings(a.id, b.id);
 }
 
-/**
- * Persistence seam. Everything append-only or privacy-relevant lives in
- * createStore() above this, so a file-backed and an in-memory store cannot
- * diverge in behaviour.
- */
-interface FeedbackRepository {
-  readOne(id: string): FeedbackEvent | null;
-  readAll(): FeedbackEvent[];
-  write(event: FeedbackEvent): void;
-  readBaseline(scopeId: string): FeedbackBaseline | null;
-  writeBaseline(baseline: FeedbackBaseline): void;
-  /**
-   * Removes every stored artifact attributable to the scope — events, the
-   * migration baseline, and anything the reader cannot parse — and returns the
-   * number of *events* removed, which is what the contract's count means.
-   * Deletion must reach further than retrieval does: a file too damaged to read
-   * still holds the user's content, so leaving it behind would make "delete my
-   * data" untrue. Only the backend knows what it is holding, so it does the sweep.
-   */
-  removeScope(scopeId: string): number;
+function eventsCollection(scopeId: string): string {
+  return userCol(userIdForKey(scopeId), FEEDBACK_EVENTS);
 }
 
-function createStore(repository: FeedbackRepository): FeedbackEventStore {
-  return {
-    append(input: AppendFeedbackEventInput, recordedAt: string): FeedbackEvent {
-      assertTimestamp(recordedAt, 'recordedAt');
-      assertValidInput(input);
+function eventPath(scopeId: string, id: string): string {
+  return `${eventsCollection(scopeId)}/${requireDocId(id)}`;
+}
 
-      const candidate = buildEvent(input, recordedAt);
-      // Replay rather than re-apply, as in replayOrRecordParticipantDecision.
-      // The stored event is returned untouched: its recordedAt is when we first
-      // heard about the behaviour, and a retry is not new information.
-      const existing = repository.readOne(candidate.id);
-      if (existing) return existing;
+/** Scope ids are caller text, so the baseline is keyed by their digest. */
+function baselinePath(scopeId: string): string {
+  return `${userCol(userIdForKey(scopeId), FEEDBACK_BASELINES)}/${docIdForKey(scopeId)}`;
+}
 
-      repository.write(candidate);
+export class StorageFeedbackEventStore implements FeedbackEventStore {
+  constructor(private readonly injected?: StorageAdapter) {}
+
+  /** Resolved per call so a test may swap the adapter after construction. */
+  private get storage(): StorageAdapter {
+    return this.injected ?? getStorage();
+  }
+
+  /** An event addressed by id alone; see the header on why this is a group read. */
+  private async findById(id: string): Promise<{ path: string; event: FeedbackEvent } | null> {
+    const safeId = toSafeId(id);
+    if (safeId === null) return null;
+    const rows = await this.storage.listGroup<FeedbackEvent>(FEEDBACK_EVENTS, {
+      where: [['id', '==', safeId]],
+      limit: 1,
+    });
+    const row = rows[0];
+    // The id is re-checked against the record rather than trusted from the
+    // path: the id is what a revoke endpoint addresses, so a hand-placed
+    // document must not be able to answer a lookup with a different event.
+    return row && isFeedbackEvent(row.data) && row.data.id === safeId
+      ? { path: row.path, event: freezeEvent(row.data) }
+      : null;
+  }
+
+  async append(input: AppendFeedbackEventInput, recordedAt: string): Promise<FeedbackEvent> {
+    assertTimestamp(recordedAt, 'recordedAt');
+    assertValidInput(input);
+
+    const candidate = buildEvent(input, recordedAt);
+    const path = eventPath(candidate.scopeId, candidate.id);
+
+    // Replay rather than re-apply, in one transaction so two writers racing the
+    // same retry cannot both decide they are first. The stored event is
+    // returned untouched: its recordedAt is when we first heard about the
+    // behaviour, and a retry is not new information.
+    return this.storage.runTransaction(async (tx) => {
+      const existing = await tx.get<FeedbackEvent>(path);
+      if (existing && isFeedbackEvent(existing)) return freezeEvent(existing);
+      tx.set<FeedbackEvent>(path, candidate);
       return candidate;
-    },
+    });
+  }
 
-    get(id: string): FeedbackEvent | null {
-      const safeId = toSafeId(id);
-      return safeId === null ? null : repository.readOne(safeId);
-    },
+  async get(id: string): Promise<FeedbackEvent | null> {
+    return (await this.findById(id))?.event ?? null;
+  }
 
-    list(query: FeedbackEventQuery): readonly FeedbackEvent[] {
-      if (!query || typeof query !== 'object') fail('query must be an object');
-      if (!isNonEmptyString(query.scopeId)) fail('query.scopeId must be a non-empty string');
-      if (query.limit !== undefined && (!Number.isInteger(query.limit) || query.limit < 1)) {
-        fail('query.limit must be a positive integer');
-      }
+  async list(query: FeedbackEventQuery): Promise<readonly FeedbackEvent[]> {
+    if (!query || typeof query !== 'object') fail('query must be an object');
+    if (!isNonEmptyString(query.scopeId)) fail('query.scopeId must be a non-empty string');
+    if (query.limit !== undefined && (!Number.isInteger(query.limit) || query.limit < 1)) {
+      fail('query.limit must be a positive integer');
+    }
 
-      const matches = repository.readAll().filter((event) => {
+    const rows = await this.storage.list<FeedbackEvent>(eventsCollection(query.scopeId));
+    const matches = rows
+      .map((row) => row.data)
+      .filter(isFeedbackEvent)
+      .filter((event) => {
         if (event.scopeId !== query.scopeId) return false;
         // Revoked events are included unless excluded explicitly: a history
         // that hid corrections would hide the evidence that one was applied.
         if (query.includeRevoked === false && event.revokedAt !== undefined) return false;
         return true;
-      }).sort(byOldestOccurred);
+      })
+      .map(freezeEvent)
+      .sort(byOldestOccurred);
 
-      if (query.newestFirst) matches.reverse();
-      return Object.freeze(query.limit === undefined ? matches : matches.slice(0, query.limit));
-    },
-
-    revoke(id: string, at: string): boolean {
-      assertTimestamp(at, 'at');
-      const safeId = toSafeId(id);
-      const event = safeId === null ? null : repository.readOne(safeId);
-      if (!event) return false;
-      // Not an error, but not a second correction either: the first timestamp
-      // is when the user objected, and re-stamping it would misdate them.
-      if (event.revokedAt !== undefined) return false;
-      repository.write(withRevocation(event, at));
-      return true;
-    },
-
-    deleteScope(scopeId: string): number {
-      if (!isNonEmptyString(scopeId)) fail('scopeId must be a non-empty string');
-      return repository.removeScope(scopeId);
-    },
-
-    readBaseline(scopeId: string): FeedbackBaseline | null {
-      if (!isNonEmptyString(scopeId)) fail('scopeId must be a non-empty string');
-      return repository.readBaseline(scopeId);
-    },
-
-    /**
-     * The raw persistence primitive: last write wins. The write-once rule the
-     * design states lives in lib/feedback/baselineMigration.ts, which is the
-     * only thing that should ever produce a baseline — re-deriving one after
-     * dual-write has begun would fold outcomes already in the event log back
-     * into the pre-log totals and count them twice.
-     */
-    writeBaseline(baseline: FeedbackBaseline): void {
-      if (!isFeedbackBaseline(baseline)) {
-        fail('baseline must carry the current version, a scopeId, five non-negative integer counters, '
-          + 'migratedAt, and timestampsUnavailable: true');
-      }
-      repository.writeBaseline(buildBaseline(baseline));
-    },
-  };
-}
-
-/** Default record directory, honouring MAYBESITTER_DATA_DIR like sibling stores. */
-function defaultDataDir(): string {
-  const root = resolveDataDir();
-  return path.join(root, FEEDBACK_SUBDIR);
-}
-
-function createFileRepository(resolveDataDir: () => string): FeedbackRepository {
-  function ensureDir(): string {
-    const dataDir = resolveDataDir();
-    mkdirSync(dataDir, { recursive: true });
-    return dataDir;
+    if (query.newestFirst) matches.reverse();
+    return Object.freeze(query.limit === undefined ? matches : matches.slice(0, query.limit));
   }
 
-  function filePath(dataDir: string, id: string, extension: string): string {
-    return path.join(dataDir, `${id}${extension}`);
+  async revoke(id: string, at: string): Promise<boolean> {
+    assertTimestamp(at, 'at');
+    const held = await this.findById(id);
+    if (!held) return false;
+    // Not an error, but not a second correction either: the first timestamp
+    // is when the user objected, and re-stamping it would misdate them.
+    if (held.event.revokedAt !== undefined) return false;
+    await this.storage.set<FeedbackEvent>(held.path, withRevocation(held.event, at));
+    return true;
   }
 
-  function readJson(file: string): unknown {
-    try {
-      return JSON.parse(readFileSync(file, 'utf8')) as unknown;
-    } catch {
-      // Corrupt, truncated, or written by another schema version — skip it
-      // rather than failing the whole read, so one bad file cannot deny the
-      // user access to the rest of their history.
-      return null;
-    }
+  async deleteScope(scopeId: string): Promise<number> {
+    if (!isNonEmptyString(scopeId)) fail('scopeId must be a non-empty string');
+    const collection = eventsCollection(scopeId);
+    const rows = await this.storage.list<FeedbackEvent>(collection);
+    // Everything under the scope goes, including a document too damaged to
+    // parse: it still holds the user's content, and leaving it would make
+    // "delete my data" untrue. The count is events removed, which is what the
+    // contract's number means — the baseline is deleted with them but is not
+    // an event, and counting it would inflate what the user is told was erased.
+    for (const row of rows) await this.storage.delete(`${collection}/${row.id}`);
+    await this.storage.delete(baselinePath(scopeId));
+    return rows.filter((row) => isFeedbackEvent(row.data)).length;
   }
 
-  /** Temp-then-rename so a reader never observes a half-written record; 0600 because it is personal. */
-  function writeAtomic(file: string, value: unknown): void {
-    const temporary = `${file}.${process.pid}${TEMP_FILE_EXT}`;
-    writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
-    renameSync(temporary, file);
+  async readBaseline(scopeId: string): Promise<FeedbackBaseline | null> {
+    if (!isNonEmptyString(scopeId)) fail('scopeId must be a non-empty string');
+    const stored = await this.storage.get<FeedbackBaseline>(baselinePath(scopeId));
+    // The scopeId is re-checked rather than trusted from the path, so a
+    // hand-placed document cannot serve one user's counters to another.
+    if (!isFeedbackBaseline(stored) || stored.scopeId !== scopeId) return null;
+    return freezeBaseline(stored);
   }
 
   /**
-   * Lenient scope attribution for deletion only. Enough of a file may survive to
-   * say whose it is even when it fails the full guard, and that is exactly the
-   * file a scope deletion must not miss.
+   * The raw persistence primitive: last write wins. The write-once rule the
+   * design states lives in lib/feedback/baselineMigration.ts, which is the
+   * only thing that should ever produce a baseline — re-deriving one after
+   * dual-write has begun would fold outcomes already in the event log back
+   * into the pre-log totals and count them twice.
    */
-  function readScopeId(file: string): string | null {
-    let text: string;
-    try {
-      text = readFileSync(file, 'utf8');
-    } catch {
-      return null;
+  async writeBaseline(baseline: FeedbackBaseline): Promise<void> {
+    if (!isFeedbackBaseline(baseline)) {
+      fail('baseline must carry the current version, a scopeId, five non-negative integer counters, '
+        + 'migratedAt, and timestampsUnavailable: true');
     }
-
-    try {
-      const raw = JSON.parse(text) as Record<string, unknown> | null;
-      if (typeof raw?.scopeId === 'string') return raw.scopeId;
-    } catch {
-      // Fall through: the likeliest corruption is a write truncated by a crash,
-      // and scopeId sits near the top of the record, so the name of the owner
-      // usually survives even when the JSON does not.
-    }
-
-    const match = /"scopeId"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(text);
-    if (!match) return null;
-    try {
-      return JSON.parse(`"${match[1]}"`) as string;
-    } catch {
-      return null;
-    }
+    await this.storage.set<FeedbackBaseline>(baselinePath(baseline.scopeId), buildBaseline(baseline));
   }
-
-  return {
-    readOne(id: string): FeedbackEvent | null {
-      const file = filePath(ensureDir(), id, EVENT_FILE_EXT);
-      if (!existsSync(file)) return null;
-      const raw = readJson(file);
-      // The id is re-checked against the path rather than trusted from it: the
-      // id is what a revoke endpoint addresses, so a hand-placed file must not
-      // be able to answer a lookup with a different event.
-      if (!isFeedbackEvent(raw) || raw.id !== id) return null;
-      return freezeEvent(raw);
-    },
-
-    readAll(): FeedbackEvent[] {
-      const dataDir = ensureDir();
-      const events: FeedbackEvent[] = [];
-      for (const entry of readdirSync(dataDir)) {
-        if (!entry.endsWith(EVENT_FILE_EXT)) continue;
-        const raw = readJson(path.join(dataDir, entry));
-        if (isFeedbackEvent(raw)) events.push(freezeEvent(raw));
-      }
-      return events;
-    },
-
-    write(event: FeedbackEvent): void {
-      writeAtomic(filePath(ensureDir(), event.id, EVENT_FILE_EXT), event);
-    },
-
-    readBaseline(scopeId: string): FeedbackBaseline | null {
-      const file = filePath(ensureDir(), baselineFileId(scopeId), BASELINE_FILE_EXT);
-      if (!existsSync(file)) return null;
-      const raw = readJson(file);
-      // The scopeId is re-checked rather than trusted from the filename, so a
-      // hand-placed file cannot serve one user's counters to another.
-      if (!isFeedbackBaseline(raw) || raw.scopeId !== scopeId) return null;
-      return freezeBaseline(raw);
-    },
-
-    writeBaseline(baseline: FeedbackBaseline): void {
-      writeAtomic(filePath(ensureDir(), baselineFileId(baseline.scopeId), BASELINE_FILE_EXT), baseline);
-    },
-
-    removeScope(scopeId: string): number {
-      const dataDir = ensureDir();
-      let removedEvents = 0;
-      for (const entry of readdirSync(dataDir)) {
-        // Orphaned temp files (`<id>.feedback.json.<pid>.tmp`, left by a crash
-        // between write and rename) hold a complete record. Skipping them would
-        // leave the user's data on disk after they asked for it to be deleted.
-        const isKnownFile = entry.endsWith(EVENT_FILE_EXT)
-          || entry.endsWith(BASELINE_FILE_EXT)
-          || entry.endsWith(TEMP_FILE_EXT);
-        if (!isKnownFile) continue;
-
-        const file = path.join(dataDir, entry);
-        // Attribution is by scopeId alone, and only an exact match deletes. A
-        // file too damaged to name any owner is left in place: deleting
-        // unattributable files on any scope deletion could destroy a different
-        // user's data. That residue is an operator problem, not something one
-        // user's deletion may resolve on their behalf.
-        if (readScopeId(file) !== scopeId) continue;
-        unlinkSync(file);
-        // The contract's count is events removed; the baseline (and any temp
-        // file of one) is deleted with them but is not an event, and counting
-        // it would inflate what the user is told was erased.
-        if (!entry.includes(BASELINE_FILE_EXT)) removedEvents++;
-      }
-      return removedEvents;
-    },
-  };
 }
 
-function createMemoryRepository(): FeedbackRepository {
-  const events = new Map<string, FeedbackEvent>();
-  const baselines = new Map<string, FeedbackBaseline>();
-  return {
-    readOne: (id) => events.get(id) ?? null,
-    readAll: () => Array.from(events.values()),
-    write: (event) => {
-      events.set(event.id, event);
-    },
-    readBaseline: (scopeId) => baselines.get(scopeId) ?? null,
-    writeBaseline: (baseline) => {
-      baselines.set(baseline.scopeId, baseline);
-    },
-    removeScope: (scopeId) => {
-      let removedEvents = 0;
-      for (const entry of Array.from(events.entries())) {
-        const [id, event] = entry;
-        if (event.scopeId === scopeId && events.delete(id)) removedEvents++;
-      }
-      baselines.delete(scopeId);
-      return removedEvents;
-    },
-  };
+export function createStorageFeedbackEventStore(storage?: StorageAdapter): FeedbackEventStore {
+  return new StorageFeedbackEventStore(storage);
 }
 
 /**
- * File-backed store, one JSON file per event under
- * `<MAYBESITTER_DATA_DIR|cwd/.maybesitter>/feedback-events/<id>.feedback.json`,
- * plus one baseline file per scope. `options.dataDir` overrides that leaf
- * directory outright, as in the sibling stores. The directory is resolved per
- * call, so a test may set the env var after constructing the store.
+ * The same implementation over a private in-memory adapter, so a test cannot
+ * exercise semantics production does not have.
  */
-export function createFileFeedbackEventStore(options?: FeedbackEventStoreOptions): FeedbackEventStore {
-  return createStore(createFileRepository(() => options?.dataDir ?? defaultDataDir()));
-}
-
-/** In-memory store with identical semantics, for tests and ephemeral use. */
 export function createInMemoryFeedbackEventStore(): FeedbackEventStore {
-  return createStore(createMemoryRepository());
+  return new StorageFeedbackEventStore(createMemoryStorage());
 }

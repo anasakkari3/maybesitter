@@ -24,15 +24,15 @@ export async function POST(request: Request) {
   const sessionId = resolveTraceSessionId(body.sessionId, participantId);
 
   try {
-    recordTraceStage(sessionId, participantId, stage('input_received', { inputText: typeof body.text === 'string' ? body.text.slice(0, 2000) : '' }));
+    await recordTraceStage(sessionId, participantId, stage('input_received', { inputText: typeof body.text === 'string' ? body.text.slice(0, 2000) : '' }));
     const proposal = await proposeMobileCapture(body, auth ?? {});
     if (proposal.status === 'rejected') {
-      recordTraceStage(sessionId, participantId, stage('extraction_completed', { engine: 'rejected', disposition: 'rejected', title: null }));
+      await recordTraceStage(sessionId, participantId, stage('extraction_completed', { engine: 'rejected', disposition: 'rejected', title: null }));
       return mobileError('Capture rejected');
     }
     try {
       const item = Array.isArray(proposal.items) ? proposal.items[0] : undefined;
-      recordTraceStage(sessionId, participantId, stage('extraction_completed', {
+      await recordTraceStage(sessionId, participantId, stage('extraction_completed', {
         engine: proposal.provenance?.executedEngine ?? 'unknown',
         fallbackUsed: proposal.provenance?.fallbackUsed ?? false,
         disposition: proposal.status ?? 'unknown',

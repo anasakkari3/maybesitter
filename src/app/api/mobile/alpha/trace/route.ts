@@ -24,7 +24,7 @@ export async function GET(request: Request) {
   const store = getTraceStore();
 
   if (sessionId) {
-    const trace = store.get(sessionId);
+    const trace = await store.get(sessionId);
     if (!trace) return mobilePilotErrorResponse(new Error('session_not_found'));
     // Access boundary: participant may read own session; owner may read any.
     if (trace.participantId !== auth.participantId && process.env.MAYBESITTER_ALPHA_TRACE_OWNER_ID !== auth.participantId) {
@@ -34,6 +34,6 @@ export async function GET(request: Request) {
   }
 
   const withFeedbackOnly = searchParams.get('withFeedbackOnly') === 'true';
-  const summaries = store.listSummaries({ participantId: auth.participantId, withFeedbackOnly });
+  const summaries = await store.listSummaries({ participantId: auth.participantId, withFeedbackOnly });
   return Response.json({ summaries, count: summaries.length });
 }
