@@ -1,0 +1,87 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  countDistinctInstances,
+  finalStateFrom,
+  latestByUpdatedAt,
+  revisionChanged,
+  summaryExitCode,
+  tallyIdempotency,
+} from '../../lib/durability/checks';
+
+// The durability run itself needs a deployed service. These cover the part
+// that decides pass or fail, so a red run means the data was wrong rather than
+// the script misreading it.
+
+test('counts only real, distinct instance ids', () => {
+  assert.equal(countDistinctInstances(['a', 'b', 'a', 'b', 'a']), 2);
+  // A staging response without the header is evidence of nothing, not of a
+  // third instance.
+  assert.equal(countDistinctInstances(['a', null, undefined, '', 'a']), 1);
+  assert.equal(countDistinctInstances([]), 0);
+});
+
+test('one idempotency key records exactly one decision', () => {
+  const responses = [
+    { status: 200 },
+    ...Array.from({ length: 19 }, () => ({ status: 200, replayed: true })),
+  ];
+  const tally = tallyIdempotency(responses);
+  assert.equal(tally.accepted, 1);
+  assert.equal(tally.replayed, 19);
+  assert.ok(tally.ok);
+});
+
+test('a lost race reported as 409 is acceptable; a second write is not', () => {
+  assert.ok(tallyIdempotency([{ status: 200 }, { status: 409 }, { status: 409 }]).ok);
+  // Two servers both claiming to have recorded the decision is the failure
+  // this whole exercise exists to catch.
+  assert.equal(tallyIdempotency([{ status: 200 }, { status: 200 }]).ok, false);
+  assert.equal(tallyIdempotency([{ status: 200 }, { status: 500 }]).ok, false);
+  assert.equal(tallyIdempotency([{ status: 200, replayed: true }]).ok, false, 'nothing was recorded');
+});
+
+test('the commitment ends in the state of the last accepted action', () => {
+  const state = finalStateFrom([
+    { kind: 'complete', accepted: true, at: '2026-09-11T10:00:00.000Z' },
+    { kind: 'postpone', accepted: true, at: '2026-09-11T10:00:02.000Z' },
+    { kind: 'complete', accepted: false, at: '2026-09-11T10:00:03.000Z' },
+  ]);
+  assert.equal(state.status, 'postponed');
+  // The event count the script compares against must not include rejections.
+  assert.equal(state.acceptedCount, 2);
+});
+
+test('server order decides, not the order the client sent', () => {
+  const state = finalStateFrom([
+    { kind: 'postpone', accepted: true, at: '2026-09-11T10:00:05.000Z' },
+    { kind: 'complete', accepted: true, at: '2026-09-11T10:00:01.000Z' },
+  ]);
+  assert.equal(state.status, 'postponed');
+});
+
+test('no accepted action leaves the commitment untouched', () => {
+  const state = finalStateFrom([{ kind: 'cancel', accepted: false, at: '2026-09-11T10:00:00.000Z' }]);
+  assert.deepEqual(state, { status: 'unchanged', acceptedCount: 0 });
+});
+
+test('the surviving consent value is the one stamped last', () => {
+  const winner = latestByUpdatedAt([
+    { updatedAt: '2026-09-11T10:00:00.000Z', granted: true },
+    { updatedAt: '2026-09-11T10:00:09.000Z', granted: false },
+    { updatedAt: '2026-09-11T10:00:04.000Z', granted: true },
+  ]);
+  assert.equal(winner?.granted, false);
+  assert.equal(latestByUpdatedAt([]), null);
+});
+
+test('a redeploy that did not change the revision proves nothing', () => {
+  assert.ok(revisionChanged({ before: 'rev-1', after: 'rev-2' }));
+  assert.equal(revisionChanged({ before: 'rev-1', after: 'rev-1' }), false);
+  assert.equal(revisionChanged({ before: null, after: 'rev-2' }), false);
+});
+
+test('any failed check fails the run', () => {
+  assert.equal(summaryExitCode({ checks: { a: 'pass', b: 'pass' } }), 0);
+  assert.equal(summaryExitCode({ checks: { a: 'pass', b: 'fail' } }), 1);
+});

@@ -2,18 +2,22 @@ import React from 'react';
 import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
+import { LANGUAGE_ENDONYM } from '../i18n/language';
 import { Btn, Card, Txt } from '../ui/primitives';
 import { ScreenIn } from '../ui/motion';
 
 export function SettingsScreen() {
-  const { t, p, themePref, actions } = useApp();
+  const { t, p, langPref, themePref, actions } = useApp();
   const insets = useSafeAreaInsets();
   const themeValue = themePref === 'system' ? t.vSystem : themePref === 'light' ? t.vLight : t.vDark;
+  // A language is named in itself, never translated — so "English" stays
+  // "English" on an Arabic screen. "System" is the one word that is copy.
+  const languageValue = langPref === 'system' ? t.vSystem : LANGUAGE_ENDONYM[langPref];
 
   // Appearance and Language work now; the rest are designed in the next round.
   const rows: { label: string; value: string; onPress?: () => void }[] = [
     { label: t.sAppearance, value: themeValue, onPress: actions.cycleTheme },
-    { label: t.sLanguage, value: t.vLang, onPress: actions.toggleLang },
+    { label: t.sLanguage, value: languageValue, onPress: actions.cycleLanguage },
     { label: t.sNotif, value: t.vQuiet },
     { label: t.sBudget, value: t.vBudget },
     { label: t.sTrust, value: '' },

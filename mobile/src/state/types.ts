@@ -44,7 +44,9 @@ export type Screen =
   | 'review'
   | 'saved'
   | 'closeout'
-  | 'firstmove';
+  | 'firstmove'
+  // Development only: the design gallery (src/design/Gallery.tsx).
+  | 'gallery';
 
 export type CapState = 'idle' | 'listening' | 'transcript' | 'typing' | 'processing' | 'nothing';
 
