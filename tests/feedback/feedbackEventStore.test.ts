@@ -180,14 +180,14 @@ for (const entry of BACKENDS) {
         { subjectId: '' },
       ];
       for (const patch of missing) {
-        assert.throws(
+        await assert.rejects(
           () => store.append({ ...input(), ...patch } as AppendFeedbackEventInput, RECORDED),
           /feedback events:/,
           `append must reject ${JSON.stringify(patch)}`,
         );
       }
-      assert.throws(() => store.append(input(), 'not-a-timestamp'), /feedback events:/);
-      assert.throws(
+      await assert.rejects(() => store.append(input(), 'not-a-timestamp'), /feedback events:/);
+      await assert.rejects(
         () => store.append(input({ source: 'migration_baseline' as never }), RECORDED),
         /feedback events:/,
         'migration_baseline is a baseline marker and must never be appendable as an event',
@@ -267,7 +267,7 @@ for (const entry of BACKENDS) {
     try {
       assert.equal(await store.revoke('fbk_missing', LATER), false);
       assert.equal(await store.revoke('../../etc/passwd', LATER), false);
-      assert.throws(() => store.revoke('fbk_missing', 'whenever'), /feedback events:/);
+      await assert.rejects(() => store.revoke('fbk_missing', 'whenever'), /feedback events:/);
     } finally {
       cleanup();
     }
@@ -339,8 +339,8 @@ for (const entry of BACKENDS) {
       const rows = await store.list({ scopeId: 'scope-a' });
       assert.equal(rows.length, 1);
       assert.equal(rows[0].scopeId, 'scope-a');
-      assert.throws(() => store.list({ scopeId: '' }), /feedback events:/);
-      assert.throws(() => store.list({ scopeId: 'scope-a', limit: 0 }), /feedback events:/);
+      await assert.rejects(() => store.list({ scopeId: '' }), /feedback events:/);
+      await assert.rejects(() => store.list({ scopeId: 'scope-a', limit: 0 }), /feedback events:/);
     } finally {
       cleanup();
     }
@@ -422,7 +422,7 @@ for (const entry of BACKENDS) {
         { counters: { completedActions: 0, delayedActions: 0, clarificationSuccesses: 0, clarificationFailures: 0 } },
       ];
       for (const patch of rejected) {
-        assert.throws(
+        await assert.rejects(
           () => store.writeBaseline({ ...baseline(), ...patch } as FeedbackBaseline),
           /feedback events:/,
           `writeBaseline must reject ${JSON.stringify(patch)}`,
@@ -456,7 +456,7 @@ for (const entry of BACKENDS) {
       assert.equal((await store.list({ scopeId: 'scope-b' })).length, 1);
       assert.deepEqual(await store.readBaseline('scope-b'), baseline({ scopeId: 'scope-b' }));
       assert.equal(await store.deleteScope('scope-a'), 0, 'deleting twice is a no-op');
-      assert.throws(() => store.deleteScope(''), /feedback events:/);
+      await assert.rejects(() => store.deleteScope(''), /feedback events:/);
     } finally {
       cleanup();
     }
