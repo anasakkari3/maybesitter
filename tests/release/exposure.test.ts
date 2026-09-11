@@ -92,7 +92,7 @@ test('shadow_only exposes nobody, whatever they consented to', async () => {
   // The cohort is empty because the stage's cap is zero: at `shadow_only` the
   // chain runs and nobody is exposed, so there is nobody to put in the cohort.
   const port = portFor('shadow_only', []);
-  port.consent.grant('participant-a', ['shadow_execution', 'feedback_study', 'trace_retention'], T1);
+  await port.consent.grant('participant-a', ['shadow_execution', 'feedback_study', 'trace_retention'], T1);
   const decision = await resolveStagedExposure(port, 'participant-a', T2);
   assert.equal(decision.allowed, false);
   assert.equal(decision.reason, 'stage_is_shadow_only');
@@ -163,7 +163,7 @@ test('every pilot stop reason narrows the shadow decision, and none of them wide
     // Everything else is maximally permissive: full consent at a stage that
     // exposes people, a cohort inside its bounds.
     for (const participantId of port.configuration.cohort) {
-      port.consent.grant(participantId, ['shadow_execution', 'feedback_study', 'trace_retention'], T1);
+      await port.consent.grant(participantId, ['shadow_execution', 'feedback_study', 'trace_retention'], T1);
     }
     const decision = await resolveStagedExposure(port, port.configuration.cohort[0], T2);
     assert.equal(decision.allowed, false, `${reason} was widened into an exposure`);
@@ -180,7 +180,7 @@ test('the policy claim about narrowing is the one the sweep above proves', async
 test('a pilot decision that refuses without naming a reason fails closed', async () => {
   const pilot: ShadowPilotDecision = { allowed: false, reason: 'authorized' };
   const port = portFor('internal_dogfood', ['participant-a'], pilot);
-  port.consent.grant('participant-a', ['shadow_execution'], T1);
+  await port.consent.grant('participant-a', ['shadow_execution'], T1);
   const decision = await resolveStagedExposure(port, 'participant-a', T2);
   assert.equal(decision.allowed, false);
   assert.equal(decision.reason, 'not_allowlisted');
@@ -188,7 +188,7 @@ test('a pilot decision that refuses without naming a reason fails closed', async
 
 test('a participant outside the configured cohort is refused even when the pilot gate admits them', async () => {
   const port = portFor('internal_dogfood', ['participant-a']);
-  port.consent.grant('participant-b', ['shadow_execution'], T1);
+  await port.consent.grant('participant-b', ['shadow_execution'], T1);
   const decision = await resolveStagedExposure(port, 'participant-b', T2);
   assert.equal(decision.allowed, false);
   assert.equal(decision.reason, 'not_allowlisted');
@@ -206,7 +206,7 @@ test('a PilotExposureDecision converts to the contract shape without remapping a
 test('a granted participant inside the bounds is exposed, and the decision is structurally clean', async () => {
   const cohort = cohortOf(ALPHA_ALLOWLIST_MAXIMUM);
   const port = portFor('internal_dogfood', cohort);
-  for (const participantId of cohort) port.consent.grant(participantId, ['shadow_execution'], T1);
+  for (const participantId of cohort) await port.consent.grant(participantId, ['shadow_execution'], T1);
   const decision = await resolveStagedExposure(port, cohort[0], T2);
   assert.equal(decision.allowed, true);
   assert.equal(decision.reason, 'authorized');
@@ -218,11 +218,11 @@ test('a granted participant inside the bounds is exposed, and the decision is st
 
 test('opting out takes effect on the very next read, with no exposure surviving it', async () => {
   const port = portFor('internal_dogfood', ['participant-a']);
-  port.consent.grant('participant-a', ['shadow_execution'], T1);
+  await port.consent.grant('participant-a', ['shadow_execution'], T1);
   const before = await resolveStagedExposure(port, 'participant-a', T1);
   assert.equal(before.allowed, true);
 
-  assert.equal(port.consent.revoke('participant-a', T2).status, 'written');
+  assert.equal((await port.consent.revoke('participant-a', T2)).status, 'written');
 
   const after = await resolveStagedExposure(port, 'participant-a', T2);
   assert.equal(after.allowed, false, 'a cached exposure survived a revocation');
@@ -239,8 +239,8 @@ test('opting out takes effect on the very next read, with no exposure surviving 
 
 test('consent withheld and consent revoked are told apart, not folded into one refusal', async () => {
   const port = portFor('internal_dogfood', ['participant-a', 'participant-b']);
-  port.consent.grant('participant-b', ['shadow_execution'], T1);
-  port.consent.revoke('participant-b', T2);
+  await port.consent.grant('participant-b', ['shadow_execution'], T1);
+  await port.consent.revoke('participant-b', T2);
 
   assert.equal((await resolveStagedExposure(port, 'participant-a', T2)).reason, 'study_consent_withheld');
   assert.equal((await resolveStagedExposure(port, 'participant-b', T2)).reason, 'study_consent_revoked');
@@ -248,7 +248,7 @@ test('consent withheld and consent revoked are told apart, not folded into one r
 
 test('consenting to the study without consenting to shadow execution does not expose anyone', async () => {
   const port = portFor('internal_dogfood', ['participant-a']);
-  port.consent.grant('participant-a', ['feedback_study', 'trace_retention'], T1);
+  await port.consent.grant('participant-a', ['feedback_study', 'trace_retention'], T1);
   const decision = await resolveStagedExposure(port, 'participant-a', T2);
   assert.equal(decision.allowed, false);
   assert.equal(decision.reason, 'study_consent_withheld');
@@ -257,8 +257,8 @@ test('consenting to the study without consenting to shadow execution does not ex
 test('a cohort resolves participant by participant, and one refusal does not refuse the rest', async () => {
   const cohort = ['participant-a', 'participant-b', 'participant-c'];
   const port = portFor('internal_dogfood', cohort);
-  port.consent.grant('participant-a', ['shadow_execution'], T1);
-  port.consent.grant('participant-c', ['shadow_execution'], T1);
+  await port.consent.grant('participant-a', ['shadow_execution'], T1);
+  await port.consent.grant('participant-c', ['shadow_execution'], T1);
 
   const decisions = await resolveCohortExposure(port, T2);
   assert.equal(decisions.length, cohort.length);
@@ -273,7 +273,7 @@ test('a cohort over its cap refuses every member for the cohort, not for the per
   const cap = SHADOW_STAGE_PARTICIPANT_CAP.internal_dogfood;
   const cohort = cohortOf(cap + 1);
   const port = portFor('internal_dogfood', cohort);
-  for (const participantId of cohort) port.consent.grant(participantId, ['shadow_execution'], T1);
+  for (const participantId of cohort) await port.consent.grant(participantId, ['shadow_execution'], T1);
   for (const decision of await resolveCohortExposure(port, T2)) {
     assert.equal(decision.allowed, false, `${decision.participantId} was exposed in an over-cap cohort`);
     assert.equal(decision.reason, 'stage_cap_exceeded');

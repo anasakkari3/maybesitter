@@ -31,7 +31,7 @@
  *    also the cheapest possible closure to keep clean.
  *
  *  - **memory** — the registry names
- *    `lib/runtimeMemory/runtimeMemoryStore#createFileRuntimeMemoryStore`, and
+ *    `lib/runtimeMemory/runtimeMemoryStore#createStorageRuntimeMemoryStore`, and
  *    this adapter does **not** call it. That function calls `writeFileSync` and
  *    `randomUUID`; a factory for a store with `deleteScope` on it is not
  *    something a shadow adapter may hold. The adapter takes a
@@ -202,7 +202,7 @@ function captureAdapter(deps: ShadowAdapterDeps): ShadowModuleAdapter {
 /** Memory: a bounded retrieval through a reader that has no write half. */
 function memoryAdapter(deps: ShadowAdapterDeps): ShadowModuleAdapter {
   return async () => {
-    const records = deps.memory.retrieve({ scopeId: deps.seed.scopeId, now: deps.seed.now });
+    const records = await deps.memory.retrieve({ scopeId: deps.seed.scopeId, now: deps.seed.now });
     return contributed('memory', records, deps);
   };
 }

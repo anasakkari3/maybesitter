@@ -8,12 +8,12 @@
  *   node --no-warnings --loader ./scripts/ts-resolver.mjs scripts/alpha-review.ts --delete-participant <id>
  *   node --no-warnings --loader ./scripts/ts-resolver.mjs scripts/alpha-review.ts --delete-session <id>
  */
-import { createFileAlphaFeedbackStore } from '../lib/alphaFeedback/alphaFeedbackStore';
+import { createStorageAlphaFeedbackStore } from '../lib/alphaFeedback/alphaFeedbackStore';
 import type { AlphaFeedbackFlag } from '../src/contracts/v1/feedbackFlagContracts';
 
-const store = createFileAlphaFeedbackStore();
+const store = createStorageAlphaFeedbackStore();
 
-function main(): void {
+async function main(): Promise<void> {
   const args = process.argv.slice(2);
 
   // Handle deletion commands.
@@ -21,7 +21,7 @@ function main(): void {
     const idx = args.indexOf('--delete-participant');
     const id = args[idx + 1];
     if (!id) { console.error('--delete-participant requires a participant ID'); process.exit(1); }
-    const count = store.deleteByParticipant(id);
+    const count = await store.deleteByParticipant(id);
     console.log(`Deleted ${count} flag(s) for participant ${id}`);
     return;
   }
@@ -29,7 +29,7 @@ function main(): void {
     const idx = args.indexOf('--delete-session');
     const id = args[idx + 1];
     if (!id) { console.error('--delete-session requires a session ID'); process.exit(1); }
-    const count = store.deleteBySession(id);
+    const count = await store.deleteBySession(id);
     console.log(`Deleted ${count} flag(s) for session ${id}`);
     return;
   }
@@ -42,7 +42,7 @@ function main(): void {
   const sIdx = args.indexOf('--session');
   if (sIdx >= 0) sessionFilter = args[sIdx + 1];
 
-  const flags = store.list({ participantId: participantFilter, sessionId: sessionFilter });
+  const flags = await store.list({ participantId: participantFilter, sessionId: sessionFilter });
 
   if (flags.length === 0) {
     console.log('No flagged sessions found.');
@@ -81,4 +81,4 @@ function main(): void {
   }
 }
 
-main();
+void main();

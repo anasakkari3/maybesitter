@@ -98,13 +98,12 @@ export function parseCorrectionContent(
  * model-inferred record that mimics the spelling is not the user's statement,
  * and reading it as one would launder an inference into an override.
  */
-function activeCorrectionRecords(
+async function activeCorrectionRecords(
   memory: RuntimeMemoryStore,
   scopeId: string,
   now: string,
-): readonly (RuntimeMemoryRecord & { readonly parsed: { dimension: PreferenceDimension; level: string } })[] {
-  return memory
-    .retrieve({ scopeId, kind: 'preference', now })
+): Promise<readonly (RuntimeMemoryRecord & { readonly parsed: { dimension: PreferenceDimension; level: string } })[]> {
+  return (await memory.retrieve({ scopeId, kind: 'preference', now }))
     .flatMap((record) => {
       if (record.source !== 'user_stated') return [];
       const parsed = parseCorrectionContent(record.content);
@@ -112,16 +111,16 @@ function activeCorrectionRecords(
     });
 }
 
-export function readCorrections(
+export async function readCorrections(
   memory: RuntimeMemoryStore,
   scopeId: string,
   now: string,
-): CorrectionsByDimension {
+): Promise<CorrectionsByDimension> {
   const entries = Object.fromEntries(
     PREFERENCE_DIMENSIONS.map((dimension) => [dimension, null]),
   ) as Record<PreferenceDimension, CorrectionEntry | null>;
 
-  for (const record of activeCorrectionRecords(memory, scopeId, now)) {
+  for (const record of await activeCorrectionRecords(memory, scopeId, now)) {
     // retrieve() is newest-observed-first; the first record seen per dimension
     // is the user's latest statement and the ones behind it are ignored.
     if (entries[record.parsed.dimension] !== null) continue;
@@ -141,13 +140,13 @@ export function readCorrections(
  * written: a correction that is not expressible in the contract's closed sets
  * is not a correction, whatever else it may be.
  */
-export function applyCorrection(
+export async function applyCorrection(
   memory: RuntimeMemoryStore,
   scopeId: string,
   dimension: PreferenceDimension,
   level: PreferenceLevel,
   now: string,
-): ApplyCorrectionResult {
+): Promise<ApplyCorrectionResult> {
   if (!isKnownDimension(dimension)) return { ok: false, reason: 'unknown_dimension' };
   if (!isKnownLevel(dimension, level)) return { ok: false, reason: 'unknown_level' };
 
@@ -161,13 +160,13 @@ export function applyCorrection(
     observedAt: now,
   };
 
-  const existing = activeCorrectionRecords(memory, scopeId, now)
+  const existing = (await activeCorrectionRecords(memory, scopeId, now))
     .find((record) => record.parsed.dimension === dimension);
 
   try {
     const record = existing === undefined
-      ? memory.put(input, now)
-      : memory.supersede(existing.id, input, now);
+      ? await memory.put(input, now)
+      : await memory.supersede(existing.id, input, now);
     return { ok: true, record };
   } catch {
     // The store refusing a write (e.g. a race superseded the head first) is
@@ -181,13 +180,13 @@ export function applyCorrection(
  * from every future read, kept for audit, exactly the store's revocation
  * semantics. Returns false when there was nothing to clear.
  */
-export function clearCorrection(
+export async function clearCorrection(
   memory: RuntimeMemoryStore,
   scopeId: string,
   dimension: PreferenceDimension,
   at: string,
-): boolean {
-  const existing = activeCorrectionRecords(memory, scopeId, at)
+): Promise<boolean> {
+  const existing = (await activeCorrectionRecords(memory, scopeId, at))
     .find((record) => record.parsed.dimension === dimension);
   if (existing === undefined) return false;
   return memory.revoke(existing.id, at);

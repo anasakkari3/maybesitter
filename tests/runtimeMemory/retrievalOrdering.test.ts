@@ -12,20 +12,20 @@ import { createInMemoryRuntimeMemoryStore } from '../../lib/runtimeMemory/runtim
 
 const NOW = '2026-08-18T00:00:00.000Z';
 
-test('retrieve orders by instant, not by timestamp text', () => {
+test('retrieve orders by instant, not by timestamp text', async () => {
   const store = createInMemoryRuntimeMemoryStore();
   const base = {
     scopeId: 's', kind: 'fact', language: 'en', source: 'user_stated', confidence: 0.9,
   } as const;
 
   // 21:00Z, but its text sorts ABOVE the 22:00Z record below.
-  const older = store.put({ ...base, content: 'older', observedAt: '2026-08-17T23:00:00.000+02:00' }, NOW);
-  const newer = store.put({ ...base, content: 'newer', observedAt: '2026-08-17T22:00:00.000Z' }, NOW);
+  const older = await store.put({ ...base, content: 'older', observedAt: '2026-08-17T23:00:00.000+02:00' }, NOW);
+  const newer = await store.put({ ...base, content: 'newer', observedAt: '2026-08-17T22:00:00.000Z' }, NOW);
 
-  const all = store.retrieve({ scopeId: 's', now: NOW });
+  const all = await store.retrieve({ scopeId: 's', now: NOW });
   assert.deepEqual(all.map((r) => r.content), ['newer', 'older'], 'newest instant must come first');
 
-  const limited = store.retrieve({ scopeId: 's', now: NOW, limit: 1 });
+  const limited = await store.retrieve({ scopeId: 's', now: NOW, limit: 1 });
   assert.equal(limited[0]?.id, newer.id, 'limit must keep the newest record, not the one that sorts first as text');
   assert.notEqual(limited[0]?.id, older.id);
 });

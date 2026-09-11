@@ -1,40 +1,64 @@
 /**
  * SYNTHETIC — ENG/QA INFRA ONLY
  *
- * Alpha feedback flag store. Persists flags as bounded, reviewable records
- * with retention TTL, per-session and per-participant deletion, and
- * access boundaries (internal alpha-only).
+ * Alpha feedback flags, in the participant's own tree (UC-1.0c, #142).
+ *
+ * ── What this replaced ───────────────────────────────────────────
+ *
+ * One `<dataDir>/alpha-feedback/<flagId>.flag.json` per flag on the local
+ * filesystem — and an export that made it worse:
+ *
+ *     export { createInMemoryStore as createFileAlphaFeedbackStore };
+ *
+ * The factory every caller reached for was named "File" and was the *internal*
+ * store, so nobody reading a call site could tell which backend they had. That
+ * name is gone: the storage-backed factory says storage, the in-memory one
+ * says in-memory, and neither pretends to be the other.
+ *
+ * Flags now live at `users/{uid}/alphaFeedback/{flagId}`, so a flag goes with
+ * the account it belongs to and account deletion reaches it.
+ *
+ * ── Session-scoped deletion crosses users ───────────────────────
+ *
+ * `deleteBySession` is addressed by session alone, so it resolves through a
+ * collection-group query rather than asking a caller for an owner it does not
+ * have. `firestore.indexes.json` carries the matching index.
  */
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, readdirSync } from 'node:fs';
-import path from 'node:path';
 import {
   ALPHA_FEEDBACK_FLAG_VERSION,
   FLAG_NOTE_MAX_LENGTH,
   type AlphaFeedbackFlag,
-  type AlphaFeedbackFlagCategory,
   type AlphaFeedbackFlagInput,
 } from '../../src/contracts/v1/feedbackFlagContracts';
-import { resolveDataDir } from '../runtime/dataDir';
+import {
+  ALPHA_FEEDBACK,
+  createMemoryStorage,
+  getStorage,
+  requireDocId,
+  userCol,
+  userIdForKey,
+  type StorageAdapter,
+} from '../storage';
 
 export interface AlphaFeedbackStoreOptions {
-  dataDir?: string;
+  storage?: StorageAdapter;
   retentionTtlMs?: number;
 }
 
+/** Async since UC-1.0c (#142): every method is a storage round trip. */
 export interface AlphaFeedbackStore {
-  record(input: AlphaFeedbackFlagInput): AlphaFeedbackFlag;
-  list(options?: { participantId?: string; sessionId?: string; since?: string }): AlphaFeedbackFlag[];
-  count(options?: { participantId?: string }): number;
-  deleteBySession(sessionId: string): number;
-  deleteByParticipant(participantId: string): number;
-  prune(): number;
+  record(input: AlphaFeedbackFlagInput): Promise<AlphaFeedbackFlag>;
+  list(options?: { participantId?: string; sessionId?: string; since?: string }): Promise<AlphaFeedbackFlag[]>;
+  count(options?: { participantId?: string }): Promise<number>;
+  deleteBySession(sessionId: string): Promise<number>;
+  deleteByParticipant(participantId: string): Promise<number>;
+  prune(): Promise<number>;
 }
 
-const DEFAULT_RETENTION_TTL_MS = 30 * 24 * 60 * 60 * 1_000; // 30 days
-const FLAG_FILE_EXT = '.flag.json';
+export const DEFAULT_RETENTION_TTL_MS = 30 * 24 * 60 * 60 * 1_000; // 30 days
 
-function emptyFlag(input: AlphaFeedbackFlagInput): AlphaFeedbackFlag {
+function newFlag(input: AlphaFeedbackFlagInput): AlphaFeedbackFlag {
   const note = input.note ?? null;
   return {
     version: ALPHA_FEEDBACK_FLAG_VERSION,
@@ -49,152 +73,126 @@ function emptyFlag(input: AlphaFeedbackFlagInput): AlphaFeedbackFlag {
   };
 }
 
-function flagFilePath(dataDir: string, flagId: string): string {
-  return path.join(dataDir, `${flagId}${FLAG_FILE_EXT}`);
+function isFlag(value: unknown): value is AlphaFeedbackFlag {
+  if (!value || typeof value !== 'object') return false;
+  const raw = value as Partial<AlphaFeedbackFlag>;
+  return raw.version === ALPHA_FEEDBACK_FLAG_VERSION && typeof raw.flagId === 'string';
 }
 
-function readFlag(filePath: string): AlphaFeedbackFlag | null {
-  try {
-    const raw = JSON.parse(readFileSync(filePath, 'utf8'));
-    if (raw && raw.version === ALPHA_FEEDBACK_FLAG_VERSION && typeof raw.flagId === 'string') return raw;
-  } catch {
-    // corrupt or missing — skip
-  }
-  return null;
+function oldestFirst(a: AlphaFeedbackFlag, b: AlphaFeedbackFlag): number {
+  return a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0;
 }
 
-function createInMemoryStore(options?: AlphaFeedbackStoreOptions): AlphaFeedbackStore {
-  const dataDir = options?.dataDir ?? resolveDataDir('alpha-feedback');
-  const retentionTtlMs = options?.retentionTtlMs ?? DEFAULT_RETENTION_TTL_MS;
-  const now = () => Date.now();
+function collectionFor(participantId: string): string {
+  return userCol(userIdForKey(participantId), ALPHA_FEEDBACK);
+}
 
-  function ensureDir(): void {
-    mkdirSync(dataDir, { recursive: true });
+export class StorageAlphaFeedbackStore implements AlphaFeedbackStore {
+  private readonly retentionTtlMs: number;
+
+  constructor(private readonly options: AlphaFeedbackStoreOptions = {}) {
+    this.retentionTtlMs = options.retentionTtlMs ?? DEFAULT_RETENTION_TTL_MS;
   }
 
-  function loadAll(): AlphaFeedbackFlag[] {
-    ensureDir();
-    const entries = readdirSync(dataDir).filter((e) => e.endsWith(FLAG_FILE_EXT));
-    const flags: AlphaFeedbackFlag[] = [];
-    for (const entry of entries) {
-      const flag = readFlag(path.join(dataDir, entry));
-      if (flag) flags.push(flag);
+  /** Resolved per call so a test may swap the adapter after construction. */
+  private get storage(): StorageAdapter {
+    return this.options.storage ?? getStorage();
+  }
+
+  /** Every flag with its path, for the cross-participant reads. */
+  private async all(): Promise<Array<{ path: string; flag: AlphaFeedbackFlag }>> {
+    const rows = await this.storage.listGroup<AlphaFeedbackFlag>(ALPHA_FEEDBACK);
+    return rows
+      .filter((row) => isFlag(row.data))
+      .map((row) => ({ path: row.path, flag: row.data }))
+      .sort((a, b) => oldestFirst(a.flag, b.flag));
+  }
+
+  async record(input: AlphaFeedbackFlagInput): Promise<AlphaFeedbackFlag> {
+    const flag = newFlag(input);
+    await this.storage.set<AlphaFeedbackFlag>(
+      `${collectionFor(flag.participantId)}/${requireDocId(flag.flagId)}`,
+      flag,
+    );
+    return flag;
+  }
+
+  async list(filter?: { participantId?: string; sessionId?: string; since?: string }): Promise<AlphaFeedbackFlag[]> {
+    // One participant is a single-collection read; everything else is a group
+    // read, so an operator review is not one query per account.
+    const held = filter?.participantId
+      ? (await this.storage.list<AlphaFeedbackFlag>(collectionFor(filter.participantId)))
+        .filter((row) => isFlag(row.data))
+        .map((row) => row.data)
+        .sort(oldestFirst)
+      : (await this.all()).map(({ flag }) => flag);
+
+    return held.filter((flag) => {
+      if (filter?.sessionId && flag.sessionId !== filter.sessionId) return false;
+      if (filter?.since && flag.createdAt < filter.since) return false;
+      return true;
+    });
+  }
+
+  async count(filter?: { participantId?: string }): Promise<number> {
+    return (await this.list(filter)).length;
+  }
+
+  async deleteBySession(sessionId: string): Promise<number> {
+    const rows = await this.storage.listGroup<AlphaFeedbackFlag>(ALPHA_FEEDBACK, {
+      where: [['sessionId', '==', sessionId]],
+    });
+    for (const row of rows) await this.storage.delete(row.path);
+    return rows.length;
+  }
+
+  async deleteByParticipant(participantId: string): Promise<number> {
+    const collection = collectionFor(participantId);
+    const rows = await this.storage.list<AlphaFeedbackFlag>(collection);
+    for (const row of rows) await this.storage.delete(`${collection}/${row.id}`);
+    return rows.length;
+  }
+
+  async prune(): Promise<number> {
+    const cutoff = new Date(Date.now() - this.retentionTtlMs).toISOString();
+    let pruned = 0;
+    for (const { path, flag } of await this.all()) {
+      if (flag.createdAt < cutoff) {
+        await this.storage.delete(path);
+        pruned += 1;
+      }
     }
-    return flags.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    return pruned;
   }
-
-  return {
-    record(input: AlphaFeedbackFlagInput): AlphaFeedbackFlag {
-      ensureDir();
-      const flag = emptyFlag(input);
-      writeFileSync(flagFilePath(dataDir, flag.flagId), JSON.stringify(flag, null, 2));
-      return flag;
-    },
-
-    list(filter?: { participantId?: string; sessionId?: string; since?: string }): AlphaFeedbackFlag[] {
-      return loadAll().filter((flag) => {
-        if (filter?.participantId && flag.participantId !== filter.participantId) return false;
-        if (filter?.sessionId && flag.sessionId !== filter.sessionId) return false;
-        if (filter?.since && flag.createdAt < filter.since) return false;
-        return true;
-      });
-    },
-
-    count(filter?: { participantId?: string }): number {
-      return loadAll().filter((flag) => {
-        if (filter?.participantId && flag.participantId !== filter.participantId) return false;
-        return true;
-      }).length;
-    },
-
-    deleteBySession(sessionId: string): number {
-      const flags = loadAll();
-      let deleted = 0;
-      for (const flag of flags) {
-        if (flag.sessionId === sessionId) {
-          const filePath = flagFilePath(dataDir, flag.flagId);
-          if (existsSync(filePath)) {
-            unlinkSync(filePath);
-            deleted++;
-          }
-        }
-      }
-      return deleted;
-    },
-
-    deleteByParticipant(participantId: string): number {
-      const flags = loadAll();
-      let deleted = 0;
-      for (const flag of flags) {
-        if (flag.participantId === participantId) {
-          const filePath = flagFilePath(dataDir, flag.flagId);
-          if (existsSync(filePath)) {
-            unlinkSync(filePath);
-            deleted++;
-          }
-        }
-      }
-      return deleted;
-    },
-
-    prune(): number {
-      const flags = loadAll();
-      const cutoff = new Date(now() - retentionTtlMs).toISOString();
-      let pruned = 0;
-      for (const flag of flags) {
-        if (flag.createdAt < cutoff) {
-          const filePath = flagFilePath(dataDir, flag.flagId);
-          if (existsSync(filePath)) {
-            unlinkSync(filePath);
-            pruned++;
-          }
-        }
-      }
-      return pruned;
-    },
-  };
 }
 
-/** Create a store backed by a custom in-memory map (for tests). */
+/**
+ * The same implementation over a private in-memory adapter, so a test cannot
+ * exercise semantics production does not have — and, unlike the export this
+ * replaced, the name says which backend you get.
+ */
 export function createInMemoryAlphaFeedbackStore(flags?: AlphaFeedbackFlag[]): AlphaFeedbackStore {
-  const store = new Map<string, AlphaFeedbackFlag>();
-  for (const flag of flags ?? []) store.set(flag.flagId, flag);
+  const storage = createMemoryStorage();
+  const store = new StorageAlphaFeedbackStore({ storage });
+  const seeded = (async () => {
+    for (const flag of flags ?? []) {
+      await storage.set<AlphaFeedbackFlag>(
+        `${collectionFor(flag.participantId)}/${requireDocId(flag.flagId)}`,
+        flag,
+      );
+    }
+  })();
+
   return {
-    record(input: AlphaFeedbackFlagInput): AlphaFeedbackFlag {
-      const flag = emptyFlag(input);
-      store.set(flag.flagId, flag);
-      return flag;
-    },
-    list(filter?: { participantId?: string; sessionId?: string; since?: string }): AlphaFeedbackFlag[] {
-      return Array.from(store.values()).filter((flag) => {
-        if (filter?.participantId && flag.participantId !== filter.participantId) return false;
-        if (filter?.sessionId && flag.sessionId !== filter.sessionId) return false;
-        if (filter?.since && flag.createdAt < filter.since) return false;
-        return true;
-      }).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-    },
-    count(filter?: { participantId?: string }): number {
-      return Array.from(store.values()).filter((flag) => {
-        if (filter?.participantId && flag.participantId !== filter.participantId) return false;
-        return true;
-      }).length;
-    },
-    deleteBySession(sessionId: string): number {
-      let deleted = 0;
-      for (const [id, flag] of Array.from(store.entries())) {
-        if (flag.sessionId === sessionId) { store.delete(id); deleted++; }
-      }
-      return deleted;
-    },
-    deleteByParticipant(participantId: string): number {
-      let deleted = 0;
-      for (const [id, flag] of Array.from(store.entries())) {
-        if (flag.participantId === participantId) { store.delete(id); deleted++; }
-      }
-      return deleted;
-    },
-    prune(): number { return 0; },
+    record: async (...args) => { await seeded; return store.record(...args); },
+    list: async (...args) => { await seeded; return store.list(...args); },
+    count: async (...args) => { await seeded; return store.count(...args); },
+    deleteBySession: async (...args) => { await seeded; return store.deleteBySession(...args); },
+    deleteByParticipant: async (...args) => { await seeded; return store.deleteByParticipant(...args); },
+    prune: async () => { await seeded; return store.prune(); },
   };
 }
 
-export { createInMemoryStore as createFileAlphaFeedbackStore };
+export function createStorageAlphaFeedbackStore(options?: AlphaFeedbackStoreOptions): AlphaFeedbackStore {
+  return new StorageAlphaFeedbackStore(options);
+}

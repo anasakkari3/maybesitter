@@ -36,20 +36,20 @@ const T1 = '2027-01-04T09:00:00.000Z';
 const NOW = '2027-01-12T09:00:00.000Z';
 const LATER = '2027-01-13T09:00:00.000Z';
 
-function personalizationDeleter(): (scopeId: string, now: string) => PersonalizationDeletionReceipt {
+function personalizationDeleter(): (scopeId: string, now: string) => Promise<PersonalizationDeletionReceipt> {
   const feedbackEvents = createInMemoryFeedbackEventStore();
   const runtimeMemory = createInMemoryRuntimeMemoryStore();
   return (scopeId, now) => deletePersonalizationScope({ scopeId, now, feedbackEvents, runtimeMemory });
 }
 
-function inputFor(overrides: Partial<ShadowStudyDeletionInput> = {}): ShadowStudyDeletionInput {
+async function inputFor(overrides: Partial<ShadowStudyDeletionInput> = {}): Promise<ShadowStudyDeletionInput> {
   const consent = createInMemoryShadowStudyConsentStore();
   const responses = createInMemoryShadowStudyResponseStore();
-  consent.grant(P, ['shadow_execution', 'feedback_study', 'trace_retention'], T1);
-  consent.grant(Q, ['shadow_execution'], T1);
-  responses.record({ status: 'rated', participantId: P, runId: 'run-0001', question: 'trust', rating: 4, respondedAt: T1 });
-  responses.record({ status: 'declined', participantId: P, runId: 'run-0001', question: 'accuracy', rating: null, respondedAt: T1 });
-  responses.record({ status: 'rated', participantId: Q, runId: 'run-0002', question: 'trust', rating: 5, respondedAt: T1 });
+  await consent.grant(P, ['shadow_execution', 'feedback_study', 'trace_retention'], T1);
+  await consent.grant(Q, ['shadow_execution'], T1);
+  await responses.record({ status: 'rated', participantId: P, runId: 'run-0001', question: 'trust', rating: 4, respondedAt: T1 });
+  await responses.record({ status: 'declined', participantId: P, runId: 'run-0001', question: 'accuracy', rating: null, respondedAt: T1 });
+  await responses.record({ status: 'rated', participantId: Q, runId: 'run-0002', question: 'trust', rating: 5, respondedAt: T1 });
 
   return {
     participantId: P,
@@ -65,8 +65,8 @@ function inputFor(overrides: Partial<ShadowStudyDeletionInput> = {}): ShadowStud
 
 /* ── The receipt, and the stores it is checked against ───────────── */
 
-test('a complete deletion yields a receipt with nothing structurally wrong with it', () => {
-  const outcome = deleteShadowStudyParticipant(inputFor());
+test('a complete deletion yields a receipt with nothing structurally wrong with it', async () => {
+  const outcome = await deleteShadowStudyParticipant(await inputFor());
   assert.equal(outcome.status, 'deleted');
   if (outcome.status !== 'deleted') return;
   assert.deepEqual(checkShadowStudyDeletionReceipt(outcome.receipt), []);
@@ -74,39 +74,39 @@ test('a complete deletion yields a receipt with nothing structurally wrong with 
   assert.equal(outcome.receipt.deletedAt, NOW);
 });
 
-test('the receipt is verified by re-listing every store, not by trusting its counts', () => {
-  const input = inputFor();
-  const outcome = deleteShadowStudyParticipant(input);
+test('the receipt is verified by re-listing every store, not by trusting its counts', async () => {
+  const input = await inputFor();
+  const outcome = await deleteShadowStudyParticipant(input);
   assert.equal(outcome.status, 'deleted');
   if (outcome.status !== 'deleted') return;
 
   // The stores are asked again, one (store, count) pair at a time.
-  assert.equal(input.consent.countFor(P), 0, 'a consent record survived deletion');
-  assert.equal(input.consent.read(P).state, 'withheld');
-  assert.deepEqual(input.responses.list(P), [], 'a study response survived deletion');
+  assert.equal(await input.consent.countFor(P), 0, 'a consent record survived deletion');
+  assert.equal((await input.consent.read(P)).state, 'withheld');
+  assert.deepEqual(await input.responses.list(P), [], 'a study response survived deletion');
   assert.equal(input.traces.status === 'wired' ? input.traces.archive.countFor(P) : -1, 0);
   assert.equal(input.replayBundles.status === 'wired' ? input.replayBundles.archive.countFor(P) : -1, 0);
 
   // And the receipt agrees with what the stores just said.
-  assert.equal(outcome.receipt.remainingStudyResponseCount, input.responses.countFor(P));
+  assert.equal(outcome.receipt.remainingStudyResponseCount, await input.responses.countFor(P));
   assert.equal(outcome.receipt.remainingTraceCount, 0);
   assert.equal(outcome.receipt.remainingReplayBundleCount, 0);
-  assert.equal(outcome.remainingConsentRecordCount, input.consent.countFor(P));
+  assert.equal(outcome.remainingConsentRecordCount, await input.consent.countFor(P));
 });
 
-test('one participant deleting leaves every other participant intact', () => {
-  const input = inputFor();
-  deleteShadowStudyParticipant(input);
-  assert.equal(input.consent.countFor(Q), 1, 'one participant deleted another participant\'s consent');
-  assert.equal(input.responses.countFor(Q), 1, 'one participant deleted another participant\'s responses');
+test('one participant deleting leaves every other participant intact', async () => {
+  const input = await inputFor();
+  await deleteShadowStudyParticipant(input);
+  assert.equal(await input.consent.countFor(Q), 1, 'one participant deleted another participant\'s consent');
+  assert.equal(await input.responses.countFor(Q), 1, 'one participant deleted another participant\'s responses');
   assert.equal(input.traces.status === 'wired' ? input.traces.archive.countFor(Q) : -1, 1);
-  assert.deepEqual(input.consent.listParticipants(), [Q]);
+  assert.deepEqual(await input.consent.listParticipants(), [Q]);
 });
 
 /* ── The digest is recomputable without calling the deleter ──────── */
 
-test('the empty-state digest is recomputable by a verifier that never ran the deletion', () => {
-  const outcome = deleteShadowStudyParticipant(inputFor());
+test('the empty-state digest is recomputable by a verifier that never ran the deletion', async () => {
+  const outcome = await deleteShadowStudyParticipant(await inputFor());
   assert.equal(outcome.status, 'deleted');
   if (outcome.status !== 'deleted') return;
   assert.equal(outcome.receipt.emptyStateDigest, shadowEmptyStateDigest(P, NOW));
@@ -130,14 +130,14 @@ test('the preimage names every store the receipt speaks for, so a new store cann
 
 /* ── A store that leaves rows behind is reported, not smoothed ───── */
 
-test('each remainder field is probed on its own; a leftover row makes the receipt fail its own check', () => {
+test('each remainder field is probed on its own; a leftover row makes the receipt fail its own check', async () => {
   const leaky = { countFor: () => 3, deleteParticipant: () => 0 };
   const cases: [string, Partial<ShadowStudyDeletionInput>][] = [
     ['traces', { traces: wiredArchive(leaky) }],
     ['replayBundles', { replayBundles: wiredArchive(leaky) }],
   ];
   for (const [name, override] of cases) {
-    const outcome = deleteShadowStudyParticipant(inputFor(override));
+    const outcome = await deleteShadowStudyParticipant(await inputFor(override));
     assert.equal(outcome.status, 'deleted', `${name}: a leaky store should still produce a receipt to fail`);
     if (outcome.status !== 'deleted') continue;
     const codes = checkShadowStudyDeletionReceipt(outcome.receipt).map((defect) => defect.code);
@@ -145,9 +145,9 @@ test('each remainder field is probed on its own; a leftover row makes the receip
   }
 });
 
-test('a defective embedded personalization receipt is re-coded rather than swallowed', () => {
-  const outcome = deleteShadowStudyParticipant(
-    inputFor({
+test('a defective embedded personalization receipt is re-coded rather than swallowed', async () => {
+  const outcome = await deleteShadowStudyParticipant(
+    await inputFor({
       deletePersonalization: () => ({
         version: 'v1',
         schemaVersion: 'personalization-v1',
@@ -168,30 +168,30 @@ test('a defective embedded personalization receipt is re-coded rather than swall
 
 /* ── An unwired store cannot be proven empty, and says so ────────── */
 
-test('an unwired archive deletes what it can and refuses to claim what it cannot', () => {
-  const input = inputFor({ traces: notWiredArchive('issue_45_shadow_trace_store') });
-  const outcome = deleteShadowStudyParticipant(input);
+test('an unwired archive deletes what it can and refuses to claim what it cannot', async () => {
+  const input = await inputFor({ traces: notWiredArchive('issue_45_shadow_trace_store') });
+  const outcome = await deleteShadowStudyParticipant(input);
   assert.equal(outcome.status, 'deleted_unproven');
   if (outcome.status !== 'deleted_unproven') return;
   assert.deepEqual(outcome.unprovable, ['traces']);
   assert.ok(outcome.detail.includes('issue_45_shadow_trace_store'));
 
   // The deletion still happened everywhere it could: proven by re-listing.
-  assert.equal(input.consent.countFor(P), 0, 'an unprovable store blocked a deletion that could have happened');
-  assert.equal(input.responses.countFor(P), 0);
+  assert.equal(await input.consent.countFor(P), 0, 'an unprovable store blocked a deletion that could have happened');
+  assert.equal(await input.responses.countFor(P), 0);
   assert.equal(input.replayBundles.status === 'wired' ? input.replayBundles.archive.countFor(P) : -1, 0);
 });
 
-test('an unwired personalization deleter is named as unprovable too', () => {
-  const outcome = deleteShadowStudyParticipant(inputFor({ deletePersonalization: undefined }));
+test('an unwired personalization deleter is named as unprovable too', async () => {
+  const outcome = await deleteShadowStudyParticipant(await inputFor({ deletePersonalization: undefined }));
   assert.equal(outcome.status, 'deleted_unproven');
   if (outcome.status !== 'deleted_unproven') return;
   assert.deepEqual(outcome.unprovable, ['personalization']);
 });
 
-test('every unprovable store is named, not just the first', () => {
-  const outcome = deleteShadowStudyParticipant(
-    inputFor({
+test('every unprovable store is named, not just the first', async () => {
+  const outcome = await deleteShadowStudyParticipant(
+    await inputFor({
       traces: notWiredArchive('issue_45_shadow_trace_store'),
       replayBundles: notWiredArchive('issue_45_replay_bundle_store'),
       deletePersonalization: undefined,
@@ -202,8 +202,8 @@ test('every unprovable store is named, not just the first', () => {
   assert.deepEqual(outcome.unprovable, ['traces', 'replay_bundles', 'personalization']);
 });
 
-test('the removed tally reports null for a store that could not be acted on, not zero', () => {
-  const outcome = deleteShadowStudyParticipant(inputFor({ traces: notWiredArchive('issue_45_shadow_trace_store') }));
+test('the removed tally reports null for a store that could not be acted on, not zero', async () => {
+  const outcome = await deleteShadowStudyParticipant(await inputFor({ traces: notWiredArchive('issue_45_shadow_trace_store') }));
   assert.equal(outcome.status, 'deleted_unproven');
   if (outcome.status !== 'deleted_unproven') return;
   assert.equal(outcome.removed.traces, null, 'an unwired store reported zero removals as though it had looked');
@@ -212,8 +212,8 @@ test('the removed tally reports null for a store that could not be acted on, not
   assert.equal(outcome.removed.replay_bundles, 1);
 });
 
-test('deleting a participant who has nothing stored is still a clean, verifiable deletion', () => {
-  const outcome = deleteShadowStudyParticipant(inputFor({ participantId: 'participant-z' }));
+test('deleting a participant who has nothing stored is still a clean, verifiable deletion', async () => {
+  const outcome = await deleteShadowStudyParticipant(await inputFor({ participantId: 'participant-z' }));
   assert.equal(outcome.status, 'deleted');
   if (outcome.status !== 'deleted') return;
   assert.deepEqual(checkShadowStudyDeletionReceipt(outcome.receipt), []);
@@ -221,32 +221,32 @@ test('deleting a participant who has nothing stored is still a clean, verifiable
   assert.equal(outcome.receipt.emptyStateDigest, shadowEmptyStateDigest('participant-z', NOW));
 });
 
-test('a malformed instant is refused rather than written into a receipt nobody can verify', () => {
-  const outcome = deleteShadowStudyParticipant(inputFor({ now: '2026-02-30' as never }));
+test('a malformed instant is refused rather than written into a receipt nobody can verify', async () => {
+  const outcome = await deleteShadowStudyParticipant(await inputFor({ now: '2026-02-30' as never }));
   assert.equal(outcome.status, 'refused');
   if (outcome.status !== 'refused') return;
   assert.equal(outcome.reason, 'malformed_instant');
 });
 
-test('an unsafe participant id is refused rather than used to delete something adjacent', () => {
-  const outcome = deleteShadowStudyParticipant(inputFor({ participantId: '../../etc' }));
+test('an unsafe participant id is refused rather than used to delete something adjacent', async () => {
+  const outcome = await deleteShadowStudyParticipant(await inputFor({ participantId: '../../etc' }));
   assert.equal(outcome.status, 'refused');
   if (outcome.status !== 'refused') return;
   assert.equal(outcome.reason, 'unsafe_participant');
 });
 
-test('a store that reports a deletion and keeps the rows makes the receipt fail its own check', () => {
+test('a store that reports a deletion and keeps the rows makes the receipt fail its own check', async () => {
   // The one failure a re-listed remainder exists to catch: `deleteParticipant`
   // returns a count and the rows are still there.
-  const input = inputFor();
-  const held = input.responses.list(P);
+  const input = await inputFor();
+  const held = await input.responses.list(P);
   const lying = {
     ...input.responses,
-    deleteParticipant: () => held.length,
-    countFor: () => held.length,
-    list: () => held,
+    deleteParticipant: async () => held.length,
+    countFor: async () => held.length,
+    list: async () => held,
   };
-  const outcome = deleteShadowStudyParticipant({ ...input, responses: lying });
+  const outcome = await deleteShadowStudyParticipant({ ...input, responses: lying });
   assert.equal(outcome.status, 'deleted');
   if (outcome.status !== 'deleted') return;
   assert.equal(outcome.receipt.remainingStudyResponseCount, held.length);
@@ -257,7 +257,7 @@ test('a store that reports a deletion and keeps the rows makes the receipt fail 
   );
 });
 
-test('a lying consent store cannot buy a clean receipt, because consent has no receipt field', () => {
+test('a lying consent store cannot buy a clean receipt, because consent has no receipt field', async () => {
   // The gap the test above cannot cover. `ShadowStudyDeletionReceipt` carries
   // three remainders and consent is not one of them, so the arrangement that
   // catches a lying response store — issue the receipt, let its own checker
@@ -268,15 +268,15 @@ test('a lying consent store cannot buy a clean receipt, because consent has no r
   // `checkShadowStudyDeletionReceipt`, and a digest that recomputes, while the
   // participant's granted scopes stayed fully readable. A receipt is a claim of
   // emptiness; no receipt may be issued for a scope known not to be empty.
-  const input = inputFor();
-  const held = input.consent.read(P);
+  const input = await inputFor();
+  const held = await input.consent.read(P);
   const lying = {
     ...input.consent,
-    deleteParticipant: () => 1,
-    countFor: () => 1,
-    read: () => held,
+    deleteParticipant: async () => 1,
+    countFor: async () => 1,
+    read: async () => held,
   };
-  const outcome = deleteShadowStudyParticipant({ ...input, consent: lying });
+  const outcome = await deleteShadowStudyParticipant({ ...input, consent: lying });
 
   assert.equal(outcome.status, 'deleted_unproven', 'a clean receipt was issued while consent survived');
   if (outcome.status !== 'deleted_unproven') return;
@@ -287,23 +287,23 @@ test('a lying consent store cannot buy a clean receipt, because consent has no r
   assert.equal((outcome as Record<string, unknown>).receipt, undefined);
 });
 
-test('an honest consent store still yields a receipt: the guard refuses remainders, not deletions', () => {
+test('an honest consent store still yields a receipt: the guard refuses remainders, not deletions', async () => {
   // The other direction. A guard that refused everything would pass the test
   // above while making deletion unusable.
-  const outcome = deleteShadowStudyParticipant(inputFor());
+  const outcome = await deleteShadowStudyParticipant(await inputFor());
   assert.equal(outcome.status, 'deleted');
   if (outcome.status !== 'deleted') return;
   assert.equal(outcome.remainingConsentRecordCount, 0);
   assert.deepEqual(checkShadowStudyDeletionReceipt(outcome.receipt), []);
 });
 
-test('each archive is separately load-bearing: unwiring either one alone is reported', () => {
+test('each archive is separately load-bearing: unwiring either one alone is reported', async () => {
   const cases: [string, Partial<ShadowStudyDeletionInput>][] = [
     ['traces', { traces: notWiredArchive('issue_45_shadow_trace_store') }],
     ['replay_bundles', { replayBundles: notWiredArchive('issue_45_replay_bundle_store') }],
   ];
   for (const [store, override] of cases) {
-    const outcome = deleteShadowStudyParticipant(inputFor(override));
+    const outcome = await deleteShadowStudyParticipant(await inputFor(override));
     assert.equal(outcome.status, 'deleted_unproven', `${store} unwired still produced a receipt`);
     if (outcome.status !== 'deleted_unproven') continue;
     assert.deepEqual(outcome.unprovable, [store]);

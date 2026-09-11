@@ -1,12 +1,20 @@
 /**
- * Runtime memory store (Sprint 02, issue #10).
+ * Runtime memory, in the user's own tree (UC-1.0c, #142).
  *
  * Owns the three memory kinds that src/domain/memory declares but leaves
  * disabled (`fact`, `preference`, `hypothesis`). Lives under lib/runtimeMemory
  * rather than lib/memory to stay visibly distinct from the canonical
  * commitment/observation stores, which this module never touches.
  *
- * Three privacy properties are structural here, each with its own mechanism:
+ * ── What the move fixes ──────────────────────────────────────────
+ *
+ * One JSON file per record under `MAYBESITTER_DATA_DIR/runtime-memory`. This
+ * is the store the product's whole premise rests on — what MaybeSitter
+ * remembers about you — and it was on a per-instance disk: a redeploy erased
+ * it and a second instance never saw it. Records now live at
+ * `users/{uid}/memory/{memoryId}` and are deleted with the account.
+ *
+ * ── Three privacy properties, each with its own mechanism ────────
  *
  *  1. Conflicting memories stay inspectable. supersede() writes a replacement
  *     and links it to the prior record in both directions; the prior record is
@@ -22,16 +30,21 @@
  *     lib/runtimeMemory/exportPolicy.ts then enforces for fine-tuning exports.
  *
  * Both backends share one implementation of those semantics and differ only in
- * persistence. The sibling alpha stores duplicate their logic per backend,
- * which is how their in-memory prune() drifted into a no-op; privacy behaviour
- * must not be able to drift between a test store and a production store.
+ * which adapter they hold. The sibling alpha stores duplicated their logic per
+ * backend, which is how their in-memory prune() drifted into a no-op; privacy
+ * behaviour must not be able to drift between a test store and a production one.
+ *
+ * ── Why some reads are collection-group queries ──────────────────
+ *
+ * `get`, `revoke` and `deleteById` are addressed by record id alone — the API
+ * predates there being a user tree to put the record in — so they resolve
+ * through a group query on the `id` field rather than by asking the caller for
+ * a scope they do not have. `firestore.indexes.json` carries the index.
  *
  * No function here reads the system clock. Every timestamp is supplied by the
  * caller (`now`/`at`), so store behaviour is reproducible in tests and replays.
  */
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
-import path from 'node:path';
 import {
   DEFAULT_MEMORY_TTL_MS,
   MEMORY_RECORD_SCHEMA_VERSION,
@@ -48,21 +61,24 @@ import {
   type RuntimeMemoryStoreOptions,
 } from '../../src/contracts/v1/memoryContracts';
 import { isIsoTimestamp, isNonEmptyString } from '../evaluation/registry/validationPrimitives';
-import { resolveDataDir } from '../runtime/dataDir';
+import {
+  MEMORY,
+  createMemoryStorage,
+  getStorage,
+  requireDocId,
+  userCol,
+  userIdForKey,
+  type StorageAdapter,
+} from '../storage';
 
-const MEMORY_SUBDIR = 'runtime-memory';
-const MEMORY_FILE_EXT = '.memory.json';
-/** Suffix of a temp file written before the atomic rename. */
-const TEMP_FILE_EXT = '.tmp';
 const RECORD_ID_PREFIX = 'mem_';
 /** Keeps createdAt + ttlMs inside the ECMAScript time range. */
 const MAX_TTL_MS = 8_640_000_000_000_000;
 
 /**
- * Record ids reach the filesystem as `<id>.memory.json`, so an id containing
- * `/`, `\` or `..` would let a caller read or unlink files outside the store.
- * Ids are server-generated, so the pattern can be strict: anything that fails
- * it cannot name a record this store ever wrote.
+ * Record ids are server-generated, so the pattern can be strict: anything that
+ * fails it cannot name a record this store ever wrote. It is also the document
+ * id, so it has to stay a legal path segment.
  */
 const RECORD_ID_PATTERN = /^mem_[A-Za-z0-9-]{1,64}$/;
 
@@ -170,9 +186,9 @@ function withStatus(
 }
 
 /**
- * Shape guard for anything read back from disk. A half-written or hand-edited
- * file must be skipped rather than surface as a partial record, so this checks
- * the schema version and every field retrieval filters on.
+ * Shape guard for anything read back. A half-written or hand-edited document
+ * must be skipped rather than surface as a partial record, so this checks the
+ * schema version and every field retrieval filters on.
  */
 function isRuntimeMemoryRecord(value: unknown): value is RuntimeMemoryRecord {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
@@ -238,299 +254,12 @@ function byOldestCreated(a: RuntimeMemoryRecord, b: RuntimeMemoryRecord): number
   return compareInstants(a.createdAt, b.createdAt) || compareStrings(a.id, b.id);
 }
 
-/**
- * Persistence seam. Everything privacy-relevant lives in createStore() above
- * this, so a file-backed and an in-memory store cannot diverge in behaviour.
- */
-interface RecordRepository {
-  readOne(id: string): RuntimeMemoryRecord | null;
-  readAll(): RuntimeMemoryRecord[];
-  write(record: RuntimeMemoryRecord): void;
-  remove(id: string): boolean;
-  /**
-   * Removes every stored artifact attributable to the scope, including any the
-   * reader is unable to parse as a record. Deletion is the one operation that
-   * must reach further than retrieval does: a file too damaged to read still
-   * holds the user's content, so leaving it behind would make "delete my data"
-   * untrue. Only the backend knows what it is holding, so it does the sweep.
-   */
-  removeScope(scopeId: string): number;
+function collectionFor(scopeId: string): string {
+  return userCol(userIdForKey(scopeId), MEMORY);
 }
 
-function createStore(repository: RecordRepository, defaultTtlMs: number): RuntimeMemoryStore {
-  function readSafe(id: unknown): RuntimeMemoryRecord | null {
-    const safeId = toSafeId(id);
-    return safeId === null ? null : repository.readOne(safeId);
-  }
-
-  function listScope(scopeId: string): readonly RuntimeMemoryRecord[] {
-    if (!isNonEmptyString(scopeId)) fail('scopeId must be a non-empty string');
-    return Object.freeze(
-      repository.readAll().filter((record) => record.scopeId === scopeId).sort(byOldestCreated),
-    );
-  }
-
-  return {
-    put(input: CreateMemoryInput, now: string): RuntimeMemoryRecord {
-      assertTimestamp(now, 'now');
-      assertValidInput(input);
-      const record = buildRecord(input, now, defaultTtlMs);
-      repository.write(record);
-      return record;
-    },
-
-    get(id: string): RuntimeMemoryRecord | null {
-      return readSafe(id);
-    },
-
-    retrieve(query: MemoryQuery): readonly RuntimeMemoryRecord[] {
-      if (!query || typeof query !== 'object') fail('query must be an object');
-      if (!isNonEmptyString(query.scopeId)) fail('query.scopeId must be a non-empty string');
-      assertTimestamp(query.now, 'query.now');
-      if (query.limit !== undefined && (!Number.isInteger(query.limit) || query.limit < 1)) {
-        fail('query.limit must be a positive integer');
-      }
-
-      const matches = repository.readAll().filter((record) => {
-        // The two filters the contract makes unconditional: anything revoked,
-        // superseded, expired, or past its staleAfter is structurally unable to
-        // reach a consumer, whatever the rest of the query asks for.
-        if (record.status !== 'active') return false;
-        if (!isFresh(record, query.now)) return false;
-        if (record.scopeId !== query.scopeId) return false;
-        if (query.kind !== undefined && record.kind !== query.kind) return false;
-        if (query.language !== undefined && record.language !== query.language) return false;
-        if (query.minConfidence !== undefined && record.confidence < query.minConfidence) return false;
-        return true;
-      }).sort(byNewestObserved);
-
-      return Object.freeze(query.limit === undefined ? matches : matches.slice(0, query.limit));
-    },
-
-    listAll(scopeId: string): readonly RuntimeMemoryRecord[] {
-      return listScope(scopeId);
-    },
-
-    supersede(oldId: string, input: CreateMemoryInput, now: string): RuntimeMemoryRecord {
-      assertTimestamp(now, 'now');
-      const prior = readSafe(oldId);
-      if (!prior) fail(`supersede target ${String(oldId)} not found`);
-      if (prior.supersededById) {
-        fail(`${prior.id} is already superseded by ${prior.supersededById}; supersede the head of the chain`);
-      }
-      if (prior.status === 'revoked') {
-        fail(`${prior.id} is revoked; superseding it would undo a deliberate revocation`);
-      }
-      assertValidInput(input);
-      if (input.scopeId !== prior.scopeId) {
-        fail(`supersede must stay in one scope (${prior.scopeId} received ${input.scopeId})`);
-      }
-
-      const replacement = buildRecord(input, now, defaultTtlMs, prior.id);
-      // Replacement first: a crash between the two writes leaves both records
-      // visible, which is recoverable. The reverse order could hide the prior
-      // record with no replacement written, losing the memory outright.
-      repository.write(replacement);
-      repository.write(withStatus(prior, {
-        status: 'superseded',
-        supersededById: replacement.id,
-        updatedAt: now,
-      }));
-      return replacement;
-    },
-
-    revoke(id: string, at: string): boolean {
-      assertTimestamp(at, 'at');
-      const record = readSafe(id);
-      if (!record) return false;
-      // Idempotent, and the first revocation timestamp is the auditable one.
-      if (record.status === 'revoked') return true;
-      repository.write(withStatus(record, { status: 'revoked', revokedAt: at, updatedAt: at }));
-      return true;
-    },
-
-    deleteById(id: string): boolean {
-      const safeId = toSafeId(id);
-      return safeId === null ? false : repository.remove(safeId);
-    },
-
-    deleteScope(scopeId: string): number {
-      if (!isNonEmptyString(scopeId)) fail('scopeId must be a non-empty string');
-      return repository.removeScope(scopeId);
-    },
-
-    export(scopeId: string, now: string): MemoryExport {
-      assertTimestamp(now, 'now');
-      // Deliberately includes personal records: this is the user's own data,
-      // and a separate path from fine-tuning export (see exportPolicy.ts).
-      return Object.freeze({
-        version: MEMORY_RECORD_SCHEMA_VERSION,
-        scopeId,
-        exportedAt: now,
-        records: listScope(scopeId),
-      });
-    },
-
-    prune(now: string): number {
-      assertTimestamp(now, 'now');
-      let expired = 0;
-      for (const record of repository.readAll()) {
-        // Only active records expire. A superseded or revoked record keeps its
-        // status because that status is the audit trail; staleness must not
-        // overwrite the reason a record left retrieval.
-        if (record.status !== 'active' || isFresh(record, now)) continue;
-        repository.write(withStatus(record, { status: 'expired', updatedAt: now }));
-        expired++;
-      }
-      return expired;
-    },
-  };
-}
-
-/** Default record directory, honouring MAYBESITTER_DATA_DIR like sibling stores. */
-function defaultDataDir(): string {
-  const root = resolveDataDir();
-  return path.join(root, MEMORY_SUBDIR);
-}
-
-function createFileRepository(resolveDataDir: () => string): RecordRepository {
-  function ensureDir(): string {
-    const dataDir = resolveDataDir();
-    mkdirSync(dataDir, { recursive: true });
-    return dataDir;
-  }
-
-  function recordPath(dataDir: string, id: string): string {
-    return path.join(dataDir, `${id}${MEMORY_FILE_EXT}`);
-  }
-
-  function readFile(filePath: string): RuntimeMemoryRecord | null {
-    try {
-      const raw: unknown = JSON.parse(readFileSync(filePath, 'utf8'));
-      if (isRuntimeMemoryRecord(raw)) return freezeRecord(raw);
-    } catch {
-      // Corrupt, truncated, or written by another schema version — skip it
-      // rather than failing the whole read, so one bad file cannot deny the
-      // user access to the rest of their memory.
-    }
-    return null;
-  }
-
-  /**
-   * Lenient scope attribution for deletion only. Enough of a file may survive
-   * to say whose it is even when it fails the full record guard, and that is
-   * exactly the file a scope deletion must not miss.
-   */
-  function readScopeId(filePath: string): string | null {
-    let text: string;
-    try {
-      text = readFileSync(filePath, 'utf8');
-    } catch {
-      return null;
-    }
-
-    try {
-      const raw = JSON.parse(text) as Record<string, unknown> | null;
-      if (typeof raw?.scopeId === 'string') return raw.scopeId;
-    } catch {
-      // Fall through: the most likely corruption is a write truncated by a
-      // crash, and scopeId is written near the top of the record, so the name
-      // of the owner usually survives even when the JSON does not.
-    }
-
-    const match = /"scopeId"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(text);
-    if (!match) return null;
-    try {
-      return JSON.parse(`"${match[1]}"`) as string;
-    } catch {
-      return null;
-    }
-  }
-
-  return {
-    readOne(id: string): RuntimeMemoryRecord | null {
-      const filePath = recordPath(ensureDir(), id);
-      return existsSync(filePath) ? readFile(filePath) : null;
-    },
-
-    readAll(): RuntimeMemoryRecord[] {
-      const dataDir = ensureDir();
-      const records: RuntimeMemoryRecord[] = [];
-      for (const entry of readdirSync(dataDir)) {
-        if (!entry.endsWith(MEMORY_FILE_EXT)) continue;
-        const record = readFile(path.join(dataDir, entry));
-        if (record) records.push(record);
-      }
-      return records;
-    },
-
-    write(record: RuntimeMemoryRecord): void {
-      const filePath = recordPath(ensureDir(), record.id);
-      // Temp-then-rename so a reader never observes a half-written record;
-      // 0600 because every record is personal by default.
-      const temporary = `${filePath}.${process.pid}.tmp`;
-      writeFileSync(temporary, `${JSON.stringify(record, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
-      renameSync(temporary, filePath);
-    },
-
-    remove(id: string): boolean {
-      const dataDir = ensureDir();
-      const filePath = recordPath(dataDir, id);
-      const existed = existsSync(filePath);
-      if (existed) unlinkSync(filePath);
-
-      // Sweep any temp file a crashed write left for this same id. Nothing else
-      // can reach it afterwards — readAll() skips .tmp, so prune() and revoke()
-      // never see it — and it holds the complete record, content included.
-      const tempPrefix = `${id}${MEMORY_FILE_EXT}`;
-      for (const entry of readdirSync(dataDir)) {
-        if (!entry.startsWith(tempPrefix) || !entry.endsWith(TEMP_FILE_EXT)) continue;
-        unlinkSync(path.join(dataDir, entry));
-      }
-      return existed;
-    },
-
-    removeScope(scopeId: string): number {
-      const dataDir = ensureDir();
-      let removed = 0;
-      for (const entry of readdirSync(dataDir)) {
-        // Orphaned temp files (`<id>.memory.json.<pid>.tmp`, left by a crash
-        // between write and rename) hold a complete record with full content.
-        // Skipping them would leave the user's data on disk after they asked
-        // for it to be deleted.
-        if (!entry.endsWith(MEMORY_FILE_EXT) && !entry.endsWith(TEMP_FILE_EXT)) continue;
-        const filePath = path.join(dataDir, entry);
-        // Attribution is by scopeId alone, and only an exact match deletes. A
-        // file too damaged to name any owner is left in place: deleting
-        // unattributable files on any scope deletion could destroy a different
-        // user's data. That residue is an operator problem, not something one
-        // user's deletion may resolve on their behalf.
-        if (readScopeId(filePath) !== scopeId) continue;
-        unlinkSync(filePath);
-        removed++;
-      }
-      return removed;
-    },
-  };
-}
-
-function createMemoryRepository(): RecordRepository {
-  const records = new Map<string, RuntimeMemoryRecord>();
-  return {
-    readOne: (id) => records.get(id) ?? null,
-    readAll: () => Array.from(records.values()),
-    write: (record) => {
-      records.set(record.id, record);
-    },
-    remove: (id) => records.delete(id),
-    removeScope: (scopeId) => {
-      let removed = 0;
-      for (const [id, record] of Array.from(records.entries())) {
-        if (record.scopeId === scopeId && records.delete(id)) removed++;
-      }
-      return removed;
-    },
-  };
+function recordPath(scopeId: string, id: string): string {
+  return `${collectionFor(scopeId)}/${requireDocId(id)}`;
 }
 
 function resolveTtl(options?: RuntimeMemoryStoreOptions): number {
@@ -539,18 +268,185 @@ function resolveTtl(options?: RuntimeMemoryStoreOptions): number {
   return ttlMs;
 }
 
-/**
- * File-backed store, one JSON file per record under
- * `<MAYBESITTER_DATA_DIR|cwd/.maybesitter>/runtime-memory/<id>.memory.json`.
- * `options.dataDir` overrides that leaf directory outright, as in the alpha
- * stores. The directory is resolved per call, so a test may set the env var
- * after constructing the store.
- */
-export function createFileRuntimeMemoryStore(options?: RuntimeMemoryStoreOptions): RuntimeMemoryStore {
-  return createStore(createFileRepository(() => options?.dataDir ?? defaultDataDir()), resolveTtl(options));
+export class StorageRuntimeMemoryStore implements RuntimeMemoryStore {
+  private readonly defaultTtlMs: number;
+
+  constructor(private readonly injected?: StorageAdapter, options?: RuntimeMemoryStoreOptions) {
+    this.defaultTtlMs = resolveTtl(options);
+  }
+
+  /** Resolved per call so a test may swap the adapter after construction. */
+  private get storage(): StorageAdapter {
+    return this.injected ?? getStorage();
+  }
+
+  /** Every record in one scope, shape-checked. */
+  private async inScope(scopeId: string): Promise<RuntimeMemoryRecord[]> {
+    const rows = await this.storage.list<RuntimeMemoryRecord>(collectionFor(scopeId));
+    return rows.filter((row) => isRuntimeMemoryRecord(row.data)).map((row) => freezeRecord(row.data));
+  }
+
+  /** Every record anywhere, with its path. Used by prune and by id lookups. */
+  private async everywhere(): Promise<Array<{ path: string; record: RuntimeMemoryRecord }>> {
+    const rows = await this.storage.listGroup<RuntimeMemoryRecord>(MEMORY);
+    return rows
+      .filter((row) => isRuntimeMemoryRecord(row.data))
+      .map((row) => ({ path: row.path, record: freezeRecord(row.data) }));
+  }
+
+  /** A record addressed by id alone; see the header on why this is a group read. */
+  private async findById(id: string): Promise<{ path: string; record: RuntimeMemoryRecord } | null> {
+    const safeId = toSafeId(id);
+    if (safeId === null) return null;
+    const rows = await this.storage.listGroup<RuntimeMemoryRecord>(MEMORY, {
+      where: [['id', '==', safeId]],
+      limit: 1,
+    });
+    const row = rows[0];
+    return row && isRuntimeMemoryRecord(row.data) ? { path: row.path, record: freezeRecord(row.data) } : null;
+  }
+
+  async put(input: CreateMemoryInput, now: string): Promise<RuntimeMemoryRecord> {
+    assertTimestamp(now, 'now');
+    assertValidInput(input);
+    const record = buildRecord(input, now, this.defaultTtlMs);
+    await this.storage.set<RuntimeMemoryRecord>(recordPath(record.scopeId, record.id), record);
+    return record;
+  }
+
+  async get(id: string): Promise<RuntimeMemoryRecord | null> {
+    return (await this.findById(id))?.record ?? null;
+  }
+
+  async retrieve(query: MemoryQuery): Promise<readonly RuntimeMemoryRecord[]> {
+    if (!query || typeof query !== 'object') fail('query must be an object');
+    if (!isNonEmptyString(query.scopeId)) fail('query.scopeId must be a non-empty string');
+    assertTimestamp(query.now, 'query.now');
+    if (query.limit !== undefined && (!Number.isInteger(query.limit) || query.limit < 1)) {
+      fail('query.limit must be a positive integer');
+    }
+
+    const matches = (await this.inScope(query.scopeId)).filter((record) => {
+      // The two filters the contract makes unconditional: anything revoked,
+      // superseded, expired, or past its staleAfter is structurally unable to
+      // reach a consumer, whatever the rest of the query asks for.
+      if (record.status !== 'active') return false;
+      if (!isFresh(record, query.now)) return false;
+      if (record.scopeId !== query.scopeId) return false;
+      if (query.kind !== undefined && record.kind !== query.kind) return false;
+      if (query.language !== undefined && record.language !== query.language) return false;
+      if (query.minConfidence !== undefined && record.confidence < query.minConfidence) return false;
+      return true;
+    }).sort(byNewestObserved);
+
+    return Object.freeze(query.limit === undefined ? matches : matches.slice(0, query.limit));
+  }
+
+  async listAll(scopeId: string): Promise<readonly RuntimeMemoryRecord[]> {
+    if (!isNonEmptyString(scopeId)) fail('scopeId must be a non-empty string');
+    return Object.freeze(
+      (await this.inScope(scopeId)).filter((record) => record.scopeId === scopeId).sort(byOldestCreated),
+    );
+  }
+
+  async supersede(oldId: string, input: CreateMemoryInput, now: string): Promise<RuntimeMemoryRecord> {
+    assertTimestamp(now, 'now');
+    const held = await this.findById(oldId);
+    if (!held) fail(`supersede target ${String(oldId)} not found`);
+    const prior = held.record;
+    if (prior.supersededById) {
+      fail(`${prior.id} is already superseded by ${prior.supersededById}; supersede the head of the chain`);
+    }
+    if (prior.status === 'revoked') {
+      fail(`${prior.id} is revoked; superseding it would undo a deliberate revocation`);
+    }
+    assertValidInput(input);
+    if (input.scopeId !== prior.scopeId) {
+      fail(`supersede must stay in one scope (${prior.scopeId} received ${input.scopeId})`);
+    }
+
+    const replacement = buildRecord(input, now, this.defaultTtlMs, prior.id);
+    // Replacement first: a crash between the two writes leaves both records
+    // visible, which is recoverable. The reverse order could hide the prior
+    // record with no replacement written, losing the memory outright.
+    await this.storage.set<RuntimeMemoryRecord>(recordPath(replacement.scopeId, replacement.id), replacement);
+    await this.storage.set<RuntimeMemoryRecord>(held.path, withStatus(prior, {
+      status: 'superseded',
+      supersededById: replacement.id,
+      updatedAt: now,
+    }));
+    return replacement;
+  }
+
+  async revoke(id: string, at: string): Promise<boolean> {
+    assertTimestamp(at, 'at');
+    const held = await this.findById(id);
+    if (!held) return false;
+    // Idempotent, and the first revocation timestamp is the auditable one.
+    if (held.record.status === 'revoked') return true;
+    await this.storage.set<RuntimeMemoryRecord>(
+      held.path,
+      withStatus(held.record, { status: 'revoked', revokedAt: at, updatedAt: at }),
+    );
+    return true;
+  }
+
+  async deleteById(id: string): Promise<boolean> {
+    const held = await this.findById(id);
+    if (!held) return false;
+    await this.storage.delete(held.path);
+    return true;
+  }
+
+  async deleteScope(scopeId: string): Promise<number> {
+    if (!isNonEmptyString(scopeId)) fail('scopeId must be a non-empty string');
+    const collection = collectionFor(scopeId);
+    const rows = await this.storage.list<RuntimeMemoryRecord>(collection);
+    // Everything under the scope's collection goes, including a document too
+    // damaged to parse as a record: it still holds the user's content, and
+    // leaving it would make "delete my data" untrue.
+    for (const row of rows) await this.storage.delete(`${collection}/${row.id}`);
+    return rows.filter((row) => isRuntimeMemoryRecord(row.data)).length;
+  }
+
+  async export(scopeId: string, now: string): Promise<MemoryExport> {
+    assertTimestamp(now, 'now');
+    // Deliberately includes personal records: this is the user's own data,
+    // and a separate path from fine-tuning export (see exportPolicy.ts).
+    return Object.freeze({
+      version: MEMORY_RECORD_SCHEMA_VERSION,
+      scopeId,
+      exportedAt: now,
+      records: await this.listAll(scopeId),
+    });
+  }
+
+  async prune(now: string): Promise<number> {
+    assertTimestamp(now, 'now');
+    let expired = 0;
+    for (const { path, record } of await this.everywhere()) {
+      // Only active records expire. A superseded or revoked record keeps its
+      // status because that status is the audit trail; staleness must not
+      // overwrite the reason a record left retrieval.
+      if (record.status !== 'active' || isFresh(record, now)) continue;
+      await this.storage.set<RuntimeMemoryRecord>(path, withStatus(record, { status: 'expired', updatedAt: now }));
+      expired += 1;
+    }
+    return expired;
+  }
 }
 
-/** In-memory store with identical semantics, for tests and ephemeral use. */
+export function createStorageRuntimeMemoryStore(
+  options?: RuntimeMemoryStoreOptions,
+  storage?: StorageAdapter,
+): RuntimeMemoryStore {
+  return new StorageRuntimeMemoryStore(storage, options);
+}
+
+/**
+ * The same implementation over a private in-memory adapter, so a test cannot
+ * exercise semantics production does not have.
+ */
 export function createInMemoryRuntimeMemoryStore(options?: RuntimeMemoryStoreOptions): RuntimeMemoryStore {
-  return createStore(createMemoryRepository(), resolveTtl(options));
+  return new StorageRuntimeMemoryStore(createMemoryStorage(), options);
 }

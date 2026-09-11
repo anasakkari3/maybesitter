@@ -16,39 +16,39 @@ const state: DomainState = { ...createEmptyDomainState(), commitments: { c1: com
 const controls = (killed = false) => ({ version: 'v1' as const, featureFlags: { ...MODULE_FEATURE_FLAG_DEFAULTS, recommendation: true }, killSwitches: { ...MODULE_KILL_SWITCH_DEFAULTS, recommendation: killed } });
 const context = (killed = false) => ({ anonymousUserId: 'pilot-user', consent: 'granted' as const, locale: 'en' as const, now: new Date('2026-08-31T09:00:00.000Z'), controls: controls(killed), emit: appendAnalyticsEvent });
 
-test('V02 live loop: Capture state to recommendation, explanation, decision, and analytics without persistence', () => {
+test('V02 live loop: Capture state to recommendation, explanation, decision, and analytics without persistence', async () => {
   for (const decision of ['accept', 'edit', 'defer', 'dismiss', 'done'] as const) {
-    resetAnalyticsEventsForTests();
-    const proposal = getLiveNextStep(state, context());
+    await resetAnalyticsEventsForTests();
+    const proposal = await getLiveNextStep(state, context());
     assert.equal(proposal.state, 'ready');
     assert.ok(proposal.explanation?.summary);
-    const outcome = recordLiveNextStepDecision(proposal, decision, context(), decision === 'edit' ? 'Call Maya tomorrow' : undefined);
+    const outcome = await recordLiveNextStepDecision(proposal, decision, context(), decision === 'edit' ? 'Call Maya tomorrow' : undefined);
     assert.equal(outcome.persisted, false);
-    assert.deepEqual(getAnalyticsEvents().map((event) => event.eventName), ['recommendation_shown', `recommendation_${decision === 'accept' ? 'accepted' : decision === 'edit' ? 'edited' : decision === 'defer' ? 'deferred' : decision === 'dismiss' ? 'dismissed' : 'completed'}`]);
+    assert.deepEqual((await getAnalyticsEvents()).map((event) => event.eventName), ['recommendation_shown', `recommendation_${decision === 'accept' ? 'accepted' : decision === 'edit' ? 'edited' : decision === 'defer' ? 'deferred' : decision === 'dismiss' ? 'dismissed' : 'completed'}`]);
   }
 });
 
-test('V02 kill switch blocks recommendation and decisions while Capture remains untouched', () => {
-  resetAnalyticsEventsForTests();
-  const proposal = getLiveNextStep(state, context(true));
+test('V02 kill switch blocks recommendation and decisions while Capture remains untouched', async () => {
+  await resetAnalyticsEventsForTests();
+  const proposal = await getLiveNextStep(state, context(true));
   assert.equal(proposal.state, 'insufficient_evidence');
-  assert.equal(getAnalyticsEvents().length, 0);
-  assert.throws(() => recordLiveNextStepDecision({ ...proposal, state: 'ready', availableActions: ['accept'] }, 'accept', context(true)), /kill_switch_active/);
+  assert.equal((await getAnalyticsEvents()).length, 0);
+  await assert.rejects(recordLiveNextStepDecision({ ...proposal, state: 'ready', availableActions: ['accept'] }, 'accept', context(true)), /kill_switch_active/);
 });
 
-test('V02 decisions remain available without analytics consent and emit no event', () => {
-  resetAnalyticsEventsForTests();
+test('V02 decisions remain available without analytics consent and emit no event', async () => {
+  await resetAnalyticsEventsForTests();
   const withoutConsent = { ...context(), consent: 'essential' as const };
-  const proposal = getLiveNextStep(state, withoutConsent);
-  const outcome = recordLiveNextStepDecision(proposal, 'dismiss', withoutConsent);
+  const proposal = await getLiveNextStep(state, withoutConsent);
+  const outcome = await recordLiveNextStepDecision(proposal, 'dismiss', withoutConsent);
   assert.equal(outcome.status, 'recorded_without_penalty');
-  assert.equal(getAnalyticsEvents().length, 0);
+  assert.equal((await getAnalyticsEvents()).length, 0);
 });
 
-test('V02 live loop preserves English, Arabic, and Hebrew locale contracts', () => {
+test('V02 live loop preserves English, Arabic, and Hebrew locale contracts', async () => {
   for (const locale of ['en', 'ar', 'he'] as const) {
-    resetAnalyticsEventsForTests();
-    const proposal = getLiveNextStep(state, { ...context(), locale });
+    await resetAnalyticsEventsForTests();
+    const proposal = await getLiveNextStep(state, { ...context(), locale });
     assert.equal(proposal.locale, locale);
     assert.equal(proposal.state, 'ready');
     assert.ok(proposal.explanation?.summary);

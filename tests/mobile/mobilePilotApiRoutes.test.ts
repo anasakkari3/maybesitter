@@ -181,7 +181,7 @@ test('mobile analytics records content-free phone-presence events by token uid',
     const body = await json(response);
     assert.equal(body.recorded, true);
     assert.equal(body.participantId, A);
-    const event = getAnalyticsEvents().at(-1);
+    const event = (await getAnalyticsEvents()).at(-1);
     assert.equal(event?.anonymousUserId, A);
     assert.equal(event?.eventName, 'widget_tap');
     assert.doesNotMatch(JSON.stringify(event), /raw|title|message|email|content/i);
@@ -212,7 +212,7 @@ test('mobile analytics can be disabled without breaking product use', async () =
     assert.equal(response.status, 200);
     const body = await json(response);
     assert.equal(body.recorded, false);
-    assert.equal(getAnalyticsEvents().length, 0);
+    assert.equal((await getAnalyticsEvents()).length, 0);
   } finally {
     cleanup();
   }
@@ -241,7 +241,7 @@ test('mobile analytics rejects private content fields', async () => {
     }));
 
     assert.equal(response.status, 400);
-    assert.equal(getAnalyticsEvents().length, 0);
+    assert.equal((await getAnalyticsEvents()).length, 0);
   } finally {
     cleanup();
   }
@@ -517,7 +517,7 @@ test('trust and recommendation decisions are isolated per authenticated user', a
     const aStillOpen = await getNextStep(request('/api/mobile/recommendations/next-step', { participantId: A }));
     assert.equal(aStillOpen.status, 200);
 
-    assert.deepEqual(getAnalyticsEvents().map((event) => event.eventName), [
+    assert.deepEqual((await getAnalyticsEvents()).map((event) => event.eventName), [
       'first_value_reached',
       'first_value_reached',
       'recommendation_shown',
@@ -554,7 +554,7 @@ test('recommendation action idempotency is uid-scoped and durable', async () => 
     await grantAnalytics(A);
     await createConfirmedCommitment(A, 'Remind me to submit the permit tomorrow at 2pm');
     const proposal = (await nextStep(A)).recommendation;
-    resetAnalyticsEventsForTests();
+    await resetAnalyticsEventsForTests();
     const payload = { proposal, decision: 'accept', idempotencyKey: 'same-action' };
 
     const first = await recordNextStepAction(request('/api/mobile/recommendations/next-step/actions', { participantId: A, body: payload }));
@@ -568,7 +568,7 @@ test('recommendation action idempotency is uid-scoped and durable', async () => 
     assert.equal(second.status, 200);
     assert.equal((await json(second)).replayed, true);
     assert.equal(mismatch.status, 409);
-    assert.equal(getAnalyticsEvents().filter((event) => event.eventName === 'recommendation_accepted').length, 1);
+    assert.equal((await getAnalyticsEvents()).filter((event) => event.eventName === 'recommendation_accepted').length, 1);
   } finally {
     cleanup();
   }

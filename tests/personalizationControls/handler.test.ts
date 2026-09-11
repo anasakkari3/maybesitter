@@ -41,7 +41,7 @@ function call(port: PersonalizationControlsPort, body: unknown, deleteScope?: (s
   return handleControlsRequest({ port, deleteScope }, body);
 }
 
-function rejectionOf(outcome: ReturnType<typeof call>): string {
+function rejectionOf(outcome: Awaited<ReturnType<typeof call>>): string {
   const response = outcome.response as { kind?: string; code?: string };
   assert.equal(response.kind, 'rejected', `expected a rejection, got ${JSON.stringify(outcome.response).slice(0, 120)}`);
   return response.code ?? '';
@@ -49,7 +49,7 @@ function rejectionOf(outcome: ReturnType<typeof call>): string {
 
 /* ── Hostile input is reported, never thrown ─────────────────────── */
 
-test('every malformed request is reported with a named code and no throw', () => {
+test('every malformed request is reported with a named code and no throw', async () => {
   const port = makePort();
   const cases: [unknown, string][] = [
     [null, 'MALFORMED_REQUEST_BODY'],
@@ -70,22 +70,22 @@ test('every malformed request is reported with a named code and no throw', () =>
     [{ scopeId: SCOPE, now: NOW, action: 'revoke_feedback', eventId: 'nope' }, 'UNKNOWN_RECORD'],
   ];
   for (const [body, expected] of cases) {
-    let outcome: ReturnType<typeof call>;
-    assert.doesNotThrow(() => { outcome = call(port, body); }, `threw on ${JSON.stringify(body)}`);
+    let outcome: Awaited<ReturnType<typeof call>>;
+    await assert.doesNotReject(async () => { outcome = (await call(port, body)); }, `threw on ${JSON.stringify(body)}`);
     assert.equal(rejectionOf(outcome!), expected, `wrong code for ${JSON.stringify(body)}`);
     assert.equal(outcome!.status, 400);
   }
 });
 
-test('a level valid for one dimension is not accepted for another', () => {
+test('a level valid for one dimension is not accepted for another', async () => {
   // The level vocabulary is per-dimension. A flat "is this a known level
   // anywhere" check would let `soft` set the reminder density.
   const port = makePort();
-  const outcome = call(port, { scopeId: SCOPE, now: NOW, action: 'correct', dimension: 'reminder_density', level: 'soft' });
+  const outcome = await call(port, { scopeId: SCOPE, now: NOW, action: 'correct', dimension: 'reminder_density', level: 'soft' });
   assert.equal(rejectionOf(outcome), 'UNKNOWN_LEVEL');
 });
 
-test('every rejection code the handler can emit is declared', () => {
+test('every rejection code the handler can emit is declared', async () => {
   // A code emitted but not listed is one no caller can switch on exhaustively.
   const port = makePort();
   const emitted = new Set<string>();
@@ -98,7 +98,7 @@ test('every rejection code the handler can emit is declared', () => {
     { scopeId: SCOPE, now: NOW, action: 'correct', dimension: 'pressure_tone', level: 'x' },
     { scopeId: SCOPE, now: NOW, action: 'revoke_memory', recordId: 'x' },
   ]) {
-    emitted.add(rejectionOf(call(port, body)));
+    emitted.add(rejectionOf(await call(port, body)));
   }
   for (const code of Array.from(emitted)) {
     assert.ok((CONTROLS_REJECTION_CODES as readonly string[]).includes(code), `undeclared code: ${code}`);
@@ -107,7 +107,7 @@ test('every rejection code the handler can emit is declared', () => {
 
 /* ── Scope isolation ─────────────────────────────────────────────── */
 
-test('one scope cannot revoke another scope’s feedback event or memory record', () => {
+test('one scope cannot revoke another scope’s feedback event or memory record', async () => {
   // Neither store's `revoke(id, at)` takes a scope, so ownership is this
   // module's job and nothing above it will catch a miss. Without the check, an
   // unauthenticated POST naming someone else's record id and your own scopeId
@@ -115,39 +115,39 @@ test('one scope cannot revoke another scope’s feedback event or memory record'
   // event stops contributing to its owner's profile, so it reshapes a
   // stranger's personalization.
   const port = makePort();
-  const victimEvent = port.feedback.append(
+  const victimEvent = await port.feedback.append(
     { scopeId: 'victim', outcome: 'accept', subjectId: 's-1', actor: 'user', source: 'mobile_action', occurredAt: NOW },
     NOW,
   );
-  const victimRecord = port.memory.put(
+  const victimRecord = await port.memory.put(
     { scopeId: 'victim', kind: 'fact', content: 'theirs', language: 'en', source: 'user_stated', confidence: 1, observedAt: NOW },
     NOW,
   );
 
-  const stolenEvent = call(port, { scopeId: 'attacker', now: NOW, action: 'revoke_feedback', eventId: victimEvent.id });
+  const stolenEvent = await call(port, { scopeId: 'attacker', now: NOW, action: 'revoke_feedback', eventId: victimEvent.id });
   assert.equal(rejectionOf(stolenEvent), 'UNKNOWN_RECORD');
-  assert.equal(port.feedback.get(victimEvent.id)?.revokedAt ?? null, null, 'the victim’s event was revoked');
+  assert.equal((await port.feedback.get(victimEvent.id))?.revokedAt ?? null, null, 'the victim’s event was revoked');
 
-  const stolenRecord = call(port, { scopeId: 'attacker', now: NOW, action: 'revoke_memory', recordId: victimRecord.id });
+  const stolenRecord = await call(port, { scopeId: 'attacker', now: NOW, action: 'revoke_memory', recordId: victimRecord.id });
   assert.equal(rejectionOf(stolenRecord), 'UNKNOWN_RECORD');
-  assert.equal(port.memory.get(victimRecord.id)?.status, 'active', 'the victim’s record was revoked');
+  assert.equal((await port.memory.get(victimRecord.id))?.status, 'active', 'the victim’s record was revoked');
 });
 
-test('the owner can still revoke their own', () => {
+test('the owner can still revoke their own', async () => {
   // The other half: a scope check that refuses everything is not a fix.
   const port = makePort();
-  const own = port.feedback.append(
+  const own = await port.feedback.append(
     { scopeId: SCOPE, outcome: 'accept', subjectId: 's-1', actor: 'user', source: 'mobile_action', occurredAt: NOW },
     NOW,
   );
-  const outcome = call(port, { scopeId: SCOPE, now: NOW, action: 'revoke_feedback', eventId: own.id });
+  const outcome = await call(port, { scopeId: SCOPE, now: NOW, action: 'revoke_feedback', eventId: own.id });
   assert.equal(outcome.status, 200);
-  assert.ok(port.feedback.get(own.id)?.revokedAt);
+  assert.ok((await port.feedback.get(own.id))?.revokedAt);
 });
 
 /* ── A malformed instant is reported, not thrown ─────────────────── */
 
-test('a `now` that is not an instant is rejected rather than raised out of a store', () => {
+test('a `now` that is not an instant is rejected rather than raised out of a store', async () => {
   // Every store parses this value and throws its own error on a bad one, so
   // before the check these were 500s with stack traces out of a module
   // documented to report rather than throw. Each action below reached a
@@ -155,9 +155,9 @@ test('a `now` that is not an instant is rejected rather than raised out of a sto
   const port = makePort();
   for (const now of ['not-a-date', '2026-02-30T00:00:00Z', '2026-08-20T09:00:00', '', '   ']) {
     for (const action of ['inventory', 'enable', 'export', 'correct']) {
-      let outcome: ReturnType<typeof call> | undefined;
-      assert.doesNotThrow(() => {
-        outcome = call(port, { scopeId: SCOPE, now, action, dimension: 'pressure_tone', level: 'firm' });
+      let outcome: Awaited<ReturnType<typeof call>> | undefined;
+      await assert.doesNotReject(async () => {
+        outcome = (await call(port, { scopeId: SCOPE, now, action, dimension: 'pressure_tone', level: 'firm' }));
       }, `${action} threw on now=${JSON.stringify(now)}`);
       const code = rejectionOf(outcome!);
       assert.ok(
@@ -168,23 +168,23 @@ test('a `now` that is not an instant is rejected rather than raised out of a sto
   }
 });
 
-test('a well-formed instant still passes', () => {
+test('a well-formed instant still passes', async () => {
   const port = makePort();
-  assert.equal(call(port, { scopeId: SCOPE, now: NOW, action: 'inventory' }).status, 200);
+  assert.equal((await call(port, { scopeId: SCOPE, now: NOW, action: 'inventory' })).status, 200);
 });
 
 /* ── Consent ─────────────────────────────────────────────────────── */
 
-test('enabling and disabling take effect in the same response', () => {
+test('enabling and disabling take effect in the same response', async () => {
   // The view rides along with the write, so a client cannot render a stale
   // profile beside a flipped toggle even by accident.
   const port = makePort();
-  const enabled = call(port, { scopeId: SCOPE, now: NOW, action: 'enable' });
+  const enabled = await call(port, { scopeId: SCOPE, now: NOW, action: 'enable' });
   const enabledBody = enabled.response as { view: { consent: { state: string }; preferences: { kind: string } } };
   assert.equal(enabledBody.view.consent.state, 'enabled');
   assert.equal(enabledBody.view.preferences.kind, 'derived');
 
-  const disabled = call(port, { scopeId: SCOPE, now: NOW, action: 'disable' });
+  const disabled = await call(port, { scopeId: SCOPE, now: NOW, action: 'disable' });
   const disabledBody = disabled.response as { view: { consent: { state: string }; preferences: { kind: string } } };
   assert.equal(disabledBody.view.consent.state, 'disabled');
   assert.equal(disabledBody.view.preferences.kind, 'disabled');
@@ -192,18 +192,18 @@ test('enabling and disabling take effect in the same response', () => {
 
 /* ── Corrections ─────────────────────────────────────────────────── */
 
-test('a correction is stored, reflected, and clearable', () => {
+test('a correction is stored, reflected, and clearable', async () => {
   const port = makePort();
-  const applied = call(port, { scopeId: SCOPE, now: NOW, action: 'correct', dimension: 'pressure_tone', level: 'firm' });
+  const applied = await call(port, { scopeId: SCOPE, now: NOW, action: 'correct', dimension: 'pressure_tone', level: 'firm' });
   assert.equal(applied.status, 200);
-  assert.equal(readCorrections(port.memory, SCOPE, NOW).pressure_tone?.level, 'firm');
+  assert.equal((await readCorrections(port.memory, SCOPE, NOW)).pressure_tone?.level, 'firm');
 
-  const cleared = call(port, { scopeId: SCOPE, now: NOW, action: 'clear_correction', dimension: 'pressure_tone' });
+  const cleared = await call(port, { scopeId: SCOPE, now: NOW, action: 'clear_correction', dimension: 'pressure_tone' });
   assert.equal((cleared.response as { cleared: boolean }).cleared, true);
-  assert.equal(readCorrections(port.memory, SCOPE, NOW).pressure_tone, null);
+  assert.equal((await readCorrections(port.memory, SCOPE, NOW)).pressure_tone, null);
 });
 
-test('every dimension can be corrected to every level it declares', () => {
+test('every dimension can be corrected to every level it declares', async () => {
   // A level the endpoint refuses is a control the screen cannot offer, and a
   // per-dimension check that quietly rejects a legal level is invisible from any
   // single-dimension test. This sweeps the whole vocabulary rather than sampling
@@ -211,23 +211,23 @@ test('every dimension can be corrected to every level it declares', () => {
   for (const dimension of PREFERENCE_DIMENSIONS) {
     for (const level of PREFERENCE_LEVEL_VOCABULARY[dimension]) {
       const port = makePort();
-      const outcome = call(port, { scopeId: SCOPE, now: NOW, action: 'correct', dimension, level });
+      const outcome = await call(port, { scopeId: SCOPE, now: NOW, action: 'correct', dimension, level });
       assert.equal(outcome.status, 200, `${dimension}=${level} was refused: ${JSON.stringify(outcome.response)}`);
-      assert.equal(readCorrections(port.memory, SCOPE, NOW)[dimension]?.level, level);
+      assert.equal((await readCorrections(port.memory, SCOPE, NOW))[dimension]?.level, level);
     }
   }
 });
 
 /* ── Export: the user's copy is not the training copy ────────────── */
 
-test('export hands back the records and marks which may ever leave for training', () => {
+test('export hands back the records and marks which may ever leave for training', async () => {
   const port = makePort();
-  port.memory.put({
+  await port.memory.put({
     scopeId: SCOPE, kind: 'fact', content: 'Prefers evenings', language: 'en',
     source: 'user_stated', confidence: 1, observedAt: NOW,
   }, NOW);
 
-  const outcome = call(port, { scopeId: SCOPE, now: NOW, action: 'export' });
+  const outcome = await call(port, { scopeId: SCOPE, now: NOW, action: 'export' });
   assert.equal(outcome.status, 200);
   const body = outcome.response as { memoryRecords: readonly { content: string; fineTuningExportable: boolean }[] };
   assert.equal(body.memoryRecords.length, 1);
@@ -240,18 +240,18 @@ test('export hands back the records and marks which may ever leave for training'
 
 /* ── Deletion, honestly refused until it is wired ────────────────── */
 
-test('a delete request is refused with 501 when deletion is not wired, not silently accepted', () => {
+test('a delete request is refused with 501 when deletion is not wired, not silently accepted', async () => {
   const port = makePort();
-  const outcome = call(port, { scopeId: SCOPE, now: NOW, action: 'delete' });
+  const outcome = await call(port, { scopeId: SCOPE, now: NOW, action: 'delete' });
   assert.equal(outcome.status, 501);
   assert.equal(rejectionOf(outcome), 'STORE_REJECTED');
 });
 
-test('when deletion is wired the receipt is returned and consent is reset with it', () => {
+test('when deletion is wired the receipt is returned and consent is reset with it', async () => {
   const port = makePort();
-  port.consent.write(SCOPE, 'enabled', NOW);
+  await port.consent.write(SCOPE, 'enabled', NOW);
   let sawScope: string | null = null;
-  const outcome = call(port, { scopeId: SCOPE, now: NOW, action: 'delete' }, (scopeId) => {
+  const outcome = await call(port, { scopeId: SCOPE, now: NOW, action: 'delete' }, (scopeId) => {
     sawScope = scopeId;
     return { scopeId, remainingFeedbackEventCount: 0 };
   });
@@ -259,5 +259,5 @@ test('when deletion is wired the receipt is returned and consent is reset with i
   assert.equal(sawScope, SCOPE);
   // Consent is a fourth store and it is deleted too: leaving `enabled` behind
   // would have a deleted user still opted in.
-  assert.equal(port.consent.read(SCOPE).state, 'disabled');
+  assert.equal((await port.consent.read(SCOPE)).state, 'disabled');
 });

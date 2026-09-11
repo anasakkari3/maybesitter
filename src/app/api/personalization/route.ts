@@ -14,11 +14,9 @@
  * and still tested, because a build that loses one of them should say so rather
  * than crash.
  */
-import {
-  createFileFeedbackEventStore,
-} from '../../../../lib/feedback/feedbackEventStore';
-import { createFileRuntimeMemoryStore } from '../../../../lib/runtimeMemory/runtimeMemoryStore';
-import { createFilePersonalizationConsentStore } from '../../../../lib/personalizationControls/consentStore';
+import { createStorageFeedbackEventStore } from '../../../../lib/feedback/feedbackEventStore';
+import { createStorageRuntimeMemoryStore } from '../../../../lib/runtimeMemory/runtimeMemoryStore';
+import { createStoragePersonalizationConsentStore } from '../../../../lib/personalizationControls/consentStore';
 import { handleControlsRequest } from '../../../../lib/personalizationControls/handler';
 import { derivePersonalizationProfile } from '../../../../lib/personalization/derive';
 import { deletePersonalizationScope } from '../../../../lib/personalization/deletion';
@@ -28,9 +26,9 @@ export const dynamic = 'force-dynamic';
 
 function port(): PersonalizationControlsPort {
   return {
-    feedback: createFileFeedbackEventStore(),
-    memory: createFileRuntimeMemoryStore(),
-    consent: createFilePersonalizationConsentStore(),
+    feedback: createStorageFeedbackEventStore(),
+    memory: createStorageRuntimeMemoryStore(),
+    consent: createStoragePersonalizationConsentStore(),
     deriver: derivePersonalizationProfile,
     // No ambient state: the adaptive signals a real request should carry come
     // from the caller's session, and until the control centre has a session to
@@ -55,7 +53,7 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const active = port();
-  const outcome = handleControlsRequest(
+  const outcome = await handleControlsRequest(
     {
       port: active,
       // The stores are read from the same `port()` the rest of the request uses,

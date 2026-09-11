@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 
 /** Activation, funnel, and retention report over the events recorded so far. */
 export async function GET() {
-  return Response.json(buildProductMetricsReport(getAnalyticsEvents(), new Date()));
+  return Response.json(buildProductMetricsReport(await getAnalyticsEvents(), new Date()));
 }
 
 /**
@@ -31,7 +31,7 @@ export async function POST(request: Request) {
 
   try {
     const properties = (body.properties ?? {}) as PrivacySafeAnalyticsEvent['properties'];
-    const event = recordClientEvent(analytics, body.eventName, properties);
+    const event = await recordClientEvent(analytics, body.eventName, properties);
     return Response.json({ recorded: event !== null, eventId: event?.eventId ?? null });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : 'event rejected' }, { status: 400 });

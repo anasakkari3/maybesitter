@@ -3,6 +3,25 @@ import path from 'path';
 import { randomUUID } from 'crypto';
 import type { DailyDigest, Item, ReminderAttempt, User } from '../types/index';
 import { resolveDataDir } from '../../lib/runtime/dataDir';
+import { assertNotCloudRun } from '../../lib/runtime/assertNotCloudRun';
+
+/**
+ * Local-disk only, deliberately (UC-1.0c, #142).
+ *
+ * This is the legacy single-user web UI's store. It was not migrated onto the
+ * storage adapter: the web UI is not a launch surface, it has no per-user
+ * identity to key a `users/{uid}` tree on — every row is `SINGLE_USER_ID` —
+ * and UC-1.0e (#144) blocks its routes in production. Migrating it would mean
+ * inventing an account for a surface that is on its way out.
+ *
+ * The guard is called from the two exported entry points rather than at module
+ * scope. Next pulls route modules in at build time and again on boot, so a
+ * module-init throw would fail the build or take the whole revision down
+ * instead of failing the one request that reached this store.
+ */
+const NOT_ON_CLOUD_RUN =
+  'the legacy single-user web store keys every row to SINGLE_USER_ID and has no per-user tree; '
+  + 'the launch path is the storage adapter under users/{uid}';
 
 export const SINGLE_USER_ID = 'single-user';
 const SCHEMA_VERSION = 1;
@@ -114,6 +133,7 @@ async function writeDataUnlocked(data: AppData): Promise<void> {
 }
 
 export async function getAppSnapshot(): Promise<AppSnapshot> {
+  assertNotCloudRun('src/server/dataStore', NOT_ON_CLOUD_RUN);
   const data = await readDataUnlocked();
   return {
     user: data.user,
@@ -124,6 +144,7 @@ export async function getAppSnapshot(): Promise<AppSnapshot> {
 }
 
 export async function updateAppData<T>(mutator: (data: AppData) => T | Promise<T>): Promise<T> {
+  assertNotCloudRun('src/server/dataStore', NOT_ON_CLOUD_RUN);
   const operation = writeQueue.then(async () => {
     const data = await readDataUnlocked();
     const result = await mutator(data);

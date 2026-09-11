@@ -37,51 +37,51 @@ function context(consent: 'granted' | 'essential' = 'granted') {
   return { anonymousUserId: 'loop-user', consent, now: NOW, emit: appendAnalyticsEvent };
 }
 
-test('analytics: capture wiring derives detection and confirmation from domain state', () => {
-  resetAnalyticsEventsForTests();
+test('analytics: capture wiring derives detection and confirmation from domain state', async () => {
+  await resetAnalyticsEventsForTests();
   const before = stateWith(commitment('c0', { confirmedAt: '2026-08-30T00:00:00.000Z' }));
   const after = stateWith(
     commitment('c0', { confirmedAt: '2026-08-30T00:00:00.000Z' }),
     commitment('c1', { confirmedAt: NOW.toISOString() }),
     commitment('c2'),
   );
-  const events = recordCaptureAnalytics(context(), { inputLength: 24, locale: 'en', detectionSource: 'rule-based', before, after });
+  const events = await recordCaptureAnalytics(context(), { inputLength: 24, locale: 'en', detectionSource: 'rule-based', before, after });
 
   assert.deepEqual(events.map((event) => event.eventName), ['capture_submitted', 'commitment_detected', 'commitment_confirmed', 'commitment_detected']);
   assert.deepEqual(events[0].properties, { inputLength: 24, locale: 'en' });
   assert.deepEqual(events[1].properties, { commitmentId: 'c1', detectionSource: 'rule-based' });
   assert.deepEqual(events[2].properties, { commitmentId: 'c1' });
-  for (const event of getAnalyticsEvents()) assert.equal(validateAnalyticsEvent(event).valid, true);
+  for (const event of await getAnalyticsEvents()) assert.equal(validateAnalyticsEvent(event).valid, true);
 });
 
-test('analytics: capture events carry no raw captured text', () => {
-  resetAnalyticsEventsForTests();
-  recordCaptureAnalytics(context(), {
+test('analytics: capture events carry no raw captured text', async () => {
+  await resetAnalyticsEventsForTests();
+  await recordCaptureAnalytics(context(), {
     inputLength: 'Call Maya about the hospital results'.length, locale: 'en', detectionSource: 'rule-based',
     before: createEmptyDomainState(), after: stateWith(commitment('c1')),
   });
-  assert.doesNotMatch(JSON.stringify(getAnalyticsEvents()), /Maya|hospital|Call/i);
+  assert.doesNotMatch(JSON.stringify(await getAnalyticsEvents()), /Maya|hospital|Call/i);
 });
 
-test('analytics: loop events require analytics consent but a deletion receipt does not', () => {
-  resetAnalyticsEventsForTests();
+test('analytics: loop events require analytics consent but a deletion receipt does not', async () => {
+  await resetAnalyticsEventsForTests();
   const withoutConsent = context('essential');
-  recordCaptureAnalytics(withoutConsent, { inputLength: 5, locale: 'en', detectionSource: 'rule-based', before: createEmptyDomainState(), after: stateWith(commitment('c1')) });
-  assert.equal(getAnalyticsEvents().length, 0);
+  await recordCaptureAnalytics(withoutConsent, { inputLength: 5, locale: 'en', detectionSource: 'rule-based', before: createEmptyDomainState(), after: stateWith(commitment('c1')) });
+  assert.equal((await getAnalyticsEvents()).length, 0);
 
-  assert.equal(recordCommitmentEdited(withoutConsent, 'c1', 2), null);
-  const deletion = recordDataDeleted(withoutConsent, 'all_commitments');
+  assert.equal(await recordCommitmentEdited(withoutConsent, 'c1', 2), null);
+  const deletion = await recordDataDeleted(withoutConsent, 'all_commitments');
   assert.equal(deletion?.eventName, 'data_deleted');
-  assert.deepEqual(getAnalyticsEvents().map((event) => event.eventName), ['data_deleted']);
+  assert.deepEqual((await getAnalyticsEvents()).map((event) => event.eventName), ['data_deleted']);
 });
 
-test('analytics: a deletion receipt purges that user history and leaves other users intact', () => {
-  resetAnalyticsEventsForTests();
-  recordCaptureAnalytics(context(), { inputLength: 5, locale: 'en', detectionSource: 'rule-based', before: createEmptyDomainState(), after: stateWith(commitment('c1')) });
-  emitAnalyticsEvent({ ...context(), anonymousUserId: 'other-user' }, 'pricing_viewed', { surface: 'paywall' });
-  recordDataDeleted(context(), 'all_commitments');
+test('analytics: a deletion receipt purges that user history and leaves other users intact', async () => {
+  await resetAnalyticsEventsForTests();
+  await recordCaptureAnalytics(context(), { inputLength: 5, locale: 'en', detectionSource: 'rule-based', before: createEmptyDomainState(), after: stateWith(commitment('c1')) });
+  await emitAnalyticsEvent({ ...context(), anonymousUserId: 'other-user' }, 'pricing_viewed', { surface: 'paywall' });
+  await recordDataDeleted(context(), 'all_commitments');
 
-  const remaining = getAnalyticsEvents();
+  const remaining = await getAnalyticsEvents();
   assert.deepEqual(remaining.filter((event) => event.anonymousUserId === 'loop-user').map((event) => event.eventName), ['data_deleted']);
   assert.equal(remaining.filter((event) => event.anonymousUserId === 'other-user').length, 1);
 });
@@ -107,9 +107,9 @@ test('analytics: forged loop events are not client-reportable and bad payloads a
   assert.throws(() => buildAnalyticsEvent({ ...context(), anonymousUserId: 'bad id!' }, 'pricing_viewed', { surface: 'paywall' }), /valid user/);
 });
 
-test('analytics: phone-presence client events are privacy-safe and reportable', () => {
-  resetAnalyticsEventsForTests();
-  const event = recordClientEvent(context(), 'voice_capture_completed', {
+test('analytics: phone-presence client events are privacy-safe and reportable', async () => {
+  await resetAnalyticsEventsForTests();
+  const event = await recordClientEvent(context(), 'voice_capture_completed', {
     source: 'widget',
     locale: 'en-US',
     inputLength: 42,
@@ -164,17 +164,17 @@ test('analytics: changed field count reports edit shape without field values', (
   assert.equal(changedFieldCount(undefined, { title: 'a' }), 0);
 });
 
-test('analytics: live-wired events reconcile into the activation and funnel report', () => {
-  resetAnalyticsEventsForTests();
-  recordCaptureAnalytics(context(), {
+test('analytics: live-wired events reconcile into the activation and funnel report', async () => {
+  await resetAnalyticsEventsForTests();
+  await recordCaptureAnalytics(context(), {
     inputLength: 24, locale: 'en', detectionSource: 'rule-based',
     before: createEmptyDomainState(), after: stateWith(commitment('c1', { confirmedAt: NOW.toISOString() })),
   });
-  emitAnalyticsEvent(context(), 'recommendation_shown', { proposalId: 'p1', commitmentId: 'c1', baselineVersion: 'v1' });
-  emitAnalyticsEvent(context(), 'recommendation_accepted', { proposalId: 'p1' });
-  recordFirstValueReached(context(), { surface: 'recommendation', reason: 'next_step_ready' });
+  await emitAnalyticsEvent(context(), 'recommendation_shown', { proposalId: 'p1', commitmentId: 'c1', baselineVersion: 'v1' });
+  await emitAnalyticsEvent(context(), 'recommendation_accepted', { proposalId: 'p1' });
+  await recordFirstValueReached(context(), { surface: 'recommendation', reason: 'next_step_ready' });
 
-  const report = buildProductMetricsReport(getAnalyticsEvents(), new Date('2026-09-01T00:00:00.000Z'));
+  const report = buildProductMetricsReport(await getAnalyticsEvents(), new Date('2026-09-01T00:00:00.000Z'));
   assert.equal(report.totalUsers, 1);
   assert.equal(report.activatedUsers, 1);
   assert.equal(report.activationRate, 1);

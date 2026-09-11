@@ -1,5 +1,5 @@
 /**
- * The shadow study's consent store (Sprint 11, issue #47).
+ * The shadow study's consent store, on durable storage (UC-1.0c, #142).
  *
  * ── Why a second consent store ───────────────────────────────────
  *
@@ -8,41 +8,33 @@
  * which of its three separately-refusable parts". They are different questions
  * with different subjects — a *scope* versus a *participant* — and a single
  * flag that meant both would be a consent a person could not withdraw from the
- * study without also turning off personalization. `ShadowConsentScope` exists
- * in the contract precisely because the parts are separately refusable.
+ * study without also turning off personalization.
  *
- * What is *not* duplicated is the mechanism: this file is structurally
- * `lib/personalizationControls/consentStore.ts` — one semantics implementation
- * over a persistence seam, ids hashed before they name a file, temp-then-rename
- * at mode 0600, no ambient clock, and unreadable state reading as the
- * fail-closed default.
+ * Both now live under `users/{uid}/consents`, distinguished by document id
+ * (`personalization` and `shadowStudy`), which keeps them separately
+ * refusable while putting both inside the tree account deletion removes.
+ *
+ * ── What the move fixes ──────────────────────────────────────────
+ *
+ * The file-backed version kept one file per participant on a per-instance
+ * disk, so a withdrawal from the study was invisible to every other instance
+ * until it restarted — a participant could keep being exposed after opting
+ * out. That is the defect, not the storage cost.
  *
  * ── Revocation is a shape, and this store keeps it one ───────────
  *
  * `ShadowRevokedConsent` carries `scopes: readonly []` in the type. This store
  * never writes a revoked record with scopes on it, and — more usefully — never
  * *reads* one: a stored record whose state is not `granted` has its scopes
- * dropped on the way out. So a hand-edited file that put scopes back on a
+ * dropped on the way out. So a hand-edited record that put scopes back on a
  * revoked consent cannot hand a live scope to a consumer.
  *
  * ── Reports, never throws ────────────────────────────────────────
  *
- * Every write returns a result variant naming why it was refused. The pilot's
- * `applyPilotTrustAction` throws instead, and that is the older half of the
- * seam; this half is called from an HTTP handler, where a throw is a 500 and a
+ * Every write returns a result variant naming why it was refused, because this
+ * half of the seam is called from an HTTP handler where a throw is a 500 and a
  * stack trace rather than something a client can act on.
  */
-import { createHash } from 'node:crypto';
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  renameSync,
-  unlinkSync,
-  writeFileSync,
-} from 'node:fs';
-import path from 'node:path';
 import {
   SHADOW_CONSENT_SCOPES,
   SHADOW_CONSENT_STATES,
@@ -54,12 +46,17 @@ import {
   type ShadowConsentState,
   type ShadowStudyConsent,
 } from '../../src/contracts/v1/shadowPipelineContracts';
-import { resolveDataDir } from '../runtime/dataDir';
+import {
+  CONSENTS,
+  createMemoryStorage,
+  getStorage,
+  userCol,
+  userIdForKey,
+  type StorageAdapter,
+} from '../storage';
 
-const CONSENT_SUBDIR = 'shadow-study-consent';
-const CONSENT_FILE_EXT = '.study-consent.json';
-const TEMP_FILE_EXT = '.tmp';
-const CONSENT_ID_PREFIX = 'ssc_';
+/** One document per user; the id names which consent it is. */
+const SHADOW_STUDY_CONSENT_DOC = 'shadowStudy';
 export const SHADOW_STUDY_CONSENT_SCHEMA_VERSION = 'shadow-study-consent-v1' as const;
 
 /**
@@ -89,25 +86,22 @@ export type ShadowConsentWriteResult =
       readonly consent: ShadowStudyConsent;
     };
 
+/** Async since UC-1.0c (#142): every method is a storage round trip. */
 export interface ShadowStudyConsentStore {
   /** Never throws for any input: unreadable state is the withheld default. */
-  read(participantId: string): ShadowStudyConsent;
+  read(participantId: string): Promise<ShadowStudyConsent>;
   grant(
     participantId: string,
     scopes: readonly ShadowConsentScope[],
     at: Instant,
-  ): ShadowConsentWriteResult;
-  revoke(participantId: string, at: Instant): ShadowConsentWriteResult;
+  ): Promise<ShadowConsentWriteResult>;
+  revoke(participantId: string, at: Instant): Promise<ShadowConsentWriteResult>;
   /** Removes the record outright. Returns 1 or 0; verify by re-reading. */
-  deleteParticipant(participantId: string): number;
+  deleteParticipant(participantId: string): Promise<number>;
   /** 1 when a record exists for this participant, 0 otherwise. */
-  countFor(participantId: string): number;
-  /** Storage order, which is insertion order. Nothing here sorts anything. */
-  listParticipants(): readonly string[];
-}
-
-export interface ShadowStudyConsentStoreOptions {
-  readonly dataDir?: string;
+  countFor(participantId: string): Promise<number>;
+  /** Every participant this store holds a record for. */
+  listParticipants(): Promise<readonly string[]>;
 }
 
 interface StoredConsent {
@@ -153,8 +147,8 @@ function isStoredConsent(value: unknown): value is StoredConsent {
  * The stored record, read as the contract's union.
  *
  * A stored record that cannot make a well-formed variant reads as `withheld`
- * rather than as a partially-populated grant: fail-closed is the direction, and
- * "we could not read your consent" must never resolve to "you consented".
+ * rather than as a partially-populated grant: fail-closed is the direction,
+ * and "we could not read your consent" must never resolve to "you consented".
  */
 function toConsent(record: StoredConsent | null, participantId: string): ShadowStudyConsent {
   if (record === null || record.participantId !== participantId) return withheld(participantId);
@@ -187,204 +181,148 @@ function toConsent(record: StoredConsent | null, participantId: string): ShadowS
   return withheld(participantId);
 }
 
-interface ConsentRepository {
-  readOne(participantId: string): StoredConsent | null;
-  write(record: StoredConsent): void;
-  remove(participantId: string): boolean;
-  listIds(): readonly string[];
+function documentPath(participantId: string): string {
+  return `${userCol(userIdForKey(participantId), CONSENTS)}/${SHADOW_STUDY_CONSENT_DOC}`;
 }
 
-function createStore(repository: ConsentRepository): ShadowStudyConsentStore {
-  function current(participantId: string): ShadowStudyConsent {
-    if (!isSafeParticipant(participantId)) return withheld(String(participantId));
-    return toConsent(repository.readOne(participantId), participantId);
+export class StorageShadowStudyConsentStore implements ShadowStudyConsentStore {
+  constructor(private readonly injected?: StorageAdapter) {}
+
+  /** Resolved per call so a test may swap the adapter after construction. */
+  private get storage(): StorageAdapter {
+    return this.injected ?? getStorage();
   }
 
-  function reject(
+  private async stored(participantId: string): Promise<StoredConsent | null> {
+    const value = await this.storage.get<StoredConsent>(documentPath(participantId));
+    return isStoredConsent(value) ? value : null;
+  }
+
+  async read(participantId: string): Promise<ShadowStudyConsent> {
+    if (!isSafeParticipant(participantId)) return withheld(String(participantId));
+    return toConsent(await this.stored(participantId), participantId);
+  }
+
+  private async reject(
     participantId: string,
     reason: ShadowConsentWriteRejection,
     detail: string,
-  ): ShadowConsentWriteResult {
-    return { status: 'rejected', reason, detail, consent: current(participantId) };
+  ): Promise<ShadowConsentWriteResult> {
+    return { status: 'rejected', reason, detail, consent: await this.read(participantId) };
   }
 
-  return {
-    read: current,
-
-    grant(participantId, scopes, at): ShadowConsentWriteResult {
-      if (!isSafeParticipant(participantId)) {
-        return reject(participantId, 'unsafe_participant', 'participantId is outside the safe-code pattern');
-      }
-      if (!Array.isArray(scopes) || scopes.length === 0) {
-        return reject(participantId, 'no_scopes', 'a granted consent must grant at least one scope');
-      }
-      const unknown = scopes.filter((scope) => !isKnownScope(scope));
-      if (unknown.length > 0) {
-        return reject(
-          participantId,
-          'unknown_scope',
-          `not a study consent scope: ${unknown.map((scope) => String(scope)).join(', ')}`,
-        );
-      }
-      if (!isInstant(at)) {
-        return reject(participantId, 'malformed_instant', `not an ISO instant with an explicit offset: ${String(at)}`);
-      }
-      // Declaration order of the vocabulary, and each scope once: a caller who
-      // sent the same scope twice consented to it once.
-      const deduped = SHADOW_CONSENT_SCOPES.filter((scope) => scopes.includes(scope));
-      repository.write({
-        version: SHADOW_STUDY_CONSENT_SCHEMA_VERSION,
-        participantId,
-        state: 'granted',
-        scopes: deduped,
-        grantedAt: at,
-        revokedAt: null,
-      });
-      return { status: 'written', consent: current(participantId) };
-    },
-
-    revoke(participantId, at): ShadowConsentWriteResult {
-      if (!isSafeParticipant(participantId)) {
-        return reject(participantId, 'unsafe_participant', 'participantId is outside the safe-code pattern');
-      }
-      if (!isInstant(at)) {
-        return reject(participantId, 'malformed_instant', `not an ISO instant with an explicit offset: ${String(at)}`);
-      }
-      const existing = current(participantId);
-      if (existing.state === 'withheld') {
-        // A revocation of a consent that was never granted is not a
-        // revocation, and `ShadowRevokedConsent` has no shape for it — its
-        // `grantedAt` is non-null by construction.
-        return reject(participantId, 'nothing_to_revoke', 'this participant has no granted consent to withdraw');
-      }
-      if (existing.state === 'revoked') {
-        return reject(participantId, 'already_revoked', `consent was already withdrawn at ${existing.revokedAt}`);
-      }
-      const elapsed = millisBetweenInstants(existing.grantedAt, at);
-      if (elapsed === null || elapsed < 0) {
-        return reject(
-          participantId,
-          'backdated',
-          `a consent granted at ${existing.grantedAt} cannot be withdrawn at ${at}`,
-        );
-      }
-      repository.write({
-        version: SHADOW_STUDY_CONSENT_SCHEMA_VERSION,
-        participantId,
-        state: 'revoked',
-        scopes: [],
-        grantedAt: existing.grantedAt,
-        revokedAt: at,
-      });
-      return { status: 'written', consent: current(participantId) };
-    },
-
-    deleteParticipant(participantId): number {
-      if (!isSafeParticipant(participantId)) return 0;
-      return repository.remove(participantId) ? 1 : 0;
-    },
-
-    countFor(participantId): number {
-      if (!isSafeParticipant(participantId)) return 0;
-      const record = repository.readOne(participantId);
-      return record !== null && record.participantId === participantId ? 1 : 0;
-    },
-
-    listParticipants(): readonly string[] {
-      return repository.listIds();
-    },
-  };
-}
-
-function defaultDataDir(): string {
-  const root = resolveDataDir();
-  return path.join(root, CONSENT_SUBDIR);
-}
-
-/** Participant ids are caller text, so they are hashed before naming a file. */
-function consentFileId(participantId: string): string {
-  return `${CONSENT_ID_PREFIX}${createHash('sha256').update(participantId, 'utf8').digest('hex')}`;
-}
-
-function createFileRepository(resolveDataDir: () => string): ConsentRepository {
-  function ensureDir(): string {
-    const dataDir = resolveDataDir();
-    mkdirSync(dataDir, { recursive: true });
-    return dataDir;
-  }
-
-  function filePathFor(dataDir: string, participantId: string): string {
-    return path.join(dataDir, `${consentFileId(participantId)}${CONSENT_FILE_EXT}`);
-  }
-
-  function readFile(file: string): StoredConsent | null {
-    if (!existsSync(file)) return null;
-    try {
-      const raw: unknown = JSON.parse(readFileSync(file, 'utf8'));
-      if (isStoredConsent(raw)) return raw;
-    } catch {
-      // Corrupt or truncated: null, which reads as withheld.
+  async grant(
+    participantId: string,
+    scopes: readonly ShadowConsentScope[],
+    at: Instant,
+  ): Promise<ShadowConsentWriteResult> {
+    if (!isSafeParticipant(participantId)) {
+      return this.reject(participantId, 'unsafe_participant', 'participantId is outside the safe-code pattern');
     }
-    return null;
+    if (!Array.isArray(scopes) || scopes.length === 0) {
+      return this.reject(participantId, 'no_scopes', 'a granted consent must grant at least one scope');
+    }
+    const unknown = scopes.filter((scope) => !isKnownScope(scope));
+    if (unknown.length > 0) {
+      return this.reject(
+        participantId,
+        'unknown_scope',
+        `not a study consent scope: ${unknown.map((scope) => String(scope)).join(', ')}`,
+      );
+    }
+    if (!isInstant(at)) {
+      return this.reject(participantId, 'malformed_instant', `not an ISO instant with an explicit offset: ${String(at)}`);
+    }
+    // Declaration order of the vocabulary, and each scope once: a caller who
+    // sent the same scope twice consented to it once.
+    const deduped = SHADOW_CONSENT_SCOPES.filter((scope) => scopes.includes(scope));
+    await this.storage.set<StoredConsent>(documentPath(participantId), {
+      version: SHADOW_STUDY_CONSENT_SCHEMA_VERSION,
+      participantId,
+      state: 'granted',
+      scopes: deduped,
+      grantedAt: at,
+      revokedAt: null,
+    });
+    return { status: 'written', consent: await this.read(participantId) };
   }
 
-  return {
-    readOne: (participantId) => readFile(filePathFor(ensureDir(), participantId)),
+  async revoke(participantId: string, at: Instant): Promise<ShadowConsentWriteResult> {
+    if (!isSafeParticipant(participantId)) {
+      return this.reject(participantId, 'unsafe_participant', 'participantId is outside the safe-code pattern');
+    }
+    if (!isInstant(at)) {
+      return this.reject(participantId, 'malformed_instant', `not an ISO instant with an explicit offset: ${String(at)}`);
+    }
+    const existing = await this.read(participantId);
+    if (existing.state === 'withheld') {
+      // A revocation of a consent that was never granted is not a revocation,
+      // and `ShadowRevokedConsent` has no shape for it — its `grantedAt` is
+      // non-null by construction.
+      return this.reject(participantId, 'nothing_to_revoke', 'this participant has no granted consent to withdraw');
+    }
+    if (existing.state === 'revoked') {
+      return this.reject(participantId, 'already_revoked', `consent was already withdrawn at ${existing.revokedAt}`);
+    }
+    const elapsed = millisBetweenInstants(existing.grantedAt, at);
+    if (elapsed === null || elapsed < 0) {
+      return this.reject(
+        participantId,
+        'backdated',
+        `a consent granted at ${existing.grantedAt} cannot be withdrawn at ${at}`,
+      );
+    }
+    await this.storage.set<StoredConsent>(documentPath(participantId), {
+      version: SHADOW_STUDY_CONSENT_SCHEMA_VERSION,
+      participantId,
+      state: 'revoked',
+      scopes: [],
+      grantedAt: existing.grantedAt,
+      revokedAt: at,
+    });
+    return { status: 'written', consent: await this.read(participantId) };
+  }
 
-    write(record): void {
-      const file = filePathFor(ensureDir(), record.participantId);
-      const temporary = `${file}.${process.pid}${TEMP_FILE_EXT}`;
-      writeFileSync(temporary, `${JSON.stringify(record, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
-      renameSync(temporary, file);
-    },
+  async deleteParticipant(participantId: string): Promise<number> {
+    if (!isSafeParticipant(participantId)) return 0;
+    const path = documentPath(participantId);
+    const existed = (await this.stored(participantId)) !== null;
+    if (existed) await this.storage.delete(path);
+    return existed ? 1 : 0;
+  }
 
-    remove(participantId): boolean {
-      const dataDir = ensureDir();
-      const file = filePathFor(dataDir, participantId);
-      const existed = existsSync(file);
-      if (existed) unlinkSync(file);
-      // Sweep temp files a crashed write left behind: they carry the record and
-      // the participant asked for it gone.
-      const tempPrefix = `${consentFileId(participantId)}${CONSENT_FILE_EXT}`;
-      for (const entry of readdirSync(dataDir)) {
-        if (!entry.startsWith(tempPrefix) || !entry.endsWith(TEMP_FILE_EXT)) continue;
-        unlinkSync(path.join(dataDir, entry));
-      }
-      return existed;
-    },
+  async countFor(participantId: string): Promise<number> {
+    if (!isSafeParticipant(participantId)) return 0;
+    return (await this.stored(participantId)) === null ? 0 : 1;
+  }
 
-    listIds(): readonly string[] {
-      const dataDir = ensureDir();
-      const ids: string[] = [];
-      // Directory order, not a sort: this module owns no comparator.
-      for (const entry of readdirSync(dataDir)) {
-        if (!entry.endsWith(CONSENT_FILE_EXT)) continue;
-        const record = readFile(path.join(dataDir, entry));
-        if (record !== null) ids.push(record.participantId);
-      }
-      return ids;
-    },
-  };
+  /**
+   * A collection-group read over `consents`, filtered to this store's own
+   * documents by schema version — the personalization consent shares the
+   * collection and must not appear here.
+   */
+  async listParticipants(): Promise<readonly string[]> {
+    const rows = await this.storage.listGroup<StoredConsent>(CONSENTS);
+    return rows
+      .filter((row) => isStoredConsent(row.data))
+      .map((row) => row.data.participantId);
+  }
 }
 
-function createMemoryRepository(): ConsentRepository {
-  const records = new Map<string, StoredConsent>();
-  return {
-    readOne: (participantId) => records.get(participantId) ?? null,
-    write: (record) => {
-      records.set(record.participantId, record);
-    },
-    remove: (participantId) => records.delete(participantId),
-    listIds: () => Array.from(records.keys()),
-  };
+/**
+ * The same implementation over a private in-memory adapter, so a test cannot
+ * exercise semantics production does not have.
+ */
+export class MemoryShadowStudyConsentStore extends StorageShadowStudyConsentStore {
+  constructor() {
+    super(createMemoryStorage());
+  }
 }
 
-export function createFileShadowStudyConsentStore(
-  options?: ShadowStudyConsentStoreOptions,
-): ShadowStudyConsentStore {
-  return createStore(createFileRepository(() => options?.dataDir ?? defaultDataDir()));
+export function createStorageShadowStudyConsentStore(storage?: StorageAdapter): ShadowStudyConsentStore {
+  return new StorageShadowStudyConsentStore(storage);
 }
 
 export function createInMemoryShadowStudyConsentStore(): ShadowStudyConsentStore {
-  return createStore(createMemoryRepository());
+  return new MemoryShadowStudyConsentStore();
 }

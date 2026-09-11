@@ -54,17 +54,17 @@ export function resolveHistoryLimit(raw: string | null): number {
   return Math.min(Math.floor(parsed), MAX_HISTORY_LIMIT);
 }
 
-export function buildHistoryResponse(
+export async function buildHistoryResponse(
   port: FeedbackHistoryPort,
   scopeId: string,
   limit: number = DEFAULT_HISTORY_LIMIT,
-): FeedbackHistoryResponse {
-  const rows = [...port.listForScope(scopeId)]
+): Promise<FeedbackHistoryResponse> {
+  const rows = [...(await port.listForScope(scopeId))]
     .sort(newestFirst)
     .slice(0, limit)
     .map(toHistoryRow);
 
-  const baseline = port.readBaseline(scopeId);
+  const baseline = await port.readBaseline(scopeId);
   // Counters carry no timestamps, so they can never become rows. They are
   // announced separately rather than dropped, otherwise the screen would show
   // less history than the system actually holds.

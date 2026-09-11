@@ -31,7 +31,7 @@ export async function PATCH(
     if (analytics) {
       const after = getCommandServiceState().commitments[id];
       const fields = changedFieldCount(before as unknown as Record<string, unknown> | undefined, after as unknown as Record<string, unknown> | undefined);
-      if (fields > 0) recordCommitmentEdited(analytics, id, fields);
+      if (fields > 0) await recordCommitmentEdited(analytics, id, fields);
     }
     return Response.json(await getUnifiedAppSnapshot());
   } catch (err) {

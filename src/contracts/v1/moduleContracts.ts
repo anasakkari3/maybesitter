@@ -148,7 +148,7 @@ export const INTELLIGENCE_MODULE_CONTRACTS: Record<IntelligenceModuleName, Intel
       status: 'implemented',
       module: 'memory',
       schemaVersion: MEMORY_RECORD_SCHEMA_VERSION,
-      entryPoint: 'lib/runtimeMemory/runtimeMemoryStore#createFileRuntimeMemoryStore',
+      entryPoint: 'lib/runtimeMemory/runtimeMemoryStore#createStorageRuntimeMemoryStore',
     } satisfies ImplementedModuleOutput),
   },
   priority: {

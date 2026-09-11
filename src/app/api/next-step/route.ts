@@ -21,7 +21,7 @@ export async function GET(request: Request) {
     if (!access.decision.allowed || !access.trust) {
       return Response.json({ error: 'closed pilot recommendation unavailable', reason: access.decision.reason }, { status: 403 });
     }
-    const proposal = getLiveNextStep(getCommandServiceState(), {
+    const proposal = await getLiveNextStep(getCommandServiceState(), {
       anonymousUserId,
       locale: locale(url.searchParams.get('locale')),
       consent: access.trust.analyticsConsent ? 'granted' : 'essential',
@@ -54,11 +54,11 @@ export async function POST(request: Request) {
       emit: appendAnalyticsEvent,
       emitShown: false,
     };
-    const canonicalProposal = getLiveNextStep(getCommandServiceState(), context);
+    const canonicalProposal = await getLiveNextStep(getCommandServiceState(), context);
     if (canonicalProposal.state !== 'ready' || canonicalProposal.proposalId !== body.proposal?.proposalId) {
       return Response.json({ error: 'proposal is stale or invalid' }, { status: 409 });
     }
-    const outcome = recordLiveNextStepDecision(canonicalProposal, body.decision, context, body.editedTitle);
+    const outcome = await recordLiveNextStepDecision(canonicalProposal, body.decision, context, body.editedTitle);
     return Response.json(outcome);
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : 'decision rejected' }, { status: 400 });

@@ -16,7 +16,7 @@ export async function POST(request: Request) {
     return Response.json({ success: false, message: 'Invalid request body' }, { status: 400 });
   }
 
-  return Response.json(applyAgendaAction(String(body.id || ''), body.action, new Date(), {
+  return Response.json(await applyAgendaAction(String(body.id || ''), body.action, new Date(), {
     sessionId: body.sessionId,
     userId: body.userId,
     conversationId: body.conversationId,

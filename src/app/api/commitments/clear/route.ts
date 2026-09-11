@@ -13,6 +13,6 @@ export async function POST(request: Request) {
   clearCommitments();
   // Recorded on essential consent too: appending it also purges this user's analytics history.
   const analytics = await analyticsContextFrom(body, appendAnalyticsEvent);
-  if (analytics) recordDataDeleted(analytics, 'all_commitments');
+  if (analytics) await recordDataDeleted(analytics, 'all_commitments');
   return Response.json(await getUnifiedAppSnapshot());
 }

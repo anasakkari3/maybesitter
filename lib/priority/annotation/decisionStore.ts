@@ -66,6 +66,7 @@ import {
   type CreateDecisionInput,
 } from './reviewedDecision';
 import { resolveDataDir } from '../../runtime/dataDir';
+import { assertNotCloudRun } from '../../runtime/assertNotCloudRun';
 
 export const DECISION_STORE_SUBDIR = 'priority-annotation';
 export const DECISION_FILE_EXT = '.decision.json';
@@ -406,6 +407,17 @@ function createMemoryRepository(): DecisionRepository {
  * constructing the store.
  */
 export function createFileDecisionStore(options?: DecisionStoreOptions): DecisionStore {
+  // Offline annotation tooling, deliberately not migrated (UC-1.0c, #142): a
+  // reviewer runs it on a laptop over a corpus that is not user data, so there
+  // is no user tree to put it in. `tests/storage/offlineOnlyStores.test.ts`
+  // keeps it unreachable from src/app; this is the runtime backstop for a
+  // caller that arrives some other way. Guarded in the factory — first use —
+  // never at module scope, so importing this file cannot fail a build.
+  assertNotCloudRun(
+    'lib/priority/annotation/decisionStore',
+    'annotation decisions are an offline reviewer corpus, not user data, and are written to the '
+      + 'local filesystem, which on Cloud Run is per-instance and lost on every revision',
+  );
   return createStore(createFileRepository(() => options?.dataDir ?? defaultDataDir()));
 }
 

@@ -51,7 +51,6 @@ function withState(): () => void {
 
   configureCommandService({
     initialState: state,
-    stateFile: join(dir, 'domain-state.json'),
     schedulerStore: null,
   });
 
@@ -66,15 +65,15 @@ function optionsFor(eventStore: FeedbackEventStore) {
   };
 }
 
-test('a completed action writes both the legacy counter and a feedback event', () => {
+test('a completed action writes both the legacy counter and a feedback event', async () => {
   const cleanup = withState();
   const events = createInMemoryFeedbackEventStore();
   const options = optionsFor(events);
 
-  const result = applyAgendaAction(COMMITMENT_ID, 'done', NOW, options);
+  const result = await applyAgendaAction(COMMITMENT_ID, 'done', NOW, options);
   assert.equal(result.success, true);
 
-  const written = events.list({ scopeId: SCOPE });
+  const written = await events.list({ scopeId: SCOPE });
   assert.equal(written.length, 1);
   assert.equal(written[0].outcome, 'complete');
   assert.equal(written[0].subjectId, COMMITMENT_ID, 'the event must name the commitment it concerns');
@@ -84,50 +83,50 @@ test('a completed action writes both the legacy counter and a feedback event', (
 
   // The legacy counter is still authoritative this sprint and must not have
   // been replaced by the new write.
-  assert.equal(options.feedbackStore.get(SCOPE).completedActions, 1);
+  assert.equal((await options.feedbackStore.get(SCOPE)).completedActions, 1);
   cleanup();
 });
 
-test('postpone maps to defer and skip maps to ignore', () => {
+test('postpone maps to defer and skip maps to ignore', async () => {
   for (const [action, outcome] of [['postpone', 'defer'], ['skip', 'ignore']] as const) {
     const cleanup = withState();
     const events = createInMemoryFeedbackEventStore();
 
-    assert.equal(applyAgendaAction(COMMITMENT_ID, action, NOW, optionsFor(events)).success, true);
-    const written = events.list({ scopeId: SCOPE });
+    assert.equal((await applyAgendaAction(COMMITMENT_ID, action, NOW, optionsFor(events))).success, true);
+    const written = await events.list({ scopeId: SCOPE });
     assert.equal(written.length, 1, `${action} should emit exactly one event`);
     assert.equal(written[0].outcome, outcome);
     cleanup();
   }
 });
 
-test('aware emits no event, because acknowledging is not yet a decision', () => {
+test('aware emits no event, because acknowledging is not yet a decision', async () => {
   const cleanup = withState();
   const events = createInMemoryFeedbackEventStore();
 
-  assert.equal(applyAgendaAction(COMMITMENT_ID, 'aware', NOW, optionsFor(events)).success, true);
+  assert.equal((await applyAgendaAction(COMMITMENT_ID, 'aware', NOW, optionsFor(events))).success, true);
   assert.deepEqual(
-    events.list({ scopeId: SCOPE }),
+    await events.list({ scopeId: SCOPE }),
     [],
     'recording an outcome here would log a decision the user never made',
   );
   cleanup();
 });
 
-test('replaying the same action does not double count', () => {
+test('replaying the same action does not double count', async () => {
   const cleanup = withState();
   const events = createInMemoryFeedbackEventStore();
   const options = optionsFor(events);
 
-  applyAgendaAction(COMMITMENT_ID, 'done', NOW, options);
+  await applyAgendaAction(COMMITMENT_ID, 'done', NOW, options);
   // Same commitment, same outcome, same instant: a retry, not a second action.
-  applyAgendaAction(COMMITMENT_ID, 'done', NOW, options);
+  await applyAgendaAction(COMMITMENT_ID, 'done', NOW, options);
 
-  assert.equal(events.list({ scopeId: SCOPE }).length, 1);
+  assert.equal((await events.list({ scopeId: SCOPE })).length, 1);
   cleanup();
 });
 
-test('a failing event store does not fail the user action or lose the legacy write', () => {
+test('a failing event store does not fail the user action or lose the legacy write', async () => {
   const exploding: FeedbackEventStore = {
     ...createInMemoryFeedbackEventStore(),
     append() { throw new Error('disk on fire'); },
@@ -137,20 +136,20 @@ test('a failing event store does not fail the user action or lose the legacy wri
 
   // The event log is not yet depended on by anything, so a fault in it must not
   // cost the user their action or the counter six modules still read.
-  const result = applyAgendaAction(COMMITMENT_ID, 'done', NOW, options);
+  const result = await applyAgendaAction(COMMITMENT_ID, 'done', NOW, options);
   assert.equal(result.success, true);
-  assert.equal(options.feedbackStore.get(SCOPE).completedActions, 1);
+  assert.equal((await options.feedbackStore.get(SCOPE)).completedActions, 1);
   cleanup();
 });
 
-test('an action with no feedback scope writes nothing at all', () => {
+test('an action with no feedback scope writes nothing at all', async () => {
   const cleanup = withState();
   const events = createInMemoryFeedbackEventStore();
 
   assert.equal(
-    applyAgendaAction(COMMITMENT_ID, 'done', NOW, { feedbackEventStore: events }).success,
+    (await applyAgendaAction(COMMITMENT_ID, 'done', NOW, { feedbackEventStore: events })).success,
     true,
   );
-  assert.deepEqual(events.list({ scopeId: SCOPE }), []);
+  assert.deepEqual(await events.list({ scopeId: SCOPE }), []);
   cleanup();
 });

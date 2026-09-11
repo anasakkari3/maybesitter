@@ -209,7 +209,7 @@ export async function resolveStagedExposure(
     stage: port.configuration.stage,
     cohortSize: port.configuration.cohort.length,
     pilotDecision: await port.resolvePilot(participantId, at),
-    consent: port.consent.read(participantId),
+    consent: await port.consent.read(participantId),
   });
 
   // The stage cohort narrows once more, and only narrows: an allowed decision

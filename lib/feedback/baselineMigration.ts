@@ -27,7 +27,7 @@
  *     migrateLegacyBaseline({
  *       scopeId: scopeBehaviorFeedback(options),
  *       reader: createDefaultBehaviorFeedbackStore(),
- *       store: createFileFeedbackEventStore(),
+ *       store: createStorageFeedbackEventStore(),
  *       migratedAt: now.toISOString(),
  *     });
  *
@@ -61,9 +61,17 @@ export interface LegacyCounterSnapshot {
   readonly updatedAt: string | null;
 }
 
-/** Read side of the legacy store. `BehaviorFeedbackStore` satisfies it. */
+/**
+ * Read side of the legacy store. `BehaviorFeedbackStore` satisfies it.
+ *
+ * The return type is a union because the real store became async in UC-1.0c
+ * (#142) — its counters are a storage read — while a test that hands over a
+ * fixed snapshot has nothing to await. Accepting both keeps this module
+ * depending on the *data* rather than on how the caller happens to get it,
+ * which was the point of taking a reader instead of importing the store.
+ */
 export interface LegacyCounterReader {
-  get(scopeId: string): LegacyCounterSnapshot;
+  get(scopeId: string): LegacyCounterSnapshot | Promise<LegacyCounterSnapshot>;
 }
 
 export interface MigrateLegacyBaselineOptions {
@@ -113,7 +121,9 @@ function isEmptyHistory(snapshot: LegacyCounterSnapshot): boolean {
  * never accumulated, and would set `includesMigrationBaseline` for someone
  * whose record starts with the event log.
  */
-export function migrateLegacyBaseline(options: MigrateLegacyBaselineOptions): FeedbackBaseline | null {
+export async function migrateLegacyBaseline(
+  options: MigrateLegacyBaselineOptions,
+): Promise<FeedbackBaseline | null> {
   if (!options || typeof options !== 'object') fail('options must be an object');
   const { scopeId, reader, store, migratedAt } = options;
   if (!isNonEmptyString(scopeId)) fail('scopeId must be a non-empty string');
@@ -122,10 +132,14 @@ export function migrateLegacyBaseline(options: MigrateLegacyBaselineOptions): Fe
 
   // Write-once, and checked before the legacy store is read at all: the counters
   // that grew since the first migration must not even be observed here.
-  const existing = store.readBaseline(scopeId);
+  //
+  // Awaited, and that is load-bearing: `readBaseline` returns a promise now,
+  // and a promise is always truthy, so an unawaited check here would return
+  // early on every call and never write a baseline at all.
+  const existing = await store.readBaseline(scopeId);
   if (existing) return existing;
 
-  const snapshot = reader.get(scopeId);
+  const snapshot = await reader.get(scopeId);
   assertValidCounters(snapshot);
   if (isEmptyHistory(snapshot)) return null;
 
@@ -142,7 +156,7 @@ export function migrateLegacyBaseline(options: MigrateLegacyBaselineOptions): Fe
     timestampsUnavailable: true,
     migratedAt,
   };
-  store.writeBaseline(baseline);
+  await store.writeBaseline(baseline);
   // Re-read so the caller holds what was actually persisted rather than what we
   // intended to persist, which is the value #14 will aggregate from.
   return store.readBaseline(scopeId);

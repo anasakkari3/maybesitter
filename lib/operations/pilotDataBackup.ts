@@ -8,9 +8,28 @@ import {
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
+import { assertNotCloudRun } from '../runtime/assertNotCloudRun';
 
 const MANIFEST_NAME = 'pilot-backup-manifest.json';
 const DATA_DIR_NAME = 'data';
+
+/**
+ * Pilot-only, and superseded on the launch path (UC-1.0c, #142).
+ *
+ * These helpers copy a `MAYBESITTER_DATA_DIR` tree around. That directory is
+ * what the pilot ran on; the launch path keeps nothing there, and UC-1.0a
+ * (#140) replaces backup/restore with Firestore point-in-time recovery plus
+ * delete protection, which are properties of the database rather than a
+ * directory somebody has to remember to copy.
+ *
+ * On Cloud Run the source directory is a per-instance scratch filesystem, so a
+ * "backup" taken there would capture one instance's nothing and a "restore"
+ * would silently write into a container about to be recycled. Both are refused
+ * at first use rather than quietly succeeding.
+ */
+const PILOT_ONLY =
+  'pilot backup/restore copies a MAYBESITTER_DATA_DIR tree, which on Cloud Run is a per-instance '
+  + 'scratch filesystem; the launch path uses Firestore PITR and delete protection (UC-1.0a, #140)';
 
 export interface BackupPilotDataOptions {
   sourceDir: string;
@@ -108,6 +127,7 @@ function assertTargetWritable(targetDir: string, replaceExisting: boolean): void
 }
 
 export function backupPilotData(options: BackupPilotDataOptions): BackupPilotDataResult {
+  assertNotCloudRun('lib/operations/pilotDataBackup', PILOT_ONLY);
   const sourceDir = assertExistingDirectory(options.sourceDir, 'MAYBESITTER_DATA_DIR');
   const backupRoot = assertAbsoluteDirectoryInput(options.backupRoot, 'backup root');
   assertNotSameOrNested({
@@ -147,6 +167,7 @@ export function backupPilotData(options: BackupPilotDataOptions): BackupPilotDat
 }
 
 export function restorePilotData(options: RestorePilotDataOptions): RestorePilotDataResult {
+  assertNotCloudRun('lib/operations/pilotDataBackup', PILOT_ONLY);
   const backupPath = assertExistingDirectory(options.backupPath, 'backup source');
   const targetDir = assertAbsoluteDirectoryInput(options.targetDir, 'MAYBESITTER_DATA_DIR');
   const dataPath = path.join(backupPath, DATA_DIR_NAME);

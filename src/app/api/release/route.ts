@@ -51,11 +51,11 @@
  * `MAYBESITTER_SHADOW_STAGE` is `shadow_only`, the stage this sprint ships in
  * and the one whose cap is zero. No general-release stage exists to configure.
  */
-import { createFileFeedbackEventStore } from '../../../../lib/feedback/feedbackEventStore';
-import { createFileRuntimeMemoryStore } from '../../../../lib/runtimeMemory/runtimeMemoryStore';
+import { createStorageFeedbackEventStore } from '../../../../lib/feedback/feedbackEventStore';
+import { createStorageRuntimeMemoryStore } from '../../../../lib/runtimeMemory/runtimeMemoryStore';
 import { deletePersonalizationScope } from '../../../../lib/personalization/deletion';
-import { createFileShadowStudyConsentStore } from '../../../../lib/release/consentStore';
-import { createFileShadowStudyResponseStore } from '../../../../lib/release/studyStore';
+import { createStorageShadowStudyConsentStore } from '../../../../lib/release/consentStore';
+import { createStorageShadowStudyResponseStore } from '../../../../lib/release/studyStore';
 import { notWiredArchive } from '../../../../lib/release/deletion';
 import {
   qualityPillarFromStudy,
@@ -68,10 +68,10 @@ import { handleReleaseRequest, type ReleaseHandlerDeps } from '../../../../lib/r
 export const dynamic = 'force-dynamic';
 
 function wiring(): ReleaseHandlerDeps {
-  const consent = createFileShadowStudyConsentStore();
-  const responses = createFileShadowStudyResponseStore();
-  const feedbackEvents = createFileFeedbackEventStore();
-  const runtimeMemory = createFileRuntimeMemoryStore();
+  const consent = createStorageShadowStudyConsentStore();
+  const responses = createStorageShadowStudyResponseStore();
+  const feedbackEvents = createStorageFeedbackEventStore();
+  const runtimeMemory = createStorageRuntimeMemoryStore();
 
   return {
     consent,
@@ -82,10 +82,10 @@ function wiring(): ReleaseHandlerDeps {
     replayBundles: notWiredArchive('issue_45_replay_bundle_store'),
     deletePersonalization: (scopeId, now) =>
       deletePersonalizationScope({ scopeId, now, feedbackEvents, runtimeMemory }),
-    evidenceSources: () => ({
+    evidenceSources: async () => ({
       // Real participant judgements, read fresh. Empty today; a reading the day
       // answers exist.
-      quality: qualityPillarFromStudy(summarizeStudyResponses(responses.listAll()), 'real_exposure'),
+      quality: qualityPillarFromStudy(summarizeStudyResponses(await responses.listAll()), 'real_exposure'),
       safety: unavailablePillarSource('issue_45_shadow_traces'),
       reliability: unavailablePillarSource('issue_46_slo_readings'),
     }),

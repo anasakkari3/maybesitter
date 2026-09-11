@@ -36,7 +36,7 @@ export async function POST(request: Request) {
   });
 
   if (analytics && before) {
-    recordCaptureAnalytics(analytics, {
+    await recordCaptureAnalytics(analytics, {
       inputLength: typeof text === 'string' ? text.length : 0,
       locale: body.locale === 'ar' || body.locale === 'he' ? body.locale : 'en',
       detectionSource: result.meta.engineUsed,
