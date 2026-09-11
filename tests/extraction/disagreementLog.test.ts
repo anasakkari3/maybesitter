@@ -78,3 +78,34 @@ test('the rate never reports more disagreements than captures', () => {
   // corrupt any threshold tuned against it.
   assert.throws(() => disagreementRate([record('a'), record('b')], 1), /captures/);
 });
+
+test('a verdict from an injected arbiter cannot smuggle text into the record', () => {
+  // `options.arbiter` is caller-supplied, so parseArbitrationVerdict's
+  // sanitising never runs on it and the types are gone at runtime. Only the
+  // built-in Anthropic arbiter is trusted to have produced these fields.
+  const hostile = {
+    agrees: false,
+    outcome: 'disagreed',
+    correctedSplit: 'SENTINEL_SPLIT_7e1c MRI at Rambam oncology, Dr. Levi',
+    correctedTimes: [],
+    note: null,
+  } as never;
+
+  const result = recordDisagreement({
+    id: 'c5', language: 'SENTINEL_LANG_2b8f موعد المستشفى',
+    reasons: ['multiple_commitments'], localSplit: 1, verdict: hostile, now: NOW,
+  });
+
+  const serialised = JSON.stringify(result);
+  assert.ok(!serialised.includes('SENTINEL_SPLIT_7e1c'), 'remoteSplit is a count, not text');
+  assert.ok(!serialised.includes('SENTINEL_LANG_2b8f'), 'language is a tag, not free text');
+  assert.ok(!serialised.includes('Dr. Levi'));
+});
+
+test('a rate too small to round is not reported as none', () => {
+  // Rounding to three places turned one disagreement in three thousand into
+  // 0 -- indistinguishable from a pipeline that is silently not running.
+  const one = [record('a')];
+  assert.ok(disagreementRate(one, 3000) > 0);
+  assert.equal(disagreementRate(one, 4), 0.25);
+});

@@ -163,3 +163,79 @@ test('a completion hour outside a day blocks the send', () => {
 
   assert.equal(projectionIsSendable(bad), false);
 });
+
+test('a projection that hides its payload behind toJSON is refused', () => {
+  // The guard reads Object.keys, but JSON.stringify ignores those entirely
+  // when toJSON exists, and a prototype method is invisible to Object.keys.
+  // A class instance is exactly the "assembled by a future caller" case the
+  // guard exists for.
+  class Smuggler {
+    window = { from: '2026-08-01T00:00:00.000Z', to: '2026-08-21T00:00:00.000Z' };
+    byKind = { errand: 4 };
+    completionHours = [9];
+    completed = 4;
+    dropped = 0;
+    observations = 4;
+    toJSON() {
+      return { ...this, titles: ['SENTINEL_TITLE_1a2b'], person: 'SENTINEL_PERSON_3c4d' };
+    }
+  }
+
+  const smuggled = new Smuggler() as unknown as DerivedProjection;
+  assert.equal(projectionCarriesNoText(smuggled), false, 'a non-plain object is not a projection');
+  assert.equal(projectionIsSendable(smuggled), false);
+  // And prove the payload really would have leaked.
+  assert.match(JSON.stringify(smuggled), /SENTINEL_TITLE_1a2b/);
+});
+
+test('a kind named after an Object prototype member does not corrupt the count', () => {
+  // byKind starts as {}, so {}['constructor'] is not undefined and `??` never
+  // fires -- the count became a string while the type still said number.
+  const projection = buildDerivedProjection(
+    [
+      { kind: 'constructor', completedAt: null, dropped: false },
+      { kind: 'constructor', completedAt: null, dropped: false },
+      { kind: 'toString', completedAt: null, dropped: false },
+    ],
+    { from: new Date('2026-08-01T00:00:00.000Z'), to: new Date('2026-08-21T00:00:00.000Z') },
+  );
+
+  assert.equal(projection.byKind.constructor, 2);
+  assert.equal(typeof projection.byKind.constructor, 'number');
+  assert.equal(projectionCarriesNoText(projection), true);
+});
+
+test('completion hours are the user’s local hours, not UTC', () => {
+  // A habit reported three hours off is worse than no habit: 09:00 in
+  // Asia/Jerusalem was recorded as 6, and the same routine split across two
+  // buckets either side of a DST change.
+  const projection = buildDerivedProjection(
+    [{ kind: 'errand', completedAt: new Date('2026-08-22T06:00:00.000Z'), dropped: false }],
+    { from: new Date('2026-08-01T00:00:00.000Z'), to: new Date('2026-08-31T00:00:00.000Z') },
+    { timezone: 'Asia/Jerusalem' },
+  );
+
+  assert.deepEqual(projection.completionHours, [9]);
+});
+
+test('events outside the declared window are not counted inside it', () => {
+  const projection = buildDerivedProjection(
+    [
+      { kind: 'errand', completedAt: new Date('2019-01-01T09:00:00.000Z'), dropped: false },
+      { kind: 'errand', completedAt: new Date('2026-08-10T09:00:00.000Z'), dropped: false },
+    ],
+    { from: new Date('2026-08-01T00:00:00.000Z'), to: new Date('2026-08-21T00:00:00.000Z') },
+  );
+
+  // The payload asserted a window it did not represent, and the guard approved it.
+  assert.equal(projection.observations, 1);
+  assert.equal(projection.completed, 1);
+});
+
+test('a window that runs backwards is not sendable', () => {
+  const projection = buildDerivedProjection([], {
+    from: new Date('2026-08-21T00:00:00.000Z'),
+    to: new Date('2026-08-01T00:00:00.000Z'),
+  });
+  assert.equal(projectionCarriesNoText(projection), false);
+});

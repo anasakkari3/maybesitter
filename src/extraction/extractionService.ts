@@ -25,6 +25,12 @@ export interface ExtractionEscalation {
   escalated: boolean;
   reasons: EscalationReason[];
   verdict: ArbitrationVerdict | null;
+  /**
+   * Why no second opinion was obtained, when one was wanted. A misconfigured
+   * arbiter reports unavailable on every capture while every downstream number
+   * reads normal, so the fact alone is not enough to notice it.
+   */
+  unavailableReason: string | null;
 }
 
 export interface ExtractAndMapResult {
@@ -79,23 +85,34 @@ async function arbitrate(
   extracted: ExtractWithFallbackResult,
   arbiter: ArbiterFunction | undefined
 ): Promise<ExtractionEscalation> {
-  // A capture the screen already refused must not become a second model call.
-  // The arbiter screens too, but a caller-supplied one is not obliged to.
-  if (extracted.fallbackReason?.startsWith('prompt_injection:')) {
-    return { escalated: false, reasons: [], verdict: null };
-  }
+  const declined = { escalated: false, reasons: [], verdict: null, unavailableReason: null };
+
+  // The arbiter judges a *model* proposal, so it is asked only when the model
+  // actually answered. Every other path lands on 'rule-based', and each is a
+  // reason not to escalate in its own right:
+  //   - injection screened off, and the semantic-safety refusal, both produced
+  //     nothing for the user, so disclosing them to a remote provider buys
+  //     nothing and costs a sentence;
+  //   - the fallback's confidence is not commensurable with the model's -- it
+  //     caps overall at 0.68 and time at 0.1, both under the gate, so an Ollama
+  //     outage would otherwise become the moment of maximum remote spend and
+  //     maximum disclosure.
+  if (extracted.engine === 'rule-based') return declined;
 
   const gate = decideEscalation(extracted.result, rawText);
   if (!gate.escalate || !arbiter) {
-    return { escalated: false, reasons: gate.reasons, verdict: null };
+    return { escalated: false, reasons: gate.reasons, verdict: null, unavailableReason: null };
   }
 
   let verdict: ArbitrationVerdict;
+  let unavailableReason: string | null = null;
   try {
     verdict = await arbiter(rawText, extracted.result);
-  } catch {
-    // The remote model is an improvement, never a dependency.
+  } catch (error) {
+    // The remote model is an improvement, never a dependency -- but degrade
+    // with the reason recorded, the way the local path already does.
     verdict = ARBITRATION_UNAVAILABLE;
+    unavailableReason = fallbackReasonFrom(error);
   }
 
   return {
@@ -105,6 +122,7 @@ async function arbitrate(
     escalated: verdict.outcome !== 'unavailable',
     reasons: gate.reasons,
     verdict,
+    unavailableReason,
   };
 }
 
