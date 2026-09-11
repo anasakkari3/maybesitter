@@ -101,12 +101,29 @@ function createJobFromSideEffect(sideEffect: SideEffect, fallbackRunAt: string):
   return null;
 }
 
+/**
+ * Fire-and-forget since UC-1.0c (#142), because `createJob` is now a storage
+ * write and `applyCommand` below is synchronous.
+ *
+ * Making `applyCommand` async would cascade through the deterministic state
+ * gateway, capture, agenda-action and snapshot-adapter services — all of which
+ * are legacy, and none of which is on the launch path. The scheduler store is
+ * also never wired in production today: nothing constructs one outside tests
+ * (the reminder worker polls an HTTP endpoint instead), so `schedulerStore` is
+ * null and this loop does nothing. A rejection is logged rather than swallowed
+ * so a future wiring does not fail silently; UC-1.0d (#143) owns the durable
+ * jobs endpoint and can make the whole path awaited.
+ */
 function applySchedulerSideEffects(sideEffects: SideEffect[], fallbackRunAt: string): void {
   if (!schedulerStore) return;
+  const store = schedulerStore;
 
   for (const sideEffect of sideEffects) {
     const job = createJobFromSideEffect(sideEffect, fallbackRunAt);
-    if (job) schedulerStore.createJob(job);
+    if (!job) continue;
+    void store.createJob(job).catch((error: unknown) => {
+      console.error('[commandService] scheduling job failed', job.id, error);
+    });
   }
 }
 
@@ -135,9 +152,14 @@ export function configureCommandService(config: CommandServiceConfig = {}): void
       + 'and writes users/{uid} through lib/services/mobile/participantState',
   );
   schedulerStore = config.schedulerStore === undefined ? schedulerStore : config.schedulerStore;
-  // No file to fall back to: an unconfigured process starts empty rather than
-  // inheriting whatever the last one happened to leave on disk.
-  currentState = config.initialState || createEmptyDomainState();
+  // Only an explicit `initialState` replaces the state. Calling this with no
+  // state must not wipe it: `configureCommandService({})` used to mean "reload
+  // from domain-state.json", and `canonicalPersistence` still calls it that way
+  // before reading. Resetting to empty there silently dropped everything the
+  // process had applied, which is how the mobile capture/confirm round trip
+  // started failing. A fresh process already starts empty; there is nothing
+  // left to reload, so the no-argument call is now simply a no-op.
+  if (config.initialState) currentState = config.initialState;
 }
 
 export function getCommandServiceState(): DomainState {

@@ -79,9 +79,13 @@ export class Scheduler {
     }
   }
 
-  scheduleReminder(reminderId: string, runAt: string, requiresAction = true): void {
-    this.store.createJob({
+  // Async since UC-1.0c (#142): creating a job is a storage write. Callers
+  // must await these, or a reminder can be reported as scheduled before the
+  // write that schedules it has actually landed.
+  async scheduleReminder(reminderId: string, runAt: string, requiresAction = true, uid: string | null = null): Promise<void> {
+    await this.store.createJob({
       id: randomUUID(),
+      uid,
       jobType: 'reminder_due',
       targetType: 'reminder',
       targetId: reminderId,
@@ -90,9 +94,10 @@ export class Scheduler {
     });
   }
 
-  scheduleEscalation(commitmentId: string, runAt: string): void {
-    this.store.createJob({
+  async scheduleEscalation(commitmentId: string, runAt: string, uid: string | null = null): Promise<void> {
+    await this.store.createJob({
       id: randomUUID(),
+      uid,
       jobType: 'escalation_check',
       targetType: 'commitment',
       targetId: commitmentId,
@@ -101,7 +106,7 @@ export class Scheduler {
     });
   }
 
-  scheduleJob(job: NewScheduledJob): void {
-    this.store.createJob(job);
+  async scheduleJob(job: NewScheduledJob): Promise<void> {
+    await this.store.createJob(job);
   }
 }
