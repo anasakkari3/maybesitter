@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: Request) {
   let auth;
   try {
-    auth = requireMobilePilotAuth(request);
+    auth = await requireMobilePilotAuth(request);
   } catch (error) {
     return mobileAuthErrorResponse(error);
   }

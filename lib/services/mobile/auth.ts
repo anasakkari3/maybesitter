@@ -39,9 +39,10 @@ export function mobileAuthErrorResponse(error: unknown): Response {
   return Response.json({ success: false, error: 'unauthorized', reason: 'unauthorized' }, { status: 401 });
 }
 
-export function requireMobilePilotAuth(request: Request): MobilePilotAuthContext {
+/** Async since UC-1.0b (#141): token validation reads the durable trust record. */
+export async function requireMobilePilotAuth(request: Request): Promise<MobilePilotAuthContext> {
   validatePilotRuntimeConfiguration();
-  const validation = parseAndValidatePilotToken(request.headers.get('authorization'));
+  const validation = await parseAndValidatePilotToken(request.headers.get('authorization'));
   if (!validation.valid || !validation.participantId) {
     const reason = validation.reason || 'unauthorized';
     throw new MobileAuthError(reason, statusForReason(reason), reason);
@@ -49,7 +50,7 @@ export function requireMobilePilotAuth(request: Request): MobilePilotAuthContext
   return { participantId: validation.participantId };
 }
 
-export function optionalMobilePilotAuth(request: Request): MobilePilotAuthContext | null {
+export async function optionalMobilePilotAuth(request: Request): Promise<MobilePilotAuthContext | null> {
   if (pilotModeEnabled()) {
     validatePilotRuntimeConfiguration();
     return requireMobilePilotAuth(request);

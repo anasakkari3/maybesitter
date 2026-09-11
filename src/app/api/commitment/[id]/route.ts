@@ -25,7 +25,7 @@ export async function PATCH(
     return jsonError('Invalid JSON request body');
   }
   try {
-    const analytics = analyticsContextFrom(body, appendAnalyticsEvent);
+    const analytics = await analyticsContextFrom(body, appendAnalyticsEvent);
     const before = analytics ? getCommandServiceState().commitments[id] : undefined;
     updateCommitmentFromItem(id, (body.updates ?? body) as Record<string, unknown>);
     if (analytics) {

@@ -14,7 +14,7 @@ export async function GET(
 ) {
   let auth;
   try {
-    auth = optionalMobilePilotAuth(request);
+    auth = await optionalMobilePilotAuth(request);
   } catch (error) {
     return mobileAuthErrorResponse(error);
   }
@@ -31,7 +31,7 @@ export async function PATCH(
 ) {
   let auth;
   try {
-    auth = optionalMobilePilotAuth(request);
+    auth = await optionalMobilePilotAuth(request);
   } catch (error) {
     return mobileAuthErrorResponse(error);
   }
@@ -58,7 +58,7 @@ export async function DELETE(
 ) {
   let auth;
   try {
-    auth = optionalMobilePilotAuth(request);
+    auth = await optionalMobilePilotAuth(request);
   } catch (error) {
     return mobileAuthErrorResponse(error);
   }

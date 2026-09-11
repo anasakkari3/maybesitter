@@ -1,6 +1,6 @@
 import { appendAnalyticsEvent } from '../../../../lib/analytics/eventStore';
 import { resolvePilotAccess } from '../../../../lib/pilot/pilotAccess';
-import { getPilotTrustStore } from '../../../../lib/pilot/pilotTrustStore';
+import { applyTrustAction } from '../../../../lib/pilot/pilotTrustStore';
 import { getCommandServiceState } from '../../../../lib/services/commandService';
 import { getLiveNextStep, recordLiveNextStepDecision } from '../../../../lib/services/nextStepLiveService';
 import type { NextStepDecision, NextStepLocale, NextStepRecommendationContract } from '../../../contracts/v1/nextStepContracts';
@@ -17,7 +17,7 @@ export async function GET(request: Request) {
   if (!anonymousUserId) return Response.json({ error: 'anonymousUserId is required' }, { status: 400 });
   try {
     const now = new Date();
-    const access = resolvePilotAccess(anonymousUserId, now.toISOString());
+    const access = await resolvePilotAccess(anonymousUserId, now.toISOString());
     if (!access.decision.allowed || !access.trust) {
       return Response.json({ error: 'closed pilot recommendation unavailable', reason: access.decision.reason }, { status: 403 });
     }
@@ -29,7 +29,7 @@ export async function GET(request: Request) {
       emit: appendAnalyticsEvent,
     });
     if (proposal.state === 'ready' && !access.trust.firstValueAt) {
-      getPilotTrustStore().apply(anonymousUserId, { type: 'record_first_value', at: now.toISOString() });
+      await applyTrustAction(anonymousUserId, { type: 'record_first_value', at: now.toISOString() });
     }
     return Response.json(proposal);
   } catch (error) {
@@ -42,7 +42,7 @@ export async function POST(request: Request) {
   if (!body.anonymousUserId) return Response.json({ error: 'anonymousUserId is required' }, { status: 400 });
   try {
     const now = new Date();
-    const access = resolvePilotAccess(body.anonymousUserId, now.toISOString());
+    const access = await resolvePilotAccess(body.anonymousUserId, now.toISOString());
     if (!access.decision.allowed || !access.trust) {
       return Response.json({ error: 'closed pilot recommendation unavailable', reason: access.decision.reason }, { status: 403 });
     }

@@ -120,7 +120,7 @@ export interface ReleaseHandlerDeps {
   readonly consent: ShadowStudyConsentStore;
   readonly responses: ShadowStudyResponseStore;
   readonly configuration: ShadowStageConfiguration;
-  readonly resolvePilot: (participantId: string, at: Instant) => ShadowPilotDecision;
+  readonly resolvePilot: (participantId: string, at: Instant) => ShadowPilotDecision | Promise<ShadowPilotDecision>;
   readonly traces: ShadowArchiveAccess;
   readonly replayBundles: ShadowArchiveAccess;
   readonly deletePersonalization?: ShadowStudyDeletionInput['deletePersonalization'];
@@ -146,7 +146,7 @@ function portFor(deps: ReleaseHandlerDeps): ShadowExposurePort {
   return { configuration: deps.configuration, consent: deps.consent, resolvePilot: deps.resolvePilot };
 }
 
-export function handleReleaseRequest(deps: ReleaseHandlerDeps, body: unknown): ReleaseOutcome {
+export async function handleReleaseRequest(deps: ReleaseHandlerDeps, body: unknown): Promise<ReleaseOutcome> {
   const parsed = asObject(body);
   if (parsed === null) return reject('MALFORMED_REQUEST_BODY', 'the request body is not an object');
 
@@ -181,7 +181,7 @@ export function handleReleaseRequest(deps: ReleaseHandlerDeps, body: unknown): R
         response: {
           kind: 'consent',
           consent: deps.consent.read(who),
-          exposure: resolveStagedExposure(port, who, now),
+          exposure: await resolveStagedExposure(port, who, now),
         },
       };
     }
@@ -206,7 +206,7 @@ export function handleReleaseRequest(deps: ReleaseHandlerDeps, body: unknown): R
         response: {
           kind: 'consent_written',
           consent: result.consent,
-          exposure: resolveStagedExposure(port, who, now),
+          exposure: await resolveStagedExposure(port, who, now),
         },
       };
     }
@@ -225,7 +225,7 @@ export function handleReleaseRequest(deps: ReleaseHandlerDeps, body: unknown): R
           consent: result.consent,
           // Rebuilt in the same response: a withdrawn consent and a live
           // exposure cannot be shown side by side.
-          exposure: resolveStagedExposure(port, who, now),
+          exposure: await resolveStagedExposure(port, who, now),
         },
       };
     }
@@ -233,11 +233,11 @@ export function handleReleaseRequest(deps: ReleaseHandlerDeps, body: unknown): R
     case 'exposure': {
       const who = requireParticipant();
       if (isRejection(who)) return who;
-      return { status: 200, response: { kind: 'exposure', decision: resolveStagedExposure(port, who, now) } };
+      return { status: 200, response: { kind: 'exposure', decision: await resolveStagedExposure(port, who, now) } };
     }
 
     case 'cohort_exposure': {
-      const decisions = resolveCohortExposure(port, now);
+      const decisions = await resolveCohortExposure(port, now);
       return {
         status: 200,
         response: {

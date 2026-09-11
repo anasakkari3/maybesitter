@@ -107,6 +107,6 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  const outcome = handleReleaseRequest(wiring(), body);
+  const outcome = await handleReleaseRequest(wiring(), body);
   return Response.json(outcome.response, { status: outcome.status });
 }

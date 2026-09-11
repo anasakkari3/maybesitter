@@ -8,7 +8,7 @@ import {
   type PilotTrustAction,
 } from '../../../../../lib/pilot/closedPilotControls';
 import { resolvePilotAccess } from '../../../../../lib/pilot/pilotAccess';
-import { getPilotTrustStore } from '../../../../../lib/pilot/pilotTrustStore';
+import { appendAudit, applyTrustAction } from '../../../../../lib/pilot/pilotTrustStore';
 import { resetSingleUserAccount } from '../../../../../lib/services/appMetadataService';
 import { getCommandServiceState } from '../../../../../lib/services/commandService';
 
@@ -33,9 +33,9 @@ function participantIdFromUrl(request: Request): string {
   return new URL(request.url).searchParams.get('participantId') || '';
 }
 
-function requireAllowlisted(participantId: string): void {
+async function requireAllowlisted(participantId: string): Promise<void> {
   requirePilotParticipantId(participantId);
-  const access = resolvePilotAccess(participantId, new Date().toISOString(), false);
+  const access = await resolvePilotAccess(participantId, new Date().toISOString(), false);
   if (!access.trust) throw new Error('participant is not admitted to this pilot instance');
 }
 
@@ -60,8 +60,8 @@ function clientAction(value: ClientAction, at: string): PilotTrustAction {
   }
 }
 
-function view(participantId: string, now: string) {
-  const access = resolvePilotAccess(participantId, now, false);
+async function view(participantId: string, now: string) {
+  const access = await resolvePilotAccess(participantId, now, false);
   if (!access.trust) throw new Error('participant is not allowlisted');
   const confirmedCommitmentCount = Object.values(getCommandServiceState().commitments)
     .filter((commitment) => Boolean(commitment.confirmedAt)).length;
@@ -75,8 +75,8 @@ function view(participantId: string, now: string) {
 export async function GET(request: Request) {
   try {
     const participantId = participantIdFromUrl(request);
-    requireAllowlisted(participantId);
-    return Response.json(view(participantId, new Date().toISOString()));
+    await requireAllowlisted(participantId);
+    return Response.json(await view(participantId, new Date().toISOString()));
   } catch (error) {
     return errorResponse(error);
   }
@@ -86,11 +86,10 @@ export async function POST(request: Request) {
   try {
     const body = await request.json() as { participantId?: string; action?: ClientAction };
     const participantId = body.participantId || '';
-    requireAllowlisted(participantId);
+    await requireAllowlisted(participantId);
     const at = new Date().toISOString();
     const action = clientAction(body.action as ClientAction, at);
-    const store = getPilotTrustStore();
-    const trust = store.apply(participantId, action);
+    const trust = await applyTrustAction(participantId, action);
     const eventType = action.type === 'set_quiet_mode'
       ? 'quiet_mode_changed'
       : action.type === 'revoke'
@@ -98,19 +97,19 @@ export async function POST(request: Request) {
         : action.type === 'delete'
           ? 'data_deleted'
           : 'consent_changed';
-    store.appendAudit(createPilotAuditEvent({
+    await appendAudit(createPilotAuditEvent({
       version: 'v1', eventType, participantId, occurredAt: at, outcome: 'recorded', reasonCode: action.type,
     }));
 
     if (action.type === 'delete') {
       await resetSingleUserAccount();
-      const analytics = analyticsContextFrom({ anonymousUserId: participantId, consent: 'essential' }, appendAnalyticsEvent);
+      const analytics = await analyticsContextFrom({ anonymousUserId: participantId, consent: 'essential' }, appendAnalyticsEvent);
       if (analytics) recordDataDeleted(analytics, 'all_commitments');
     }
 
     const confirmedCommitmentCount = Object.values(getCommandServiceState().commitments)
       .filter((commitment) => Boolean(commitment.confirmedAt)).length;
-    const exposure = resolvePilotAccess(participantId, at, false).decision;
+    const exposure = (await resolvePilotAccess(participantId, at, false)).decision;
     return Response.json({
       trust,
       exposure,

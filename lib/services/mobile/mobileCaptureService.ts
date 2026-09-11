@@ -3,7 +3,7 @@ import { analyticsContextFrom } from '../../analytics/analyticsContext';
 import { appendAnalyticsEvent } from '../../analytics/eventStore';
 import { recordFirstValueReached } from '../../analytics/loopAnalytics';
 import { resolvePilotAccess } from '../../pilot/pilotAccess';
-import { getPilotTrustStore } from '../../pilot/pilotTrustStore';
+import { applyTrustAction } from '../../pilot/pilotTrustStore';
 import {
   confirmCapture,
   MemoryCaptureProposalStore,
@@ -96,17 +96,17 @@ function persistenceFor(context: MobileBackendContext = {}): CapturePersistenceA
   };
 }
 
-function persistedItem(
+async function persistedItem(
   proposalStore: CaptureProposalStore,
   proposalId: string,
   itemId: string,
   context: MobileBackendContext = {},
-): PersistedProposalItem | null {
+): Promise<PersistedProposalItem | null> {
   const stored = proposalStore.get(proposalId);
   const item = stored?.contract.items.find((candidate) => candidate.itemId === itemId);
   const commitmentId = commitmentIdForCommands(stored?.commandsByItemId.get(itemId));
   if (!item || !commitmentId) return null;
-  const state = context.participantId ? getParticipantStateSnapshot(context.participantId) : getCommandServiceState();
+  const state = context.participantId ? await getParticipantStateSnapshot(context.participantId) : getCommandServiceState();
   const commitment = state.commitments[commitmentId];
   return {
     itemId,
@@ -127,7 +127,7 @@ async function activateConfirmedItems(
   for (const itemId of itemIds) {
     const commitmentId = commitmentIdForCommands(stored.commandsByItemId.get(itemId));
     if (!commitmentId) continue;
-    const state = context.participantId ? getParticipantStateSnapshot(context.participantId) : getCommandServiceState();
+    const state = context.participantId ? await getParticipantStateSnapshot(context.participantId) : getCommandServiceState();
     const commitment = state.commitments[commitmentId];
     if (!commitment || commitment.status !== 'pending_confirmation') continue;
     const command: Command = {
@@ -195,19 +195,19 @@ export async function confirmMobileCapture(input: MobileConfirmInput, context: M
   }
 
   await activateConfirmedItems(proposalId, result.persistedItemIds, context);
-  const persisted = result.persistedItemIds
-    .map((itemId) => persistedItem(store, proposalId, itemId, context))
-    .filter((item): item is PersistedProposalItem => item !== null);
+  const persisted = (await Promise.all(
+    result.persistedItemIds.map((itemId) => persistedItem(store, proposalId, itemId, context)),
+  )).filter((item): item is PersistedProposalItem => item !== null);
 
   if (context.participantId && persisted.length > 0) {
     const now = new Date();
-    const access = resolvePilotAccess(context.participantId, now.toISOString(), false);
+    const access = await resolvePilotAccess(context.participantId, now.toISOString(), false);
     if (access.trust && !access.trust.firstValueAt) {
-      getPilotTrustStore().apply(context.participantId, {
+      await applyTrustAction(context.participantId, {
         type: 'record_first_value',
         at: now.toISOString(),
       });
-      const analytics = analyticsContextFrom({
+      const analytics = await analyticsContextFrom({
         anonymousUserId: context.participantId,
         consent: access.trust.analyticsConsent ? 'granted' : 'essential',
       }, appendAnalyticsEvent, now);

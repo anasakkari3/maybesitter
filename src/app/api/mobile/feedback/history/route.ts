@@ -26,7 +26,7 @@ installDefaultFeedbackHistoryPort();
 export async function GET(request: Request) {
   let scopeId: string;
   try {
-    scopeId = resolveFeedbackScope(request);
+    scopeId = await resolveFeedbackScope(request);
   } catch (error) {
     return mobileAuthErrorResponse(error);
   }

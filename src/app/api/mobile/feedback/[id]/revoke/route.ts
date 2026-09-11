@@ -31,7 +31,7 @@ export async function POST(
 ) {
   let scopeId: string;
   try {
-    scopeId = resolveFeedbackScope(request);
+    scopeId = await resolveFeedbackScope(request);
   } catch (error) {
     return mobileAuthErrorResponse(error);
   }

@@ -14,7 +14,7 @@ export async function POST(
 ) {
   let auth;
   try {
-    auth = optionalMobilePilotAuth(request);
+    auth = await optionalMobilePilotAuth(request);
   } catch (error) {
     return mobileAuthErrorResponse(error);
   }

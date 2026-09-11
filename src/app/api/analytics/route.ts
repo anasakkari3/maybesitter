@@ -26,7 +26,7 @@ export async function POST(request: Request) {
   if (!isClientReportableEvent(body.eventName)) {
     return Response.json({ error: `eventName must be one of: ${CLIENT_REPORTABLE_EVENTS.join(', ')}` }, { status: 400 });
   }
-  const analytics = analyticsContextFrom(body, appendAnalyticsEvent);
+  const analytics = await analyticsContextFrom(body, appendAnalyticsEvent);
   if (!analytics) return Response.json({ error: 'anonymousUserId is required' }, { status: 400 });
 
   try {

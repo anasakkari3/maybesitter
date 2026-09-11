@@ -25,10 +25,14 @@ export function generatePilotToken(participantId: string, secretOverride?: strin
   return `p-token.${participantId}.${nonce}.${signature}`;
 }
 
-export function parseAndValidatePilotToken(
+/**
+ * Async since UC-1.0b (#141): the revoked/deleted check reads the durable
+ * trust record rather than a per-instance copy of it.
+ */
+export async function parseAndValidatePilotToken(
   token: string | null | undefined,
   secretOverride?: string
-): { valid: boolean; participantId?: string; reason?: string } {
+): Promise<{ valid: boolean; participantId?: string; reason?: string }> {
   if (!token || typeof token !== 'string') {
     return { valid: false, reason: 'missing_token' };
   }
@@ -65,7 +69,7 @@ export function parseAndValidatePilotToken(
 
   // Validate trust state & allowlist
   try {
-    const access = resolvePilotAccess(participantId, new Date().toISOString(), false);
+    const access = await resolvePilotAccess(participantId, new Date().toISOString(), false);
     if (!access.trust) {
       return { valid: false, participantId, reason: access.decision.reason };
     }
