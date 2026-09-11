@@ -44,6 +44,16 @@ test('the tagged revision URL is found with jq, not a gcloud filter() projection
   assert.match(workflow, /select\(\.tag == \$tag\)/);
 });
 
+test('deploying does not erase the environment scheduler.sh set on the service', () => {
+  // infra/scheduler.sh sets MAYBESITTER_SCHEDULER_SA_EMAIL and
+  // MAYBESITTER_INTERNAL_AUDIENCE, which cannot be static flags: the audience
+  // is the service's own URL. --set-env-vars replaces the whole set, so a
+  // deploy would erase them and the internal job routes would answer 503.
+  const flags = read('infra/cloudrun/flags.sh');
+  assert.match(flags, /--update-env-vars=/);
+  assert.doesNotMatch(flags, /--set-env-vars=/);
+});
+
 test('a public service is deployed by an identity that may make it public', () => {
   const flags = read('infra/cloudrun/flags.sh');
   const bootstrap = read('infra/bootstrap.sh');
