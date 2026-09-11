@@ -70,7 +70,7 @@ test('migration copies the five legacy counters verbatim', async () => {
     timestampsUnavailable: true,
     migratedAt: MIGRATED_AT,
   } satisfies FeedbackBaseline);
-  assert.deepEqual(store.readBaseline('scope-a'), baseline);
+  assert.deepEqual(await store.readBaseline('scope-a'), baseline);
 });
 
 test('migration states in the data that the counters carry no per-event times', async () => {
@@ -96,7 +96,7 @@ test('migration never expands counters into events', async () => {
   });
 
   assert.deepEqual(
-    store.list({ scopeId: 'scope-a' }),
+    await store.list({ scopeId: 'scope-a' }),
     [],
     'eighteen counted outcomes must not become eighteen events at one instant',
   );
@@ -119,7 +119,7 @@ test('migrating twice is idempotent and does not double the counters', async () 
 
   assert.deepEqual(second, first, 'a second migration must return the frozen baseline unchanged');
   assert.equal(second?.migratedAt, MIGRATED_AT, 'migratedAt records the one migration that happened');
-  assert.deepEqual(store.readBaseline('scope-a'), first);
+  assert.deepEqual(await store.readBaseline('scope-a'), first);
 });
 
 test('a second migration ignores counters that grew after the first', async () => {
@@ -140,8 +140,8 @@ test('a second migration ignores counters that grew after the first', async () =
   });
 
   assert.deepEqual(second, first);
-  assert.equal(store.readBaseline('scope-a')?.counters.completedActions, 7);
-  assert.equal(store.readBaseline('scope-a')?.counters.ignoredSuggestions, 3);
+  assert.equal((await store.readBaseline('scope-a'))?.counters.completedActions, 7);
+  assert.equal((await store.readBaseline('scope-a'))?.counters.ignoredSuggestions, 3);
 });
 
 test('a scope with no legacy history gets no baseline', async () => {
@@ -162,7 +162,7 @@ test('a scope with no legacy history gets no baseline', async () => {
 
   assert.equal(baseline, null, 'a new user has no pre-event-log history to preserve');
   assert.equal(
-    store.readBaseline('fresh-scope'),
+    await store.readBaseline('fresh-scope'),
     null,
     'an empty baseline would make aggregates claim history that does not exist',
   );
@@ -212,7 +212,7 @@ test('migration rejects a scope, timestamp or counter it cannot trust', async ()
     migrateLegacyBaseline({ ...base, reader: reader(snapshot({ updatedAt: 'yesterday' })) }),
     /feedback baseline:/,
   );
-  assert.equal(store.readBaseline('scope-a'), null, 'no rejected migration may leave a baseline');
+  assert.equal(await store.readBaseline('scope-a'), null, 'no rejected migration may leave a baseline');
 });
 
 test('migration is scoped: one user\'s counters never land in another\'s baseline', async () => {
@@ -231,5 +231,5 @@ test('migration is scoped: one user\'s counters never land in another\'s baselin
   assert.deepEqual(seen, ['scope-a', 'scope-b'], 'the reader is asked for exactly the scope being migrated');
   assert.equal(a?.counters.completedActions, 7);
   assert.equal(b?.counters.completedActions, 99);
-  assert.equal(store.readBaseline('scope-a')?.counters.completedActions, 7);
+  assert.equal((await store.readBaseline('scope-a'))?.counters.completedActions, 7);
 });

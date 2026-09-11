@@ -9,9 +9,6 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import {
   FEEDBACK_EVENT_SCHEMA_VERSION,
   type AppendFeedbackEventInput,
@@ -19,9 +16,10 @@ import {
   type FeedbackEventStore,
 } from '../../src/contracts/v1/feedbackContracts.ts';
 import {
-  createFileFeedbackEventStore,
+  createStorageFeedbackEventStore,
   createInMemoryFeedbackEventStore,
 } from '../../lib/feedback/feedbackEventStore.ts';
+import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 
 const OCCURRED = '2026-08-18T09:00:00.000Z';
 const RECORDED = '2026-08-18T09:00:03.000Z';
@@ -38,13 +36,10 @@ interface Harness {
 
 const BACKENDS: readonly (readonly [string, () => Harness])[] = [
   ['memory', () => ({ store: createInMemoryFeedbackEventStore(), cleanup: () => undefined })],
-  ['file', () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'maybesitter-feedback-'));
-    return {
-      store: createFileFeedbackEventStore({ dataDir }),
-      cleanup: () => rmSync(dataDir, { recursive: true, force: true }),
-    };
-  }],
+  // The file-backed store was deleted by UC-1.0c (#142). The second backend is
+  // now the production factory over a fresh memory adapter, so the suite still
+  // runs the exported storage path rather than only the test helper.
+  ['storage adapter', () => ({ store: createStorageFeedbackEventStore(createMemoryStorage()), cleanup: () => undefined })],
 ];
 
 function input(overrides: Partial<AppendFeedbackEventInput> = {}): AppendFeedbackEventInput {
@@ -80,10 +75,10 @@ function baseline(overrides: Partial<FeedbackBaseline> = {}): FeedbackBaseline {
 for (const entry of BACKENDS) {
   const [backend, make] = entry;
 
-  test(`[${backend}] append records actor, source and both timestamps`, () => {
+  test(`[${backend}] append records actor, source and both timestamps`, async () => {
     const { store, cleanup } = make();
     try {
-      const event = store.append(input(), RECORDED);
+      const event = await store.append(input(), RECORDED);
       assert.equal(event.version, FEEDBACK_EVENT_SCHEMA_VERSION);
       assert.equal(event.scopeId, 'scope-a');
       assert.equal(event.subjectId, 'commitment-1');
@@ -94,31 +89,31 @@ for (const entry of BACKENDS) {
       assert.equal(event.recordedAt, RECORDED);
       assert.ok(event.idempotencyKey.length > 0, 'an idempotency key must be assigned');
       assert.equal(event.revokedAt, undefined);
-      assert.deepEqual(store.get(event.id), event);
+      assert.deepEqual(await store.get(event.id), event);
     } finally {
       cleanup();
     }
   });
 
-  test(`[${backend}] appending the same input twice yields one record and one identical event`, () => {
+  test(`[${backend}] appending the same input twice yields one record and one identical event`, async () => {
     const { store, cleanup } = make();
     try {
-      const first = store.append(input(), RECORDED);
+      const first = await store.append(input(), RECORDED);
       // A retry that arrives hours later: nothing about the stored event may move.
-      const second = store.append(input(), LATER);
+      const second = await store.append(input(), LATER);
       assert.deepEqual(second, first, 'a repeat append must return the existing event unchanged');
       assert.equal(second.recordedAt, RECORDED, 'recordedAt must record the first storage, not the retry');
       assert.equal(second.id, first.id);
-      assert.equal(store.list({ scopeId: 'scope-a' }).length, 1, 'a retry must not create a second record');
+      assert.equal((await store.list({ scopeId: 'scope-a' })).length, 1, 'a retry must not create a second record');
     } finally {
       cleanup();
     }
   });
 
-  test(`[${backend}] the idempotency key derives from scope, subject, outcome and occurredAt`, () => {
+  test(`[${backend}] the idempotency key derives from scope, subject, outcome and occurredAt`, async () => {
     const { store, cleanup } = make();
     try {
-      const base = store.append(input(), RECORDED);
+      const base = await store.append(input(), RECORDED);
       const variants: readonly Partial<AppendFeedbackEventInput>[] = [
         { scopeId: 'scope-b' },
         { subjectId: 'commitment-2' },
@@ -126,39 +121,39 @@ for (const entry of BACKENDS) {
         { occurredAt: '2026-08-18T09:00:01.000Z' },
       ];
       for (const variant of variants) {
-        const other = store.append(input(variant), RECORDED);
+        const other = await store.append(input(variant), RECORDED);
         assert.notEqual(
           other.idempotencyKey,
           base.idempotencyKey,
           `changing ${Object.keys(variant)[0]} must produce a distinct key`,
         );
       }
-      assert.equal(store.list({ scopeId: 'scope-a' }).length, 4, 'scope-a keeps the base plus three variants');
+      assert.equal((await store.list({ scopeId: 'scope-a' })).length, 4, 'scope-a keeps the base plus three variants');
     } finally {
       cleanup();
     }
   });
 
-  test(`[${backend}] a repeat differing only in actor or source replays rather than double counting`, () => {
+  test(`[${backend}] a repeat differing only in actor or source replays rather than double counting`, async () => {
     const { store, cleanup } = make();
     try {
-      const first = store.append(input(), RECORDED);
+      const first = await store.append(input(), RECORDED);
       // Deliberate: the same behaviour re-submitted through another path is one
       // behaviour. Collapsing it is the point; the first write stays authoritative.
-      const viaScheduler = store.append(input({ actor: 'system', source: 'scheduler' }), LATER);
+      const viaScheduler = await store.append(input({ actor: 'system', source: 'scheduler' }), LATER);
       assert.deepEqual(viaScheduler, first);
-      assert.equal(store.list({ scopeId: 'scope-a' }).length, 1);
+      assert.equal((await store.list({ scopeId: 'scope-a' })).length, 1);
     } finally {
       cleanup();
     }
   });
 
-  test(`[${backend}] idempotency keys are stable across store instances`, () => {
+  test(`[${backend}] idempotency keys are stable across store instances`, async () => {
     const first = make();
     const second = make();
     try {
-      const a = first.store.append(input(), RECORDED);
-      const b = second.store.append(input(), LATER);
+      const a = await first.store.append(input(), RECORDED);
+      const b = await second.store.append(input(), LATER);
       assert.equal(b.idempotencyKey, a.idempotencyKey, 'a restart must not lose idempotency');
       assert.equal(b.id, a.id, 'the same behaviour must resolve to the same record identity');
     } finally {
@@ -167,7 +162,7 @@ for (const entry of BACKENDS) {
     }
   });
 
-  test(`[${backend}] append rejects a record missing actor, source or a timestamp`, () => {
+  test(`[${backend}] append rejects a record missing actor, source or a timestamp`, async () => {
     const { store, cleanup } = make();
     try {
       const missing: readonly Partial<Record<keyof AppendFeedbackEventInput, unknown>>[] = [
@@ -197,13 +192,13 @@ for (const entry of BACKENDS) {
         /feedback events:/,
         'migration_baseline is a baseline marker and must never be appendable as an event',
       );
-      assert.equal(store.list({ scopeId: 'scope-a' }).length, 0, 'no rejected input may leave a record');
+      assert.equal((await store.list({ scopeId: 'scope-a' })).length, 0, 'no rejected input may leave a record');
     } finally {
       cleanup();
     }
   });
 
-  test(`[${backend}] append ignores forged server-assigned fields`, () => {
+  test(`[${backend}] append ignores forged server-assigned fields`, async () => {
     const { store, cleanup } = make();
     try {
       const forged = {
@@ -216,7 +211,7 @@ for (const entry of BACKENDS) {
         smuggled: 'nope',
       } as unknown as AppendFeedbackEventInput;
 
-      const event = store.append(forged, RECORDED);
+      const event = await store.append(forged, RECORDED);
       assert.notEqual(event.id, 'fbk_forged');
       assert.equal(event.version, FEEDBACK_EVENT_SCHEMA_VERSION);
       assert.equal(event.recordedAt, RECORDED);
@@ -232,13 +227,13 @@ for (const entry of BACKENDS) {
     }
   });
 
-  test(`[${backend}] revoke stamps revokedAt and rewrites nothing else`, () => {
+  test(`[${backend}] revoke stamps revokedAt and rewrites nothing else`, async () => {
     const { store, cleanup } = make();
     try {
-      const event = store.append(input(), RECORDED);
-      assert.equal(store.revoke(event.id, LATER), true);
+      const event = await store.append(input(), RECORDED);
+      assert.equal(await store.revoke(event.id, LATER), true);
 
-      const revoked = store.get(event.id);
+      const revoked = await store.get(event.id);
       assert.ok(revoked, 'a revoked event is corrected, never deleted');
       assert.equal(revoked.revokedAt, LATER);
       assert.deepEqual(
@@ -251,14 +246,14 @@ for (const entry of BACKENDS) {
     }
   });
 
-  test(`[${backend}] revoking twice returns false and keeps the first correction time`, () => {
+  test(`[${backend}] revoking twice returns false and keeps the first correction time`, async () => {
     const { store, cleanup } = make();
     try {
-      const event = store.append(input(), RECORDED);
-      assert.equal(store.revoke(event.id, RECORDED), true);
-      assert.equal(store.revoke(event.id, LATER), false, 'a second revocation is not a new correction');
+      const event = await store.append(input(), RECORDED);
+      assert.equal(await store.revoke(event.id, RECORDED), true);
+      assert.equal(await store.revoke(event.id, LATER), false, 'a second revocation is not a new correction');
       assert.equal(
-        store.get(event.id)?.revokedAt,
+        (await store.get(event.id))?.revokedAt,
         RECORDED,
         'revokedAt records when the user made the correction and must not move',
       );
@@ -267,67 +262,67 @@ for (const entry of BACKENDS) {
     }
   });
 
-  test(`[${backend}] revoke returns false for an unknown or malformed id`, () => {
+  test(`[${backend}] revoke returns false for an unknown or malformed id`, async () => {
     const { store, cleanup } = make();
     try {
-      assert.equal(store.revoke('fbk_missing', LATER), false);
-      assert.equal(store.revoke('../../etc/passwd', LATER), false);
+      assert.equal(await store.revoke('fbk_missing', LATER), false);
+      assert.equal(await store.revoke('../../etc/passwd', LATER), false);
       assert.throws(() => store.revoke('fbk_missing', 'whenever'), /feedback events:/);
     } finally {
       cleanup();
     }
   });
 
-  test(`[${backend}] appending after a revocation leaves the revoked event untouched`, () => {
+  test(`[${backend}] appending after a revocation leaves the revoked event untouched`, async () => {
     const { store, cleanup } = make();
     try {
-      const first = store.append(input(), RECORDED);
-      store.revoke(first.id, RECORDED);
-      store.append(input({ subjectId: 'commitment-2' }), LATER);
+      const first = await store.append(input(), RECORDED);
+      await store.revoke(first.id, RECORDED);
+      await store.append(input({ subjectId: 'commitment-2' }), LATER);
       // A retry of the revoked event must replay it, not resurrect it.
-      const replay = store.append(input(), LATER);
+      const replay = await store.append(input(), LATER);
       assert.equal(replay.revokedAt, RECORDED, 'a retry must not clear a revocation');
-      assert.equal(store.list({ scopeId: 'scope-a' }).length, 2);
+      assert.equal((await store.list({ scopeId: 'scope-a' })).length, 2);
     } finally {
       cleanup();
     }
   });
 
-  test(`[${backend}] revoked events stay in history and are excluded only on request`, () => {
+  test(`[${backend}] revoked events stay in history and are excluded only on request`, async () => {
     const { store, cleanup } = make();
     try {
-      const kept = store.append(input(), RECORDED);
-      const corrected = store.append(input({ subjectId: 'commitment-2' }), RECORDED);
-      store.revoke(corrected.id, LATER);
+      const kept = await store.append(input(), RECORDED);
+      const corrected = await store.append(input({ subjectId: 'commitment-2' }), RECORDED);
+      await store.revoke(corrected.id, LATER);
 
-      const all = store.list({ scopeId: 'scope-a' });
+      const all = await store.list({ scopeId: 'scope-a' });
       assert.equal(all.length, 2, 'history must show corrections by default');
-      const live = store.list({ scopeId: 'scope-a', includeRevoked: false });
+      const live = await store.list({ scopeId: 'scope-a', includeRevoked: false });
       assert.deepEqual(live.map((event) => event.id), [kept.id]);
     } finally {
       cleanup();
     }
   });
 
-  test(`[${backend}] list orders by when the behaviour happened, as instants`, () => {
+  test(`[${backend}] list orders by when the behaviour happened, as instants`, async () => {
     const { store, cleanup } = make();
     try {
       // Middle entry carries a +03:00 offset: it is 09:00Z, so a textual sort
       // would rank it last and `limit` would then drop the actual newest.
-      store.append(input({ subjectId: 'b', occurredAt: '2026-08-18T12:00:00.000+03:00' }), RECORDED);
-      store.append(input({ subjectId: 'c', occurredAt: '2026-08-18T18:00:00.000Z' }), RECORDED);
-      store.append(input({ subjectId: 'a', occurredAt: '2026-08-18T06:00:00.000Z' }), RECORDED);
+      await store.append(input({ subjectId: 'b', occurredAt: '2026-08-18T12:00:00.000+03:00' }), RECORDED);
+      await store.append(input({ subjectId: 'c', occurredAt: '2026-08-18T18:00:00.000Z' }), RECORDED);
+      await store.append(input({ subjectId: 'a', occurredAt: '2026-08-18T06:00:00.000Z' }), RECORDED);
 
       assert.deepEqual(
-        store.list({ scopeId: 'scope-a' }).map((event) => event.subjectId),
+        (await store.list({ scopeId: 'scope-a' })).map((event) => event.subjectId),
         ['a', 'b', 'c'],
       );
       assert.deepEqual(
-        store.list({ scopeId: 'scope-a', newestFirst: true }).map((event) => event.subjectId),
+        (await store.list({ scopeId: 'scope-a', newestFirst: true })).map((event) => event.subjectId),
         ['c', 'b', 'a'],
       );
       assert.deepEqual(
-        store.list({ scopeId: 'scope-a', newestFirst: true, limit: 1 }).map((event) => event.subjectId),
+        (await store.list({ scopeId: 'scope-a', newestFirst: true, limit: 1 })).map((event) => event.subjectId),
         ['c'],
         'limit must keep the newest, not the first written',
       );
@@ -336,12 +331,12 @@ for (const entry of BACKENDS) {
     }
   });
 
-  test(`[${backend}] list never leaks a sibling scope`, () => {
+  test(`[${backend}] list never leaks a sibling scope`, async () => {
     const { store, cleanup } = make();
     try {
-      store.append(input(), RECORDED);
-      store.append(input({ scopeId: 'scope-b' }), RECORDED);
-      const rows = store.list({ scopeId: 'scope-a' });
+      await store.append(input(), RECORDED);
+      await store.append(input({ scopeId: 'scope-b' }), RECORDED);
+      const rows = await store.list({ scopeId: 'scope-a' });
       assert.equal(rows.length, 1);
       assert.equal(rows[0].scopeId, 'scope-a');
       assert.throws(() => store.list({ scopeId: '' }), /feedback events:/);
@@ -351,14 +346,14 @@ for (const entry of BACKENDS) {
     }
   });
 
-  test(`[${backend}] Arabic and Hebrew ids round-trip byte-identically`, () => {
+  test(`[${backend}] Arabic and Hebrew ids round-trip byte-identically`, async () => {
     const { store, cleanup } = make();
     try {
-      const arabic = store.append(input({ scopeId: ARABIC, subjectId: HEBREW }), RECORDED);
+      const arabic = await store.append(input({ scopeId: ARABIC, subjectId: HEBREW }), RECORDED);
       assert.equal(arabic.scopeId, ARABIC);
       assert.equal(arabic.subjectId, HEBREW);
 
-      const stored = store.get(arabic.id);
+      const stored = await store.get(arabic.id);
       assert.equal(stored?.scopeId, ARABIC);
       assert.equal(stored?.subjectId, HEBREW);
       assert.equal(
@@ -367,29 +362,29 @@ for (const entry of BACKENDS) {
         'no normalization pass may re-encode the user\'s own words',
       );
 
-      const replay = store.append(input({ scopeId: ARABIC, subjectId: HEBREW }), LATER);
+      const replay = await store.append(input({ scopeId: ARABIC, subjectId: HEBREW }), LATER);
       assert.equal(replay.id, arabic.id, 'idempotency must survive non-ASCII ids');
-      assert.equal(store.list({ scopeId: ARABIC }).length, 1);
+      assert.equal((await store.list({ scopeId: ARABIC })).length, 1);
     } finally {
       cleanup();
     }
   });
 
-  test(`[${backend}] get returns null for an unknown or malformed id`, () => {
+  test(`[${backend}] get returns null for an unknown or malformed id`, async () => {
     const { store, cleanup } = make();
     try {
       for (const id of ['fbk_missing', '../../etc/passwd', '', 'fbk_a/../../x']) {
-        assert.equal(store.get(id), null, `get(${id}) must not resolve`);
+        assert.equal(await store.get(id), null, `get(${id}) must not resolve`);
       }
     } finally {
       cleanup();
     }
   });
 
-  test(`[${backend}] events are frozen, so the readonly contract holds at runtime`, () => {
+  test(`[${backend}] events are frozen, so the readonly contract holds at runtime`, async () => {
     const { store, cleanup } = make();
     try {
-      const event = store.append(input(), RECORDED);
+      const event = await store.append(input(), RECORDED);
       assert.equal(Object.isFrozen(event), true);
       assert.throws(() => {
         (event as { outcome: string }).outcome = 'reject';
@@ -399,20 +394,20 @@ for (const entry of BACKENDS) {
     }
   });
 
-  test(`[${backend}] the baseline round-trips verbatim and is scoped`, () => {
+  test(`[${backend}] the baseline round-trips verbatim and is scoped`, async () => {
     const { store, cleanup } = make();
     try {
-      assert.equal(store.readBaseline('scope-a'), null);
-      store.writeBaseline(baseline());
-      assert.deepEqual(store.readBaseline('scope-a'), baseline());
-      assert.equal(store.readBaseline('scope-b'), null);
-      assert.equal(Object.isFrozen(store.readBaseline('scope-a')), true);
+      assert.equal(await store.readBaseline('scope-a'), null);
+      await store.writeBaseline(baseline());
+      assert.deepEqual(await store.readBaseline('scope-a'), baseline());
+      assert.equal(await store.readBaseline('scope-b'), null);
+      assert.equal(Object.isFrozen(await store.readBaseline('scope-a')), true);
     } finally {
       cleanup();
     }
   });
 
-  test(`[${backend}] writeBaseline rejects a baseline that misstates its own limits`, () => {
+  test(`[${backend}] writeBaseline rejects a baseline that misstates its own limits`, async () => {
     const { store, cleanup } = make();
     try {
       const rejected: readonly Partial<Record<keyof FeedbackBaseline, unknown>>[] = [
@@ -433,34 +428,34 @@ for (const entry of BACKENDS) {
           `writeBaseline must reject ${JSON.stringify(patch)}`,
         );
       }
-      assert.equal(store.readBaseline('scope-a'), null);
+      assert.equal(await store.readBaseline('scope-a'), null);
       // lastUpdatedAt is nullable: the legacy store leaves it null until first use.
-      store.writeBaseline(baseline({ lastUpdatedAt: null }));
-      assert.equal(store.readBaseline('scope-a')?.lastUpdatedAt, null);
+      await store.writeBaseline(baseline({ lastUpdatedAt: null }));
+      assert.equal((await store.readBaseline('scope-a'))?.lastUpdatedAt, null);
     } finally {
       cleanup();
     }
   });
 
-  test(`[${backend}] deleteScope removes the scope's events and baseline, leaving a sibling intact`, () => {
+  test(`[${backend}] deleteScope removes the scope's events and baseline, leaving a sibling intact`, async () => {
     const { store, cleanup } = make();
     try {
-      store.append(input(), RECORDED);
-      store.append(input({ subjectId: 'commitment-2' }), RECORDED);
-      store.append(input({ scopeId: 'scope-b' }), RECORDED);
-      store.writeBaseline(baseline());
-      store.writeBaseline(baseline({ scopeId: 'scope-b' }));
+      await store.append(input(), RECORDED);
+      await store.append(input({ subjectId: 'commitment-2' }), RECORDED);
+      await store.append(input({ scopeId: 'scope-b' }), RECORDED);
+      await store.writeBaseline(baseline());
+      await store.writeBaseline(baseline({ scopeId: 'scope-b' }));
 
-      assert.equal(store.deleteScope('scope-a'), 2, 'the count reports events removed');
-      assert.equal(store.list({ scopeId: 'scope-a' }).length, 0);
+      assert.equal(await store.deleteScope('scope-a'), 2, 'the count reports events removed');
+      assert.equal((await store.list({ scopeId: 'scope-a' })).length, 0);
       assert.equal(
-        store.readBaseline('scope-a'),
+        await store.readBaseline('scope-a'),
         null,
         'the legacy counters are the user\'s data too and must not survive deletion',
       );
-      assert.equal(store.list({ scopeId: 'scope-b' }).length, 1);
-      assert.deepEqual(store.readBaseline('scope-b'), baseline({ scopeId: 'scope-b' }));
-      assert.equal(store.deleteScope('scope-a'), 0, 'deleting twice is a no-op');
+      assert.equal((await store.list({ scopeId: 'scope-b' })).length, 1);
+      assert.deepEqual(await store.readBaseline('scope-b'), baseline({ scopeId: 'scope-b' }));
+      assert.equal(await store.deleteScope('scope-a'), 0, 'deleting twice is a no-op');
       assert.throws(() => store.deleteScope(''), /feedback events:/);
     } finally {
       cleanup();

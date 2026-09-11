@@ -171,7 +171,7 @@ function emptyReader(records: readonly RuntimeMemoryRecord[] = []): ShadowMemory
 } {
   const queries: unknown[] = [];
   return {
-    retrieve(query) {
+    async retrieve(query) {
       queries.push(query);
       return records;
     },

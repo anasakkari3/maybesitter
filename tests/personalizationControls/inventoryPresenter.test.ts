@@ -81,10 +81,10 @@ function makePort(overrides: Partial<PersonalizationControlsPort> = {}): {
   return { port, handle };
 }
 
-test('with consent enabled the inventory carries all three reading variants with provenance', () => {
+test('with consent enabled the inventory carries all three reading variants with provenance', async () => {
   const { port } = makePort();
-  port.consent.write(SCOPE, 'enabled', EARLIER);
-  const view = buildPersonalizationInventory(port, SCOPE, NOW);
+  await port.consent.write(SCOPE, 'enabled', EARLIER);
+  const view = await buildPersonalizationInventory(port, SCOPE, NOW);
 
   assert.equal(view.scopeId, SCOPE);
   assert.equal(view.consent.state, 'enabled');
@@ -135,12 +135,12 @@ test('with consent enabled the inventory carries all three reading variants with
   );
 });
 
-test('a user correction outranks an operative derivation and is labelled as the user’s own', () => {
+test('a user correction outranks an operative derivation and is labelled as the user’s own', async () => {
   const { port } = makePort();
-  port.consent.write(SCOPE, 'enabled', EARLIER);
-  applyCorrection(port.memory, SCOPE, 'pressure_tone', 'firm', EARLIER);
+  await port.consent.write(SCOPE, 'enabled', EARLIER);
+  await applyCorrection(port.memory, SCOPE, 'pressure_tone', 'firm', EARLIER);
 
-  const view = buildPersonalizationInventory(port, SCOPE, NOW);
+  const view = await buildPersonalizationInventory(port, SCOPE, NOW);
   assert.equal(view.preferences.kind, 'derived');
   if (view.preferences.kind !== 'derived') return;
   const row = view.preferences.rows.find((entry) => entry.dimension === 'pressure_tone');
@@ -152,20 +152,20 @@ test('a user correction outranks an operative derivation and is labelled as the 
   assert.equal(row?.reading?.level, 'soft');
 });
 
-test('immediacy: after a consent flip the very next read is inert and the deriver is never asked', () => {
+test('immediacy: after a consent flip the very next read is inert and the deriver is never asked', async () => {
   const { port, handle } = makePort();
-  port.consent.write(SCOPE, 'enabled', EARLIER);
+  await port.consent.write(SCOPE, 'enabled', EARLIER);
 
-  const enabled = derivePersonalizationProfile(port, SCOPE, NOW);
+  const enabled = await derivePersonalizationProfile(port, SCOPE, NOW);
   assert.equal(enabled.kind, 'derived');
   assert.equal(handle.callCount(), 1);
   if (enabled.kind === 'derived') {
     assert.equal(operativeReadings(enabled.profile).length, 1);
   }
 
-  port.consent.write(SCOPE, 'disabled', NOW);
+  await port.consent.write(SCOPE, 'disabled', NOW);
 
-  const flipped = derivePersonalizationProfile(port, SCOPE, NOW);
+  const flipped = await derivePersonalizationProfile(port, SCOPE, NOW);
   assert.equal(flipped.kind, 'disabled');
   if (flipped.kind === 'disabled') {
     // Inert by shape: nothing to read a preference off.
@@ -177,16 +177,16 @@ test('immediacy: after a consent flip the very next read is inert and the derive
   // there is no profile — the flip cannot race a store that does not exist.
   assert.equal(handle.callCount(), 1);
 
-  const view = buildPersonalizationInventory(port, SCOPE, NOW);
+  const view = await buildPersonalizationInventory(port, SCOPE, NOW);
   assert.equal(view.consent.state, 'disabled');
   assert.equal(view.preferences.kind, 'disabled');
   assert.equal(handle.callCount(), 1);
 });
 
-test('with consent disabled, corrections still govern the effective level — controls outlive the model', () => {
+test('with consent disabled, corrections still govern the effective level — controls outlive the model', async () => {
   const { port } = makePort();
-  applyCorrection(port.memory, SCOPE, 'reminder_density', 'rich', EARLIER);
-  const view = buildPersonalizationInventory(port, SCOPE, NOW);
+  await applyCorrection(port.memory, SCOPE, 'reminder_density', 'rich', EARLIER);
+  const view = await buildPersonalizationInventory(port, SCOPE, NOW);
   assert.equal(view.preferences.kind, 'disabled');
   const row = view.preferences.rows.find((entry) => entry.dimension === 'reminder_density');
   assert.equal(row?.effective.source, 'user_correction');
@@ -196,9 +196,9 @@ test('with consent disabled, corrections still govern the effective level — co
   assert.equal(untouched?.effective.source, 'product_default');
 });
 
-test('a deriver that emits a contract-invalid profile is failed closed, with defect codes named', () => {
+test('a deriver that emits a contract-invalid profile is failed closed, with defect codes named', async () => {
   const { port } = makePort();
-  port.consent.write(SCOPE, 'enabled', EARLIER);
+  await port.consent.write(SCOPE, 'enabled', EARLIER);
   const stubborn = createStubbornDeriver({
     version: 'v1' as never,
     schemaVersion: 'personalization-v1',
@@ -208,7 +208,7 @@ test('a deriver that emits a contract-invalid profile is failed closed, with def
     basis: null as never,
     readings: null as never,
   });
-  const view = buildPersonalizationInventory({ ...port, deriver: stubborn.deriver }, SCOPE, NOW);
+  const view = await buildPersonalizationInventory({ ...port, deriver: stubborn.deriver }, SCOPE, NOW);
   assert.equal(view.preferences.kind, 'profile_invalid');
   if (view.preferences.kind !== 'profile_invalid') return;
   assert.ok(view.preferences.defectCodes.includes('ENABLED_PROFILE_NOT_DERIVED'));
@@ -216,17 +216,17 @@ test('a deriver that emits a contract-invalid profile is failed closed, with def
   for (const row of view.preferences.rows) assert.equal(row.reading, null);
 });
 
-test('without a wired deriver the readings are honestly unavailable, never silently empty', () => {
+test('without a wired deriver the readings are honestly unavailable, never silently empty', async () => {
   const { port } = makePort();
-  port.consent.write(SCOPE, 'enabled', EARLIER);
-  const view = buildPersonalizationInventory({ ...port, deriver: null }, SCOPE, NOW);
+  await port.consent.write(SCOPE, 'enabled', EARLIER);
+  const view = await buildPersonalizationInventory({ ...port, deriver: null }, SCOPE, NOW);
   assert.equal(view.preferences.kind, 'deriver_unavailable');
   assert.match(view.preferences.explanation, /not .*(wired|connected|available)/i);
 });
 
-test('memory records appear with status, source, and revocability; feedback counts include revoked', () => {
+test('memory records appear with status, source, and revocability; feedback counts include revoked', async () => {
   const { port } = makePort();
-  const kept = port.memory.put({
+  const kept = await port.memory.put({
     scopeId: SCOPE,
     kind: 'fact',
     content: 'Prefers evening reminders after work',
@@ -235,7 +235,7 @@ test('memory records appear with status, source, and revocability; feedback coun
     confidence: 1,
     observedAt: EARLIER,
   }, EARLIER);
-  const revoked = port.memory.put({
+  const revoked = await port.memory.put({
     scopeId: SCOPE,
     kind: 'hypothesis',
     content: 'May be juggling shift work',
@@ -244,17 +244,17 @@ test('memory records appear with status, source, and revocability; feedback coun
     confidence: 0.4,
     observedAt: EARLIER,
   }, EARLIER);
-  port.memory.revoke(revoked.id, NOW);
+  await port.memory.revoke(revoked.id, NOW);
 
-  port.feedback.append({
+  await port.feedback.append({
     scopeId: SCOPE, subjectId: 'c-1', outcome: 'accept', actor: 'user', source: 'mobile_action', occurredAt: EARLIER,
   }, EARLIER);
-  const toRevoke = port.feedback.append({
+  const toRevoke = await port.feedback.append({
     scopeId: SCOPE, subjectId: 'c-2', outcome: 'ignore', actor: 'user', source: 'mobile_action', occurredAt: EARLIER,
   }, EARLIER);
-  port.feedback.revoke(toRevoke.id, NOW);
+  await port.feedback.revoke(toRevoke.id, NOW);
 
-  const view = buildPersonalizationInventory(port, SCOPE, NOW);
+  const view = await buildPersonalizationInventory(port, SCOPE, NOW);
 
   const rows = view.memory.records;
   assert.equal(rows.length, 2);
@@ -272,9 +272,9 @@ test('memory records appear with status, source, and revocability; feedback coun
   assert.equal(outcomes.ignore, 1);
 });
 
-test('the #107 classification is surfaced with its inputs in plain language', () => {
+test('the #107 classification is surfaced with its inputs in plain language', async () => {
   const { port } = makePort();
-  const view = buildPersonalizationInventory(port, SCOPE, NOW);
+  const view = await buildPersonalizationInventory(port, SCOPE, NOW);
 
   // The scripted signals cross every avoidant threshold.
   assert.equal(view.adaptive.classification, 'avoidant');
@@ -296,20 +296,20 @@ test('the #107 classification is surfaced with its inputs in plain language', ()
   assert.match(view.adaptive.visibilityNote, /classification|label/i);
 });
 
-test('the adaptive classification is shown regardless of personalization consent', () => {
+test('the adaptive classification is shown regardless of personalization consent', async () => {
   const { port } = makePort();
-  port.consent.write(SCOPE, 'disabled', EARLIER);
-  const view = buildPersonalizationInventory(port, SCOPE, NOW);
+  await port.consent.write(SCOPE, 'disabled', EARLIER);
+  const view = await buildPersonalizationInventory(port, SCOPE, NOW);
   assert.equal(view.adaptive.classification, 'avoidant');
 });
 
-test('the presenter reads no clock: identical inputs at an explicit now produce identical views', () => {
+test('the presenter reads no clock: identical inputs at an explicit now produce identical views', async () => {
   const first = makePort();
-  first.port.consent.write(SCOPE, 'enabled', EARLIER);
+  await first.port.consent.write(SCOPE, 'enabled', EARLIER);
   const second = makePort();
-  second.port.consent.write(SCOPE, 'enabled', EARLIER);
+  await second.port.consent.write(SCOPE, 'enabled', EARLIER);
   assert.deepEqual(
-    buildPersonalizationInventory(first.port, SCOPE, NOW),
-    buildPersonalizationInventory(second.port, SCOPE, NOW),
+    await buildPersonalizationInventory(first.port, SCOPE, NOW),
+    await buildPersonalizationInventory(second.port, SCOPE, NOW),
   );
 });

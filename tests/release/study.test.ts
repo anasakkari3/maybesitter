@@ -9,9 +9,6 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
 
 import {
   SHADOW_STUDY_QUESTIONS,
@@ -20,10 +17,11 @@ import {
 } from '../../src/contracts/v1/shadowPipelineContracts.ts';
 import {
   SHADOW_STUDY_RECORD_REJECTIONS,
-  createFileShadowStudyResponseStore,
+  createStorageShadowStudyResponseStore,
   createInMemoryShadowStudyResponseStore,
   type ShadowStudyResponseStore,
 } from '../../lib/release/studyStore.ts';
+import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { parseStudyResponse, summarizeStudyResponses } from '../../lib/release/study.ts';
 
 const P = 'participant-a';
@@ -46,7 +44,7 @@ test('the rating scale is the one this study was designed around', () => {
   assert.equal(SHADOW_STUDY_RATING_SCALE.maximum, 5);
 });
 
-test('each bound of the scale is probed one site at a time, from the constant', () => {
+test('each bound of the scale is probed one site at a time, from the constant', async () => {
   const store = createInMemoryShadowStudyResponseStore();
   const cases: [number, 'recorded' | 'rejected'][] = [
     [SHADOW_STUDY_RATING_SCALE.minimum - 1, 'rejected'],
@@ -55,90 +53,90 @@ test('each bound of the scale is probed one site at a time, from the constant', 
     [SHADOW_STUDY_RATING_SCALE.maximum + 1, 'rejected'],
   ];
   for (const [rating, expected] of cases) {
-    const result = store.record(rated(P, 'helpfulness', rating, `run-${rating + 10}`));
+    const result = await store.record(rated(P, 'helpfulness', rating, `run-${rating + 10}`));
     assert.equal(result.status, expected, `a rating of ${rating} was ${result.status}`);
   }
 });
 
-test('a fractional rating is not a rating', () => {
+test('a fractional rating is not a rating', async () => {
   const store = createInMemoryShadowStudyResponseStore();
   const midpoint = (SHADOW_STUDY_RATING_SCALE.minimum + SHADOW_STUDY_RATING_SCALE.maximum) / 2;
-  const result = store.record(rated(P, 'helpfulness', midpoint + 0.5));
+  const result = await store.record(rated(P, 'helpfulness', midpoint + 0.5));
   assert.equal(result.status, 'rejected');
 });
 
 /* ── Both variants are first-class ───────────────────────────────── */
 
-for (const flavour of ['memory', 'file'] as const) {
-  test(`[${flavour}] a declined answer is stored, listed and counted like a rated one`, () => {
-    const dir = flavour === 'file' ? mkdtempSync(path.join(tmpdir(), 'ms-study-responses-')) : null;
+// The file-backed variant was deleted by UC-1.0c (#142). The second flavour is
+// now the production factory over a fresh memory adapter, so both the test
+// helper and the exported storage path stay first-class.
+for (const flavour of ['memory', 'storage adapter'] as const) {
+  test(`[${flavour}] a declined answer is stored, listed and counted like a rated one`, async () => {
     const store: ShadowStudyResponseStore =
-      dir === null
+      flavour === 'memory'
         ? createInMemoryShadowStudyResponseStore()
-        : createFileShadowStudyResponseStore({ dataDir: dir });
-    try {
-      assert.equal(store.record(rated(P, 'helpfulness', SHADOW_STUDY_RATING_SCALE.maximum)).status, 'recorded');
-      assert.equal(store.record(declined(P, 'intrusiveness')).status, 'recorded');
+        : createStorageShadowStudyResponseStore(createMemoryStorage());
+    {
+      assert.equal((await store.record(rated(P, 'helpfulness', SHADOW_STUDY_RATING_SCALE.maximum))).status, 'recorded');
+      assert.equal((await store.record(declined(P, 'intrusiveness'))).status, 'recorded');
 
-      const listed = store.list(P);
+      const listed = await store.list(P);
       assert.equal(listed.length, 2, 'a declined answer was folded into a gap');
       // (question, status) pairs, not a set of statuses.
       assert.equal(listed.filter((r) => r.question === 'helpfulness' && r.status === 'rated').length, 1);
       assert.equal(listed.filter((r) => r.question === 'intrusiveness' && r.status === 'declined').length, 1);
       const [, declinedBack] = listed;
       assert.equal(declinedBack.rating, null, 'a declined answer leaked a number');
-      assert.equal(store.countFor(P), 2);
-    } finally {
-      if (dir !== null) rmSync(dir, { recursive: true, force: true });
+      assert.equal(await store.countFor(P), 2);
     }
   });
 }
 
-test('answering the same question about the same run again supersedes rather than double-counts', () => {
+test('answering the same question about the same run again supersedes rather than double-counts', async () => {
   const store = createInMemoryShadowStudyResponseStore();
-  store.record(rated(P, 'trust', SHADOW_STUDY_RATING_SCALE.minimum));
-  store.record(rated(P, 'trust', SHADOW_STUDY_RATING_SCALE.maximum));
-  assert.equal(store.countFor(P), 1, 'one person answered one question twice and was counted twice');
-  assert.equal(store.list(P)[0].rating, SHADOW_STUDY_RATING_SCALE.maximum);
+  await store.record(rated(P, 'trust', SHADOW_STUDY_RATING_SCALE.minimum));
+  await store.record(rated(P, 'trust', SHADOW_STUDY_RATING_SCALE.maximum));
+  assert.equal(await store.countFor(P), 1, 'one person answered one question twice and was counted twice');
+  assert.equal((await store.list(P))[0].rating, SHADOW_STUDY_RATING_SCALE.maximum);
 });
 
-test('the same question about a different run is a different answer', () => {
+test('the same question about a different run is a different answer', async () => {
   const store = createInMemoryShadowStudyResponseStore();
-  store.record(rated(P, 'trust', SHADOW_STUDY_RATING_SCALE.minimum, 'run-0001'));
-  store.record(rated(P, 'trust', SHADOW_STUDY_RATING_SCALE.maximum, 'run-0002'));
-  store.record(rated(P, 'trust', SHADOW_STUDY_RATING_SCALE.minimum, null));
-  assert.equal(store.countFor(P), 3);
+  await store.record(rated(P, 'trust', SHADOW_STUDY_RATING_SCALE.minimum, 'run-0001'));
+  await store.record(rated(P, 'trust', SHADOW_STUDY_RATING_SCALE.maximum, 'run-0002'));
+  await store.record(rated(P, 'trust', SHADOW_STUDY_RATING_SCALE.minimum, null));
+  assert.equal(await store.countFor(P), 3);
 });
 
-test('one participant deleting their responses leaves the others intact, proven by re-listing', () => {
+test('one participant deleting their responses leaves the others intact, proven by re-listing', async () => {
   const store = createInMemoryShadowStudyResponseStore();
-  store.record(rated(P, 'trust', SHADOW_STUDY_RATING_SCALE.maximum));
-  store.record(declined(P, 'accuracy'));
-  store.record(rated(Q, 'trust', SHADOW_STUDY_RATING_SCALE.maximum));
+  await store.record(rated(P, 'trust', SHADOW_STUDY_RATING_SCALE.maximum));
+  await store.record(declined(P, 'accuracy'));
+  await store.record(rated(Q, 'trust', SHADOW_STUDY_RATING_SCALE.maximum));
 
-  assert.equal(store.deleteParticipant(P), 2);
-  assert.equal(store.countFor(P), 0, 'a response survived its own deletion');
-  assert.deepEqual(store.list(P), []);
-  assert.equal(store.countFor(Q), 1, 'one participant deleted another');
-  assert.equal(store.listAll().length, 1);
+  assert.equal(await store.deleteParticipant(P), 2);
+  assert.equal(await store.countFor(P), 0, 'a response survived its own deletion');
+  assert.deepEqual(await store.list(P), []);
+  assert.equal(await store.countFor(Q), 1, 'one participant deleted another');
+  assert.equal((await store.listAll()).length, 1);
 });
 
-test('every rejection reason is reachable, and recording never throws', () => {
+test('every rejection reason is reachable, and recording never throws', async () => {
   const store = createInMemoryShadowStudyResponseStore();
   const seen = new Set<string>();
-  const refuse = (response: unknown): void => {
-    const result = store.record(response as ShadowStudyResponse);
+  const refuse = async (response: unknown): Promise<void> => {
+    const result = await store.record(response as ShadowStudyResponse);
     assert.equal(result.status, 'rejected', `a malformed response was recorded: ${JSON.stringify(response)}`);
     if (result.status === 'rejected') seen.add(result.reason);
   };
 
-  refuse({ ...rated(P, 'helpfulness', 3), participantId: 'Participant A' });
-  refuse({ ...rated(P, 'helpfulness', 3), question: 'vibes' });
-  refuse({ ...rated(P, 'helpfulness', 3), rating: SHADOW_STUDY_RATING_SCALE.maximum + 1 });
-  refuse({ ...rated(P, 'helpfulness', 3), respondedAt: 'yesterday' });
-  refuse({ ...rated(P, 'helpfulness', 3), runId: 'RUN ONE' });
-  refuse({ ...rated(P, 'helpfulness', 3), status: 'shrugged' });
-  refuse({ ...declined(P, 'helpfulness'), rating: 4 });
+  await refuse({ ...rated(P, 'helpfulness', 3), participantId: 'Participant A' });
+  await refuse({ ...rated(P, 'helpfulness', 3), question: 'vibes' });
+  await refuse({ ...rated(P, 'helpfulness', 3), rating: SHADOW_STUDY_RATING_SCALE.maximum + 1 });
+  await refuse({ ...rated(P, 'helpfulness', 3), respondedAt: 'yesterday' });
+  await refuse({ ...rated(P, 'helpfulness', 3), runId: 'RUN ONE' });
+  await refuse({ ...rated(P, 'helpfulness', 3), status: 'shrugged' });
+  await refuse({ ...declined(P, 'helpfulness'), rating: 4 });
 
   assert.deepEqual(
     SHADOW_STUDY_RECORD_REJECTIONS.filter((reason) => !seen.has(reason)),

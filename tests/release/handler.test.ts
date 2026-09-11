@@ -184,15 +184,15 @@ test('a complete delete returns a receipt, and the stores agree when asked again
     status: 'rated',
     rating: SHADOW_STUDY_RATING_SCALE.maximum,
   });
-  assert.equal(wired.consent.countFor(P), 1);
-  assert.equal(wired.responses.countFor(P), 1);
+  assert.equal(await wired.consent.countFor(P), 1);
+  assert.equal(await wired.responses.countFor(P), 1);
 
   const deleted = await call(wired, { now: LATER, action: 'delete', participantId: P });
   assert.equal(deleted.status, 200);
   assert.equal(kindOf(deleted), 'deleted');
-  assert.equal(wired.consent.countFor(P), 0, 'a consent record survived a delete request');
-  assert.equal(wired.responses.countFor(P), 0, 'a study response survived a delete request');
-  assert.equal(wired.consent.read(P).state, 'withheld');
+  assert.equal(await wired.consent.countFor(P), 0, 'a consent record survived a delete request');
+  assert.equal(await wired.responses.countFor(P), 0, 'a study response survived a delete request');
+  assert.equal((await wired.consent.read(P)).state, 'withheld');
 });
 
 test('a delete this build cannot fully prove says so, and still deletes', async () => {
@@ -203,7 +203,7 @@ test('a delete this build cannot fully prove says so, and still deletes', async 
   assert.equal(kindOf(deleted), 'deleted_unproven');
   const body = deleted.response as { unprovable: string[] };
   assert.deepEqual(body.unprovable, ['traces']);
-  assert.equal(wired.consent.countFor(P), 0, 'an unprovable store blocked a deletion that could have happened');
+  assert.equal(await wired.consent.countFor(P), 0, 'an unprovable store blocked a deletion that could have happened');
 });
 
 /* ── The collection API ──────────────────────────────────────────── */
@@ -253,7 +253,7 @@ test('the response timestamp is the request\'s now, not anything the client sent
     rating: SHADOW_STUDY_RATING_SCALE.minimum,
     respondedAt: '1999-01-01T00:00:00.000Z',
   });
-  assert.equal(wired.responses.list(P)[0].respondedAt, NOW);
+  assert.equal((await wired.responses.list(P))[0].respondedAt, NOW);
 });
 
 test('every study question is submittable', async () => {
@@ -270,7 +270,7 @@ test('every study question is submittable', async () => {
     });
     assert.equal(outcome.status, 200, `${question} was refused`);
   }
-  assert.equal(wired.responses.countFor(P), SHADOW_STUDY_QUESTIONS.length);
+  assert.equal(await wired.responses.countFor(P), SHADOW_STUDY_QUESTIONS.length);
 });
 
 /* ── Exposure and the evidence package ───────────────────────────── */
@@ -330,7 +330,7 @@ test('every declared action is answered; none of them falls through to UNKNOWN_A
     // A fresh wiring per action, so an action that deletes cannot change what
     // the next one sees.
     const wired = deps();
-    wired.consent.grant(P, ['shadow_execution'], NOW);
+    await wired.consent.grant(P, ['shadow_execution'], NOW);
     const outcome = await call(wired, {
       now: NOW,
       action,

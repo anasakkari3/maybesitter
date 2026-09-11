@@ -73,7 +73,7 @@ test('a completed action writes both the legacy counter and a feedback event', a
   const result = await applyAgendaAction(COMMITMENT_ID, 'done', NOW, options);
   assert.equal(result.success, true);
 
-  const written = events.list({ scopeId: SCOPE });
+  const written = await events.list({ scopeId: SCOPE });
   assert.equal(written.length, 1);
   assert.equal(written[0].outcome, 'complete');
   assert.equal(written[0].subjectId, COMMITMENT_ID, 'the event must name the commitment it concerns');
@@ -93,7 +93,7 @@ test('postpone maps to defer and skip maps to ignore', async () => {
     const events = createInMemoryFeedbackEventStore();
 
     assert.equal((await applyAgendaAction(COMMITMENT_ID, action, NOW, optionsFor(events))).success, true);
-    const written = events.list({ scopeId: SCOPE });
+    const written = await events.list({ scopeId: SCOPE });
     assert.equal(written.length, 1, `${action} should emit exactly one event`);
     assert.equal(written[0].outcome, outcome);
     cleanup();
@@ -106,7 +106,7 @@ test('aware emits no event, because acknowledging is not yet a decision', async 
 
   assert.equal((await applyAgendaAction(COMMITMENT_ID, 'aware', NOW, optionsFor(events))).success, true);
   assert.deepEqual(
-    events.list({ scopeId: SCOPE }),
+    await events.list({ scopeId: SCOPE }),
     [],
     'recording an outcome here would log a decision the user never made',
   );
@@ -122,7 +122,7 @@ test('replaying the same action does not double count', async () => {
   // Same commitment, same outcome, same instant: a retry, not a second action.
   await applyAgendaAction(COMMITMENT_ID, 'done', NOW, options);
 
-  assert.equal(events.list({ scopeId: SCOPE }).length, 1);
+  assert.equal((await events.list({ scopeId: SCOPE })).length, 1);
   cleanup();
 });
 
@@ -150,6 +150,6 @@ test('an action with no feedback scope writes nothing at all', async () => {
     (await applyAgendaAction(COMMITMENT_ID, 'done', NOW, { feedbackEventStore: events })).success,
     true,
   );
-  assert.deepEqual(events.list({ scopeId: SCOPE }), []);
+  assert.deepEqual(await events.list({ scopeId: SCOPE }), []);
   cleanup();
 });

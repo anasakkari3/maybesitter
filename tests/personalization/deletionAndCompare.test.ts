@@ -84,10 +84,10 @@ function profileFor(events: readonly FeedbackEvent[], consent: PersonalizationCo
   return rebuildPersonalizationProfile({ scopeId: SCOPE, now: NOW, consent, events, baseline: null });
 }
 
-function storesWith(events: readonly FeedbackEvent[]) {
+async function storesWith(events: readonly FeedbackEvent[]) {
   const feedbackEvents = createInMemoryFeedbackEventStore();
   for (const entry of events) {
-    feedbackEvents.append(
+    await feedbackEvents.append(
       // No `idempotencyKey`: the store derives its own from
       // (scopeId, subjectId, outcome, occurredAt) and ignores anything the
       // caller supplies. That is why every fixture event above carries a
@@ -111,28 +111,28 @@ function storesWith(events: readonly FeedbackEvent[]) {
 
 /* ── The baseline: the fixture must not already be empty ─────────── */
 
-test('the fixture holds something before deletion, or every remainder below is meaningless', () => {
+test('the fixture holds something before deletion, or every remainder below is meaningless', async () => {
   // A deletion test whose scope was empty to begin with passes on any
   // implementation, including one that deletes nothing at all.
-  const { feedbackEvents, runtimeMemory } = storesWith(many('accept', 4, 1));
-  runtimeMemory.put(
+  const { feedbackEvents, runtimeMemory } = await storesWith(many('accept', 4, 1));
+  await runtimeMemory.put(
     memoryInput(),
     NOW,
   );
-  assert.equal(feedbackEvents.list({ scopeId: SCOPE }).length, 4);
-  assert.equal(runtimeMemory.listAll(SCOPE).length, 1);
+  assert.equal((await feedbackEvents.list({ scopeId: SCOPE })).length, 4);
+  assert.equal((await runtimeMemory.listAll(SCOPE)).length, 1);
 });
 
 /* ── Receipt ─────────────────────────────────────────────────────── */
 
-test('a deletion receipt reports remainders the caller can recount, and they are zero', () => {
-  const { feedbackEvents, runtimeMemory } = storesWith([...many('accept', 4, 1), ...many('reject', 3, 30)]);
-  runtimeMemory.put(
+test('a deletion receipt reports remainders the caller can recount, and they are zero', async () => {
+  const { feedbackEvents, runtimeMemory } = await storesWith([...many('accept', 4, 1), ...many('reject', 3, 30)]);
+  await runtimeMemory.put(
     memoryInput(),
     NOW,
   );
 
-  const receipt = deletePersonalizationScope({ scopeId: SCOPE, now: NOW, feedbackEvents, runtimeMemory });
+  const receipt = await deletePersonalizationScope({ scopeId: SCOPE, now: NOW, feedbackEvents, runtimeMemory });
 
   assert.deepEqual(checkPersonalizationDeletionReceipt(receipt), []);
   assert.equal(receipt.version, PERSONALIZATION_CONTRACT_VERSION);
@@ -141,28 +141,28 @@ test('a deletion receipt reports remainders the caller can recount, and they are
   assert.equal(receipt.deletedAt, NOW);
 
   // Recounted from the stores, not read from the receipt.
-  assert.equal(feedbackEvents.list({ scopeId: SCOPE }).length, 0);
-  assert.equal(runtimeMemory.listAll(SCOPE).length, 0);
+  assert.equal((await feedbackEvents.list({ scopeId: SCOPE })).length, 0);
+  assert.equal((await runtimeMemory.listAll(SCOPE)).length, 0);
   assert.equal(receipt.remainingFeedbackEventCount, 0);
   assert.equal(receipt.remainingRuntimeMemoryRecordCount, 0);
   assert.equal(receipt.remainingPersistedProfileCount, 0);
 });
 
-test('deletion is a purge, not a mass revocation: nothing survives listing with revoked included', () => {
+test('deletion is a purge, not a mass revocation: nothing survives listing with revoked included', async () => {
   // The distinction the header argues for. `list` includes revoked events by
   // default precisely so history stays inspectable, so a mass-revoke
   // implementation would leave these rows visible right here.
-  const { feedbackEvents, runtimeMemory } = storesWith(many('accept', 5, 1));
-  deletePersonalizationScope({ scopeId: SCOPE, now: NOW, feedbackEvents, runtimeMemory });
-  assert.deepEqual(feedbackEvents.list({ scopeId: SCOPE, includeRevoked: true }), []);
+  const { feedbackEvents, runtimeMemory } = await storesWith(many('accept', 5, 1));
+  await deletePersonalizationScope({ scopeId: SCOPE, now: NOW, feedbackEvents, runtimeMemory });
+  assert.deepEqual(await feedbackEvents.list({ scopeId: SCOPE, includeRevoked: true }), []);
 });
 
-test('the empty-state digest is reproducible by a verifier that never calls the deleter', () => {
+test('the empty-state digest is reproducible by a verifier that never calls the deleter', async () => {
   // #42's acceptance criterion. The digest is recomputed from the aggregation
   // primitives directly, which is the path a verifier on the other side of the
   // seam has — if these two ever diverge, the receipt stops being checkable.
-  const { feedbackEvents, runtimeMemory } = storesWith(many('accept', 4, 1));
-  const receipt = deletePersonalizationScope({ scopeId: SCOPE, now: NOW, feedbackEvents, runtimeMemory });
+  const { feedbackEvents, runtimeMemory } = await storesWith(many('accept', 4, 1));
+  const receipt = await deletePersonalizationScope({ scopeId: SCOPE, now: NOW, feedbackEvents, runtimeMemory });
 
   const independent = computeFeedbackInputDigest({
     events: [],
@@ -182,11 +182,11 @@ test('the empty-state digest is scope-specific and instant-specific', () => {
   assert.notEqual(emptyStateDigestFor(SCOPE, NOW), emptyStateDigestFor(SCOPE, '2026-08-21T09:00:00.000Z'));
 });
 
-test('deleting one scope leaves another scope entirely alone', () => {
-  const { feedbackEvents, runtimeMemory } = storesWith([...many('accept', 3, 1), ...many('reject', 2, 1, OTHER)]);
-  deletePersonalizationScope({ scopeId: SCOPE, now: NOW, feedbackEvents, runtimeMemory });
-  assert.equal(feedbackEvents.list({ scopeId: SCOPE }).length, 0);
-  assert.equal(feedbackEvents.list({ scopeId: OTHER }).length, 2);
+test('deleting one scope leaves another scope entirely alone', async () => {
+  const { feedbackEvents, runtimeMemory } = await storesWith([...many('accept', 3, 1), ...many('reject', 2, 1, OTHER)]);
+  await deletePersonalizationScope({ scopeId: SCOPE, now: NOW, feedbackEvents, runtimeMemory });
+  assert.equal((await feedbackEvents.list({ scopeId: SCOPE })).length, 0);
+  assert.equal((await feedbackEvents.list({ scopeId: OTHER })).length, 2);
 });
 
 /* ── Comparison ──────────────────────────────────────────────────── */
