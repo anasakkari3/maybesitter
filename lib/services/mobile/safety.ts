@@ -1,7 +1,7 @@
 import type { ExtractAndMapOptions, ExtractWithFallbackResult } from '../../../src/extraction/extractionService';
 import { extractWithFallback } from '../../../src/extraction/extractionService';
 import type { ExtractionContext } from '../../../src/extraction/extractionTypes';
-import { parseIsoDate } from './time';
+import { parseIsoInstant } from './time';
 
 const NEGATED_REQUEST =
   /\b(?:don't|dont|do not|never|no need to)\s+(?:remind|remember|schedule|add|create|notify)\b/i;
@@ -14,7 +14,7 @@ type MobileExtractor = (
 
 function assertSafeTime(value: string | null, now: Date, field: string): void {
   if (!value) return;
-  const parsed = parseIsoDate(value, field);
+  const parsed = parseIsoInstant(value, field);
   if (parsed.getTime() < now.getTime()) {
     throw new Error(`${field} must not be in the past`);
   }
