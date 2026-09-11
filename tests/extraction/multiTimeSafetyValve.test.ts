@@ -81,6 +81,26 @@ test('a single time fully accounted for is not forced to clarify', async () => {
   assert.ok(proposal.items[0].resolvedTime, 'expected a resolved time');
 });
 
+test('a from-to range names one time, not two', () => {
+  // The start and the end of a range are one appointment. Counting both made
+  // the valve strip the time from "meeting from 14:00 to 15:00" and ask about
+  // a sentence that was already clear.
+  assert.equal(countTimeExpressions('meeting from 14:00 to 15:00'), 1);
+  assert.equal(countTimeExpressions('meeting from 2pm to 3pm'), 1);
+  assert.equal(countTimeExpressions('اجتماع من الساعة 2 للساعة 4'), 1);
+});
+
+test('a range plus a separate time is still two', () => {
+  assert.equal(countTimeExpressions('from 9:00 to 10:00 gym, then dinner at 8pm'), 2);
+});
+
+test('a from-to range is proposed at its start instead of sent back for clarification', async () => {
+  const p = await propose('meeting from 14:00 to 15:00');
+  assert.equal(p.status, 'proposed');
+  assert.equal(p.items[0].needsClarification, false);
+  assert.ok(p.items[0].resolvedTime);
+});
+
 test('Hebrew extraction failure stays fail-safe rather than becoming confident', async () => {
   const proposal = await propose('מחר בשמונה רופא ואחר כך בשתיים אוניברסיטה');
   for (const item of proposal.items) {
