@@ -10,7 +10,10 @@ import { ScreenIn } from '../ui/motion';
 export function DetailsScreen() {
   const { s, t, p, lang, actions } = useApp();
   const insets = useSafeAreaInsets();
+  // Details always opens on a commitment; the sample week's third item is the
+  // design's stand-in when a deep link names nothing.
   const c = s.commitments.find(x => x.id === s.detailId) ?? s.commitments[2];
+  if (!c) return null;
   const statusLabel = c.status === 'done' ? t.doneS : c.status === 'dropped' ? t.dropped : t.active;
 
   return (

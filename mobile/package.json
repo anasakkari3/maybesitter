@@ -7,6 +7,7 @@
     "@expo-google-fonts/outfit": "^0.4.3",
     "expo": "~57.0.21",
     "expo-blur": "~57.0.2",
+    "expo-constants": "~57.0.18",
     "expo-font": "~57.0.3",
     "expo-status-bar": "~57.0.1",
     "react": "19.2.3",
@@ -17,8 +18,12 @@
   "devDependencies": {
     "@types/jest": "29.5.14",
     "@types/react": "~19.2.2",
+    "eslint": "^9.0.0",
+    "eslint-config-expo": "~57.0.2",
+    "eslint-config-prettier": "^10.1.8",
     "jest": "~29.7.0",
     "jest-expo": "~57.0.5",
+    "prettier": "^3.9.6",
     "typescript": "~6.0.3"
   },
   "scripts": {
@@ -26,10 +31,16 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "test": "jest"
+    "test": "jest",
+    "lint": "expo lint",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write \"**/*.{ts,tsx,json,md}\""
   },
   "private": true,
   "jest": {
     "preset": "jest-expo"
+  },
+  "engines": {
+    "node": ">=22.5.0"
   }
 }
