@@ -60,7 +60,7 @@ function portFor(
 
 /* ── No general release is representable ─────────────────────────── */
 
-test('the stage vocabulary has no general-release member, and the policy says so', () => {
+test('the stage vocabulary has no general-release member, and the policy says so', async () => {
   assert.deepEqual([...SHADOW_EXPOSURE_STAGES], ['shadow_only', 'internal_dogfood', 'closed_pilot']);
   assert.equal(SHADOW_EXPOSURE_POLICY.generalReleaseRepresentable, false);
   for (const stage of SHADOW_EXPOSURE_STAGES) {
@@ -71,7 +71,7 @@ test('the stage vocabulary has no general-release member, and the policy says so
   }
 });
 
-test('no configuration of any stage can expose more people than the closed pilot admits', () => {
+test('no configuration of any stage can expose more people than the closed pilot admits', async () => {
   for (const stage of SHADOW_EXPOSURE_STAGES) {
     const cap = SHADOW_STAGE_PARTICIPANT_CAP[stage];
     const port = portFor(stage, cohortOf(cap + 1));
@@ -83,12 +83,12 @@ test('no configuration of any stage can expose more people than the closed pilot
   }
 });
 
-test('shadow_only exposes nobody, whatever they consented to', () => {
+test('shadow_only exposes nobody, whatever they consented to', async () => {
   // The cohort is empty because the stage's cap is zero: at `shadow_only` the
   // chain runs and nobody is exposed, so there is nobody to put in the cohort.
   const port = portFor('shadow_only', []);
   port.consent.grant('participant-a', ['shadow_execution', 'feedback_study', 'trace_retention'], T1);
-  const decision = resolveStagedExposure(port, 'participant-a', T2);
+  const decision = await resolveStagedExposure(port, 'participant-a', T2);
   assert.equal(decision.allowed, false);
   assert.equal(decision.reason, 'stage_is_shadow_only');
   assert.equal(SHADOW_EXPOSURE_POLICY.shadowOnlyExposesNobody, true);
@@ -97,7 +97,7 @@ test('shadow_only exposes nobody, whatever they consented to', () => {
 
 /* ── The caps and floors, pinned then derived from ───────────────── */
 
-test('the caps and floors are the pilot bounds this contract restates', () => {
+test('the caps and floors are the pilot bounds this contract restates', async () => {
   assert.equal(SHADOW_STAGE_PARTICIPANT_CAP.shadow_only, 0);
   assert.equal(SHADOW_STAGE_PARTICIPANT_CAP.internal_dogfood, 10);
   assert.equal(SHADOW_STAGE_PARTICIPANT_CAP.closed_pilot, 40);
@@ -111,7 +111,7 @@ test('the caps and floors are the pilot bounds this contract restates', () => {
   assert.equal(SHADOW_STAGE_PARTICIPANT_FLOOR.internal_dogfood, ALPHA_ALLOWLIST_MINIMUM);
 });
 
-test('each stage cap is probed one site at a time, from the constant', () => {
+test('each stage cap is probed one site at a time, from the constant', async () => {
   for (const stage of SHADOW_EXPOSURE_STAGES) {
     const cap = SHADOW_STAGE_PARTICIPANT_CAP[stage];
     const floor = SHADOW_STAGE_PARTICIPANT_FLOOR[stage];
@@ -139,7 +139,7 @@ test('each stage cap is probed one site at a time, from the constant', () => {
   }
 });
 
-test('a configuration is refused for an unknown stage, a duplicate id, or an unsafe id', () => {
+test('a configuration is refused for an unknown stage, a duplicate id, or an unsafe id', async () => {
   const cases: [ShadowStageConfiguration, string][] = [
     [{ stage: 'general_availability' as never, cohort: ['participant-a'] }, 'EXPOSURE_STAGE_UNKNOWN'],
     [{ stage: 'internal_dogfood', cohort: ['participant-a', 'participant-a'] }, 'EXPOSURE_COHORT_INVALID'],
@@ -153,7 +153,7 @@ test('a configuration is refused for an unknown stage, a duplicate id, or an uns
 
 /* ── The shadow gate narrows the pilot gate and never widens it ──── */
 
-test('every pilot stop reason narrows the shadow decision, and none of them widens it', () => {
+test('every pilot stop reason narrows the shadow decision, and none of them widens it', async () => {
   for (const reason of SHADOW_PILOT_STOP_REASONS) {
     const pilot: ShadowPilotDecision = { allowed: false, reason };
     const port = portFor('closed_pilot', cohortOf(CLOSED_PILOT_MINIMUM), pilot);
@@ -162,7 +162,7 @@ test('every pilot stop reason narrows the shadow decision, and none of them wide
     for (const participantId of port.configuration.cohort) {
       port.consent.grant(participantId, ['shadow_execution', 'feedback_study', 'trace_retention'], T1);
     }
-    const decision = resolveStagedExposure(port, port.configuration.cohort[0], T2);
+    const decision = await resolveStagedExposure(port, port.configuration.cohort[0], T2);
     assert.equal(decision.allowed, false, `${reason} was widened into an exposure`);
     assert.equal(decision.reason, reason, `${reason} was remapped to ${decision.reason}`);
     assert.ok((SHADOW_EXPOSURE_REASONS as readonly string[]).includes(decision.reason));
@@ -170,28 +170,28 @@ test('every pilot stop reason narrows the shadow decision, and none of them wide
   }
 });
 
-test('the policy claim about narrowing is the one the sweep above proves', () => {
+test('the policy claim about narrowing is the one the sweep above proves', async () => {
   assert.equal(SHADOW_EXPOSURE_POLICY.shadowExposureNeverExceedsPilot, true);
 });
 
-test('a pilot decision that refuses without naming a reason fails closed', () => {
+test('a pilot decision that refuses without naming a reason fails closed', async () => {
   const pilot: ShadowPilotDecision = { allowed: false, reason: 'authorized' };
   const port = portFor('internal_dogfood', ['participant-a'], pilot);
   port.consent.grant('participant-a', ['shadow_execution'], T1);
-  const decision = resolveStagedExposure(port, 'participant-a', T2);
+  const decision = await resolveStagedExposure(port, 'participant-a', T2);
   assert.equal(decision.allowed, false);
   assert.equal(decision.reason, 'not_allowlisted');
 });
 
-test('a participant outside the configured cohort is refused even when the pilot gate admits them', () => {
+test('a participant outside the configured cohort is refused even when the pilot gate admits them', async () => {
   const port = portFor('internal_dogfood', ['participant-a']);
   port.consent.grant('participant-b', ['shadow_execution'], T1);
-  const decision = resolveStagedExposure(port, 'participant-b', T2);
+  const decision = await resolveStagedExposure(port, 'participant-b', T2);
   assert.equal(decision.allowed, false);
   assert.equal(decision.reason, 'not_allowlisted');
 });
 
-test('a PilotExposureDecision converts to the contract shape without remapping any reason', () => {
+test('a PilotExposureDecision converts to the contract shape without remapping any reason', async () => {
   for (const reason of SHADOW_PILOT_STOP_REASONS) {
     assert.deepEqual(toShadowPilotDecision({ allowed: false, reason }), { allowed: false, reason });
   }
@@ -200,11 +200,11 @@ test('a PilotExposureDecision converts to the contract shape without remapping a
 
 /* ── Consent gates exposure, and opting out lands on the next read ─ */
 
-test('a granted participant inside the bounds is exposed, and the decision is structurally clean', () => {
+test('a granted participant inside the bounds is exposed, and the decision is structurally clean', async () => {
   const cohort = cohortOf(ALPHA_ALLOWLIST_MAXIMUM);
   const port = portFor('internal_dogfood', cohort);
   for (const participantId of cohort) port.consent.grant(participantId, ['shadow_execution'], T1);
-  const decision = resolveStagedExposure(port, cohort[0], T2);
+  const decision = await resolveStagedExposure(port, cohort[0], T2);
   assert.equal(decision.allowed, true);
   assert.equal(decision.reason, 'authorized');
   assert.equal(decision.cap, SHADOW_STAGE_PARTICIPANT_CAP.internal_dogfood);
@@ -213,15 +213,15 @@ test('a granted participant inside the bounds is exposed, and the decision is st
   assert.deepEqual(checkShadowExposureDecision(decision, AUTHORIZED), []);
 });
 
-test('opting out takes effect on the very next read, with no exposure surviving it', () => {
+test('opting out takes effect on the very next read, with no exposure surviving it', async () => {
   const port = portFor('internal_dogfood', ['participant-a']);
   port.consent.grant('participant-a', ['shadow_execution'], T1);
-  const before = resolveStagedExposure(port, 'participant-a', T1);
+  const before = await resolveStagedExposure(port, 'participant-a', T1);
   assert.equal(before.allowed, true);
 
   assert.equal(port.consent.revoke('participant-a', T2).status, 'written');
 
-  const after = resolveStagedExposure(port, 'participant-a', T2);
+  const after = await resolveStagedExposure(port, 'participant-a', T2);
   assert.equal(after.allowed, false, 'a cached exposure survived a revocation');
   assert.equal(after.reason, 'study_consent_revoked');
   assert.equal(after.consentState, 'revoked');
@@ -231,33 +231,33 @@ test('opting out takes effect on the very next read, with no exposure surviving 
   assert.notEqual(before, after);
 
   // And a third read, in case the second one was the thing doing the caching.
-  assert.equal(resolveStagedExposure(port, 'participant-a', T2).allowed, false);
+  assert.equal((await resolveStagedExposure(port, 'participant-a', T2)).allowed, false);
 });
 
-test('consent withheld and consent revoked are told apart, not folded into one refusal', () => {
+test('consent withheld and consent revoked are told apart, not folded into one refusal', async () => {
   const port = portFor('internal_dogfood', ['participant-a', 'participant-b']);
   port.consent.grant('participant-b', ['shadow_execution'], T1);
   port.consent.revoke('participant-b', T2);
 
-  assert.equal(resolveStagedExposure(port, 'participant-a', T2).reason, 'study_consent_withheld');
-  assert.equal(resolveStagedExposure(port, 'participant-b', T2).reason, 'study_consent_revoked');
+  assert.equal((await resolveStagedExposure(port, 'participant-a', T2)).reason, 'study_consent_withheld');
+  assert.equal((await resolveStagedExposure(port, 'participant-b', T2)).reason, 'study_consent_revoked');
 });
 
-test('consenting to the study without consenting to shadow execution does not expose anyone', () => {
+test('consenting to the study without consenting to shadow execution does not expose anyone', async () => {
   const port = portFor('internal_dogfood', ['participant-a']);
   port.consent.grant('participant-a', ['feedback_study', 'trace_retention'], T1);
-  const decision = resolveStagedExposure(port, 'participant-a', T2);
+  const decision = await resolveStagedExposure(port, 'participant-a', T2);
   assert.equal(decision.allowed, false);
   assert.equal(decision.reason, 'study_consent_withheld');
 });
 
-test('a cohort resolves participant by participant, and one refusal does not refuse the rest', () => {
+test('a cohort resolves participant by participant, and one refusal does not refuse the rest', async () => {
   const cohort = ['participant-a', 'participant-b', 'participant-c'];
   const port = portFor('internal_dogfood', cohort);
   port.consent.grant('participant-a', ['shadow_execution'], T1);
   port.consent.grant('participant-c', ['shadow_execution'], T1);
 
-  const decisions = resolveCohortExposure(port, T2);
+  const decisions = await resolveCohortExposure(port, T2);
   assert.equal(decisions.length, cohort.length);
   // (participantId, allowed) pairs, in cohort order.
   assert.deepEqual(
@@ -266,12 +266,12 @@ test('a cohort resolves participant by participant, and one refusal does not ref
   );
 });
 
-test('a cohort over its cap refuses every member for the cohort, not for the person', () => {
+test('a cohort over its cap refuses every member for the cohort, not for the person', async () => {
   const cap = SHADOW_STAGE_PARTICIPANT_CAP.internal_dogfood;
   const cohort = cohortOf(cap + 1);
   const port = portFor('internal_dogfood', cohort);
   for (const participantId of cohort) port.consent.grant(participantId, ['shadow_execution'], T1);
-  for (const decision of resolveCohortExposure(port, T2)) {
+  for (const decision of await resolveCohortExposure(port, T2)) {
     assert.equal(decision.allowed, false, `${decision.participantId} was exposed in an over-cap cohort`);
     assert.equal(decision.reason, 'stage_cap_exceeded');
   }
@@ -279,7 +279,7 @@ test('a cohort over its cap refuses every member for the cohort, not for the per
 
 /* ── Reading the configuration from the environment ──────────────── */
 
-test('an unset or unrecognised stage reads as the stage that exposes nobody', () => {
+test('an unset or unrecognised stage reads as the stage that exposes nobody', async () => {
   for (const raw of [undefined, '', 'general_availability', 'GENERAL', 'closed pilot']) {
     const configuration = readStageConfiguration({ [SHADOW_STAGE_ENV_VAR]: raw } as unknown as NodeJS.ProcessEnv);
     assert.equal(configuration.stage, 'shadow_only', `${String(raw)} widened the stage`);
@@ -287,7 +287,7 @@ test('an unset or unrecognised stage reads as the stage that exposes nobody', ()
   }
 });
 
-test('each recognised stage reads back as itself, one at a time', () => {
+test('each recognised stage reads back as itself, one at a time', async () => {
   for (const stage of SHADOW_EXPOSURE_STAGES) {
     const configuration = readStageConfiguration({
       [SHADOW_STAGE_ENV_VAR]: stage,
@@ -302,7 +302,7 @@ test('each recognised stage reads back as itself, one at a time', () => {
   }
 });
 
-test('a cohort of blanks and separators reads as no cohort at all', () => {
+test('a cohort of blanks and separators reads as no cohort at all', async () => {
   const configuration = readStageConfiguration({
     [SHADOW_STAGE_ENV_VAR]: 'internal_dogfood',
     [SHADOW_COHORT_ENV_VAR]: ' , ,, ',

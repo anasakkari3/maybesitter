@@ -138,11 +138,11 @@ test('analytics: phone-presence client events are privacy-safe and reportable', 
   );
 });
 
-test('analytics: an absent anonymous id disables collection rather than failing the request', () => {
-  assert.equal(analyticsContextFrom({}, appendAnalyticsEvent), null);
-  assert.equal(analyticsContextFrom({ anonymousUserId: '' }, appendAnalyticsEvent), null);
-  assert.equal(analyticsContextFrom({ anonymousUserId: 'u1' }, appendAnalyticsEvent)?.consent, 'essential');
-  assert.equal(analyticsContextFrom({ anonymousUserId: 'u1', consent: 'granted' }, appendAnalyticsEvent)?.consent, 'granted');
+test('analytics: an absent anonymous id disables collection rather than failing the request', async () => {
+  assert.equal(await analyticsContextFrom({}, appendAnalyticsEvent), null);
+  assert.equal(await analyticsContextFrom({ anonymousUserId: '' }, appendAnalyticsEvent), null);
+  assert.equal((await analyticsContextFrom({ anonymousUserId: 'u1' }, appendAnalyticsEvent))?.consent, 'essential');
+  assert.equal((await analyticsContextFrom({ anonymousUserId: 'u1', consent: 'granted' }, appendAnalyticsEvent))?.consent, 'granted');
 });
 
 test('analytics: changed field count reports edit shape without field values', () => {

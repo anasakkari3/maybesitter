@@ -28,6 +28,15 @@ export function registrationProblems(root = process.cwd()) {
   const problems = [];
   for (const file of tracked) {
     if (inScript('test', file)) continue;
+    // `*.emulator.test.ts` needs a running Firestore emulator, so it cannot be
+    // in `npm test`. It is covered by `npm run test:emulator`, which matches
+    // them by pattern rather than by name; the guard still bites, because a
+    // pattern that stopped covering them would leave them unowned here.
+    if (file.endsWith('.emulator.test.ts')) {
+      if ((scripts['test:emulator'] ?? '').includes('*.emulator.test.ts')) continue;
+      problems.push(`${file} is an emulator test but test:emulator does not run *.emulator.test.ts`);
+      continue;
+    }
     const owner = SCRIPT_ONLY[file];
     if (owner && inScript(owner, file)) continue;
     problems.push(owner ? `${file} is documented as ${owner}-only but ${owner} does not run it` : `${file} is not in npm test`);

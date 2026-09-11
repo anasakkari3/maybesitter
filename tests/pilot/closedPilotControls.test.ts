@@ -1,8 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import {
   applyPilotTrustAction,
   buildWhatMaybeSitterKnows,
@@ -12,7 +9,16 @@ import {
   decidePilotExposure,
   parseClosedPilotAllowlist,
 } from '../../lib/pilot/closedPilotControls.ts';
-import { PilotTrustStore } from '../../lib/pilot/pilotTrustStore.ts';
+import {
+  appendAudit,
+  appendIncident,
+  applyTrustAction,
+  getOrCreateTrust,
+  listAuditEvents,
+  listIncidents,
+} from '../../lib/pilot/pilotTrustStore.ts';
+import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
+import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 
 const AT = '2026-09-14T09:00:00.000Z';
 const IDS = Array.from({ length: 25 }, (_, index) => `pilot-${index + 1}`);
@@ -91,26 +97,36 @@ test('closed pilot: audit and incident builders discard unknown raw fields', () 
   assert.throws(() => createPilotTrustIncident({ ...incident, surface: 'messages' as typeof incident.surface }), /surface/);
 });
 
-test('closed pilot: trust state, audit, and incidents persist atomically in a private file', () => {
-  const directory = mkdtempSync(join(tmpdir(), 'maybesitter-pilot-trust-'));
-  const file = join(directory, 'trust.json');
+/**
+ * Was "…persist atomically in a private file", against `new PilotTrustStore(file)`.
+ *
+ * The file is gone (UC-1.0b, #141): trust, audit and incidents live in
+ * storage. The invariants it protected are kept and re-pointed — a write is
+ * durable and readable back by a reader that holds no in-memory copy, and
+ * nothing raw is stored. The 0600 file-mode assertion has no successor,
+ * because there is no file; access is `firestore.rules`, covered by
+ * `tests/storage/firestoreRules.emulator.test.ts`.
+ */
+test('closed pilot: trust state, audit, and incidents persist and read back with no cached copy', async () => {
+  const storage = createMemoryStorage();
+  setStorageForTests(storage);
   try {
-    const store = new PilotTrustStore(file);
-    store.apply('pilot-1', { type: 'grant_recommendation_consent', at: AT });
-    store.appendAudit(createPilotAuditEvent({ version: 'v1', eventType: 'consent_changed', participantId: 'pilot-1', occurredAt: AT, outcome: 'recorded', reasonCode: 'grant_recommendation_consent' }));
-    store.appendIncident(createPilotTrustIncident({
+    await applyTrustAction('pilot-1', { type: 'grant_recommendation_consent', at: AT });
+    await appendAudit(createPilotAuditEvent({ version: 'v1', eventType: 'consent_changed', participantId: 'pilot-1', occurredAt: AT, outcome: 'recorded', reasonCode: 'grant_recommendation_consent' }));
+    await appendIncident(createPilotTrustIncident({
       version: 'v1', incidentId: 'incident-1', participantId: 'pilot-1', occurredAt: AT,
       surface: 'recommendation', category: 'reliability', severity: 'medium', status: 'open',
       ownerId: 'pilot_owner', containmentCode: 'reported_for_review', resolutionCode: null,
     }));
 
-    const reloaded = new PilotTrustStore(file);
-    assert.equal(reloaded.getOrCreate('pilot-1', AT).recommendationConsent, true);
-    assert.equal(reloaded.auditEvents().length, 1);
-    assert.equal(reloaded.incidents().length, 1);
-    assert.equal(statSync(file).mode & 0o777, 0o600);
-    assert.doesNotMatch(readFileSync(file, 'utf8'), /private words/);
+    assert.equal((await getOrCreateTrust('pilot-1', AT)).recommendationConsent, true);
+    assert.equal((await listAuditEvents('pilot-1')).length, 1);
+    assert.equal((await listIncidents()).length, 1);
+    const everything = await Promise.all(
+      storage.pathsForTests().map(async (path) => JSON.stringify(await storage.get(path))),
+    );
+    assert.doesNotMatch(everything.join('\n'), /private words/);
   } finally {
-    rmSync(directory, { recursive: true, force: true });
+    resetStorageForTests();
   }
 });

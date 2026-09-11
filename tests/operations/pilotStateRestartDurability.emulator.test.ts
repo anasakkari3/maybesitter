@@ -1,13 +1,43 @@
+/**
+ * Participant state survives a process restart (UC-1.0b, #141).
+ *
+ * ── What this file replaces ──────────────────────────────────────
+ *
+ * It was `tests/operations/pilotDataRestoreRoundTrip.test.ts`, which proved
+ * the same four claims — A/B isolation, commitments readable after a restart,
+ * trust persisted, an idempotent action replayed — by copying
+ * `<data dir>/participants/*.json` to a backup and restoring it into a second
+ * process. Those files no longer exist: participant state, trust and the
+ * recorded decisions moved into storage, so there is nothing under the data
+ * directory left to copy.
+ *
+ * The claims are kept and proved against the thing that actually carries them
+ * now. Phase two runs in a *different process with a different, empty data
+ * directory*, so anything it can still read came from Firestore and from
+ * nowhere else — a stronger statement than the file round trip made, since a
+ * restored directory could have carried a stale in-process cache's output.
+ *
+ * `scripts/backup-pilot-data.ts` and its own test are untouched: they still
+ * guard the tool that backs up the pilot host's remaining file stores.
+ *
+ * Emulator-only. Run `npm run test:emulator`.
+ */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const repoRoot = process.cwd();
-const secret = 'test-only-restore-round-trip-secret';
-const ids = Array.from({ length: 25 }, (_, index) => `round-${String(index + 100).padStart(3, '0')}`).join(',');
+const secret = 'test-only-restart-durability-secret';
+const ids = Array.from({ length: 25 }, (_unused, index) => `round-${String(index + 100).padStart(3, '0')}`).join(',');
+
+if (!process.env.FIRESTORE_EMULATOR_HOST) {
+  throw new Error(
+    'FIRESTORE_EMULATOR_HOST is unset. Run this file through `npm run test:emulator`, never against a real project.',
+  );
+}
 
 function runInline(source: string, env: Record<string, string>): string {
   const result = spawnSync(process.execPath, ['--no-warnings', '--loader', './scripts/ts-resolver.mjs', '--input-type=module', '-'], {
@@ -20,21 +50,12 @@ function runInline(source: string, env: Record<string, string>): string {
   return result.stdout;
 }
 
-function runScript(script: string, args: string[], env: Record<string, string>): string {
-  const result = spawnSync(process.execPath, ['--no-warnings', '--loader', './scripts/ts-resolver.mjs', script, ...args], {
-    cwd: repoRoot,
-    env: { ...process.env, ...env },
-    encoding: 'utf8',
-  });
-  assert.equal(result.status, 0, result.stderr || result.stdout);
-  return result.stdout;
-}
-
+/** A pilot process, pointed at the emulator and at its own empty data dir. */
 function pilotEnv(dataDir: string): Record<string, string> {
   return {
     MAYBESITTER_PILOT_MODE: 'true',
+    MAYBESITTER_STORAGE_BACKEND: 'firestore',
     MAYBESITTER_DATA_DIR: dataDir,
-    MAYBESITTER_PILOT_TRUST_FILE: path.join(dataDir, 'pilot-trust.json'),
     MAYBESITTER_PILOT_TOKEN_SECRET: secret,
     MAYBESITTER_CLOSED_PILOT_IDS: ids,
     MAYBESITTER_FEATURE_RECOMMENDATION: 'true',
@@ -44,15 +65,12 @@ function pilotEnv(dataDir: string): Record<string, string> {
   };
 }
 
-test('backup and restore survive process restart with A/B isolation and recommendation action replay', () => {
-  const sourceDir = mkdtempSync(path.join(tmpdir(), 'maybesitter-round-source-'));
-  const backupRoot = mkdtempSync(path.join(tmpdir(), 'maybesitter-round-backups-'));
-  const restoredDir = path.join(mkdtempSync(path.join(tmpdir(), 'maybesitter-round-restore-parent-')), 'restored-data');
+test('participant state, trust and recorded decisions survive a restart into a fresh process', () => {
+  const firstDir = mkdtempSync(path.join(tmpdir(), 'maybesitter-restart-first-'));
+  const secondDir = mkdtempSync(path.join(tmpdir(), 'maybesitter-restart-second-'));
 
   const created = runInline(`
     import assert from 'node:assert/strict';
-    import { writeFileSync } from 'node:fs';
-    import { join } from 'node:path';
     import { generatePilotToken } from './lib/pilot/pilotTokenService.ts';
 
     const tokenA = generatePilotToken('round-100');
@@ -108,27 +126,11 @@ test('backup and restore survive process restart with A/B isolation and recommen
       idempotencyKey: 'round-action-a',
     } }));
     assert.equal(response.status, 200);
-    writeFileSync(join(process.env.MAYBESITTER_DATA_DIR, 'round-trip-state.json'), JSON.stringify({
-      tokenA,
-      tokenB,
-      aCommitmentId,
-      bCommitmentId,
-      recommendationA,
-    }, null, 2));
-    console.log(JSON.stringify({ aCommitmentId, bCommitmentId }));
-  `, pilotEnv(sourceDir));
+    console.log(JSON.stringify({ tokenA, tokenB, aCommitmentId, bCommitmentId, recommendationA }));
+  `, pilotEnv(firstDir));
   assert.match(created, /aCommitmentId/);
 
-  const backupOut = runScript('scripts/backup-pilot-data.ts', ['--backup-root', backupRoot, '--label', 'round-trip'], pilotEnv(sourceDir));
-  const backupPath = backupOut.match(/Backup created successfully at: (.+)/)?.[1]?.trim();
-  assert.ok(backupPath);
-  assert.equal(existsSync(path.join(backupPath, 'data', 'participants', 'round-100-state.json')), true);
-  assert.equal(existsSync(path.join(backupPath, 'data', 'participants', 'round-101-state.json')), true);
-
-  const restoreOut = runScript('scripts/restore-pilot-data.ts', ['--backup', backupPath], pilotEnv(restoredDir));
-  assert.match(restoreOut, /Pilot data restored successfully/);
-
-  const restoredState = JSON.parse(readFileSync(path.join(restoredDir, 'round-trip-state.json'), 'utf8')) as {
+  const handoff = JSON.parse(created.trim().split('\n').at(-1) as string) as {
     tokenA: string;
     tokenB: string;
     aCommitmentId: string;
@@ -138,7 +140,7 @@ test('backup and restore survive process restart with A/B isolation and recommen
 
   const verified = runInline(`
     import assert from 'node:assert/strict';
-    const state = ${JSON.stringify(restoredState)};
+    const state = ${JSON.stringify(handoff)};
     function req(path, token, options = {}) {
       const headers = new Headers({ authorization: \`Bearer \${token}\` });
       if (options.body !== undefined) headers.set('content-type', 'application/json');
@@ -187,7 +189,7 @@ test('backup and restore survive process restart with A/B isolation and recommen
       trustPersisted: true,
       idempotencyReplayed: true,
     }));
-  `, pilotEnv(restoredDir));
+  `, pilotEnv(secondDir));
   assert.match(verified, /"crossParticipantLeakage":false/);
   assert.match(verified, /"idempotencyReplayed":true/);
 });

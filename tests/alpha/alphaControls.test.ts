@@ -9,6 +9,8 @@ import {
   alphaAllowlistConfigured,
 } from '../../lib/pilot/alphaControls';
 import { resolvePilotAccess } from '../../lib/pilot/pilotAccess';
+import { createMemoryStorage } from '../../lib/storage/memoryAdapter';
+import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index';
 
 test('alpha allowlist: parses 1–10 pseudonymous ids', () => {
   assert.deepEqual(Array.from(parseAlphaAllowlist('alpha-001')), ['alpha-001']);
@@ -30,18 +32,20 @@ test('alpha allowlist: membership only when configured', () => {
   assert.equal(isAlphaParticipant('alpha-001', { MAYBESITTER_ALPHA_IDS: 'too many,ids,here,for,the,parser' }), false);
 });
 
-test('alpha allowlist: resolvePilotAccess admits alpha member without closed allowlist', () => {
+test('alpha allowlist: resolvePilotAccess admits alpha member without closed allowlist', async () => {
+  setStorageForTests(createMemoryStorage());
   const oldClosed = process.env.MAYBESITTER_CLOSED_PILOT_IDS;
   const oldAlpha = process.env.MAYBESITTER_ALPHA_IDS;
   delete process.env.MAYBESITTER_CLOSED_PILOT_IDS;
   process.env.MAYBESITTER_ALPHA_IDS = 'alpha-001';
   try {
-    const result = resolvePilotAccess('alpha-001', new Date().toISOString());
+    const result = await resolvePilotAccess('alpha-001', new Date().toISOString());
     // Admission = not allowlist-rejected; a fresh trust record is still
     // consent-gated (expected product behavior), never 'not_allowlisted'.
     assert.notEqual(result.decision.reason, 'not_allowlisted', 'alpha member must be admitted');
     assert.ok(result.trust, 'trust record must exist for alpha member');
   } finally {
+    resetStorageForTests();
     if (oldClosed === undefined) delete process.env.MAYBESITTER_CLOSED_PILOT_IDS;
     else process.env.MAYBESITTER_CLOSED_PILOT_IDS = oldClosed;
     if (oldAlpha === undefined) delete process.env.MAYBESITTER_ALPHA_IDS;
@@ -49,16 +53,18 @@ test('alpha allowlist: resolvePilotAccess admits alpha member without closed all
   }
 });
 
-test('alpha allowlist: non-member rejected when no closed allowlist', () => {
+test('alpha allowlist: non-member rejected when no closed allowlist', async () => {
+  setStorageForTests(createMemoryStorage());
   const oldClosed = process.env.MAYBESITTER_CLOSED_PILOT_IDS;
   const oldAlpha = process.env.MAYBESITTER_ALPHA_IDS;
   delete process.env.MAYBESITTER_CLOSED_PILOT_IDS;
   process.env.MAYBESITTER_ALPHA_IDS = 'alpha-001';
   try {
-    const result = resolvePilotAccess('alpha-999', new Date().toISOString());
+    const result = await resolvePilotAccess('alpha-999', new Date().toISOString());
     assert.equal(result.decision.allowed, false);
     assert.equal(result.decision.reason, 'not_allowlisted');
   } finally {
+    resetStorageForTests();
     if (oldClosed === undefined) delete process.env.MAYBESITTER_CLOSED_PILOT_IDS;
     else process.env.MAYBESITTER_CLOSED_PILOT_IDS = oldClosed;
     if (oldAlpha === undefined) delete process.env.MAYBESITTER_ALPHA_IDS;

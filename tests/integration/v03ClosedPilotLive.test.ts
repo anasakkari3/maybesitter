@@ -8,6 +8,8 @@ import { GET as getNextStep } from '../../src/app/api/next-step/route.ts';
 import { GET as getCalendar } from '../../src/app/api/calendar.ics/route.ts';
 import { POST as recordAnalytics } from '../../src/app/api/analytics/route.ts';
 import { GET as getIncidents, PATCH as updateIncident, POST as reportIncident } from '../../src/app/api/pilot/incidents/route.ts';
+import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
+import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { configureCommandService } from '../../lib/services/commandService.ts';
 import { createEmptyDomainState, type Commitment } from '../../src/domain/stateMachine.ts';
 
@@ -25,16 +27,16 @@ test('V03 live pilot: allowlist, consent, first value, calendar, and incident au
   const directory = mkdtempSync(join(tmpdir(), 'maybesitter-v03-live-'));
   const previous = {
     ids: process.env.MAYBESITTER_CLOSED_PILOT_IDS,
-    trust: process.env.MAYBESITTER_PILOT_TRUST_FILE,
     feature: process.env.MAYBESITTER_FEATURE_RECOMMENDATION,
     kill: process.env.MAYBESITTER_KILL_SWITCH_RECOMMENDATION,
     token: process.env.MAYBESITTER_PILOT_ADMIN_TOKEN,
   };
   process.env.MAYBESITTER_CLOSED_PILOT_IDS = IDS.join(',');
-  process.env.MAYBESITTER_PILOT_TRUST_FILE = join(directory, 'trust.json');
   process.env.MAYBESITTER_FEATURE_RECOMMENDATION = 'true';
   process.env.MAYBESITTER_KILL_SWITCH_RECOMMENDATION = 'false';
   process.env.MAYBESITTER_PILOT_ADMIN_TOKEN = 'test-admin-token-123456';
+  // The pilot trust record lives in storage since UC-1.0b (#141).
+  setStorageForTests(createMemoryStorage());
   configureCommandService({
     stateFile: join(directory, 'domain-state.json'), schedulerStore: null,
     initialState: { ...createEmptyDomainState(), commitments: { c1: commitment } },
@@ -122,9 +124,9 @@ test('V03 live pilot: allowlist, consent, first value, calendar, and incident au
     assert.equal(resolved.status, 200);
     assert.equal((await resolved.json()).resolutionCode, 'verified_fixed');
   } finally {
+    resetStorageForTests();
     for (const [key, value] of [
       ['MAYBESITTER_CLOSED_PILOT_IDS', previous.ids],
-      ['MAYBESITTER_PILOT_TRUST_FILE', previous.trust],
       ['MAYBESITTER_FEATURE_RECOMMENDATION', previous.feature],
       ['MAYBESITTER_KILL_SWITCH_RECOMMENDATION', previous.kill],
       ['MAYBESITTER_PILOT_ADMIN_TOKEN', previous.token],

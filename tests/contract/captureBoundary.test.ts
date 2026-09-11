@@ -52,7 +52,7 @@ test('contract forbids proposal persistence and assigns canonical writes to the 
 test('model proposal and unconfirmed proposal cannot persist', async () => {
   let persistCalls = 0;
   const dependencies = harness({
-    snapshot: () => createEmptyDomainState(),
+    snapshot: async () => createEmptyDomainState(),
     async persistAtomically() { persistCalls += 1; return { state: createEmptyDomainState() }; },
   });
   const proposal = await proposeCapture('Call the doctor at noon', { now, timezone: 'UTC', scopeId: 'a' }, {
@@ -72,7 +72,7 @@ test('schema failure, semantic failure, rejected proposal, and invented past tim
   ]) {
     let persistCalls = 0;
     const dependencies = harness({
-      snapshot: () => createEmptyDomainState(),
+      snapshot: async () => createEmptyDomainState(),
       async persistAtomically() { persistCalls += 1; return { state: createEmptyDomainState() }; },
     });
     const proposal = await proposeCapture('unsafe', { now, timezone: 'UTC', scopeId: 'a' }, { ...dependencies, extractor: extractor as never });
@@ -108,7 +108,7 @@ test('explicit confirmation persists once and duplicate confirmation safely repl
   assert.equal(first.replayed, false);
   assert.equal(second.success, true);
   assert.equal(second.replayed, true);
-  assert.equal(Object.keys(dependencies.persistence.snapshot().commitments).length, 1);
+  assert.equal(Object.keys((await dependencies.persistence.snapshot()).commitments).length, 1);
 });
 
 test('adapter failure leaves canonical state unchanged', async () => {
@@ -123,7 +123,7 @@ test('adapter failure leaves canonical state unchanged', async () => {
   };
   const invalid: Command = { type: 'ConfirmCommitment', commitmentId: 'missing', now: now.toISOString(), reminders: [] };
   await assert.rejects(adapter.persistAtomically([valid, invalid]));
-  assert.deepEqual(adapter.snapshot(), createEmptyDomainState());
+  assert.deepEqual(await adapter.snapshot(), createEmptyDomainState());
 });
 
 test('multi-item ordering and confirmation ordering are preserved', async () => {

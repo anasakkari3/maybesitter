@@ -18,7 +18,16 @@ test('the data dir is a per-process temp dir, not the checkout', () => {
   assert.ok(dataDir, 'MAYBESITTER_DATA_DIR is unset: the suite was run without --import ./tests/support/isolateProcess.mjs');
   assert.equal(inside(dataDir, process.cwd()), false, `MAYBESITTER_DATA_DIR ${dataDir} is inside the checkout`);
   assert.equal(dirname(process.env.MAYBESITTER_DOMAIN_STATE_FILE ?? ''), dataDir);
-  assert.equal(dirname(process.env.MAYBESITTER_PILOT_TRUST_FILE ?? ''), dataDir);
+  // MAYBESITTER_PILOT_TRUST_FILE is gone since UC-1.0b (#141): the trust
+  // record lives in storage, and the default storage backend is a per-process
+  // memory adapter, so it is isolated by construction rather than by a path.
+  assert.equal(process.env.MAYBESITTER_PILOT_TRUST_FILE, undefined);
+});
+
+test('the default storage backend is per-process memory, not a shared Firestore', async () => {
+  const { resolveStorageBackend } = await import('../../lib/storage/index.ts');
+  assert.equal(process.env.K_SERVICE, undefined);
+  assert.equal(resolveStorageBackend(), 'memory');
 });
 
 test('os.tmpdir() is inside the same per-process root', () => {
