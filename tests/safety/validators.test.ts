@@ -1388,29 +1388,20 @@ test('the decision record is Sprint 08’s, not a second copy of one', () => {
  * characters cost 19 seconds on a request already decided to block; 200 spans
  * cost 78.
  *
- * This asserts the property the count check could not see — that the work does
- * not grow with input past the bound.
+ * The wall-clock half of this property ("the work does not grow with input past
+ * the bound") lives in tests/perf/safetyGateBound.perf.test.ts and runs with
+ * `npm run test:perf`: a timing assertion fails under CPU load, so it cannot be
+ * part of `npm test`. What stays here is the part that holds on any machine —
+ * the count bound admits exactly `maxUntrustedInputs` spans however many
+ * arrive, and (next test) an excluded span is excluded from every later scan.
  */
-test('input scanning does not grow with input past the bound', () => {
-  const candidate = cleanCandidate({
-    // One below `maxSegmentChars`, so every segment is actually scanned. At or
-    // above it the segment is skipped and this test measures nothing.
-    segments: Array.from({ length: SAFETY_LIMITS.maxSegments }, () => ({
-      role: 'body' as const,
-      text: 'x'.repeat(SAFETY_LIMITS.maxSegmentChars - 1),
-    })),
-  });
-  // One below `maxUntrustedInputChars`, for the same reason as the segments
-  // above and **spelled the same way**, from the constant rather than as a
+test('the count bound admits at most maxUntrustedInputs spans, however many arrive', () => {
+  // One below `maxUntrustedInputChars`, from the constant rather than as a
   // number. It was a literal 200,000 against a bound of 8,000, so every span was
-  // dropped by the character check and both timings below measured an empty
+  // dropped by the character check and the timing comparison measured an empty
   // loop: 4 spans and 200 spans did identical work, which is exactly the shape
-  // that makes a growth assertion pass.
-  //
-  // The two fixtures in this test were written the same day. The segment line
-  // was derived from `SAFETY_LIMITS` and is still correct; the input line was a
-  // literal and drifted the moment the bound moved. That is the whole argument
-  // for deriving a fixture's size from the limit it is probing.
+  // that makes a growth assertion pass. That is the whole argument for deriving
+  // a fixture's size from the limit it is probing.
   const spans = (count: number) =>
     cleanRequest({
       inputs: Array.from({ length: count }, (_unused, index) => ({
@@ -1422,33 +1413,15 @@ test('input scanning does not grow with input past the bound', () => {
       })),
     });
 
-  // The growth assertion is meaningless if nothing is admitted, and a timing
-  // comparison cannot tell an empty loop from a fast one. Pin the work first.
   assert.equal(
     scannableInputs(spans(4)).length,
     4,
-    'the small case admitted no spans, so the comparison below is between two empty loops',
+    'a small request of admissible spans admitted fewer than it sent',
   );
   assert.equal(
     scannableInputs(spans(200)).length,
     SAFETY_LIMITS.maxUntrustedInputs,
-    'the large case is not clamped by the count bound, so this measures the wrong property',
-  );
-
-  const timed = (count: number): number => {
-    const startedAt = process.hrtime.bigint();
-    evaluateSafetyGate({ request: spans(count), candidate, auditId: 'a-1' });
-    return Number(process.hrtime.bigint() - startedAt) / 1_000_000;
-  };
-
-  timed(4); // warm the JIT so the comparison is about the algorithm
-  const small = timed(4);
-  const large = timed(200);
-  // 50x the input. Unbounded, this was ~200x the time and 78 seconds absolute.
-  assert.ok(large < 2_000, `200 over-length spans took ${large.toFixed(0)}ms`);
-  assert.ok(
-    large < small * 8 + 200,
-    `work grew from ${small.toFixed(0)}ms to ${large.toFixed(0)}ms across a 50x input; the bound is not bounding`,
+    'a request past the count bound was not clamped to it',
   );
 });
 
