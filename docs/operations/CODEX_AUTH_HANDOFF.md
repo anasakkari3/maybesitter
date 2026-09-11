@@ -2,7 +2,16 @@
 
 **Lanes**: Codex (Backend API Port owner) $\leftrightarrow$ Operational Infra Lane
 **Date**: August 9, 2026
-**Status**: `IMPLEMENTED IN PR #82 — SHARED PILOT MOBILE ROUTES AUTHENTICATED`
+**Status**: `SUPERSEDED BY UC-1.0e (#144) — HISTORICAL ONLY`
+
+> **Superseded.** Everything below describes the HMAC pilot token
+> (`p-token.<id>.<nonce>.<hmac>`), its allowlist and its environment
+> variables. All of it is deleted. Mobile routes authenticate with a Firebase
+> ID token verified by `lib/auth/tokenVerifier`, guarded by
+> `requireMobileUser` in `lib/auth/mobileAuth`; there is no allowlist and no
+> anonymous path. Local development authenticates against the Firebase Auth
+> emulator. This file is retained for the decision history only — do not
+> implement against it.
 
 ---
 
