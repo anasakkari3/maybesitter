@@ -14,6 +14,7 @@ import { CloseoutScreen } from './screens/CloseoutScreen';
 import { FirstMoveScreen } from './screens/FirstMoveScreen';
 import { SheetHost } from './screens/Sheets';
 import { TabBar } from './screens/TabBar';
+import { Gallery } from './design/Gallery';
 
 const tabScreens = ['today', 'calendar', 'settings'];
 
@@ -42,6 +43,7 @@ export function Root() {
       {s.screen === 'saved' && <SavedScreen key="saved" />}
       {s.screen === 'closeout' && <CloseoutScreen key="closeout" />}
       {s.screen === 'firstmove' && <FirstMoveScreen key="firstmove" />}
+      {__DEV__ && s.screen === 'gallery' && <Gallery key="gallery" />}
       {tabScreens.includes(s.screen) && <TabBar />}
       <SheetHost key={s.sheet ?? 'none'} />
     </View>

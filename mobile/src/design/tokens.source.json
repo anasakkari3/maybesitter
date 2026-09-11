@@ -1,0 +1,89 @@
+{
+  "$comment": "Extracted from design/MaybeSitter.dc.html. The export has no :root block and no CSS custom properties: every value is an inline literal, so these were read out of the markup and counted by frequency. Regenerate with mobile/scripts/extract-design-tokens.mjs after any re-export, and update sourceManifestSha.",
+  "sourceProject": "d96ab124-0531-4fef-9e0b-084677ee8911",
+  "sourceManifestSha": "034e47f2f23f848ebb9097138c5e4b4e6dbae321614b6623087a66644a075ca6",
+  "palette": {
+    "ink": "#14181B",
+    "inkDark": "#101416",
+    "paper": "#F5F7F8",
+    "paperEdge": "#ECEEEF",
+    "surfaceLight": "#FFFFFF",
+    "surfaceLightAlt": "#EDF0F2",
+    "surfaceDark": "#1A2023",
+    "surfaceDarkAlt": "#242B2F",
+    "mutedLight": "#5F6B70",
+    "mutedDark": "#9AA6AB",
+    "textDark": "#ECEFF1",
+    "teal": "#1F7A8C",
+    "tealPressed": "#14586A",
+    "tealDark": "#6FC3D6",
+    "tealSoft": "#DFEFF3",
+    "sand": "#8A6A2E",
+    "sandDark": "#D9B06B",
+    "sandSoft": "#F3ECDD",
+    "slate": "#3C464B"
+  },
+  "alpha": {
+    "lineLight": "rgba(20,24,27,0.08)",
+    "hatchLight": "rgba(20,24,27,0.10)",
+    "borderLight": "rgba(20,24,27,0.12)",
+    "lineDark": "rgba(236,239,241,0.10)",
+    "hatchDark": "rgba(255,255,255,0.08)",
+    "barLight": "rgba(255,255,255,0.86)",
+    "barDark": "rgba(26,32,35,0.88)",
+    "scrim": "rgba(10,14,16,0.45)",
+    "accentSoftDark": "rgba(111,195,214,0.16)",
+    "sandSoftDark": "rgba(217,176,107,0.16)",
+    "accentGlow": "rgba(31,122,140,0.30)"
+  },
+  "radius": {
+    "pill": 999,
+    "circle": 50,
+    "card": 24,
+    "tile": 20,
+    "sheetHandle": 18,
+    "chip": 16,
+    "row": 14,
+    "small": 12,
+    "tiny": 9,
+    "hairline": 2
+  },
+  "typeScale": {
+    "display": 34,
+    "title1": 28,
+    "title2": 26,
+    "section": 22,
+    "cardTitle": 19,
+    "bodyLarge": 16,
+    "body": 15,
+    "bodySmall": 14,
+    "label": 13,
+    "caption": 12,
+    "micro": 11
+  },
+  "weights": { "regular": 400, "medium": 500, "semibold": 600, "bold": 700 },
+  "lineHeight": { "arabic": 1.6, "latin": 1.4, "tight": 1.15, "heading": 1.3 },
+  "space": [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 24, 28, 36, 40],
+  "motion": {
+    "screenIn": { "duration": 340, "easing": "cubic-bezier(0.2, 0.8, 0.2, 1)" },
+    "sheetUp": { "duration": 380, "easing": "cubic-bezier(0.2, 0.8, 0.2, 1)" },
+    "pop": { "duration": 500, "easing": "cubic-bezier(0.2, 0.8, 0.2, 1)" },
+    "press": { "duration": 160, "easing": "cubic-bezier(0.2, 0.8, 0.2, 1)", "scale": 0.95 },
+    "shimmer": { "duration": 1600, "easing": "ease-in-out" },
+    "ring": { "duration": 2400, "easing": "ease-out" }
+  },
+  "fonts": {
+    "latin": "Outfit",
+    "arabic": "Noto Naskh Arabic",
+    "weightsLoaded": [400, 500, 600, 700],
+    "$comment": "The export loads exactly these two families from Google Fonts. Neither carries Hebrew glyphs; a Hebrew face is still needed before `he` can be offered (UC-1.R3 #156)."
+  },
+  "deviations": [
+    {
+      "token": "color.dark.onAccent",
+      "export": "#FFFFFF",
+      "used": "#101416",
+      "why": "White on the dark-scheme accent #6FC3D6 measures 2.01:1, below the 4.5:1 minimum. Dark ink on the same accent measures 9.22:1. Every other pair in the export already passes."
+    }
+  ]
+}

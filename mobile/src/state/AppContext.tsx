@@ -207,6 +207,8 @@ function useAppModel() {
         return res.kind === 'hi' ? {} : { kind: res.kind, parts: res.parts, proposals: res.proposals, input: text, cap: 'transcript' as CapState, screen: 'review' as Screen, prev: 'capture' as Screen };
       };
       switch (name) {
+        // Development only, so a release build cannot reach the gallery.
+        case 'gallery': if (__DEV__) set({ screen: 'gallery', sheet: null }); return;
         case 'today': case 'calendar': case 'settings': case 'closeout': case 'firstmove':
           set({ screen: name, sheet: null }); return;
         case 'capture': set({ ...captureReset, screen: 'capture', sheet: null }); return;

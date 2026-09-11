@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy Policy — MaybeSitter</title>
+<meta name="description" content="How MaybeSitter collects, uses and stores your data.">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header>
+  <h1>Privacy Policy</h1>
+  <p class="meta">Version 1.0 · Effective {{EFFECTIVE_DATE}}</p>
+</header>
+
+<main>
+  <p class="lede">
+    MaybeSitter is a personal organizer. It remembers what you promised to do and reminds you
+    at the right time. This policy explains, service by service, what we collect, why, where it
+    is stored and how to get rid of it.
+  </p>
+  <p>
+    Two things are true everywhere in this document: your data is stored in the European Union,
+    and nothing is saved to your account without your confirmation.
+  </p>
+
+  <h2>Who we are</h2>
+  <p>
+    The controller of your personal data is {{LEGAL_NAME}}, an individual developer operating
+    the MaybeSitter app and the website at {{DOMAIN}}.
+  </p>
+  <p>
+    For any privacy question, request or complaint, write to
+    <a href="mailto:{{PRIVACY_EMAIL}}">{{PRIVACY_EMAIL}}</a>. For anything else, write to
+    <a href="mailto:{{SUPPORT_EMAIL}}">{{SUPPORT_EMAIL}}</a>.
+  </p>
+
+  <h2>Firebase Authentication</h2>
+  <p>
+    We use Firebase Authentication to sign you in. Depending on the method you choose, we
+    receive and store your email address, your display name, the provider user ID from Apple
+    or Google, and the Firebase UID that identifies your account inside MaybeSitter.
+  </p>
+  <p>
+    Sign-in with Apple, sign-in with Google and email/password sign-in are all supported. If you
+    use Apple's "Hide My Email", we receive the relay address instead of your real one, and that
+    works perfectly well — we never need your real address.
+  </p>
+  <p>This data is kept while your account exists and is deleted when you delete your account.</p>
+
+  <h2>Firestore</h2>
+  <p>
+    Your content lives in Cloud Firestore: your commitments, your captures, your plans, the
+    memory facts MaybeSitter has learned about you, your consents and your settings.
+  </p>
+  <p>
+    Every memory fact is visible to you in the app and can be deleted by you. Firestore data is
+    stored in the European Union, in the <code>europe-west1</code> region, and is kept until you
+    delete it or delete your account.
+  </p>
+
+  <h2>Cloud Run</h2>
+  <p>
+    The MaybeSitter API runs on Google Cloud Run in the European Union
+    (<code>europe-west1</code>). Requests from the app are processed there.
+  </p>
+  <p>
+    Request logs are kept for 30 days for reliability and abuse prevention. Those logs record
+    that a request happened — not what was in it. We do not log request or response bodies.
+  </p>
+
+  <h2>Vertex AI Gemini</h2>
+  <p>
+    Some features use Google's Gemini models through Vertex AI: turning what you captured into
+    a clear commitment, suggesting a sensible time, and understanding content you share.
+  </p>
+  <p>
+    Capture text, transcripts and shared content are sent to Gemini <strong>only after you give
+    AI consent inside the app</strong>. Google acts as our processor for these requests, and the
+    data is not used to train Google's models.
+  </p>
+  <p>
+    You can withdraw AI consent at any time in the Trust Center. MaybeSitter then falls back to
+    on-device rules, which are simpler but send nothing to a model.
+  </p>
+
+  <h2>Speech</h2>
+  <p>
+    When you dictate instead of typing, speech recognition runs on your device through the
+    operating system's own recognizer — Apple's on iOS, Google's on Android.
+  </p>
+  <p>
+    Where the operating system cannot do it on-device, the OS vendor processes the audio under
+    its own terms, not ours. In every case, MaybeSitter never receives your audio. We receive
+    only the resulting text.
+  </p>
+
+  <h2>Calendars</h2>
+  <p>MaybeSitter can look at your calendar so it does not remind you in the middle of something.</p>
+
+  <h3>Device calendars</h3>
+  <p>
+    Device calendars are read as busy time only. We read when you are busy, not what you are
+    doing.
+  </p>
+
+  <h3>Google Calendar</h3>
+  <p>If you connect Google Calendar, MaybeSitter requests exactly two scopes:</p>
+  <ul>
+    <li>
+      <code>calendar.events</code> — to read the start and end times of your events so we can
+      find free slots, and to write commitments that <em>you</em> have confirmed. Event titles
+      are read to show you what a conflict is, and are never stored on our servers.
+    </li>
+    <li>
+      <code>calendar.calendarlist.readonly</code> — to read the names of your calendars so you
+      can pick which one to use.
+    </li>
+  </ul>
+  <div class="callout">
+    <p class="verbatim">
+      MaybeSitter's use and transfer of information received from Google APIs to any other app
+      will adhere to the Google API Services User Data Policy, including the Limited Use
+      requirements.
+    </p>
+  </div>
+
+  <h3>ICS feeds</h3>
+  <p>
+    If you subscribe to an ICS calendar feed, the feed URL is stored encrypted, because such a
+    URL is itself a secret that grants access to the calendar.
+  </p>
+
+  <h3>Disconnecting</h3>
+  <p>
+    You can disconnect any calendar at any time, and delete the data imported from it, without
+    deleting your MaybeSitter account.
+  </p>
+
+  <h2>Share to MaybeSitter</h2>
+  <p>
+    You can share text, a link or a screenshot from another app into MaybeSitter. That content is
+    processed only at the moment you share it.
+  </p>
+  <p>
+    We treat shared content as untrusted: instructions embedded in it are never followed as
+    commands. Nothing from a share is saved to your account until you confirm it.
+  </p>
+
+  <h2>FCM</h2>
+  <p>
+    Reminders are delivered through Firebase Cloud Messaging. For this we store one push token
+    per device. The token is used to deliver your reminders and for nothing else — no marketing,
+    no third-party messages. Removing the app or signing out invalidates the token.
+  </p>
+
+  <h2>Crashlytics</h2>
+  <p>
+    When the app crashes, Firebase Crashlytics sends us the crash trace, your device model, the
+    OS version and a random installation ID. This is not linked to your account and is kept for
+    90 days.
+  </p>
+
+  <h2>Analytics</h2>
+  <p>
+    Product analytics are collected <strong>only</strong> if you turn on the analytics consent in
+    the Trust Center. The default is off. If you leave it off, no analytics events are sent. You
+    can turn it off again at any time.
+  </p>
+  <p>This website itself has no analytics, no cookies and no third-party scripts of any kind.</p>
+
+  <h2>Account deletion</h2>
+  <p>You can delete your account in two ways:</p>
+  <ul>
+    <li>In the app, under Settings.</li>
+    <li>On the web, at <code>{{DOMAIN}}/en/delete-account</code>.</li>
+  </ul>
+  <p>
+    Deletion removes your account and your content. It is completed within 30 days, and backup
+    copies expire within 30 days of that. Deletion is permanent; we cannot restore a deleted
+    account.
+  </p>
+
+  <h2>Your rights</h2>
+  <p>You have the right to:</p>
+  <ul>
+    <li><strong>Access</strong> — get a copy of the data we hold about you.</li>
+    <li><strong>Correction</strong> — fix anything inaccurate.</li>
+    <li><strong>Export</strong> — receive your data in a portable, machine-readable file.</li>
+    <li><strong>Deletion</strong> — have your data erased.</li>
+  </ul>
+  <p>
+    Most of this is available directly in the app. For anything else, write to
+    <a href="mailto:{{PRIVACY_EMAIL}}">{{PRIVACY_EMAIL}}</a> and we will respond within 30 days.
+  </p>
+
+  <h2>Legal basis</h2>
+  <p>
+    MaybeSitter is operated from Israel and processes personal data under the Israeli Privacy
+    Protection Law, 5741-1981, and its regulations, including the Privacy Protection (Data
+    Security) Regulations, 5777-2017.
+  </p>
+  <p>
+    We process your data to provide the service you asked for. Optional processing — AI features
+    and analytics — happens only on the basis of the consent you give in the app, and you can
+    withdraw that consent at any time.
+  </p>
+
+  <h2>Age</h2>
+  <p>
+    MaybeSitter is not directed at people under 18, and we do not knowingly collect data from
+    them. If you believe someone under 18 has created an account, write to
+    <a href="mailto:{{PRIVACY_EMAIL}}">{{PRIVACY_EMAIL}}</a> and we will delete it.
+  </p>
+
+  <h2>No sale of data, no advertising</h2>
+  <p>
+    We do not sell your personal data. We do not share it with data brokers. There is no
+    advertising in MaybeSitter, and we do not build advertising profiles or track you across
+    other apps and websites.
+  </p>
+  <p>
+    The only third parties that process your data are the infrastructure providers named in this
+    policy, acting as our processors under contract.
+  </p>
+
+  <h2>Changes to this policy</h2>
+  <p>
+    When this policy changes we update the version number and the effective date at the top of
+    this page. For any change that materially affects how we use your data, we notify you in the
+    app before it takes effect, and where the change requires it we ask for your consent again.
+  </p>
+  <p>This is version 1.0, effective {{EFFECTIVE_DATE}}.</p>
+</main>
+
+<footer>
+  <nav class="langs">
+    <a href="/ar/privacy">العربية</a>
+    <a href="/he/privacy">עברית</a>
+  </nav>
+  <nav>
+    <a href="/en/">Home</a>
+    <a href="/en/terms">Terms of Use</a>
+  </nav>
+  <p class="muted">© MaybeSitter — {{LEGAL_NAME}}</p>
+</footer>
+</body>
+</html>
