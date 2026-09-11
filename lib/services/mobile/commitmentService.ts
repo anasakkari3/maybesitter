@@ -4,7 +4,7 @@ import {
   applyParticipantCommand,
   getParticipantStateSnapshot,
 } from './participantState';
-import { localDayKey, normalizeTimezone, parseIsoDate, resolvedCommitmentTime } from './time';
+import { localDayKey, normalizeTimezone, parseIsoInstant, resolvedCommitmentTime } from './time';
 
 const HIDDEN_LIST_STATUSES = new Set<Commitment['status']>(['dropped', 'archived']);
 
@@ -86,12 +86,20 @@ function patchTimeSpec(current: TimeSpec, input: PatchCommitmentInput): Partial<
   const hasReminderTime = input.reminderTime !== undefined;
   if (!hasDueDate && !hasReminderTime) return undefined;
 
-  const dueAt = hasDueDate ? parseIsoDate(input.dueDate, 'dueDate').toISOString() : current.dueAt;
-  const remindAt = hasReminderTime
-    ? parseIsoDate(input.reminderTime, 'reminderTime').toISOString()
-    : hasDueDate
-      ? dueAt
-      : current.remindAt;
+  const dueAt = hasDueDate ? parseIsoInstant(input.dueDate, 'dueDate').toISOString() : current.dueAt;
+  let remindAt: string | null;
+  if (hasReminderTime) {
+    remindAt = parseIsoInstant(input.reminderTime, 'reminderTime').toISOString();
+  } else if (hasDueDate && current.dueAt && current.remindAt && dueAt) {
+    // Keep the gap the user chose rather than collapsing the reminder onto the
+    // new due date or stranding it at the old one.
+    const lead = Date.parse(current.dueAt) - Date.parse(current.remindAt);
+    remindAt = new Date(Date.parse(dueAt) - lead).toISOString();
+  } else if (hasDueDate && !current.remindAt) {
+    remindAt = null;
+  } else {
+    remindAt = current.remindAt;
+  }
 
   return {
     kind: dueAt || remindAt ? 'due_by' : 'unscheduled',
@@ -100,6 +108,8 @@ function patchTimeSpec(current: TimeSpec, input: PatchCommitmentInput): Partial<
     timezone: current.timezone,
   } as Partial<TimeSpec>;
 }
+
+export const patchTimeSpecForTest = patchTimeSpec;
 
 function stringField(value: unknown, field: string): string | undefined {
   if (value === undefined) return undefined;
@@ -157,7 +167,7 @@ export async function postponeCommitment(
   now: Date = new Date(),
   options: { participantId?: string } = {},
 ): Promise<Commitment> {
-  const parsed = parseIsoDate(postponedUntil, 'postponedUntil');
+  const parsed = parseIsoInstant(postponedUntil, 'postponedUntil');
   if (parsed.getTime() <= now.getTime()) throw new Error('postponedUntil must be after now');
   const command: Command = {
     type: 'Postpone',

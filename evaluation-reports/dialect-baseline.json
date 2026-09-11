@@ -1,0 +1,209 @@
+{
+  "generatedAt": "2026-08-21T15:23:55.226628Z",
+  "datasetStatus": "seed-only: 8 of 50 cases; 42 owner-authored cases pending",
+  "harness": {
+    "script": "scripts/run-dialect-eval.ts",
+    "suite": "evaluation-data/dialect-suite.jsonl",
+    "timezone": "Asia/Jerusalem",
+    "timeoutMs": 60000,
+    "reproduce": "MAYBESITTER_LLM_MODEL=<id> node --no-warnings --loader ./scripts/ts-resolver.mjs scripts/run-dialect-eval.ts <out.json>"
+  },
+  "supersedes": {
+    "note": "An earlier run of this file reported ov_intent_analysis_sft and qwen3.5:9b at 0/8. Those numbers measured two harness bugs, not the models, and must not be cited.",
+    "bugs": [
+      "callOllama never sent think:false and read only Ollama's `response` field. Thinking-capable models answer in `thinking` and leave `response` empty, so every call returned '' and failed schema validation. Fixed in src/extraction/localLLMProvider.ts.",
+      "expectedTimes are Asia/Jerusalem wall-clock but were substring-matched against a UTC ISO dueAt. A correct local 05:00 (02:00Z) was scored wrong, and an answer three hours off passed because '08:00Z' contains '08:00'. Fixed in scripts/run-dialect-eval.ts via localClock()."
+    ]
+  },
+  "runs": {
+    "guoxuter/ov_intent_analysis_sft:v7_q8": {
+      "model": "guoxuter/ov_intent_analysis_sft:v7_q8",
+      "total": 8,
+      "passed": 4,
+      "passRate": 0.5,
+      "byLanguage": {
+        "ar": {
+          "total": 4,
+          "passed": 3
+        },
+        "he": {
+          "total": 2,
+          "passed": 1
+        },
+        "en": {
+          "total": 2,
+          "passed": 0
+        }
+      },
+      "failures": [
+        {
+          "id": "ar-1",
+          "text": "بكرة الصبح بدي أنزل على الشغل على الخمسة لازم أكون بالنادي على السبعة",
+          "expected": 2,
+          "actual": {
+            "dueAt": null,
+            "title": "user message to extract fixed time schedule task details",
+            "flags": []
+          }
+        },
+        {
+          "id": "he-1",
+          "text": "מחר בבוקר אני חייב להיות במשרד בשמונה",
+          "expected": 1,
+          "actual": {
+            "error": "Error: LLM repair failed: Invalid or missing extraction type: undefined"
+          }
+        },
+        {
+          "id": "en-1",
+          "text": "I must call Ahmad tomorrow at 3pm",
+          "expected": 1,
+          "actual": {
+            "dueAt": "2026-08-21T15:33:40.080Z",
+            "title": "Untrusted user message to standard structured extraction engine",
+            "flags": []
+          }
+        },
+        {
+          "id": "en-2",
+          "text": "pick up the kids then get groceries before the shop closes",
+          "expected": 2,
+          "actual": {
+            "dueAt": null,
+            "title": "User untrusted reminder text processing task",
+            "flags": []
+          }
+        }
+      ]
+    },
+    "gemma3:4b": {
+      "model": "gemma3:4b",
+      "total": 8,
+      "passed": 4,
+      "passRate": 0.5,
+      "byLanguage": {
+        "ar": {
+          "total": 4,
+          "passed": 3
+        },
+        "he": {
+          "total": 2,
+          "passed": 1
+        },
+        "en": {
+          "total": 2,
+          "passed": 0
+        }
+      },
+      "failures": [
+        {
+          "id": "ar-1",
+          "text": "بكرة الصبح بدي أنزل على الشغل على الخمسة لازم أكون بالنادي على السبعة",
+          "expected": 2,
+          "actual": {
+            "dueAt": "2026-08-22T03:00:00.000Z",
+            "title": "Go to work and then to the club",
+            "flags": [
+              "vague_time"
+            ]
+          }
+        },
+        {
+          "id": "he-1",
+          "text": "מחר בבוקר אני חייב להיות במשרד בשמונה",
+          "expected": 1,
+          "actual": {
+            "dueAt": "2026-08-22T04:00:00.000Z",
+            "title": "Be at the office",
+            "flags": [
+              "vague_time"
+            ]
+          }
+        },
+        {
+          "id": "en-1",
+          "text": "I must call Ahmad tomorrow at 3pm",
+          "expected": 1,
+          "actual": {
+            "dueAt": "2026-08-22T13:00:00.000Z",
+            "title": "Call Ahmad",
+            "flags": [
+              "vague_time"
+            ]
+          }
+        },
+        {
+          "id": "en-2",
+          "text": "pick up the kids then get groceries before the shop closes",
+          "expected": 2,
+          "actual": {
+            "dueAt": null,
+            "title": "Pick up kids and buy groceries",
+            "flags": [
+              "vague_action"
+            ]
+          }
+        }
+      ]
+    },
+    "qwen3.5:9b": {
+      "model": "qwen3.5:9b",
+      "total": 8,
+      "passed": 6,
+      "passRate": 0.75,
+      "byLanguage": {
+        "ar": {
+          "total": 4,
+          "passed": 3
+        },
+        "he": {
+          "total": 2,
+          "passed": 1
+        },
+        "en": {
+          "total": 2,
+          "passed": 2
+        }
+      },
+      "failures": [
+        {
+          "id": "ar-1",
+          "text": "بكرة الصبح بدي أنزل على الشغل على الخمسة لازم أكون بالنادي على السبعة",
+          "expected": 2,
+          "actual": {
+            "dueAt": "2026-08-22T10:54:17.000Z",
+            "title": "Get to the gym by 7:00 AM",
+            "flags": [
+              "vague_time"
+            ]
+          }
+        },
+        {
+          "id": "he-1",
+          "text": "מחר בבוקר אני חייב להיות במשרד בשמונה",
+          "expected": 1,
+          "actual": {
+            "dueAt": "2026-08-22T12:30:00.000Z",
+            "title": "Be in the office tomorrow morning at 8:00 AM",
+            "flags": []
+          }
+        }
+      ]
+    }
+  },
+  "arabicPassRateByModel": {
+    "guoxuter/ov_intent_analysis_sft:v7_q8": 0.75,
+    "gemma3:4b": 0.75,
+    "qwen3.5:9b": 0.75
+  },
+  "bestArabic": {
+    "model": "qwen3.5:9b",
+    "rate": 0.75
+  },
+  "caveats": [
+    "Four Arabic sentences cannot calibrate a threshold. ESCALATION_THRESHOLDS remains provisional until the 42 owner-authored cases exist.",
+    "All three candidates score identically on Arabic (3/4). The seed set does not separate them; the overall spread is driven entirely by the two English cases.",
+    "A multi-commitment case is now scored on the split alone: one ExtractionResult carries one dueAt, so there is no room to answer two expected times.",
+    "The plan's Step 6 stop-condition (below 0.5 on Arabic) is not tripped: every candidate is at 0.75."
+  ]
+}

@@ -116,8 +116,43 @@ function normalizeArabicDigits(value: string): string {
   });
 }
 
+/**
+ * Hours as people say them, not as they type them. Speech-to-text hands us
+ * «الساعة تسعة»; only digits used to parse, so every spoken time was dropped.
+ * Longest-first so «إحدى عشرة» is not eaten by «إحدى».
+ */
+const ARABIC_SPOKEN_HOURS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/(?:ال)?(?:حادية|إحدى|احدى)\s*عشرة?|احدعش/g, '11'],
+  [/(?:ال)?(?:ثانية|اثنتا|اثنتي|تانية)\s*عشرة?|اتناش|اثناش/g, '12'],
+  [/(?:ال)?(?:واحدة|وحدة)/g, '1'],
+  [/(?:ال)?(?:ثانية|اثنين|إثنين|تنتين|ثنتين|تانية)/g, '2'],
+  [/(?:ال)?(?:ثالثة|ثلاثة|تلاتة|تالتة)/g, '3'],
+  [/(?:ال)?(?:رابعة|أربعة|اربعة)/g, '4'],
+  [/(?:ال)?(?:خامسة|خمسة)/g, '5'],
+  [/(?:ال)?(?:سادسة|ستة)/g, '6'],
+  [/(?:ال)?(?:سابعة|سبعة)/g, '7'],
+  [/(?:ال)?(?:ثامنة|ثمانية|تمانية|تامنة)/g, '8'],
+  [/(?:ال)?(?:تاسعة|تسعة)/g, '9'],
+  [/(?:ال)?(?:عاشرة|عشرة)/g, '10'],
+];
+
+function normalizeSpokenArabicHours(value: string): string {
+  // Only rewrite where a clock is actually being named, so «الفصل الثالث»
+  // (a chapter) keeps its word and only «الساعة الثالثة» becomes a number.
+  return value.replace(
+    /((?:الساعة|الساعه|عند|على)\s*)([^\s,.،]+(?:\s+عشرة?)?)/g,
+    (match, lead: string, word: string) => {
+      for (const [pattern, digit] of ARABIC_SPOKEN_HOURS) {
+        pattern.lastIndex = 0;
+        if (new RegExp(`^(?:${pattern.source})$`).test(word)) return `${lead}${digit}`;
+      }
+      return match;
+    }
+  );
+}
+
 function parseClock(raw: string): { hour: number; minute: number } | null {
-  const normalized = normalizeArabicDigits(raw).toLowerCase();
+  const normalized = normalizeSpokenArabicHours(normalizeArabicDigits(raw)).toLowerCase();
   const explicit =
     normalized.match(/(?:\b(?:at|by|around)\b|الساعة|الساعه|عند|على)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm|صباحا|صباحاً|الصبح|ص|مساء|مساءً|المسا|المساء|بالليل|م)?(?=$|[\s,.،])/) ||
     normalized.match(/\b(\d{1,2}):(\d{2})(?=$|[\s,.،])/) ||
@@ -187,21 +222,51 @@ function parseDateTime(raw: string, context: ExtractionContext): { dueAt: string
   return { dueAt: withTime.toISOString(), remindAt: withTime.toISOString(), confidence: timeConfidence };
 }
 
+/**
+ * What a single clock time looks like. `stripTiming` removes these from a
+ * title and `countTimeExpressions` counts them; both read this one list, so
+ * the two cannot drift apart. Stored as sources: every caller builds a fresh
+ * RegExp, because a shared global regex carries `lastIndex` between calls.
+ */
+export const CLOCK_PATTERN_SOURCES: readonly string[] = [
+  /\b(?:at|by|around)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/.source,
+  /\b(?:at|by|around)\s*\d{1,2}(?::\d{2})?(?=$|[\s,.،])/.source,
+  /\b\d{1,2}:\d{2}(?=$|[\s,.،])/.source,
+  /(?:الساعة|الساعه|عند|على)?\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\s*(?:صباحا|صباحاً|الصبح|ص|مساء|مساءً|المسا|المساء|بالليل|م)(?=$|[\s,.،])/.source,
+  /(?:الساعة|الساعه|عند|على)\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?(?=$|[\s,.،])/.source,
+];
+
+/**
+ * A start-to-end range is one appointment, not two times. English
+ * "from 14:00 to 15:00" / "from 2pm to 3pm", and Arabic «من الساعة 2 للساعة 4»,
+ * where «ل» fuses with «الساعة» into «للساعة».
+ */
+export const RANGE_PATTERN_SOURCES: readonly string[] = [
+  /\bfrom\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s+(?:to|until|till|-)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b/.source,
+  /(?<![؀-ۿ])من\s*(?:الساعة|الساعه)?\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\s*(?:إلى|الى|حتى|لـ?)\s*(?:ال|ل)?(?:ساعة|ساعه)?\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?/.source,
+];
+
 function stripTiming(text: string): string {
-  return text
+  // Rewrite «الساعة تسعة» to «الساعة 9» first, so the clock patterns below
+  // strip a spoken hour out of the title exactly as they strip a typed one.
+  let stripped = normalizeSpokenArabicHours(text)
     .replace(/\b(after tomorrow|day after tomorrow|today|tomorrow|tonight|morning|afternoon|evening|night)\b/gi, ' ')
     .replace(/(بعد بكرا|بعد بكرة|بعد غداً|بعد غد|اليوم|النهارده|اليومه|بكرا|بكرة|غداً|غدا|الصبح|صباحاً|صباحا|صباح|بعد الظهر|بعد الضهر|المساء|المسا|مساءً|مساءا|مساء|بالليل|الليل)/gi, ' ')
     .replace(/\b(?:on|this|next)\s+(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/gi, ' ')
     .replace(/\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/gi, ' ')
-    .replace(/(الأحد|الاحد|الاثنين|الإثنين|الأثنين|الثلاثاء|الثلثاء|الأربعاء|الاربعاء|الخميس|الجمعة|السبت)/gi, ' ')
-    .replace(/\b(?:at|by|around)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/gi, ' ')
-    .replace(/\b(?:at|by|around)\s*\d{1,2}(?::\d{2})?(?=$|[\s,.،])/gi, ' ')
-    .replace(/\bfrom\s+\d{1,2}:\d{2}\s+to\s+\d{1,2}:\d{2}\b/gi, ' ')
-    .replace(/\b\d{1,2}:\d{2}(?=$|[\s,.،])/gi, ' ')
-    .replace(/(?:الساعة|الساعه|عند|على)?\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\s*(?:صباحا|صباحاً|الصبح|ص|مساء|مساءً|المسا|المساء|بالليل|م)(?=$|[\s,.،])/gi, ' ')
-    .replace(/(?:الساعة|الساعه|عند|على)\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?(?=$|[\s,.،])/gi, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+    // Arabic embeds the day inside the sentence — «يوم الأحد الجاي» — where
+    // English trails it. Take the whole phrase, or removing just the day name
+    // leaves «يوم ... الجاي» and the user sees their sentence with a hole in it.
+    .replace(
+      /(?:يوم\s+)?(?:الأحد|الاحد|الاثنين|الإثنين|الأثنين|الثلاثاء|الثلثاء|الأربعاء|الاربعاء|الخميس|الجمعة|السبت)(?:\s+(?:الجاي|الجاية|الجايه|الجاي|القادم|القادمة|الماضي|الماضية))?/gi,
+      ' '
+    );
+  // Ranges before the clocks inside them: taking "2pm" first would leave
+  // "meeting from to" as the title.
+  for (const source of [...RANGE_PATTERN_SOURCES, ...CLOCK_PATTERN_SOURCES]) {
+    stripped = stripped.replace(new RegExp(source, 'gi'), ' ');
+  }
+  return stripped.replace(/\s+/g, ' ').trim();
 }
 
 function cleanAction(raw: string): string {
@@ -333,4 +398,64 @@ export function extract(rawText: string, context: ExtractionContext): Extraction
     rawText: raw,
     parserVersion: PARSER_VERSION,
   };
+}
+
+/**
+ * How many distinct clock times the raw text names.
+ *
+ * The extractor reads a time with `String.match` against a non-global regex,
+ * which returns the first match and silently discards the rest. A sentence
+ * carrying three times can therefore produce one commitment that looks
+ * complete, and the confidence policy — which only ever sees that one
+ * result — reports no clarification needed.
+ *
+ * It reads `RANGE_PATTERN_SOURCES` and `CLOCK_PATTERN_SOURCES`, the same lists
+ * `stripTiming` removes from a title, so the counter and the parser cannot
+ * disagree about what a time looks like.
+ */
+export function countTimeExpressions(raw: string): number {
+  if (typeof raw !== 'string' || !raw.trim()) return 0;
+  // Count what the parser reads: «الساعة تسعة» and «الساعة ٩» are both 9.
+  const text = normalizeSpokenArabicHours(normalizeArabicDigits(raw));
+
+  // Count positions, not matches: two patterns can describe the same mention
+  // ("at 9am" matches both the am-suffixed and the bare-hour shape), and
+  // counting each would invent a time the sentence never had.
+  const covered = new Set<number>();
+
+  // Pass 1: a range counts once, at its first digit, and claims its span.
+  const spans: Array<readonly [number, number]> = [];
+  forEachTimeMention(RANGE_PATTERN_SOURCES, text, (start, end, digitAt) => {
+    spans.push([start, end]);
+    covered.add(digitAt);
+  });
+
+  // Pass 2: clock times, except the start and end already inside a range.
+  forEachTimeMention(CLOCK_PATTERN_SOURCES, text, (_start, _end, digitAt) => {
+    if (!spans.some(([start, end]) => digitAt >= start && digitAt < end)) covered.add(digitAt);
+  });
+  return covered.size;
+}
+
+function forEachTimeMention(
+  sources: readonly string[],
+  text: string,
+  visit: (start: number, end: number, digitAt: number) => void,
+): void {
+  for (const source of sources) {
+    const pattern = new RegExp(source, 'gi');
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(text)) !== null) {
+      // A zero-width match would spin forever; step past it.
+      if (match[0].length === 0) {
+        pattern.lastIndex += 1;
+        continue;
+      }
+      // Anchor on where the digits sit, so overlapping shapes of one mention
+      // collapse onto a single position.
+      const digitOffset = match[0].search(/[0-9٠-٩۰-۹]/);
+      if (digitOffset < 0) continue;
+      visit(match.index, match.index + match[0].length, match.index + digitOffset);
+    }
+  }
 }

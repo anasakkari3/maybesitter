@@ -49,6 +49,40 @@ const EVENT_PROPERTIES: Record<AnalyticsEventName, readonly string[]> = {
     'source', 'targetRoute',
     'flagWidget', 'flagVoice', 'flagAwareness', 'flagWatch', 'flagImports',
   ],
+  // Presence, intake, and awareness signals. Property names for the five
+  // events below are taken from the factory constructors in
+  // mobile/lib/models/pilot_loop_analytics.dart; each also carries the five
+  // feature flags via flagProperties().
+  //
+  // widget_snapshot_published is the exception: it is named in the contract
+  // and client-reportable, but nothing emits it yet — there is no factory for
+  // it in PilotLoopAnalyticsEventName. These two properties are a provisional,
+  // deliberately content-free guess. Whoever writes the emitter should confirm
+  // them rather than assume they were derived from a real call site.
+  widget_snapshot_published: [
+    'surface', 'itemCount',
+    'flagWidget', 'flagVoice', 'flagAwareness', 'flagWatch', 'flagImports',
+  ],
+  source_intake_reviewed: [
+    'importSource', 'characterCount',
+    'flagWidget', 'flagVoice', 'flagAwareness', 'flagWatch', 'flagImports',
+  ],
+  source_intake_confirmed: [
+    'importSource', 'characterCount',
+    'flagWidget', 'flagVoice', 'flagAwareness', 'flagWatch', 'flagImports',
+  ],
+  pilot_feedback_submitted: [
+    'feedbackSurface', 'usefulness', 'annoyance', 'timing',
+    'flagWidget', 'flagVoice', 'flagAwareness', 'flagWatch', 'flagImports',
+  ],
+  soft_awareness_action: [
+    'action',
+    'flagWidget', 'flagVoice', 'flagAwareness', 'flagWatch', 'flagImports',
+  ],
+  soft_awareness_missed: [
+    'outcome',
+    'flagWidget', 'flagVoice', 'flagAwareness', 'flagWatch', 'flagImports',
+  ],
   first_value_reached: ['surface', 'reason'],
 };
 
