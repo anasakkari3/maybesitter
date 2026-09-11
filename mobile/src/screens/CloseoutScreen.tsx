@@ -13,9 +13,9 @@ export function CloseoutScreen() {
   const { s, t, p, lang, actions } = useApp();
   const insets = useSafeAreaInsets();
   const finished = s.yesterday.every(q => q.res != null);
-  const moved = [
+  const moved: [{ d: string; time: string }, { d: string; time: string }] = [
     { d: t.tomorrow, time: '10:00' },
-    { d: t.days[6], time: '16:00' },
+    { d: t.days[6] ?? '', time: '16:00' },
   ];
 
   return (
@@ -37,7 +37,9 @@ export function CloseoutScreen() {
               ) : (
                 <View style={{ borderRadius: 14, paddingVertical: 10, paddingHorizontal: 12, backgroundColor: q.res === 'done' ? p.acs : p.sf2 }}>
                   <Txt size={14} weight={500} color={q.res === 'done' ? p.ac : p.mu}>
-                    {q.res === 'done' ? t.toastDone : fill(t.movedTo, { d: moved[i % 2].d, t: moved[i % 2].time })}
+                    {q.res === 'done'
+                      ? t.toastDone
+                      : fill(t.movedTo, i % 2 === 0 ? { d: moved[0].d, t: moved[0].time } : { d: moved[1].d, t: moved[1].time })}
                   </Txt>
                 </View>
               )}

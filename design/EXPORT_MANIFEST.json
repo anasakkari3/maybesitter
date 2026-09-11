@@ -1,0 +1,27 @@
+{
+  "sourceProject": "d96ab124-0531-4fef-9e0b-084677ee8911",
+  "exportedAt": "2026-09-11T12:43:00Z",
+  "exportedBy": "DesignSync (read-only) via Claude Code",
+  "files": [
+    {
+      "path": "MaybeSitter.dc.html",
+      "sha256": "e8bbae268a99da556dc63f12d2257426fa2e7093d9cc5d5530fbc2fd2376e063",
+      "bytes": 96353
+    },
+    {
+      "path": "github.md",
+      "sha256": "2118cc761c592bc24e4061d510525035ee350fee95dd04d12992c462963ba2cb",
+      "bytes": 1118
+    },
+    {
+      "path": "ios-frame.jsx",
+      "sha256": "24642b887be3d26ab5d1ff445ad98c363cffd33746c539a117da570ac7b6eb54",
+      "bytes": 16507
+    },
+    {
+      "path": "support.js",
+      "sha256": "8fe7df74405f3c55f49b7249c74ea1397e65d07dea2b1bd3b4a489bec2e28cbe",
+      "bytes": 69150
+    }
+  ]
+}
