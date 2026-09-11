@@ -67,6 +67,12 @@ test('bootstrap re-applies PITR and delete protection to every database on every
   assert.match(script, /databases update --database="\$\{database\}" --enable-pitr --delete-protection/);
 });
 
+test('the post-create update is retried, because a new database is briefly busy', () => {
+  // First real run: `update` right after `create` failed with
+  // "ABORTED: There are concurrent database changes".
+  assert.match(read('infra/bootstrap.sh'), /retry \d+ \d+ gcloud firestore databases update/);
+});
+
 test('staging on the production database is refused, not defaulted', () => {
   // The failure this guards is silent: (default) exists, so readiness passes
   // and staging test accounts write into production.
