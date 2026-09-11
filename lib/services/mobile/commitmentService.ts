@@ -87,11 +87,19 @@ function patchTimeSpec(current: TimeSpec, input: PatchCommitmentInput): Partial<
   if (!hasDueDate && !hasReminderTime) return undefined;
 
   const dueAt = hasDueDate ? parseIsoInstant(input.dueDate, 'dueDate').toISOString() : current.dueAt;
-  const remindAt = hasReminderTime
-    ? parseIsoInstant(input.reminderTime, 'reminderTime').toISOString()
-    : hasDueDate
-      ? dueAt
-      : current.remindAt;
+  let remindAt: string | null;
+  if (hasReminderTime) {
+    remindAt = parseIsoInstant(input.reminderTime, 'reminderTime').toISOString();
+  } else if (hasDueDate && current.dueAt && current.remindAt && dueAt) {
+    // Keep the gap the user chose rather than collapsing the reminder onto the
+    // new due date or stranding it at the old one.
+    const lead = Date.parse(current.dueAt) - Date.parse(current.remindAt);
+    remindAt = new Date(Date.parse(dueAt) - lead).toISOString();
+  } else if (hasDueDate && !current.remindAt) {
+    remindAt = null;
+  } else {
+    remindAt = current.remindAt;
+  }
 
   return {
     kind: dueAt || remindAt ? 'due_by' : 'unscheduled',
@@ -100,6 +108,8 @@ function patchTimeSpec(current: TimeSpec, input: PatchCommitmentInput): Partial<
     timezone: current.timezone,
   } as Partial<TimeSpec>;
 }
+
+export const patchTimeSpecForTest = patchTimeSpec;
 
 function stringField(value: unknown, field: string): string | undefined {
   if (value === undefined) return undefined;
