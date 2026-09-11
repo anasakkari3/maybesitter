@@ -13,8 +13,6 @@ export const SCRIPT_ONLY = {
   // Next-step baseline/product contracts: the contract gate, run by `npm run test:contracts`.
   'tests/contract/nextStepBaseline.test.ts': 'test:contracts',
   'tests/contract/nextStepProduct.test.ts': 'test:contracts',
-  // The Flutter pilot contract doc's test; deleted with the Flutter client.
-  'tests/docs/v03FlutterPilotContract.test.ts': 'test:v03-pilot',
 };
 
 export function registrationProblems(root = process.cwd()) {
