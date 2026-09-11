@@ -93,7 +93,14 @@ export interface JobRunResult {
 }
 
 export type CommandHandlerResult = void | { result: 'applied' | 'noop' | 'rejected' };
-export type CommandHandler = (command: Command) => CommandHandlerResult | Promise<CommandHandlerResult>;
+/**
+ * Applies one job's command. It receives the job as well as the command
+ * because the command alone does not say *whose* state it applies to — a
+ * `ReminderTriggered` names a reminder, not a user — and on the launch path
+ * each user's state lives in its own `users/{uid}` tree (UC-1.0d, #143).
+ * Handlers that only need the command may ignore the second argument.
+ */
+export type CommandHandler = (command: Command, job: ScheduledJob) => CommandHandlerResult | Promise<CommandHandlerResult>;
 
 function normalizeCommandHandlerResult(result: CommandHandlerResult): 'applied' | 'noop' | 'rejected' {
   return result?.result || 'applied';
@@ -127,7 +134,7 @@ export async function runDueJobs(
       if (job.jobType === 'reminder_due') {
         const reminderId = String(job.payload.reminderId || job.targetId);
         command = { type: 'ReminderTriggered', reminderId, now: nowIso };
-        const commandResult = normalizeCommandHandlerResult(await handleCommand(command));
+        const commandResult = normalizeCommandHandlerResult(await handleCommand(command, job));
         result.commands.push(command);
         if (commandResult === 'rejected') {
           await store.failJob(job.id, nowIso, 'Command rejected', false);
@@ -146,7 +153,7 @@ export async function runDueJobs(
         }
       } else if (job.jobType === 'ignored_check') {
         command = { type: 'ReminderIgnored', reminderId: String(job.payload.reminderId || job.targetId), now: nowIso };
-        const commandResult = normalizeCommandHandlerResult(await handleCommand(command));
+        const commandResult = normalizeCommandHandlerResult(await handleCommand(command, job));
         result.commands.push(command);
         if (commandResult === 'rejected') {
           await store.failJob(job.id, nowIso, 'Command rejected', false);
@@ -161,7 +168,7 @@ export async function runDueJobs(
         }
       } else if (job.jobType === 'escalation_check') {
         command = { type: 'EscalationTriggered', commitmentId: String(job.payload.commitmentId || job.targetId), now: nowIso };
-        const commandResult = normalizeCommandHandlerResult(await handleCommand(command));
+        const commandResult = normalizeCommandHandlerResult(await handleCommand(command, job));
         result.commands.push(command);
         if (commandResult === 'rejected') {
           await store.failJob(job.id, nowIso, 'Command rejected', false);
