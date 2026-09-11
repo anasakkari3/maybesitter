@@ -127,9 +127,19 @@ add_role() { gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
   --member="serviceAccount:${1}" --role="${2}" --condition=None >/dev/null; }
 add_role "${RUN_SA}" roles/datastore.user
 add_role "${RUN_SA}" roles/firebaseauth.admin
-add_role "${DEPLOYER_SA}" roles/run.developer
+# run.admin, not run.developer: infra/cloudrun/flags.sh deploys with
+# --allow-unauthenticated (the app authenticates every request itself), and
+# making a service public needs run.services.setIamPolicy, which run.developer
+# lacks. Without it the first deploy creates a private service and the smoke
+# test gets 403.
+add_role "${DEPLOYER_SA}" roles/run.admin
 add_role "${DEPLOYER_SA}" roles/firebaserules.admin
 add_role "${DEPLOYER_SA}" roles/datastore.indexAdmin
+# firebase-tools checks that the Firestore API is enabled before deploying rules
+# and indexes (ensureApiEnabled.check: GET serviceusage .../services/firestore,
+# sent with x-goog-user-project), and does not catch a 403 there — so without
+# serviceusage.services.get and .use the rules step fails outright.
+add_role "${DEPLOYER_SA}" roles/serviceusage.serviceUsageConsumer
 
 gcloud artifacts repositories add-iam-policy-binding "${ARTIFACT_REPO}" \
   --location="${REGION}" --project "${PROJECT_ID}" \
