@@ -30,8 +30,10 @@
  * Missing configuration answers 503, never "allow". There is deliberately no
  * development escape hatch: the same reasoning UC-1.0e applied to the
  * `Bearer dev-<uid>` bypass applies here, and a bypass on the endpoint that
- * runs everyone's jobs would be worse. Local work calls the runner directly in
- * tests instead of going through the route.
+ * runs everyone's jobs would be worse. #143 sketched a dev header the route
+ * would accept whenever `K_SERVICE` is unset; that is still a credential path
+ * anyone reading this repository can enable, so there is none. Local work
+ * calls the runner in-process instead of going through the route.
  *
  * Nothing here logs or returns the token.
  */
@@ -158,8 +160,9 @@ export async function authorizeSchedulerRequest(
   }
   if (payload.email_verified !== true || payload.email !== config.serviceAccountEmail) {
     // Authenticated by Google, but not the caller these routes are for: any
-    // GCP customer can mint a valid Google-signed token.
-    return { ok: false, code: 'wrong_caller', status: 403 };
+    // GCP customer can mint a valid Google-signed token. Still 401, not 403 —
+    // see `schedulerAuthErrorResponse` for why the status must not differ.
+    return { ok: false, code: 'wrong_caller', status: 401 };
   }
 
   return { ok: true, caller: payload.email };
@@ -168,10 +171,20 @@ export async function authorizeSchedulerRequest(
 /**
  * The refusal, as the route answers it.
  *
- * The body carries the code and nothing else — no token, no expected caller,
- * no audience. An operator reads the reason; a prober learns nothing about
- * what would have been accepted.
+ * Every authentication failure gets the same `401 {"error":"unauthorized"}`,
+ * whatever the reason. Distinct answers would be an oracle: a separate
+ * `wrong_caller` (or a 403) tells a prober that its token *verified* and only
+ * the caller was wrong — exactly the step it needs to know it has passed. The
+ * specific reason goes to the log, where the operator reads it; the token
+ * never goes anywhere.
+ *
+ * Missing configuration stays a distinct 503. It is the deployment's fault
+ * rather than the caller's, and the caller can do nothing about it.
  */
 export function schedulerAuthErrorResponse(result: { code: SchedulerAuthCode; status: number }): Response {
-  return Response.json({ error: result.code }, { status: result.status });
+  console.warn(`[internal/jobs] refused: ${result.code}`);
+  if (result.code === 'not_configured') {
+    return Response.json({ error: 'not_configured' }, { status: 503 });
+  }
+  return Response.json({ error: 'unauthorized' }, { status: 401 });
 }

@@ -101,7 +101,7 @@ done. Verify with:
 
 A run must return 200. This script has just set
 MAYBESITTER_SCHEDULER_SA_EMAIL and MAYBESITTER_INTERNAL_AUDIENCE on
-${SERVICE}, so a 401 means traffic is still being served by an older
-revision, and a 403 means the job is calling with a service account other
-than ${SCHEDULER_SA}.
+${SERVICE}. A 503 means the revision serving traffic predates that. A 401
+means the call was refused; the response never says why, but the service
+logs do, as "[internal/jobs] refused: <reason>".
 EOF

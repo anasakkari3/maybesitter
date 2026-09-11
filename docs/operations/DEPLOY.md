@@ -98,9 +98,12 @@ sets the two variables the routes need:
 **So the order is: deploy the service, then run `infra/scheduler.sh`.** Until
 that has run, the routes answer `503` and nothing is executed: they fail
 closed, so skipping this step stops scheduled work rather than leaving it
-open. Reading a failed `gcloud scheduler jobs run`: `401` means traffic is
-still on a revision from before those variables were set, `403` means the job
-is calling with a service account other than the scheduler one.
+open. Reading a failed `gcloud scheduler jobs run`: `503` means the
+revision serving traffic predates those variables. `401` means the call was
+refused — deliberately the same answer whatever the reason, so the response
+never tells a prober which check it failed. The reason is in the service's
+logs as `[internal/jobs] refused: <reason>` (`missing_token`,
+`invalid_token`, `wrong_audience` or `wrong_caller`).
 
 One minute is Cloud Scheduler's floor. It is worth being precise about what
 that replaces: the `Scheduler` class that polled every 30 seconds was only

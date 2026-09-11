@@ -56,18 +56,18 @@ test('the scheduler service account is authorized', async () => {
   assert.deepEqual(verifier.calls, [{ token: 'token-abc', audience: AUDIENCE }]);
 });
 
-test('a token from a different service account is refused with 403', async () => {
+test('a token from a different service account is refused', async () => {
   // Any Google Cloud customer can mint a validly signed OIDC token. Signature
   // alone is authentication, not authorization.
   const verifier = verifierReturning({ ...googlePayload, email: 'someone-else@other-project.iam.gserviceaccount.com' });
   const result = await authorizeSchedulerRequest(requestWith('Bearer t'), { env: ENV, verify: verifier.verify });
-  assert.deepEqual(result, { ok: false, code: 'wrong_caller', status: 403 });
+  assert.deepEqual(result, { ok: false, code: 'wrong_caller', status: 401 });
 });
 
 test('an unverified email is refused even with the right address', async () => {
   const verifier = verifierReturning({ ...googlePayload, email_verified: false });
   const result = await authorizeSchedulerRequest(requestWith('Bearer t'), { env: ENV, verify: verifier.verify });
-  assert.deepEqual(result, { ok: false, code: 'wrong_caller', status: 403 });
+  assert.deepEqual(result, { ok: false, code: 'wrong_caller', status: 401 });
 });
 
 test('a token minted for another audience is refused', async () => {
@@ -137,10 +137,36 @@ test('bearerToken reads exactly one token', () => {
   assert.equal(bearerToken('Bearer abc def'), null);
 });
 
-test('the refusal body carries the code and nothing else', async () => {
-  const response = schedulerAuthErrorResponse({ code: 'wrong_caller', status: 403 });
-  assert.equal(response.status, 403);
-  // Asserting the whole body proves no token, expected caller or audience
-  // rides along to tell a prober what would have been accepted.
-  assert.deepEqual(await response.json(), { error: 'wrong_caller' });
+/** Runs `fn` with console.warn captured, so the tests can read the log line. */
+function capturingWarn<T>(fn: () => T): { value: T; lines: string[] } {
+  const lines: string[] = [];
+  const original = console.warn;
+  console.warn = (...args: unknown[]) => {
+    lines.push(args.map(String).join(' '));
+  };
+  try {
+    return { value: fn(), lines };
+  } finally {
+    console.warn = original;
+  }
+}
+
+test('every authentication failure looks identical to the caller', async () => {
+  // A distinct answer per reason is an oracle: `wrong_caller` would tell a
+  // prober its forged token verified and only the caller was wrong.
+  const bodies = new Set<string>();
+  for (const code of ['missing_token', 'invalid_token', 'wrong_audience', 'wrong_caller'] as const) {
+    const { value: response, lines } = capturingWarn(() => schedulerAuthErrorResponse({ code, status: 401 }));
+    assert.equal(response.status, 401, code);
+    bodies.add(await response.text());
+    // The operator still gets the real reason, in the log rather than the response.
+    assert.deepEqual(lines, [`[internal/jobs] refused: ${code}`]);
+  }
+  assert.deepEqual(Array.from(bodies), [JSON.stringify({ error: 'unauthorized' })]);
+});
+
+test('missing configuration is a distinct 503, since the caller cannot fix it', async () => {
+  const { value: response } = capturingWarn(() => schedulerAuthErrorResponse({ code: 'not_configured', status: 503 }));
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), { error: 'not_configured' });
 });
