@@ -59,15 +59,17 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 export function Btn({
   onPress, onPressIn, onPressOut, style, children, disabled, label, scaleTo = 0.95, hitSlop,
 }: {
-  onPress?: (e: GestureResponderEvent) => void;
-  onPressIn?: (e: GestureResponderEvent) => void;
-  onPressOut?: (e: GestureResponderEvent) => void;
-  style?: StyleProp<ViewStyle>;
+  // `| undefined` is explicit because the app compiles with
+  // exactOptionalPressableTypes: callers pass `onPress={disabled ? undefined : fn}`.
+  onPress?: ((e: GestureResponderEvent) => void) | undefined;
+  onPressIn?: ((e: GestureResponderEvent) => void) | undefined;
+  onPressOut?: ((e: GestureResponderEvent) => void) | undefined;
+  style?: StyleProp<ViewStyle> | undefined;
   children: React.ReactNode;
-  disabled?: boolean;
-  label?: string;
-  scaleTo?: number;
-  hitSlop?: number;
+  disabled?: boolean | undefined;
+  label?: string | undefined;
+  scaleTo?: number | undefined;
+  hitSlop?: number | undefined;
 }) {
   const v = useRef(new Animated.Value(1)).current;
   const spring = (to: number) => Animated.spring(v, { toValue: to, useNativeDriver: true, speed: 40, bounciness: 0 }).start();

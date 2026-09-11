@@ -34,7 +34,7 @@ export function FirstMoveScreen() {
                 <View key={i} style={{ flex: 1, alignItems: 'center', gap: 6 }}>
                   <Txt size={11} color={p.mu} align="center">{t.daysShort[d]}</Txt>
                   <View style={{ alignSelf: 'stretch', height: 44, borderRadius: 12, backgroundColor: p.acs, alignItems: 'center', justifyContent: 'center' }}>
-                    <Txt size={12} weight={600} color={p.ac} align="center">{ltr(SESSION_TIMES[i])}</Txt>
+                    <Txt size={12} weight={600} color={p.ac} align="center">{ltr(SESSION_TIMES[i] ?? '')}</Txt>
                   </View>
                 </View>
               ))}
