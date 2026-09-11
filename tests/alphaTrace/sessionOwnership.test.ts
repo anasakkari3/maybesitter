@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { createFileAlphaTraceStore } from '../../lib/alphaTrace/alphaTraceStore';
 import { stage as traceStage } from '../../lib/alphaTrace/traceRecorder';
 
@@ -49,27 +49,30 @@ test("a hijack attempt cannot expose the original participant's recorded text", 
     }
 
     const session = store.get('session-2');
-    const readableByAttacker = session?.participantId === 'attacker' ? session.stages : [];
-    assert.deepEqual(
-      readableByAttacker,
-      [],
-      'the attacker ended up owning stages recorded by the victim',
+    assert.equal(session?.participantId, 'victim', 'the session changed hands');
+    assert.ok(
+      (session?.stages ?? []).some((s) => s.stage === 'input_received'),
+      'the victim lost the stage they recorded',
     );
   });
 });
 
-test('a session id cannot escape the trace directory', () => {
-  withStore((store) => {
-    // A traversing id must not resolve to a path outside the store.
+test('a session id cannot write outside the trace directory', () => {
+  // Asserting only that `get` returns null would pass even if the write
+  // landed outside the store, so this watches the filesystem instead.
+  const dataDir = mkdtempSync(join(tmpdir(), 'alpha-trace-ownership-'));
+  const parent = dirname(dataDir);
+  const before = new Set(readdirSync(parent));
+  try {
+    const store = createFileAlphaTraceStore({ dataDir });
     try {
       store.append('../escaped', 'attacker', stage('input_received'));
     } catch {
-      return; // Refusing is the correct behaviour.
+      // Refusing outright is a valid outcome; the filesystem check still runs.
     }
-    assert.equal(
-      store.get('../escaped'),
-      null,
-      'a traversing session id was accepted and is readable',
-    );
-  });
+    const created = readdirSync(parent).filter((entry) => !before.has(entry));
+    assert.deepEqual(created, [], `a traversing session id created ${created.join(', ')} outside the store`);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
 });

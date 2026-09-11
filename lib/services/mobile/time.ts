@@ -45,7 +45,11 @@ export function parseIsoInstant(value: unknown, field: string): Date {
 
 export function dateFromOptionalIso(value: unknown, fallback: Date, field: string): Date {
   if (value === undefined || value === null || value === '') return fallback;
-  return parseIsoDate(value, field);
+  // Same rule as every other client-supplied timestamp: an offset-less value
+  // is UTC, not whatever zone this server happens to run in. `referenceTime`
+  // reaches here, and it is the "now" every relative phrase in a capture is
+  // resolved against — skewing it mis-dates "tomorrow at 3".
+  return parseIsoInstant(value, field);
 }
 
 export function normalizeTimezone(value: unknown): string {
