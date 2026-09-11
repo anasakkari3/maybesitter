@@ -109,3 +109,10 @@ test('Hebrew extraction failure stays fail-safe rather than becoming confident',
     }
   }
 });
+
+test('spoken Arabic hours are counted like typed ones', () => {
+  // Speech-to-text writes «الساعة تسعة», not «الساعة 9». Counting digits only
+  // saw no time at all, so a voice sentence naming two times could come back
+  // as one confident commitment.
+  assert.equal(countTimeExpressions('بكرا الساعة تسعة دكتور وبعدين الساعة تلاتة الجامعة'), 2);
+});

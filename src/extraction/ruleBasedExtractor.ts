@@ -413,8 +413,10 @@ export function extract(rawText: string, context: ExtractionContext): Extraction
  * `stripTiming` removes from a title, so the counter and the parser cannot
  * disagree about what a time looks like.
  */
-export function countTimeExpressions(text: string): number {
-  if (typeof text !== 'string' || !text.trim()) return 0;
+export function countTimeExpressions(raw: string): number {
+  if (typeof raw !== 'string' || !raw.trim()) return 0;
+  // Count what the parser reads: «الساعة تسعة» and «الساعة ٩» are both 9.
+  const text = normalizeSpokenArabicHours(normalizeArabicDigits(raw));
 
   // Count positions, not matches: two patterns can describe the same mention
   // ("at 9am" matches both the am-suffixed and the bare-hour shape), and
