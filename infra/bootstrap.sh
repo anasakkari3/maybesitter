@@ -35,6 +35,17 @@ SCHEDULER_SA="maybesitter-scheduler@${PROJECT_ID}.iam.gserviceaccount.com"
 
 say() { printf '\n=== %s\n' "$1"; }
 need() { command -v "$1" >/dev/null 2>&1 || { echo "missing required tool: $1" >&2; exit 1; }; }
+# retry ATTEMPTS DELAY_SECONDS COMMAND... — for calls that fail transiently.
+retry() {
+  local attempts="$1" delay="$2" n=1
+  shift 2
+  until "$@"; do
+    if [ "${n}" -ge "${attempts}" ]; then return 1; fi
+    echo "  retrying in ${delay}s (${n}/${attempts})"
+    sleep "${delay}"
+    n=$((n + 1))
+  done
+}
 
 need gcloud
 need firebase
@@ -89,7 +100,10 @@ for database in "${FIRESTORE_DATABASES[@]}"; do
   fi
   # Point-in-time recovery is the backup story. Both settings are re-applied on
   # every run, so a database that predates them is brought into line too.
-  gcloud firestore databases update --database="${database}" --enable-pitr --delete-protection --project "${PROJECT_ID}"
+  # A database created seconds ago is still settling, and an update then fails
+  # with "ABORTED: There are concurrent database changes" — seen on the first
+  # real run. That is transient, so it is retried rather than failing the run.
+  retry 8 15 gcloud firestore databases update --database="${database}" --enable-pitr --delete-protection --project "${PROJECT_ID}"
 done
 
 say "Artifact Registry"
