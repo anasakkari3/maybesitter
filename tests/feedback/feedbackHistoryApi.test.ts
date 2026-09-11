@@ -11,6 +11,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
+import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { generatePilotToken } from '../../lib/pilot/pilotTokenService.ts';
 import {
   createFeedbackHistoryPort,
@@ -118,17 +120,18 @@ function setup(port: FeedbackHistoryPort | null): () => void {
     MAYBESITTER_CLOSED_PILOT_IDS: process.env.MAYBESITTER_CLOSED_PILOT_IDS,
     MAYBESITTER_PILOT_MODE: process.env.MAYBESITTER_PILOT_MODE,
     MAYBESITTER_PILOT_TOKEN_SECRET: process.env.MAYBESITTER_PILOT_TOKEN_SECRET,
-    MAYBESITTER_PILOT_TRUST_FILE: process.env.MAYBESITTER_PILOT_TRUST_FILE,
     MAYBESITTER_DATA_DIR: process.env.MAYBESITTER_DATA_DIR,
   };
   process.env.MAYBESITTER_CLOSED_PILOT_IDS = PILOT_IDS.join(',');
   process.env.MAYBESITTER_PILOT_MODE = 'true';
   process.env.MAYBESITTER_PILOT_TOKEN_SECRET = TEST_SECRET;
-  process.env.MAYBESITTER_PILOT_TRUST_FILE = join(directory, 'pilot-trust.json');
   process.env.MAYBESITTER_DATA_DIR = directory;
   setFeedbackHistoryPort(port);
+  // Pilot auth reads the trust record from storage since UC-1.0b (#141).
+  setStorageForTests(createMemoryStorage());
 
   return () => {
+    resetStorageForTests();
     setFeedbackHistoryPort(null);
     for (const [key, value] of Object.entries(previous)) {
       if (value === undefined) delete process.env[key];

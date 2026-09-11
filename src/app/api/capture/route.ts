@@ -25,7 +25,7 @@ export async function POST(request: Request) {
   }
 
   const { text, sessionId, userId, conversationId, pendingClarificationId } = body;
-  const analytics = analyticsContextFrom(body, appendAnalyticsEvent);
+  const analytics = await analyticsContextFrom(body, appendAnalyticsEvent);
   const before = analytics ? getCommandServiceState() : null;
 
   const result = await captureText(text, {

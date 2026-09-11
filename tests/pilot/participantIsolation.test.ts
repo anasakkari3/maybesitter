@@ -1,25 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import {
   applyParticipantCommand,
   deleteParticipantDomainState,
   getParticipantStateSnapshot,
 } from '../../lib/services/mobile/participantState.ts';
+import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
+import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import type { Command } from '../../src/domain/stateMachine.ts';
 
 const NOW = '2026-08-09T08:00:00.000Z';
 
+/**
+ * Participant state lives in storage since UC-1.0b (#141), so isolation is a
+ * fresh adapter rather than a fresh data directory.
+ */
 function setup(): () => void {
-  const directory = mkdtempSync(join(tmpdir(), 'maybesitter-participant-state-'));
-  const previous = process.env.MAYBESITTER_DATA_DIR;
-  process.env.MAYBESITTER_DATA_DIR = directory;
+  setStorageForTests(createMemoryStorage());
   return () => {
-    if (previous === undefined) delete process.env.MAYBESITTER_DATA_DIR;
-    else process.env.MAYBESITTER_DATA_DIR = previous;
-    rmSync(directory, { recursive: true, force: true });
+    resetStorageForTests();
   };
 }
 
@@ -57,22 +56,24 @@ test('participant state adapter isolates A and B without command-service reconfi
     await createActive('p-100', 'a-only');
     await createActive('p-101', 'b-only');
 
-    assert.equal(getParticipantStateSnapshot('p-100').commitments['a-only'].status, 'active');
-    assert.equal(getParticipantStateSnapshot('p-100').commitments['b-only'], undefined);
-    assert.equal(getParticipantStateSnapshot('p-101').commitments['b-only'].status, 'active');
-    assert.equal(getParticipantStateSnapshot('p-101').commitments['a-only'], undefined);
+    assert.equal((await getParticipantStateSnapshot('p-100')).commitments['a-only'].status, 'active');
+    assert.equal((await getParticipantStateSnapshot('p-100')).commitments['b-only'], undefined);
+    assert.equal((await getParticipantStateSnapshot('p-101')).commitments['b-only'].status, 'active');
+    assert.equal((await getParticipantStateSnapshot('p-101')).commitments['a-only'], undefined);
   } finally {
     cleanup();
   }
 });
 
-test('participant-keyed serialization preserves same-participant concurrent writes', async () => {
+// The old in-process promise queue is gone; what keeps these twelve writes is
+// the storage transaction, which a second instance would also take part in.
+test('same-participant concurrent writes are preserved by transactional storage', async () => {
   const cleanup = setup();
   try {
     await Promise.all(
       Array.from({ length: 12 }, (_, index) => createActive('p-200', `task-${index}`)),
     );
-    const commitments = Object.values(getParticipantStateSnapshot('p-200').commitments);
+    const commitments = Object.values((await getParticipantStateSnapshot('p-200')).commitments);
     assert.equal(commitments.length, 12);
     assert.equal(commitments.every((commitment) => commitment.status === 'active'), true);
   } finally {
@@ -88,8 +89,8 @@ test('participant-local deletion removes only the requested participant state', 
 
     await deleteParticipantDomainState('p-300');
 
-    assert.equal(Object.keys(getParticipantStateSnapshot('p-300').commitments).length, 0);
-    assert.equal(getParticipantStateSnapshot('p-301').commitments['keep-me'].status, 'active');
+    assert.equal(Object.keys((await getParticipantStateSnapshot('p-300')).commitments).length, 0);
+    assert.equal((await getParticipantStateSnapshot('p-301')).commitments['keep-me'].status, 'active');
   } finally {
     cleanup();
   }

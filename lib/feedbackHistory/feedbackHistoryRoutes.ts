@@ -20,8 +20,8 @@ export function feedbackScopeIdFor(participantId: string | undefined): string {
   return scopeBehaviorFeedback({ userId: participantId });
 }
 
-export function resolveFeedbackScope(request: Request): string {
-  const auth = optionalMobilePilotAuth(request);
+export async function resolveFeedbackScope(request: Request): Promise<string> {
+  const auth = await optionalMobilePilotAuth(request);
   return feedbackScopeIdFor(auth?.participantId);
 }
 

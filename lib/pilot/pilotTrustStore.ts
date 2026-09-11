@@ -1,5 +1,25 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import path from 'node:path';
+/**
+ * The pilot trust record, on durable storage (UC-1.0b, #141).
+ *
+ * ── Why the singleton had to go ──────────────────────────────────
+ *
+ * This module used to load one JSON file into a process-wide object at first
+ * use and keep it there. Every instance therefore held its own copy: a
+ * participant who revoked consent on instance A stayed consented on instance B
+ * until B restarted. That is not a caching inefficiency, it is a privacy
+ * defect — a revocation that does not take effect everywhere is not a
+ * revocation. Every function below reads storage on every call, so a revoke
+ * lands on the next read anywhere.
+ *
+ * Audit events and incidents were unbounded arrays inside that same file, so
+ * appending one rewrote the whole document. They are collections now:
+ * `users/{uid}/auditEvents/{id}` per participant, and an operator-only
+ * top-level `incidents/{incidentId}`.
+ *
+ * Audit ids sort by time, so a plain listing reads back in the order it was
+ * written without an index or an `orderBy`.
+ */
+import { randomUUID } from 'node:crypto';
 import {
   applyPilotTrustAction,
   createPilotAuditEvent,
@@ -12,119 +32,117 @@ import {
   type PilotTrustIncident,
   type PilotTrustState,
 } from './closedPilotControls';
-import { resolveDataDir } from '../runtime/dataDir';
+import {
+  AUDIT_EVENTS,
+  getStorage,
+  INCIDENTS,
+  requireUserId,
+  sortableDocId,
+  userCol,
+  userDoc,
+} from '../storage';
+import { newUserDocument, type UserDocument } from '../storage/userDocument';
 
-interface PilotTrustData {
-  version: 'v1';
-  participants: Record<string, PilotTrustState>;
-  auditEvents: PilotAuditEvent[];
-  incidents: PilotTrustIncident[];
+type TrustUser = UserDocument<PilotTrustState>;
+
+function auditDocId(event: PilotAuditEvent): string {
+  return sortableDocId(event.occurredAt, randomUUID());
 }
 
-function emptyData(): PilotTrustData {
-  return { version: 'v1', participants: {}, auditEvents: [], incidents: [] };
-}
-
-function loadData(filePath: string): PilotTrustData {
-  if (!existsSync(filePath)) return emptyData();
-  const parsed = JSON.parse(readFileSync(filePath, 'utf8')) as Partial<PilotTrustData>;
-  if (parsed.version !== 'v1' || !parsed.participants || !Array.isArray(parsed.auditEvents) || !Array.isArray(parsed.incidents)) {
-    throw new Error('pilot trust store is corrupt or unsupported');
-  }
-  const participants: Record<string, PilotTrustState> = {};
-  for (const [participantId, state] of Object.entries(parsed.participants)) {
-    const validated = requirePilotTrustState(state);
-    if (validated.participantId !== participantId) throw new Error('pilot trust participant key mismatch');
-    participants[participantId] = validated;
-  }
-  return {
-    version: 'v1',
-    participants,
-    auditEvents: parsed.auditEvents.map((event) => createPilotAuditEvent(event)),
-    incidents: parsed.incidents.map((incident) => createPilotTrustIncident(incident)),
-  };
-}
-
-export class PilotTrustStore {
-  private data: PilotTrustData;
-
-  constructor(private readonly filePath: string) {
-    this.data = loadData(filePath);
-  }
-
-  private persist(): void {
-    mkdirSync(path.dirname(this.filePath), { recursive: true });
-    const temporary = `${this.filePath}.${process.pid}.tmp`;
-    writeFileSync(temporary, `${JSON.stringify(this.data, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
-    renameSync(temporary, this.filePath);
-  }
-
-  getOrCreate(participantId: string, at: string): PilotTrustState {
-    requirePilotParticipantId(participantId);
-    const existing = Object.prototype.hasOwnProperty.call(this.data.participants, participantId)
-      ? this.data.participants[participantId]
-      : undefined;
-    if (existing) return { ...existing };
+/**
+ * The participant's trust record, created on first sight.
+ *
+ * Transactional create-if-absent: two requests arriving together for a
+ * participant nobody has seen before produce one record, not two, and never a
+ * record that lost one of the two writes.
+ */
+export async function getOrCreateTrust(participantId: string, at: string): Promise<PilotTrustState> {
+  requirePilotParticipantId(participantId);
+  requireUserId(participantId);
+  return getStorage().runTransaction(async (tx) => {
+    const user = await tx.get<TrustUser>(userDoc(participantId));
+    if (user?.trust) return requirePilotTrustState(user.trust);
     const created = createPilotTrustState(participantId, at);
-    this.data.participants[participantId] = created;
-    this.persist();
-    return { ...created };
-  }
-
-  apply(participantId: string, action: PilotTrustAction): PilotTrustState {
-    const current = this.getOrCreate(participantId, action.at);
-    const updated = applyPilotTrustAction(current, action);
-    this.data.participants[participantId] = updated;
-    this.persist();
-    return { ...updated };
-  }
-
-  appendAudit(event: PilotAuditEvent): PilotAuditEvent {
-    const validated = createPilotAuditEvent(event);
-    this.data.auditEvents.push(validated);
-    this.persist();
-    return { ...validated };
-  }
-
-  appendIncident(incident: PilotTrustIncident): PilotTrustIncident {
-    const validated = createPilotTrustIncident(incident);
-    if (this.data.incidents.some((item) => item.incidentId === validated.incidentId)) {
-      throw new Error('incidentId already exists');
-    }
-    this.data.incidents.push(validated);
-    this.persist();
-    return { ...validated };
-  }
-
-  updateIncident(
-    incidentId: string,
-    updates: Pick<PilotTrustIncident, 'status' | 'containmentCode' | 'resolutionCode'>,
-  ): PilotTrustIncident {
-    const index = this.data.incidents.findIndex((incident) => incident.incidentId === incidentId);
-    if (index < 0) throw new Error('incident not found');
-    const updated = createPilotTrustIncident({ ...this.data.incidents[index], ...updates });
-    this.data.incidents[index] = updated;
-    this.persist();
-    return { ...updated };
-  }
-
-  auditEvents(): PilotAuditEvent[] {
-    return this.data.auditEvents.map((event) => ({ ...event }));
-  }
-
-  incidents(): PilotTrustIncident[] {
-    return this.data.incidents.map((incident) => ({ ...incident }));
-  }
+    if (user) tx.merge<TrustUser>(userDoc(participantId), { trust: created, updatedAt: at });
+    else tx.set<TrustUser>(userDoc(participantId), { ...newUserDocument(at), trust: created });
+    return created;
+  });
 }
 
-let defaultStore: PilotTrustStore | null = null;
-let defaultPath = '';
+/**
+ * Apply one trust action to the record as it is *now*.
+ *
+ * The read and the write are in one transaction, so two consent changes racing
+ * cannot both start from the same record and lose one of them.
+ */
+export async function applyTrustAction(participantId: string, action: PilotTrustAction): Promise<PilotTrustState> {
+  requirePilotParticipantId(participantId);
+  return getStorage().runTransaction(async (tx) => {
+    const user = await tx.get<TrustUser>(userDoc(participantId));
+    const current = user?.trust
+      ? requirePilotTrustState(user.trust)
+      : createPilotTrustState(participantId, action.at);
+    const updated = applyPilotTrustAction(current, action);
+    if (user) tx.merge<TrustUser>(userDoc(participantId), { trust: updated, updatedAt: action.at });
+    else tx.set<TrustUser>(userDoc(participantId), { ...newUserDocument(action.at), trust: updated });
+    return updated;
+  });
+}
 
-export function getPilotTrustStore(): PilotTrustStore {
-  const filePath = process.env.MAYBESITTER_PILOT_TRUST_FILE || resolveDataDir('pilot-trust.json');
-  if (!defaultStore || defaultPath !== filePath) {
-    defaultStore = new PilotTrustStore(filePath);
-    defaultPath = filePath;
-  }
-  return defaultStore;
+/** Append-only: a fresh document id per event, so no append can overwrite another. */
+export async function appendAudit(event: PilotAuditEvent): Promise<PilotAuditEvent> {
+  const validated = createPilotAuditEvent(event);
+  requireUserId(validated.participantId);
+  await getStorage().set(
+    `${userCol(validated.participantId, AUDIT_EVENTS)}/${auditDocId(validated)}`,
+    validated,
+  );
+  return { ...validated };
+}
+
+export async function appendIncident(incident: PilotTrustIncident): Promise<PilotTrustIncident> {
+  const validated = createPilotTrustIncident(incident);
+  return getStorage().runTransaction(async (tx) => {
+    const existing = await tx.get<PilotTrustIncident>(`${INCIDENTS}/${validated.incidentId}`);
+    if (existing) throw new Error('incidentId already exists');
+    tx.create<PilotTrustIncident>(`${INCIDENTS}/${validated.incidentId}`, validated);
+    return { ...validated };
+  });
+}
+
+export async function updateIncident(
+  incidentId: string,
+  updates: Pick<PilotTrustIncident, 'status' | 'containmentCode' | 'resolutionCode'>,
+): Promise<PilotTrustIncident> {
+  return getStorage().runTransaction(async (tx) => {
+    const existing = await tx.get<PilotTrustIncident>(`${INCIDENTS}/${incidentId}`);
+    if (!existing) throw new Error('incident not found');
+    const updated = createPilotTrustIncident({ ...existing, ...updates });
+    tx.set<PilotTrustIncident>(`${INCIDENTS}/${incidentId}`, updated);
+    return updated;
+  });
+}
+
+/** One participant's audit trail, oldest first. */
+export async function listAuditEvents(participantId: string): Promise<PilotAuditEvent[]> {
+  requireUserId(participantId);
+  const rows = await getStorage().list<PilotAuditEvent>(userCol(participantId, AUDIT_EVENTS));
+  return rows.map((row) => ({ ...row.data }));
+}
+
+/**
+ * Every participant's audit trail, for the operator surface.
+ *
+ * A collection-group read rather than a per-participant loop, because the
+ * operator log is a cross-participant view and iterating users would make it
+ * cost one read per person in the pilot.
+ */
+export async function listAllAuditEvents(): Promise<PilotAuditEvent[]> {
+  const rows = await getStorage().listGroup<PilotAuditEvent>(AUDIT_EVENTS);
+  return rows.map((row) => ({ ...row.data }));
+}
+
+export async function listIncidents(): Promise<PilotTrustIncident[]> {
+  const rows = await getStorage().list<PilotTrustIncident>(INCIDENTS);
+  return rows.map((row) => ({ ...row.data }));
 }

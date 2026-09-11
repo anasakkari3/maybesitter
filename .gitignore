@@ -22,6 +22,14 @@ coded-interviews.jsonl
 coded-recruitment.jsonl
 v03-fieldwork-status.json
 
+# Firebase emulator working files (npm run test:emulator)
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+database-debug.log
+pubsub-debug.log
+.firebase/
+
 # Logs
 *.log
 ..dev-server.log

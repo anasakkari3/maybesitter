@@ -5,7 +5,13 @@ import {
   requirePilotParticipantId,
   type PilotTrustIncident,
 } from '../../../../../lib/pilot/closedPilotControls';
-import { getPilotTrustStore } from '../../../../../lib/pilot/pilotTrustStore';
+import {
+  appendAudit,
+  appendIncident,
+  listAllAuditEvents,
+  listIncidents,
+  updateIncident,
+} from '../../../../../lib/pilot/pilotTrustStore';
 import { resolvePilotAccess } from '../../../../../lib/pilot/pilotAccess';
 
 export const dynamic = 'force-dynamic';
@@ -23,15 +29,15 @@ function authorized(request: Request): boolean {
 
 export async function GET(request: Request) {
   if (!authorized(request)) return Response.json({ error: 'admin authorization required' }, { status: 401 });
-  const store = getPilotTrustStore();
-  return Response.json({ incidents: store.incidents(), auditEvents: store.auditEvents() });
+  const [incidents, auditEvents] = await Promise.all([listIncidents(), listAllAuditEvents()]);
+  return Response.json({ incidents, auditEvents });
 }
 
 export async function POST(request: Request) {
   try {
     const body = await request.json() as ParticipantReport;
     requirePilotParticipantId(body.participantId);
-    if (!resolvePilotAccess(body.participantId, new Date().toISOString(), false).trust) {
+    if (!(await resolvePilotAccess(body.participantId, new Date().toISOString(), false)).trust) {
       return Response.json({ error: 'participant is not admitted to this pilot instance' }, { status: 403 });
     }
     const at = new Date().toISOString();
@@ -48,9 +54,8 @@ export async function POST(request: Request) {
       containmentCode: 'reported_for_review',
       resolutionCode: null,
     });
-    const store = getPilotTrustStore();
-    store.appendIncident(incident);
-    store.appendAudit(createPilotAuditEvent({
+    await appendIncident(incident);
+    await appendAudit(createPilotAuditEvent({
       version: 'v1', eventType: 'support_reported', participantId: body.participantId,
       occurredAt: at, outcome: 'recorded', reasonCode: body.category,
     }));
@@ -67,7 +72,7 @@ export async function PATCH(request: Request) {
     if (!body.incidentId || !body.status || !body.containmentCode || body.resolutionCode === undefined) {
       throw new Error('incidentId, status, containmentCode, and resolutionCode are required');
     }
-    return Response.json(getPilotTrustStore().updateIncident(body.incidentId, {
+    return Response.json(await updateIncident(body.incidentId, {
       status: body.status, containmentCode: body.containmentCode, resolutionCode: body.resolutionCode,
     }));
   } catch (error) {

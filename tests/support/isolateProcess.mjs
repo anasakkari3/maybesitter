@@ -5,9 +5,11 @@
 //   - TMPDIR pointed inside it, so `os.tmpdir()` (which reads TMPDIR on every
 //     call on macOS and Linux) is per-process and two files can never see each
 //     other's temp entries;
-//   - MAYBESITTER_DATA_DIR and the two single-file overrides pointed inside it,
+//   - MAYBESITTER_DATA_DIR and the domain-state override pointed inside it,
 //     so no test writes to `<checkout>/.maybesitter` and two suites running
-//     from the same checkout share nothing;
+//     from the same checkout share nothing. The pilot trust file is gone: the
+//     trust record lives in storage since UC-1.0b (#141), and a test isolates
+//     it with `setStorageForTests(createMemoryStorage())`;
 //   - TZ pinned (UTC unless MAYBESITTER_TEST_TZ says otherwise), so the result
 //     does not depend on the shell's zone.
 //
@@ -26,7 +28,6 @@ mkdirSync(data, { recursive: true });
 process.env.TMPDIR = tmp;
 process.env.MAYBESITTER_DATA_DIR = data;
 process.env.MAYBESITTER_DOMAIN_STATE_FILE = join(data, 'domain-state.json');
-process.env.MAYBESITTER_PILOT_TRUST_FILE = join(data, 'pilot-trust.json');
 process.env.TZ = process.env.MAYBESITTER_TEST_TZ || 'UTC';
 
 process.on('exit', () => {

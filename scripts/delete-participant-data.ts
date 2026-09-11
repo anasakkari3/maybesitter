@@ -1,6 +1,7 @@
-import { getPilotTrustStore } from '../lib/pilot/pilotTrustStore';
+import { applyTrustAction } from '../lib/pilot/pilotTrustStore';
 import { requirePilotParticipantId } from '../lib/pilot/closedPilotControls';
-import { deleteParticipantDomainState, participantStateFile } from '../lib/services/mobile/participantState';
+import { deleteParticipantDomainState } from '../lib/services/mobile/participantState';
+import { userDoc } from '../lib/storage';
 
 async function main() {
   const participantId = process.argv[2];
@@ -11,13 +12,14 @@ async function main() {
 
   try {
     requirePilotParticipantId(participantId);
-    const store = getPilotTrustStore();
     const now = new Date().toISOString();
-    store.apply(participantId, { type: 'delete', at: now });
+    await applyTrustAction(participantId, { type: 'delete', at: now });
 
-    const participantFile = participantStateFile(participantId);
+    // The trust record itself stays, marked deleted: it is what makes a later
+    // request read `deleted` rather than looking like a participant nobody has
+    // ever seen.
     await deleteParticipantDomainState(participantId);
-    console.log(`Deleted participant-scoped domain and idempotency state for [${participantId}] at ${participantFile}`);
+    console.log(`Deleted participant-scoped domain and idempotency state for [${participantId}] under ${userDoc(participantId)}`);
 
     console.log(`Successfully deleted participant [${participantId}] data.`);
   } catch (err) {

@@ -26,15 +26,16 @@ export interface AnalyticsContext {
  * Builds a context from caller-supplied identity, or null when the caller sent no
  * anonymous id — analytics is then simply off for that request rather than an error.
  */
-export function analyticsContextFrom(
+export async function analyticsContextFrom(
   source: { anonymousUserId?: unknown; consent?: unknown },
   emit: (event: PrivacySafeAnalyticsEvent) => void,
   now = new Date(),
-): AnalyticsContext | null {
+): Promise<AnalyticsContext | null> {
   if (typeof source.anonymousUserId !== 'string' || !source.anonymousUserId) return null;
   return {
     anonymousUserId: source.anonymousUserId,
-    consent: resolvePilotAnalyticsConsent(
+    // Async since UC-1.0b (#141): derived consent is read from durable storage.
+    consent: await resolvePilotAnalyticsConsent(
       source.anonymousUserId,
       source.consent === 'granted' ? 'granted' : 'essential',
     ),

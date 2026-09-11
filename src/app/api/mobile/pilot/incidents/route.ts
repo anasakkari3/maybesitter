@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: Request) {
   let auth;
   try {
-    auth = requireMobilePilotAuth(request);
+    auth = await requireMobilePilotAuth(request);
   } catch (error) {
     return mobileAuthErrorResponse(error);
   }
@@ -19,7 +19,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    return Response.json(reportMobilePilotIncident(auth.participantId, body), { status: 201 });
+    return Response.json(await reportMobilePilotIncident(auth.participantId, body), { status: 201 });
   } catch (error) {
     return mobilePilotErrorResponse(error);
   }

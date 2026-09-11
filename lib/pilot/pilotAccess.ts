@@ -8,7 +8,7 @@ import {
   type PilotTrustState,
 } from './closedPilotControls';
 import { isAlphaParticipant } from './alphaControls';
-import { getPilotTrustStore } from './pilotTrustStore';
+import { appendAudit, getOrCreateTrust } from './pilotTrustStore';
 
 export interface PilotAccessResult {
   decision: PilotExposureDecision;
@@ -31,14 +31,18 @@ function isAllowlisted(participantId: string, env: NodeJS.ProcessEnv = process.e
   }
 }
 
-export function resolvePilotAccess(participantId: string, at: string, audit = true): PilotAccessResult {
+/**
+ * Async since UC-1.0b (#141): the trust record lives in durable storage, read
+ * on every call rather than held in a per-instance copy. That is what makes a
+ * revocation on one instance visible on the next read from any other.
+ */
+export async function resolvePilotAccess(participantId: string, at: string, audit = true): Promise<PilotAccessResult> {
   requirePilotParticipantId(participantId);
   if (!isAllowlisted(participantId)) {
     return { decision: { allowed: false, reason: 'not_allowlisted' }, trust: null };
   }
 
-  const store = getPilotTrustStore();
-  const trust = store.getOrCreate(participantId, at);
+  const trust = await getOrCreateTrust(participantId, at);
   const controls = readRuntimeControls();
   const decision = decidePilotExposure({
     participantId,
@@ -51,7 +55,7 @@ export function resolvePilotAccess(participantId: string, at: string, audit = tr
   });
 
   if (audit) {
-    store.appendAudit(createPilotAuditEvent({
+    await appendAudit(createPilotAuditEvent({
       version: 'v1',
       eventType: 'exposure_checked',
       participantId,
@@ -68,18 +72,18 @@ export function resolvePilotAccess(participantId: string, at: string, audit = tr
  * pilot exposure is configured (or recommendation is enabled), client claims
  * are ignored and consent is derived from the durable trust record.
  */
-export function resolvePilotAnalyticsConsent(
+export async function resolvePilotAnalyticsConsent(
   participantId: string,
   requested: 'granted' | 'essential',
   at = new Date().toISOString(),
-): 'granted' | 'essential' {
+): Promise<'granted' | 'essential'> {
   const controls = readRuntimeControls();
   const pilotMode = process.env.MAYBESITTER_CLOSED_PILOT_IDS !== undefined || controls.featureFlags.recommendation;
   if (!pilotMode) return requested;
   try {
     requirePilotParticipantId(participantId);
     if (!isAllowlisted(participantId)) return 'essential';
-    return getPilotTrustStore().getOrCreate(participantId, at).analyticsConsent ? 'granted' : 'essential';
+    return (await getOrCreateTrust(participantId, at)).analyticsConsent ? 'granted' : 'essential';
   } catch {
     return 'essential';
   }

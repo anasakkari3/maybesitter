@@ -27,6 +27,7 @@ import {
   RELEASE_REJECTION_CODES,
   handleReleaseRequest,
   type ReleaseHandlerDeps,
+  type ReleaseOutcome,
 } from '../../lib/release/handler.ts';
 
 const P = 'participant-a';
@@ -54,15 +55,15 @@ function deps(overrides: Partial<ReleaseHandlerDeps> = {}): ReleaseHandlerDeps {
   };
 }
 
-function call(wired: ReleaseHandlerDeps, body: unknown) {
+async function call(wired: ReleaseHandlerDeps, body: unknown): Promise<ReleaseOutcome> {
   return handleReleaseRequest(wired, body);
 }
 
-function kindOf(outcome: ReturnType<typeof call>): string {
+function kindOf(outcome: ReleaseOutcome): string {
   return (outcome.response as { kind?: string }).kind ?? '';
 }
 
-function rejectionOf(outcome: ReturnType<typeof call>): string {
+function rejectionOf(outcome: ReleaseOutcome): string {
   const response = outcome.response as { kind?: string; code?: string };
   assert.equal(response.kind, 'rejected', `expected a rejection, got ${JSON.stringify(outcome.response).slice(0, 160)}`);
   return response.code ?? '';
@@ -70,7 +71,7 @@ function rejectionOf(outcome: ReturnType<typeof call>): string {
 
 /* ── Hostile input is reported, never thrown ─────────────────────── */
 
-test('every malformed request is reported with a named code and no throw', () => {
+test('every malformed request is reported with a named code and no throw', async () => {
   const wired = deps();
   const cases: [unknown, string][] = [
     [null, 'MALFORMED_REQUEST_BODY'],
@@ -92,34 +93,34 @@ test('every malformed request is reported with a named code and no throw', () =>
     [{ now: NOW, action: 'submit_response', participantId: P }, 'RESPONSE_REJECTED'],
   ];
   for (const [body, code] of cases) {
-    assert.equal(rejectionOf(call(wired, body)), code, `for ${JSON.stringify(body)}`);
+    assert.equal(rejectionOf(await call(wired, body)), code, `for ${JSON.stringify(body)}`);
   }
 });
 
-test('every declared rejection code is reachable', () => {
+test('every declared rejection code is reachable', async () => {
   const seen = new Set<string>();
   const wired = deps({ deletePersonalization: undefined, evidenceSources: undefined });
-  const record = (body: unknown): void => {
-    const outcome = call(wired, body);
+  const record = async (body: unknown): Promise<void> => {
+    const outcome = await call(wired, body);
     const response = outcome.response as { kind?: string; code?: string };
     if (response.kind === 'rejected' && response.code !== undefined) seen.add(response.code);
   };
-  record(null);
-  record({});
-  record({ now: 'yesterday' });
-  record({ now: NOW });
-  record({ now: NOW, action: 'sudo' });
-  record({ now: NOW, action: 'consent_status' });
-  record({ now: NOW, action: 'grant_consent', participantId: P, scopes: [] });
-  record({ now: NOW, action: 'revoke_consent', participantId: P });
-  record({ now: NOW, action: 'submit_response', participantId: P, question: 'vibes', status: 'rated', runId: null });
-  record({ now: NOW, action: 'delete', participantId: '../../etc' });
-  record({ now: NOW, action: 'evidence_package', packageId: 'shadow-release-2027-01-10' });
+  await record(null);
+  await record({});
+  await record({ now: 'yesterday' });
+  await record({ now: NOW });
+  await record({ now: NOW, action: 'sudo' });
+  await record({ now: NOW, action: 'consent_status' });
+  await record({ now: NOW, action: 'grant_consent', participantId: P, scopes: [] });
+  await record({ now: NOW, action: 'revoke_consent', participantId: P });
+  await record({ now: NOW, action: 'submit_response', participantId: P, question: 'vibes', status: 'rated', runId: null });
+  await record({ now: NOW, action: 'delete', participantId: '../../etc' });
+  await record({ now: NOW, action: 'evidence_package', packageId: 'shadow-release-2027-01-10' });
 
   // A build that *does* have sources, so the package refusal is reachable
   // rather than shadowed by the not-wired one.
   const sourced = deps();
-  const refused = call(sourced, { now: NOW, action: 'evidence_package', packageId: 'Not A Code' });
+  const refused = await call(sourced, { now: NOW, action: 'evidence_package', packageId: 'Not A Code' });
   const refusedBody = refused.response as { kind?: string; code?: string };
   if (refusedBody.kind === 'rejected' && refusedBody.code !== undefined) seen.add(refusedBody.code);
 
@@ -132,13 +133,13 @@ test('every declared rejection code is reachable', () => {
 
 /* ── Consent, opt-out and delete ─────────────────────────────────── */
 
-test('granting consent writes it, and the next status read shows it', () => {
+test('granting consent writes it, and the next status read shows it', async () => {
   const wired = deps();
-  const granted = call(wired, { now: NOW, action: 'grant_consent', participantId: P, scopes: [...SHADOW_CONSENT_SCOPES] });
+  const granted = await call(wired, { now: NOW, action: 'grant_consent', participantId: P, scopes: [...SHADOW_CONSENT_SCOPES] });
   assert.equal(granted.status, 200);
   assert.equal(kindOf(granted), 'consent_written');
 
-  const status = call(wired, { now: NOW, action: 'consent_status', participantId: P });
+  const status = await call(wired, { now: NOW, action: 'consent_status', participantId: P });
   const body = status.response as { consent: { state: string; scopes: string[] } };
   assert.equal(body.consent.state, 'granted');
   for (const scope of SHADOW_CONSENT_SCOPES) {
@@ -147,34 +148,34 @@ test('granting consent writes it, and the next status read shows it', () => {
   assert.deepEqual(checkShadowStudyConsent(body.consent as never), []);
 });
 
-test('the consent response carries the exposure it implies, rebuilt in the same call', () => {
+test('the consent response carries the exposure it implies, rebuilt in the same call', async () => {
   const wired = deps();
-  const granted = call(wired, { now: NOW, action: 'grant_consent', participantId: P, scopes: ['shadow_execution'] });
+  const granted = await call(wired, { now: NOW, action: 'grant_consent', participantId: P, scopes: ['shadow_execution'] });
   const body = granted.response as { exposure: { allowed: boolean; reason: string } };
   assert.equal(body.exposure.allowed, true);
 
-  const revoked = call(wired, { now: LATER, action: 'revoke_consent', participantId: P });
+  const revoked = await call(wired, { now: LATER, action: 'revoke_consent', participantId: P });
   const revokedBody = revoked.response as { exposure: { allowed: boolean; reason: string } };
   assert.equal(revokedBody.exposure.allowed, false, 'a client could show a live exposure beside a withdrawn consent');
   assert.equal(revokedBody.exposure.reason, 'study_consent_revoked');
 });
 
-test('opting out lands on the next exposure read', () => {
+test('opting out lands on the next exposure read', async () => {
   const wired = deps();
-  call(wired, { now: NOW, action: 'grant_consent', participantId: P, scopes: ['shadow_execution'] });
-  const before = call(wired, { now: NOW, action: 'exposure', participantId: P }).response as { decision: { allowed: boolean } };
+  await call(wired, { now: NOW, action: 'grant_consent', participantId: P, scopes: ['shadow_execution'] });
+  const before = (await call(wired, { now: NOW, action: 'exposure', participantId: P })).response as { decision: { allowed: boolean } };
   assert.equal(before.decision.allowed, true);
 
-  call(wired, { now: LATER, action: 'revoke_consent', participantId: P });
-  const after = call(wired, { now: LATER, action: 'exposure', participantId: P }).response as { decision: { allowed: boolean; reason: string } };
+  await call(wired, { now: LATER, action: 'revoke_consent', participantId: P });
+  const after = (await call(wired, { now: LATER, action: 'exposure', participantId: P })).response as { decision: { allowed: boolean; reason: string } };
   assert.equal(after.decision.allowed, false);
   assert.equal(after.decision.reason, 'study_consent_revoked');
 });
 
-test('a complete delete returns a receipt, and the stores agree when asked again', () => {
+test('a complete delete returns a receipt, and the stores agree when asked again', async () => {
   const wired = deps();
-  call(wired, { now: NOW, action: 'grant_consent', participantId: P, scopes: ['feedback_study'] });
-  call(wired, {
+  await call(wired, { now: NOW, action: 'grant_consent', participantId: P, scopes: ['feedback_study'] });
+  await call(wired, {
     now: NOW,
     action: 'submit_response',
     participantId: P,
@@ -186,7 +187,7 @@ test('a complete delete returns a receipt, and the stores agree when asked again
   assert.equal(wired.consent.countFor(P), 1);
   assert.equal(wired.responses.countFor(P), 1);
 
-  const deleted = call(wired, { now: LATER, action: 'delete', participantId: P });
+  const deleted = await call(wired, { now: LATER, action: 'delete', participantId: P });
   assert.equal(deleted.status, 200);
   assert.equal(kindOf(deleted), 'deleted');
   assert.equal(wired.consent.countFor(P), 0, 'a consent record survived a delete request');
@@ -194,10 +195,10 @@ test('a complete delete returns a receipt, and the stores agree when asked again
   assert.equal(wired.consent.read(P).state, 'withheld');
 });
 
-test('a delete this build cannot fully prove says so, and still deletes', () => {
+test('a delete this build cannot fully prove says so, and still deletes', async () => {
   const wired = deps({ traces: notWiredArchive('issue_45_shadow_trace_store') });
-  call(wired, { now: NOW, action: 'grant_consent', participantId: P, scopes: ['feedback_study'] });
-  const deleted = call(wired, { now: LATER, action: 'delete', participantId: P });
+  await call(wired, { now: NOW, action: 'grant_consent', participantId: P, scopes: ['feedback_study'] });
+  const deleted = await call(wired, { now: LATER, action: 'delete', participantId: P });
   assert.equal(deleted.status, 200);
   assert.equal(kindOf(deleted), 'deleted_unproven');
   const body = deleted.response as { unprovable: string[] };
@@ -207,9 +208,9 @@ test('a delete this build cannot fully prove says so, and still deletes', () => 
 
 /* ── The collection API ──────────────────────────────────────────── */
 
-test('both response variants are accepted and both come back in the summary', () => {
+test('both response variants are accepted and both come back in the summary', async () => {
   const wired = deps();
-  const rated = call(wired, {
+  const rated = await call(wired, {
     now: NOW,
     action: 'submit_response',
     participantId: P,
@@ -221,7 +222,7 @@ test('both response variants are accepted and both come back in the summary', ()
   assert.equal(rated.status, 200);
   assert.equal(kindOf(rated), 'response_recorded');
 
-  const declined = call(wired, {
+  const declined = await call(wired, {
     now: NOW,
     action: 'submit_response',
     participantId: P,
@@ -231,7 +232,7 @@ test('both response variants are accepted and both come back in the summary', ()
   });
   assert.equal(declined.status, 200);
 
-  const summary = call(wired, { now: NOW, action: 'study_summary' }).response as {
+  const summary = (await call(wired, { now: NOW, action: 'study_summary' })).response as {
     summary: { responseCount: number; declinedCount: number; questions: { question: string; declinedCount: number }[] };
   };
   assert.equal(summary.summary.responseCount, 2);
@@ -240,9 +241,9 @@ test('both response variants are accepted and both come back in the summary', ()
   assert.equal(intrusiveness?.declinedCount, 1);
 });
 
-test('the response timestamp is the request\'s now, not anything the client sent', () => {
+test('the response timestamp is the request\'s now, not anything the client sent', async () => {
   const wired = deps();
-  call(wired, {
+  await call(wired, {
     now: NOW,
     action: 'submit_response',
     participantId: P,
@@ -255,10 +256,10 @@ test('the response timestamp is the request\'s now, not anything the client sent
   assert.equal(wired.responses.list(P)[0].respondedAt, NOW);
 });
 
-test('every study question is submittable', () => {
+test('every study question is submittable', async () => {
   const wired = deps();
   for (const question of SHADOW_STUDY_QUESTIONS) {
-    const outcome = call(wired, {
+    const outcome = await call(wired, {
       now: NOW,
       action: 'submit_response',
       participantId: P,
@@ -274,10 +275,10 @@ test('every study question is submittable', () => {
 
 /* ── Exposure and the evidence package ───────────────────────────── */
 
-test('the cohort view reports every decision and a tally computed from them', () => {
+test('the cohort view reports every decision and a tally computed from them', async () => {
   const wired = deps({ configuration: { stage: 'internal_dogfood', cohort: [P, 'participant-b'] } });
-  call(wired, { now: NOW, action: 'grant_consent', participantId: P, scopes: ['shadow_execution'] });
-  const body = call(wired, { now: NOW, action: 'cohort_exposure' }).response as {
+  await call(wired, { now: NOW, action: 'grant_consent', participantId: P, scopes: ['shadow_execution'] });
+  const body = (await call(wired, { now: NOW, action: 'cohort_exposure' })).response as {
     decisions: { participantId: string; allowed: boolean }[];
     tally: { exposedCount: number; refusedCount: number; configuredCount: number };
     configurationDefects: unknown[];
@@ -292,17 +293,17 @@ test('the cohort view reports every decision and a tally computed from them', ()
   assert.deepEqual(body.configurationDefects, []);
 });
 
-test('a misconfigured stage is reported rather than silently resolved against', () => {
+test('a misconfigured stage is reported rather than silently resolved against', async () => {
   const wired = deps({ configuration: { stage: 'closed_pilot', cohort: [P] } });
-  const body = call(wired, { now: NOW, action: 'cohort_exposure' }).response as {
+  const body = (await call(wired, { now: NOW, action: 'cohort_exposure' })).response as {
     configurationDefects: { code: string }[];
   };
   assert.ok(body.configurationDefects.some((defect) => defect.code === 'EXPOSURE_COHORT_BELOW_STAGE_FLOOR'));
 });
 
-test('the evidence package is assembled with all three pillars saying what they can', () => {
+test('the evidence package is assembled with all three pillars saying what they can', async () => {
   const wired = deps();
-  const outcome = call(wired, { now: NOW, action: 'evidence_package', packageId: 'shadow-release-2027-01-10' });
+  const outcome = await call(wired, { now: NOW, action: 'evidence_package', packageId: 'shadow-release-2027-01-10' });
   assert.equal(outcome.status, 200);
   const body = outcome.response as {
     package: { decision: string; evidence: Record<string, unknown[]> };
@@ -317,20 +318,20 @@ test('the evidence package is assembled with all three pillars saying what they 
   }
 });
 
-test('a build with no evidence sources refuses the package rather than inventing one', () => {
+test('a build with no evidence sources refuses the package rather than inventing one', async () => {
   const wired = deps({ evidenceSources: undefined });
-  const outcome = call(wired, { now: NOW, action: 'evidence_package', packageId: 'shadow-release-2027-01-10' });
+  const outcome = await call(wired, { now: NOW, action: 'evidence_package', packageId: 'shadow-release-2027-01-10' });
   assert.equal(outcome.status, 501);
   assert.equal(rejectionOf(outcome), 'NOT_WIRED');
 });
 
-test('every declared action is answered; none of them falls through to UNKNOWN_ACTION', () => {
+test('every declared action is answered; none of them falls through to UNKNOWN_ACTION', async () => {
   for (const action of RELEASE_ACTIONS) {
     // A fresh wiring per action, so an action that deletes cannot change what
     // the next one sees.
     const wired = deps();
     wired.consent.grant(P, ['shadow_execution'], NOW);
-    const outcome = call(wired, {
+    const outcome = await call(wired, {
       now: NOW,
       action,
       participantId: P,

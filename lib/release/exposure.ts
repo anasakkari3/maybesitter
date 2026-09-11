@@ -89,10 +89,10 @@ export function toShadowPilotDecision(decision: PilotExposureDecision): ShadowPi
  * becomes the fail-closed refusal, because "the gate crashed" must never read
  * as "the gate allowed".
  */
-export function createPilotAccessResolver(): (participantId: string, at: Instant) => ShadowPilotDecision {
-  return (participantId, at) => {
+export function createPilotAccessResolver(): (participantId: string, at: Instant) => Promise<ShadowPilotDecision> {
+  return async (participantId, at) => {
     try {
-      return toShadowPilotDecision(resolvePilotAccess(participantId, at).decision);
+      return toShadowPilotDecision((await resolvePilotAccess(participantId, at)).decision);
     } catch {
       return { allowed: false, reason: 'not_allowlisted' };
     }
@@ -110,7 +110,11 @@ export interface ShadowStageConfiguration {
 export interface ShadowExposurePort {
   readonly configuration: ShadowStageConfiguration;
   readonly consent: ShadowStudyConsentStore;
-  readonly resolvePilot: (participantId: string, at: Instant) => ShadowPilotDecision;
+  /**
+   * May answer asynchronously since UC-1.0b (#141): the shipped pilot gate
+   * reads a durable trust record. A test may still pass a synchronous stub.
+   */
+  readonly resolvePilot: (participantId: string, at: Instant) => ShadowPilotDecision | Promise<ShadowPilotDecision>;
 }
 
 function defect(code: ShadowPipelineDefectCode, detail: string): ShadowPipelineDefect {
@@ -195,16 +199,16 @@ export function checkStageConfiguration(
  * mechanism behind "opting out takes effect on the next read": there is no
  * second place a stale `allowed: true` could be living.
  */
-export function resolveStagedExposure(
+export async function resolveStagedExposure(
   port: ShadowExposurePort,
   participantId: string,
   at: Instant,
-): ShadowExposureDecision {
+): Promise<ShadowExposureDecision> {
   const decision = resolveShadowExposure({
     participantId,
     stage: port.configuration.stage,
     cohortSize: port.configuration.cohort.length,
-    pilotDecision: port.resolvePilot(participantId, at),
+    pilotDecision: await port.resolvePilot(participantId, at),
     consent: port.consent.read(participantId),
   });
 
@@ -218,11 +222,11 @@ export function resolveStagedExposure(
 }
 
 /** Every configured participant's decision, in cohort order. Nothing sorts. */
-export function resolveCohortExposure(
+export async function resolveCohortExposure(
   port: ShadowExposurePort,
   at: Instant,
-): readonly ShadowExposureDecision[] {
-  return port.configuration.cohort.map((participantId) => resolveStagedExposure(port, participantId, at));
+): Promise<readonly ShadowExposureDecision[]> {
+  return Promise.all(port.configuration.cohort.map((participantId) => resolveStagedExposure(port, participantId, at)));
 }
 
 /**

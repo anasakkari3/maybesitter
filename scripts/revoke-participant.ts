@@ -1,7 +1,7 @@
-import { getPilotTrustStore } from '../lib/pilot/pilotTrustStore';
+import { applyTrustAction } from '../lib/pilot/pilotTrustStore';
 import { requirePilotParticipantId } from '../lib/pilot/closedPilotControls';
 
-function main() {
+async function main() {
   const participantId = process.argv[2];
   if (!participantId) {
     console.error('Usage: npx ts-node scripts/revoke-participant.ts <participant_id>');
@@ -10,9 +10,8 @@ function main() {
 
   try {
     requirePilotParticipantId(participantId);
-    const store = getPilotTrustStore();
     const now = new Date().toISOString();
-    const state = store.apply(participantId, { type: 'revoke', at: now });
+    const state = await applyTrustAction(participantId, { type: 'revoke', at: now });
     console.log(`Revoked participant [${participantId}] at ${now}`);
     console.log('Updated Trust State:', state);
   } catch (err) {
@@ -21,4 +20,4 @@ function main() {
   }
 }
 
-main();
+void main();

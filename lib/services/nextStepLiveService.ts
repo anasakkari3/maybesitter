@@ -75,12 +75,20 @@ const DECISION_EVENTS: Record<NextStepDecision, PrivacySafeAnalyticsEvent['event
   dismiss: 'recommendation_dismissed', done: 'recommendation_completed',
 };
 
-export function recordLiveNextStepDecision(
+/**
+ * The decision, and the event it would emit, kept apart (UC-1.0b, #141).
+ *
+ * A caller recording the decision inside a storage transaction cannot emit
+ * from in there: a transaction retries, and an analytics event emitted per
+ * attempt is an event the user did not generate. This returns the outcome
+ * (pure) plus an `emit` the caller runs once, after the transaction committed.
+ */
+export function prepareLiveNextStepDecision(
   proposal: NextStepRecommendationContract,
   decision: NextStepDecision,
   context: LiveContext,
   editedTitle?: string,
-): NextStepInteractionOutcome {
+): { outcome: NextStepInteractionOutcome; emit: () => void } {
   const runtime = resolveModuleRuntime('recommendation', context.controls || readRuntimeControls());
   if (runtime.mode !== 'enabled') throw new Error(`recommendation unavailable: ${runtime.reason}`);
   const outcome = decideNextStep(proposal, decision, context.now.toISOString(), editedTitle);
@@ -88,6 +96,21 @@ export function recordLiveNextStepDecision(
   if (decision === 'edit') properties.changedFieldCount = 1;
   if (decision === 'defer') properties.deferMinutes = 1440;
   if (decision === 'done' && proposal.primaryStep) properties.commitmentId = proposal.primaryStep.commitmentId;
-  emitAnalyticsEvent(withArmAssignment(context), DECISION_EVENTS[decision], properties);
-  return outcome;
+  return {
+    outcome,
+    emit: () => {
+      emitAnalyticsEvent(withArmAssignment(context), DECISION_EVENTS[decision], properties);
+    },
+  };
+}
+
+export function recordLiveNextStepDecision(
+  proposal: NextStepRecommendationContract,
+  decision: NextStepDecision,
+  context: LiveContext,
+  editedTitle?: string,
+): NextStepInteractionOutcome {
+  const prepared = prepareLiveNextStepDecision(proposal, decision, context, editedTitle);
+  prepared.emit();
+  return prepared.outcome;
 }

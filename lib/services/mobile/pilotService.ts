@@ -13,8 +13,8 @@ import {
   type PilotTrustState,
 } from '../../pilot/closedPilotControls';
 import { resolvePilotAccess } from '../../pilot/pilotAccess';
-import { getPilotTrustStore } from '../../pilot/pilotTrustStore';
-import { getLiveNextStep, recordLiveNextStepDecision } from '../nextStepLiveService';
+import { appendAudit, appendIncident, applyTrustAction } from '../../pilot/pilotTrustStore';
+import { getLiveNextStep, prepareLiveNextStepDecision } from '../nextStepLiveService';
 import {
   deleteParticipantDomainState,
   getParticipantStateSnapshot,
@@ -101,8 +101,10 @@ function trustAction(value: unknown, at: string): PilotTrustAction {
   }
 }
 
-function assertAccess(participantId: string, at: string): ReturnType<typeof resolvePilotAccess> & { trust: PilotTrustState } {
-  const access = resolvePilotAccess(participantId, at);
+type AllowedAccess = Awaited<ReturnType<typeof resolvePilotAccess>> & { trust: PilotTrustState };
+
+async function assertAccess(participantId: string, at: string): Promise<AllowedAccess> {
+  const access = await resolvePilotAccess(participantId, at);
   if (!access.decision.allowed || !access.trust) {
     throw new MobilePilotError(
       'closed pilot recommendation unavailable',
@@ -110,7 +112,7 @@ function assertAccess(participantId: string, at: string): ReturnType<typeof reso
       access.decision.reason,
     );
   }
-  return access as ReturnType<typeof resolvePilotAccess> & { trust: PilotTrustState };
+  return access as AllowedAccess;
 }
 
 function recommendationContext(input: MobilePilotSource, participantId: string, analyticsConsent: boolean, now: Date) {
@@ -127,11 +129,11 @@ function recommendationContext(input: MobilePilotSource, participantId: string, 
 export async function getMobileNextStep(participantId: string, input: MobilePilotSource) {
   const now = new Date();
   const at = now.toISOString();
-  const access = assertAccess(participantId, at);
+  const access = await assertAccess(participantId, at);
   const context = recommendationContext(input, participantId, access.trust.analyticsConsent, now);
   const recommendation = getLiveNextStep(await readParticipantState(participantId), context);
   if (recommendation.state === 'ready' && !access.trust.firstValueAt) {
-    getPilotTrustStore().apply(participantId, { type: 'record_first_value', at });
+    await applyTrustAction(participantId, { type: 'record_first_value', at });
     recordFirstValueReached(context, { surface: 'recommendation', reason: 'next_step_ready' });
   }
   const assignment = resolveNextStepArm(participantId);
@@ -144,10 +146,10 @@ export async function getMobileNextStep(participantId: string, input: MobilePilo
   };
 }
 
-export function recordMobilePilotLoopEvent(participantId: string, input: MobilePilotSource) {
+export async function recordMobilePilotLoopEvent(participantId: string, input: MobilePilotSource) {
   const now = new Date();
   const at = now.toISOString();
-  const access = resolvePilotAccess(participantId, at, false);
+  const access = await resolvePilotAccess(participantId, at, false);
   if (!access.trust) {
     throw new MobilePilotError(
       'participant is not admitted to this pilot instance',
@@ -192,14 +194,26 @@ function proposalFrom(value: unknown): Pick<NextStepRecommendationContract, 'pro
 }
 
 export function resetMobilePilotDecisionReplaysForTests(): void {
-  // Durable replay records live in each participant data root. Tests use a fresh
-  // root per case, so there is no process-global state to reset.
+  // Replay records live under the participant's tree in durable storage. A
+  // test gets a clean slate from `setStorageForTests(createMemoryStorage())`,
+  // so there is no process-global state to reset here.
 }
 
+/**
+ * ── Why the recorded decision is built in two halves ─────────────
+ *
+ * `replayOrRecordParticipantDecision` runs its callback inside a storage
+ * transaction, and a transaction retries on contention. The callback therefore
+ * has to be pure: the staleness read happens before it, and the analytics
+ * event it implies is emitted after the transaction committed, once, and only
+ * when this call is the one that recorded the decision. Emitting from inside
+ * the callback would post one `recommendation_accepted` per attempt for a
+ * single tap.
+ */
 export async function recordMobileNextStepDecision(participantId: string, input: MobilePilotSource) {
   const now = new Date();
   const at = now.toISOString();
-  const access = assertAccess(participantId, at);
+  const access = await assertAccess(participantId, at);
   const proposal = proposalFrom(input.proposal);
   const decision = nextStepDecision(input.decision ?? input.action);
   const editedTitle = typeof input.editedTitle === 'string' ? input.editedTitle : undefined;
@@ -216,24 +230,37 @@ export async function recordMobileNextStepDecision(participantId: string, input:
     ...recommendationContext(input, participantId, access.trust.analyticsConsent, now),
     emitShown: false,
   };
+
+  // A read, so it belongs outside the transaction that records the decision.
+  const canonicalProposal = getLiveNextStep(await getParticipantStateSnapshot(participantId), context);
+  if (canonicalProposal.state !== 'ready' || canonicalProposal.proposalId !== proposal.proposalId) {
+    throw new MobilePilotError('proposal is stale or invalid', 409);
+  }
+
+  // Collected rather than assigned to a nullable, so a retry that re-runs the
+  // callback cannot leave a half-applied effect behind.
+  const pendingEmits: Array<() => void> = [];
   const create = () => {
-    const canonicalProposal = getLiveNextStep(getParticipantStateSnapshot(participantId), context);
-    if (canonicalProposal.state !== 'ready' || canonicalProposal.proposalId !== proposal.proposalId) {
-      throw new MobilePilotError('proposal is stale or invalid', 409);
-    }
-    const outcome = recordLiveNextStepDecision(canonicalProposal, decision, context, editedTitle);
+    const prepared = prepareLiveNextStepDecision(canonicalProposal, decision, context, editedTitle);
+    pendingEmits.push(prepared.emit);
     return {
       success: true as const,
       replayed: false,
       participantId,
       assignment,
-      outcome,
+      outcome: prepared.outcome,
     };
   };
 
-  if (!explicitKey) return create();
+  if (!explicitKey) {
+    const response = create();
+    pendingEmits[pendingEmits.length - 1]?.();
+    return response;
+  }
   try {
     const result = await replayOrRecordParticipantDecision(participantId, explicitKey, fingerprint, create);
+    // Exactly one emit, and only for the call that actually recorded it.
+    if (!result.replayed) pendingEmits[pendingEmits.length - 1]?.();
     return { ...result.response, replayed: result.replayed };
   } catch (error) {
     if (error instanceof Error && /idempotencyKey body mismatch/.test(error.message)) {
@@ -245,7 +272,7 @@ export async function recordMobileNextStepDecision(participantId: string, input:
 
 export async function getMobilePilotTrust(participantId: string) {
   const at = new Date().toISOString();
-  const access = resolvePilotAccess(participantId, at, false);
+  const access = await resolvePilotAccess(participantId, at, false);
   if (!access.trust) throw new MobilePilotError('participant is not admitted to this pilot instance', 403, access.decision.reason);
   return {
     success: true,
@@ -261,11 +288,10 @@ export async function getMobilePilotTrust(participantId: string) {
 
 export async function updateMobilePilotTrust(participantId: string, input: MobilePilotSource) {
   const at = new Date().toISOString();
-  const access = resolvePilotAccess(participantId, at, false);
+  const access = await resolvePilotAccess(participantId, at, false);
   if (!access.trust) throw new MobilePilotError('participant is not admitted to this pilot instance', 403, access.decision.reason);
   const action = trustAction(input.action, at);
-  const store = getPilotTrustStore();
-  const trust = store.apply(participantId, action);
+  const trust = await applyTrustAction(participantId, action);
   const eventType = action.type === 'set_quiet_mode'
     ? 'quiet_mode_changed'
     : action.type === 'revoke'
@@ -273,7 +299,7 @@ export async function updateMobilePilotTrust(participantId: string, input: Mobil
       : action.type === 'delete'
         ? 'data_deleted'
         : 'consent_changed';
-  store.appendAudit(createPilotAuditEvent({
+  await appendAudit(createPilotAuditEvent({
     version: 'v1',
     eventType,
     participantId,
@@ -283,10 +309,10 @@ export async function updateMobilePilotTrust(participantId: string, input: Mobil
   }));
   if (action.type === 'delete') {
     await deleteParticipantDomainState(participantId);
-    const analytics = analyticsContextFrom({ anonymousUserId: participantId, consent: 'essential' }, appendAnalyticsEvent);
+    const analytics = await analyticsContextFrom({ anonymousUserId: participantId, consent: 'essential' }, appendAnalyticsEvent);
     if (analytics) recordDataDeleted(analytics, 'all_commitments');
   }
-  const exposure = resolvePilotAccess(participantId, at, false).decision;
+  const exposure = (await resolvePilotAccess(participantId, at, false)).decision;
   return {
     success: true,
     participantId,
@@ -299,8 +325,9 @@ export async function updateMobilePilotTrust(participantId: string, input: Mobil
   };
 }
 
-export function reportMobilePilotIncident(participantId: string, input: MobilePilotSource) {
-  const access = resolvePilotAccess(participantId, new Date().toISOString(), false);
+export async function reportMobilePilotIncident(participantId: string, input: MobilePilotSource) {
+  requirePilotParticipantId(participantId);
+  const access = await resolvePilotAccess(participantId, new Date().toISOString(), false);
   if (!access.trust) throw new MobilePilotError('participant is not admitted to this pilot instance', 403, access.decision.reason);
   const at = new Date().toISOString();
   const incident = createPilotTrustIncident({
@@ -316,9 +343,8 @@ export function reportMobilePilotIncident(participantId: string, input: MobilePi
     containmentCode: 'reported_for_review',
     resolutionCode: null,
   });
-  const store = getPilotTrustStore();
-  store.appendIncident(incident);
-  store.appendAudit(createPilotAuditEvent({
+  await appendIncident(incident);
+  await appendAudit(createPilotAuditEvent({
     version: 'v1',
     eventType: 'support_reported',
     participantId,

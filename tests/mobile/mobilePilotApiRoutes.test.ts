@@ -6,8 +6,10 @@ import { join } from 'node:path';
 import { getAnalyticsEvents, resetAnalyticsEventsForTests } from '../../lib/analytics/eventStore.ts';
 import { NEXT_STEP_EXPERIMENT_ENV, resolveNextStepArm } from '../../lib/experiments/experimentControls.ts';
 import { generatePilotToken } from '../../lib/pilot/pilotTokenService.ts';
-import { getPilotTrustStore } from '../../lib/pilot/pilotTrustStore.ts';
+import { applyTrustAction, listAllAuditEvents, listIncidents } from '../../lib/pilot/pilotTrustStore.ts';
 import { getParticipantStateSnapshot } from '../../lib/services/mobile/participantState.ts';
+import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
+import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { resetMobilePilotDecisionReplaysForTests } from '../../lib/services/mobile/pilotService.ts';
 import { GET as getNextStep } from '../../src/app/api/mobile/recommendations/next-step/route.ts';
 import { POST as recordNextStepAction } from '../../src/app/api/mobile/recommendations/next-step/actions/route.ts';
@@ -67,7 +69,6 @@ function setup(overrides: Record<string, string | undefined> = {}): () => void {
   const previous: Record<string, string | undefined> = {
     MAYBESITTER_CLOSED_PILOT_IDS: process.env.MAYBESITTER_CLOSED_PILOT_IDS,
     MAYBESITTER_PILOT_MODE: process.env.MAYBESITTER_PILOT_MODE,
-    MAYBESITTER_PILOT_TRUST_FILE: process.env.MAYBESITTER_PILOT_TRUST_FILE,
     MAYBESITTER_PILOT_TOKEN_SECRET: process.env.MAYBESITTER_PILOT_TOKEN_SECRET,
     MAYBESITTER_DATA_DIR: process.env.MAYBESITTER_DATA_DIR,
     MAYBESITTER_FEATURE_RECOMMENDATION: process.env.MAYBESITTER_FEATURE_RECOMMENDATION,
@@ -77,7 +78,6 @@ function setup(overrides: Record<string, string | undefined> = {}): () => void {
   };
   process.env.MAYBESITTER_CLOSED_PILOT_IDS = IDS.slice(0, 25).join(',');
   process.env.MAYBESITTER_PILOT_MODE = 'true';
-  process.env.MAYBESITTER_PILOT_TRUST_FILE = join(directory, 'pilot-trust.json');
   process.env.MAYBESITTER_PILOT_TOKEN_SECRET = TEST_SECRET;
   process.env.MAYBESITTER_DATA_DIR = directory;
   process.env.MAYBESITTER_FEATURE_RECOMMENDATION = 'true';
@@ -87,9 +87,13 @@ function setup(overrides: Record<string, string | undefined> = {}): () => void {
   for (const [key, value] of Object.entries(overrides)) {
     if (value === undefined) delete process.env[key]; else process.env[key] = value;
   }
+  // Trust and participant state live in storage since UC-1.0b (#141), so a
+  // fresh memory adapter per case is what isolates them now.
+  setStorageForTests(createMemoryStorage());
   resetAnalyticsEventsForTests();
   resetMobilePilotDecisionReplaysForTests();
   return () => {
+    resetStorageForTests();
     for (const [key, value] of Object.entries(previous)) {
       if (value === undefined) delete process.env[key]; else process.env[key] = value;
     }
@@ -97,15 +101,15 @@ function setup(overrides: Record<string, string | undefined> = {}): () => void {
   };
 }
 
-function grantRecommendation(participantId: string): void {
-  getPilotTrustStore().apply(participantId, {
+async function grantRecommendation(participantId: string): Promise<void> {
+  await applyTrustAction(participantId, {
     type: 'grant_recommendation_consent',
     at: new Date().toISOString(),
   });
 }
 
-function grantAnalytics(participantId: string): void {
-  getPilotTrustStore().apply(participantId, {
+async function grantAnalytics(participantId: string): Promise<void> {
+  await applyTrustAction(participantId, {
     type: 'set_analytics_consent',
     granted: true,
     at: new Date().toISOString(),
@@ -150,7 +154,7 @@ async function createConfirmedCommitment(
 test('mobile pilot analytics records content-free phone-presence events by token participant', async () => {
   const cleanup = setup();
   try {
-    grantAnalytics(A);
+    await grantAnalytics(A);
     const response = await analyticsPost(request('/api/mobile/analytics', {
       participantId: A,
       body: {
@@ -211,7 +215,7 @@ test('mobile pilot analytics can be disabled without breaking product use', asyn
 test('mobile pilot analytics rejects private content fields', async () => {
   const cleanup = setup();
   try {
-    grantAnalytics(A);
+    await grantAnalytics(A);
     const response = await analyticsPost(request('/api/mobile/analytics', {
       participantId: A,
       body: {
@@ -240,7 +244,7 @@ test('mobile pilot analytics rejects private content fields', async () => {
 test('mobile pilot analytics rejects non-canonical deep-link targets', async () => {
   const cleanup = setup();
   try {
-    grantAnalytics(A);
+    await grantAnalytics(A);
     const response = await analyticsPost(request('/api/mobile/analytics', {
       participantId: A,
       body: {
@@ -357,12 +361,12 @@ test('mobile pilot routes require valid bearer token authorization', async () =>
     assert.equal(nonAllowlisted.status, 403);
     assert.equal((await json(nonAllowlisted)).reason, 'not_allowlisted');
 
-    getPilotTrustStore().apply(C, { type: 'revoke', at: new Date().toISOString() });
+    await applyTrustAction(C, { type: 'revoke', at: new Date().toISOString() });
     const revoked = await getNextStep(request('/api/mobile/recommendations/next-step', { participantId: C }));
     assert.equal(revoked.status, 403);
     assert.equal((await json(revoked)).reason, 'revoked');
 
-    getPilotTrustStore().apply(D, { type: 'delete', at: new Date().toISOString() });
+    await applyTrustAction(D, { type: 'delete', at: new Date().toISOString() });
     const deleted = await getNextStep(request('/api/mobile/recommendations/next-step', { participantId: D }));
     assert.equal(deleted.status, 403);
     assert.equal((await json(deleted)).reason, 'deleted');
@@ -446,7 +450,7 @@ test('valid B token cannot fetch, patch, action, or delete A commitment', async 
 test('body and query participant spoofing cannot escape authenticated scope and assignment is server-owned', async () => {
   const cleanup = setup();
   try {
-    grantRecommendation(B);
+    await grantRecommendation(B);
     const bId = await createConfirmedCommitment(B, 'Remind me to call B tomorrow at 10am', A);
 
     const bDetail = await commitmentGet(request(`/api/mobile/commitments/${bId}`, { participantId: B }), params(bId));
@@ -468,10 +472,10 @@ test('body and query participant spoofing cannot escape authenticated scope and 
 test('trust and recommendation decisions are isolated per authenticated participant', async () => {
   const cleanup = setup();
   try {
-    grantRecommendation(A);
-    grantAnalytics(A);
-    grantRecommendation(B);
-    grantAnalytics(B);
+    await grantRecommendation(A);
+    await grantAnalytics(A);
+    await grantRecommendation(B);
+    await grantAnalytics(B);
     await createConfirmedCommitment(A, 'Remind me to call Alice tomorrow at 9am');
     await createConfirmedCommitment(B, 'Remind me to email Blake tomorrow at 4pm');
 
@@ -513,8 +517,8 @@ test('trust and recommendation decisions are isolated per authenticated particip
 test('mobile pilot recommendation action idempotency is participant-scoped and durable', async () => {
   const cleanup = setup();
   try {
-    grantRecommendation(A);
-    grantAnalytics(A);
+    await grantRecommendation(A);
+    await grantAnalytics(A);
     await createConfirmedCommitment(A, 'Remind me to submit the permit tomorrow at 2pm');
     const proposal = (await nextStep(A)).recommendation;
     resetAnalyticsEventsForTests();
@@ -540,8 +544,8 @@ test('mobile pilot recommendation action idempotency is participant-scoped and d
 test('participant deletion is local to A and keeps B state intact', async () => {
   const cleanup = setup();
   try {
-    grantRecommendation(A);
-    grantRecommendation(B);
+    await grantRecommendation(A);
+    await grantRecommendation(B);
     const aId = await createConfirmedCommitment(A, 'Remind me to cancel A plan tomorrow at noon');
     const bId = await createConfirmedCommitment(B, 'Remind me to keep B plan tomorrow at noon');
 
@@ -578,8 +582,8 @@ test('concurrent authenticated A/B and same-participant writes do not lose updat
     ]);
     assert.equal(new Set(created).size, 5);
 
-    const aCommitments = Object.values(getParticipantStateSnapshot(A).commitments);
-    const bCommitments = Object.values(getParticipantStateSnapshot(B).commitments);
+    const aCommitments = Object.values((await getParticipantStateSnapshot(A)).commitments);
+    const bCommitments = Object.values((await getParticipantStateSnapshot(B)).commitments);
     assert.equal(aCommitments.length, 3);
     assert.equal(bCommitments.length, 2);
     assert.equal(aCommitments.every((item) => item.status === 'active'), true);
@@ -605,11 +609,11 @@ test('mobile pilot incident reporting uses authenticated participant and drops r
     assert.equal(incident.status, 201);
     assert.equal((await json(incident)).success, true);
 
-    const stored = getPilotTrustStore().incidents();
+    const stored = await listIncidents();
     assert.equal(stored.length, 1);
     assert.equal(stored[0].participantId, B);
     assert.equal('notes' in stored[0], false);
-    assert.equal(getPilotTrustStore().auditEvents().some((event) => event.eventType === 'support_reported'), true);
+    assert.equal((await listAllAuditEvents()).some((event) => event.eventType === 'support_reported'), true);
   } finally {
     cleanup();
   }

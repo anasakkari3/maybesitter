@@ -18,10 +18,10 @@ export class CommandServiceCapturePersistenceAdapter implements CapturePersisten
       candidate = transition.newState;
     }
     configureCommandService({ initialState: candidate });
-    return { state: this.snapshot() };
+    return { state: await this.snapshot() };
   }
 
-  snapshot(): DomainState {
+  async snapshot(): Promise<DomainState> {
     configureCommandService({});
     return structuredClone(getCommandServiceState());
   }
