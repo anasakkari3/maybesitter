@@ -88,9 +88,13 @@ test('the default stage is the one that exposes nobody, and the pilot gate still
   // The default configuration, fail-closed: no stage variable is set.
   assert.equal(decision.stage, 'shadow_only');
   assert.equal(decision.cap, 0);
-  // And the *pilot* gate's refusal is what is reported, because it is consulted
-  // first and its refusal is final. A full consent could not widen it.
-  assert.equal(decision.reason, 'not_allowlisted');
+  // And the *user access* gate's refusal is what is reported, because it is
+  // consulted first and its refusal is final: a full consent cannot widen it.
+  // This read `not_allowlisted` until UC-1.0e (#144) removed the participant
+  // roster. With no roster to be outside of, the first refusal an
+  // unconfigured environment produces is the disabled recommendation feature
+  // — a different reason for the same structural claim.
+  assert.equal(decision.reason, 'feature_disabled');
   assert.equal(decision.consentState, 'granted');
 }));
 

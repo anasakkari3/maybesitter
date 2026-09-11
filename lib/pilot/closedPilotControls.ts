@@ -1,7 +1,24 @@
-export const CLOSED_PILOT_MINIMUM = 25;
-export const CLOSED_PILOT_MAXIMUM = 40;
+/**
+ * Trust, consent and exposure for one user.
+ *
+ * ── The allowlist is gone (UC-1.0e, #144) ────────────────────────
+ *
+ * This module used to own the closed-pilot size bounds and the parser for
+ * them: a 25–40 entry roster of hand-minted ids that
+ * decided who was admitted at all. Identity is a Firebase account now and
+ * anyone who signs in is a user, so membership is not a question this file
+ * answers any more. What survives is everything that was always about the
+ * person rather than the roster: their trust record, their consents, and the
+ * exposure decision those imply.
+ */
+import { requireUserId } from '../storage/paths';
 
 export type PilotStopReason =
+  // No exposure decision produces `not_allowlisted` any more — the membership
+  // branch that did is gone. The member survives because the staged-exposure
+  // layer (`lib/release/exposure`) still refuses a participant outside the
+  // *stage cohort* with that word, and both sides of that seam are pinned
+  // against this union at compile time.
   | 'not_allowlisted'
   | 'wrong_instance'
   | 'consent_required'
@@ -74,7 +91,6 @@ export interface PilotTrustIncident {
   resolutionCode: string | null;
 }
 
-const PARTICIPANT_ID = /^[a-z0-9][a-z0-9_-]{2,63}$/;
 const SAFE_CODE = /^[a-z0-9][a-z0-9_-]{1,63}$/;
 
 function requireIsoTime(value: string): void {
@@ -83,19 +99,21 @@ function requireIsoTime(value: string): void {
   }
 }
 
+/**
+ * A participant id, which since UC-1.0e (#144) is a Firebase uid.
+ *
+ * This used to be `/^[a-z0-9][a-z0-9_-]{2,63}$/` — lowercase only, because the
+ * ids were ours and we minted them in that shape. A Firebase uid is 28 mixed-
+ * case characters, so that pattern rejected every real account. It delegates
+ * to `requireUserId` (UC-1.0b, #141) instead, which is the same check the
+ * storage layer applies to the path the record is written at: one definition
+ * of "a usable id", not two that can disagree.
+ *
+ * It is a shape check, never an authorisation check. Admission is
+ * `requireMobileUser`'s, and it is a signature.
+ */
 export function requirePilotParticipantId(value: string): string {
-  if (!PARTICIPANT_ID.test(value)) throw new Error('participantId must be pseudonymous');
-  return value;
-}
-
-export function parseClosedPilotAllowlist(raw: string | undefined): ReadonlySet<string> {
-  const values = (raw || '').split(',').map((value) => value.trim()).filter(Boolean);
-  if (values.length < CLOSED_PILOT_MINIMUM || values.length > CLOSED_PILOT_MAXIMUM) {
-    throw new Error(`closed pilot allowlist must contain ${CLOSED_PILOT_MINIMUM}–${CLOSED_PILOT_MAXIMUM} participants`);
-  }
-  if (new Set(values).size !== values.length) throw new Error('closed pilot allowlist contains duplicates');
-  if (values.some((value) => !PARTICIPANT_ID.test(value))) throw new Error('closed pilot participant IDs must be pseudonymous');
-  return new Set(values);
+  return requireUserId(value);
 }
 
 export function createPilotTrustState(participantId: string, at: string): PilotTrustState {
@@ -162,14 +180,21 @@ export function applyPilotTrustAction(state: PilotTrustState, action: PilotTrust
   }
 }
 
+/**
+ * What this user may currently see.
+ *
+ * The `allowlist` parameter and its `not_allowlisted` branch are gone
+ * (UC-1.0e, #144): every caller is an authenticated account, so there is no
+ * roster left to be outside of. Order is unchanged, and it is deliberate —
+ * `deleted` outranks `revoked`, an operator stop outranks a consent question,
+ * and `consent_required` is last so that a user who simply has not been asked
+ * yet is told that rather than something more alarming.
+ */
 export function decidePilotExposure(input: {
-  participantId: string;
-  allowlist: ReadonlySet<string>;
   trust: PilotTrustState;
   featureEnabled: boolean;
   killSwitchActive: boolean;
 }): PilotExposureDecision {
-  if (!input.allowlist.has(input.participantId)) return { allowed: false, reason: 'not_allowlisted' };
   if (input.trust.deletedAt) return { allowed: false, reason: 'deleted' };
   if (input.trust.revokedAt) return { allowed: false, reason: 'revoked' };
   if (input.killSwitchActive) return { allowed: false, reason: 'kill_switch_active' };

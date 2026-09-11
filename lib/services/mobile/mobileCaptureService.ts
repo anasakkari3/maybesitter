@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'crypto';
 import { analyticsContextFrom } from '../../analytics/analyticsContext';
 import { appendAnalyticsEvent } from '../../analytics/eventStore';
 import { recordFirstValueReached } from '../../analytics/loopAnalytics';
-import { resolvePilotAccess } from '../../pilot/pilotAccess';
+import { resolveUserAccess } from '../../pilot/pilotAccess';
 import { applyTrustAction } from '../../pilot/pilotTrustStore';
 import {
   confirmCapture,
@@ -201,7 +201,7 @@ export async function confirmMobileCapture(input: MobileConfirmInput, context: M
 
   if (context.participantId && persisted.length > 0) {
     const now = new Date();
-    const access = await resolvePilotAccess(context.participantId, now.toISOString(), false);
+    const access = await resolveUserAccess(context.participantId, now.toISOString(), false);
     if (access.trust && !access.trust.firstValueAt) {
       await applyTrustAction(context.participantId, {
         type: 'record_first_value',

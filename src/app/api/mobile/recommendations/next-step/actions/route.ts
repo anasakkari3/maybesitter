@@ -1,13 +1,13 @@
 import { mobilePilotErrorResponse, recordMobileNextStepDecision } from '../../../../../../../lib/services/mobile/pilotService';
-import { mobileAuthErrorResponse, requireMobilePilotAuth } from '../../../../../../../lib/services/mobile/auth';
+import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../../lib/auth/mobileAuth';
 import { recordTraceStage, resolveTraceSessionId, stage } from '../../../../../../../lib/alphaTrace/traceRecorder';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
-  let auth;
+  let user;
   try {
-    auth = await requireMobilePilotAuth(request);
+    user = await requireMobileUser(request);
   } catch (error) {
     return mobileAuthErrorResponse(error);
   }
@@ -20,7 +20,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await recordMobileNextStepDecision(auth.participantId, body);
+    const result = await recordMobileNextStepDecision(user.uid, body);
     try {
       const decision = typeof body.decision === 'string' ? body.decision : 'unknown';
       const originalTitle = typeof body.originalTitle === 'string' ? body.originalTitle : undefined;
@@ -34,8 +34,8 @@ export async function POST(request: Request) {
         payload.editedTitle = editedTitle ?? null;
       }
       recordTraceStage(
-        resolveTraceSessionId(body.sessionId, auth.participantId),
-        auth.participantId,
+        resolveTraceSessionId(body.sessionId, user.uid),
+        user.uid,
         stage('proposal_decided', payload),
       );
     } catch {

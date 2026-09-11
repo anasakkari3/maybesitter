@@ -1,34 +1,36 @@
+/**
+ * What one signed-in user is currently exposed to (UC-1.0e, #144).
+ *
+ * ── Membership is not a question any more ────────────────────────
+ *
+ * This module used to begin with `isAllowlisted`: a 25–40 entry closed-pilot
+ * roster OR a 1–10 entry trusted-alpha roster, both read from the environment,
+ * and a refusal called `not_allowlisted`. Anyone who signs in with Apple,
+ * Google or email is a user now, so the whole membership layer is gone along
+ * with the two environment variables that configured those rosters.
+ *
+ * What is left is what was always about the person: their trust record and the
+ * runtime controls. The reasons this can return are therefore
+ * `deleted | revoked | kill_switch_active | feature_disabled | quiet_mode |
+ * consent_required | authorized`, and never `not_allowlisted`.
+ *
+ * Identity itself is checked before any of this, by `requireMobileUser`
+ * against a Google signature. This function answers "what may this user see",
+ * never "is this really them".
+ */
 import { readRuntimeControls } from '../../src/contracts/v1/runtimeControls';
 import {
   createPilotAuditEvent,
   decidePilotExposure,
-  parseClosedPilotAllowlist,
   requirePilotParticipantId,
   type PilotExposureDecision,
   type PilotTrustState,
 } from './closedPilotControls';
-import { isAlphaParticipant } from './alphaControls';
-import { appendAudit, getOrCreateTrust } from './pilotTrustStore';
+import { appendAudit, getOrCreateTrust, readTrust } from './pilotTrustStore';
 
-export interface PilotAccessResult {
+export interface UserAccessResult {
   decision: PilotExposureDecision;
   trust: PilotTrustState | null;
-}
-
-/**
- * Membership check: closed-pilot allowlist (25–40, V03 contract) OR the
- * explicit trusted-alpha allowlist (1–10, internal-only). The closed-pilot
- * parser is deliberately strict and throws when fewer than 25 IDs are set;
- * that throw is tolerated here ONLY when an alpha allowlist is configured,
- * so a small trusted-alpha run can start before the real pilot fills out.
- */
-function isAllowlisted(participantId: string, env: NodeJS.ProcessEnv = process.env): boolean {
-  if (isAlphaParticipant(participantId, env)) return true;
-  try {
-    return parseClosedPilotAllowlist(env.MAYBESITTER_CLOSED_PILOT_IDS).has(participantId);
-  } catch {
-    return false;
-  }
 }
 
 /**
@@ -36,19 +38,12 @@ function isAllowlisted(participantId: string, env: NodeJS.ProcessEnv = process.e
  * on every call rather than held in a per-instance copy. That is what makes a
  * revocation on one instance visible on the next read from any other.
  */
-export async function resolvePilotAccess(participantId: string, at: string, audit = true): Promise<PilotAccessResult> {
-  requirePilotParticipantId(participantId);
-  if (!isAllowlisted(participantId)) {
-    return { decision: { allowed: false, reason: 'not_allowlisted' }, trust: null };
-  }
+export async function resolveUserAccess(uid: string, at: string, audit = true): Promise<UserAccessResult> {
+  requirePilotParticipantId(uid);
 
-  const trust = await getOrCreateTrust(participantId, at);
+  const trust = await getOrCreateTrust(uid, at);
   const controls = readRuntimeControls();
   const decision = decidePilotExposure({
-    participantId,
-    // Membership was already admitted (closed OR alpha); expose the
-    // participant to their own exposure decision.
-    allowlist: new Set([participantId]),
     trust,
     featureEnabled: controls.featureFlags.recommendation,
     killSwitchActive: controls.killSwitches.recommendation,
@@ -58,7 +53,7 @@ export async function resolvePilotAccess(participantId: string, at: string, audi
     await appendAudit(createPilotAuditEvent({
       version: 'v1',
       eventType: 'exposure_checked',
-      participantId,
+      participantId: uid,
       occurredAt: at,
       outcome: decision.allowed ? 'allowed' : 'blocked',
       reasonCode: decision.reason,
@@ -68,22 +63,27 @@ export async function resolvePilotAccess(participantId: string, at: string, audi
 }
 
 /**
- * Preserves the reviewed V02 consent behavior outside a configured pilot. Once
- * pilot exposure is configured (or recommendation is enabled), client claims
- * are ignored and consent is derived from the durable trust record.
+ * Analytics consent, derived from the trust record and from nothing else.
+ *
+ * The client's `consent` field is not an input. It used to be, outside a
+ * configured pilot — a caller could simply claim `granted` — and the pilot
+ * check that suppressed the claim was itself conditioned on an environment
+ * variable that no longer exists. A claim is not a consent, so the answer is
+ * the stored record or `essential`.
+ *
+ * The read is deliberately non-creating: `analyticsContextFrom` is reachable
+ * from legacy routes that pass arbitrary caller-supplied ids, and creating a
+ * `users/{uid}` document for each of those would litter storage with records
+ * for people who do not exist.
  */
 export async function resolvePilotAnalyticsConsent(
-  participantId: string,
-  requested: 'granted' | 'essential',
-  at = new Date().toISOString(),
+  uid: string,
+  _requested: 'granted' | 'essential',
+  _at = new Date().toISOString(),
 ): Promise<'granted' | 'essential'> {
-  const controls = readRuntimeControls();
-  const pilotMode = process.env.MAYBESITTER_CLOSED_PILOT_IDS !== undefined || controls.featureFlags.recommendation;
-  if (!pilotMode) return requested;
   try {
-    requirePilotParticipantId(participantId);
-    if (!isAllowlisted(participantId)) return 'essential';
-    return (await getOrCreateTrust(participantId, at)).analyticsConsent ? 'granted' : 'essential';
+    requirePilotParticipantId(uid);
+    return (await readTrust(uid))?.analyticsConsent ? 'granted' : 'essential';
   } catch {
     return 'essential';
   }

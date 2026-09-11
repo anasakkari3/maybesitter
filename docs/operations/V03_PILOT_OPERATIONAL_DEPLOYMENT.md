@@ -2,9 +2,12 @@
 
 Issue: #55. Operational and trust-incident owner: **Anas Akkari**.
 
-Status: engineering code-complete on canonical `main`; this runbook is the
-authoritative V03-P1 operational source of truth. It does not authorize pilot
-deployment, participant recruitment, or Stage B.
+Status: **partly superseded by UC-1.0e (#144)**. The trust, consent, incident
+and exposure procedures below still stand. The identity half does not: pilot
+tokens, the participant allowlist and their environment variables are deleted,
+and the "Token Issuance" and "Participant Revoke" sections are replaced as
+marked. This runbook does not authorize pilot deployment, participant
+recruitment, or Stage B.
 
 ## Architecture
 
@@ -31,19 +34,22 @@ to multiple active writers without a new distributed persistence/locking design.
 
 Configure the backend with explicit pilot mode and durable storage:
 
+Since UC-1.0e (#144) and UC-1.0b (#141):
+
 ```env
 NODE_ENV=production
-PORT=3000
-MAYBESITTER_PILOT_MODE=true
-MAYBESITTER_DATA_DIR=/mnt/filestore/maybesitter
-MAYBESITTER_PILOT_TRUST_FILE=/mnt/filestore/maybesitter/pilot-trust.json
-MAYBESITTER_PILOT_TOKEN_SECRET=<mandatory-strong-random-secret>
-MAYBESITTER_CLOSED_PILOT_IDS=<25-40-comma-separated-pseudonymous-ids>
+GOOGLE_CLOUD_PROJECT=<project>
+MAYBESITTER_STORAGE_BACKEND=firestore
 MAYBESITTER_FEATURE_RECOMMENDATION=true
 MAYBESITTER_KILL_SWITCH_RECOMMENDATION=false
-MAYBESITTER_PILOT_ADMIN_TOKEN=<mandatory-strong-random-admin-token>
 MAYBESITTER_PILOT_INCIDENT_OWNER_ID=<pseudonymous-owner-code>
 ```
+
+The token secret, the participant allowlist, the pilot-mode flag and the
+trust file are gone: identity is a Firebase ID token and durable state is
+Firestore. `validateRuntimeConfiguration` fails the boot of any Cloud Run
+revision that is missing the project binding, is not on the Firestore
+backend, or sets `MAYBESITTER_DEV_AUTH`.
 
 `MAYBESITTER_DATA_DIR` must be an absolute durable path, not container-local
 ephemeral disk. For Cloud Run, mount a persistent network filesystem such as
@@ -55,20 +61,14 @@ directory. Store production secrets only in the deployment secret manager. Never
 commit tokens, token secrets, admin tokens, participant mappings, or real pilot
 data.
 
-## Token Issuance
+## Token Issuance — removed
 
-Issue one token per pseudonymous participant:
-
-```bash
-MAYBESITTER_PILOT_TOKEN_SECRET=<secret> \
-node --no-warnings --loader ./scripts/ts-resolver.mjs \
-  scripts/issue-pilot-token.ts <participant_id>
-```
-
-Distribute the raw token through the approved out-of-band pilot process. Do not
-store raw tokens in Git, tickets, logs, screenshots, or analytics. The React Native
-app stores the token in OS secure storage and sends it as `Authorization:
-Bearer <token>` on canonical `/api/mobile/**` requests.
+There is nothing to issue. A user signs in with Apple, Google or email; the
+client holds a Firebase ID token that expires after an hour and refreshes
+itself, and sends it as `Authorization: Bearer <token>` on `/api/mobile/**`.
+No operator mints, distributes or stores a credential, and there is no
+allowlist to add anyone to. Never log a token; log at most a `sha256(uid)`
+prefix.
 
 ## Participant Revoke
 
@@ -76,15 +76,18 @@ Revoke a participant when consent is withdrawn or the operator must terminate
 pilot access while preserving canonical commitments for later export/deletion:
 
 ```bash
-MAYBESITTER_DATA_DIR=/mnt/filestore/maybesitter \
-MAYBESITTER_PILOT_TRUST_FILE=/mnt/filestore/maybesitter/pilot-trust.json \
+GOOGLE_CLOUD_PROJECT=<project> MAYBESITTER_STORAGE_BACKEND=firestore \
 node --no-warnings --loader ./scripts/ts-resolver.mjs \
-  scripts/revoke-participant.ts <participant_id>
+  scripts/revoke-user.ts <uid>
 ```
 
-Expected result: the trust state records `revokedAt`; recommendation, analytics,
-and calendar consent become false; the client enters a terminal revoked state;
-future use of the participant token is denied with `403 revoked`.
+Expected result: `revokeRefreshTokens` invalidates every ID token issued so far
+and stops the client minting a new one, and the trust state records
+`revokedAt`; recommendation, analytics and calendar consent become false; the
+client enters a terminal revoked state. A request carrying an already-issued
+token is denied with `401 token_revoked` within 60 seconds — immediately on the
+destructive paths, which force a fresh revocation read — and `403 revoked`
+once the trust record is read.
 
 ## Participant Delete
 
