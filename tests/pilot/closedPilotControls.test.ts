@@ -7,7 +7,7 @@ import {
   createPilotTrustState,
   createPilotTrustIncident,
   decidePilotExposure,
-  parseClosedPilotAllowlist,
+  requirePilotParticipantId,
 } from '../../lib/pilot/closedPilotControls.ts';
 import {
   appendAudit,
@@ -21,23 +21,33 @@ import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 
 const AT = '2026-09-14T09:00:00.000Z';
-const IDS = Array.from({ length: 25 }, (_, index) => `pilot-${index + 1}`);
-const allowlist = parseClosedPilotAllowlist(IDS.join(','));
 
-test('closed pilot: admission enforces a pseudonymous 25–40 participant allowlist', () => {
-  assert.equal(allowlist.size, 25);
-  assert.throws(() => parseClosedPilotAllowlist(IDS.slice(0, 24).join(',')), /25–40/);
-  assert.throws(() => parseClosedPilotAllowlist([...IDS, IDS[0]].join(',')), /duplicates/);
-  assert.throws(() => parseClosedPilotAllowlist([...IDS.slice(1), 'person@example.com'].join(',')), /pseudonymous/);
+/**
+ * The 25–40 participant allowlist this file used to open with is gone
+ * (UC-1.0e, #144), along with its parser: anyone who signs in with Firebase
+ * is a user, and admission is a Google signature rather than a roster. What
+ * the exposure decision still turns on — trust, consent and the operator's
+ * runtime controls — is unchanged, and is what the rest of this file covers.
+ */
+test('closed pilot: a participant id may now be a Firebase uid, not only a minted one', () => {
+  // The pattern was lowercase-only, so it rejected every real account.
+  const uid = 'Ab3XyZ90QwErTyUiOpAsDfGhJkL1';
+  assert.equal(requirePilotParticipantId(uid), uid);
+  // Still a path check: what breaks a document path is still refused.
+  assert.throws(() => requirePilotParticipantId('person@example.com'), /userId/);
+  assert.throws(() => requirePilotParticipantId('a/b'), /userId/);
+  assert.throws(() => requirePilotParticipantId(''), /userId/);
 });
 
-test('closed pilot: exposure requires allowlist, runtime controls, and explicit consent', () => {
+test('closed pilot: exposure requires runtime controls and explicit consent', () => {
   const initial = createPilotTrustState('pilot-1', AT);
-  const base = { participantId: 'pilot-1', allowlist, trust: initial, featureEnabled: true, killSwitchActive: false };
+  const base = { trust: initial, featureEnabled: true, killSwitchActive: false };
   assert.equal(decidePilotExposure(base).reason, 'consent_required');
   const consented = applyPilotTrustAction(initial, { type: 'grant_recommendation_consent', at: AT });
   assert.deepEqual(decidePilotExposure({ ...base, trust: consented }), { allowed: true, reason: 'authorized' });
-  assert.equal(decidePilotExposure({ ...base, trust: consented, participantId: 'outsider' }).reason, 'not_allowlisted');
+  // No input produces `not_allowlisted` any more: the membership branch that
+  // did is gone with the roster it consulted.
+  assert.notEqual(decidePilotExposure({ ...base, trust: consented }).reason, 'not_allowlisted');
   assert.equal(decidePilotExposure({ ...base, trust: consented, killSwitchActive: true }).reason, 'kill_switch_active');
 });
 
@@ -51,7 +61,7 @@ test('closed pilot: calendar consent is progressive and unavailable before first
 test('closed pilot: quiet mode stops exposure without deleting canonical data', () => {
   const consented = applyPilotTrustAction(createPilotTrustState('pilot-1', AT), { type: 'grant_recommendation_consent', at: AT });
   const quiet = applyPilotTrustAction(consented, { type: 'set_quiet_mode', enabled: true, at: AT });
-  assert.equal(decidePilotExposure({ participantId: 'pilot-1', allowlist, trust: quiet, featureEnabled: true, killSwitchActive: false }).reason, 'quiet_mode');
+  assert.equal(decidePilotExposure({ trust: quiet, featureEnabled: true, killSwitchActive: false }).reason, 'quiet_mode');
   assert.equal(quiet.deletedAt, null);
   assert.equal(quiet.recommendationConsent, true);
 });

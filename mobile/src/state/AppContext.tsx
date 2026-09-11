@@ -1,6 +1,10 @@
-import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useColorScheme } from 'react-native';
 import { strings, type Lang, type Strings } from '../i18n/strings';
+import { setLocale, tFor } from '../i18n';
+import {
+  loadLanguagePref, nextLanguagePref, resolveLanguage, saveLanguagePref, systemLanguageTag, type LanguagePref,
+} from '../i18n/language';
 import { palettes, type Palette, type Scheme } from '../theme/tokens';
 import { analyzeText, exampleText } from '../services/mockCapture';
 import { seedCommitments, seedYesterday, TODAY } from './seed';
@@ -44,12 +48,29 @@ const captureReset = { cap: 'idle' as CapState, input: '', proposals: [] as Prop
 
 function useAppModel() {
   const [s, setS] = useState<AppState>(initial);
-  const [lang, setLang] = useState<Lang>('ar');
+  // The stored choice (System / English / العربية) and the language it resolves
+  // to. The device tag is read once: changing the phone's language restarts the
+  // app anyway, and re-reading it every render is a native call for nothing.
+  const [langPref, setLangPref] = useState<LanguagePref>('system');
+  const systemTag = useMemo(() => systemLanguageTag(), []);
+  const lang: Lang = resolveLanguage(langPref, systemTag);
   const [themePref, setThemePref] = useState<ThemePref>('system');
   const system = useColorScheme();
   const scheme: Scheme = themePref === 'system' ? (system === 'dark' ? 'dark' : 'light') : themePref;
   const t: Strings = strings[lang];
+  // ICU-aware, key-checked `t` for the three count messages `fill` cannot
+  // inflect (confirmN, lockedTitle, progressWords). See src/i18n/README.md.
+  const tr = useMemo(() => tFor(lang), [lang]);
   const p: Palette = palettes[scheme];
+
+  // Read the persisted preference once, then keep i18next on whatever language
+  // the app is actually rendering, so `tr` and the screens never disagree.
+  useEffect(() => {
+    let active = true;
+    void loadLanguagePref().then(pref => { if (active) setLangPref(pref); });
+    return () => { active = false; };
+  }, []);
+  useEffect(() => { void setLocale(lang); }, [lang]);
 
   const sRef = useRef(s);
   sRef.current = s;
@@ -64,6 +85,11 @@ function useAppModel() {
       return next ? { ...st, ...next } : st;
     });
   const holdAt = useRef(0);
+
+  const applyLangPref = (pref: LanguagePref) => {
+    setLangPref(pref);
+    void saveLanguagePref(pref);
+  };
 
   const actions = {
     go: (screen: Screen) => set(st => ({ prev: st.screen, screen, sheet: null })),
@@ -161,9 +187,13 @@ function useAppModel() {
     fmAccept: () => set({ nextDismissed: true, screen: 'today', sheet: 'toast', toast: tRef.current.toastFm }),
 
     // preferences
-    toggleLang: () => setLang(l => (l === 'ar' ? 'en' : 'ar')),
+    // The language picker: System → English → العربية → System. Hebrew is not
+    // offered; src/i18n/README.md says what it is still waiting on.
+    cycleLanguage: () => applyLangPref(nextLanguagePref(langPref)),
     cycleTheme: () => setThemePref(v => (v === 'system' ? 'light' : v === 'light' ? 'dark' : 'system')),
-    setLang,
+    // A maybesitter://<screen>?lang=ar link picks a language explicitly, so it
+    // stops following the system exactly as tapping the row does.
+    setLang: (l: Lang) => applyLangPref(l),
     setThemePref,
 
     /**
@@ -177,6 +207,8 @@ function useAppModel() {
         return res.kind === 'hi' ? {} : { kind: res.kind, parts: res.parts, proposals: res.proposals, input: text, cap: 'transcript' as CapState, screen: 'review' as Screen, prev: 'capture' as Screen };
       };
       switch (name) {
+        // Development only, so a release build cannot reach the gallery.
+        case 'gallery': if (__DEV__) set({ screen: 'gallery', sheet: null }); return;
         case 'today': case 'calendar': case 'settings': case 'closeout': case 'firstmove':
           set({ screen: name, sheet: null }); return;
         case 'capture': set({ ...captureReset, screen: 'capture', sheet: null }); return;
@@ -201,7 +233,7 @@ function useAppModel() {
     },
   };
 
-  return { s, t, p, lang, ar: lang === 'ar', scheme, themePref, actions };
+  return { s, t, tr, p, lang, langPref, ar: lang === 'ar', scheme, themePref, actions };
 }
 
 export type AppModel = ReturnType<typeof useAppModel>;

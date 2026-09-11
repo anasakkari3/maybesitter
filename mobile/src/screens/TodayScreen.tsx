@@ -5,7 +5,7 @@ import { useApp } from '../state/AppContext';
 import { fmt, impColors, impLabel, titleOf } from '../state/derive';
 import { NOW, seedBusy, TODAY } from '../state/seed';
 import type { Commitment } from '../state/types';
-import { fill, ltr } from '../i18n/strings';
+import { ltr } from '../i18n/strings';
 import { Btn, Card, Pill, Txt } from '../ui/primitives';
 import { CheckIcon, Glow, Hatch } from '../ui/icons';
 import { ScreenIn } from '../ui/motion';
@@ -16,7 +16,7 @@ const PX = 52;
 const y = (h: number, m = 0) => (h - H0) * PX + (m / 60) * PX;
 
 export function TodayScreen() {
-  const { s, t, p, lang, actions } = useApp();
+  const { s, t, tr, p, lang, actions } = useApp();
   const insets = useSafeAreaInsets();
 
   const todayC = s.commitments.filter(c => c.day === TODAY && c.status !== 'dropped');
@@ -67,8 +67,8 @@ export function TodayScreen() {
             {/* locked set */}
             <Card style={{ paddingBottom: 14 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
-                <Txt size={15} weight={600}>{fill(t.lockedTitle, { n: locked.length })}</Txt>
-                <Txt size={13} color={p.mu}>{fill(t.progressWords, { d: lockedDone, n: locked.length })}</Txt>
+                <Txt size={15} weight={600}>{tr('lockedTitle', { n: locked.length })}</Txt>
+                <Txt size={13} color={p.mu}>{tr('progressWords', { d: lockedDone, n: locked.length })}</Txt>
               </View>
               <View style={{ height: 4, borderRadius: 2, backgroundColor: p.sf2, overflow: 'hidden', marginBottom: 12, flexDirection: 'row' }}>
                 <View style={{ width: `${locked.length ? Math.round((lockedDone / locked.length) * 100) : 0}%`, backgroundColor: p.ac, borderRadius: 2 }} />

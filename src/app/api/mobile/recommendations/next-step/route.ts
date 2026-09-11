@@ -1,13 +1,13 @@
 import { getMobileNextStep, mobilePilotErrorResponse } from '../../../../../../lib/services/mobile/pilotService';
-import { mobileAuthErrorResponse, requireMobilePilotAuth } from '../../../../../../lib/services/mobile/auth';
+import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import { recordTraceStage, resolveTraceSessionId, stage } from '../../../../../../lib/alphaTrace/traceRecorder';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
-  let auth;
+  let user;
   try {
-    auth = await requireMobilePilotAuth(request);
+    user = await requireMobileUser(request);
   } catch (error) {
     return mobileAuthErrorResponse(error);
   }
@@ -15,11 +15,11 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const startedAt = Date.now();
   try {
-    const result = await getMobileNextStep(auth.participantId, Object.fromEntries(searchParams.entries()));
+    const result = await getMobileNextStep(user.uid, Object.fromEntries(searchParams.entries()));
     try {
       await recordTraceStage(
-        resolveTraceSessionId(searchParams.get('sessionId'), auth.participantId),
-        auth.participantId,
+        resolveTraceSessionId(searchParams.get('sessionId'), user.uid),
+        user.uid,
         stage('recommendation_generated', {
           proposalId: result.recommendation?.proposalId ?? null,
           state: result.recommendation?.state ?? 'unknown',

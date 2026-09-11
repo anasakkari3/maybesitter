@@ -18,11 +18,13 @@ must not be used for V03-P1 operations.
 
 ## Admission
 
-The pilot is closed to 25-40 qualified, adult, separately consented
-participants. Configure pseudonymous participant IDs in
-`MAYBESITTER_CLOSED_PILOT_IDS`; the parser rejects fewer than 25, more than 40,
-duplicates, direct identifiers, and malformed IDs. General-public exposure is
-prohibited.
+Superseded by UC-1.0e (#144): there is no participant allowlist and no
+environment variable that configures one. Anyone who signs in with Apple,
+Google or email is a user, and the server derives their identity from a
+Firebase ID token. Cohort size is now a *staging* concern rather than an
+admission one — `SHADOW_STAGE_PARTICIPANT_CAP` and `_FLOOR` in
+`src/contracts/v1/shadowPipelineContracts` still bound a closed-pilot stage to
+25-40 people, and `lib/release/exposure` enforces it.
 
 Recommendation exposure additionally requires the V02 feature flag enabled, the
 recommendation kill switch inactive, explicit recommendation consent, quiet mode

@@ -13,7 +13,6 @@ import { resetStorageForTests, setStorageForTests } from '../../lib/storage/inde
 import { configureCommandService } from '../../lib/services/commandService.ts';
 import { createEmptyDomainState, type Commitment } from '../../src/domain/stateMachine.ts';
 
-const IDS = Array.from({ length: 25 }, (_, index) => `pilot-${index + 1}`);
 const commitment: Commitment = {
   id: 'c1', kind: 'task', title: 'Call Maya', description: null, person: null, status: 'active',
   priority: { level: 'high', source: 'user_explicit', pressureAllowed: false, pressureLevel: 'none' },
@@ -26,12 +25,10 @@ const commitment: Commitment = {
 test('V03 live pilot: allowlist, consent, first value, calendar, and incident audit are enforced end to end', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'maybesitter-v03-live-'));
   const previous = {
-    ids: process.env.MAYBESITTER_CLOSED_PILOT_IDS,
     feature: process.env.MAYBESITTER_FEATURE_RECOMMENDATION,
     kill: process.env.MAYBESITTER_KILL_SWITCH_RECOMMENDATION,
     token: process.env.MAYBESITTER_PILOT_ADMIN_TOKEN,
   };
-  process.env.MAYBESITTER_CLOSED_PILOT_IDS = IDS.join(',');
   process.env.MAYBESITTER_FEATURE_RECOMMENDATION = 'true';
   process.env.MAYBESITTER_KILL_SWITCH_RECOMMENDATION = 'false';
   process.env.MAYBESITTER_PILOT_ADMIN_TOKEN = 'test-admin-token-123456';
@@ -43,8 +40,14 @@ schedulerStore: null,
   });
 
   try {
+    // Membership is gone (UC-1.0e, #144): there is no roster to be outside
+    // of, so an id nobody has seen is simply a user who has not consented yet
+    // rather than a 403. These legacy routes still trust an id from the URL,
+    // which is why `src/middleware.ts` answers 404 for all of them on Cloud
+    // Run; UC-1.0c (#142) retires them.
     const outsider = await getTrust(new Request('http://local/api/pilot/trust?participantId=outsider'));
-    assert.equal(outsider.status, 403);
+    assert.equal(outsider.status, 200);
+    assert.equal((await outsider.json()).exposure.reason, 'consent_required');
     const otherAllowlistedParticipant = await getTrust(new Request('http://local/api/pilot/trust?participantId=pilot-2'));
     assert.equal(otherAllowlistedParticipant.status, 200);
     assert.equal((await otherAllowlistedParticipant.json()).exposure.reason, 'consent_required');
@@ -126,7 +129,6 @@ schedulerStore: null,
   } finally {
     resetStorageForTests();
     for (const [key, value] of [
-      ['MAYBESITTER_CLOSED_PILOT_IDS', previous.ids],
       ['MAYBESITTER_FEATURE_RECOMMENDATION', previous.feature],
       ['MAYBESITTER_KILL_SWITCH_RECOMMENDATION', previous.kill],
       ['MAYBESITTER_PILOT_ADMIN_TOKEN', previous.token],

@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { configureCommandService, getCommandServiceState } from '../../lib/services/commandService.ts';
-import { createEmptyDomainState } from '../../src/domain/stateMachine.ts';
+import { getParticipantStateSnapshot } from '../../lib/services/mobile/participantState.ts';
+import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
+import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
+import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
 import { POST as capturePost } from '../../src/app/api/mobile/capture/route.ts';
 import { POST as confirmPost } from '../../src/app/api/mobile/capture/confirm/route.ts';
 import { GET as todayGet } from '../../src/app/api/mobile/commitments/today/route.ts';
@@ -18,16 +20,47 @@ import { POST as actionPost } from '../../src/app/api/mobile/commitments/[id]/ac
 import { guardedMobileExtract } from '../../lib/services/mobile/safety.ts';
 import { decideExtractionDisposition } from '../../src/extraction/extractionPolicy.ts';
 import type { ExtractionResult } from '../../src/extraction/extractionTypes.ts';
+import { configureCommandService, getCommandServiceState } from '../../lib/services/commandService.ts';
+import { createEmptyDomainState } from '../../src/domain/stateMachine.ts';
 
 const baseUrl = 'http://127.0.0.1:4321';
 const referenceTime = '2026-08-09T08:00:00.000Z';
 
+/**
+ * These routes used to be reachable with no credential at all, and ran on one
+ * process-global command service shared by every caller. Since UC-1.0e (#144)
+ * every one of them requires a verified Firebase ID token and reads and
+ * writes that uid's own tree, so this file authenticates as USER and asserts
+ * persistence against that user's state rather than against a global.
+ */
+const USER = uidFor('RouteTestUser');
+
+let auth: FakeAuthControls | null = null;
+
 function request(path: string, body?: unknown): Request {
+  const headers = new Headers({ authorization: `Bearer ${tokenFor(USER)}` });
+  if (body !== undefined) headers.set('Content-Type', 'application/json');
   return new Request(`${baseUrl}${path}`, {
     method: body === undefined ? 'GET' : 'POST',
-    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+    headers,
     body: body === undefined ? undefined : JSON.stringify(body),
   });
+}
+
+/** The same request with no Authorization header. */
+function anonymousRequest(path: string, body?: unknown): Request {
+  const headers = new Headers();
+  if (body !== undefined) headers.set('Content-Type', 'application/json');
+  return new Request(`${baseUrl}${path}`, {
+    method: body === undefined ? 'GET' : 'POST',
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+}
+
+/** How many commitments this user actually has in storage. */
+async function commitmentCount(uid = USER): Promise<number> {
+  return Object.keys((await getParticipantStateSnapshot(uid)).commitments).length;
 }
 
 async function json(response: Response): Promise<Record<string, unknown>> {
@@ -44,7 +77,18 @@ function setup(): () => void {
     initialState: createEmptyDomainState(),
     schedulerStore: null,
   });
-  return () => rmSync(dir, { recursive: true, force: true });
+  const previousDataDir = process.env.MAYBESITTER_DATA_DIR;
+  process.env.MAYBESITTER_DATA_DIR = dir;
+  setStorageForTests(createMemoryStorage());
+  auth = installFakeAuth();
+  return () => {
+    auth?.restore();
+    auth = null;
+    resetStorageForTests();
+    if (previousDataDir === undefined) delete process.env.MAYBESITTER_DATA_DIR;
+    else process.env.MAYBESITTER_DATA_DIR = previousDataDir;
+    rmSync(dir, { recursive: true, force: true });
+  };
 }
 
 async function createConfirmedCommitment(): Promise<{ itemId: string; commitmentId: string }> {
@@ -57,7 +101,7 @@ async function createConfirmedCommitment(): Promise<{ itemId: string; commitment
   assert.equal(proposalResponse.status, 200);
   const proposal = await json(proposalResponse);
   assert.equal(proposal.status, 'proposed');
-  assert.equal(Object.keys(getCommandServiceState().commitments).length, 0);
+  assert.equal(await commitmentCount(), 0, 'a proposal must not persist anything');
 
   const items = proposal.items as Array<{ itemId: string }>;
   const itemId = items[0].itemId;
@@ -112,7 +156,7 @@ test('mobile API supports capture, confirm, list, detail, patch, action, and del
     const patchTitleResponse = await commitmentPatch(
       new Request(`${baseUrl}/api/mobile/commitments/${commitmentId}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: new Headers({ authorization: `Bearer ${tokenFor(USER)}`, 'Content-Type': 'application/json' }),
         body: JSON.stringify({ title: 'Call dentist urgent' }),
       }),
       params(commitmentId)
@@ -125,7 +169,7 @@ test('mobile API supports capture, confirm, list, detail, patch, action, and del
     const patchPriorityResponse = await commitmentPatch(
       new Request(`${baseUrl}/api/mobile/commitments/${commitmentId}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: new Headers({ authorization: `Bearer ${tokenFor(USER)}`, 'Content-Type': 'application/json' }),
         body: JSON.stringify({ priority: 'high' }),
       }),
       params(commitmentId)
@@ -137,7 +181,7 @@ test('mobile API supports capture, confirm, list, detail, patch, action, and del
     const patchTimeResponse = await commitmentPatch(
       new Request(`${baseUrl}/api/mobile/commitments/${commitmentId}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: new Headers({ authorization: `Bearer ${tokenFor(USER)}`, 'Content-Type': 'application/json' }),
         body: JSON.stringify({ dueDate: '2026-08-12T16:00:00.000Z' }),
       }),
       params(commitmentId)
@@ -181,7 +225,7 @@ test('mobile capture rejects malformed time and negated requests before persiste
         scopeId: 'safety-test',
       }));
       assert.equal(response.status, 400);
-      assert.equal(Object.keys(getCommandServiceState().commitments).length, 0);
+      assert.equal(await commitmentCount(), 0);
     }
 
     const malformed = await capturePost(request('/api/mobile/capture', {
@@ -191,7 +235,7 @@ test('mobile capture rejects malformed time and negated requests before persiste
       scopeId: 'safety-test',
     }));
     assert.equal(malformed.status, 400);
-    assert.equal(Object.keys(getCommandServiceState().commitments).length, 0);
+    assert.equal(await commitmentCount(), 0);
   } finally {
     cleanup();
   }
@@ -246,7 +290,7 @@ test('mobile capture accepts future requests that mention earlier context', asyn
       assert.equal(response.status, 200);
       const proposal = await json(response);
       assert.equal(proposal.status, 'proposed');
-      assert.equal(Object.keys(getCommandServiceState().commitments).length, 0);
+      assert.equal(await commitmentCount(), 0);
     }
   } finally {
     cleanup();
@@ -265,14 +309,23 @@ test('mobile confirm enforces scope and selection before persistence', async () 
     const proposal = await json(proposalResponse);
     const items = proposal.items as Array<{ itemId: string }>;
 
-    const wrongScope = await confirmPost(request('/api/mobile/capture/confirm', {
-      proposalId: proposal.proposalId,
-      scopeId: 'other',
-      itemIds: [items[0].itemId],
+    // The scope is the token's uid, so the confirm that must fail is another
+    // *user's*, not another `scopeId` string — the body field is not read.
+    // This used to be `scopeId: 'other'`, which a caller simply chose.
+    const other = uidFor('SomebodyElse');
+    const wrongScope = await confirmPost(new Request(`${baseUrl}/api/mobile/capture/confirm`, {
+      method: 'POST',
+      headers: new Headers({ authorization: `Bearer ${tokenFor(other)}`, 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        proposalId: proposal.proposalId,
+        scopeId: 'owner',
+        itemIds: [items[0].itemId],
+      }),
     }));
     assert.equal(wrongScope.status, 200);
     assert.equal((await json(wrongScope)).success, false);
-    assert.equal(Object.keys(getCommandServiceState().commitments).length, 0);
+    assert.equal(await commitmentCount(), 0);
+    assert.equal(await commitmentCount(other), 0);
 
     const emptySelection = await confirmPost(request('/api/mobile/capture/confirm', {
       proposalId: proposal.proposalId,
@@ -280,7 +333,7 @@ test('mobile confirm enforces scope and selection before persistence', async () 
       itemIds: [],
     }));
     assert.equal(emptySelection.status, 400);
-    assert.equal(Object.keys(getCommandServiceState().commitments).length, 0);
+    assert.equal(await commitmentCount(), 0);
   } finally {
     cleanup();
   }
@@ -305,14 +358,14 @@ test('mobile confirm replays the same idempotency key without duplicating commit
     };
 
     const first = await json(await confirmPost(request('/api/mobile/capture/confirm', payload)));
-    const countAfterFirst = Object.keys(getCommandServiceState().commitments).length;
+    const countAfterFirst = await commitmentCount();
     const second = await json(await confirmPost(request('/api/mobile/capture/confirm', payload)));
 
     assert.equal(first.success, true);
     assert.equal(first.replayed, false);
     assert.equal(second.success, true);
     assert.equal(second.replayed, true);
-    assert.equal(Object.keys(getCommandServiceState().commitments).length, countAfterFirst);
+    assert.equal(await commitmentCount(), countAfterFirst);
     assert.equal(countAfterFirst, 1);
   } finally {
     cleanup();
@@ -337,7 +390,7 @@ test('mobile confirm rejects idempotency mismatch without duplicating commitment
       itemIds: [itemId],
       idempotencyKey: 'key-a',
     })));
-    const stateAfterFirst = JSON.stringify(getCommandServiceState().commitments);
+    const stateAfterFirst = JSON.stringify((await getParticipantStateSnapshot(USER)).commitments);
     const second = await json(await confirmPost(request('/api/mobile/capture/confirm', {
       proposalId: proposal.proposalId,
       scopeId: 'mismatch',
@@ -348,8 +401,8 @@ test('mobile confirm rejects idempotency mismatch without duplicating commitment
     assert.equal(first.success, true);
     assert.equal(second.success, false);
     assert.deepEqual(second.failed, [{ itemId, reason: 'invalid_selection' }]);
-    assert.equal(Object.keys(getCommandServiceState().commitments).length, 1);
-    assert.equal(JSON.stringify(getCommandServiceState().commitments), stateAfterFirst);
+    assert.equal(await commitmentCount(), 1);
+    assert.equal(JSON.stringify((await getParticipantStateSnapshot(USER)).commitments), stateAfterFirst);
   } finally {
     cleanup();
   }
@@ -376,6 +429,29 @@ test('mobile today route includes a same-day future confirmed commitment', async
 
     const today = await json(await todayGet(request('/api/mobile/commitments/today?timezone=UTC&referenceTime=2026-08-09T08%3A00%3A00.000Z')));
     assert.equal((today.items as Array<{ id: string }>).some((item) => item.id === commitmentId), true);
+  } finally {
+    cleanup();
+  }
+});
+
+test('every route in this file refuses an unauthenticated caller', async () => {
+  const cleanup = setup();
+  try {
+    const calls: Array<[string, Promise<Response>]> = [
+      ['capture', capturePost(anonymousRequest('/api/mobile/capture', { text: 'Call the dentist tomorrow at 3pm', referenceTime, timezone: 'UTC' }))],
+      ['confirm', confirmPost(anonymousRequest('/api/mobile/capture/confirm', { proposalId: 'p', itemIds: ['i'] }))],
+      ['today', todayGet(anonymousRequest('/api/mobile/commitments/today'))],
+      ['upcoming', upcomingGet(anonymousRequest('/api/mobile/commitments/upcoming'))],
+      ['detail', commitmentGet(anonymousRequest('/api/mobile/commitments/c1'), params('c1'))],
+      ['action', actionPost(anonymousRequest('/api/mobile/commitments/c1/actions', { action: 'complete' }), params('c1'))],
+      ['delete', commitmentDelete(anonymousRequest('/api/mobile/commitments/c1'), params('c1'))],
+    ];
+    for (const [name, pending] of calls) {
+      const response = await pending;
+      assert.equal(response.status, 401, `${name} must refuse an unauthenticated caller`);
+      assert.equal((await json(response)).reason, 'missing_token', name);
+    }
+    assert.equal(await commitmentCount(), 0);
   } finally {
     cleanup();
   }

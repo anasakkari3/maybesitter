@@ -7,7 +7,7 @@ import {
   requirePilotParticipantId,
   type PilotTrustAction,
 } from '../../../../../lib/pilot/closedPilotControls';
-import { resolvePilotAccess } from '../../../../../lib/pilot/pilotAccess';
+import { resolveUserAccess } from '../../../../../lib/pilot/pilotAccess';
 import { appendAudit, applyTrustAction } from '../../../../../lib/pilot/pilotTrustStore';
 import { resetSingleUserAccount } from '../../../../../lib/services/appMetadataService';
 import { getCommandServiceState } from '../../../../../lib/services/commandService';
@@ -35,7 +35,7 @@ function participantIdFromUrl(request: Request): string {
 
 async function requireAllowlisted(participantId: string): Promise<void> {
   requirePilotParticipantId(participantId);
-  const access = await resolvePilotAccess(participantId, new Date().toISOString(), false);
+  const access = await resolveUserAccess(participantId, new Date().toISOString(), false);
   if (!access.trust) throw new Error('participant is not admitted to this pilot instance');
 }
 
@@ -61,7 +61,7 @@ function clientAction(value: ClientAction, at: string): PilotTrustAction {
 }
 
 async function view(participantId: string, now: string) {
-  const access = await resolvePilotAccess(participantId, now, false);
+  const access = await resolveUserAccess(participantId, now, false);
   if (!access.trust) throw new Error('participant is not allowlisted');
   const confirmedCommitmentCount = Object.values(getCommandServiceState().commitments)
     .filter((commitment) => Boolean(commitment.confirmedAt)).length;
@@ -109,7 +109,7 @@ export async function POST(request: Request) {
 
     const confirmedCommitmentCount = Object.values(getCommandServiceState().commitments)
       .filter((commitment) => Boolean(commitment.confirmedAt)).length;
-    const exposure = (await resolvePilotAccess(participantId, at, false)).decision;
+    const exposure = (await resolveUserAccess(participantId, at, false)).decision;
     return Response.json({
       trust,
       exposure,

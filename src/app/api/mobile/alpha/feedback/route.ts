@@ -3,7 +3,7 @@ import {
   type AlphaFeedbackFlag,
 } from '../../../../../../src/contracts/v1/feedbackFlagContracts';
 import { mobilePilotErrorResponse } from '../../../../../../lib/services/mobile/pilotService';
-import { mobileAuthErrorResponse, requireMobilePilotAuth } from '../../../../../../lib/services/mobile/auth';
+import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import {
   createStorageAlphaFeedbackStore,
   type AlphaFeedbackStore,
@@ -23,9 +23,9 @@ export async function POST(request: Request) {
   if (!process.env.MAYBESITTER_ALPHA_FEEDBACK_ENABLED) {
     return mobilePilotErrorResponse(new Error('feature_disabled'));
   }
-  let auth;
+  let user;
   try {
-    auth = await requireMobilePilotAuth(request);
+    user = await requireMobileUser(request);
   } catch (error) {
     return mobileAuthErrorResponse(error);
   }
@@ -39,7 +39,7 @@ export async function POST(request: Request) {
 
   const input = {
     ...(body as Record<string, unknown>),
-    participantId: auth.participantId,
+    participantId: user.uid,
   };
 
   try {
@@ -74,18 +74,17 @@ export async function GET(request: Request) {
   if (!process.env.MAYBESITTER_ALPHA_FEEDBACK_ENABLED) {
     return mobilePilotErrorResponse(new Error('feature_disabled'));
   }
-  let auth;
+  let user;
   try {
-    auth = await requireMobilePilotAuth(request);
+    user = await requireMobileUser(request);
   } catch (error) {
     return mobileAuthErrorResponse(error);
   }
 
-  const url = new URL(request.url);
-  const participantId = url.searchParams.get('participantId') || auth.participantId;
-
+  // A `?participantId=` override used to be honoured here, which let any
+  // authenticated caller read anyone else's flags. The scope is the uid.
   const store = getStore();
-  const flags = await store.list({ participantId });
+  const flags = await store.list({ participantId: user.uid });
 
   return Response.json({ flags, count: flags.length });
 }

@@ -3,18 +3,20 @@ import { ScrollView, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { dayLabel, fmt } from '../state/derive';
-import { fill, ltr } from '../i18n/strings';
+import { ltr } from '../i18n/strings';
 import { family } from '../theme/fonts';
 import { cardShadow } from '../theme/tokens';
 import { Btn, FlowHeader, ImpBadge, Pill, Txt } from '../ui/primitives';
 import { ScreenIn } from '../ui/motion';
 
 export function ReviewScreen() {
-  const { s, t, p, ar, actions } = useApp();
+  const { s, t, tr, p, ar, actions } = useApp();
   const insets = useSafeAreaInsets();
   const colors = [p.ac, p.wm];
   const n = s.proposals.length;
-  const confirmLabel = n === 0 ? t.confirmNone : n === 1 ? t.confirmOne : fill(t.confirmN, { n });
+  // One ICU plural covers 0, 1 and the Arabic dual/few/many forms the old
+  // three-way ternary got wrong from n=2 upwards.
+  const confirmLabel = tr('confirmN', { n });
 
   return (
     <ScreenIn style={{ backgroundColor: p.bg }}>

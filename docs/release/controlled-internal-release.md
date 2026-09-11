@@ -35,7 +35,7 @@ This is enforced three ways, not asserted once.
    stages — `shadow_only`, `internal_dogfood`, `closed_pilot` — and no fourth to
    configure. A general release is not something this code refuses; it is
    something it cannot express.
-2. Every stage's cap is at or below `CLOSED_PILOT_MAXIMUM` (40), pinned against
+2. Every stage's cap is at or below the closed-pilot staging ceiling (40), pinned against
    `lib/pilot/closedPilotControls` by test.
 3. `readStageConfiguration` is **fail-closed**: an unset or unrecognised
    `MAYBESITTER_SHADOW_STAGE` reads as `shadow_only`, whose cap is zero. A typo
@@ -55,14 +55,14 @@ is the stage this sprint ships in.
 | --- | --- | --- | --- |
 | `shadow_only` | 0 | 0 | — the chain runs, nobody is exposed |
 | `internal_dogfood` | 1 | 10 | `ALPHA_ALLOWLIST_MINIMUM` / `_MAXIMUM` |
-| `closed_pilot` | 25 | 40 | `CLOSED_PILOT_MINIMUM` / `_MAXIMUM` |
+| `closed_pilot` | 25 | 40 | `SHADOW_STAGE_PARTICIPANT_FLOOR` / `_CAP` |
 
 The floor matters as much as the cap: a "closed pilot" of four people produces
 evidence nobody should decide on, and `checkStageConfiguration` reports it.
 
 ### The gate can only narrow
 
-`resolveStagedExposure` consults `resolvePilotAccess` **first** and its refusal
+`resolveStagedExposure` consults `resolveUserAccess` **first** and its refusal
 is final. Then the stage, then consent, then the cap, then the stage cohort.
 There is no path in `lib/release` that turns a pilot refusal into an exposure.
 Every one of the eight `ShadowPilotStopReason`s is swept by test, and each is

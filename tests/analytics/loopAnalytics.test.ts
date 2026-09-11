@@ -142,7 +142,19 @@ test('analytics: an absent anonymous id disables collection rather than failing 
   assert.equal(await analyticsContextFrom({}, appendAnalyticsEvent), null);
   assert.equal(await analyticsContextFrom({ anonymousUserId: '' }, appendAnalyticsEvent), null);
   assert.equal((await analyticsContextFrom({ anonymousUserId: 'u1' }, appendAnalyticsEvent))?.consent, 'essential');
-  assert.equal((await analyticsContextFrom({ anonymousUserId: 'u1', consent: 'granted' }, appendAnalyticsEvent))?.consent, 'granted');
+});
+
+/**
+ * The last line of the test above used to assert that a caller claiming
+ * `consent: 'granted'` was believed, because outside a configured pilot the
+ * claim was passed straight through. UC-1.0e (#144) removed the environment
+ * variable that decided "outside a configured pilot", and with it the
+ * pass-through: a claim is not a consent, and consent is now read from the
+ * user's own trust record or it is `essential`.
+ */
+test('analytics: a client-claimed consent is not believed without a trust record', async () => {
+  const claimed = await analyticsContextFrom({ anonymousUserId: 'u1', consent: 'granted' }, appendAnalyticsEvent);
+  assert.equal(claimed?.consent, 'essential');
 });
 
 test('analytics: changed field count reports edit shape without field values', () => {
