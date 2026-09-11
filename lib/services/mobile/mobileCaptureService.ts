@@ -21,6 +21,7 @@ import {
 } from './participantState';
 import { guardedMobileExtract } from './safety';
 import { dateFromOptionalIso, normalizeTimezone } from './time';
+import { resolveDataDir } from '../../runtime/dataDir';
 
 export interface MobileCaptureInput {
   text?: unknown;
@@ -233,7 +234,7 @@ export function resetMobileBackendForTests(): void {
   configureCommandService({
     initialState: createEmptyDomainState(),
     schedulerStore: null,
-    stateFile: `.maybesitter/test-mobile-${randomUUID()}.json`,
+    stateFile: resolveDataDir(`test-mobile-${randomUUID()}.json`),
   });
 }
 

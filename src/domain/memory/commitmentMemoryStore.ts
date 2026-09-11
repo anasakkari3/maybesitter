@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto';
 import type { CommitmentMemory, CommitmentMemoryStatus, CommitmentEvent, CommitmentEventType } from './memoryTypes.ts';
 import { assertValidTransition, isTerminalStatus } from './commitmentStateMachine.ts';
 import { evaluateNotificationEligibility } from './memoryPolicy.ts';
+import { resolveDataDir } from '../../../lib/runtime/dataDir';
 
 export interface CreateCommitmentMemoryInput {
   userId: string;
@@ -53,7 +54,7 @@ export class FileCommitmentMemoryStore implements CommitmentMemoryStore {
   private filePath: string;
 
   constructor(dataDir?: string) {
-    this.dataDir = dataDir || path.join(process.cwd(), '.maybesitter');
+    this.dataDir = dataDir || resolveDataDir();
     this.filePath = path.join(this.dataDir, 'commitment-memory.json');
   }
 

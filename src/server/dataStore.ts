@@ -2,6 +2,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import type { DailyDigest, Item, ReminderAttempt, User } from '../types/index';
+import { resolveDataDir } from '../../lib/runtime/dataDir';
 
 export const SINGLE_USER_ID = 'single-user';
 const SCHEMA_VERSION = 1;
@@ -17,7 +18,7 @@ export interface AppData extends AppSnapshot {
   schemaVersion: number;
 }
 
-const dataDirectory = process.env.MAYBESITTER_DATA_DIR || path.join(process.cwd(), '.maybesitter');
+const dataDirectory = resolveDataDir();
 const dataFile = path.join(dataDirectory, 'data.json');
 
 let writeQueue: Promise<unknown> = Promise.resolve();

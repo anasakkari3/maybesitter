@@ -7,6 +7,7 @@ import type { Commitment, DomainState, Reminder } from '../../src/domain/stateMa
 import type { AgendaItem } from './agendaService';
 import { createAssistantTurn, type RealizationPath, type ResponseStrategy } from './responseEngine/assistantTurn';
 import { getConversationStateStore } from './responseEngine/conversationStateStore';
+import { resolveDataDir } from '../runtime/dataDir';
 
 export type PressureTone = 'soft' | 'firm';
 export type PressureIntensity = 'low' | 'medium' | 'high';
@@ -80,7 +81,6 @@ type PressureDeliveryData = {
 export const PRESSURE_DELIVERY_COOLDOWN_MS = 60 * 60 * 1_000;
 const DEFAULT_PRESSURE_SCOPE_ID = 'local';
 const HIGH_URGENCY_SCORE = 5_800;
-const DEFAULT_DELIVERY_FILE = path.join(process.cwd(), '.maybesitter', 'pressure-delivery.json');
 
 function emptyData(): PressureDeliveryData {
   return { surfaced: {} };
@@ -400,7 +400,7 @@ function candidateFor(item: AgendaItem, state: DomainState, nowMs: number): Pres
 export class FilePressureDeliveryStore implements PressureDeliveryStore {
   private readonly filePath: string;
 
-  constructor(filePath = DEFAULT_DELIVERY_FILE) {
+  constructor(filePath = resolveDataDir('pressure-delivery.json')) {
     this.filePath = filePath;
   }
 

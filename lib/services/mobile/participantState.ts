@@ -11,6 +11,7 @@ import {
   type DomainState,
 } from '../../../src/domain/stateMachine';
 import { requirePilotParticipantId } from '../../pilot/closedPilotControls';
+import { resolveDataDir } from '../../runtime/dataDir';
 
 export type ParticipantCommandResultType = 'applied' | 'noop' | 'rejected';
 
@@ -32,7 +33,7 @@ function cloneState(state: DomainState): DomainState {
 }
 
 export function participantDataRoot(): string {
-  return process.env.MAYBESITTER_DATA_DIR || path.join(process.cwd(), '.maybesitter');
+  return resolveDataDir();
 }
 
 export function participantStateFile(participantId: string): string {

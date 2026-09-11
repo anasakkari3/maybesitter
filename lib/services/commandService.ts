@@ -16,6 +16,7 @@ import type {
   StateTransitionResult,
 } from '../../src/domain/stateMachine';
 import type { NewScheduledJob, SchedulerStore } from '../../src/scheduler/jobRunner';
+import { resolveDataDir } from '../runtime/dataDir';
 
 export type CommandServiceResultType = 'applied' | 'noop' | 'rejected';
 
@@ -31,7 +32,7 @@ export interface CommandServiceConfig {
   stateFile?: string;
 }
 
-let stateFilePath = process.env.MAYBESITTER_DOMAIN_STATE_FILE || path.join(process.cwd(), '.maybesitter', 'domain-state.json');
+let stateFilePath = process.env.MAYBESITTER_DOMAIN_STATE_FILE || resolveDataDir('domain-state.json');
 let currentState: DomainState = loadState(stateFilePath);
 let schedulerStore: SchedulerStore | null = null;
 
@@ -47,7 +48,7 @@ function loadState(filePath: string): DomainState {
 
 function persistState(state: DomainState): void {
   mkdirSync(path.dirname(stateFilePath), { recursive: true });
-  const tmp = `${stateFilePath}.tmp`;
+  const tmp = `${stateFilePath}.${process.pid}.${randomUUID()}.tmp`;
   writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
   renameSync(tmp, stateFilePath);
 }

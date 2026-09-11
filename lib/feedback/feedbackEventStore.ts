@@ -53,6 +53,7 @@ import {
   type LegacyCounterName,
 } from '../../src/contracts/v1/feedbackContracts';
 import { isIsoTimestamp, isNonEmptyString } from '../evaluation/registry/validationPrimitives';
+import { resolveDataDir } from '../runtime/dataDir';
 
 const FEEDBACK_SUBDIR = 'feedback-events';
 const EVENT_FILE_EXT = '.feedback.json';
@@ -390,7 +391,7 @@ function createStore(repository: FeedbackRepository): FeedbackEventStore {
 
 /** Default record directory, honouring MAYBESITTER_DATA_DIR like sibling stores. */
 function defaultDataDir(): string {
-  const root = process.env.MAYBESITTER_DATA_DIR || path.join(process.cwd(), '.maybesitter');
+  const root = resolveDataDir();
   return path.join(root, FEEDBACK_SUBDIR);
 }
 

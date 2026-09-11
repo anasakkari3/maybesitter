@@ -48,6 +48,7 @@ import {
   type RuntimeMemoryStoreOptions,
 } from '../../src/contracts/v1/memoryContracts';
 import { isIsoTimestamp, isNonEmptyString } from '../evaluation/registry/validationPrimitives';
+import { resolveDataDir } from '../runtime/dataDir';
 
 const MEMORY_SUBDIR = 'runtime-memory';
 const MEMORY_FILE_EXT = '.memory.json';
@@ -388,7 +389,7 @@ function createStore(repository: RecordRepository, defaultTtlMs: number): Runtim
 
 /** Default record directory, honouring MAYBESITTER_DATA_DIR like sibling stores. */
 function defaultDataDir(): string {
-  const root = process.env.MAYBESITTER_DATA_DIR || path.join(process.cwd(), '.maybesitter');
+  const root = resolveDataDir();
   return path.join(root, MEMORY_SUBDIR);
 }
 

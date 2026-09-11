@@ -36,6 +36,7 @@ import {
   type ShadowStudyQuestionId,
   type ShadowStudyResponse,
 } from '../../src/contracts/v1/shadowPipelineContracts';
+import { resolveDataDir } from '../runtime/dataDir';
 
 const RESPONSE_SUBDIR = 'shadow-study-responses';
 const RESPONSE_FILE_EXT = '.study-responses.json';
@@ -235,7 +236,7 @@ function createStore(repository: ResponseRepository): ShadowStudyResponseStore {
 }
 
 function defaultDataDir(): string {
-  const root = process.env.MAYBESITTER_DATA_DIR || path.join(process.cwd(), '.maybesitter');
+  const root = resolveDataDir();
   return path.join(root, RESPONSE_SUBDIR);
 }
 

@@ -65,6 +65,7 @@ import {
   toSafeDecisionId,
   type CreateDecisionInput,
 } from './reviewedDecision';
+import { resolveDataDir } from '../../runtime/dataDir';
 
 export const DECISION_STORE_SUBDIR = 'priority-annotation';
 export const DECISION_FILE_EXT = '.decision.json';
@@ -261,7 +262,7 @@ function createStore(repository: DecisionRepository): DecisionStore {
 /* ── Backends ───────────────────────────────────────────────────── */
 
 function defaultDataDir(): string {
-  const root = process.env.MAYBESITTER_DATA_DIR || path.join(process.cwd(), '.maybesitter');
+  const root = resolveDataDir();
   return path.join(root, DECISION_STORE_SUBDIR);
 }
 

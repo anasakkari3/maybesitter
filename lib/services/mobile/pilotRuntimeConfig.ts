@@ -2,6 +2,7 @@ import path from 'node:path';
 import { parseClosedPilotAllowlist } from '../../pilot/closedPilotControls';
 import { alphaAllowlistConfigured, parseAlphaAllowlist } from '../../pilot/alphaControls';
 import { getRequiredTokenSecret } from '../../pilot/pilotTokenService';
+import { localDataDir } from '../../runtime/dataDir';
 
 export class PilotRuntimeConfigurationError extends Error {
   readonly reason = 'invalid_pilot_runtime_configuration';
@@ -24,7 +25,7 @@ function requireDurableParticipantDataDir(env: NodeJS.ProcessEnv): string {
   if (!path.isAbsolute(trimmed)) {
     throw new PilotRuntimeConfigurationError('MAYBESITTER_DATA_DIR must be an absolute durable path when MAYBESITTER_PILOT_MODE=true');
   }
-  const defaultLocalDir = path.join(process.cwd(), '.maybesitter');
+  const defaultLocalDir = localDataDir();
   if (path.resolve(trimmed) === path.resolve(defaultLocalDir)) {
     throw new PilotRuntimeConfigurationError('MAYBESITTER_DATA_DIR must not use the local .maybesitter default when MAYBESITTER_PILOT_MODE=true');
   }

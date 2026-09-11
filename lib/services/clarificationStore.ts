@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import type { ExtractionResult } from '../../src/extraction/extractionTypes';
+import { resolveDataDir } from '../runtime/dataDir';
 
 export interface PendingClarification {
   id: string;
@@ -32,8 +33,6 @@ type ClarificationStoreData = {
   entries: Record<string, PendingClarification>;
 };
 
-const DEFAULT_STORE_FILE = path.join(process.cwd(), '.maybesitter', 'clarifications.json');
-
 function entryKey(scopeId: string, id: string): string {
   return `${scopeId}:${id}`;
 }
@@ -60,7 +59,7 @@ export function scopeClarification(options: {
 export class FileClarificationStore implements ClarificationStore {
   private readonly filePath: string;
 
-  constructor(filePath = DEFAULT_STORE_FILE) {
+  constructor(filePath = resolveDataDir('clarifications.json')) {
     this.filePath = filePath;
   }
 
