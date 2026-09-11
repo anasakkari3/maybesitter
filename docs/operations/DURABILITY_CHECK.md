@@ -66,10 +66,47 @@ commitment text.
 
 ### Test identity
 
-The run creates `durability-<runId>` through the Admin SDK, mints a custom
-token, exchanges it for an ID token, and deletes the account in the `finally`
-block. `FIREBASE_WEB_API_KEY` comes from the environment; it is not secret, but
-it is not committed either.
+A throwaway `durability-<runId>@durability.invalid` account, created through
+Identity Toolkit's REST `accounts:signUp` with the project's web API key, which
+returns a real Firebase ID token. The account is deleted in the `finally`
+block, along with its `users/{uid}` tree.
+
+Deliberately **not** `createCustomToken`: that has to be signed by a service
+account, which would mean either a JSON key or granting Service Account Token
+Creator. No test is worth broadening IAM for.
+
+`FIREBASE_WEB_API_KEY` comes from the environment. It is not a secret — it
+ships in mobile clients — but it is not committed either. Read it at run time:
+
+```bash
+export FIREBASE_WEB_API_KEY="$(gcloud services api-keys get-key-string \
+  "$(gcloud services api-keys list --project maybesitter-app \
+     --filter="displayName:'Browser key (auto created by Firebase)'" \
+     --format='value(name)' | head -1)" --format='value(keyString)')"
+```
+
+Email/Password sign-in must be enabled on the project, otherwise `signUp`
+refuses and the run cannot start.
+
+### What the run changes on the service, and puts back
+
+`min-instances=2` and `concurrency=4`, because nothing below phase 1 proves
+anything about more than one process — and `MAYBESITTER_FEATURE_RECOMMENDATION=true`,
+because the recommendation module is off by default and `decidePilotExposure`
+refuses on `feature_disabled` before it ever looks at consent, so the
+idempotency phase would otherwise test nothing. All three are undone in
+`finally`, including when a check fails, which is exactly when leaving
+`min-instances=2` running would quietly cost money.
+
+### What "exactly once" means for the scheduled job
+
+The run writes one due job into `jobs/` — shaped exactly like a job the
+product creates — and lets the **real Cloud Scheduler tick** claim it. The
+check is that the job made **one attempt** and reached a terminal state. It is
+about execution, not business success: the reminder it names does not exist,
+so the handler rejects it and the runner fails it without retrying. Two
+attempts, or a job still `claimed`, is the failure this catches.
+
 
 ## Status
 

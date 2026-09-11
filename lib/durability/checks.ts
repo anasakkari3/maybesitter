@@ -127,3 +127,35 @@ export interface DurabilitySummary {
 export function summaryExitCode(summary: Pick<DurabilitySummary, 'checks'>): 0 | 1 {
   return Object.values(summary.checks).some((result) => result === 'fail') ? 1 : 0;
 }
+
+/**
+ * The domain's own status words, in the vocabulary `finalStateFrom` answers in.
+ *
+ * They are not the same words: a postponed commitment is `deferred` and a
+ * cancelled one is `dropped`. Comparing the two vocabularies directly is the
+ * kind of mistake that makes a durability run pass while the state is wrong.
+ */
+export function finalStatusFromCommitmentStatus(status: string): FinalState['status'] {
+  if (status === 'completed') return 'completed';
+  if (status === 'deferred') return 'postponed';
+  if (status === 'dropped') return 'cancelled';
+  return 'unchanged';
+}
+
+export interface JobOutcome {
+  status: string;
+  attempts: number;
+}
+
+/**
+ * A scheduled job must have run once and settled.
+ *
+ * This is about execution, not about the command succeeding: a job whose
+ * command is rejected is still a job that ran exactly once, and `failed` with
+ * one attempt is the correct outcome for it. What must never happen is two
+ * attempts (the same job ran twice) or a job still sitting claimed.
+ */
+export function jobRanExactlyOnce(job: JobOutcome | null | undefined): boolean {
+  if (!job) return false;
+  return job.attempts === 1 && (job.status === 'completed' || job.status === 'failed');
+}
