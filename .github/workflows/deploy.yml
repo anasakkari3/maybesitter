@@ -129,4 +129,8 @@ jobs:
             --region "${REGION}" --to-latest
 
       - name: Deploy Firestore rules and indexes
-        run: npx --yes firebase-tools@14 deploy --only firestore --project "${PROJECT_ID}"
+        run: # --non-interactive: in CI there is no one to answer a prompt. NOT --force:
+          # that would delete field overrides the project has and this file does
+          # not list — which is how the TTL policies from infra/firestore-ttl.sh
+          # would silently disappear.
+          npx --yes firebase-tools@14 deploy --only firestore --non-interactive --project "${PROJECT_ID}"
