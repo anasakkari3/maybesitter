@@ -47,7 +47,7 @@
   },
   "dependencies": {
     "firebase-admin": "^14.4.0",
-    "next": "15.5.24 15.5.21",
+    "next": "15.5.24",
     "google-auth-library": "^10.9.1",
     "react": "^18",
     "react-dom": "^18"
