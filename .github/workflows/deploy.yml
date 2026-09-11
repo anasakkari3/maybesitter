@@ -1,0 +1,118 @@
+# UNVERIFIED — this workflow has never been executed.
+#
+# It cannot run until the owner completes UC-1.0a (#140): install gcloud,
+# authenticate, run infra/bootstrap.sh, and set the two repository variables
+# GCP_WIF_PROVIDER and GCP_DEPLOYER_SA. Until then there is no Workload
+# Identity pool to authenticate against and no Cloud Run service to deploy to.
+#
+# It is therefore committed with `workflow_dispatch` ONLY: an unverified
+# workflow must not fire on every push to main. After the first successful
+# manual staging run, add:
+#
+#   push:
+#     branches: [main]
+#
+# to the triggers below.
+
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Which environment to deploy
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  PROJECT_ID: maybesitter-app
+  REGION: europe-west1
+  REPOSITORY: maybesitter
+  IMAGE: api
+
+concurrency:
+  group: deploy-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to ${{ inputs.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # `production` is a protected GitHub environment: the owner is a required
+    # reviewer, so a production deploy waits for an explicit approval.
+    environment: ${{ inputs.target }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Keyless: no service-account JSON key exists anywhere. The pool is
+      # pinned to this repository on refs/heads/main by infra/bootstrap.sh.
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@71f986410dfbc7added4569d411d040a91dc6935 # v2.1.8
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SA }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@77e7a554d41e2ee56fc945c52dfd3f33d12def9a # v2.1.4
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+
+      - name: Build and push the image
+        id: build
+        run: |
+          IMAGE_URI="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE}:${GITHUB_SHA}"
+          docker build --build-arg "GIT_SHA=${GITHUB_SHA}" -t "${IMAGE_URI}" .
+          docker push "${IMAGE_URI}"
+          DIGEST="$(gcloud artifacts docker images describe "${IMAGE_URI}" --format='value(image_summary.digest)')"
+          echo "image_uri=${IMAGE_URI}" >>"${GITHUB_OUTPUT}"
+          echo "image_digest=${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE}@${DIGEST}" >>"${GITHUB_OUTPUT}"
+
+      - name: Deploy without traffic
+        id: deploy
+        run: |
+          SERVICE="maybesitter-api"
+          [ "${{ inputs.target }}" = "staging" ] && SERVICE="maybesitter-api-staging"
+          echo "service=${SERVICE}" >>"${GITHUB_OUTPUT}"
+          # The image is deployed by digest, so production runs the exact bytes
+          # staging ran.
+          gcloud run deploy "${SERVICE}" \
+            --image "${{ steps.build.outputs.image_digest }}" \
+            --region "${REGION}" \
+            --no-traffic \
+            --tag "sha-${GITHUB_SHA::7}" \
+            $(bash infra/cloudrun/flags.sh "${{ inputs.target }}")
+
+      - name: Smoke test the new revision
+        run: |
+          URL="$(gcloud run services describe "${{ steps.deploy.outputs.service }}" \
+            --region "${REGION}" --format='value(status.traffic[0].url)')"
+          TAG_URL="$(gcloud run services describe "${{ steps.deploy.outputs.service }}" \
+            --region "${REGION}" --format="value(status.traffic.filter(tag='sha-${GITHUB_SHA::7}').url)")"
+          PROBE="${TAG_URL:-$URL}"
+          for _ in $(seq 1 30); do
+            body="$(curl -fsS "${PROBE}/api/health/ready" || true)"
+            case "${body}" in *'"ready":true'*) break ;; esac
+            sleep 5
+          done
+          curl -fsS "${PROBE}/api/health" | tee /tmp/health.json
+          grep -q "${GITHUB_SHA}" /tmp/health.json
+
+      - name: Send traffic to the new revision
+        run: |
+          gcloud run services update-traffic "${{ steps.deploy.outputs.service }}" \
+            --region "${REGION}" --to-latest
+
+      - name: Deploy Firestore rules and indexes
+        run: npx --yes firebase-tools@14 deploy --only firestore --project "${PROJECT_ID}"
