@@ -41,7 +41,7 @@ Least privilege from the first day. Nothing here holds `roles/editor` or
 | Service account | Purpose | Roles |
 |---|---|---|
 | `maybesitter-run` | Cloud Run runtime | `roles/datastore.user`, `roles/firebaseauth.admin`, and `roles/secretmanager.secretAccessor` **on the deletion-receipt secret only** |
-| `maybesitter-deployer` | GitHub Actions deploys through WIF | `roles/run.developer`, `roles/firebaserules.admin`, `roles/datastore.indexAdmin`, `roles/artifactregistry.writer` (on the `maybesitter` repository only), `roles/iam.serviceAccountUser` (on `maybesitter-run` only) |
+| `maybesitter-deployer` | GitHub Actions deploys through WIF | `roles/run.admin` (making the service public with `--allow-unauthenticated` needs `run.services.setIamPolicy`, which `run.developer` lacks), `roles/firebaserules.admin`, `roles/datastore.indexAdmin`, `roles/serviceusage.serviceUsageConsumer` (firebase-tools checks the Firestore API is enabled before deploying rules, and fails on a 403), `roles/artifactregistry.writer` (on the `maybesitter` repository only), `roles/iam.serviceAccountUser` (on `maybesitter-run` only) |
 | `maybesitter-scheduler` | The identity Cloud Scheduler signs OIDC tokens as | none at project level — the app authorises it by checking the token's email |
 
 `roles/firebaseauth.admin` is what lets the backend verify, revoke and delete

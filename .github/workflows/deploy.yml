@@ -79,25 +79,33 @@ jobs:
           echo "image_uri=${IMAGE_URI}" >>"${GITHUB_OUTPUT}"
           echo "image_digest=${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE}@${DIGEST}" >>"${GITHUB_OUTPUT}"
 
-      - name: Deploy without traffic
+      - name: Deploy (behind a tag once the service exists)
         id: deploy
         run: |
           SERVICE="maybesitter-api"
           [ "${{ inputs.target }}" = "staging" ] && SERVICE="maybesitter-api-staging"
           echo "service=${SERVICE}" >>"${GITHUB_OUTPUT}"
+          # Cloud Run rejects --no-traffic when it is creating a service, so the
+          # very first deploy of each service takes traffic at once. It is still
+          # gated: Cloud Run will not route to a revision that fails its startup
+          # probe (/api/health/ready), and the smoke test below runs before this
+          # job can report success. Every later deploy is staged behind a tag.
+          TRAFFIC_FLAGS=()
+          if gcloud run services describe "${SERVICE}" --region "${REGION}" >/dev/null 2>&1; then
+            TRAFFIC_FLAGS=(--no-traffic --tag "sha-${GITHUB_SHA::7}")
+          fi
           # The image is deployed by digest, so production runs the exact bytes
-          # staging ran.
+          # staging ran. flags.sh prints one flag per word, hence unquoted.
           gcloud run deploy "${SERVICE}" \
             --image "${{ steps.build.outputs.image_digest }}" \
             --region "${REGION}" \
-            --no-traffic \
-            --tag "sha-${GITHUB_SHA::7}" \
+            ${TRAFFIC_FLAGS[@]+"${TRAFFIC_FLAGS[@]}"} \
             $(bash infra/cloudrun/flags.sh "${{ inputs.target }}")
 
       - name: Smoke test the new revision
         run: |
           URL="$(gcloud run services describe "${{ steps.deploy.outputs.service }}" \
-            --region "${REGION}" --format='value(status.traffic[0].url)')"
+            --region "${REGION}" --format='value(status.url)')"
           TAG_URL="$(gcloud run services describe "${{ steps.deploy.outputs.service }}" \
             --region "${REGION}" --format="value(status.traffic.filter(tag='sha-${GITHUB_SHA::7}').url)")"
           PROBE="${TAG_URL:-$URL}"
