@@ -89,17 +89,10 @@ Install dependencies:
 npm install
 ```
 
-Run the app and reminder worker together:
-
-```bash
-npm run dev:reliable
-```
-
-Or run them separately:
+Run the app:
 
 ```bash
 npm run dev
-npm run worker
 ```
 
 Open:
@@ -112,11 +105,8 @@ http://localhost:3000
 
 ```bash
 npm run dev             # Start the Next.js dev server
-npm run dev:reliable    # Start dev server and reminder worker together
-npm run worker          # Run the reminder worker
 npm run build           # Build for production
 npm start               # Start the production server
-npm run start:reliable  # Start production server and reminder worker together
 npm test                # Run the full test suite
 npm run test:registry      # Run the dataset-governance tests only
 npm run test:calibration   # Run the Capture Gold calibration tests
@@ -184,11 +174,14 @@ For a real hosted product, replace the file-backed local store with a transactio
 
 ## Reminder behavior
 
-Maybesitter supports local reminder processing through the worker:
+There is no background worker process. In a deployment, Cloud Scheduler calls
+the service's internal job endpoint on a one-minute schedule and the service
+runs whatever is due; see `docs/operations/DEPLOY.md`. Nothing runs in the
+background locally — due work is exercised from the tests.
 
-```bash
-npm run worker
-```
+The worker that used to live here (`npm run worker`) polled
+`POST /api/reminders/run`, which returns a snapshot without advancing any
+reminder, so removing it changes no behaviour.
 
 Browser notifications depend on browser permission and local runtime availability. This is not equivalent to hosted mobile push notifications.
 

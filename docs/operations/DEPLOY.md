@@ -75,14 +75,38 @@ Grant the accessor role on that one secret, never project-wide.
 
 ## Scheduled work
 
-There is no worker process beside the server. Cloud Scheduler calls the
-internal endpoints, and each call carries an OIDC token that the route
-verifies (audience + the scheduler service account's email):
+There is no worker process beside the server. Cloud Run throttles CPU on idle
+instances and scales to zero, so an in-process `setInterval` would not run
+reliably, and a worker process beside the server would have to be kept alive
+and paid for. Cloud Scheduler calls the service instead, and each call carries
+an OIDC token the route verifies (`lib/auth/schedulerOidc`): Google's
+signature, `aud` pinned to the service's own URL, and the caller's email.
 
 | Job | Schedule | Endpoint |
 |---|---|---|
 | `jobs-tick-{staging,prod}` | `* * * * *` | `/api/internal/jobs/run` |
 | `maintenance-daily-{staging,prod}` | `17 3 * * *` Asia/Jerusalem | `/api/internal/jobs/maintenance` |
 
-`infra/scheduler.sh` creates them idempotently. One minute is Cloud
-Scheduler's floor, which replaces the old 30-second in-process poll.
+`infra/scheduler.sh <staging|production>` creates both jobs idempotently, and
+sets the two variables the routes need:
+
+| Variable | Value | Why it is set there and not in `flags.sh` |
+|---|---|---|
+| `MAYBESITTER_SCHEDULER_SA_EMAIL` | `maybesitter-scheduler@<project>.iam.gserviceaccount.com` | the only caller these routes accept |
+| `MAYBESITTER_INTERNAL_AUDIENCE` | the service's own URL | Cloud Run only assigns the URL at the first deploy, so it cannot be a static flag — and the URL embeds the project number, which is not committed |
+
+**So the order is: deploy the service, then run `infra/scheduler.sh`.** Until
+that has run, the routes answer `503` and nothing is executed: they fail
+closed, so skipping this step stops scheduled work rather than leaving it
+open. Reading a failed `gcloud scheduler jobs run`: `503` means the
+revision serving traffic predates those variables. `401` means the call was
+refused — deliberately the same answer whatever the reason, so the response
+never tells a prober which check it failed. The reason is in the service's
+logs as `[internal/jobs] refused: <reason>` (`missing_token`,
+`invalid_token`, `wrong_audience` or `wrong_caller`).
+
+One minute is Cloud Scheduler's floor. It is worth being precise about what
+that replaces: the `Scheduler` class that polled every 30 seconds was only
+ever constructed from tests, and `/api/reminders/run` returns a snapshot
+without advancing any reminder. This closes a gap rather than replacing a
+mechanism that was running in production.
