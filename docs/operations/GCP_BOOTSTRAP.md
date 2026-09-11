@@ -12,7 +12,7 @@ Issue: UC-1.0a (#140).
 |---|---|
 | Project | `maybesitter-app` |
 | Region (everything regional) | `europe-west1` |
-| Firestore | `(default)`, Native mode, PITR on, delete protection on |
+| Firestore | `(default)` for production and `staging` for the staging service — both Native mode, PITR on, delete protection on, same rules and indexes |
 | Artifact Registry | `maybesitter` (Docker), keeps the 10 most recent versions |
 | Secret container | `maybesitter-deletion-receipt-pepper` (value added by the owner) |
 | Service accounts | `maybesitter-run`, `maybesitter-deployer`, `maybesitter-scheduler` |

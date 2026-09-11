@@ -28,12 +28,60 @@ import {
 } from './storageAdapter';
 import { requireCollectionPath, requireDocumentPath } from './paths';
 
+/** Set per service by infra/cloudrun/flags.sh: `staging` for staging, `(default)` for production. */
+export const DATABASE_ENV_VAR = 'MAYBESITTER_FIRESTORE_DATABASE_ID';
+export const DEFAULT_DATABASE = '(default)';
+
+/** Firestore's own rule for a named database id: 4-63 chars, lowercase, digits, hyphens. */
+const NAMED_DATABASE = /^[a-z][a-z0-9-]{2,61}[a-z0-9]$/;
+
+/**
+ * Which Firestore database this process uses (UC-1.0a #140, UC-1.0d #143).
+ *
+ * Staging and production share one project and one Firebase Auth; the only
+ * thing keeping staging's test accounts out of production data is the
+ * database. A process that ignored this setting would silently read and write
+ * `(default)` from staging — and nothing would fail, because `(default)`
+ * exists and readiness passes. So the pairing is checked, not assumed:
+ * `MAYBESITTER_ENV=staging` on `(default)` is refused, and so is production on
+ * anything but `(default)`. The refusal happens on first use, which on Cloud
+ * Run is the readiness probe — so a misconfigured revision never takes traffic.
+ */
+export function resolveFirestoreDatabaseId(env: Record<string, string | undefined> = process.env): string {
+  const raw = env[DATABASE_ENV_VAR]?.trim();
+  const id = raw ? raw : DEFAULT_DATABASE;
+  if (id !== DEFAULT_DATABASE && !NAMED_DATABASE.test(id)) {
+    throw new Error(`${DATABASE_ENV_VAR} must be "${DEFAULT_DATABASE}" or a Firestore database id, not ${JSON.stringify(raw)}`);
+  }
+  const environment = env.MAYBESITTER_ENV?.trim();
+  if (environment === 'staging' && id === DEFAULT_DATABASE) {
+    throw new Error(`MAYBESITTER_ENV=staging on the ${DEFAULT_DATABASE} database would read and write production data; set ${DATABASE_ENV_VAR}=staging`);
+  }
+  if (environment === 'production' && id !== DEFAULT_DATABASE) {
+    throw new Error(`MAYBESITTER_ENV=production must use the ${DEFAULT_DATABASE} database, not ${JSON.stringify(id)}`);
+  }
+  return id;
+}
+
 let cached: Firestore | null = null;
+
+/**
+ * `getFirestore(app, id)` hands back the same instance for a given database,
+ * and Firestore throws if `settings()` is called on it twice. Remember which
+ * instances are configured, so rebinding after `resetFirestoreForTests` —
+ * switching databases and back — does not configure one a second time.
+ */
+const configured = new WeakSet<Firestore>();
 
 function firestore(): Firestore {
   if (cached) return cached;
-  const db = getFirestore(getAdminApp());
-  db.settings({ ignoreUndefinedProperties: true });
+  const databaseId = resolveFirestoreDatabaseId();
+  const app = getAdminApp();
+  const db = databaseId === DEFAULT_DATABASE ? getFirestore(app) : getFirestore(app, databaseId);
+  if (!configured.has(db)) {
+    db.settings({ ignoreUndefinedProperties: true });
+    configured.add(db);
+  }
   cached = db;
   return cached;
 }
