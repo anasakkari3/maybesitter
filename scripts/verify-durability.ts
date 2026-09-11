@@ -87,8 +87,19 @@ if (/maybesitter-api(-|$)/.test(SERVICE) && SERVICE === 'maybesitter-api') {
 const runId = `${Date.now().toString(36)}${randomUUID().slice(0, 4)}`;
 const startedAt = Date.now();
 const counts: Record<string, number> = {};
-/** The first failure of each kind, so a red run explains itself. Never user text. */
-const firstError: Record<string, string> = {};
+/**
+ * Evidence, printed the moment it is found.
+ *
+ * An earlier version collected this into an object and printed it at the end;
+ * it came back empty on a failing run, which left the failure unreadable.
+ * Printing at the point of failure cannot be lost.
+ */
+const notes: string[] = [];
+function note(kind: string, detail: string): void {
+  const line = `  why[${kind}]: ${detail}`;
+  notes.push(line);
+  console.error(line);
+}
 const checks: Record<string, CheckResult> = {};
 const record = (name: string, ok: boolean) => {
   checks[name] = ok ? 'pass' : 'fail';
@@ -210,7 +221,10 @@ async function main(): Promise<void> {
         for (const persisted of confirmed.body?.persisted ?? []) commitmentIds.push(persisted.commitmentId);
         if ((confirmed.body?.persisted ?? []).length === 0) {
           counts[`confirmFailed_http_${confirmed.status}`] = (counts[`confirmFailed_http_${confirmed.status}`] ?? 0) + 1;
-          firstError.confirm ??= JSON.stringify(confirmed.body).slice(0, 200);
+          // Logged where it happens. A summary object collected at the end was
+          // silently empty once, and a diagnostic that reports nothing is
+          // worse than none.
+          note('confirm', `http_${confirmed.status} ${JSON.stringify(confirmed.body ?? null).slice(0, 240)}`);
         }
       }),
     );
@@ -236,7 +250,7 @@ async function main(): Promise<void> {
           // id: sending only the id is rejected before idempotency is reached.
           body: JSON.stringify({ proposal: recommendation, decision: 'accept', idempotencyKey: key }),
           });
-          if (status >= 400 && status !== 409) firstError.decision ??= `http_${status} ${JSON.stringify(body).slice(0, 160)}`;
+          if (status >= 400 && status !== 409) note('decision', `http_${status} ${JSON.stringify(body ?? null).slice(0, 200)}`);
           return { status, replayed: body?.replayed === true };
         }),
       );
@@ -286,8 +300,10 @@ async function main(): Promise<void> {
         // last accepted one" is a tie this script cannot resolve. Say that,
         // rather than report a lost write.
         const stamps = applied.filter((action) => action.accepted).map((action) => action.at);
-        firstError.actions = `expected ${expected.status} from ${expected.acceptedCount} accepted `
-          + `(${new Set(stamps).size} distinct timestamps), read back ${rawStatus || '(none)'}`;
+        note('actions', `expected ${expected.status} from ${expected.acceptedCount} accepted `
+          + `(${new Set(stamps).size} distinct timestamps), read back ${rawStatus || '(none)'}`);
+        // The sequence itself, so a tie or a rejected action is visible.
+        note('actionSequence', applied.map((action) => `${action.kind}:${action.accepted ? 'ok' : 'no'}@${action.at}`).join(' '));
       }
       record('mixed_actions_settle_on_one_state', agreed);
     } else {
@@ -406,7 +422,7 @@ async function main(): Promise<void> {
     durationMs: Date.now() - startedAt,
   };
   // The summary carries no tokens and no commitment text.
-  if (Object.keys(firstError).length > 0) console.error('why:', JSON.stringify(firstError, null, 2));
+  if (notes.length > 0) console.error(`evidence (${notes.length} note(s)):\n${notes.join('\n')}`);
   console.log(JSON.stringify(summary, null, 2));
   process.exit(summaryExitCode(summary));
 }
