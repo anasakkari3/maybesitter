@@ -5,6 +5,12 @@ import { resolveNextStepArm } from '../experiments/experimentControls';
 import { emitAnalyticsEvent, type AnalyticsContext } from './analyticsContext';
 
 /**
+ * Every recorder here is async since UC-1.0c (#142): an event is a storage
+ * write under `users/{uid}/analyticsEvents`, and it is awaited rather than
+ * fired and forgotten so the funnel report cannot be quietly short.
+ */
+
+/**
  * Event names a client surface may report directly. Loop-state events are derived from
  * domain state on the server so a caller cannot forge activation or funnel progress.
  */
@@ -48,18 +54,24 @@ function emitted(events: readonly (PrivacySafeAnalyticsEvent | null)[]): Privacy
 /**
  * Derives the capture-side funnel events from the domain state a capture produced.
  * Detection and confirmation are read from committed state rather than from the caller.
+ *
+ * The awaits are sequential on purpose: these events are a funnel, and writing
+ * them in order is what lets a plain listing read back as one.
  */
-export function recordCaptureAnalytics(context: AnalyticsContext, input: CaptureAnalyticsInput): PrivacySafeAnalyticsEvent[] {
+export async function recordCaptureAnalytics(
+  context: AnalyticsContext,
+  input: CaptureAnalyticsInput,
+): Promise<PrivacySafeAnalyticsEvent[]> {
   const events: (PrivacySafeAnalyticsEvent | null)[] = [
-    emitAnalyticsEvent(context, 'capture_submitted', { inputLength: input.inputLength, locale: input.locale }),
+    await emitAnalyticsEvent(context, 'capture_submitted', { inputLength: input.inputLength, locale: input.locale }),
   ];
   for (const [commitmentId, commitment] of Object.entries(input.after.commitments)) {
     const previous = input.before.commitments[commitmentId];
     if (!previous) {
-      events.push(emitAnalyticsEvent(context, 'commitment_detected', { commitmentId, detectionSource: input.detectionSource }));
+      events.push(await emitAnalyticsEvent(context, 'commitment_detected', { commitmentId, detectionSource: input.detectionSource }));
     }
     if (commitment.confirmedAt && previous?.confirmedAt !== commitment.confirmedAt) {
-      events.push(emitAnalyticsEvent(context, 'commitment_confirmed', { commitmentId }));
+      events.push(await emitAnalyticsEvent(context, 'commitment_confirmed', { commitmentId }));
     }
   }
   return emitted(events);
@@ -71,26 +83,33 @@ export function changedFieldCount(before: Record<string, unknown> | undefined, a
   return Object.keys({ ...before, ...after }).filter((key) => JSON.stringify(before[key]) !== JSON.stringify(after[key])).length;
 }
 
-export function recordCommitmentEdited(context: AnalyticsContext, commitmentId: string, fields: number): PrivacySafeAnalyticsEvent | null {
+export async function recordCommitmentEdited(
+  context: AnalyticsContext,
+  commitmentId: string,
+  fields: number,
+): Promise<PrivacySafeAnalyticsEvent | null> {
   return emitAnalyticsEvent(context, 'commitment_edited', { commitmentId, changedFieldCount: fields });
 }
 
-export function recordDataDeleted(context: AnalyticsContext, deletionScope: string): PrivacySafeAnalyticsEvent | null {
+export async function recordDataDeleted(
+  context: AnalyticsContext,
+  deletionScope: string,
+): Promise<PrivacySafeAnalyticsEvent | null> {
   return emitAnalyticsEvent(context, 'data_deleted', { deletionScope });
 }
 
-export function recordFirstValueReached(
+export async function recordFirstValueReached(
   context: AnalyticsContext,
   properties: { surface: string; reason: string },
-): PrivacySafeAnalyticsEvent | null {
+): Promise<PrivacySafeAnalyticsEvent | null> {
   return emitAnalyticsEvent(context, 'first_value_reached', properties);
 }
 
-export function recordClientEvent(
+export async function recordClientEvent(
   context: AnalyticsContext,
   eventName: ClientReportableEvent,
   properties: PrivacySafeAnalyticsEvent['properties'],
-): PrivacySafeAnalyticsEvent | null {
+): Promise<PrivacySafeAnalyticsEvent | null> {
   if (eventName === 'recommendation_rated') {
     const assignment = resolveNextStepArm(context.anonymousUserId);
     if (!assignment.enabled) return null;

@@ -36,7 +36,10 @@ function proposalId(state: DomainState): string {
   return `next-step-${createHash('sha256').update(fingerprint).digest('hex').slice(0, 16)}`;
 }
 
-export function getLiveNextStep(state: DomainState, context: LiveContext): NextStepRecommendationContract {
+// Async since UC-1.0c (#142): the `recommendation_shown` event it emits is a
+// storage write. The proposal itself is still computed synchronously — only
+// the recording is awaited.
+export async function getLiveNextStep(state: DomainState, context: LiveContext): Promise<NextStepRecommendationContract> {
   const runtime = resolveModuleRuntime('recommendation', context.controls || readRuntimeControls());
   if (runtime.mode !== 'enabled') {
     return {
@@ -58,7 +61,7 @@ export function getLiveNextStep(state: DomainState, context: LiveContext): NextS
   const proposal = selection.recommendation;
 
   if (proposal.state === 'ready' && context.emitShown !== false && proposal.primaryStep) {
-    emitAnalyticsEvent(assigned, 'recommendation_shown', {
+    await emitAnalyticsEvent(assigned, 'recommendation_shown', {
       proposalId: proposal.proposalId,
       commitmentId: proposal.primaryStep.commitmentId,
       baselineVersion: 'v1',
@@ -88,7 +91,7 @@ export function prepareLiveNextStepDecision(
   decision: NextStepDecision,
   context: LiveContext,
   editedTitle?: string,
-): { outcome: NextStepInteractionOutcome; emit: () => void } {
+): { outcome: NextStepInteractionOutcome; emit: () => Promise<void> } {
   const runtime = resolveModuleRuntime('recommendation', context.controls || readRuntimeControls());
   if (runtime.mode !== 'enabled') throw new Error(`recommendation unavailable: ${runtime.reason}`);
   const outcome = decideNextStep(proposal, decision, context.now.toISOString(), editedTitle);
@@ -98,19 +101,19 @@ export function prepareLiveNextStepDecision(
   if (decision === 'done' && proposal.primaryStep) properties.commitmentId = proposal.primaryStep.commitmentId;
   return {
     outcome,
-    emit: () => {
-      emitAnalyticsEvent(withArmAssignment(context), DECISION_EVENTS[decision], properties);
+    emit: async () => {
+      await emitAnalyticsEvent(withArmAssignment(context), DECISION_EVENTS[decision], properties);
     },
   };
 }
 
-export function recordLiveNextStepDecision(
+export async function recordLiveNextStepDecision(
   proposal: NextStepRecommendationContract,
   decision: NextStepDecision,
   context: LiveContext,
   editedTitle?: string,
-): NextStepInteractionOutcome {
+): Promise<NextStepInteractionOutcome> {
   const prepared = prepareLiveNextStepDecision(proposal, decision, context, editedTitle);
-  prepared.emit();
+  await prepared.emit();
   return prepared.outcome;
 }

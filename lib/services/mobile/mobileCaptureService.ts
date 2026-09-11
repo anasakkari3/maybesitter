@@ -211,7 +211,7 @@ export async function confirmMobileCapture(input: MobileConfirmInput, context: M
         consent: access.trust.analyticsConsent ? 'granted' : 'essential',
       }, appendAnalyticsEvent, now);
       if (analytics) {
-        recordFirstValueReached(analytics, {
+        await recordFirstValueReached(analytics, {
           surface: 'capture',
           reason: 'commitment_saved',
         });
