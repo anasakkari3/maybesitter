@@ -36,6 +36,25 @@ if [ -z "${BASE_URL}" ]; then
 fi
 echo "service ${SERVICE} -> ${BASE_URL}"
 
+# The routes verify the caller themselves (lib/auth/schedulerOidc), and they
+# can only do that once the service knows which caller to accept and which
+# audience to expect. Neither can live in `infra/cloudrun/flags.sh`: the
+# audience is the service's own URL, which Cloud Run only assigns at the first
+# deploy, and that URL embeds the project number, which is not committed.
+# Here both are known, so this is where they are set.
+#
+# Without them the routes answer 503 rather than running anything — they fail
+# closed — so a deploy that never reaches this script stops jobs rather than
+# running them unauthenticated.
+#
+# `--update-env-vars` leaves every other variable alone, and re-running with
+# the same values is harmless.
+echo "setting the scheduler identity on ${SERVICE}"
+gcloud run services update "${SERVICE}" \
+  --region "${REGION}" --project "${PROJECT_ID}" \
+  --update-env-vars="MAYBESITTER_SCHEDULER_SA_EMAIL=${SCHEDULER_SA},MAYBESITTER_INTERNAL_AUDIENCE=${BASE_URL}" \
+  >/dev/null
+
 # The audience is the service URL: a token minted for staging cannot be
 # replayed against production.
 upsert_job() { # name, schedule, path, timezone, description
@@ -80,7 +99,9 @@ done. Verify with:
   gcloud scheduler jobs list --location=${REGION} --project=${PROJECT_ID}
   gcloud scheduler jobs run jobs-tick-${SUFFIX} --location=${REGION} --project=${PROJECT_ID}
 
-A run must return 200. If it returns 401, check that
-MAYBESITTER_SCHEDULER_SA_EMAIL and MAYBESITTER_INTERNAL_AUDIENCE on the
-service match ${SCHEDULER_SA} and ${BASE_URL}.
+A run must return 200. This script has just set
+MAYBESITTER_SCHEDULER_SA_EMAIL and MAYBESITTER_INTERNAL_AUDIENCE on
+${SERVICE}, so a 401 means traffic is still being served by an older
+revision, and a 403 means the job is calling with a service account other
+than ${SCHEDULER_SA}.
 EOF
