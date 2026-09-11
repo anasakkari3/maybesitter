@@ -70,6 +70,21 @@ export async function getOrCreateTrust(participantId: string, at: string): Promi
 }
 
 /**
+ * The trust record if there is one, without creating one if there is not.
+ *
+ * `getOrCreateTrust` is right where a request has already been authenticated
+ * and the uid is real. It is wrong where the id is caller-supplied and may
+ * belong to nobody — deriving analytics consent, for instance — because there
+ * the create would write a `users/{uid}` document per bogus id. This read
+ * answers "what did they consent to" without asserting that they exist.
+ */
+export async function readTrust(participantId: string): Promise<PilotTrustState | null> {
+  requireUserId(participantId);
+  const user = await getStorage().get<TrustUser>(userDoc(participantId));
+  return user?.trust ? requirePilotTrustState(user.trust) : null;
+}
+
+/**
  * Apply one trust action to the record as it is *now*.
  *
  * The read and the write are in one transaction, so two consent changes racing

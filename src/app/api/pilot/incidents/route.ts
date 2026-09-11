@@ -12,7 +12,7 @@ import {
   listIncidents,
   updateIncident,
 } from '../../../../../lib/pilot/pilotTrustStore';
-import { resolvePilotAccess } from '../../../../../lib/pilot/pilotAccess';
+import { resolveUserAccess } from '../../../../../lib/pilot/pilotAccess';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,7 +37,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json() as ParticipantReport;
     requirePilotParticipantId(body.participantId);
-    if (!(await resolvePilotAccess(body.participantId, new Date().toISOString(), false)).trust) {
+    if (!(await resolveUserAccess(body.participantId, new Date().toISOString(), false)).trust) {
       return Response.json({ error: 'participant is not admitted to this pilot instance' }, { status: 403 });
     }
     const at = new Date().toISOString();

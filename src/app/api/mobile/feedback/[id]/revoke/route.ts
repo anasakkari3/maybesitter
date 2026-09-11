@@ -1,5 +1,5 @@
 import { installDefaultFeedbackHistoryPort } from '../../../../../../../lib/feedbackHistory/bootstrap';
-import { mobileAuthErrorResponse } from '../../../../../../../lib/services/mobile/auth';
+import { mobileAuthErrorResponse } from '../../../../../../../lib/auth/mobileAuth';
 import {
   feedbackHistoryUnavailableResponse,
   requireFeedbackHistoryPort,

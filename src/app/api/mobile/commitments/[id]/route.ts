@@ -1,4 +1,4 @@
-import { mobileAuthErrorResponse, optionalMobilePilotAuth } from '../../../../../../lib/services/mobile/auth';
+import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import {
   dropCommitment,
   getCommitment,
@@ -12,15 +12,17 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  let auth;
+  let user;
   try {
-    auth = await optionalMobilePilotAuth(request);
+    user = await requireMobileUser(request);
   } catch (error) {
     return mobileAuthErrorResponse(error);
   }
 
   const { id } = await params;
-  const commitment = await getCommitment(id, auth ?? {});
+  // Another user's commitment is simply not in this user's tree, so it reads
+  // as 404 rather than 403 — and a probe learns nothing from the difference.
+  const commitment = await getCommitment(id, { participantId: user.uid });
   if (!commitment) return mobileError('Commitment not found', 404);
   return Response.json(commitmentToMobileDto(commitment));
 }
@@ -29,9 +31,9 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  let auth;
+  let user;
   try {
-    auth = await optionalMobilePilotAuth(request);
+    user = await requireMobileUser(request);
   } catch (error) {
     return mobileAuthErrorResponse(error);
   }
@@ -45,7 +47,7 @@ export async function PATCH(
   }
 
   try {
-    return Response.json(commitmentToMobileDto(await patchCommitment(id, body, new Date(), auth ?? {})));
+    return Response.json(commitmentToMobileDto(await patchCommitment(id, body, new Date(), { participantId: user.uid })));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Patch failed';
     return mobileError(message, message === 'Commitment not found' ? 404 : 400);
@@ -56,16 +58,16 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  let auth;
+  let user;
   try {
-    auth = await optionalMobilePilotAuth(request);
+    user = await requireMobileUser(request);
   } catch (error) {
     return mobileAuthErrorResponse(error);
   }
 
   const { id } = await params;
   try {
-    const commitment = await dropCommitment(id, new Date(), auth ?? {});
+    const commitment = await dropCommitment(id, new Date(), { participantId: user.uid });
     return Response.json({
       success: true,
       id,

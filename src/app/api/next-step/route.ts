@@ -1,5 +1,5 @@
 import { appendAnalyticsEvent } from '../../../../lib/analytics/eventStore';
-import { resolvePilotAccess } from '../../../../lib/pilot/pilotAccess';
+import { resolveUserAccess } from '../../../../lib/pilot/pilotAccess';
 import { applyTrustAction } from '../../../../lib/pilot/pilotTrustStore';
 import { getCommandServiceState } from '../../../../lib/services/commandService';
 import { getLiveNextStep, recordLiveNextStepDecision } from '../../../../lib/services/nextStepLiveService';
@@ -17,7 +17,7 @@ export async function GET(request: Request) {
   if (!anonymousUserId) return Response.json({ error: 'anonymousUserId is required' }, { status: 400 });
   try {
     const now = new Date();
-    const access = await resolvePilotAccess(anonymousUserId, now.toISOString());
+    const access = await resolveUserAccess(anonymousUserId, now.toISOString());
     if (!access.decision.allowed || !access.trust) {
       return Response.json({ error: 'closed pilot recommendation unavailable', reason: access.decision.reason }, { status: 403 });
     }
@@ -42,7 +42,7 @@ export async function POST(request: Request) {
   if (!body.anonymousUserId) return Response.json({ error: 'anonymousUserId is required' }, { status: 400 });
   try {
     const now = new Date();
-    const access = await resolvePilotAccess(body.anonymousUserId, now.toISOString());
+    const access = await resolveUserAccess(body.anonymousUserId, now.toISOString());
     if (!access.decision.allowed || !access.trust) {
       return Response.json({ error: 'closed pilot recommendation unavailable', reason: access.decision.reason }, { status: 403 });
     }

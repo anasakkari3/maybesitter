@@ -12,7 +12,7 @@ import {
   type PilotTrustIncident,
   type PilotTrustState,
 } from '../../pilot/closedPilotControls';
-import { resolvePilotAccess } from '../../pilot/pilotAccess';
+import { resolveUserAccess } from '../../pilot/pilotAccess';
 import { appendAudit, appendIncident, applyTrustAction } from '../../pilot/pilotTrustStore';
 import { getLiveNextStep, prepareLiveNextStepDecision } from '../nextStepLiveService';
 import {
@@ -52,11 +52,12 @@ export function mobilePilotErrorResponse(error: unknown): Response {
     );
   }
   const message = error instanceof Error ? error.message : 'mobile pilot request failed';
-  const status = /allowlist must contain|instance participant binding is required/.test(message)
-    ? 503
-    : /not admitted|not allowlisted|wrong_instance|consent_required|quiet_mode|revoked|deleted|feature_disabled|kill_switch_active/.test(message)
-      ? 403
-      : 400;
+  // `not allowlisted` and the allowlist-configuration 503 are gone with the
+  // roster (UC-1.0e, #144). What is left are refusals about this user's own
+  // trust record and the operator's runtime controls.
+  const status = /not admitted|wrong_instance|consent_required|quiet_mode|revoked|deleted|feature_disabled|kill_switch_active/.test(message)
+    ? 403
+    : 400;
   return Response.json({ success: false, error: message }, { status });
 }
 
@@ -101,10 +102,10 @@ function trustAction(value: unknown, at: string): PilotTrustAction {
   }
 }
 
-type AllowedAccess = Awaited<ReturnType<typeof resolvePilotAccess>> & { trust: PilotTrustState };
+type AllowedAccess = Awaited<ReturnType<typeof resolveUserAccess>> & { trust: PilotTrustState };
 
 async function assertAccess(participantId: string, at: string): Promise<AllowedAccess> {
-  const access = await resolvePilotAccess(participantId, at);
+  const access = await resolveUserAccess(participantId, at);
   if (!access.decision.allowed || !access.trust) {
     throw new MobilePilotError(
       'closed pilot recommendation unavailable',
@@ -149,7 +150,7 @@ export async function getMobileNextStep(participantId: string, input: MobilePilo
 export async function recordMobilePilotLoopEvent(participantId: string, input: MobilePilotSource) {
   const now = new Date();
   const at = now.toISOString();
-  const access = await resolvePilotAccess(participantId, at, false);
+  const access = await resolveUserAccess(participantId, at, false);
   if (!access.trust) {
     throw new MobilePilotError(
       'participant is not admitted to this pilot instance',
@@ -272,7 +273,7 @@ export async function recordMobileNextStepDecision(participantId: string, input:
 
 export async function getMobilePilotTrust(participantId: string) {
   const at = new Date().toISOString();
-  const access = await resolvePilotAccess(participantId, at, false);
+  const access = await resolveUserAccess(participantId, at, false);
   if (!access.trust) throw new MobilePilotError('participant is not admitted to this pilot instance', 403, access.decision.reason);
   return {
     success: true,
@@ -288,7 +289,7 @@ export async function getMobilePilotTrust(participantId: string) {
 
 export async function updateMobilePilotTrust(participantId: string, input: MobilePilotSource) {
   const at = new Date().toISOString();
-  const access = await resolvePilotAccess(participantId, at, false);
+  const access = await resolveUserAccess(participantId, at, false);
   if (!access.trust) throw new MobilePilotError('participant is not admitted to this pilot instance', 403, access.decision.reason);
   const action = trustAction(input.action, at);
   const trust = await applyTrustAction(participantId, action);
@@ -312,7 +313,7 @@ export async function updateMobilePilotTrust(participantId: string, input: Mobil
     const analytics = await analyticsContextFrom({ anonymousUserId: participantId, consent: 'essential' }, appendAnalyticsEvent);
     if (analytics) recordDataDeleted(analytics, 'all_commitments');
   }
-  const exposure = (await resolvePilotAccess(participantId, at, false)).decision;
+  const exposure = (await resolveUserAccess(participantId, at, false)).decision;
   return {
     success: true,
     participantId,
@@ -327,7 +328,7 @@ export async function updateMobilePilotTrust(participantId: string, input: Mobil
 
 export async function reportMobilePilotIncident(participantId: string, input: MobilePilotSource) {
   requirePilotParticipantId(participantId);
-  const access = await resolvePilotAccess(participantId, new Date().toISOString(), false);
+  const access = await resolveUserAccess(participantId, new Date().toISOString(), false);
   if (!access.trust) throw new MobilePilotError('participant is not admitted to this pilot instance', 403, access.decision.reason);
   const at = new Date().toISOString();
   const incident = createPilotTrustIncident({

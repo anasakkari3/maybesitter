@@ -1,5 +1,5 @@
 /**
- * Participant state survives a process restart (UC-1.0b, #141).
+ * Participant state survives a process restart (UC-1.0b, #141; UC-1.0e, #144).
  *
  * ── What this file replaces ──────────────────────────────────────
  *
@@ -17,8 +17,13 @@
  * nowhere else — a stronger statement than the file round trip made, since a
  * restored directory could have carried a stale in-process cache's output.
  *
- * `scripts/backup-pilot-data.ts` and its own test are untouched: they still
- * guard the tool that backs up the pilot host's remaining file stores.
+ * ── Identity, since UC-1.0e (#144) ───────────────────────────────
+ *
+ * The two processes used to mint HMAC pilot tokens locally. They carry real
+ * Firebase ID tokens from the Auth emulator now, verified by the shipped
+ * verifier inside each subprocess — so the restart claim is made about the
+ * credential the product actually uses, and the uid each process scopes by is
+ * one Firebase minted rather than one this file chose.
  *
  * Emulator-only. Run `npm run test:emulator`.
  */
@@ -30,14 +35,14 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const repoRoot = process.cwd();
-const secret = 'test-only-restart-durability-secret';
-const ids = Array.from({ length: 25 }, (_unused, index) => `round-${String(index + 100).padStart(3, '0')}`).join(',');
 
-if (!process.env.FIRESTORE_EMULATOR_HOST) {
+if (!process.env.FIRESTORE_EMULATOR_HOST || !process.env.FIREBASE_AUTH_EMULATOR_HOST) {
   throw new Error(
-    'FIRESTORE_EMULATOR_HOST is unset. Run this file through `npm run test:emulator`, never against a real project.',
+    'FIRESTORE_EMULATOR_HOST / FIREBASE_AUTH_EMULATOR_HOST are unset. Run this file through `npm run test:emulator`, never against a real project.',
   );
 }
+const AUTH_HOST = process.env.FIREBASE_AUTH_EMULATOR_HOST;
+const PROJECT = process.env.GOOGLE_CLOUD_PROJECT ?? 'demo-maybesitter';
 
 function runInline(source: string, env: Record<string, string>): string {
   const result = spawnSync(process.execPath, ['--no-warnings', '--loader', './scripts/ts-resolver.mjs', '--input-type=module', '-'], {
@@ -50,14 +55,12 @@ function runInline(source: string, env: Record<string, string>): string {
   return result.stdout;
 }
 
-/** A pilot process, pointed at the emulator and at its own empty data dir. */
-function pilotEnv(dataDir: string): Record<string, string> {
+/** A backend process, pointed at the emulators and at its own empty data dir. */
+function backendEnv(dataDir: string): Record<string, string> {
   return {
-    MAYBESITTER_PILOT_MODE: 'true',
     MAYBESITTER_STORAGE_BACKEND: 'firestore',
     MAYBESITTER_DATA_DIR: dataDir,
-    MAYBESITTER_PILOT_TOKEN_SECRET: secret,
-    MAYBESITTER_CLOSED_PILOT_IDS: ids,
+    GOOGLE_CLOUD_PROJECT: PROJECT,
     MAYBESITTER_FEATURE_RECOMMENDATION: 'true',
     MAYBESITTER_KILL_SWITCH_RECOMMENDATION: 'false',
     MAYBESITTER_EXPERIMENT_NEXT_STEP_ARMS: 'true',
@@ -65,16 +68,32 @@ function pilotEnv(dataDir: string): Record<string, string> {
   };
 }
 
-test('participant state, trust and recorded decisions survive a restart into a fresh process', () => {
+/** A real account and ID token, through the Auth emulator's REST API. */
+async function signUp(): Promise<string> {
+  const email = `restart-${Math.random().toString(36).slice(2)}@example.com`;
+  const response = await fetch(
+    `http://${AUTH_HOST}/identitytoolkit.googleapis.com/v1/accounts:signUp?key=fake-api-key`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email, password: 'not-a-real-password', returnSecureToken: true }),
+    },
+  );
+  const raw = await response.text();
+  assert.equal(response.status, 200, `emulator signUp failed: ${raw}`);
+  return (JSON.parse(raw) as { idToken: string }).idToken;
+}
+
+test('participant state, trust and recorded decisions survive a restart into a fresh process', async () => {
   const firstDir = mkdtempSync(path.join(tmpdir(), 'maybesitter-restart-first-'));
   const secondDir = mkdtempSync(path.join(tmpdir(), 'maybesitter-restart-second-'));
+  const [tokenA, tokenB] = [await signUp(), await signUp()];
 
   const created = runInline(`
     import assert from 'node:assert/strict';
-    import { generatePilotToken } from './lib/pilot/pilotTokenService.ts';
 
-    const tokenA = generatePilotToken('round-100');
-    const tokenB = generatePilotToken('round-101');
+    const tokenA = ${JSON.stringify(tokenA)};
+    const tokenB = ${JSON.stringify(tokenB)};
     function req(path, token, options = {}) {
       const headers = new Headers({ authorization: \`Bearer \${token}\` });
       if (options.body !== undefined) headers.set('content-type', 'application/json');
@@ -93,7 +112,7 @@ test('participant state, trust and recorded decisions survive a restart into a f
 
     for (const token of [tokenA, tokenB]) {
       let response = await updateTrust(req('/api/mobile/pilot/trust', token, { body: { action: { type: 'grant_recommendation_consent' } } }));
-      assert.equal(response.status, 200);
+      assert.equal(response.status, 200, await response.text());
       response = await updateTrust(req('/api/mobile/pilot/trust', token, { body: { action: { type: 'set_analytics_consent', granted: true } } }));
       assert.equal(response.status, 200);
     }
@@ -126,13 +145,11 @@ test('participant state, trust and recorded decisions survive a restart into a f
       idempotencyKey: 'round-action-a',
     } }));
     assert.equal(response.status, 200);
-    console.log(JSON.stringify({ tokenA, tokenB, aCommitmentId, bCommitmentId, recommendationA }));
-  `, pilotEnv(firstDir));
+    console.log(JSON.stringify({ aCommitmentId, bCommitmentId, recommendationA }));
+  `, backendEnv(firstDir));
   assert.match(created, /aCommitmentId/);
 
   const handoff = JSON.parse(created.trim().split('\n').at(-1) as string) as {
-    tokenA: string;
-    tokenB: string;
     aCommitmentId: string;
     bCommitmentId: string;
     recommendationA: unknown;
@@ -140,7 +157,7 @@ test('participant state, trust and recorded decisions survive a restart into a f
 
   const verified = runInline(`
     import assert from 'node:assert/strict';
-    const state = ${JSON.stringify(handoff)};
+    const state = ${JSON.stringify({ ...handoff, tokenA, tokenB })};
     function req(path, token, options = {}) {
       const headers = new Headers({ authorization: \`Bearer \${token}\` });
       if (options.body !== undefined) headers.set('content-type', 'application/json');
@@ -189,7 +206,7 @@ test('participant state, trust and recorded decisions survive a restart into a f
       trustPersisted: true,
       idempotencyReplayed: true,
     }));
-  `, pilotEnv(secondDir));
+  `, backendEnv(secondDir));
   assert.match(verified, /"crossParticipantLeakage":false/);
   assert.match(verified, /"idempotencyReplayed":true/);
 });

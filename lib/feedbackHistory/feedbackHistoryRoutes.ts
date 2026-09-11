@@ -1,28 +1,32 @@
 /**
  * Shared plumbing for the two feedback-transparency routes: which scope a
  * request speaks for, and what to say when nothing is wired behind them.
+ *
+ * ── The defect this closed (UC-1.0e, #144) ───────────────────────
+ *
+ * `resolveFeedbackScope` used to call the optional pilot guard, which
+ * returned `null` for an unauthenticated request whenever no pilot
+ * environment was configured. `feedbackScopeIdFor(undefined)` then collapsed
+ * to `scopeBehaviorFeedback({})`, the literal default scope `'local'` — one
+ * shared bucket that *any* anonymous caller could read the history of and
+ * revoke entries in. Both routes were reachable that way.
+ *
+ * There is no undefined case now. The scope is the uid out of a verified
+ * Firebase ID token, and a request without one never reaches the port.
  */
 
-import { optionalMobilePilotAuth } from '../services/mobile/auth';
+import { requireMobileUser } from '../auth/mobileAuth';
 import { scopeBehaviorFeedback } from '../services/behaviorFeedbackService';
 import { getFeedbackHistoryPort, type FeedbackHistoryPort } from './feedbackHistoryPort';
 
-/**
- * The scope a request may read and correct.
- *
- * In pilot mode this is the authenticated participant, so one participant can
- * never address another's events. Outside pilot mode there is no participant
- * and this collapses to the same default scope the legacy counters have always
- * used, which keeps single-user local development working without inventing a
- * second notion of "whose feedback this is".
- */
-export function feedbackScopeIdFor(participantId: string | undefined): string {
-  return scopeBehaviorFeedback({ userId: participantId });
+/** The scope a user may read and correct: their own, always. */
+export function feedbackScopeIdFor(uid: string): string {
+  return scopeBehaviorFeedback({ userId: uid });
 }
 
 export async function resolveFeedbackScope(request: Request): Promise<string> {
-  const auth = await optionalMobilePilotAuth(request);
-  return feedbackScopeIdFor(auth?.participantId);
+  const { uid } = await requireMobileUser(request);
+  return feedbackScopeIdFor(uid);
 }
 
 /**

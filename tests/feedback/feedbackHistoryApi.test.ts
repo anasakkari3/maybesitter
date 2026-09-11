@@ -13,7 +13,8 @@ import { join } from 'node:path';
 
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
-import { generatePilotToken } from '../../lib/pilot/pilotTokenService.ts';
+import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
+import { scopeBehaviorFeedback } from '../../lib/services/behaviorFeedbackService.ts';
 import {
   createFeedbackHistoryPort,
   setFeedbackHistoryPort,
@@ -35,11 +36,12 @@ import {
 } from '../../src/contracts/v1/feedbackContracts.ts';
 
 const BASE = 'http://127.0.0.1:4321';
-const TEST_SECRET = 'test-secret-min-16-chars-long-security-key';
-// The pilot runtime refuses to start with an allowlist smaller than the closed
-// pilot contract, so the roster is real-sized and the two scopes are drawn from it.
-const PILOT_IDS = Array.from({ length: 25 }, (_, index) => `p-${String(index + 700).padStart(3, '0')}`);
-const [OWNER, OTHER] = PILOT_IDS;
+// Two Firebase uids. There is no roster to draw them from any more: a uid is a
+// scope because it was signed, not because it was listed.
+const OWNER = uidFor('ownerAccount');
+const OTHER = uidFor('otherAccount');
+/** Where an unauthenticated request used to land: one bucket shared by all. */
+const SHARED_DEFAULT_SCOPE = scopeBehaviorFeedback({});
 
 /* ── An in-memory stand-in for the sibling track's event store ─────── */
 
@@ -104,9 +106,7 @@ function baseline(scopeId: string, overrides: Partial<FeedbackBaseline['counters
 
 function request(path: string, options: { method?: string; participantId?: string } = {}): Request {
   const headers = new Headers();
-  if (options.participantId) {
-    headers.set('authorization', `Bearer ${generatePilotToken(options.participantId, TEST_SECRET)}`);
-  }
+  if (options.participantId) headers.set('authorization', `Bearer ${tokenFor(options.participantId)}`);
   return new Request(`${BASE}${path}`, { method: options.method ?? 'GET', headers });
 }
 
@@ -114,29 +114,25 @@ function routeParams(id: string): { params: Promise<{ id: string }> } {
   return { params: Promise.resolve({ id }) };
 }
 
+let auth: FakeAuthControls | null = null;
+
 function setup(port: FeedbackHistoryPort | null): () => void {
   const directory = mkdtempSync(join(tmpdir(), 'maybesitter-feedback-history-'));
-  const previous: Record<string, string | undefined> = {
-    MAYBESITTER_CLOSED_PILOT_IDS: process.env.MAYBESITTER_CLOSED_PILOT_IDS,
-    MAYBESITTER_PILOT_MODE: process.env.MAYBESITTER_PILOT_MODE,
-    MAYBESITTER_PILOT_TOKEN_SECRET: process.env.MAYBESITTER_PILOT_TOKEN_SECRET,
-    MAYBESITTER_DATA_DIR: process.env.MAYBESITTER_DATA_DIR,
-  };
-  process.env.MAYBESITTER_CLOSED_PILOT_IDS = PILOT_IDS.join(',');
-  process.env.MAYBESITTER_PILOT_MODE = 'true';
-  process.env.MAYBESITTER_PILOT_TOKEN_SECRET = TEST_SECRET;
+  const previousDataDir = process.env.MAYBESITTER_DATA_DIR;
   process.env.MAYBESITTER_DATA_DIR = directory;
   setFeedbackHistoryPort(port);
-  // Pilot auth reads the trust record from storage since UC-1.0b (#141).
+  // The guard reads the trust record from storage since UC-1.0b (#141), and
+  // authenticates through the verifier seam since UC-1.0e (#144).
   setStorageForTests(createMemoryStorage());
+  auth = installFakeAuth();
 
   return () => {
+    auth?.restore();
+    auth = null;
     resetStorageForTests();
     setFeedbackHistoryPort(null);
-    for (const [key, value] of Object.entries(previous)) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
-    }
+    if (previousDataDir === undefined) delete process.env.MAYBESITTER_DATA_DIR;
+    else process.env.MAYBESITTER_DATA_DIR = previousDataDir;
     rmSync(directory, { recursive: true, force: true });
   };
 }
@@ -528,6 +524,81 @@ test('feedback revoke: an unwired port reports unavailable rather than claiming 
     const body = await response.json() as { success?: boolean; reason?: string };
     assert.equal(body.success, false);
     assert.equal(body.reason, 'feedback_history_unavailable');
+  } finally {
+    teardown();
+  }
+});
+
+
+/* ── The shared anonymous scope (UC-1.0e, #144) ───────────────────── */
+
+/**
+ * The defect these two close.
+ *
+ * `resolveFeedbackScope` called the optional pilot guard, which returned
+ * `null` for an unauthenticated request whenever no pilot environment was
+ * configured — and `feedbackScopeIdFor(undefined)` then collapsed to the
+ * default behaviour-feedback scope. Both routes were reachable that way, so
+ * any anonymous caller could read one shared history and revoke entries in
+ * it. The refusal is asserted together with the scope being untouched,
+ * because a 401 that had already read the scope would still be a leak.
+ */
+test('feedback history: an unauthenticated read is refused and never reads the shared scope', async () => {
+  const shared = event({
+    id: 'shared-1',
+    scopeId: SHARED_DEFAULT_SCOPE,
+    outcome: 'complete',
+    occurredAt: '2026-08-10T09:00:00.000Z',
+  });
+  const reads: string[] = [];
+  const port = fakePort([shared]);
+  const watched: FeedbackHistoryPort = {
+    ...port,
+    listForScope(scopeId: string) {
+      reads.push(scopeId);
+      return port.listForScope(scopeId);
+    },
+  };
+  const teardown = setup(watched);
+  try {
+    const response = await historyGet(request('/api/mobile/feedback/history'));
+    assert.equal(response.status, 401);
+    assert.equal((await response.json() as { reason?: string }).reason, 'missing_token');
+    assert.deepEqual(reads, [], 'the shared scope must not be read at all');
+  } finally {
+    teardown();
+  }
+});
+
+test('feedback revoke: an unauthenticated revoke is refused and the shared scope is untouched', async () => {
+  const port = fakePort([event({
+    id: 'shared-2',
+    scopeId: SHARED_DEFAULT_SCOPE,
+    outcome: 'defer',
+    occurredAt: '2026-08-10T09:00:00.000Z',
+  })]);
+  const teardown = setup(port);
+  try {
+    const response = await revokePost(
+      request('/api/mobile/feedback/shared-2/revoke', { method: 'POST' }),
+      routeParams('shared-2'),
+    );
+    assert.equal(response.status, 401);
+    assert.equal((await response.json() as { reason?: string }).reason, 'missing_token');
+    assert.equal(port.listForScope(SHARED_DEFAULT_SCOPE)[0].revokedAt, undefined);
+  } finally {
+    teardown();
+  }
+});
+
+test('feedback: an authenticated user is scoped to their uid, never to the shared scope', async () => {
+  const teardown = setup(fakePort([
+    event({ id: 'mine', scopeId: OWNER, outcome: 'complete', occurredAt: '2026-08-10T09:00:00.000Z' }),
+    event({ id: 'shared', scopeId: SHARED_DEFAULT_SCOPE, outcome: 'complete', occurredAt: '2026-08-11T09:00:00.000Z' }),
+  ]));
+  try {
+    assert.notEqual(OWNER, SHARED_DEFAULT_SCOPE);
+    assert.deepEqual((await historyFor(OWNER)).rows.map((row) => row.id), ['mine']);
   } finally {
     teardown();
   }
