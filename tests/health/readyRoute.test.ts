@@ -30,13 +30,10 @@ test('503 with a coarse reason when storage is unreachable', async () => {
   try {
     const response = await GET();
     assert.equal(response.status, 503);
-    const body = (await response.json()) as { ready: boolean; reason: string };
-    assert.equal(body.ready, false);
-    assert.equal(body.reason, 'storage_unavailable');
-    // A probe response is public: it must not leak the project, the host, or
-    // the underlying error text.
-    assert.equal(JSON.stringify(body).includes('firestore.googleapis.com'), false);
-    assert.equal(JSON.stringify(body).includes('maybesitter-app'), false);
+    // A probe response is public, so assert the whole body rather than a few
+    // fields: this proves nothing else is in it — no host, no project id, no
+    // error text — which a substring check could never establish.
+    assert.deepEqual(await response.json(), { ready: false, reason: 'storage_unavailable' });
   } finally {
     resetStorageForTests();
   }
