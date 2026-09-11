@@ -8,7 +8,7 @@ import {
   type AlphaTraceSession,
   type AlphaTraceStageRecord,
 } from '../../src/contracts/v1/alphaTraceContracts';
-import { mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createFileAlphaTraceStore, createInMemoryAlphaTraceStore } from '../../lib/alphaTrace/alphaTraceStore';
@@ -220,17 +220,21 @@ test('trace store: deletion reaches a file whose contents disagree with its name
   // id inside the file. Deleting by the id in the contents would miss it, and
   // a participant asking for their data to be erased would not be told.
   const dir = mkdtempSync(join(tmpdir(), 'trace-legacy-'));
-  const legacy = {
-    version: ALPHA_TRACE_VERSION,
-    sessionId: '../../../../elsewhere',
-    participantId: 'p_victim',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    stages: [stage('input_received', { inputText: 'MRI at the oncology clinic' })],
-  };
-  writeFileSync(join(dir, 'legacy-session.trace.json'), JSON.stringify(legacy));
+  try {
+    const legacy = {
+      version: ALPHA_TRACE_VERSION,
+      sessionId: '../../../../elsewhere',
+      participantId: 'p_victim',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      stages: [stage('input_received', { inputText: 'MRI at the oncology clinic' })],
+    };
+    writeFileSync(join(dir, 'legacy-session.trace.json'), JSON.stringify(legacy));
 
-  const store = createFileAlphaTraceStore({ dataDir: dir });
-  assert.equal(store.deleteParticipant('p_victim'), 1);
-  assert.equal(readdirSync(dir).length, 0);
+    const store = createFileAlphaTraceStore({ dataDir: dir });
+    assert.equal(store.deleteParticipant('p_victim'), 1);
+    assert.equal(readdirSync(dir).length, 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

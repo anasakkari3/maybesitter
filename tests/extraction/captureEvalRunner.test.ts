@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   evaluateTestCase,
   loadCaptureSuite,
@@ -74,7 +77,11 @@ test('captureEvalRunner: flags prompt injection attempts correctly', async () =>
 });
 
 test('captureEvalRunner: runCaptureEvaluation generates machine-readable gate report with thresholds', async () => {
-  const reportPath = 'evaluation-reports/capture-gate-test-report.json';
+  // A temp path, never the tracked evaluation-reports/ file: writing that made
+  // the tree dirty after every run and made two concurrent suites race on it.
+  // The tracked report is published gate evidence; only `npm run capture:eval`
+  // writes it.
+  const reportPath = join(mkdtempSync(join(tmpdir(), 'capture-gate-')), 'report.json');
   const report = await runCaptureEvaluation({
     datasetPath: 'evaluation-data/capture-gate-suite.jsonl',
     reportOutputPath: reportPath,
