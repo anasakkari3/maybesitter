@@ -92,14 +92,14 @@ test('one participant cannot revoke another participant, even holding a derived 
   assert.equal(aggregateFrom(store).windowed.complete, 1, 'and must still count');
 });
 
-test('the migration baseline reaches lifetime totals but never a window', () => {
+test('the migration baseline reaches lifetime totals but never a window', async () => {
   const store = createInMemoryFeedbackEventStore();
   const legacy = new MemoryBehaviorFeedbackStore();
-  legacy.record(SCOPE, 'action_completed', '2026-01-01T00:00:00.000Z');
-  legacy.record(SCOPE, 'action_completed', '2026-01-02T00:00:00.000Z');
-  legacy.record(SCOPE, 'suggestion_ignored', '2026-01-03T00:00:00.000Z');
+  await legacy.record(SCOPE, 'action_completed', '2026-01-01T00:00:00.000Z');
+  await legacy.record(SCOPE, 'action_completed', '2026-01-02T00:00:00.000Z');
+  await legacy.record(SCOPE, 'suggestion_ignored', '2026-01-03T00:00:00.000Z');
 
-  migrateLegacyBaseline({ scopeId: SCOPE, reader: legacy, store, migratedAt: NOW });
+  await migrateLegacyBaseline({ scopeId: SCOPE, reader: legacy, store, migratedAt: NOW });
   seed(store, '2026-08-17T09:00:00.000Z', 'c1', 'complete');
 
   const aggregates = aggregateFrom(store);

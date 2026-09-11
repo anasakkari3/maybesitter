@@ -91,12 +91,12 @@ function failureMessage(action: AgendaActionType, result: CommandServiceResult['
   return `No change was applied for ${action}.`;
 }
 
-function recordActionFeedback(
+async function recordActionFeedback(
   action: AgendaActionType,
   subjectId: string,
   now: Date,
   options: AgendaActionOptions,
-): void {
+): Promise<void> {
   if (
     !options.feedbackStore &&
     !options.feedbackScopeId &&
@@ -108,16 +108,16 @@ function recordActionFeedback(
   }
 
   if (action === 'done') {
-    recordBehaviorFeedback('action_completed', { ...options, now });
+    await recordBehaviorFeedback('action_completed', { ...options, now });
   }
   if (action === 'postpone') {
-    recordBehaviorFeedback('action_delayed', { ...options, now });
+    await recordBehaviorFeedback('action_delayed', { ...options, now });
   }
   if (action === 'skip') {
-    recordBehaviorFeedback('suggestion_ignored', { ...options, now });
+    await recordBehaviorFeedback('suggestion_ignored', { ...options, now });
   }
 
-  appendFeedbackEvent(action, subjectId, now, options);
+  await appendFeedbackEvent(action, subjectId, now, options);
 }
 
 /**
@@ -134,19 +134,19 @@ function recordActionFeedback(
  * not-yet-depended-on log misbehaved — would be a regression caused entirely by
  * unfinished work.
  */
-function appendFeedbackEvent(
+async function appendFeedbackEvent(
   action: AgendaActionType,
   subjectId: string,
   now: Date,
   options: AgendaActionOptions,
-): void {
+): Promise<void> {
   const outcome = FEEDBACK_OUTCOME_BY_ACTION[action];
   if (!outcome) return;
 
   const store = options.feedbackEventStore ?? defaultFeedbackEventStore();
   const at = now.toISOString();
   try {
-    store.append(
+    await store.append(
       {
         scopeId: scopeBehaviorFeedback(options),
         outcome,
@@ -181,12 +181,14 @@ function defaultFeedbackEventStore(): FeedbackEventStore {
   return sharedFeedbackEventStore;
 }
 
-export function applyAgendaAction(
+// Async since UC-1.0c (#142): the behavioural counters it records are a
+// storage write.
+export async function applyAgendaAction(
   id: string,
   action: unknown,
   now: Date = new Date(),
   options: AgendaActionOptions = {}
-): AgendaActionResult {
+): Promise<AgendaActionResult> {
   if (!isAgendaActionType(action)) {
     return {
       success: false,
@@ -206,7 +208,7 @@ export function applyAgendaAction(
   const results = commandsForAction(commitment, action, now).map((command) => applyCommand(command));
   const result = aggregateResult(results);
   if (result === 'applied') {
-    recordActionFeedback(action, id, now, options);
+    await recordActionFeedback(action, id, now, options);
   }
 
   return {

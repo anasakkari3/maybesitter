@@ -18,7 +18,7 @@ export async function POST(request: Request) {
     return Response.json({ success: false, message: 'Invalid request body' }, { status: 400 });
   }
 
-  return Response.json(recordPressureDelivery(body.commitmentId, {
+  return Response.json(await recordPressureDelivery(body.commitmentId, {
     sessionId: body.sessionId,
     userId: body.userId,
     conversationId: body.conversationId,

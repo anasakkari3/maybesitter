@@ -56,17 +56,17 @@ export class Scheduler {
     this.running = true;
     try {
       await runDueJobs(this.store, this.handleCommand, now);
-      this.evaluateAgendaHook(now);
+      await this.evaluateAgendaHook(now);
     } finally {
       this.running = false;
     }
   }
 
-  private evaluateAgendaHook(now: Date): void {
+  private async evaluateAgendaHook(now: Date): Promise<void> {
     if (!this.evaluateAgendaOnTick) return;
 
     try {
-      const agenda = getDailyAgenda({ now });
+      const agenda = await getDailyAgenda({ now });
       const topItem = agenda.items[0];
       const pressureDecision = agenda.pressureCandidate ? `pressureCandidate=${agenda.pressureCandidate.tone}` : 'pressureCandidate=none';
       const topDecision = topItem

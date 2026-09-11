@@ -121,14 +121,14 @@ test('adaptiveService: classifies disciplined, inconsistent, and avoidant users'
   });
 });
 
-test('adaptiveService: derives simple session behavior from DomainState', () => {
+test('adaptiveService: derives simple session behavior from DomainState', async () => {
   let state = createEmptyDomainState();
   state = addActive(state, 'done', { status: 'completed' });
   state = addActive(state, 'ignored', { ack: 'ignored' });
   state = addActive(state, 'delayed', { ack: 'postponed' });
 
-  const signals = deriveAdaptiveSignals(state, { clarificationFrequency: 0.4 });
-  const behavior = getAdaptiveBehaviorFromState(state, { clarificationFrequency: 0.4 });
+  const signals = await deriveAdaptiveSignals(state, { clarificationFrequency: 0.4 });
+  const behavior = await getAdaptiveBehaviorFromState(state, { clarificationFrequency: 0.4 });
 
   assert.deepEqual(signals, {
     ignoredCommitmentsCount: 1,
@@ -143,19 +143,19 @@ test('adaptiveService: derives simple session behavior from DomainState', () => 
   });
 });
 
-test('adaptiveService: empty DomainState does not overfit absence of history', () => {
-  assert.deepEqual(getAdaptiveBehaviorFromState(createEmptyDomainState()), {
+test('adaptiveService: empty DomainState does not overfit absence of history', async () => {
+  assert.deepEqual(await getAdaptiveBehaviorFromState(createEmptyDomainState()), {
     userType: 'disciplined',
     pressureLevel: 'low',
     suggestionStyle: 'minimal',
   });
 });
 
-test('adaptiveService: behavior feedback updates classification over time', () => {
+test('adaptiveService: behavior feedback updates classification over time', async () => {
   const feedbackStore = new MemoryBehaviorFeedbackStore();
   const date = new Date(now);
 
-  assert.deepEqual(getAdaptiveBehaviorFromState(createEmptyDomainState(), {
+  assert.deepEqual(await getAdaptiveBehaviorFromState(createEmptyDomainState(), {
     sessionId: 'session-a',
     feedbackStore,
   }), {
@@ -164,10 +164,10 @@ test('adaptiveService: behavior feedback updates classification over time', () =
     suggestionStyle: 'minimal',
   });
 
-  recordBehaviorFeedback('suggestion_ignored', { now: date, sessionId: 'session-a', feedbackStore });
-  recordBehaviorFeedback('clarification_failed', { now: date, sessionId: 'session-a', feedbackStore });
+  await recordBehaviorFeedback('suggestion_ignored', { now: date, sessionId: 'session-a', feedbackStore });
+  await recordBehaviorFeedback('clarification_failed', { now: date, sessionId: 'session-a', feedbackStore });
 
-  assert.deepEqual(getAdaptiveBehaviorFromState(createEmptyDomainState(), {
+  assert.deepEqual(await getAdaptiveBehaviorFromState(createEmptyDomainState(), {
     sessionId: 'session-a',
     feedbackStore,
   }), {

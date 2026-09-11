@@ -57,10 +57,10 @@ function withState() {
   return () => rmSync(dir, { recursive: true, force: true });
 }
 
-test('agendaActionService: acknowledge confirms pending commitment', () => {
+test('agendaActionService: acknowledge confirms pending commitment', async () => {
   const cleanup = withState();
   try {
-    const result = applyAgendaAction('pending', 'aware', now);
+    const result = await applyAgendaAction('pending', 'aware', now);
 
     assert.equal(result.success, true);
     assert.equal(result.message, 'Reminder saved.');
@@ -70,10 +70,10 @@ test('agendaActionService: acknowledge confirms pending commitment', () => {
   }
 });
 
-test('agendaActionService: done completes active commitment', () => {
+test('agendaActionService: done completes active commitment', async () => {
   const cleanup = withState();
   try {
-    const result = applyAgendaAction('active', 'done', now);
+    const result = await applyAgendaAction('active', 'done', now);
 
     assert.equal(result.success, true);
     assert.equal(result.message, 'Marked complete.');
@@ -84,10 +84,10 @@ test('agendaActionService: done completes active commitment', () => {
   }
 });
 
-test('agendaActionService: done on pending commitment says it was saved and completed', () => {
+test('agendaActionService: done on pending commitment says it was saved and completed', async () => {
   const cleanup = withState();
   try {
-    const result = applyAgendaAction('pending', 'done', now);
+    const result = await applyAgendaAction('pending', 'done', now);
 
     assert.equal(result.success, true);
     assert.equal(result.message, 'Saved and marked complete.');
@@ -97,39 +97,39 @@ test('agendaActionService: done on pending commitment says it was saved and comp
   }
 });
 
-test('agendaActionService: records lightweight behavior feedback for user reactions', () => {
+test('agendaActionService: records lightweight behavior feedback for user reactions', async () => {
   const feedbackStore = new MemoryBehaviorFeedbackStore();
   let cleanup = withState();
   try {
-    applyAgendaAction('active', 'done', now, { sessionId: 'session-a', feedbackStore });
+    await applyAgendaAction('active', 'done', now, { sessionId: 'session-a', feedbackStore });
   } finally {
     cleanup();
   }
 
   cleanup = withState();
   try {
-    applyAgendaAction('active', 'postpone', now, { sessionId: 'session-a', feedbackStore });
+    await applyAgendaAction('active', 'postpone', now, { sessionId: 'session-a', feedbackStore });
   } finally {
     cleanup();
   }
 
   cleanup = withState();
   try {
-    applyAgendaAction('active', 'skip', now, { sessionId: 'session-a', feedbackStore });
+    await applyAgendaAction('active', 'skip', now, { sessionId: 'session-a', feedbackStore });
   } finally {
     cleanup();
   }
 
-  const feedback = feedbackStore.get('session-a');
+  const feedback = await feedbackStore.get('session-a');
   assert.equal(feedback.completedActions, 1);
   assert.equal(feedback.delayedActions, 1);
   assert.equal(feedback.ignoredSuggestions, 1);
 });
 
-test('agendaActionService: postpone shifts active commitment attention', () => {
+test('agendaActionService: postpone shifts active commitment attention', async () => {
   const cleanup = withState();
   try {
-    const result = applyAgendaAction('active', 'postpone', now);
+    const result = await applyAgendaAction('active', 'postpone', now);
 
     assert.equal(result.success, true);
     assert.equal(result.message, 'Moved to tomorrow.');
@@ -140,10 +140,10 @@ test('agendaActionService: postpone shifts active commitment attention', () => {
   }
 });
 
-test('agendaActionService: postpone on pending commitment says it was saved and moved', () => {
+test('agendaActionService: postpone on pending commitment says it was saved and moved', async () => {
   const cleanup = withState();
   try {
-    const result = applyAgendaAction('pending', 'postpone', now);
+    const result = await applyAgendaAction('pending', 'postpone', now);
 
     assert.equal(result.success, true);
     assert.equal(result.message, 'Saved and moved to tomorrow.');
@@ -154,10 +154,10 @@ test('agendaActionService: postpone on pending commitment says it was saved and 
   }
 });
 
-test('agendaActionService: skip deprioritizes active commitment without dropping it', () => {
+test('agendaActionService: skip deprioritizes active commitment without dropping it', async () => {
   const cleanup = withState();
   try {
-    const result = applyAgendaAction('active', 'skip', now);
+    const result = await applyAgendaAction('active', 'skip', now);
 
     assert.equal(result.success, true);
     assert.equal(result.message, 'Moved lower for now.');
@@ -169,10 +169,10 @@ test('agendaActionService: skip deprioritizes active commitment without dropping
   }
 });
 
-test('agendaActionService: safely rejects missing commitment', () => {
+test('agendaActionService: safely rejects missing commitment', async () => {
   const cleanup = withState();
   try {
-    const result = applyAgendaAction('missing', 'done', now);
+    const result = await applyAgendaAction('missing', 'done', now);
 
     assert.equal(result.success, false);
     assert.equal(result.message, 'Commitment not found.');
@@ -181,10 +181,10 @@ test('agendaActionService: safely rejects missing commitment', () => {
   }
 });
 
-test('agendaActionService: safely rejects unsupported action', () => {
+test('agendaActionService: safely rejects unsupported action', async () => {
   const cleanup = withState();
   try {
-    const result = applyAgendaAction('active', 'destroy', now);
+    const result = await applyAgendaAction('active', 'destroy', now);
 
     assert.equal(result.success, false);
     assert.equal(result.message, 'Unsupported agenda action.');

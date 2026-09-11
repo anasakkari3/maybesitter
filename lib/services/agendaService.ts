@@ -138,10 +138,12 @@ function classifyCommitment(
   return null;
 }
 
-export function getDailyAgenda(
+// Async since UC-1.0c (#142): the pressure candidate reads the delivery
+// cooldown and the behavioural counters from storage.
+export async function getDailyAgenda(
   options: AgendaOptions = {},
   state: DomainState = getCommandServiceState()
-): Agenda {
+): Promise<Agenda> {
   const now = options.now || new Date();
   const maxItems = boundedMaxItems(options.maxItems);
   const dueSoonWindowMs = options.dueSoonWindowMs || DEFAULT_DUE_SOON_WINDOW_MS;
@@ -161,7 +163,7 @@ export function getDailyAgenda(
   const items = Array.from(itemsById.values())
     .sort((a, b) => b.urgencyScore - a.urgencyScore || a.title.localeCompare(b.title))
     .slice(0, maxItems);
-  const pressureCandidate = getPressureCandidateForAgenda(items, {
+  const pressureCandidate = await getPressureCandidateForAgenda(items, {
     now,
     deliveryStore: options.pressureDeliveryStore,
     behaviorFeedbackStore: options.behaviorFeedbackStore,

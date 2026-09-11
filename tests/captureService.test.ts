@@ -226,7 +226,7 @@ test('captureService: next reply resolves pending clarification once', async () 
     assert.deepEqual(second.response.nextStep, { type: 'none', message: '' });
     assert.deepEqual(second.response.actions, []);
     assert.equal(Object.values(getCommandServiceState().commitments).length, 1);
-    assert.equal(cleanup.behaviorFeedbackStore.get('session-a').clarificationSuccesses, 1);
+    assert.equal((await cleanup.behaviorFeedbackStore.get('session-a')).clarificationSuccesses, 1);
   } finally {
     cleanup();
   }
@@ -538,7 +538,7 @@ test('captureService: ambiguous correction asks a targeted follow-up without cor
     assert.match(second.response.message, /when|what time|date/i);
     assert.equal(typeof second.meta.pendingClarificationId, 'string');
     assert.equal(Object.values(getCommandServiceState().commitments).length, 0);
-    assert.equal(cleanup.behaviorFeedbackStore.get('session-a').clarificationFailures, 1);
+    assert.equal((await cleanup.behaviorFeedbackStore.get('session-a')).clarificationFailures, 1);
   } finally {
     cleanup();
   }

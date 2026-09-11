@@ -1,5 +1,21 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
-import path from 'path';
+/**
+ * Pressure delivery, on durable storage (UC-1.0c, #142).
+ *
+ * ── What this replaced ───────────────────────────────────────────
+ *
+ * One `pressure-delivery.json` holding every scope's delivery history,
+ * rewritten whole on each surface. The cooldown is read from it, and a
+ * cooldown that lives on a per-instance filesystem is not a cooldown: on Cloud
+ * Run instance B has never heard of the nudge instance A just sent, so a user
+ * who is already behind gets pushed again immediately. Over-nudging is the
+ * failure that makes people turn the assistant off.
+ *
+ * Delivery history now lives at `users/{uid}/pressureDelivery/{sha256(scope)}`
+ * — one document per scope holding its commitment map, which is the shape the
+ * file had, so the cooldown is shared by every instance. `recordSurface` reads
+ * and writes inside one transaction, because two surfaces racing used to lose
+ * one and a lost record is a missing cooldown.
+ */
 import { getAdaptiveBehavior, mergeAdaptiveSignals, type AdaptiveBehavior, type AdaptiveSignals } from './adaptiveService';
 import { getBehaviorFeedbackSignals, type BehaviorFeedbackStore } from './behaviorFeedbackService';
 import { getCommandServiceState } from './commandService';
@@ -7,7 +23,15 @@ import type { Commitment, DomainState, Reminder } from '../../src/domain/stateMa
 import type { AgendaItem } from './agendaService';
 import { createAssistantTurn, type RealizationPath, type ResponseStrategy } from './responseEngine/assistantTurn';
 import { getConversationStateStore } from './responseEngine/conversationStateStore';
-import { resolveDataDir } from '../runtime/dataDir';
+import {
+  PRESSURE_DELIVERY,
+  createMemoryStorage,
+  docIdForKey,
+  getStorage,
+  userCol,
+  userIdForKey,
+  type StorageAdapter,
+} from '../storage';
 
 export type PressureTone = 'soft' | 'firm';
 export type PressureIntensity = 'low' | 'medium' | 'high';
@@ -45,12 +69,13 @@ export interface PressureDeliveryResult {
   message: string;
 }
 
+/** Async since UC-1.0c (#142): every method is a storage round trip. */
 export interface PressureDeliveryStore {
-  getLastSurfacedAt(scopeId: string, commitmentId: string): string | null;
-  getLastMessage(scopeId: string, commitmentId: string): string | null;
-  getLastRecord(scopeId: string, commitmentId: string): PressureDeliveryRecord | null;
-  recordSurface(scopeId: string, commitmentId: string, surfacedAt: string, message?: string | null, metadata?: PressureDeliveryMetadata): void;
-  clear(scopeId?: string): void;
+  getLastSurfacedAt(scopeId: string, commitmentId: string): Promise<string | null>;
+  getLastMessage(scopeId: string, commitmentId: string): Promise<string | null>;
+  getLastRecord(scopeId: string, commitmentId: string): Promise<PressureDeliveryRecord | null>;
+  recordSurface(scopeId: string, commitmentId: string, surfacedAt: string, message?: string | null, metadata?: PressureDeliveryMetadata): Promise<void>;
+  clear(scopeId?: string): Promise<void>;
 }
 
 interface PressureCandidate {
@@ -74,17 +99,15 @@ type PressureDeliveryMetadata = {
   path?: RealizationPath | null;
 };
 
-type PressureDeliveryData = {
-  surfaced: Record<string, Record<string, PressureDeliveryRecord>>;
-};
+/** One document per scope: the commitment map the file used to hold. */
+interface StoredPressureDelivery {
+  scopeId: string;
+  surfaced: Record<string, PressureDeliveryRecord>;
+}
 
 export const PRESSURE_DELIVERY_COOLDOWN_MS = 60 * 60 * 1_000;
 const DEFAULT_PRESSURE_SCOPE_ID = 'local';
 const HIGH_URGENCY_SCORE = 5_800;
-
-function emptyData(): PressureDeliveryData {
-  return { surfaced: {} };
-}
 
 function normalizeSurfacedMessage(value: unknown): string | null {
   if (typeof value !== 'string') return null;
@@ -142,6 +165,7 @@ function normalizePath(value: unknown): RealizationPath | null {
     : null;
 }
 
+/** A hand-edited or half-written document must not surface as a partial record. */
 function normalizeDeliveryRecord(value: unknown): PressureDeliveryRecord | null {
   if (typeof value === 'string') {
     return { surfacedAt: value, message: null, strategy: null, path: null, recentPaths: [] };
@@ -163,33 +187,14 @@ function normalizeDeliveryRecord(value: unknown): PressureDeliveryRecord | null 
   };
 }
 
-function normalizeData(raw: unknown): PressureDeliveryData {
-  if (!raw || typeof raw !== 'object') return emptyData();
-  const surfaced = (raw as PressureDeliveryData).surfaced;
-  if (!surfaced || typeof surfaced !== 'object') return emptyData();
-
-  const scoped: PressureDeliveryData['surfaced'] = {};
-  for (const [scopeId, value] of Object.entries(surfaced)) {
-    if (typeof value === 'string') {
-      const record = normalizeDeliveryRecord(value);
-      if (!record) continue;
-      scoped[DEFAULT_PRESSURE_SCOPE_ID] = {
-        ...(scoped[DEFAULT_PRESSURE_SCOPE_ID] || {}),
-        [scopeId]: record,
-      };
-      continue;
-    }
-    if (value && typeof value === 'object') {
-      const scopedRecords: Record<string, PressureDeliveryRecord> = {};
-      for (const [commitmentId, recordValue] of Object.entries(value)) {
-        const record = normalizeDeliveryRecord(recordValue);
-        if (record) scopedRecords[commitmentId] = record;
-      }
-      scoped[scopeId] = scopedRecords;
-    }
+function normalizeSurfaced(value: unknown): Record<string, PressureDeliveryRecord> {
+  if (!value || typeof value !== 'object') return {};
+  const surfaced: Record<string, PressureDeliveryRecord> = {};
+  for (const [commitmentId, recordValue] of Object.entries(value as Record<string, unknown>)) {
+    const record = normalizeDeliveryRecord(recordValue);
+    if (record) surfaced[commitmentId] = record;
   }
-
-  return { surfaced: scoped };
+  return surfaced;
 }
 
 function noPressure(): PressureMessage {
@@ -238,14 +243,14 @@ function ignoredCount(commitment: Commitment, reminders: readonly Reminder[], st
   return ignoredReminders + escalationCount + ackCount;
 }
 
-function isCoolingDown(
+async function isCoolingDown(
   scopeId: string,
   commitmentId: string,
   nowMs: number,
   cooldownMs: number,
   deliveryStore: PressureDeliveryStore
-): boolean {
-  const lastPressureAt = parseTime(deliveryStore.getLastSurfacedAt(scopeId, commitmentId));
+): Promise<boolean> {
+  const lastPressureAt = parseTime(await deliveryStore.getLastSurfacedAt(scopeId, commitmentId));
   return lastPressureAt !== null && nowMs - lastPressureAt < cooldownMs;
 }
 
@@ -260,7 +265,7 @@ function isPressureEligible(candidate: PressureCandidate): boolean {
   );
 }
 
-function adaptiveSignalsFor(candidate: PressureCandidate, state: DomainState, options: PressureOptions): AdaptiveSignals {
+async function adaptiveSignalsFor(candidate: PressureCandidate, state: DomainState, options: PressureOptions): Promise<AdaptiveSignals> {
   const commitmentCount = Math.max(1, Object.keys(state.commitments).length);
   const completedCount = Object.values(state.commitments).filter((commitment) => commitment.status === 'completed').length;
   const delayedCommitmentIds = new Set<string>();
@@ -287,7 +292,7 @@ function adaptiveSignalsFor(candidate: PressureCandidate, state: DomainState, op
   );
 
   const feedbackSignals = shouldUseFeedback
-    ? getBehaviorFeedbackSignals({
+    ? await getBehaviorFeedbackSignals({
         feedbackStore: options.behaviorFeedbackStore,
         feedbackScopeId: options.pressureScopeId,
         conversationId: options.conversationId,
@@ -299,8 +304,8 @@ function adaptiveSignalsFor(candidate: PressureCandidate, state: DomainState, op
   return mergeAdaptiveSignals(mergeAdaptiveSignals(stateSignals, feedbackSignals), options.adaptiveSignals);
 }
 
-function adaptiveBehaviorFor(candidate: PressureCandidate, state: DomainState, options: PressureOptions): AdaptiveBehavior {
-  return getAdaptiveBehavior(adaptiveSignalsFor(candidate, state, options));
+async function adaptiveBehaviorFor(candidate: PressureCandidate, state: DomainState, options: PressureOptions): Promise<AdaptiveBehavior> {
+  return getAdaptiveBehavior(await adaptiveSignalsFor(candidate, state, options));
 }
 
 function toneFor(behavior: AdaptiveBehavior): PressureTone {
@@ -319,11 +324,6 @@ function durationText(durationMs: number | null): string | null {
   if (hours < 36) return `about ${hours} hour${hours === 1 ? '' : 's'}`;
   const days = Math.round(hours / 24);
   return `about ${days} day${days === 1 ? '' : 's'}`;
-}
-
-function delayBucket(durationMs: number | null): 'none' | 'short' | 'long' {
-  if (durationMs === null) return 'none';
-  return durationMs >= 24 * 60 * 60 * 1_000 ? 'long' : 'short';
 }
 
 function countText(value: number): string {
@@ -397,134 +397,135 @@ function candidateFor(item: AgendaItem, state: DomainState, nowMs: number): Pres
   };
 }
 
-export class FilePressureDeliveryStore implements PressureDeliveryStore {
-  private readonly filePath: string;
+/**
+ * The scope key is the uid, per UC-1.0c's decision, and the document id is the
+ * hash of the same key. The raw scope is kept in a field so the record stays
+ * findable when the id is a digest.
+ */
+function documentPath(scopeId: string): string {
+  return `${userCol(userIdForKey(scopeId), PRESSURE_DELIVERY)}/${docIdForKey(scopeId)}`;
+}
 
-  constructor(filePath = resolveDataDir('pressure-delivery.json')) {
-    this.filePath = filePath;
+export class StoragePressureDeliveryStore implements PressureDeliveryStore {
+  constructor(private readonly injected?: StorageAdapter) {}
+
+  /** Resolved per call so a test may swap the adapter after construction. */
+  private get storage(): StorageAdapter {
+    return this.injected ?? getStorage();
   }
 
-  private read(): PressureDeliveryData {
-    if (!existsSync(this.filePath)) return emptyData();
-    return normalizeData(JSON.parse(readFileSync(this.filePath, 'utf8')) as unknown);
+  private async read(scopeId: string): Promise<Record<string, PressureDeliveryRecord>> {
+    const stored = await this.storage.get<StoredPressureDelivery>(documentPath(scopeId));
+    return stored ? normalizeSurfaced(stored.surfaced) : {};
   }
 
-  private write(data: PressureDeliveryData): void {
-    mkdirSync(path.dirname(this.filePath), { recursive: true });
-    writeFileSync(this.filePath, `${JSON.stringify(normalizeData(data), null, 2)}\n`, 'utf8');
+  async getLastSurfacedAt(scopeId: string, commitmentId: string): Promise<string | null> {
+    return (await this.read(scopeId))[commitmentId]?.surfacedAt || null;
   }
 
-  getLastSurfacedAt(scopeId: string, commitmentId: string): string | null {
-    return this.read().surfaced[scopeId]?.[commitmentId]?.surfacedAt || null;
+  async getLastMessage(scopeId: string, commitmentId: string): Promise<string | null> {
+    return (await this.read(scopeId))[commitmentId]?.message || null;
   }
 
-  getLastMessage(scopeId: string, commitmentId: string): string | null {
-    return this.read().surfaced[scopeId]?.[commitmentId]?.message || null;
+  async getLastRecord(scopeId: string, commitmentId: string): Promise<PressureDeliveryRecord | null> {
+    return (await this.read(scopeId))[commitmentId] || null;
   }
 
-  getLastRecord(scopeId: string, commitmentId: string): PressureDeliveryRecord | null {
-    return this.read().surfaced[scopeId]?.[commitmentId] || null;
-  }
-
-  recordSurface(scopeId: string, commitmentId: string, surfacedAt: string, message?: string | null, metadata: PressureDeliveryMetadata = {}): void {
-    const data = this.read();
-    data.surfaced[scopeId] = data.surfaced[scopeId] || {};
-    const previous = data.surfaced[scopeId][commitmentId];
+  /**
+   * Transactional: two surfaces racing used to lose one, and a lost delivery
+   * record is a missing cooldown — the user gets nudged twice.
+   */
+  async recordSurface(
+    scopeId: string,
+    commitmentId: string,
+    surfacedAt: string,
+    message?: string | null,
+    metadata: PressureDeliveryMetadata = {},
+  ): Promise<void> {
+    const path = documentPath(scopeId);
     const strategy = normalizeStrategy(metadata.strategy);
     const realizedPath = normalizePath(metadata.path);
-    data.surfaced[scopeId][commitmentId] = {
-      surfacedAt,
-      message: normalizeSurfacedMessage(message),
-      strategy,
-      path: realizedPath,
-      recentPaths: realizedPath ? [...(previous?.recentPaths || []), realizedPath].slice(-18) : previous?.recentPaths || [],
-    };
-    this.write(data);
+
+    await this.storage.runTransaction(async (tx) => {
+      const stored = await tx.get<StoredPressureDelivery>(path);
+      const surfaced = stored ? normalizeSurfaced(stored.surfaced) : {};
+      const previous = surfaced[commitmentId];
+      surfaced[commitmentId] = {
+        surfacedAt,
+        message: normalizeSurfacedMessage(message),
+        strategy,
+        path: realizedPath,
+        recentPaths: realizedPath
+          ? [...(previous?.recentPaths || []), realizedPath].slice(-18)
+          : previous?.recentPaths || [],
+      };
+      tx.set<StoredPressureDelivery>(path, { scopeId, surfaced });
+    });
   }
 
-  clear(scopeId?: string): void {
+  async clear(scopeId?: string): Promise<void> {
     if (scopeId) {
-      const data = this.read();
-      delete data.surfaced[scopeId];
-      this.write(data);
+      await this.storage.delete(documentPath(scopeId));
       return;
     }
-    if (existsSync(this.filePath)) rmSync(this.filePath, { force: true });
+    const rows = await this.storage.listGroup<StoredPressureDelivery>(PRESSURE_DELIVERY);
+    for (const row of rows) await this.storage.delete(row.path);
   }
 }
 
-export class MemoryPressureDeliveryStore implements PressureDeliveryStore {
-  private readonly surfaced = new Map<string, Map<string, PressureDeliveryRecord>>();
-
-  getLastSurfacedAt(scopeId: string, commitmentId: string): string | null {
-    return this.surfaced.get(scopeId)?.get(commitmentId)?.surfacedAt || null;
-  }
-
-  getLastMessage(scopeId: string, commitmentId: string): string | null {
-    return this.surfaced.get(scopeId)?.get(commitmentId)?.message || null;
-  }
-
-  getLastRecord(scopeId: string, commitmentId: string): PressureDeliveryRecord | null {
-    return this.surfaced.get(scopeId)?.get(commitmentId) || null;
-  }
-
-  recordSurface(scopeId: string, commitmentId: string, surfacedAt: string, message?: string | null, metadata: PressureDeliveryMetadata = {}): void {
-    const scoped = this.surfaced.get(scopeId) || new Map<string, PressureDeliveryRecord>();
-    const previous = scoped.get(commitmentId);
-    const strategy = normalizeStrategy(metadata.strategy);
-    const realizedPath = normalizePath(metadata.path);
-    scoped.set(commitmentId, {
-      surfacedAt,
-      message: normalizeSurfacedMessage(message),
-      strategy,
-      path: realizedPath,
-      recentPaths: realizedPath ? [...(previous?.recentPaths || []), realizedPath].slice(-18) : previous?.recentPaths || [],
-    });
-    this.surfaced.set(scopeId, scoped);
-  }
-
-  clear(scopeId?: string): void {
-    if (scopeId) {
-      this.surfaced.delete(scopeId);
-      return;
-    }
-    this.surfaced.clear();
+/**
+ * The same implementation over a private in-memory adapter, so a test cannot
+ * exercise semantics production does not have.
+ */
+export class MemoryPressureDeliveryStore extends StoragePressureDeliveryStore {
+  constructor() {
+    super(createMemoryStorage());
   }
 }
 
 export function createDefaultPressureDeliveryStore(): PressureDeliveryStore {
-  return new FilePressureDeliveryStore();
+  return new StoragePressureDeliveryStore();
 }
 
-export function clearPressureHistory(
+export async function clearPressureHistory(
   store: PressureDeliveryStore = createDefaultPressureDeliveryStore(),
   scopeId?: string
-): void {
-  store.clear(scopeId);
+): Promise<void> {
+  await store.clear(scopeId);
 }
 
-export function getPressureCandidateForAgenda(
+export async function getPressureCandidateForAgenda(
   items: readonly AgendaItem[],
   options: PressureOptions = {},
   state: DomainState = getCommandServiceState()
-): PressureCandidateMessage | null {
+): Promise<PressureCandidateMessage | null> {
   const now = options.now || new Date();
   const nowMs = now.getTime();
   const cooldownMs = options.cooldownMs ?? PRESSURE_DELIVERY_COOLDOWN_MS;
   const deliveryStore = deliveryStoreFrom(options);
   const scopeId = scopePressureDelivery(options);
 
-  const candidate = items
+  const eligible = items
     .map((item) => candidateFor(item, state, nowMs))
     .filter((item): item is PressureCandidate => item !== null)
-    .filter(isPressureEligible)
-    .find((item) => !isCoolingDown(scopeId, item.commitment.id, nowMs, cooldownMs, deliveryStore));
+    .filter(isPressureEligible);
+
+  // Sequential rather than `find`, because the cooldown check is now a storage
+  // read: the first candidate not cooling down wins, and the ones after it are
+  // never queried, exactly as the synchronous `find` behaved.
+  let candidate: PressureCandidate | null = null;
+  for (const item of eligible) {
+    if (!(await isCoolingDown(scopeId, item.commitment.id, nowMs, cooldownMs, deliveryStore))) {
+      candidate = item;
+      break;
+    }
+  }
 
   if (!candidate) return null;
 
-  const behavior = adaptiveBehaviorFor(candidate, state, options);
+  const behavior = await adaptiveBehaviorFor(candidate, state, options);
   const tone = toneFor(behavior);
-  const lastRecord = deliveryStore.getLastRecord(scopeId, candidate.commitment.id);
+  const lastRecord = await deliveryStore.getLastRecord(scopeId, candidate.commitment.id);
   const turn = pressureTurnFor(candidate, behavior, scopeId, lastRecord);
 
   return {
@@ -537,26 +538,26 @@ export function getPressureCandidateForAgenda(
   };
 }
 
-export function getPressureMessage(
+export async function getPressureMessage(
   options: PressureOptions = {},
   state: DomainState = getCommandServiceState()
-): PressureMessage {
+): Promise<PressureMessage> {
   return getPressureMessageForAgenda(options.agendaItems || [], options, state);
 }
 
-export function getPressureMessageForAgenda(
+export async function getPressureMessageForAgenda(
   items: readonly AgendaItem[],
   options: PressureOptions = {},
   state: DomainState = getCommandServiceState()
-): PressureMessage {
-  return getPressureCandidateForAgenda(items, options, state) || noPressure();
+): Promise<PressureMessage> {
+  return (await getPressureCandidateForAgenda(items, options, state)) || noPressure();
 }
 
-export function recordPressureDelivery(
+export async function recordPressureDelivery(
   commitmentId: unknown,
   options: PressureOptions = {},
   state: DomainState = getCommandServiceState()
-): PressureDeliveryResult {
+): Promise<PressureDeliveryResult> {
   if (typeof commitmentId !== 'string' || !commitmentId.trim()) {
     return { success: false, message: 'Missing pressure commitment.' };
   }
@@ -571,13 +572,13 @@ export function recordPressureDelivery(
   const cooldownMs = options.cooldownMs ?? PRESSURE_DELIVERY_COOLDOWN_MS;
   const deliveryStore = deliveryStoreFrom(options);
   const scopeId = scopePressureDelivery(options);
-  if (isCoolingDown(scopeId, id, nowMs, cooldownMs, deliveryStore)) {
+  if (await isCoolingDown(scopeId, id, nowMs, cooldownMs, deliveryStore)) {
     return { success: true, message: 'Pressure was already recorded recently.' };
   }
 
   const strategy = normalizeStrategy(options.surfacedStrategy);
   const realizedPath = normalizePath(options.surfacedPath);
-  deliveryStore.recordSurface(scopeId, id, now.toISOString(), normalizeSurfacedMessage(options.surfacedMessage), {
+  await deliveryStore.recordSurface(scopeId, id, now.toISOString(), normalizeSurfacedMessage(options.surfacedMessage), {
     strategy,
     path: realizedPath,
   });
