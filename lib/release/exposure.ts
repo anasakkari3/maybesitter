@@ -1,10 +1,10 @@
 /**
  * Staged exposure configuration (Sprint 11, issue #47).
  *
- * ── Built on `resolvePilotAccess`, not beside it ─────────────────
+ * ── Built on `resolveUserAccess`, not beside it ─────────────────
  *
  * This module owns no allowlist, no trust store and no kill switch. The
- * membership judgement is `lib/pilot/pilotAccess.resolvePilotAccess`'s and stays
+ * membership judgement is `lib/pilot/pilotAccess.resolveUserAccess`'s and stays
  * there; what arrives here is its already-made `PilotExposureDecision`, and the
  * only thing this module can do with it is refuse *further*. That is the whole
  * enforcement of `SHADOW_EXPOSURE_POLICY.shadowExposureNeverExceedsPilot`: there
@@ -54,7 +54,7 @@ import {
   type ShadowPipelineDefectCode,
 } from '../../src/contracts/v1/shadowPipelineContracts';
 import type { PilotExposureDecision, PilotStopReason } from '../pilot/closedPilotControls';
-import { resolvePilotAccess } from '../pilot/pilotAccess';
+import { resolveUserAccess } from '../pilot/pilotAccess';
 import type { ShadowStudyConsentStore } from './consentStore';
 
 /**
@@ -84,7 +84,7 @@ export function toShadowPilotDecision(decision: PilotExposureDecision): ShadowPi
 /**
  * The shipped pilot gate, as the injectable this module takes.
  *
- * `resolvePilotAccess` throws for a participant id its own pattern rejects, and
+ * `resolveUserAccess` throws for a participant id its own pattern rejects, and
  * reads `process.env` and the trust store. Both are wrapped here: a throw
  * becomes the fail-closed refusal, because "the gate crashed" must never read
  * as "the gate allowed".
@@ -92,7 +92,7 @@ export function toShadowPilotDecision(decision: PilotExposureDecision): ShadowPi
 export function createPilotAccessResolver(): (participantId: string, at: Instant) => Promise<ShadowPilotDecision> {
   return async (participantId, at) => {
     try {
-      return toShadowPilotDecision((await resolvePilotAccess(participantId, at)).decision);
+      return toShadowPilotDecision((await resolveUserAccess(participantId, at)).decision);
     } catch {
       return { allowed: false, reason: 'not_allowlisted' };
     }
@@ -135,10 +135,10 @@ function defect(code: ShadowPipelineDefectCode, detail: string): ShadowPipelineD
  * against it.
  *
  * Reports rather than throws, in the contract's vocabulary rather than a new
- * one: `parseClosedPilotAllowlist` throws for the same class of mistake and
- * that is the other side of the same seam — a configuration loaded from the
- * environment at boot wants a throw, a configuration edited through a tool
- * wants a list of what is wrong with it.
+ * one: the boot-time configuration check throws for the same class of
+ * mistake and that is the other side of the same seam — a configuration
+ * loaded from the environment at boot wants a throw, a configuration edited
+ * through a tool wants a list of what is wrong with it.
  */
 export function checkStageConfiguration(
   configuration: ShadowStageConfiguration,

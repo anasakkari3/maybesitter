@@ -22,8 +22,13 @@ import {
   type ShadowExposureStage,
   type ShadowPilotDecision,
 } from '../../src/contracts/v1/shadowPipelineContracts.ts';
-import { CLOSED_PILOT_MAXIMUM, CLOSED_PILOT_MINIMUM } from '../../lib/pilot/closedPilotControls.ts';
-import { ALPHA_ALLOWLIST_MAXIMUM, ALPHA_ALLOWLIST_MINIMUM } from '../../lib/pilot/alphaControls.ts';
+// UC-1.0e (#144) deleted the participant allowlists these were imported from.
+// The staging bounds survived them: they are the contract's own now, and the
+// fixtures below derive from the contract's constants rather than from `lib/`.
+const CLOSED_PILOT_MAXIMUM = SHADOW_STAGE_PARTICIPANT_CAP.closed_pilot;
+const CLOSED_PILOT_MINIMUM = SHADOW_STAGE_PARTICIPANT_FLOOR.closed_pilot;
+const ALPHA_ALLOWLIST_MAXIMUM = SHADOW_STAGE_PARTICIPANT_CAP.internal_dogfood;
+const ALPHA_ALLOWLIST_MINIMUM = SHADOW_STAGE_PARTICIPANT_FLOOR.internal_dogfood;
 import { createInMemoryShadowStudyConsentStore } from '../../lib/release/consentStore.ts';
 import {
   SHADOW_COHORT_ENV_VAR,
@@ -97,7 +102,7 @@ test('shadow_only exposes nobody, whatever they consented to', async () => {
 
 /* ── The caps and floors, pinned then derived from ───────────────── */
 
-test('the caps and floors are the pilot bounds this contract restates', async () => {
+test('the caps and floors are the staging bounds this contract declares', async () => {
   assert.equal(SHADOW_STAGE_PARTICIPANT_CAP.shadow_only, 0);
   assert.equal(SHADOW_STAGE_PARTICIPANT_CAP.internal_dogfood, 10);
   assert.equal(SHADOW_STAGE_PARTICIPANT_CAP.closed_pilot, 40);
@@ -105,10 +110,8 @@ test('the caps and floors are the pilot bounds this contract restates', async ()
   assert.equal(SHADOW_STAGE_PARTICIPANT_FLOOR.internal_dogfood, 1);
   assert.equal(SHADOW_STAGE_PARTICIPANT_FLOOR.closed_pilot, 25);
 
-  assert.equal(SHADOW_STAGE_PARTICIPANT_CAP.closed_pilot, CLOSED_PILOT_MAXIMUM);
-  assert.equal(SHADOW_STAGE_PARTICIPANT_FLOOR.closed_pilot, CLOSED_PILOT_MINIMUM);
-  assert.equal(SHADOW_STAGE_PARTICIPANT_CAP.internal_dogfood, ALPHA_ALLOWLIST_MAXIMUM);
-  assert.equal(SHADOW_STAGE_PARTICIPANT_FLOOR.internal_dogfood, ALPHA_ALLOWLIST_MINIMUM);
+  // Previously cross-pinned against `lib/pilot`'s allowlist bounds; those are
+  // deleted, and the literals above are now the single definition.
 });
 
 test('each stage cap is probed one site at a time, from the constant', async () => {

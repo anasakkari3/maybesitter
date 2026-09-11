@@ -195,11 +195,11 @@
  * `lib/pilot/pilotAccess.ts` already imports `runtimeControls`, so importing it
  * back would close the cycle whose TDZ crash the `decomposition` descriptor in
  * `moduleContracts` records. So `PilotStopReason`, `PilotExposureDecision`'s
- * shape, the participant-id and safe-code patterns, and
- * `CLOSED_PILOT_MINIMUM`/`MAXIMUM` are restated here — and every restatement is
+ * shape, the participant-id and safe-code patterns, and the stage cohort
+ * bounds are restated here — and every restatement is
  * pinned by `tests/contract/shadowPipelineContracts.test.ts`, which *may*
  * import `lib/` and does: the stop-reason list is pinned in both directions by
- * assignability, the caps against the imported constants, and the patterns
+ * assignability, the caps against their literals, and the patterns
  * behaviourally against `requirePilotParticipantId` and `createPilotAuditEvent`.
  * The duplication is named and it fails rather than drifts. Same for
  * `SHADOW_FORBIDDEN_LOG_KEY_CLASSES`, pinned by driving each class through
@@ -1692,10 +1692,11 @@ export const SHADOW_FORBIDDEN_LOG_KEY_CLASSES = Object.freeze([
  *   - `shadow_only`      — the chain runs; nobody sees anything. Cap 0, and
  *                          `wouldHaveBeenShown` must be false for every run.
  *                          This is the stage this sprint actually ships in.
- *   - `internal_dogfood` — the trusted-alpha allowlist
- *                          (`lib/pilot/alphaControls`, 1–10 people).
- *   - `closed_pilot`     — the V03 closed pilot, 25–40 people, whose bounds
- *                          `lib/pilot/closedPilotControls` already owns.
+ *   - `internal_dogfood` — a trusted-alpha cohort, 1–10 people.
+ *   - `closed_pilot`     — a closed pilot, 25–40 people. Since UC-1.0e (#144)
+ *                          these are this contract's own staging bounds: the
+ *                          participant allowlist they used to restate is gone,
+ *                          and anyone who signs in is a user.
  */
 export type ShadowExposureStage = 'shadow_only' | 'internal_dogfood' | 'closed_pilot';
 
@@ -1708,10 +1709,10 @@ export const SHADOW_EXPOSURE_STAGES = Object.freeze([
 /**
  * The largest cohort each stage admits.
  *
- * `closed_pilot: 40` is `CLOSED_PILOT_MAXIMUM` and `internal_dogfood: 10` is the
- * alpha allowlist ceiling, both restated as literals because a contract must not
- * import `lib/` — and both pinned by the contract test against the imported
- * constants, so a change to the pilot's bounds fails here rather than drifting.
+ * `closed_pilot: 40` and `internal_dogfood: 10` are this contract's own
+ * staging ceilings, pinned against their literals by the contract test. They
+ * used to restate the participant allowlist's bounds; that allowlist is gone
+ * (UC-1.0e, #144) and these are now the only place the numbers live.
  * `shadow_only: 0` is not a degenerate case: it is the definition of the stage,
  * and it is what makes `EXPOSURE_CAP_EXCEEDED` fire for any cohort at all in
  * shadow mode.
@@ -1726,8 +1727,8 @@ export const SHADOW_STAGE_PARTICIPANT_CAP: Readonly<Record<ShadowExposureStage, 
 /**
  * The smallest cohort each stage is meaningful at.
  *
- * `closed_pilot: 25` is `CLOSED_PILOT_MINIMUM`, whose reason
- * `parseClosedPilotAllowlist` already encodes: a "closed pilot" of four people
+ * `closed_pilot: 25` encodes the reason the deleted allowlist parser used to:
+ * a "closed pilot" of four people
  * produces evidence nobody should decide on. Reported rather than thrown —
  * `EXPOSURE_COHORT_BELOW_STAGE_FLOOR` — because this file's checkers report and
  * the shipped parser's throw is the other side of the same seam, and a contract
@@ -1778,7 +1779,7 @@ export const SHADOW_PILOT_STOP_REASONS = Object.freeze([
  * reason as the stop reasons.
  *
  * This is a required **input** to `resolveShadowExposure`, not something it
- * recomputes: the shadow gate is built *on* `resolvePilotAccess` rather than
+ * recomputes: the shadow gate is built *on* `resolveUserAccess` rather than
  * beside it, and the way that is enforced is that the shadow gate has no
  * allowlist, no trust store, and no way to admit anyone the pilot gate refused.
  * `shadowExposureNeverExceedsPilot` in `SHADOW_EXPOSURE_POLICY` is the claim,
@@ -1926,7 +1927,7 @@ export interface ShadowExposureInput {
   readonly participantId: string;
   readonly stage: ShadowExposureStage;
   readonly cohortSize: number;
-  /** From `lib/pilot/pilotAccess.resolvePilotAccess`. Never recomputed here. */
+  /** From `lib/pilot/pilotAccess.resolveUserAccess`. Never recomputed here. */
   readonly pilotDecision: ShadowPilotDecision;
   readonly consent: ShadowStudyConsent;
 }
@@ -1948,7 +1949,7 @@ export interface ShadowExposureInput {
  * it is the only reason that is about the *cohort* rather than the person.
  *
  * Reads no clock and takes no allowlist: the membership judgement is
- * `resolvePilotAccess`'s and stays there. Same input, same decision.
+ * `resolveUserAccess`'s and stays there. Same input, same decision.
  */
 export function resolveShadowExposure(input: ShadowExposureInput): ShadowExposureDecision {
   const cap = SHADOW_STAGE_PARTICIPANT_CAP[input.stage];
@@ -2003,7 +2004,7 @@ export function resolveShadowExposure(input: ShadowExposureInput): ShadowExposur
 export const SHADOW_EXPOSURE_POLICY = Object.freeze({
   /** There is no `general_availability` stage to reach. */
   generalReleaseRepresentable: false,
-  /** The shadow gate can only narrow what `resolvePilotAccess` allowed. */
+  /** The shadow gate can only narrow what `resolveUserAccess` allowed. */
   shadowExposureNeverExceedsPilot: true,
   /** Absent an explicit grant, the state is `withheld`. */
   defaultConsentState: 'withheld' satisfies ShadowConsentState,

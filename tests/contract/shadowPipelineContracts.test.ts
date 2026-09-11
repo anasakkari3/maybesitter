@@ -154,12 +154,15 @@ import { ALPHA_TRACE_VERSION } from '../../src/contracts/v1/alphaTraceContracts.
 import { ANALYTICS_EVENT_CONTRACT_VERSION } from '../../src/contracts/v1/analyticsEventContracts.ts';
 import { validateAnalyticsEvent } from '../../lib/analytics/privacySafeEvents.ts';
 import {
-  CLOSED_PILOT_MAXIMUM,
-  CLOSED_PILOT_MINIMUM,
   createPilotAuditEvent,
   type PilotExposureDecision,
   type PilotStopReason,
 } from '../../lib/pilot/closedPilotControls.ts';
+
+// The participant allowlist these used to restate is gone (UC-1.0e, #144), so
+// the staging bounds are the contract's own and are pinned against literals.
+const CLOSED_PILOT_MINIMUM = 25;
+const CLOSED_PILOT_MAXIMUM = 40;
 
 /* ── The lib/ restatements, pinned at compile time ───────────────── */
 
@@ -723,7 +726,7 @@ test('budgets and limits are pinned as values, not only as identifiers', () => {
   });
 });
 
-test('the closed-pilot bounds are the shipped ones, restated and pinned', () => {
+test('the closed-pilot staging bounds are the ones this contract declares', () => {
   assert.equal(SHADOW_STAGE_PARTICIPANT_CAP.closed_pilot, CLOSED_PILOT_MAXIMUM);
   assert.equal(SHADOW_STAGE_PARTICIPANT_FLOOR.closed_pilot, CLOSED_PILOT_MINIMUM);
 });
