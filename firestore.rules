@@ -1,0 +1,23 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    // A signed-in client may read its own tree, for future realtime and
+    // offline use. Every write goes through the API, which is why no client
+    // write is allowed anywhere: validation is server-side, and the Admin SDK
+    // bypasses these rules. Models propose, rules validate.
+    match /users/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if false;
+
+      match /{rest=**} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow write: if false;
+      }
+    }
+
+    // Operator-only trees (incidents) and anything not named above.
+    match /{any=**} {
+      allow read, write: if false;
+    }
+  }
+}
