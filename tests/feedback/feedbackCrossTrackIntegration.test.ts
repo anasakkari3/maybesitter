@@ -33,76 +33,76 @@ function seed(store: FeedbackEventStore, occurredAt: string, subjectId: string, 
 }
 
 /** Aggregates the store's current state, exactly as a consumer would. */
-function aggregateFrom(store: FeedbackEventStore) {
+async function aggregateFrom(store: FeedbackEventStore) {
   return aggregateFeedback({
-    events: store.list({ scopeId: SCOPE, includeRevoked: true }),
-    baseline: store.readBaseline(SCOPE),
+    events: await store.list({ scopeId: SCOPE, includeRevoked: true }),
+    baseline: await store.readBaseline(SCOPE),
     scopeId: SCOPE,
     now: NOW,
   });
 }
 
-test('revoking through the real history port removes the event from the real aggregate', () => {
+test('revoking through the real history port removes the event from the real aggregate', async () => {
   const store = createInMemoryFeedbackEventStore();
   const port = createFeedbackHistoryPort(store);
 
-  seed(store, '2026-08-17T09:00:00.000Z', 'c1', 'complete');
-  const toRevoke = seed(store, '2026-08-17T10:00:00.000Z', 'c2', 'complete');
+  await seed(store, '2026-08-17T09:00:00.000Z', 'c1', 'complete');
+  const toRevoke = await seed(store, '2026-08-17T10:00:00.000Z', 'c2', 'complete');
 
-  const before = aggregateFrom(store);
+  const before = await aggregateFrom(store);
   assert.equal(before.windowed.complete, 2, 'both completions should count before the correction');
   assert.equal(before.revokedCount, 0);
 
   // The user says "you misread me" through the same path the app uses.
-  const result = port.revokeForScope({ scopeId: SCOPE, eventId: toRevoke.id, at: NOW });
+  const result = await port.revokeForScope({ scopeId: SCOPE, eventId: toRevoke.id, at: NOW });
   assert.equal(result.outcome, 'revoked');
 
-  const after = aggregateFrom(store);
+  const after = await aggregateFrom(store);
   assert.equal(after.windowed.complete, 1, 'the revoked event must leave the window');
   assert.equal(after.lifetime.complete, 1, 'and must leave lifetime totals too');
   assert.equal(after.revokedCount, 1, 'the correction is reported, not silently hidden');
 });
 
-test('a revoked event stays visible in history, so the user can see the correction took effect', () => {
+test('a revoked event stays visible in history, so the user can see the correction took effect', async () => {
   const store = createInMemoryFeedbackEventStore();
   const port = createFeedbackHistoryPort(store);
-  const event = seed(store, '2026-08-17T09:00:00.000Z', 'c1', 'defer');
+  const event = await seed(store, '2026-08-17T09:00:00.000Z', 'c1', 'defer');
 
-  port.revokeForScope({ scopeId: SCOPE, eventId: event.id, at: NOW });
+  await port.revokeForScope({ scopeId: SCOPE, eventId: event.id, at: NOW });
 
-  const listed = port.listForScope(SCOPE);
+  const listed = await port.listForScope(SCOPE);
   assert.equal(listed.length, 1, 'revocation is a correction, not a deletion');
   assert.equal(listed[0].revokedAt, NOW);
   // Disappearing would leave the user unable to tell a correction from a bug.
-  assert.equal(aggregateFrom(store).windowed.defer, undefined);
+  assert.equal((await aggregateFrom(store)).windowed.defer, undefined);
 });
 
-test('one participant cannot revoke another participant, even holding a derived id', () => {
+test('one participant cannot revoke another participant, even holding a derived id', async () => {
   // Event ids are sha256 of (scopeId, subjectId, outcome, occurredAt), so an id
   // is computable by anyone who knows the inputs. Unguessability is therefore
   // not the authorization boundary — the scope check is.
   const store = createInMemoryFeedbackEventStore();
   const port = createFeedbackHistoryPort(store);
-  const victim = seed(store, '2026-08-17T09:00:00.000Z', 'c1', 'complete');
+  const victim = await seed(store, '2026-08-17T09:00:00.000Z', 'c1', 'complete');
 
-  const attacker = port.revokeForScope({ scopeId: 'someone-else', eventId: victim.id, at: NOW });
+  const attacker = await port.revokeForScope({ scopeId: 'someone-else', eventId: victim.id, at: NOW });
   assert.notEqual(attacker.outcome, 'revoked');
 
-  assert.equal(store.get(victim.id)?.revokedAt, undefined, "the victim's event must be untouched");
-  assert.equal(aggregateFrom(store).windowed.complete, 1, 'and must still count');
+  assert.equal((await store.get(victim.id))?.revokedAt, undefined, "the victim's event must be untouched");
+  assert.equal((await aggregateFrom(store)).windowed.complete, 1, 'and must still count');
 });
 
-test('the migration baseline reaches lifetime totals but never a window', () => {
+test('the migration baseline reaches lifetime totals but never a window', async () => {
   const store = createInMemoryFeedbackEventStore();
   const legacy = new MemoryBehaviorFeedbackStore();
-  legacy.record(SCOPE, 'action_completed', '2026-01-01T00:00:00.000Z');
-  legacy.record(SCOPE, 'action_completed', '2026-01-02T00:00:00.000Z');
-  legacy.record(SCOPE, 'suggestion_ignored', '2026-01-03T00:00:00.000Z');
+  await legacy.record(SCOPE, 'action_completed', '2026-01-01T00:00:00.000Z');
+  await legacy.record(SCOPE, 'action_completed', '2026-01-02T00:00:00.000Z');
+  await legacy.record(SCOPE, 'suggestion_ignored', '2026-01-03T00:00:00.000Z');
 
-  migrateLegacyBaseline({ scopeId: SCOPE, reader: legacy, store, migratedAt: NOW });
-  seed(store, '2026-08-17T09:00:00.000Z', 'c1', 'complete');
+  await migrateLegacyBaseline({ scopeId: SCOPE, reader: legacy, store, migratedAt: NOW });
+  await seed(store, '2026-08-17T09:00:00.000Z', 'c1', 'complete');
 
-  const aggregates = aggregateFrom(store);
+  const aggregates = await aggregateFrom(store);
   assert.equal(aggregates.includesMigrationBaseline, true);
   // The counters carry no per-event times, so they can be totalled but never placed.
   assert.equal(aggregates.lifetime.complete, 3, '2 migrated + 1 real');
@@ -111,22 +111,22 @@ test('the migration baseline reaches lifetime totals but never a window', () => 
   assert.equal(aggregates.windowed.ignore, undefined);
 });
 
-test('a retried action does not inflate the aggregate', () => {
+test('a retried action does not inflate the aggregate', async () => {
   const store = createInMemoryFeedbackEventStore();
-  seed(store, '2026-08-17T09:00:00.000Z', 'c1', 'complete');
-  seed(store, '2026-08-17T09:00:00.000Z', 'c1', 'complete'); // same behaviour, retried
+  await seed(store, '2026-08-17T09:00:00.000Z', 'c1', 'complete');
+  await seed(store, '2026-08-17T09:00:00.000Z', 'c1', 'complete'); // same behaviour, retried
 
-  assert.equal(aggregateFrom(store).windowed.complete, 1);
+  assert.equal((await aggregateFrom(store)).windowed.complete, 1);
 });
 
-test('revoking twice does not double-report the correction or move its timestamp', () => {
+test('revoking twice does not double-report the correction or move its timestamp', async () => {
   const store = createInMemoryFeedbackEventStore();
   const port = createFeedbackHistoryPort(store);
-  const event = seed(store, '2026-08-17T09:00:00.000Z', 'c1', 'complete');
+  const event = await seed(store, '2026-08-17T09:00:00.000Z', 'c1', 'complete');
 
-  port.revokeForScope({ scopeId: SCOPE, eventId: event.id, at: NOW });
-  port.revokeForScope({ scopeId: SCOPE, eventId: event.id, at: '2026-08-18T18:00:00.000Z' });
+  await port.revokeForScope({ scopeId: SCOPE, eventId: event.id, at: NOW });
+  await port.revokeForScope({ scopeId: SCOPE, eventId: event.id, at: '2026-08-18T18:00:00.000Z' });
 
-  assert.equal(store.get(event.id)?.revokedAt, NOW, 'the correction happened once, at one time');
-  assert.equal(aggregateFrom(store).revokedCount, 1);
+  assert.equal((await store.get(event.id))?.revokedAt, NOW, 'the correction happened once, at one time');
+  assert.equal((await aggregateFrom(store)).revokedCount, 1);
 });

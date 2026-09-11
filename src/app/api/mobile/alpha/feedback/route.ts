@@ -5,7 +5,7 @@ import {
 import { mobilePilotErrorResponse } from '../../../../../../lib/services/mobile/pilotService';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import {
-  createFileAlphaFeedbackStore,
+  createStorageAlphaFeedbackStore,
   type AlphaFeedbackStore,
 } from '../../../../../../lib/alphaFeedback/alphaFeedbackStore';
 import { recordTraceStage, stage } from '../../../../../../lib/alphaTrace/traceRecorder';
@@ -15,7 +15,7 @@ export const dynamic = 'force-dynamic';
 let _store: AlphaFeedbackStore | null = null;
 
 function getStore(): AlphaFeedbackStore {
-  if (!_store) _store = createFileAlphaFeedbackStore();
+  if (!_store) _store = createStorageAlphaFeedbackStore();
   return _store;
 }
 
@@ -49,11 +49,11 @@ export async function POST(request: Request) {
   }
 
   const store = getStore();
-  const flag: AlphaFeedbackFlag = store.record(input as Parameters<typeof store.record>[0]);
+  const flag: AlphaFeedbackFlag = await store.record(input as Parameters<typeof store.record>[0]);
 
   // Link the flag into the reviewable trace (no-op unless tracing is enabled).
   try {
-    recordTraceStage(
+    await recordTraceStage(
       flag.sessionId,
       flag.participantId,
       stage('feedback_flagged', {
@@ -84,7 +84,7 @@ export async function GET(request: Request) {
   // A `?participantId=` override used to be honoured here, which let any
   // authenticated caller read anyone else's flags. The scope is the uid.
   const store = getStore();
-  const flags = store.list({ participantId: user.uid });
+  const flags = await store.list({ participantId: user.uid });
 
   return Response.json({ flags, count: flags.length });
 }

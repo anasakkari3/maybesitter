@@ -48,7 +48,7 @@ export async function POST(
   const port = requireFeedbackHistoryPort();
   if (!port) return feedbackHistoryUnavailableResponse();
 
-  const result = port.revokeForScope({ scopeId, eventId, at: new Date().toISOString() });
+  const result = await port.revokeForScope({ scopeId, eventId, at: new Date().toISOString() });
   if (result.outcome === 'not_found') {
     // Same answer whether the event does not exist or belongs to someone else.
     // Event ids are derived from their own fields, so an id is guessable and

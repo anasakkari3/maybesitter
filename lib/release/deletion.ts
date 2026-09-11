@@ -160,7 +160,7 @@ export interface ShadowStudyDeletionInput {
    * not wired it, which is `personalization` in `unprovable` rather than a
    * receipt with a fabricated inner one.
    */
-  readonly deletePersonalization?: (scopeId: string, now: Instant) => PersonalizationDeletionReceipt;
+  readonly deletePersonalization?: (scopeId: string, now: Instant) => PersonalizationDeletionReceipt | Promise<PersonalizationDeletionReceipt>;
   /** Defaults to `participantId`. Separate because the two namespaces are. */
   readonly personalizationScopeId?: string;
 }
@@ -199,9 +199,9 @@ export type ShadowDeletionOutcome =
  * dependency delays the *proof*, never the deletion — a participant who asked
  * to be forgotten is not left in the study because #45 has not merged.
  */
-export function deleteShadowStudyParticipant(
+export async function deleteShadowStudyParticipant(
   input: ShadowStudyDeletionInput,
-): ShadowDeletionOutcome {
+): Promise<ShadowDeletionOutcome> {
   if (typeof input.participantId !== 'string' || !SHADOW_SAFE_CODE.test(input.participantId)) {
     return {
       status: 'refused',
@@ -220,8 +220,8 @@ export function deleteShadowStudyParticipant(
   const { participantId } = input;
   const scopeId = input.personalizationScopeId ?? participantId;
 
-  const removedConsent = input.consent.deleteParticipant(participantId);
-  const removedResponses = input.responses.deleteParticipant(participantId);
+  const removedConsent = await input.consent.deleteParticipant(participantId);
+  const removedResponses = await input.responses.deleteParticipant(participantId);
   const removedTraces = input.traces.status === 'wired'
     ? input.traces.archive.deleteParticipant(participantId)
     : null;
@@ -231,12 +231,12 @@ export function deleteShadowStudyParticipant(
 
   let personalization: PersonalizationDeletionReceipt | null = null;
   if (input.deletePersonalization !== undefined) {
-    personalization = input.deletePersonalization(scopeId, input.now);
+    personalization = await input.deletePersonalization(scopeId, input.now);
   }
 
   // Re-listed, in `SHADOW_DELETABLE_STORES` order.
-  const remainingConsentRecordCount = input.consent.countFor(participantId);
-  const remainingStudyResponseCount = input.responses.countFor(participantId);
+  const remainingConsentRecordCount = await input.consent.countFor(participantId);
+  const remainingStudyResponseCount = await input.responses.countFor(participantId);
   const remainingTraceCount = input.traces.status === 'wired'
     ? input.traces.archive.countFor(participantId)
     : null;

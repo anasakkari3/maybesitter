@@ -121,27 +121,32 @@ export interface MemoryExport {
   readonly records: readonly RuntimeMemoryRecord[];
 }
 
+/**
+ * Every method is async since UC-1.0c (#142): memory lives at
+ * `users/{uid}/memory/{memoryId}` on the storage adapter, so each call is a
+ * round trip rather than a file read. The semantics below are unchanged — what
+ * moved is where the records are, not what the verbs mean.
+ */
 export interface RuntimeMemoryStore {
-  put(input: CreateMemoryInput, now: string): RuntimeMemoryRecord;
-  get(id: string): RuntimeMemoryRecord | null;
+  put(input: CreateMemoryInput, now: string): Promise<RuntimeMemoryRecord>;
+  get(id: string): Promise<RuntimeMemoryRecord | null>;
   /** Active, non-stale records only. The only read path for consumers. */
-  retrieve(query: MemoryQuery): readonly RuntimeMemoryRecord[];
+  retrieve(query: MemoryQuery): Promise<readonly RuntimeMemoryRecord[]>;
   /** Every record in the scope regardless of status, for user inspection. */
-  listAll(scopeId: string): readonly RuntimeMemoryRecord[];
+  listAll(scopeId: string): Promise<readonly RuntimeMemoryRecord[]>;
   /** Writes a replacement and marks the prior record superseded, keeping both. */
-  supersede(oldId: string, input: CreateMemoryInput, now: string): RuntimeMemoryRecord;
+  supersede(oldId: string, input: CreateMemoryInput, now: string): Promise<RuntimeMemoryRecord>;
   /** Hides from retrieval, keeps inspectable. Returns false if not found. */
-  revoke(id: string, at: string): boolean;
+  revoke(id: string, at: string): Promise<boolean>;
   /** Removes outright. Returns false if not found. */
-  deleteById(id: string): boolean;
+  deleteById(id: string): Promise<boolean>;
   /** Removes every record in a scope. Returns the number deleted. */
-  deleteScope(scopeId: string): number;
-  export(scopeId: string, now: string): MemoryExport;
+  deleteScope(scopeId: string): Promise<number>;
+  export(scopeId: string, now: string): Promise<MemoryExport>;
   /** Marks records past staleAfter as expired. Returns the number expired. */
-  prune(now: string): number;
+  prune(now: string): Promise<number>;
 }
 
 export interface RuntimeMemoryStoreOptions {
-  readonly dataDir?: string;
   readonly defaultTtlMs?: number;
 }

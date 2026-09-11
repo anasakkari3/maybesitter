@@ -20,6 +20,8 @@ import { POST as actionPost } from '../../src/app/api/mobile/commitments/[id]/ac
 import { guardedMobileExtract } from '../../lib/services/mobile/safety.ts';
 import { decideExtractionDisposition } from '../../src/extraction/extractionPolicy.ts';
 import type { ExtractionResult } from '../../src/extraction/extractionTypes.ts';
+import { configureCommandService, getCommandServiceState } from '../../lib/services/commandService.ts';
+import { createEmptyDomainState } from '../../src/domain/stateMachine.ts';
 
 const baseUrl = 'http://127.0.0.1:4321';
 const referenceTime = '2026-08-09T08:00:00.000Z';
@@ -71,6 +73,10 @@ function params(id: string): { params: Promise<{ id: string }> } {
 
 function setup(): () => void {
   const dir = mkdtempSync(join(tmpdir(), 'maybesitter-mobile-api-'));
+  configureCommandService({
+    initialState: createEmptyDomainState(),
+    schedulerStore: null,
+  });
   const previousDataDir = process.env.MAYBESITTER_DATA_DIR;
   process.env.MAYBESITTER_DATA_DIR = dir;
   setStorageForTests(createMemoryStorage());

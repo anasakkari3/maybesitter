@@ -17,7 +17,7 @@ export async function GET(request: Request) {
   try {
     const result = await getMobileNextStep(user.uid, Object.fromEntries(searchParams.entries()));
     try {
-      recordTraceStage(
+      await recordTraceStage(
         resolveTraceSessionId(searchParams.get('sessionId'), user.uid),
         user.uid,
         stage('recommendation_generated', {

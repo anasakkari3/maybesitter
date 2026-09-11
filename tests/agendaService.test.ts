@@ -79,8 +79,8 @@ function makeCalendarItem(
   };
 }
 
-test('agendaService: handles empty state gracefully', () => {
-  const agenda = getDailyAgenda({ now }, createEmptyDomainState());
+test('agendaService: handles empty state gracefully', async () => {
+  const agenda = await getDailyAgenda({ now }, createEmptyDomainState());
 
   assert.deepEqual(agenda, { items: [] });
 });
@@ -108,7 +108,7 @@ test('daily calendar: timed items sort by time before untimed priority order', (
   ]);
 });
 
-test('agendaService: returns ranked accountability agenda without duplicates', () => {
+test('agendaService: returns ranked accountability agenda without duplicates', async () => {
   let state = createEmptyDomainState();
   state = addDraft(state, 'overdue', 'Send invoice', { dueAt: '2026-04-08T07:30:00.000Z' });
   state = confirm(state, 'overdue', '2026-04-08T07:45:00.000Z');
@@ -121,7 +121,7 @@ test('agendaService: returns ranked accountability agenda without duplicates', (
   });
   state = confirm(state, 'active');
 
-  const agenda = getDailyAgenda({ now }, state);
+  const agenda = await getDailyAgenda({ now }, state);
 
   assert.deepEqual(agenda.items.map((item) => item.id), ['overdue', 'soon', 'active', 'pending']);
   assert.deepEqual(agenda.items.map((item) => item.reason), ['overdue', 'due_soon', 'active', 'pending']);
@@ -130,7 +130,7 @@ test('agendaService: returns ranked accountability agenda without duplicates', (
   assert.ok(agenda.items[0].urgencyScore > agenda.items[1].urgencyScore);
 });
 
-test('agendaService: caps output and avoids low-priority active flooding', () => {
+test('agendaService: caps output and avoids low-priority active flooding', async () => {
   let state = createEmptyDomainState();
 
   for (let index = 0; index < 8; index += 1) {
@@ -144,7 +144,7 @@ test('agendaService: caps output and avoids low-priority active flooding', () =>
   });
   state = confirm(state, 'low_active');
 
-  const agenda = getDailyAgenda({ now }, state);
+  const agenda = await getDailyAgenda({ now }, state);
 
   assert.equal(agenda.items.length, 7);
   assert.ok(agenda.items.every((item) => item.reason === 'pending'));
@@ -152,18 +152,18 @@ test('agendaService: caps output and avoids low-priority active flooding', () =>
   assert.ok(!agenda.items.some((item) => item.id === 'low_active'));
 });
 
-test('agendaService: attaches read-only pressure candidate for high urgency agenda', () => {
+test('agendaService: attaches read-only pressure candidate for high urgency agenda', async () => {
   const deliveryStore = new MemoryPressureDeliveryStore();
   const behaviorFeedbackStore = new MemoryBehaviorFeedbackStore();
-  clearPressureHistory(deliveryStore);
+  await clearPressureHistory(deliveryStore);
   let state = createEmptyDomainState();
   state = addDraft(state, 'urgent_overdue', 'Send invoice', { dueAt: '2026-04-08T07:00:00.000Z' });
   state = confirm(state, 'urgent_overdue', '2026-04-08T07:00:00.000Z');
 
-  const first = getDailyAgenda({ now, pressureDeliveryStore: deliveryStore, behaviorFeedbackStore }, state);
-  const second = getDailyAgenda({ now, pressureDeliveryStore: deliveryStore, behaviorFeedbackStore }, state);
-  const delivery = recordPressureDelivery('urgent_overdue', { now, deliveryStore }, state);
-  const third = getDailyAgenda({ now, pressureDeliveryStore: deliveryStore, behaviorFeedbackStore }, state);
+  const first = await getDailyAgenda({ now, pressureDeliveryStore: deliveryStore, behaviorFeedbackStore }, state);
+  const second = await getDailyAgenda({ now, pressureDeliveryStore: deliveryStore, behaviorFeedbackStore }, state);
+  const delivery = await recordPressureDelivery('urgent_overdue', { now, deliveryStore }, state);
+  const third = await getDailyAgenda({ now, pressureDeliveryStore: deliveryStore, behaviorFeedbackStore }, state);
 
   assert.equal(first.pressureCandidate?.commitmentId, 'urgent_overdue');
   assert.equal(first.pressureCandidate?.tone, 'soft');
@@ -177,7 +177,7 @@ test('agendaService: attaches read-only pressure candidate for high urgency agen
   assert.equal(third.pressureCandidate, undefined);
 });
 
-test('agendaService: boosts ignored and repeatedly delayed active commitments deterministically', () => {
+test('agendaService: boosts ignored and repeatedly delayed active commitments deterministically', async () => {
   let state = createEmptyDomainState();
   state = addDraft(state, 'plain', 'Plain active', {
     status: 'pending_confirmation',
@@ -219,8 +219,8 @@ test('agendaService: boosts ignored and repeatedly delayed active commitments de
     updatedAt: '2026-04-08T07:40:00.000Z',
   };
 
-  const first = getDailyAgenda({ now }, state);
-  const second = getDailyAgenda({ now }, state);
+  const first = await getDailyAgenda({ now }, state);
+  const second = await getDailyAgenda({ now }, state);
 
   assert.deepEqual(first, second);
   assert.deepEqual(first.items.map((item) => item.id), ['delayed', 'ignored', 'plain']);

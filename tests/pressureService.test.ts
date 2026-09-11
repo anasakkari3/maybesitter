@@ -1,18 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'fs';
-import { tmpdir } from 'os';
-import { join } from 'path';
 import type { AgendaItem } from '../lib/services/agendaService.ts';
 import { MemoryBehaviorFeedbackStore } from '../lib/services/behaviorFeedbackService.ts';
 import {
   clearPressureHistory,
-  FilePressureDeliveryStore,
   getPressureCandidateForAgenda,
   getPressureMessageForAgenda,
   MemoryPressureDeliveryStore,
   recordPressureDelivery,
+  StoragePressureDeliveryStore,
 } from '../lib/services/pressureService.ts';
+import { createMemoryStorage } from '../lib/storage/memoryAdapter.ts';
 import type { ResponsePlan, ResponseStrategy } from '../lib/services/responseEngine/assistantTurn.ts';
 import { realizeResponsePlan } from '../lib/services/responseEngine/realization.ts';
 import { validateResponsePlanAndMessage } from '../lib/services/responseEngine/validation.ts';
@@ -157,23 +155,23 @@ function item(id: string, options: Partial<AgendaItem> = {}): AgendaItem {
   };
 }
 
-test('pressureService: empty state produces no pressure', () => {
+test('pressureService: empty state produces no pressure', async () => {
   const deliveryStore = new MemoryPressureDeliveryStore();
-  clearPressureHistory(deliveryStore);
+  await clearPressureHistory(deliveryStore);
 
-  const result = getPressureMessageForAgenda([], { now, deliveryStore }, createEmptyDomainState());
+  const result = await getPressureMessageForAgenda([], { now, deliveryStore }, createEmptyDomainState());
 
   assert.deepEqual(result, { message: '', tone: 'soft', intensity: 'low' });
 });
 
-test('pressureService: overdue commitment gets soft pressure', () => {
+test('pressureService: overdue commitment gets soft pressure', async () => {
   const deliveryStore = new MemoryPressureDeliveryStore();
-  clearPressureHistory(deliveryStore);
+  await clearPressureHistory(deliveryStore);
   const state = addConfirmedCommitment(createEmptyDomainState(), 'overdue', 'Send invoice', {
     dueAt: '2026-04-08T07:00:00.000Z',
   });
 
-  const result = getPressureCandidateForAgenda([item('overdue', { title: 'Send invoice' })], { now, deliveryStore }, state);
+  const result = await getPressureCandidateForAgenda([item('overdue', { title: 'Send invoice' })], { now, deliveryStore }, state);
 
   assert.equal(result?.commitmentId, 'overdue');
   assert.equal(result?.tone, 'soft');
@@ -183,9 +181,9 @@ test('pressureService: overdue commitment gets soft pressure', () => {
   assert.equal(typeof result?.path, 'string');
 });
 
-test('pressureService: repeated ignored reminders get balanced pressure for inconsistent behavior', () => {
+test('pressureService: repeated ignored reminders get balanced pressure for inconsistent behavior', async () => {
   const deliveryStore = new MemoryPressureDeliveryStore();
-  clearPressureHistory(deliveryStore);
+  await clearPressureHistory(deliveryStore);
   let state = addConfirmedCommitment(createEmptyDomainState(), 'ignored', 'Call Maya');
   state.reminders.first = {
     id: 'first',
@@ -213,7 +211,7 @@ test('pressureService: repeated ignored reminders get balanced pressure for inco
     updatedAt: '2026-04-08T07:15:00.000Z',
   };
 
-  const result = getPressureCandidateForAgenda([
+  const result = await getPressureCandidateForAgenda([
     item('ignored', { title: 'Call Maya', reason: 'active', urgencyScore: 3_500, suggestedAction: 'review' }),
   ], { now, deliveryStore }, state);
 
@@ -223,14 +221,14 @@ test('pressureService: repeated ignored reminders get balanced pressure for inco
   assert.doesNotMatch(result?.message || '', /missed 2 times|honest step/i);
 });
 
-test('pressureService: avoidant behavior gets firm but non-shaming pressure', () => {
+test('pressureService: avoidant behavior gets firm but non-shaming pressure', async () => {
   const deliveryStore = new MemoryPressureDeliveryStore();
-  clearPressureHistory(deliveryStore);
+  await clearPressureHistory(deliveryStore);
   const state = addConfirmedCommitment(createEmptyDomainState(), 'ignored', 'Call Maya', {
     dueAt: '2026-04-08T06:00:00.000Z',
   });
 
-  const result = getPressureCandidateForAgenda([
+  const result = await getPressureCandidateForAgenda([
     item('ignored', { title: 'Call Maya', reason: 'overdue', urgencyScore: 7_000, suggestedAction: 'do' }),
   ], {
     now,
@@ -249,14 +247,14 @@ test('pressureService: avoidant behavior gets firm but non-shaming pressure', ()
   assert.match(assertPressureStrategyCopy(result?.strategy, result?.message), /call Maya/i);
 });
 
-test('pressureService: blocker probe cannot realize easy-choice pressure language', () => {
+test('pressureService: blocker probe cannot realize easy-choice pressure language', async () => {
   const deliveryStore = new MemoryPressureDeliveryStore();
-  clearPressureHistory(deliveryStore);
+  await clearPressureHistory(deliveryStore);
   const state = addConfirmedCommitment(createEmptyDomainState(), 'ignored', 'Call Maya', {
     dueAt: '2026-04-08T06:00:00.000Z',
   });
 
-  const result = getPressureCandidateForAgenda([
+  const result = await getPressureCandidateForAgenda([
     item('ignored', { title: 'Call Maya', reason: 'overdue', urgencyScore: 7_000, suggestedAction: 'do' }),
   ], {
     now,
@@ -275,7 +273,7 @@ test('pressureService: blocker probe cannot realize easy-choice pressure languag
   assert.doesNotMatch(result?.message || '', /keep it for today|move it\?/i);
 });
 
-test('pressureService: pressure validation rejects strategy-incompatible messages', () => {
+test('pressureService: pressure validation rejects strategy-incompatible messages', async () => {
   const blockerWithEasyChoice = validateResponsePlanAndMessage(
     pressurePlan('blocker_probe'),
     'Call Maya has come back twice. Keep it for today or move it?'
@@ -304,7 +302,7 @@ test('pressureService: pressure validation rejects strategy-incompatible message
   assert.equal(closeLoopWithSmallStep.ok, false);
 });
 
-test('pressureService: pressure realization composes multiple opener and move structures per strategy', () => {
+test('pressureService: pressure realization composes multiple opener and move structures per strategy', async () => {
   const strategies: ResponseStrategy[] = ['easy_choice', 'smaller_step', 'blocker_probe', 'reset_plan', 'close_loop'];
 
   for (const strategy of strategies) {
@@ -323,7 +321,7 @@ test('pressureService: pressure realization composes multiple opener and move st
   }
 });
 
-test('pressureService: pressure realization keeps each strategy inside its compatible path family', () => {
+test('pressureService: pressure realization keeps each strategy inside its compatible path family', async () => {
   const allowedPaths: Record<ResponseStrategy, Set<string>> = {
     direct_result: new Set(),
     focused_question: new Set(),
@@ -350,18 +348,18 @@ test('pressureService: pressure realization keeps each strategy inside its compa
   }
 });
 
-test('pressureService: evaluation does not consume cooldown until delivery is recorded', () => {
+test('pressureService: evaluation does not consume cooldown until delivery is recorded', async () => {
   const deliveryStore = new MemoryPressureDeliveryStore();
-  clearPressureHistory(deliveryStore);
+  await clearPressureHistory(deliveryStore);
   const state = addConfirmedCommitment(createEmptyDomainState(), 'overdue', 'Send invoice', {
     dueAt: '2026-04-08T07:00:00.000Z',
   });
 
   const agendaItems = [item('overdue', { title: 'Send invoice' })];
-  const first = getPressureCandidateForAgenda(agendaItems, { now, deliveryStore }, state);
-  const second = getPressureCandidateForAgenda(agendaItems, { now, deliveryStore }, state);
-  const recorded = recordPressureDelivery('overdue', { now, deliveryStore, surfacedMessage: first?.message }, state);
-  const third = getPressureCandidateForAgenda(agendaItems, { now, deliveryStore }, state);
+  const first = await getPressureCandidateForAgenda(agendaItems, { now, deliveryStore }, state);
+  const second = await getPressureCandidateForAgenda(agendaItems, { now, deliveryStore }, state);
+  const recorded = await recordPressureDelivery('overdue', { now, deliveryStore, surfacedMessage: first?.message }, state);
+  const third = await getPressureCandidateForAgenda(agendaItems, { now, deliveryStore }, state);
 
   assert.notEqual(first?.message, '');
   assert.equal(second?.commitmentId, first?.commitmentId);
@@ -371,16 +369,16 @@ test('pressureService: evaluation does not consume cooldown until delivery is re
   assert.equal(third, null);
 });
 
-test('pressureService: avoids identical back-to-back pressure messages after delivery', () => {
+test('pressureService: avoids identical back-to-back pressure messages after delivery', async () => {
   const deliveryStore = new MemoryPressureDeliveryStore();
-  clearPressureHistory(deliveryStore);
+  await clearPressureHistory(deliveryStore);
   const state = addConfirmedCommitment(createEmptyDomainState(), 'overdue', 'Send invoice', {
     dueAt: '2026-04-08T07:00:00.000Z',
   });
   const agendaItems = [item('overdue', { title: 'Send invoice' })];
 
-  const first = getPressureCandidateForAgenda(agendaItems, { now, deliveryStore }, state);
-  recordPressureDelivery('overdue', {
+  const first = await getPressureCandidateForAgenda(agendaItems, { now, deliveryStore }, state);
+  await recordPressureDelivery('overdue', {
     now,
     cooldownMs: 0,
     deliveryStore,
@@ -388,16 +386,16 @@ test('pressureService: avoids identical back-to-back pressure messages after del
     surfacedStrategy: first?.strategy,
     surfacedPath: first?.path,
   }, state);
-  const second = getPressureCandidateForAgenda(agendaItems, { now, cooldownMs: 0, deliveryStore }, state);
+  const second = await getPressureCandidateForAgenda(agendaItems, { now, cooldownMs: 0, deliveryStore }, state);
 
   assertPressureStrategyCopy(first?.strategy, first?.message);
   assertPressureStrategyCopy(second?.strategy, second?.message);
   assert.notEqual(first?.path, second?.path);
 });
 
-test('pressureService: message context reflects long delays and follow-up commitments', () => {
+test('pressureService: message context reflects long delays and follow-up commitments', async () => {
   const deliveryStore = new MemoryPressureDeliveryStore();
-  clearPressureHistory(deliveryStore);
+  await clearPressureHistory(deliveryStore);
   let state = addConfirmedCommitment(createEmptyDomainState(), 'long_delay', 'Send invoice', {
     dueAt: '2026-04-06T08:00:00.000Z',
   });
@@ -406,12 +404,12 @@ test('pressureService: message context reflects long delays and follow-up commit
     kind: 'follow_up',
   });
 
-  const longDelay = getPressureCandidateForAgenda(
+  const longDelay = await getPressureCandidateForAgenda(
     [item('long_delay', { title: 'Send invoice', urgencyScore: 7_000 })],
     { now, deliveryStore },
     state
   );
-  const followUp = getPressureCandidateForAgenda(
+  const followUp = await getPressureCandidateForAgenda(
     [item('follow_up', { title: 'Email Sam', urgencyScore: 7_000 })],
     { now, deliveryStore },
     state
@@ -422,21 +420,22 @@ test('pressureService: message context reflects long delays and follow-up commit
   assert.notEqual(longDelay?.message, followUp?.message);
 });
 
-test('pressureService: persisted delivery metadata survives store recreation', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'maybesitter-pressure-'));
-  try {
-    const filePath = join(dir, 'pressure.json');
+test('pressureService: persisted delivery metadata survives store recreation', async () => {
+  {
+    // A "restart" is a second store over the same backend, which is what a
+    // second Cloud Run instance is. The temp file this used to need is gone.
+    const shared = createMemoryStorage();
     const state = addConfirmedCommitment(createEmptyDomainState(), 'overdue', 'Send invoice', {
       dueAt: '2026-04-08T07:00:00.000Z',
     });
     const agendaItems = [item('overdue', { title: 'Send invoice' })];
-    const firstStore = new FilePressureDeliveryStore(filePath);
-    const first = getPressureCandidateForAgenda(agendaItems, {
+    const firstStore = new StoragePressureDeliveryStore(shared);
+    const first = await getPressureCandidateForAgenda(agendaItems, {
       now,
       sessionId: 'session-a',
       deliveryStore: firstStore,
     }, state);
-    const recorded = recordPressureDelivery('overdue', {
+    const recorded = await recordPressureDelivery('overdue', {
       now,
       sessionId: 'session-a',
       deliveryStore: firstStore,
@@ -444,8 +443,8 @@ test('pressureService: persisted delivery metadata survives store recreation', (
       surfacedStrategy: first?.strategy,
       surfacedPath: first?.path,
     }, state);
-    const secondStore = new FilePressureDeliveryStore(filePath);
-    const afterRestart = getPressureCandidateForAgenda(agendaItems, {
+    const secondStore = new StoragePressureDeliveryStore(shared);
+    const afterRestart = await getPressureCandidateForAgenda(agendaItems, {
       now,
       sessionId: 'session-a',
       deliveryStore: secondStore,
@@ -454,28 +453,25 @@ test('pressureService: persisted delivery metadata survives store recreation', (
     assert.equal(first?.commitmentId, 'overdue');
     assert.deepEqual(recorded, { success: true, message: 'Pressure delivery recorded.' });
     assert.equal(afterRestart, null);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test('pressureService: persisted path history survives restart-like store recreation', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'maybesitter-pressure-history-'));
-  try {
-    const filePath = join(dir, 'pressure.json');
+test('pressureService: persisted path history survives restart-like store recreation', async () => {
+  {
+    const shared = createMemoryStorage();
     const state = addConfirmedCommitment(createEmptyDomainState(), 'overdue', 'Send invoice', {
       dueAt: '2026-04-08T07:00:00.000Z',
     });
     const agendaItems = [item('overdue', { title: 'Send invoice' })];
 
-    const firstStore = new FilePressureDeliveryStore(filePath);
-    const first = getPressureCandidateForAgenda(agendaItems, {
+    const firstStore = new StoragePressureDeliveryStore(shared);
+    const first = await getPressureCandidateForAgenda(agendaItems, {
       now,
       sessionId: 'session-history',
       cooldownMs: 0,
       deliveryStore: firstStore,
     }, state);
-    recordPressureDelivery('overdue', {
+    await recordPressureDelivery('overdue', {
       now,
       sessionId: 'session-history',
       cooldownMs: 0,
@@ -485,14 +481,14 @@ test('pressureService: persisted path history survives restart-like store recrea
       surfacedPath: first?.path,
     }, state);
 
-    const secondStore = new FilePressureDeliveryStore(filePath);
-    const second = getPressureCandidateForAgenda(agendaItems, {
+    const secondStore = new StoragePressureDeliveryStore(shared);
+    const second = await getPressureCandidateForAgenda(agendaItems, {
       now,
       sessionId: 'session-history',
       cooldownMs: 0,
       deliveryStore: secondStore,
     }, state);
-    recordPressureDelivery('overdue', {
+    await recordPressureDelivery('overdue', {
       now,
       sessionId: 'session-history',
       cooldownMs: 0,
@@ -502,9 +498,9 @@ test('pressureService: persisted path history survives restart-like store recrea
       surfacedPath: second?.path,
     }, state);
 
-    const thirdStore = new FilePressureDeliveryStore(filePath);
-    const record = thirdStore.getLastRecord('session-history', 'overdue');
-    const third = getPressureCandidateForAgenda(agendaItems, {
+    const thirdStore = new StoragePressureDeliveryStore(shared);
+    const record = await thirdStore.getLastRecord('session-history', 'overdue');
+    const third = await getPressureCandidateForAgenda(agendaItems, {
       now,
       sessionId: 'session-history',
       cooldownMs: 0,
@@ -515,29 +511,27 @@ test('pressureService: persisted path history survives restart-like store recrea
     assert.deepEqual(record?.recentPaths, [first?.path, second?.path].filter(Boolean));
     assert.notEqual(third?.path, second?.path);
     assertPressureStrategyCopy(third?.strategy, third?.message);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test('pressureService: delivery cooldown is isolated by session scope', () => {
+test('pressureService: delivery cooldown is isolated by session scope', async () => {
   const deliveryStore = new MemoryPressureDeliveryStore();
   const state = addConfirmedCommitment(createEmptyDomainState(), 'overdue', 'Send invoice', {
     dueAt: '2026-04-08T07:00:00.000Z',
   });
   const agendaItems = [item('overdue', { title: 'Send invoice' })];
 
-  recordPressureDelivery('overdue', { now, sessionId: 'session-a', deliveryStore }, state);
-  const sameSession = getPressureCandidateForAgenda(agendaItems, { now, sessionId: 'session-a', deliveryStore }, state);
-  const otherSession = getPressureCandidateForAgenda(agendaItems, { now, sessionId: 'session-b', deliveryStore }, state);
+  await recordPressureDelivery('overdue', { now, sessionId: 'session-a', deliveryStore }, state);
+  const sameSession = await getPressureCandidateForAgenda(agendaItems, { now, sessionId: 'session-a', deliveryStore }, state);
+  const otherSession = await getPressureCandidateForAgenda(agendaItems, { now, sessionId: 'session-b', deliveryStore }, state);
 
   assert.equal(sameSession, null);
   assert.equal(otherSession?.commitmentId, 'overdue');
 });
 
-test('pressureService: acknowledged or postponed items do not get pressured', () => {
+test('pressureService: acknowledged or postponed items do not get pressured', async () => {
   const deliveryStore = new MemoryPressureDeliveryStore();
-  clearPressureHistory(deliveryStore);
+  await clearPressureHistory(deliveryStore);
   let state = addConfirmedCommitment(createEmptyDomainState(), 'aware', 'Send invoice', {
     dueAt: '2026-04-08T07:00:00.000Z',
   });
@@ -546,7 +540,7 @@ test('pressureService: acknowledged or postponed items do not get pressured', ()
     currentAckState: 'aware',
   };
 
-  const result = getPressureMessageForAgenda([item('aware', { title: 'Send invoice' })], { now, deliveryStore }, state);
+  const result = await getPressureMessageForAgenda([item('aware', { title: 'Send invoice' })], { now, deliveryStore }, state);
 
   assert.deepEqual(result, { message: '', tone: 'soft', intensity: 'low' });
 });

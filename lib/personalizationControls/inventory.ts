@@ -72,7 +72,7 @@ import { aggregateFeedback } from '../feedback/feedbackAggregation';
 import type { FeedbackOutcome } from '../../src/contracts/v1/feedbackContracts';
 import { getAdaptiveBehavior, normalizeAdaptiveSignals } from '../services/adaptiveService';
 import type { AdaptivePressureLevel, AdaptiveSuggestionStyle, AdaptiveUserType } from '../services/adaptiveService';
-import { readCorrections, type CorrectionEntry } from './correction';
+import { readCorrections, type CorrectionEntry, type CorrectionsByDimension } from './correction';
 import type { PersonalizationControlsPort } from './controlsPort';
 
 /* ── Deriving, with the consent gate in front of the deriver ─────── */
@@ -93,12 +93,12 @@ export type PersonalizationDerivation =
  * does not move across the flip — which is a stronger statement than "the cache
  * was cleared", since it holds for a cache that was never written.
  */
-export function derivePersonalizationProfile(
+export async function derivePersonalizationProfile(
   port: PersonalizationControlsPort,
   scopeId: string,
   now: Instant,
-): PersonalizationDerivation {
-  const consent = port.consent.read(scopeId);
+): Promise<PersonalizationDerivation> {
+  const consent = await port.consent.read(scopeId);
   if (consent.state !== 'enabled') {
     return {
       kind: 'disabled',
@@ -115,8 +115,8 @@ export function derivePersonalizationProfile(
   }
   if (port.deriver === null) return { kind: 'deriver_unavailable' };
 
-  const events = port.feedback.list({ scopeId, includeRevoked: true });
-  const baseline = port.feedback.readBaseline(scopeId);
+  const events = await port.feedback.list({ scopeId, includeRevoked: true });
+  const baseline = await port.feedback.readBaseline(scopeId);
   const profile = port.deriver({
     scopeId,
     now,
@@ -367,7 +367,7 @@ function readingView(reading: PreferenceReading): InventoryReadingView {
 
 function rowsFor(
   readingOf: (dimension: PreferenceDimension) => PreferenceReading | null,
-  corrections: ReturnType<typeof readCorrections>,
+  corrections: CorrectionsByDimension,
 ): readonly InventoryPreferenceRow[] {
   // Contract order, not sorted: `localeCompare` is forbidden here and a declared
   // order needs no comparator.
@@ -386,7 +386,7 @@ function rowsFor(
 
 function preferencesFor(
   derivation: PersonalizationDerivation,
-  corrections: ReturnType<typeof readCorrections>,
+  corrections: CorrectionsByDimension,
 ): InventoryPreferences {
   const none = () => null;
   switch (derivation.kind) {
@@ -427,16 +427,16 @@ function preferencesFor(
 }
 
 /** Assembles the whole view. Reads no clock; `now` is the only instant used. */
-export function buildPersonalizationInventory(
+export async function buildPersonalizationInventory(
   port: PersonalizationControlsPort,
   scopeId: string,
   now: Instant,
-): PersonalizationInventoryView {
-  const consent = port.consent.read(scopeId);
-  const derivation = derivePersonalizationProfile(port, scopeId, now);
-  const corrections = readCorrections(port.memory, scopeId, now);
+): Promise<PersonalizationInventoryView> {
+  const consent = await port.consent.read(scopeId);
+  const derivation = await derivePersonalizationProfile(port, scopeId, now);
+  const corrections = await readCorrections(port.memory, scopeId, now);
 
-  const events = port.feedback.list({ scopeId, includeRevoked: true });
+  const events = await port.feedback.list({ scopeId, includeRevoked: true });
   const counts = new Map<FeedbackOutcome, number>();
   let revokedEvents = 0;
   for (const event of events) {
@@ -450,7 +450,7 @@ export function buildPersonalizationInventory(
     consent: { state: consent.state, changedAt: consent.changedAt },
     preferences: preferencesFor(derivation, corrections),
     memory: {
-      records: port.memory.listAll(scopeId).map((record) => ({
+      records: (await port.memory.listAll(scopeId)).map((record) => ({
         id: record.id,
         kind: record.kind,
         content: record.content,

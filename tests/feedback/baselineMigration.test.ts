@@ -47,9 +47,9 @@ function reader(value: LegacyCounterSnapshot): LegacyCounterReader {
   return { get: () => value };
 }
 
-test('migration copies the five legacy counters verbatim', () => {
+test('migration copies the five legacy counters verbatim', async () => {
   const store = createInMemoryFeedbackEventStore();
-  const baseline = migrateLegacyBaseline({
+  const baseline = await migrateLegacyBaseline({
     scopeId: 'scope-a',
     reader: reader(snapshot()),
     store,
@@ -70,12 +70,12 @@ test('migration copies the five legacy counters verbatim', () => {
     timestampsUnavailable: true,
     migratedAt: MIGRATED_AT,
   } satisfies FeedbackBaseline);
-  assert.deepEqual(store.readBaseline('scope-a'), baseline);
+  assert.deepEqual(await store.readBaseline('scope-a'), baseline);
 });
 
-test('migration states in the data that the counters carry no per-event times', () => {
+test('migration states in the data that the counters carry no per-event times', async () => {
   const store = createInMemoryFeedbackEventStore();
-  const baseline = migrateLegacyBaseline({
+  const baseline = await migrateLegacyBaseline({
     scopeId: 'scope-a',
     reader: reader(snapshot({ updatedAt: null })),
     store,
@@ -86,9 +86,9 @@ test('migration states in the data that the counters carry no per-event times', 
   assert.equal(baseline?.lastUpdatedAt, null, 'the legacy updatedAt is the only time information there is');
 });
 
-test('migration never expands counters into events', () => {
+test('migration never expands counters into events', async () => {
   const store = createInMemoryFeedbackEventStore();
-  migrateLegacyBaseline({
+  await migrateLegacyBaseline({
     scopeId: 'scope-a',
     reader: reader(snapshot()),
     store,
@@ -96,21 +96,21 @@ test('migration never expands counters into events', () => {
   });
 
   assert.deepEqual(
-    store.list({ scopeId: 'scope-a' }),
+    await store.list({ scopeId: 'scope-a' }),
     [],
     'eighteen counted outcomes must not become eighteen events at one instant',
   );
 });
 
-test('migrating twice is idempotent and does not double the counters', () => {
+test('migrating twice is idempotent and does not double the counters', async () => {
   const store = createInMemoryFeedbackEventStore();
-  const first = migrateLegacyBaseline({
+  const first = await migrateLegacyBaseline({
     scopeId: 'scope-a',
     reader: reader(snapshot()),
     store,
     migratedAt: MIGRATED_AT,
   });
-  const second = migrateLegacyBaseline({
+  const second = await migrateLegacyBaseline({
     scopeId: 'scope-a',
     reader: reader(snapshot()),
     store,
@@ -119,12 +119,12 @@ test('migrating twice is idempotent and does not double the counters', () => {
 
   assert.deepEqual(second, first, 'a second migration must return the frozen baseline unchanged');
   assert.equal(second?.migratedAt, MIGRATED_AT, 'migratedAt records the one migration that happened');
-  assert.deepEqual(store.readBaseline('scope-a'), first);
+  assert.deepEqual(await store.readBaseline('scope-a'), first);
 });
 
-test('a second migration ignores counters that grew after the first', () => {
+test('a second migration ignores counters that grew after the first', async () => {
   const store = createInMemoryFeedbackEventStore();
-  const first = migrateLegacyBaseline({
+  const first = await migrateLegacyBaseline({
     scopeId: 'scope-a',
     reader: reader(snapshot()),
     store,
@@ -132,7 +132,7 @@ test('a second migration ignores counters that grew after the first', () => {
   });
   // Dual-write keeps incrementing the legacy counters while the same outcomes
   // land in the event log. Re-reading them would count those outcomes twice.
-  const second = migrateLegacyBaseline({
+  const second = await migrateLegacyBaseline({
     scopeId: 'scope-a',
     reader: reader(snapshot({ completedActions: 40, ignoredSuggestions: 30 })),
     store,
@@ -140,13 +140,13 @@ test('a second migration ignores counters that grew after the first', () => {
   });
 
   assert.deepEqual(second, first);
-  assert.equal(store.readBaseline('scope-a')?.counters.completedActions, 7);
-  assert.equal(store.readBaseline('scope-a')?.counters.ignoredSuggestions, 3);
+  assert.equal((await store.readBaseline('scope-a'))?.counters.completedActions, 7);
+  assert.equal((await store.readBaseline('scope-a'))?.counters.ignoredSuggestions, 3);
 });
 
-test('a scope with no legacy history gets no baseline', () => {
+test('a scope with no legacy history gets no baseline', async () => {
   const store = createInMemoryFeedbackEventStore();
-  const baseline = migrateLegacyBaseline({
+  const baseline = await migrateLegacyBaseline({
     scopeId: 'fresh-scope',
     reader: reader(snapshot({
       ignoredSuggestions: 0,
@@ -162,21 +162,21 @@ test('a scope with no legacy history gets no baseline', () => {
 
   assert.equal(baseline, null, 'a new user has no pre-event-log history to preserve');
   assert.equal(
-    store.readBaseline('fresh-scope'),
+    await store.readBaseline('fresh-scope'),
     null,
     'an empty baseline would make aggregates claim history that does not exist',
   );
 });
 
-test('migration reads the real legacy store shape', () => {
+test('migration reads the real legacy store shape', async () => {
   const legacy = new MemoryBehaviorFeedbackStore();
-  legacy.record('scope-a', 'action_completed', '2026-08-10T20:00:00.000Z');
-  legacy.record('scope-a', 'action_completed', '2026-08-11T20:00:00.000Z');
-  legacy.record('scope-a', 'suggestion_ignored', '2026-08-12T20:00:00.000Z');
-  legacy.record('scope-b', 'action_delayed', '2026-08-12T20:00:00.000Z');
+  await legacy.record('scope-a', 'action_completed', '2026-08-10T20:00:00.000Z');
+  await legacy.record('scope-a', 'action_completed', '2026-08-11T20:00:00.000Z');
+  await legacy.record('scope-a', 'suggestion_ignored', '2026-08-12T20:00:00.000Z');
+  await legacy.record('scope-b', 'action_delayed', '2026-08-12T20:00:00.000Z');
 
   const store = createInMemoryFeedbackEventStore();
-  const baseline = migrateLegacyBaseline({
+  const baseline = await migrateLegacyBaseline({
     scopeId: 'scope-a',
     reader: legacy,
     store,
@@ -194,28 +194,28 @@ test('migration reads the real legacy store shape', () => {
   assert.equal(baseline?.scopeId, 'scope-a');
 });
 
-test('migration rejects a scope, timestamp or counter it cannot trust', () => {
+test('migration rejects a scope, timestamp or counter it cannot trust', async () => {
   const store = createInMemoryFeedbackEventStore();
   const base = { reader: reader(snapshot()), store, migratedAt: MIGRATED_AT, scopeId: 'scope-a' };
 
-  assert.throws(() => migrateLegacyBaseline({ ...base, scopeId: '  ' }), /feedback baseline:/);
-  assert.throws(() => migrateLegacyBaseline({ ...base, migratedAt: 'sometime' }), /feedback baseline:/);
-  assert.throws(
-    () => migrateLegacyBaseline({ ...base, reader: reader(snapshot({ completedActions: -1 })) }),
+  await assert.rejects(migrateLegacyBaseline({ ...base, scopeId: '  ' }), /feedback baseline:/);
+  await assert.rejects(migrateLegacyBaseline({ ...base, migratedAt: 'sometime' }), /feedback baseline:/);
+  await assert.rejects(
+    migrateLegacyBaseline({ ...base, reader: reader(snapshot({ completedActions: -1 })) }),
     /feedback baseline:/,
   );
-  assert.throws(
-    () => migrateLegacyBaseline({ ...base, reader: reader(snapshot({ delayedActions: 1.5 })) }),
+  await assert.rejects(
+    migrateLegacyBaseline({ ...base, reader: reader(snapshot({ delayedActions: 1.5 })) }),
     /feedback baseline:/,
   );
-  assert.throws(
-    () => migrateLegacyBaseline({ ...base, reader: reader(snapshot({ updatedAt: 'yesterday' })) }),
+  await assert.rejects(
+    migrateLegacyBaseline({ ...base, reader: reader(snapshot({ updatedAt: 'yesterday' })) }),
     /feedback baseline:/,
   );
-  assert.equal(store.readBaseline('scope-a'), null, 'no rejected migration may leave a baseline');
+  assert.equal(await store.readBaseline('scope-a'), null, 'no rejected migration may leave a baseline');
 });
 
-test('migration is scoped: one user\'s counters never land in another\'s baseline', () => {
+test('migration is scoped: one user\'s counters never land in another\'s baseline', async () => {
   const store = createInMemoryFeedbackEventStore();
   const seen: string[] = [];
   const scopedReader: LegacyCounterReader = {
@@ -225,11 +225,11 @@ test('migration is scoped: one user\'s counters never land in another\'s baselin
     },
   };
 
-  const a = migrateLegacyBaseline({ scopeId: 'scope-a', reader: scopedReader, store, migratedAt: MIGRATED_AT });
-  const b = migrateLegacyBaseline({ scopeId: 'scope-b', reader: scopedReader, store, migratedAt: MIGRATED_AT });
+  const a = await migrateLegacyBaseline({ scopeId: 'scope-a', reader: scopedReader, store, migratedAt: MIGRATED_AT });
+  const b = await migrateLegacyBaseline({ scopeId: 'scope-b', reader: scopedReader, store, migratedAt: MIGRATED_AT });
 
   assert.deepEqual(seen, ['scope-a', 'scope-b'], 'the reader is asked for exactly the scope being migrated');
   assert.equal(a?.counters.completedActions, 7);
   assert.equal(b?.counters.completedActions, 99);
-  assert.equal(store.readBaseline('scope-a')?.counters.completedActions, 7);
+  assert.equal((await store.readBaseline('scope-a'))?.counters.completedActions, 7);
 });

@@ -75,10 +75,10 @@ function event(outcome: FeedbackOutcome, ageDays: number): FeedbackEvent {
 const many = (outcome: FeedbackOutcome, count: number, ageDays: number) =>
   Array.from({ length: count }, () => event(outcome, ageDays));
 
-function portWith(events: readonly FeedbackEvent[], adaptive = {}): PersonalizationControlsPort {
+async function portWith(events: readonly FeedbackEvent[], adaptive = {}): Promise<PersonalizationControlsPort> {
   const feedback = createInMemoryFeedbackEventStore();
   for (const entry of events) {
-    feedback.append(
+    await feedback.append(
       {
         scopeId: entry.scopeId,
         outcome: entry.outcome,
@@ -102,12 +102,12 @@ function portWith(events: readonly FeedbackEvent[], adaptive = {}): Personalizat
 
 /* ── 1. #42 against the real deriver ─────────────────────────────── */
 
-test('the control centre renders the real deriver’s readings, not a fixture’s', () => {
+test('the control centre renders the real deriver’s readings, not a fixture’s', async () => {
   // #42's suite has only ever seen scripted readings. If the real deriver
   // produced a shape the presenter mishandles, nothing in either track fails.
-  const port = portWith(many('reject', 8, 1));
-  port.consent.write(SCOPE, 'enabled', NOW);
-  const view = buildPersonalizationInventory(port, SCOPE, NOW);
+  const port = await portWith(many('reject', 8, 1));
+  await port.consent.write(SCOPE, 'enabled', NOW);
+  const view = await buildPersonalizationInventory(port, SCOPE, NOW);
 
   assert.equal(view.preferences.kind, 'derived');
   if (view.preferences.kind !== 'derived') return;
@@ -125,22 +125,22 @@ test('the control centre renders the real deriver’s readings, not a fixture’
   assert.equal(view.preferences.basis.length, 3);
 });
 
-test('#42’s effective level agrees with #41’s own operative set, reading by reading', () => {
+test('#42’s effective level agrees with #41’s own operative set, reading by reading', async () => {
   // Two independent readers of one profile: the presenter's precedence rule and
   // the contract's `operativeReadings`. Compared at (dimension, level) pairs —
   // a set of dimensions would agree while the levels disagreed.
-  const port = portWith([...many('reject', 9, 1), ...many('accept', 1, 1)]);
-  port.consent.write(SCOPE, 'enabled', NOW);
+  const port = await portWith([...many('reject', 9, 1), ...many('accept', 1, 1)]);
+  await port.consent.write(SCOPE, 'enabled', NOW);
 
   const profile = rebuildPersonalizationProfile({
     scopeId: SCOPE, now: NOW, consent: ENABLED,
-    events: port.feedback.list({ scopeId: SCOPE, includeRevoked: true }), baseline: null,
+    events: await port.feedback.list({ scopeId: SCOPE, includeRevoked: true }), baseline: null,
   });
   const fromContract = operativeReadings(profile)
     .map((reading) => `${reading.dimension}=${reading.level}`)
     .sort();
 
-  const view = buildPersonalizationInventory(port, SCOPE, NOW);
+  const view = await buildPersonalizationInventory(port, SCOPE, NOW);
   assert.equal(view.preferences.kind, 'derived');
   if (view.preferences.kind !== 'derived') return;
   const fromPresenter = view.preferences.rows
@@ -152,12 +152,12 @@ test('#42’s effective level agrees with #41’s own operative set, reading by 
   assert.ok(fromContract.length > 0, 'the fixture produced no operative reading, so this compared two empty lists');
 });
 
-test('a suggestion from the real deriver never reaches effective behaviour', () => {
+test('a suggestion from the real deriver never reaches effective behaviour', async () => {
   // The contract's central promise, checked end to end rather than on a
   // scripted reading: below the floor, the product default stands.
-  const port = portWith([...many('reject', 6, 1), ...many('accept', 4, 1)]);
-  port.consent.write(SCOPE, 'enabled', NOW);
-  const view = buildPersonalizationInventory(port, SCOPE, NOW);
+  const port = await portWith([...many('reject', 6, 1), ...many('accept', 4, 1)]);
+  await port.consent.write(SCOPE, 'enabled', NOW);
+  const view = await buildPersonalizationInventory(port, SCOPE, NOW);
   assert.equal(view.preferences.kind, 'derived');
   if (view.preferences.kind !== 'derived') return;
 
@@ -174,16 +174,16 @@ test('a suggestion from the real deriver never reaches effective behaviour', () 
 
 /* ── 2. Deletion: produced by #41, verified by #42's path ────────── */
 
-test('#41 produces the receipt and #42’s verifier recomputes it independently', () => {
-  const port = portWith([...many('accept', 5, 1), ...many('ignore', 4, 30)]);
-  port.consent.write(SCOPE, 'enabled', NOW);
-  port.memory.put(
+test('#41 produces the receipt and #42’s verifier recomputes it independently', async () => {
+  const port = await portWith([...many('accept', 5, 1), ...many('ignore', 4, 30)]);
+  await port.consent.write(SCOPE, 'enabled', NOW);
+  await port.memory.put(
     { scopeId: SCOPE, kind: 'fact', content: 'evenings', language: 'en', source: 'user_stated', confidence: 1, observedAt: NOW },
     NOW,
   );
-  assert.ok(port.feedback.list({ scopeId: SCOPE }).length > 0, 'nothing to delete: the fixture is empty');
+  assert.ok((await port.feedback.list({ scopeId: SCOPE })).length > 0, 'nothing to delete: the fixture is empty');
 
-  const outcome = handleControlsRequest(
+  const outcome = await handleControlsRequest(
     {
       port,
       deleteScope: (scopeId, now) =>
@@ -197,10 +197,10 @@ test('#41 produces the receipt and #42’s verifier recomputes it independently'
   // Recomputed on the verifier's side of the seam.
   assert.equal(body.receipt.emptyStateDigest, emptyStateDigestFor(SCOPE, NOW));
   assert.equal(body.receipt.remainingFeedbackEventCount, 0);
-  assert.deepEqual(port.feedback.list({ scopeId: SCOPE, includeRevoked: true }), []);
-  assert.deepEqual(port.memory.listAll(SCOPE), []);
+  assert.deepEqual(await port.feedback.list({ scopeId: SCOPE, includeRevoked: true }), []);
+  assert.deepEqual(await port.memory.listAll(SCOPE), []);
   // Consent went with it: a deleted user must not still be opted in.
-  assert.equal(port.consent.read(SCOPE).state, 'disabled');
+  assert.equal((await port.consent.read(SCOPE)).state, 'disabled');
 });
 
 /* ── 3. #43 against the real deriver ─────────────────────────────── */
@@ -251,7 +251,7 @@ test('the real deriver never escalates a pressure dimension anywhere in the coho
 
 /* ── 4. The #107 divergence, asserted as a divergence ────────────── */
 
-test('the shipped classifier and this contract disagree about avoidance, and #107 is why', () => {
+test('the shipped classifier and this contract disagree about avoidance, and #107 is why', async () => {
   // Two systems reading the same person. `adaptiveService` sees ignores and
   // raises pressure to `high` with `direct` wording. The contract sees the same
   // ignores as behavioural evidence, which may only quiet the product.
@@ -279,9 +279,9 @@ test('the shipped classifier and this contract disagree about avoidance, and #10
 
   // And the divergence is visible to the user on one screen, which is the only
   // reason it is defensible to ship both at once.
-  const port = portWith(many('ignore', 12, 1), avoidantSignals);
-  port.consent.write(SCOPE, 'enabled', NOW);
-  const view = buildPersonalizationInventory(port, SCOPE, NOW);
+  const port = await portWith(many('ignore', 12, 1), avoidantSignals);
+  await port.consent.write(SCOPE, 'enabled', NOW);
+  const view = await buildPersonalizationInventory(port, SCOPE, NOW);
   assert.equal(view.adaptive.classification, 'avoidant');
   assert.equal(view.adaptive.effect.pressureLevel, 'high');
   assert.equal(view.preferences.kind, 'derived');
@@ -289,16 +289,16 @@ test('the shipped classifier and this contract disagree about avoidance, and #10
 
 /* ── 5. Consent, across all three tracks at once ─────────────────── */
 
-test('disabling personalization silences the deriver, the presenter and the comparison together', () => {
-  const port = portWith(many('reject', 8, 1));
-  port.consent.write(SCOPE, 'enabled', NOW);
+test('disabling personalization silences the deriver, the presenter and the comparison together', async () => {
+  const port = await portWith(many('reject', 8, 1));
+  await port.consent.write(SCOPE, 'enabled', NOW);
   const before = rebuildPersonalizationProfile({
-    scopeId: SCOPE, now: NOW, consent: ENABLED, events: port.feedback.list({ scopeId: SCOPE }), baseline: null,
+    scopeId: SCOPE, now: NOW, consent: ENABLED, events: await port.feedback.list({ scopeId: SCOPE }), baseline: null,
   });
   assert.ok(operativeReadings(before).length > 0);
 
-  port.consent.write(SCOPE, 'disabled', NOW);
-  const view = buildPersonalizationInventory(port, SCOPE, NOW);
+  await port.consent.write(SCOPE, 'disabled', NOW);
+  const view = await buildPersonalizationInventory(port, SCOPE, NOW);
   assert.equal(view.preferences.kind, 'disabled');
   for (const row of view.preferences.rows) {
     assert.equal(row.reading, null);
@@ -306,7 +306,7 @@ test('disabling personalization silences the deriver, the presenter and the comp
   }
 
   const after = rebuildPersonalizationProfile({
-    scopeId: SCOPE, now: NOW, consent: { state: 'disabled', changedAt: NOW }, events: port.feedback.list({ scopeId: SCOPE }), baseline: null,
+    scopeId: SCOPE, now: NOW, consent: { state: 'disabled', changedAt: NOW }, events: await port.feedback.list({ scopeId: SCOPE }), baseline: null,
   });
   const diff = comparePersonalizationProfiles(before, after);
   assert.equal(diff.consentChanged, true);

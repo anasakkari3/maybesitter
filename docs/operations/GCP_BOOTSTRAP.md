@@ -100,6 +100,39 @@ deny-all baseline in `firestore.rules` and the (currently empty)
 `firestore.indexes.json`. UC-1.0b (#141) replaces the rules with per-user read
 access.
 
+## Retention policies (TTL) — run once per database
+
+Three collections keep data for a limited time rather than for the life of the
+account, and Firestore enforces that with a TTL policy on `expiresAt`:
+
+| Collection group | Kept for | Holds |
+|---|---|---|
+| `alphaTraces` | 30 days | raw capture text, kept for alpha review |
+| `clarifications` | 24 hours | a half-finished question |
+| `analyticsEvents` | 400 days | product metrics |
+
+The stores stamp `expiresAt` on every write, but **a stamp does nothing until
+the policy exists**. Nothing in the bootstrap or the deploy workflow creates
+it, so this is an owner step, and skipping it means raw capture text is never
+deleted. Run it for each database — the script defaults to `(default)`, so
+staging needs its own run:
+
+```bash
+infra/firestore-ttl.sh --project maybesitter-app --dry-run      # see what it will do
+infra/firestore-ttl.sh --project maybesitter-app                # production, (default)
+infra/firestore-ttl.sh --project maybesitter-app --database staging
+gcloud firestore fields ttls list --project=maybesitter-app     # verify: all three ACTIVE
+```
+
+It is idempotent. Re-run it whenever a store adds a collection with an
+`expiresAt`, and keep the list in the script in step with the table above.
+
+TTL deletion is eventual (Firestore deletes within about 24 hours of the
+stamp), so the nightly maintenance job (`/api/internal/jobs/maintenance`,
+added by UC-1.0d #143) also prunes expired traces and clarifications. Two
+stores have no TTL at all — runtime memory and alpha feedback — and are
+retained **only** by that nightly prune, so until it runs they keep everything.
+
 ## Rotating the deletion-receipt pepper
 
 The pepper is only used to derive deletion receipts, so rotating it invalidates

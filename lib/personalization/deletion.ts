@@ -104,19 +104,19 @@ export function emptyStateDigestFor(scopeId: string, now: Instant, windowDays?: 
  * delete call's own opinion, and the one failure this must catch is a delete
  * that reports a count and leaves rows behind.
  */
-export function deletePersonalizationScope(
+export async function deletePersonalizationScope(
   input: PersonalizationDeletionInput,
-): PersonalizationDeletionReceipt {
-  input.feedbackEvents.deleteScope(input.scopeId);
-  input.runtimeMemory.deleteScope(input.scopeId);
+): Promise<PersonalizationDeletionReceipt> {
+  await input.feedbackEvents.deleteScope(input.scopeId);
+  await input.runtimeMemory.deleteScope(input.scopeId);
 
   return {
     version: PERSONALIZATION_CONTRACT_VERSION,
     schemaVersion: PERSONALIZATION_SCHEMA_VERSION,
     scopeId: input.scopeId,
     deletedAt: input.now,
-    remainingFeedbackEventCount: input.feedbackEvents.list({ scopeId: input.scopeId }).length,
-    remainingRuntimeMemoryRecordCount: input.runtimeMemory.listAll(input.scopeId).length,
+    remainingFeedbackEventCount: (await input.feedbackEvents.list({ scopeId: input.scopeId })).length,
+    remainingRuntimeMemoryRecordCount: (await input.runtimeMemory.listAll(input.scopeId)).length,
     // Structurally zero: nothing persists a profile. See the header.
     remainingPersistedProfileCount: 0,
     emptyStateDigest: emptyStateDigestFor(input.scopeId, input.now, input.windowDays),

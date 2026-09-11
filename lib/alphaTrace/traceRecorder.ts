@@ -5,10 +5,15 @@
  * enabled only when MAYBESITTER_ALPHA_TRACE_ENABLED=true (alpha-only).
  * All methods are no-ops when disabled, so instrumentation never changes
  * product behavior.
+ *
+ * Async since UC-1.0c (#142): a stage is a storage write under
+ * `users/{uid}/alphaTraces`. It is still swallowed rather than thrown —
+ * instrumentation must not break the capture path — but callers await it, so a
+ * trace is actually on disk before the response goes out rather than racing it.
  */
 import { randomUUID } from 'node:crypto';
 import type { AlphaTraceStageRecord } from '../../src/contracts/v1/alphaTraceContracts';
-import { createFileAlphaTraceStore, isValidTraceSessionId, type AlphaTraceStore } from './alphaTraceStore';
+import { createStorageAlphaTraceStore, isValidTraceSessionId, type AlphaTraceStore } from './alphaTraceStore';
 
 export function isTraceEnabled(): boolean {
   return process.env.MAYBESITTER_ALPHA_TRACE_ENABLED === 'true';
@@ -17,7 +22,7 @@ export function isTraceEnabled(): boolean {
 let _store: AlphaTraceStore | null = null;
 
 export function getTraceStore(): AlphaTraceStore {
-  if (!_store) _store = createFileAlphaTraceStore();
+  if (!_store) _store = createStorageAlphaTraceStore();
   return _store;
 }
 
@@ -30,16 +35,20 @@ export function stage(stage: AlphaTraceStageRecord['stage'], payload: Record<str
   return { stage, timestamp: new Date().toISOString(), payload };
 }
 
-/** Append a stage if tracing is enabled; returns true when recorded. */
-export function recordTraceStage(sessionId: string, participantId: string, record: AlphaTraceStageRecord): boolean {
+/** Append a stage if tracing is enabled; resolves true when recorded. */
+export async function recordTraceStage(
+  sessionId: string,
+  participantId: string,
+  record: AlphaTraceStageRecord,
+): Promise<boolean> {
   if (!isTraceEnabled() || !sessionId || !participantId) return false;
   try {
-    getTraceStore().append(sessionId, participantId, record);
+    await getTraceStore().append(sessionId, participantId, record);
     return true;
   } catch {
-    // A refused id or a session owned by somebody else. Instrumentation must
-    // never change product behaviour, so this is a false return rather than an
-    // exception thrown into the capture path.
+    // A refused id, a session owned by somebody else, or a storage fault.
+    // Instrumentation must never change product behaviour, so this is a false
+    // return rather than an exception thrown into the capture path.
     return false;
   }
 }
@@ -48,8 +57,8 @@ export function recordTraceStage(sessionId: string, participantId: string, recor
  * Resolve a session id from an optional client-provided value, or derive one.
  *
  * The client value is honoured only when it is already a plain token; anything
- * else is replaced rather than trimmed, because it reaches the store as a
- * filename and as the key another participant's trace is read by.
+ * else is replaced rather than trimmed, because it becomes a document id and
+ * the key another participant's trace is read by.
  *
  * The derived form is random rather than `${participantId}-${timestamp}`: with
  * allowlisted participant ids the only unknown in that form was a base36

@@ -49,14 +49,16 @@ test('experiment: ratings outside the 1-5 integer scale are rejected', () => {
   }
 });
 
-test('experiment: live client ratings use the same enabled arm assignment as proposals', () => {
+test('experiment: live client ratings use the same enabled arm assignment as proposals', async () => {
   const previous = process.env.MAYBESITTER_EXPERIMENT_NEXT_STEP_ARMS;
   process.env.MAYBESITTER_EXPERIMENT_NEXT_STEP_ARMS = 'true';
   try {
     const emitted: unknown[] = [];
-    const rated = recordClientEvent({
+    const rated = await recordClientEvent({
       anonymousUserId: 'pilot-rating-user', consent: 'granted', now: GENERATED_AT,
-      emit: (value) => emitted.push(value),
+      // Braced so the arrow returns void: `Array.push` returns the new length,
+      // which the emit signature no longer accepts now that it may be async.
+      emit: (value) => { emitted.push(value); },
     }, 'recommendation_rated', { proposalId: 'p1', utilityRating: 4, invasivenessRating: 2 });
     assert.ok(rated);
     assert.deepEqual(rated.experiment, {

@@ -5,6 +5,20 @@ import type { CommitmentMemory, CommitmentMemoryStatus, CommitmentEvent, Commitm
 import { assertValidTransition, isTerminalStatus } from './commitmentStateMachine.ts';
 import { evaluateNotificationEligibility } from './memoryPolicy.ts';
 import { resolveDataDir } from '../../../lib/runtime/dataDir';
+import { assertNotCloudRun } from '../../../lib/runtime/assertNotCloudRun';
+
+/**
+ * Local-disk only, deliberately (UC-1.0c, #142).
+ *
+ * One of the three legacy web stores. It holds the older commitment-memory
+ * model that the canonical domain state under `users/{uid}` replaced, and the
+ * web UI that reads it is not a launch surface, so it was guarded rather than
+ * migrated. The guard is in the constructor — the store's first use — and not
+ * at module scope, so importing this file never fails a build or a boot.
+ */
+const NOT_ON_CLOUD_RUN =
+  'the legacy commitment-memory store writes one JSON file per process; '
+  + 'the canonical commitments live under users/{uid}/commitments on the storage adapter';
 
 export interface CreateCommitmentMemoryInput {
   userId: string;
@@ -54,6 +68,7 @@ export class FileCommitmentMemoryStore implements CommitmentMemoryStore {
   private filePath: string;
 
   constructor(dataDir?: string) {
+    assertNotCloudRun('src/domain/memory/commitmentMemoryStore', NOT_ON_CLOUD_RUN);
     this.dataDir = dataDir || resolveDataDir();
     this.filePath = path.join(this.dataDir, 'commitment-memory.json');
   }

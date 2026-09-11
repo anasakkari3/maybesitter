@@ -1,4 +1,56 @@
 {
-  "indexes": [],
+  "indexes": [
+    {
+      "collectionGroup": "jobs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "runAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "jobs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "claimedAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "jobs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "dedupeKey", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "alphaTraces",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "sessionId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "alphaFeedback",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "sessionId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "memory",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "id", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "feedbackEvents",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "id", "order": "ASCENDING" }
+      ]
+    }
+  ],
   "fieldOverrides": []
 }

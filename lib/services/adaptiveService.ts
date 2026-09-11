@@ -144,10 +144,14 @@ export function getAdaptiveBehavior(signals: AdaptiveSignals = {}): AdaptiveBeha
   return behaviorFor(classifyUserType(normalizeAdaptiveSignals(signals)));
 }
 
-export function deriveAdaptiveSignals(
+// Async since UC-1.0c (#142): the behavioural signals it merges in are a
+// storage read. `getAdaptiveBehavior(signals)` above stays synchronous — it is
+// a pure classifier over signals the caller already has, which is why
+// lib/personalizationControls/inventory.ts is untouched by this change.
+export async function deriveAdaptiveSignals(
   state: DomainState = getCommandServiceState(),
   sessionSignals: AdaptiveFeedbackOptions = {}
-): NormalizedAdaptiveSignals {
+): Promise<NormalizedAdaptiveSignals> {
   const commitments = Object.values(state.commitments);
   const trackableCommitments = commitments.filter((commitment) => (
     commitment.status !== 'draft' &&
@@ -183,7 +187,7 @@ export function deriveAdaptiveSignals(
   };
 
   const feedbackSignals = hasFeedbackContext(sessionSignals)
-    ? getBehaviorFeedbackSignals({
+    ? await getBehaviorFeedbackSignals({
       feedbackStore: sessionSignals.feedbackStore,
       feedbackScopeId: sessionSignals.feedbackScopeId,
       conversationId: sessionSignals.conversationId,
@@ -195,9 +199,9 @@ export function deriveAdaptiveSignals(
   return normalizeAdaptiveSignals(mergeAdaptiveSignals(stateSignals, feedbackSignals));
 }
 
-export function getAdaptiveBehaviorFromState(
+export async function getAdaptiveBehaviorFromState(
   state: DomainState = getCommandServiceState(),
   sessionSignals: AdaptiveFeedbackOptions = {}
-): AdaptiveBehavior {
-  return getAdaptiveBehavior(deriveAdaptiveSignals(state, sessionSignals));
+): Promise<AdaptiveBehavior> {
+  return getAdaptiveBehavior(await deriveAdaptiveSignals(state, sessionSignals));
 }

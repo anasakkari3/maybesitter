@@ -19,7 +19,17 @@ export interface AnalyticsContext {
   now: Date;
   experimentId?: string;
   arms?: readonly string[];
-  emit: (event: PrivacySafeAnalyticsEvent) => void;
+  /**
+   * Async since UC-1.0c (#142): recording an event is a storage write. It is
+   * awaited rather than fired and forgotten, because an event that is only
+   * probably recorded makes the activation and funnel report unfalsifiable —
+   * a low number could be the product or could be dropped writes.
+   *
+   * `Promise<unknown>` rather than `Promise<void>` so the real implementation,
+   * `appendAnalyticsEvent`, can keep returning the event it stored: a
+   * `Promise<PrivacySafeAnalyticsEvent>` is not assignable to `Promise<void>`.
+   */
+  emit: (event: PrivacySafeAnalyticsEvent) => void | Promise<unknown>;
 }
 
 /**
@@ -28,7 +38,7 @@ export interface AnalyticsContext {
  */
 export async function analyticsContextFrom(
   source: { anonymousUserId?: unknown; consent?: unknown },
-  emit: (event: PrivacySafeAnalyticsEvent) => void,
+  emit: (event: PrivacySafeAnalyticsEvent) => void | Promise<unknown>,
   now = new Date(),
 ): Promise<AnalyticsContext | null> {
   if (typeof source.anonymousUserId !== 'string' || !source.anonymousUserId) return null;
@@ -63,13 +73,13 @@ export function buildAnalyticsEvent(
 }
 
 /** Builds, validates, and emits an event, or returns null when consent does not cover it. */
-export function emitAnalyticsEvent(
+export async function emitAnalyticsEvent(
   context: AnalyticsContext,
   eventName: AnalyticsEventName,
   properties: PrivacySafeAnalyticsEvent['properties'],
-): PrivacySafeAnalyticsEvent | null {
+): Promise<PrivacySafeAnalyticsEvent | null> {
   if (context.consent !== 'granted' && !ESSENTIAL_CONSENT_EVENTS.has(eventName)) return null;
   const event = buildAnalyticsEvent(context, eventName, properties);
-  context.emit(event);
+  await context.emit(event);
   return event;
 }

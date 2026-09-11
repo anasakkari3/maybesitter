@@ -15,7 +15,7 @@
  *
  *  1. The read-only guarantee becomes checkable by walking imports. A module
  *     that fetches its own inputs reaches a repository, and a repository is one
- *     refactor away from a writer — `createFileRuntimeMemoryStore` is in this
+ *     refactor away from a writer — `createStorageRuntimeMemoryStore` is in this
  *     repo, is the registry's named memory entry point, and calls
  *     `writeFileSync`. `tests/shadowPipeline/shadowPipelineBoundaries.test.ts`
  *     can only assert what it can see in the import closure, so the design has
@@ -58,7 +58,8 @@ import type { CommitmentSnapshot } from '../recommendation/selector/candidates';
  * following a type alias to a file full of writers.
  */
 export interface ShadowMemoryReader {
-  retrieve(query: MemoryQuery): readonly RuntimeMemoryRecord[];
+  /** Async since UC-1.0c (#142): runtime memory is a storage read. */
+  retrieve(query: MemoryQuery): Promise<readonly RuntimeMemoryRecord[]>;
 }
 
 /**

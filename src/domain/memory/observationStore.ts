@@ -3,6 +3,19 @@ import path from 'path';
 import { randomUUID } from 'crypto';
 import type { Observation, DetectedLanguage, ObservationStatus } from './memoryTypes.ts';
 import { resolveDataDir } from '../../../lib/runtime/dataDir';
+import { assertNotCloudRun } from '../../../lib/runtime/assertNotCloudRun';
+
+/**
+ * Local-disk only, deliberately (UC-1.0c, #142).
+ *
+ * The third legacy web store. Observations are the raw-text intake the older
+ * memory model ingested; nothing on the launch path reads them. Guarded in the
+ * constructor — first use — rather than at module scope, so importing this
+ * file never fails a build or a boot.
+ */
+const NOT_ON_CLOUD_RUN =
+  'the legacy observation store writes one JSON file per process and holds raw capture text; '
+  + 'the launch path records memory under users/{uid}/memory on the storage adapter';
 
 export interface CreateObservationInput {
   userId: string;
@@ -41,6 +54,7 @@ export class FileObservationStore implements ObservationStore {
   private filePath: string;
 
   constructor(dataDir?: string) {
+    assertNotCloudRun('src/domain/memory/observationStore', NOT_ON_CLOUD_RUN);
     this.dataDir = dataDir || resolveDataDir();
     this.filePath = path.join(this.dataDir, 'observations.json');
   }

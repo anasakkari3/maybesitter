@@ -67,13 +67,13 @@ function event(
 function fakePort(seed: readonly FeedbackEvent[], baselines: Record<string, FeedbackBaseline> = {}): FeedbackHistoryPort {
   const events = new Map(seed.map((entry) => [entry.id, { ...entry }]));
   return {
-    listForScope(scopeId: string): readonly FeedbackEvent[] {
+    async listForScope(scopeId: string): Promise<readonly FeedbackEvent[]> {
       return Array.from(events.values()).filter((entry) => entry.scopeId === scopeId);
     },
-    readBaseline(scopeId: string): FeedbackBaseline | null {
+    async readBaseline(scopeId: string): Promise<FeedbackBaseline | null> {
       return baselines[scopeId] ?? null;
     },
-    revokeForScope({ scopeId, eventId, at }: FeedbackRevokeRequest): FeedbackRevokeResult {
+    async revokeForScope({ scopeId, eventId, at }: FeedbackRevokeRequest): Promise<FeedbackRevokeResult> {
       const found = events.get(eventId);
       if (!found || found.scopeId !== scopeId) return { outcome: 'not_found', event: null };
       if (found.revokedAt) return { outcome: 'already_revoked', event: found };
@@ -298,7 +298,7 @@ test('feedback revoke: unauthenticated revoke is refused', async () => {
   try {
     const response = await revokePost(request('/api/mobile/feedback/e1/revoke', { method: 'POST' }), routeParams('e1'));
     assert.equal(response.status, 401);
-    assert.equal(port.listForScope(OWNER)[0].revokedAt, undefined);
+    assert.equal((await port.listForScope(OWNER))[0].revokedAt, undefined);
   } finally {
     teardown();
   }
@@ -321,7 +321,7 @@ test('feedback revoke: the revocation persists through the port and shows in his
     assert.equal(body.row.canRevoke, false);
 
     // The store, not just the response, carries the correction.
-    assert.equal(port.listForScope(OWNER)[0].revokedAt, body.row.revokedAt);
+    assert.equal((await port.listForScope(OWNER))[0].revokedAt, body.row.revokedAt);
 
     const history = await historyFor(OWNER);
     assert.equal(history.rows.length, 1);
@@ -371,7 +371,7 @@ test('feedback revoke: another scope event is not found and is left untouched', 
     assert.equal(response.status, 404);
     const body = await response.json() as { reason?: string };
     assert.equal(body.reason, 'event_not_found');
-    assert.equal(port.listForScope(OTHER)[0].revokedAt, undefined);
+    assert.equal((await port.listForScope(OTHER))[0].revokedAt, undefined);
   } finally {
     teardown();
   }
@@ -414,29 +414,29 @@ test('feedback revoke: a blank id is rejected before it reaches the port', async
 function naiveStore(seed: readonly FeedbackEvent[]): FeedbackEventStore {
   const events = new Map(seed.map((entry) => [entry.id, { ...entry }]));
   return {
-    append(_input: AppendFeedbackEventInput, _recordedAt: string): FeedbackEvent {
+    async append(_input: AppendFeedbackEventInput, _recordedAt: string): Promise<FeedbackEvent> {
       throw new Error('the history routes must never append');
     },
-    get(id: string): FeedbackEvent | null {
+    async get(id: string): Promise<FeedbackEvent | null> {
       return events.get(id) ?? null;
     },
-    list(query: FeedbackEventQuery): readonly FeedbackEvent[] {
+    async list(query: FeedbackEventQuery): Promise<readonly FeedbackEvent[]> {
       return Array.from(events.values()).filter((entry) => entry.scopeId === query.scopeId);
     },
     // No scope, no question asked: revokes any id it is given.
-    revoke(id: string, at: string): boolean {
+    async revoke(id: string, at: string): Promise<boolean> {
       const found = events.get(id);
       if (!found || found.revokedAt) return false;
       events.set(id, { ...found, revokedAt: at });
       return true;
     },
-    deleteScope(): number {
+    async deleteScope(): Promise<number> {
       return 0;
     },
-    readBaseline(): FeedbackBaseline | null {
+    async readBaseline(): Promise<FeedbackBaseline | null> {
       return null;
     },
-    writeBaseline(): void {},
+    async writeBaseline(): Promise<void> {},
   };
 }
 
@@ -453,7 +453,7 @@ test('feedback revoke: a participant cannot revoke another participant event thr
 
     assert.equal(response.status, 404);
     // The store would have revoked it happily. It is still untouched.
-    assert.equal(store.get('fbk_derived')?.revokedAt, undefined);
+    assert.equal((await store.get('fbk_derived'))?.revokedAt, undefined);
   } finally {
     teardown();
   }
@@ -472,7 +472,7 @@ test('feedback revoke: the owner of that same event can still revoke it', async 
     );
 
     assert.equal(response.status, 200);
-    assert.ok(store.get('fbk_derived')?.revokedAt);
+    assert.ok((await store.get('fbk_derived'))?.revokedAt);
   } finally {
     teardown();
   }
@@ -495,7 +495,7 @@ test('feedback revoke: a store that refuses the write is reported as a failure, 
     ...naiveStore([
       event({ id: 'e1', scopeId: OWNER, outcome: 'defer', occurredAt: '2026-08-10T09:00:00.000Z' }),
     ]),
-    revoke: () => false,
+    revoke: async () => false,
   });
   const teardown = setup(port);
   try {
@@ -585,7 +585,7 @@ test('feedback revoke: an unauthenticated revoke is refused and the shared scope
     );
     assert.equal(response.status, 401);
     assert.equal((await response.json() as { reason?: string }).reason, 'missing_token');
-    assert.equal(port.listForScope(SHARED_DEFAULT_SCOPE)[0].revokedAt, undefined);
+    assert.equal((await port.listForScope(SHARED_DEFAULT_SCOPE))[0].revokedAt, undefined);
   } finally {
     teardown();
   }

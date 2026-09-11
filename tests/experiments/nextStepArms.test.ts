@@ -168,20 +168,20 @@ test('assignment: arms are stable per user and cover every arm across the cohort
 
 const controls = { version: 'v1' as const, featureFlags: { ...MODULE_FEATURE_FLAG_DEFAULTS, recommendation: true }, killSwitches: { ...MODULE_KILL_SWITCH_DEFAULTS } };
 
-test('assignment integrity: the arm on an event is the arm that produced the proposal', () => {
+test('assignment integrity: the arm on an event is the arm that produced the proposal', async () => {
   const state = stateWith(commitment('c1'));
   for (let index = 1; index <= 12; index += 1) {
-    resetAnalyticsEventsForTests();
+    await resetAnalyticsEventsForTests();
     const anonymousUserId = `pilot-${String(index).padStart(3, '0')}`;
     const context = {
       anonymousUserId, consent: 'granted' as const, locale: 'en' as const, now: NOW,
       controls, emit: appendAnalyticsEvent, timezone: 'UTC', env: ENABLED,
     };
     const expected = resolveNextStepArm(anonymousUserId, ENABLED).arm;
-    const proposal = getLiveNextStep(state, context);
-    recordLiveNextStepDecision(proposal, 'accept', context);
+    const proposal = await getLiveNextStep(state, context);
+    await recordLiveNextStepDecision(proposal, 'accept', context);
 
-    const events = getAnalyticsEvents();
+    const events = await getAnalyticsEvents();
     assert.equal(events.length, 2);
     for (const event of events) {
       assert.equal(event.experiment?.experimentId, NEXT_STEP_EXPERIMENT_ID);
@@ -190,26 +190,26 @@ test('assignment integrity: the arm on an event is the arm that produced the pro
   }
 });
 
-test('assignment integrity: a disabled experiment keeps every user on the reviewed baseline', () => {
-  resetAnalyticsEventsForTests();
+test('assignment integrity: a disabled experiment keeps every user on the reviewed baseline', async () => {
+  await resetAnalyticsEventsForTests();
   const state = stateWith(commitment('c1'));
   const context = {
     anonymousUserId: 'pilot-001', consent: 'granted' as const, locale: 'en' as const, now: NOW,
     controls, emit: appendAnalyticsEvent, timezone: 'UTC', env: {},
   };
-  const proposal = getLiveNextStep(state, context);
+  const proposal = await getLiveNextStep(state, context);
   assert.deepEqual(proposal, selectNextStepForArmFromState('generic', state, { ...armContext, proposalId: proposal.proposalId }).recommendation);
-  assert.notEqual(getAnalyticsEvents()[0].experiment?.experimentId, NEXT_STEP_EXPERIMENT_ID);
+  assert.notEqual((await getAnalyticsEvents())[0].experiment?.experimentId, NEXT_STEP_EXPERIMENT_ID);
 });
 
-test('cost and latency: every arm records a measurable latency and no model cost', () => {
-  resetAnalyticsEventsForTests();
+test('cost and latency: every arm records a measurable latency and no model cost', async () => {
+  await resetAnalyticsEventsForTests();
   const state = stateWith(commitment('c1'));
-  getLiveNextStep(state, {
+  await getLiveNextStep(state, {
     anonymousUserId: 'pilot-002', consent: 'granted' as const, locale: 'en' as const, now: NOW,
     controls, emit: appendAnalyticsEvent, timezone: 'UTC', env: ENABLED,
   });
-  const shown = getAnalyticsEvents()[0];
+  const shown = (await getAnalyticsEvents())[0];
   assert.equal(shown.eventName, 'recommendation_shown');
   assert.equal(typeof shown.properties.latencyMs, 'number');
   assert.ok((shown.properties.latencyMs as number) >= 0);

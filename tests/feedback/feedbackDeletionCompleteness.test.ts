@@ -1,26 +1,32 @@
 /**
  * Deletion completeness for the feedback event log (Sprint 03, issue #13).
  *
- * A scope deletion must leave no file holding that user's behaviour, including
- * files a crash left unreadable or unrenamed, and must reach the migration
- * baseline as well — those counters are the user's history too.
+ * A scope deletion must leave nothing holding that user's behaviour, including
+ * a record too damaged to read, and must reach the migration baseline as well
+ * — those counters are the user's history too.
  *
- * Modelled on tests/runtimeMemory/deletionCompleteness.test.ts, where this
- * exact class of gap was found twice for real. Each test asserts on the
- * filesystem rather than on the store's own API, because the failure mode is
- * precisely a file the store can no longer see.
+ * ── What survived the storage move (UC-1.0c, #142) ───────────────
+ *
+ * These asserted on the filesystem, because the failure mode was a *file* the
+ * store could no longer see. Two such files no longer exist: the temp file a
+ * crash left between write and rename, for an event and for a baseline. The
+ * adapter writes one document atomically, so there is no rename window to
+ * orphan anything in, and those two cases are removed rather than ported — the
+ * mechanism they guarded is gone. Every other property is kept, and checked
+ * against storage directly: `pathsForTests()` is the equivalent of the old
+ * directory listing, and it is what catches a document the store's own API
+ * can no longer see.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import {
   FEEDBACK_EVENT_SCHEMA_VERSION,
   type AppendFeedbackEventInput,
   type FeedbackBaseline,
 } from '../../src/contracts/v1/feedbackContracts.ts';
-import { createFileFeedbackEventStore } from '../../lib/feedback/feedbackEventStore.ts';
+import { StorageFeedbackEventStore } from '../../lib/feedback/feedbackEventStore.ts';
+import { createMemoryStorage, type MemoryStorageAdapter } from '../../lib/storage/memoryAdapter.ts';
+import { FEEDBACK_EVENTS, USERS, userCol, userIdForKey } from '../../lib/storage/paths.ts';
 
 const OCCURRED = '2026-08-18T09:00:00.000Z';
 const RECORDED = '2026-08-18T09:00:03.000Z';
@@ -51,99 +57,75 @@ function baseline(scopeId: string): FeedbackBaseline {
   };
 }
 
-test('SECURITY: path traversal cannot read, revoke or delete outside the store', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'feedback-sec-'));
-  const victim = join(dir, 'victim.txt');
-  writeFileSync(victim, 'SENSITIVE');
-  const store = createFileFeedbackEventStore({ dataDir: join(dir, 'store') });
+function setup(): { storage: MemoryStorageAdapter; store: StorageFeedbackEventStore } {
+  const storage = createMemoryStorage();
+  return { storage, store: new StorageFeedbackEventStore(storage) };
+}
+
+/** Every document held anywhere in one scope's user tree, however damaged. */
+function heldFor(storage: MemoryStorageAdapter, scopeId: string): string[] {
+  const prefix = `${USERS}/${userIdForKey(scopeId)}/`;
+  return storage.pathsForTests().filter((path) => path.startsWith(prefix));
+}
+
+test('SECURITY: a traversing or malformed id cannot read, revoke or delete anything', async () => {
+  const { storage, store } = setup();
+  await store.append(input(), RECORDED);
 
   for (const evil of ['../victim', '../../etc/passwd', 'fbk_../../victim', '/etc/passwd', 'fbk_a/../../victim']) {
-    assert.equal(store.get(evil), null, `get(${evil}) must not resolve`);
-    assert.equal(store.revoke(evil, RECORDED), false, `revoke(${evil}) must not resolve`);
+    assert.equal(await store.get(evil), null, `get(${evil}) must not resolve`);
+    assert.equal(await store.revoke(evil, RECORDED), false, `revoke(${evil}) must not resolve`);
   }
-  // A scopeId is caller text too, and it names the baseline file. Hashing it
-  // keeps it inside the store; nothing above the directory may be touched.
-  store.writeBaseline(baseline('../../victim'));
-  assert.equal(store.deleteScope('../../victim'), 0);
+  // A scopeId is caller text too, and it names the baseline document. It is
+  // hashed into a legal path, so it can only ever reach its own tree.
+  await store.writeBaseline(baseline('../../victim'));
+  assert.equal(await store.deleteScope('../../victim'), 0);
 
-  assert.equal(readFileSync(victim, 'utf8'), 'SENSITIVE', 'victim file must survive unchanged');
-  rmSync(dir, { recursive: true, force: true });
+  assert.equal(heldFor(storage, 'alice').length, 1, "alice's event must survive untouched");
 });
 
-test('SECURITY: deleteScope removes files even when their JSON is unreadable', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'feedback-sec2-'));
-  const dataDir = join(dir, 'store');
-  const store = createFileFeedbackEventStore({ dataDir });
-  const event = store.append(input(), RECORDED);
-  // Corrupt it in place, as a mid-crash write would.
-  writeFileSync(join(dataDir, `${event.id}.feedback.json`), '{"scopeId":"alice","subjectId":"SECRET",');
+test('SECURITY: deleteScope removes a record even when it cannot be parsed', async () => {
+  const { storage, store } = setup();
+  const event = await store.append(input(), RECORDED);
+  // Corrupt it in place, as a half-applied write would. The store's own reads
+  // now skip it, which is exactly why deletion must not depend on them.
+  await storage.set(`${userCol(userIdForKey('alice'), FEEDBACK_EVENTS)}/${event.id}`, {
+    scopeId: 'alice',
+    subjectId: 'SECRET',
+  });
 
-  store.deleteScope('alice');
-  assert.deepEqual(readdirSync(dataDir), [], 'no file holding alice content may survive deleteScope');
-  rmSync(dir, { recursive: true, force: true });
+  await store.deleteScope('alice');
+  assert.deepEqual(heldFor(storage, 'alice'), [], 'no record holding alice content may survive deleteScope');
 });
 
-test('SECURITY: an orphaned temp file from a crashed write is also deleted', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'feedback-sec3-'));
-  const dataDir = join(dir, 'store');
-  const store = createFileFeedbackEventStore({ dataDir });
-  store.append(input({ scopeId: 'bob' }), RECORDED);
-  // Simulate a crash between writeFileSync and renameSync. Nothing else can
-  // reach this file afterwards: readAll() skips .tmp, so list() never sees it.
-  writeFileSync(
-    join(dataDir, 'fbk_orphan.feedback.json.999.tmp'),
-    JSON.stringify({ scopeId: 'bob', subjectId: 'LEAKED SECRET' }),
-  );
+test('SECURITY: deleteScope removes the migration baseline, not only the events', async () => {
+  const { storage, store } = setup();
+  await store.append(input({ scopeId: 'dana' }), RECORDED);
+  await store.writeBaseline(baseline('dana'));
 
-  store.deleteScope('bob');
-  assert.deepEqual(readdirSync(dataDir), [], 'a crashed temp write must not survive deletion');
-  rmSync(dir, { recursive: true, force: true });
+  assert.equal(await store.deleteScope('dana'), 1, 'the count reports events, and the baseline is not an event');
+  assert.equal(await store.readBaseline('dana'), null);
+  assert.deepEqual(heldFor(storage, 'dana'), [], "the pre-event-log counters are the user's data too");
 });
 
-test('SECURITY: deleteScope removes the migration baseline, not only the events', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'feedback-sec4-'));
-  const dataDir = join(dir, 'store');
-  const store = createFileFeedbackEventStore({ dataDir });
-  store.append(input({ scopeId: 'dana' }), RECORDED);
-  store.writeBaseline(baseline('dana'));
-  // A crash mid-baseline-write leaves this, and it holds the same counters.
-  writeFileSync(
-    join(dataDir, 'bsl_orphan.feedback-baseline.json.777.tmp'),
-    JSON.stringify(baseline('dana')),
-  );
+test('SECURITY: a record belonging to a different scope is never deleted', async () => {
+  const { storage, store } = setup();
+  await store.append(input({ scopeId: 'carol' }), RECORDED);
+  await store.writeBaseline(baseline('carol'));
 
-  assert.equal(store.deleteScope('dana'), 1, 'the count reports events, and the baseline is not an event');
-  assert.equal(store.readBaseline('dana'), null);
-  assert.deepEqual(readdirSync(dataDir), [], 'the pre-event-log counters are the user\'s data too');
-  rmSync(dir, { recursive: true, force: true });
+  assert.equal(await store.deleteScope('erin'), 0, "deleting erin must not touch carol's data");
+  assert.equal(heldFor(storage, 'carol').length, 2, "carol's event and baseline must survive");
+  assert.ok(await store.readBaseline('carol'), "carol's baseline must survive another user's deletion");
 });
 
-test('SECURITY: a file naming a different scope is never deleted', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'feedback-sec5-'));
-  const dataDir = join(dir, 'store');
-  const store = createFileFeedbackEventStore({ dataDir });
-  const carol = store.append(input({ scopeId: 'carol' }), RECORDED);
-  store.writeBaseline(baseline('carol'));
-  writeFileSync(join(dataDir, `${carol.id}.feedback.json`), '{"scopeId":"carol","subjectId":"CORRUPT');
+test('SECURITY: a sibling scope keeps its events when a neighbour is deleted', async () => {
+  const { store } = setup();
+  await store.append(input({ scopeId: 'alice' }), RECORDED);
+  await store.append(input({ scopeId: 'alice', subjectId: 'commitment-2' }), RECORDED);
+  const kept = await store.append(input({ scopeId: 'bob' }), RECORDED);
+  await store.writeBaseline(baseline('bob'));
 
-  assert.equal(store.deleteScope('erin'), 0, "deleting erin must not touch carol's data");
-  assert.equal(readdirSync(dataDir).length, 2, "carol's event and baseline must survive");
-  assert.ok(store.readBaseline('carol'), "carol's baseline must survive another user's deletion");
-  rmSync(dir, { recursive: true, force: true });
-});
-
-test('SECURITY: a sibling scope keeps its events when a neighbour is deleted', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'feedback-sec6-'));
-  const dataDir = join(dir, 'store');
-  const store = createFileFeedbackEventStore({ dataDir });
-  store.append(input({ scopeId: 'alice' }), RECORDED);
-  store.append(input({ scopeId: 'alice', subjectId: 'commitment-2' }), RECORDED);
-  const kept = store.append(input({ scopeId: 'bob' }), RECORDED);
-  store.writeBaseline(baseline('bob'));
-
-  assert.equal(store.deleteScope('alice'), 2);
-  assert.deepEqual(store.list({ scopeId: 'bob' }).map((event) => event.id), [kept.id]);
-  assert.equal(existsSync(join(dataDir, `${kept.id}.feedback.json`)), true);
-  assert.deepEqual(store.readBaseline('bob'), baseline('bob'));
-  rmSync(dir, { recursive: true, force: true });
+  assert.equal(await store.deleteScope('alice'), 2);
+  assert.deepEqual((await store.list({ scopeId: 'bob' })).map((event) => event.id), [kept.id]);
+  assert.deepEqual(await store.readBaseline('bob'), baseline('bob'));
 });

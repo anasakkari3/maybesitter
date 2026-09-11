@@ -18,7 +18,7 @@
  * canonical state.
  *
  * The narrowing matters for `memory` specifically. The registry's memory entry
- * point is `createFileRuntimeMemoryStore`, which returns a store with
+ * point is `createStorageRuntimeMemoryStore`, which returns a store with
  * `deleteScope` on it and calls `writeFileSync` on the way. The caller passes a
  * `ShadowMemoryReader` instead — `retrieve` and nothing else — so the shadow
  * chain never holds the write half. Callers that already have a store can pass

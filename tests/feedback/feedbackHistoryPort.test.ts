@@ -33,17 +33,17 @@ function stubStore(seed: readonly FeedbackEvent[], options: StubOptions = {}): F
   const baselines = new Map<string, FeedbackBaseline>();
   const store = {
     lastQuery: null as FeedbackEventQuery | null,
-    append(_input: AppendFeedbackEventInput, _recordedAt: string): FeedbackEvent {
+    async append(_input: AppendFeedbackEventInput, _recordedAt: string): Promise<FeedbackEvent> {
       throw new Error('the history port must never append');
     },
-    get(id: string): FeedbackEvent | null {
+    async get(id: string): Promise<FeedbackEvent | null> {
       return events.get(id) ?? null;
     },
-    list(query: FeedbackEventQuery): readonly FeedbackEvent[] {
+    async list(query: FeedbackEventQuery): Promise<readonly FeedbackEvent[]> {
       store.lastQuery = query;
       return Array.from(events.values()).filter((entry) => entry.scopeId === query.scopeId);
     },
-    revoke(id: string, at: string): boolean {
+    async revoke(id: string, at: string): Promise<boolean> {
       if (options.refuseRevoke) return false;
       if (options.lieAboutRevoke) return true;
       const found = events.get(id);
@@ -51,7 +51,7 @@ function stubStore(seed: readonly FeedbackEvent[], options: StubOptions = {}): F
       events.set(id, { ...found, revokedAt: at });
       return true;
     },
-    deleteScope(scopeId: string): number {
+    async deleteScope(scopeId: string): Promise<number> {
       let deleted = 0;
       for (const [id, entry] of Array.from(events.entries())) {
         if (entry.scopeId === scopeId) {
@@ -61,10 +61,10 @@ function stubStore(seed: readonly FeedbackEvent[], options: StubOptions = {}): F
       }
       return deleted;
     },
-    readBaseline(scopeId: string): FeedbackBaseline | null {
+    async readBaseline(scopeId: string): Promise<FeedbackBaseline | null> {
       return baselines.get(scopeId) ?? null;
     },
-    writeBaseline(baseline: FeedbackBaseline): void {
+    async writeBaseline(baseline: FeedbackBaseline): Promise<void> {
       baselines.set(baseline.scopeId, baseline);
     },
   };
@@ -87,11 +87,11 @@ function event(id: string, scopeId: string, revokedAt?: string): FeedbackEvent {
   };
 }
 
-test('history port: reads ask the store for revoked rows too', () => {
+test('history port: reads ask the store for revoked rows too', async () => {
   const store = stubStore([event('e1', 'scope-a')]);
   const port = createFeedbackHistoryPort(store);
 
-  port.listForScope('scope-a');
+  await port.listForScope('scope-a');
 
   assert.equal(store.lastQuery?.scopeId, 'scope-a');
   // History showing corrections is a property of the request, not a hope about
@@ -99,61 +99,61 @@ test('history port: reads ask the store for revoked rows too', () => {
   assert.equal(store.lastQuery?.includeRevoked, true);
 });
 
-test('history port: revoke stamps the event and returns the stamped copy', () => {
+test('history port: revoke stamps the event and returns the stamped copy', async () => {
   const store = stubStore([event('e1', 'scope-a')]);
   const port = createFeedbackHistoryPort(store);
 
-  const result = port.revokeForScope({ scopeId: 'scope-a', eventId: 'e1', at: '2026-08-14T10:00:00.000Z' });
+  const result = await port.revokeForScope({ scopeId: 'scope-a', eventId: 'e1', at: '2026-08-14T10:00:00.000Z' });
 
   assert.equal(result.outcome, 'revoked');
   assert.equal(result.event?.revokedAt, '2026-08-14T10:00:00.000Z');
-  assert.equal(store.get('e1')?.revokedAt, '2026-08-14T10:00:00.000Z');
+  assert.equal((await store.get('e1'))?.revokedAt, '2026-08-14T10:00:00.000Z');
 });
 
-test('history port: an event in another scope is never revoked through this scope', () => {
+test('history port: an event in another scope is never revoked through this scope', async () => {
   const store = stubStore([event('theirs', 'scope-b')]);
   const port = createFeedbackHistoryPort(store);
 
-  const result = port.revokeForScope({ scopeId: 'scope-a', eventId: 'theirs', at: '2026-08-14T10:00:00.000Z' });
+  const result = await port.revokeForScope({ scopeId: 'scope-a', eventId: 'theirs', at: '2026-08-14T10:00:00.000Z' });
 
   assert.equal(result.outcome, 'not_found');
   assert.equal(result.event, null);
-  assert.equal(store.get('theirs')?.revokedAt, undefined);
+  assert.equal((await store.get('theirs'))?.revokedAt, undefined);
 });
 
-test('history port: re-revoking keeps the original correction time', () => {
+test('history port: re-revoking keeps the original correction time', async () => {
   const store = stubStore([event('e1', 'scope-a', '2026-08-12T08:00:00.000Z')]);
   const port = createFeedbackHistoryPort(store);
 
-  const result = port.revokeForScope({ scopeId: 'scope-a', eventId: 'e1', at: '2026-08-14T10:00:00.000Z' });
+  const result = await port.revokeForScope({ scopeId: 'scope-a', eventId: 'e1', at: '2026-08-14T10:00:00.000Z' });
 
   assert.equal(result.outcome, 'already_revoked');
   assert.equal(result.event?.revokedAt, '2026-08-12T08:00:00.000Z');
 });
 
-test('history port: a store that declines the write is reported as failed, not missing', () => {
+test('history port: a store that declines the write is reported as failed, not missing', async () => {
   const store = stubStore([event('e1', 'scope-a')], { refuseRevoke: true });
   const port = createFeedbackHistoryPort(store);
 
-  const result = port.revokeForScope({ scopeId: 'scope-a', eventId: 'e1', at: '2026-08-14T10:00:00.000Z' });
+  const result = await port.revokeForScope({ scopeId: 'scope-a', eventId: 'e1', at: '2026-08-14T10:00:00.000Z' });
 
   // The event exists, so "not found" would be a false statement about the
   // user's own record; the honest answer is that the correction did not land.
   assert.equal(result.outcome, 'failed');
-  assert.equal(store.get('e1')?.revokedAt, undefined);
+  assert.equal((await store.get('e1'))?.revokedAt, undefined);
 });
 
-test('history port: a store that claims success without stamping is caught', () => {
+test('history port: a store that claims success without stamping is caught', async () => {
   const store = stubStore([event('e1', 'scope-a')], { lieAboutRevoke: true });
   const port = createFeedbackHistoryPort(store);
 
   // The user is told a correction was applied only when the record shows it.
-  const result = port.revokeForScope({ scopeId: 'scope-a', eventId: 'e1', at: '2026-08-14T10:00:00.000Z' });
+  const result = await port.revokeForScope({ scopeId: 'scope-a', eventId: 'e1', at: '2026-08-14T10:00:00.000Z' });
 
   assert.equal(result.outcome, 'failed');
 });
 
-test('history port: baseline reads pass straight through', () => {
+test('history port: baseline reads pass straight through', async () => {
   const store = stubStore([]);
   const baseline: FeedbackBaseline = {
     version: FEEDBACK_EVENT_SCHEMA_VERSION,
@@ -169,8 +169,8 @@ test('history port: baseline reads pass straight through', () => {
     timestampsUnavailable: true,
     migratedAt: '2026-08-18T00:00:00.000Z',
   };
-  store.writeBaseline(baseline);
+  await store.writeBaseline(baseline);
 
-  assert.deepEqual(createFeedbackHistoryPort(store).readBaseline('scope-a'), baseline);
-  assert.equal(createFeedbackHistoryPort(store).readBaseline('scope-b'), null);
+  assert.deepEqual(await createFeedbackHistoryPort(store).readBaseline('scope-a'), baseline);
+  assert.equal(await createFeedbackHistoryPort(store).readBaseline('scope-b'), null);
 });

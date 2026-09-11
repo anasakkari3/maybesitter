@@ -6,6 +6,9 @@
  * closed on records whose policy is missing or unrecognised, and that the
  * user's own data export (MemoryExport) stays a separate path that keeps
  * personal records.
+ *
+ * The guard itself is still synchronous — it is a pure check over records the
+ * caller already holds. Only fetching those records is awaited now.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -29,10 +32,10 @@ function input(overrides: Partial<CreateMemoryInput> = {}): CreateMemoryInput {
   };
 }
 
-test('criterion 3: assertNoPersonalMemory throws on a personal record', () => {
+test('criterion 3: assertNoPersonalMemory throws on a personal record', async () => {
   const store = createInMemoryRuntimeMemoryStore();
   // No exportPolicy given, so the record is personal by default.
-  const record = store.put(input({ content: SECRET }), NOW);
+  const record = await store.put(input({ content: SECRET }), NOW);
   assert.equal(record.exportPolicy, 'personal_never_export');
 
   assert.throws(
@@ -41,18 +44,18 @@ test('criterion 3: assertNoPersonalMemory throws on a personal record', () => {
   );
 });
 
-test('assertNoPersonalMemory passes shareable records and empty batches', () => {
+test('assertNoPersonalMemory passes shareable records and empty batches', async () => {
   const store = createInMemoryRuntimeMemoryStore();
-  const shareable = store.put(input({ exportPolicy: 'shareable_aggregate' }), NOW);
+  const shareable = await store.put(input({ exportPolicy: 'shareable_aggregate' }), NOW);
 
   assertNoPersonalMemory([]);
   assertNoPersonalMemory([shareable]);
   assert.equal(isFineTuningExportable(shareable), true);
 });
 
-test('assertNoPersonalMemory fails closed on missing or unknown policies', () => {
+test('assertNoPersonalMemory fails closed on missing or unknown policies', async () => {
   const store = createInMemoryRuntimeMemoryStore();
-  const shareable = store.put(input({ exportPolicy: 'shareable_aggregate' }), NOW);
+  const shareable = await store.put(input({ exportPolicy: 'shareable_aggregate' }), NOW);
 
   // A record that lost its policy in transit must not be treated as shareable.
   const stripped = { ...shareable, exportPolicy: undefined } as unknown as RuntimeMemoryRecord;
@@ -65,12 +68,12 @@ test('assertNoPersonalMemory fails closed on missing or unknown policies', () =>
   assert.equal(isFineTuningExportable(unknownPolicy), false);
 });
 
-test('a single personal record blocks an otherwise shareable batch', () => {
+test('a single personal record blocks an otherwise shareable batch', async () => {
   const store = createInMemoryRuntimeMemoryStore();
   const batch = [
-    store.put(input({ exportPolicy: 'shareable_aggregate' }), NOW),
-    store.put(input({ content: SECRET }), NOW),
-    store.put(input({ exportPolicy: 'shareable_aggregate' }), NOW),
+    await store.put(input({ exportPolicy: 'shareable_aggregate' }), NOW),
+    await store.put(input({ content: SECRET }), NOW),
+    await store.put(input({ exportPolicy: 'shareable_aggregate' }), NOW),
   ];
 
   assert.throws(() => assertNoPersonalMemory(batch), (error: unknown) => {
@@ -83,22 +86,23 @@ test('a single personal record blocks an otherwise shareable batch', () => {
   });
 });
 
-test('revoked and superseded records are still blocked by the guard', () => {
+test('revoked and superseded records are still blocked by the guard', async () => {
   const store = createInMemoryRuntimeMemoryStore();
-  const revoked = store.put(input({ content: SECRET }), NOW);
-  store.revoke(revoked.id, NOW);
-  const superseded = store.put(input({ content: SECRET }), NOW);
-  store.supersede(superseded.id, input({ content: 'updated' }), NOW);
+  const revoked = await store.put(input({ content: SECRET }), NOW);
+  await store.revoke(revoked.id, NOW);
+  const superseded = await store.put(input({ content: SECRET }), NOW);
+  await store.supersede(superseded.id, input({ content: 'updated' }), NOW);
 
   // Status is irrelevant to the guard; only exportPolicy decides.
-  assert.throws(() => assertNoPersonalMemory(store.listAll('scope-a')), /personal_never_export/);
+  const held = await store.listAll('scope-a');
+  assert.throws(() => assertNoPersonalMemory(held), /personal_never_export/);
 });
 
-test('the user data export keeps personal records the fine-tuning guard rejects', () => {
+test('the user data export keeps personal records the fine-tuning guard rejects', async () => {
   const store = createInMemoryRuntimeMemoryStore();
-  store.put(input({ content: SECRET }), NOW);
+  await store.put(input({ content: SECRET }), NOW);
 
-  const exported = store.export('scope-a', NOW);
+  const exported = await store.export('scope-a', NOW);
   assert.equal(exported.records.length, 1, 'a user data export must include the user\'s own personal memory');
   assert.throws(() => assertNoPersonalMemory(exported.records), /personal_never_export/);
 });

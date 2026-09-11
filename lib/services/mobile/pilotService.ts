@@ -132,10 +132,10 @@ export async function getMobileNextStep(participantId: string, input: MobilePilo
   const at = now.toISOString();
   const access = await assertAccess(participantId, at);
   const context = recommendationContext(input, participantId, access.trust.analyticsConsent, now);
-  const recommendation = getLiveNextStep(await readParticipantState(participantId), context);
+  const recommendation = await getLiveNextStep(await readParticipantState(participantId), context);
   if (recommendation.state === 'ready' && !access.trust.firstValueAt) {
     await applyTrustAction(participantId, { type: 'record_first_value', at });
-    recordFirstValueReached(context, { surface: 'recommendation', reason: 'next_step_ready' });
+    await recordFirstValueReached(context, { surface: 'recommendation', reason: 'next_step_ready' });
   }
   const assignment = resolveNextStepArm(participantId);
   return {
@@ -171,7 +171,7 @@ export async function recordMobilePilotLoopEvent(participantId: string, input: M
   const properties = input.properties && typeof input.properties === 'object' && !Array.isArray(input.properties)
     ? input.properties as Record<string, string | number | boolean | null>
     : {};
-  const event = recordClientEvent(context, eventName, properties);
+  const event = await recordClientEvent(context, eventName, properties);
   return {
     success: true,
     participantId,
@@ -233,14 +233,14 @@ export async function recordMobileNextStepDecision(participantId: string, input:
   };
 
   // A read, so it belongs outside the transaction that records the decision.
-  const canonicalProposal = getLiveNextStep(await getParticipantStateSnapshot(participantId), context);
+  const canonicalProposal = await getLiveNextStep(await getParticipantStateSnapshot(participantId), context);
   if (canonicalProposal.state !== 'ready' || canonicalProposal.proposalId !== proposal.proposalId) {
     throw new MobilePilotError('proposal is stale or invalid', 409);
   }
 
   // Collected rather than assigned to a nullable, so a retry that re-runs the
   // callback cannot leave a half-applied effect behind.
-  const pendingEmits: Array<() => void> = [];
+  const pendingEmits: Array<() => Promise<void>> = [];
   const create = () => {
     const prepared = prepareLiveNextStepDecision(canonicalProposal, decision, context, editedTitle);
     pendingEmits.push(prepared.emit);
@@ -255,13 +255,13 @@ export async function recordMobileNextStepDecision(participantId: string, input:
 
   if (!explicitKey) {
     const response = create();
-    pendingEmits[pendingEmits.length - 1]?.();
+    await pendingEmits[pendingEmits.length - 1]?.();
     return response;
   }
   try {
     const result = await replayOrRecordParticipantDecision(participantId, explicitKey, fingerprint, create);
     // Exactly one emit, and only for the call that actually recorded it.
-    if (!result.replayed) pendingEmits[pendingEmits.length - 1]?.();
+    if (!result.replayed) await pendingEmits[pendingEmits.length - 1]?.();
     return { ...result.response, replayed: result.replayed };
   } catch (error) {
     if (error instanceof Error && /idempotencyKey body mismatch/.test(error.message)) {
@@ -311,7 +311,7 @@ export async function updateMobilePilotTrust(participantId: string, input: Mobil
   if (action.type === 'delete') {
     await deleteParticipantDomainState(participantId);
     const analytics = await analyticsContextFrom({ anonymousUserId: participantId, consent: 'essential' }, appendAnalyticsEvent);
-    if (analytics) recordDataDeleted(analytics, 'all_commitments');
+    if (analytics) await recordDataDeleted(analytics, 'all_commitments');
   }
   const exposure = (await resolveUserAccess(participantId, at, false)).decision;
   return {

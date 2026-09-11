@@ -102,24 +102,31 @@ export interface FeedbackEventQuery {
   readonly includeRevoked?: boolean;
 }
 
+/**
+ * Every method is async since UC-1.0c (#142): events live at
+ * `users/{uid}/feedbackEvents/{id}` and baselines at
+ * `users/{uid}/feedbackBaselines/{sha256(scopeId)}` on the storage adapter, so
+ * each call is a round trip rather than a file read. The semantics below are
+ * unchanged — append-only, idempotent, revocation-never-rewritten.
+ */
 export interface FeedbackEventStore {
   /**
    * Appends an event, or returns the existing one unchanged when an event with
    * the same idempotencyKey is already present. Never edits in place.
    */
-  append(input: AppendFeedbackEventInput, recordedAt: string): FeedbackEvent;
-  get(id: string): FeedbackEvent | null;
-  list(query: FeedbackEventQuery): readonly FeedbackEvent[];
+  append(input: AppendFeedbackEventInput, recordedAt: string): Promise<FeedbackEvent>;
+  get(id: string): Promise<FeedbackEvent | null>;
+  list(query: FeedbackEventQuery): Promise<readonly FeedbackEvent[]>;
   /**
    * Marks an event as revoked by the user. Returns false if not found, or if
    * it is already revoked — revoking twice is not an error, but it must not
    * move the timestamp and rewrite when the correction happened.
    */
-  revoke(id: string, at: string): boolean;
+  revoke(id: string, at: string): Promise<boolean>;
   /** Removes every event in a scope. Returns the number deleted. */
-  deleteScope(scopeId: string): number;
-  readBaseline(scopeId: string): FeedbackBaseline | null;
-  writeBaseline(baseline: FeedbackBaseline): void;
+  deleteScope(scopeId: string): Promise<number>;
+  readBaseline(scopeId: string): Promise<FeedbackBaseline | null>;
+  writeBaseline(baseline: FeedbackBaseline): Promise<void>;
 }
 
 export interface FeedbackEventStoreOptions {

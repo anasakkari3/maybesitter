@@ -104,7 +104,7 @@ export async function POST(request: Request) {
     if (action.type === 'delete') {
       await resetSingleUserAccount();
       const analytics = await analyticsContextFrom({ anonymousUserId: participantId, consent: 'essential' }, appendAnalyticsEvent);
-      if (analytics) recordDataDeleted(analytics, 'all_commitments');
+      if (analytics) await recordDataDeleted(analytics, 'all_commitments');
     }
 
     const confirmedCommitmentCount = Object.values(getCommandServiceState().commitments)

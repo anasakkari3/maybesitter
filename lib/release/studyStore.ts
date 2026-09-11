@@ -1,5 +1,5 @@
 /**
- * The feedback study's response store (Sprint 11, issue #47).
+ * The feedback study's response store, on durable storage (UC-1.0c, #142).
  *
  * ── A declined answer is a row, not a missing row ────────────────
  *
@@ -14,20 +14,22 @@
  *
  * Answering the same question about the same run again *supersedes*: one
  * person's answer to one question about one run is one answer, and appending
- * would let a participant who tapped twice count twice in an aggregate. The
- * same question about a *different* run is a different answer, and a response
- * about the study rather than about a run carries `runId: null`, which is its
- * own key.
+ * would let a participant who tapped twice count twice in an aggregate. That
+ * identity is now the **document id** — `sha256` of the triple — so
+ * superseding is an overwrite of one document rather than a rewrite of a
+ * per-participant array, and two concurrent answers cannot lose each other.
+ * The same question about a *different* run is a different answer, and a
+ * response about the study rather than about a run carries `runId: null`,
+ * which is its own key.
  *
- * ── Reports, never throws ────────────────────────────────────────
+ * ── Ordering is explicit, not the backend's ──────────────────────
  *
- * `record` validates every field against the contract's vocabularies and
- * returns a named rejection. The store is reachable from an HTTP handler, so a
- * throw here is a 500 rather than something a client can fix.
+ * The file store returned array order. One document per response has no such
+ * order, and the two adapters disagree about the natural order of a group read
+ * anyway, so `list` sorts by `(respondedAt, question, runId)`. That is
+ * deterministic on either backend, where "whatever order the store iterated"
+ * was not.
  */
-import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
-import path from 'node:path';
 import {
   SHADOW_SAFE_CODE,
   SHADOW_STUDY_QUESTIONS,
@@ -36,14 +38,18 @@ import {
   type ShadowStudyQuestionId,
   type ShadowStudyResponse,
 } from '../../src/contracts/v1/shadowPipelineContracts';
-import { resolveDataDir } from '../runtime/dataDir';
+import {
+  STUDY_RESPONSES,
+  createMemoryStorage,
+  docIdForKey,
+  getStorage,
+  userCol,
+  userIdForKey,
+  type StorageAdapter,
+} from '../storage';
 
-const RESPONSE_SUBDIR = 'shadow-study-responses';
-const RESPONSE_FILE_EXT = '.study-responses.json';
-const TEMP_FILE_EXT = '.tmp';
-const RESPONSE_ID_PREFIX = 'ssr_';
 /** ASCII unit separator, spelled as an escape so an editor cannot strip it. */
-const UNIT_SEPARATOR = '\u001f';
+const UNIT_SEPARATOR = '';
 export const SHADOW_STUDY_RESPONSE_SCHEMA_VERSION = 'shadow-study-responses-v1' as const;
 
 export const SHADOW_STUDY_RECORD_REJECTIONS = Object.freeze([
@@ -62,24 +68,20 @@ export type ShadowStudyRecordResult =
   | { readonly status: 'recorded'; readonly response: ShadowStudyResponse; readonly superseded: boolean }
   | { readonly status: 'rejected'; readonly reason: ShadowStudyRecordRejection; readonly detail: string };
 
+/** Async since UC-1.0c (#142): every method is a storage round trip. */
 export interface ShadowStudyResponseStore {
-  record(response: ShadowStudyResponse): ShadowStudyRecordResult;
-  /** Insertion order for this participant. Nothing here sorts anything. */
-  list(participantId: string): readonly ShadowStudyResponse[];
-  listAll(): readonly ShadowStudyResponse[];
-  countFor(participantId: string): number;
+  record(response: ShadowStudyResponse): Promise<ShadowStudyRecordResult>;
+  list(participantId: string): Promise<readonly ShadowStudyResponse[]>;
+  listAll(): Promise<readonly ShadowStudyResponse[]>;
+  countFor(participantId: string): Promise<number>;
   /** Removes every response for this participant. Verify by re-listing. */
-  deleteParticipant(participantId: string): number;
+  deleteParticipant(participantId: string): Promise<number>;
 }
 
-export interface ShadowStudyResponseStoreOptions {
-  readonly dataDir?: string;
-}
-
-interface StoredResponses {
+/** The response plus the schema tag, so a group read can filter to this store. */
+interface StoredResponse {
   readonly version: typeof SHADOW_STUDY_RESPONSE_SCHEMA_VERSION;
-  readonly participantId: string;
-  readonly responses: readonly ShadowStudyResponse[];
+  readonly response: ShadowStudyResponse;
 }
 
 function isSafeCode(value: unknown): value is string {
@@ -154,8 +156,8 @@ function validate(response: ShadowStudyResponse): ShadowStudyRecordResult {
     // `JSON.parse` and does not honour the type.
     const rating = (response as unknown as Record<string, unknown>).rating;
     if (rating !== null && rating !== undefined) {
-      // Refused rather than stripped: a body that says "declined" and carries a
-      // number disagrees with itself, and picking one half for the caller is
+      // Refused rather than stripped: a body that says "declined" and carries
+      // a number disagrees with itself, and picking one half for the caller is
       // guessing which half they meant.
       return reject('declined_carries_rating', 'a declined answer cannot carry a rating');
     }
@@ -176,172 +178,109 @@ function validate(response: ShadowStudyResponse): ShadowStudyRecordResult {
 }
 
 /**
- * The identity of one answer. U+001F is a unit separator, which no field of
- * the key can contain: `SHADOW_SAFE_CODE` and the question vocabulary are both
- * pattern-closed over printable characters.
+ * The identity of one answer, and now the document id. U+001F is a unit
+ * separator, which no field of the key can contain: `SHADOW_SAFE_CODE` and the
+ * question vocabulary are both pattern-closed over printable characters.
  */
 function responseKey(response: ShadowStudyResponse): string {
   return `${response.participantId}${UNIT_SEPARATOR}${response.runId ?? ''}${UNIT_SEPARATOR}${response.question}`;
 }
 
-interface ResponseRepository {
-  readFor(participantId: string): readonly ShadowStudyResponse[];
-  writeFor(participantId: string, responses: readonly ShadowStudyResponse[]): void;
-  removeFor(participantId: string): void;
-  listParticipants(): readonly string[];
+function collectionFor(participantId: string): string {
+  return userCol(userIdForKey(participantId), STUDY_RESPONSES);
 }
 
-function createStore(repository: ResponseRepository): ShadowStudyResponseStore {
-  return {
-    record(response): ShadowStudyRecordResult {
-      const validated = validate(response);
-      if (validated.status === 'rejected') return validated;
-
-      const accepted = validated.response;
-      const existing = repository.readFor(accepted.participantId);
-      const key = responseKey(accepted);
-      const index = existing.findIndex((held) => responseKey(held) === key);
-      const next = index === -1
-        ? [...existing, accepted]
-        : existing.map((held, at) => (at === index ? accepted : held));
-      repository.writeFor(accepted.participantId, next);
-      return { status: 'recorded', response: accepted, superseded: index !== -1 };
-    },
-
-    list(participantId): readonly ShadowStudyResponse[] {
-      if (!isSafeCode(participantId)) return [];
-      return repository.readFor(participantId);
-    },
-
-    listAll(): readonly ShadowStudyResponse[] {
-      const all: ShadowStudyResponse[] = [];
-      for (const participantId of repository.listParticipants()) {
-        all.push(...repository.readFor(participantId));
-      }
-      return all;
-    },
-
-    countFor(participantId): number {
-      if (!isSafeCode(participantId)) return 0;
-      return repository.readFor(participantId).length;
-    },
-
-    deleteParticipant(participantId): number {
-      if (!isSafeCode(participantId)) return 0;
-      const removed = repository.readFor(participantId).length;
-      repository.removeFor(participantId);
-      return removed;
-    },
-  };
+function documentPath(response: ShadowStudyResponse): string {
+  return `${collectionFor(response.participantId)}/${docIdForKey(responseKey(response))}`;
 }
 
-function defaultDataDir(): string {
-  const root = resolveDataDir();
-  return path.join(root, RESPONSE_SUBDIR);
+/** Deterministic on either backend; see the header. */
+function byAnswerOrder(a: ShadowStudyResponse, b: ShadowStudyResponse): number {
+  if (a.respondedAt !== b.respondedAt) return a.respondedAt < b.respondedAt ? -1 : 1;
+  if (a.question !== b.question) return a.question < b.question ? -1 : 1;
+  const left = a.runId ?? '';
+  const right = b.runId ?? '';
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
-function responseFileId(participantId: string): string {
-  return `${RESPONSE_ID_PREFIX}${createHash('sha256').update(participantId, 'utf8').digest('hex')}`;
+function isStoredResponse(value: unknown): value is StoredResponse {
+  if (!value || typeof value !== 'object') return false;
+  const raw = value as Partial<StoredResponse>;
+  return raw.version === SHADOW_STUDY_RESPONSE_SCHEMA_VERSION && Boolean(raw.response);
 }
 
-function isStoredResponses(value: unknown): value is StoredResponses {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
-  const raw = value as Record<string, unknown>;
-  return (
-    raw.version === SHADOW_STUDY_RESPONSE_SCHEMA_VERSION
-    && isSafeCode(raw.participantId)
-    && Array.isArray(raw.responses)
-  );
-}
+export class StorageShadowStudyResponseStore implements ShadowStudyResponseStore {
+  constructor(private readonly injected?: StorageAdapter) {}
 
-function createFileRepository(resolveDataDir: () => string): ResponseRepository {
-  function ensureDir(): string {
-    const dataDir = resolveDataDir();
-    mkdirSync(dataDir, { recursive: true });
-    return dataDir;
+  /** Resolved per call so a test may swap the adapter after construction. */
+  private get storage(): StorageAdapter {
+    return this.injected ?? getStorage();
   }
 
-  function filePathFor(dataDir: string, participantId: string): string {
-    return path.join(dataDir, `${responseFileId(participantId)}${RESPONSE_FILE_EXT}`);
+  /**
+   * Re-validated on the way out, as the file store did: a hand-edited record
+   * cannot put a rating on a declined answer, or a question this version does
+   * not know, into an aggregate.
+   */
+  private usable(rows: Array<{ data: StoredResponse }>): ShadowStudyResponse[] {
+    return rows
+      .filter((row) => isStoredResponse(row.data))
+      .map((row) => row.data.response)
+      .filter((response) => validate(response).status === 'recorded')
+      .sort(byAnswerOrder);
   }
 
-  function readFile(file: string): StoredResponses | null {
-    if (!existsSync(file)) return null;
-    try {
-      const raw: unknown = JSON.parse(readFileSync(file, 'utf8'));
-      if (isStoredResponses(raw)) return raw;
-    } catch {
-      // Corrupt or truncated: no responses, which is the fail-closed reading.
-    }
-    return null;
+  async record(response: ShadowStudyResponse): Promise<ShadowStudyRecordResult> {
+    const validated = validate(response);
+    if (validated.status === 'rejected') return validated;
+    const accepted = validated.response;
+    const path = documentPath(accepted);
+
+    // Read and write in one transaction so `superseded` reports what actually
+    // happened rather than what was true a moment before the write.
+    return this.storage.runTransaction(async (tx) => {
+      const existing = await tx.get<StoredResponse>(path);
+      tx.set<StoredResponse>(path, { version: SHADOW_STUDY_RESPONSE_SCHEMA_VERSION, response: accepted });
+      return { status: 'recorded' as const, response: accepted, superseded: existing !== null };
+    });
   }
 
-  return {
-    readFor(participantId): readonly ShadowStudyResponse[] {
-      const stored = readFile(filePathFor(ensureDir(), participantId));
-      if (stored === null || stored.participantId !== participantId) return [];
-      // Re-validated on the way out: a hand-edited file cannot put a rating on
-      // a declined answer, or a question this version does not know, into an
-      // aggregate.
-      return stored.responses.filter((held) => validate(held).status === 'recorded');
-    },
+  async list(participantId: string): Promise<readonly ShadowStudyResponse[]> {
+    if (!isSafeCode(participantId)) return [];
+    return this.usable(await this.storage.list<StoredResponse>(collectionFor(participantId)));
+  }
 
-    writeFor(participantId, responses): void {
-      const file = filePathFor(ensureDir(), participantId);
-      const record: StoredResponses = {
-        version: SHADOW_STUDY_RESPONSE_SCHEMA_VERSION,
-        participantId,
-        responses,
-      };
-      const temporary = `${file}.${process.pid}${TEMP_FILE_EXT}`;
-      writeFileSync(temporary, `${JSON.stringify(record, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
-      renameSync(temporary, file);
-    },
+  async listAll(): Promise<readonly ShadowStudyResponse[]> {
+    return this.usable(await this.storage.listGroup<StoredResponse>(STUDY_RESPONSES));
+  }
 
-    removeFor(participantId): void {
-      const dataDir = ensureDir();
-      const file = filePathFor(dataDir, participantId);
-      if (existsSync(file)) unlinkSync(file);
-      const tempPrefix = `${responseFileId(participantId)}${RESPONSE_FILE_EXT}`;
-      for (const entry of readdirSync(dataDir)) {
-        if (!entry.startsWith(tempPrefix) || !entry.endsWith(TEMP_FILE_EXT)) continue;
-        unlinkSync(path.join(dataDir, entry));
-      }
-    },
+  async countFor(participantId: string): Promise<number> {
+    return (await this.list(participantId)).length;
+  }
 
-    listParticipants(): readonly string[] {
-      const dataDir = ensureDir();
-      const ids: string[] = [];
-      for (const entry of readdirSync(dataDir)) {
-        if (!entry.endsWith(RESPONSE_FILE_EXT)) continue;
-        const stored = readFile(path.join(dataDir, entry));
-        if (stored !== null) ids.push(stored.participantId);
-      }
-      return ids;
-    },
-  };
+  async deleteParticipant(participantId: string): Promise<number> {
+    if (!isSafeCode(participantId)) return 0;
+    const collection = collectionFor(participantId);
+    const rows = await this.storage.list<StoredResponse>(collection);
+    for (const row of rows) await this.storage.delete(`${collection}/${row.id}`);
+    return rows.length;
+  }
 }
 
-function createMemoryRepository(): ResponseRepository {
-  const records = new Map<string, readonly ShadowStudyResponse[]>();
-  return {
-    readFor: (participantId) => records.get(participantId) ?? [],
-    writeFor: (participantId, responses) => {
-      records.set(participantId, responses);
-    },
-    removeFor: (participantId) => {
-      records.delete(participantId);
-    },
-    listParticipants: () => Array.from(records.keys()),
-  };
+/**
+ * The same implementation over a private in-memory adapter, so a test cannot
+ * exercise semantics production does not have.
+ */
+export class MemoryShadowStudyResponseStore extends StorageShadowStudyResponseStore {
+  constructor() {
+    super(createMemoryStorage());
+  }
 }
 
-export function createFileShadowStudyResponseStore(
-  options?: ShadowStudyResponseStoreOptions,
-): ShadowStudyResponseStore {
-  return createStore(createFileRepository(() => options?.dataDir ?? defaultDataDir()));
+export function createStorageShadowStudyResponseStore(storage?: StorageAdapter): ShadowStudyResponseStore {
+  return new StorageShadowStudyResponseStore(storage);
 }
 
 export function createInMemoryShadowStudyResponseStore(): ShadowStudyResponseStore {
-  return createStore(createMemoryRepository());
+  return new MemoryShadowStudyResponseStore();
 }

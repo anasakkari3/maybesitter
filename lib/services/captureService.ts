@@ -302,14 +302,14 @@ async function captureMultipleCommitments(
   };
 }
 
-function recordClarificationFeedback(
+async function recordClarificationFeedback(
   outcome: 'clarification_succeeded' | 'clarification_failed',
   options: CaptureServiceOptions,
   now: Date
-): void {
+): Promise<void> {
   const hasScope = Boolean(options.conversationId || options.sessionId || options.userId);
   if (!hasScope && !options.pendingClarificationId) return;
-  recordBehaviorFeedback(outcome, {
+  await recordBehaviorFeedback(outcome, {
     now,
     feedbackStore: options.behaviorFeedbackStore,
     conversationId: options.conversationId,
@@ -344,15 +344,15 @@ export function clearPendingClarification(): void {
   // Backward-compatible no-op. Clarifications are now scoped by token and store.
 }
 
-export function clearClarification(options: ClearClarificationOptions): void {
+export async function clearClarification(options: ClearClarificationOptions): Promise<void> {
   const scopeId = scopeClarification(options);
   if (!scopeId) return;
   const store = options.clarificationStore || createDefaultClarificationStore();
   if (options.pendingClarificationId) {
-    store.clear(scopeId, options.pendingClarificationId);
+    await store.clear(scopeId, options.pendingClarificationId);
     return;
   }
-  store.clearScope(scopeId);
+  await store.clearScope(scopeId);
 }
 
 export async function captureText(
@@ -389,7 +389,7 @@ export async function captureText(
     };
   }
 
-  store.pruneExpired(now);
+  await store.pruneExpired(now);
 
   let pending: PendingClarification | null = null;
   if (!options.pendingClarificationId) {
@@ -401,12 +401,12 @@ export async function captureText(
 
   if (options.pendingClarificationId) {
     if (!providedScopeId) {
-      recordClarificationFeedback('clarification_failed', options, now);
+      await recordClarificationFeedback('clarification_failed', options, now);
       return safeExpiredClarificationResponse();
     }
-    pending = store.getAndClear(providedScopeId, options.pendingClarificationId, now);
+    pending = await store.getAndClear(providedScopeId, options.pendingClarificationId, now);
     if (!pending) {
-      recordClarificationFeedback('clarification_failed', options, now);
+      await recordClarificationFeedback('clarification_failed', options, now);
       return safeExpiredClarificationResponse();
     }
   }
@@ -415,8 +415,8 @@ export async function captureText(
   if (pending) {
     const merged = mergeClarificationInput(pending, text, context);
     if (merged.status === 'ambiguous') {
-      recordClarificationFeedback('clarification_failed', options, now);
-      const nextPending = store.create({
+      await recordClarificationFeedback('clarification_failed', options, now);
+      const nextPending = await store.create({
         scopeId: pending.scopeId,
         originalInput: pending.originalInput,
         partialExtraction: merged.result,
@@ -458,7 +458,7 @@ export async function captureText(
   let pendingClarification: PendingClarification | null = null;
   if (!pending && disposition === 'needs_clarification') {
     const scopeId = providedScopeId || `capture-${randomUUID()}`;
-    pendingClarification = store.create({
+    pendingClarification = await store.create({
       scopeId,
       originalInput: text,
       partialExtraction: result,
@@ -478,7 +478,7 @@ export async function captureText(
 
   const unresolvedContinuation = isContinuation && disposition === 'needs_clarification';
   if (unresolvedContinuation) {
-    recordClarificationFeedback('clarification_failed', options, now);
+    await recordClarificationFeedback('clarification_failed', options, now);
     executionNotes.push('I could not resolve the clarification safely, so I did not make changes.');
   }
 
@@ -486,7 +486,7 @@ export async function captureText(
   const commandResults = executeCommands(commandsToExecute, deterministicStateGateway);
   const hasExecutionProblem = executionNotes.length > 0 || hasRejectedCommand(commandResults);
   if (isContinuation && !unresolvedContinuation && !hasExecutionProblem) {
-    recordClarificationFeedback('clarification_succeeded', options, now);
+    await recordClarificationFeedback('clarification_succeeded', options, now);
   }
   const formatDisposition: ResponseFormatterDisposition = unresolvedContinuation
     ? 'clarification_unresolved'

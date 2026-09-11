@@ -12,7 +12,7 @@
  * unavailable history that reports success is the failure mode this whole
  * feature exists to avoid.
  */
-import { createFileFeedbackEventStore } from '../feedback/feedbackEventStore';
+import { createStorageFeedbackEventStore } from '../feedback/feedbackEventStore';
 import {
   createFeedbackHistoryPort,
   getFeedbackHistoryPort,
@@ -22,11 +22,11 @@ import {
 let bootstrapped = false;
 
 /**
- * Installs the file-backed port once. Safe to call repeatedly, and it never
+ * Installs the storage-backed port once. Safe to call repeatedly, and it never
  * overwrites a port a test has already installed.
  */
 export function installDefaultFeedbackHistoryPort(): void {
   if (bootstrapped || getFeedbackHistoryPort() !== null) return;
-  setFeedbackHistoryPort(createFeedbackHistoryPort(createFileFeedbackEventStore()));
+  setFeedbackHistoryPort(createFeedbackHistoryPort(createStorageFeedbackEventStore()));
   bootstrapped = true;
 }

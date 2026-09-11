@@ -66,7 +66,9 @@ Each stage carries a timestamp. Traces are stored per session under
 
 - Enable: `MAYBESITTER_ALPHA_TRACE_ENABLED=true`
 - Owner (can read all sessions): `MAYBESITTER_ALPHA_TRACE_OWNER_ID=<participantId>`
-- Prune old traces: `node scripts/alpha-trace-prune.ts` (or call `prune()` from a job)
+- Retention is enforced by Firestore TTL on `expiresAt` (30 days), configured by
+  `infra/firestore-ttl.sh`. `prune()` on the store still exists to force a sweep;
+  the old `scripts/alpha-trace-prune.ts` is gone (UC-1.0c, #142).
 - Delete participant data: `deleteParticipant(participantId)` (also used by
   `scripts/delete-participant-data.ts`)
 

@@ -82,7 +82,7 @@
  *
  *     **What is still possible, and what guards it instead.** The type says
  *     nothing about the *callee*. `INTELLIGENCE_MODULE_CONTRACTS` names real
- *     entry points — `createFileRuntimeMemoryStore` writes files — and an
+ *     entry points — `createStorageRuntimeMemoryStore` writes storage — and an
  *     orchestrator that invokes one can cause a write regardless of how inert
  *     its return value is. That half is guarded by
  *     `moduleContracts.STATE_WRITE_POLICY`, by `allowsDirectStateWrites: false`
