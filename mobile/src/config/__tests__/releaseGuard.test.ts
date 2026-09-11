@@ -5,7 +5,7 @@ import { releaseConfigProblems } from '../releaseGuard';
 // and nobody found out until it was installed. Each row here is a build that
 // must never reach a tester.
 describe('releaseConfigProblems', () => {
-  const cases: Array<{ name: string; env: Parameters<typeof releaseConfigProblems>[0]; safe: boolean }> = [
+  const cases: { name: string; env: Parameters<typeof releaseConfigProblems>[0]; safe: boolean }[] = [
     { name: 'empty URL in production', env: { appEnv: 'production', apiBaseUrl: '' }, safe: false },
     { name: 'missing URL key in staging', env: { appEnv: 'staging' }, safe: false },
     { name: 'plain http', env: { appEnv: 'production', apiBaseUrl: 'http://api.example.com' }, safe: false },
