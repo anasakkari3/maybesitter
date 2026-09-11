@@ -1,4 +1,4 @@
-import type { Command, Commitment, Priority, TimeSpec } from '../../../src/domain/stateMachine';
+import type { Command, Commitment, DomainState, Priority, TimeSpec } from '../../../src/domain/stateMachine';
 import { applyCommand, configureCommandService, getCommandServiceState } from '../commandService';
 import {
   applyParticipantCommand,
@@ -34,7 +34,8 @@ function isVisibleInLists(commitment: Commitment): boolean {
   return !HIDDEN_LIST_STATUSES.has(commitment.status) && Boolean(resolvedCommitmentTime(commitment));
 }
 
-function stateFor(options: { participantId?: string } = {}) {
+/** Async since UC-1.0b (#141): a participant's state is a storage read. */
+async function stateFor(options: { participantId?: string } = {}): Promise<DomainState> {
   if (options.participantId) return getParticipantStateSnapshot(options.participantId);
   configureCommandService({});
   return getCommandServiceState();
@@ -45,7 +46,7 @@ export async function listToday(options: CommitmentQueryOptions = {}): Promise<C
   const timezone = normalizeTimezone(options.timezone);
   const today = localDayKey(now, timezone);
   return sortByResolvedTime(
-    Object.values(stateFor(options).commitments).filter((commitment) => {
+    Object.values((await stateFor(options)).commitments).filter((commitment) => {
       const resolved = resolvedCommitmentTime(commitment);
       return Boolean(resolved) && isVisibleInLists(commitment) && localDayKey(resolved as string, timezone) === today;
     })
@@ -57,7 +58,7 @@ export async function listUpcoming(options: CommitmentQueryOptions = {}): Promis
   const timezone = normalizeTimezone(options.timezone);
   const today = localDayKey(now, timezone);
   return sortByResolvedTime(
-    Object.values(stateFor(options).commitments).filter((commitment) => {
+    Object.values((await stateFor(options)).commitments).filter((commitment) => {
       const resolved = resolvedCommitmentTime(commitment);
       return Boolean(resolved) && isVisibleInLists(commitment) && localDayKey(resolved as string, timezone) > today;
     })
@@ -65,7 +66,7 @@ export async function listUpcoming(options: CommitmentQueryOptions = {}): Promis
 }
 
 export async function getCommitment(id: string, options: { participantId?: string } = {}): Promise<Commitment | null> {
-  return stateFor(options).commitments[id] ?? null;
+  return (await stateFor(options)).commitments[id] ?? null;
 }
 
 function priorityFromMobile(value: unknown): Partial<Priority> | undefined {

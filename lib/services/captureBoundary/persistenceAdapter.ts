@@ -2,7 +2,11 @@ import { applyCommand, type Command, type DomainState } from '../../../src/domai
 
 export interface CapturePersistenceAdapter {
   persistAtomically(commands: readonly Command[]): Promise<{ state: DomainState }>;
-  snapshot(): DomainState;
+  /**
+   * Async since UC-1.0b (#141): a participant-scoped snapshot is a read from
+   * durable storage, not a field of this process.
+   */
+  snapshot(): Promise<DomainState>;
 }
 
 /**
@@ -24,10 +28,10 @@ export class TransactionalCapturePersistenceAdapter implements CapturePersistenc
       candidate = transition.newState;
     }
     this.state = candidate;
-    return { state: this.snapshot() };
+    return { state: await this.snapshot() };
   }
 
-  snapshot(): DomainState {
+  async snapshot(): Promise<DomainState> {
     return structuredClone(this.state);
   }
 }
