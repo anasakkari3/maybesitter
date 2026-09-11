@@ -1,12 +1,12 @@
 import { mobilePilotErrorResponse, reportMobilePilotIncident } from '../../../../../../lib/services/mobile/pilotService';
-import { mobileAuthErrorResponse, requireMobilePilotAuth } from '../../../../../../lib/services/mobile/auth';
+import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
-  let auth;
+  let user;
   try {
-    auth = await requireMobilePilotAuth(request);
+    user = await requireMobileUser(request);
   } catch (error) {
     return mobileAuthErrorResponse(error);
   }
@@ -19,7 +19,9 @@ export async function POST(request: Request) {
   }
 
   try {
-    return Response.json(await reportMobilePilotIncident(auth.participantId, body), { status: 201 });
+    // The reporter is the authenticated user. A `participantId` in the body is
+    // ignored rather than refused: it is not read at all.
+    return Response.json(await reportMobilePilotIncident(user.uid, body), { status: 201 });
   } catch (error) {
     return mobilePilotErrorResponse(error);
   }

@@ -1,4 +1,4 @@
-import { mobileAuthErrorResponse, optionalMobilePilotAuth } from '../../../../../../../lib/services/mobile/auth';
+import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../../lib/auth/mobileAuth';
 import {
   completeCommitment,
   dropCommitment,
@@ -12,9 +12,9 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  let auth;
+  let user;
   try {
-    auth = await optionalMobilePilotAuth(request);
+    user = await requireMobileUser(request);
   } catch (error) {
     return mobileAuthErrorResponse(error);
   }
@@ -27,14 +27,15 @@ export async function POST(
     return mobileError('Invalid JSON request body');
   }
 
+  const scope = { participantId: user.uid };
   try {
     const commitment =
       body.action === 'complete'
-        ? await completeCommitment(id, new Date(), auth ?? {})
+        ? await completeCommitment(id, new Date(), scope)
         : body.action === 'postpone'
-          ? await postponeCommitment(id, body.postponedUntil, new Date(), auth ?? {})
+          ? await postponeCommitment(id, body.postponedUntil, new Date(), scope)
           : body.action === 'cancel'
-            ? await dropCommitment(id, new Date(), auth ?? {})
+            ? await dropCommitment(id, new Date(), scope)
             : null;
     if (!commitment) return mobileError(`Unknown commitment action: ${String(body.action)}`);
     return Response.json({

@@ -1,4 +1,4 @@
-import { mobileAuthErrorResponse, requireMobilePilotAuth } from '../../../../../../lib/services/mobile/auth';
+import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import { mobilePilotErrorResponse } from '../../../../../../lib/services/mobile/pilotService';
 import { getTraceStore, isTraceEnabled } from '../../../../../../lib/alphaTrace/traceRecorder';
 
@@ -6,15 +6,16 @@ export const dynamic = 'force-dynamic';
 
 /**
  * GET /api/mobile/alpha/trace?sessionId=... — internal alpha review endpoint.
- * Requires pilot auth. Returns the full trace for one session, or summaries.
+ * Requires a verified Firebase ID token. Returns the full trace for one
+ * session, or summaries.
  */
 export async function GET(request: Request) {
   if (!isTraceEnabled()) {
     return mobilePilotErrorResponse(new Error('feature_disabled'));
   }
-  let auth;
+  let user;
   try {
-    auth = await requireMobilePilotAuth(request);
+    user = await requireMobileUser(request);
   } catch (error) {
     return mobileAuthErrorResponse(error);
   }
@@ -26,14 +27,14 @@ export async function GET(request: Request) {
   if (sessionId) {
     const trace = store.get(sessionId);
     if (!trace) return mobilePilotErrorResponse(new Error('session_not_found'));
-    // Access boundary: participant may read own session; owner may read any.
-    if (trace.participantId !== auth.participantId && process.env.MAYBESITTER_ALPHA_TRACE_OWNER_ID !== auth.participantId) {
+    // Access boundary: a user may read their own session; the owner may read any.
+    if (trace.participantId !== user.uid && process.env.MAYBESITTER_ALPHA_TRACE_OWNER_ID !== user.uid) {
       return mobilePilotErrorResponse(new Error('forbidden'));
     }
     return Response.json({ trace });
   }
 
   const withFeedbackOnly = searchParams.get('withFeedbackOnly') === 'true';
-  const summaries = store.listSummaries({ participantId: auth.participantId, withFeedbackOnly });
+  const summaries = store.listSummaries({ participantId: user.uid, withFeedbackOnly });
   return Response.json({ summaries, count: summaries.length });
 }

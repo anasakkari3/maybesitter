@@ -1,16 +1,29 @@
+/**
+ * The authenticated mobile API, end to end (UC-1.0e, #144).
+ *
+ * ── What changed under this file ─────────────────────────────────
+ *
+ * It used to mint HMAC pilot tokens and configure a 25–40 id allowlist to
+ * make them valid. Identity is a Firebase ID token now, so the seam is the
+ * verifier (`tests/support/fakeAuth`) and there is no roster to configure.
+ * Two refusals it asserted are therefore gone — `not_allowlisted` and the
+ * pilot-runtime 503 — and the scope claims it asserted are strengthened:
+ * every route is guarded, so the body- and query-spoofing cases below run
+ * against routes that have no unauthenticated path left at all.
+ */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getAnalyticsEvents, resetAnalyticsEventsForTests } from '../../lib/analytics/eventStore.ts';
-import { NEXT_STEP_EXPERIMENT_ENV, resolveNextStepArm } from '../../lib/experiments/experimentControls.ts';
-import { generatePilotToken } from '../../lib/pilot/pilotTokenService.ts';
+import { resolveNextStepArm } from '../../lib/experiments/experimentControls.ts';
 import { applyTrustAction, listAllAuditEvents, listIncidents } from '../../lib/pilot/pilotTrustStore.ts';
 import { getParticipantStateSnapshot } from '../../lib/services/mobile/participantState.ts';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { resetMobilePilotDecisionReplaysForTests } from '../../lib/services/mobile/pilotService.ts';
+import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
 import { GET as getNextStep } from '../../src/app/api/mobile/recommendations/next-step/route.ts';
 import { POST as recordNextStepAction } from '../../src/app/api/mobile/recommendations/next-step/actions/route.ts';
 import { GET as getTrust, POST as updateTrust } from '../../src/app/api/mobile/pilot/trust/route.ts';
@@ -30,17 +43,20 @@ import type { NextStepRecommendationContract } from '../../src/contracts/v1/next
 
 const BASE = 'http://127.0.0.1:4321';
 const REFERENCE_TIME = '2026-08-09T08:00:00.000Z';
-const TEST_SECRET = 'test-secret-min-16-chars-long-security-key';
-const IDS = Array.from({ length: 40 }, (_, index) => `p-${String(index + 100).padStart(3, '0')}`);
-const [A, B, C, D] = IDS;
-const OUTSIDER = 'p-999';
+
+// Firebase uids rather than minted participant ids. Mixed case on purpose:
+// the id pattern these replaced was lowercase-only and rejected real accounts.
+const A = uidFor('AccountAlice');
+const B = uidFor('AccountBlake');
+const C = uidFor('AccountCarla');
+const D = uidFor('AccountDiego');
+/** Someone nobody has ever seen. There is no roster for them to be outside of. */
+const NEWCOMER = uidFor('AccountNewbie');
+
+let auth: FakeAuthControls | null = null;
 
 function params(id: string): { params: Promise<{ id: string }> } {
   return { params: Promise.resolve({ id }) };
-}
-
-function token(participantId: string): string {
-  return generatePilotToken(participantId, TEST_SECRET);
 }
 
 function request(path: string, options: {
@@ -51,7 +67,7 @@ function request(path: string, options: {
 } = {}): Request {
   const headers = new Headers();
   if (options.body !== undefined) headers.set('content-type', 'application/json');
-  const authToken = options.tokenOverride ?? (options.participantId ? token(options.participantId) : null);
+  const authToken = options.tokenOverride ?? (options.participantId ? tokenFor(options.participantId) : null);
   if (authToken) headers.set('authorization', `Bearer ${authToken}`);
   return new Request(`${BASE}${path}`, {
     method: options.method ?? (options.body === undefined ? 'GET' : 'POST'),
@@ -67,18 +83,12 @@ async function json(response: Response): Promise<Record<string, unknown>> {
 function setup(overrides: Record<string, string | undefined> = {}): () => void {
   const directory = mkdtempSync(join(tmpdir(), 'maybesitter-mobile-pilot-api-'));
   const previous: Record<string, string | undefined> = {
-    MAYBESITTER_CLOSED_PILOT_IDS: process.env.MAYBESITTER_CLOSED_PILOT_IDS,
-    MAYBESITTER_PILOT_MODE: process.env.MAYBESITTER_PILOT_MODE,
-    MAYBESITTER_PILOT_TOKEN_SECRET: process.env.MAYBESITTER_PILOT_TOKEN_SECRET,
     MAYBESITTER_DATA_DIR: process.env.MAYBESITTER_DATA_DIR,
     MAYBESITTER_FEATURE_RECOMMENDATION: process.env.MAYBESITTER_FEATURE_RECOMMENDATION,
     MAYBESITTER_KILL_SWITCH_RECOMMENDATION: process.env.MAYBESITTER_KILL_SWITCH_RECOMMENDATION,
     MAYBESITTER_EXPERIMENT_NEXT_STEP_ARMS: process.env.MAYBESITTER_EXPERIMENT_NEXT_STEP_ARMS,
     MAYBESITTER_PILOT_INCIDENT_OWNER_ID: process.env.MAYBESITTER_PILOT_INCIDENT_OWNER_ID,
   };
-  process.env.MAYBESITTER_CLOSED_PILOT_IDS = IDS.slice(0, 25).join(',');
-  process.env.MAYBESITTER_PILOT_MODE = 'true';
-  process.env.MAYBESITTER_PILOT_TOKEN_SECRET = TEST_SECRET;
   process.env.MAYBESITTER_DATA_DIR = directory;
   process.env.MAYBESITTER_FEATURE_RECOMMENDATION = 'true';
   process.env.MAYBESITTER_KILL_SWITCH_RECOMMENDATION = 'false';
@@ -90,9 +100,12 @@ function setup(overrides: Record<string, string | undefined> = {}): () => void {
   // Trust and participant state live in storage since UC-1.0b (#141), so a
   // fresh memory adapter per case is what isolates them now.
   setStorageForTests(createMemoryStorage());
+  auth = installFakeAuth();
   resetAnalyticsEventsForTests();
   resetMobilePilotDecisionReplaysForTests();
   return () => {
+    auth?.restore();
+    auth = null;
     resetStorageForTests();
     for (const [key, value] of Object.entries(previous)) {
       if (value === undefined) delete process.env[key]; else process.env[key] = value;
@@ -101,19 +114,12 @@ function setup(overrides: Record<string, string | undefined> = {}): () => void {
   };
 }
 
-async function grantRecommendation(participantId: string): Promise<void> {
-  await applyTrustAction(participantId, {
-    type: 'grant_recommendation_consent',
-    at: new Date().toISOString(),
-  });
+async function grantRecommendation(uid: string): Promise<void> {
+  await applyTrustAction(uid, { type: 'grant_recommendation_consent', at: new Date().toISOString() });
 }
 
-async function grantAnalytics(participantId: string): Promise<void> {
-  await applyTrustAction(participantId, {
-    type: 'set_analytics_consent',
-    granted: true,
-    at: new Date().toISOString(),
-  });
+async function grantAnalytics(uid: string): Promise<void> {
+  await applyTrustAction(uid, { type: 'set_analytics_consent', granted: true, at: new Date().toISOString() });
 }
 
 async function createConfirmedCommitment(
@@ -151,7 +157,7 @@ async function createConfirmedCommitment(
   return ((confirmation.persisted as Array<{ commitmentId: string }>)[0]).commitmentId;
 }
 
-test('mobile pilot analytics records content-free phone-presence events by token participant', async () => {
+test('mobile analytics records content-free phone-presence events by token uid', async () => {
   const cleanup = setup();
   try {
     await grantAnalytics(A);
@@ -184,7 +190,7 @@ test('mobile pilot analytics records content-free phone-presence events by token
   }
 });
 
-test('mobile pilot analytics can be disabled without breaking product use', async () => {
+test('mobile analytics can be disabled without breaking product use', async () => {
   const cleanup = setup();
   try {
     const response = await analyticsPost(request('/api/mobile/analytics', {
@@ -212,7 +218,7 @@ test('mobile pilot analytics can be disabled without breaking product use', asyn
   }
 });
 
-test('mobile pilot analytics rejects private content fields', async () => {
+test('mobile analytics rejects private content fields', async () => {
   const cleanup = setup();
   try {
     await grantAnalytics(A);
@@ -241,7 +247,7 @@ test('mobile pilot analytics rejects private content fields', async () => {
   }
 });
 
-test('mobile pilot analytics rejects non-canonical deep-link targets', async () => {
+test('mobile analytics rejects non-canonical deep-link targets', async () => {
   const cleanup = setup();
   try {
     await grantAnalytics(A);
@@ -275,34 +281,7 @@ async function nextStep(participantId: string, spoofedScope?: string): Promise<R
   return json(response);
 }
 
-test('pilot mode fails closed when required runtime config is missing or invalid', async () => {
-  for (const override of [
-    { MAYBESITTER_PILOT_TOKEN_SECRET: undefined },
-    { MAYBESITTER_PILOT_TOKEN_SECRET: 'short-secret' },
-    { MAYBESITTER_CLOSED_PILOT_IDS: undefined },
-    { MAYBESITTER_CLOSED_PILOT_IDS: IDS.slice(0, 24).join(',') },
-    { MAYBESITTER_DATA_DIR: undefined },
-    { MAYBESITTER_DATA_DIR: '.maybesitter' },
-  ]) {
-    const cleanup = setup(override);
-    try {
-      const response = await capturePost(request('/api/mobile/capture', {
-        body: {
-          text: 'Call Maya tomorrow at 3pm',
-          referenceTime: REFERENCE_TIME,
-          timezone: 'UTC',
-        },
-      }));
-      assert.equal(response.status, 503);
-      const body = await json(response);
-      assert.equal(body.reason, 'invalid_pilot_runtime_configuration');
-    } finally {
-      cleanup();
-    }
-  }
-});
-
-test('pilot mode without Authorization fails closed on capture and commitments instead of legacy execution', async () => {
+test('without Authorization every mobile route fails closed instead of running anonymously', async () => {
   const cleanup = setup();
   try {
     const capture = await capturePost(request('/api/mobile/capture', {
@@ -323,12 +302,23 @@ test('pilot mode without Authorization fails closed on capture and commitments i
     const detail = await commitmentGet(request('/api/mobile/commitments/legacy-id'), params('legacy-id'));
     assert.equal(detail.status, 401);
     assert.equal((await json(detail)).reason, 'missing_token');
+
+    const upcoming = await upcomingGet(request('/api/mobile/commitments/upcoming?timezone=UTC'));
+    assert.equal(upcoming.status, 401);
+
+    const confirm = await confirmPost(request('/api/mobile/capture/confirm', { body: { proposalId: 'x', itemIds: ['y'] } }));
+    assert.equal(confirm.status, 401);
+
+    const action = await actionPost(request('/api/mobile/commitments/legacy-id/actions', {
+      body: { action: 'complete' },
+    }), params('legacy-id'));
+    assert.equal(action.status, 401);
   } finally {
     cleanup();
   }
 });
 
-test('pilot mode with valid config and valid token executes authenticated capture', async () => {
+test('a valid token executes authenticated capture', async () => {
   const cleanup = setup();
   try {
     const commitmentId = await createConfirmedCommitment(A, 'Remind me to call Maya tomorrow at 3pm');
@@ -340,7 +330,19 @@ test('pilot mode with valid config and valid token executes authenticated captur
   }
 });
 
-test('mobile pilot routes require valid bearer token authorization', async () => {
+test('a brand-new uid can capture and confirm with no allowlist configured', async () => {
+  const cleanup = setup();
+  try {
+    // The roster is gone: someone who signed in a second ago is a user.
+    const commitmentId = await createConfirmedCommitment(NEWCOMER, 'Remind me to call the clinic tomorrow at 1pm');
+    const detail = await commitmentGet(request(`/api/mobile/commitments/${commitmentId}`, { participantId: NEWCOMER }), params(commitmentId));
+    assert.equal(detail.status, 200);
+  } finally {
+    cleanup();
+  }
+});
+
+test('mobile routes refuse a malformed, revoked, disabled or deleted credential', async () => {
   const cleanup = setup();
   try {
     const missing = await getNextStep(request('/api/mobile/recommendations/next-step'));
@@ -349,17 +351,30 @@ test('mobile pilot routes require valid bearer token authorization', async () =>
 
     const malformed = await getNextStep(request('/api/mobile/recommendations/next-step', { tokenOverride: 'not-a-token' }));
     assert.equal(malformed.status, 401);
-    assert.equal((await json(malformed)).reason, 'malformed_token');
+    assert.equal((await json(malformed)).reason, 'invalid_token');
 
-    const valid = token(A);
-    const invalidSignature = `${valid.slice(0, -1)}${valid.endsWith('a') ? 'b' : 'a'}`;
-    const invalid = await getNextStep(request('/api/mobile/recommendations/next-step', { tokenOverride: invalidSignature }));
-    assert.equal(invalid.status, 401);
-    assert.equal((await json(invalid)).reason, 'invalid_signature');
+    // A leftover token in the retired HMAC format is just another bad token.
+    const legacy = await getNextStep(request('/api/mobile/recommendations/next-step', { tokenOverride: 'p-token.p-100.nonce.signature' }));
+    assert.equal(legacy.status, 401);
+    assert.equal((await json(legacy)).reason, 'invalid_token');
 
-    const nonAllowlisted = await getNextStep(request('/api/mobile/recommendations/next-step', { participantId: OUTSIDER }));
-    assert.equal(nonAllowlisted.status, 403);
-    assert.equal((await json(nonAllowlisted)).reason, 'not_allowlisted');
+    auth?.refuse(B, 'token_expired');
+    const expired = await getNextStep(request('/api/mobile/recommendations/next-step', { participantId: B }));
+    assert.equal(expired.status, 401);
+    assert.equal((await json(expired)).reason, 'token_expired');
+    auth?.allow(B);
+
+    auth?.refuse(B, 'user_disabled');
+    const disabled = await getNextStep(request('/api/mobile/recommendations/next-step', { participantId: B }));
+    assert.equal(disabled.status, 403);
+    assert.equal((await json(disabled)).reason, 'user_disabled');
+    auth?.allow(B);
+
+    // An id nobody has seen is not refused for membership; it is a consent
+    // question, which is the reason `not_allowlisted` used to hide.
+    const newcomer = await getNextStep(request('/api/mobile/recommendations/next-step', { participantId: NEWCOMER }));
+    assert.equal(newcomer.status, 403);
+    assert.equal((await json(newcomer)).reason, 'consent_required');
 
     await applyTrustAction(C, { type: 'revoke', at: new Date().toISOString() });
     const revoked = await getNextStep(request('/api/mobile/recommendations/next-step', { participantId: C }));
@@ -375,7 +390,7 @@ test('mobile pilot routes require valid bearer token authorization', async () =>
   }
 });
 
-test('authenticated mobile canonical flow stays inside bearer participant scope', async () => {
+test('authenticated mobile canonical flow stays inside the token uid scope', async () => {
   const cleanup = setup();
   try {
     const todayId = await createConfirmedCommitment(A, 'Remind me to call Maya at 11am');
@@ -412,7 +427,7 @@ test('authenticated mobile canonical flow stays inside bearer participant scope'
   }
 });
 
-test('valid B token cannot fetch, patch, action, or delete A commitment', async () => {
+test('a valid B token cannot fetch, patch, action, or delete an A commitment', async () => {
   const cleanup = setup();
   try {
     const aId = await createConfirmedCommitment(A, 'Remind me to call A tomorrow at 9am');
@@ -447,7 +462,7 @@ test('valid B token cannot fetch, patch, action, or delete A commitment', async 
   }
 });
 
-test('body and query participant spoofing cannot escape authenticated scope and assignment is server-owned', async () => {
+test('body and query uid spoofing cannot escape the token scope, and assignment is server-owned', async () => {
   const cleanup = setup();
   try {
     await grantRecommendation(B);
@@ -469,7 +484,7 @@ test('body and query participant spoofing cannot escape authenticated scope and 
   }
 });
 
-test('trust and recommendation decisions are isolated per authenticated participant', async () => {
+test('trust and recommendation decisions are isolated per authenticated user', async () => {
   const cleanup = setup();
   try {
     await grantRecommendation(A);
@@ -514,7 +529,25 @@ test('trust and recommendation decisions are isolated per authenticated particip
   }
 });
 
-test('mobile pilot recommendation action idempotency is participant-scoped and durable', async () => {
+test('the trust write route forces a fresh revocation read rather than trusting the cache', async () => {
+  const cleanup = setup();
+  try {
+    await updateTrust(request('/api/mobile/pilot/trust', {
+      participantId: A,
+      body: { action: { type: 'grant_recommendation_consent' } },
+    }));
+    // `revoke` and `delete` arrive on this route, and a revocation up to a
+    // minute stale is not good enough for either.
+    assert.equal(auth?.lastForceRevocationCheck(), true);
+
+    await getTrust(request('/api/mobile/pilot/trust', { participantId: A }));
+    assert.equal(auth?.lastForceRevocationCheck(), false, 'the read path may use the cache');
+  } finally {
+    cleanup();
+  }
+});
+
+test('recommendation action idempotency is uid-scoped and durable', async () => {
   const cleanup = setup();
   try {
     await grantRecommendation(A);
@@ -541,7 +574,7 @@ test('mobile pilot recommendation action idempotency is participant-scoped and d
   }
 });
 
-test('participant deletion is local to A and keeps B state intact', async () => {
+test('deletion is local to A and keeps B state intact', async () => {
   const cleanup = setup();
   try {
     await grantRecommendation(A);
@@ -570,7 +603,7 @@ test('participant deletion is local to A and keeps B state intact', async () => 
   }
 });
 
-test('concurrent authenticated A/B and same-participant writes do not lose updates', async () => {
+test('concurrent authenticated A/B and same-uid writes do not lose updates', async () => {
   const cleanup = setup();
   try {
     const created = await Promise.all([
@@ -593,7 +626,7 @@ test('concurrent authenticated A/B and same-participant writes do not lose updat
   }
 });
 
-test('mobile pilot incident reporting uses authenticated participant and drops raw notes', async () => {
+test('incident reporting uses the authenticated uid and drops raw notes', async () => {
   const cleanup = setup();
   try {
     const incident = await reportIncident(request('/api/mobile/pilot/incidents', {
