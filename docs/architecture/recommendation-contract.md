@@ -22,7 +22,7 @@ that route's wire format.**
 | | `nextStepContracts` | `recommendationContracts` |
 |---|---|---|
 | Authoritative for | the deployed `/api/next-step` wire format | the `recommendation` intelligence module |
-| Consumers | `NextStepReview.tsx`, the Flutter pilot client | #34's selector, #35's review surface |
+| Consumers | `NextStepReview.tsx`, the React Native mobile client | #34's selector, #35's review surface |
 | Stability obligation | a deployed client depends on it | may change until the module ships |
 
 Every overlap is labelled at the type in the contract file, as one of **same

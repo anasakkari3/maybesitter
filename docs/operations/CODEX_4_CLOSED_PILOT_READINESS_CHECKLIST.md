@@ -27,7 +27,7 @@ named evidence.
 ## Evidence to attach
 
 - Candidate mobile SHA and branch name.
-- `flutter test` result for the Codex 4 slice.
+- Mobile test suite result (`mobile/`, React Native) for the Codex 4 slice.
 - iOS simulator build result for the candidate SHA.
 - Watch complication simulator verification note.
 - Screenshot set for import review flow and pilot feedback prompt.
