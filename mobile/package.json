@@ -5,12 +5,18 @@
   "dependencies": {
     "@expo-google-fonts/noto-naskh-arabic": "^0.4.5",
     "@expo-google-fonts/outfit": "^0.4.3",
+    "@react-native-async-storage/async-storage": "2.2.0",
     "expo": "~57.0.21",
     "expo-blur": "~57.0.2",
     "expo-constants": "~57.0.18",
     "expo-font": "~57.0.3",
+    "expo-localization": "~57.0.2",
     "expo-status-bar": "~57.0.1",
+    "i18next": "^26.4.2",
+    "i18next-icu": "^2.4.4",
+    "intl-messageformat": "^11.2.14",
     "react": "19.2.3",
+    "react-i18next": "^17.0.13",
     "react-native": "0.86.3",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-svg": "15.15.4"
@@ -41,9 +47,17 @@
   "private": true,
   "jest": {
     "preset": "jest-expo",
+    "transformIgnorePatterns": [
+      "/node_modules/(?!(.pnpm|react-native|@react-native|@react-native-community|expo|@expo|@expo-google-fonts|react-navigation|@react-navigation|@sentry/react-native|native-base|standard-navigation|intl-messageformat|@formatjs))",
+      "/node_modules/react-native-reanimated/plugin/",
+      "/node_modules/@react-native/babel-preset/"
+    ],
     "moduleNameMapper": {
       "^@expo-google-fonts/.*$": "<rootDir>/src/design/__mocks__/expoGoogleFonts.js"
-    }
+    },
+    "setupFiles": [
+      "<rootDir>/jest.setup.js"
+    ]
   },
   "engines": {
     "node": ">=22.5.0"

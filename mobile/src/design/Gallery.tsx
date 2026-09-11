@@ -34,7 +34,7 @@ export function Gallery() {
       </View>
       <View style={{ flexDirection: 'row', gap: space.md }}>
         <Pill label={`scheme: ${scheme}`} onPress={actions.cycleTheme} kind="soft" size={typeScale.label} />
-        <Pill label={`lang: ${lang}`} onPress={actions.toggleLang} kind="soft" size={typeScale.label} />
+        <Pill label={`lang: ${lang}`} onPress={actions.cycleLanguage} kind="soft" size={typeScale.label} />
       </View>
 
       <Section title="Type scale">

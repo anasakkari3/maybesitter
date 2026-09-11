@@ -1,7 +1,7 @@
 import React from 'react';
 import { describe, expect, it, jest } from '@jest/globals';
 // RNTL v14's render() is asynchronous — it resolves to the query object.
-import { render } from '@testing-library/react-native';
+import { render, waitFor } from '@testing-library/react-native';
 import { Text } from 'react-native';
 
 // The colour scheme is the one input a test cannot drive through the app's
@@ -12,12 +12,19 @@ jest.mock('react-native/Libraries/Utilities/useColorScheme', () => ({
   default: () => mockScheme(),
 }));
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppProvider, useApp } from '../../state/AppContext';
+import { LANGUAGE_STORAGE_KEY } from '../../i18n/language';
 import { Card, HeaderPill, ImpBadge, Pill, Txt } from '../../ui/primitives';
 import { color } from '../../theme/tokens';
 
 function Harness({ children }: { children: React.ReactNode }) {
   return <AppProvider>{children}</AppProvider>;
+}
+
+/** Start the app as a user who already chose this language. */
+async function withStoredLanguage(lang: 'ar' | 'en') {
+  await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, lang);
 }
 
 /** Reads the live palette and language out of the provider. */
@@ -30,6 +37,7 @@ describe('primitives render in both schemes', () => {
   for (const scheme of ['light', 'dark'] as const) {
     it(`${scheme}: text, buttons, badges and cards use that scheme's tokens`, async () => {
       mockScheme.mockReturnValue(scheme);
+      await withStoredLanguage('ar');
       const view = await render(
         <Harness>
           <Probe />
@@ -63,39 +71,36 @@ describe('writing direction follows the language', () => {
 
   it('Arabic is right-to-left by default', async () => {
     mockScheme.mockReturnValue('light');
+    await withStoredLanguage('ar');
     const view = await render(
       <Harness>
         <Txt>نص</Txt>
       </Harness>,
     );
-    expect(directionOf(view.getByText('نص'))?.writingDirection).toBe('rtl');
+    await waitFor(() => {
+      expect(directionOf(view.getByText('نص'))?.writingDirection).toBe('rtl');
+    });
   });
 
   it('English mirrors to left-to-right', async () => {
     mockScheme.mockReturnValue('light');
-
-    function SwitchToEnglish() {
-      const { actions, lang } = useApp();
-      React.useEffect(() => {
-        if (lang === 'ar') actions.setLang('en');
-        // Runs once; the provider keeps the choice.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-      }, []);
-      return <Txt>text</Txt>;
-    }
+    await withStoredLanguage('en');
 
     const view = await render(
       <Harness>
-        <SwitchToEnglish />
+        <Txt>text</Txt>
       </Harness>,
     );
-    expect(directionOf(view.getByText('text'))?.writingDirection).toBe('ltr');
+    await waitFor(() => {
+      expect(directionOf(view.getByText('text'))?.writingDirection).toBe('ltr');
+    });
   });
 });
 
 describe('the disabled state is announced, not just dimmed', () => {
   it('marks a disabled pill as disabled for assistive technology', async () => {
     mockScheme.mockReturnValue('light');
+    await withStoredLanguage('ar');
     const view = await render(
       <Harness>
         <Pill label="تمّت" disabled />
