@@ -104,11 +104,17 @@ jobs:
 
       - name: Smoke test the new revision
         run: |
-          URL="$(gcloud run services describe "${{ steps.deploy.outputs.service }}" \
-            --region "${REGION}" --format='value(status.url)')"
-          TAG_URL="$(gcloud run services describe "${{ steps.deploy.outputs.service }}" \
-            --region "${REGION}" --format="value(status.traffic.filter(tag='sha-${GITHUB_SHA::7}').url)")"
+          gcloud run services describe "${{ steps.deploy.outputs.service }}" \
+            --region "${REGION}" --format=json >/tmp/service.json
+          URL="$(jq -r '.status.url // empty' /tmp/service.json)"
+          # The revision this run staged behind a tag. The first deploy of a
+          # service has no tag, so this is empty and the probe goes to the
+          # service URL instead. (A gcloud `filter()` projection was used here
+          # before; it is not valid gcloud syntax and failed the first real run.)
+          TAG_URL="$(jq -r --arg tag "sha-${GITHUB_SHA::7}" \
+            '.status.traffic[]? | select(.tag == $tag) | .url // empty' /tmp/service.json)"
           PROBE="${TAG_URL:-$URL}"
+          [ -n "${PROBE}" ] || { echo "could not resolve a URL for the service"; exit 1; }
           for _ in $(seq 1 30); do
             body="$(curl -fsS "${PROBE}/api/health/ready" || true)"
             case "${body}" in *'"ready":true'*) break ;; esac

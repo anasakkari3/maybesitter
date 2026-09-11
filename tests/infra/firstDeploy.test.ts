@@ -32,8 +32,16 @@ test('--no-traffic is only used once the service already exists', () => {
 
 test('the smoke test falls back to the service URL, not a traffic entry that may be empty', () => {
   assert.doesNotMatch(workflow, /status\.traffic\[0\]\.url/);
-  assert.match(workflow, /--format='value\(status\.url\)'/);
+  assert.match(workflow, /jq -r '\.status\.url \/\/ empty'/);
   assert.match(workflow, /PROBE="\$\{TAG_URL:-\$URL\}"/);
+  assert.match(workflow, /\[ -n "\$\{PROBE\}" \] \|\| \{/, 'an unresolved URL must fail loudly, not probe "/api/health"');
+});
+
+test('the tagged revision URL is found with jq, not a gcloud filter() projection', () => {
+  // `--format="value(status.traffic.filter(tag=...).url)"` is not valid gcloud
+  // syntax: "Transform function expected". It failed the first real deploy.
+  assert.doesNotMatch(workflow, /traffic\.filter\(/);
+  assert.match(workflow, /select\(\.tag == \$tag\)/);
 });
 
 test('a public service is deployed by an identity that may make it public', () => {
