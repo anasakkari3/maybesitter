@@ -26,7 +26,10 @@ const read = (file: string) => readFileSync(join(repoRoot, file), 'utf8');
 /** What `flags.sh <target>` sets, as the running service would see it. */
 function serviceEnv(target: 'staging' | 'production'): Record<string, string> {
   const flags = execFileSync('bash', [join(repoRoot, 'infra/cloudrun/flags.sh'), target], { encoding: 'utf8' });
-  const match = /--set-env-vars=(\S+)/.exec(flags);
+  // Either verb: the deploy merges (--update-env-vars) so it cannot erase
+  // what infra/scheduler.sh sets. What this test cares about is which
+  // database each service is pointed at, not how the flag is spelled.
+  const match = /--(?:set|update)-env-vars=(\S+)/.exec(flags);
   assert.ok(match, `flags.sh ${target} sets no env vars`);
   return Object.fromEntries(match[1]!.split(',').map((pair) => pair.split('=') as [string, string]));
 }

@@ -34,6 +34,12 @@ esac
 # --min-instances=0 keeps the bill near zero; --max-instances doubles as a cost
 #   circuit-breaker. Revisit min=1 for production at launch (#205).
 # Secrets come only through --set-secrets, never as plain env values.
+# Environment is merged, not replaced: infra/scheduler.sh sets
+# MAYBESITTER_SCHEDULER_SA_EMAIL and MAYBESITTER_INTERNAL_AUDIENCE on the
+# service (the audience is the service's own URL, which only exists after
+# the first deploy). --set-env-vars replaces the whole set, so every deploy
+# would erase them and the internal job routes would answer 503 until
+# someone re-ran scheduler.sh.
 printf '%s ' \
   "--region=${REGION}" \
   "--service-account=${RUN_SA}" \
@@ -48,6 +54,6 @@ printf '%s ' \
   "--min-instances=0" \
   "--max-instances=${max_instances}" \
   "--startup-probe=httpGet.path=/api/health/ready,periodSeconds=5,failureThreshold=6" \
-  "--set-env-vars=MAYBESITTER_ENV=${env_name},MAYBESITTER_STORAGE_BACKEND=firestore,MAYBESITTER_FIRESTORE_DATABASE_ID=${database_id},GOOGLE_CLOUD_PROJECT=${PROJECT_ID}" \
+  "--update-env-vars=MAYBESITTER_ENV=${env_name},MAYBESITTER_STORAGE_BACKEND=firestore,MAYBESITTER_FIRESTORE_DATABASE_ID=${database_id},GOOGLE_CLOUD_PROJECT=${PROJECT_ID}" \
   "--set-secrets=MAYBESITTER_DELETION_RECEIPT_PEPPER=maybesitter-deletion-receipt-pepper:latest"
 printf '\n'

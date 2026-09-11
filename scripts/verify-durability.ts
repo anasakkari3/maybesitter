@@ -87,6 +87,8 @@ if (/maybesitter-api(-|$)/.test(SERVICE) && SERVICE === 'maybesitter-api') {
 const runId = `${Date.now().toString(36)}${randomUUID().slice(0, 4)}`;
 const startedAt = Date.now();
 const counts: Record<string, number> = {};
+/** The first failure of each kind, so a red run explains itself. Never user text. */
+const firstError: Record<string, string> = {};
 const checks: Record<string, CheckResult> = {};
 const record = (name: string, ok: boolean) => {
   checks[name] = ok ? 'pass' : 'fail';
@@ -181,6 +183,9 @@ async function main(): Promise<void> {
 
     /* Phase 2a — N captures, each confirmed. */
     const commitmentIds: string[] = [];
+    // Captures the extractor accepted. Not every phrase is a commitment, so
+    // the check below is "everything accepted was persisted", not "6 of 6".
+    let accepted = 0;
     await Promise.all(
       Array.from({ length: ITEMS }, async (_, index) => {
         const proposal = await api('/api/mobile/capture', {
@@ -188,16 +193,30 @@ async function main(): Promise<void> {
           body: JSON.stringify({ text: `durability ${runId} item ${index} tomorrow at 9` }),
         });
         const items: Array<{ itemId: string }> = proposal.body?.items ?? [];
-        if (proposal.body?.status !== 'proposed' || items.length === 0) return;
+        if (proposal.body?.status !== 'proposed' || items.length === 0) {
+          // Evidence, not silence. The extractor legitimately returns
+          // `no_commitment` for text it cannot read as a commitment, so a
+          // skipped capture is not a durability failure — but an unexplained
+          // one is unreadable.
+          const why = proposal.status >= 400 ? `http_${proposal.status}` : `status_${proposal.body?.status ?? 'none'}`;
+          counts[`captureSkipped_${why}`] = (counts[`captureSkipped_${why}`] ?? 0) + 1;
+          return;
+        }
+        accepted += 1;
         const confirmed = await api('/api/mobile/capture/confirm', {
           method: 'POST',
           body: JSON.stringify({ proposalId: proposal.body.proposalId, itemIds: [items[0]!.itemId] }),
         });
         for (const persisted of confirmed.body?.persisted ?? []) commitmentIds.push(persisted.commitmentId);
+        if ((confirmed.body?.persisted ?? []).length === 0) {
+          counts[`confirmFailed_http_${confirmed.status}`] = (counts[`confirmFailed_http_${confirmed.status}`] ?? 0) + 1;
+          firstError.confirm ??= JSON.stringify(confirmed.body).slice(0, 200);
+        }
       }),
     );
     counts.commitments = commitmentIds.length;
-    record('every_capture_persisted', commitmentIds.length === ITEMS);
+    counts.capturesAccepted = accepted;
+    record('every_accepted_capture_persisted', accepted > 0 && commitmentIds.length === accepted);
 
     /* Phase 2b — 20 decisions, one idempotency key: exactly one may be recorded. */
     await api('/api/mobile/pilot/trust', {
@@ -205,21 +224,29 @@ async function main(): Promise<void> {
       body: JSON.stringify({ action: { type: 'grant_recommendation_consent' } }),
     });
     const nextStep = await api('/api/mobile/recommendations/next-step');
-    const proposalId = nextStep.body?.recommendation?.proposalId ?? null;
+    const recommendation = nextStep.body?.recommendation ?? null;
+    const proposalId = recommendation?.proposalId ?? null;
     if (proposalId) {
       const key = `durability-${runId}-decision`;
       const responses = await Promise.all(
         Array.from({ length: 20 }, async () => {
           const { status, body } = await api('/api/mobile/recommendations/next-step/actions', {
             method: 'POST',
-            body: JSON.stringify({ proposalId, decision: 'accept', idempotencyKey: key }),
+            // `proposalFrom` requires the proposal object itself, not just its
+          // id: sending only the id is rejected before idempotency is reached.
+          body: JSON.stringify({ proposal: recommendation, decision: 'accept', idempotencyKey: key }),
           });
+          if (status >= 400 && status !== 409) firstError.decision ??= `http_${status} ${JSON.stringify(body).slice(0, 160)}`;
           return { status, replayed: body?.replayed === true };
         }),
       );
       const tally = tallyIdempotency(responses);
       counts.decisionsAccepted = tally.accepted;
       counts.decisionsReplayed = tally.replayed;
+      // A 409 is a correct answer here: the first decision makes the proposal
+      // stale for everyone else. Only a second recorded decision is a defect.
+      counts.decisionsConflicted = tally.conflicts;
+      counts.decisionsFailed = tally.failed;
       record('one_decision_recorded_for_one_key', tally.ok);
     } else {
       // Reported rather than skipped silently: a run that could not obtain a
@@ -247,10 +274,22 @@ async function main(): Promise<void> {
         }),
       );
       const expected = finalStateFrom(applied);
+      // This route answers with the bare DTO; `commitment` is the envelope the
+      // actions route uses.
       const after = await api(`/api/mobile/commitments/${target}`);
-      const observed = finalStatusFromCommitmentStatus(after.body?.commitment?.status ?? after.body?.status ?? '');
+      const rawStatus = after.body?.status ?? after.body?.commitment?.status ?? '';
+      const observed = finalStatusFromCommitmentStatus(rawStatus);
       counts.actionsAccepted = expected.acceptedCount;
-      record('mixed_actions_settle_on_one_state', expected.status === observed);
+      const agreed = expected.status === observed;
+      if (!agreed) {
+        // Concurrent actions can land in the same millisecond, and then "the
+        // last accepted one" is a tie this script cannot resolve. Say that,
+        // rather than report a lost write.
+        const stamps = applied.filter((action) => action.accepted).map((action) => action.at);
+        firstError.actions = `expected ${expected.status} from ${expected.acceptedCount} accepted `
+          + `(${new Set(stamps).size} distinct timestamps), read back ${rawStatus || '(none)'}`;
+      }
+      record('mixed_actions_settle_on_one_state', agreed);
     } else {
       record('mixed_actions_settle_on_one_state', false);
     }
@@ -367,6 +406,7 @@ async function main(): Promise<void> {
     durationMs: Date.now() - startedAt,
   };
   // The summary carries no tokens and no commitment text.
+  if (Object.keys(firstError).length > 0) console.error('why:', JSON.stringify(firstError, null, 2));
   console.log(JSON.stringify(summary, null, 2));
   process.exit(summaryExitCode(summary));
 }
