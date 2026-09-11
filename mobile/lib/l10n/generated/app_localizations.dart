@@ -226,6 +226,114 @@ abstract class AppLocalizations {
   /// **'Stop Recording'**
   String get voiceCaptureStopTooltip;
 
+  /// No description provided for @spokenPromptPrimaryAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Speak what is on your mind'**
+  String get spokenPromptPrimaryAction;
+
+  /// No description provided for @spokenPromptStopAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Stop and review'**
+  String get spokenPromptStopAction;
+
+  /// No description provided for @spokenPromptListeningTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Listening'**
+  String get spokenPromptListeningTitle;
+
+  /// No description provided for @spokenPromptPermissionRequestMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow speech access, then say the messy commitment as it comes to mind.'**
+  String get spokenPromptPermissionRequestMessage;
+
+  /// No description provided for @spokenPromptListeningMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Say the commitment naturally. No audio is kept after transcription.'**
+  String get spokenPromptListeningMessage;
+
+  /// No description provided for @spokenPromptReviewTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Review before analysis'**
+  String get spokenPromptReviewTitle;
+
+  /// No description provided for @spokenPromptReviewMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit the transcript below, then analyze it when it says what you meant.'**
+  String get spokenPromptReviewMessage;
+
+  /// No description provided for @spokenPromptPermissionDeniedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Speech access is off'**
+  String get spokenPromptPermissionDeniedTitle;
+
+  /// No description provided for @spokenPromptPermissionDeniedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Typed capture still works. You can use the keyboard and analyze your note.'**
+  String get spokenPromptPermissionDeniedMessage;
+
+  /// No description provided for @spokenPromptUnavailableTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Speech is unavailable'**
+  String get spokenPromptUnavailableTitle;
+
+  /// No description provided for @spokenPromptUnavailableMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Typed capture still works. Use the keyboard and analyze your note.'**
+  String get spokenPromptUnavailableMessage;
+
+  /// No description provided for @spokenPromptFailureTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Speech capture failed'**
+  String get spokenPromptFailureTitle;
+
+  /// No description provided for @spokenPromptFailureMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Typed capture still works. Use the keyboard or try voice again.'**
+  String get spokenPromptFailureMessage;
+
+  /// No description provided for @importClipboardAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Import from clipboard'**
+  String get importClipboardAction;
+
+  /// No description provided for @importClipboardEmptyMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'There is no text on the clipboard right now.'**
+  String get importClipboardEmptyMessage;
+
+  /// No description provided for @importReviewTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Review imported text'**
+  String get importReviewTitle;
+
+  /// No description provided for @importReviewMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm this text before MaybeSitter analyzes or saves anything.'**
+  String get importReviewMessage;
+
+  /// No description provided for @importUseTextAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Use this text'**
+  String get importUseTextAction;
+
   /// No description provided for @editingDisabledExplanation.
   ///
   /// In en, this message translates to:
@@ -363,6 +471,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Time'**
   String get timeLabel;
+
+  /// No description provided for @pastTimeNotAllowed.
+  ///
+  /// In en, this message translates to:
+  /// **'Please choose a time in the future.'**
+  String get pastTimeNotAllowed;
+
+  /// No description provided for @timeUpdatedAlsoPostponedNotice.
+  ///
+  /// In en, this message translates to:
+  /// **'Time updated. Note: this also marks the commitment as postponed.'**
+  String get timeUpdatedAlsoPostponedNotice;
 
   /// No description provided for @locationLabel.
   ///
@@ -519,6 +639,150 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Disabled'**
   String get notificationsDisabled;
+
+  /// No description provided for @pilotFeedbackTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Pilot feedback'**
+  String get pilotFeedbackTitle;
+
+  /// No description provided for @pilotFeedbackSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Tell us which pilot moment mattered and how it felt.'**
+  String get pilotFeedbackSubtitle;
+
+  /// No description provided for @pilotFeedbackEntrySubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Usefulness, timing, and reminder feel'**
+  String get pilotFeedbackEntrySubtitle;
+
+  /// No description provided for @pilotFeedbackSurfaceTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Which surface are you rating?'**
+  String get pilotFeedbackSurfaceTitle;
+
+  /// No description provided for @pilotFeedbackSurfaceWidget.
+  ///
+  /// In en, this message translates to:
+  /// **'Widget'**
+  String get pilotFeedbackSurfaceWidget;
+
+  /// No description provided for @pilotFeedbackSurfaceVoice.
+  ///
+  /// In en, this message translates to:
+  /// **'Voice'**
+  String get pilotFeedbackSurfaceVoice;
+
+  /// No description provided for @pilotFeedbackSurfaceNotification.
+  ///
+  /// In en, this message translates to:
+  /// **'Notification'**
+  String get pilotFeedbackSurfaceNotification;
+
+  /// No description provided for @pilotFeedbackSurfaceCalendar.
+  ///
+  /// In en, this message translates to:
+  /// **'Calendar'**
+  String get pilotFeedbackSurfaceCalendar;
+
+  /// No description provided for @pilotFeedbackSurfaceImport.
+  ///
+  /// In en, this message translates to:
+  /// **'Import'**
+  String get pilotFeedbackSurfaceImport;
+
+  /// No description provided for @pilotFeedbackUsefulnessTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'How useful was it?'**
+  String get pilotFeedbackUsefulnessTitle;
+
+  /// No description provided for @pilotFeedbackUsefulnessHigh.
+  ///
+  /// In en, this message translates to:
+  /// **'Very useful'**
+  String get pilotFeedbackUsefulnessHigh;
+
+  /// No description provided for @pilotFeedbackUsefulnessSome.
+  ///
+  /// In en, this message translates to:
+  /// **'Somewhat'**
+  String get pilotFeedbackUsefulnessSome;
+
+  /// No description provided for @pilotFeedbackUsefulnessNotYet.
+  ///
+  /// In en, this message translates to:
+  /// **'Not yet'**
+  String get pilotFeedbackUsefulnessNotYet;
+
+  /// No description provided for @pilotFeedbackAnnoyanceTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'How did the reminder feel?'**
+  String get pilotFeedbackAnnoyanceTitle;
+
+  /// No description provided for @pilotFeedbackAnnoyanceCalm.
+  ///
+  /// In en, this message translates to:
+  /// **'Calm'**
+  String get pilotFeedbackAnnoyanceCalm;
+
+  /// No description provided for @pilotFeedbackAnnoyanceFine.
+  ///
+  /// In en, this message translates to:
+  /// **'Fine'**
+  String get pilotFeedbackAnnoyanceFine;
+
+  /// No description provided for @pilotFeedbackAnnoyanceTooMuch.
+  ///
+  /// In en, this message translates to:
+  /// **'Too much'**
+  String get pilotFeedbackAnnoyanceTooMuch;
+
+  /// No description provided for @pilotFeedbackTimingTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'How was the timing?'**
+  String get pilotFeedbackTimingTitle;
+
+  /// No description provided for @pilotFeedbackTimingEarly.
+  ///
+  /// In en, this message translates to:
+  /// **'Too early'**
+  String get pilotFeedbackTimingEarly;
+
+  /// No description provided for @pilotFeedbackTimingRight.
+  ///
+  /// In en, this message translates to:
+  /// **'About right'**
+  String get pilotFeedbackTimingRight;
+
+  /// No description provided for @pilotFeedbackTimingLate.
+  ///
+  /// In en, this message translates to:
+  /// **'Too late'**
+  String get pilotFeedbackTimingLate;
+
+  /// No description provided for @pilotFeedbackTimingNotUsing.
+  ///
+  /// In en, this message translates to:
+  /// **'Not using this'**
+  String get pilotFeedbackTimingNotUsing;
+
+  /// No description provided for @pilotFeedbackSubmitAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Send feedback'**
+  String get pilotFeedbackSubmitAction;
+
+  /// No description provided for @pilotFeedbackSavedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Thanks. Your pilot feedback was recorded.'**
+  String get pilotFeedbackSavedMessage;
 
   /// No description provided for @privacyTitle.
   ///
@@ -1276,6 +1540,114 @@ abstract class AppLocalizations {
   /// **'MaybeSitter will offer to connect your calendar once it has actually been useful to you. It won\'t ask before then.'**
   String get trustCalendarLockedMessage;
 
+  /// No description provided for @trustCalendarProviderApple.
+  ///
+  /// In en, this message translates to:
+  /// **'Apple Calendar via EventKit'**
+  String get trustCalendarProviderApple;
+
+  /// No description provided for @trustCalendarConsentOffMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Calendar import is off. The app still works without it.'**
+  String get trustCalendarConsentOffMessage;
+
+  /// No description provided for @trustCalendarNotConnectedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Consent is on, but nothing is imported yet. Connect Apple Calendar when you want MaybeSitter to see busy time.'**
+  String get trustCalendarNotConnectedMessage;
+
+  /// No description provided for @trustCalendarPermissionDeniedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Calendar access is off in iPhone Settings, so MaybeSitter keeps working without it.'**
+  String get trustCalendarPermissionDeniedMessage;
+
+  /// No description provided for @trustCalendarUnsupportedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'This pilot starts with Apple Calendar on iPhone only. MaybeSitter still works without calendar access.'**
+  String get trustCalendarUnsupportedMessage;
+
+  /// No description provided for @trustCalendarImportedSummary.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{No busy blocks imported for the next {days} days yet.} =1{1 busy block imported for the next {days} days.} other{{count} busy blocks imported for the next {days} days.}}'**
+  String trustCalendarImportedSummary(int count, int days);
+
+  /// No description provided for @trustCalendarDisconnectedRetainedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{Apple Calendar is disconnected.} =1{Apple Calendar is disconnected. 1 imported busy block is still stored on this device until you delete it.} other{Apple Calendar is disconnected. {count} imported busy blocks are still stored on this device until you delete them.}}'**
+  String trustCalendarDisconnectedRetainedMessage(int count);
+
+  /// No description provided for @trustCalendarLastSynced.
+  ///
+  /// In en, this message translates to:
+  /// **'Last synced: {value}'**
+  String trustCalendarLastSynced(Object value);
+
+  /// No description provided for @trustCalendarConflictTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Schedule conflicts found'**
+  String get trustCalendarConflictTitle;
+
+  /// No description provided for @trustCalendarConflictMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'{commitments, plural, =1{1 MaybeSitter commitment overlaps} other{{commitments} MaybeSitter commitments overlap}} {busyBlocks, plural, =1{1 imported busy block.} other{{busyBlocks} imported busy blocks.}}'**
+  String trustCalendarConflictMessage(int commitments, int busyBlocks);
+
+  /// No description provided for @trustCalendarConnectAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect now'**
+  String get trustCalendarConnectAction;
+
+  /// No description provided for @trustCalendarRefreshAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Refresh import'**
+  String get trustCalendarRefreshAction;
+
+  /// No description provided for @trustCalendarDisconnectAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Disconnect'**
+  String get trustCalendarDisconnectAction;
+
+  /// No description provided for @trustCalendarDeleteDataAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete imported data'**
+  String get trustCalendarDeleteDataAction;
+
+  /// No description provided for @trustCalendarConnectedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Apple Calendar is connected.'**
+  String get trustCalendarConnectedMessage;
+
+  /// No description provided for @trustCalendarRefreshedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Calendar import refreshed.'**
+  String get trustCalendarRefreshedMessage;
+
+  /// No description provided for @trustCalendarDisconnectedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Apple Calendar disconnected.'**
+  String get trustCalendarDisconnectedMessage;
+
+  /// No description provided for @trustCalendarDeletedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Imported calendar data deleted.'**
+  String get trustCalendarDeletedMessage;
+
   /// No description provided for @trustWhatWeKnowAction.
   ///
   /// In en, this message translates to:
@@ -1875,6 +2247,228 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Our questions that did not help'**
   String get feedbackBaselineClarificationFailures;
+
+  /// No description provided for @routineSurveyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Your daily routine'**
+  String get routineSurveyTitle;
+
+  /// No description provided for @routineSurveySubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Five quick picks so reminders avoid your obvious no-go times.'**
+  String get routineSurveySubtitle;
+
+  /// No description provided for @routineSleepQuestion.
+  ///
+  /// In en, this message translates to:
+  /// **'When do you usually sleep?'**
+  String get routineSleepQuestion;
+
+  /// No description provided for @routineSleepEarly.
+  ///
+  /// In en, this message translates to:
+  /// **'10:30 PM - 6:30 AM'**
+  String get routineSleepEarly;
+
+  /// No description provided for @routineSleepStandard.
+  ///
+  /// In en, this message translates to:
+  /// **'11:30 PM - 7:30 AM'**
+  String get routineSleepStandard;
+
+  /// No description provided for @routineSleepLate.
+  ///
+  /// In en, this message translates to:
+  /// **'12:30 AM - 8:30 AM'**
+  String get routineSleepLate;
+
+  /// No description provided for @routineFocusQuestion.
+  ///
+  /// In en, this message translates to:
+  /// **'When is your usual work or study block?'**
+  String get routineFocusQuestion;
+
+  /// No description provided for @routineFocusWorkday.
+  ///
+  /// In en, this message translates to:
+  /// **'9:00 AM - 5:00 PM'**
+  String get routineFocusWorkday;
+
+  /// No description provided for @routineFocusEarly.
+  ///
+  /// In en, this message translates to:
+  /// **'8:00 AM - 4:00 PM'**
+  String get routineFocusEarly;
+
+  /// No description provided for @routineFocusAfternoon.
+  ///
+  /// In en, this message translates to:
+  /// **'12:00 PM - 6:00 PM'**
+  String get routineFocusAfternoon;
+
+  /// No description provided for @routineFixedQuestion.
+  ///
+  /// In en, this message translates to:
+  /// **'Any regular fixed commitment window?'**
+  String get routineFixedQuestion;
+
+  /// No description provided for @routineFixedMorning.
+  ///
+  /// In en, this message translates to:
+  /// **'Morning, 7:00 - 9:00'**
+  String get routineFixedMorning;
+
+  /// No description provided for @routineFixedAfternoon.
+  ///
+  /// In en, this message translates to:
+  /// **'Afternoon, 2:00 - 4:00'**
+  String get routineFixedAfternoon;
+
+  /// No description provided for @routineFixedEvening.
+  ///
+  /// In en, this message translates to:
+  /// **'Evening, 6:00 - 8:00'**
+  String get routineFixedEvening;
+
+  /// No description provided for @routineReminderQuestion.
+  ///
+  /// In en, this message translates to:
+  /// **'How persistent should reminders be?'**
+  String get routineReminderQuestion;
+
+  /// No description provided for @routineReminderSoft.
+  ///
+  /// In en, this message translates to:
+  /// **'Soft only'**
+  String get routineReminderSoft;
+
+  /// No description provided for @routineReminderFollowUp.
+  ///
+  /// In en, this message translates to:
+  /// **'Soft + follow-up'**
+  String get routineReminderFollowUp;
+
+  /// No description provided for @routineReminderStrong.
+  ///
+  /// In en, this message translates to:
+  /// **'Strong when needed'**
+  String get routineReminderStrong;
+
+  /// No description provided for @routineQuietQuestion.
+  ///
+  /// In en, this message translates to:
+  /// **'When should reminders stay quiet?'**
+  String get routineQuietQuestion;
+
+  /// No description provided for @routineQuietEarly.
+  ///
+  /// In en, this message translates to:
+  /// **'9:30 PM - 6:30 AM'**
+  String get routineQuietEarly;
+
+  /// No description provided for @routineQuietStandard.
+  ///
+  /// In en, this message translates to:
+  /// **'10:30 PM - 7:30 AM'**
+  String get routineQuietStandard;
+
+  /// No description provided for @routineQuietLate.
+  ///
+  /// In en, this message translates to:
+  /// **'11:30 PM - 8:30 AM'**
+  String get routineQuietLate;
+
+  /// No description provided for @routineNoneRegular.
+  ///
+  /// In en, this message translates to:
+  /// **'No regular window'**
+  String get routineNoneRegular;
+
+  /// No description provided for @routineCompleteAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Finish setup'**
+  String get routineCompleteAction;
+
+  /// No description provided for @routineSaveAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Save routine'**
+  String get routineSaveAction;
+
+  /// No description provided for @routineSettingsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Routine profile'**
+  String get routineSettingsTitle;
+
+  /// No description provided for @routineSettingsSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Sleep, focus time, fixed windows, and quiet hours'**
+  String get routineSettingsSubtitle;
+
+  /// No description provided for @routineSettingsConfiguredSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Used for future reminder timing'**
+  String get routineSettingsConfiguredSubtitle;
+
+  /// No description provided for @routineEscalationTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'How reminder strength works'**
+  String get routineEscalationTitle;
+
+  /// No description provided for @routineEscalationNice.
+  ///
+  /// In en, this message translates to:
+  /// **'Nice items stay at soft awareness only.'**
+  String get routineEscalationNice;
+
+  /// No description provided for @routineEscalationShouldSoft.
+  ///
+  /// In en, this message translates to:
+  /// **'Should items stay soft with this setting.'**
+  String get routineEscalationShouldSoft;
+
+  /// No description provided for @routineEscalationShouldFollowUp.
+  ///
+  /// In en, this message translates to:
+  /// **'Should items can add a follow-up when timing matters.'**
+  String get routineEscalationShouldFollowUp;
+
+  /// No description provided for @routineEscalationMustSoft.
+  ///
+  /// In en, this message translates to:
+  /// **'Must items stay at soft awareness with this setting.'**
+  String get routineEscalationMustSoft;
+
+  /// No description provided for @routineEscalationMustFollowUp.
+  ///
+  /// In en, this message translates to:
+  /// **'Must items can follow up before timed items with this setting.'**
+  String get routineEscalationMustFollowUp;
+
+  /// No description provided for @routineEscalationMustStrong.
+  ///
+  /// In en, this message translates to:
+  /// **'Must items can use a stronger reminder about 10 minutes before a timed item because you opted in.'**
+  String get routineEscalationMustStrong;
+
+  /// No description provided for @routineEscalationQuietHours.
+  ///
+  /// In en, this message translates to:
+  /// **'Quiet hours still defer reminders.'**
+  String get routineEscalationQuietHours;
+
+  /// No description provided for @routineEscalationNoFakeCalls.
+  ///
+  /// In en, this message translates to:
+  /// **'MaybeSitter never uses fake phone calls or deceptive system UI.'**
+  String get routineEscalationNoFakeCalls;
 
   /// No description provided for @privacyStorageTitle.
   ///

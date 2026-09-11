@@ -10,6 +10,15 @@ export const ANALYTICS_EVENT_NAMES = [
   'pricing_viewed', 'purchase_intent',
   // Additive V03 extension: self-reported utility and invasiveness for a shown proposal.
   'recommendation_rated',
+  // Additive C05 extension: first pilot value loop surface signals.
+  'voice_capture_started', 'voice_capture_completed', 'voice_capture_abandoned',
+  'widget_impression', 'widget_tap', 'deep_link_opened', 'first_value_reached',
+  // Additive C05-C10 extension. widget_snapshot_published is the app writing a
+  // snapshot; widget_impression stays reserved for the widget reporting that it
+  // actually rendered, so a write is never counted as a sighting.
+  'widget_snapshot_published',
+  'source_intake_reviewed', 'source_intake_confirmed',
+  'pilot_feedback_submitted', 'soft_awareness_action', 'soft_awareness_missed',
 ] as const;
 
 export type AnalyticsEventName = typeof ANALYTICS_EVENT_NAMES[number];

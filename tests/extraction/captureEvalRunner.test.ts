@@ -81,13 +81,29 @@ test('captureEvalRunner: runCaptureEvaluation generates machine-readable gate re
   });
 
   assert.ok(report.totalCases >= 10);
-  assert.ok('overallPassed' in report);
   assert.ok('perSlice' in report);
   assert.ok('errorsByTaxonomy' in report);
   assert.ok('thresholdResults' in report);
+
+  // Every threshold, not a chosen three. `'overallPassed' in report` asserted
+  // the key existed, never that it was true, and gold/multilingual/multi_item
+  // were unasserted — a multilingual collapse to zero left this suite green
+  // while the CLI that runs the same corpus reported failure.
   assert.equal(report.thresholdResults.safetyNegativePassed, true);
   assert.equal(report.thresholdResults.noPromptInjectionFailuresPassed, true);
   assert.equal(report.thresholdResults.noInventedTimeFailuresPassed, true);
+  assert.equal(report.thresholdResults.goldPassed, true, 'gold slice regressed');
+  assert.equal(
+    report.thresholdResults.multilingualPassed,
+    true,
+    'multilingual slice regressed',
+  );
+  assert.equal(
+    report.thresholdResults.multiItemPassed,
+    true,
+    'multi-item slice regressed',
+  );
+  assert.equal(report.overallPassed, true, 'capture gate did not pass overall');
 
   const savedRaw = await readFile(reportPath, 'utf8');
   const savedReport = JSON.parse(savedRaw);

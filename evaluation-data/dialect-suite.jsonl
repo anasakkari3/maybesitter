@@ -1,0 +1,8 @@
+{"id":"ar-1","lang":"ar","text":"بكرة الصبح بدي أنزل على الشغل على الخمسة لازم أكون بالنادي على السبعة","expectedCommitments":2,"expectedTimes":["05:00","07:00"]}
+{"id":"ar-2","lang":"ar","text":"بعد ما أخلص شغل بمرّ على أمي","expectedCommitments":1,"expectedTimes":[]}
+{"id":"ar-3","lang":"ar","text":"نفس موعد الأسبوع الماضي بس أبكر شوي","expectedCommitments":1,"expectedTimes":[]}
+{"id":"ar-4","lang":"ar","text":"ضروري أدفع الفاتورة قبل ما تسكّر الصيدلية","expectedCommitments":1,"expectedTimes":[]}
+{"id":"he-1","lang":"he","text":"מחר בבוקר אני חייב להיות במשרד בשמונה","expectedCommitments":1,"expectedTimes":["08:00"]}
+{"id":"he-2","lang":"he","text":"תזכיר לי להתקשר לאמא אחרי העבודה","expectedCommitments":1,"expectedTimes":[]}
+{"id":"en-1","lang":"en","text":"I must call Ahmad tomorrow at 3pm","expectedCommitments":1,"expectedTimes":["15:00"]}
+{"id":"en-2","lang":"en","text":"pick up the kids then get groceries before the shop closes","expectedCommitments":2,"expectedTimes":[]}

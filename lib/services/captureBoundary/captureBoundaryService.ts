@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'crypto';
 import { extractWithFallback, type ExtractAndMapOptions } from '../../../src/extraction/extractionService';
 import { decideExtractionDisposition } from '../../../src/extraction/extractionPolicy';
 import { mapExtractionToCommand } from '../../../src/extraction/mapExtractionToCommand';
+import { countTimeExpressions } from '../../../src/extraction/ruleBasedExtractor';
 import type { ExtractionContext, ExtractionResult } from '../../../src/extraction/extractionTypes';
 import { resolveModuleRuntime, type AuditEventEnvelope, createAuditEvent, type RuntimeControlSnapshot } from '../../../src/contracts/v1/runtimeControls';
 import {
@@ -106,6 +107,29 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       commandsByItemId.set(itemId, needsClarification ? [] : mapExtractionToCommand(extracted.result, options.now.toISOString()));
     } catch {
       rejected = true;
+    }
+  }
+
+  // A sentence naming more clock times than the proposal accounts for lost
+  // one. The extractor reads a time with a non-global `String.match`, so a
+  // segment carrying two times yields one commitment that looks complete, and
+  // the confidence policy — which only sees that one result — reports nothing
+  // to clarify. Asking is the safe direction: the alternative is silently
+  // dropping an appointment while telling the user everything was understood.
+  //
+  // This only ever moves an item to needing clarification, never away from it,
+  // and input naming no clock time cannot trigger it.
+  const timesInInput = countTimeExpressions(raw);
+  if (timesInInput > 0 && items.length > 0) {
+    const timesAccountedFor = new Set(
+      items.map((item) => item.resolvedTime).filter(Boolean),
+    ).size;
+    if (timesAccountedFor < timesInInput) {
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].needsClarification) continue;
+        items[i] = { ...items[i], resolvedTime: null, needsClarification: true };
+        commandsByItemId.set(items[i].itemId, []);
+      }
     }
   }
 

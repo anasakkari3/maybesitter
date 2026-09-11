@@ -365,10 +365,22 @@ void main() {
     });
 
     test('12. safe PATCH capability is unchanged by the polish wave', () {
-      expect(const AppConfig().supportsSafeCommitmentPatch, isTrue);
+      // Explicit mock mode: this asserts mock mode's capability behaviour,
+      // not "whatever AppConfig's default happens to be" -- AppConfig's
+      // plain-constructor default is now ApiMode.localBackend (real
+      // extraction backend by default instead of a hardcoded mock), so
+      // relying on the unlabeled default here would silently start testing
+      // the wrong branch.
+      expect(
+        const AppConfig(apiMode: ApiMode.mock).supportsSafeCommitmentPatch,
+        isTrue,
+      );
+      // A deployed backend's vintage is unknown from the client, so the
+      // capability stays opt-in there and requires the explicit flag.
       expect(
         const AppConfig(
           apiMode: ApiMode.localBackend,
+          baseUrl: 'https://api.maybesitter.example',
           enableSafeCommitmentPatch: false,
         ).supportsSafeCommitmentPatch,
         isFalse,
@@ -376,6 +388,7 @@ void main() {
       expect(
         const AppConfig(
           apiMode: ApiMode.localBackend,
+          baseUrl: 'https://api.maybesitter.example',
           enableSafeCommitmentPatch: true,
         ).supportsSafeCommitmentPatch,
         isTrue,

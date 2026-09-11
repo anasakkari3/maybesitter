@@ -25,11 +25,72 @@ const EVENT_PROPERTIES: Record<AnalyticsEventName, readonly string[]> = {
   pricing_viewed: ['surface'],
   purchase_intent: ['priceCents', 'currency'],
   recommendation_rated: ['proposalId', 'utilityRating', 'invasivenessRating'],
+  voice_capture_started: [
+    'source', 'locale',
+    'flagWidget', 'flagVoice', 'flagAwareness', 'flagWatch', 'flagImports',
+  ],
+  voice_capture_completed: [
+    'source', 'locale', 'inputLength',
+    'flagWidget', 'flagVoice', 'flagAwareness', 'flagWatch', 'flagImports',
+  ],
+  voice_capture_abandoned: [
+    'source', 'locale', 'reason', 'inputLength',
+    'flagWidget', 'flagVoice', 'flagAwareness', 'flagWatch', 'flagImports',
+  ],
+  widget_impression: [
+    'surface', 'widgetFamily', 'widgetState',
+    'flagWidget', 'flagVoice', 'flagAwareness', 'flagWatch', 'flagImports',
+  ],
+  widget_tap: [
+    'surface', 'targetRoute',
+    'flagWidget', 'flagVoice', 'flagAwareness', 'flagWatch', 'flagImports',
+  ],
+  deep_link_opened: [
+    'source', 'targetRoute',
+    'flagWidget', 'flagVoice', 'flagAwareness', 'flagWatch', 'flagImports',
+  ],
+  // Presence, intake, and awareness signals. Property names for the five
+  // events below are taken from the factory constructors in
+  // mobile/lib/models/pilot_loop_analytics.dart; each also carries the five
+  // feature flags via flagProperties().
+  //
+  // widget_snapshot_published is the exception: it is named in the contract
+  // and client-reportable, but nothing emits it yet — there is no factory for
+  // it in PilotLoopAnalyticsEventName. These two properties are a provisional,
+  // deliberately content-free guess. Whoever writes the emitter should confirm
+  // them rather than assume they were derived from a real call site.
+  widget_snapshot_published: [
+    'surface', 'itemCount',
+    'flagWidget', 'flagVoice', 'flagAwareness', 'flagWatch', 'flagImports',
+  ],
+  source_intake_reviewed: [
+    'importSource', 'characterCount',
+    'flagWidget', 'flagVoice', 'flagAwareness', 'flagWatch', 'flagImports',
+  ],
+  source_intake_confirmed: [
+    'importSource', 'characterCount',
+    'flagWidget', 'flagVoice', 'flagAwareness', 'flagWatch', 'flagImports',
+  ],
+  pilot_feedback_submitted: [
+    'feedbackSurface', 'usefulness', 'annoyance', 'timing',
+    'flagWidget', 'flagVoice', 'flagAwareness', 'flagWatch', 'flagImports',
+  ],
+  soft_awareness_action: [
+    'action',
+    'flagWidget', 'flagVoice', 'flagAwareness', 'flagWatch', 'flagImports',
+  ],
+  soft_awareness_missed: [
+    'outcome',
+    'flagWidget', 'flagVoice', 'flagAwareness', 'flagWatch', 'flagImports',
+  ],
+  first_value_reached: ['surface', 'reason'],
 };
 
 const RATING_KEYS = ['utilityRating', 'invasivenessRating'];
 const PRIVATE_KEY = /(raw|message|text|title|description|person|email|phone|prompt|content)/i;
 const ID = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/;
+const TARGET_ROUTES = new Set(['capture', 'today', 'commitment_detail']);
+const SOURCE_VALUES = new Set(['app', 'widget', 'external']);
 
 export function validateAnalyticsEvent(value: unknown): AnalyticsValidationResult {
   const errors: string[] = [];
@@ -58,6 +119,8 @@ export function validateAnalyticsEvent(value: unknown): AnalyticsValidationResul
       if (PRIVATE_KEY.test(key)) errors.push(`private property is forbidden: ${key}`);
       if (!['string', 'number', 'boolean'].includes(typeof property) && property !== null) errors.push(`property must be scalar: ${key}`);
       if (typeof property === 'string' && property.length > 128) errors.push(`property is too long: ${key}`);
+      if (key === 'targetRoute' && (typeof property !== 'string' || !TARGET_ROUTES.has(property))) errors.push(`targetRoute is not canonical: ${String(property)}`);
+      if (key === 'source' && (typeof property !== 'string' || !SOURCE_VALUES.has(property))) errors.push(`source is not canonical: ${String(property)}`);
       if (RATING_KEYS.includes(key) && !isRating(property)) errors.push(`rating must be an integer ${RATING_SCALE.minimum}-${RATING_SCALE.maximum}: ${key}`);
     }
   }

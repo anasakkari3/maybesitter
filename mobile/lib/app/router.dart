@@ -2,15 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../design_system/components/maybesitter_bottom_navigation.dart';
 import '../features/activity/activity_screen.dart';
+import '../features/capture/capture_flow_launch.dart';
 import '../features/capture/capture_composer_screen.dart';
 import '../features/capture/clarification_sheet_screen.dart';
 import '../features/capture/extraction_review_screen.dart';
 import '../features/capture/success_save_screen.dart';
 import '../features/commitment_details/commitment_details_screen.dart';
 import '../features/onboarding/onboarding_screen.dart';
+import '../features/onboarding/routine_survey_screen.dart';
 import '../features/settings/appearance_screen.dart';
 import '../features/settings/feedback_history_screen.dart';
 import '../features/settings/notifications_permission_screen.dart';
+import '../features/settings/pilot_feedback_screen.dart';
 import '../features/settings/privacy_screen.dart';
 import '../features/settings/settings_screen.dart';
 import '../features/trust/trust_center_screen.dart';
@@ -93,6 +96,11 @@ final appRouter = GoRouter(
               builder: (context, state) => const AppearanceScreen(),
             ),
             GoRoute(
+              path: 'pilot-feedback',
+              parentNavigatorKey: _rootNavigatorKey,
+              builder: (context, state) => const PilotFeedbackScreen(),
+            ),
+            GoRoute(
               path: 'privacy',
               parentNavigatorKey: _rootNavigatorKey,
               builder: (context, state) => const PrivacyScreen(),
@@ -109,6 +117,12 @@ final appRouter = GoRouter(
               parentNavigatorKey: _rootNavigatorKey,
               builder: (context, state) =>
                   const NotificationsPermissionScreen(),
+            ),
+            GoRoute(
+              path: 'routine',
+              parentNavigatorKey: _rootNavigatorKey,
+              builder: (context, state) =>
+                  const RoutineSurveyScreen(mode: RoutineSurveyMode.settings),
             ),
             GoRoute(
               path: 'trust',
@@ -130,9 +144,11 @@ final appRouter = GoRouter(
 
     // Modal Capture Routes
     GoRoute(
-      path: '/capture',
+      path: CaptureFlowLaunch.routePath,
       parentNavigatorKey: _rootNavigatorKey,
-      builder: (context, state) => const CaptureComposerScreen(),
+      builder: (context, state) => CaptureComposerScreen(
+        launch: CaptureFlowLaunch.fromRouteState(state),
+      ),
       routes: [
         GoRoute(
           path: 'review',

@@ -20,9 +20,15 @@ import '../../design_system/tokens/spacing.dart';
 import '../../models/capture_result.dart';
 import '../../services/providers.dart';
 import 'capture_controller.dart';
+import 'capture_flow_launch.dart';
 
 class CaptureComposerScreen extends ConsumerStatefulWidget {
-  const CaptureComposerScreen({super.key});
+  final CaptureFlowLaunch launch;
+
+  const CaptureComposerScreen({
+    super.key,
+    this.launch = const CaptureFlowLaunch(),
+  });
 
   @override
   ConsumerState<CaptureComposerScreen> createState() =>
@@ -30,9 +36,12 @@ class CaptureComposerScreen extends ConsumerStatefulWidget {
 }
 
 class _CaptureComposerScreenState extends ConsumerState<CaptureComposerScreen> {
+  static const _clipboardImportSource = 'clipboard';
+
   late TextEditingController _textController;
   late final FocusNode _focusNode = FocusNode()..addListener(_onFocusChanged);
   bool _inputFocused = false;
+  bool _didHandleLaunch = false;
 
   void _onFocusChanged() {
     if (!mounted) return;
@@ -44,11 +53,19 @@ class _CaptureComposerScreenState extends ConsumerState<CaptureComposerScreen> {
     super.initState();
     final captureState = ref.read(captureControllerProvider);
     _textController = TextEditingController(
-      text: captureState.rawInput.isNotEmpty
-          ? captureState.rawInput
-          : '',
+      text: captureState.rawInput.isNotEmpty ? captureState.rawInput : '',
     );
     _textController.addListener(_onTextChanged);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          _didHandleLaunch ||
+          !widget.launch.shouldStartSpokenPrompt) {
+        return;
+      }
+      _didHandleLaunch = true;
+      _startSpokenPrompt();
+    });
   }
 
   void _onTextChanged() {
@@ -56,6 +73,91 @@ class _CaptureComposerScreenState extends ConsumerState<CaptureComposerScreen> {
     ref
         .read(captureControllerProvider.notifier)
         .setInputText(_textController.text);
+  }
+
+  Future<void> _startSpokenPrompt() async {
+    FocusScope.of(context).unfocus();
+    AdaptiveHaptics.selection();
+    await ref
+        .read(captureControllerProvider.notifier)
+        .startSpokenPrompt(
+          localeId: Localizations.localeOf(context).toLanguageTag(),
+          source: widget.launch.source,
+        );
+  }
+
+  Future<void> _stopSpokenPrompt() async {
+    AdaptiveHaptics.selection();
+    await ref.read(captureControllerProvider.notifier).stopSpokenPrompt();
+  }
+
+  Future<void> _reviewClipboardImport() async {
+    final l10n = context.l10n;
+    final colors = context.colors;
+    final clipboardService = ref.read(clipboardImportServiceProvider);
+    final notifier = ref.read(captureControllerProvider.notifier);
+    final text = await clipboardService.readPlainText();
+
+    if (!mounted) return;
+    if (text == null || text.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l10n.importClipboardEmptyMessage)));
+      return;
+    }
+
+    notifier.noteSourceIntakeReviewed(
+      importSource: _clipboardImportSource,
+      characterCount: text.length,
+    );
+
+    final approved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(l10n.importReviewTitle),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(l10n.importReviewMessage),
+              const SizedBox(height: AppSpacing.md),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(AppSpacing.md),
+                decoration: BoxDecoration(
+                  color: colors.surfaceMuted,
+                  borderRadius: AppRadius.card,
+                  border: Border.all(color: colors.border),
+                ),
+                child: Text(
+                  text,
+                  maxLines: 8,
+                  overflow: TextOverflow.ellipsis,
+                  style: context.text.body.copyWith(height: 1.45),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(l10n.cancelAction),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            icon: const Icon(Icons.content_paste_go_rounded),
+            label: Text(l10n.importUseTextAction),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted || approved != true) return;
+    notifier.applyImportedText(text, importSource: _clipboardImportSource);
+    _focusNode.requestFocus();
   }
 
   @override
@@ -75,10 +177,65 @@ class _CaptureComposerScreenState extends ConsumerState<CaptureComposerScreen> {
     final captureState = ref.watch(captureControllerProvider);
     final captureNotifier = ref.read(captureControllerProvider.notifier);
     final todayCommitments = ref.watch(todayCommitmentsProvider);
+    final pilotFlags = ref.watch(pilotPresenceFeatureFlagsProvider);
+    final voiceEnabled = pilotFlags.voice;
+    final importsEnabled = pilotFlags.imports;
+
+    ref.listen<CaptureState>(captureControllerProvider, (previous, next) {
+      if (previous?.rawInput == next.rawInput ||
+          _textController.text == next.rawInput) {
+        return;
+      }
+
+      _textController.value = TextEditingValue(
+        text: next.rawInput,
+        selection: TextSelection.collapsed(offset: next.rawInput.length),
+      );
+    });
 
     final isSubmitting = captureState.isSubmitting;
+    final isListeningToSpeech = captureState.isListeningToSpeech;
     final trimmedInput = _textController.text.trim();
     final isAnalyzeDisabled = trimmedInput.isEmpty || isSubmitting;
+    final hasSpeechFailure =
+        captureState.spokenPromptStatus ==
+            SpokenPromptStatus.permissionDenied ||
+        captureState.spokenPromptStatus == SpokenPromptStatus.unavailable ||
+        captureState.spokenPromptStatus == SpokenPromptStatus.failed;
+    final shouldOfferSpeechPrimary =
+        voiceEnabled &&
+        trimmedInput.isEmpty &&
+        !isSubmitting &&
+        !hasSpeechFailure;
+    final primaryLabel = isListeningToSpeech
+        ? l10n.spokenPromptStopAction
+        : (shouldOfferSpeechPrimary
+              ? l10n.spokenPromptPrimaryAction
+              : l10n.analyzeAction);
+    final primaryIcon = isListeningToSpeech
+        ? Icons.stop_rounded
+        : (shouldOfferSpeechPrimary ? Icons.mic_rounded : Icons.auto_awesome);
+    final VoidCallback? primaryAction = isListeningToSpeech
+        ? _stopSpokenPrompt
+        : (shouldOfferSpeechPrimary
+              ? _startSpokenPrompt
+              : (isAnalyzeDisabled
+                    ? null
+                    : () async {
+                        final router = GoRouter.of(context);
+                        AdaptiveHaptics.success();
+                        await captureNotifier.submitIntent(trimmedInput);
+
+                        if (!mounted) return;
+                        final state = ref.read(captureControllerProvider);
+
+                        if (state.status == CaptureStatus.needsClarification) {
+                          router.push('/capture/clarification');
+                        } else {
+                          router.push('/capture/review');
+                        }
+                      }));
+    final speechBanner = _speechBanner(captureState);
 
     return MaybesitterScaffold(
       appBar: MaybesitterAppBar(
@@ -111,6 +268,11 @@ class _CaptureComposerScreenState extends ConsumerState<CaptureComposerScreen> {
                     message: l10n.captureHintText,
                   ),
 
+                  if (speechBanner != null) ...[
+                    const SizedBox(height: AppSpacing.smd),
+                    speechBanner,
+                  ],
+
                   const SizedBox(height: AppSpacing.lg),
 
                   // Text area container
@@ -138,7 +300,7 @@ class _CaptureComposerScreenState extends ConsumerState<CaptureComposerScreen> {
                         TextField(
                           controller: _textController,
                           maxLines: 6,
-                          enabled: !isSubmitting,
+                          enabled: !isSubmitting && !isListeningToSpeech,
                           style: context.text.body.copyWith(height: 1.55),
                           decoration: InputDecoration(
                             hintText: l10n.composerInputHint,
@@ -152,15 +314,55 @@ class _CaptureComposerScreenState extends ConsumerState<CaptureComposerScreen> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            // Voice button safely gated as disabled coming-soon feature
-                            IconButton(
-                              onPressed: null,
-                              icon: Icon(
-                                Icons.mic_none,
-                                color: colors.textMuted.withValues(alpha: 0.5),
-                              ),
-                              tooltip:
-                                  '${l10n.voiceCaptureTooltip} (Coming soon)',
+                            Row(
+                              children: [
+                                IconButton(
+                                  onPressed:
+                                      isSubmitting ||
+                                          isListeningToSpeech ||
+                                          !importsEnabled
+                                      ? null
+                                      : _reviewClipboardImport,
+                                  icon: Icon(
+                                    Icons.content_paste_go_rounded,
+                                    color:
+                                        isSubmitting ||
+                                            isListeningToSpeech ||
+                                            !importsEnabled
+                                        ? colors.textMuted.withValues(
+                                            alpha: 0.5,
+                                          )
+                                        : colors.brandStrong,
+                                  ),
+                                  tooltip: importsEnabled
+                                      ? l10n.importClipboardAction
+                                      : '${l10n.importClipboardAction} (Coming soon)',
+                                ),
+                                // Secondary voice affordance for adding speech
+                                // after the first prompt.
+                                IconButton(
+                                  onPressed: isSubmitting || !voiceEnabled
+                                      ? null
+                                      : (isListeningToSpeech
+                                            ? _stopSpokenPrompt
+                                            : _startSpokenPrompt),
+                                  icon: Icon(
+                                    isListeningToSpeech
+                                        ? Icons.stop_circle_outlined
+                                        : Icons.mic_none,
+                                    color: isSubmitting || !voiceEnabled
+                                        ? colors.textMuted.withValues(
+                                            alpha: 0.5,
+                                          )
+                                        : colors.brandStrong,
+                                  ),
+                                  tooltip: voiceEnabled
+                                      ? (isListeningToSpeech
+                                            ? l10n.voiceCaptureStopTooltip
+                                            : l10n.voiceCaptureTooltip)
+                                      : '${l10n.voiceCaptureTooltip} (Coming soon)',
+                                ),
+                              ],
                             ),
                             Text(
                               '${_textController.text.length} chars',
@@ -299,30 +501,57 @@ class _CaptureComposerScreenState extends ConsumerState<CaptureComposerScreen> {
                 AppSpacing.smd,
               ),
               child: PrimaryButton(
-                label: l10n.analyzeAction,
-                icon: Icons.auto_awesome,
+                label: primaryLabel,
+                icon: primaryIcon,
                 isLoading: isSubmitting,
-                onPressed: isAnalyzeDisabled
-                    ? null
-                    : () async {
-                        final router = GoRouter.of(context);
-                        AdaptiveHaptics.success();
-                        await captureNotifier.submitIntent(trimmedInput);
-
-                        if (!mounted) return;
-                        final state = ref.read(captureControllerProvider);
-
-                        if (state.status == CaptureStatus.needsClarification) {
-                          router.push('/capture/clarification');
-                        } else {
-                          router.push('/capture/review');
-                        }
-                      },
+                onPressed: primaryAction,
               ),
             ),
           ),
         ],
       ),
     );
+  }
+
+  Widget? _speechBanner(CaptureState state) {
+    final l10n = context.l10n;
+
+    return switch (state.spokenPromptStatus) {
+      SpokenPromptStatus.requestingPermission => StatusBanner(
+        icon: Icons.mic_rounded,
+        title: l10n.spokenPromptListeningTitle,
+        message: l10n.spokenPromptPermissionRequestMessage,
+      ),
+      SpokenPromptStatus.listening => StatusBanner(
+        icon: Icons.mic_rounded,
+        title: l10n.spokenPromptListeningTitle,
+        message: l10n.spokenPromptListeningMessage,
+      ),
+      SpokenPromptStatus.reviewingTranscript => StatusBanner(
+        icon: Icons.edit_note_rounded,
+        tone: StatusBannerTone.success,
+        title: l10n.spokenPromptReviewTitle,
+        message: l10n.spokenPromptReviewMessage,
+      ),
+      SpokenPromptStatus.permissionDenied => StatusBanner(
+        icon: Icons.mic_off_rounded,
+        tone: StatusBannerTone.warning,
+        title: l10n.spokenPromptPermissionDeniedTitle,
+        message: l10n.spokenPromptPermissionDeniedMessage,
+      ),
+      SpokenPromptStatus.unavailable => StatusBanner(
+        icon: Icons.mic_off_rounded,
+        tone: StatusBannerTone.warning,
+        title: l10n.spokenPromptUnavailableTitle,
+        message: l10n.spokenPromptUnavailableMessage,
+      ),
+      SpokenPromptStatus.failed => StatusBanner(
+        icon: Icons.error_outline_rounded,
+        tone: StatusBannerTone.warning,
+        title: l10n.spokenPromptFailureTitle,
+        message: state.spokenPromptMessage ?? l10n.spokenPromptFailureMessage,
+      ),
+      SpokenPromptStatus.idle => null,
+    };
   }
 }

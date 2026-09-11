@@ -1,4 +1,9 @@
 import { createHash, randomUUID } from 'crypto';
+import { analyticsContextFrom } from '../../analytics/analyticsContext';
+import { appendAnalyticsEvent } from '../../analytics/eventStore';
+import { recordFirstValueReached } from '../../analytics/loopAnalytics';
+import { resolvePilotAccess } from '../../pilot/pilotAccess';
+import { getPilotTrustStore } from '../../pilot/pilotTrustStore';
 import {
   confirmCapture,
   MemoryCaptureProposalStore,
@@ -189,13 +194,35 @@ export async function confirmMobileCapture(input: MobileConfirmInput, context: M
   }
 
   await activateConfirmedItems(proposalId, result.persistedItemIds, context);
+  const persisted = result.persistedItemIds
+    .map((itemId) => persistedItem(store, proposalId, itemId, context))
+    .filter((item): item is PersistedProposalItem => item !== null);
+
+  if (context.participantId && persisted.length > 0) {
+    const now = new Date();
+    const access = resolvePilotAccess(context.participantId, now.toISOString(), false);
+    if (access.trust && !access.trust.firstValueAt) {
+      getPilotTrustStore().apply(context.participantId, {
+        type: 'record_first_value',
+        at: now.toISOString(),
+      });
+      const analytics = analyticsContextFrom({
+        anonymousUserId: context.participantId,
+        consent: access.trust.analyticsConsent ? 'granted' : 'essential',
+      }, appendAnalyticsEvent, now);
+      if (analytics) {
+        recordFirstValueReached(analytics, {
+          surface: 'capture',
+          reason: 'commitment_saved',
+        });
+      }
+    }
+  }
 
   return {
     success: true,
     replayed: result.replayed,
-    persisted: result.persistedItemIds
-      .map((itemId) => persistedItem(store, proposalId, itemId, context))
-      .filter((item): item is PersistedProposalItem => item !== null),
+    persisted,
     failed: selectedItemIds
       .filter((itemId) => !result.persistedItemIds.includes(itemId))
       .map((itemId) => ({ itemId, reason: 'not_selected' })),

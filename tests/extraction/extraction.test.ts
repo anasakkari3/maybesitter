@@ -274,3 +274,42 @@ test('extractionService: invalid LLM dates fall back', async () => {
   assert.equal(mapped.engine, 'rule-based');
   assert.match(mapped.fallbackReason || '', /dueAt must be a valid date/);
 });
+
+test('extraction: an embedded Arabic day phrase leaves no hole in the title', () => {
+  // Arabic puts the day inside the sentence — «يوم الأحد الجاي» — where English
+  // trails it. Removing only the day name used to leave «يوم ... الجاي» behind,
+  // so the user saw their own sentence come back with a word missing.
+  const result = extract('عندي محاضرة إحصاء يوم الأحد الجاي', context);
+
+  assert.equal(result.title, 'عندي محاضرة إحصاء');
+  assert.equal(new Date(result.remindAt || '').getUTCDay(), 0, 'still resolves to Sunday');
+});
+
+test('extraction: a trailing Arabic day phrase still cleans the title', () => {
+  const result = extract('ذكرني أسلّم التقرير يوم الخميس الجاي', context);
+
+  assert.equal(result.title, 'أسلّم التقرير');
+  assert.equal(new Date(result.remindAt || '').getUTCDay(), 4, 'still resolves to Thursday');
+});
+
+test('extraction: spoken Arabic hour words resolve like digits', () => {
+  // Speech-to-text returns «الساعة تسعة», never «الساعة ٩». If only digits
+  // parse, every voice capture loses its time.
+  const spoken = extract('ذكرني أراجع إحصاء الساعة تسعة الصبح', context);
+  const digits = extract('ذكرني أراجع إحصاء الساعة ٩ الصبح', context);
+
+  assert.equal(spoken.remindAt, digits.remindAt);
+  assert.equal(new Date(spoken.remindAt || '').getUTCHours(), 9);
+});
+
+test('extraction: a spoken evening hour takes the PM branch', () => {
+  const result = extract('ذكرني أسلّم التقرير الساعة ثلاثة المسا', context);
+
+  assert.equal(new Date(result.remindAt || '').getUTCHours(), 15);
+});
+
+test('extraction: a spoken hour is kept out of the title, like a digit is', () => {
+  const result = extract('ذكرني أراجع إحصاء بكرا الساعة تسعة الصبح', context);
+
+  assert.equal(result.title, 'أراجع إحصاء');
+});

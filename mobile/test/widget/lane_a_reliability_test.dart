@@ -14,7 +14,23 @@ import 'package:maybesitter_mobile/design_system/components/capture_primary_acti
 import 'package:maybesitter_mobile/design_system/components/maybesitter_bottom_navigation.dart';
 import 'package:maybesitter_mobile/l10n/generated/app_localizations.dart';
 import 'package:maybesitter_mobile/models/capture_result.dart';
+import 'package:maybesitter_mobile/config/app_config.dart';
 import 'package:maybesitter_mobile/services/providers.dart';
+
+/// These regressions exercise mock-mode-specific behaviour (the in-memory
+/// commitment repository's seed data, the mock capture service's preview
+/// fixtures) and render screens that embed NextStepCard, which fires a real
+/// network fetch on first frame. Explicit mock mode keeps them settle-able
+/// without a live backend and preserves what they actually assert on.
+ProviderContainer _buildMockModeContainer() {
+  return ProviderContainer(
+    overrides: [
+      appConfigProvider.overrideWith(
+        (ref) => const AppConfig(apiMode: ApiMode.mock),
+      ),
+    ],
+  );
+}
 
 Widget _buildLocalizedApp(Widget home) {
   return MaterialApp(
@@ -56,7 +72,7 @@ void main() {
     testWidgets(
       'Success screen reports only the commitments that were actually saved',
       (WidgetTester tester) async {
-        final container = ProviderContainer();
+        final container = _buildMockModeContainer();
         addTearDown(container.dispose);
 
         final notifier = container.read(captureControllerProvider.notifier);
@@ -93,7 +109,7 @@ void main() {
     testWidgets(
       'Resolving a clarification keeps the real extracted items, not fixture data',
       (WidgetTester tester) async {
-        final container = ProviderContainer();
+        final container = _buildMockModeContainer();
         addTearDown(container.dispose);
 
         container
@@ -150,7 +166,7 @@ void main() {
     testWidgets(
       'Edit icon on commitment details actually lets the participant edit',
       (WidgetTester tester) async {
-        final container = ProviderContainer();
+        final container = _buildMockModeContainer();
         addTearDown(container.dispose);
 
         await tester.pumpWidget(
@@ -200,7 +216,7 @@ void main() {
     testWidgets(
       'Capture FAB does not cover the next-step "Not now" action on Today',
       (WidgetTester tester) async {
-        final container = ProviderContainer();
+        final container = _buildMockModeContainer();
         addTearDown(container.dispose);
 
         // The default test surface (800x600, a wide/short window) has a

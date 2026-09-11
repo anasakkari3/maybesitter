@@ -10,15 +10,58 @@ import '../../design_system/tokens/spacing.dart';
 import '../../models/app_settings.dart';
 import '../../services/providers.dart';
 
-class SettingsScreen extends ConsumerWidget {
+class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends ConsumerState<SettingsScreen>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _refreshNotificationPermission();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // The user may have just come back from the system Settings app after
+    // revoking (or granting) notification permission there -- re-check
+    // rather than keep showing whatever we last cached.
+    if (state == AppLifecycleState.resumed) {
+      _refreshNotificationPermission();
+    }
+  }
+
+  void _refreshNotificationPermission() {
+    final service = ref.read(notificationServiceProvider);
+    ref
+        .read(appSettingsProvider.notifier)
+        .refreshNotificationPermission(service);
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final colors = context.colors;
     final l10n = context.l10n;
     final settings = ref.watch(appSettingsProvider);
     final settingsNotifier = ref.read(appSettingsProvider.notifier);
+    final pilotFlags = ref.watch(pilotPresenceFeatureFlagsProvider);
+    final hasPilotFeedbackSurface =
+        pilotFlags.widget ||
+        pilotFlags.voice ||
+        pilotFlags.awareness ||
+        pilotFlags.watch ||
+        pilotFlags.imports;
 
     return MaybesitterScaffold(
       appBar: MaybesitterAppBar(
@@ -92,6 +135,34 @@ class SettingsScreen extends ConsumerWidget {
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () => context.push('/settings/notifications'),
                     ),
+                    const Divider(),
+                    ListTile(
+                      leading: Icon(
+                        Icons.schedule_outlined,
+                        color: colors.brandPrimary,
+                      ),
+                      title: Text(l10n.routineSettingsTitle),
+                      subtitle: Text(
+                        ref.watch(routineProfileProvider) == null
+                            ? l10n.routineSettingsSubtitle
+                            : l10n.routineSettingsConfiguredSubtitle,
+                      ),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => context.push('/settings/routine'),
+                    ),
+                    if (hasPilotFeedbackSurface) ...[
+                      const Divider(),
+                      ListTile(
+                        leading: Icon(
+                          Icons.insights_outlined,
+                          color: colors.brandPrimary,
+                        ),
+                        title: Text(l10n.pilotFeedbackTitle),
+                        subtitle: Text(l10n.pilotFeedbackEntrySubtitle),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () => context.push('/settings/pilot-feedback'),
+                      ),
+                    ],
                     const Divider(),
                     // The V03 trust centre is the participant's real privacy
                     // surface; the older privacy screen stays reachable below
