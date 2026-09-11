@@ -63,7 +63,9 @@ export function normalizeTimezone(value: unknown): string {
 }
 
 export function localDayKey(value: string | Date, timezone: string): string {
-  const date = typeof value === 'string' ? parseIsoDate(value, 'date') : value;
+  // Stored values end in Z, so this changes nothing for them; an offset-less
+  // string stops meaning a different day on a different host.
+  const date = typeof value === 'string' ? parseIsoInstant(value, 'date') : value;
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: normalizeTimezone(timezone),
     year: 'numeric',
