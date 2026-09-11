@@ -1,0 +1,12 @@
+appId: com.maybesitter.app
+name: MaybeSitter smoke
+---
+- launchApp:
+    clearState: true
+# The app is Arabic-first, so the Today tab reads «اليوم». A build that starts
+# misconfigured shows the CFG-1 screen instead, and this assertion fails.
+- assertVisible: 'اليوم'
+- assertVisible: 'احكيها'
+- tapOn: 'التقويم'
+- assertVisible: 'الأسبوع'
+- tapOn: 'اليوم'

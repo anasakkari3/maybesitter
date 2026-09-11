@@ -1,0 +1,31 @@
+# Keep the build context small and free of anything that is not the server.
+.git
+.github
+node_modules
+.next
+.worktrees
+.maybesitter
+
+# The mobile app is a separate npm project with its own toolchain.
+mobile
+
+# Not needed to run the API.
+# NOTE: tests/ stays in the build context. `next build` type-checks the whole
+# project, and lib/lifeState/fixtureValidator.ts imports
+# tests/fixtures/lifeStateMemoryFixtures — excluding it breaks the build. The
+# runtime stage copies only .next/standalone, so the final image is unaffected.
+docs
+design
+site
+infra
+evaluation-data
+evaluation-reports
+data
+
+# Never ship secrets or signing material.
+.env
+.env.*
+!.env.example
+*.p8
+*.p12
+*.keystore

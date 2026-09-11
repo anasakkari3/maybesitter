@@ -9,16 +9,17 @@ import type { ThemePref } from './state/types';
 export function parseLink(url: string): { name: string; lang?: Lang; theme?: ThemePref } | null {
   const afterScheme = url.includes('/--/') ? url.split('/--/')[1] : url.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');
   if (afterScheme == null) return null;
-  const [path, query = ''] = afterScheme.split('?');
+  const [path = '', query = ''] = afterScheme.split('?');
   const name = path.replace(/^\/+|\/+$/g, '');
   const params = new URLSearchParams(query);
   const lang = params.get('lang');
   const theme = params.get('theme');
-  return {
-    name,
-    lang: lang === 'ar' || lang === 'en' ? lang : undefined,
-    theme: theme === 'system' || theme === 'light' || theme === 'dark' ? theme : undefined,
-  };
+  // The keys are left out entirely when the link doesn't carry them, rather
+  // than set to undefined, so a link never overwrites a stored preference.
+  const link: { name: string; lang?: Lang; theme?: ThemePref } = { name };
+  if (lang === 'ar' || lang === 'en') link.lang = lang;
+  if (theme === 'system' || theme === 'light' || theme === 'dark') link.theme = theme;
+  return link;
 }
 
 export function useLinks(handlers: {

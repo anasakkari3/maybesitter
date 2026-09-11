@@ -47,6 +47,57 @@ jobs:
       - name: Build
         run: npm run build
 
+  shell:
+    name: Shell scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The infra and site scripts are how the cloud project and the public
+      # site get created; a typo in them is a production problem.
+      - name: shellcheck
+        run: |
+          shopt -s nullglob globstar
+          files=(infra/**/*.sh site/*.sh scripts/*.sh)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "no shell scripts found"
+            exit 0
+          fi
+          printf 'checking %s\n' "${files[@]}"
+          shellcheck "${files[@]}"
+
+  container:
+    name: Container image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # A separate job, not a step: it must not queue behind the full test suite.
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build the image
+        run: docker build --build-arg "GIT_SHA=${GITHUB_SHA}" -t maybesitter-api:ci .
+
+      # The image must serve health without any cloud dependency, and must not
+      # run as root.
+      - name: Run it and probe health
+        run: |
+          docker run -d --name api -p 8080:8080 \
+            -e MAYBESITTER_STORAGE_BACKEND=memory \
+            maybesitter-api:ci
+          for _ in $(seq 1 30); do
+            if curl -fsS http://localhost:8080/api/health >/tmp/health.json; then break; fi
+            sleep 2
+          done
+          cat /tmp/health.json
+          grep -q "${GITHUB_SHA}" /tmp/health.json
+          test "$(docker inspect --format '{{.Config.User}}' maybesitter-api:ci)" = node
+          docker rm -f api
+
   mobile:
     name: Mobile app
     runs-on: ubuntu-latest
@@ -72,5 +123,18 @@ jobs:
       - name: Type-check
         run: npx tsc --noEmit
 
+      - name: Lint
+        run: npm run lint
+
       - name: Test
         run: npm test -- --runInBand
+
+      # A staging or production configuration without a real https backend URL
+      # must fail while Expo reads the project (CFG-1), not on a tester's phone.
+      - name: Release config guard
+        run: |
+          if APP_ENV=production npx expo config --type public >/dev/null 2>&1; then
+            echo "expected CFG-1 failure with no API URL"; exit 1
+          fi
+          APP_ENV=production EXPO_PUBLIC_API_BASE_URL=https://api.example.com \
+            npx expo config --type public >/dev/null

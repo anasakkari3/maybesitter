@@ -71,6 +71,7 @@ function ReadingsSheet() {
 function RearrangeSheet() {
   const { s, t, p, lang, actions } = useApp();
   const c = s.commitments.find(x => x.id === s.detailId) ?? s.commitments[2];
+  if (!c) return null;
   const options = [
     { label: t.intensify, hint: t.intensifyHint, pick: () => actions.intensify(c.id) },
     { label: t.extend, hint: t.extendHint, pick: () => actions.extend(c.id) },

@@ -1,9 +1,13 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  // firebase-admin is a server-only package with optional native and dynamic
-  // requires (grpc, protobufjs). Bundling it makes the build trace them and
-  // warn; leaving it external is both smaller and what Firebase documents.
+  // Cloud Run runs the app from a container, so the build has to emit a
+  // self-contained server bundle rather than expecting node_modules.
+  output: 'standalone',
+  // The git root holds sibling worktrees with their own lockfiles. Without
+  // this, Next traces from the wrong root and copies the wrong tree.
+  outputFileTracingRoot: __dirname,
+  // firebase-admin uses native/dynamic requires that must not be bundled.
   serverExternalPackages: ['firebase-admin'],
 };
 

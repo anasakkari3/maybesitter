@@ -10,7 +10,7 @@ export function dayLabel(d: number, t: Strings): string {
   if (d === TODAY) return t.today;
   if (d === TODAY + 1) return t.tomorrow;
   if (d === TODAY + 7) return t.nextThu;
-  return t.days[d % 7];
+  return t.days[d % 7] ?? '';
 }
 
 export const impLabel = (i: Imp, t: Strings) => (i === 'must' ? t.mustL : i === 'should' ? t.shouldL : t.niceL);
