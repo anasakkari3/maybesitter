@@ -65,7 +65,7 @@ watch surfaces, and notification engine.
 - `CommitmentSnapshot` contract for widgets, watch, and notifications.
 - `ReminderPolicy` contract for soft awareness, follow-up, and strong reminder.
 - `UserRoutineProfile` contract for onboarding survey output.
-- App Group / shared-storage bridge design for Flutter and iOS extensions.
+- App Group / shared-storage bridge design for the React Native app and iOS extensions.
 - Feature flags and kill switches for widget, voice, awareness, watch, and
   imports.
 
@@ -203,7 +203,7 @@ timing without requesting every external account.
   Google Calendar via OAuth.
 - First provider chosen for this pilot: Apple Calendar via EventKit, because
   the current product is iPhone-first and EventKit avoids OAuth account setup
-  while keeping the MVP read-only and local to the Flutter/iOS boundary.
+  while keeping the MVP read-only and local to the React Native/iOS boundary.
 - Read-only event import into a bounded availability/schedule context.
 - Calendar consent, disconnect, and deletion controls.
 - Conflict awareness between imported events and MaybeSitter commitments.
@@ -265,7 +265,7 @@ who protects the shared contracts.
 
 | Lane | Owns |
 | --- | --- |
-| Mobile/Flutter | Capture UI, onboarding, settings, trust controls, feedback UI. |
+| Mobile (React Native) | Capture UI, onboarding, settings, trust controls, feedback UI. |
 | iOS Native | WidgetKit, notification actions, App Groups, Watch complication. |
 | Backend/Policy | Reminder policy, snapshot builder, command routing, analytics. |
 | Quality/Ops | Tests, simulator/device verification, privacy review, pilot package. |

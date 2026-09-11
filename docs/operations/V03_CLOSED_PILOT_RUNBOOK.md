@@ -8,7 +8,7 @@ restart, and rollback procedures are superseded by the authoritative runbook:
 
 `docs/operations/V03_PILOT_OPERATIONAL_DEPLOYMENT.md`
 
-The canonical architecture is now a Flutter participant app using an OS-secure
+The canonical architecture is now a React Native participant app using an OS-secure
 pilot token, `Authorization: Bearer <token>`, a shared authenticated
 `/api/mobile/**` backend, server-derived participant identity, and
 participant-scoped persisted state. The older per-participant runtime,

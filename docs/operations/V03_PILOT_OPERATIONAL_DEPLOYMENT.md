@@ -11,7 +11,7 @@ deployment, participant recruitment, or Stage B.
 The canonical V03 pilot architecture is:
 
 ```text
-Flutter participant app
+React Native participant app
 -> secure pilot token
 -> Authorization: Bearer <token>
 -> shared /api/mobile/** backend
@@ -66,7 +66,7 @@ node --no-warnings --loader ./scripts/ts-resolver.mjs \
 ```
 
 Distribute the raw token through the approved out-of-band pilot process. Do not
-store raw tokens in Git, tickets, logs, screenshots, or analytics. The Flutter
+store raw tokens in Git, tickets, logs, screenshots, or analytics. The React Native
 app stores the token in OS secure storage and sends it as `Authorization:
 Bearer <token>` on canonical `/api/mobile/**` requests.
 
@@ -100,7 +100,7 @@ node --no-warnings --loader ./scripts/ts-resolver.mjs \
 
 Expected result: trust state records `deletedAt`; that participant's domain
 state and recommendation idempotency file are removed; other participants'
-files remain intact; the Flutter app clears the local secure token and enters a
+files remain intact; the mobile app clears the local secure token and enters a
 terminal deleted state.
 
 ## Kill Switch
