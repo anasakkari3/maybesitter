@@ -28,7 +28,7 @@ const config = JSON.parse(readFileSync(join(repoRoot, 'firestore.indexes.json'),
 /** `listGroup(COLLECTION, { where: [['field', ...]] })` — the group queries that need an override. */
 function groupQueriesInSource(): Array<{ collection: string; field: string; where: string }> {
   const found: Array<{ collection: string; field: string; where: string }> = [];
-  const call = /listGroup<[^>]*>\(\s*([A-Z_]+)\s*,\s*\{[^}]*?where:\s*\[\[\s*'([^']+)'/gs;
+  const call = /listGroup<[^>]*>\(\s*([A-Z_]+)\s*,\s*\{[^}]*?where:\s*\[\[\s*'([^']+)'/g;
   for (const file of [...sourceFilesUnder(join(repoRoot, 'lib')), ...sourceFilesUnder(join(repoRoot, 'src'))]) {
     const text = readFileSync(file, 'utf8');
     if (file.endsWith('storageAdapter.ts') || file.endsWith('memoryAdapter.ts') || file.endsWith('firestoreAdapter.ts')) continue;
