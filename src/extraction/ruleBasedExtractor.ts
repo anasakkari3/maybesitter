@@ -116,8 +116,43 @@ function normalizeArabicDigits(value: string): string {
   });
 }
 
+/**
+ * Hours as people say them, not as they type them. Speech-to-text hands us
+ * «الساعة تسعة»; only digits used to parse, so every spoken time was dropped.
+ * Longest-first so «إحدى عشرة» is not eaten by «إحدى».
+ */
+const ARABIC_SPOKEN_HOURS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/(?:ال)?(?:حادية|إحدى|احدى)\s*عشرة?|احدعش/g, '11'],
+  [/(?:ال)?(?:ثانية|اثنتا|اثنتي|تانية)\s*عشرة?|اتناش|اثناش/g, '12'],
+  [/(?:ال)?(?:واحدة|وحدة)/g, '1'],
+  [/(?:ال)?(?:ثانية|اثنين|إثنين|تنتين|ثنتين|تانية)/g, '2'],
+  [/(?:ال)?(?:ثالثة|ثلاثة|تلاتة|تالتة)/g, '3'],
+  [/(?:ال)?(?:رابعة|أربعة|اربعة)/g, '4'],
+  [/(?:ال)?(?:خامسة|خمسة)/g, '5'],
+  [/(?:ال)?(?:سادسة|ستة)/g, '6'],
+  [/(?:ال)?(?:سابعة|سبعة)/g, '7'],
+  [/(?:ال)?(?:ثامنة|ثمانية|تمانية|تامنة)/g, '8'],
+  [/(?:ال)?(?:تاسعة|تسعة)/g, '9'],
+  [/(?:ال)?(?:عاشرة|عشرة)/g, '10'],
+];
+
+function normalizeSpokenArabicHours(value: string): string {
+  // Only rewrite where a clock is actually being named, so «الفصل الثالث»
+  // (a chapter) keeps its word and only «الساعة الثالثة» becomes a number.
+  return value.replace(
+    /((?:الساعة|الساعه|عند|على)\s*)([^\s,.،]+(?:\s+عشرة?)?)/g,
+    (match, lead: string, word: string) => {
+      for (const [pattern, digit] of ARABIC_SPOKEN_HOURS) {
+        pattern.lastIndex = 0;
+        if (new RegExp(`^(?:${pattern.source})$`).test(word)) return `${lead}${digit}`;
+      }
+      return match;
+    }
+  );
+}
+
 function parseClock(raw: string): { hour: number; minute: number } | null {
-  const normalized = normalizeArabicDigits(raw).toLowerCase();
+  const normalized = normalizeSpokenArabicHours(normalizeArabicDigits(raw)).toLowerCase();
   const explicit =
     normalized.match(/(?:\b(?:at|by|around)\b|الساعة|الساعه|عند|على)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm|صباحا|صباحاً|الصبح|ص|مساء|مساءً|المسا|المساء|بالليل|م)?(?=$|[\s,.،])/) ||
     normalized.match(/\b(\d{1,2}):(\d{2})(?=$|[\s,.،])/) ||
@@ -188,12 +223,20 @@ function parseDateTime(raw: string, context: ExtractionContext): { dueAt: string
 }
 
 function stripTiming(text: string): string {
-  return text
+  // Rewrite «الساعة تسعة» to «الساعة 9» first, so the clock patterns below
+  // strip a spoken hour out of the title exactly as they strip a typed one.
+  return normalizeSpokenArabicHours(text)
     .replace(/\b(after tomorrow|day after tomorrow|today|tomorrow|tonight|morning|afternoon|evening|night)\b/gi, ' ')
     .replace(/(بعد بكرا|بعد بكرة|بعد غداً|بعد غد|اليوم|النهارده|اليومه|بكرا|بكرة|غداً|غدا|الصبح|صباحاً|صباحا|صباح|بعد الظهر|بعد الضهر|المساء|المسا|مساءً|مساءا|مساء|بالليل|الليل)/gi, ' ')
     .replace(/\b(?:on|this|next)\s+(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/gi, ' ')
     .replace(/\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/gi, ' ')
-    .replace(/(الأحد|الاحد|الاثنين|الإثنين|الأثنين|الثلاثاء|الثلثاء|الأربعاء|الاربعاء|الخميس|الجمعة|السبت)/gi, ' ')
+    // Arabic embeds the day inside the sentence — «يوم الأحد الجاي» — where
+    // English trails it. Take the whole phrase, or removing just the day name
+    // leaves «يوم ... الجاي» and the user sees their sentence with a hole in it.
+    .replace(
+      /(?:يوم\s+)?(?:الأحد|الاحد|الاثنين|الإثنين|الأثنين|الثلاثاء|الثلثاء|الأربعاء|الاربعاء|الخميس|الجمعة|السبت)(?:\s+(?:الجاي|الجاية|الجايه|الجاي|القادم|القادمة|الماضي|الماضية))?/gi,
+      ' '
+    )
     .replace(/\b(?:at|by|around)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/gi, ' ')
     .replace(/\b(?:at|by|around)\s*\d{1,2}(?::\d{2})?(?=$|[\s,.،])/gi, ' ')
     .replace(/\bfrom\s+\d{1,2}:\d{2}\s+to\s+\d{1,2}:\d{2}\b/gi, ' ')
