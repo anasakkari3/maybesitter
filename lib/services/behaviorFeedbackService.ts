@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import path from 'path';
+import { resolveDataDir } from '../runtime/dataDir';
 
 export type BehaviorFeedbackEvent =
   | 'suggestion_ignored'
@@ -42,7 +43,6 @@ type BehaviorFeedbackData = {
 };
 
 const DEFAULT_FEEDBACK_SCOPE_ID = 'local';
-const DEFAULT_FEEDBACK_FILE = path.join(process.cwd(), '.maybesitter', 'behavior-feedback.json');
 
 function emptyRecord(): BehaviorFeedbackRecord {
   return {
@@ -106,7 +106,7 @@ export function scopeBehaviorFeedback(options: BehaviorFeedbackScopeOptions = {}
 export class FileBehaviorFeedbackStore implements BehaviorFeedbackStore {
   private readonly filePath: string;
 
-  constructor(filePath = DEFAULT_FEEDBACK_FILE) {
+  constructor(filePath = resolveDataDir('behavior-feedback.json')) {
     this.filePath = filePath;
   }
 

@@ -15,6 +15,7 @@ import {
   type AlphaFeedbackFlagCategory,
   type AlphaFeedbackFlagInput,
 } from '../../src/contracts/v1/feedbackFlagContracts';
+import { resolveDataDir } from '../runtime/dataDir';
 
 export interface AlphaFeedbackStoreOptions {
   dataDir?: string;
@@ -30,7 +31,6 @@ export interface AlphaFeedbackStore {
   prune(): number;
 }
 
-const DEFAULT_DATA_DIR = path.join(process.cwd(), '.maybesitter', 'alpha-feedback');
 const DEFAULT_RETENTION_TTL_MS = 30 * 24 * 60 * 60 * 1_000; // 30 days
 const FLAG_FILE_EXT = '.flag.json';
 
@@ -64,7 +64,7 @@ function readFlag(filePath: string): AlphaFeedbackFlag | null {
 }
 
 function createInMemoryStore(options?: AlphaFeedbackStoreOptions): AlphaFeedbackStore {
-  const dataDir = options?.dataDir ?? DEFAULT_DATA_DIR;
+  const dataDir = options?.dataDir ?? resolveDataDir('alpha-feedback');
   const retentionTtlMs = options?.retentionTtlMs ?? DEFAULT_RETENTION_TTL_MS;
   const now = () => Date.now();
 

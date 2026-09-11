@@ -54,6 +54,7 @@ import {
   type ShadowConsentState,
   type ShadowStudyConsent,
 } from '../../src/contracts/v1/shadowPipelineContracts';
+import { resolveDataDir } from '../runtime/dataDir';
 
 const CONSENT_SUBDIR = 'shadow-study-consent';
 const CONSENT_FILE_EXT = '.study-consent.json';
@@ -296,7 +297,7 @@ function createStore(repository: ConsentRepository): ShadowStudyConsentStore {
 }
 
 function defaultDataDir(): string {
-  const root = process.env.MAYBESITTER_DATA_DIR || path.join(process.cwd(), '.maybesitter');
+  const root = resolveDataDir();
   return path.join(root, CONSENT_SUBDIR);
 }
 

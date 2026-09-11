@@ -29,6 +29,7 @@ import {
   type PersonalizationConsentState,
 } from '../../src/contracts/v1/personalizationContracts';
 import { isNonEmptyString } from '../evaluation/registry/validationPrimitives';
+import { resolveDataDir } from '../runtime/dataDir';
 
 const CONSENT_SUBDIR = 'personalization-consent';
 const CONSENT_FILE_EXT = '.consent.json';
@@ -111,7 +112,7 @@ function createStore(repository: ConsentRepository): PersonalizationConsentStore
 
 /** Default record directory, honouring MAYBESITTER_DATA_DIR like sibling stores. */
 function defaultDataDir(): string {
-  const root = process.env.MAYBESITTER_DATA_DIR || path.join(process.cwd(), '.maybesitter');
+  const root = resolveDataDir();
   return path.join(root, CONSENT_SUBDIR);
 }
 

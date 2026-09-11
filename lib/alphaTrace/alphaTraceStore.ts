@@ -14,6 +14,7 @@ import {
   type AlphaTraceStageRecord,
   type AlphaTraceSummary,
 } from '../../src/contracts/v1/alphaTraceContracts';
+import { resolveDataDir } from '../runtime/dataDir';
 
 export interface AlphaTraceStoreOptions {
   dataDir?: string;
@@ -29,7 +30,6 @@ export interface AlphaTraceStore {
   prune(): number;
 }
 
-const DEFAULT_DATA_DIR = path.join(process.cwd(), '.maybesitter', 'alpha-traces');
 const DEFAULT_RETENTION_TTL_MS = 30 * 24 * 60 * 60 * 1_000; // 30 days
 const TRACE_FILE_EXT = '.trace.json';
 
@@ -99,7 +99,7 @@ function toSummary(session: AlphaTraceSession): AlphaTraceSummary {
 }
 
 export function createFileAlphaTraceStore(options?: AlphaTraceStoreOptions): AlphaTraceStore {
-  const dataDir = options?.dataDir ?? DEFAULT_DATA_DIR;
+  const dataDir = options?.dataDir ?? resolveDataDir('alpha-traces');
   const retentionTtlMs = options?.retentionTtlMs ?? DEFAULT_RETENTION_TTL_MS;
 
   function ensureDir(): void {

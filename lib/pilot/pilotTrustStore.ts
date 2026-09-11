@@ -12,6 +12,7 @@ import {
   type PilotTrustIncident,
   type PilotTrustState,
 } from './closedPilotControls';
+import { resolveDataDir } from '../runtime/dataDir';
 
 interface PilotTrustData {
   version: 'v1';
@@ -120,7 +121,7 @@ let defaultStore: PilotTrustStore | null = null;
 let defaultPath = '';
 
 export function getPilotTrustStore(): PilotTrustStore {
-  const filePath = process.env.MAYBESITTER_PILOT_TRUST_FILE || path.join(process.cwd(), '.maybesitter', 'pilot-trust.json');
+  const filePath = process.env.MAYBESITTER_PILOT_TRUST_FILE || resolveDataDir('pilot-trust.json');
   if (!defaultStore || defaultPath !== filePath) {
     defaultStore = new PilotTrustStore(filePath);
     defaultPath = filePath;

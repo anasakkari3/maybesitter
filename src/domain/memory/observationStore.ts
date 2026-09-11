@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import path from 'path';
 import { randomUUID } from 'crypto';
 import type { Observation, DetectedLanguage, ObservationStatus } from './memoryTypes.ts';
+import { resolveDataDir } from '../../../lib/runtime/dataDir';
 
 export interface CreateObservationInput {
   userId: string;
@@ -40,7 +41,7 @@ export class FileObservationStore implements ObservationStore {
   private filePath: string;
 
   constructor(dataDir?: string) {
-    this.dataDir = dataDir || path.join(process.cwd(), '.maybesitter');
+    this.dataDir = dataDir || resolveDataDir();
     this.filePath = path.join(this.dataDir, 'observations.json');
   }
 
