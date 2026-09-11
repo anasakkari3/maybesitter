@@ -1,5 +1,35 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs';
-import path from 'path';
+/**
+ * Shared, process-local domain state for the legacy routes (UC-1.0c, #142).
+ *
+ * ── What was deleted here, and why ───────────────────────────────
+ *
+ * This module used to mirror one global `DomainState` into
+ * `<MAYBESITTER_DATA_DIR>/domain-state.json` on every applied command. That
+ * file was the single worst thing in the storage audit: one document holding
+ * *every* user's commitments, rewritten whole on each write, on a filesystem
+ * that Cloud Run gives each instance separately and throws away with the
+ * revision. Two instances would fork the world and the later writer would win
+ * silently.
+ *
+ * The file is gone. Nothing in this module touches a disk any more, so there
+ * is no shared state to lose and nothing for `MAYBESITTER_DATA_DIR` to point
+ * at. What remains is an in-process `DomainState` for the legacy dev routes,
+ * which is honest about being per-process.
+ *
+ * The launch path does not come through here at all: every mobile request
+ * carries a `participantId` and reads and writes `users/{uid}` through
+ * `lib/services/mobile/participantState`, which is transactional and durable.
+ *
+ * ── The guard, and where it is not ───────────────────────────────
+ *
+ * `configureCommandService` is the bootstrap for that shared, user-less state,
+ * so it refuses to run on Cloud Run. The *readers* below are deliberately not
+ * guarded: `getCommandServiceState()` is a default argument in agenda,
+ * pressure and adaptive services that the participant-scoped path overrides by
+ * passing state explicitly, and throwing there would break launch-path
+ * requests that never intended to use global state. UC-1.0e (#144) removes the
+ * no-participant branch entirely.
+ */
 import { randomUUID } from 'crypto';
 import {
   applyCommand as applyDomainCommand,
@@ -16,7 +46,7 @@ import type {
   StateTransitionResult,
 } from '../../src/domain/stateMachine';
 import type { NewScheduledJob, SchedulerStore } from '../../src/scheduler/jobRunner';
-import { resolveDataDir } from '../runtime/dataDir';
+import { assertNotCloudRun } from '../runtime/assertNotCloudRun';
 
 export type CommandServiceResultType = 'applied' | 'noop' | 'rejected';
 
@@ -29,29 +59,10 @@ export interface CommandServiceResult {
 export interface CommandServiceConfig {
   initialState?: DomainState;
   schedulerStore?: SchedulerStore | null;
-  stateFile?: string;
 }
 
-let stateFilePath = process.env.MAYBESITTER_DOMAIN_STATE_FILE || resolveDataDir('domain-state.json');
-let currentState: DomainState = loadState(stateFilePath);
+let currentState: DomainState = createEmptyDomainState();
 let schedulerStore: SchedulerStore | null = null;
-
-function loadState(filePath: string): DomainState {
-  if (!existsSync(filePath)) return createEmptyDomainState();
-  try {
-    return JSON.parse(readFileSync(filePath, 'utf8')) as DomainState;
-  } catch {
-    console.error('[commandService] Corrupt state file at', filePath, '— starting fresh.');
-    return createEmptyDomainState();
-  }
-}
-
-function persistState(state: DomainState): void {
-  mkdirSync(path.dirname(stateFilePath), { recursive: true });
-  const tmp = `${stateFilePath}.${process.pid}.${randomUUID()}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
-  renameSync(tmp, stateFilePath);
-}
 
 function createJobFromSideEffect(sideEffect: SideEffect, fallbackRunAt: string): NewScheduledJob | null {
   if (sideEffect.type === 'schedule_reminder') {
@@ -116,10 +127,17 @@ function rejectedResult(): CommandServiceResult {
 }
 
 export function configureCommandService(config: CommandServiceConfig = {}): void {
-  if (config.stateFile) stateFilePath = config.stateFile;
+  // First use of the shared, user-less state — never module init, so importing
+  // this file (which every legacy route does) cannot fail a build or a boot.
+  assertNotCloudRun(
+    'lib/services/commandService',
+    'the global domain state is per-process and shared across every user; the launch path reads '
+      + 'and writes users/{uid} through lib/services/mobile/participantState',
+  );
   schedulerStore = config.schedulerStore === undefined ? schedulerStore : config.schedulerStore;
-  currentState = config.initialState || loadState(stateFilePath);
-  persistState(currentState);
+  // No file to fall back to: an unconfigured process starts empty rather than
+  // inheriting whatever the last one happened to leave on disk.
+  currentState = config.initialState || createEmptyDomainState();
 }
 
 export function getCommandServiceState(): DomainState {
@@ -141,7 +159,6 @@ export function applyCommand(command: Command): CommandServiceResult {
   }
 
   currentState = transition.newState;
-  persistState(currentState);
   applySchedulerSideEffects(transition.sideEffects, command.now);
 
   return {

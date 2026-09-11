@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'crypto';
+import { createHash } from 'crypto';
 import { analyticsContextFrom } from '../../analytics/analyticsContext';
 import { appendAnalyticsEvent } from '../../analytics/eventStore';
 import { recordFirstValueReached } from '../../analytics/loopAnalytics';
@@ -21,7 +21,6 @@ import {
 } from './participantState';
 import { guardedMobileExtract } from './safety';
 import { dateFromOptionalIso, normalizeTimezone } from './time';
-import { resolveDataDir } from '../../runtime/dataDir';
 
 export interface MobileCaptureInput {
   text?: unknown;
@@ -231,10 +230,11 @@ export async function confirmMobileCapture(input: MobileConfirmInput, context: M
 }
 
 export function resetMobileBackendForTests(): void {
+  // No state file since UC-1.0c (#142): commandService keeps its state in the
+  // process, so a reset is just an empty state rather than a fresh temp path.
   configureCommandService({
     initialState: createEmptyDomainState(),
     schedulerStore: null,
-    stateFile: resolveDataDir(`test-mobile-${randomUUID()}.json`),
   });
 }
 

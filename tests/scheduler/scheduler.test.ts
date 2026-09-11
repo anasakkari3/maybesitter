@@ -185,7 +185,6 @@ test('scheduler: crash replay does not duplicate effect', async () => {
   try {
     configureCommandService({
       initialState: state,
-      stateFile: `${db.path}.state.json`,
       schedulerStore: null,
     });
     store.createJob({
@@ -282,7 +281,6 @@ test('scheduler: tick evaluates agenda and pressure decision safely', async () =
     clearPressureHistory();
     configureCommandService({
       initialState: state,
-      stateFile: `${db.path}.state.json`,
       schedulerStore: null,
     });
 

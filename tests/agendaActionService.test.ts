@@ -51,7 +51,6 @@ function withState() {
 
   configureCommandService({
     initialState: state,
-    stateFile: join(dir, 'domain-state.json'),
     schedulerStore: null,
   });
 

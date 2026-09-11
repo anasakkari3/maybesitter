@@ -38,7 +38,7 @@ test('V03 live pilot: allowlist, consent, first value, calendar, and incident au
   // The pilot trust record lives in storage since UC-1.0b (#141).
   setStorageForTests(createMemoryStorage());
   configureCommandService({
-    stateFile: join(directory, 'domain-state.json'), schedulerStore: null,
+schedulerStore: null,
     initialState: { ...createEmptyDomainState(), commitments: { c1: commitment } },
   });
 

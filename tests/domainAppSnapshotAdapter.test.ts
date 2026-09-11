@@ -22,7 +22,6 @@ function withFreshCommandService(): () => void {
   clearPendingClarification();
   configureCommandService({
     initialState: createEmptyDomainState(),
-    stateFile: join(dir, 'domain-state.json'),
     schedulerStore: null,
   });
   return () => {

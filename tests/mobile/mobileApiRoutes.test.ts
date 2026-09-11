@@ -43,7 +43,6 @@ function setup(): () => void {
   configureCommandService({
     initialState: createEmptyDomainState(),
     schedulerStore: null,
-    stateFile: join(dir, 'domain-state.json'),
   });
   return () => rmSync(dir, { recursive: true, force: true });
 }
