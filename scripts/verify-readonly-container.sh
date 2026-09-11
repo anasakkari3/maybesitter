@@ -44,6 +44,7 @@ docker run -d --name "${CONTAINER}" \
   -p "${PORT}:8080" \
   -e MAYBESITTER_ENV=staging \
   -e MAYBESITTER_STORAGE_BACKEND=firestore \
+  -e MAYBESITTER_FIRESTORE_DATABASE_ID=staging \
   -e GOOGLE_CLOUD_PROJECT=demo-maybesitter \
   -e "FIRESTORE_EMULATOR_HOST=host.docker.internal:${FIRESTORE_PORT}" \
   -e "FIREBASE_AUTH_EMULATOR_HOST=host.docker.internal:${AUTH_PORT}" \

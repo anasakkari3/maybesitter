@@ -41,21 +41,26 @@ for api in firebase firestore run artifactregistry cloudbuild secretmanager \
 done
 
 # --- Firestore --------------------------------------------------------------
-if gcloud firestore databases describe --database='(default)' --project "${PROJECT_ID}" \
-    --format=json >"${workdir}/db.json" 2>/dev/null; then
-  ok "firestore (default) exists"
-  for pair in \
-    "\"locationId\": \"${REGION}\"|firestore in ${REGION}" \
-    '"type": "FIRESTORE_NATIVE"|firestore in native mode' \
-    '"pointInTimeRecoveryEnablement": "POINT_IN_TIME_RECOVERY_ENABLED"|firestore PITR enabled' \
-    '"deleteProtectionState": "DELETE_PROTECTION_ENABLED"|firestore delete protection on'; do
-    needle="${pair%%|*}"
-    desc="${pair##*|}"
-    if grep -q "${needle}" "${workdir}/db.json"; then ok "${desc}"; else bad "${desc}"; fi
-  done
-else
-  bad "firestore (default) missing"
-fi
+# Same list as infra/bootstrap.sh; tests/storage/firestoreDatabases.test.ts
+# checks the two agree with firebase.json and infra/cloudrun/flags.sh.
+FIRESTORE_DATABASES=('(default)' 'staging')
+for database in "${FIRESTORE_DATABASES[@]}"; do
+  if gcloud firestore databases describe --database="${database}" --project "${PROJECT_ID}" \
+      --format=json >"${workdir}/db.json" 2>/dev/null; then
+    ok "firestore ${database} exists"
+    for pair in \
+      "\"locationId\": \"${REGION}\"|firestore ${database} in ${REGION}" \
+      '"type": "FIRESTORE_NATIVE"|firestore '"${database}"' in native mode' \
+      '"pointInTimeRecoveryEnablement": "POINT_IN_TIME_RECOVERY_ENABLED"|firestore '"${database}"' PITR enabled' \
+      '"deleteProtectionState": "DELETE_PROTECTION_ENABLED"|firestore '"${database}"' delete protection on'; do
+      needle="${pair%%|*}"
+      desc="${pair##*|}"
+      if grep -q "${needle}" "${workdir}/db.json"; then ok "${desc}"; else bad "${desc}"; fi
+    done
+  else
+    bad "firestore ${database} missing"
+  fi
+done
 
 # --- Service accounts, and no user-managed keys anywhere --------------------
 gcloud projects get-iam-policy "${PROJECT_ID}" --format=json >"${workdir}/policy.json"

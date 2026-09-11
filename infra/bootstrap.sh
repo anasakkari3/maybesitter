@@ -67,19 +67,30 @@ else
   firebase projects:addfirebase "${PROJECT_ID}"
 fi
 
-say "Firestore (default) database"
-if gcloud firestore databases describe --database='(default)' --project "${PROJECT_ID}" >/dev/null 2>&1; then
-  echo "already exists"
-else
-  gcloud firestore databases create \
-    --database='(default)' \
-    --location="${REGION}" \
-    --type=firestore-native \
-    --delete-protection \
-    --project "${PROJECT_ID}"
-fi
-# Point-in-time recovery is the backup story; it is safe to re-apply.
-gcloud firestore databases update --database='(default)' --enable-pitr --project "${PROJECT_ID}"
+# Two databases in one project: production uses (default) and the staging
+# service uses `staging` (infra/cloudrun/flags.sh). Staging and production
+# share Firebase Auth, so the database is the only thing keeping staging's test
+# accounts out of production data; the app refuses to run staging on (default)
+# for that reason (lib/storage/firestoreAdapter). Keep this list in step with
+# FIRESTORE_DATABASES in infra/verify.sh and the `firestore` array in
+# firebase.json — tests/storage/firestoreDatabases.test.ts checks all three.
+FIRESTORE_DATABASES=('(default)' 'staging')
+for database in "${FIRESTORE_DATABASES[@]}"; do
+  say "Firestore ${database} database"
+  if gcloud firestore databases describe --database="${database}" --project "${PROJECT_ID}" >/dev/null 2>&1; then
+    echo "already exists"
+  else
+    gcloud firestore databases create \
+      --database="${database}" \
+      --location="${REGION}" \
+      --type=firestore-native \
+      --delete-protection \
+      --project "${PROJECT_ID}"
+  fi
+  # Point-in-time recovery is the backup story. Both settings are re-applied on
+  # every run, so a database that predates them is brought into line too.
+  gcloud firestore databases update --database="${database}" --enable-pitr --delete-protection --project "${PROJECT_ID}"
+done
 
 say "Artifact Registry"
 if gcloud artifacts repositories describe "${ARTIFACT_REPO}" \
