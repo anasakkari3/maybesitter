@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {
   countDistinctInstances,
   finalStateFrom,
+  finalStatusFromCommitmentStatus,
+  jobRanExactlyOnce,
   latestByUpdatedAt,
   revisionChanged,
   summaryExitCode,
@@ -84,4 +86,25 @@ test('a redeploy that did not change the revision proves nothing', () => {
 test('any failed check fails the run', () => {
   assert.equal(summaryExitCode({ checks: { a: 'pass', b: 'pass' } }), 0);
   assert.equal(summaryExitCode({ checks: { a: 'pass', b: 'fail' } }), 1);
+});
+
+test('the domain status words are translated, not compared directly', () => {
+  // `deferred`/`dropped` are what the domain says; `postponed`/`cancelled` are
+  // what finalStateFrom answers. Comparing them raw would pass while wrong.
+  assert.equal(finalStatusFromCommitmentStatus('completed'), 'completed');
+  assert.equal(finalStatusFromCommitmentStatus('deferred'), 'postponed');
+  assert.equal(finalStatusFromCommitmentStatus('dropped'), 'cancelled');
+  for (const untouched of ['active', 'draft', 'missed', 'pending_confirmation', '']) {
+    assert.equal(finalStatusFromCommitmentStatus(untouched), 'unchanged', untouched);
+  }
+});
+
+test('a job counts as run exactly once only when one attempt reached a terminal state', () => {
+  assert.equal(jobRanExactlyOnce({ status: 'completed', attempts: 1 }), true);
+  // A rejected command is still exactly one execution.
+  assert.equal(jobRanExactlyOnce({ status: 'failed', attempts: 1 }), true);
+  assert.equal(jobRanExactlyOnce({ status: 'completed', attempts: 2 }), false, 'ran twice');
+  assert.equal(jobRanExactlyOnce({ status: 'claimed', attempts: 1 }), false, 'never finished');
+  assert.equal(jobRanExactlyOnce({ status: 'pending', attempts: 0 }), false, 'never started');
+  assert.equal(jobRanExactlyOnce(null), false);
 });
