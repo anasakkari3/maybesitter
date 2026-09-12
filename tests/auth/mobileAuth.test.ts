@@ -30,6 +30,7 @@ import {
 import { applyTrustAction } from '../../lib/pilot/pilotTrustStore.ts';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
+import { setAccountDirectoryForTests } from '../../lib/auth/accountDirectory.ts';
 import { userDoc } from '../../lib/storage/paths.ts';
 import type { StorageAdapter } from '../../lib/storage/storageAdapter.ts';
 
@@ -65,7 +66,11 @@ function request(authorization?: string): Request {
 function setup(verifier: TokenVerifier, storage: StorageAdapter = createMemoryStorage()): () => void {
   setStorageForTests(storage);
   setTokenVerifierForTests(verifier);
+  // The uid this verifier reports is an account that exists, unless a test says
+  // otherwise. Since #149 the auth path checks before creating a tree.
+  setAccountDirectoryForTests({ async exists() { return true; } });
   return () => {
+    setAccountDirectoryForTests(null);
     resetTokenVerifierForTests();
     resetStorageForTests();
   };
@@ -250,6 +255,66 @@ test('mobile auth: forceRevocationCheck is passed through, and is off by default
     await requireMobileUser(request('Bearer any.jwt.here'), { forceRevocationCheck: true });
     assert.deepEqual(seen, [false, true]);
   } finally {
+    teardown();
+  }
+});
+
+/* ── A deleted account cannot rebuild itself ─────────────────────── */
+
+test('mobile auth: a token for an account Firebase no longer has is refused, and no tree is created', async () => {
+  // Found on staging, not here and not in the emulator (#149). Verifying an ID
+  // token is offline work, so a token minted before a deletion keeps verifying
+  // until it expires. The first request after the deletion found no
+  // `users/{uid}` document, created one, and answered 200 — the account shell
+  // restored and the deletion undone.
+  const storage = createMemoryStorage();
+  const teardown = setup(verifierFor(UID), storage);
+  setAccountDirectoryForTests({ async exists() { return false; } });
+  try {
+    await assert.rejects(
+      () => requireMobileUser(request('Bearer any.jwt.here')),
+      (error: unknown) => (error as { reason?: string }).reason === 'deleted',
+      'a token for a deleted account still authenticated',
+    );
+    assert.equal(await storage.get(userDoc(UID)), null, 'the refused request created an account document anyway');
+  } finally {
+    setAccountDirectoryForTests(null);
+    teardown();
+  }
+});
+
+test('mobile auth: a genuine first sign-in still gets a trust record', async () => {
+  // The guard above must not turn every new user away. This is the case it has
+  // to keep working, and the reason the check runs only when there is no record.
+  const storage = createMemoryStorage();
+  const teardown = setup(verifierFor(UID), storage);
+  const asked: string[] = [];
+  setAccountDirectoryForTests({ async exists(uid) { asked.push(uid); return true; } });
+  try {
+    assert.equal((await requireMobileUser(request('Bearer any.jwt.here'))).uid, UID);
+    assert.ok(await storage.get(userDoc(UID)), 'a real first sign-in got no account document');
+    assert.deepEqual(asked, [UID]);
+
+    // Second request: the record exists, so Firebase is not asked again.
+    await requireMobileUser(request('Bearer any.jwt.here'));
+    assert.deepEqual(asked, [UID], 'every request now costs a Firebase lookup');
+  } finally {
+    setAccountDirectoryForTests(null);
+    teardown();
+  }
+});
+
+test('mobile auth: an unreachable directory refuses rather than admitting', async () => {
+  const teardown = setup(verifierFor(UID));
+  setAccountDirectoryForTests({ async exists() { throw new Error('firebase unreachable'); } });
+  try {
+    await assert.rejects(
+      () => requireMobileUser(request('Bearer any.jwt.here')),
+      (error: unknown) => (error as { status?: number }).status === 503,
+      'an unreachable directory admitted the caller',
+    );
+  } finally {
+    setAccountDirectoryForTests(null);
     teardown();
   }
 });

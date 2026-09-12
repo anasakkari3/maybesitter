@@ -165,13 +165,14 @@ test('the receipt proves the deletion without identifying who was deleted', asyn
   }
 });
 
-test('a deletion interrupted before the Firebase user is removed finishes on resume, with one receipt', async () => {
+test('a deletion interrupted partway finishes on resume, with one receipt', async () => {
   const storage = begin();
   try {
     await seedAccount(storage, TARGET);
 
-    // Dies exactly where the acceptance criterion says: after the tree, before
-    // the auth user.
+    // Dies removing the Firebase account, which is now the step before the
+    // tree: an ID token verifies offline, so the account has to go first or a
+    // request arriving mid-deletion can recreate the tree behind the sweep.
     const failing = fakeAuth({
       deleteUser: async () => {
         throw new Error('instance went away');
@@ -182,9 +183,12 @@ test('a deletion interrupted before the Firebase user is removed finishes on res
     const subjectHash = subjectHashFor(TARGET, PEPPER);
     const midway = await storage.get<DeletionJobRecord>(`${ACCOUNT_DELETIONS}/${subjectHash}`);
     assert.equal(midway?.status, 'in_progress');
-    assert.equal(midway?.steps.userTree, 'done', 'the tree was not deleted before the failure');
-    assert.equal(midway?.steps.authUser, undefined, 'the auth user was somehow deleted');
-    assert.deepEqual(await remainingFor(storage, TARGET), [], 'the data is still there after a partial run');
+    assert.equal(midway?.steps.topLevelDocs, 'done', 'the sweep did not get as far as the top-level records');
+    assert.equal(midway?.steps.userTree, undefined, 'the tree was deleted before the account was removed');
+    // Interrupted, so the tree is still there — and the account is already
+    // denied, which is what stops it from being used in the meantime.
+    const user = await storage.get<{ trust?: { deletedAt?: string } }>(userDoc(TARGET));
+    assert.ok(user?.trust?.deletedAt, 'an interrupted deletion left the account usable');
 
     // The maintenance sweep, once the job looks abandoned.
     const auth = fakeAuth();
