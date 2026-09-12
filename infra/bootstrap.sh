@@ -141,6 +141,9 @@ add_role() { gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
   --member="serviceAccount:${1}" --role="${2}" --condition=None >/dev/null; }
 add_role "${RUN_SA}" roles/datastore.user
 add_role "${RUN_SA}" roles/firebaseauth.admin
+# UC-2.0 (#160): calling Gemini on Vertex AI. The narrowest role that allows
+# predict/generateContent; it grants no training, no tuning and no data access.
+add_role "${RUN_SA}" roles/aiplatform.user
 # run.admin, not run.developer: infra/cloudrun/flags.sh deploys with
 # --allow-unauthenticated (the app authenticates every request itself), and
 # making a service public needs run.services.setIamPolicy, which run.developer

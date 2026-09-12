@@ -1,3 +1,5 @@
+import { toVertexSchema } from './llm/vertexSchema';
+
 /**
  * Native Ollama structured-output schema for the production ExtractionResult.
  * Keep this aligned with schemaValidator.ts.
@@ -95,3 +97,13 @@ export const OLLAMA_EXTRACTION_SCHEMA = {
     'explicitPressureRequest',
   ],
 } as const;
+
+/**
+ * The same schema in the dialect Vertex accepts (UC-2.0, #160).
+ *
+ * Derived, not written out again: two hand-kept copies drift the first time a
+ * field is added, and the drift is silent — the model would be asked for a
+ * shape the validator does not expect, and every capture would fall back to
+ * rules while looking configured.
+ */
+export const GEMINI_EXTRACTION_SCHEMA = toVertexSchema(OLLAMA_EXTRACTION_SCHEMA);

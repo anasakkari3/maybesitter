@@ -1,3 +1,4 @@
+import { LLMUnavailableError } from './llm/llmProvider';
 /**
  * Ollama HTTP client.
  *
@@ -17,12 +18,14 @@ const LLM_MODEL = process.env.MAYBESITTER_LLM_MODEL ?? 'llama3.2';
 const LLM_TIMEOUT_MS = Number(process.env.MAYBESITTER_LLM_TIMEOUT_MS) || 10_000;
 
 /** Thrown when Ollama is unreachable or returns a 5xx error. Callers should fallback gracefully. */
-export class LLMUnavailableError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'LLMUnavailableError';
-  }
-}
+/**
+ * Re-exported, not redeclared (UC-2.0, #160).
+ *
+ * This file used to own the class. Two classes with one name meant
+ * `instanceof` was false across the seam, so a retry policy written against
+ * one would silently not apply to the other.
+ */
+export { LLMUnavailableError } from './llm/llmProvider';
 
 interface OllamaGenerateResponse {
   response: string;
@@ -64,14 +67,17 @@ export async function callOllama(prompt: string): Promise<string> {
   } catch (err: unknown) {
     // Network errors, ECONNREFUSED, AbortError (timeout) all land here
     const message = err instanceof Error ? err.message : String(err);
-    throw new LLMUnavailableError(`Ollama unreachable: ${message}`);
+    throw new LLMUnavailableError('unavailable', `Ollama unreachable: ${message}`);
   } finally {
     clearTimeout(timer);
   }
 
   if (response.status >= 500) {
     const body = await response.text().catch(() => '');
-    throw new LLMUnavailableError(`Ollama server error ${response.status}${body ? ': ' + body.slice(0, 120) : ''}`);
+    throw new LLMUnavailableError(
+      response.status === 429 ? 'rate_limited' : 'server_error',
+      `Ollama server error ${response.status}${body ? ': ' + body.slice(0, 120) : ''}`,
+    );
   }
 
   if (!response.ok) {
