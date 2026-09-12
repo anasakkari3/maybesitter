@@ -22,11 +22,19 @@ export function parseLink(url: string): { name: string; lang?: Lang; theme?: The
   return link;
 }
 
-export function useLinks(handlers: {
-  jump: (name: string) => void;
-  setLang: (l: Lang) => void;
-  setThemePref: (t: ThemePref) => void;
-}) {
+export function useLinks(
+  handlers: {
+    jump: (name: string) => void;
+    setLang: (l: Lang) => void;
+    setThemePref: (t: ThemePref) => void;
+  },
+  /**
+   * A link that arrived while the sign-in gate was up, handed over exactly
+   * once (UC-1.7 #151). `Linking.getInitialURL()` cannot see it: the app was
+   * already running when it came in, and this hook mounts only after sign-in.
+   */
+  takePendingLink?: () => string | null,
+) {
   useEffect(() => {
     const apply = (url: string | null) => {
       if (!url) return;
@@ -36,7 +44,9 @@ export function useLinks(handlers: {
       if (link.theme) handlers.setThemePref(link.theme);
       if (link.name) handlers.jump(link.name);
     };
-    Linking.getInitialURL().then(apply).catch(() => {});
+    const pending = takePendingLink?.() ?? null;
+    if (pending) apply(pending);
+    else Linking.getInitialURL().then(apply).catch(() => {});
     const sub = Linking.addEventListener('url', e => apply(e.url));
     return () => sub.remove();
     // handlers are recreated each render; the subscription only needs to exist once

@@ -30,8 +30,30 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   scheme: 'maybesitter',
   // One identifier on both platforms and in every profile: the app has never
   // shipped, and one Firebase project needs exactly one iOS and one Android app.
-  ios: { ...config.ios, bundleIdentifier: 'com.maybesitter.app', supportsTablet: false },
-  android: { ...config.android, package: 'com.maybesitter.app' },
+  ios: {
+    ...config.ios,
+    bundleIdentifier: 'com.maybesitter.app',
+    supportsTablet: false,
+    // Committed on purpose (UC-1.7 #151): these files identify the Firebase
+    // project and authorise nothing. The API keys they carry are restricted to
+    // this bundle id / package name and to Identity Toolkit, Token Service and
+    // Firebase Installations.
+    googleServicesFile: './firebase/GoogleService-Info.plist',
+  },
+  android: {
+    ...config.android,
+    package: 'com.maybesitter.app',
+    googleServicesFile: './firebase/google-services.json',
+  },
+  plugins: [
+    ...(config.plugins ?? []),
+    '@react-native-firebase/app',
+    '@react-native-firebase/auth',
+    // React Native Firebase's iOS SDK needs static frameworks under Expo's
+    // prebuild; without this the pods link dynamically and the app crashes on
+    // launch. The deployment target follows the Firebase Apple SDK's minimum.
+    ['expo-build-properties', { ios: { useFrameworks: 'static', deploymentTarget: '16.4' } }],
+  ],
   extra: {
     ...config.extra,
     appEnv: APP_ENV,

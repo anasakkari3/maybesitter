@@ -35,15 +35,43 @@ Rules the design fixes, which code must keep:
 ## Layout
 
 ```
-App.tsx              fonts + providers
-src/Root.tsx         screen switch, tab bar, sheet host
+App.tsx              fonts + providers + the sign-in gate
+src/Root.tsx         screen switch, tab bar, sheet host (signed-in only)
+src/auth/            AuthProvider/useAuth, AuthGate, the repositories, dev override
 src/state/           AppContext (state + actions), seed data, types, derive helpers
 src/services/        mockCapture (stand-in for POST /api/mobile/capture)
 src/screens/         one file per design screen, Sheets.tsx, TabBar.tsx
 src/ui/              primitives (Txt, Btn, Pill, Card…), icons (SVG), motion
 src/i18n/strings.ts  all copy, ar + en
 src/theme/           tokens (light/dark palettes), fonts
+src/config/          env + the release config guard shared with app.config.ts
+firebase/            the committed Firebase app config for both platforms
 ```
+
+## Auth
+
+`AuthGate` (`src/auth/AuthGate.tsx`) decides what renders: a blank hold while
+Firebase answers, the sign-in screen when nobody is, and `Root` once someone
+is. UC-1.7 (#151) specified this as expo-router `Stack.Protected` guards; this
+app has no `app/` directory, so the same invariant is enforced in the
+navigation the app actually has. Onboarding (UC-2.R1 #171) composes in as the
+gate's `onboarding` slot when it lands.
+
+Rules that hold here:
+
+- **One module imports the Firebase auth SDK** — `firebaseAuthRepository.ts`.
+  A test asserts it, so the "never log an ID token" rule is one file to read.
+- **Nothing in `src/auth/` calls `console.*`.** Also asserted.
+- **The dev bypass needs four conditions at once** (`devBypass.ts`): a
+  development bundle, `APP_ENV=development`, a non-empty
+  `EXPO_PUBLIC_DEV_BEARER_TOKEN`, and an API host on the developer's machine.
+  `releaseGuard.ts` additionally fails the *build* if the variable is set for
+  staging or production, so a binary that could honour it is never made.
+- **Sign-in failures never say which half was wrong**, and a password reset
+  reports the same thing whether or not the account exists.
+- **`firebase/google-services.json` and `firebase/GoogleService-Info.plist`
+  are committed on purpose** (#151). `.gitignore` negates them explicitly
+  because many global gitignores exclude both by name.
 
 ## Backend
 

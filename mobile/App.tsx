@@ -3,6 +3,8 @@ import { View } from 'react-native';
 import { useFonts } from 'expo-font';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppProvider } from './src/state/AppContext';
+import { AuthGate } from './src/auth/AuthGate';
+import { AuthProvider } from './src/auth/AuthProvider';
 import { Root } from './src/Root';
 import { fontMap } from './src/theme/fonts';
 
@@ -16,7 +18,13 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <AppProvider>
-        <Root />
+        {/* Auth sits inside AppProvider so the sign-in screen is themed and
+            localised the same way every other screen is. */}
+        <AuthProvider>
+          <AuthGate>
+            <Root />
+          </AuthGate>
+        </AuthProvider>
       </AppProvider>
     </SafeAreaProvider>
   );
