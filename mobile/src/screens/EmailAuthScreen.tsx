@@ -116,6 +116,10 @@ export function EmailAuthScreen({ onBack, initialMode = 'signIn' }: { onBack: ()
         <View style={{ gap: 8 }}>
           <Txt size={13} color={p.mu}>{t.authEmailLabel}</Txt>
           <TextInput
+            // A stable handle for Maestro. The visible label is localised and
+            // duplicated by the field's own caption, so matching on text is
+            // both locale-dependent and ambiguous.
+            testID="authEmailInput"
             accessibilityLabel={t.authEmailLabel}
             value={email}
             onChangeText={setEmail}
@@ -138,6 +142,7 @@ export function EmailAuthScreen({ onBack, initialMode = 'signIn' }: { onBack: ()
           <View style={{ gap: 8 }}>
             <Txt size={13} color={p.mu}>{t.authPasswordLabel}</Txt>
             <TextInput
+              testID="authPasswordInput"
               accessibilityLabel={t.authPasswordLabel}
               value={password}
               onChangeText={setPassword}
