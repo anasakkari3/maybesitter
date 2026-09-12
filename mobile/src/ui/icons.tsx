@@ -122,3 +122,25 @@ export function GoogleG({ size = 18 }: { size?: number }) {
     </Svg>
   );
 }
+
+/**
+ * The Apple logo, for the sign-in button (UC-1.1 #145).
+ *
+ * Apple's Human Interface Guidelines allow the mark in one colour — here
+ * white on the black button — and forbid altering its shape. Before store
+ * submission, diff this against Apple's own asset rather than trusting it.
+ */
+export function AppleMark({ size = 18, color = '#FFFFFF' }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path
+        fill={color}
+        d="M17.05 12.54c.02-2.2 1.79-3.26 1.87-3.31-1.02-1.5-2.61-1.7-3.17-1.73-1.35-.14-2.63.79-3.31.79-.7 0-1.75-.77-2.88-.75-1.48.02-2.85.86-3.61 2.19-1.54 2.68-.39 6.64 1.11 8.81.74 1.06 1.62 2.25 2.78 2.21 1.11-.04 1.53-.72 2.87-.72 1.33 0 1.71.72 2.88.7 1.19-.02 1.95-1.08 2.68-2.15.84-1.22 1.19-2.41 1.21-2.47-.03-.01-2.32-.89-2.34-3.53z"
+      />
+      <Path
+        fill={color}
+        d="M14.86 5.87c.6-.73 1.01-1.74.9-2.75-.87.04-1.92.58-2.54 1.3-.56.64-1.04 1.67-.91 2.66.97.07 1.95-.49 2.55-1.21z"
+      />
+    </Svg>
+  );
+}

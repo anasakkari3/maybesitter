@@ -4,6 +4,7 @@ import { useApp } from '../state/AppContext';
 import { useAuth } from './AuthProvider';
 import { EmailAuthScreen } from '../screens/EmailAuthScreen';
 import { SignInScreen } from '../screens/SignInScreen';
+import { AppleSignInButton } from './AppleSignInButton';
 import { GoogleSignInButton } from './GoogleSignInButton';
 
 /**
@@ -31,7 +32,8 @@ export function AuthGate({
   children,
   onboarding,
   onboardingComplete = true,
-  appleSlot,
+  /** Defaults to the real Apple button, which hides itself when unavailable. */
+  appleSlot = <AppleSignInButton />,
   /** Defaults to the real Google button, which hides itself when unconfigured. */
   googleSlot = <GoogleSignInButton />,
   /** The email flow this gate opens; tests use it to start on a given mode. */

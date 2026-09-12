@@ -99,6 +99,15 @@ describe('iOS hardening', () => {
       'group.com.maybesitter.app',
     ]);
   });
+
+  it('declares Sign in with Apple, whose entitlement Expo derives (#145)', () => {
+    // Declared now rather than when Apple is switched on: adding an
+    // entitlement later re-provisions the whole build.
+    for (const profile of PROFILES) {
+      expect((configs[profile].ios as { usesAppleSignIn?: boolean }).usesAppleSignIn).toBe(true);
+      expect(configs[profile].ios.entitlements?.['com.apple.developer.applesignin']).toEqual(['Default']);
+    }
+  });
 });
 
 describe('Android hardening', () => {

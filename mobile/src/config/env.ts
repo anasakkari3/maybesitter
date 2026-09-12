@@ -105,3 +105,16 @@ export function googleWebClientId(): string | null {
   const value = extra().googleWebClientId;
   return typeof value === 'string' && value.trim() !== '' ? value : null;
 }
+
+/**
+ * Whether this build offers Sign in with Apple (UC-1.1 #145).
+ *
+ * Off by default. The code is complete for iOS, but it cannot work until the
+ * owner has enabled the capability on the App ID `com.maybesitter.app` and
+ * filled the Apple provider (Services ID, Team ID, Key ID, private key) into
+ * the Firebase console. Until then the button is hidden rather than shown and
+ * failing — the flag is the switch that turns it on with no code change.
+ */
+export function appleSignInEnabled(): boolean {
+  return (process.env.EXPO_PUBLIC_APPLE_SIGN_IN_ENABLED ?? '').trim() === 'true';
+}

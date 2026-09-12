@@ -90,6 +90,11 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     ...config.ios,
     bundleIdentifier: 'com.maybesitter.app',
     supportsTablet: false,
+    // Adds the entitlement at prebuild (UC-1.1 #145). The capability still
+    // has to be enabled on the App ID in the Apple Developer portal; EAS
+    // syncs it at build time. Declared now because adding it later
+    // re-provisions the whole build.
+    usesAppleSignIn: true,
     infoPlist: {
       ...config.ios?.infoPlist,
       // The launcher name, which `name` above only sets for the project.
