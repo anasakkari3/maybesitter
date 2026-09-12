@@ -97,7 +97,17 @@ test('a commitment made on one device is visible to another device on the same a
 
     // The capture says "tomorrow at 9", so it belongs to Upcoming rather than
     // Today — the list it lands in is the product's, not this test's to choose.
-    const upcoming = await (await upcomingGet(request(uid, '/api/mobile/commitments/upcoming'))).json() as { items: Array<{ id: string }> };
+    //
+    // The list is asked in the same zone the capture was made in. Omitting it
+    // fell back to `DEFAULT_MOBILE_TIMEZONE` (Asia/Jerusalem) while the capture
+    // above declared UTC, and "tomorrow" in one zone is "today" in a zone three
+    // hours ahead: between 21:00 and 24:00 UTC the commitment resolved to the
+    // list's *current* local day, `localDayKey(resolved) > today` was false, and
+    // Upcoming came back empty. A real client sends `deviceTimeZone()` on both
+    // calls, so the disagreement was this test's rather than the product's.
+    const upcoming = await (await upcomingGet(
+      request(uid, '/api/mobile/commitments/upcoming?timezone=UTC'),
+    )).json() as { items: Array<{ id: string }> };
     assert.deepEqual(upcoming.items.map((item) => item.id), [commitmentId], 'the second device does not see the commitment in its list');
 
     // And the same id on another account is simply not there.
