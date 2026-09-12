@@ -2,12 +2,15 @@
 #
 # Firestore TTL policies (UC-1.0c, #142).
 #
-# Three collections hold data with a retention limit rather than a lifetime:
+# These collections hold data with a retention limit rather than a lifetime:
 #
-#   alphaTraces      30 days  - raw capture text captured for alpha review
-#   clarifications   24 hours - a half-finished question, worthless once stale
-#   analyticsEvents  400 days - product metrics
-#   captureProposals 24 hours - a proposal awaiting confirmation (#252)
+#   alphaTraces       30 days  - raw capture text captured for alpha review
+#   clarifications    24 hours - a half-finished question, worthless once stale
+#   analyticsEvents   400 days - product metrics
+#   captureProposals  24 hours - a proposal awaiting confirmation (#252)
+#   deletionReceipts  400 days - proof a deletion happened, naming nobody (#149)
+#   accountDeletions  30 days  - the deletion job, kept only so a repeat request
+#                                is idempotent; it holds no uid once done (#149)
 #
 # Retention is enforced by Firestore rather than by a cron job we have to keep
 # alive: each document is written with an `expiresAt` timestamp and the TTL
