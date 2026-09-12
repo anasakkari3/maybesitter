@@ -17,6 +17,7 @@ import {
   UnauthorizedError,
   ValidationError,
 } from './errors';
+import { mockResponseFor } from './mockAdapter';
 import { commitmentSchema } from './schemas/common';
 
 /**
@@ -207,7 +208,13 @@ export async function apiRequestTagged<T>(
   const target = url(path, options.query);
   const expected = options.expectStatus ?? 200;
 
-  let response = await send(method, target, options.body, await getIdToken(), options.signal, options.ifMatch);
+  // Development only, and impossible in a release build three times over
+  // (see ./mockAdapter.ts). Placed here so every endpoint, error type and
+  // schema check below is exercised exactly as it is against a real server.
+  const mocked = mockResponseFor(method, path);
+  let response: RawResponse = mocked
+    ? { status: mocked.status, body: mocked.body, etag: null }
+    : await send(method, target, options.body, await getIdToken(), options.signal, options.ifMatch);
 
   if (response.status === 401 && refusal(response.body).reason === 'recent_login_required') {
     // Before the refresh, and before any sign-out (#149).
