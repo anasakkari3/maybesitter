@@ -98,6 +98,63 @@ jobs:
           test "$(docker inspect --format '{{.Config.User}}' maybesitter-api:ci)" = node
           docker rm -f api
 
+  durability-local:
+    name: Durability (local)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    # UC-1.9 (#153): the read-only container check is the half of the durability
+    # proof that needs no cloud project. It runs the real image with a read-only
+    # root filesystem against the Firestore and Auth emulators, and fails if any
+    # code path writes to local disk — which is how a store that quietly falls
+    # back to the filesystem is caught before a deploy, not after.
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Start the Firestore and Auth emulators
+        run: |
+          # The read-only container below reaches these through
+          # host.docker.internal, so they have to accept connections from the
+          # docker bridge. The emulators bind 127.0.0.1 by default: on Docker
+          # Desktop that still works, because it proxies to host loopback, but
+          # on a Linux runner the connection simply hangs until the storage
+          # probe times out. Binding 0.0.0.0 is scoped to this generated config.
+          node -e "const c=require('./firebase.json'),e=c.emulators||{};c.emulators={...e,firestore:{...e.firestore,host:'0.0.0.0',port:8080},auth:{...e.auth,host:'0.0.0.0',port:9099},ui:{enabled:false}};require('fs').writeFileSync('.firebase-ci.json',JSON.stringify(c,null,2))"
+          npx --yes firebase-tools@14 emulators:start --only firestore,auth \
+            --project demo-maybesitter --config .firebase-ci.json >/tmp/emulators.log 2>&1 &
+          for _ in $(seq 1 60); do
+            if nc -z 127.0.0.1 8080 && nc -z 127.0.0.1 9099; then exit 0; fi
+            sleep 1
+          done
+          echo "emulators never came up"; tail -20 /tmp/emulators.log; exit 1
+
+      # `npm test` uses the memory adapter, which stores whatever JSON accepts.
+      # Firestore does not, and the emulator suite that would say so ran in no
+      # workflow at all — so #252's fix shipped a nested array, CI stayed green,
+      # and capture answered 400 on the first real request in staging. These
+      # attach to the emulators started above rather than nesting another pair.
+      - name: The emulator suite, against real Firestore and Auth
+        env:
+          FIRESTORE_EMULATOR_HOST: 127.0.0.1:8080
+          FIREBASE_AUTH_EMULATOR_HOST: 127.0.0.1:9099
+          GCLOUD_PROJECT: demo-maybesitter
+        run: npm run test:emulator:attach
+
+      # Fails on EROFS in the logs, on a service that never reports ready, or on
+      # any `docker diff` entry outside /tmp.
+      - name: The image serves with a read-only root filesystem
+        run: scripts/verify-readonly-container.sh
+
   mobile:
     name: Mobile app
     runs-on: ubuntu-latest

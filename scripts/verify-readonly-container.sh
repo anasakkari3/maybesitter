@@ -37,11 +37,17 @@ echo "==> building ${IMAGE}"
 docker build --build-arg "GIT_SHA=readonly-check" -t "${IMAGE}" . >/dev/null
 
 echo "==> starting it with a read-only root filesystem"
+# `host.docker.internal` is how the container reaches the emulators on the host.
+# Docker Desktop provides it, a Linux daemon does not, so on a CI runner the
+# name did not resolve, the storage probe timed out, and readiness never came —
+# a networking failure that looks exactly like a broken image. The explicit
+# host-gateway mapping makes the two behave the same.
 docker rm -f "${CONTAINER}" >/dev/null 2>&1 || true
 docker run -d --name "${CONTAINER}" \
   --read-only \
   --tmpfs /tmp:rw,size=16m \
   -p "${PORT}:8080" \
+  --add-host "host.docker.internal:host-gateway" \
   -e MAYBESITTER_ENV=staging \
   -e MAYBESITTER_STORAGE_BACKEND=firestore \
   -e MAYBESITTER_FIRESTORE_DATABASE_ID=staging \

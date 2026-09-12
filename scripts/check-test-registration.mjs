@@ -21,6 +21,20 @@ export const SCRIPT_ONLY = {
 export function registrationProblems(root = process.cwd()) {
   const scripts = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).scripts;
   const inScript = (name, file) => (scripts[name] ?? '').split(/\s+/).includes(file);
+  /**
+   * A script's text with whatever it delegates to spliced in. `test:emulator`
+   * starts the emulators and hands the file pattern to `test:emulator:attach`,
+   * so that CI can run the same pattern against emulators it started itself.
+   * Reading only the outer script would report every emulator test as unowned.
+   */
+  const expandScript = (name, seen = new Set()) => {
+    if (seen.has(name)) return '';
+    seen.add(name);
+    return (scripts[name] ?? '').replace(
+      /npm run (?:-s )?([\w:-]+)/g,
+      (reference, target) => `${reference} ${expandScript(target, seen)}`,
+    );
+  };
   const tracked = execFileSync('git', ['ls-files', 'tests'], { cwd: root, encoding: 'utf8' })
     .split('\n')
     .filter((file) => file.endsWith('.test.ts'));
@@ -33,7 +47,7 @@ export function registrationProblems(root = process.cwd()) {
     // them by pattern rather than by name; the guard still bites, because a
     // pattern that stopped covering them would leave them unowned here.
     if (file.endsWith('.emulator.test.ts')) {
-      if ((scripts['test:emulator'] ?? '').includes('*.emulator.test.ts')) continue;
+      if (expandScript('test:emulator').includes('*.emulator.test.ts')) continue;
       problems.push(`${file} is an emulator test but test:emulator does not run *.emulator.test.ts`);
       continue;
     }
