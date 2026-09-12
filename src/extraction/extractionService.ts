@@ -1,3 +1,4 @@
+import { LLMUnavailableError } from './llm/llmProvider';
 import { extractWithOllama, type LLMProviderFunction } from './ollamaExtractor';
 import { screenForInjection } from './injectionBoundary';
 import { extract as ruleBasedExtract } from './ruleBasedExtractor';
@@ -48,7 +49,16 @@ export interface ExtractWithFallbackResult {
   fallbackReason: string | null;
 }
 
+/**
+ * Why the model did not answer, in words that are ours (UC-2.0, #160).
+ *
+ * This reason reaches the client in `provenance.fallbackReason`. A provider's
+ * error message can quote the request it failed on, and the request is the
+ * sentence the user typed — so an `LLMUnavailableError` contributes only its
+ * machine-readable reason, never its message.
+ */
 function fallbackReasonFrom(error: unknown): string {
+  if (error instanceof LLMUnavailableError) return `llm_unavailable:${error.reason}`;
   return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
 }
 
