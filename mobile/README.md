@@ -127,3 +127,63 @@ No `iosUrlScheme` is configured by hand. The config plugin reads
 `npx expo config --type introspect` shows as a `CFBundleURLSchemes` entry
 alongside `maybesitter`. If that entry is missing, the plist is not being
 picked up as `ios.googleServicesFile`.
+
+## Release builds
+
+```bash
+eas build -p all --profile production
+eas build -p all --profile staging      # internal distribution
+eas submit -p android --profile production --latest
+eas submit -p ios --profile production --latest
+```
+
+`eas.json` sets `appVersionSource: remote`, so EAS owns the build numbers and
+nothing in the repository has to be bumped by hand.
+
+### Before a build reaches anyone
+
+```bash
+npm run check:no-credentials                 # nothing signing-related is tracked by git
+npm run verify:release-android -- path/to/app.aab
+```
+
+`verify:release-android` reads the AAB itself rather than the config that was
+meant to produce it, and checks the four things that have shipped wrong in
+real projects: a debug-signed release, a missing `INTERNET` permission in the
+*merged* manifest, backup left on, and no `dataExtractionRules`. It also
+prints the signing certificate so the EAS upload key can be told apart from a
+debug key at a glance.
+
+The config-level equivalents run in CI as
+`src/config/__tests__/appConfig.test.ts`, which asserts against
+`expo config --type introspect` — what the plugins actually produce — rather
+than against this file's source. That is how the
+`NSAllowsArbitraryLoads: true` that Expo SDK 57 puts in *every* profile's
+Info.plist was found.
+
+### Credentials
+
+Nothing signing-related lives in this repository, and
+`npm run check:no-credentials` fails CI if it ever does.
+
+| What | Where it lives |
+|---|---|
+| Android upload keystore | generated and held by EAS (`eas credentials -p android`); the owner keeps one downloaded backup in their password manager |
+| Android app signing key | held by Google (Play App Signing); its SHA-1 must be added to Firebase after the first upload |
+| iOS distribution certificate and provisioning profile | created and held by EAS (`eas credentials -p ios`) |
+| Play service-account key | uploaded to EAS, never a path in the repo |
+| `ascAppId` | a public numeric id the owner fills into `eas.json` `submit.production.ios` |
+
+### Per-profile public configuration
+
+Set with `eas env:create --visibility plaintext`. All of these are public
+identifiers; a secret must never go into an `EXPO_PUBLIC_*` name, because
+every one of them is compiled into the JavaScript bundle.
+
+| Variable | Notes |
+|---|---|
+| `EXPO_PUBLIC_API_BASE_URL` | the Cloud Run URL for that profile; must be https and not a private host, or the build stops (CFG-1) |
+| `EXPO_PUBLIC_PRIVACY_URL`, `EXPO_PUBLIC_TERMS_URL` | when unset, the sign-in screen renders no legal links rather than dead ones |
+| `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` | normally unset — read from the committed `google-services.json` |
+| `EXPO_PUBLIC_DEV_BEARER_TOKEN` | must never be set outside development; the build fails if it is |
+| `EXPO_PUBLIC_API_MODE` | must never be `mock` outside development; the build fails if it is |

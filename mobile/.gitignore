@@ -12,11 +12,21 @@ expo-env.d.ts
 # Native
 .kotlin/
 *.orig.*
+
+# Signing material and service accounts (UC-1.6a #150 step 4). None of this
+# belongs in the repository: EAS holds the keystore and the Apple certificates,
+# and the Play service-account key is uploaded to EAS rather than committed.
+# `npm run check:no-credentials` fails the build if any of it is ever tracked.
 *.jks
+*.keystore
 *.p8
 *.p12
 *.key
 *.mobileprovision
+*.cer
+*.certSigningRequest
+credentials.json
+*service-account*.json
 
 # Metro
 .metro-health-check*

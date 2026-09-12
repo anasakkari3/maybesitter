@@ -10,7 +10,12 @@ import { APP_ENVS, releaseConfigProblems, type AppEnv } from './releaseGuard';
  * whatever host it was handed.
  */
 
-type Extra = { appEnv?: string; apiBaseUrl?: string | null; googleWebClientId?: string | null };
+type Extra = {
+  appEnv?: string;
+  apiBaseUrl?: string | null;
+  googleWebClientId?: string | null;
+  apiMode?: string | null;
+};
 
 function extra(): Extra {
   return (Constants.expoConfig?.extra ?? {}) as Extra;
@@ -25,12 +30,24 @@ export function apiBaseUrl(): string | null {
   return process.env.EXPO_PUBLIC_API_BASE_URL ?? extra().apiBaseUrl ?? null;
 }
 
+/**
+ * `mock` serves the committed contract fixtures instead of the server. It is
+ * only ever honoured in a development build — `releaseConfigProblems` refuses
+ * to configure a staging or production app that asks for it, so a tester can
+ * never be shown fixture data they believe is theirs.
+ */
+export function apiMode(): 'api' | 'mock' {
+  const raw = (process.env.EXPO_PUBLIC_API_MODE ?? extra().apiMode ?? 'api').trim();
+  return raw === 'mock' && isDevelopment() ? 'mock' : 'api';
+}
+
 /** Empty when this build is safe to use. */
 export function configProblems(): string[] {
   return releaseConfigProblems({
     appEnv: process.env.EXPO_PUBLIC_APP_ENV ?? extra().appEnv,
     apiBaseUrl: apiBaseUrl() ?? undefined,
     devBearerToken: process.env.EXPO_PUBLIC_DEV_BEARER_TOKEN,
+    apiMode: process.env.EXPO_PUBLIC_API_MODE ?? extra().apiMode ?? undefined,
   });
 }
 
