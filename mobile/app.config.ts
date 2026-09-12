@@ -98,8 +98,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     usesAppleSignIn: true,
     infoPlist: {
       ...config.ios?.infoPlist,
-      // The launcher name, which `name` above only sets for the project.
-      CFBundleDisplayName: 'MaybeSitter',
+      // The launcher name. It has to carry the same suffix as `name` above:
+      // `CFBundleDisplayName` *overrides* the abstract `name`, so a bare
+      // 'MaybeSitter' here would put the same label under every icon and a
+      // tester with three builds installed could not tell them apart. Caught
+      // by reading the generated plist, not by introspecting the config.
+      CFBundleDisplayName: `MaybeSitter${NAME_SUFFIX[APP_ENV]}`,
       NSAppTransportSecurity: appTransportSecurity(APP_ENV),
     },
     // Standard HTTPS only, so the app is outside the US export-compliance
