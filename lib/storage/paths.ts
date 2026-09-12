@@ -43,6 +43,8 @@ export const CLARIFICATIONS = 'clarifications';
 export const ANALYTICS_EVENTS = 'analyticsEvents';
 /** Capture proposals between proposing and confirming (#252). */
 export const CAPTURE_PROPOSALS = 'captureProposals';
+/** One document per UTC day: how many model calls this account has spent (#160). */
+export const USAGE = 'usage';
 
 /**
  * Every user-scoped subcollection, so account deletion can be *checked* rather
@@ -72,10 +74,20 @@ export const USER_SCOPED_COLLECTIONS = [
   CLARIFICATIONS,
   ANALYTICS_EVENTS,
   CAPTURE_PROPOSALS,
+  USAGE,
 ] as const;
 
 /** Operator-only, outside every user tree. */
 export const INCIDENTS = 'incidents';
+
+/**
+ * The service's own daily model spend, one document per UTC day (#160).
+ *
+ * Top-level and deliberately not under a uid: it is what MaybeSitter spent,
+ * not what a person did, and nesting it in a tree would mean deleting an
+ * account erased that day's global count.
+ */
+export const LLM_USAGE = 'llmUsage';
 
 export const USERS = 'users';
 

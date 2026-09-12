@@ -23,7 +23,7 @@ export interface CaptureProposalContract {
   items: CaptureProposalItemContract[];
   provenance: {
     requestedEngine: 'model' | 'rules';
-    executedEngine: 'ollama' | 'rule-based';
+    executedEngine: 'gemini' | 'ollama' | 'rule-based';
     fallbackUsed: boolean;
   };
 }

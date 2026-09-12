@@ -9,10 +9,18 @@ import { mapExtractionToCommand } from './mapExtractionToCommand';
 import type { Command } from '../domain/stateMachine';
 import type { ExtractionContext, ExtractionDisposition, ExtractionResult } from './extractionTypes';
 
-export type ExtractionEngine = 'ollama' | 'rule-based';
+export type ExtractionEngine = 'gemini' | 'ollama' | 'rule-based';
 
 export interface ExtractAndMapOptions {
   llmProvider?: LLMProviderFunction;
+  /**
+   * Which engine the injected provider represents (UC-2.0, #160).
+   *
+   * This module cannot ask: `src/extraction` never imports from `lib/`, and the
+   * provider is composed there. So the caller that built it says what it is,
+   * and the default stays `ollama` — what every existing injection meant.
+   */
+  llmEngine?: ExtractionEngine;
   /** Absent means never escalate -- the local model's answer stands. */
   arbiter?: ArbiterFunction;
 }
@@ -169,7 +177,7 @@ export async function extractWithFallback(
     return { result: safeNegativeResult(rawText, 'informational_context'), engine: 'rule-based', fallbackReason: 'semantic_safety:past_no_action' };
   }
   let result: ExtractionResult;
-  let engine: ExtractionEngine = 'ollama';
+  let engine: ExtractionEngine = options.llmEngine ?? 'ollama';
   let fallbackReason: string | null = null;
 
   try {

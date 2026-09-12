@@ -41,6 +41,8 @@ export interface CaptureBoundaryDependencies {
   audit?: (event: AuditEventEnvelope) => void;
   controls?: RuntimeControlSnapshot;
   llmProvider?: ExtractAndMapOptions['llmProvider'];
+  /** Which engine `llmProvider` is, so provenance names it (UC-2.0, #160). */
+  llmEngine?: ExtractAndMapOptions['llmEngine'];
   extractor?: typeof extractWithFallback;
 }
 
@@ -52,6 +54,14 @@ export interface ProposeCaptureOptions {
 }
 
 const INJECTION = /(?:ignore|disregard|override).{0,40}(?:instruction|system|policy)|(?:system|developer)\s*:/i;
+
+/**
+ * How many segments of one capture may reach the model.
+ *
+ * Five. Beyond that the marginal segment is almost always a list item the rule
+ * based extractor reads just as well, and the cost is per call.
+ */
+const MAX_MODEL_SEGMENTS = 5;
 
 function splitInput(raw: string): string[] {
   const segments = raw
@@ -100,16 +110,27 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   const proposalId = randomUUID();
   const commandsByItemId = new Map<string, readonly ReturnType<typeof mapExtractionToCommand>[number][]>();
   const items: CaptureProposalContract['items'] = [];
-  let executedEngine: 'ollama' | 'rule-based' = 'rule-based';
+  let executedEngine: CaptureProposalContract['provenance']['executedEngine'] = 'rule-based';
   let fallbackUsed = forceRules;
   let rejected = !raw;
 
-  for (const segment of raw ? splitInput(raw) : []) {
+  const segments = raw ? splitInput(raw) : [];
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index]!;
+    // One paste can split into many segments, and each would otherwise be its
+    // own model call — so a single capture could cost a dozen (#160 step 7).
+    // Past the cap the remaining segments go through the rule-based extractor
+    // rather than being dropped: the user still gets their commitments, they
+    // are just read without the model.
+    const rulesOnly = forceRules || index >= MAX_MODEL_SEGMENTS;
     try {
       const extracted = await extractor(segment, context, {
-        llmProvider: forceRules ? async () => { throw new Error('rules-only runtime'); } : dependencies.llmProvider,
+        llmProvider: rulesOnly ? async () => { throw new Error('rules-only runtime'); } : dependencies.llmProvider,
+        llmEngine: dependencies.llmEngine,
       });
-      executedEngine = extracted.engine === 'rule-based' ? 'rule-based' : 'ollama';
+      // Whatever actually answered, named. It used to be flattened to 'ollama'
+      // because that was the only model there was.
+      executedEngine = extracted.engine;
       fallbackUsed ||= Boolean(extracted.fallbackReason);
       const failure = semanticFailure(extracted.result, options.now);
       if (failure === 'no_commitment') continue;
