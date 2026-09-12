@@ -98,8 +98,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     usesAppleSignIn: true,
     infoPlist: {
       ...config.ios?.infoPlist,
-      // The launcher name, which `name` above only sets for the project.
-      CFBundleDisplayName: 'MaybeSitter',
+      // The launcher name. It has to carry the same suffix as `name` above:
+      // `CFBundleDisplayName` *overrides* the abstract `name`, so a bare
+      // 'MaybeSitter' here would put the same label under every icon and a
+      // tester with three builds installed could not tell them apart. Caught
+      // by reading the generated plist, not by introspecting the config.
+      CFBundleDisplayName: `MaybeSitter${NAME_SUFFIX[APP_ENV]}`,
       NSAppTransportSecurity: appTransportSecurity(APP_ENV),
     },
     // Standard HTTPS only, so the app is outside the US export-compliance
@@ -137,7 +141,17 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   plugins: [
     ...(config.plugins ?? []),
-    '@react-native-firebase/app',
+    // `disableSPM` is required, not optional. React Native Firebase 26 resolves
+    // firebase-ios-sdk through Swift Package Manager, whose products are
+    // automatic libraries — so under `useFrameworks: 'static'` every
+    // react-native-firebase pod embeds its own copy of Firebase and they
+    // collide at link time as duplicate symbols. `pod install` refuses
+    // outright. This forces the CocoaPods path, which static linkage supports.
+    //
+    // UC-1.7 (#151) step 1 asked for static frameworks because older versions
+    // needed them; v26 needs static frameworks *and* this. Found by running
+    // `expo prebuild`, not by introspecting the config.
+    ['@react-native-firebase/app', { ios: { disableSPM: true } }],
     '@react-native-firebase/auth',
     // Reads the reversed client id out of `ios.googleServicesFile`, so no
     // `iosUrlScheme` has to be repeated here.

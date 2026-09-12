@@ -67,10 +67,25 @@ describe('identity', () => {
 
   it('shows "MaybeSitter" in production, and says so in the other profiles', () => {
     expect(configs.production.name).toBe('MaybeSitter');
-    expect(configs.production.ios.infoPlist?.CFBundleDisplayName).toBe('MaybeSitter');
-    // A tester with three builds installed has to be able to tell them apart.
+    // A tester with three builds installed has to be able to tell them apart,
+    // and the *launcher* label is the only place they can. `CFBundleDisplayName`
+    // overrides the abstract `name`, so asserting `name` alone was not enough:
+    // the first version hard-coded 'MaybeSitter' here and every build came out
+    // with the same label. Found by reading the generated plist.
+    const displayNames = {
+      development: configs.development.ios.infoPlist?.CFBundleDisplayName,
+      staging: configs.staging.ios.infoPlist?.CFBundleDisplayName,
+      production: configs.production.ios.infoPlist?.CFBundleDisplayName,
+    };
+    expect(displayNames).toEqual({
+      development: 'MaybeSitter (Dev)',
+      staging: 'MaybeSitter (Staging)',
+      production: 'MaybeSitter',
+    });
     expect(configs.staging.name).toBe('MaybeSitter (Staging)');
     expect(configs.development.name).toBe('MaybeSitter (Dev)');
+    // Three distinct labels, not two that happen to match.
+    expect(new Set(Object.values(displayNames)).size).toBe(3);
   });
 });
 

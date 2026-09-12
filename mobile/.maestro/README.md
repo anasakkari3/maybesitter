@@ -36,3 +36,47 @@ not what this flow is testing.
 ```bash
 maestro test .maestro/auth-gate.yaml
 ```
+
+## Targeting the auth fields
+
+Both inputs on the email screen carry a `testID`:
+
+```yaml
+- tapOn:
+    id: 'authEmailInput'
+- inputText: 'someone@example.com'
+```
+
+Match on those rather than on the visible label. The labels are localised, and
+each field's caption repeats its own label — so `tapOn: 'الإيميل'` is both
+locale-dependent and ambiguous.
+
+The same ambiguity bites buttons whose label repeats the screen heading:
+`tapOn: 'إنشاء حساب'` on the sign-up screen can hit the heading instead of the
+button. Use `tapOn: { point: … }`, or add a `testID`, when a label is not
+unique.
+
+## What Maestro cannot drive here
+
+`inputText` delivers only **one character** into a `secureTextEntry` field on
+the iOS simulator. So a flow cannot complete a real sign-up or sign-in end to
+end — it gets as far as a one-character password, which the screen correctly
+refuses before any network call.
+
+That path is covered instead by `src/auth/__tests__/emailAuth.test.ts` (RNTL,
+against `FakeAuthRepository`) and by exercising Firebase's own REST API
+directly. A flow that appears to sign in on a simulator is not evidence.
+
+## Locale
+
+These flows assert Arabic strings, so run them on a device whose language
+resolves to Arabic:
+
+```bash
+xcrun simctl spawn <udid> defaults write -g AppleLanguages -array ar
+xcrun simctl spawn <udid> defaults write -g AppleLocale -string ar_JO
+xcrun simctl shutdown <udid> && xcrun simctl boot <udid>
+```
+
+On an English device the app renders English and every assertion fails for the
+wrong reason.
