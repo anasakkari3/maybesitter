@@ -105,7 +105,12 @@ const ACK_STATES = keysOf<AckState>({
   ignored: true,
 });
 
-const MEMORY_KINDS = keysOf<RuntimeMemoryKind>({ fact: true, preference: true, hypothesis: true });
+const MEMORY_KINDS = keysOf<RuntimeMemoryKind>({
+  fact: true,
+  preference: true,
+  hypothesis: true,
+  goal: true,
+});
 const MEMORY_SOURCES = keysOf<MemorySource>({
   user_stated: true,
   deterministic_rule: true,

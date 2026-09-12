@@ -68,9 +68,34 @@ export interface WhatMaybeSitterKnows {
   medicalProfile: false;
 }
 
+/**
+ * The per-account audit stream's event types.
+ *
+ * Named once, because the interface and `createPilotAuditEvent`'s runtime check
+ * used to carry the same list twice and nothing stopped them drifting apart.
+ *
+ * `profile_updated` and `memory_deleted` joined in UC-2.7a (#167). This stream
+ * — not the domain event log — is where a non-domain record belongs: `events`
+ * is replayed to rebuild commitments, and a routine answer has no business in
+ * that replay. It is the same reasoning, and the same stream, that UC-2.1
+ * (#161) records consent changes in.
+ */
+export const PILOT_AUDIT_EVENT_TYPES = [
+  'exposure_checked',
+  'consent_changed',
+  'quiet_mode_changed',
+  'revoked',
+  'data_deleted',
+  'support_reported',
+  'profile_updated',
+  'memory_deleted',
+] as const;
+
+export type PilotAuditEventType = (typeof PILOT_AUDIT_EVENT_TYPES)[number];
+
 export interface PilotAuditEvent {
   version: 'v1';
-  eventType: 'exposure_checked' | 'consent_changed' | 'quiet_mode_changed' | 'revoked' | 'data_deleted' | 'support_reported';
+  eventType: PilotAuditEventType;
   participantId: string;
   occurredAt: string;
   outcome: 'allowed' | 'blocked' | 'recorded';
@@ -240,7 +265,7 @@ export function createPilotAuditEvent(input: PilotAuditEvent): PilotAuditEvent {
   requireIsoTime(input.occurredAt);
   requirePilotParticipantId(input.participantId);
   if (!SAFE_CODE.test(input.reasonCode)) throw new Error('reasonCode must be a safe code');
-  if (!['exposure_checked', 'consent_changed', 'quiet_mode_changed', 'revoked', 'data_deleted', 'support_reported'].includes(input.eventType)) {
+  if (!(PILOT_AUDIT_EVENT_TYPES as readonly string[]).includes(input.eventType)) {
     throw new Error('unsupported pilot audit event type');
   }
   if (!['allowed', 'blocked', 'recorded'].includes(input.outcome)) throw new Error('unsupported pilot audit outcome');
