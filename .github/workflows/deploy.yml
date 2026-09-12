@@ -1,22 +1,16 @@
-# UNVERIFIED — this workflow has never been executed.
+# Staging deploys on every merge to main; production is dispatched by hand and
+# waits for the owner's approval on its protected environment.
 #
-# It cannot run until the owner completes UC-1.0a (#140): install gcloud,
-# authenticate, run infra/bootstrap.sh, and set the two repository variables
-# GCP_WIF_PROVIDER and GCP_DEPLOYER_SA. Until then there is no Workload
-# Identity pool to authenticate against and no Cloud Run service to deploy to.
-#
-# It is therefore committed with `workflow_dispatch` ONLY: an unverified
-# workflow must not fire on every push to main. After the first successful
-# manual staging run, add:
-#
-#   push:
-#     branches: [main]
-#
-# to the triggers below.
+# The push trigger is here only because real manual runs have now succeeded,
+# which is what the UNVERIFIED note that used to head this file was waiting for.
+# Those runs are also what found the three first-deploy failures pinned in
+# tests/infra/firstDeploy.test.ts.
 
 name: Deploy
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       target:
@@ -39,17 +33,22 @@ env:
   IMAGE: api
 
 concurrency:
-  group: deploy-${{ inputs.target }}
+  group: deploy-${{ inputs.target || 'staging' }}
   cancel-in-progress: false
 
 jobs:
   deploy:
-    name: Deploy to ${{ inputs.target }}
+    name: Deploy to ${{ inputs.target || 'staging' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # `production` is a protected GitHub environment: the owner is a required
     # reviewer, so a production deploy waits for an explicit approval.
-    environment: ${{ inputs.target }}
+    environment: ${{ inputs.target || 'staging' }}
+    # A push carries no inputs, so the target is resolved once, here, and every
+    # step reads it from the environment. Nothing further down may infer which
+    # service to touch from an empty string.
+    env:
+      TARGET: ${{ inputs.target || 'staging' }}
 
     steps:
       - name: Check out repository
@@ -82,8 +81,16 @@ jobs:
       - name: Deploy (behind a tag once the service exists)
         id: deploy
         run: |
-          SERVICE="maybesitter-api"
-          [ "${{ inputs.target }}" = "staging" ] && SERVICE="maybesitter-api-staging"
+          # Explicit, and refused when unknown. The previous form selected the
+          # production service whenever the target was not exactly "staging" —
+          # including when it was empty, which is precisely what a push trigger
+          # produces. A deploy workflow must not reach production by falling
+          # through a test.
+          case "${TARGET}" in
+            staging) SERVICE="maybesitter-api-staging" ;;
+            production) SERVICE="maybesitter-api" ;;
+            *) echo "refusing to deploy: unknown target '${TARGET}'"; exit 1 ;;
+          esac
           echo "service=${SERVICE}" >>"${GITHUB_OUTPUT}"
           # Cloud Run rejects --no-traffic when it is creating a service, so the
           # very first deploy of each service takes traffic at once. It is still
@@ -100,7 +107,7 @@ jobs:
             --image "${{ steps.build.outputs.image_digest }}" \
             --region "${REGION}" \
             ${TRAFFIC_FLAGS[@]+"${TRAFFIC_FLAGS[@]}"} \
-            $(bash infra/cloudrun/flags.sh "${{ inputs.target }}")
+            $(bash infra/cloudrun/flags.sh "${TARGET}")
 
       - name: Smoke test the new revision
         run: |

@@ -63,6 +63,28 @@ test('a public service is deployed by an identity that may make it public', () =
   assert.doesNotMatch(bootstrap, /add_role "\$\{DEPLOYER_SA\}" roles\/run\.developer/);
 });
 
+test('a merge to main deploys staging', () => {
+  // UC-1.0d (#143) asks for this, and it only became safe to add once real
+  // manual runs had succeeded.
+  assert.match(workflow, /^on:\n\s*push:\n\s*branches: \[main\]/m, 'staging does not deploy on a merge to main');
+});
+
+test('the deploy target is resolved once, and an unknown one is refused rather than sent to production', () => {
+  // A push carries no inputs. The old selection was
+  //   SERVICE="maybesitter-api"; [ "${{ inputs.target }}" = "staging" ] && SERVICE=…
+  // which reaches production whenever the target is not exactly "staging" —
+  // an empty string included. Adding the push trigger without this would have
+  // pointed every merge at production.
+  assert.match(workflow, /TARGET: \$\{\{ inputs\.target \|\| 'staging' \}\}/, 'the target is not resolved to a default');
+  assert.match(workflow, /case "\$\{TARGET\}" in/, 'the service is not chosen by an explicit case');
+  assert.match(workflow, /\*\) echo "refusing to deploy: unknown target/, 'an unknown target is not refused');
+
+  // Nothing below the job header may read the raw input again: that is the
+  // value that is empty on a push.
+  const steps = workflow.slice(workflow.indexOf('    steps:'));
+  assert.doesNotMatch(steps, /inputs\.target/, 'a step still reads inputs.target instead of TARGET');
+});
+
 test('the deployer may pass firebase-tools\' API-enabled check before deploying rules and indexes', () => {
   // ensureApiEnabled.check() does not catch a 403, so a missing
   // serviceusage.services.get/.use fails the whole Firestore step.
