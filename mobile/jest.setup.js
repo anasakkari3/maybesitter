@@ -40,6 +40,8 @@ jest.mock('@react-native-google-signin/google-signin', () => ({
     signIn: async () => ({ type: 'cancelled' }),
     signOut: async () => null,
     addScopes: async () => null,
+    getTokens: async () => ({ accessToken: 'fake-access-token', idToken: 'fake-id-token' }),
+    revokeAccess: async () => null,
   },
   statusCodes: {
     SIGN_IN_CANCELLED: '12501',

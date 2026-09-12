@@ -26,6 +26,13 @@ export interface ReleaseConfigInput {
    * believe they were saved (UC-1.4 #148 step 4).
    */
   apiMode?: string | undefined;
+  /**
+   * `EXPO_PUBLIC_ENABLE_GOOGLE_CALENDAR_DEMO`. The Google Calendar
+   * verification demo (UC-1.8 #152) requests calendar scopes and writes a test
+   * event. It exists to be filmed for a reviewer and must never be reachable
+   * in a build anyone else installs.
+   */
+  googleCalendarDemo?: string | undefined;
 }
 
 export const APP_ENVS: readonly AppEnv[] = ['development', 'staging', 'production'];
@@ -67,6 +74,12 @@ export function releaseConfigProblems(input: ReleaseConfigInput): string[] {
 
   if (apiMode === 'mock') {
     problems.push('EXPO_PUBLIC_API_MODE=mock must not be set in a staging or production build');
+  }
+
+  if ((input.googleCalendarDemo ?? '').trim() !== '') {
+    problems.push(
+      'EXPO_PUBLIC_ENABLE_GOOGLE_CALENDAR_DEMO must not be set in a staging or production build',
+    );
   }
 
   const raw = (input.apiBaseUrl ?? '').trim();

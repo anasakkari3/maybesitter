@@ -17,6 +17,8 @@ import { CloseoutScreen } from './screens/CloseoutScreen';
 import { FirstMoveScreen } from './screens/FirstMoveScreen';
 import { SheetHost } from './screens/Sheets';
 import { TabBar } from './screens/TabBar';
+import { CalendarDemoScreen } from './screens/CalendarDemoScreen';
+import { googleCalendarDemoEnabled } from './config/env';
 import { Gallery } from './design/Gallery';
 
 const tabScreens = ['today', 'calendar', 'settings'];
@@ -55,6 +57,11 @@ export function Root() {
       {s.screen === 'closeout' && <CloseoutScreen key="closeout" />}
       {s.screen === 'firstmove' && <FirstMoveScreen key="firstmove" />}
       {__DEV__ && s.screen === 'gallery' && <Gallery key="gallery" />}
+      {/* Two independent gates: the flag, and the release guard that refuses
+          to configure a staging or production build which sets it (#152). */}
+      {googleCalendarDemoEnabled() && s.screen === 'calendarDemo' && (
+        <CalendarDemoScreen key="calendarDemo" onBack={() => latest.current.go('settings')} />
+      )}
       {tabScreens.includes(s.screen) && <TabBar />}
       <SheetHost key={s.sheet ?? 'none'} />
     </View>

@@ -5,6 +5,7 @@ import { setLocale, tFor } from '../i18n';
 import {
   loadLanguagePref, nextLanguagePref, resolveLanguage, saveLanguagePref, systemLanguageTag, type LanguagePref,
 } from '../i18n/language';
+import { googleCalendarDemoEnabled } from '../config/env';
 import { palettes, type Palette, type Scheme } from '../theme/tokens';
 import { analyzeText, exampleText } from '../services/mockCapture';
 import { seedCommitments, seedYesterday, TODAY } from './seed';
@@ -225,6 +226,9 @@ function useAppModel() {
       switch (name) {
         // Development only, so a release build cannot reach the gallery.
         case 'gallery': if (__DEV__) set({ screen: 'gallery', sheet: null }); return;
+        // Additionally behind an env flag the release guard refuses to let a
+        // staging or production build set at all (UC-1.8 #152).
+        case 'calendarDemo': if (googleCalendarDemoEnabled()) set({ screen: 'calendarDemo', sheet: null }); return;
         case 'today': case 'calendar': case 'settings': case 'closeout': case 'firstmove':
           set({ screen: name, sheet: null }); return;
         case 'capture': set({ ...captureReset, screen: 'capture', sheet: null }); return;

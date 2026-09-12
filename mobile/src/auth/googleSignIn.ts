@@ -86,6 +86,37 @@ export async function requestGoogleCredential(): Promise<GoogleCredential | null
 }
 
 /**
+ * Asks for extra Google scopes, and returns an access token for them.
+ *
+ * Separate from sign-in on purpose (UC-1.2 #146 decision): a consent screen
+ * listing calendar access must never appear in front of somebody who only
+ * wanted to sign in. It appears when they ask for calendar access, from the
+ * screen that needs it.
+ *
+ * Returns null when the user declines. Never log the token.
+ */
+export async function requestAdditionalScopes(scopes: readonly string[]): Promise<string | null> {
+  configureGoogleSignIn();
+  if (!configured) throw new GoogleSignInUnavailable('misconfigured');
+  try {
+    const result = await GoogleSignin.addScopes({ scopes: [...scopes] });
+    // `null` means the scopes were already granted; `cancelled` means the user
+    // declined. Only the second is a reason to stop.
+    if (result && result.type === 'cancelled') return null;
+    const tokens = await GoogleSignin.getTokens();
+    return tokens.accessToken ?? null;
+  } catch (error) {
+    throw translate(error);
+  }
+}
+
+/** Revokes the app's Google access entirely — the demo's "Disconnect". */
+export async function revokeGoogleAccess(): Promise<void> {
+  if (!configured) return;
+  await GoogleSignin.revokeAccess();
+}
+
+/**
  * Signs out of Google as well as Firebase, so the next tap shows the account
  * chooser instead of silently signing the same person back in. Someone handing
  * their phone to a partner has to be able to get a different account.

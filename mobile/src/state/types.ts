@@ -46,7 +46,10 @@ export type Screen =
   | 'closeout'
   | 'firstmove'
   // Development only: the design gallery (src/design/Gallery.tsx).
-  | 'gallery';
+  | 'gallery'
+  // Development only, and additionally behind an env flag: the Google Calendar
+  // verification demo (src/screens/CalendarDemoScreen.tsx, UC-1.8 #152).
+  | 'calendarDemo';
 
 export type CapState = 'idle' | 'listening' | 'transcript' | 'typing' | 'processing' | 'nothing';
 
