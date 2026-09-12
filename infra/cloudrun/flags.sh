@@ -17,11 +17,16 @@ case "${TARGET}" in
     max_instances=2
     database_id="staging"
     env_name="staging"
+    # UC-2.0 (#160) / UC-2.1 (#161): the hosted model, on staging only.
+    # Production stays `none` until the owner decides otherwise — enabling a
+    # paid model for real users is not something a deploy should do by itself.
+    llm_provider="gemini"
     ;;
   production)
     max_instances=3
     database_id="(default)"
     env_name="production"
+    llm_provider="none"
     ;;
   *)
     echo "unknown target: ${TARGET} (expected staging or production)" >&2
@@ -54,6 +59,6 @@ printf '%s ' \
   "--min-instances=0" \
   "--max-instances=${max_instances}" \
   "--startup-probe=httpGet.path=/api/health/ready,periodSeconds=5,failureThreshold=6" \
-  "--update-env-vars=MAYBESITTER_ENV=${env_name},MAYBESITTER_STORAGE_BACKEND=firestore,MAYBESITTER_FIRESTORE_DATABASE_ID=${database_id},GOOGLE_CLOUD_PROJECT=${PROJECT_ID}" \
+  "--update-env-vars=MAYBESITTER_ENV=${env_name},MAYBESITTER_STORAGE_BACKEND=firestore,MAYBESITTER_FIRESTORE_DATABASE_ID=${database_id},GOOGLE_CLOUD_PROJECT=${PROJECT_ID},MAYBESITTER_LLM_PROVIDER=${llm_provider},MAYBESITTER_LLM_MODEL=gemini-2.5-flash,MAYBESITTER_VERTEX_LOCATION=${REGION},MAYBESITTER_GCP_PROJECT=${PROJECT_ID},MAYBESITTER_LLM_TIMEOUT_MS=8000,MAYBESITTER_LLM_MAX_RETRIES=1" \
   "--set-secrets=MAYBESITTER_DELETION_RECEIPT_PEPPER=maybesitter-deletion-receipt-pepper:latest"
 printf '\n'
