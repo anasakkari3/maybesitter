@@ -51,7 +51,12 @@ export const participantJobHandler: CommandHandler = async (command, job) => {
   if (!job.uid) {
     throw new ValidationError(`job ${job.id} has no owner, so its command cannot be applied to anyone's state`);
   }
-  return applyParticipantCommand(job.uid, command);
+  const { result: outcome, ...rest } = await applyParticipantCommand(job.uid, command);
+  // `invalid_transition` is a separate answer for the mobile API, which needs to
+  // tell a user that completing an already-completed commitment did nothing
+  // (#148). For a scheduled job it is the same thing it always was: the command
+  // no longer applies, nothing changed, and retrying cannot help — a no-op.
+  return { ...rest, result: outcome === 'invalid_transition' ? 'noop' : outcome };
 };
 
 export interface TickTotals {

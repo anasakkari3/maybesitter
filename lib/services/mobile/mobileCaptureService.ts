@@ -6,8 +6,10 @@ import { recordFirstValueReached } from '../../analytics/loopAnalytics';
 import { resolveUserAccess } from '../../pilot/pilotAccess';
 import { applyTrustAction } from '../../pilot/pilotTrustStore';
 import {
+  captureProposalPath,
   confirmCapture,
   createStorageCaptureProposalStore,
+  type CaptureConfirmationCommitter,
   proposeCapture,
   type CaptureProposalStore,
   type CapturePersistenceAdapter,
@@ -17,6 +19,7 @@ import { applyCommand, configureCommandService, getCommandServiceState } from '.
 import { CommandServiceCapturePersistenceAdapter } from './canonicalPersistence';
 import {
   applyParticipantCommand,
+  commitCaptureConfirmation,
   applyParticipantCommands,
   getParticipantStateSnapshot,
 } from './participantState';
@@ -96,6 +99,26 @@ function persistenceFor(context: MobileBackendContext = {}): CapturePersistenceA
   };
 }
 
+/**
+ * Commits a confirmation atomically for an authenticated request (#148).
+ *
+ * Undefined without a participant: the in-process path has no user tree holding
+ * the proposal, so there is no document to claim, and the boundary falls back to
+ * its development behaviour rather than pretending to a guarantee.
+ */
+function committerFor(context: MobileBackendContext = {}): CaptureConfirmationCommitter | undefined {
+  const participantId = context.participantId;
+  if (!participantId) return undefined;
+  return async ({ scopeId, proposalId, idempotencyKey, commands, result }) =>
+    commitCaptureConfirmation(
+      participantId,
+      captureProposalPath(scopeId, proposalId),
+      commands,
+      idempotencyKey,
+      result,
+    );
+}
+
 async function persistedItem(
   proposalStore: CaptureProposalStore,
   proposalId: string,
@@ -155,6 +178,7 @@ export async function proposeMobileCapture(input: MobileCaptureInput, context: M
   }, {
     store,
     persistence: persistenceFor(context),
+    commitConfirmation: committerFor(context),
     extractor: guardedMobileExtract,
   });
 }
@@ -182,6 +206,7 @@ export async function confirmMobileCapture(input: MobileConfirmInput, context: M
   }, {
     store,
     persistence: persistenceFor(context),
+    commitConfirmation: committerFor(context),
   });
 
   if (!result.success) {

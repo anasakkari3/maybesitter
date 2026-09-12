@@ -2,8 +2,16 @@ import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../..
 import {
   completeCommitment,
   dropCommitment,
+  InvalidTransitionError,
   postponeCommitment,
 } from '../../../../../../../lib/services/mobile/commitmentService';
+import { StaleCommitmentError } from '../../../../../../../lib/services/mobile/participantState';
+import {
+  etagFor,
+  ifMatchFrom,
+  invalidTransitionResponse,
+  staleCommitmentResponse,
+} from '../../../../../../../lib/services/mobile/preconditions';
 import { commitmentToMobileDto, mobileError } from '../../../../../../../lib/services/mobile/response';
 
 export const dynamic = 'force-dynamic';
@@ -27,7 +35,9 @@ export async function POST(
     return mobileError('Invalid JSON request body');
   }
 
-  const scope = { participantId: user.uid };
+  // Carried into the same transaction that writes, so an action from a device
+  // holding a stale copy is refused rather than applied (#148).
+  const scope = { participantId: user.uid, expectedValidator: ifMatchFrom(request) };
   try {
     const commitment =
       body.action === 'complete'
@@ -42,8 +52,10 @@ export async function POST(
       success: true,
       id,
       commitment: commitmentToMobileDto(commitment),
-    });
+    }, { headers: { ETag: etagFor(commitment) } });
   } catch (error) {
+    if (error instanceof StaleCommitmentError) return staleCommitmentResponse(error.current);
+    if (error instanceof InvalidTransitionError) return invalidTransitionResponse();
     const message = error instanceof Error ? error.message : 'Action failed';
     return mobileError(message, message === 'Commitment not found' ? 404 : 400);
   }
