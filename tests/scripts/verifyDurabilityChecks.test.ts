@@ -6,6 +6,7 @@ import {
   finalStatusFromCommitmentStatus,
   jobRanExactlyOnce,
   latestByUpdatedAt,
+  possibleFinalStatuses,
   revisionChanged,
   summaryExitCode,
   tallyIdempotency,
@@ -107,4 +108,25 @@ test('a job counts as run exactly once only when one attempt reached a terminal 
   assert.equal(jobRanExactlyOnce({ status: 'claimed', attempts: 1 }), false, 'never finished');
   assert.equal(jobRanExactlyOnce({ status: 'pending', attempts: 0 }), false, 'never started');
   assert.equal(jobRanExactlyOnce(null), false);
+});
+
+test('a tie in the action timestamps admits every tied outcome, and nothing else', () => {
+  const at = '2026-09-11T23:28:25.256Z';
+  const tied = possibleFinalStatuses([
+    { kind: 'complete', accepted: true, at },
+    { kind: 'postpone', accepted: true, at },
+  ]);
+  assert.deepEqual(tied.sort(), ['completed', 'postponed']);
+
+  // No tie: only the genuinely last action is admissible.
+  assert.deepEqual(possibleFinalStatuses([
+    { kind: 'complete', accepted: true, at: '2026-09-11T23:28:25.100Z' },
+    { kind: 'postpone', accepted: true, at: '2026-09-11T23:28:25.200Z' },
+  ]), ['postponed']);
+
+  // A rejected action cannot explain a state change.
+  assert.deepEqual(possibleFinalStatuses([
+    { kind: 'cancel', accepted: false, at },
+  ]), ['unchanged']);
+  assert.deepEqual(possibleFinalStatuses([]), ['unchanged']);
 });

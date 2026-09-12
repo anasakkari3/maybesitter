@@ -50,6 +50,7 @@ import {
   finalStatusFromCommitmentStatus,
   jobRanExactlyOnce,
   latestByUpdatedAt,
+  possibleFinalStatuses,
   revisionChanged,
   summaryExitCode,
   tallyIdempotency,
@@ -294,14 +295,18 @@ async function main(): Promise<void> {
       const rawStatus = after.body?.status ?? after.body?.commitment?.status ?? '';
       const observed = finalStatusFromCommitmentStatus(rawStatus);
       counts.actionsAccepted = expected.acceptedCount;
-      const agreed = expected.status === observed;
+      // With identical timestamps several actions are equally last, so the
+      // question is whether the state is one an accepted action could produce.
+      const admissible = possibleFinalStatuses(applied);
+      const agreed = admissible.includes(observed);
       if (!agreed) {
         // Concurrent actions can land in the same millisecond, and then "the
         // last accepted one" is a tie this script cannot resolve. Say that,
         // rather than report a lost write.
         const stamps = applied.filter((action) => action.accepted).map((action) => action.at);
-        note('actions', `expected ${expected.status} from ${expected.acceptedCount} accepted `
-          + `(${new Set(stamps).size} distinct timestamps), read back ${rawStatus || '(none)'}`);
+        note('actions', `admissible [${admissible.join('|')}] from ${expected.acceptedCount} accepted `
+          + `(${new Set(stamps).size} distinct timestamps, last-wins would be ${expected.status}), `
+          + `read back ${rawStatus || '(none)'}`);
         // The sequence itself, so a tie or a rejected action is visible.
         note('actionSequence', applied.map((action) => `${action.kind}:${action.accepted ? 'ok' : 'no'}@${action.at}`).join(' '));
       }

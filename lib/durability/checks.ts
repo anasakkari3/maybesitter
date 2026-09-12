@@ -89,6 +89,25 @@ export function finalStateFrom(actions: readonly AppliedAction[]): FinalState {
   return { status, acceptedCount: accepted.length };
 }
 
+/**
+ * The states the commitment may legitimately be in after concurrent actions.
+ *
+ * `finalStateFrom` answers "the last accepted action wins", which needs the
+ * last action to be identifiable. Ten actions racing on one commitment can be
+ * stamped with the *same* `updatedAt` to the millisecond — that is what the
+ * first staging run showed — and then several of them are equally last. Any of
+ * those is a correct outcome; what would be wrong is a state no accepted
+ * action could produce, or a change with nothing accepted at all.
+ */
+export function possibleFinalStatuses(actions: readonly AppliedAction[]): FinalState['status'][] {
+  const accepted = actions.filter((action) => action.accepted);
+  if (accepted.length === 0) return ['unchanged'];
+  const latest = Math.max(...accepted.map((action) => Date.parse(action.at)));
+  const tied = accepted.filter((action) => Date.parse(action.at) === latest);
+  const byKind = { complete: 'completed', postpone: 'postponed', cancel: 'cancelled' } as const;
+  return Array.from(new Set(tied.map((action) => byKind[action.kind])));
+}
+
 export interface Timestamped {
   updatedAt: string;
 }
