@@ -58,6 +58,31 @@ test('closed pilot: calendar consent is progressive and unavailable before first
   assert.equal(applyPilotTrustAction(valued, { type: 'set_calendar_consent', granted: true, at: AT }).calendarConsent, true);
 });
 
+test('closed pilot: recording a first value again is a no-op, including from a clock that is behind', () => {
+  // Two instances both read `firstValueAt: null` and both record it. The loser
+  // arrives with the earlier timestamp, and rejecting it as backdated threw out
+  // of a confirm whose commitment was already saved (#153).
+  const initial = createPilotTrustState('pilot-1', AT);
+  const valued = applyPilotTrustAction(initial, { type: 'record_first_value', at: AT });
+  const earlier = new Date(Date.parse(AT) - 5_000).toISOString();
+
+  const again = applyPilotTrustAction(valued, { type: 'record_first_value', at: earlier });
+
+  assert.deepEqual(again, valued, 'a repeated first value changed the record');
+  assert.equal(again.firstValueAt, AT, 'the first value moved to the later, losing write');
+});
+
+test('closed pilot: the backdating rule still holds for actions that change something', () => {
+  // The no-op above must not become a way to write history. An older action
+  // that would change the record is still refused, which is what stops a
+  // delayed grant from undoing a later revoke.
+  const later = new Date(Date.parse(AT) + 5_000).toISOString();
+  const moved = applyPilotTrustAction(createPilotTrustState('pilot-1', AT), { type: 'set_quiet_mode', enabled: true, at: later });
+
+  assert.throws(() => applyPilotTrustAction(moved, { type: 'grant_recommendation_consent', at: AT }), /cannot be backdated/);
+  assert.throws(() => applyPilotTrustAction(moved, { type: 'record_first_value', at: AT }), /cannot be backdated/);
+});
+
 test('closed pilot: quiet mode stops exposure without deleting canonical data', () => {
   const consented = applyPilotTrustAction(createPilotTrustState('pilot-1', AT), { type: 'grant_recommendation_consent', at: AT });
   const quiet = applyPilotTrustAction(consented, { type: 'set_quiet_mode', enabled: true, at: AT });

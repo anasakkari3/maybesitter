@@ -206,23 +206,35 @@ export async function confirmMobileCapture(input: MobileConfirmInput, context: M
   )).filter((item): item is PersistedProposalItem => item !== null);
 
   if (context.participantId && persisted.length > 0) {
-    const now = new Date();
-    const access = await resolveUserAccess(context.participantId, now.toISOString(), false);
-    if (access.trust && !access.trust.firstValueAt) {
-      await applyTrustAction(context.participantId, {
-        type: 'record_first_value',
-        at: now.toISOString(),
-      });
-      const analytics = await analyticsContextFrom({
-        anonymousUserId: context.participantId,
-        consent: access.trust.analyticsConsent ? 'granted' : 'essential',
-      }, appendAnalyticsEvent, now);
-      if (analytics) {
-        await recordFirstValueReached(analytics, {
-          surface: 'capture',
-          reason: 'commitment_saved',
+    // Everything above this line is the user's: the commitment is persisted and
+    // activated. What follows is bookkeeping — the first-value marker and the
+    // analytics event that goes with it.
+    //
+    // So it cannot be allowed to decide the answer. When it threw, this confirm
+    // returned HTTP 400 and told the user their capture had failed while it sat
+    // safely in Firestore, which is a worse outcome than the bookkeeping simply
+    // being wrong. It is logged instead, loudly enough to find (#153).
+    try {
+      const now = new Date();
+      const access = await resolveUserAccess(context.participantId, now.toISOString(), false);
+      if (access.trust && !access.trust.firstValueAt) {
+        await applyTrustAction(context.participantId, {
+          type: 'record_first_value',
+          at: now.toISOString(),
         });
+        const analytics = await analyticsContextFrom({
+          anonymousUserId: context.participantId,
+          consent: access.trust.analyticsConsent ? 'granted' : 'essential',
+        }, appendAnalyticsEvent, now);
+        if (analytics) {
+          await recordFirstValueReached(analytics, {
+            surface: 'capture',
+            reason: 'commitment_saved',
+          });
+        }
       }
+    } catch (error) {
+      console.error('[capture/confirm] first-value bookkeeping failed after the commitment was saved', error);
     }
   }
 
