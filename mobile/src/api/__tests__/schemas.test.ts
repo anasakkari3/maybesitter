@@ -3,7 +3,12 @@ import { readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import type { z } from 'zod';
 import { commitmentListSchema, commitmentSchema, errorBodySchema, importanceOf } from '../schemas/common';
-import { commitmentActionResultSchema, commitmentDeleteResultSchema } from '../schemas/commitments';
+import {
+  commitmentActionResultSchema,
+  commitmentDeleteResultSchema,
+  invalidTransitionSchema,
+  staleCommitmentSchema,
+} from '../schemas/commitments';
 import { captureConfirmationSchema, captureProposalSchema } from '../schemas/capture';
 import { nextStepDecisionResponseSchema, nextStepResponseSchema } from '../schemas/nextStep';
 import { trustResponseSchema } from '../schemas/trust';
@@ -40,6 +45,8 @@ const CASES: Array<[string, z.ZodType]> = [
   ['commitments.action', commitmentActionResultSchema],
   ['commitments.deleted', commitmentDeleteResultSchema],
   ['commitments.notFound', errorBodySchema],
+  ['commitments.stale', staleCommitmentSchema],
+  ['commitments.invalidTransition', invalidTransitionSchema],
   ['nextStep.recommendation', nextStepResponseSchema],
   ['nextStep.decision', nextStepDecisionResponseSchema],
   ['trust.state', trustResponseSchema],
@@ -84,6 +91,21 @@ describe('what the schemas assert about the shape', () => {
     expect(typeof response.recommendation).toBe('object');
     expect(response.recommendation.proposalId).toEqual(expect.any(String));
     expect(response.recommendation.state).toBe('ready');
+  });
+
+  it('carries the newer commitment in a stale-edit refusal', () => {
+    const stale = staleCommitmentSchema.parse(fixture('commitments.stale'));
+    // The point of the 409: the client can show what the other device did,
+    // rather than only that its own edit was refused.
+    expect(stale.current.id).toEqual(expect.any(String));
+    expect(stale.current.status).toBe('completed');
+  });
+
+  it('does not describe the conflicts with errorBodySchema', () => {
+    // These refusals carry `reason` and no `error`, unlike every other one.
+    // A schema that claimed otherwise would fail on the wire, not in CI.
+    expect(errorBodySchema.safeParse(fixture('commitments.stale')).success).toBe(false);
+    expect(errorBodySchema.safeParse(fixture('commitments.invalidTransition')).success).toBe(false);
   });
 
   it('maps server priority levels onto the design three', () => {

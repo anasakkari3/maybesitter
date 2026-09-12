@@ -23,16 +23,21 @@ import { nextStepResponseSchema } from '../schemas/nextStep';
 const FIXTURES = join(__dirname, '..', '__fixtures__');
 const fixture = (name: string): unknown => JSON.parse(readFileSync(join(FIXTURES, `${name}.json`), 'utf8'));
 
-let requests: Array<{ url: string; method: string; body: unknown }> = [];
+let requests: Array<{ url: string; method: string; body: unknown; headers?: Record<string, string> }> = [];
 
-function serve(body: unknown, status = 200): void {
+function serve(body: unknown, status = 200, responseHeaders: Record<string, string> = {}): void {
   (globalThis as { fetch: unknown }).fetch = jest.fn(async (url: string, init: RequestInit) => {
     requests.push({
       url,
       method: init.method as string,
       body: init.body === undefined ? undefined : JSON.parse(init.body as string),
+      headers: init.headers as Record<string, string>,
     });
-    return { status, text: async () => JSON.stringify(body) };
+    return {
+      status,
+      text: async () => JSON.stringify(body),
+      headers: { get: (name: string) => responseHeaders[name.toLowerCase()] ?? null },
+    };
   }) as never;
 }
 
@@ -94,6 +99,26 @@ describe('commitments', () => {
     expect(requests[0]!.url).toBe('http://localhost:3000/api/mobile/commitments/id%20with%2Fslash');
   });
 
+  it('returns the ETag alongside the commitment, for a later conditional write', async () => {
+    serve(fixture('commitments.one'), 200, { etag: '"2026-08-09T09:00:00.000Z.abc123def456"' });
+    const result = await getCommitment('c1');
+    // Echoed, never constructed: the validator is `updatedAt` plus a digest.
+    expect(result.etag).toBe('"2026-08-09T09:00:00.000Z.abc123def456"');
+    expect(result.data.id).toEqual(expect.any(String));
+  });
+
+  it('sends the validator as If-Match when one is given', async () => {
+    serve(fixture('commitments.patched'));
+    await patchCommitment('c1', { title: 'x' }, '"2026-08-09T09:00:00.000Z.abc123def456"');
+    expect(requests[0]!.headers?.['If-Match']).toBe('"2026-08-09T09:00:00.000Z.abc123def456"');
+  });
+
+  it('sends no If-Match when none is given, so a first write stays unconditional', async () => {
+    serve(fixture('commitments.patched'));
+    await patchCommitment('c1', { title: 'x' });
+    expect(requests[0]!.headers?.['If-Match']).toBeUndefined();
+  });
+
   it('sends a plain time move as dueDate alone, never touching the reminder', async () => {
     serve(fixture('commitments.patched'));
     // The whole point of buildTimePatch (#208): the retired client sent
@@ -126,7 +151,7 @@ describe('commitments', () => {
     serve(fixture('commitments.action'));
     const result = await actOnCommitment('c1', 'complete');
     expect(requests[0]!.body).toEqual({ action: 'complete' });
-    expect(result.commitment.status).toBe('completed');
+    expect(result.data.commitment.status).toBe('completed');
   });
 
   it('reports a delete as the soft drop it actually is', async () => {

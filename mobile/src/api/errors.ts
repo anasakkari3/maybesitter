@@ -1,3 +1,5 @@
+import type { Commitment } from './schemas/common';
+
 /**
  * Every way a call to `/api/mobile/**` can fail, as types the UI can switch on.
  *
@@ -53,6 +55,31 @@ export class NotFoundError extends ApiError {}
 
 /** 409 — someone else moved first. A next-step proposal went stale. */
 export class ConflictError extends ApiError {}
+
+/**
+ * 409 `stale_commitment` — another device changed this commitment (#148).
+ *
+ * It carries the commitment **as it actually is**, because that is the
+ * difference between "your edit was refused" and "somebody else changed this,
+ * here it is". Nothing is resubmitted automatically: the user decides what to
+ * do with the version they can now see.
+ */
+export class StaleCommitmentError extends ConflictError {
+  constructor(readonly current: Commitment) {
+    super('the commitment changed on another device');
+  }
+}
+
+/**
+ * 409 `invalid_transition` — the move itself was impossible, whatever the
+ * screen expected. Completing an already-completed commitment is idempotent;
+ * postponing a dropped one is this.
+ */
+export class InvalidTransitionError extends ConflictError {
+  constructor() {
+    super('the commitment cannot move that way');
+  }
+}
 
 /** 503 — a dependency is down. A retry, never a sign-out. */
 export class ServiceUnavailableError extends ApiError {
