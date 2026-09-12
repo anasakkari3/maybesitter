@@ -11,7 +11,7 @@ import { AuthProvider } from '../../auth/AuthProvider';
 import { createFakeAuthRepository, type FakeAuthRepository } from '../../auth/fakeAuthRepository';
 import { setAuthRepository, resetAuthForTests } from '../auth';
 import { createAppQueryClient, MAX_QUERY_RETRIES, STALE_TIME_MS } from '../queryClient';
-import { queryKeys, useToday } from '../queries';
+import { forgetValidators, queryKeys, rememberValidator, useToday, validatorFor } from '../queries';
 import { ApiProvider } from '../ui/ApiProvider';
 import { QueryBoundary } from '../ui/QueryBoundary';
 import { ForbiddenError, isRetryable, NetworkError, ValidationError } from '../errors';
@@ -135,6 +135,25 @@ describe('switching accounts on one device', () => {
       repository.emit(null);
     });
     expect(screen.getByTestId('today')).toHaveTextContent('none');
+  });
+});
+
+describe('the validator store (#148)', () => {
+  afterEach(() => forgetValidators());
+
+  it('remembers a validator per commitment and forgets a null one', () => {
+    rememberValidator('c1', '"2026-08-09T09:00:00.000Z.abc123"');
+    rememberValidator('c2', null);
+    expect(validatorFor('c1')).toBe('"2026-08-09T09:00:00.000Z.abc123"');
+    // A response with no ETag must not overwrite a good validator with
+    // undefined, nor invent one.
+    expect(validatorFor('c2')).toBeUndefined();
+  });
+
+  it('is cleared outright, so one account cannot reach another', () => {
+    rememberValidator('c1', '"x"');
+    forgetValidators();
+    expect(validatorFor('c1')).toBeUndefined();
   });
 });
 

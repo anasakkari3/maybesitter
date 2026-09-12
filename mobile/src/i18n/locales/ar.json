@@ -232,5 +232,7 @@
   "errorsQuietMode": "وضع الهدوء شغّال. ما رح نقترح إشي لحد ما تطفّيه.",
   "errorsFeatureDisabled": "هاي لسّا مش متاحة.",
   "authErrorNoPlayServices": "تسجيل الدخول بـGoogle بحاجة خدمات Google Play. استعمل الإيميل بدالها.",
-  "authErrorAppleUnavailable": "تسجيل الدخول بـApple مش متاح على هذا الجهاز. استعمل Google أو الإيميل."
+  "authErrorAppleUnavailable": "تسجيل الدخول بـApple مش متاح على هذا الجهاز. استعمل Google أو الإيميل.",
+  "errorsStaleCommitment": "هاد تغيّر من جهاز تاني. هاي آخر نسخة.",
+  "errorsInvalidTransition": "تحدّث من جهاز تاني."
 }

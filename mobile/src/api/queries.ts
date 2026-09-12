@@ -22,6 +22,7 @@ import type { NextStepDecisionKind, NextStepRecommendation } from './schemas/nex
 import type { TrustAction } from './schemas/trust';
 import type { AlphaFeedbackCategory } from './schemas/feedback';
 import type { AnalyticsProperties, ClientReportableEvent } from './schemas/analytics';
+import { InvalidTransitionError, StaleCommitmentError } from './errors';
 
 /**
  * The hooks screens use, and the invalidation rules that keep them honest.
@@ -45,6 +46,31 @@ export const queryKeys = {
 /** The signed-in uid, or the one value that can never collide with one. */
 function useUid(): string {
   return useAuth().user?.uid ?? 'signed-out';
+}
+
+/**
+ * The validators the screens are holding, keyed by commitment id (#148).
+ *
+ * In memory, not in the query cache: an `ETag` is a fact about the request
+ * that produced it, not user data, and it must not outlive the process. A
+ * mutation reads the validator for the commitment it is changing and sends it
+ * as `If-Match`, so an edit from a screen that has gone stale is refused
+ * rather than silently overwriting a newer change from another device.
+ *
+ * Cleared on a uid change along with everything else — see `ApiProvider`.
+ */
+const validators = new Map<string, string>();
+
+export function rememberValidator(id: string, etag: string | null): void {
+  if (etag) validators.set(id, etag);
+}
+
+export function validatorFor(id: string): string | undefined {
+  return validators.get(id);
+}
+
+export function forgetValidators(): void {
+  validators.clear();
 }
 
 /**
@@ -82,7 +108,12 @@ export function useCommitment(id: string | null) {
   const uid = useUid();
   return useQuery({
     queryKey: queryKeys.commitment(uid, id ?? ''),
-    queryFn: () => getCommitment(id as string),
+    queryFn: async () => {
+      const result = await getCommitment(id as string);
+      // Kept so an edit from this screen can be conditional.
+      rememberValidator(result.data.id, result.etag);
+      return result.data;
+    },
     enabled: uid !== 'signed-out' && id !== null,
   });
 }
@@ -143,19 +174,55 @@ export function usePatchCommitment() {
   const uid = useUid();
   return useMutation({
     // `patch` is spread from `buildTimePatch`, so a plain move carries only
-    // `dueDate` and the server keeps the reminder lead the user set.
-    mutationFn: (input: { id: string; patch: CommitmentPatch }) => patchCommitment(input.id, input.patch),
+    // `dueDate` and the server keeps the reminder lead the user set. The
+    // validator makes the write conditional (#148).
+    mutationFn: async (input: { id: string; patch: CommitmentPatch }) => {
+      const result = await patchCommitment(input.id, input.patch, validatorFor(input.id));
+      rememberValidator(input.id, result.etag);
+      return result.data;
+    },
     onSuccess: (_result, input) => invalidateCommitments(client, uid, input.id),
+    onError: (error, input) => adoptNewerCommitment(client, uid, input.id, error),
   });
+}
+
+/**
+ * What to do when the server says another device moved first (#148).
+ *
+ * On `stale_commitment` the newer commitment arrives in the error, so it is
+ * written straight into the cache: the user sees the current version
+ * immediately rather than a spinner followed by a surprise. On
+ * `invalid_transition` there is no payload, so the item is refetched.
+ *
+ * Nothing is resubmitted either way. Replaying an edit against a state the
+ * user has not seen is how one device silently undoes another.
+ */
+function adoptNewerCommitment(client: QueryClient, uid: string, id: string, error: unknown): void {
+  if (error instanceof StaleCommitmentError) {
+    client.setQueryData(queryKeys.commitment(uid, id), error.current);
+    // The validator is gone: the next attempt must read a fresh one rather
+    // than retry with the one the server just rejected.
+    validators.delete(id);
+  }
+  if (error instanceof StaleCommitmentError || error instanceof InvalidTransitionError) {
+    invalidateCommitments(client, uid, id);
+  }
 }
 
 export function useCommitmentAction() {
   const client = useQueryClient();
   const uid = useUid();
   return useMutation({
-    mutationFn: (input: { id: string; action: CommitmentAction; postponedUntil?: string }) =>
-      actOnCommitment(input.id, input.action, input.postponedUntil),
+    mutationFn: async (input: { id: string; action: CommitmentAction; postponedUntil?: string }) => {
+      const result = await actOnCommitment(input.id, input.action, {
+        ...(input.postponedUntil ? { postponedUntil: input.postponedUntil } : {}),
+        ...(validatorFor(input.id) ? { ifMatch: validatorFor(input.id) as string } : {}),
+      });
+      rememberValidator(input.id, result.etag);
+      return result.data;
+    },
     onSuccess: (_result, input) => invalidateCommitments(client, uid, input.id),
+    onError: (error, input) => adoptNewerCommitment(client, uid, input.id, error),
   });
 }
 
@@ -163,8 +230,9 @@ export function useDeleteCommitment() {
   const client = useQueryClient();
   const uid = useUid();
   return useMutation({
-    mutationFn: (id: string) => deleteCommitment(id),
+    mutationFn: (id: string) => deleteCommitment(id, validatorFor(id)),
     onSuccess: (_result, id) => invalidateCommitments(client, uid, id),
+    onError: (error, id) => adoptNewerCommitment(client, uid, id, error),
   });
 }
 

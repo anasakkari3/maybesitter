@@ -1,4 +1,4 @@
-import { apiRequest } from '../client';
+import { apiRequest, apiRequestTagged, type TaggedResult } from '../client';
 import { commitmentListSchema, commitmentSchema, type Commitment } from '../schemas/common';
 import { commitmentActionResultSchema, commitmentDeleteResultSchema } from '../schemas/commitments';
 import type { TimePatch } from '../../features/commitments/timePatch';
@@ -17,8 +17,15 @@ export function listUpcoming(input: { timezone: string; referenceTime?: string }
   });
 }
 
-export function getCommitment(id: string): Promise<Commitment> {
-  return apiRequest('GET', `/api/mobile/commitments/${encodeURIComponent(id)}`, {
+/**
+ * One commitment, with the `ETag` a later conditional write needs (#148).
+ *
+ * The validator is echoed, never built: it is `updatedAt` plus a digest, so a
+ * client cannot derive it from the DTO — and must not try, because its shape
+ * is the server's to change.
+ */
+export function getCommitment(id: string): Promise<TaggedResult<Commitment>> {
+  return apiRequestTagged('GET', `/api/mobile/commitments/${encodeURIComponent(id)}`, {
     schema: commitmentSchema,
   });
 }
@@ -37,10 +44,21 @@ export interface CommitmentPatch extends TimePatch {
  * every move silently re-anchored the reminder, so dragging a commitment an
  * hour later also destroyed a lead the user had set deliberately.
  */
-export function patchCommitment(id: string, patch: CommitmentPatch): Promise<Commitment> {
-  return apiRequest('PATCH', `/api/mobile/commitments/${encodeURIComponent(id)}`, {
+export function patchCommitment(
+  id: string,
+  patch: CommitmentPatch,
+  /**
+   * The `ETag` of the commitment the screen rendered. With it, an edit from a
+   * screen that has gone stale is refused with 409 `stale_commitment` instead
+   * of silently overwriting a newer change from another device. Without it the
+   * write is unconditional, which is what a first write still wants.
+   */
+  ifMatch?: string,
+): Promise<TaggedResult<Commitment>> {
+  return apiRequestTagged('PATCH', `/api/mobile/commitments/${encodeURIComponent(id)}`, {
     body: patch,
     schema: commitmentSchema,
+    ...(ifMatch ? { ifMatch } : {}),
   });
 }
 
@@ -49,11 +67,12 @@ export type CommitmentAction = 'complete' | 'postpone' | 'cancel';
 export function actOnCommitment(
   id: string,
   action: CommitmentAction,
-  postponedUntil?: string,
-): Promise<{ success: boolean; id: string; commitment: Commitment }> {
-  return apiRequest('POST', `/api/mobile/commitments/${encodeURIComponent(id)}/actions`, {
-    body: { action, ...(postponedUntil ? { postponedUntil } : {}) },
+  options: { postponedUntil?: string; ifMatch?: string } = {},
+): Promise<TaggedResult<{ success: boolean; id: string; commitment: Commitment }>> {
+  return apiRequestTagged('POST', `/api/mobile/commitments/${encodeURIComponent(id)}/actions`, {
+    body: { action, ...(options.postponedUntil ? { postponedUntil: options.postponedUntil } : {}) },
     schema: commitmentActionResultSchema,
+    ...(options.ifMatch ? { ifMatch: options.ifMatch } : {}),
   });
 }
 
@@ -62,8 +81,9 @@ export function actOnCommitment(
  * server keeps it, and the field names say so rather than letting the verb
  * imply an erasure that did not happen.
  */
-export function deleteCommitment(id: string) {
+export function deleteCommitment(id: string, ifMatch?: string) {
   return apiRequest('DELETE', `/api/mobile/commitments/${encodeURIComponent(id)}`, {
     schema: commitmentDeleteResultSchema,
+    ...(ifMatch ? { ifMatch } : {}),
   });
 }

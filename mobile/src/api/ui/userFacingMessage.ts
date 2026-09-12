@@ -2,10 +2,12 @@ import type { Strings } from '../../i18n/strings';
 import {
   ContractError,
   ForbiddenError,
+  InvalidTransitionError,
   NetworkError,
   NotFoundError,
   ServerError,
   ServiceUnavailableError,
+  StaleCommitmentError,
   TimeoutError,
   UnauthorizedError,
   ValidationError,
@@ -45,6 +47,10 @@ export function forbiddenReason(error: unknown): ForbiddenReason | null {
 }
 
 export function userFacingMessage(error: unknown, t: Strings): string {
+  // Before the generic ConflictError branch: both are conflicts, and both are
+  // something another device did rather than something the user got wrong.
+  if (error instanceof StaleCommitmentError) return t.errorsStaleCommitment;
+  if (error instanceof InvalidTransitionError) return t.errorsInvalidTransition;
   if (error instanceof NetworkError || error instanceof TimeoutError) return t.errorsNetwork;
   if (error instanceof ServerError || error instanceof ServiceUnavailableError || error instanceof ContractError) {
     return t.errorsServer;

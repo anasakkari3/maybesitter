@@ -232,5 +232,7 @@
   "errorsQuietMode": "Quiet mode is on. Nothing will be suggested until you turn it off.",
   "errorsFeatureDisabled": "This isn't available yet.",
   "authErrorNoPlayServices": "Google sign-in needs Google Play services. Use email instead.",
-  "authErrorAppleUnavailable": "Apple sign-in isn't available on this device. Use Google or email."
+  "authErrorAppleUnavailable": "Apple sign-in isn't available on this device. Use Google or email.",
+  "errorsStaleCommitment": "This changed on another device. Here's the latest version.",
+  "errorsInvalidTransition": "Already updated on another device."
 }

@@ -5,14 +5,17 @@ import {
   ConflictError,
   ContractError,
   ForbiddenError,
+  InvalidTransitionError,
   NetworkError,
   NotFoundError,
   ServerError,
   ServiceUnavailableError,
+  StaleCommitmentError,
   TimeoutError,
   UnauthorizedError,
   ValidationError,
 } from './errors';
+import { commitmentSchema } from './schemas/common';
 
 /**
  * One function every screen's data goes through.
@@ -39,6 +42,16 @@ export interface RequestOptions<T> {
   /** 201 for the alpha feedback flag; everything else answers 200. */
   expectStatus?: number;
   signal?: AbortSignal;
+  /**
+   * The `ETag` a previous read returned, sent back as `If-Match` (#148).
+   *
+   * The server refuses with 409 `stale_commitment` when the commitment has
+   * moved since. This is **echoed, never constructed**: the validator is
+   * `updatedAt` plus a digest of the commitment, because two changes inside
+   * one millisecond share an `updatedAt` and a stale write would slip through.
+   * Its shape is the server's to change, so the client only ever repeats it.
+   */
+  ifMatch?: string;
 }
 
 function url(path: string, query: RequestOptions<unknown>['query']): string {
@@ -54,6 +67,8 @@ function url(path: string, query: RequestOptions<unknown>['query']): string {
 interface RawResponse {
   status: number;
   body: unknown;
+  /** The commitment's validator, for a later conditional write. */
+  etag: string | null;
 }
 
 async function send(
@@ -62,6 +77,7 @@ async function send(
   body: unknown,
   token: string | null,
   signal: AbortSignal | undefined,
+  ifMatch: string | undefined,
 ): Promise<RawResponse> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -72,6 +88,7 @@ async function send(
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (token) headers.Authorization = `Bearer ${token}`;
+  if (ifMatch) headers['If-Match'] = ifMatch;
 
   try {
     const response = await fetch(target, {
@@ -93,7 +110,7 @@ async function send(
         throw new ContractError(target, ['response body was not JSON']);
       }
     }
-    return { status: response.status, body: parsed };
+    return { status: response.status, body: parsed, etag: response.headers?.get('etag') ?? null };
   } catch (error) {
     if (error instanceof ContractError) throw error;
     // An abort is either our timeout or the caller's cancellation; both are a
@@ -118,6 +135,31 @@ function refusal(body: unknown): { message: string; reason: string | undefined }
   return { message: 'request refused', reason: undefined };
 }
 
+/**
+ * A 409 the client can act on (#148).
+ *
+ * `stale_commitment` carries `current` — the commitment as it actually is —
+ * because "somebody else changed this, here it is" is a different screen from
+ * "your edit was refused". `invalid_transition` carries no payload: the move
+ * itself was impossible.
+ */
+function conflictFor(body: unknown): Error {
+  if (body && typeof body === 'object') {
+    const record = body as { reason?: unknown; current?: unknown };
+    if (record.reason === 'stale_commitment') {
+      const current = commitmentSchema.safeParse(record.current);
+      // A stale response whose `current` will not parse is a contract
+      // failure, not a conflict: the screen cannot show what it cannot read.
+      if (!current.success) {
+        return new ContractError('stale_commitment.current', current.error.issues.map(issue => issue.code));
+      }
+      return new StaleCommitmentError(current.data);
+    }
+    if (record.reason === 'invalid_transition') return new InvalidTransitionError();
+  }
+  return new ConflictError(refusal(body).message);
+}
+
 function errorForStatus(status: number, body: unknown): Error {
   const { message, reason } = refusal(body);
   switch (status) {
@@ -130,7 +172,7 @@ function errorForStatus(status: number, body: unknown): Error {
     case 404:
       return new NotFoundError(message);
     case 409:
-      return new ConflictError(message);
+      return conflictFor(body);
     case 503:
       return new ServiceUnavailableError(message, reason);
     default:
@@ -138,22 +180,36 @@ function errorForStatus(status: number, body: unknown): Error {
   }
 }
 
+/** A parsed body plus the validator to send back on a conditional write. */
+export interface TaggedResult<T> {
+  data: T;
+  etag: string | null;
+}
+
 export async function apiRequest<T>(
   method: HttpMethod,
   path: string,
   options: RequestOptions<T>,
 ): Promise<T> {
+  return (await apiRequestTagged(method, path, options)).data;
+}
+
+export async function apiRequestTagged<T>(
+  method: HttpMethod,
+  path: string,
+  options: RequestOptions<T>,
+): Promise<TaggedResult<T>> {
   const target = url(path, options.query);
   const expected = options.expectStatus ?? 200;
 
-  let response = await send(method, target, options.body, await getIdToken(), options.signal);
+  let response = await send(method, target, options.body, await getIdToken(), options.signal, options.ifMatch);
 
   if (response.status === 401) {
     // Exactly one forced refresh and one retry. Concurrent 401s share the
     // refresh (see ./auth.ts), so three parallel calls cause one round trip.
     const fresh = await refreshIdToken();
     if (fresh) {
-      response = await send(method, target, options.body, fresh, options.signal);
+      response = await send(method, target, options.body, fresh, options.signal, options.ifMatch);
     }
     if (response.status === 401) {
       // The session is genuinely over. Signing out here rather than letting
@@ -183,5 +239,5 @@ export async function apiRequest<T>(
       parsed.error.issues.map(issue => `${issue.path.join('.') || '<root>'}: ${issue.code}`),
     );
   }
-  return parsed.data;
+  return { data: parsed.data, etag: response.etag };
 }

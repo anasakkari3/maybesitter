@@ -51,6 +51,7 @@ import {
   PATCH as commitmentPatch,
 } from '../../src/app/api/mobile/commitments/[id]/route.ts';
 import { POST as actionPost } from '../../src/app/api/mobile/commitments/[id]/actions/route.ts';
+import { commitmentValidator } from '../../lib/services/mobile/commitmentValidator.ts';
 import { GET as nextStepGet } from '../../src/app/api/mobile/recommendations/next-step/route.ts';
 import { POST as nextStepActionPost } from '../../src/app/api/mobile/recommendations/next-step/actions/route.ts';
 import { GET as trustGet, POST as trustPost } from '../../src/app/api/mobile/pilot/trust/route.ts';
@@ -225,6 +226,24 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       params('not-a-real-commitment'),
     ));
 
+    // ── the optimistic-concurrency refusals (#148) ──────────────────
+    // A second device's stale edit. The client has to be able to render the
+    // newer commitment, which is why `current` is in the body.
+    const stale = await commitmentPatch(
+      new Request(`${BASE}/api/mobile/commitments/${commitmentId}`, {
+        method: 'PATCH',
+        headers: {
+          authorization: `Bearer ${tokenFor(USER)}`,
+          'content-type': 'application/json',
+          'if-match': '"1999-01-01T00:00:00.000Z"',
+        },
+        body: JSON.stringify({ title: 'An edit from a screen that had gone stale' }),
+      }),
+      params(commitmentId),
+    );
+    await record('commitments.stale', 409, stale);
+
+
     // ── trust ──────────────────────────────────────────────────────
     const trust = await record('trust.state', 200, await trustGet(request('/api/mobile/pilot/trust')));
     assert.equal(trust.success, true);
@@ -309,6 +328,18 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       new Request(`${BASE}/api/mobile/commitments/${commitmentId}`, {
         method: 'DELETE',
         headers: { authorization: `Bearer ${tokenFor(USER)}` },
+      }),
+      params(commitmentId),
+    ));
+
+    // The state machine refusing the move — a different 409, and a different
+    // thing to tell the user. Postponing a commitment that has been dropped;
+    // completing an already-completed one is idempotent and answers 200.
+    await record('commitments.invalidTransition', 409, await actionPost(
+      request(`/api/mobile/commitments/${commitmentId}/actions`, {
+        // Genuinely in the future: `postponeCommitment` refuses a past
+        // instant with a 400 before the state machine ever sees the move.
+        body: { action: 'postpone', postponedUntil: new Date(Date.now() + 86_400_000).toISOString() },
       }),
       params(commitmentId),
     ));
