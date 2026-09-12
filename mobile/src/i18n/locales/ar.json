@@ -230,5 +230,6 @@
   "errorsRetry": "جرّب كمان مرّة",
   "errorsConsentRequired": "شغّلها من الإعدادات حتى تشوف الاقتراحات.",
   "errorsQuietMode": "وضع الهدوء شغّال. ما رح نقترح إشي لحد ما تطفّيه.",
-  "errorsFeatureDisabled": "هاي لسّا مش متاحة."
+  "errorsFeatureDisabled": "هاي لسّا مش متاحة.",
+  "authErrorNoPlayServices": "تسجيل الدخول بـGoogle بحاجة خدمات Google Play. استعمل الإيميل بدالها."
 }

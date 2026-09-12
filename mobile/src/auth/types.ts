@@ -38,7 +38,19 @@ export interface EmailPasswordAuth {
   sendVerificationEmail(): Promise<void>;
 }
 
-export interface AuthRepository extends EmailPasswordAuth {
+/**
+ * The federated providers (UC-1.1 #145, UC-1.2 #146).
+ *
+ * Each returns void and resolves when the user is signed in, or resolves
+ * having done nothing when the user backed out of the provider's own sheet.
+ * A cancellation is a decision, not a failure: it must never put an error
+ * message on the sign-in screen.
+ */
+export interface FederatedAuth {
+  signInWithGoogle(): Promise<void>;
+}
+
+export interface AuthRepository extends EmailPasswordAuth, FederatedAuth {
   /**
    * Calls back with the current user (or null) as soon as the SDK knows, and
    * on every change after that. The first call is what moves the app out of

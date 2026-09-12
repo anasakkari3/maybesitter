@@ -2,6 +2,7 @@ import React, { useCallback, useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, TextInput, View } from 'react-native';
 import { useApp } from '../state/AppContext';
 import { useAuth } from '../auth/AuthProvider';
+import { useSingleFlight } from '../auth/useSingleFlight';
 import { authErrorKey, type AuthErrorKey } from '../auth/authErrors';
 import {
   MIN_PASSWORD_LENGTH,
@@ -34,7 +35,7 @@ export function EmailAuthScreen({ onBack, initialMode = 'signIn' }: { onBack: ()
   const [mode, setMode] = useState<EmailAuthMode>(initialMode);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [busy, setBusy] = useState(false);
+  const { busy, run } = useSingleFlight();
   const [errorKey, setErrorKey] = useState<AuthMessageKey | null>(null);
   const [resetSent, setResetSent] = useState(false);
 
@@ -50,7 +51,6 @@ export function EmailAuthScreen({ onBack, initialMode = 'signIn' }: { onBack: ()
       : title;
 
   const submit = useCallback(async () => {
-    if (busy) return;
     setResetSent(false);
     // Validated before any network call: a typo costs nothing, and a
     // rate-limited account does not spend an attempt on an obvious mistake.
@@ -67,26 +67,27 @@ export function EmailAuthScreen({ onBack, initialMode = 'signIn' }: { onBack: ()
       }
     }
     setErrorKey(null);
-    setBusy(true);
-    try {
-      const address = normalizeEmail(email);
-      if (mode === 'reset') {
-        await repository.sendPasswordReset(address);
-        setResetSent(true);
-      } else if (mode === 'signUp') {
-        await repository.createAccount(address, password);
-      } else {
-        await repository.signInWithEmail(address, password);
+    // `run` refuses a second submit while the first is in flight, so a double
+    // tap is one account rather than two attempts.
+    await run(async () => {
+      try {
+        const address = normalizeEmail(email);
+        if (mode === 'reset') {
+          await repository.sendPasswordReset(address);
+          setResetSent(true);
+        } else if (mode === 'signUp') {
+          await repository.createAccount(address, password);
+        } else {
+          await repository.signInWithEmail(address, password);
+        }
+        // A success clears the password from state at once; the gate swaps
+        // this screen out on the auth change that follows.
+        setPassword('');
+      } catch (error) {
+        setErrorKey(authErrorKey(error));
       }
-      // A success clears the password from state at once; the gate swaps this
-      // screen out on the auth change that follows.
-      setPassword('');
-    } catch (error) {
-      setErrorKey(authErrorKey(error));
-    } finally {
-      setBusy(false);
-    }
-  }, [busy, email, password, mode, repository]);
+    });
+  }, [run, email, password, mode, repository]);
 
   // The only key that carries a placeholder; `fill` on a message without one
   // is a no-op, so this stays one line rather than a table.
