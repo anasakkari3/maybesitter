@@ -15,6 +15,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -83,6 +84,25 @@ test('the deploy target is resolved once, and an unknown one is refused rather t
   // value that is empty on a push.
   const steps = workflow.slice(workflow.indexOf('    steps:'));
   assert.doesNotMatch(steps, /inputs\.target/, 'a step still reads inputs.target instead of TARGET');
+});
+
+test('the hosted model is configured for staging and switched off for production', () => {
+  // Enabling a paid model for real users is an owner decision, not something a
+  // deploy does because a branch landed (UC-2.0 #160, UC-2.1 #161). Staging is
+  // where it is exercised; production stays `none` until someone changes this
+  // line deliberately and a reviewer sees it.
+  const staging = execFileSync('bash', [join(repoRoot, 'infra/cloudrun/flags.sh'), 'staging'], { encoding: 'utf8' });
+  const production = execFileSync('bash', [join(repoRoot, 'infra/cloudrun/flags.sh'), 'production'], { encoding: 'utf8' });
+
+  assert.match(staging, /MAYBESITTER_LLM_PROVIDER=gemini/);
+  assert.match(production, /MAYBESITTER_LLM_PROVIDER=none/, 'production is configured to call a paid model');
+
+  // A region, never `global`: capture text is processed where the consent
+  // screen says it is.
+  for (const [name, flags] of [['staging', staging], ['production', production]] as const) {
+    assert.match(flags, /MAYBESITTER_VERTEX_LOCATION=europe-west1/, `${name} has no EU region pinned`);
+    assert.doesNotMatch(flags, /MAYBESITTER_VERTEX_LOCATION=global/, `${name} routes anywhere with capacity`);
+  }
 });
 
 test('the deployer may pass firebase-tools\' API-enabled check before deploying rules and indexes', () => {
