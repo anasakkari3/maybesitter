@@ -142,9 +142,12 @@ function parseStrictJsonObject(raw: string): unknown {
 function parseAndValidate(
   raw: string,
   rawText: string,
-  parserVersion?: string
+  context: ExtractionContext,
 ): ExtractionResult {
-  return validateExtractionResult(parseStrictJsonObject(raw), rawText);
+  // The context carries the device's zone, which is what the reconciliation
+  // resolves `localTimeSpec` against. Without it the validator would fall back
+  // to the zone the *model* named, and a guessed zone moves the instant.
+  return validateExtractionResult(parseStrictJsonObject(raw), rawText, context);
 }
 
 export async function extractWithOllama(
@@ -156,7 +159,7 @@ export async function extractWithOllama(
   const prompt = buildPrompt(rawText, context);
   const firstResponse = await provider(prompt);
   try {
-    const result = parseAndValidate(firstResponse, rawText, options.parserVersion);
+    const result = parseAndValidate(firstResponse, rawText, context);
     options.onTelemetry?.({
       schemaValid: true,
       repairAttempted: false,
@@ -178,7 +181,7 @@ export async function extractWithOllama(
       buildRepairPrompt(rawText, context, firstResponse, firstReason)
     );
     try {
-      const result = parseAndValidate(repairResponse, rawText, options.parserVersion);
+      const result = parseAndValidate(repairResponse, rawText, context);
       options.onTelemetry?.({
         schemaValid: true,
         repairAttempted: true,

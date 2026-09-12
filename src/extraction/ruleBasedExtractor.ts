@@ -1,4 +1,16 @@
-import type { ExtractionContext, ExtractionResult } from './extractionTypes';
+import type { ExtractionContext, ExtractionResult, LocalTimeSpec } from './extractionTypes';
+import {
+  CLOCK_PATTERN_SOURCES,
+  RANGE_PATTERN_SOURCES,
+  dayPartHour,
+  localTimeSpecFor,
+  normalizeArabicDigits,
+  normalizeSpokenArabicHours,
+  timeOfDayEvidence,
+  type TimeEvidence,
+} from './timeLexicon';
+
+export { CLOCK_PATTERN_SOURCES, RANGE_PATTERN_SOURCES } from './timeLexicon';
 
 const PARSER_VERSION = 'rule-v1-core';
 const WEEKDAYS: Record<string, number> = {
@@ -106,51 +118,6 @@ function resolveTimezone(context: ExtractionContext): string {
   return context.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
 
-function normalizeArabicDigits(value: string): string {
-  const arabic = '٠١٢٣٤٥٦٧٨٩';
-  const persian = '۰۱۲۳۴۵۶۷۸۹';
-  return value.replace(/[٠-٩۰-۹]/g, (digit) => {
-    const arabicIndex = arabic.indexOf(digit);
-    if (arabicIndex !== -1) return String(arabicIndex);
-    return String(persian.indexOf(digit));
-  });
-}
-
-/**
- * Hours as people say them, not as they type them. Speech-to-text hands us
- * «الساعة تسعة»; only digits used to parse, so every spoken time was dropped.
- * Longest-first so «إحدى عشرة» is not eaten by «إحدى».
- */
-const ARABIC_SPOKEN_HOURS: ReadonlyArray<readonly [RegExp, string]> = [
-  [/(?:ال)?(?:حادية|إحدى|احدى)\s*عشرة?|احدعش/g, '11'],
-  [/(?:ال)?(?:ثانية|اثنتا|اثنتي|تانية)\s*عشرة?|اتناش|اثناش/g, '12'],
-  [/(?:ال)?(?:واحدة|وحدة)/g, '1'],
-  [/(?:ال)?(?:ثانية|اثنين|إثنين|تنتين|ثنتين|تانية)/g, '2'],
-  [/(?:ال)?(?:ثالثة|ثلاثة|تلاتة|تالتة)/g, '3'],
-  [/(?:ال)?(?:رابعة|أربعة|اربعة)/g, '4'],
-  [/(?:ال)?(?:خامسة|خمسة)/g, '5'],
-  [/(?:ال)?(?:سادسة|ستة)/g, '6'],
-  [/(?:ال)?(?:سابعة|سبعة)/g, '7'],
-  [/(?:ال)?(?:ثامنة|ثمانية|تمانية|تامنة)/g, '8'],
-  [/(?:ال)?(?:تاسعة|تسعة)/g, '9'],
-  [/(?:ال)?(?:عاشرة|عشرة)/g, '10'],
-];
-
-function normalizeSpokenArabicHours(value: string): string {
-  // Only rewrite where a clock is actually being named, so «الفصل الثالث»
-  // (a chapter) keeps its word and only «الساعة الثالثة» becomes a number.
-  return value.replace(
-    /((?:الساعة|الساعه|عند|على)\s*)([^\s,.،]+(?:\s+عشرة?)?)/g,
-    (match, lead: string, word: string) => {
-      for (const [pattern, digit] of ARABIC_SPOKEN_HOURS) {
-        pattern.lastIndex = 0;
-        if (new RegExp(`^(?:${pattern.source})$`).test(word)) return `${lead}${digit}`;
-      }
-      return match;
-    }
-  );
-}
-
 function parseClock(raw: string): { hour: number; minute: number } | null {
   const normalized = normalizeSpokenArabicHours(normalizeArabicDigits(raw)).toLowerCase();
   const explicit =
@@ -167,7 +134,16 @@ function parseClock(raw: string): { hour: number; minute: number } | null {
   return { hour, minute };
 }
 
-function parseDateTime(raw: string, context: ExtractionContext): { dueAt: string | null; remindAt: string | null; confidence: number } {
+interface ParsedTime {
+  dueAt: string | null;
+  remindAt: string | null;
+  confidence: number;
+  /** Why the time was believed, or why there is none. */
+  evidence: TimeEvidence;
+  localTimeSpec: LocalTimeSpec | null;
+}
+
+function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
   const lower = raw.toLowerCase();
   const now = context.now;
   const tz = resolveTimezone(context);
@@ -202,49 +178,57 @@ function parseDateTime(raw: string, context: ExtractionContext): { dueAt: string
     timeConfidence = 0.72;
   }
 
+  const evidence = timeOfDayEvidence(raw);
+
   if (!targetDate) {
-    return { dueAt: null, remindAt: null, confidence: 0.1 };
+    return { dueAt: null, remindAt: null, confidence: 0.1, evidence, localTimeSpec: null };
   }
 
-  let hour = context.defaultReminderHour ?? 18;
+  // The hour has to come from the sentence. It used to come from `?? 18`, so
+  // "remind me tomorrow" — a date and nothing else — resolved to six in the
+  // evening at time-confidence 0.9 and overall 0.9, with no ambiguity flag.
+  // That is high enough to auto-confirm, so the product silently scheduled an
+  // hour the user never said and never asked about it. A caller that sets
+  // `defaultReminderHour` has *chosen* a default and still gets one; its
+  // absence now means "no time stated" rather than "six".
+  const daypart = dayPartHour(raw);
+  let hour: number;
   let minute = 0;
-  if (/\bmorning\b|الصبح|صباح/.test(lower)) hour = 9;
-  if (/\bafternoon\b|بعد الظهر|بعد الضهر/.test(lower)) hour = 14;
-  if (/\bevening\b|المسا|المساء|مساء/.test(lower)) hour = 18;
-  if (/\btonight\b|\bnight\b|بالليل|الليل/.test(lower)) hour = 20;
   if (clock) {
     hour = clock.hour;
     minute = clock.minute;
     timeConfidence = Math.max(timeConfidence, 0.95);
+  } else if (daypart !== null) {
+    hour = daypart;
+  } else if (context.defaultReminderHour !== undefined) {
+    hour = context.defaultReminderHour;
+  } else {
+    // The day parsed; the hour was never stated. Report exactly that, so the
+    // review screen can show "Sunday" and the clarification step can ask for
+    // the hour alone (#164, #165).
+    const day = localTimeSpecFor(targetDate, tz);
+    return {
+      dueAt: null,
+      remindAt: null,
+      confidence: 0.1,
+      evidence,
+      localTimeSpec: day ? { ...day, time: null } : null,
+    };
   }
 
   const withTime = setTimeTz(targetDate, hour, minute, tz);
-  return { dueAt: withTime.toISOString(), remindAt: withTime.toISOString(), confidence: timeConfidence };
+  // A clock time with no meridiem is the user's number and the product's guess
+  // at which half of the day it belongs to. It is kept, and it is named, so the
+  // review screen and the clarification question can both see that it is soft.
+  const confidence = evidence === 'clock_marker' ? Math.min(timeConfidence, 0.7) : timeConfidence;
+  return {
+    dueAt: withTime.toISOString(),
+    remindAt: withTime.toISOString(),
+    confidence,
+    evidence,
+    localTimeSpec: localTimeSpecFor(withTime, tz),
+  };
 }
-
-/**
- * What a single clock time looks like. `stripTiming` removes these from a
- * title and `countTimeExpressions` counts them; both read this one list, so
- * the two cannot drift apart. Stored as sources: every caller builds a fresh
- * RegExp, because a shared global regex carries `lastIndex` between calls.
- */
-export const CLOCK_PATTERN_SOURCES: readonly string[] = [
-  /\b(?:at|by|around)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/.source,
-  /\b(?:at|by|around)\s*\d{1,2}(?::\d{2})?(?=$|[\s,.،])/.source,
-  /\b\d{1,2}:\d{2}(?=$|[\s,.،])/.source,
-  /(?:الساعة|الساعه|عند|على)?\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\s*(?:صباحا|صباحاً|الصبح|ص|مساء|مساءً|المسا|المساء|بالليل|م)(?=$|[\s,.،])/.source,
-  /(?:الساعة|الساعه|عند|على)\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?(?=$|[\s,.،])/.source,
-];
-
-/**
- * A start-to-end range is one appointment, not two times. English
- * "from 14:00 to 15:00" / "from 2pm to 3pm", and Arabic «من الساعة 2 للساعة 4»,
- * where «ل» fuses with «الساعة» into «للساعة».
- */
-export const RANGE_PATTERN_SOURCES: readonly string[] = [
-  /\bfrom\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s+(?:to|until|till|-)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b/.source,
-  /(?<![؀-ۿ])من\s*(?:الساعة|الساعه)?\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\s*(?:إلى|الى|حتى|لـ?)\s*(?:ال|ل)?(?:ساعة|ساعه)?\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?/.source,
-];
 
 function stripTiming(text: string): string {
   // Rewrite «الساعة تسعة» to «الساعة 9» first, so the clock patterns below
@@ -328,6 +312,8 @@ export function extract(rawText: string, context: ExtractionContext): Extraction
       person,
       dueAt: parsedTime.dueAt,
       remindAt: parsedTime.remindAt,
+      localTimeSpec: parsedTime.localTimeSpec,
+      timeEvidence: parsedTime.evidence,
       priority,
       flexibility: 'movable',
       confidence: confidence(parsedTime.remindAt ? 0.86 : 0.68, 0.9, parsedTime.confidence),
@@ -348,6 +334,8 @@ export function extract(rawText: string, context: ExtractionContext): Extraction
       person: null,
       dueAt: null,
       remindAt: null,
+      localTimeSpec: null,
+      timeEvidence: 'none',
       priority,
       flexibility: 'soft',
       confidence: confidence(0.55, 0.1, 0.1),
@@ -388,6 +376,8 @@ export function extract(rawText: string, context: ExtractionContext): Extraction
     person: null,
     dueAt: parsedTime.dueAt,
     remindAt: parsedTime.remindAt,
+    localTimeSpec: parsedTime.localTimeSpec,
+    timeEvidence: parsedTime.evidence,
     priority,
     flexibility: weak ? 'soft' : 'movable',
     confidence: confidence(overall, actionConfidence, parsedTime.confidence),

@@ -78,6 +78,8 @@ function safeNegativeResult(rawText: string, type: 'unknown' | 'informational_co
     person: null,
     dueAt: null,
     remindAt: null,
+    localTimeSpec: null,
+    timeEvidence: 'none',
     priority: { level: 'normal', source: 'default', pressureAllowed: false, pressureImplied: false },
     flexibility: 'movable',
     confidence: { overall: 0.99, type: 0.99, action: 0.8, time: 0.9, priority: 0.92 },
