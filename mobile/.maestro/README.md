@@ -80,3 +80,21 @@ xcrun simctl shutdown <udid> && xcrun simctl boot <udid>
 
 On an English device the app renders English and every assertion fails for the
 wrong reason.
+
+## `delete-account.yaml`
+
+UC-1.5 (#149)'s entry point and its confirmation, on a device: Settings →
+Account → Delete account in two taps, the screen stating what is deleted and
+what is kept, and the confirmation alert whose default is Cancel.
+
+**It stops at Cancel on purpose.** Carrying on would really delete the
+account — there is no undo and no grace period — so the destructive half is
+verified against staging with a disposable account rather than from a flow
+anyone might run twice.
+
+Sign in by hand before running it: `inputText` cannot fill a secure field on
+the simulator (see above), so the flow cannot reach Settings on its own.
+
+```bash
+maestro test .maestro/delete-account.yaml
+```

@@ -49,7 +49,9 @@ export type Screen =
   | 'gallery'
   // Development only, and additionally behind an env flag: the Google Calendar
   // verification demo (src/screens/CalendarDemoScreen.tsx, UC-1.8 #152).
-  | 'calendarDemo';
+  | 'calendarDemo'
+  // Settings → Account → Delete account (UC-1.5 #149).
+  | 'deleteAccount';
 
 export type CapState = 'idle' | 'listening' | 'transcript' | 'typing' | 'processing' | 'nothing';
 

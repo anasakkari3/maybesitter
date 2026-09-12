@@ -51,7 +51,30 @@ export interface FederatedAuth {
   signInWithApple(): Promise<void>;
 }
 
-export interface AuthRepository extends EmailPasswordAuth, FederatedAuth {
+/**
+ * Proving recent identity before a destructive action (UC-1.5 #149).
+ *
+ * Each method re-authenticates the **current** user and leaves them signed in
+ * as themselves. None of them is a sign-in: a cancelled reauthentication must
+ * never end with a different account signed in, or with no account at all.
+ *
+ * They resolve when `auth_time` is fresh, reject with `ReauthCancelled` when
+ * the user backed out, and reject with the provider's own error otherwise.
+ */
+export interface ReauthenticatingAuth {
+  /** The password is an argument. It is never stored and never logged. */
+  reauthenticateWithPassword(password: string): Promise<void>;
+  reauthenticateWithGoogle(): Promise<void>;
+  reauthenticateWithApple(): Promise<void>;
+  /**
+   * Forces a token refresh so the *next* request carries the fresh
+   * `auth_time`. Firebase updates `auth_time` on re-authentication, but the
+   * cached ID token still holds the old claim until it is re-minted.
+   */
+  refreshIdentity(): Promise<void>;
+}
+
+export interface AuthRepository extends EmailPasswordAuth, FederatedAuth, ReauthenticatingAuth {
   /**
    * Calls back with the current user (or null) as soon as the SDK knows, and
    * on every change after that. The first call is what moves the app out of

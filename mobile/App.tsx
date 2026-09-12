@@ -4,6 +4,8 @@ import { useFonts } from 'expo-font';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppProvider } from './src/state/AppContext';
 import { ApiProvider } from './src/api/ui/ApiProvider';
+import { AccountDeletionProvider } from './src/features/account/AccountDeletionProvider';
+import { AccountDeletedGate } from './src/features/account/AccountDeletedGate';
 import { AuthGate } from './src/auth/AuthGate';
 import { AuthProvider } from './src/auth/AuthProvider';
 import { Root } from './src/Root';
@@ -25,9 +27,17 @@ export default function App() {
           {/* Inside AuthProvider: the API layer takes its bearer from the
               repository, and clears every cached row when the uid changes. */}
           <ApiProvider>
-            <AuthGate>
-              <Root />
-            </AuthGate>
+            <AccountDeletionProvider>
+              {/* Outside AuthGate on purpose: a successful deletion removes
+                  the Firebase user, so the gate flips to sign-in in the same
+                  frame — and the receipt the user is owed would vanish with
+                  it (UC-1.5 #149). */}
+              <AccountDeletedGate>
+                <AuthGate>
+                  <Root />
+                </AuthGate>
+              </AccountDeletedGate>
+            </AccountDeletionProvider>
           </ApiProvider>
         </AuthProvider>
       </AppProvider>

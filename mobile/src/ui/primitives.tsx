@@ -13,7 +13,7 @@ import type { Imp } from '../state/types';
 type Align = 'start' | 'center' | 'end';
 
 export function Txt({
-  children, size = 15, weight = 400, color, align = 'start', style, lines, lh, latin,
+  children, size = 15, weight = 400, color, align = 'start', style, lines, lh, latin, selectable, testID,
 }: {
   children: React.ReactNode;
   size?: number;
@@ -25,6 +25,9 @@ export function Txt({
   lh?: number;
   /** Set digits and Latin-only labels in Outfit even inside Arabic UI. */
   latin?: boolean;
+  /** For an opaque id the user may need to read out or paste (#149). */
+  selectable?: boolean;
+  testID?: string;
 }) {
   const { ar, p } = useApp();
   const naskh = ar && !latin;
@@ -32,6 +35,8 @@ export function Txt({
   return (
     <Text
       numberOfLines={lines}
+      selectable={selectable}
+      testID={testID}
       style={[
         {
           fontFamily: family(weight, naskh),

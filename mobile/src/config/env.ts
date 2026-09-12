@@ -134,3 +134,15 @@ export function googleCalendarDemoEnabled(isDevBundle: boolean = __DEV__): boole
   if (!isDevelopment()) return false;
   return (process.env.EXPO_PUBLIC_ENABLE_GOOGLE_CALENDAR_DEMO ?? '').trim() === 'true';
 }
+
+/**
+ * The public account-deletion policy page (UC-4.2 #177, on OWNER-A1 #137's
+ * domain), or null.
+ *
+ * Null until the site exists. The deletion screen then renders no link rather
+ * than one that 404s on the screen where the user most needs to trust us.
+ * Nothing here invents a URL.
+ */
+export function accountDeletionUrl(): string | null {
+  return httpsUrlOrNull(process.env.EXPO_PUBLIC_ACCOUNT_DELETION_URL);
+}

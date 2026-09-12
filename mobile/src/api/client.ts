@@ -2,10 +2,12 @@ import type { z } from 'zod';
 import { apiBaseUrl } from '../config/env';
 import { getIdToken, refreshIdToken, signOutExpired, signOutForbidden } from './auth';
 import {
+  ConfirmationRequiredError,
   ConflictError,
   ContractError,
   ForbiddenError,
   InvalidTransitionError,
+  RecentLoginRequiredError,
   NetworkError,
   NotFoundError,
   ServerError,
@@ -164,6 +166,9 @@ function errorForStatus(status: number, body: unknown): Error {
   const { message, reason } = refusal(body);
   switch (status) {
     case 400:
+      // The deletion route's own refusal, so the screen can say what to do
+      // rather than showing a generic validation message (#149).
+      if (reason === 'confirmation_required') return new ConfirmationRequiredError();
       return new ValidationError(message, reason);
     case 401:
       return new UnauthorizedError(message, reason);
@@ -203,6 +208,19 @@ export async function apiRequestTagged<T>(
   const expected = options.expectStatus ?? 200;
 
   let response = await send(method, target, options.body, await getIdToken(), options.signal, options.ifMatch);
+
+  if (response.status === 401 && refusal(response.body).reason === 'recent_login_required') {
+    // Before the refresh, and before any sign-out (#149).
+    //
+    // This 401 does not mean the credential is bad — it means `auth_time` is
+    // older than the server's window for a destructive action. Refreshing an
+    // ID token does **not** change `auth_time`, so the generic path below
+    // would retry into the identical 401 and then sign the user out: a valid
+    // session destroyed, and the user thrown out of the flow they were in.
+    //
+    // The caller re-authenticates with the user's own provider and asks again.
+    throw new RecentLoginRequiredError();
+  }
 
   if (response.status === 401) {
     // Exactly one forced refresh and one retry. Concurrent 401s share the

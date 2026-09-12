@@ -18,6 +18,7 @@ import { FirstMoveScreen } from './screens/FirstMoveScreen';
 import { SheetHost } from './screens/Sheets';
 import { TabBar } from './screens/TabBar';
 import { CalendarDemoScreen } from './screens/CalendarDemoScreen';
+import { DeleteAccountScreen } from './screens/DeleteAccountScreen';
 import { googleCalendarDemoEnabled } from './config/env';
 import { Gallery } from './design/Gallery';
 
@@ -50,6 +51,9 @@ export function Root() {
       {s.screen === 'today' && <TodayScreen key="today" />}
       {s.screen === 'calendar' && <CalendarScreen key="calendar" />}
       {s.screen === 'settings' && <SettingsScreen key="settings" />}
+      {s.screen === 'deleteAccount' && (
+        <DeleteAccountScreen key="deleteAccount" onBack={() => latest.current.go('settings')} />
+      )}
       {s.screen === 'details' && <DetailsScreen key="details" />}
       {s.screen === 'capture' && <CaptureScreen key="capture" />}
       {s.screen === 'review' && <ReviewScreen key="review" />}

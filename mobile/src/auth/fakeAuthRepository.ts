@@ -3,6 +3,7 @@
  * same state machine with the network removed, so a test can hold the app in
  * `loading`, sign a user in mid-test, and assert what the gate rendered.
  */
+import { ReauthCancelled, type ReauthProvider } from '../features/account/reauthenticate';
 import type { AuthRepository, AuthUser, SignOutReason, Unsubscribe } from './types';
 
 export interface FakeAuthOptions {
@@ -12,7 +13,17 @@ export interface FakeAuthOptions {
 }
 
 export interface FakeAuthCall {
-  method: 'createAccount' | 'signInWithEmail' | 'sendPasswordReset' | 'sendVerificationEmail' | 'signInWithGoogle' | 'signInWithApple';
+  method:
+    | 'createAccount'
+    | 'signInWithEmail'
+    | 'sendPasswordReset'
+    | 'sendVerificationEmail'
+    | 'signInWithGoogle'
+    | 'signInWithApple'
+    | 'reauthenticateWithPassword'
+    | 'reauthenticateWithGoogle'
+    | 'reauthenticateWithApple'
+    | 'refreshIdentity';
   /**
    * The address only. Passwords are never recorded, so a failing test cannot
    * print one and no snapshot can accidentally hold one.
@@ -34,6 +45,8 @@ export interface FakeAuthRepository extends AuthRepository {
   /** Makes the next Google or Apple sign-in behave as the user backing out. */
   cancelNextGoogle(): void;
   cancelNextApple(): void;
+  /** Re-authentications that succeeded, in order. Passwords are never kept. */
+  readonly reauthentications: ReauthProvider[];
 }
 
 export function createFakeAuthRepository(options: FakeAuthOptions = {}): FakeAuthRepository {
@@ -45,6 +58,7 @@ export function createFakeAuthRepository(options: FakeAuthOptions = {}): FakeAut
   const signOutReasons: SignOutReason[] = [];
   let signOutReason: SignOutReason | null = null;
   const calls: FakeAuthCall[] = [];
+  const reauthentications: ReauthProvider[] = [];
   const failures = new Map<FakeAuthCall['method'], unknown>();
   let cancelGoogle = false;
   let cancelApple = false;
@@ -116,6 +130,34 @@ export function createFakeAuthRepository(options: FakeAuthOptions = {}): FakeAut
         providerIds: ['google.com'],
       });
     },
+    async reauthenticateWithPassword(password) {
+      // Deliberately not recorded with the password: a failing test must not
+      // be able to print one, and no snapshot can hold one.
+      record('reauthenticateWithPassword');
+      if (password === '') throw Object.assign(new Error('x'), { code: 'auth/missing-password' });
+      reauthentications.push('password');
+    },
+    async reauthenticateWithGoogle() {
+      record('reauthenticateWithGoogle');
+      if (cancelGoogle) {
+        cancelGoogle = false;
+        throw new ReauthCancelled();
+      }
+      reauthentications.push('google.com');
+    },
+    async reauthenticateWithApple() {
+      record('reauthenticateWithApple');
+      if (cancelApple) {
+        cancelApple = false;
+        throw new ReauthCancelled();
+      }
+      reauthentications.push('apple.com');
+    },
+    async refreshIdentity() {
+      record('refreshIdentity');
+      forcedRefreshes += 1;
+    },
+    reauthentications,
     async signInWithApple() {
       record('signInWithApple');
       if (cancelApple) {

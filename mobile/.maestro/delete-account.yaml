@@ -1,0 +1,31 @@
+appId: com.maybesitter.app
+name: MaybeSitter delete account
+---
+# UC-1.5 (#149). Run with a **disposable** account: this flow really deletes
+# it, and it cannot be undone.
+#
+# It stops before the destructive confirmation. Maestro's `inputText` delivers
+# only one character into a `secureTextEntry` field on the iOS simulator (see
+# README), so it cannot sign in to get here on its own — sign in by hand
+# first, then run this with `--continuous` off.
+- launchApp
+
+# Settings → Account → Delete account, in two taps from the tab bar.
+- tapOn: 'الإعدادات'
+- assertVisible: 'الحساب'
+- tapOn: 'حذف الحساب'
+
+# The screen has to say what goes and what stays, before anything is offered.
+- assertVisible: 'احذف حسابك'
+- assertVisible: 'هاد نهائي. ما في رجعة وما في فترة سماح.'
+- assertVisible: 'شو بينحذف'
+- assertVisible: 'شو بيضل شوي'
+
+# One destructive action, and a confirmation whose default is Cancel.
+- tapOn: 'احذف حسابي'
+- assertVisible: 'تحذف حسابك؟'
+- tapOn: 'إلغاء'
+
+# Cancelling deletes nothing and leaves the screen exactly as it was.
+- assertVisible: 'احذف حسابي'
+- assertVisible: 'احذف حسابك'
