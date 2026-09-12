@@ -41,6 +41,8 @@ export const BEHAVIOR_FEEDBACK = 'behaviorFeedback';
 export const PRESSURE_DELIVERY = 'pressureDelivery';
 export const CLARIFICATIONS = 'clarifications';
 export const ANALYTICS_EVENTS = 'analyticsEvents';
+/** Capture proposals between proposing and confirming (#252). */
+export const CAPTURE_PROPOSALS = 'captureProposals';
 
 /**
  * Every user-scoped subcollection, so account deletion can be *checked* rather
@@ -69,6 +71,7 @@ export const USER_SCOPED_COLLECTIONS = [
   PRESSURE_DELIVERY,
   CLARIFICATIONS,
   ANALYTICS_EVENTS,
+  CAPTURE_PROPOSALS,
 ] as const;
 
 /** Operator-only, outside every user tree. */

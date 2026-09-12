@@ -322,7 +322,9 @@ test('mobile confirm enforces scope and selection before persistence', async () 
         itemIds: [items[0].itemId],
       }),
     }));
-    assert.equal(wrongScope.status, 200);
+    // #252: a confirm that persists nothing must not look like success. The
+    // proposal is not in this user's tree, so it is simply not found.
+    assert.equal(wrongScope.status, 404);
     assert.equal((await json(wrongScope)).success, false);
     assert.equal(await commitmentCount(), 0);
     assert.equal(await commitmentCount(other), 0);
@@ -391,14 +393,17 @@ test('mobile confirm rejects idempotency mismatch without duplicating commitment
       idempotencyKey: 'key-a',
     })));
     const stateAfterFirst = JSON.stringify((await getParticipantStateSnapshot(USER)).commitments);
-    const second = await json(await confirmPost(request('/api/mobile/capture/confirm', {
+    const secondResponse = await confirmPost(request('/api/mobile/capture/confirm', {
       proposalId: proposal.proposalId,
       scopeId: 'mismatch',
       itemIds: [itemId],
       idempotencyKey: 'key-b',
-    })));
+    }));
+    const second = await json(secondResponse);
 
     assert.equal(first.success, true);
+    // #252: the status says it failed; the body still names the item and why.
+    assert.equal(secondResponse.status, 400);
     assert.equal(second.success, false);
     assert.deepEqual(second.failed, [{ itemId, reason: 'invalid_selection' }]);
     assert.equal(await commitmentCount(), 1);

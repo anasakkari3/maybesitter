@@ -1,3 +1,4 @@
+import type { CaptureConfirmationResultContract } from '../../../src/contracts/v1/captureContracts';
 import { createHash } from 'crypto';
 import { analyticsContextFrom } from '../../analytics/analyticsContext';
 import { appendAnalyticsEvent } from '../../analytics/eventStore';
@@ -6,7 +7,7 @@ import { resolveUserAccess } from '../../pilot/pilotAccess';
 import { applyTrustAction } from '../../pilot/pilotTrustStore';
 import {
   confirmCapture,
-  MemoryCaptureProposalStore,
+  createStorageCaptureProposalStore,
   proposeCapture,
   type CaptureProposalStore,
   type CapturePersistenceAdapter,
@@ -54,14 +55,14 @@ export interface MobileBackendContext {
 }
 
 type MobileGlobals = typeof globalThis & {
-  __maybesitterMobileProposalStore?: MemoryCaptureProposalStore;
   __maybesitterMobilePersistence?: CommandServiceCapturePersistenceAdapter;
 };
 
 const mobileGlobals = globalThis as MobileGlobals;
-const store = mobileGlobals.__maybesitterMobileProposalStore ?? new MemoryCaptureProposalStore();
+// Durable since #252: a proposal made on one instance must be confirmable on
+// another, and must survive a redeploy. Resolved per call by the adapter.
+const store: CaptureProposalStore = createStorageCaptureProposalStore();
 const persistence = mobileGlobals.__maybesitterMobilePersistence ?? new CommandServiceCapturePersistenceAdapter();
-mobileGlobals.__maybesitterMobileProposalStore = store;
 mobileGlobals.__maybesitterMobilePersistence = persistence;
 
 function scopeIdFrom(value: unknown, context: MobileBackendContext = {}): string {
@@ -101,7 +102,7 @@ async function persistedItem(
   itemId: string,
   context: MobileBackendContext = {},
 ): Promise<PersistedProposalItem | null> {
-  const stored = proposalStore.get(proposalId);
+  const stored = await proposalStore.get(proposalId);
   const item = stored?.contract.items.find((candidate) => candidate.itemId === itemId);
   const commitmentId = commitmentIdForCommands(stored?.commandsByItemId.get(itemId));
   if (!item || !commitmentId) return null;
@@ -120,7 +121,7 @@ async function activateConfirmedItems(
   itemIds: readonly string[],
   context: MobileBackendContext = {},
 ): Promise<void> {
-  const stored = store.get(proposalId);
+  const stored = await store.get(proposalId);
   if (!stored) return;
 
   for (const itemId of itemIds) {
@@ -163,6 +164,8 @@ export async function confirmMobileCapture(input: MobileConfirmInput, context: M
   replayed: boolean;
   persisted: PersistedProposalItem[];
   failed: FailedProposalItem[];
+  /** Why the boundary refused, so the route can answer 404 rather than 400 (#252). */
+  failureCode?: CaptureConfirmationResultContract['failureCode'];
 }> {
   const proposalId = typeof input.proposalId === 'string' ? input.proposalId : '';
   if (!proposalId) throw new Error('proposalId is required');
@@ -184,6 +187,10 @@ export async function confirmMobileCapture(input: MobileConfirmInput, context: M
   if (!result.success) {
     return {
       success: false,
+      // Kept, not dropped: the route needs it to answer 404 for a proposal
+      // that is gone versus 400 for a request it refuses (#252). `failed[]`
+      // still names each item, which is what a client shows the user.
+      failureCode: result.failureCode,
       replayed: result.replayed,
       persisted: [],
       failed: selectedItemIds.map((itemId) => ({

@@ -21,7 +21,16 @@ export async function POST(request: Request) {
 
   try {
     // A `scopeId` in the body is not read: the scope is the authenticated uid.
-    return Response.json(await confirmMobileCapture(body, { participantId: user.uid }));
+    const result = await confirmMobileCapture(body, { participantId: user.uid });
+    // A confirm that persisted nothing answered 200 before (#252), which no
+    // client retry could detect. The status now says it failed — 404 when the
+    // proposal is gone, 400 when the request itself is refused — while the
+    // body is unchanged, because `failed[]` tells the client which item was
+    // rejected and why, and a bare error code would throw that away.
+    if (result.success === false) {
+      return Response.json(result, { status: result.failureCode === 'proposal_not_found' ? 404 : 400 });
+    }
+    return Response.json(result);
   } catch (error) {
     return mobileError(error instanceof Error ? error.message : 'Confirmation failed');
   }
