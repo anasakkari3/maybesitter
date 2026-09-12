@@ -11,7 +11,7 @@
     }
   ],
   "provenance": {
-    "requestedEngine": "model",
+    "requestedEngine": "rules",
     "executedEngine": "rule-based",
     "fallbackUsed": true
   }

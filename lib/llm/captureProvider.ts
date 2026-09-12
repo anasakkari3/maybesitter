@@ -21,11 +21,12 @@
  */
 import {
   LLMUnavailableError,
-  getDefaultProvider,
   type LLMProviderFunction,
   type LlmProvider,
   type LlmPurpose,
 } from '../../src/extraction/llm';
+import { getAiConsent } from '../consents/aiConsentService';
+import { AiConsentRequiredError, consentGatedProvider } from './consentGatedProvider';
 import { GEMINI_EXTRACTION_SCHEMA } from '../../src/extraction/ollamaExtractionSchema';
 import { logLlmCall, uidHash } from './llmLog';
 import { reserveCall, type ReserveOptions } from './usageGuard';
@@ -50,6 +51,7 @@ export function splitPrompt(prompt: string): { system: string; user: string } {
 
 export interface CaptureProviderOptions {
   provider?: LlmProvider;
+  consent?: typeof getAiConsent;
   purpose?: LlmPurpose;
   reserve?: typeof reserveCall;
   reserveOptions?: ReserveOptions;
@@ -69,14 +71,30 @@ export function captureLlmProvider(uid: string, options: CaptureProviderOptions 
   const log = options.log ?? logLlmCall;
 
   return async (prompt: string): Promise<string> => {
-    const provider = options.provider ?? getDefaultProvider();
+    // Gated, always. The gate is what makes this the only route to the model
+    // (#161); the explicit check below is only about *when* it refuses.
+    const provider = options.provider ?? consentGatedProvider(uid, {});
     // Nothing to meter and nothing to log: the fast path when no model is
     // configured, which is the default everywhere.
     if (provider.name === 'none') throw new LLMUnavailableError('provider_none');
 
+    // Consent before cost. The gated provider would refuse this call anyway,
+    // but it refuses inside `generateJson` — after the reservation — and
+    // charging somebody's daily budget for a call their consent forbids is the
+    // wrong way round. The second check inside the provider is the one that
+    // cannot be bypassed; this one is the one that is polite about it.
+    const readConsent = options.consent ?? getAiConsent;
+    if ((await readConsent(uid)) !== 'granted') throw new AiConsentRequiredError();
+
     const reservation = await reserve(uid, purpose, options.reserveOptions ?? {});
     if (reservation !== 'ok') {
-      const reason = reservation === 'user_cap' ? 'cost_cap:user' : 'cost_cap:global';
+      const reason = reservation === 'user_cap'
+        ? 'cost_cap:user'
+        : reservation === 'global_cap'
+          ? 'cost_cap:global'
+          // The counters could not be read. Refusing is the fail-closed
+          // direction: an unreadable cap is not an absent one.
+          : 'usage_guard_unavailable';
       log({
         event: 'llm_call',
         purpose,

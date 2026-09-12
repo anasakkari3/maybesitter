@@ -44,10 +44,11 @@ const GUARDED_VIA_SCOPE = new Set([
 ]);
 
 test('every mobile route file exists and is enumerated', () => {
-  // Sixteen today: UC-1.5 (#149) added `DELETE /api/mobile/account`. The number
-  // is asserted so that a route added without a thought about authentication
-  // shows up here as well as in the loop.
-  assert.equal(files.length, 16, `found:\n${files.join('\n')}`);
+  // Eighteen today: UC-1.5 (#149) added `DELETE /api/mobile/account`, and
+  // UC-2.1 (#161) the two consent routes. The number is asserted so that a
+  // route added without a thought about authentication shows up here as well
+  // as in the loop.
+  assert.equal(files.length, 18, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {
