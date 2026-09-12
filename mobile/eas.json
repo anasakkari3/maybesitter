@@ -13,18 +13,25 @@
     },
     "staging": {
       "distribution": "internal",
+      "environment": "preview",
       "env": {
         "APP_ENV": "staging"
       }
     },
     "production": {
       "autoIncrement": true,
+      "environment": "production",
       "env": {
         "APP_ENV": "production"
       }
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "android": {
+        "track": "internal"
+      },
+      "ios": {}
+    }
   }
 }

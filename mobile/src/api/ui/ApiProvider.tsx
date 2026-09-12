@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { QueryClientProvider, type QueryClient } from '@tanstack/react-query';
+import { useApp } from '../../state/AppContext';
 import { useAuth } from '../../auth/AuthProvider';
 import { setAuthRepository } from '../auth';
 import { createAppQueryClient, installDeviceManagers } from '../queryClient';
@@ -28,6 +29,9 @@ export function ApiProvider({
   client?: QueryClient;
 }) {
   const { repository, user, status } = useAuth();
+  // A stable identity (see AppContext), so it can be a dependency rather than
+  // smuggled through a ref.
+  const { resetForNewUser } = useApp().actions;
   const [defaultClient] = useState(createAppQueryClient);
   const queryClient = client ?? defaultClient;
   const uid = user?.uid ?? null;
@@ -50,9 +54,10 @@ export function ApiProvider({
     if (status === 'loading') return;
     if (previousUid.current !== undefined && previousUid.current !== uid) {
       queryClient.clear();
+      resetForNewUser();
     }
     previousUid.current = uid;
-  }, [status, uid, queryClient]);
+  }, [status, uid, queryClient, resetForNewUser]);
 
   return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
 }

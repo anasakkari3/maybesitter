@@ -16,6 +16,7 @@ const problems = releaseConfigProblems({
   appEnv: APP_ENV,
   apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL,
   devBearerToken: process.env.EXPO_PUBLIC_DEV_BEARER_TOKEN,
+  apiMode: process.env.EXPO_PUBLIC_API_MODE,
 });
 if (problems.length > 0) throw new Error(releaseConfigErrorMessage(problems));
 
@@ -47,6 +48,31 @@ function googleWebClientId(): string | null {
   }
 }
 
+/**
+ * App Transport Security (UC-1.6a #150 step 3).
+ *
+ * Expo SDK 57 puts `NSAllowsArbitraryLoads: true` in the Info.plist of *every*
+ * profile — production included — so a release build would be allowed to make
+ * plain-HTTP requests to any host. That is the exact hole #150 asks to close,
+ * and `expo config --type introspect` is how it was found.
+ *
+ * A development build keeps the localhost exception, because the whole point
+ * of `EXPO_PUBLIC_API_BASE_URL=http://localhost:3000` is talking to a laptop.
+ * Everything else gets arbitrary loads off, with no exception domains: the app
+ * speaks HTTPS to Cloud Run and to Google, and nothing else.
+ */
+function appTransportSecurity(appEnv: AppEnv): Record<string, unknown> {
+  if (appEnv === 'development') {
+    return {
+      NSAllowsArbitraryLoads: true,
+      NSExceptionDomains: {
+        localhost: { NSExceptionAllowsInsecureHTTPLoads: true },
+      },
+    };
+  }
+  return { NSAllowsArbitraryLoads: false };
+}
+
 const NAME_SUFFIX: Record<AppEnv, string> = {
   development: ' (Dev)',
   staging: ' (Staging)',
@@ -64,6 +90,27 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     ...config.ios,
     bundleIdentifier: 'com.maybesitter.app',
     supportsTablet: false,
+    // Adds the entitlement at prebuild (UC-1.1 #145). The capability still
+    // has to be enabled on the App ID in the Apple Developer portal; EAS
+    // syncs it at build time. Declared now because adding it later
+    // re-provisions the whole build.
+    usesAppleSignIn: true,
+    infoPlist: {
+      ...config.ios?.infoPlist,
+      // The launcher name, which `name` above only sets for the project.
+      CFBundleDisplayName: 'MaybeSitter',
+      NSAppTransportSecurity: appTransportSecurity(APP_ENV),
+    },
+    // Standard HTTPS only, so the app is outside the US export-compliance
+    // question App Store Connect asks on every single upload.
+    config: { ...config.ios?.config, usesNonExemptEncryption: false },
+    // The App Group the home-screen widget will read the next step from
+    // (UC-3.R1 #203). Declared now because EAS syncs capabilities to the App
+    // ID at build time, and adding it later re-provisions.
+    entitlements: {
+      ...config.ios?.entitlements,
+      'com.apple.security.application-groups': ['group.com.maybesitter.app'],
+    },
     // Committed on purpose (UC-1.7 #151): these files identify the Firebase
     // project and authorise nothing. The API keys they carry are restricted to
     // this bundle id / package name and to Identity Toolkit, Token Service and
@@ -74,6 +121,18 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     ...config.android,
     package: 'com.maybesitter.app',
     googleServicesFile: './firebase/google-services.json',
+    // Nothing on this device is worth restoring: commitments live in
+    // Firestore under the uid, and signing in is what brings them back. See
+    // plugins/withDataExtractionRules.js for why this alone is not enough.
+    allowBackup: false,
+    // Permissions Expo's dependencies pull in transitively and this app has
+    // no use for. An unexplained permission on a store listing costs trust,
+    // and `SYSTEM_ALERT_WINDOW` in particular reads as spyware.
+    blockedPermissions: [
+      'android.permission.SYSTEM_ALERT_WINDOW',
+      'android.permission.READ_EXTERNAL_STORAGE',
+      'android.permission.WRITE_EXTERNAL_STORAGE',
+    ],
   },
   plugins: [
     ...(config.plugins ?? []),
@@ -86,11 +145,13 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     // prebuild; without this the pods link dynamically and the app crashes on
     // launch. The deployment target follows the Firebase Apple SDK's minimum.
     ['expo-build-properties', { ios: { useFrameworks: 'static', deploymentTarget: '16.4' } }],
+    './plugins/withDataExtractionRules',
   ],
   extra: {
     ...config.extra,
     appEnv: APP_ENV,
     apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL ?? null,
     googleWebClientId: googleWebClientId(),
+    apiMode: process.env.EXPO_PUBLIC_API_MODE ?? null,
   },
 });

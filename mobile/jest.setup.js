@@ -49,3 +49,38 @@ jest.mock('@react-native-google-signin/google-signin', () => ({
     NULL_PRESENTER: 'NULL_PRESENTER',
   },
 }));
+
+// `expo-crypto`'s digest is native: under Jest it resolves to an empty string,
+// which would make the Apple nonce test pass while asserting nothing. Backed
+// by Node's real SHA-256 instead, so the test checks what it claims to — that
+// this app asks for SHA-256, in hex, and sends the hash and the raw nonce to
+// the right places.
+jest.mock('expo-crypto', () => {
+  const nodeCrypto = require('node:crypto');
+  return {
+    CryptoDigestAlgorithm: { SHA256: 'SHA-256', SHA512: 'SHA-512' },
+    CryptoEncoding: { HEX: 'hex', BASE64: 'base64' },
+    getRandomBytes: (byteCount) => new Uint8Array(nodeCrypto.randomBytes(byteCount)),
+    getRandomBytesAsync: async (byteCount) => new Uint8Array(nodeCrypto.randomBytes(byteCount)),
+    randomUUID: () => nodeCrypto.randomUUID(),
+    digestStringAsync: async (algorithm, data, options) => {
+      const nodeAlgorithm = String(algorithm).toLowerCase().replace('-', '');
+      return nodeCrypto
+        .createHash(nodeAlgorithm)
+        .update(data, 'utf8')
+        .digest(options?.encoding === 'base64' ? 'base64' : 'hex');
+    },
+  };
+});
+
+// `expo-apple-authentication` is iOS-native. `isAvailableAsync` resolves true
+// here, standing in for an iOS 13+ device — which is exactly what it does on a
+// real one, capability or not. That is the point: the availability tests are
+// about this app's own flag and platform gates, not about the SDK's answer.
+// `signInAsync` is inert; the flows are driven through `FakeAuthRepository`.
+jest.mock('expo-apple-authentication', () => ({
+  isAvailableAsync: async () => true,
+  signInAsync: async () => ({ identityToken: null, fullName: null }),
+  AppleAuthenticationScope: { FULL_NAME: 0, EMAIL: 1 },
+  AppleAuthenticationCredentialState: { REVOKED: 0, AUTHORIZED: 1, NOT_FOUND: 2, TRANSFERRED: 3 },
+}));

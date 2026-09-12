@@ -234,5 +234,6 @@
   "errorsConsentRequired": "הפעל את זה בהגדרות כדי לראות הצעות.",
   "errorsQuietMode": "מצב שקט פעיל. לא יוצעו דברים עד שתכבה אותו.",
   "errorsFeatureDisabled": "זה עדיין לא זמין.",
-  "authErrorNoPlayServices": "התחברות עם Google דורשת את שירותי Google Play. השתמש באימייל במקום."
+  "authErrorNoPlayServices": "התחברות עם Google דורשת את שירותי Google Play. השתמש באימייל במקום.",
+  "authErrorAppleUnavailable": "התחברות עם Apple אינה זמינה במכשיר הזה. השתמש ב-Google או באימייל."
 }

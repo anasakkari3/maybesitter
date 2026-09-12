@@ -195,3 +195,9 @@ jobs:
           fi
           APP_ENV=production EXPO_PUBLIC_API_BASE_URL=https://api.example.com \
             npx expo config --type public >/dev/null
+
+      # Signing material in the repository is not something a review catches
+      # reliably, and rotating a leaked upload key means a new app listing
+      # (UC-1.6a #150).
+      - name: No credentials in the repository
+        run: npm run check:no-credentials

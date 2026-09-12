@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useColorScheme } from 'react-native';
 import { strings, type Lang, type Strings } from '../i18n/strings';
 import { setLocale, tFor } from '../i18n';
@@ -91,7 +91,23 @@ function useAppModel() {
     void saveLanguagePref(pref);
   };
 
+  /**
+   * Throws away everything this session held (UC-1.4 #148 step 4).
+   *
+   * Called when the signed-in uid changes. The query cache is cleared by
+   * `ApiProvider`, but this provider also holds commitments, proposals, a
+   * half-typed capture and the selected day in memory — and one of those
+   * rendering for the next account, even for the frame before a refetch
+   * lands, is somebody reading somebody else's commitments.
+   *
+   * `useCallback` with no dependencies on purpose: `ApiProvider` lists it as
+   * an effect dependency, and an identity that changed every render would
+   * re-run that effect forever.
+   */
+  const resetForNewUser = useCallback(() => setS(initial), []);
+
   const actions = {
+    resetForNewUser,
     go: (screen: Screen) => set(st => ({ prev: st.screen, screen, sheet: null })),
     back: () => set(st => ({ screen: st.prev === 'details' || st.prev === 'firstmove' ? 'today' : st.prev, sheet: null })),
     goCapture: () => set(st => ({ prev: st.screen, screen: 'capture', cap: 'idle', input: '', sheet: null })),

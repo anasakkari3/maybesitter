@@ -19,6 +19,13 @@ export interface ReleaseConfigInput {
   appEnv?: string | undefined;
   apiBaseUrl?: string | undefined;
   devBearerToken?: string | undefined;
+  /**
+   * `EXPO_PUBLIC_API_MODE`. `mock` serves the committed contract fixtures
+   * instead of the server, which is useful for UI work and catastrophic in a
+   * build a tester installs: they would confirm commitments into nothing and
+   * believe they were saved (UC-1.4 #148 step 4).
+   */
+  apiMode?: string | undefined;
 }
 
 export const APP_ENVS: readonly AppEnv[] = ['development', 'staging', 'production'];
@@ -50,8 +57,17 @@ export function releaseConfigProblems(input: ReleaseConfigInput): string[] {
   if (!APP_ENVS.includes(appEnv as AppEnv)) {
     return [`APP_ENV must be one of ${APP_ENVS.join(', ')} (got ${appEnv === '' ? '<empty>' : appEnv})`];
   }
-  // A developer build is allowed to point at a laptop.
+  const apiMode = (input.apiMode ?? '').trim();
+  if (apiMode !== '' && apiMode !== 'api' && apiMode !== 'mock') {
+    problems.push(`EXPO_PUBLIC_API_MODE must be api or mock (got ${apiMode})`);
+  }
+
+  // A developer build is allowed to point at a laptop, and to run on fixtures.
   if (appEnv === 'development') return problems;
+
+  if (apiMode === 'mock') {
+    problems.push('EXPO_PUBLIC_API_MODE=mock must not be set in a staging or production build');
+  }
 
   const raw = (input.apiBaseUrl ?? '').trim();
   if (raw === '') {

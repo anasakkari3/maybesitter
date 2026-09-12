@@ -26,6 +26,46 @@ module.exports = defineConfig([
     },
   },
   {
+    /**
+     * Where device-local storage may be used (UC-1.4 #148 step 4).
+     *
+     * The retired Flutter client's mock mode persisted the user's edits to
+     * `shared_preferences`, and the RN app must not carry that pattern into a
+     * real build: commitment titles are the most personal thing this product
+     * holds, and neither platform encrypts app storage by default. Server
+     * state belongs in Firestore under the uid, where signing in on a new
+     * device is what brings it back.
+     *
+     * `src/i18n/language.ts` is the exception the rule allows for: a stored
+     * language preference is not content, and it has to survive a relaunch.
+     */
+    files: ['src/api/**/*.{ts,tsx}', 'src/features/**/*.{ts,tsx}', 'src/screens/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '@react-native-async-storage/async-storage',
+              message:
+                'No user content on device storage (#148). Server state lives in Firestore under the uid; device-only preferences belong in src/i18n/language.ts or a future src/lib/deviceSettings/.',
+            },
+            {
+              name: 'expo-secure-store',
+              message: 'Credentials live in the Firebase SDK keychain entry only (#151).',
+            },
+          ],
+          patterns: [
+            {
+              group: ['expo-sqlite', 'react-native-mmkv', 'expo-file-system*'],
+              message: 'No local database or file cache of user content (#148, #157).',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     // The React Compiler lint rules landed with SDK 57 and flag idioms the
     // design implementation already uses and the app relies on:
     //   - `useRef(new Animated.Value(1)).current` in the press primitives and

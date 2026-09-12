@@ -12,7 +12,7 @@ export interface FakeAuthOptions {
 }
 
 export interface FakeAuthCall {
-  method: 'createAccount' | 'signInWithEmail' | 'sendPasswordReset' | 'sendVerificationEmail' | 'signInWithGoogle';
+  method: 'createAccount' | 'signInWithEmail' | 'sendPasswordReset' | 'sendVerificationEmail' | 'signInWithGoogle' | 'signInWithApple';
   /**
    * The address only. Passwords are never recorded, so a failing test cannot
    * print one and no snapshot can accidentally hold one.
@@ -31,8 +31,9 @@ export interface FakeAuthRepository extends AuthRepository {
   readonly calls: FakeAuthCall[];
   /** Makes the next call of `method` reject with this error. */
   failNext(method: FakeAuthCall['method'], error: unknown): void;
-  /** Makes the next Google sign-in behave as the user backing out. */
+  /** Makes the next Google or Apple sign-in behave as the user backing out. */
   cancelNextGoogle(): void;
+  cancelNextApple(): void;
 }
 
 export function createFakeAuthRepository(options: FakeAuthOptions = {}): FakeAuthRepository {
@@ -46,6 +47,7 @@ export function createFakeAuthRepository(options: FakeAuthOptions = {}): FakeAut
   const calls: FakeAuthCall[] = [];
   const failures = new Map<FakeAuthCall['method'], unknown>();
   let cancelGoogle = false;
+  let cancelApple = false;
 
   const record = (method: FakeAuthCall['method'], email?: string): void => {
     calls.push(email === undefined ? { method } : { method, email });
@@ -114,8 +116,26 @@ export function createFakeAuthRepository(options: FakeAuthOptions = {}): FakeAut
         providerIds: ['google.com'],
       });
     },
+    async signInWithApple() {
+      record('signInWithApple');
+      if (cancelApple) {
+        cancelApple = false;
+        return;
+      }
+      emit({
+        uid: 'fake-apple-uid',
+        // Apple's private relay means the app often has no usable address.
+        email: null,
+        emailVerified: true,
+        displayName: 'Someone',
+        providerIds: ['apple.com'],
+      });
+    },
     cancelNextGoogle() {
       cancelGoogle = true;
+    },
+    cancelNextApple() {
+      cancelApple = true;
     },
     calls,
     failNext(method, error) {

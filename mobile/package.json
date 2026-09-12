@@ -12,6 +12,7 @@
     "@react-native-google-signin/google-signin": "^16.1.5",
     "@tanstack/react-query": "^5.102.8",
     "expo": "~57.0.21",
+    "expo-apple-authentication": "~57.0.2",
     "expo-blur": "~57.0.2",
     "expo-build-properties": "~57.0.17",
     "expo-constants": "~57.0.18",
@@ -52,7 +53,9 @@
     "test": "jest",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
-    "format": "prettier --write \"**/*.{ts,tsx,json,md}\""
+    "format": "prettier --write \"**/*.{ts,tsx,json,md}\"",
+    "check:no-credentials": "bash scripts/check-no-credentials.sh",
+    "verify:release-android": "bash scripts/verify-release-android.sh"
   },
   "private": true,
   "jest": {

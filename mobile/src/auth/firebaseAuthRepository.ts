@@ -17,12 +17,15 @@ import {
   reload,
   sendEmailVerification,
   GoogleAuthProvider,
+  OAuthProvider,
   sendPasswordResetEmail,
   signInWithCredential,
   signInWithEmailAndPassword,
   signOut as firebaseSignOut,
+  updateProfile,
   type User as FirebaseUser,
 } from '@react-native-firebase/auth';
+import { AppleSignInCancelled, requestAppleCredential } from './appleSignIn';
 import { requestGoogleCredential, signOutOfGoogle } from './googleSignIn';
 import { normalizeEmail } from './validation';
 import type { AuthRepository, AuthUser, SignOutReason } from './types';
@@ -78,6 +81,33 @@ export function createFirebaseAuthRepository(): AuthRepository {
       // effort: Firebase sign-out is what actually ends the session.
       await signOutOfGoogle();
       await firebaseSignOut(getAuth());
+    },
+
+    async signInWithApple() {
+      let credential;
+      try {
+        credential = await requestAppleCredential();
+      } catch (error) {
+        // Dismissing the sheet leaves the screen exactly as it was.
+        if (error instanceof AppleSignInCancelled) return;
+        throw error;
+      }
+      if (!credential) return;
+      // The raw nonce goes to Firebase; Apple only ever saw its SHA-256.
+      // Firebase hashes this and compares it with the token's `nonce` claim,
+      // which is what makes a captured token unusable elsewhere.
+      const result = await signInWithCredential(
+        getAuth(),
+        new OAuthProvider('apple.com').credential({
+          idToken: credential.identityToken,
+          rawNonce: credential.rawNonce,
+        }),
+      );
+      // Apple sends the name on the first authorisation and never again, so a
+      // name that arrives has to be stored now or it is lost for good.
+      if (credential.fullName && result.user && !result.user.displayName) {
+        await updateProfile(result.user, { displayName: credential.fullName });
+      }
     },
 
     async signInWithGoogle() {

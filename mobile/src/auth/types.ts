@@ -48,6 +48,7 @@ export interface EmailPasswordAuth {
  */
 export interface FederatedAuth {
   signInWithGoogle(): Promise<void>;
+  signInWithApple(): Promise<void>;
 }
 
 export interface AuthRepository extends EmailPasswordAuth, FederatedAuth {

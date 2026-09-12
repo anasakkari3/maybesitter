@@ -10,7 +10,12 @@ import { APP_ENVS, releaseConfigProblems, type AppEnv } from './releaseGuard';
  * whatever host it was handed.
  */
 
-type Extra = { appEnv?: string; apiBaseUrl?: string | null; googleWebClientId?: string | null };
+type Extra = {
+  appEnv?: string;
+  apiBaseUrl?: string | null;
+  googleWebClientId?: string | null;
+  apiMode?: string | null;
+};
 
 function extra(): Extra {
   return (Constants.expoConfig?.extra ?? {}) as Extra;
@@ -25,12 +30,24 @@ export function apiBaseUrl(): string | null {
   return process.env.EXPO_PUBLIC_API_BASE_URL ?? extra().apiBaseUrl ?? null;
 }
 
+/**
+ * `mock` serves the committed contract fixtures instead of the server. It is
+ * only ever honoured in a development build — `releaseConfigProblems` refuses
+ * to configure a staging or production app that asks for it, so a tester can
+ * never be shown fixture data they believe is theirs.
+ */
+export function apiMode(): 'api' | 'mock' {
+  const raw = (process.env.EXPO_PUBLIC_API_MODE ?? extra().apiMode ?? 'api').trim();
+  return raw === 'mock' && isDevelopment() ? 'mock' : 'api';
+}
+
 /** Empty when this build is safe to use. */
 export function configProblems(): string[] {
   return releaseConfigProblems({
     appEnv: process.env.EXPO_PUBLIC_APP_ENV ?? extra().appEnv,
     apiBaseUrl: apiBaseUrl() ?? undefined,
     devBearerToken: process.env.EXPO_PUBLIC_DEV_BEARER_TOKEN,
+    apiMode: process.env.EXPO_PUBLIC_API_MODE ?? extra().apiMode ?? undefined,
   });
 }
 
@@ -87,4 +104,17 @@ export function googleWebClientId(): string | null {
   if (override !== '') return override;
   const value = extra().googleWebClientId;
   return typeof value === 'string' && value.trim() !== '' ? value : null;
+}
+
+/**
+ * Whether this build offers Sign in with Apple (UC-1.1 #145).
+ *
+ * Off by default. The code is complete for iOS, but it cannot work until the
+ * owner has enabled the capability on the App ID `com.maybesitter.app` and
+ * filled the Apple provider (Services ID, Team ID, Key ID, private key) into
+ * the Firebase console. Until then the button is hidden rather than shown and
+ * failing — the flag is the switch that turns it on with no code change.
+ */
+export function appleSignInEnabled(): boolean {
+  return (process.env.EXPO_PUBLIC_APPLE_SIGN_IN_ENABLED ?? '').trim() === 'true';
 }
