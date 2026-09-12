@@ -31,8 +31,14 @@ let environment: RulesTestEnvironment;
 
 before(async () => {
   environment = await initializeTestEnvironment({
-    // `demo-` guarantees the emulator refuses to reach a real project.
-    projectId: process.env.GCLOUD_PROJECT || 'demo-maybesitter',
+    // `demo-` guarantees the emulator refuses to reach a real project, and the
+    // `-rules` suffix keeps this file's data in its own project: the runner
+    // executes test files concurrently against one emulator, and
+    // `clearFirestore()` below wipes an entire project. Sharing
+    // `demo-maybesitter` meant this file deleted documents other files had just
+    // written — captureProposalStore.emulator.test.ts failed with "the proposal
+    // was not stored", passing alone and failing in the suite.
+    projectId: `${process.env.GCLOUD_PROJECT || 'demo-maybesitter'}-rules`,
     firestore: {
       host,
       port: Number(port),

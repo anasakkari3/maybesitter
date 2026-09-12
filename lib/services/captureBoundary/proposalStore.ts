@@ -30,8 +30,15 @@
  * `commandsByItemId` is a `Map`, and `JSON.stringify` turns a Map into `{}`
  * without complaining. Confirm would then find the proposal, find no commands
  * for the selected item, and answer `invalid_selection` — a different silent
- * failure from the one being fixed here. It is therefore stored as explicit
- * entries and rebuilt on read.
+ * failure from the one being fixed here.
+ *
+ * It is stored as a map of arrays, not as entry pairs: Firestore refuses
+ * nested arrays outright (`INVALID_ARGUMENT: Nested arrays are not allowed`),
+ * while the memory adapter stores anything JSON accepts. The first version of
+ * this file used `[[itemId, commands]]`, passed every test on memory, and
+ * answered 400 on the first real capture in staging.
+ * `tests/storage/captureProposalStore.emulator.test.ts` is the round trip that
+ * catches that, because it runs against Firestore.
  */
 import type { Command } from '../../../src/domain/stateMachine';
 import type { CaptureProposalContract } from '../../../src/contracts/v1/captureContracts';
@@ -76,7 +83,7 @@ interface StoredProposalDocument {
    * a nested Firestore field override is a sharper edge than a flat one.
    */
   proposalId: string;
-  commands: Array<[string, Command[]]>;
+  commands: Record<string, Command[]>;
   confirmedResult?: unknown;
   idempotencyKey?: string;
   expiresAt: Date;
@@ -87,7 +94,7 @@ function toDocument(proposal: StoredCaptureProposal, now: Date): StoredProposalD
     contract: proposal.contract,
     scopeId: proposal.scopeId,
     proposalId: proposal.contract.proposalId,
-    commands: Array.from(proposal.commandsByItemId, ([itemId, commands]) => [itemId, [...commands]]),
+    commands: Object.fromEntries(Array.from(proposal.commandsByItemId, ([itemId, commands]) => [itemId, [...commands]])),
     ...(proposal.confirmedResult === undefined ? {} : { confirmedResult: proposal.confirmedResult }),
     ...(proposal.idempotencyKey === undefined ? {} : { idempotencyKey: proposal.idempotencyKey }),
     expiresAt: new Date(now.getTime() + CAPTURE_PROPOSAL_RETENTION_MS),
@@ -98,7 +105,7 @@ function fromDocument(document: StoredProposalDocument): StoredCaptureProposal {
   return {
     contract: document.contract,
     scopeId: document.scopeId,
-    commandsByItemId: new Map((document.commands ?? []).map(([itemId, commands]) => [itemId, commands])),
+    commandsByItemId: new Map(Object.entries(document.commands ?? {})),
     ...(document.confirmedResult === undefined ? {} : { confirmedResult: document.confirmedResult }),
     ...(document.idempotencyKey === undefined ? {} : { idempotencyKey: document.idempotencyKey }),
   };
