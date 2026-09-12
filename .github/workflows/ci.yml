@@ -123,8 +123,15 @@ jobs:
 
       - name: Start the Firestore and Auth emulators
         run: |
+          # The read-only container below reaches these through
+          # host.docker.internal, so they have to accept connections from the
+          # docker bridge. The emulators bind 127.0.0.1 by default: on Docker
+          # Desktop that still works, because it proxies to host loopback, but
+          # on a Linux runner the connection simply hangs until the storage
+          # probe times out. Binding 0.0.0.0 is scoped to this generated config.
+          node -e "const c=require('./firebase.json'),e=c.emulators||{};c.emulators={...e,firestore:{...e.firestore,host:'0.0.0.0',port:8080},auth:{...e.auth,host:'0.0.0.0',port:9099},ui:{enabled:false}};require('fs').writeFileSync('.firebase-ci.json',JSON.stringify(c,null,2))"
           npx --yes firebase-tools@14 emulators:start --only firestore,auth \
-            --project demo-maybesitter >/tmp/emulators.log 2>&1 &
+            --project demo-maybesitter --config .firebase-ci.json >/tmp/emulators.log 2>&1 &
           for _ in $(seq 1 60); do
             if nc -z 127.0.0.1 8080 && nc -z 127.0.0.1 9099; then exit 0; fi
             sleep 1
