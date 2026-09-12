@@ -3,6 +3,7 @@ import { View } from 'react-native';
 import { useFonts } from 'expo-font';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppProvider } from './src/state/AppContext';
+import { ApiProvider } from './src/api/ui/ApiProvider';
 import { AuthGate } from './src/auth/AuthGate';
 import { AuthProvider } from './src/auth/AuthProvider';
 import { Root } from './src/Root';
@@ -21,9 +22,13 @@ export default function App() {
         {/* Auth sits inside AppProvider so the sign-in screen is themed and
             localised the same way every other screen is. */}
         <AuthProvider>
-          <AuthGate>
-            <Root />
-          </AuthGate>
+          {/* Inside AuthProvider: the API layer takes its bearer from the
+              repository, and clears every cached row when the uid changes. */}
+          <ApiProvider>
+            <AuthGate>
+              <Root />
+            </AuthGate>
+          </ApiProvider>
         </AuthProvider>
       </AppProvider>
     </SafeAreaProvider>

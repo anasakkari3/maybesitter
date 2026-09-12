@@ -221,5 +221,14 @@
   "authErrorTooManyRequests": "Too many attempts. Wait a moment and try again.",
   "authErrorNetwork": "Can't reach MaybeSitter right now. Check your connection and try again.",
   "authErrorUserDisabled": "This account is not available.",
-  "authErrorGeneric": "That didn't work. Try again."
+  "authErrorGeneric": "That didn't work. Try again.",
+  "errorsNetwork": "Can't reach MaybeSitter right now. Check your connection and try again.",
+  "errorsServer": "Something on our side didn't answer. Try again in a moment.",
+  "errorsValidation": "That couldn't be saved as written. Check it and try again.",
+  "errorsNotFound": "That's no longer here.",
+  "errorsGeneric": "That didn't work. Try again.",
+  "errorsRetry": "Try again",
+  "errorsConsentRequired": "Turn this on in Settings to see suggestions.",
+  "errorsQuietMode": "Quiet mode is on. Nothing will be suggested until you turn it off.",
+  "errorsFeatureDisabled": "This isn't available yet."
 }

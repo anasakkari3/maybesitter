@@ -224,5 +224,14 @@
   "authErrorTooManyRequests": "יותר מדי ניסיונות. המתן רגע ונסה שוב.",
   "authErrorNetwork": "לא מצליחים להגיע ל-MaybeSitter כרגע. בדוק את החיבור ונסה שוב.",
   "authErrorUserDisabled": "החשבון הזה אינו זמין.",
-  "authErrorGeneric": "זה לא עבד. נסה שוב."
+  "authErrorGeneric": "זה לא עבד. נסה שוב.",
+  "errorsNetwork": "לא מצליחים להגיע ל-MaybeSitter כרגע. בדוק את החיבור ונסה שוב.",
+  "errorsServer": "משהו אצלנו לא הגיב. נסה שוב בעוד רגע.",
+  "errorsValidation": "לא הצלחנו לשמור את זה כפי שנכתב. בדוק ונסה שוב.",
+  "errorsNotFound": "זה כבר לא כאן.",
+  "errorsGeneric": "זה לא עבד. נסה שוב.",
+  "errorsRetry": "נסה שוב",
+  "errorsConsentRequired": "הפעל את זה בהגדרות כדי לראות הצעות.",
+  "errorsQuietMode": "מצב שקט פעיל. לא יוצעו דברים עד שתכבה אותו.",
+  "errorsFeatureDisabled": "זה עדיין לא זמין."
 }

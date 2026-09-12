@@ -1,0 +1,31 @@
+{
+  "success": true,
+  "id": "00000000-0000-4000-8000-000000000001",
+  "commitment": {
+    "id": "00000000-0000-4000-8000-000000000002",
+    "kind": "task",
+    "title": "Call the dentist",
+    "description": null,
+    "person": null,
+    "status": "completed",
+    "priority": {
+      "level": "normal",
+      "source": "default",
+      "pressureAllowed": false,
+      "pressureLevel": "none"
+    },
+    "timeSpec": {
+      "kind": "due_by",
+      "dueAt": "2026-08-09T09:00:00.000Z",
+      "remindAt": "2026-08-09T09:00:00.000Z",
+      "timezone": "UTC"
+    },
+    "currentAckState": "completed",
+    "postponedUntil": null,
+    "createdAt": "2026-08-09T08:00:00.000Z",
+    "updatedAt": "2026-08-09T09:00:00.000Z",
+    "confirmedAt": "2026-08-09T09:00:00.000Z",
+    "completedAt": "2026-08-09T09:00:00.000Z",
+    "droppedAt": null
+  }
+}

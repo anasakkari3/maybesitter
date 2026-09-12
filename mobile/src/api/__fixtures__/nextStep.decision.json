@@ -1,0 +1,20 @@
+{
+  "success": true,
+  "replayed": false,
+  "participantId": "FixtureUserxxxxxxxxxxxxxxxxx",
+  "assignment": {
+    "experimentId": "v03-next-step-proposal",
+    "arm": "generic",
+    "enabled": true
+  },
+  "outcome": {
+    "status": "confirmation_required",
+    "decision": {
+      "version": "v1",
+      "proposalId": "next-step-0000000000000000",
+      "decision": "accept",
+      "decidedAt": "2026-08-09T09:00:00.000Z"
+    },
+    "persisted": false
+  }
+}

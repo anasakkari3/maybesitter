@@ -1,0 +1,13 @@
+{
+  "success": true,
+  "replayed": false,
+  "persisted": [
+    {
+      "itemId": "00000000-0000-4000-8000-000000000001",
+      "commitmentId": "00000000-0000-4000-8000-000000000002",
+      "title": "Call the dentist",
+      "resolvedTime": "2026-08-09T09:00:00.000Z"
+    }
+  ],
+  "failed": []
+}

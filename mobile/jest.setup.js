@@ -21,3 +21,10 @@ jest.mock('@react-native-firebase/auth', () => ({
   sendPasswordResetEmail: async () => {},
   sendEmailVerification: async () => {},
 }));
+
+// NetInfo is a native module too. Without this the query layer's connectivity
+// listener throws on its first probe, and every test that renders ApiProvider
+// fails on a device fact none of them are about.
+jest.mock('@react-native-community/netinfo', () =>
+  require('@react-native-community/netinfo/jest/netinfo-mock'),
+);
