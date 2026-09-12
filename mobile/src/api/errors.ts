@@ -41,6 +41,33 @@ export class UnauthorizedError extends ApiError {
 }
 
 /**
+ * 401 `recent_login_required` — the session is **valid**, and the user must
+ * not be signed out (UC-1.5 #149).
+ *
+ * Firebase's `auth_time` is older than the server's five-minute window for a
+ * destructive action. The only cure is re-authenticating with the user's own
+ * provider, which is a thing the app can do and the user can complete.
+ *
+ * It is deliberately **not** an `UnauthorizedError`: the generic 401 path
+ * refreshes the token once, retries, and signs out. That is wrong twice over
+ * here — refreshing an ID token does not change `auth_time`, so the retry is
+ * guaranteed to fail, and the sign-out then destroys a perfectly good session
+ * and loses the user's place in the deletion flow.
+ */
+export class RecentLoginRequiredError extends ApiError {
+  constructor() {
+    super('the account must be re-authenticated before this action');
+  }
+}
+
+/** 400 `confirmation_required` — the exact confirmation string was missing. */
+export class ConfirmationRequiredError extends ApiError {
+  constructor() {
+    super('the deletion confirmation was not accepted');
+  }
+}
+
+/**
  * 403 — the credential is fine and re-authenticating will not help.
  * `reason` is `revoked`, `deleted`, `consent_required`, `quiet_mode` or
  * `feature_disabled`, and each of those is a screen rather than an error.

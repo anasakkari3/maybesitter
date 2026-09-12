@@ -48,6 +48,7 @@ export function SettingsScreen() {
         </Card>
         {user ? (
           <Card pad={18} style={{ gap: 14 }}>
+            <Txt size={13} weight={600} color={p.mu}>{t.settingsAccount}</Txt>
             {/* An Apple private-relay address is not the user's email and
                 showing it as one is a small lie; UC-1.1 (#145) sets no email
                 for that provider, so the absence names itself. */}
@@ -57,6 +58,16 @@ export function SettingsScreen() {
                 : t.authSignedInPrivateApple}
             </Txt>
             <Pill label={t.authSignOut} kind="outline" size={15} onPress={() => void signOut({ reason: 'user' })} />
+            {/* Destructive, but not shouting: warm rather than the red the
+                design does not have, and last in the section so it is never
+                the thing a thumb lands on by accident (UC-1.5 #149). */}
+            <Btn
+              label={t.accountDelete}
+              onPress={() => actions.go('deleteAccount')}
+              style={{ paddingVertical: 10, alignItems: 'flex-start' }}
+            >
+              <Txt size={15} weight={600} color={p.wm}>{t.accountDelete}</Txt>
+            </Btn>
           </Card>
         ) : null}
         <View style={{ paddingHorizontal: 6 }}>

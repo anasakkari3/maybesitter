@@ -40,6 +40,11 @@ module.exports = defineConfig([
      * language preference is not content, and it has to survive a relaunch.
      */
     files: ['src/api/**/*.{ts,tsx}', 'src/features/**/*.{ts,tsx}', 'src/screens/**/*.{ts,tsx}'],
+    // Tests are excluded because the rule is about what *ships*: a test that
+    // seeds the stored language preference persists nothing for a user. The
+    // rule was accidentally inconsistent before — the same pattern in
+    // `src/design/__tests__` was untouched only because of its directory.
+    ignores: ['src/**/__tests__/**', 'src/**/__mocks__/**'],
     rules: {
       'no-restricted-imports': [
         'error',

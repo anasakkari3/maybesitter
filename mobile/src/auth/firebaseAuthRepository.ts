@@ -16,8 +16,10 @@ import {
   onAuthStateChanged,
   reload,
   sendEmailVerification,
+  EmailAuthProvider,
   GoogleAuthProvider,
   OAuthProvider,
+  reauthenticateWithCredential,
   sendPasswordResetEmail,
   signInWithCredential,
   signInWithEmailAndPassword,
@@ -26,6 +28,7 @@ import {
   type User as FirebaseUser,
 } from '@react-native-firebase/auth';
 import { AppleSignInCancelled, requestAppleCredential } from './appleSignIn';
+import { ReauthCancelled, ReauthUnavailable } from '../features/account/reauthenticate';
 import { requestGoogleCredential, signOutOfGoogle } from './googleSignIn';
 import { normalizeEmail } from './validation';
 import type { AuthRepository, AuthUser, SignOutReason } from './types';
@@ -108,6 +111,63 @@ export function createFirebaseAuthRepository(): AuthRepository {
       if (credential.fullName && result.user && !result.user.displayName) {
         await updateProfile(result.user, { displayName: credential.fullName });
       }
+    },
+
+    /**
+     * Re-authenticates with the password the user just typed (UC-1.5 #149).
+     *
+     * The address comes from the signed-in user, not from a form: the point is
+     * to prove *this* account's password, and accepting an address would make
+     * it possible to prove somebody else's.
+     */
+    async reauthenticateWithPassword(password) {
+      const user = getAuth().currentUser;
+      if (!user?.email) throw new ReauthUnavailable('password');
+      await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, password));
+    },
+
+    async reauthenticateWithGoogle() {
+      const user = getAuth().currentUser;
+      if (!user) throw new ReauthUnavailable('google.com');
+      const credential = await requestGoogleCredential();
+      // Backing out of the chooser leaves the session exactly as it was. It
+      // must not fall through to a sign-in, which would be a different
+      // account replacing this one mid-deletion.
+      if (!credential) throw new ReauthCancelled();
+      await reauthenticateWithCredential(user, GoogleAuthProvider.credential(credential.idToken));
+    },
+
+    async reauthenticateWithApple() {
+      const user = getAuth().currentUser;
+      if (!user) throw new ReauthUnavailable('apple.com');
+      let credential;
+      try {
+        credential = await requestAppleCredential();
+      } catch (error) {
+        if (error instanceof AppleSignInCancelled) throw new ReauthCancelled();
+        throw error;
+      }
+      if (!credential) throw new ReauthCancelled();
+      // The same nonce pair as sign-in (#145): Apple saw the SHA-256, Firebase
+      // gets the raw value and checks it against the token's claim. Reusing
+      // the tested path rather than a second implementation is the point.
+      await reauthenticateWithCredential(
+        user,
+        new OAuthProvider('apple.com').credential({
+          idToken: credential.identityToken,
+          rawNonce: credential.rawNonce,
+        }),
+      );
+    },
+
+    async refreshIdentity() {
+      const user = getAuth().currentUser;
+      if (!user) return;
+      // Firebase updates `auth_time` on re-authentication, but the cached ID
+      // token keeps the old claim until it is re-minted. Without this the
+      // very next request still carries a stale `auth_time` and the server
+      // answers `recent_login_required` again.
+      await firebaseGetIdToken(user, true);
     },
 
     async signInWithGoogle() {
