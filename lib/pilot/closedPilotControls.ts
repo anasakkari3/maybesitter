@@ -149,9 +149,24 @@ export function requirePilotTrustState(value: unknown): PilotTrustState {
 
 export function applyPilotTrustAction(state: PilotTrustState, action: PilotTrustAction): PilotTrustState {
   requireIsoTime(action.at);
-  if (Date.parse(action.at) < Date.parse(state.updatedAt)) throw new Error('pilot trust actions cannot be backdated');
   if (state.deletedAt) throw new Error('deleted pilot state cannot be changed');
   if (state.revokedAt && action.type !== 'delete') throw new Error('revoked pilot state can only be deleted');
+  // Recording a first value that is already recorded changes nothing, so it is
+  // not a backdated write — it is a no-op, and the caller asked for a state
+  // that already holds.
+  //
+  // Two confirms racing on separate instances both read `firstValueAt: null`
+  // and both send this action. One commits; the other arrives with the earlier
+  // timestamp and used to be rejected as backdated, which threw out of a
+  // confirm whose commitment was already persisted and returned HTTP 400 for a
+  // capture that had in fact been saved. #153's staging run caught it: eight
+  // captures accepted, seven commitments reported.
+  //
+  // The rule itself stays. It is what stops a delayed `grant` from undoing a
+  // later `revoke`, and that ordering still matters for every action that
+  // actually changes something.
+  if (action.type === 'record_first_value' && state.firstValueAt) return state;
+  if (Date.parse(action.at) < Date.parse(state.updatedAt)) throw new Error('pilot trust actions cannot be backdated');
 
   switch (action.type) {
     case 'grant_recommendation_consent':
