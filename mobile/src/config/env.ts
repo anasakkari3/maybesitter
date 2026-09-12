@@ -48,6 +48,7 @@ export function configProblems(): string[] {
     apiBaseUrl: apiBaseUrl() ?? undefined,
     devBearerToken: process.env.EXPO_PUBLIC_DEV_BEARER_TOKEN,
     apiMode: process.env.EXPO_PUBLIC_API_MODE ?? extra().apiMode ?? undefined,
+    googleCalendarDemo: process.env.EXPO_PUBLIC_ENABLE_GOOGLE_CALENDAR_DEMO,
   });
 }
 
@@ -117,4 +118,19 @@ export function googleWebClientId(): string | null {
  */
 export function appleSignInEnabled(): boolean {
   return (process.env.EXPO_PUBLIC_APPLE_SIGN_IN_ENABLED ?? '').trim() === 'true';
+}
+
+/**
+ * Whether the Google Calendar verification demo is reachable (UC-1.8 #152).
+ *
+ * Three conditions, all required: a development bundle, `APP_ENV=development`,
+ * and the variable set to `true` in a developer's own `.env.local`. It is
+ * never an EAS variable, and `releaseConfigProblems` refuses to *configure* a
+ * staging or production build that sets it at all — so the demo cannot reach
+ * anyone but the person filming it.
+ */
+export function googleCalendarDemoEnabled(isDevBundle: boolean = __DEV__): boolean {
+  if (isDevBundle !== true) return false;
+  if (!isDevelopment()) return false;
+  return (process.env.EXPO_PUBLIC_ENABLE_GOOGLE_CALENDAR_DEMO ?? '').trim() === 'true';
 }

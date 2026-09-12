@@ -178,6 +178,25 @@ describe('what a release build must never carry', () => {
     ).toThrow(/CFG-1/);
   });
 
+  it.each(['staging', 'production'] as const)('refuses %s with the calendar demo enabled', profile => {
+    // The demo requests calendar scopes and writes an event. It must not be
+    // possible to *make* a binary that could reach it (#152).
+    expect(() =>
+      execFileSync('npx', ['expo', 'config', '--type', 'introspect', '--json'], {
+        cwd: ROOT,
+        env: {
+          ...process.env,
+          APP_ENV: profile,
+          EXPO_PUBLIC_API_BASE_URL: 'https://api.example.com',
+          EXPO_PUBLIC_DEV_BEARER_TOKEN: '',
+          EXPO_PUBLIC_ENABLE_GOOGLE_CALENDAR_DEMO: 'true',
+        },
+        encoding: 'utf8',
+        stdio: 'pipe',
+      }),
+    ).toThrow(/CFG-1/);
+  });
+
   it.each(['staging', 'production'] as const)('refuses %s in mock API mode', profile => {
     expect(() =>
       execFileSync('npx', ['expo', 'config', '--type', 'introspect', '--json'], {
