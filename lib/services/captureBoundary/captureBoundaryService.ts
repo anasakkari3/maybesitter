@@ -147,13 +147,13 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
     items,
     provenance: { requestedEngine, executedEngine, fallbackUsed },
   };
-  dependencies.store.put({ contract, scopeId: options.scopeId, commandsByItemId });
+  await dependencies.store.put({ contract, scopeId: options.scopeId, commandsByItemId });
   dependencies.audit?.(auditEvent(fallbackUsed ? 'fell_back' : status === 'rejected' ? 'rejected' : 'succeeded', raw, options.now, status, items.length));
   return contract;
 }
 
 export async function confirmCapture(input: { proposalId: string; scopeId: string; selectedItemIds: string[]; idempotencyKey: string }, dependencies: CaptureBoundaryDependencies): Promise<CaptureConfirmationResultContract> {
-  const stored = dependencies.store.get(input.proposalId);
+  const stored = await dependencies.store.get(input.proposalId);
   const failure = (failureCode: CaptureConfirmationResultContract['failureCode']): CaptureConfirmationResultContract => ({
     version: CAPTURE_CONTRACT_VERSION,
     success: false,
@@ -184,7 +184,9 @@ export async function confirmCapture(input: { proposalId: string; scopeId: strin
     replayed: false,
     persistedItemIds: stored.contract.items.filter((item) => selected.has(item.itemId)).map((item) => item.itemId),
   };
-  stored.confirmedResult = result;
-  stored.idempotencyKey = input.idempotencyKey;
+  // The Map-backed store persisted this by mutation. A durable store does
+  // not, and without the write-back a replayed confirm would find no recorded
+  // result and persist the commitments a second time.
+  await dependencies.store.put({ ...stored, confirmedResult: result, idempotencyKey: input.idempotencyKey });
   return result;
 }

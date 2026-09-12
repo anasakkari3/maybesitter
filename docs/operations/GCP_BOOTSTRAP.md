@@ -110,6 +110,7 @@ account, and Firestore enforces that with a TTL policy on `expiresAt`:
 | `alphaTraces` | 30 days | raw capture text, kept for alpha review |
 | `clarifications` | 24 hours | a half-finished question |
 | `analyticsEvents` | 400 days | product metrics |
+| `captureProposals` | 24 hours | a capture awaiting confirmation |
 
 The stores stamp `expiresAt` on every write, but **a stamp does nothing until
 the policy exists**. Nothing in the bootstrap or the deploy workflow creates

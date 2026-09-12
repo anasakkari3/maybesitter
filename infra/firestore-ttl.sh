@@ -7,6 +7,7 @@
 #   alphaTraces      30 days  - raw capture text captured for alpha review
 #   clarifications   24 hours - a half-finished question, worthless once stale
 #   analyticsEvents  400 days - product metrics
+#   captureProposals 24 hours - a proposal awaiting confirmation (#252)
 #
 # Retention is enforced by Firestore rather than by a cron job we have to keep
 # alive: each document is written with an `expiresAt` timestamp and the TTL
@@ -42,6 +43,7 @@ COLLECTION_GROUPS=(
   "alphaTraces"
   "clarifications"
   "analyticsEvents"
+  "captureProposals"
 )
 
 usage() {
