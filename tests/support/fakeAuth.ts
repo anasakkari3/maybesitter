@@ -42,6 +42,13 @@ export interface FakeAuthControls {
   allow(uid: string): void;
   /** Whether the last verification asked for a fresh revocation read. */
   lastForceRevocationCheck(): boolean | null;
+  /**
+   * How long ago this uid's session actually authenticated, in seconds.
+   *
+   * Account deletion (UC-1.5, #149) refuses a session that signed in more than
+   * five minutes ago, and a fixed `auth_time` cannot express "stale".
+   */
+  setAuthAge(uid: string, seconds: number): void;
   restore(): void;
 }
 
@@ -55,6 +62,7 @@ export interface FakeAuthControls {
  */
 export function installFakeAuth(): FakeAuthControls {
   const refusals = new Map<string, TokenVerificationCode>();
+  const authAges = new Map<string, number>();
   let lastForce: boolean | null = null;
 
   const verifier: TokenVerifier = {
@@ -66,11 +74,16 @@ export function installFakeAuth(): FakeAuthControls {
       const uid = idToken.slice(PREFIX.length);
       const refusal = refusals.get(uid);
       if (refusal) throw new TokenVerificationError(refusal, `refused: ${refusal}`);
+      const age = authAges.get(uid);
       return {
         uid,
-        // A fixed, plausible `auth_time`; the revocation comparison against it
-        // is the real verifier's job and is covered against the emulator.
-        authTime: 1_800_000_000,
+        // Recent by default, because most routes do not care. A test that does
+        // care sets the age explicitly. The revocation comparison against
+        // `auth_time` is the real verifier's job and is covered against the
+        // emulator.
+        authTime: age === undefined
+          ? Math.floor(Date.now() / 1000)
+          : Math.floor(Date.now() / 1000) - age,
         signInProvider: 'password',
         emailVerified: false,
       };
@@ -82,6 +95,7 @@ export function installFakeAuth(): FakeAuthControls {
     refuse: (uid, code) => refusals.set(uid, code),
     allow: (uid) => refusals.delete(uid),
     lastForceRevocationCheck: () => lastForce,
+    setAuthAge: (uid, seconds) => authAges.set(uid, seconds),
     restore: () => resetTokenVerifierForTests(),
   };
 }

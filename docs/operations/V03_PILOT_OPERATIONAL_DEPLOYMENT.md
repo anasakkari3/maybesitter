@@ -98,7 +98,7 @@ final deletion or the operator must erase that participant's V03 state:
 MAYBESITTER_DATA_DIR=/mnt/filestore/maybesitter \
 MAYBESITTER_PILOT_TRUST_FILE=/mnt/filestore/maybesitter/pilot-trust.json \
 node --no-warnings --loader ./scripts/ts-resolver.mjs \
-  scripts/delete-participant-data.ts <participant_id>
+  scripts/delete-account.ts <uid>   # UC-1.5 (#149): deletes the whole account, with a receipt
 ```
 
 Expected result: trust state records `deletedAt`; that participant's domain
