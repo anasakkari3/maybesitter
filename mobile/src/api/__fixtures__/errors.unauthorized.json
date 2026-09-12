@@ -1,0 +1,5 @@
+{
+  "success": false,
+  "error": "an Authorization header is required",
+  "reason": "missing_token"
+}

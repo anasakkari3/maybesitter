@@ -1,0 +1,31 @@
+{
+  "success": true,
+  "participantId": "FixtureUserxxxxxxxxxxxxxxxxx",
+  "trust": {
+    "version": "v1",
+    "participantId": "FixtureUserxxxxxxxxxxxxxxxxx",
+    "recommendationConsent": false,
+    "analyticsConsent": false,
+    "calendarConsent": false,
+    "firstValueAt": "2026-08-09T09:00:00.000Z",
+    "quietMode": false,
+    "revokedAt": null,
+    "deletedAt": null,
+    "updatedAt": "2026-08-09T09:00:00.000Z"
+  },
+  "exposure": {
+    "allowed": false,
+    "reason": "consent_required"
+  },
+  "whatKnows": {
+    "version": "v1",
+    "participantId": "FixtureUserxxxxxxxxxxxxxxxxx",
+    "confirmedCommitmentCount": 1,
+    "recommendationConsent": false,
+    "analyticsConsent": false,
+    "calendarConnected": false,
+    "privateMessageIngestion": false,
+    "sensitiveInference": false,
+    "medicalProfile": false
+  }
+}

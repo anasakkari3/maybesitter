@@ -1,0 +1,12 @@
+{
+  "success": false,
+  "failureCode": "proposal_not_found",
+  "replayed": false,
+  "persisted": [],
+  "failed": [
+    {
+      "itemId": "item-1",
+      "reason": "proposal_not_found"
+    }
+  ]
+}

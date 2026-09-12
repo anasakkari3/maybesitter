@@ -1,0 +1,14 @@
+{
+  "version": "feedback-event-v1",
+  "rows": [
+    {
+      "id": "fbk_0000000000000000",
+      "outcome": "complete",
+      "subjectId": "00000000-0000-4000-8000-000000000001",
+      "occurredAt": "2026-08-09T08:00:00.000Z",
+      "revokedAt": null,
+      "canRevoke": true
+    }
+  ],
+  "baselineNotice": null
+}

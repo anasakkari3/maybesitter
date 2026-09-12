@@ -75,11 +75,57 @@ Rules that hold here:
 
 ## Backend
 
-The app will talk to `/api/mobile/**` in the repository root. Today it runs on
-the design's sample week (`src/state/seed.ts`) and the mock capture service.
+The app talks to `/api/mobile/**` in the repository root through `src/api/`
+(UC-1.R4 #157). The screens still render the design's sample week
+(`src/state/seed.ts`) and the mock capture service; moving them onto these
+hooks is UC-2.R1–2.R4 (#171–#174).
+
 Fields the design needs that the backend does not return yet: duration / end
 time, items with no time and yesterday's items, sentence-span → card mapping,
 ambiguity and "big task" flags.
+
+### `src/api/`
+
+```
+client.ts        apiRequest: fetch + 15 s AbortController, status → typed error
+errors.ts        the error hierarchy every screen switches on
+auth.ts          the bearer, the shared refresh, the two-401 sign-out
+schemas/         Zod schemas, one per response
+endpoints/       one typed function per route
+queries.ts       TanStack Query hooks and the invalidation rules
+queryClient.ts   defaults, NetInfo → onlineManager, AppState → focusManager
+ui/              ApiProvider, QueryBoundary, OfflineBanner, userFacingMessage
+__fixtures__/    real route responses; see below
+```
+
+**The schemas are checked, not believed.** `tests/mobile/exportMobileApiFixtures.test.ts`
+at the repository root invokes every route handler in-process and writes the
+JSON to `__fixtures__/`. The mobile suite parses each fixture with the schema
+the app ships, so a backend change that alters a response fails CI instead of a
+user's screen. Values that differ per run — uuids, `new Date()` — are
+normalised, so a fixture diff always means the *shape* changed. After changing
+a `/api/mobile` route, re-run that test and commit what it rewrote.
+
+**Do not write a schema from an issue's table.** Two of #157's were already
+stale: the next-step decision takes the whole `proposal` object (not a bare
+`proposalId`), and analytics takes `{ eventName, properties }` (not the Flutter
+`PilotLoopAnalyticsEvent`). Read the route, or read the fixture.
+
+Rules that hold in `src/api/`, each asserted by a test:
+
+- **Nothing is logged.** No `console.*` anywhere under `src/api`. A networking
+  layer's log line is the user's commitment titles in the device log.
+- **Nothing is persisted.** No query persister, no offline mutation queue, no
+  import of AsyncStorage or SecureStore. A cold start with no data is the
+  price; an unencrypted copy of the user's life is not.
+- **`userFacingMessage` is the only way an error becomes words**, and it never
+  interpolates `error.message`.
+- **One forced refresh per 401, shared between concurrent callers**; a second
+  401 signs out with `session_expired`.
+- **Query keys are scoped by uid**, and the cache is cleared on a uid change,
+  so account B never sees a row of account A's (#148).
+- **Confirm is never retried.** A confirmation replayed without the user
+  present is what #157 forbids, and a 200 alone is not read as success.
 
 ## Commands
 

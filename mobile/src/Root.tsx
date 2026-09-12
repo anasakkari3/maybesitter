@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useApp } from './state/AppContext';
 import { useAuth } from './auth/AuthProvider';
 import { VerifyEmailBanner } from './auth/VerifyEmailBanner';
+import { OfflineBanner } from './api/ui/OfflineBanner';
 import { useLinks } from './links';
 import { TodayScreen } from './screens/TodayScreen';
 import { CalendarScreen } from './screens/CalendarScreen';
@@ -42,6 +43,7 @@ export function Root() {
     // mechanism the round-1 design was verified on. See src/i18n/README.md.
     <View style={{ flex: 1, backgroundColor: p.bg, direction: ar ? 'rtl' : 'ltr' }}>
       <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
+      <OfflineBanner />
       <VerifyEmailBanner />
       {s.screen === 'today' && <TodayScreen key="today" />}
       {s.screen === 'calendar' && <CalendarScreen key="calendar" />}

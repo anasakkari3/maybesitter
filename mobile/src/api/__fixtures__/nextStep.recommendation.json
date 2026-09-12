@@ -1,0 +1,41 @@
+{
+  "success": true,
+  "participantId": "FixtureUserxxxxxxxxxxxxxxxxx",
+  "recommendation": {
+    "version": "v1",
+    "proposalId": "next-step-0000000000000000",
+    "state": "ready",
+    "locale": "en",
+    "primaryStep": {
+      "commitmentId": "00000000-0000-4000-8000-000000000001",
+      "title": "Send the report to Sami"
+    },
+    "explanation": {
+      "summary": "Based on overdue.",
+      "evidenceLabels": [
+        "overdue"
+      ],
+      "sensitiveInferenceUsed": false
+    },
+    "availableActions": [
+      "accept",
+      "edit",
+      "defer",
+      "dismiss",
+      "done"
+    ],
+    "persistence": {
+      "occurred": false,
+      "confirmationRequired": true
+    }
+  },
+  "assignment": {
+    "experimentId": "v03-next-step-proposal",
+    "arm": "generic",
+    "enabled": true
+  },
+  "exposure": {
+    "allowed": true,
+    "reason": "authorized"
+  }
+}
