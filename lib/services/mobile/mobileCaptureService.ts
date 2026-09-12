@@ -6,6 +6,7 @@ import { recordFirstValueReached } from '../../analytics/loopAnalytics';
 import { resolveUserAccess } from '../../pilot/pilotAccess';
 import { applyTrustAction } from '../../pilot/pilotTrustStore';
 import { captureLlmProvider } from '../../llm/captureProvider';
+import { getAiConsent } from '../../consents/aiConsentService';
 import { configuredProviderName } from '../../../src/extraction/llm';
 import {
   captureProposalPath,
@@ -185,10 +186,17 @@ export async function proposeMobileCapture(input: MobileCaptureInput, context: M
   const text = typeof input.text === 'string' ? input.text.trim() : '';
   if (!text) throw new Error('text is required');
 
+  // Layer 1 of UC-2.1 (#161): the server decides whether a model may be asked,
+  // from the consent it holds. The client sends no such flag and could not be
+  // believed if it did — `requestedEngine` is computed here, never read from
+  // the request.
+  const consent = context.participantId ? await getAiConsent(context.participantId) : 'declined';
+
   return proposeCapture(text, {
     now: dateFromOptionalIso(input.referenceTime, new Date(), 'referenceTime'),
     timezone: normalizeTimezone(input.timezone),
     scopeId: scopeIdFrom(input.scopeId, context),
+    requestedEngine: consent === 'granted' ? 'model' : 'rules',
   }, {
     store,
     persistence: persistenceFor(context),

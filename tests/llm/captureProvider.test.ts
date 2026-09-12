@@ -52,6 +52,9 @@ function failing(error: unknown): LlmProvider {
   };
 }
 
+/** This account agreed. #161's own refusal path is asserted separately. */
+const granted = (async () => 'granted') as never;
+
 function recorder() {
   const lines: LlmCallLog[] = [];
   return { lines, log: (entry: LlmCallLog) => void lines.push(entry) };
@@ -71,7 +74,7 @@ test('a call is reserved before the provider is asked', async () => {
   const { calls, reserve } = reserver(['ok']);
   const { lines, log } = recorder();
 
-  const text = await captureLlmProvider(UID, { provider, reserve, log })(PROMPT);
+  const text = await captureLlmProvider(UID, { provider, reserve, log, consent: granted })(PROMPT);
 
   assert.equal(text, '{"type":"task"}');
   assert.deepEqual(calls, [UID], 'the call was made without being reserved');
@@ -86,7 +89,7 @@ test('every call reserves, so the repair attempt is paid for too', async () => {
   // double.
   const provider = answering('{}');
   const { calls, reserve } = reserver(['ok', 'ok']);
-  const call = captureLlmProvider(UID, { provider, reserve, log: () => {} });
+  const call = captureLlmProvider(UID, { provider, reserve, log: () => {}, consent: granted });
 
   await call(PROMPT);
   await call(PROMPT);
@@ -101,7 +104,7 @@ test('over the cap, the provider is never asked and the reason names which cap',
     const { lines, log } = recorder();
 
     await assert.rejects(
-      () => captureLlmProvider(UID, { provider, reserve, log })(PROMPT),
+      () => captureLlmProvider(UID, { provider, reserve, log, consent: granted })(PROMPT),
       (error: unknown) => error instanceof LLMUnavailableError && error.reason === reason,
     );
 
@@ -116,7 +119,7 @@ test('a provider that is switched off costs nothing and reserves nothing', async
   const off: LlmProvider = { name: 'none', async generateJson() { throw new LLMUnavailableError('provider_none'); } };
 
   await assert.rejects(
-    () => captureLlmProvider(UID, { provider: off, reserve, log: () => {} })(PROMPT),
+    () => captureLlmProvider(UID, { provider: off, reserve, log: () => {}, consent: granted })(PROMPT),
     (error: unknown) => error instanceof LLMUnavailableError && error.reason === 'provider_none',
   );
   assert.deepEqual(calls, [], 'a call nobody made was counted against the budget');
@@ -138,13 +141,14 @@ test('the log line contains nothing the user wrote, on success or on failure', a
   const { lines, log } = recorder();
   const { reserve } = reserver(['ok', 'ok']);
 
-  await captureLlmProvider(UID, { provider: answering(`{"action":"${SECRET}"}`), reserve, log })(PROMPT);
+  await captureLlmProvider(UID, { provider: answering(`{"action":"${SECRET}"}`), reserve, log, consent: granted })(PROMPT);
   await assert.rejects(
     () => captureLlmProvider(UID, {
       // The shape of a real provider failure: the message quotes the request.
       provider: failing(new LLMUnavailableError('provider_error:400', `INVALID_ARGUMENT: could not parse "${SECRET}"`)),
       reserve,
       log,
+      consent: granted,
     })(PROMPT),
   );
 
@@ -163,4 +167,24 @@ test('the uid is a stable pseudonym, not the uid and not nothing', async () => {
   assert.notEqual(uidHash(UID), uidHash('another-uid'));
   assert.equal(uidHash(UID).length, 16);
   assert.equal(uidHash(UID).includes(UID), false);
+});
+
+test('an account that has not agreed is never charged and never reaches the provider', async () => {
+  // Consent is checked before the reservation on purpose: refusing after
+  // charging would spend somebody's daily budget on a call their consent
+  // forbids. The provider itself refuses again — that is the layer that cannot
+  // be bypassed — but this is the order a user would notice.
+  const provider = answering('{"type":"task"}');
+  const { calls, reserve } = reserver(['ok']);
+  const { lines, log } = recorder();
+  const declined = (async () => 'declined') as never;
+
+  await assert.rejects(
+    () => captureLlmProvider(UID, { provider, reserve, log, consent: declined })(PROMPT),
+    (error: unknown) => (error as LLMUnavailableError).reason === 'consent_required',
+  );
+
+  assert.deepEqual(calls, [], 'a declined account was charged for a call it never made');
+  assert.equal(provider.requests.length, 0, 'a declined account reached the provider');
+  assert.deepEqual(lines, [], 'a call that never happened was logged as one');
 });

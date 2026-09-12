@@ -32,7 +32,16 @@ export const DEFAULT_GLOBAL_DAILY_CAP = 20_000;
 
 
 
-export type ReservationOutcome = 'ok' | 'user_cap' | 'global_cap';
+/**
+ * `unavailable` is a refusal, not an error.
+ *
+ * If the counters cannot be read or written — contention, an outage — the
+ * guard does not know what has been spent today. Permitting the call would
+ * make the cap advisory exactly when it matters, so the call is refused and
+ * capture falls back to rules. Spending nothing is recoverable; spending
+ * without a limit is not.
+ */
+export type ReservationOutcome = 'ok' | 'user_cap' | 'global_cap' | 'unavailable';
 
 export interface UsageDay {
   /** Calls reserved today, whether or not the provider answered. */
@@ -97,23 +106,30 @@ export async function reserveCall(
   const globalPath = globalDayPath(day);
   const at = now.toISOString();
 
-  return storage.runTransaction(async (tx) => {
-    const [userDay, globalDay] = await Promise.all([
-      tx.get<UsageDay>(userPath),
-      tx.get<UsageDay>(globalPath),
-    ]);
-    const userCalls = userDay?.calls ?? 0;
-    const globalCalls = globalDay?.calls ?? 0;
+  try {
+    return await storage.runTransaction(async (tx) => {
+      const [userDay, globalDay] = await Promise.all([
+        tx.get<UsageDay>(userPath),
+        tx.get<UsageDay>(globalPath),
+      ]);
+      const userCalls = userDay?.calls ?? 0;
+      const globalCalls = globalDay?.calls ?? 0;
 
-    // The user's cap is checked first so that one account in a loop is told it
-    // is the one over budget, rather than blaming the service.
-    if (userCalls >= userCap) return 'user_cap';
-    if (globalCalls >= globalCap) return 'global_cap';
+      // The user's cap is checked first so that one account in a loop is told
+      // it is the one over budget, rather than blaming the service.
+      if (userCalls >= userCap) return 'user_cap';
+      if (globalCalls >= globalCap) return 'global_cap';
 
-    tx.set<UsageDay>(userPath, { calls: userCalls + 1, date: day, updatedAt: at });
-    tx.set<UsageDay>(globalPath, { calls: globalCalls + 1, date: day, updatedAt: at });
-    return 'ok';
-  });
+      tx.set<UsageDay>(userPath, { calls: userCalls + 1, date: day, updatedAt: at });
+      tx.set<UsageDay>(globalPath, { calls: globalCalls + 1, date: day, updatedAt: at });
+      return 'ok';
+    });
+  } catch (error) {
+    // Named, and without the provider's message: a storage error can quote the
+    // document it failed on, and these documents are keyed by uid.
+    console.error(`[llm/usage] reservation unavailable: ${(error as Error).name}`);
+    return 'unavailable';
+  }
 }
 
 /** What has been reserved today, for tests and for an operator answering "why". */
