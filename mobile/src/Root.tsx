@@ -2,6 +2,8 @@ import React, { useRef } from 'react';
 import { View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useApp } from './state/AppContext';
+import { useAuth } from './auth/AuthProvider';
+import { VerifyEmailBanner } from './auth/VerifyEmailBanner';
 import { useLinks } from './links';
 import { TodayScreen } from './screens/TodayScreen';
 import { CalendarScreen } from './screens/CalendarScreen';
@@ -20,13 +22,19 @@ const tabScreens = ['today', 'calendar', 'settings'];
 
 export function Root() {
   const { s, p, ar, scheme, actions } = useApp();
+  const { takePendingLink } = useAuth();
   const latest = useRef(actions);
   latest.current = actions;
-  useLinks({
-    jump: name => latest.current.jump(name),
-    setLang: l => latest.current.setLang(l),
-    setThemePref: v => latest.current.setThemePref(v),
-  });
+  const pending = useRef(takePendingLink);
+  pending.current = takePendingLink;
+  useLinks(
+    {
+      jump: name => latest.current.jump(name),
+      setLang: l => latest.current.setLang(l),
+      setThemePref: v => latest.current.setThemePref(v),
+    },
+    () => pending.current(),
+  );
   return (
     // `direction` flips every row, start/end offset and border side for Arabic.
     // This is deliberately NOT I18nManager.forceRTL + a reload (issue #156 step
@@ -34,6 +42,7 @@ export function Root() {
     // mechanism the round-1 design was verified on. See src/i18n/README.md.
     <View style={{ flex: 1, backgroundColor: p.bg, direction: ar ? 'rtl' : 'ltr' }}>
       <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
+      <VerifyEmailBanner />
       {s.screen === 'today' && <TodayScreen key="today" />}
       {s.screen === 'calendar' && <CalendarScreen key="calendar" />}
       {s.screen === 'settings' && <SettingsScreen key="settings" />}

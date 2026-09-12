@@ -1,0 +1,46 @@
+{
+  "project_info": {
+    "project_number": "955684917741",
+    "project_id": "maybesitter-app",
+    "storage_bucket": "maybesitter-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:955684917741:android:b5e325c391995c1f0657e4",
+        "android_client_info": {
+          "package_name": "com.maybesitter.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "955684917741-uo00ersk7ho0ga8us4el7ppc1bv2900m.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCkm1G8emU7E_VtN7sTVGmpixsVRqgaIH8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "955684917741-uo00ersk7ho0ga8us4el7ppc1bv2900m.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "955684917741-45qj9349vi80hacil9psun4u8umnmja4.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.maybesitter.app"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

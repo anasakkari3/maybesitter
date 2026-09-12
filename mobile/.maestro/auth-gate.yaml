@@ -1,0 +1,34 @@
+appId: com.maybesitter.app
+name: MaybeSitter sign-in gate
+---
+# UC-1.7 (#151): a fresh install lands on sign-in, and a deep link cannot get
+# past it. Run this against a build with EXPO_PUBLIC_DEV_BEARER_TOKEN unset —
+# with the override active the app starts signed in and this flow is not the
+# thing under test.
+- launchApp:
+    clearState: true
+
+# Arabic is the default language, so the sign-in screen reads «أهلاً فيك».
+- assertVisible: 'أهلاً فيك بـMaybeSitter'
+- assertVisible: 'تابع بالإيميل'
+# The app itself must not be behind it.
+- assertNotVisible: 'اليوم'
+- assertNotVisible: 'احكيها'
+
+# A deep link straight at Today still lands on sign-in.
+- openLink: maybesitter://today
+- assertVisible: 'أهلاً فيك بـMaybeSitter'
+- assertNotVisible: 'احكيها'
+
+# The email flow opens, and closes back to the provider list.
+- tapOn: 'تابع بالإيميل'
+- assertVisible: 'الإيميل'
+- assertVisible: 'كلمة السر'
+- tapOn: 'رجوع'
+- assertVisible: 'أهلاً فيك بـMaybeSitter'
+
+# Password reset asks for an address and nothing else.
+- tapOn: 'تابع بالإيميل'
+- tapOn: 'نسيت كلمة السر؟'
+- assertVisible: 'عيّد ضبط كلمة السر'
+- assertNotVisible: 'كلمة السر'

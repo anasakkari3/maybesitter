@@ -2,12 +2,15 @@ import React from 'react';
 import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
+import { useAuth } from '../auth/AuthProvider';
 import { LANGUAGE_ENDONYM } from '../i18n/language';
-import { Btn, Card, Txt } from '../ui/primitives';
+import { fill } from '../i18n/strings';
+import { Btn, Card, Pill, Txt } from '../ui/primitives';
 import { ScreenIn } from '../ui/motion';
 
 export function SettingsScreen() {
   const { t, p, langPref, themePref, actions } = useApp();
+  const { user, signOut } = useAuth();
   const insets = useSafeAreaInsets();
   const themeValue = themePref === 'system' ? t.vSystem : themePref === 'light' ? t.vLight : t.vDark;
   // A language is named in itself, never translated — so "English" stays
@@ -43,6 +46,19 @@ export function SettingsScreen() {
             </Btn>
           ))}
         </Card>
+        {user ? (
+          <Card pad={18} style={{ gap: 14 }}>
+            {/* An Apple private-relay address is not the user's email and
+                showing it as one is a small lie; UC-1.1 (#145) sets no email
+                for that provider, so the absence names itself. */}
+            <Txt size={14} color={p.mu}>
+              {user.email
+                ? fill(t.authSignedInAs, { email: user.email })
+                : t.authSignedInPrivateApple}
+            </Txt>
+            <Pill label={t.authSignOut} kind="outline" size={15} onPress={() => void signOut({ reason: 'user' })} />
+          </Card>
+        ) : null}
         <View style={{ paddingHorizontal: 6 }}>
           <Txt size={12} color={p.mu}>{t.settingsNote}</Txt>
         </View>

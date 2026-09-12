@@ -37,3 +37,40 @@ export function configProblems(): string[] {
 export function isDevelopment(): boolean {
   return appEnv() === 'development';
 }
+
+/**
+ * The local sign-in override's token (UC-1.7 #151), or null.
+ *
+ * Reading it here is not the same as honouring it: `src/auth/devBypass.ts`
+ * decides that, and `releaseConfigProblems` above already refuses to *build*
+ * a staging or production app with the variable set.
+ */
+export function devBearerToken(): string | null {
+  const raw = (process.env.EXPO_PUBLIC_DEV_BEARER_TOKEN ?? '').trim();
+  return raw === '' ? null : raw;
+}
+
+/**
+ * The privacy policy and terms URLs, from the build's environment.
+ *
+ * They are null until OWNER-A1 (#137) publishes the site: the sign-in screen
+ * then renders the links, and until then it renders none rather than a link
+ * that 404s on the one screen a new user judges the product on. Nothing here
+ * invents a domain.
+ */
+export function legalUrls(): { privacy: string | null; terms: string | null } {
+  return {
+    privacy: httpsUrlOrNull(process.env.EXPO_PUBLIC_PRIVACY_URL),
+    terms: httpsUrlOrNull(process.env.EXPO_PUBLIC_TERMS_URL),
+  };
+}
+
+function httpsUrlOrNull(value: string | undefined): string | null {
+  const raw = (value ?? '').trim();
+  if (raw === '') return null;
+  try {
+    return new URL(raw).protocol === 'https:' ? raw : null;
+  } catch {
+    return null;
+  }
+}

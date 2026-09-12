@@ -39,3 +39,13 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Firebase app configuration is COMMITTED on purpose (UC-1.7 #151): these two
+# files identify the project and authorise nothing, and a build cannot be made
+# without them. The negations are explicit because many developers' global
+# gitignore excludes both by name — the repository's policy has to win over a
+# machine-level default, or the next clone builds against no Firebase project.
+# The keys inside are restricted to com.maybesitter.app and to Identity
+# Toolkit, Token Service and Firebase Installations.
+!firebase/google-services.json
+!firebase/GoogleService-Info.plist
