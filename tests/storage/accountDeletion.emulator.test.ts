@@ -109,10 +109,17 @@ test('firestore + auth: deleting an account removes the data, the user, and the 
       'the Firebase user still exists',
     );
 
-    // 3. The session: the token the client is still holding must stop working.
+    // 3. The session: the token the client is still holding must stop working,
+    // and — the part staging caught and this emulator cannot — the refused
+    // request must not rebuild the account document on its way out.
     await assert.rejects(
       () => requireMobileUser(authorized(account.idToken)),
       'the pre-deletion token still authenticates',
+    );
+    assert.equal(
+      await storage.get(userDoc(account.uid)),
+      null,
+      'a request with the old token recreated the account document',
     );
 
     // 4. The receipt, readable afterwards and naming nobody.

@@ -12,6 +12,7 @@
  * development bypass reachable from configuration would be one variable away
  * from uid impersonation in a public repository.
  */
+import { setAccountDirectoryForTests } from '../../lib/auth/accountDirectory.ts';
 import {
   TokenVerificationError,
   resetTokenVerifierForTests,
@@ -91,11 +92,20 @@ export function installFakeAuth(): FakeAuthControls {
   };
 
   setTokenVerifierForTests(verifier);
+  // A uid this fake mints is an account that exists. Since UC-1.5 (#149) the
+  // auth path asks Firebase before creating a tree for a uid it has never seen,
+  // so without this every first request in the suite would try to reach the
+  // real Firebase and fail as `auth_unavailable`. A test about a *deleted*
+  // account overrides this with its own directory.
+  setAccountDirectoryForTests({ async exists() { return true; } });
   return {
     refuse: (uid, code) => refusals.set(uid, code),
     allow: (uid) => refusals.delete(uid),
     lastForceRevocationCheck: () => lastForce,
     setAuthAge: (uid, seconds) => authAges.set(uid, seconds),
-    restore: () => resetTokenVerifierForTests(),
+    restore: () => {
+      setAccountDirectoryForTests(null);
+      resetTokenVerifierForTests();
+    },
   };
 }

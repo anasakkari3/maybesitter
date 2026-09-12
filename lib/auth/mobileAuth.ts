@@ -25,7 +25,8 @@
  * place to leak them from and a second place to forget to delete them.
  */
 import { requireUserId } from '../storage/paths';
-import { getOrCreateTrust } from '../pilot/pilotTrustStore';
+import { accountExists } from './accountDirectory';
+import { getOrCreateTrust, readTrust } from '../pilot/pilotTrustStore';
 import { getTokenVerifier, TokenVerificationError, type TokenVerificationCode } from './tokenVerifier';
 
 export interface MobileUser {
@@ -137,8 +138,34 @@ export async function requireMobileUser(
  *
  * A storage failure here is 503 and never an admission. The predecessor
  * swallowed exactly this error and continued as if the caller were trusted.
+ *
+ * ── Why a missing record is not automatically a new user ─────────
+ *
+ * Creating one unconditionally is what let a deleted account come back: an ID
+ * token stays verifiable until it expires, the first request after the deletion
+ * found no document, and this made a fresh one — account shell restored, 200
+ * returned, deletion undone (#149). So when there is no record, Firebase is
+ * asked whether the account exists at all. It only costs a call on a uid's very
+ * first request.
  */
 async function readOrCreateTrust(uid: string) {
+  let existing;
+  try {
+    existing = await readTrust(uid);
+  } catch {
+    throw new MobileAuthError('the account record could not be read', 503, 'auth_unavailable');
+  }
+  if (existing) return existing;
+
+  let live: boolean;
+  try {
+    live = await accountExists(uid);
+  } catch {
+    // Firebase unreachable: refuse rather than guess towards admitting.
+    throw new MobileAuthError('the account could not be checked', 503, 'auth_unavailable');
+  }
+  if (!live) throw new MobileAuthError('this account was deleted', 403, 'deleted');
+
   try {
     return await getOrCreateTrust(uid, new Date().toISOString());
   } catch {

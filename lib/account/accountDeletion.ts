@@ -44,8 +44,14 @@ export const DELETION_STEPS = [
   'revokeSessions',
   'externalRevocations',
   'topLevelDocs',
-  'userTree',
+  // The Firebase account goes before the tree, not after as UC-1.5 first
+  // sketched it. An ID token keeps verifying offline until it expires, so
+  // while the account still exists a request arriving mid-deletion can create
+  // a fresh `users/{uid}` behind the sweep — the deletion completes and an
+  // orphan tree is left. Removing the account first closes that window: from
+  // then on the auth path refuses the uid outright.
   'authUser',
+  'userTree',
   'receipt',
 ] as const;
 
@@ -304,8 +310,8 @@ export async function deleteAccount(uid: string, options: DeleteAccountOptions):
   }
 
   await run('topLevelDocs', () => deleteTopLevelDocs(storage, uid));
-  await run('userTree', () => storage.deleteTree(userDoc(uid)));
   await run('authUser', () => auth.deleteUser(uid));
+  await run('userTree', () => storage.deleteTree(userDoc(uid)));
 
   // The id is reserved in the job record *before* the receipt document exists.
   // Minting it here and writing the receipt first leaves a window: a process
