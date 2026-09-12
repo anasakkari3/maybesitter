@@ -10,7 +10,7 @@ import { APP_ENVS, releaseConfigProblems, type AppEnv } from './releaseGuard';
  * whatever host it was handed.
  */
 
-type Extra = { appEnv?: string; apiBaseUrl?: string | null };
+type Extra = { appEnv?: string; apiBaseUrl?: string | null; googleWebClientId?: string | null };
 
 function extra(): Extra {
   return (Constants.expoConfig?.extra ?? {}) as Extra;
@@ -73,4 +73,18 @@ function httpsUrlOrNull(value: string | undefined): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * The Google Web OAuth client id (UC-1.2 #146), or null.
+ *
+ * `app.config.ts` takes it from the committed `firebase/google-services.json`
+ * at build time. Null means this build cannot offer Google sign-in, and the
+ * button is hidden rather than shown and then failing with `DEVELOPER_ERROR`.
+ */
+export function googleWebClientId(): string | null {
+  const override = (process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ?? '').trim();
+  if (override !== '') return override;
+  const value = extra().googleWebClientId;
+  return typeof value === 'string' && value.trim() !== '' ? value : null;
 }

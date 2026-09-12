@@ -4,6 +4,7 @@ import { useApp } from '../state/AppContext';
 import { useAuth } from './AuthProvider';
 import { EmailAuthScreen } from '../screens/EmailAuthScreen';
 import { SignInScreen } from '../screens/SignInScreen';
+import { GoogleSignInButton } from './GoogleSignInButton';
 
 /**
  * What the app shows before it knows who you are, and what it shows once it
@@ -31,7 +32,8 @@ export function AuthGate({
   onboarding,
   onboardingComplete = true,
   appleSlot,
-  googleSlot,
+  /** Defaults to the real Google button, which hides itself when unconfigured. */
+  googleSlot = <GoogleSignInButton />,
   /** The email flow this gate opens; tests use it to start on a given mode. */
   emailScreen: EmailScreen = EmailAuthScreen,
 }: {

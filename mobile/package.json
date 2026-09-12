@@ -9,6 +9,7 @@
     "@react-native-community/netinfo": "12.0.1",
     "@react-native-firebase/app": "^26.4.0",
     "@react-native-firebase/auth": "^26.4.0",
+    "@react-native-google-signin/google-signin": "^16.1.5",
     "@tanstack/react-query": "^5.102.8",
     "expo": "~57.0.21",
     "expo-blur": "~57.0.2",

@@ -16,11 +16,14 @@ import {
   onAuthStateChanged,
   reload,
   sendEmailVerification,
+  GoogleAuthProvider,
   sendPasswordResetEmail,
+  signInWithCredential,
   signInWithEmailAndPassword,
   signOut as firebaseSignOut,
   type User as FirebaseUser,
 } from '@react-native-firebase/auth';
+import { requestGoogleCredential, signOutOfGoogle } from './googleSignIn';
 import { normalizeEmail } from './validation';
 import type { AuthRepository, AuthUser, SignOutReason } from './types';
 
@@ -70,7 +73,19 @@ export function createFirebaseAuthRepository(): AuthRepository {
     },
     async signOut(options) {
       signOutReason = options?.reason ?? 'user';
+      // Google first, so the next tap shows the account chooser rather than
+      // silently signing the same person back in (UC-1.2 #146). It is best
+      // effort: Firebase sign-out is what actually ends the session.
+      await signOutOfGoogle();
       await firebaseSignOut(getAuth());
+    },
+
+    async signInWithGoogle() {
+      const credential = await requestGoogleCredential();
+      // Null means the user closed the chooser. Nothing happened, and the
+      // screen stays exactly as it was.
+      if (!credential) return;
+      await signInWithCredential(getAuth(), GoogleAuthProvider.credential(credential.idToken));
     },
 
     async createAccount(email, password) {

@@ -77,3 +77,53 @@ src/ui/              primitives, icons, motion
 src/i18n/strings.ts  all copy
 src/theme/           tokens (light/dark palettes), fonts
 ```
+
+## Google Sign-In troubleshooting
+
+The button is only rendered when the build has a Web OAuth client id. That id
+comes from the committed `firebase/google-services.json` (`client_type: 3`),
+read by `app.config.ts` and passed through `extra.googleWebClientId`;
+`EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` overrides it. So "no Google button" means
+that file has no web client — not a missing environment variable.
+
+### `DEVELOPER_ERROR` (Android code 10)
+
+Almost always a signing certificate whose SHA-1 is not registered in the
+Firebase project. Every key that signs an installable build needs its SHA-1
+**and** SHA-256 added under Firebase → Project settings → Android app
+`com.maybesitter.app`, after which `google-services.json` must be
+re-downloaded into `firebase/` and committed.
+
+Where each fingerprint comes from:
+
+| Build | Where the fingerprint lives |
+|---|---|
+| `npx expo run:android` | the prebuild debug keystore: `keytool -list -v -keystore android/app/debug.keystore -alias androiddebugkey -storepass android -keypass android` |
+| EAS `development` / `staging` / `production` | `eas credentials -p android` |
+| The Play store build | Play Console → App integrity → App signing — a **different** key, held by Google, and only available after the first track upload (UC-1.6a #150) |
+
+The last row is why a build can work from EAS and fail from the Play store:
+Play App Signing re-signs the upload with its own key, whose SHA-1 was never
+registered. It is the one fingerprint that cannot be obtained before the first
+upload.
+
+The checklist, in the order worth trying:
+
+1. Is the package name exactly `com.maybesitter.app`?
+2. Is the SHA-1 of the key that signed *this* binary in the Firebase project?
+3. Was `google-services.json` re-downloaded after adding it?
+4. Is Google enabled under Firebase → Authentication → Sign-in method, with a
+   support email set?
+5. Is the id in `extra.googleWebClientId` the **web** client (`client_type: 3`),
+   not the Android or iOS one?
+
+The user never sees any of this: `DEVELOPER_ERROR` renders the generic copy,
+because there is nothing they can do about it.
+
+### iOS
+
+No `iosUrlScheme` is configured by hand. The config plugin reads
+`REVERSED_CLIENT_ID` out of `GoogleService-Info.plist`, which
+`npx expo config --type introspect` shows as a `CFBundleURLSchemes` entry
+alongside `maybesitter`. If that entry is missing, the plist is not being
+picked up as `ios.googleServicesFile`.

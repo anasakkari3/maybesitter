@@ -28,3 +28,24 @@ jest.mock('@react-native-firebase/auth', () => ({
 jest.mock('@react-native-community/netinfo', () =>
   require('@react-native-community/netinfo/jest/netinfo-mock'),
 );
+
+// The Google sign-in SDK is a TurboModule: importing it under Jest throws
+// before any test body runs. The mock is inert for the same reason the
+// Firebase one is — a test that reached the real SDK would get nothing, not a
+// signed-in user. Behaviour is driven through `FakeAuthRepository` instead.
+jest.mock('@react-native-google-signin/google-signin', () => ({
+  GoogleSignin: {
+    configure: () => {},
+    hasPlayServices: async () => true,
+    signIn: async () => ({ type: 'cancelled' }),
+    signOut: async () => null,
+    addScopes: async () => null,
+  },
+  statusCodes: {
+    SIGN_IN_CANCELLED: '12501',
+    IN_PROGRESS: 'ASYNC_OP_IN_PROGRESS',
+    PLAY_SERVICES_NOT_AVAILABLE: '2',
+    SIGN_IN_REQUIRED: '4',
+    NULL_PRESENTER: 'NULL_PRESENTER',
+  },
+}));

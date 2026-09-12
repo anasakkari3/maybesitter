@@ -12,7 +12,7 @@ export interface FakeAuthOptions {
 }
 
 export interface FakeAuthCall {
-  method: 'createAccount' | 'signInWithEmail' | 'sendPasswordReset' | 'sendVerificationEmail';
+  method: 'createAccount' | 'signInWithEmail' | 'sendPasswordReset' | 'sendVerificationEmail' | 'signInWithGoogle';
   /**
    * The address only. Passwords are never recorded, so a failing test cannot
    * print one and no snapshot can accidentally hold one.
@@ -31,6 +31,8 @@ export interface FakeAuthRepository extends AuthRepository {
   readonly calls: FakeAuthCall[];
   /** Makes the next call of `method` reject with this error. */
   failNext(method: FakeAuthCall['method'], error: unknown): void;
+  /** Makes the next Google sign-in behave as the user backing out. */
+  cancelNextGoogle(): void;
 }
 
 export function createFakeAuthRepository(options: FakeAuthOptions = {}): FakeAuthRepository {
@@ -43,6 +45,7 @@ export function createFakeAuthRepository(options: FakeAuthOptions = {}): FakeAut
   let signOutReason: SignOutReason | null = null;
   const calls: FakeAuthCall[] = [];
   const failures = new Map<FakeAuthCall['method'], unknown>();
+  let cancelGoogle = false;
 
   const record = (method: FakeAuthCall['method'], email?: string): void => {
     calls.push(email === undefined ? { method } : { method, email });
@@ -96,6 +99,23 @@ export function createFakeAuthRepository(options: FakeAuthOptions = {}): FakeAut
     },
     async sendVerificationEmail() {
       record('sendVerificationEmail');
+    },
+    async signInWithGoogle() {
+      record('signInWithGoogle');
+      if (cancelGoogle) {
+        cancelGoogle = false;
+        return;
+      }
+      emit({
+        uid: 'fake-google-uid',
+        email: 'someone@gmail.example',
+        emailVerified: true,
+        displayName: 'Someone',
+        providerIds: ['google.com'],
+      });
+    },
+    cancelNextGoogle() {
+      cancelGoogle = true;
     },
     calls,
     failNext(method, error) {
