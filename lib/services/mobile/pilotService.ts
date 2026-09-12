@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { analyticsContextFrom } from '../../analytics/analyticsContext';
 import { appendAnalyticsEvent } from '../../analytics/eventStore';
-import { isClientReportableEvent, recordClientEvent, recordDataDeleted, recordFirstValueReached } from '../../analytics/loopAnalytics';
+import { isClientReportableEvent, recordClientEvent, recordFirstValueReached } from '../../analytics/loopAnalytics';
 import { resolveNextStepArm } from '../../experiments/experimentControls';
 import {
   buildWhatMaybeSitterKnows,
@@ -16,7 +16,6 @@ import { resolveUserAccess } from '../../pilot/pilotAccess';
 import { appendAudit, appendIncident, applyTrustAction } from '../../pilot/pilotTrustStore';
 import { getLiveNextStep, prepareLiveNextStepDecision } from '../nextStepLiveService';
 import {
-  deleteParticipantDomainState,
   getParticipantStateSnapshot,
   readParticipantState,
   replayOrRecordParticipantDecision,
@@ -96,7 +95,13 @@ function trustAction(value: unknown, at: string): PilotTrustAction {
     case 'revoke':
       return { type: action.type, at };
     case 'delete':
-      return { type: action.type, at };
+      // Retired by UC-1.5 (#149). This used to delete the participant's domain
+      // state and nothing else — not the Firebase user, not the top-level
+      // records, no receipt — while a client calling it could reasonably
+      // believe the account was gone. Two meanings of "delete my data" is one
+      // too many, and the dangerous one is the half that leaves the account
+      // signed in.
+      throw new MobilePilotError('use account deletion', 400, 'use_account_deletion');
     default:
       throw new Error('unsupported pilot trust action');
   }
@@ -293,13 +298,13 @@ export async function updateMobilePilotTrust(participantId: string, input: Mobil
   if (!access.trust) throw new MobilePilotError('participant is not admitted to this pilot instance', 403, access.decision.reason);
   const action = trustAction(input.action, at);
   const trust = await applyTrustAction(participantId, action);
+  // No `data_deleted` branch: `delete` is refused when the action is parsed
+  // (#149), so it cannot reach here. Account deletion writes its own audit.
   const eventType = action.type === 'set_quiet_mode'
     ? 'quiet_mode_changed'
     : action.type === 'revoke'
       ? 'revoked'
-      : action.type === 'delete'
-        ? 'data_deleted'
-        : 'consent_changed';
+      : 'consent_changed';
   await appendAudit(createPilotAuditEvent({
     version: 'v1',
     eventType,
@@ -308,11 +313,6 @@ export async function updateMobilePilotTrust(participantId: string, input: Mobil
     outcome: 'recorded',
     reasonCode: action.type,
   }));
-  if (action.type === 'delete') {
-    await deleteParticipantDomainState(participantId);
-    const analytics = await analyticsContextFrom({ anonymousUserId: participantId, consent: 'essential' }, appendAnalyticsEvent);
-    if (analytics) await recordDataDeleted(analytics, 'all_commitments');
-  }
   const exposure = (await resolveUserAccess(participantId, at, false)).decision;
   return {
     success: true,

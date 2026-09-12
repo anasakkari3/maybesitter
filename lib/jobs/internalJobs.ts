@@ -17,6 +17,7 @@
  * `runDueJobs`, and never hands a store to `configureCommandService`, which
  * would make `applyCommand` create jobs fire-and-forget.
  */
+import { resumeStalledDeletions } from '../account/accountDeletion';
 import { applyParticipantCommand } from '../services/mobile/participantState';
 import { ValidationError } from '../../src/domain/stateMachine';
 import { runDueJobs, type CommandHandler, type SchedulerStore } from '../../src/scheduler/jobRunner';
@@ -145,6 +146,10 @@ export async function runMaintenance(options: MaintenanceOptions = {}): Promise<
     ['alpha_feedback_pruned', () => createStorageAlphaFeedbackStore(withStorage).prune()],
     ['alpha_traces_pruned', () => createStorageAlphaTraceStore(withStorage).prune()],
     ['clarifications_pruned', () => new StorageClarificationStore(storage).pruneExpired(now)],
+    // A deletion whose instance went away must still finish. It is last because
+    // it is the only step that can fail for a reason outside this service
+    // (#149).
+    ['deletions_resumed', async () => (await resumeStalledDeletions({ now, ...withStorage })).resumed],
   ];
 
   const results: MaintenanceStep[] = [];

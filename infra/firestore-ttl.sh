@@ -44,6 +44,11 @@ COLLECTION_GROUPS=(
   "clarifications"
   "analyticsEvents"
   "captureProposals"
+  # UC-1.5 (#149): the proof a deletion happened, and the job that ran it.
+  # Both are top-level and outlive the account, so nothing else would ever
+  # remove them.
+  "deletionReceipts"
+  "accountDeletions"
 )
 
 usage() {

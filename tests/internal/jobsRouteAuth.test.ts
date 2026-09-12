@@ -226,6 +226,8 @@ test('maintenance: every sweep runs, and it reports each one', async () => {
     'alpha_feedback_pruned',
     'alpha_traces_pruned',
     'clarifications_pruned',
+    // UC-1.5 (#149): a deletion whose instance went away is finished here.
+    'deletions_resumed',
   ]);
 });
 
@@ -255,6 +257,7 @@ test('maintenance: one unreachable store does not stop the other sweeps, and the
       alpha_feedback_pruned: true,
       alpha_traces_pruned: false,
       clarifications_pruned: true,
+      deletions_resumed: true,
     });
   } finally {
     console.error = errorLog;

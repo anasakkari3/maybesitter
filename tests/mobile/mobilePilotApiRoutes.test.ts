@@ -24,6 +24,7 @@ import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { resetMobilePilotDecisionReplaysForTests } from '../../lib/services/mobile/pilotService.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
+import { deleteAccount, setDeletionAuthForTests } from '../../lib/account/accountDeletion.ts';
 import { GET as getNextStep } from '../../src/app/api/mobile/recommendations/next-step/route.ts';
 import { POST as recordNextStepAction } from '../../src/app/api/mobile/recommendations/next-step/actions/route.ts';
 import { GET as getTrust, POST as updateTrust } from '../../src/app/api/mobile/pilot/trust/route.ts';
@@ -575,30 +576,40 @@ test('recommendation action idempotency is uid-scoped and durable', async () => 
 });
 
 test('deletion is local to A and keeps B state intact', async () => {
+  // The trust `delete` action used to do this, deleting A's domain state while
+  // leaving the sign-in account alive and issuing no receipt. UC-1.5 (#149)
+  // retired it: it now refuses, and real deletion goes through the engine. The
+  // property this test is about — A's deletion is invisible to B — is asserted
+  // against that engine instead.
   const cleanup = setup();
+  process.env.MAYBESITTER_DELETION_RECEIPT_PEPPER = 'pilot-route-test-pepper';
+  setDeletionAuthForTests({ async revokeRefreshTokens() {}, async deleteUser() {} });
   try {
     await grantRecommendation(A);
     await grantRecommendation(B);
     const aId = await createConfirmedCommitment(A, 'Remind me to cancel A plan tomorrow at noon');
     const bId = await createConfirmedCommitment(B, 'Remind me to keep B plan tomorrow at noon');
 
-    const deleteA = await updateTrust(request('/api/mobile/pilot/trust', {
+    const retired = await updateTrust(request('/api/mobile/pilot/trust', {
       participantId: A,
       body: { action: { type: 'delete' } },
     }));
-    assert.equal(deleteA.status, 200);
-    assert.equal((await json(deleteA)).participantId, A);
+    assert.equal(retired.status, 400, 'the retired partial delete still runs');
+    assert.equal((await json(retired)).reason, 'use_account_deletion');
+
+    await deleteAccount(A, { initiatedBy: 'user' });
 
     const aAfterDelete = await commitmentGet(request(`/api/mobile/commitments/${aId}`, { participantId: A }), params(aId));
-    assert.equal(aAfterDelete.status, 403);
-    assert.equal((await json(aAfterDelete)).reason, 'deleted');
+    assert.notEqual(aAfterDelete.status, 200, 'A can still read a commitment after deleting the account');
 
     const bAfterDelete = await commitmentGet(request(`/api/mobile/commitments/${bId}`, { participantId: B }), params(bId));
-    assert.equal(bAfterDelete.status, 200);
+    assert.equal(bAfterDelete.status, 200, 'deleting A took B down with it');
     assert.equal((await json(bAfterDelete)).title, 'keep B plan at noon');
     const bTrust = await getTrust(request('/api/mobile/pilot/trust', { participantId: B }));
     assert.equal(bTrust.status, 200);
   } finally {
+    setDeletionAuthForTests(null);
+    delete process.env.MAYBESITTER_DELETION_RECEIPT_PEPPER;
     cleanup();
   }
 });
