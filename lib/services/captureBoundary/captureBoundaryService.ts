@@ -10,12 +10,34 @@ import {
   type CaptureConfirmationResultContract,
   type CaptureProposalContract,
 } from '../../../src/contracts/v1/captureContracts';
+import type { Command } from '../../../src/domain/stateMachine';
 import type { CapturePersistenceAdapter } from './persistenceAdapter';
 import type { CaptureProposalStore, StoredCaptureProposal } from './proposalStore';
+
+/**
+ * Persists a confirmation's commands and records its result on the proposal in
+ * one transaction (UC-1.4, #148).
+ *
+ * Without it, confirming is read-then-write across two calls: two confirms of
+ * the same proposal arriving together both see "not confirmed", both persist,
+ * and one tap becomes two sets of commitments. The committer closes that by
+ * making the claim part of the same write.
+ *
+ * Optional only for callers with no participant-scoped storage — the in-process
+ * development path. Every authenticated request supplies one.
+ */
+export type CaptureConfirmationCommitter = (input: {
+  scopeId: string;
+  proposalId: string;
+  idempotencyKey: string;
+  commands: readonly Command[];
+  result: CaptureConfirmationResultContract;
+}) => Promise<{ replayed: boolean; result: CaptureConfirmationResultContract }>;
 
 export interface CaptureBoundaryDependencies {
   store: CaptureProposalStore;
   persistence: CapturePersistenceAdapter;
+  commitConfirmation?: CaptureConfirmationCommitter;
   audit?: (event: AuditEventEnvelope) => void;
   controls?: RuntimeControlSnapshot;
   llmProvider?: ExtractAndMapOptions['llmProvider'];
@@ -173,17 +195,39 @@ export async function confirmCapture(input: { proposalId: string; scopeId: strin
     .filter((item) => selected.has(item.itemId))
     .flatMap((item) => stored.commandsByItemId.get(item.itemId) ?? []);
   if (commands.length === 0) return failure('invalid_selection');
-  try {
-    await dependencies.persistence.persistAtomically(commands);
-  } catch {
-    return failure('persistence_failed');
-  }
   const result: CaptureConfirmationResultContract = {
     version: CAPTURE_CONTRACT_VERSION,
     success: true,
     replayed: false,
     persistedItemIds: stored.contract.items.filter((item) => selected.has(item.itemId)).map((item) => item.itemId),
   };
+
+  if (dependencies.commitConfirmation) {
+    // The commitments and the claim commit together, so a confirm that races
+    // another one for the same proposal replays it rather than persisting a
+    // second set (#148).
+    try {
+      const committed = await dependencies.commitConfirmation({
+        scopeId: input.scopeId,
+        proposalId: input.proposalId,
+        idempotencyKey: input.idempotencyKey,
+        commands,
+        result,
+      });
+      return committed.replayed ? { ...committed.result, replayed: true } : committed.result;
+    } catch {
+      return failure('persistence_failed');
+    }
+  }
+
+  // No participant-scoped storage: the in-process development path. It persists
+  // and then records, which is exactly the window the committer above closes —
+  // acceptable only because this path serves one process and no real account.
+  try {
+    await dependencies.persistence.persistAtomically(commands);
+  } catch {
+    return failure('persistence_failed');
+  }
   // The Map-backed store persisted this by mutation. A durable store does
   // not, and without the write-back a replayed confirm would find no recorded
   // result and persist the commitments a second time.

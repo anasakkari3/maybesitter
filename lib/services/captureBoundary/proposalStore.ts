@@ -117,6 +117,15 @@ function fromDocument(document: StoredProposalDocument): StoredCaptureProposal {
  * The scope id is the participant id on the mobile path, so the document lives
  * under that user and goes with the account when it is deleted.
  */
+/**
+ * Where a scope's proposal lives. Exported because the atomic confirm (#148)
+ * has to address the very same document this store wrote, and deriving the path
+ * twice from the same function is how that stays true.
+ */
+export function captureProposalPath(scopeId: string, proposalId: string): string {
+  return `${userCol(userIdForKey(scopeId), CAPTURE_PROPOSALS)}/${requireDocId(proposalId)}`;
+}
+
 export class StorageCaptureProposalStore implements CaptureProposalStore {
   constructor(private readonly injected?: StorageAdapter) {}
 
@@ -126,7 +135,7 @@ export class StorageCaptureProposalStore implements CaptureProposalStore {
   }
 
   private path(scopeId: string, proposalId: string): string {
-    return `${userCol(userIdForKey(scopeId), CAPTURE_PROPOSALS)}/${requireDocId(proposalId)}`;
+    return captureProposalPath(scopeId, proposalId);
   }
 
   async put(proposal: StoredCaptureProposal): Promise<void> {

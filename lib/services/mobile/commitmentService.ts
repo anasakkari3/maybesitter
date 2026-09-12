@@ -22,6 +22,19 @@ export interface PatchCommitmentInput {
   reminderTime?: unknown;
 }
 
+/**
+ * Who is acting, and what they believed they were acting on.
+ *
+ * `expectedUpdatedAt` is the `If-Match` validator (UC-1.4, #148). Absent, the
+ * mutation is unconditional, which is what every client did before this and
+ * still does for a first write.
+ */
+export interface CommitmentMutationOptions {
+  participantId?: string;
+  /** The `If-Match` validator the caller sent back, if any. */
+  expectedValidator?: string;
+}
+
 function sortByResolvedTime(items: Commitment[]): Commitment[] {
   return [...items].sort((a, b) => {
     const aTime = Date.parse(resolvedCommitmentTime(a) || a.updatedAt);
@@ -122,7 +135,7 @@ export async function patchCommitment(
   id: string,
   input: PatchCommitmentInput,
   now: Date = new Date(),
-  options: { participantId?: string } = {},
+  options: CommitmentMutationOptions = {},
 ): Promise<Commitment> {
   const current = await getCommitment(id, options);
   if (!current) throw new Error('Commitment not found');
@@ -140,23 +153,58 @@ export async function patchCommitment(
     now: now.toISOString(),
     updates,
   };
-  const result = options.participantId
-    ? await applyParticipantCommand(options.participantId, command)
-    : applyCommand(command);
-  if (result.result === 'rejected') throw new Error('Could not update commitment');
+  await applyCommitmentCommand(id, command, options, 'Could not update commitment');
   return (await getCommitment(id, options)) ?? current;
+}
+
+/**
+ * The state machine refused the move: completing a completed commitment,
+ * postponing a dropped one. The route answers 409 rather than pretending it
+ * worked (#148).
+ */
+export class InvalidTransitionError extends Error {
+  constructor() {
+    super('invalid_transition');
+    this.name = 'InvalidTransitionError';
+  }
+}
+
+/**
+ * One command against one commitment, with the caller's `If-Match` expectation
+ * carried into the same transaction that writes.
+ */
+async function applyCommitmentCommand(
+  id: string,
+  command: Command,
+  options: CommitmentMutationOptions,
+  rejection: string,
+): Promise<void> {
+  if (!options.participantId && options.expectedValidator !== undefined) {
+    // The in-process path has no transaction to check inside, so honouring an
+    // If-Match there would be a claim this cannot keep. Every authenticated
+    // route supplies a participant; this only fires for a caller that does not.
+    throw new Error('If-Match requires an authenticated participant');
+  }
+  const result = options.participantId
+    ? await applyParticipantCommand(
+        options.participantId,
+        command,
+        options.expectedValidator === undefined
+          ? undefined
+          : { commitmentId: id, validator: options.expectedValidator },
+      )
+    : applyCommand(command);
+  if (result.result === 'rejected') throw new Error(rejection);
+  if (result.result === 'invalid_transition') throw new InvalidTransitionError();
 }
 
 export async function completeCommitment(
   id: string,
   now: Date = new Date(),
-  options: { participantId?: string } = {},
+  options: CommitmentMutationOptions = {},
 ): Promise<Commitment> {
   const command: Command = { type: 'Complete', commitmentId: id, now: now.toISOString() };
-  const result = options.participantId
-    ? await applyParticipantCommand(options.participantId, command)
-    : applyCommand(command);
-  if (result.result === 'rejected') throw new Error('Could not complete commitment');
+  await applyCommitmentCommand(id, command, options, 'Could not complete commitment');
   const commitment = await getCommitment(id, options);
   if (!commitment) throw new Error('Commitment not found');
   return commitment;
@@ -166,7 +214,7 @@ export async function postponeCommitment(
   id: string,
   postponedUntil: unknown,
   now: Date = new Date(),
-  options: { participantId?: string } = {},
+  options: CommitmentMutationOptions = {},
 ): Promise<Commitment> {
   const parsed = parseIsoInstant(postponedUntil, 'postponedUntil');
   if (parsed.getTime() <= now.getTime()) throw new Error('postponedUntil must be after now');
@@ -176,10 +224,7 @@ export async function postponeCommitment(
     postponedUntil: parsed.toISOString(),
     now: now.toISOString(),
   };
-  const result = options.participantId
-    ? await applyParticipantCommand(options.participantId, command)
-    : applyCommand(command);
-  if (result.result === 'rejected') throw new Error('Could not postpone commitment');
+  await applyCommitmentCommand(id, command, options, 'Could not postpone commitment');
   const commitment = await getCommitment(id, options);
   if (!commitment) throw new Error('Commitment not found');
   return commitment;
@@ -188,13 +233,10 @@ export async function postponeCommitment(
 export async function dropCommitment(
   id: string,
   now: Date = new Date(),
-  options: { participantId?: string } = {},
+  options: CommitmentMutationOptions = {},
 ): Promise<Commitment> {
   const command: Command = { type: 'Drop', commitmentId: id, now: now.toISOString() };
-  const result = options.participantId
-    ? await applyParticipantCommand(options.participantId, command)
-    : applyCommand(command);
-  if (result.result === 'rejected') throw new Error('Could not delete commitment');
+  await applyCommitmentCommand(id, command, options, 'Could not delete commitment');
   const commitment = await getCommitment(id, options);
   if (!commitment) throw new Error('Commitment not found');
   return commitment;

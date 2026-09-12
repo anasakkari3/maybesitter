@@ -55,13 +55,43 @@ import {
   type StorageTransaction,
 } from '../../storage';
 import { newUserDocument, type UserDocument } from '../../storage/userDocument';
+import { commitmentValidator } from './commitmentValidator';
 
-export type ParticipantCommandResultType = 'applied' | 'noop' | 'rejected';
+export type ParticipantCommandResultType = 'applied' | 'noop' | 'rejected' | 'invalid_transition';
 
 export interface ParticipantCommandResult {
   result: ParticipantCommandResultType;
   newState: DomainState;
   events: DomainEvent[];
+}
+
+/**
+ * What the caller believed it was editing (UC-1.4, #148).
+ *
+ * The validator is what the client received as an `ETag` on the single
+ * commitment read (see `commitmentValidator`). It is checked against the state
+ * this transaction loaded, so the comparison and the write commit together: a
+ * pre-read followed by a separate write would leave exactly the window this
+ * exists to close.
+ */
+export interface CommitmentPrecondition {
+  commitmentId: string;
+  /** The opaque validator, from `commitmentValidator` — not a bare timestamp. */
+  validator: string;
+}
+
+/**
+ * The commitment moved since the caller read it.
+ *
+ * Carries the state that is actually current, because the client needs to show
+ * it rather than simply be refused — two devices editing one commitment is the
+ * normal case this feature exists for, not an error.
+ */
+export class StaleCommitmentError extends Error {
+  constructor(readonly current: Commitment) {
+    super('stale_commitment');
+    this.name = 'StaleCommitmentError';
+  }
 }
 
 interface RecommendationDecisionRecord {
@@ -235,9 +265,14 @@ function rejectedResult(state: DomainState): ParticipantCommandResult {
   return { result: 'rejected', newState: cloneState(state), events: [] };
 }
 
+function invalidTransitionResult(state: DomainState): ParticipantCommandResult {
+  return { result: 'invalid_transition', newState: cloneState(state), events: [] };
+}
+
 export async function applyParticipantCommand(
   participantId: string,
   command: Command,
+  precondition?: CommitmentPrecondition,
 ): Promise<ParticipantCommandResult> {
   requireUserId(participantId);
   const at = nowIso();
@@ -246,6 +281,17 @@ export async function applyParticipantCommand(
       tx.get<UserDocument>(userDoc(participantId)),
       loadDomainState(tx, participantId),
     ]);
+    // Inside the transaction, against the state it just read. A commitment that
+    // moves between this check and the commit moves the version the transaction
+    // recorded, so the transaction retries and checks again.
+    //
+    // A commitment that is absent is left to the command: it fails as a missing
+    // entity, which the route answers 404, and that is a truer answer than
+    // "stale".
+    if (precondition) {
+      const current = before.commitments[precondition.commitmentId];
+      if (current && commitmentValidator(current) !== precondition.validator) throw new StaleCommitmentError(current);
+    }
     try {
       const transition = applyDomainCommand(before, command);
       if (!transition.didChange) return noopResult(before, transition.events);
@@ -256,7 +302,10 @@ export async function applyParticipantCommand(
         events: transition.events,
       };
     } catch (error) {
-      if (error instanceof InvalidStateTransitionError) return noopResult(before);
+      // Distinguished from `noop`: completing an already-completed commitment
+      // is a refusal the client should see, not a silent success. It used to
+      // return the unchanged commitment with HTTP 200 (#148).
+      if (error instanceof InvalidStateTransitionError) return invalidTransitionResult(before);
       if (error instanceof MissingEntityError || error instanceof ValidationError) return rejectedResult(before);
       throw error;
     }
@@ -296,6 +345,57 @@ export async function deleteParticipantDomainState(participantId: string): Promi
  * notification performs that effect once per attempt. Build the value here and
  * do the effect after this function returns, gated on `replayed === false`.
  */
+/**
+ * A capture confirmation's commands and its claim, committed together (#148).
+ *
+ * #252 made the proposal durable, so a confirm routed to a second instance can
+ * find it. That is not yet exactly-once: two confirms of the same proposal
+ * arriving together both read "not yet confirmed", both persist, and the second
+ * write-back overwrites the first — two sets of commitments from one tap.
+ *
+ * The fix is that the claim *is* the write. The confirmed result is recorded on
+ * the proposal in the same transaction that writes the commitments, so the two
+ * cannot disagree: whichever transaction commits second reads the first one's
+ * result and replays it instead of persisting again.
+ *
+ * `commands` must be pure to re-run, like every transaction callback here.
+ */
+export async function commitCaptureConfirmation<T>(
+  participantId: string,
+  proposalPath: string,
+  commands: readonly Command[],
+  idempotencyKey: string,
+  result: T,
+): Promise<{ replayed: boolean; result: T }> {
+  requireUserId(participantId);
+  const at = nowIso();
+  return getStorage().runTransaction(async (tx) => {
+    const [proposal, user, before] = await Promise.all([
+      tx.get<{ confirmedResult?: T; idempotencyKey?: string }>(proposalPath),
+      tx.get<UserDocument>(userDoc(participantId)),
+      loadDomainState(tx, participantId),
+    ]);
+
+    // Already confirmed, by an earlier request or by one that committed while
+    // this transaction was reading. Either way the commitments exist and this
+    // must not create a second set.
+    if (proposal?.confirmedResult !== undefined) {
+      return { replayed: true, result: proposal.confirmedResult };
+    }
+
+    let candidate = before;
+    const events: DomainEvent[] = [];
+    for (const command of commands) {
+      const transition = applyDomainCommand(candidate, command);
+      candidate = transition.newState;
+      events.push(...transition.events);
+    }
+    writeDomainDiff(tx, participantId, before, candidate, events, user, at);
+    tx.merge<{ confirmedResult: T; idempotencyKey: string }>(proposalPath, { confirmedResult: result, idempotencyKey });
+    return { replayed: false, result };
+  });
+}
+
 export async function replayOrRecordParticipantDecision<T>(
   participantId: string,
   idempotencyKey: string,
