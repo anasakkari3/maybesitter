@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { describe, expect, it } from '@jest/globals';
 import { Text } from 'react-native';
 import { act, render, screen } from '@testing-library/react-native';
@@ -15,15 +15,19 @@ import { useSingleFlight } from '../useSingleFlight';
 
 type Start = (action: () => Promise<void>) => Promise<void>;
 
-let start: Start | null = null;
-let busyNow = false;
+/** Published from an effect: a component may not reassign outer bindings. */
+const handle: { start: Start | null; busy: boolean } = { start: null, busy: false };
 
 function Harness() {
   const { busy, run } = useSingleFlight();
-  start = run;
-  busyNow = busy;
+  useEffect(() => {
+    handle.start = run;
+    handle.busy = busy;
+  }, [run, busy]);
   return <Text testID="busy">{busy ? 'busy' : 'idle'}</Text>;
 }
+
+const start = (action: () => Promise<void>): Promise<void> | undefined => handle.start?.(action);
 
 describe('useSingleFlight', () => {
   it('runs the action and reports busy while it is in flight', async () => {
@@ -35,7 +39,7 @@ describe('useSingleFlight', () => {
 
     let flight: Promise<void> | undefined;
     await act(async () => {
-      flight = start?.(async () => pending);
+      flight = start(async () => pending);
     });
     expect(screen.getByTestId('busy')).toHaveTextContent('busy');
 
@@ -62,7 +66,7 @@ describe('useSingleFlight', () => {
     await act(async () => {
       // Both presses happen before React has re-rendered: the ref is what
       // makes the second one a no-op, and a state flag would not.
-      flights = [start?.(action), start?.(action)];
+      flights = [start(action), start(action)];
     });
     expect(calls).toBe(1);
 
@@ -81,13 +85,13 @@ describe('useSingleFlight', () => {
     };
 
     await act(async () => {
-      await start?.(action);
+      await start(action);
     });
     await act(async () => {
-      await start?.(action);
+      await start(action);
     });
     expect(calls).toBe(2);
-    expect(busyNow).toBe(false);
+    expect(handle.busy).toBe(false);
   });
 
   it('releases the guard even when the action throws', async () => {
@@ -99,12 +103,12 @@ describe('useSingleFlight', () => {
     };
 
     await act(async () => {
-      await expect(start?.(failing)).rejects.toThrow('nope');
+      await expect(start(failing)).rejects.toThrow('nope');
     });
     // A guard that stayed closed after a failure would leave the button dead
     // for the rest of the session.
     await act(async () => {
-      await start?.(async () => {
+      await start(async () => {
         calls += 1;
       });
     });
