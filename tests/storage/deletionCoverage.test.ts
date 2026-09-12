@@ -21,8 +21,14 @@ import { assertDeleteTreeCoversEveryUserCollection } from './deletionCoverageSui
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const listed = new Set<string>(USER_SCOPED_COLLECTIONS);
 
-/** Collection constants that are deliberately not inside a user's tree. */
-const NOT_USER_SCOPED = new Set(['USERS', 'INCIDENTS']);
+/**
+ * Collection constants that are deliberately not inside a user's tree.
+ *
+ * `LLM_USAGE` is the service's own daily model spend (#160): a count per UTC
+ * day and nothing else, with no uid in it. The per-account half of that guard
+ * is `USAGE`, which *is* user-scoped and goes with the tree.
+ */
+const NOT_USER_SCOPED = new Set(['USERS', 'INCIDENTS', 'LLM_USAGE']);
 
 test('deleteTree(users/U) leaves nothing of U in any user collection, and nothing of V is lost', async () => {
   await assertDeleteTreeCoversEveryUserCollection(createMemoryStorage(), 'user_U', 'user_V');

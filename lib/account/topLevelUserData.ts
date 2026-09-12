@@ -44,6 +44,11 @@ export const TOP_LEVEL_USER_COLLECTIONS: readonly TopLevelUserCollection[] = [
  * "nobody has thought about this yet".
  */
 export const TOP_LEVEL_COLLECTIONS_WITHOUT_USER_DATA: readonly string[] = [
+  // The service's daily model spend (#160): one document per UTC day, holding
+  // a count and nothing else. No uid appears in it, and the per-account half
+  // of the same guard lives at `users/{uid}/usage` and is deleted with the
+  // tree.
+  'llmUsage',
   // Written by the deletion engine itself, keyed by the peppered subject hash.
   // Removing them as part of a deletion would erase the proof that it happened.
   'accountDeletions',

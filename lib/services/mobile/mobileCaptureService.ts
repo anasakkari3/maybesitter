@@ -5,6 +5,8 @@ import { appendAnalyticsEvent } from '../../analytics/eventStore';
 import { recordFirstValueReached } from '../../analytics/loopAnalytics';
 import { resolveUserAccess } from '../../pilot/pilotAccess';
 import { applyTrustAction } from '../../pilot/pilotTrustStore';
+import { captureLlmProvider } from '../../llm/captureProvider';
+import { configuredProviderName } from '../../../src/extraction/llm';
 import {
   captureProposalPath,
   confirmCapture,
@@ -106,6 +108,18 @@ function persistenceFor(context: MobileBackendContext = {}): CapturePersistenceA
  * the proposal, so there is no document to claim, and the boundary falls back to
  * its development behaviour rather than pretending to a guarantee.
  */
+/**
+ * Which engine to name in provenance, when there is one to name.
+ *
+ * `none` is not an extraction engine — it is the absence of one — so it
+ * contributes no label and the capture is reported as whatever actually
+ * answered, which is the rule-based extractor.
+ */
+function engineLabel(): { llmEngine?: 'gemini' | 'ollama' } {
+  const configured = configuredProviderName();
+  return configured === 'none' ? {} : { llmEngine: configured };
+}
+
 function committerFor(context: MobileBackendContext = {}): CaptureConfirmationCommitter | undefined {
   const participantId = context.participantId;
   if (!participantId) return undefined;
@@ -180,6 +194,11 @@ export async function proposeMobileCapture(input: MobileCaptureInput, context: M
     persistence: persistenceFor(context),
     commitConfirmation: committerFor(context),
     extractor: guardedMobileExtract,
+    // The hosted model, metered and logged, for this account only (#160). With
+    // no participant there is nobody to meter, so the capture stays on rules.
+    ...(context.participantId
+      ? { llmProvider: captureLlmProvider(context.participantId), ...engineLabel() }
+      : {}),
   });
 }
 
