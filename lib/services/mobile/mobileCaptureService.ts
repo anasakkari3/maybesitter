@@ -1,4 +1,7 @@
-import type { CaptureConfirmationResultContract } from '../../../src/contracts/v1/captureContracts';
+import type {
+  CaptureConfirmationResultContract,
+  CaptureItemEditContract,
+} from '../../../src/contracts/v1/captureContracts';
 import { createHash } from 'crypto';
 import { analyticsContextFrom } from '../../analytics/analyticsContext';
 import { appendAnalyticsEvent } from '../../analytics/eventStore';
@@ -42,6 +45,8 @@ export interface MobileConfirmInput {
   itemIds?: unknown;
   selectedItemIds?: unknown;
   idempotencyKey?: unknown;
+  /** What the user changed in review, applied with the confirm (#164). */
+  edits?: unknown;
 }
 
 export interface PersistedProposalItem {
@@ -82,11 +87,60 @@ function selectedIdsFrom(input: MobileConfirmInput): string[] {
   return raw.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
 }
 
-function idempotencyKeyFor(proposalId: string, scopeId: string, selectedItemIds: string[], explicit: unknown): string {
+/**
+ * The key two confirms of the same intent share.
+ *
+ * The edits are part of it (UC-2.4, #164). Without them, a user who confirms,
+ * sees the title was wrong, goes back and confirms again with a correction would
+ * send the same key — and the boundary would replay the first result and report
+ * success while writing nothing. The second confirm is a different intent and
+ * has to look like one.
+ *
+ * Edits are sorted by item id first, so two requests that differ only in the
+ * order the client happened to collect them share a key rather than persisting
+ * twice.
+ */
+function idempotencyKeyFor(
+  proposalId: string,
+  scopeId: string,
+  selectedItemIds: string[],
+  explicit: unknown,
+  edits: CaptureItemEditContract[] = [],
+): string {
   if (typeof explicit === 'string' && explicit.trim()) return explicit.trim();
+  const stableEdits = [...edits]
+    .sort((a, b) => a.itemId.localeCompare(b.itemId))
+    .map((edit) => ({
+      itemId: edit.itemId,
+      ...(edit.title !== undefined ? { title: edit.title } : {}),
+      ...(edit.resolvedTime !== undefined ? { resolvedTime: edit.resolvedTime } : {}),
+      ...(edit.priority !== undefined ? { priority: edit.priority } : {}),
+    }));
   return createHash('sha256')
-    .update(JSON.stringify({ proposalId, scopeId, selectedItemIds }))
+    .update(JSON.stringify({ proposalId, scopeId, selectedItemIds, edits: stableEdits }))
     .digest('hex');
+}
+
+/**
+ * The edits from a request body, with anything unrecognised dropped.
+ *
+ * Shape only — every value is validated by the boundary, which is the single
+ * place that decides what a legal edit is. This just refuses to pass along
+ * something that is not an array of objects with an item id.
+ */
+function editsFrom(value: unknown): CaptureItemEditContract[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry): CaptureItemEditContract[] => {
+    if (!entry || typeof entry !== 'object') return [];
+    const edit = entry as Record<string, unknown>;
+    if (typeof edit.itemId !== 'string' || !edit.itemId.trim()) return [];
+    return [{
+      itemId: edit.itemId,
+      ...(edit.title !== undefined ? { title: edit.title as string } : {}),
+      ...(edit.resolvedTime !== undefined ? { resolvedTime: edit.resolvedTime as string | null } : {}),
+      ...(edit.priority !== undefined ? { priority: edit.priority as 'low' | 'normal' | 'high' } : {}),
+    }];
+  });
 }
 
 function commitmentIdForCommands(commands: readonly Command[] | undefined): string | null {
@@ -225,11 +279,13 @@ export async function confirmMobileCapture(input: MobileConfirmInput, context: M
   const selectedItemIds = selectedIdsFrom(input);
   if (selectedItemIds.length === 0) throw new Error('itemIds is required');
 
+  const edits = editsFrom(input.edits);
   const result = await confirmCapture({
     proposalId,
     scopeId,
     selectedItemIds,
-    idempotencyKey: idempotencyKeyFor(proposalId, scopeId, selectedItemIds, input.idempotencyKey),
+    edits,
+    idempotencyKey: idempotencyKeyFor(proposalId, scopeId, selectedItemIds, input.idempotencyKey, edits),
   }, {
     store,
     persistence: persistenceFor(context),

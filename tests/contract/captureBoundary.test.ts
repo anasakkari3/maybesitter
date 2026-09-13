@@ -103,7 +103,7 @@ test('explicit confirmation persists once and duplicate confirmation safely repl
     ...dependencies,
     extractor: async () => ({ result: extracted(), engine: 'ollama', fallbackReason: null }),
   });
-  const input = { proposalId: proposal.proposalId, scopeId: 'a', selectedItemIds: [proposal.items[0].itemId], idempotencyKey: 'stable-key' };
+  const input = { proposalId: proposal.proposalId, scopeId: 'a', selectedItemIds: [proposal.items[0].itemId], idempotencyKey: 'stable-key', now };
   const first = await confirmCapture(input, dependencies);
   const second = await confirmCapture(input, dependencies);
   assert.equal(first.success, true);
@@ -136,7 +136,7 @@ test('multi-item ordering and confirmation ordering are preserved', async () => 
     extractor: async (rawText) => ({ result: extracted({ title: rawText, action: rawText, rawText, dueAt: `2026-08-17T1${index++}:00:00.000Z`, remindAt: null }), engine: 'ollama', fallbackReason: null }),
   });
   assert.deepEqual(proposal.items.map((item) => item.title), ['First', 'Second', 'Third']);
-  const confirmation = await confirmCapture({ proposalId: proposal.proposalId, scopeId: 'a', selectedItemIds: proposal.items.map((item) => item.itemId), idempotencyKey: 'ordered' }, dependencies);
+  const confirmation = await confirmCapture({ proposalId: proposal.proposalId, scopeId: 'a', selectedItemIds: proposal.items.map((item) => item.itemId), idempotencyKey: 'ordered', now }, dependencies);
   assert.equal(confirmation.success, true);
   assert.deepEqual(confirmation.persistedItemIds, proposal.items.map((item) => item.itemId));
 });

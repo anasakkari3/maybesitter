@@ -8,10 +8,13 @@ import type { ExtractionContext, ExtractionResult } from '../../../src/extractio
 import { resolveModuleRuntime, type AuditEventEnvelope, createAuditEvent, type RuntimeControlSnapshot } from '../../../src/contracts/v1/runtimeControls';
 import {
   CAPTURE_CONTRACT_VERSION,
+  CAPTURE_PROPOSAL_TTL_MS,
   type CaptureConfirmationResultContract,
+  type CaptureItemEditContract,
   type CaptureProposalContract,
   type NoCommitmentReason,
 } from '../../../src/contracts/v1/captureContracts';
+import { applyEditToCommands, InvalidEditError, validateEdit } from './applyEdits';
 import { NegatedRequestError } from '../mobile/safety';
 import type { Command } from '../../../src/domain/stateMachine';
 import type { CapturePersistenceAdapter } from './persistenceAdapter';
@@ -220,6 +223,12 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
         title: (extracted.result.title || extracted.result.action || '').trim(),
         resolvedTime: needsClarification ? null : extracted.result.remindAt || extracted.result.dueAt,
         needsClarification,
+        // Sent so the review screen can show Must/Should/Nice without a second
+        // call — and so the user can see which of the two it is (#164).
+        priority: extracted.result.priority.level,
+        // `user_explicit` means the person said so; anything else is ours. A
+        // guess presented as a fact is how a product loses the right to guess.
+        priorityEstimated: extracted.result.priority.source !== 'user_explicit',
       });
       commandsByItemId.set(itemId, needsClarification ? [] : mapExtractionToCommand(extracted.result, options.now.toISOString()));
     } catch (error) {
@@ -273,12 +282,69 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
     items,
     provenance: { requestedEngine, executedEngine, fallbackUsed },
   };
-  await dependencies.store.put({ contract, scopeId: options.scopeId, commandsByItemId });
+  await dependencies.store.put({
+    contract,
+    scopeId: options.scopeId,
+    commandsByItemId,
+    // When it was made, so a confirm can tell a fresh proposal from one resolved
+    // against a `now` that is hours stale (#164 step 7).
+    proposedAt: options.now.toISOString(),
+  });
   dependencies.audit?.(auditEvent(fallbackUsed ? 'fell_back' : status === 'rejected' ? 'rejected' : 'succeeded', raw, options.now, status, items.length));
   return contract;
 }
 
-export async function confirmCapture(input: { proposalId: string; scopeId: string; selectedItemIds: string[]; idempotencyKey: string }, dependencies: CaptureBoundaryDependencies): Promise<CaptureConfirmationResultContract> {
+
+/**
+ * An extraction result standing for what a user typed by hand (UC-2.4, #164).
+ *
+ * Used only when an item needed clarification and the person answered it in the
+ * review screen by supplying a title and a time themselves. Confidence is 1 and
+ * the priority is `user_explicit` because none of it is inferred — they said it.
+ *
+ * It goes through `mapExtractionToCommand` rather than building a command here,
+ * so a manually completed item is constructed by exactly the same code as every
+ * other commitment and cannot drift from it.
+ */
+function manuallyCompleted(
+  title: string,
+  resolvedTime: string,
+  priority: 'low' | 'normal' | 'high',
+): ExtractionResult {
+  return {
+    type: 'task',
+    action: title,
+    title,
+    person: null,
+    dueAt: resolvedTime,
+    remindAt: resolvedTime,
+    localTimeSpec: null,
+    timeEvidence: 'hhmm',
+    priority: { level: priority, source: 'user_explicit', pressureAllowed: false, pressureImplied: false },
+    flexibility: 'movable',
+    confidence: { overall: 1, type: 1, action: 1, time: 1, priority: 1 },
+    missingFields: [],
+    ambiguityFlags: [],
+    explicitReminderRequest: true,
+    explicitPressureRequest: false,
+    rawText: title,
+    parserVersion: 'user-edit-v1',
+  };
+}
+
+export async function confirmCapture(
+  input: {
+    proposalId: string;
+    scopeId: string;
+    selectedItemIds: string[];
+    idempotencyKey: string;
+    /** Applied atomically with the confirm, never afterwards (#164). */
+    edits?: CaptureItemEditContract[];
+    /** For the TTL check. Injected so the rule is testable without waiting. */
+    now?: Date;
+  },
+  dependencies: CaptureBoundaryDependencies,
+): Promise<CaptureConfirmationResultContract> {
   const stored = await dependencies.store.get(input.proposalId);
   const failure = (failureCode: CaptureConfirmationResultContract['failureCode']): CaptureConfirmationResultContract => ({
     version: CAPTURE_CONTRACT_VERSION,
@@ -292,12 +358,71 @@ export async function confirmCapture(input: { proposalId: string; scopeId: strin
     if (stored.idempotencyKey !== input.idempotencyKey) return failure('invalid_selection');
     return { ...(stored.confirmedResult as CaptureConfirmationResultContract), replayed: true };
   }
-  if (stored.contract.status !== 'proposed') return failure('proposal_rejected');
+  // `needs_clarification` is confirmable, `rejected` and `no_commitment` are not
+  // (UC-2.4, #164 step 3).
+  //
+  // An item awaiting a question has no commands, so confirming it without
+  // answering the question still fails below on `commands.length === 0`. What
+  // this allows is the case the issue asks for: a user who supplied the missing
+  // title and time themselves in review has answered it by hand, and refusing
+  // the whole proposal because the *extractor* had a question would make that
+  // impossible.
+  if (stored.contract.status !== 'proposed' && stored.contract.status !== 'needs_clarification') {
+    return failure('proposal_rejected');
+  }
+
+  // A proposal older than the TTL resolved "tomorrow at 9" against a `now` that
+  // is no longer close enough to now, and the user cannot see that from the
+  // screen. `proposal_not_found` rather than a new code: from the client's side
+  // an expired proposal and a swept one are the same thing, and the app offers
+  // to analyze the text again for both (#164 step 7).
+  const now = input.now ?? new Date();
+  if (stored.proposedAt) {
+    const age = now.getTime() - Date.parse(stored.proposedAt);
+    if (Number.isFinite(age) && age > CAPTURE_PROPOSAL_TTL_MS) return failure('proposal_not_found');
+  }
+
   const selected = new Set(input.selectedItemIds);
-  if (selected.size === 0 || Array.from(selected).some((id) => !stored.commandsByItemId.has(id))) return failure('invalid_selection');
+  if (selected.size === 0) return failure('invalid_selection');
+
+  // Every edit is validated before any of them is applied, and a single
+  // violation fails the whole confirm. Applying the valid ones and dropping the
+  // rest would leave some commitments as the user wanted them and others as the
+  // extractor guessed, with nothing on screen to say which.
+  const knownItemIds = new Set(stored.contract.items.map((item) => item.itemId));
+  const editsByItem = new Map<string, ReturnType<typeof validateEdit>>();
+  try {
+    for (const edit of input.edits ?? []) {
+      const normalised = validateEdit(edit, knownItemIds, now);
+      // An edit for something the user chose not to save is dropped rather than
+      // applied: it would ask the server to validate a change to a commitment
+      // that is not being written.
+      if (selected.has(edit.itemId)) editsByItem.set(edit.itemId, normalised);
+    }
+  } catch (error) {
+    if (error instanceof InvalidEditError) return failure('invalid_edit');
+    throw error;
+  }
+
+  // An item that needed clarification has no commands. A user who supplied both
+  // a title and a time for it in review has answered the question by hand, so it
+  // becomes confirmable — that is what "manual completion" means (#164 step 3).
+  const commandsFor = (itemId: string): readonly Command[] => {
+    const stored_ = stored.commandsByItemId.get(itemId) ?? [];
+    const edit = editsByItem.get(itemId);
+    if (stored_.length > 0) return edit ? applyEditToCommands(stored_, edit) : stored_;
+    if (!edit?.title || !edit?.resolvedTime) return [];
+    const item = stored.contract.items.find((candidate) => candidate.itemId === itemId);
+    return mapExtractionToCommand(
+      manuallyCompleted(edit.title, edit.resolvedTime, edit.priority ?? item?.priority ?? 'normal'),
+      now.toISOString(),
+    );
+  };
+
+  if (Array.from(selected).some((id) => !knownItemIds.has(id))) return failure('invalid_selection');
   const commands = stored.contract.items
     .filter((item) => selected.has(item.itemId))
-    .flatMap((item) => stored.commandsByItemId.get(item.itemId) ?? []);
+    .flatMap((item) => commandsFor(item.itemId));
   if (commands.length === 0) return failure('invalid_selection');
   const result: CaptureConfirmationResultContract = {
     version: CAPTURE_CONTRACT_VERSION,

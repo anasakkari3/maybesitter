@@ -57,6 +57,15 @@ export interface StoredCaptureProposal {
   commandsByItemId: ReadonlyMap<string, readonly Command[]>;
   confirmedResult?: unknown;
   idempotencyKey?: string;
+  /**
+   * When the proposal was made (UC-2.4, #164).
+   *
+   * Separate from the document's `expiresAt`, which is Firestore's TTL sweep and
+   * runs on its own schedule — up to 24 hours late, by design. This is what the
+   * confirm actually reads, because "tomorrow at 9" resolved against a `now`
+   * from yesterday is wrong and the user has no way to see it.
+   */
+  proposedAt?: string;
 }
 
 /**
