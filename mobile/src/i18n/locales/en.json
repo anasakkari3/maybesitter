@@ -455,5 +455,16 @@
   "confirmKeep": "Keep it",
   "toastPostponed": "OK. Moved.",
   "toastDeleted": "Deleted.",
-  "statusPostponed": "Moved"
+  "statusPostponed": "Moved",
+  "evidenceOverdue": "the time has passed",
+  "evidenceDueWithin24h": "due within a day",
+  "evidenceDueWithin7d": "due this week",
+  "evidenceImportance": "you marked it {level}",
+  "evidenceEffort": "about {minutes} minutes",
+  "evidenceOutsideUsualHours": "outside your usual hours",
+  "evidenceShortForEndOfDay": "short enough for the end of the day",
+  "evidenceFitsBeforeDue": "there is time before it is due",
+  "evidenceUsuallyFinishes": "you usually finish these",
+  "evidenceOftenSetAside": "you often set these aside",
+  "evidenceUsualProductiveTime": "a time you usually get things done"
 }

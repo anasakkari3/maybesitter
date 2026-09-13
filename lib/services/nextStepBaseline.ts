@@ -1,5 +1,10 @@
 import type { Commitment, DomainState } from '../../src/domain/stateMachine';
-import type { NextStepLocale, NextStepRecommendationContract } from '../../src/contracts/v1/nextStepContracts';
+import type {
+  NextStepEvidenceContract,
+  NextStepLocale,
+  NextStepRecommendationContract,
+} from '../../src/contracts/v1/nextStepContracts';
+import { evidenceLabels as labelsFor } from './nextStepEvidence';
 import { proposeNextStep } from './nextStepReviewService';
 import { compareByCodePoint } from '../planning/shared/compare';
 
@@ -22,7 +27,9 @@ export interface BaselineScore {
   urgencyBand: 0 | 1 | 2;
   importanceBand: 0 | 1 | 2 | 3;
   effortTieBreak: number;
+  /** Derived from `evidenceCodes`; never assembled separately. See nextStepEvidence.ts. */
   evidenceLabels: string[];
+  evidenceCodes: NextStepEvidenceContract[];
   exclusionReason: 'not_confirmed' | 'closed' | 'invalid_time' | null;
 }
 
@@ -61,22 +68,26 @@ export function scoreBaselineCandidate(candidate: BaselineCandidate, now: Date):
   const importance = importanceBand(candidate.importance);
   const effort = candidate.explicitEffortMinutes;
   const effortValid = effort !== null && Number.isFinite(effort) && effort > 0;
-  const evidenceLabels: string[] = [];
-  if (latenessBand) evidenceLabels.push('overdue');
-  else if (urgencyBand === 2) evidenceLabels.push('due within 24 hours');
-  else if (urgencyBand === 1) evidenceLabels.push('due within 7 days');
-  if (importance > 0) evidenceLabels.push(`importance: ${candidate.importance}`);
-  if (effortValid) evidenceLabels.push(`effort: ${Math.round(effort)} minutes`);
+  const evidenceCodes: NextStepEvidenceContract[] = [];
+  if (latenessBand) evidenceCodes.push({ code: 'overdue' });
+  else if (urgencyBand === 2) evidenceCodes.push({ code: 'due_within_24h' });
+  else if (urgencyBand === 1) evidenceCodes.push({ code: 'due_within_7d' });
+  if (importance > 0 && candidate.importance) {
+    evidenceCodes.push({ code: 'importance', params: { level: candidate.importance } });
+  }
+  if (effortValid) evidenceCodes.push({ code: 'effort', params: { minutes: Math.round(effort) } });
+  const evidenceLabels = labelsFor(evidenceCodes);
 
   return {
     commitmentId: candidate.commitmentId,
     eligible,
-    evidenceSufficient: eligible && evidenceLabels.length > 0,
+    evidenceSufficient: eligible && evidenceCodes.length > 0,
     latenessBand,
     urgencyBand,
     importanceBand: importance,
     effortTieBreak: effortValid ? -Math.round(effort) : Number.MIN_SAFE_INTEGER,
     evidenceLabels,
+    evidenceCodes,
     exclusionReason: !candidate.confirmed ? 'not_confirmed' : closed ? 'closed' : time === 'invalid' ? 'invalid_time' : null,
   };
 }
@@ -115,7 +126,7 @@ export function selectBaselineNextStep(
       commitmentId: selected.commitmentId,
       title: selected.title,
       reason: explanation(selectedScore.evidenceLabels),
-      evidenceLabels: selectedScore.evidenceLabels,
+      evidenceCodes: selectedScore.evidenceCodes,
       rank: 0,
     }] : [],
     locale,

@@ -2,16 +2,18 @@ import {
   NEXT_STEP_CONTRACT_VERSION,
   type NextStepDecision,
   type NextStepDecisionContract,
+  type NextStepEvidenceContract,
   type NextStepLocale,
   type NextStepRecommendationContract,
 } from '../../src/contracts/v1/nextStepContracts';
+import { evidenceLabel } from './nextStepEvidence';
 import { compareByCodePoint } from '../planning/shared/compare';
 
 export interface NextStepCandidate {
   commitmentId: string;
   title: string;
   reason: string | null;
-  evidenceLabels: string[];
+  evidenceCodes: NextStepEvidenceContract[];
   rank: number;
 }
 
@@ -78,7 +80,10 @@ export function proposeNextStep(
     primaryStep: { commitmentId: selected.commitmentId, title: cleanText(selected.title, 120) },
     explanation: {
       summary: reason,
-      evidenceLabels: selected.evidenceLabels.slice(0, 3).map((label) => cleanText(label, 40)),
+      // Three at most, and the labels are derived from the codes the phone
+      // gets, so the two can never describe different evidence.
+      evidenceCodes: selected.evidenceCodes.slice(0, 3),
+      evidenceLabels: selected.evidenceCodes.slice(0, 3).map((code) => cleanText(evidenceLabel(code), 40)),
       sensitiveInferenceUsed: false,
     },
     availableActions: [...ACTIONS],

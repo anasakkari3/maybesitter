@@ -4,8 +4,8 @@ import { NEXT_STEP_PRODUCT_POLICY } from '../../src/contracts/v1/nextStepContrac
 import { decideNextStep, proposeNextStep } from '../../lib/services/nextStepReviewService.ts';
 
 const candidates = [
-  { commitmentId: 'b', title: 'Send the report', reason: 'It is due today.', evidenceLabels: ['due today'], rank: 2 },
-  { commitmentId: 'a', title: 'Call Maya', reason: 'You set this for this morning.', evidenceLabels: ['scheduled time'], rank: 1 },
+  { commitmentId: 'b', title: 'Send the report', reason: 'It is due today.', evidenceCodes: [{ code: 'due_within_24h' as const }], rank: 2 },
+  { commitmentId: 'a', title: 'Call Maya', reason: 'You set this for this morning.', evidenceCodes: [{ code: 'due_within_7d' as const }], rank: 1 },
 ];
 
 test('one-next-step: projection is deterministic and presents exactly one primary step', () => {

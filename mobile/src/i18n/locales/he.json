@@ -458,5 +458,16 @@
   "confirmKeep": "להשאיר",
   "toastPostponed": "בסדר. הוזז.",
   "toastDeleted": "נמחק.",
-  "statusPostponed": "הוזז"
+  "statusPostponed": "הוזז",
+  "evidenceOverdue": "הזמן עבר",
+  "evidenceDueWithin24h": "נדרש תוך יום",
+  "evidenceDueWithin7d": "נדרש השבוע",
+  "evidenceImportance": "סימנת את זה {level}",
+  "evidenceEffort": "בערך {minutes} דקות",
+  "evidenceOutsideUsualHours": "מחוץ לשעות הרגילות שלך",
+  "evidenceShortForEndOfDay": "קצר מספיק לסוף היום",
+  "evidenceFitsBeforeDue": "יש זמן לפני המועד",
+  "evidenceUsuallyFinishes": "בדרך כלל אתה מסיים כאלה",
+  "evidenceOftenSetAside": "לעיתים קרובות אתה דוחה כאלה",
+  "evidenceUsualProductiveTime": "זמן שבו אתה בדרך כלל מספיק דברים"
 }

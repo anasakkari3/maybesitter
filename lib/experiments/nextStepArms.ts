@@ -1,5 +1,10 @@
 import type { Commitment, DomainState } from '../../src/domain/stateMachine';
-import type { NextStepLocale, NextStepRecommendationContract } from '../../src/contracts/v1/nextStepContracts';
+import type {
+  NextStepEvidenceContract,
+  NextStepLocale,
+  NextStepRecommendationContract,
+} from '../../src/contracts/v1/nextStepContracts';
+import { evidenceLabels as labelsFor } from '../services/nextStepEvidence';
 import { NEXT_STEP_ARMS, NEXT_STEP_BASELINE_ARM, type NextStepArm } from '../../src/contracts/v1/experimentContracts';
 import {
   candidatesFromDomainState,
@@ -26,7 +31,7 @@ export interface ArmCandidate extends BaselineCandidate {
 export interface ArmAdjustment {
   commitmentId: string;
   bonus: number;
-  labels: string[];
+  codes: NextStepEvidenceContract[];
 }
 
 export interface ArmSelection {
@@ -79,22 +84,22 @@ function shortEffort(candidate: BaselineCandidate): boolean {
  * only the ordering among already-eligible candidates changes.
  */
 function contextualAdjustment(candidate: ArmCandidate, context: ArmContext, hour: number | null): ArmAdjustment {
-  const labels: string[] = [];
+  const codes: NextStepEvidenceContract[] = [];
   let bonus = 0;
 
   if (hour !== null && isQuietHour(hour) && !isOverdue(candidate, context.now)) {
     bonus -= 2;
-    labels.push('outside your usual hours');
+    codes.push({ code: 'outside_usual_hours' });
   }
   if (hour !== null && hour >= LATE_DAY_HOUR && shortEffort(candidate)) {
     bonus += 2;
-    labels.push('short enough for the end of the day');
+    codes.push({ code: 'short_for_end_of_day' });
   }
   if (dueWithin(candidate, context.now, DAY_MS)) {
     bonus += 1;
-    labels.push('fits before it is due');
+    codes.push({ code: 'fits_before_due' });
   }
-  return { commitmentId: candidate.commitmentId, bonus, labels };
+  return { commitmentId: candidate.commitmentId, bonus, codes };
 }
 
 /**
@@ -108,22 +113,22 @@ function personalizedAdjustment(
   profile: BehaviorProfile,
 ): ArmAdjustment {
   const base = contextualAdjustment(candidate, context, hour);
-  const labels = [...base.labels];
+  const codes = [...base.codes];
   let bonus = base.bonus;
 
   const affinity = kindAffinity(profile, candidate.kind);
   if (affinity >= 0.2) {
     bonus += 2;
-    labels.push('you usually finish these');
+    codes.push({ code: 'usually_finishes' });
   } else if (affinity <= -0.2) {
     bonus -= 1;
-    labels.push('you often set these aside');
+    codes.push({ code: 'often_set_aside' });
   }
   if (hour !== null && preferredHours(profile).includes(hour)) {
     bonus += 1;
-    labels.push('a time you usually get things done');
+    codes.push({ code: 'usual_productive_time' });
   }
-  return { commitmentId: candidate.commitmentId, bonus, labels };
+  return { commitmentId: candidate.commitmentId, bonus, codes };
 }
 
 function baselineOrder(left: BaselineScore, right: BaselineScore): number {
@@ -178,14 +183,16 @@ export function selectNextStepForArm(
     return { arm, ...baseline, adjustments, fallbackReason };
   }
 
-  const armLabels = bonusById.get(selectedScore.commitmentId)?.labels || [];
-  const evidenceLabels = [...selectedScore.evidenceLabels, ...armLabels];
+  const armCodes = bonusById.get(selectedScore.commitmentId)?.codes || [];
+  const evidenceCodes = [...selectedScore.evidenceCodes, ...armCodes];
   const recommendation = proposeNextStep(
     [{
       commitmentId: selected.commitmentId,
       title: selected.title,
-      reason: explanation(evidenceLabels),
-      evidenceLabels,
+      // The English summary the harness reads, built from the same codes the
+      // phone will render in the user's own language.
+      reason: explanation(labelsFor(evidenceCodes)),
+      evidenceCodes,
       rank: 0,
     }],
     context.locale,

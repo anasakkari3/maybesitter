@@ -32,8 +32,28 @@ export const nextStepRecommendationSchema = z.object({
     .optional(),
   explanation: z
     .object({
+      /**
+       * English, server-composed, and never shown: the quality harness and the
+       * trace recorder match on it. The phone reads `evidenceCodes`.
+       */
       summary: z.string(),
       evidenceLabels: z.array(z.string()),
+      /**
+       * `code` stays a plain string rather than an enum on purpose: a server
+       * that learns a new reason must not make the whole response unparseable
+       * on an older build. `evidencePhrase` renders the ones it knows and
+       * drops the rest, which is the only safe way to fail here — the
+       * alternative is a raw enum on a user's screen.
+       */
+      evidenceCodes: z
+        .array(z.object({
+          code: z.string(),
+          params: z.object({
+            level: z.enum(['low', 'normal', 'high']).optional(),
+            minutes: z.number().optional(),
+          }).optional(),
+        }))
+        .optional(),
       sensitiveInferenceUsed: z.boolean(),
     })
     .optional(),
