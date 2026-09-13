@@ -69,12 +69,33 @@ export function devBearerToken(): string | null {
 }
 
 /**
+ * The root of the published legal site (UC-4.2 #177), or null.
+ *
+ * One variable rather than six. `site/` already publishes
+ * `/{en,ar,he}/{privacy,terms}` with `cleanUrls`, so the locale and the page
+ * are a path this app can build — and adding a language later becomes a
+ * translation, not a deploy variable.
+ *
+ * Null until OWNER-A1 (#137) buys the domain and publishes. Every caller then
+ * renders nothing rather than a link that 404s, which matters most on the
+ * sign-in screen: it is the one page a new user judges the product on.
+ * **Nothing here invents a domain.**
+ *
+ * A trailing slash is stripped so `${base}/en/privacy` cannot become a double
+ * slash, which some hosts 404 and others redirect.
+ */
+export function legalBaseUrl(): string | null {
+  const base = httpsUrlOrNull(process.env.EXPO_PUBLIC_LEGAL_BASE_URL);
+  return base === null ? null : base.replace(/\/+$/, '');
+}
+
+/**
  * The privacy policy and terms URLs, from the build's environment.
  *
- * They are null until OWNER-A1 (#137) publishes the site: the sign-in screen
- * then renders the links, and until then it renders none rather than a link
- * that 404s on the one screen a new user judges the product on. Nothing here
- * invents a domain.
+ * Superseded by `legalBaseUrl` and kept for the two variables that already
+ * exist in the EAS configuration: a build that sets them keeps working, and a
+ * build that sets the base URL gets locale-correct pages. `src/config/
+ * legalLinks.ts` is what screens should call; this is the raw reading.
  */
 export function legalUrls(): { privacy: string | null; terms: string | null } {
   return {

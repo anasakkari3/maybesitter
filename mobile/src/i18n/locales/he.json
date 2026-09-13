@@ -338,5 +338,10 @@
   "aiQuotaUserDaily": "הגעת למגבלת ה-AI להיום. הטקסט שלך נשמר — נסה מחר.",
   "aiQuotaTryLater": "יותר מדי בקשות כרגע. הטקסט שלך נשמר — נסה בעוד רגע.",
   "aiServiceUnavailable": "ה-AI עמוס כרגע לכולם. הטקסט שלך נשמר — נסה מאוחר יותר.",
-  "aiInputTooLong": "הטקסט ארוך מדי לניתוח. קצר אותו ונסה שוב."
+  "aiInputTooLong": "הטקסט ארוך מדי לניתוח. קצר אותו ונסה שוב.",
+  "legalSectionTitle": "משפטי",
+  "legalPrivacyPolicy": "מדיניות פרטיות",
+  "legalTerms": "תנאי שימוש",
+  "legalOpensInBrowser": "נפתח בדפדפן",
+  "legalUnavailable": "לא הצלחנו לפתוח. הכתובת היא {url}"
 }

@@ -335,5 +335,10 @@
   "aiQuotaUserDaily": "You've reached today's AI limit. Your text is safe — try again tomorrow.",
   "aiQuotaTryLater": "Too many requests just now. Your text is safe — try again in a moment.",
   "aiServiceUnavailable": "AI is busy for everyone right now. Your text is safe — try again later.",
-  "aiInputTooLong": "That text is too long to analyse. Shorten it and try again."
+  "aiInputTooLong": "That text is too long to analyse. Shorten it and try again.",
+  "legalSectionTitle": "Legal",
+  "legalPrivacyPolicy": "Privacy policy",
+  "legalTerms": "Terms of use",
+  "legalOpensInBrowser": "Opens in your browser",
+  "legalUnavailable": "Couldn't open it. The address is {url}"
 }

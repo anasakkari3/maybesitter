@@ -335,5 +335,10 @@
   "aiQuotaUserDaily": "وصلت حد الذكاء الاصطناعي لليوم. نصّك محفوظ — جرّب بكرا.",
   "aiQuotaTryLater": "طلبات كتير بسرعة. نصّك محفوظ — جرّب بعد شوي.",
   "aiServiceUnavailable": "الذكاء الاصطناعي مشغول للكل هلق. نصّك محفوظ — جرّب لاحقاً.",
-  "aiInputTooLong": "النص طويل كتير للتحليل. قصّره وجرّب مرة تانية."
+  "aiInputTooLong": "النص طويل كتير للتحليل. قصّره وجرّب مرة تانية.",
+  "legalSectionTitle": "قانوني",
+  "legalPrivacyPolicy": "سياسة الخصوصية",
+  "legalTerms": "شروط الاستخدام",
+  "legalOpensInBrowser": "بيفتح بالمتصفح",
+  "legalUnavailable": "ما قدرنا نفتحه. العنوان هو {url}"
 }
