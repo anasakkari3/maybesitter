@@ -211,8 +211,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
        *
        * Every entry is `Tracking: false`, because none of it is used to track.
        * Crash data is the one type that is **not** linked to identity: the
-       * Crashlytics wrapper (UC-4.4 #180) never calls `setUserId`, so a crash
-       * report cannot be tied back to a person.
+       * Crashlytics wrapper (UC-4.4 #180) never calls `setUserId`, and a test
+       * greps the app for a call to it — so a crash report cannot be tied back
+       * to a person.
+       *
+       * Crashlytics is a real dependency as of #180, so this entry is now true.
+       * `DeviceID` below is the one that is not; see the note on it.
        *
        * `OtherUserContent` is the capture text itself — the most sensitive
        * thing here, and the reason it is declared plainly rather than folded
@@ -222,7 +226,20 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         collected('NSPrivacyCollectedDataTypeEmailAddress'),
         collected('NSPrivacyCollectedDataTypeName'),
         collected('NSPrivacyCollectedDataTypeUserID'),
-        // The FCM registration token.
+        /*
+         * The FCM registration token — which nothing yet produces.
+         *
+         * `@react-native-firebase/messaging` is not a dependency of this app,
+         * so as of today this declares a collection that does not happen. That
+         * is not the safe direction: an over-declaration is still a false
+         * statement in a store filing, and it makes the label say the app
+         * gathers a device identifier when it does not.
+         *
+         * Left in place deliberately rather than removed, because notifications
+         * (S3) will make it true and removing it now means re-provisioning the
+         * label later. #179 §2 records it as the owner's decision; this comment
+         * is here so nobody reads the entry as already true.
+         */
         collected('NSPrivacyCollectedDataTypeDeviceID'),
         // Captures, and the commitments made from them.
         collected('NSPrivacyCollectedDataTypeOtherUserContent'),
@@ -297,6 +314,19 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     // `expo prebuild`, not by introspecting the config.
     ['@react-native-firebase/app', { ios: { disableSPM: true } }],
     '@react-native-firebase/auth',
+    /*
+     * Crash reporting (UC-4.4, #180).
+     *
+     * The plugin adds the iOS dSYM upload build phase and the Android
+     * Crashlytics Gradle plugin, both of which run inside EAS Build — so
+     * symbols are uploaded by the build rather than by somebody remembering to.
+     * A crash report with no symbols is a stack of hex addresses, which is the
+     * same as no crash report.
+     *
+     * What it may contain is decided in `src/lib/crash.ts`, not here: a stack,
+     * the build's own facts, and nothing about the person.
+     */
+    '@react-native-firebase/crashlytics',
     // Reads the reversed client id out of `ios.googleServicesFile`, so no
     // `iosUrlScheme` has to be repeated here.
     '@react-native-google-signin/google-signin',
@@ -323,7 +353,18 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     // A config plugin rather than autolinking alone, because the Android side
     // needs its own theme resources merged into the manifest.
     '@react-native-community/datetimepicker',
-    ['expo-build-properties', { ios: { useFrameworks: 'static', deploymentTarget: '16.4' } }],
+    ['expo-build-properties', {
+      ios: { useFrameworks: 'static', deploymentTarget: '16.4' },
+      /*
+       * R8 on release builds (UC-4.4, #180 step 5).
+       *
+       * Crashlytics needs the mapping file to deobfuscate Java and Kotlin
+       * frames, and the Gradle plugin above uploads it — but only if there is
+       * one, which means minification has to be on. Without this an Android
+       * crash arrives as obfuscated class names nobody can act on.
+       */
+      android: { enableMinifyInReleaseBuilds: true },
+    }],
     /*
      * The launch screen (UC-4.1, #176 step 3).
      *
@@ -338,7 +379,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       imageWidth: 200,
       resizeMode: 'contain',
       backgroundColor: '#F5F7F8',
-      dark: { image: './assets/splash-icon.png', backgroundColor: '#101416' },
+      dark: { image: './assets/splash-icon.png', backgroundColor: '#101416' }
     }],
     './plugins/withDataExtractionRules',
   ],

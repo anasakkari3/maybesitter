@@ -1,7 +1,8 @@
-import React from 'react';
-import { View } from 'react-native';
+import React, { useEffect } from 'react';
+import { Platform, View } from 'react-native';
 import { useFonts } from 'expo-font';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { apiLocale } from './src/i18n/locale';
 import { AppProvider } from './src/state/AppContext';
 import { ApiProvider } from './src/api/ui/ApiProvider';
 import { AccountDeletionProvider } from './src/features/account/AccountDeletionProvider';
@@ -10,9 +11,17 @@ import { OnboardingGate } from './src/features/onboarding/OnboardingGate';
 import { AuthProvider } from './src/auth/AuthProvider';
 import { Root } from './src/Root';
 import { fontMap } from './src/theme/fonts';
+import { initialiseCrashReporting } from './src/lib/crash';
 
 export default function App() {
   const [loaded, error] = useFonts(fontMap);
+
+  // Started once, before anything else can fail. Off in development, and it
+  // carries the build's own facts and nothing about the person — see
+  // src/lib/crash.ts.
+  useEffect(() => {
+    void initialiseCrashReporting(apiLocale(), Platform.OS);
+  }, []);
 
   // Hold on the plain background until the Arabic and Latin faces are ready,
   // so text never flashes in a fallback font. A font error still renders.

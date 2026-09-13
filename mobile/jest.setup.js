@@ -110,3 +110,16 @@ jest.mock('expo-speech-recognition', () => ({
   },
   useSpeechRecognitionEvent: () => {},
 }));
+
+// Crashlytics is native (UC-4.4, #180). `src/lib/crash.ts` resolves the client
+// lazily and returns null when there is none, so this mock only keeps the
+// import from throwing at module load; the wrapper's own rules — the attribute
+// allowlist, the breadcrumb list, and never calling setUserId — are asserted
+// against an injected fake in `crash.test.ts`.
+jest.mock('@react-native-firebase/crashlytics', () => ({
+  getCrashlytics: () => { throw new Error('no native crashlytics under jest'); },
+  log: () => {},
+  recordError: () => {},
+  setAttributes: async () => null,
+  setCrashlyticsCollectionEnabled: async () => null,
+}));

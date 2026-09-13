@@ -23,7 +23,10 @@
       "environment": "production",
       "env": {
         "APP_ENV": "production"
-      }
+      },
+      "buildArtifactPaths": [
+        "build/sourcemaps/**/*"
+      ]
     }
   },
   "submit": {
