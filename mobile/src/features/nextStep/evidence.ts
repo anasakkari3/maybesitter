@@ -25,7 +25,12 @@ import { fill } from '../../i18n/strings';
 
 export interface EvidenceItem {
   code: string;
-  params?: { level?: 'low' | 'normal' | 'high'; minutes?: number } | undefined;
+  /**
+   * `| undefined` on each field, not just on `params`: the app compiles with
+   * `exactOptionalPropertyTypes`, and the Zod-inferred shape this receives has
+   * them that way.
+   */
+  params?: { level?: 'low' | 'normal' | 'high' | undefined; minutes?: number | undefined } | undefined;
 }
 
 const PHRASE_KEY: Record<string, string> = {

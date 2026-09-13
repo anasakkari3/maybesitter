@@ -466,5 +466,19 @@
   "evidenceFitsBeforeDue": "there is time before it is due",
   "evidenceUsuallyFinishes": "you usually finish these",
   "evidenceOftenSetAside": "you often set these aside",
-  "evidenceUsualProductiveTime": "a time you usually get things done"
+  "evidenceUsualProductiveTime": "a time you usually get things done",
+  "nextStepWhy": "Why this one",
+  "nextStepNoSensitive": "Only your own commitments, deadlines and routine were used.",
+  "nextStepEmptyTitle": "Nothing to suggest",
+  "nextStepEmptyBody": "There is nothing open that needs a decision right now.",
+  "nextStepThinTitle": "Not enough to go on",
+  "nextStepThinBody": "Add a time or say how much something matters, and there will be something to suggest.",
+  "nextStepStale": "That one moved. Here is the current suggestion.",
+  "nextStepAccept": "Do this one",
+  "nextStepEdit": "Change it",
+  "nextStepDefer": "Later",
+  "nextStepDismiss": "Not this one",
+  "nextStepDone": "Already done",
+  "nextStepEditTitle": "Change the step",
+  "nextStepEditSave": "Use this"
 }

@@ -469,5 +469,19 @@
   "evidenceFitsBeforeDue": "יש זמן לפני המועד",
   "evidenceUsuallyFinishes": "בדרך כלל אתה מסיים כאלה",
   "evidenceOftenSetAside": "לעיתים קרובות אתה דוחה כאלה",
-  "evidenceUsualProductiveTime": "זמן שבו אתה בדרך כלל מספיק דברים"
+  "evidenceUsualProductiveTime": "זמן שבו אתה בדרך כלל מספיק דברים",
+  "nextStepWhy": "למה דווקא זה",
+  "nextStepNoSensitive": "השתמשנו רק במחויבויות, במועדים ובשגרה שלך.",
+  "nextStepEmptyTitle": "אין מה להציע",
+  "nextStepEmptyBody": "אין כרגע שום דבר פתוח שדורש החלטה.",
+  "nextStepThinTitle": "אין מספיק מידע",
+  "nextStepThinBody": "הוסף זמן או ציין כמה משהו חשוב, ויהיה מה להציע.",
+  "nextStepStale": "זה זז. זו ההצעה הנוכחית.",
+  "nextStepAccept": "נתחיל בזה",
+  "nextStepEdit": "לשנות",
+  "nextStepDefer": "אחר כך",
+  "nextStepDismiss": "לא זה",
+  "nextStepDone": "כבר עשיתי",
+  "nextStepEditTitle": "לשנות את הצעד",
+  "nextStepEditSave": "קח את זה"
 }
