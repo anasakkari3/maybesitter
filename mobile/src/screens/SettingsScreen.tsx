@@ -18,14 +18,17 @@ export function SettingsScreen() {
   // "English" on an Arabic screen. "System" is the one word that is copy.
   const languageValue = langPref === 'system' ? t.vSystem : LANGUAGE_ENDONYM[langPref];
 
-  // Appearance and Language work now; the rest are designed in the next round.
-  const rows: { label: string; value: string; onPress?: () => void }[] = [
-    { label: t.sAppearance, value: themeValue, onPress: actions.cycleTheme },
-    { label: t.sLanguage, value: languageValue, onPress: actions.cycleLanguage },
-    { label: t.sNotif, value: t.vQuiet },
-    { label: t.sBudget, value: t.vBudget },
-    { label: t.sTrust, value: '' },
-    { label: t.sHistory, value: '' },
+  // Every row now goes somewhere (UC-2.R4 #174). `sBudget` is deliberately
+  // absent: it was a pilot-era spend display, and #181 moved the cost guard to
+  // the server where the user has nothing to decide about it.
+  const rows: { label: string; value: string; onPress?: () => void; testID?: string }[] = [
+    { label: t.sAppearance, value: themeValue, onPress: actions.cycleTheme, testID: 'settings-appearance' },
+    { label: t.sLanguage, value: languageValue, onPress: actions.cycleLanguage, testID: 'settings-language' },
+    { label: t.settingsRoutine, value: '', onPress: () => actions.go('routineSettings'), testID: 'settings-routine' },
+    { label: t.sNotif, value: '', onPress: () => actions.go('notificationsSettings'), testID: 'settings-notifications' },
+    { label: t.sTrust, value: '', onPress: () => actions.go('trust'), testID: 'settings-trust' },
+    { label: t.sHistory, value: '', onPress: () => actions.go('feedbackHistory'), testID: 'settings-history' },
+    { label: t.settingsAbout, value: '', onPress: () => actions.go('about'), testID: 'settings-about' },
   ];
 
   return (
@@ -42,7 +45,7 @@ export function SettingsScreen() {
               label={r.label}
               style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 16, paddingHorizontal: 18, minHeight: 52, borderBottomWidth: i < rows.length - 1 ? 1 : 0, borderBottomColor: p.ln }}
             >
-              <Txt size={15}>{r.label}</Txt>
+              <Txt size={15} {...(r.testID ? { testID: r.testID } : {})}>{r.label}</Txt>
               <Txt size={13} color={p.mu}>{r.value}</Txt>
             </Btn>
           ))}

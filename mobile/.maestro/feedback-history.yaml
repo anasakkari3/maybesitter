@@ -1,0 +1,40 @@
+appId: com.maybesitter.app
+name: MaybeSitter feedback history
+---
+# UC-2.R4 (#174): a row can be forgotten, and the row stays afterwards marked
+# as forgotten rather than disappearing — it is the evidence the correction was
+# applied.
+#
+# Needs an account with at least one revocable row. On an account with none,
+# the flow asserts the empty state instead and stops, which is a pass: it is
+# the honest result for that account, not a skipped test.
+
+- launchApp:
+    clearState: false
+- tapOn: 'الإعدادات'
+- tapOn:
+    id: 'settings-history'
+- assertVisible: 'شو تعلّمه منك'
+
+- runFlow:
+    when:
+      visible:
+        id: 'feedback-history-empty'
+    commands:
+      - assertVisible:
+          id: 'feedback-history-empty'
+
+- runFlow:
+    when:
+      notVisible:
+        id: 'feedback-history-empty'
+    commands:
+      # The first revocable row. Confirm, then the row is still there, marked.
+      - tapOn:
+          id: 'feedback-revoke-.*'
+      - tapOn:
+          id: 'feedback-revoke-confirm-.*'
+      - extendedWaitUntil:
+          visible:
+            id: 'feedback-revoked-.*'
+          timeout: 10000

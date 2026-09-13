@@ -62,7 +62,7 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
  * out like any other view.
  */
 export function Btn({
-  onPress, onPressIn, onPressOut, style, children, disabled, label, scaleTo = 0.95, hitSlop,
+  onPress, onPressIn, onPressOut, style, children, disabled, label, scaleTo = 0.95, hitSlop, testID,
 }: {
   // `| undefined` is explicit because the app compiles with
   // exactOptionalPressableTypes: callers pass `onPress={disabled ? undefined : fn}`.
@@ -75,6 +75,13 @@ export function Btn({
   label?: string | undefined;
   scaleTo?: number | undefined;
   hitSlop?: number | undefined;
+  /**
+   * For a control a test or a Maestro flow has to find by identity rather than
+   * by its label — a row whose copy is translated three ways, or two buttons
+   * that legitimately read the same. `label` stays the accessibility label and
+   * is what a screen reader announces; this is never shown to anyone.
+   */
+  testID?: string | undefined;
 }) {
   const v = useRef(new Animated.Value(1)).current;
   const spring = (to: number) => Animated.spring(v, { toValue: to, useNativeDriver: true, speed: 40, bounciness: 0 }).start();
@@ -82,6 +89,7 @@ export function Btn({
     <AnimatedPressable
       accessibilityRole="button"
       accessibilityLabel={label}
+      testID={testID}
       accessibilityState={{ disabled }}
       disabled={disabled}
       hitSlop={hitSlop}
@@ -149,9 +157,9 @@ export function HeaderPill({ label, onPress }: { label: string; onPress: () => v
   );
 }
 
-export function Card({ children, style, pad = 18 }: { children: React.ReactNode; style?: StyleProp<ViewStyle>; pad?: number }) {
+export function Card({ children, style, pad = 18, testID }: { children: React.ReactNode; style?: StyleProp<ViewStyle>; pad?: number; testID?: string | undefined }) {
   const { p } = useApp();
-  return <View style={[{ backgroundColor: p.sf, borderRadius: 24, padding: pad }, cardShadow(p), style]}>{children}</View>;
+  return <View testID={testID} style={[{ backgroundColor: p.sf, borderRadius: 24, padding: pad }, cardShadow(p), style]}>{children}</View>;
 }
 
 export function ImpBadge({ imp, style }: { imp: Imp; style?: StyleProp<ViewStyle> }) {

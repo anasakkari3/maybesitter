@@ -51,7 +51,16 @@ export type Screen =
   // verification demo (src/screens/CalendarDemoScreen.tsx, UC-1.8 #152).
   | 'calendarDemo'
   // Settings → Account → Delete account (UC-1.5 #149).
-  | 'deleteAccount';
+  | 'deleteAccount'
+  // Settings sub-screens (UC-2.R4 #174). Flat rather than nested: `Root` is a
+  // switch, and a route tree for seven leaves would be a navigation library
+  // this app has deliberately not taken on.
+  | 'trust'
+  | 'knows'
+  | 'feedbackHistory'
+  | 'routineSettings'
+  | 'notificationsSettings'
+  | 'about';
 
 export type CapState = 'idle' | 'listening' | 'transcript' | 'typing' | 'processing' | 'nothing';
 

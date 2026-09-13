@@ -19,6 +19,12 @@ import { SheetHost } from './screens/Sheets';
 import { TabBar } from './screens/TabBar';
 import { CalendarDemoScreen } from './screens/CalendarDemoScreen';
 import { DeleteAccountScreen } from './screens/DeleteAccountScreen';
+import { TrustScreen } from './features/settings/TrustScreen';
+import { KnowsScreen } from './features/settings/KnowsScreen';
+import { FeedbackHistoryScreen } from './features/settings/FeedbackHistoryScreen';
+import { RoutineSettingsScreen } from './features/settings/RoutineSettingsScreen';
+import { NotificationsSettingsScreen } from './features/settings/NotificationsSettingsScreen';
+import { AboutScreen } from './features/settings/AboutScreen';
 import { googleCalendarDemoEnabled } from './config/env';
 import { Gallery } from './design/Gallery';
 
@@ -54,6 +60,27 @@ export function Root() {
       {s.screen === 'deleteAccount' && (
         <DeleteAccountScreen key="deleteAccount" onBack={() => latest.current.go('settings')} />
       )}
+      {/* Settings sub-screens (UC-2.R4 #174). Each takes the way back rather
+          than reading history: `back()` returns to `prev`, which is Settings
+          for all of these, and Trust for the one reached from it. */}
+      {s.screen === 'trust' && (
+        <TrustScreen
+          key="trust"
+          onBack={() => latest.current.go('settings')}
+          onKnows={() => latest.current.go('knows')}
+        />
+      )}
+      {s.screen === 'knows' && <KnowsScreen key="knows" onBack={() => latest.current.go('trust')} />}
+      {s.screen === 'feedbackHistory' && (
+        <FeedbackHistoryScreen key="feedbackHistory" onBack={() => latest.current.go('settings')} />
+      )}
+      {s.screen === 'routineSettings' && (
+        <RoutineSettingsScreen key="routineSettings" onBack={() => latest.current.go('settings')} />
+      )}
+      {s.screen === 'notificationsSettings' && (
+        <NotificationsSettingsScreen key="notificationsSettings" onBack={() => latest.current.go('settings')} />
+      )}
+      {s.screen === 'about' && <AboutScreen key="about" onBack={() => latest.current.go('settings')} />}
       {s.screen === 'details' && <DetailsScreen key="details" />}
       {s.screen === 'capture' && <CaptureScreen key="capture" />}
       {s.screen === 'review' && <ReviewScreen key="review" />}
