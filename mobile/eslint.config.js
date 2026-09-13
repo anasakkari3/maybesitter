@@ -1,6 +1,7 @@
 // https://docs.expo.dev/guides/using-eslint/
 const { defineConfig } = require('eslint/config');
 const expoConfig = require('eslint-config-expo/flat');
+const i18next = require('eslint-plugin-i18next');
 
 module.exports = defineConfig([
   expoConfig,
@@ -94,6 +95,39 @@ module.exports = defineConfig([
       'react-hooks/refs': 'warn',
       'react-hooks/purity': 'warn',
       'react-hooks/static-components': 'warn',
+    },
+  },
+  {
+    /**
+     * No user-facing sentence is written in a screen (UC-2.R1 #171).
+     *
+     * The acceptance criterion names `i18next/no-literal-string` on the
+     * onboarding tree. Onboarding is where it matters most: it is the first
+     * thing an Arabic or Hebrew speaker sees, and it is the flow whose copy was
+     * written last and fastest. A literal there is not a cosmetic bug — it is an
+     * English sentence shown to somebody who did not choose English, on the
+     * screen that decides whether they keep the app.
+     *
+     * It is an `error`, not a `warn`, because the 71 warnings this config
+     * already carries are reviewed, load-bearing exceptions. A seventy-second
+     * would be invisible.
+     *
+     * `jsx-text-only` is the narrow mode on purpose: it catches the thing the
+     * criterion is about — a sentence sitting between two JSX tags — without
+     * arguing about every `testID`, style token and accessibility role, which
+     * are strings nobody reads.
+     */
+    files: ['src/features/onboarding/**/*.{ts,tsx}'],
+    ignores: ['src/features/onboarding/__tests__/**'],
+    plugins: { i18next },
+    rules: {
+      'i18next/no-literal-string': [
+        'error',
+        {
+          mode: 'jsx-text-only',
+          message: 'User-facing text belongs in src/i18n/locales/*.json, not in a screen (UC-2.R1 #171).',
+        },
+      ],
     },
   },
 ]);

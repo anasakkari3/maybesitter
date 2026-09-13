@@ -14,13 +14,13 @@
  * error → locale key → the words in each locale → the recovery the composer
  * offers. `captureFlowReachable.test.tsx` then renders it on the real screen.
  *
- * ── Hebrew ───────────────────────────────────────────────────────
+ * ── All three languages ──────────────────────────────────────────
  *
- * Hebrew is not a selectable UI language (`src/i18n/strings.ts` types `Lang` as
- * 'ar' | 'en', and `resolveLanguage` falls back to English for anything else),
- * so there is no way to drive a render into it and no honest test that claims
- * one. What is checkable is the mapping against the Hebrew bundle, and that is
- * what the Hebrew cases below do.
+ * Hebrew used to be uncheckable here: `Lang` was 'ar' | 'en' and
+ * `resolveLanguage` fell back to English, so nothing could drive a render into
+ * it. #355 made `he` selectable, so the loop below covers every locale the app
+ * offers rather than the two it used to. `LOCALES` is the source of that list —
+ * a hand-written pair would go stale again the next time one is added.
  */
 import { describe, expect, it } from '@jest/globals';
 import { z } from 'zod';
@@ -37,7 +37,8 @@ import {
 } from '../errors';
 import { userFacingMessage, userFacingMessageKey, type UserFacingKey } from '../ui/userFacingMessage';
 import { classifyFailure } from '../../features/capture/CaptureProvider';
-import { strings, type Lang, type Strings } from '../../i18n/strings';
+import { strings, type Strings } from '../../i18n/strings';
+import { LOCALES } from '../../i18n/locale';
 import ar from '../../i18n/locales/ar.json';
 import en from '../../i18n/locales/en.json';
 import he from '../../i18n/locales/he.json';
@@ -109,7 +110,7 @@ describe('each refusal has its own line', () => {
 
   it.each(REFUSALS)('%s reads in the user’s own language', (_name, status, body, key) => {
     const error = errorFor(status, body);
-    for (const lang of ['ar', 'en'] as Lang[]) {
+    for (const lang of LOCALES) {
       const rendered = userFacingMessage(error, strings[lang]);
       expect(rendered).toBe(strings[lang][key]);
       // The bug this file exists for: all four came out as this one line.
