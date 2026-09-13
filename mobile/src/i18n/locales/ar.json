@@ -455,5 +455,16 @@
   "confirmKeep": "خلّيها",
   "toastPostponed": "تمام. أجّلناها.",
   "toastDeleted": "انحذفت.",
-  "statusPostponed": "مؤجّلة"
+  "statusPostponed": "مؤجّلة",
+  "evidenceOverdue": "الوقت راح",
+  "evidenceDueWithin24h": "لازم خلال يوم",
+  "evidenceDueWithin7d": "لازم هالأسبوع",
+  "evidenceImportance": "حاططها {level}",
+  "evidenceEffort": "حوالي {minutes} دقيقة",
+  "evidenceOutsideUsualHours": "برّا أوقاتك المعتادة",
+  "evidenceShortForEndOfDay": "قصيرة وبتزبط بآخر النهار",
+  "evidenceFitsBeforeDue": "في وقت قبل ما تستحق",
+  "evidenceUsuallyFinishes": "عادةً بتخلّص هالنوع",
+  "evidenceOftenSetAside": "كتير بتأجّل هالنوع",
+  "evidenceUsualProductiveTime": "وقت عادةً بتنجز فيه"
 }

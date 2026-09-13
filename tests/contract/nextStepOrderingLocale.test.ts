@@ -52,7 +52,7 @@ function candidate(commitmentId: string, rank: number): NextStepCandidate {
     // and returns no primary step at all, which would make the tie-break below
     // unreachable and the assertion vacuous.
     reason: 'due today',
-    evidenceLabels: ['due today'],
+    evidenceCodes: [{ code: 'due_within_24h' as const }],
     rank,
   };
 }

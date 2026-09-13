@@ -97,7 +97,7 @@ test('arms: the contextual arm de-prioritizes non-urgent work during quiet hours
   const selection = selectNextStepForArm('contextual', candidates, quiet);
 
   assert.equal(selection.selectedCommitmentId, 'overdue');
-  assert.equal(selection.adjustments.find((item) => item.commitmentId === 'later')?.labels.includes('outside your usual hours'), true);
+  assert.equal(selection.adjustments.find((item) => item.commitmentId === 'later')?.codes.some((c) => c.code === 'outside_usual_hours'), true);
 });
 
 test('arms: the personalized arm falls back until the user has enough of their own history', () => {
