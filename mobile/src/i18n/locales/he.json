@@ -423,12 +423,12 @@
   "obAboutSuggested": "הוצע על ידי AI",
   "obAboutSaveSelected": "לשמור את מה שסימנתי",
   "obAboutSaveNone": "לא לשמור כלום",
-  "todayWhyOverdue": "למה ראשון: הזמן עבר",
-  "todayWhySoon": "למה ראשון: תוך שעתיים",
-  "todayWhyToday": "למה ראשון: היום",
-  "todayWhyMust": "למה ראשון: סימנת חובה",
-  "todayWhyEstimated": "למה ראשון: נראית חשובה",
-  "todayWhyNoDeadline": "למה ראשון: בלי זמן",
+  "todayWhyOverdue": "הזמן עבר",
+  "todayWhySoon": "תוך שעתיים",
+  "todayWhyToday": "היום",
+  "todayWhyMust": "סימנת חובה",
+  "todayWhyEstimated": "נראית חשובה",
+  "todayWhyNoDeadline": "בלי זמן",
   "todayWhyJoin": "{first} · {second}",
   "todayGroupMust": "חובה",
   "todayGroupShould": "כדאי",
@@ -487,5 +487,6 @@
   "postponeThisEvening": "הערב",
   "nextStepDeferTitle": "מתי להחזיר?",
   "evidenceImportanceEstimated": "נראה שזה {level}",
-  "evidenceFitsFocusTime": "בזמן שהקצית לריכוז"
+  "evidenceFitsFocusTime": "בזמן שהקצית לריכוז",
+  "todayWhyLead": "למה ראשון: {reasons}"
 }

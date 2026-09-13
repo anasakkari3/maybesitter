@@ -420,12 +420,12 @@
   "obAboutSuggested": "Suggested by AI",
   "obAboutSaveSelected": "Save what I ticked",
   "obAboutSaveNone": "Save nothing",
-  "todayWhyOverdue": "Why first: the time has passed",
-  "todayWhySoon": "Why first: due within two hours",
-  "todayWhyToday": "Why first: due today",
-  "todayWhyMust": "Why first: you marked it must",
-  "todayWhyEstimated": "Why first: looks important",
-  "todayWhyNoDeadline": "Why first: no time set",
+  "todayWhyOverdue": "the time has passed",
+  "todayWhySoon": "due within two hours",
+  "todayWhyToday": "due today",
+  "todayWhyMust": "you marked it must",
+  "todayWhyEstimated": "looks important",
+  "todayWhyNoDeadline": "no time set",
   "todayWhyJoin": "{first} · {second}",
   "todayGroupMust": "Must",
   "todayGroupShould": "Should",
@@ -484,5 +484,6 @@
   "postponeThisEvening": "This evening",
   "nextStepDeferTitle": "Bring it back when?",
   "evidenceImportanceEstimated": "it looks like a {level}",
-  "evidenceFitsFocusTime": "in a time you set aside to focus"
+  "evidenceFitsFocusTime": "in a time you set aside to focus",
+  "todayWhyLead": "Why first: {reasons}"
 }

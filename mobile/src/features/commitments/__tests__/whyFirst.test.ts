@@ -32,7 +32,8 @@ describe('every reason has words, in every language', () => {
         expect(line).not.toBeNull();
         expect(line!.trim()).not.toBe('');
         // Not the key leaking through as its own text.
-        expect(line).not.toMatch(/^todayWhy/);
+        expect(line).not.toMatch(/todayWhy/);
+        expect(line).not.toContain('{reasons}');
       });
     }
   }
@@ -52,7 +53,7 @@ describe('what it declines to say', () => {
     // A server ahead of the app must not put a raw enum on a user's screen.
     expect(whyFirstLine(['invented_by_a_later_server'], LOCALES.en!)).toBeNull();
     expect(whyFirstLine(['invented_by_a_later_server', 'overdue'], LOCALES.en!))
-      .toBe(en.todayWhyOverdue);
+      .toBe(`Why first: ${en.todayWhyOverdue}`);
   });
 
   it('drops a reason whose phrase is missing rather than rendering a gap', () => {
@@ -63,16 +64,31 @@ describe('what it declines to say', () => {
 
 describe('two reasons', () => {
   it('joins them in the order the server sent, deadline first', () => {
+    // The whole string, not `toContain` on each half. The bug this replaced —
+    // every phrase carrying its own "Why first:" — satisfied `toContain`
+    // perfectly while rendering "Why first: … · Why first: …" on the card.
     expect(whyFirstLine(['overdue', 'user_must'], LOCALES.en!))
-      .toBe(`${en.todayWhyOverdue} · ${en.todayWhyMust}`);
+      .toBe(`Why first: ${en.todayWhyOverdue} · ${en.todayWhyMust}`);
+  });
+
+  it('says the lead once, however many reasons there are', () => {
+    for (const lang of ['en', 'ar', 'he'] as const) {
+      const strings = LOCALES[lang]!;
+      const lead = strings.todayWhyLead!.replace(' {reasons}', '').replace('{reasons}', '');
+      const one = whyFirstLine(['overdue'], strings)!;
+      const two = whyFirstLine(['overdue', 'user_must'], strings)!;
+      expect(one.split(lead).length - 1).toBe(1);
+      expect(two.split(lead).length - 1).toBe(1);
+    }
   });
 
   it('joins in Arabic and Hebrew too, with no Latin key showing through', () => {
     for (const lang of ['ar', 'he'] as const) {
       const line = whyFirstLine(['due_within_2h', 'user_must'], LOCALES[lang]!)!;
-      expect(line).toContain(LOCALES[lang]!.todayWhySoon!);
-      expect(line).toContain(LOCALES[lang]!.todayWhyMust!);
-      expect(line).not.toMatch(/\{first\}|\{second\}/);
+      expect(line).toBe(LOCALES[lang]!.todayWhyLead!.replace(
+        '{reasons}',
+        `${LOCALES[lang]!.todayWhySoon!} · ${LOCALES[lang]!.todayWhyMust!}`,
+      ));
     }
   });
 
