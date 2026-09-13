@@ -9,6 +9,7 @@ import { Btn, Card, Txt } from '../ui/primitives';
 import { Hatch } from '../ui/icons';
 import { ScreenIn } from '../ui/motion';
 import { cardShadow } from '../theme/tokens';
+import { BrandLogo } from '../ui/brand';
 
 export function CalendarScreen() {
   const { s, t, p, lang, actions } = useApp();
@@ -23,9 +24,12 @@ export function CalendarScreen() {
   return (
     <ScreenIn style={{ backgroundColor: p.bg }}>
       <ScrollView contentContainerStyle={{ paddingTop: insets.top + 8, paddingHorizontal: 20, paddingBottom: 130, gap: 14 }}>
-        <View>
-          <Txt size={13} color={p.mu}>{t.weekRange}</Txt>
-          <Txt size={28} weight={600} lh={1.3}>{t.calendarTitle}</Txt>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <BrandLogo variant="badge" size={44} />
+          <View style={{ flexShrink: 1 }}>
+            <Txt size={13} color={p.mu}>{t.weekRange}</Txt>
+            <Txt size={28} weight={600} lh={1.3}>{t.calendarTitle}</Txt>
+          </View>
         </View>
 
         <Card pad={0} style={{ paddingVertical: 14, paddingHorizontal: 10 }}>

@@ -6,13 +6,18 @@
     "noImplicitOverride": true,
     "exactOptionalPropertyTypes": true,
     "noEmit": true,
-    // app.config.ts is transpiled to CommonJS by Expo and requires its imports
-    // by path, so the release guard is imported as ./src/config/releaseGuard.ts.
     "allowImportingTsExtensions": true,
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": [
+        "./src/*"
+      ]
     }
   },
-  "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts", "expo-env.d.ts"],
-  "exclude": ["node_modules"]
+  "include": [
+    "**/*.ts",
+    "**/*.tsx"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
 }

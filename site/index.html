@@ -1,44 +1,140 @@
 <!doctype html>
 <html lang="en" dir="ltr">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MaybeSitter</title>
-<meta name="description" content="MaybeSitter helps you remember what you promised to do, and reminds you at the right time.">
-<link rel="stylesheet" href="/styles.css">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MaybeSitter — Know What Matters Next</title>
+  <meta name="description" content="A personal AI that understands your goals, commitments, deadlines and progress — and helps you focus on what matters next.">
+  <link rel="icon" href="/assets/favicon.png" sizes="48x48" type="image/png">
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/launch.css">
+  <meta name="theme-color" content="#f5f7f8">
+  <meta property="og:type" content="website">
+  <link rel="canonical" href="https://maybesitter-app.web.app/">
+  <meta property="og:url" content="https://maybesitter-app.web.app/">
+  <meta property="og:image" content="https://maybesitter-app.web.app/assets/social-card.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="MaybeSitter. Know what matters next. Your personal AI chief of staff. Coming very soon.">
+  <meta property="og:site_name" content="MaybeSitter">
+  <meta property="og:title" content="MaybeSitter — Know What Matters Next">
+  <meta property="og:description" content="Your personal AI for goals, commitments, deadlines and everything in between. Coming very soon.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image" content="https://maybesitter-app.web.app/assets/social-card.png">
+  <meta name="twitter:title" content="MaybeSitter — Know What Matters Next">
+  <meta name="twitter:description" content="Your personal AI for goals, commitments, deadlines and everything in between. Coming very soon.">
+  <script src="/assets/vendor/gsap.min.js" defer></script>
+  <script src="/assets/vendor/ScrollTrigger.min.js" defer></script>
+  <script src="/assets/vendor/lenis.min.js" defer></script>
+  <script src="/launch.js" defer></script>
 </head>
-<body>
-<header>
-  <h1>MaybeSitter</h1>
-  <p class="lede">MaybeSitter helps you remember what you promised to do, and reminds you at the right time.</p>
-</header>
+<body class="launch-page">
+  <a class="skip-link" href="#early-access">Skip to early access registration</a>
+  <header class="launch-nav" aria-label="Primary navigation">
+    <a class="launch-brand" href="#top" aria-label="MaybeSitter home">
+      <img src="/assets/brand-mark.png" alt="" width="40" height="40">
+      <span>MaybeSitter</span>
+    </a>
+    <nav class="nav-links" aria-label="Page sections"><a href="#how-it-works">The idea</a><a href="#product">A closer look</a></nav>
+    <a class="launch-button launch-button--small" data-cta="header" href="#early-access">Get Early Access <span aria-hidden="true">↗</span></a>
+  </header>
 
-<main>
-  <p class="badge">Coming soon to the App Store and Google Play</p>
+  <main id="top">
+    <section class="launch-hero" aria-labelledby="hero-title">
+      <div class="launch-hero__copy">
+        <p class="launch-eyebrow"><span></span> Your life. A little clearer.</p>
+        <h1 id="hero-title">Know what<br>matters <em>next.</em></h1>
+        <p class="launch-hero__lede">Your personal AI for goals, commitments, deadlines and everything in between.</p>
+        <p class="hero-detail">A little less mental load.<br>A clearer sense of what deserves your attention.</p>
+        <div class="launch-actions">
+          <a class="launch-button" data-cta="hero" href="#early-access">Get Early Access <span aria-hidden="true">↗</span></a>
+          <span>Coming very soon.<br>For iPhone &amp; Android.</span>
+        </div>
+        <p class="launch-proof">Backed with <strong>$5,000 in early funding</strong></p>
+      </div>
 
-  <h2>Read this page in your language</h2>
-  <p>
-    <a href="/en/">English</a> ·
-    <a href="/ar/">العربية</a> ·
-    <a href="/he/">עברית</a>
-  </p>
+      <div class="launch-visual" aria-label="MaybeSitter Today screen shown on an iPhone">
+        <div class="launch-orbit launch-orbit--one"></div>
+        <div class="launch-orbit launch-orbit--two"></div>
+        <div class="launch-phone">
+          <img src="/assets/product-today-en.png" alt="The real MaybeSitter app showing today’s commitments and a calm next-step suggestion in English" width="1206" height="2622">
+        </div>
+        <aside class="launch-float launch-float--focus">
+          <small>A LITTLE CLARITY</small>
+          <strong>One clear next step</strong>
+        </aside>
+        <aside class="launch-float launch-float--adapt">
+          <span aria-hidden="true">&#10003;</span>
+          <div><strong>Plans changed?</strong><small>We adapt with you.</small></div>
+        </aside>
+      </div>
+    </section>
 
-  <h2>Support</h2>
-  <p>Questions, problems or feedback: <a href="mailto:{{SUPPORT_EMAIL}}">{{SUPPORT_EMAIL}}</a></p>
-  <p>Privacy questions and data requests: <a href="mailto:{{PRIVACY_EMAIL}}">{{PRIVACY_EMAIL}}</a></p>
-</main>
+    <div class="section-divider wrap"><span>A mind full of life. Room to breathe.</span><a href="#how-it-works" aria-label="Explore the idea">↓</a></div>
 
-<footer>
-  <nav class="langs">
-    <a href="/en/">English</a>
-    <a href="/ar/">العربية</a>
-    <a href="/he/">עברית</a>
-  </nav>
-  <nav>
-    <a href="/en/privacy">Privacy Policy</a>
-    <a href="/en/terms">Terms of Use</a>
-  </nav>
-  <p class="muted">© MaybeSitter — {{LEGAL_NAME}}</p>
-</footer>
+    <section class="story-section wrap" id="how-it-works" aria-labelledby="story-title">
+      <div class="section-heading"><p class="kicker">01 / THE BIGGER PICTURE</p><h2 id="story-title">Your life isn’t<br>a to-do list.</h2><p>Goals in your head. Plans in notes. Promises in conversations. Somehow, you’re the one holding it all together.</p></div>
+      <div class="context-stage" aria-label="Goals, promises, deadlines and progress come together to help identify what matters next">
+        <div class="context-card context-card--one"><span class="card-index">01</span><small>A GOAL</small><strong>Make room for<br>what’s important.</strong><span class="context-tag">The bigger picture</span></div>
+        <div class="context-card context-card--two"><span class="card-index">02</span><small>A COMMITMENT</small><strong>“I’ll send it<br>by Friday.”</strong><span class="context-tag">A promise worth keeping</span></div>
+        <div class="context-card context-card--three"><span class="card-index">03</span><small>A CHANGING DAY</small><strong>Tuesday had<br>other plans.</strong><span class="context-tag">Life happens</span></div>
+        <div class="context-resolution"><span class="mini-mark">m.</span><div><small>BRING IT INTO CONTEXT</small><strong>What matters next?</strong></div></div>
+      </div>
+    </section>
+
+    <section class="understanding-section" aria-labelledby="understanding-title">
+      <div class="wrap understanding-grid">
+        <div class="section-heading"><p class="kicker">02 / MORE THAN REMEMBERING</p><h2 id="understanding-title">It understands<br>what you’re<br><em>trying to achieve.</em></h2><p>Think personal AI chief of staff. Context around your life, connected to a next step you can actually take.</p><a class="text-link" data-cta="explanation" href="#early-access">Be first to experience it <span aria-hidden="true">↗</span></a></div>
+        <div class="context-flow" aria-label="Goals, commitments, deadlines and progress inform today's priorities">
+          <div class="flow-row"><span>01</span><strong>Your direction</strong><p>Goals that give the day meaning.</p></div>
+          <div class="flow-row"><span>02</span><strong>Your commitments</strong><p>What you said you would do.</p></div>
+          <div class="flow-row"><span>03</span><strong>Your real life</strong><p>Deadlines, progress and changing plans.</p></div>
+          <div class="flow-answer"><span aria-hidden="true">↳</span><div><small>ALL THAT CONTEXT. ONE CLEARER QUESTION.</small><strong>What deserves your attention today?</strong></div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="product-section wrap" id="product" aria-labelledby="product-title">
+      <div class="product-heading"><div class="section-heading"><p class="kicker">03 / MEET MAYBESITTER</p><h2 id="product-title">Less to hold.<br>More room to move.</h2></div><p>A place for what’s on your mind.<br>A calmer way to decide what comes next.</p></div>
+      <div class="product-grid">
+        <div class="product-preview"><div class="preview-grid" aria-hidden="true"></div><figure class="showcase-phone"><img id="product-screen" src="/assets/product-today-en.png" alt="MaybeSitter Today screen showing commitments and a next-step suggestion in English" width="1206" height="2622" loading="lazy"></figure><span class="preview-label">Inside MaybeSitter · English interface</span></div>
+        <div class="product-options" aria-label="Explore real application screens">
+          <button class="product-option is-active" type="button" data-screen="today" aria-pressed="true"><span class="option-number">01</span><span><strong>A clearer today</strong><span>See your commitments, recognize your progress, and find a manageable next step.</span></span><span class="option-arrow" aria-hidden="true">↗</span></button>
+          <button class="product-option" type="button" data-screen="calendar" aria-pressed="false"><span class="option-number">02</span><span><strong>The week in perspective</strong><span>Give responsibilities a place in your day, with enough context to see the bigger picture.</span></span><span class="option-arrow" aria-hidden="true">↗</span></button>
+          <button class="product-option" type="button" data-screen="first-move" aria-pressed="false"><span class="option-number">03</span><span><strong>A way into the big things</strong><span>Turn something that feels overwhelming into a first move. You choose what to accept.</span></span><span class="option-arrow" aria-hidden="true">↗</span></button>
+          <p class="product-note">Real screens from the MaybeSitter application, shown with example content.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="adapt-section wrap" aria-labelledby="adapt-title">
+      <div class="adapt-copy"><p class="kicker">BUILT AROUND BEING HUMAN</p><h2 id="adapt-title">Your Tuesday<br>went sideways.<br><em>You’re still okay.</em></h2><p>Plans change. Energy changes. Life happens.<br>MaybeSitter helps you find your footing and choose what’s next. No guilt. No starting over.</p></div>
+      <div class="adapt-visual"><span class="adapt-label">THERE’S ALWAYS A NEXT STEP</span><div class="day-line"><span>Plan</span><i></i><span class="detour">Life happens</span><i></i><span class="next-step">Next step ↗</span></div><p>You haven’t lost your progress.<br>You’re just finding a new way forward.</p></div>
+    </section>
+
+    <section class="early-access-section" id="early-access" aria-labelledby="access-title">
+      <div class="wrap access-grid"><div class="access-copy"><p class="kicker">COMING VERY SOON</p><h2 id="access-title">A little less<br>on your mind.<br><em>Start here.</em></h2><p>Be among the first to meet your personal AI chief of staff.</p><div class="access-availability"><span>iPhone</span><span>Android</span><span>Early access</span></div></div>
+        <div class="signup-card">
+          <div id="signup-content"><h3>Get Early Access</h3><p>We’ll be in touch when it’s your turn.</p>
+            <form id="signup-form" action="/api/early-access" method="post" novalidate>
+              <div class="form-field"><label for="first-name">First name</label><input id="first-name" name="name" autocomplete="given-name" maxlength="80" required placeholder="Your first name" aria-describedby="name-error"><span class="field-error" id="name-error"></span></div>
+              <div class="form-field"><label for="email">Email address</label><input id="email" name="email" type="email" inputmode="email" autocomplete="email" maxlength="254" required placeholder="you@example.com" aria-describedby="email-error"><span class="field-error" id="email-error"></span></div>
+              <fieldset class="device-field"><legend>Your device</legend><div class="device-options"><label><input type="radio" name="device" value="iphone" required><span>iPhone</span></label><label><input type="radio" name="device" value="android"><span>Android</span></label></div><span class="field-error" id="device-error"></span></fieldset>
+              <div class="form-field"><label for="phone">Phone number <span>Optional</span></label><input id="phone" name="phone" type="tel" inputmode="tel" autocomplete="tel" maxlength="30" placeholder="Include your country code" aria-describedby="phone-error"><span class="field-error" id="phone-error"></span></div>
+              <div class="honeypot" aria-hidden="true"><label>Leave this empty<input name="website" tabindex="-1" autocomplete="off"></label></div>
+              <p id="form-error" class="form-error" role="alert" hidden></p>
+              <button class="launch-button submit-button" type="submit"><span id="submit-label">Get Early Access</span><span aria-hidden="true">↗</span></button>
+              <p class="form-privacy">Only updates about your early access. Your details won’t be displayed publicly. <button type="button" class="privacy-trigger" aria-haspopup="dialog">How we use your details</button></p>
+              <noscript><p>Please enable JavaScript to register securely.</p></noscript>
+            </form>
+          </div>
+          <div id="signup-success" class="signup-success" tabindex="-1" hidden><span class="success-mark" aria-hidden="true">✓</span><p class="kicker">ONE LESS THING TO THINK ABOUT</p><h3>You’re in.</h3><p>We’ll contact you when your early access is ready.</p><p class="success-signoff">Until then, make room for what matters.</p></div>
+        </div>
+      </div>
+    </section>
+  </main>
+  <footer class="launch-footer wrap"><a class="launch-brand" href="#top"><img src="/assets/brand-mark.png" alt="" width="32" height="32"><span>MaybeSitter</span></a><p>Know what matters next.</p><button class="privacy-trigger" type="button" aria-haspopup="dialog">Early access privacy</button><span>© 2026 MaybeSitter</span></footer>
+  <div class="mobile-cta"><span>Coming very soon</span><a class="launch-button" data-cta="mobile-sticky" href="#early-access">Get Early Access ↗</a></div>
+  <dialog id="privacy-dialog" aria-labelledby="privacy-title"><button class="dialog-close" type="button" aria-label="Close privacy notice">×</button><p class="kicker">EARLY ACCESS</p><h2 id="privacy-title">Your details, with care.</h2><p>We collect your first name, email address, device preference and, if you provide it, phone number to manage your early access registration and contact you when access is ready.</p><p>We also store when you registered and the campaign source, if one was included in the link you followed. We do not ask for your goals, tasks or personal commitments here.</p><p>Registration details are stored using Google Cloud Firestore. We count aggregate page visits and registration activity without advertising trackers or tracking cookies. We don’t sell your details or display them publicly.</p><p>For registration questions, access, corrections or deletion, contact <a href="mailto:anasakkari04@gmail.com">anasakkari04@gmail.com</a>. We keep your registration while managing early access unless you request removal.</p><p><a href="/early-access-privacy">Read the early access privacy notice</a></p></dialog>
 </body>
 </html>

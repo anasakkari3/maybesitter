@@ -59,6 +59,7 @@ export const config = {
  * under time pressure.
  */
 const PRODUCTION_PATHS: readonly RegExp[] = [
+  /^\/api\/early-access(?:\/events)?\/?$/,
   /^\/api\/mobile(?:\/|$)/,
   /^\/api\/health/,
   /^\/api\/internal(?:\/|$)/,

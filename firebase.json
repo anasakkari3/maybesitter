@@ -15,17 +15,23 @@
       "**/.*",
       "**/node_modules/**",
       "**/*.sh",
-      "**/*.md"
+      "**/*.md",
+      "en/**",
+      "ar/**",
+      "he/**",
+      "firebase-hosting.snippet.json",
+      "assets/product-today.png",
+      "assets/product-calendar.png",
+      "assets/product-first-move.png"
+    ],
+    "rewrites": [
+      { "source": "/api/early-access", "run": { "serviceId": "maybesitter-api", "region": "europe-west1" } },
+      { "source": "/api/early-access/events", "run": { "serviceId": "maybesitter-api", "region": "europe-west1" } }
     ],
     "redirects": [
       {
         "source": "/privacy",
-        "destination": "/en/privacy",
-        "type": 301
-      },
-      {
-        "source": "/terms",
-        "destination": "/en/terms",
+        "destination": "/early-access-privacy",
         "type": 301
       }
     ],

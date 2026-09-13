@@ -1,0 +1,23 @@
+# Cloud Build upload exclusions, anchored to preserve lib/services/mobile.
+/.git/
+/.github/
+/node_modules/
+/.next/
+/.worktrees/
+/.maybesitter/
+/mobile/
+/docs/
+/design/
+/site/
+/infra/
+/evaluation-data/
+/evaluation-reports/
+/data/
+**/.env
+**/.env.*
+!/.env.example
+**/*.p8
+**/*.p12
+**/*.keystore
+**/*.log
+**/.DS_Store

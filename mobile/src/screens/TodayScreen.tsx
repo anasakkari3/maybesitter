@@ -9,6 +9,7 @@ import { ltr } from '../i18n/strings';
 import { Btn, Card, Pill, Txt } from '../ui/primitives';
 import { CheckIcon, Glow, Hatch } from '../ui/icons';
 import { ScreenIn } from '../ui/motion';
+import { BrandLogo } from '../ui/brand';
 
 const H0 = 8;
 const H1 = 22;
@@ -37,9 +38,12 @@ export function TodayScreen() {
       </View>
       <ScrollView contentContainerStyle={{ paddingTop: insets.top + 8, paddingHorizontal: 20, paddingBottom: 130, gap: 14 }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12 }}>
-          <View style={{ flexShrink: 1 }}>
-            <Txt size={13} color={p.mu}>{t.dateToday}</Txt>
-            <Txt size={28} weight={600} lh={1.3}>{t.todayTitle}</Txt>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 1 }}>
+            <BrandLogo variant="badge" size={44} />
+            <View style={{ flexShrink: 1 }}>
+              <Txt size={13} color={p.mu}>{t.dateToday}</Txt>
+              <Txt size={28} weight={600} lh={1.3}>{t.todayTitle}</Txt>
+            </View>
           </View>
           <View style={{ backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln, borderRadius: 999, paddingVertical: 6, paddingHorizontal: 12 }}>
             <Txt size={12} color={p.mu}>{t.budgetPill}</Txt>
@@ -55,7 +59,7 @@ export function TodayScreen() {
 
         {isEmpty && (
           <View style={{ marginTop: 80, alignItems: 'center', gap: 14, paddingHorizontal: 20 }}>
-            <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: p.acs }} />
+            <BrandLogo variant="badge" size={72} decorative />
             <Txt size={20} weight={600} align="center">{t.emptyTitle}</Txt>
             <Txt size={14} color={p.mu} align="center">{t.emptyBody}</Txt>
             <Pill label={t.sayIt} onPress={actions.goCapture} style={{ marginTop: 6, paddingHorizontal: 26 }} />

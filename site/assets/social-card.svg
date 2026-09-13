@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#f5f7f8"/>
+  <g fill="none" stroke="#cadde1" stroke-width="2">
+    <circle cx="1070" cy="310" r="290"/><circle cx="1070" cy="310" r="230"/><circle cx="1070" cy="310" r="170"/>
+  </g>
+  <circle cx="1070" cy="310" r="100" fill="#dfeff3"/>
+  <rect x="885" y="261" width="210" height="98" rx="22" fill="#1f7a8c"/>
+  <path d="m967 310 14 14 29-31" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <g font-family="Arial,sans-serif">
+    <text x="72" y="95" font-size="30" font-weight="700" fill="#14181b">MaybeSitter</text>
+    <text x="72" y="268" font-size="80" font-weight="700" letter-spacing="-4" fill="#14181b">Know what</text>
+    <text x="72" y="355" font-size="80" font-weight="700" letter-spacing="-4" fill="#14181b">matters <tspan fill="#1f7a8c">next.</tspan></text>
+    <text x="76" y="427" font-size="26" fill="#5f6b70">Your personal AI chief of staff.</text>
+    <text x="76" y="554" font-size="20" fill="#1f7a8c">COMING VERY SOON  ·  iPHONE &amp; ANDROID</text>
+  </g>
+</svg>

@@ -1,5 +1,11 @@
 # `site/` — the MaybeSitter public website
 
+**Launch page update:** The root page is now the interactive early-access experience.
+See [LAUNCH.md](LAUNCH.md) for its preview server, persistence, tests and production
+requirements. The historical static-only instructions below describe the unchanged
+multilingual legal pages, not the new root page. Do not use a static-only server to
+test registration.
+
 Plain HTML and CSS for the public site required by issue #137 (OWNER-A1): a homepage, a
 privacy policy and terms of use, in English, Arabic and Hebrew.
 

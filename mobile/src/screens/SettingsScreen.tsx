@@ -5,6 +5,7 @@ import { useApp } from '../state/AppContext';
 import { LANGUAGE_ENDONYM } from '../i18n/language';
 import { Btn, Card, Txt } from '../ui/primitives';
 import { ScreenIn } from '../ui/motion';
+import { BrandLogo } from '../ui/brand';
 
 export function SettingsScreen() {
   const { t, p, langPref, themePref, actions } = useApp();
@@ -27,7 +28,10 @@ export function SettingsScreen() {
   return (
     <ScreenIn style={{ backgroundColor: p.bg }}>
       <ScrollView contentContainerStyle={{ paddingTop: insets.top + 8, paddingHorizontal: 20, paddingBottom: 130, gap: 14 }}>
-        <Txt size={28} weight={600} lh={1.3}>{t.settingsTitle}</Txt>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <BrandLogo variant="badge" size={44} />
+          <Txt size={28} weight={600} lh={1.3} style={{ flexShrink: 1 }}>{t.settingsTitle}</Txt>
+        </View>
         <Card pad={0} style={{ overflow: 'hidden' }}>
           {rows.map((r, i) => (
             <Btn
