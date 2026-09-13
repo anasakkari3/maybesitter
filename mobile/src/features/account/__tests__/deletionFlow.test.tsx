@@ -107,8 +107,8 @@ function TodayProbe() {
   // and the React Compiler rules refuse it outright.
   useEffect(() => {
     probe.mutate = () => {
-      // Two pieces of per-user state a screen really holds: which day is open,
-      // and a half-typed capture.
+      // Two pieces of per-user state a screen really holds: which day is open
+      // (an offset from today since #173), and a half-typed capture.
       actions.setSelDay(6);
       actions.setInput('something the user was typing');
     };
@@ -311,7 +311,9 @@ describe('the privacy invariant', () => {
     // otherwise still show the deleted account's work.
     await fireEvent.press(screen.getByLabelText(en.accountDeletedContinue));
     await waitFor(() => expect(screen.getByText(en.authTitle)).toBeTruthy());
-    expect(probeText()).toBe('rows:0|day:4|input:0');
+    // day 0 is the default: today. Not 6, which is where the deleted account
+    // had the strip scrolled to.
+    expect(probeText()).toBe('rows:0|day:0|input:0');
   });
 
   it('never shows account A data to account B', async () => {

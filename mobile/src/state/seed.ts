@@ -3,7 +3,6 @@ import type { Commitment, YesterdayItem } from './types';
 // Sample week from the design. Day indexes count from Sunday 6 Sept, so
 // 4 = Thursday 10 Sept (today). Replace with /api/mobile/commitments/*.
 export const TODAY = 4;
-export const WEEK_START_DATE = 6;
 
 export const seedCommitments: Commitment[] = [
   { id: 'c1', title: { ar: 'مراجعة محاضرة الإحصاء', en: 'Review the statistics lecture' }, day: 4, h: 10, m: 0, dur: 60, imp: 'must', status: 'done', locked: true },
@@ -26,6 +25,5 @@ export const seedBusy = [
   { h: 15, m: 0, dur: 60 },
   { h: 20, m: 30, dur: 60 },
 ];
-export const busyWeekdays = [1, 2, 4, 5];
 
 export const NOW = { h: 13, m: 20 };
