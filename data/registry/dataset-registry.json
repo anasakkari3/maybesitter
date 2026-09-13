@@ -12,7 +12,9 @@
       "owner": "model-data",
       "card": "data/DATASET_CARD.md",
       "supersededBy": null,
-      "gates": ["https://github.com/anasakkari3/maybesitter/issues/5"],
+      "gates": [
+        "https://github.com/anasakkari3/maybesitter/issues/5"
+      ],
       "sources": [
         {
           "name": "MASSIVE",
@@ -269,7 +271,9 @@
       "owner": "model-data",
       "card": "data/DATASET_CARD.md",
       "supersededBy": null,
-      "gates": ["https://github.com/anasakkari3/maybesitter/issues/5"],
+      "gates": [
+        "https://github.com/anasakkari3/maybesitter/issues/5"
+      ],
       "sources": [
         {
           "name": "MaybeSitter Gold review candidates",
@@ -305,7 +309,10 @@
         }
       ],
       "lineage": {
-        "derivedFrom": ["source:MaybeSitter Gold review candidates", "source:MaybeSitter reviewer decisions"],
+        "derivedFrom": [
+          "source:MaybeSitter Gold review candidates",
+          "source:MaybeSitter reviewer decisions"
+        ],
         "producedBy": {
           "script": "scripts/review-gemma-gold.py",
           "version": "gold-review-v1",
@@ -397,7 +404,9 @@
       "owner": "model-data",
       "card": null,
       "supersededBy": null,
-      "gates": ["https://github.com/anasakkari3/maybesitter/issues/5"],
+      "gates": [
+        "https://github.com/anasakkari3/maybesitter/issues/5"
+      ],
       "sources": [
         {
           "name": "MaybeSitter calibration round",
@@ -417,7 +426,11 @@
         }
       ],
       "lineage": {
-        "derivedFrom": ["gemma3-pilot-v4-review", "gemma3-gold-review", "source:MaybeSitter calibration round"],
+        "derivedFrom": [
+          "gemma3-pilot-v4-review",
+          "gemma3-gold-review",
+          "source:MaybeSitter calibration round"
+        ],
         "producedBy": {
           "script": "scripts/gemma-calibration",
           "version": "first-50-calibration-v1",
@@ -565,7 +578,9 @@
         }
       ],
       "lineage": {
-        "derivedFrom": ["source:MaybeSitter pilot-v4 review candidates"],
+        "derivedFrom": [
+          "source:MaybeSitter pilot-v4 review candidates"
+        ],
         "producedBy": {
           "script": "scripts/prepare-pilot-v4-review.py",
           "version": "pilot-v4-review-v1",
@@ -639,7 +654,9 @@
       "owner": "model-data",
       "card": null,
       "supersededBy": null,
-      "gates": ["https://github.com/anasakkari3/maybesitter/issues/5"],
+      "gates": [
+        "https://github.com/anasakkari3/maybesitter/issues/5"
+      ],
       "sources": [
         {
           "name": "MaybeSitter reviewed Gold decisions",
@@ -659,7 +676,11 @@
         }
       ],
       "lineage": {
-        "derivedFrom": ["gemma3-gold-review", "gemma3-pilot-v4-review", "source:MaybeSitter reviewed Gold decisions"],
+        "derivedFrom": [
+          "gemma3-gold-review",
+          "gemma3-pilot-v4-review",
+          "source:MaybeSitter reviewed Gold decisions"
+        ],
         "producedBy": {
           "script": "scripts/prepare-pilot-v4-training.py",
           "version": "pilot-v4-staged-compiler-v2",
@@ -789,7 +810,9 @@
       "owner": "model-data",
       "card": null,
       "supersededBy": null,
-      "gates": ["https://github.com/anasakkari3/maybesitter/issues/2"],
+      "gates": [
+        "https://github.com/anasakkari3/maybesitter/issues/2"
+      ],
       "sources": [
         {
           "name": "MaybeSitter locked automated evaluation generator",
@@ -808,7 +831,9 @@
         }
       ],
       "lineage": {
-        "derivedFrom": ["source:MaybeSitter locked automated evaluation generator"],
+        "derivedFrom": [
+          "source:MaybeSitter locked automated evaluation generator"
+        ],
         "producedBy": {
           "script": "scripts/generate-gemma-evaluation.py",
           "version": "locked-automated-v4-v1",
@@ -865,7 +890,9 @@
       "owner": "model-data",
       "card": null,
       "supersededBy": null,
-      "gates": ["https://github.com/anasakkari3/maybesitter/issues/2"],
+      "gates": [
+        "https://github.com/anasakkari3/maybesitter/issues/2"
+      ],
       "sources": [
         {
           "name": "MaybeSitter authored locked test",
@@ -885,7 +912,9 @@
         }
       ],
       "lineage": {
-        "derivedFrom": ["source:MaybeSitter authored locked test"],
+        "derivedFrom": [
+          "source:MaybeSitter authored locked test"
+        ],
         "producedBy": {
           "script": "hand-authored",
           "version": "locked-test-v1",
@@ -941,7 +970,9 @@
         }
       ],
       "lineage": {
-        "derivedFrom": ["source:MaybeSitter authored development cases"],
+        "derivedFrom": [
+          "source:MaybeSitter authored development cases"
+        ],
         "producedBy": {
           "script": "hand-authored",
           "version": "dev-cases-v1",
@@ -997,7 +1028,9 @@
         }
       ],
       "lineage": {
-        "derivedFrom": ["source:MaybeSitter remediation development cases"],
+        "derivedFrom": [
+          "source:MaybeSitter remediation development cases"
+        ],
         "producedBy": {
           "script": "scripts/gemma-remediation",
           "version": "remediation-development-v1",
@@ -1035,7 +1068,9 @@
       "owner": "model-data",
       "card": "docs/data/CAPTURE_GOLD_FREEZE.md",
       "supersededBy": null,
-      "gates": ["https://github.com/anasakkari3/maybesitter/issues/5"],
+      "gates": [
+        "https://github.com/anasakkari3/maybesitter/issues/5"
+      ],
       "sources": [
         {
           "name": "MaybeSitter Capture Gold freeze",
@@ -1156,7 +1191,9 @@
       "owner": "backend",
       "card": null,
       "supersededBy": null,
-      "gates": ["https://github.com/anasakkari3/maybesitter/issues/1"],
+      "gates": [
+        "https://github.com/anasakkari3/maybesitter/issues/1"
+      ],
       "sources": [
         {
           "name": "MaybeSitter production extraction contract",
@@ -1175,7 +1212,9 @@
         }
       ],
       "lineage": {
-        "derivedFrom": ["source:MaybeSitter production extraction contract"],
+        "derivedFrom": [
+          "source:MaybeSitter production extraction contract"
+        ],
         "producedBy": {
           "script": "scripts/snapshot-production-schema.ts",
           "version": "v4",
@@ -1232,7 +1271,9 @@
         }
       ],
       "lineage": {
-        "derivedFrom": ["source:MaybeSitter runtime smoke generator"],
+        "derivedFrom": [
+          "source:MaybeSitter runtime smoke generator"
+        ],
         "producedBy": {
           "script": "scripts/gemma-runtime",
           "version": "runtime-smoke-v1",
@@ -1294,6 +1335,88 @@
           },
           "mutability": "mutable",
           "materialized": true
+        }
+      ]
+    },
+    {
+      "id": "capture-messy-multilingual-v1",
+      "title": "MaybeSitter messy multilingual capture suite v1",
+      "version": "1.0.0",
+      "purpose": "evaluation",
+      "status": "validated",
+      "owner": "s2-capture",
+      "card": null,
+      "supersededBy": null,
+      "gates": [
+        "https://github.com/anasakkari3/maybesitter/issues/162"
+      ],
+      "sources": [
+        {
+          "name": "MaybeSitter messy multilingual generator",
+          "url": "scripts/eval/build-messy-multilingual.mjs",
+          "revision": "capture-messy-multilingual-v1",
+          "license": "Project-owned",
+          "declaredRecordCount": 165,
+          "consent": {
+            "basis": "project_owned_synthetic",
+            "containsPersonalData": false,
+            "personalDataHandling": "none",
+            "redistribution": "allowed_with_attribution",
+            "reviewedBy": "s2-capture track",
+            "reviewedAt": "2026-09-13T00:00:00.000Z",
+            "notes": "Every case is written by the generator, not collected. No real message, name beyond a common first name, email, URL, phone number or long digit run; tests/evaluation/messyMultilingualDataset.test.ts fails if one appears. The repository is public and its history is permanent, which is why this is asserted rather than reviewed."
+          }
+        }
+      ],
+      "lineage": {
+        "derivedFrom": [
+          "source:MaybeSitter messy multilingual generator"
+        ],
+        "producedBy": {
+          "script": "scripts/eval/build-messy-multilingual.mjs",
+          "version": "capture-messy-multilingual-v1",
+          "seed": 0
+        },
+        "transformationNotes": "Deterministic: one fixed reference time (2026-09-14T10:00+03:00, a Monday) and one timezone, so every expected local date is computed rather than typed. Re-running the generator reproduces the file byte for byte. The 40 safety_negative cases are shared with UC-2.6 (#166), which extends the same file rather than adding a second incompatible format."
+      },
+      "artifacts": [
+        {
+          "id": "capture-messy-multilingual-cases",
+          "role": "benchmark",
+          "location": {
+            "repository": "maybesitter",
+            "revision": "b9c6d584b8575e99be12621ae7b85d7df743ca79",
+            "path": "evaluation-data/capture-messy-multilingual-v1.jsonl"
+          },
+          "mediaType": "application/jsonl",
+          "recordCount": 165,
+          "byteSize": 50335,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "c360de92e2c7bd6bc743402c4a6d4fe8f3b6f9c17f119faf8417d5f92d2d2904"
+          },
+          "mutability": "append_only",
+          "materialized": true,
+          "notes": "Append-only: adding cases is how #166 extends it, and changing an existing expectation would silently move the bar the model is measured against."
+        },
+        {
+          "id": "capture-messy-rule-based-baseline",
+          "role": "report",
+          "location": {
+            "repository": "maybesitter",
+            "revision": "b9c6d584b8575e99be12621ae7b85d7df743ca79",
+            "path": "evaluation-reports/capture-messy-rule-based.json"
+          },
+          "mediaType": "application/json",
+          "recordCount": null,
+          "byteSize": 228361,
+          "checksum": {
+            "algorithm": "sha256",
+            "value": "e4299c1b94fb5285153595d93c64e038e52cbe1d92dd1ade8eab9cc9cc5d159b"
+          },
+          "mutability": "mutable",
+          "materialized": true,
+          "notes": "Baseline B for #162 step 7. The rule-based engine on this suite, which is what the messy-v1 thresholds are set above. Regenerated by re-running the eval; tests/evaluation/messyMultilingualDataset.test.ts guards against it regressing."
         }
       ]
     }
