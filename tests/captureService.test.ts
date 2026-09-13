@@ -48,6 +48,15 @@ function withFreshCommandService(): (() => void) & {
   return cleanup;
 }
 
+/**
+ * A model answer for a capture that states a day *and* an hour.
+ *
+ * `dueAt` here is 18:00, and the inputs below say "at 6pm" so that it is a time
+ * the user actually gave. They used to say only "tomorrow", and the 18:00 came
+ * from nowhere — which is exactly the invention #162 removed, so the reconciler
+ * now strips a time the text never stated and these tests would be asserting a
+ * clarification instead of the flow they are named for.
+ */
 function llmTaskOutput() {
   return {
     type: 'task',
@@ -80,7 +89,7 @@ function llmTaskOutput() {
 test('captureService: auto-confirm flows from input to formatted response', async () => {
   const cleanup = withFreshCommandService();
   try {
-    const result = await captureText('Remind me to call Maya tomorrow', {
+    const result = await captureText('Remind me to call Maya tomorrow at 6pm', {
       now,
       timezone: 'UTC',
       sessionId: 'session-a',
@@ -104,7 +113,7 @@ test('captureService: auto-confirm flows from input to formatted response', asyn
 test('captureService: extraction fallback still returns a safe response', async () => {
   const cleanup = withFreshCommandService();
   try {
-    const result = await captureText('Remind me to call Maya tomorrow', {
+    const result = await captureText('Remind me to call Maya tomorrow at 6pm', {
       now,
       timezone: 'UTC',
       sessionId: 'session-a',
@@ -320,7 +329,7 @@ test('captureService: continuation fills missing date without dropping the origi
 test('captureService: correction updates date instead of appending a second date', async () => {
   const cleanup = withFreshCommandService();
   try {
-    const first = await captureText('Remind me to call mom tomorrow', {
+    const first = await captureText('Remind me to call mom tomorrow at 6pm', {
       now,
       timezone: 'UTC',
       sessionId: 'session-a',
@@ -368,7 +377,7 @@ test('captureService: correction updates date instead of appending a second date
 test('captureService: correction safely changes the target person', async () => {
   const cleanup = withFreshCommandService();
   try {
-    const first = await captureText('Remind me to call mom tomorrow', {
+    const first = await captureText('Remind me to call mom tomorrow at 6pm', {
       now,
       timezone: 'UTC',
       sessionId: 'session-a',
@@ -415,7 +424,7 @@ test('captureService: correction safely changes the target person', async () => 
 test('captureService: continuation fills a missing person separately', async () => {
   const cleanup = withFreshCommandService();
   try {
-    const first = await captureText('Remind me to follow up tomorrow', {
+    const first = await captureText('Remind me to follow up tomorrow at 6pm', {
       now,
       timezone: 'UTC',
       sessionId: 'session-a',
@@ -463,7 +472,7 @@ test('captureService: continuation fills a missing person separately', async () 
 test('captureService: continuation fills a missing action verb separately', async () => {
   const cleanup = withFreshCommandService();
   try {
-    const first = await captureText('Remind me tomorrow', {
+    const first = await captureText('Remind me tomorrow at 6pm', {
       now,
       timezone: 'UTC',
       sessionId: 'session-a',

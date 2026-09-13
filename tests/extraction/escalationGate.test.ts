@@ -11,6 +11,8 @@ function baseResult(over: Partial<ExtractionResult> = {}): ExtractionResult {
     person: null,
     dueAt: '2026-08-22T15:00:00.000Z',
     remindAt: '2026-08-22T14:00:00.000Z',
+    localTimeSpec: { date: '2026-08-22', time: '17:00', timezone: 'Asia/Jerusalem' },
+    timeEvidence: 'hhmm',
     priority: { level: 'normal', source: 'inferred', pressureAllowed: true, pressureImplied: false },
     flexibility: 'movable',
     confidence: { overall: 0.9, type: 0.9, action: 0.9, time: 0.9, priority: 0.8 },

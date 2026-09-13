@@ -62,7 +62,7 @@ function llmTaskOutput() {
 test('domainAppSnapshotAdapter: capture-created commitment appears in dashboard snapshot', async () => {
   const cleanup = withFreshCommandService();
   try {
-    await captureText('Remind me to call Maya tomorrow', {
+    await captureText('Remind me to call Maya tomorrow at 6pm', {
       now,
       timezone: 'UTC',
       llmProvider: async () => JSON.stringify(llmTaskOutput()),
@@ -83,7 +83,7 @@ test('domainAppSnapshotAdapter: capture-created commitment appears in dashboard 
 test('domainAppSnapshotAdapter: dashboard actions mutate canonical DomainState', async () => {
   const cleanup = withFreshCommandService();
   try {
-    await captureText('Remind me to call Maya tomorrow', {
+    await captureText('Remind me to call Maya tomorrow at 6pm', {
       now,
       timezone: 'UTC',
       llmProvider: async () => JSON.stringify(llmTaskOutput()),
@@ -102,7 +102,7 @@ test('domainAppSnapshotAdapter: dashboard actions mutate canonical DomainState',
 test('domainAppSnapshotAdapter: dashboard edits update canonical DomainState', async () => {
   const cleanup = withFreshCommandService();
   try {
-    await captureText('Remind me to call Maya tomorrow', {
+    await captureText('Remind me to call Maya tomorrow at 6pm', {
       now,
       timezone: 'UTC',
       llmProvider: async () => JSON.stringify(llmTaskOutput()),
