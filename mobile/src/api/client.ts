@@ -12,6 +12,10 @@ import {
   NotFoundError,
   ServerError,
   ServiceUnavailableError,
+  ApiError,
+  QuotaExceededError,
+  InputTooLargeError,
+  type QuotaScope,
   StaleCommitmentError,
   TimeoutError,
   UnauthorizedError,
@@ -183,11 +187,37 @@ function errorForStatus(status: number, body: unknown): Error {
       return new NotFoundError(message);
     case 409:
       return conflictFor(body);
+    case 413:
+      return new InputTooLargeError(
+        typeof (body as { maxCharacters?: unknown })?.maxCharacters === 'number'
+          ? (body as { maxCharacters: number }).maxCharacters
+          : 20_000,
+      );
+    case 429:
+      return quotaFor(body, message);
     case 503:
       return new ServiceUnavailableError(message, reason);
     default:
       return new ServerError(message, status);
   }
+}
+
+/**
+ * A 429 from the model quota, or a plain one if the body says nothing (#181).
+ *
+ * The scope is trusted only when it is one of the three the contract names; an
+ * unrecognised value falls back to `user_daily`, which is the answer that asks
+ * the user to wait rather than blaming the service for something it may not
+ * have done.
+ */
+function quotaFor(body: unknown, message: string): ApiError {
+  const refusalBody = body as { scope?: unknown; retryAfterSeconds?: unknown } | null;
+  const scopes: QuotaScope[] = ['user_daily', 'user_minute', 'global_daily'];
+  const scope = scopes.find(candidate => candidate === refusalBody?.scope) ?? 'user_daily';
+  const retryAfter = typeof refusalBody?.retryAfterSeconds === 'number' && refusalBody.retryAfterSeconds > 0
+    ? Math.ceil(refusalBody.retryAfterSeconds)
+    : 60;
+  return new QuotaExceededError(scope, retryAfter, message);
 }
 
 /** A parsed body plus the validator to send back on a conditional write. */

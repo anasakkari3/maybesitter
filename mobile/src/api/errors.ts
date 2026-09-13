@@ -108,6 +108,39 @@ export class InvalidTransitionError extends ConflictError {
   }
 }
 
+/**
+ * 429 — a model quota is spent (UC-4.5, #181).
+ *
+ * Deliberately **not** retryable. It is the one 4xx that will succeed later, and
+ * that is exactly why it must not be retried automatically: an automatic retry
+ * against a quota is the loop the quota exists to stop, and it would spend the
+ * user's remaining budget without them asking.
+ *
+ * `scope` decides which line the user is shown. `global_daily` is nobody's
+ * fault, and its copy says so rather than implying they did something.
+ *
+ * Whatever the user typed is kept by the composer regardless: losing somebody's
+ * words because a counter was full would be the worst possible response.
+ */
+export type QuotaScope = 'user_daily' | 'user_minute' | 'global_daily';
+
+export class QuotaExceededError extends ApiError {
+  constructor(
+    readonly scope: QuotaScope,
+    readonly retryAfterSeconds: number,
+    message = 'the AI quota for this account is spent',
+  ) {
+    super(message);
+  }
+}
+
+/** 413 — the input is larger than a model call may carry (UC-4.5, #181). */
+export class InputTooLargeError extends ApiError {
+  constructor(readonly maxCharacters: number) {
+    super(`the text is longer than ${maxCharacters} characters`);
+  }
+}
+
 /** 503 — a dependency is down. A retry, never a sign-out. */
 export class ServiceUnavailableError extends ApiError {
   constructor(message: string, readonly reason?: string) {

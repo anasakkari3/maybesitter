@@ -98,7 +98,15 @@ test('every call reserves, so the repair attempt is paid for too', async () => {
 });
 
 test('over the cap, the provider is never asked and the reason names which cap', async () => {
-  for (const [outcome, reason] of [['user_cap', 'cost_cap:user'], ['global_cap', 'cost_cap:global']] as const) {
+  // The reason names the *scope* a user is told about, not the internal counter:
+  // both daily caps read as `user_daily`, and the minute cap is its own, because
+  // it clears in seconds and deserves a different answer (#181).
+  for (const [outcome, reason] of [
+    ['user_cap', 'cost_cap:user_daily'],
+    ['user_token_cap', 'cost_cap:user_daily'],
+    ['user_minute_cap', 'cost_cap:user_minute'],
+    ['global_cap', 'cost_cap:global_daily'],
+  ] as const) {
     const provider = answering('{"type":"task"}');
     const { reserve } = reserver([outcome]);
     const { lines, log } = recorder();

@@ -33,24 +33,33 @@ test('a call is reserved, and the reservation is what the counter counts', async
   const now = new Date('2026-09-12T10:00:00.000Z');
 
   assert.equal(await reserveCall(UID, 'capture_extraction', { storage: store, now }), 'ok');
-  assert.deepEqual(await callsToday(UID, { storage: store, now }), { user: 1, global: 1 });
+  // `tokens` is 0 until a call answers: they are committed after the fact, not
+  // reserved, because the true count is only known once the provider replies.
+  assert.deepEqual(await callsToday(UID, { storage: store, now }), { user: 1, global: 1, tokens: 0, minuteCalls: 1 });
 
   await reserveCall(UID, 'capture_extraction', { storage: store, now });
-  assert.deepEqual(await callsToday(UID, { storage: store, now }), { user: 2, global: 2 });
+  assert.deepEqual(await callsToday(UID, { storage: store, now }), { user: 2, global: 2, tokens: 0, minuteCalls: 2 });
 });
 
-test('the call over the user cap is refused, and it is the 151st', async () => {
-  // #160's acceptance criterion, stated as the number it names.
+test('the call over the user daily cap is refused, and it is the 61st', async () => {
+  // #160's acceptance criterion, at UC-4.5 (#181)'s launch figure of 60.
+  //
+  // Each call is a minute apart. It has to be: the per-minute cap #181 added is
+  // eight, so sixty calls inside one minute are refused by *that* limit long
+  // before the daily one — which is the whole point of having it, and is
+  // asserted directly in the minute-cap test below.
   const store = storage();
-  const now = new Date('2026-09-12T10:00:00.000Z');
+  const start = new Date('2026-09-12T10:00:00.000Z');
   const userCap = DEFAULT_USER_DAILY_CAP;
+  const minutesLater = (n: number) => new Date(start.getTime() + n * 60_000);
 
   for (let call = 0; call < userCap; call += 1) {
-    const outcome = await reserveCall(UID, 'capture_extraction', { storage: store, now });
+    const outcome = await reserveCall(UID, 'capture_extraction', { storage: store, now: minutesLater(call) });
     assert.equal(outcome, 'ok', `call ${call + 1} was refused before the cap`);
   }
-  assert.equal(await reserveCall(UID, 'capture_extraction', { storage: store, now }), 'user_cap');
-  assert.equal((await callsToday(UID, { storage: store, now })).user, userCap, 'a refused call was still counted');
+  const over = minutesLater(userCap);
+  assert.equal(await reserveCall(UID, 'capture_extraction', { storage: store, now: over }), 'user_cap');
+  assert.equal((await callsToday(UID, { storage: store, now: over })).user, userCap, 'a refused call was still counted');
 });
 
 test('one account over its cap does not stop another account', async () => {

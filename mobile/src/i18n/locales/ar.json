@@ -276,7 +276,6 @@
   "noCommitmentPastEvent": "مبين إنه إشي صار من قبل. ما ضفنا شي.",
   "noCommitmentNegatedRequest": "تمام. ما عملنا تذكير.",
   "noCommitmentLowConfidence": "ما قدرنا نقرا التزام من هاد. جرّب تكتب المهمة والوقت.",
-
   "obWelcomeTitle": "MaybeSitter بيمسك اللي بتقوله",
   "obWelcomeBody": "احكي التزامك أو اكتبه. MaybeSitter بيحوّله لإشي بتشوفه، بتحرّكه، أو بتسقطه بوعي.",
   "obWelcomeCard1": "ما بينحفظ إشي قبل ما تأكّده.",
@@ -332,5 +331,9 @@
   "obNotifBody": "MaybeSitter بيقدر يذكّرك بالأوقات اللي اخترتها. تلفونك رح يسألك قبل — مش هلّق، وأبداً بساعات هدوئك.",
   "obNotifLater": "بعدين",
   "obDone": "يلا نبلّش",
-  "obStepOf": "خطوة {current} من {total}"
+  "obStepOf": "خطوة {current} من {total}",
+  "aiQuotaUserDaily": "وصلت حد الذكاء الاصطناعي لليوم. نصّك محفوظ — جرّب بكرا.",
+  "aiQuotaTryLater": "طلبات كتير بسرعة. نصّك محفوظ — جرّب بعد شوي.",
+  "aiServiceUnavailable": "الذكاء الاصطناعي مشغول للكل هلق. نصّك محفوظ — جرّب لاحقاً.",
+  "aiInputTooLong": "النص طويل كتير للتحليل. قصّره وجرّب مرة تانية."
 }

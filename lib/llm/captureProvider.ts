@@ -29,7 +29,15 @@ import { getAiConsent } from '../consents/aiConsentService';
 import { AiConsentRequiredError, consentGatedProvider } from './consentGatedProvider';
 import { GEMINI_EXTRACTION_SCHEMA } from '../../src/extraction/ollamaExtractionSchema';
 import { logLlmCall, uidHash } from './llmLog';
-import { reserveCall, type ReserveOptions } from './usageGuard';
+import {
+  aiDisabled,
+  commitUsage,
+  MAX_INPUT_CHARACTERS,
+  quotaScopeFor,
+  reserveCall,
+  retryAfterSecondsFor,
+  type ReserveOptions,
+} from './usageGuard';
 
 /**
  * The delimiter, matched only where it actually delimits: alone on its own line.
@@ -73,6 +81,8 @@ export interface CaptureProviderOptions {
   reserve?: typeof reserveCall;
   reserveOptions?: ReserveOptions;
   log?: typeof logLlmCall;
+  commit?: typeof commitUsage;
+  now?: () => Date;
 }
 
 /**
@@ -86,8 +96,20 @@ export function captureLlmProvider(uid: string, options: CaptureProviderOptions 
   const purpose = options.purpose ?? 'capture_extraction';
   const reserve = options.reserve ?? reserveCall;
   const log = options.log ?? logLlmCall;
+  const commit = options.commit ?? commitUsage;
+  const clock = options.now ?? (() => new Date());
 
   return async (prompt: string): Promise<string> => {
+    // The kill switch, before anything else (#181). It is the one brake that
+    // needs no code change and no console: every path falls back, and the
+    // fallback is the rule-based extractor, which is a working product.
+    if (aiDisabled()) throw new LLMUnavailableError('ai_disabled');
+
+    // Refused before the reservation, because a paste this size is not a capture
+    // and one of them costs what a whole day of ordinary use costs. The count is
+    // of the prompt as built, which is what actually gets billed.
+    if (prompt.length > MAX_INPUT_CHARACTERS) throw new LLMUnavailableError('input_too_large');
+
     // Gated, always. The gate is what makes this the only route to the model
     // (#161); the explicit check below is only about *when* it refuses.
     const provider = options.provider ?? consentGatedProvider(uid, {});
@@ -105,13 +127,24 @@ export function captureLlmProvider(uid: string, options: CaptureProviderOptions 
 
     const reservation = await reserve(uid, purpose, options.reserveOptions ?? {});
     if (reservation !== 'ok') {
-      const reason = reservation === 'user_cap'
-        ? 'cost_cap:user'
-        : reservation === 'global_cap'
-          ? 'cost_cap:global'
-          // The counters could not be read. Refusing is the fail-closed
-          // direction: an unreadable cap is not an absent one.
-          : 'usage_guard_unavailable';
+      const scope = quotaScopeFor(reservation);
+      const reason = scope
+        ? `cost_cap:${scope}`
+        // The counters could not be read. Refusing is the fail-closed
+        // direction: an unreadable cap is not an absent one.
+        : 'usage_guard_unavailable';
+      if (scope) {
+        // One line a log-based metric can count, with the scope as a label and
+        // nothing a person wrote (#181 step 7d). `global_daily` above zero is
+        // the alert that matters: it means everybody is being refused.
+        console.warn(JSON.stringify({
+          event: 'ai_quota_exceeded',
+          scope,
+          purpose,
+          uidHash: uidHash(uid),
+          retryAfterSeconds: retryAfterSecondsFor(scope, clock()),
+        }));
+      }
       log({
         event: 'llm_call',
         purpose,
@@ -138,6 +171,10 @@ export function captureLlmProvider(uid: string, options: CaptureProviderOptions 
         purpose,
         uid,
       });
+      // What it actually cost, recorded after the fact — the only point at which
+      // the real number is known (#181). Awaited so a test can observe it, and
+      // internally swallowing its own failures so it can never become the user's.
+      await commit(uid, { promptTokens: response.promptTokens, outputTokens: response.outputTokens });
       log({
         event: 'llm_call',
         purpose,
