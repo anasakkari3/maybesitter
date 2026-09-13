@@ -151,15 +151,15 @@ function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
   let targetDate: Date | null = null;
   let timeConfidence = 0;
 
-  if (/\btoday\b/.test(lower) || /\btonight\b/.test(lower) || /(اليوم|النهارده|اليومه)/.test(lower)) {
+  if (/\btoday\b/.test(lower) || /\btonight\b/.test(lower) || /(اليوم|النهارده|اليومه|الليلة|الليله)/.test(lower)) {
     targetDate = new Date(now);
     timeConfidence = 0.85;
   }
-  if (/\btomorrow\b/.test(lower) || /(بكرا|بكرة|غدا|غداً)/.test(lower)) {
+  if (/\b(?:tomorrow|tmrw|tmr|tomorow)\b/.test(lower) || /(بكرا|بكرة|بكره|باچر|باكر|غدا|غداً)/.test(lower)) {
     targetDate = addDaysTz(now, 1, tz);
     timeConfidence = 0.9;
   }
-  if (/\b(after tomorrow|day after tomorrow)\b/.test(lower) || /(بعد بكرا|بعد بكرة|بعد غد|بعد غداً)/.test(lower)) {
+  if (/\b(?:after tomorrow|day after tomorrow|after tmrw)\b/.test(lower) || /(بعد بكرا|بعد بكرة|بعد بكره|بعد غد|بعد غداً)/.test(lower)) {
     targetDate = addDaysTz(now, 2, tz);
     timeConfidence = 0.9;
   }
@@ -243,8 +243,8 @@ function stripTiming(text: string): string {
   // Rewrite «الساعة تسعة» to «الساعة 9» first, so the clock patterns below
   // strip a spoken hour out of the title exactly as they strip a typed one.
   let stripped = normalizeSpokenArabicHours(text)
-    .replace(/\b(after tomorrow|day after tomorrow|today|tomorrow|tonight|morning|afternoon|evening|night)\b/gi, ' ')
-    .replace(/(بعد بكرا|بعد بكرة|بعد غداً|بعد غد|اليوم|النهارده|اليومه|بكرا|بكرة|غداً|غدا|الصبح|صباحاً|صباحا|صباح|بعد الظهر|بعد الضهر|المساء|المسا|مساءً|مساءا|مساء|بالليل|الليل)/gi, ' ')
+    .replace(/\b(after tomorrow|day after tomorrow|after tmrw|today|tomorrow|tmrw|tmr|tomorow|tonight|morning|afternoon|evening|night)\b/gi, ' ')
+    .replace(/(بعد بكرا|بعد بكرة|بعد بكره|بعد غداً|بعد غد|اليوم|النهارده|اليومه|الليلة|الليله|بكرا|بكرة|بكره|باچر|باكر|غداً|غدا|الصبح|صباحاً|صباحا|صباح|بعد الظهر|بعد الضهر|العصر|المساء|المسا|مساءً|مساءا|مساء|بالليل|الليل)/gi, ' ')
     .replace(/\b(?:on|this|next)\s+(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/gi, ' ')
     .replace(/\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/gi, ' ')
     // Arabic embeds the day inside the sentence — «يوم الأحد الجاي» — where
