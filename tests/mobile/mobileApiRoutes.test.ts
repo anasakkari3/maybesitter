@@ -125,6 +125,8 @@ function uncertainExtraction(overrides: Partial<ExtractionResult> = {}): Extract
     person: null,
     dueAt: '2026-08-10T12:00:00.000Z',
     remindAt: '2026-08-10T12:00:00.000Z',
+    localTimeSpec: { date: '2026-08-10', time: '12:00', timezone: 'UTC' },
+    timeEvidence: 'hhmm',
     priority: { level: 'normal', source: 'default', pressureAllowed: false, pressureImplied: false },
     flexibility: 'movable',
     confidence: { overall: 0.5, type: 0.8, action: 0.8, time: 0.8, priority: 0.8 },
@@ -289,7 +291,14 @@ test('mobile capture accepts future requests that mention earlier context', asyn
       }));
       assert.equal(response.status, 200);
       const proposal = await json(response);
-      assert.equal(proposal.status, 'proposed');
+      // Accepted, not refused: the point is that "earlier"/«مبارح» does not make
+      // a forward-looking request look like a past event. Each of these names a
+      // day and no hour, so the capture now asks for the time rather than
+      // inventing one (#162) — still accepted, still creating nothing.
+      assert.ok(
+        proposal.status === 'proposed' || proposal.status === 'needs_clarification',
+        `expected an accepted proposal, got ${proposal.status}`,
+      );
       assert.equal(await commitmentCount(), 0);
     }
   } finally {

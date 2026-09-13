@@ -8,16 +8,19 @@ import { extract } from '../../src/extraction/ruleBasedExtractor.ts';
 const context = { now: new Date('2026-04-08T08:00:00.000Z'), timezone: 'UTC' };
 
 const cases = [
-  ['Remind me to call Maya tomorrow', 'task', 'auto_confirm', ['CreateDraft', 'ConfirmCommitment']],
+  // "tomorrow" with no hour. This used to auto-confirm 18:00 — an hour nobody
+  // said — and now asks instead (#162).
+  ['Remind me to call Maya tomorrow', 'task', 'needs_clarification', ['CreateDraft']],
+  ['Remind me to call Maya tomorrow at 6pm', 'task', 'auto_confirm', ['CreateDraft', 'ConfirmCommitment']],
   ['Remind me to send invoice today at 4pm', 'task', 'auto_confirm', ['CreateDraft', 'ConfirmCommitment']],
-  ['Follow up with Daniel about lease tomorrow', 'follow_up', 'pending_confirmation', ['CreateDraft']],
+  ['Follow up with Daniel about lease tomorrow at 4pm', 'follow_up', 'pending_confirmation', ['CreateDraft']],
   ['Call mom', 'task', 'needs_clarification', ['CreateDraft']],
   ['Please remind me to email Alex at 3pm', 'task', 'auto_confirm', ['CreateDraft', 'ConfirmCommitment']],
-  ['I need to submit report Friday', 'task', 'pending_confirmation', ['CreateDraft']],
+  ['I need to submit report Friday at 5pm', 'task', 'pending_confirmation', ['CreateDraft']],
   ['Maya is waiting on the invoice', 'informational_context', 'store_note', []],
   ['I should probably call Amir', 'task', 'store_note', []],
   ['Remind me to text Sam tonight', 'task', 'auto_confirm', ['CreateDraft', 'ConfirmCommitment']],
-  ['Follow up with Noa tomorrow', 'follow_up', 'pending_confirmation', ['CreateDraft']],
+  ['Follow up with Noa tomorrow at 11am', 'follow_up', 'pending_confirmation', ['CreateDraft']],
   ["Don't remind me to call mom tomorrow", 'task', 'store_note', []],
 ] as const;
 
@@ -132,19 +135,23 @@ test('extractionService: valid LLM output is primary', async () => {
     explicitPressureRequest: false,
   };
 
-  const mapped = await extractAndMap('Remind me to call Maya tomorrow', context, {
+  // The input names the hour the fixture returns. It used to say only
+  // "tomorrow" while the fixture answered 18:00, so the reconciler would now
+  // strip that time as invented — correctly, but this test is about the model
+  // answer being preferred, not about time parsing (#162).
+  const mapped = await extractAndMap('Remind me to call Maya tomorrow at 6pm', context, {
     llmProvider: async () => JSON.stringify(output),
   });
 
   assert.equal(mapped.engine, 'ollama');
   assert.equal(mapped.fallbackReason, null);
-  assert.equal(mapped.result.parserVersion, 'ollama-v1');
+  assert.equal(mapped.result.parserVersion, 'capture-v2');
   assert.equal(mapped.disposition, 'auto_confirm');
   assert.deepEqual(mapped.commands.map((command) => command.type), ['CreateDraft', 'ConfirmCommitment']);
 });
 
 test('extractionService: invalid JSON falls back to rule-based', async () => {
-  const mapped = await extractAndMap('Remind me to call Maya tomorrow', context, {
+  const mapped = await extractAndMap('Remind me to call Maya tomorrow at 6pm', context, {
     llmProvider: async () => 'not-json',
   });
 
@@ -282,14 +289,20 @@ test('extraction: an embedded Arabic day phrase leaves no hole in the title', ()
   const result = extract('عندي محاضرة إحصاء يوم الأحد الجاي', context);
 
   assert.equal(result.title, 'عندي محاضرة إحصاء');
-  assert.equal(new Date(result.remindAt || '').getUTCDay(), 0, 'still resolves to Sunday');
+  // «يوم الأحد الجاي» names a day and no hour, so there is no instant to
+  // resolve — inventing one is what #162 removed. The day itself survives on
+  // `localTimeSpec`, which is what the clarification step asks about.
+  assert.equal(result.remindAt, null);
+  assert.equal(result.timeEvidence, 'day_only');
+  assert.equal(new Date(`${result.localTimeSpec?.date}T00:00:00Z`).getUTCDay(), 0, 'still resolves to Sunday');
 });
 
 test('extraction: a trailing Arabic day phrase still cleans the title', () => {
   const result = extract('ذكرني أسلّم التقرير يوم الخميس الجاي', context);
 
   assert.equal(result.title, 'أسلّم التقرير');
-  assert.equal(new Date(result.remindAt || '').getUTCDay(), 4, 'still resolves to Thursday');
+  assert.equal(result.remindAt, null);
+  assert.equal(new Date(`${result.localTimeSpec?.date}T00:00:00Z`).getUTCDay(), 4, 'still resolves to Thursday');
 });
 
 test('extraction: spoken Arabic hour words resolve like digits', () => {

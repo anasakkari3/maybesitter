@@ -16,6 +16,8 @@ const proposal: ExtractionResult = {
   person: null,
   dueAt: '2026-08-22T05:00:00.000Z',
   remindAt: null,
+  localTimeSpec: { date: '2026-08-22', time: '08:00', timezone: 'Asia/Jerusalem' },
+  timeEvidence: 'clock_marker',
   priority: { level: 'normal', source: 'inferred', pressureAllowed: true, pressureImplied: false },
   flexibility: 'movable',
   confidence: { overall: 0.6, type: 0.6, action: 0.6, time: 0.5, priority: 0.8 },

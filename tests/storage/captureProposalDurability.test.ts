@@ -36,6 +36,8 @@ function extracted(): ExtractionResult {
     person: null,
     dueAt: '2026-08-17T12:00:00.000Z',
     remindAt: '2026-08-17T12:00:00.000Z',
+    localTimeSpec: { date: '2026-08-17', time: '12:00', timezone: 'UTC' },
+    timeEvidence: 'hhmm',
     priority: { level: 'normal', source: 'default', pressureAllowed: false, pressureImplied: false },
     flexibility: 'movable',
     confidence: { overall: 0.95, type: 0.95, action: 0.95, time: 0.95, priority: 0.8 },

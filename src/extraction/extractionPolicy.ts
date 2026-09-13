@@ -31,7 +31,13 @@ export function decideExtractionDisposition(result: ExtractionResult): Extractio
     !result.ambiguityFlags.includes('multiple_commitments') &&
     !result.ambiguityFlags.includes('contradictory_time') &&
     !result.ambiguityFlags.includes('negated_request') &&
-    !result.ambiguityFlags.includes('weak_commitment_language')
+    !result.ambiguityFlags.includes('weak_commitment_language') &&
+    // «الساعة 5» / "at 9" is the user's number and the product's guess at which
+    // half of the day they meant. The number is theirs, so the time is kept —
+    // but a guessed meridiem is a twelve-hour error, and the one thing that
+    // costs nothing to prevent it is showing the time to the person once
+    // (UC-2.2, #162).
+    result.timeEvidence !== 'clock_marker'
   ) {
     return 'auto_confirm';
   }
