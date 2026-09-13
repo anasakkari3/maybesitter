@@ -32,6 +32,13 @@ interface IntrospectedConfig {
     googleServicesFile?: string;
     allowBackup?: boolean;
     blockedPermissions?: string[];
+    /**
+     * Undefined today: the app declares no explicit Android permissions and
+     * everything in the merged manifest comes from library manifests. Typed
+     * anyway, so the check below keeps working the day one is added — which is
+     * exactly when it needs to.
+     */
+    permissions?: string[];
   };
   extra?: Record<string, unknown>;
 }
@@ -157,6 +164,15 @@ describe('Android hardening', () => {
    * its own, and every one of them can arrive through a library's manifest
    * without a line of this repository changing — which is why this asserts the
    * absence rather than trusting that nobody added one.
+   */
+  /**
+   * What this can and cannot prove.
+   *
+   * It checks what *we* declare. The merged manifest also contains whatever
+   * the libraries declare, and that is only visible on a built AAB —
+   * `bundletool dump manifest`, which needs an EAS build and therefore #158.
+   * `blockedPermissions` above is the half that covers the libraries, by
+   * removing a permission whoever added it never told us about.
    */
   it('never asks for a permission the stores would make us justify', () => {
     const forbidden = [
