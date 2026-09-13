@@ -12,6 +12,7 @@ import { captureLlmProvider } from '../../llm/captureProvider';
 import { getAiConsent } from '../../consents/aiConsentService';
 import { configuredProviderName } from '../../../src/extraction/llm';
 import {
+  appendClarificationEvent,
   captureProposalPath,
   answerClarification,
   confirmCapture,
@@ -283,6 +284,11 @@ export async function proposeMobileCapture(input: MobileCaptureInput, context: M
  * `scopeId` in the body is not read. Without that a caller could answer a
  * question on somebody else's proposal, and the answer is applied to a
  * commitment.
+ *
+ * The answer is also written down, under the same uid the proposal lives
+ * under. That was the one dependency this call never supplied, and because the
+ * port was optional and optional-chained it compiled, ran, and recorded
+ * nothing.
  */
 export async function clarifyMobileCapture(input: MobileClarifyInput, context: MobileBackendContext = {}) {
   const proposalId = typeof input.proposalId === 'string' ? input.proposalId : '';
@@ -291,6 +297,8 @@ export async function clarifyMobileCapture(input: MobileClarifyInput, context: M
   if (!proposalId || !itemId || !questionId) {
     throw new Error('proposalId, itemId and questionId are required');
   }
+
+  const scopeId = scopeIdFrom(input.scopeId, context);
 
   return answerClarification(
     {
@@ -303,9 +311,13 @@ export async function clarifyMobileCapture(input: MobileClarifyInput, context: M
     {
       now: dateFromOptionalIso(input.referenceTime, new Date(), 'referenceTime'),
       timezone: normalizeTimezone(input.timezone),
-      scopeId: scopeIdFrom(input.scopeId, context),
+      scopeId,
     },
-    { store, extractor: guardedMobileExtract },
+    {
+      store,
+      extractor: guardedMobileExtract,
+      recordEvent: (event) => appendClarificationEvent(scopeId, event),
+    },
   );
 }
 

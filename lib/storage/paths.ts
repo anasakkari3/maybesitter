@@ -51,6 +51,22 @@ export const ALPHA_FEEDBACK = 'alphaFeedback';
 export const BEHAVIOR_FEEDBACK = 'behaviorFeedback';
 export const PRESSURE_DELIVERY = 'pressureDelivery';
 export const CLARIFICATIONS = 'clarifications';
+/**
+ * What a person answered when the capture asked its one question (UC-2.5,
+ * #165).
+ *
+ * Its own collection for the same reason `nextStepDecisions` has one. `events`
+ * is the domain log: it is written only inside a domain transaction, every row
+ * in it is a `DomainEvent` the reducer produced, and a clarification answer is
+ * none of those — the commitment it is about does not exist yet, so there is no
+ * aggregate for it to belong to. And not `clarifications` either: that holds
+ * the *pending* question and is cleared when it is answered, which is exactly
+ * the row this ledger has to outlive.
+ *
+ * The free text a user typed is never in here. Only which field was asked
+ * about and whether they picked an option or wrote something.
+ */
+export const CLARIFICATION_EVENTS = 'clarificationEvents';
 export const ANALYTICS_EVENTS = 'analyticsEvents';
 /** Capture proposals between proposing and confirming (#252). */
 export const CAPTURE_PROPOSALS = 'captureProposals';
@@ -95,6 +111,7 @@ export const USER_SCOPED_COLLECTIONS = [
   BEHAVIOR_FEEDBACK,
   PRESSURE_DELIVERY,
   CLARIFICATIONS,
+  CLARIFICATION_EVENTS,
   ANALYTICS_EVENTS,
   CAPTURE_PROPOSALS,
   PROFILE_PROPOSALS,
