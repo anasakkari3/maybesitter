@@ -397,5 +397,17 @@
   "memoryIntensityNone": "שקטות",
   "memoryIntensitySoft": "עדינות",
   "memoryIntensityFollowUp": "חוזרות אם לא ענית",
-  "memoryIntensityStrong": "נחרצות לחשובים"
+  "memoryIntensityStrong": "נחרצות לחשובים",
+  "clarifyAskAction": "מה תרצה לעשות?",
+  "clarifyAskTime": "באיזו שעה נוח לך?",
+  "clarifyAskAmPm": "לאיזו {hour} התכוונת?",
+  "clarifyAskDay": "באיזה יום?",
+  "clarifyMorning": "בוקר",
+  "clarifyAfternoon": "צהריים",
+  "clarifyEvening": "ערב",
+  "clarifyNoTime": "ללא שעה מסוימת",
+  "clarifyToday": "היום",
+  "clarifyTomorrow": "מחר",
+  "clarifyAmPmOption": "{hour} {period}",
+  "clarifyOwnWords": "או תנסח את זה בדרכך"
 }
