@@ -24,9 +24,11 @@ describe('the app can say every reason the server can give', () => {
   });
 
   for (const [lang, strings] of Object.entries(LOCALES)) {
+    // Every code with no parameters. The two parametric ones are covered
+    // below, and the whole set is pinned against the server's list above.
     for (const code of ['overdue', 'due_within_24h', 'due_within_7d', 'outside_usual_hours',
       'short_for_end_of_day', 'fits_before_due', 'usually_finishes', 'often_set_aside',
-      'usual_productive_time']) {
+      'usual_productive_time', 'fits_focus_time']) {
       it(`${lang}: ${code} has words`, () => {
         const phrase = evidencePhrase({ code }, strings);
         expect(phrase).not.toBeNull();
@@ -39,6 +41,16 @@ describe('the app can say every reason the server can give', () => {
       const phrase = evidencePhrase({ code: 'importance', params: { level: 'high' } }, strings)!;
       expect(phrase).toContain(strings.todayGroupMust!);
       expect(phrase).not.toContain('{level}');
+    });
+
+    it(`${lang}: an estimated importance does not claim the user said it`, () => {
+      // "you marked it Must" about a guess is the product taking credit for a
+      // decision the user never made, so the two codes have different words.
+      const stated = evidencePhrase({ code: 'importance', params: { level: 'high' } }, strings)!;
+      const guessed = evidencePhrase({ code: 'importance_estimated', params: { level: 'high' } }, strings)!;
+      expect(guessed).toContain(strings.todayGroupMust!);
+      expect(guessed).not.toContain('{level}');
+      expect(guessed).not.toBe(stated);
     });
 
     it(`${lang}: effort names the number`, () => {

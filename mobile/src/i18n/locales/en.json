@@ -482,5 +482,7 @@
   "nextStepEditTitle": "Change the step",
   "nextStepEditSave": "Use this",
   "postponeThisEvening": "This evening",
-  "nextStepDeferTitle": "Bring it back when?"
+  "nextStepDeferTitle": "Bring it back when?",
+  "evidenceImportanceEstimated": "it looks like a {level}",
+  "evidenceFitsFocusTime": "in a time you set aside to focus"
 }

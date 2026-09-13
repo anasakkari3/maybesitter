@@ -107,7 +107,7 @@ function armCandidate(commitmentId: string): ArmCandidate {
     status: 'active',
     dueAt: '2026-11-24T10:00:00.000Z',
     remindAt: null,
-    importance: null,
+    importance: null, importanceIsStated: true,
     explicitEffortMinutes: 30,
     kind: 'task',
   };

@@ -957,6 +957,9 @@ const PILOT_COMPARABLE_CODES: readonly ExclusionReasonCode[] = [
 
 function asBaselineCandidate(snapshot: CommitmentSnapshot): BaselineCandidate {
   return {
+    // These snapshots carry no source, and before #170 the baseline kept a
+    // level only when the user had stated it — so `true` is what they meant.
+    importanceIsStated: true,
     commitmentId: snapshot.commitmentId,
     title: `title of ${snapshot.commitmentId}`,
     confirmed: snapshot.confirmedAt !== null,
