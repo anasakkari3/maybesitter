@@ -422,5 +422,18 @@
   "obAboutReviewNone": "אין מה להציע מזה. תוכל להוסיף דברים בעצמך בהגדרות מאוחר יותר.",
   "obAboutSuggested": "הוצע על ידי AI",
   "obAboutSaveSelected": "לשמור את מה שסימנתי",
-  "obAboutSaveNone": "לא לשמור כלום"
+  "obAboutSaveNone": "לא לשמור כלום",
+  "todayWhyOverdue": "למה ראשון: הזמן עבר",
+  "todayWhySoon": "למה ראשון: תוך שעתיים",
+  "todayWhyToday": "למה ראשון: היום",
+  "todayWhyMust": "למה ראשון: סימנת חובה",
+  "todayWhyEstimated": "למה ראשון: נראית חשובה",
+  "todayWhyNoDeadline": "למה ראשון: בלי זמן",
+  "todayWhyJoin": "{first} · {second}",
+  "todayGroupMust": "חובה",
+  "todayGroupShould": "כדאי",
+  "todayGroupNice": "נחמד",
+  "todayGroupFinished": "הסתיימו",
+  "todayEstimatedMark": "משוער",
+  "todayCountOpen": "{n, plural, one{דבר אחד פתוח} two{שני דברים פתוחים} other{# דברים פתוחים}}"
 }

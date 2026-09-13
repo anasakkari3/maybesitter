@@ -419,5 +419,18 @@
   "obAboutReviewNone": "ما في إشي نقترحه من هيك. بتقدر تضيف إشي بنفسك من الإعدادات بعدين.",
   "obAboutSuggested": "اقتراح من الذكاء الاصطناعي",
   "obAboutSaveSelected": "احفظ اللي علّمت عليه",
-  "obAboutSaveNone": "ما تحفظ إشي"
+  "obAboutSaveNone": "ما تحفظ إشي",
+  "todayWhyOverdue": "ليش أول: الوقت مرق",
+  "todayWhySoon": "ليش أول: خلال ساعتين",
+  "todayWhyToday": "ليش أول: اليوم",
+  "todayWhyMust": "ليش أول: إنت حطيتها لازم",
+  "todayWhyEstimated": "ليش أول: بتبيّن مهمة",
+  "todayWhyNoDeadline": "ليش أول: بدون وقت",
+  "todayWhyJoin": "{first} · {second}",
+  "todayGroupMust": "لازم",
+  "todayGroupShould": "يُفضّل",
+  "todayGroupNice": "حلو",
+  "todayGroupFinished": "خلصت",
+  "todayEstimatedMark": "تقديري",
+  "todayCountOpen": "{n, plural, zero{ما في إشي} one{إشي واحد} two{إشيين} few{# أشياء} many{# إشي} other{# إشي}}"
 }
