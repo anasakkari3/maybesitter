@@ -52,6 +52,30 @@ esac
 #     on no process-local write queue remaining; `grep -r "class .*Queue" src lib`
 #     finds none, so the condition holds.
 #
+# ── The next step (UC-2.9 #170) ─────────────────────────────────────────────
+#
+# `MAYBESITTER_FEATURE_RECOMMENDATION` was set in neither environment, so
+# `resolveNextStepAccess` answered `feature_disabled` everywhere and no user
+# has ever seen a next step on a deployed build.
+#
+# Both environments get it on. Every arm is deterministic and local — the
+# selector reads the user's own commitments and nothing else, and
+# `getLiveNextStep` records `costMicros: 0` — so unlike the model provider this
+# is not a spending decision. It still reaches production only through the
+# hand-dispatched deploy, which is a protected environment with the owner as a
+# required reviewer.
+#
+# `MAYBESITTER_KILL_SWITCH_RECOMMENDATION=false` is set rather than left unset,
+# so the switch an operator flips in an incident is already present on the
+# service and turning it on is a one-value change instead of adding a variable
+# under pressure. See docs/operations/V03_CLOSED_PILOT_RUNBOOK.md.
+#
+# `MAYBESITTER_NEXT_STEP_ARM=personalized` pins the arm while no experiment is
+# running. `selectNextStepForArm` falls back to baseline ordering when the user
+# has too little history for `profileIsUsable`, so a new account gets exactly
+# the reviewed generic behaviour rather than something invented from nothing.
+# `MAYBESITTER_EXPERIMENT_NEXT_STEP_ARMS` stays unset: there is no trial.
+#
 # CPU throttling is the Cloud Run default and is not passed explicitly: the flag
 # to *disable* it (--no-cpu-throttling) is the one that costs money, and it is
 # absent.
@@ -81,6 +105,6 @@ printf '%s ' \
   "--min-instances=0" \
   "--max-instances=${max_instances}" \
   "--startup-probe=httpGet.path=/api/health/ready,periodSeconds=5,failureThreshold=6" \
-  "--update-env-vars=MAYBESITTER_ENV=${env_name},MAYBESITTER_STORAGE_BACKEND=firestore,MAYBESITTER_FIRESTORE_DATABASE_ID=${database_id},GOOGLE_CLOUD_PROJECT=${PROJECT_ID},MAYBESITTER_LLM_PROVIDER=${llm_provider},MAYBESITTER_LLM_MODEL=gemini-2.5-flash,MAYBESITTER_VERTEX_LOCATION=${REGION},MAYBESITTER_GCP_PROJECT=${PROJECT_ID},MAYBESITTER_LLM_TIMEOUT_MS=8000,MAYBESITTER_LLM_MAX_RETRIES=1,MAYBESITTER_AI_DISABLED=${ai_disabled},MAYBESITTER_LLM_DAILY_CALL_CAP=60,MAYBESITTER_LLM_DAILY_TOKEN_CAP=150000,MAYBESITTER_LLM_MINUTE_CALL_CAP=8,MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP=3000" \
+  "--update-env-vars=MAYBESITTER_ENV=${env_name},MAYBESITTER_STORAGE_BACKEND=firestore,MAYBESITTER_FIRESTORE_DATABASE_ID=${database_id},GOOGLE_CLOUD_PROJECT=${PROJECT_ID},MAYBESITTER_LLM_PROVIDER=${llm_provider},MAYBESITTER_LLM_MODEL=gemini-2.5-flash,MAYBESITTER_VERTEX_LOCATION=${REGION},MAYBESITTER_GCP_PROJECT=${PROJECT_ID},MAYBESITTER_LLM_TIMEOUT_MS=8000,MAYBESITTER_LLM_MAX_RETRIES=1,MAYBESITTER_AI_DISABLED=${ai_disabled},MAYBESITTER_LLM_DAILY_CALL_CAP=60,MAYBESITTER_LLM_DAILY_TOKEN_CAP=150000,MAYBESITTER_LLM_MINUTE_CALL_CAP=8,MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP=3000,MAYBESITTER_FEATURE_RECOMMENDATION=true,MAYBESITTER_KILL_SWITCH_RECOMMENDATION=false,MAYBESITTER_NEXT_STEP_ARM=personalized" \
   "--set-secrets=MAYBESITTER_DELETION_RECEIPT_PEPPER=maybesitter-deletion-receipt-pepper:latest"
 printf '\n'

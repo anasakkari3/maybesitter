@@ -62,7 +62,44 @@ procedure. Do not commit it.
 
 For reliability, privacy, or safety incidents, activate
 `MAYBESITTER_KILL_SWITCH_RECOMMENDATION=true`. This stops recommendations while
-Capture and existing canonical commitments remain available. Do not clear
+Capture and existing canonical commitments remain available.
+
+### How to flip it (UC-2.9, #170)
+
+`infra/cloudrun/flags.sh` sets the variable to `false` on both services, so it
+is already present and the switch is a value change rather than a new variable
+added under pressure:
+
+```
+gcloud run services update maybesitter-<env> --region europe-west1 \
+  --update-env-vars MAYBESITTER_KILL_SWITCH_RECOMMENDATION=true
+```
+
+It takes effect on the next request — `readRuntimeControls` is read per call,
+not cached at boot — so no redeploy and no restart is needed. Reverse it with
+`=false`.
+
+What it does and does not do:
+
+- `resolveNextStepAccess` answers `kill_switch_active`, the route returns 403,
+  and the card shows the blocked message. Nothing is deleted and no commitment
+  changes.
+- It does **not** stop capture, the lists, reminders, or anything a user has
+  already saved. It stops the product making suggestions.
+- Decisions already recorded in `nextStepDecisions` stay. A user who deferred
+  something still has that deferral when the switch goes back off.
+
+Two neighbouring variables, for the same incident:
+
+- `MAYBESITTER_FEATURE_RECOMMENDATION=false` turns the feature off in the same
+  way but reads as "not shipped here" rather than "stopped". Prefer the kill
+  switch for an incident, so the audit log records `kill_switch_active` and the
+  reason is legible afterwards.
+- `MAYBESITTER_NEXT_STEP_ARM` pins which arm serves while no experiment runs
+  (`personalized` in both environments). Setting it to `generic` is the
+  narrower response when the problem is the personalization rather than the
+  feature: it drops to the reviewed baseline ordering without taking the next
+  step away from anyone. Do not clear
 commitments as part of a pilot stop. Record a privacy-safe incident ID, time,
 affected surface, severity, owner, containment action, and resolution; never
 copy raw user input into the incident record.
