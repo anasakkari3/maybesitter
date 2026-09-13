@@ -29,7 +29,9 @@ export type ReminderIntensity = 'none' | 'softAwareness' | 'followUp' | 'strongR
 export interface RoutineTimeWindow {
   start: string;
   end: string;
-  label?: string;
+  // `| undefined` explicitly: the app compiles with exactOptionalPropertyTypes,
+  // and the Zod-inferred shape this is compared against carries it.
+  label?: string | undefined;
 }
 
 /** The five answers as the screen holds them. `null` means not answered yet. */
