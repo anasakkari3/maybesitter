@@ -164,6 +164,22 @@ test('evidence: canonical human decisions are traceable, not rewritten', () => {
   assert.deepEqual(secondPass, ['pilot-v4-review-ambiguous-029', 'pilot-v4-review-hebrew-039']);
 });
 
+test('evidence: the governing decision is explicit for the two adjudicated sources', () => {
+  // Both were accepted in the first pass and rejected in the blind second pass
+  // under the separation rule. A consumer reading firstPassDecision would train
+  // on "accepted", which is the decision the adjudication overrode.
+  for (const sourceQueueId of ['pilot-v4-review-ambiguous-029', 'pilot-v4-review-hebrew-039']) {
+    const record = freeze.records.find((r: any) => r.sourceQueueId === sourceQueueId);
+    assert.equal(record.firstPassDecision, 'accepted');
+    assert.equal(record.canonicalDecision, 'rejected');
+  }
+
+  // Every unadjudicated record agrees with itself.
+  for (const record of freeze.records.filter((r: any) => r.canonicalPass === 'first')) {
+    assert.equal(record.canonicalDecision, record.firstPassDecision);
+  }
+});
+
 test('evidence: the gate report pins the checksum of every input it read', () => {
   const names = gateReport.inputs.map((input: any) => input.name).sort();
   assert.deepEqual(names, [

@@ -86,7 +86,7 @@
       "datasetId": "capture-gold-freeze-v1",
       "checksum": {
         "algorithm": "sha256",
-        "value": "cf1e76c94388c02cd8f23a58dbf5fc52b899bb1fdc12c531f242289dd9dc3312"
+        "value": "3a2f003dd6553281d8c09e5dc4ab3460fe0d72d56d7ba85e8d8c2ffade1d8047"
       },
       "recordCount": 50,
       "lockedAt": "2026-07-31T00:00:00.000Z",
@@ -98,7 +98,7 @@
       "supersessionReason": null,
       "chainChecksum": {
         "algorithm": "sha256",
-        "value": "2e3597b0d5d03b76df3ee81352d1af9c3f1eab5653d35e17d4bd476669043662"
+        "value": "08c76b9d0bfad82bc531f4f2da9e77be957da2b94eb3a2ec726ca60a02617faf"
       }
     }
   ]

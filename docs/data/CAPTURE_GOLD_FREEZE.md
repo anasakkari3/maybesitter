@@ -72,6 +72,26 @@ Verification runs both directions:
 - editing the manifest after sealing is caught by `FRZ033`, because
   `recordsChecksum` covers the canonical JSON of the records it claims
 
+### Which decision governs
+
+Each frozen record carries two decision fields, and the distinction matters:
+
+| Field | Meaning |
+| --- | --- |
+| `firstPassDecision` | What the canonical decisions file says. For an adjudicated source this is **not** the decision in force. |
+| `canonicalDecision` | The decision that governs, resolved from `canonicalPass`. **This is the field consumers read.** |
+
+For the two adjudicated sources, `firstPassDecision` is `accepted` while
+`canonicalDecision` is `rejected`. A consumer that read the first field would
+train on the label the adjudication overrode — the reason the fields are named
+apart rather than one field meaning different things in different rows.
+
+Validation keeps them honest: `FRZ036` rejects a record whose `canonicalPass` is
+`first` but whose two decisions disagree, and `FRZ029` / `FRZ034` require that a
+record with no canonical pass carries no decision and is excluded. Building a
+freeze that adjudicates to the second pass without supplying the second-pass
+decisions throws rather than guessing.
+
 ## Annotation policy versioning
 
 A policy version names the rules it changed against the version it supersedes,
@@ -191,7 +211,7 @@ superseded one names its own.
 ```text
 capture-gold-freeze-v1  ·  policy 2.1.0  ·  gate capture-gold-consistency-v2 (pass_provisional)
 50 records · 49 included · 1 excluded
-records checksum c0dc2a1cb11eba63ded898bd16662203c359e9d2cfee27d407bb6b358b9bf0ae
+records checksum 7f30a551b0ad07348ef76384439d428063d59d404c2ed0b17fb53368dfe1bc5c
 ```
 
 Excluded: `pilot-v4-review-hebrew-039` — date-time defect CAL-002 requires
@@ -241,14 +261,52 @@ When the compiler is updated (a separate change), it should read
 `excluded` is false, and it should require gate `status === "pass"` — not
 `pass_provisional` — before setting `trainingReady`.
 
-### Per-item schema 1.1.0
+### Per-item schema 1.1.0 and the annotation tooling
 
-Re-annotating `pilot-v4-review-hebrew-039` is blocked on a schema change:
-`per-item-gold.schema.json` 1.0.0 requires `date`, `time`, and `timezone` inside
-`localTimeSpec`, so a date-only "tomorrow" cannot be expressed. Version 1.1.0
-should make `time` nullable. That change belongs with the annotation-tooling fix
-(rule TIME-001), not here — this issue does not modify the reviewer's tooling
-while a review round's evidence is being frozen.
+Both shipped, in the Gemma working copy, after the freeze was taken:
+
+**`per-item-gold.schema.json` 1.1.0** makes `localTimeSpec.time` nullable, so a
+date-only "tomorrow" / "מחר" / "بكرة" is expressible without inventing a clock
+time or dropping the date. It also adds `annotatedAt`, required for 1.1.0
+records. Records written under 1.0.0 stay valid and are **not** rewritten;
+`SUPPORTED_SCHEMA_VERSIONS` accepts both and the required-field set is chosen per
+version.
+
+**`remediation.py`** gains `validate_temporal_resolution`, implementing rules
+TIME-001 and TIME-002. It rejects a value that resolves before the record's
+`reference_time`, and a value sitting within a day of the annotation instant
+while being much further than that from `reference_time` — the fingerprint of a
+picker that defaulted to "now".
+
+`annotatedAt` is what makes that second check possible. Without it there is no
+way to distinguish a correctly resolved value from a defaulted one, which is
+exactly how CAL-002 survived review. A 1.0.0 record therefore reports
+**unauditable** rather than passing:
+
+```text
+items[1].target.dueAt cannot be checked against rule TIME-001: this record
+carries no annotatedAt, so there is no way to tell a resolved value from the
+annotation session's clock. Re-annotate under schema 1.1.0.
+```
+
+Running that audit over the nine existing per-item records flags exactly one —
+`pilot-v4-review-hebrew-039`, the known-bad record. The other eight carry no
+temporal values at all, so there is nothing to check.
+
+**`remediation_dashboard.py`** now records `annotatedAt`, writes schema 1.1.0,
+accepts a date with an empty time as a date-only `localTimeSpec`, bounds both
+datetime pickers with `min` set to the record's reference instant, and runs the
+temporal validator server-side on submit. The `min` attribute is a convenience;
+the server-side check is the authority.
+
+Regression tests, including the real CAL-002 values:
+
+```bash
+python3 scripts/gemma-calibration/test_temporal_resolution.py   # 14 tests
+```
+
+`pilot-v4-review-hebrew-039` can now be re-annotated. Until it is, it stays
+excluded from the freeze.
 
 ## Rollback
 

@@ -225,15 +225,25 @@ issue.
 
 ## What is still open
 
+CAL-002's tooling causes are **fixed** — see
+[the freeze doc](CAPTURE_GOLD_FREEZE.md#per-item-schema-110-and-the-annotation-tooling).
+Schema 1.1.0 makes `localTimeSpec.time` nullable and adds `annotatedAt`;
+`validate_temporal_resolution` implements TIME-001 and TIME-002 and runs on
+submit; the dashboard bounds its pickers by the record's reference instant.
+Auditing the nine existing per-item records flags exactly one — the known-bad
+`hebrew-039` — as unauditable, because a 1.0.0 record has no annotation instant
+to compare against.
+
+Still open:
+
 1. **Extend the blind set.** Thirty comparable items is the threshold for a
    non-provisional pass; there are eight. This needs a human doing blind
    re-review and cannot be closed mechanically.
-2. **Re-annotate `pilot-v4-review-hebrew-039`** once per-item schema 1.1.0 can
-   express a date-only `localTimeSpec`. It is excluded from the freeze until then.
-3. **Fix the annotation datetime control** to resolve against the record's
-   `reference_time` (policy rule TIME-001) rather than the session clock.
-4. **Re-categorise multi-commitment sources** under rule CAT-001 and re-draw the
+2. **Re-annotate `pilot-v4-review-hebrew-039`.** Now unblocked — the schema can
+   express the date-only value and the tooling will reject a defaulted one. It
+   stays excluded from the freeze until re-annotated.
+3. **Re-categorise multi-commitment sources** under rule CAT-001 and re-draw the
    blind sample so the stratum is represented in proportion to the corpus.
-5. **Second reviewer.** Everything here is *intra*-reviewer: one person compared
+4. **Second reviewer.** Everything here is *intra*-reviewer: one person compared
    with themselves. That measures self-consistency, not whether the guidelines
    mean the same thing to two people. Inter-reviewer agreement is unmeasured.

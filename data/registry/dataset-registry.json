@@ -1079,14 +1079,14 @@
           },
           "mediaType": "application/json",
           "recordCount": 50,
-          "byteSize": 25413,
+          "byteSize": 28096,
           "checksum": {
             "algorithm": "sha256",
-            "value": "cf1e76c94388c02cd8f23a58dbf5fc52b899bb1fdc12c531f242289dd9dc3312"
+            "value": "3a2f003dd6553281d8c09e5dc4ab3460fe0d72d56d7ba85e8d8c2ffade1d8047"
           },
           "mutability": "locked",
           "materialized": true,
-          "notes": "49 included, 1 excluded. Records checksum c0dc2a1cb11eba63ded898bd16662203c359e9d2cfee27d407bb6b358b9bf0ae."
+          "notes": "49 included, 1 excluded. Records checksum 7f30a551b0ad07348ef76384439d428063d59d404c2ed0b17fb53368dfe1bc5c."
         },
         {
           "id": "capture-gold-consistency-gate-v2",

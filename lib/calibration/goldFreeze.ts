@@ -36,6 +36,11 @@ export interface BuildFreezeInput {
   decisions: readonly ReviewDecision[];
   /** Raw decision lines, so the freeze pins the bytes a reviewer actually wrote. */
   decisionLines: ReadonlyMap<string, string>;
+  /**
+   * Blind second-pass decisions. Required to resolve `canonicalDecision` for
+   * any source whose adjudication made the second pass canonical.
+   */
+  secondPassDecisions?: readonly ReviewDecision[];
   adjudications: readonly AdjudicationRecord[];
   perItemAnnotations: readonly PerItemAnnotation[];
 }
@@ -62,6 +67,11 @@ export function buildGoldFreezeManifest(input: BuildFreezeInput): GoldFreezeMani
     perItemIndex.set(annotation.sourceQueueId, { annotation, index });
   });
 
+  const secondPassBySource = new Map<string, ReviewDecision>();
+  for (const decision of input.secondPassDecisions ?? []) {
+    secondPassBySource.set(decision.sourceQueueId, decision);
+  }
+
   const records: FrozenGoldRecord[] = [];
 
   for (const decision of input.decisions) {
@@ -73,13 +83,30 @@ export function buildGoldFreezeManifest(input: BuildFreezeInput): GoldFreezeMani
     // A source is excluded when ANY dimension still needs re-annotation: its
     // decision may be settled while its per-item Gold is known-bad.
     const blocking = scoped.filter((record) => record.requiresReannotation);
+    const canonicalPass = decisionAdjudication === null ? 'first' : decisionAdjudication.canonicalPass;
+
+    let canonicalDecision: string | null;
+    if (canonicalPass === 'first') {
+      canonicalDecision = decision.decision;
+    } else if (canonicalPass === 'second') {
+      const second = secondPassBySource.get(decision.sourceQueueId);
+      if (second === undefined) {
+        throw new Error(
+          `${decision.sourceQueueId} was adjudicated to the second pass, but no second-pass decision was supplied`,
+        );
+      }
+      canonicalDecision = second.decision;
+    } else {
+      canonicalDecision = null;
+    }
 
     records.push({
       sourceQueueId: decision.sourceQueueId,
       decisionChecksum: checksumOf(line ?? canonicalJson(decision)),
-      decision: decision.decision,
+      firstPassDecision: decision.decision,
+      canonicalDecision,
       policyVersion: input.policyVersion,
-      canonicalPass: decisionAdjudication === null ? 'first' : decisionAdjudication.canonicalPass,
+      canonicalPass,
       adjudicated: scoped.length > 0,
       perItemChecksum: perItem ? checksumOf(canonicalJson(perItem.annotation)) : null,
       perItemAnnotationIndex: perItem ? perItem.index : null,
@@ -214,6 +241,37 @@ export function validateGoldFreezeManifest(
 
     if (!isValidChecksum(record.decisionChecksum)) {
       collector.error('FRZ023', `${path}.decisionChecksum`, 'decisionChecksum is required');
+    }
+    if (!isNonEmptyString(record.firstPassDecision)) {
+      collector.error('FRZ028', `${path}.firstPassDecision`, 'firstPassDecision is required');
+    }
+    if (record.canonicalPass === 'neither') {
+      if (record.canonicalDecision !== null) {
+        collector.error(
+          'FRZ029',
+          `${path}.canonicalDecision`,
+          'canonicalPass "neither" means no decision governs; canonicalDecision must be null',
+        );
+      }
+      if (record.excluded !== true) {
+        collector.error(
+          'FRZ034',
+          `${path}.excluded`,
+          'a record with no canonical pass cannot be included in the freeze',
+        );
+      }
+    } else if (!isNonEmptyString(record.canonicalDecision)) {
+      collector.error(
+        'FRZ035',
+        `${path}.canonicalDecision`,
+        'canonicalDecision is required; it is the decision that governs, which for an adjudicated source is not firstPassDecision',
+      );
+    } else if (record.canonicalPass === 'first' && record.canonicalDecision !== record.firstPassDecision) {
+      collector.error(
+        'FRZ036',
+        `${path}.canonicalDecision`,
+        `canonicalPass is "first" but canonicalDecision (${String(record.canonicalDecision)}) does not match firstPassDecision (${String(record.firstPassDecision)})`,
+      );
     }
     if (record.perItemChecksum !== null && !isValidChecksum(record.perItemChecksum)) {
       collector.error('FRZ024', `${path}.perItemChecksum`, 'perItemChecksum must be a checksum or null');

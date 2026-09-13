@@ -35,6 +35,7 @@ function passingGate(adjudications: readonly AdjudicationRecord[] = []) {
 function build(
   adjudications: readonly AdjudicationRecord[] = [],
   gateReport = passingGate(adjudications),
+  secondPassDecisions: readonly ReturnType<typeof decision>[] = [],
 ) {
   return buildGoldFreezeManifest({
     freezeId: 'test-freeze',
@@ -47,6 +48,7 @@ function build(
     inputs: [],
     decisions: SOURCES.map((id) => decision(id, 'accepted')),
     decisionLines: DECISION_LINES,
+    secondPassDecisions,
     adjudications,
     perItemAnnotations: [perItem('src-a')],
   });
@@ -68,6 +70,78 @@ test('freeze: the manifest pins decisions by checksum and copies no reviewer tex
   for (const record of manifest.records) {
     assert.match(record.decisionChecksum.value, /^[0-9a-f]{64}$/);
   }
+});
+
+test('freeze: an adjudicated source exposes the decision that actually governs', () => {
+  // The field a consumer must read is canonicalDecision. firstPassDecision is
+  // what the canonical file says, which for an adjudicated source is NOT the
+  // decision in force — reading it would silently train on the wrong label.
+  const adjudications = [
+    adjudication({
+      sourceQueueId: 'src-a',
+      classification: 'policy_shift',
+      firstPassPolicy: '1.0.0',
+      secondPassPolicy: '2.0.0',
+      canonicalPass: 'second',
+    }),
+  ];
+
+  const manifest = buildGoldFreezeManifest({
+    freezeId: 'test-freeze',
+    version: '1.0.0',
+    frozenAt: '2026-07-31T00:00:00.000Z',
+    frozenBy: 'model-data track',
+    authorizingIssue: 'https://github.com/anasakkari3/maybesitter/issues/5',
+    policyVersion: '2.1.0',
+    gateReport: passingGate(adjudications),
+    inputs: [],
+    decisions: SOURCES.map((id) => decision(id, 'accepted')),
+    decisionLines: DECISION_LINES,
+    secondPassDecisions: [decision('src-a', 'rejected')],
+    adjudications,
+    perItemAnnotations: [perItem('src-a')],
+  });
+
+  const adjudicated = manifest.records.find((record) => record.sourceQueueId === 'src-a');
+  assert.equal(adjudicated?.firstPassDecision, 'accepted');
+  assert.equal(adjudicated?.canonicalDecision, 'rejected');
+
+  const untouched = manifest.records.find((record) => record.sourceQueueId === 'src-b');
+  assert.equal(untouched?.firstPassDecision, 'accepted');
+  assert.equal(untouched?.canonicalDecision, 'accepted');
+});
+
+test('freeze: adjudicating to the second pass without supplying it is refused', () => {
+  const adjudications = [
+    adjudication({
+      sourceQueueId: 'src-a',
+      classification: 'policy_shift',
+      firstPassPolicy: '1.0.0',
+      secondPassPolicy: '2.0.0',
+      canonicalPass: 'second',
+    }),
+  ];
+
+  assert.throws(() => build(adjudications), /no second-pass decision was supplied/);
+});
+
+test('freeze: canonicalDecision must agree with canonicalPass', () => {
+  const contradictory = clone(build()) as unknown as Record<string, any>;
+  contradictory.records[0].canonicalDecision = 'rejected';
+
+  const result = validateGoldFreezeManifest(contradictory);
+  assert.equal(result.valid, false);
+  assert.ok(hasIssue(result, 'FRZ036'));
+});
+
+test('freeze: a record with no canonical pass must be excluded and carry no decision', () => {
+  const orphan = clone(build()) as unknown as Record<string, any>;
+  orphan.records[0].canonicalPass = 'neither';
+
+  const result = validateGoldFreezeManifest(orphan);
+  assert.equal(result.valid, false);
+  assert.ok(hasIssue(result, 'FRZ029'), 'canonicalDecision must be null');
+  assert.ok(hasIssue(result, 'FRZ034'), 'it may not be included');
 });
 
 test('freeze: rewriting a human decision after the freeze is detected', () => {
@@ -97,7 +171,7 @@ test('freeze: deleting a frozen human decision is detected', () => {
 
 test('freeze: editing the manifest after it is sealed breaks the records checksum', () => {
   const manifest = clone(build());
-  manifest.records[0].decision = 'rejected';
+  manifest.records[0].firstPassDecision = 'rejected';
 
   const result = validateGoldFreezeManifest(manifest, { decisionLines: DECISION_LINES });
   assert.equal(result.valid, false);
@@ -144,9 +218,10 @@ test('freeze: a decision settled at one dimension is still excluded if another i
     }),
   ];
 
-  const manifest = build(adjudications);
+  const manifest = build(adjudications, undefined, [decision('src-a', 'rejected')]);
   const record = manifest.records.find((r) => r.sourceQueueId === 'src-a');
   assert.equal(record?.canonicalPass, 'second', 'the decision adjudication still applies');
+  assert.equal(record?.canonicalDecision, 'rejected');
   assert.equal(record?.excluded, true, 'the per-item defect still blocks the freeze');
 });
 

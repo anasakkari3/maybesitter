@@ -30,6 +30,7 @@ const GATE_PATH = path.join(repoRoot, 'data/calibration/consistency-gate-report.
 const ADJUDICATIONS_PATH = path.join(repoRoot, 'data/calibration/adjudications.jsonl');
 
 const DECISIONS = 'data/review/gold-decisions.jsonl';
+const SECOND_PASS = 'data/review/calibration/consistency-second-pass.jsonl';
 const PER_ITEM = 'data/review/per-item-gold.jsonl';
 
 const RED = '\x1b[31m';
@@ -70,6 +71,7 @@ function main() {
   const root = path.resolve(repoRoot, flags['calibration-root']);
 
   const decisionsText = readText(path.join(root, DECISIONS));
+  const secondPassText = readText(path.join(root, SECOND_PASS));
   const perItemText = readText(path.join(root, PER_ITEM));
   const gateReport = JSON.parse(readText(GATE_PATH));
 
@@ -85,6 +87,14 @@ function main() {
     if (existing >= 0) decisions[existing] = entry;
     else decisions.push(entry);
   }
+
+  const secondPassDecisions = secondPassText
+    .split('\n')
+    .filter((line) => line.trim())
+    .map((line) => {
+      const row = JSON.parse(line);
+      return { sourceQueueId: row.source_id, decision: row.decision, completion: null };
+    });
 
   const perItemAnnotations = perItemText
     .split('\n')
@@ -119,10 +129,12 @@ function main() {
     gateReport,
     inputs: [
       { name: 'gold-decisions', path: DECISIONS, checksum: checksum(decisionsText), recordCount: decisions.length },
+      { name: 'consistency-second-pass', path: SECOND_PASS, checksum: checksum(secondPassText), recordCount: secondPassDecisions.length },
       { name: 'per-item-gold', path: PER_ITEM, checksum: checksum(perItemText), recordCount: perItemAnnotations.length },
     ],
     decisions,
     decisionLines,
+    secondPassDecisions,
     adjudications,
     perItemAnnotations,
   });

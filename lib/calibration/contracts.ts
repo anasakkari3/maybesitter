@@ -162,9 +162,19 @@ export type GoldFreezeState = 'frozen' | 'superseded';
 
 export interface FrozenGoldRecord {
   sourceQueueId: string;
-  /** Checksum of the canonical decision line, so a rewrite is detectable. */
+  /** Checksum of the first-pass decision line, so a rewrite is detectable. */
   decisionChecksum: Checksum;
-  decision: string;
+  /**
+   * The decision as written in the canonical decisions file. Named explicitly
+   * because for an adjudicated source it is NOT the decision that governs:
+   * consumers must read `canonicalDecision`.
+   */
+  firstPassDecision: string;
+  /**
+   * The decision that governs, resolved from `canonicalPass`. Null only when
+   * `canonicalPass` is "neither", which always implies `excluded`.
+   */
+  canonicalDecision: string | null;
   policyVersion: string;
   canonicalPass: CanonicalPass;
   adjudicated: boolean;
