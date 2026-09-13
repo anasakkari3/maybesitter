@@ -86,3 +86,27 @@ jest.mock('expo-apple-authentication', () => ({
   AppleAuthenticationScope: { FULL_NAME: 0, EMAIL: 1 },
   AppleAuthenticationCredentialState: { REVOKED: 0, AUTHORIZED: 1, NOT_FOUND: 2, TRANSFERRED: 3 },
 }));
+
+// `expo-speech-recognition` is a native module and there is none under Jest.
+//
+// The mock is deliberately inert rather than clever: `ExpoSpeechCaptureService`
+// takes its module and its event subscription as constructor arguments, so the
+// real behaviour — permissions, locale resolution, every error code, the
+// transcript path — is exercised against a fake in
+// `expoSpeechCaptureService.test.ts`. This exists only so the composer can be
+// rendered at all.
+//
+// `getSupportedLocales` answering with nothing is the honest default here:
+// a Jest environment has no recogniser, so the service resolves
+// `localeUnavailable` and the mic hides itself, which is what a device without
+// dictation does.
+jest.mock('expo-speech-recognition', () => ({
+  ExpoSpeechRecognitionModule: {
+    requestPermissionsAsync: async () => ({ granted: false }),
+    getSupportedLocales: async () => ({ locales: [], installedLocales: [] }),
+    start: () => {},
+    stop: () => {},
+    abort: () => {},
+  },
+  useSpeechRecognitionEvent: () => {},
+}));

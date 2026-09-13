@@ -142,6 +142,23 @@ export function appleSignInEnabled(): boolean {
 }
 
 /**
+ * Whether dictation is offered (UC-2.3, #163).
+ *
+ * On by default, and switched off by `EXPO_PUBLIC_KILL_SWITCH_VOICE=true`.
+ *
+ * A kill switch rather than an enable flag, because the failure it exists for
+ * is a recogniser behaving badly for real users — and in that moment the thing
+ * that must be one variable away is *off*. A feature that has to be turned on
+ * to be tested is also a feature nobody tests.
+ *
+ * The mic hides itself when there is no recogniser regardless; this is the
+ * operator's switch, not the device's.
+ */
+export function voiceEnabled(): boolean {
+  return (process.env.EXPO_PUBLIC_KILL_SWITCH_VOICE ?? '').trim() !== 'true';
+}
+
+/**
  * Whether the Google Calendar verification demo is reachable (UC-1.8 #152).
  *
  * Three conditions, all required: a development bundle, `APP_ENV=development`,
