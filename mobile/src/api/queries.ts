@@ -36,7 +36,8 @@ import type { NextStepDecisionKind, NextStepRecommendation } from './schemas/nex
 import type { TrustAction } from './schemas/trust';
 import type { AlphaFeedbackCategory } from './schemas/feedback';
 import type { AnalyticsProperties, ClientReportableEvent } from './schemas/analytics';
-import { InvalidTransitionError, StaleCommitmentError } from './errors';
+import { ForbiddenError, InvalidTransitionError, StaleCommitmentError } from './errors';
+import { safeCommitmentPatchEnabled } from '../config/env';
 
 /**
  * The hooks screens use, and the invalidation rules that keep them honest.
@@ -242,6 +243,20 @@ export function useConfirmCapture() {
   });
 }
 
+/**
+ * Edits one commitment, when this build is allowed to (UC-2.R3, #173).
+ *
+ * The flag is consulted **here**, inside the mutation, rather than on the
+ * screen. `DetailsScreen` also hides the Edit control when it is off, but a
+ * hidden button is a fact about one screen; this is the single place every
+ * PATCH this app can make is built, so "no PATCH is ever sent" is a claim the
+ * code can actually keep however the mutation is reached.
+ *
+ * It fails as a `feature_disabled` 403 would. That is a state `QueryBoundary`
+ * and `userFacingMessage` already have words and a screen for, and inventing a
+ * second vocabulary for the same situation is how two disabled features start
+ * telling the user two different stories.
+ */
 export function usePatchCommitment() {
   const client = useQueryClient();
   const uid = useUid();
@@ -250,6 +265,10 @@ export function usePatchCommitment() {
     // `dueDate` and the server keeps the reminder lead the user set. The
     // validator makes the write conditional (#148).
     mutationFn: async (input: { id: string; patch: CommitmentPatch }) => {
+      // Before the request is built, not after: nothing leaves the device.
+      if (!safeCommitmentPatchEnabled()) {
+        throw new ForbiddenError('commitment editing is off in this build', 'feature_disabled');
+      }
       const result = await patchCommitment(input.id, input.patch, validatorFor(input.id));
       rememberValidator(input.id, result.etag);
       return result.data;
