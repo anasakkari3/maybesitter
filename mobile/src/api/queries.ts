@@ -4,6 +4,7 @@ import { useTimeZone } from '../i18n/timezone';
 import { apiLocale } from '../i18n/locale';
 import { useAuth } from '../auth/AuthProvider';
 import { confirmCapture, proposeCapture } from './endpoints/capture';
+import { getConsents } from './endpoints/consents';
 import {
   actOnCommitment,
   deleteCommitment,
@@ -35,6 +36,7 @@ import { InvalidTransitionError, StaleCommitmentError } from './errors';
  */
 
 export const queryKeys = {
+  consents: (uid: string) => ['user', uid, 'consents'] as const,
   today: (uid: string, timezone: string) => ['user', uid, 'commitments', 'today', timezone] as const,
   upcoming: (uid: string, timezone: string) => ['user', uid, 'commitments', 'upcoming', timezone] as const,
   commitment: (uid: string, id: string) => ['user', uid, 'commitment', id] as const,
@@ -44,7 +46,7 @@ export const queryKeys = {
 };
 
 /** The signed-in uid, or the one value that can never collide with one. */
-function useUid(): string {
+export function useUid(): string {
   return useAuth().user?.uid ?? 'signed-out';
 }
 
@@ -144,6 +146,40 @@ export function useFeedbackHistory() {
     queryFn: () => getFeedbackHistory(),
     enabled: uid !== 'signed-out',
   });
+}
+
+/**
+ * What this account has agreed to.
+ *
+ * The composer reads this to decide whether to show the "AI: off" chip. It is a
+ * query rather than context so that a revocation made elsewhere arrives on the
+ * next refetch; `staleTime` is the layer's default, and the answer is cheap.
+ */
+export function useConsents() {
+  const uid = useUid();
+  return useQuery({
+    queryKey: queryKeys.consents(uid),
+    queryFn: () => getConsents(),
+    enabled: uid !== 'signed-out',
+  });
+}
+
+/**
+ * Whether a model may be asked about this account's captures.
+ *
+ * `false` while the answer is loading and while it is declined: the chip errs
+ * towards telling the user the model is off, because claiming it is on when it
+ * is not is the direction that misleads. The server decides regardless — it
+ * computes `requestedEngine` from its own consent record and ignores anything
+ * the client sends (#161) — so this only ever affects what is displayed.
+ */
+export function useAiConsentGranted(): { granted: boolean; asked: boolean; loading: boolean } {
+  const { data, isLoading } = useConsents();
+  return {
+    granted: data?.aiProcessing.state === 'granted',
+    asked: data?.aiProcessing.asked ?? false,
+    loading: isLoading,
+  };
 }
 
 export function useCapture() {

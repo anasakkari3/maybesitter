@@ -59,6 +59,7 @@ import { GET as feedbackHistoryGet } from '../../src/app/api/mobile/feedback/his
 import { POST as feedbackRevokePost } from '../../src/app/api/mobile/feedback/[id]/revoke/route.ts';
 import { POST as alphaFeedbackPost } from '../../src/app/api/mobile/alpha/feedback/route.ts';
 import { POST as analyticsPost } from '../../src/app/api/mobile/analytics/route.ts';
+import { GET as consentsGet } from '../../src/app/api/mobile/consents/route.ts';
 
 const BASE = 'http://127.0.0.1:4321';
 const REFERENCE_TIME = '2026-08-09T08:00:00.000Z';
@@ -316,6 +317,12 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     // `{ eventName, properties }`, not the Flutter `PilotLoopAnalyticsEvent`
     // shape #157's table names: the route validates `eventName` against
     // CLIENT_REPORTABLE_EVENTS and reads nothing else from the body.
+    // The composer's "AI: off" chip renders from this, so its shape is the
+    // client's contract too (UC-2.R2 #172 step 4). Recorded before anything has
+    // been asked, which is the state a new account is in — and the state the
+    // chip has to get right, because "never asked" must not read as a decision.
+    await record('consents.view', 200, await consentsGet(request('/api/mobile/consents')));
+
     await record('analytics.ack', 200, await analyticsPost(request('/api/mobile/analytics', {
       // Each event name has its own allowed property list
       // (`EVENT_PROPERTIES` in lib/analytics/privacySafeEvents.ts); anything

@@ -1,0 +1,19 @@
+{
+  "aiProcessing": {
+    "state": "declined",
+    "version": "ai-consent-v1",
+    "changedAt": "",
+    "asked": false
+  },
+  "recommendations": {
+    "state": "declined",
+    "version": "rec-consent-v1",
+    "changedAt": "",
+    "asked": false
+  },
+  "currentVersions": {
+    "aiProcessing": "ai-consent-v1",
+    "recommendations": "rec-consent-v1"
+  },
+  "currentVersion": "ai-consent-v1"
+}
