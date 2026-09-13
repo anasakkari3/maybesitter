@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, TextInput, View } from 'react-native';
 import { useApp } from '../state/AppContext';
 import { useCaptureFlow } from '../features/capture/CaptureProvider';
@@ -10,7 +10,13 @@ import { family } from '../theme/fonts';
 import { cardShadow } from '../theme/tokens';
 import { VoiceButton } from '../features/capture/voice/VoiceButton';
 import { createSpeechCaptureService, SpeechEventBridge } from '../features/capture/voice/speechService';
+import { VoiceLanguageChip } from '../features/capture/voice/VoiceLanguageChip';
 import { speechLanguageForTag } from '../features/capture/voice/speechLocale';
+import {
+  loadSpeechLanguage,
+  saveSpeechLanguage,
+  type SpeechLanguagePref,
+} from '../lib/deviceSettings/speechLanguage';
 import { Btn, FlowHeader, Pill, Txt } from '../ui/primitives';
 import { ProcessingDots, ScreenIn } from '../ui/motion';
 
@@ -40,9 +46,30 @@ export function CaptureScreen() {
   const { t, p, ar, lang, actions } = useApp();
   const flow = useCaptureFlow();
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
-  // One per mount of the composer. Rebuilding it on every render would drop the
-  // recogniser's listeners under somebody mid-sentence.
-  const [speech] = useState(() => createSpeechCaptureService(() => speechLanguageForTag(lang)));
+  /**
+   * Which language the mic listens for.
+   *
+   * Defaults to the app's, then to whatever the person last dictated in — a
+   * fact about this device, not about the account (see
+   * `lib/deviceSettings/speechLanguage.ts`). Read in an effect so the first
+   * render does not wait on storage.
+   */
+  const [speechLang, setSpeechLang] = useState<SpeechLanguagePref>(() => speechLanguageForTag(lang));
+  useEffect(() => {
+    let active = true;
+    void loadSpeechLanguage().then((stored) => { if (active && stored) setSpeechLang(stored); });
+    return () => { active = false; };
+  }, []);
+
+  /*
+   * Rebuilt only when the chosen language changes.
+   *
+   * Not per render — that would drop the recogniser's listeners under somebody
+   * mid-sentence. Not once per mount either: switching language mid-session
+   * should start a fresh session in the new one, which is exactly what tapping
+   * the chip is asking for.
+   */
+  const speech = useMemo(() => createSpeechCaptureService(() => speechLang), [speechLang]);
   const strings = t as unknown as Record<string, string>;
   const { state } = flow;
 
@@ -155,6 +182,10 @@ export function CaptureScreen() {
                 {/* Renders nothing until a recogniser exists (UC-2.3 #163).
                     A transcript lands in the field and is never submitted for
                     the user. */}
+                <VoiceLanguageChip
+                  value={speechLang}
+                  onChange={(next) => { setSpeechLang(next); void saveSpeechLanguage(next); }}
+                />
                 <VoiceButton
                   service={speech}
                   autoFocus={state.inputMode === 'voice'}
