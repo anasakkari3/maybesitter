@@ -13,6 +13,11 @@ import {
   type PilotTrustState,
 } from '../../pilot/closedPilotControls';
 import { resolveUserAccess } from '../../pilot/pilotAccess';
+import {
+  isSilentRefusal,
+  resolveNextStepAccess,
+  type NextStepAccess,
+} from './nextStepAccess';
 import { appendAudit, appendIncident, applyTrustAction } from '../../pilot/pilotTrustStore';
 import { getLiveNextStep, prepareLiveNextStepDecision } from '../nextStepLiveService';
 import {
@@ -20,10 +25,11 @@ import {
   readParticipantState,
   replayOrRecordParticipantDecision,
 } from './participantState';
-import type {
-  NextStepDecision,
-  NextStepLocale,
-  NextStepRecommendationContract,
+import {
+  NEXT_STEP_CONTRACT_VERSION,
+  type NextStepDecision,
+  type NextStepLocale,
+  type NextStepRecommendationContract,
 } from '../../../src/contracts/v1/nextStepContracts';
 
 type MobilePilotSource = Record<string, unknown>;
@@ -121,6 +127,42 @@ async function assertAccess(participantId: string, at: string): Promise<AllowedA
   return access as AllowedAccess;
 }
 
+/**
+ * The next step's own gate (UC-2.9, #170).
+ *
+ * ── The consent it reads was the whole bug ───────────────────────
+ *
+ * `decidePilotExposure` refuses unless `trust.recommendationConsent` is true.
+ * That is the *closed pilot's* admission flag: it is created `false`, and the
+ * only thing that ever sets it is the Trust centre's
+ * `grant_recommendation_consent` action.
+ *
+ * Onboarding (#171) does not call that. It records the launch consent, in
+ * `users/{uid}.consents.recommendations`, versioned against the words the user
+ * was actually shown. So every user who agreed to next steps during onboarding
+ * was refused with 403 `consent_required` for as long as they never went and
+ * found the Trust switch — which is to say, the feature was off for everyone
+ * who used the product as designed.
+ *
+ * `resolveNextStepAccess` reads the launch consent. Nothing else about the
+ * order changed: deleted and revoked still come before any flag.
+ *
+ * The audit event stays, because `resolveUserAccess` used to write one and an
+ * exposure decision that leaves no record is not an improvement.
+ */
+async function nextStepAccessFor(participantId: string, at: string): Promise<NextStepAccess> {
+  const access = await resolveNextStepAccess(participantId, new Date(at));
+  await appendAudit(createPilotAuditEvent({
+    version: 'v1',
+    eventType: 'exposure_checked',
+    participantId,
+    occurredAt: at,
+    outcome: access.allowed ? 'allowed' : 'blocked',
+    reasonCode: access.reason,
+  }));
+  return access;
+}
+
 function recommendationContext(input: MobilePilotSource, participantId: string, analyticsConsent: boolean, now: Date) {
   return {
     anonymousUserId: participantId,
@@ -135,7 +177,27 @@ function recommendationContext(input: MobilePilotSource, participantId: string, 
 export async function getMobileNextStep(participantId: string, input: MobilePilotSource) {
   const now = new Date();
   const at = now.toISOString();
-  const access = await assertAccess(participantId, at);
+  const access = await nextStepAccessFor(participantId, at);
+
+  // Quiet hours and quiet mode are not refusals: the user asked not to be
+  // spoken to right now, and nothing is wrong. A 403 there would make the
+  // client draw an error on a screen where the correct rendering is silence,
+  // so the answer is 200 with no card and an `exposure` that says why. The
+  // state is `empty` and not something warmer on purpose — claiming the day is
+  // empty would be a second lie, so the client reads `exposure`, not `state`.
+  if (!access.allowed) {
+    if (!isSilentRefusal(access.reason)) {
+      throw new MobilePilotError('next step unavailable', 403, access.reason);
+    }
+    return {
+      success: true,
+      participantId,
+      recommendation: silentRecommendation(localeFrom(input.locale)),
+      assignment: resolveNextStepArm(participantId),
+      exposure: { allowed: false, reason: access.reason },
+    };
+  }
+
   const context = recommendationContext(input, participantId, access.trust.analyticsConsent, now);
   const recommendation = await getLiveNextStep(await readParticipantState(participantId), context);
   if (recommendation.state === 'ready' && !access.trust.firstValueAt) {
@@ -148,7 +210,27 @@ export async function getMobileNextStep(participantId: string, input: MobilePilo
     participantId,
     recommendation,
     assignment,
-    exposure: access.decision,
+    exposure: { allowed: true, reason: access.reason },
+  };
+}
+
+/**
+ * The shape returned when the user asked for quiet.
+ *
+ * No proposal is computed at all — not computed and withheld. During quiet
+ * hours the selector should not be reading the person's commitments to decide
+ * something nobody will be shown.
+ */
+function silentRecommendation(locale: NextStepLocale): NextStepRecommendationContract {
+  return {
+    version: NEXT_STEP_CONTRACT_VERSION,
+    proposalId: '',
+    state: 'empty',
+    locale,
+    primaryStep: null,
+    explanation: null,
+    availableActions: [],
+    persistence: { occurred: false, confirmationRequired: true },
   };
 }
 
@@ -219,7 +301,15 @@ export function resetMobilePilotDecisionReplaysForTests(): void {
 export async function recordMobileNextStepDecision(participantId: string, input: MobilePilotSource) {
   const now = new Date();
   const at = now.toISOString();
-  const access = await assertAccess(participantId, at);
+  // The same gate as the read, with one difference: a silent refusal does not
+  // block a decision. Quiet hours can begin while a card is on screen, and
+  // refusing the tap that follows would throw away a decision the user has
+  // already made about a suggestion they were legitimately shown. It records
+  // what they chose; it does not speak to them.
+  const access = await nextStepAccessFor(participantId, at);
+  if (!access.allowed && !isSilentRefusal(access.reason)) {
+    throw new MobilePilotError('next step unavailable', 403, access.reason);
+  }
   const proposal = proposalFrom(input.proposal);
   const decision = nextStepDecision(input.decision ?? input.action);
   const editedTitle = typeof input.editedTitle === 'string' ? input.editedTitle : undefined;

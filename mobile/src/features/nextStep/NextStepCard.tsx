@@ -35,6 +35,14 @@ import type { NextStepDecisionKind, NextStepRecommendation } from '../../api/sch
  * `isPending`: `isPending` is state, and two taps in the same frame both see
  * the old value.
  *
+ * ── Quiet is not an empty day ────────────────────────────────────
+ *
+ * Inside the user's own quiet window, or with quiet mode on, the route answers
+ * 200 with `exposure.allowed: false` and a placeholder `empty` recommendation
+ * (#170). The card then renders nothing at all — not the empty state, which
+ * would claim there is nothing to do, and not an error, which would report a
+ * problem. The user asked not to be spoken to, so the product does not speak.
+ *
  * ── A 409 is not an error to show ────────────────────────────────
  *
  * It means the commitments moved under the proposal. The card says so plainly
@@ -51,6 +59,7 @@ export function NextStepCard() {
   const inFlight = useRef(false);
 
   const recommendation = query.data?.recommendation;
+  const silenced = query.data?.exposure?.allowed === false;
   const strings = t as unknown as Record<string, string>;
 
   const send = (decision: NextStepDecisionKind, editedTitle?: string) => {
@@ -68,7 +77,7 @@ export function NextStepCard() {
 
   return (
     <QueryBoundary isPending={query.isPending} error={query.error} onRetry={() => void query.refetch()}>
-      {recommendation ? (
+      {recommendation && !silenced ? (
         <Card pad={18} style={{ gap: 12 }} testID="next-step-card">
           <Txt size={13} color={p.mu}>{t.nextStepLabel}</Txt>
 

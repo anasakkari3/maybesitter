@@ -39,6 +39,7 @@ import { readRoutineProfile } from './routineProfileService';
 import { getOrCreateTrust } from '../../pilot/pilotTrustStore';
 import { readRuntimeControls } from '../../../src/contracts/v1/runtimeControls';
 import { requireUserId, type StorageAdapter } from '../../storage';
+import type { PilotTrustState } from '../../pilot/closedPilotControls';
 import type { RoutineTimeWindow } from '../../../src/contracts/v1/routineContracts';
 
 export type NextStepAccessReason =
@@ -55,6 +56,14 @@ export type NextStepAccessReason =
 export interface NextStepAccess {
   allowed: boolean;
   reason: NextStepAccessReason;
+  /**
+   * The trust record this decision was made from.
+   *
+   * Returned rather than left for the caller to fetch again: every caller needs
+   * it (analytics consent, first-value), and a second `getOrCreateTrust` would
+   * be a second read that could disagree with the one the decision used.
+   */
+  trust: PilotTrustState;
 }
 
 export interface NextStepAccessOptions {
@@ -111,26 +120,26 @@ export async function resolveNextStepAccess(
   const trust = await getOrCreateTrust(uid, at.toISOString());
   // Deleted and revoked come first: they are the two states where the user has
   // told us to stop, and no flag should be able to speak over that.
-  if (trust.deletedAt) return { allowed: false, reason: 'deleted' };
-  if (trust.revokedAt) return { allowed: false, reason: 'revoked' };
+  if (trust.deletedAt) return { allowed: false, reason: 'deleted', trust };
+  if (trust.revokedAt) return { allowed: false, reason: 'revoked', trust };
 
   const controls = readRuntimeControls();
-  if (controls.killSwitches.recommendation) return { allowed: false, reason: 'kill_switch_active' };
-  if (!controls.featureFlags.recommendation) return { allowed: false, reason: 'feature_disabled' };
+  if (controls.killSwitches.recommendation) return { allowed: false, reason: 'kill_switch_active', trust };
+  if (!controls.featureFlags.recommendation) return { allowed: false, reason: 'feature_disabled', trust };
 
   // The user's own switch, from the trust record — an explicit "not now, for a
   // while", and stronger than any schedule.
-  if (trust.quietMode) return { allowed: false, reason: 'quiet_mode' };
+  if (trust.quietMode) return { allowed: false, reason: 'quiet_mode', trust };
 
   const consent = await getRecommendationConsent(uid, options);
-  if (consent !== 'granted') return { allowed: false, reason: 'consent_required' };
+  if (consent !== 'granted') return { allowed: false, reason: 'consent_required', trust };
 
   const profile = await readRoutineProfile(uid, options);
   if (profile?.quietHours && isWithinWindow(profile.quietHours, at, profile.timezone)) {
-    return { allowed: false, reason: 'quiet_hours' };
+    return { allowed: false, reason: 'quiet_hours', trust };
   }
 
-  return { allowed: true, reason: 'authorized' };
+  return { allowed: true, reason: 'authorized', trust };
 }
 
 /**

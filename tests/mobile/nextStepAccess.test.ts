@@ -22,6 +22,15 @@ import { saveRoutineProfile } from '../../lib/services/mobile/routineProfileServ
 import { applyTrustAction } from '../../lib/pilot/pilotTrustStore.ts';
 import { RECOMMENDATION_CONSENT_VERSION } from '../../src/contracts/v1/consentContracts.ts';
 
+/**
+ * The decision alone. `resolveNextStepAccess` also returns the trust record it
+ * read, so its callers do not read it a second time and get a different
+ * answer; these tests are about the decision, not about that record.
+ */
+function decisionOf(access: { allowed: boolean; reason: string }) {
+  return { allowed: access.allowed, reason: access.reason };
+}
+
 const UID = 'NextStepUser';
 const AT = new Date('2026-09-13T09:00:00.000Z');
 
@@ -65,7 +74,7 @@ const ROUTINE = {
 test('a fresh account has not agreed, so there is no card', async () => {
   begin();
   try {
-    assert.deepEqual(await resolveNextStepAccess(UID, AT), { allowed: false, reason: 'consent_required' });
+    assert.deepEqual(decisionOf(await resolveNextStepAccess(UID, AT)), { allowed: false, reason: 'consent_required' });
   } finally {
     end();
   }
@@ -77,7 +86,7 @@ test('the launch consent is what opens it — not the closed pilot flag', async 
     // The pilot flag stays false, which is its default for everybody. If this
     // gate read it, the feature would be invisible to every consenting user.
     await grant();
-    assert.deepEqual(await resolveNextStepAccess(UID, AT), { allowed: true, reason: 'authorized' });
+    assert.deepEqual(decisionOf(await resolveNextStepAccess(UID, AT)), { allowed: true, reason: 'authorized' });
   } finally {
     end();
   }
@@ -88,7 +97,7 @@ test('the pilot flag alone opens nothing', async () => {
   try {
     await applyTrustAction(UID, { type: 'set_recommendation_consent', granted: true, at: AT.toISOString() });
     // Consented to the *pilot*, never to the launch question. No card.
-    assert.deepEqual(await resolveNextStepAccess(UID, AT), { allowed: false, reason: 'consent_required' });
+    assert.deepEqual(decisionOf(await resolveNextStepAccess(UID, AT)), { allowed: false, reason: 'consent_required' });
   } finally {
     end();
   }
@@ -158,7 +167,7 @@ test('no card inside the user’s own quiet window', async () => {
     await saveRoutineProfile(UID, ROUTINE, '2026-09-13T09:00:00.000Z');
     // 23:00 in Jerusalem is 20:00 UTC.
     const atNight = new Date('2026-09-13T20:00:00.000Z');
-    assert.deepEqual(await resolveNextStepAccess(UID, atNight), { allowed: false, reason: 'quiet_hours' });
+    assert.deepEqual(decisionOf(await resolveNextStepAccess(UID, atNight)), { allowed: false, reason: 'quiet_hours' });
   } finally {
     end();
   }
