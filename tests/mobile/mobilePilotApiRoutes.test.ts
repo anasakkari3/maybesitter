@@ -19,6 +19,8 @@ import { join } from 'node:path';
 import { getAnalyticsEvents, resetAnalyticsEventsForTests } from '../../lib/analytics/eventStore.ts';
 import { resolveNextStepArm } from '../../lib/experiments/experimentControls.ts';
 import { applyTrustAction, listAllAuditEvents, listIncidents } from '../../lib/pilot/pilotTrustStore.ts';
+import { setRecommendationConsent } from '../../lib/consents/recommendationConsentService.ts';
+import { RECOMMENDATION_CONSENT_VERSION } from '../../src/contracts/v1/consentContracts.ts';
 import { getParticipantStateSnapshot } from '../../lib/services/mobile/participantState.ts';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
@@ -115,8 +117,18 @@ function setup(overrides: Record<string, string | undefined> = {}): () => void {
   };
 }
 
+/**
+ * Consent the way a real account gets it.
+ *
+ * Both, deliberately. The trust flag is the closed pilot's admission control;
+ * the launch consent in `users/{uid}.consents.recommendations` is what
+ * onboarding writes and what the next step now reads (#170). Granting only the
+ * first is what these tests used to do, and it is precisely the state a real
+ * user could never be in.
+ */
 async function grantRecommendation(uid: string): Promise<void> {
   await applyTrustAction(uid, { type: 'grant_recommendation_consent', at: new Date().toISOString() });
+  await setRecommendationConsent(uid, { state: 'granted', version: RECOMMENDATION_CONSENT_VERSION });
 }
 
 async function grantAnalytics(uid: string): Promise<void> {
@@ -512,9 +524,19 @@ test('trust and recommendation decisions are isolated per authenticated user', a
       participantId: B,
       body: { action: { type: 'set_quiet_mode', enabled: true } },
     }));
+    // 200 with no card, not 403 (#170). Quiet mode is something B switched on
+    // deliberately; an error on that screen would report a problem where the
+    // product is doing exactly what it was told. `exposure` carries the why.
     const bQuiet = await getNextStep(request('/api/mobile/recommendations/next-step', { participantId: B }));
-    assert.equal(bQuiet.status, 403);
-    assert.equal((await json(bQuiet)).reason, 'quiet_mode');
+    assert.equal(bQuiet.status, 200);
+    const bQuietBody = await json(bQuiet) as {
+      exposure: { allowed: boolean; reason: string };
+      recommendation: { state: string; primaryStep: unknown };
+    };
+    assert.equal(bQuietBody.exposure.allowed, false);
+    assert.equal(bQuietBody.exposure.reason, 'quiet_mode');
+    assert.equal(bQuietBody.recommendation.state, 'empty');
+    assert.equal(bQuietBody.recommendation.primaryStep, null);
     const aStillOpen = await getNextStep(request('/api/mobile/recommendations/next-step', { participantId: A }));
     assert.equal(aStillOpen.status, 200);
 

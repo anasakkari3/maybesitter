@@ -35,6 +35,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { applyTrustAction } from '../../lib/pilot/pilotTrustStore.ts';
+import { setRecommendationConsent } from '../../lib/consents/recommendationConsentService.ts';
 import { createStorageFeedbackEventStore } from '../../lib/feedback/feedbackEventStore.ts';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
@@ -293,7 +294,23 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     await confirmPost(request('/api/mobile/capture/confirm', {
       body: { proposalId: secondProposal.proposalId, itemIds: [secondProposal.items[0]!.itemId] },
     }));
+    // Both consent reads happen here, before anything is granted.
+    //
+    // They exist to capture the shape a fresh account sees — declined, and
+    // `asked: false` — and the next-step fixtures below need the launch consent
+    // granted (#170). One fixture user cannot be both, so the order decides:
+    // read the untouched state first, then consent.
+    //
+    // `consents.view` is the composer's "AI: off" chip (UC-2.R2 #172 step 4),
+    // which has to get "never asked" right because it must not read as a
+    // decision. `consents.unanswered` is the same shape for #161's schema.
+    await record('consents.view', 200, await consentsGet(request('/api/mobile/consents')));
+    await record('consents.unanswered', 200, await consentsGet(request('/api/mobile/consents')));
+
     await applyTrustAction(USER, { type: 'grant_recommendation_consent', at: new Date().toISOString() });
+    // The launch consent too: onboarding writes this one, and since #170 it is
+    // what the next step reads. Without it the fixture user is refused.
+    await setRecommendationConsent(USER, { state: 'granted', version: RECOMMENDATION_CONSENT_VERSION });
 
     const nextStep = await record('nextStep.recommendation', 200, await nextStepGet(
       request('/api/mobile/recommendations/next-step?locale=en'),
@@ -347,12 +364,6 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     // `{ eventName, properties }`, not the Flutter `PilotLoopAnalyticsEvent`
     // shape #157's table names: the route validates `eventName` against
     // CLIENT_REPORTABLE_EVENTS and reads nothing else from the body.
-    // The composer's "AI: off" chip renders from this, so its shape is the
-    // client's contract too (UC-2.R2 #172 step 4). Recorded before anything has
-    // been asked, which is the state a new account is in — and the state the
-    // chip has to get right, because "never asked" must not read as a decision.
-    await record('consents.view', 200, await consentsGet(request('/api/mobile/consents')));
-
     await record('analytics.ack', 200, await analyticsPost(request('/api/mobile/analytics', {
       // Each event name has its own allowed property list
       // (`EVENT_PROPERTIES` in lib/analytics/privacySafeEvents.ts); anything
@@ -382,10 +393,6 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     ));
 
     // ── consents (#161, #170) ──────────────────────────────────────
-    // Recorded before anything is answered, so the client's schema covers the
-    // shape a fresh account actually sees: declined, and `asked: false`.
-    await record('consents.unanswered', 200, await consentsGet(request('/api/mobile/consents')));
-
     await record('consents.aiRecorded', 200, await aiConsentPut(request('/api/mobile/consents/ai-processing', {
       method: 'PUT',
       body: { state: 'granted', version: AI_CONSENT_VERSION, locale: 'ar', platform: 'ios' },

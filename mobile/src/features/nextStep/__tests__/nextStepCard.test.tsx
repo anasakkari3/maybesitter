@@ -51,8 +51,13 @@ function recommendation(over: Record<string, unknown> = {}) {
   };
 }
 
-function response(over: Record<string, unknown> = {}) {
-  return { success: true, participantId: USER.uid, recommendation: recommendation(over) };
+function response(over: Record<string, unknown> = {}, exposure?: { allowed: boolean; reason: string }) {
+  return {
+    success: true,
+    participantId: USER.uid,
+    recommendation: recommendation(over),
+    ...(exposure ? { exposure } : {}),
+  };
 }
 
 beforeEach(() => {
@@ -266,5 +271,38 @@ describe('Arabic', () => {
       const value = (ar as unknown as Record<string, string>)[key];
       expect(typeof value === 'string' && value.trim().length > 0).toBe(true);
     }
+  });
+});
+
+describe('when the user asked for quiet', () => {
+  /**
+   * Quiet hours and quiet mode answer 200 with `exposure.allowed: false` and a
+   * placeholder `empty` recommendation (#170). The card must render nothing —
+   * the empty state would claim there is nothing to do, which during quiet
+   * hours is a different and false statement.
+   */
+  const quiet = { state: 'empty', proposalId: '', primaryStep: null, explanation: null, availableActions: [] };
+
+  it('renders nothing at all inside a quiet window', async () => {
+    await show(response(quiet, { allowed: false, reason: 'quiet_hours' }));
+    expect(screen.queryByTestId('next-step-card')).toBeNull();
+    expect(screen.queryByTestId('next-step-empty')).toBeNull();
+    expect(screen.queryByTestId('query-error')).toBeNull();
+  });
+
+  it('renders nothing with quiet mode on', async () => {
+    await show(response(quiet, { allowed: false, reason: 'quiet_mode' }));
+    expect(screen.queryByTestId('next-step-card')).toBeNull();
+  });
+
+  it('still renders a genuinely empty day, which is a different thing', async () => {
+    await show(response(quiet, { allowed: true, reason: 'authorized' }));
+    expect(screen.queryByTestId('next-step-empty')).not.toBeNull();
+  });
+
+  it('renders the card when the response carries no exposure at all', async () => {
+    // `exposure` is optional in the schema; absent must not read as refused.
+    await show(response());
+    expect(screen.queryByTestId('next-step-card')).not.toBeNull();
   });
 });

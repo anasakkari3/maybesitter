@@ -18,6 +18,14 @@ export interface LiveContext extends AnalyticsContext {
   timezone?: string;
   /** Overrides the environment when resolving the arm, for tests and pilot tooling. */
   env?: Record<string, string | undefined>;
+  /**
+   * Commitments the next step must not offer right now (UC-2.9, #170).
+   *
+   * Deferred or recently dismissed. They are removed from the candidate set
+   * and nothing else: their status, time and priority are untouched, and every
+   * other screen still shows them.
+   */
+  excludeCommitmentIds?: ReadonlySet<string>;
 }
 
 /**
@@ -29,6 +37,14 @@ function withArmAssignment(context: LiveContext): LiveContext {
   return assignment.enabled
     ? { ...context, experimentId: assignment.experimentId, arms: NEXT_STEP_ARMS }
     : context;
+}
+
+function visibleState(state: DomainState, exclude?: ReadonlySet<string>): DomainState {
+  if (!exclude || exclude.size === 0) return state;
+  const commitments = Object.fromEntries(
+    Object.entries(state.commitments).filter(([id]) => !exclude.has(id)),
+  );
+  return { ...state, commitments };
 }
 
 function proposalId(state: DomainState): string {
@@ -51,10 +67,16 @@ export async function getLiveNextStep(state: DomainState, context: LiveContext):
   const assigned = withArmAssignment(context);
   const arm = resolveNextStepArm(context.anonymousUserId, context.env).arm;
   const startedAt = performance.now();
-  const selection = selectNextStepForArmFromState(arm, state, {
+  // Filtered here rather than inside the selector: the selector's job is to
+  // rank what it is given, and "the user said not this one" is not a ranking
+  // signal. Removing them also changes `proposalId`, which is correct — the
+  // proposal really is a different one now, and any card still holding the old
+  // id is genuinely stale.
+  const candidates = visibleState(state, context.excludeCommitmentIds);
+  const selection = selectNextStepForArmFromState(arm, candidates, {
     now: context.now,
     locale: context.locale,
-    proposalId: proposalId(state),
+    proposalId: proposalId(candidates),
     timezone: context.timezone || 'UTC',
   });
   const latencyMs = Math.round(performance.now() - startedAt);

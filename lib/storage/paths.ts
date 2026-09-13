@@ -27,6 +27,17 @@ export const REMINDERS = 'reminders';
 export const ESCALATION_STATES = 'escalationStates';
 export const EVENTS = 'events';
 export const RECOMMENDATION_ACTIONS = 'recommendationActions';
+/**
+ * What the user answered to a next step (UC-2.9, #170).
+ *
+ * Its own collection, not `events`. `events` is the domain log: append-only,
+ * replayed into `DomainState` by the reducer, and a record it does not know is
+ * a record the reducer has to skip. And not `feedbackEvents` either — that is
+ * the behaviour-learning ledger with its own outcomes, baselines and
+ * revocation, and two ledgers sharing one collection is how a revoke on one
+ * starts meaning something to the other.
+ */
+export const NEXT_STEP_DECISIONS = 'nextStepDecisions';
 export const AUDIT_EVENTS = 'auditEvents';
 
 /** Added by UC-1.0c (#142) as the remaining stores moved off local disk. */
@@ -72,6 +83,7 @@ export const USER_SCOPED_COLLECTIONS = [
   ESCALATION_STATES,
   EVENTS,
   RECOMMENDATION_ACTIONS,
+  NEXT_STEP_DECISIONS,
   AUDIT_EVENTS,
   MEMORY,
   FEEDBACK_EVENTS,
