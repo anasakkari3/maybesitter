@@ -1,5 +1,11 @@
 # Audit P0/P1 Remediation Implementation Plan
 
+> **Historical — do not follow these commands.** This document dates from the
+> retired Flutter client, when `mobile/**` was the Flutter app. **`mobile/` is
+> now the React Native application.** Any `flutter` command below refers to the
+> archived client at tag `archive/flutter-final`, not to anything on `main`.
+> See `docs/migration/flutter-to-rn-parity.md` (UC-2.R5, #175).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Fix the two release-blocking P0 defects (new commitments lost on relaunch; default capture path ignores real time/date input) and three P1 defects (stale "Enabled" notification-permission display, fabricated calendar connection, no time-editing UI) found by the 2026-08-22 simulator audit and independently reproduced live against this branch.

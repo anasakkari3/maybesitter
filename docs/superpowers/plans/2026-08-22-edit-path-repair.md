@@ -1,5 +1,11 @@
 # Edit Path Repair Implementation Plan
 
+> **Historical — do not follow these commands.** This document dates from the
+> retired Flutter client, when `mobile/**` was the Flutter app. **`mobile/` is
+> now the React Native application.** Any `flutter` command below refers to the
+> archived client at tag `archive/flutter-final`, not to anything on `main`.
+> See `docs/migration/flutter-to-rn-parity.md` (UC-2.R5, #175).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make editing a commitment's title and scheduled time correct and durable — no timezone corruption, no lost reminder offsets, no lost edits after relaunch, and no spurious "postponed" status.

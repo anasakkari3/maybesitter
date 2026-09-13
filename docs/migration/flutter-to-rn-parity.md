@@ -25,24 +25,24 @@ defect this table is for.
 
 | Flutter route | React Native | Status |
 |---|---|---|
-| `/onboarding` | `src/features/onboarding/` (welcome · consent · routine · notifications), composed into `AuthGate`'s `onboarding` slot | In flight (#171) |
-| `/today` | `src/screens/TodayScreen.tsx` | In flight (#173) — screen exists, on seed data |
-| `/upcoming` | Upcoming list | In flight (#173) |
+| `/onboarding` | `src/features/onboarding/` (welcome · consent · routine · notifications), composed into `AuthGate`'s `onboarding` slot | Shipped (#171, merged #286) |
+| `/today` | `src/screens/TodayScreen.tsx` | Shipped (#173, merged #303 · #308 · #313 · #318) |
+| `/upcoming` | Upcoming list | Shipped (#173, merged #303) |
 | `/activity` | — | **Dropped.** The activity log was a pilot-era debugging surface. Its user-facing half is feedback history under Settings (#174); the rest was operator telemetry that belongs in the console, not the app. |
-| `/settings` | `src/screens/SettingsScreen.tsx` | In flight (#174) |
-| `/settings/appearance` | Settings → Appearance (theme), already wired | Shipped |
+| `/settings` | `src/screens/SettingsScreen.tsx` | Shipped (#174, merged #297 · #318) |
+| `/settings/appearance` | Settings → Appearance (theme); the choice is kept in device storage | Shipped (#155; persistence added in S2 closure) |
 | `/settings/pilot-feedback` | — | **Dropped.** The closed pilot's feedback form. The launch equivalent is the alpha-feedback flag (`src/api/endpoints/feedback.ts`) plus feedback history (#174). |
-| `/settings/privacy` | Settings → Privacy | In flight (#174), links in #177 |
-| `/settings/privacy/feedback-history` | Feedback history + revoke | In flight (#174) |
-| `/settings/notifications` | Notification education row (deep-link to OS settings only) | In flight (#174); the permission request itself is S3 reminders |
-| `/settings/routine` | `RoutineStep` in `mode='settings'` — the same five questions as onboarding | In flight (#171 builds it, #174 mounts it) |
-| `/settings/trust` | Trust centre | In flight (#174) |
-| `/settings/trust/knows` | "What MaybeSitter knows", incl. the Memory section | In flight (#174 screen, #167 memory) |
-| `/capture` | `src/screens/CaptureScreen.tsx` | In flight (#172) |
-| `/capture/review` | `src/screens/ReviewScreen.tsx` | In flight (#172, #164) |
-| `/capture/clarification` | Clarification sheet | In flight (#172) |
-| `/capture/success` | `src/screens/SavedScreen.tsx` (with undo) | In flight (#172) |
-| `/commitments/:id` | `src/screens/DetailsScreen.tsx` | In flight (#173) |
+| `/settings/privacy` | Settings → Privacy | Shipped (#174, merged #297). The legal links render only once a domain exists (#177) |
+| `/settings/privacy/feedback-history` | Feedback history + revoke | Shipped (#174, merged #297 · #318) |
+| `/settings/notifications` | Notification education row (deep-link to OS settings only) | Shipped (#174, merged #297); the permission request itself is S3 reminders |
+| `/settings/routine` | `src/features/settings/RoutineSettingsScreen.tsx`, reusing `RoutineStep` — the same five questions as onboarding | Shipped (#171 built it, merged #286; #174 mounted it, merged #297) |
+| `/settings/trust` | `src/features/settings/TrustScreen.tsx` | Shipped (#174, merged #297) |
+| `/settings/trust/knows` | `src/features/settings/KnowsScreen.tsx`, incl. the Memory section | Shipped (#174 screen, merged #297; #167 memory) |
+| `/capture` | `src/screens/CaptureScreen.tsx` | Shipped (#172, merged #315) |
+| `/capture/review` | `src/screens/ReviewScreen.tsx` | Shipped (#172, merged #315; edits #164) |
+| `/capture/clarification` | Clarification sheet | Shipped (#172, merged #315; the question builder is #165) |
+| `/capture/success` | `src/screens/SavedScreen.tsx` (with undo) | Shipped (#172, merged #315) |
+| `/commitments/:id` | `src/screens/DetailsScreen.tsx` | Shipped (#173, merged #305) |
 
 The pilot-token gate (`pilot_access_screen.dart`) has no RN route on purpose:
 Firebase sign-in replaced it in UC-1.1–1.3 (#145–#147). Only its 403 state
@@ -57,7 +57,7 @@ messages carried over, for the revoked / deleted / not-allowlisted cases.
 | `ios/Runner/PilotDeepLinkPlugin.swift` | `src/links.ts` + Expo Linking (`maybesitter://`) | Shipped |
 | `ios/Runner/PilotPresenceSharedStorePlugin.swift` — app-group shared store for the widget | — | **S3**, with the widget. |
 | `android/.../AndroidManifest.xml:15` — `PROCESS_TEXT` share intent | — | **S3.** Sharing selected text into capture; no S2 issue. |
-| `android/.../AndroidManifest.xml:12` — `RecognitionService` query for dictation | Voice capture | In flight (#163) |
+| `android/.../AndroidManifest.xml:12` — `RecognitionService` query for dictation | Voice capture; `expo-speech-recognition` adds `RECORD_AUDIO` and the `<queries>` entry (`mobile/app.config.ts:339`) | Shipped (#163, merged #317) |
 | `android/.../MainActivity.kt` — deep links | Expo Linking | Shipped |
 | `macos/**` | — | **Dropped.** The macOS target was Flutter scaffolding that was never built or shipped. |
 

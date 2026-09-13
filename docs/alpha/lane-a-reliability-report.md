@@ -1,5 +1,11 @@
 # Lane A — Product Reliability Audit and Core-Flow Fixes
 
+> **Historical — do not follow these commands.** This document dates from the
+> retired Flutter client, when `mobile/**` was the Flutter app. **`mobile/` is
+> now the React Native application.** Any `flutter` command below refers to the
+> archived client at tag `archive/flutter-final`, not to anything on `main`.
+> See `docs/migration/flutter-to-rn-parity.md` (UC-2.R5, #175).
+
 > **Purpose:** an end-to-end reliability pass over the canonical Flutter app
 > (`mobile/**`) ahead of pre-pilot alpha hardening: exercise capture →
 > extraction → confirmation → recommendation → accept/edit/defer/dismiss/done
