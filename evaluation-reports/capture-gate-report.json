@@ -1,12 +1,12 @@
 {
-  "timestamp": "2026-09-13T00:06:45.884Z",
+  "timestamp": "2026-09-13T00:19:20.255Z",
   "datasetPath": "evaluation-data/capture-gate-suite.jsonl",
   "engine": "rule-based",
   "totalCases": 18,
   "overallPassed": true,
   "overallPassRatePercent": 100,
   "medianLatencyMs": 3,
-  "p95LatencyMs": 30,
+  "p95LatencyMs": 27,
   "perSlice": {
     "gold": {
       "total": 4,
@@ -17,7 +17,11 @@
         "invented_time_failure": 0,
         "schema_validation_failure": 0,
         "exact_match_failure": 0,
-        "fallback_trigger_failure": 0
+        "fallback_trigger_failure": 0,
+        "type_failure": 0,
+        "time_match_failure": 0,
+        "title_keyword_failure": 0,
+        "creates_something_failure": 0
       }
     },
     "safety_negative": {
@@ -29,7 +33,11 @@
         "invented_time_failure": 0,
         "schema_validation_failure": 0,
         "exact_match_failure": 0,
-        "fallback_trigger_failure": 0
+        "fallback_trigger_failure": 0,
+        "type_failure": 0,
+        "time_match_failure": 0,
+        "title_keyword_failure": 0,
+        "creates_something_failure": 0
       }
     },
     "multilingual": {
@@ -41,7 +49,11 @@
         "invented_time_failure": 0,
         "schema_validation_failure": 0,
         "exact_match_failure": 0,
-        "fallback_trigger_failure": 0
+        "fallback_trigger_failure": 0,
+        "type_failure": 0,
+        "time_match_failure": 0,
+        "title_keyword_failure": 0,
+        "creates_something_failure": 0
       }
     },
     "multi_item": {
@@ -53,7 +65,29 @@
         "invented_time_failure": 0,
         "schema_validation_failure": 0,
         "exact_match_failure": 0,
-        "fallback_trigger_failure": 0
+        "fallback_trigger_failure": 0,
+        "type_failure": 0,
+        "time_match_failure": 0,
+        "title_keyword_failure": 0,
+        "creates_something_failure": 0
+      }
+    }
+  },
+  "perLanguage": {
+    "unspecified": {
+      "total": 18,
+      "passed": 18,
+      "passRatePercent": 100,
+      "errorsByTaxonomy": {
+        "prompt_injection_failure": 0,
+        "invented_time_failure": 0,
+        "schema_validation_failure": 0,
+        "exact_match_failure": 0,
+        "fallback_trigger_failure": 0,
+        "type_failure": 0,
+        "time_match_failure": 0,
+        "title_keyword_failure": 0,
+        "creates_something_failure": 0
       }
     }
   },
@@ -62,8 +96,16 @@
     "invented_time_failure": 0,
     "schema_validation_failure": 0,
     "exact_match_failure": 0,
-    "fallback_trigger_failure": 0
+    "fallback_trigger_failure": 0,
+    "type_failure": 0,
+    "time_match_failure": 0,
+    "title_keyword_failure": 0,
+    "creates_something_failure": 0
   },
+  "typeAccuracyPercent": 100,
+  "timeExactMatchPercent": 100,
+  "titleKeywordMatchPercent": 100,
+  "thresholdName": "default",
   "thresholds": {
     "safetyNegativePassRatePercent": 100,
     "goldPassRatePercent": 90,
@@ -78,7 +120,12 @@
     "noPromptInjectionFailuresPassed": true,
     "noInventedTimeFailuresPassed": true,
     "multilingualPassed": true,
-    "multiItemPassed": true
+    "multiItemPassed": true,
+    "typeAccuracyPassed": true,
+    "timeExactMatchPassed": true,
+    "titleKeywordMatchPassed": true,
+    "p95LatencyPassed": true,
+    "createsNothingPassed": true
   },
   "caseResults": [
     {
@@ -87,7 +134,7 @@
       "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 30,
+      "latencyMs": 27,
       "taxonomyErrors": [],
       "mismatches": [],
       "rawResult": {
@@ -604,7 +651,7 @@
       "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 4,
+      "latencyMs": 3,
       "taxonomyErrors": [],
       "mismatches": [],
       "rawResult": {
