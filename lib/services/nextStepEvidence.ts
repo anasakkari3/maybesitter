@@ -19,6 +19,8 @@ const LABELS: Record<NextStepEvidenceCode, (params: NextStepEvidenceContract['pa
   due_within_24h: () => 'due within 24 hours',
   due_within_7d: () => 'due within 7 days',
   importance: (params) => `importance: ${params?.level ?? 'normal'}`,
+  importance_estimated: (params) => `estimated importance: ${params?.level ?? 'normal'}`,
+  fits_focus_time: () => 'in a time you set aside to focus',
   effort: (params) => `effort: ${params?.minutes ?? 0} minutes`,
   outside_usual_hours: () => 'outside your usual hours',
   short_for_end_of_day: () => 'short enough for the end of the day',

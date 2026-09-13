@@ -467,6 +467,7 @@ test('hard-constraint exclusions agree with the pilot, compared as (commitmentId
 
     const snapshot = candidate.snapshot;
     const baselineCandidate: BaselineCandidate = {
+      importanceIsStated: true,
       commitmentId: snapshot.commitmentId,
       title: `title of ${snapshot.commitmentId}`,
       confirmed: snapshot.confirmedAt !== null,
@@ -770,6 +771,7 @@ test('an instant with no explicit offset is refused, and that is a stated diverg
   // the two readings differ, and it differs in the safe direction.
   const baseline = scoreBaselineCandidate(
     {
+      importanceIsStated: true,
       commitmentId: 'c-a',
       title: 'title',
       confirmed: true,

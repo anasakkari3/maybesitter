@@ -482,5 +482,7 @@
   "nextStepEditTitle": "غيّر الخطوة",
   "nextStepEditSave": "خُد هاي",
   "postponeThisEvening": "المسا",
-  "nextStepDeferTitle": "إيمتى نرجّعها؟"
+  "nextStepDeferTitle": "إيمتى نرجّعها؟",
+  "evidenceImportanceEstimated": "مبيّن إنها {level}",
+  "evidenceFitsFocusTime": "بوقت حاططه للتركيز"
 }

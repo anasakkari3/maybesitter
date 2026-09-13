@@ -86,7 +86,7 @@ export const ALPHA_SCENARIOS: AlphaScenario[] = [
       { titleMustNotContain: ['reminder'], failureTaxonomy: 'invented_fact' },
       { expectedRecState: 'ready', recTitleContains: ['Call Maya'], failureTaxonomy: 'unspecific_next_step' },
     ],
-    nextStepCandidates: [{ commitmentId: 'c1', title: 'Call Maya', confirmed: true, status: 'active', dueAt: inNdaysAtTime(1, 10), remindAt: inNdaysAtTime(1, 10), importance: 'high', explicitEffortMinutes: null }],
+    nextStepCandidates: [{ commitmentId: 'c1', title: 'Call Maya', confirmed: true, status: 'active', dueAt: inNdaysAtTime(1, 10), remindAt: inNdaysAtTime(1, 10), importance: 'high', importanceIsStated: true, explicitEffortMinutes: null }],
     locale: 'en',
   },
   {
@@ -98,7 +98,7 @@ export const ALPHA_SCENARIOS: AlphaScenario[] = [
       { expectedType: 'task', titleRegex: /email alex/i, expectedDisposition: 'auto_confirm', expectedDayOffset: 0, expectedHourUtc: 15, failureTaxonomy: 'wrong_time' },
       { titleMustNotContain: ['please', 'remind'], failureTaxonomy: 'invented_fact' },
     ],
-    nextStepCandidates: [{ commitmentId: 'c2', title: 'Email Alex', confirmed: true, status: 'active', dueAt: inNdaysAtTime(0, 15), remindAt: inNdaysAtTime(0, 15), importance: null, explicitEffortMinutes: null }],
+    nextStepCandidates: [{ commitmentId: 'c2', title: 'Email Alex', confirmed: true, status: 'active', dueAt: inNdaysAtTime(0, 15), remindAt: inNdaysAtTime(0, 15), importance: null, importanceIsStated: true, explicitEffortMinutes: null }],
     locale: 'en',
   },
   {
@@ -293,7 +293,7 @@ export const ALPHA_SCENARIOS: AlphaScenario[] = [
     lang: 'en',
     input: 'Remind me to send invoice to Alex today at 4pm',
     context: FIXED_CONTEXT,
-    nextStepCandidates: [{ commitmentId: 'c3', title: 'Send invoice to Alex', confirmed: true, status: 'active', dueAt: inNdaysAtTime(0, 16), remindAt: inNdaysAtTime(0, 16), importance: null, explicitEffortMinutes: 5 }],
+    nextStepCandidates: [{ commitmentId: 'c3', title: 'Send invoice to Alex', confirmed: true, status: 'active', dueAt: inNdaysAtTime(0, 16), remindAt: inNdaysAtTime(0, 16), importance: null, importanceIsStated: true, explicitEffortMinutes: 5 }],
     locale: 'en',
     constraints: [
       { expectedRecState: 'ready', recTitleContains: ['send invoice'], recEvidenceContains: ['due within 24 hours'], recActionsInclude: ['accept', 'edit', 'defer', 'dismiss', 'done'], failureTaxonomy: 'unspecific_next_step' },
@@ -304,7 +304,7 @@ export const ALPHA_SCENARIOS: AlphaScenario[] = [
     lang: 'en',
     input: 'I needed to submit the report yesterday',
     context: FIXED_CONTEXT,
-    nextStepCandidates: [{ commitmentId: 'c4', title: 'Submit report', confirmed: true, status: 'active', dueAt: inNdaysAtTime(-1, 17), remindAt: inNdaysAtTime(-1, 17), importance: 'high', explicitEffortMinutes: null }],
+    nextStepCandidates: [{ commitmentId: 'c4', title: 'Submit report', confirmed: true, status: 'active', dueAt: inNdaysAtTime(-1, 17), remindAt: inNdaysAtTime(-1, 17), importance: 'high', importanceIsStated: true, explicitEffortMinutes: null }],
     locale: 'en',
     constraints: [
       { expectedRecState: 'ready', recTitleContains: ['Submit report'], recEvidenceContains: ['overdue'], failureTaxonomy: 'over_broad' },
@@ -341,7 +341,7 @@ export const ALPHA_SCENARIOS: AlphaScenario[] = [
     lang: 'en',
     input: 'send the report',
     context: FIXED_CONTEXT,
-    nextStepCandidates: [{ commitmentId: 'c5', title: 'Send the report', confirmed: true, status: 'active', dueAt: inNdaysAtTime(1, 12), remindAt: inNdaysAtTime(1, 12), importance: 'normal', explicitEffortMinutes: 10 }],
+    nextStepCandidates: [{ commitmentId: 'c5', title: 'Send the report', confirmed: true, status: 'active', dueAt: inNdaysAtTime(1, 12), remindAt: inNdaysAtTime(1, 12), importance: 'normal', importanceIsStated: true, explicitEffortMinutes: 10 }],
     locale: 'en',
     constraints: [
       { expectedRecState: 'ready', recActionsInclude: ['accept', 'edit', 'defer', 'dismiss', 'done'], failureTaxonomy: 'not_actionable' },
@@ -353,7 +353,7 @@ export const ALPHA_SCENARIOS: AlphaScenario[] = [
     lang: 'en',
     input: 'Remind me to reply to Sam’s email',
     context: FIXED_CONTEXT,
-    nextStepCandidates: [{ commitmentId: 'c6', title: 'Reply to Sam', confirmed: true, status: 'active', dueAt: inNdaysAtTime(2, 9), remindAt: inNdaysAtTime(2, 9), importance: null, explicitEffortMinutes: 3 }],
+    nextStepCandidates: [{ commitmentId: 'c6', title: 'Reply to Sam', confirmed: true, status: 'active', dueAt: inNdaysAtTime(2, 9), remindAt: inNdaysAtTime(2, 9), importance: null, importanceIsStated: true, explicitEffortMinutes: 3 }],
     locale: 'en',
     constraints: [
       { expectedRecState: 'ready', recTitleContains: ['Sam'], failureTaxonomy: 'unspecific_next_step' },
@@ -370,7 +370,7 @@ export const ALPHA_SCENARIOS: AlphaScenario[] = [
       { expectedDisposition: 'store_note', failureTaxonomy: 'unfaithful' },
       { expectedRecState: 'empty', failureTaxonomy: 'unfaithful' },
     ],
-    nextStepCandidates: [{ commitmentId: 'c7', title: 'Dentist appointment', confirmed: false, status: 'pending_confirmation', dueAt: inNdaysAtTime(1, 9), remindAt: inNdaysAtTime(1, 9), importance: null, explicitEffortMinutes: null }],
+    nextStepCandidates: [{ commitmentId: 'c7', title: 'Dentist appointment', confirmed: false, status: 'pending_confirmation', dueAt: inNdaysAtTime(1, 9), remindAt: inNdaysAtTime(1, 9), importance: null, importanceIsStated: true, explicitEffortMinutes: null }],
     locale: 'en',
   },
 

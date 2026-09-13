@@ -25,6 +25,7 @@ import {
   resolveDeferUntil,
 } from './nextStepDecisionLog';
 import { completeCommitment, patchCommitment } from './commitmentService';
+import { readRoutineProfile } from './routineProfileService';
 import { appendAudit, appendIncident, applyTrustAction } from '../../pilot/pilotTrustStore';
 import { getLiveNextStep, prepareLiveNextStepDecision } from '../nextStepLiveService';
 import {
@@ -183,6 +184,26 @@ async function hiddenFor(participantId: string, now: Date): Promise<Set<string>>
   return hiddenCommitmentIds(await listRecentNextStepDecisions(participantId, now), now);
 }
 
+/**
+ * The hours this person keeps, for the arm that reasons about time.
+ *
+ * Absent for an account that skipped the routine questions, and the arm then
+ * falls back to a 22:00-07:00 guess. That fallback is fine as a guess; what was
+ * not fine was telling the user it was "outside your usual hours" as though it
+ * were a fact about them.
+ */
+async function routineFor(participantId: string): Promise<{
+  quietHours?: { start: string; end: string } | null;
+  focusWindows?: readonly { start: string; end: string }[];
+} | undefined> {
+  const profile = await readRoutineProfile(participantId);
+  if (!profile) return undefined;
+  return {
+    quietHours: profile.quietHours ?? null,
+    focusWindows: profile.focusWindows ?? [],
+  };
+}
+
 function recommendationContext(input: MobilePilotSource, participantId: string, analyticsConsent: boolean, now: Date) {
   return {
     anonymousUserId: participantId,
@@ -221,6 +242,7 @@ export async function getMobileNextStep(participantId: string, input: MobilePilo
   const context = {
     ...recommendationContext(input, participantId, access.trust.analyticsConsent, now),
     excludeCommitmentIds: await hiddenFor(participantId, now),
+    routine: await routineFor(participantId),
   };
   const recommendation = await getLiveNextStep(await readParticipantState(participantId), context);
   if (recommendation.state === 'ready' && !access.trust.firstValueAt) {
@@ -391,9 +413,10 @@ export async function recordMobileNextStepDecision(participantId: string, input:
   const context = {
     ...recommendationContext(input, participantId, access.trust.analyticsConsent, now),
     emitShown: false,
-    // The same exclusions the read applied, so the proposal this validates
-    // against is the one the user was actually shown.
+    // The same exclusions and the same routine the read applied, so the
+    // proposal this validates against is the one the user was actually shown.
     excludeCommitmentIds: await hiddenFor(participantId, now),
+    routine: await routineFor(participantId),
   };
 
   // A read, so it belongs outside the transaction that records the decision.

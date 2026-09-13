@@ -485,5 +485,7 @@
   "nextStepEditTitle": "לשנות את הצעד",
   "nextStepEditSave": "קח את זה",
   "postponeThisEvening": "הערב",
-  "nextStepDeferTitle": "מתי להחזיר?"
+  "nextStepDeferTitle": "מתי להחזיר?",
+  "evidenceImportanceEstimated": "נראה שזה {level}",
+  "evidenceFitsFocusTime": "בזמן שהקצית לריכוז"
 }

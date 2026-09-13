@@ -21,7 +21,7 @@ function candidate(over: Partial<BaselineCandidate> = {}): BaselineCandidate {
     status: 'active',
     dueAt: '2026-09-13T15:00:00.000Z',
     remindAt: null,
-    importance: 'high',
+    importance: 'high', importanceIsStated: true,
     explicitEffortMinutes: null,
     ...over,
   };

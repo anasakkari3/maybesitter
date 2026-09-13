@@ -72,8 +72,8 @@ test('arms: every arm keeps the product contract - one step, no persistence, no 
 
 test('arms: the contextual arm prefers a short step late in the day', () => {
   const candidates = [
-    { commitmentId: 'long', title: 'Long step', confirmed: true, status: 'active' as const, dueAt: '2026-09-07T20:00:00.000Z', remindAt: null, importance: 'normal' as const, explicitEffortMinutes: 120, kind: 'task' as const },
-    { commitmentId: 'short', title: 'Short step', confirmed: true, status: 'active' as const, dueAt: '2026-09-07T20:00:00.000Z', remindAt: null, importance: 'normal' as const, explicitEffortMinutes: 10, kind: 'task' as const },
+    { commitmentId: 'long', title: 'Long step', confirmed: true, status: 'active' as const, dueAt: '2026-09-07T20:00:00.000Z', remindAt: null, importance: 'normal' as const, importanceIsStated: true, explicitEffortMinutes: 120, kind: 'task' as const },
+    { commitmentId: 'short', title: 'Short step', confirmed: true, status: 'active' as const, dueAt: '2026-09-07T20:00:00.000Z', remindAt: null, importance: 'normal' as const, importanceIsStated: true, explicitEffortMinutes: 10, kind: 'task' as const },
   ];
   const morning = { ...armContext, now: new Date('2026-09-07T09:00:00.000Z') };
   const evening = { ...armContext, now: new Date('2026-09-07T18:00:00.000Z') };
@@ -90,8 +90,8 @@ test('arms: the contextual arm prefers a short step late in the day', () => {
 
 test('arms: the contextual arm de-prioritizes non-urgent work during quiet hours', () => {
   const candidates = [
-    { commitmentId: 'overdue', title: 'Overdue step', confirmed: true, status: 'active' as const, dueAt: '2026-09-06T09:00:00.000Z', remindAt: null, importance: 'low' as const, explicitEffortMinutes: null, kind: 'task' as const },
-    { commitmentId: 'later', title: 'Later step', confirmed: true, status: 'active' as const, dueAt: '2026-09-10T09:00:00.000Z', remindAt: null, importance: 'high' as const, explicitEffortMinutes: null, kind: 'task' as const },
+    { commitmentId: 'overdue', title: 'Overdue step', confirmed: true, status: 'active' as const, dueAt: '2026-09-06T09:00:00.000Z', remindAt: null, importance: 'low' as const, importanceIsStated: true, explicitEffortMinutes: null, kind: 'task' as const },
+    { commitmentId: 'later', title: 'Later step', confirmed: true, status: 'active' as const, dueAt: '2026-09-10T09:00:00.000Z', remindAt: null, importance: 'high' as const, importanceIsStated: true, explicitEffortMinutes: null, kind: 'task' as const },
   ];
   const quiet = { ...armContext, now: new Date('2026-09-07T23:30:00.000Z') };
   const selection = selectNextStepForArm('contextual', candidates, quiet);

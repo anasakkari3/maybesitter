@@ -49,6 +49,23 @@ export interface ArmContext {
   locale: NextStepLocale;
   proposalId: string;
   timezone: string;
+  /**
+   * The hours this person actually keeps (UC-2.7a #167, UC-2.9 #170).
+   *
+   * Without it the contextual arm penalised anything suggested between 22:00
+   * and 07:00 and told the user it was "outside your usual hours" — a sentence
+   * about them, asserted from a constant. For somebody who works nights it was
+   * simply false, and it was false in the one place the product claims to be
+   * explaining itself.
+   *
+   * Absent means the person never answered the routine questions, and the
+   * 22:00-07:00 default is used as what it is: a guess for someone who has told
+   * us nothing, not a claim about them.
+   */
+  routine?: {
+    quietHours?: { start: string; end: string } | null;
+    focusWindows?: readonly { start: string; end: string }[];
+  };
 }
 
 const DAY_MS = 24 * 60 * 60 * 1_000;
@@ -56,8 +73,62 @@ const LATE_DAY_HOUR = 17;
 const QUIET_HOURS_START = 22;
 const QUIET_HOURS_END = 7;
 
+/** The fallback window, for an account that never answered (see `ArmContext`). */
 function isQuietHour(hour: number): boolean {
   return hour >= QUIET_HOURS_START || hour < QUIET_HOURS_END;
+}
+
+/**
+ * The wall-clock minute of day in a zone.
+ *
+ * Separate from `localHour`, which rounds to the hour: a quiet window of
+ * 22:30-07:30 cannot be evaluated from the hour alone, and truncating would
+ * make the rule fire half an hour early every night.
+ */
+function localMinutes(now: Date, timezone: string): number | null {
+  try {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: timezone, hour: '2-digit', minute: '2-digit', hour12: false,
+    }).formatToParts(now);
+    const hour = Number(parts.find((part) => part.type === 'hour')?.value);
+    const minute = Number(parts.find((part) => part.type === 'minute')?.value);
+    if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
+    // `en-GB` renders midnight as 24 in some engines.
+    return (hour % 24) * 60 + minute;
+  } catch {
+    return null;
+  }
+}
+
+/** "HH:MM" as minutes past midnight, or null when it is not a wall clock. */
+function toMinutes(value: string): number | null {
+  const match = /^([01][0-9]|2[0-3]):([0-5][0-9])$/.exec(value);
+  return match ? Number(match[1]) * 60 + Number(match[2]) : null;
+}
+
+/**
+ * Whether `minutes` falls inside a wall-clock window.
+ *
+ * A window whose end is not after its start spans midnight, which is the normal
+ * shape for quiet hours. Reading 22:30-07:30 as an empty range instead would
+ * invert the rule exactly: quiet all day, awake all night.
+ */
+function withinWindow(window: { start: string; end: string }, minutes: number): boolean {
+  const start = toMinutes(window.start);
+  const end = toMinutes(window.end);
+  if (start === null || end === null) return false;
+  return start <= end ? minutes >= start && minutes < end : minutes >= start || minutes < end;
+}
+
+function isQuietFor(context: ArmContext, minutes: number | null, hour: number | null): boolean {
+  const quiet = context.routine?.quietHours;
+  if (quiet && minutes !== null) return withinWindow(quiet, minutes);
+  return hour !== null && isQuietHour(hour);
+}
+
+function inFocusWindow(context: ArmContext, minutes: number | null): boolean {
+  if (minutes === null) return false;
+  return (context.routine?.focusWindows ?? []).some((window) => withinWindow(window, minutes));
 }
 
 function dueWithin(candidate: BaselineCandidate, now: Date, windowMs: number): boolean {
@@ -83,13 +154,25 @@ function shortEffort(candidate: BaselineCandidate): boolean {
  * Context-aware deterministic rules. Same evidence and eligibility as the generic arm;
  * only the ordering among already-eligible candidates changes.
  */
-function contextualAdjustment(candidate: ArmCandidate, context: ArmContext, hour: number | null): ArmAdjustment {
+function contextualAdjustment(
+  candidate: ArmCandidate,
+  context: ArmContext,
+  hour: number | null,
+  minutes: number | null = hour === null ? null : hour * 60,
+): ArmAdjustment {
   const codes: NextStepEvidenceContract[] = [];
   let bonus = 0;
 
-  if (hour !== null && isQuietHour(hour) && !isOverdue(candidate, context.now)) {
+  if (isQuietFor(context, minutes, hour) && !isOverdue(candidate, context.now)) {
     bonus -= 2;
     codes.push({ code: 'outside_usual_hours' });
+  }
+  // A time the person set aside to concentrate. Only a bonus, never a penalty
+  // for being outside one: most of a day is outside every focus window, and
+  // penalising all of it would be a penalty on nothing in particular.
+  if (inFocusWindow(context, minutes)) {
+    bonus += 1;
+    codes.push({ code: 'fits_focus_time' });
   }
   if (hour !== null && hour >= LATE_DAY_HOUR && shortEffort(candidate)) {
     bonus += 2;
@@ -111,8 +194,9 @@ function personalizedAdjustment(
   context: ArmContext,
   hour: number | null,
   profile: BehaviorProfile,
+  minutes: number | null = hour === null ? null : hour * 60,
 ): ArmAdjustment {
-  const base = contextualAdjustment(candidate, context, hour);
+  const base = contextualAdjustment(candidate, context, hour, minutes);
   const codes = [...base.codes];
   let bonus = base.bonus;
 
@@ -163,10 +247,11 @@ export function selectNextStepForArm(
     : null;
 
   const hour = localHour(context.now, context.timezone);
+  const minutes = localMinutes(context.now, context.timezone);
   const adjustments = candidates.map((candidate) => (
     usable && profile
-      ? personalizedAdjustment(candidate, context, hour, profile)
-      : contextualAdjustment(candidate, context, hour)
+      ? personalizedAdjustment(candidate, context, hour, profile, minutes)
+      : contextualAdjustment(candidate, context, hour, minutes)
   ));
   const bonusById = new Map(adjustments.map((adjustment) => [adjustment.commitmentId, adjustment]));
   const byId = new Map(candidates.map((candidate) => [candidate.commitmentId, candidate]));

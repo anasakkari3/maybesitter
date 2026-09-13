@@ -38,6 +38,8 @@ const PHRASE_KEY: Record<string, string> = {
   due_within_24h: 'evidenceDueWithin24h',
   due_within_7d: 'evidenceDueWithin7d',
   importance: 'evidenceImportance',
+  importance_estimated: 'evidenceImportanceEstimated',
+  fits_focus_time: 'evidenceFitsFocusTime',
   effort: 'evidenceEffort',
   outside_usual_hours: 'evidenceOutsideUsualHours',
   short_for_end_of_day: 'evidenceShortForEndOfDay',
@@ -61,7 +63,7 @@ export function evidencePhrase(item: EvidenceItem, strings: Record<string, strin
   const phrase = strings[key];
   if (!phrase) return null;
 
-  if (item.code === 'importance') {
+  if (item.code === 'importance' || item.code === 'importance_estimated') {
     const level = item.params?.level;
     if (!level) return null;
     const word = strings[LEVEL_KEY[level]];

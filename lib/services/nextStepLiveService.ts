@@ -26,6 +26,11 @@ export interface LiveContext extends AnalyticsContext {
    * other screen still shows them.
    */
   excludeCommitmentIds?: ReadonlySet<string>;
+  /** The user's own hours (UC-2.7a #167), so the arm's evidence is about them. */
+  routine?: {
+    quietHours?: { start: string; end: string } | null;
+    focusWindows?: readonly { start: string; end: string }[];
+  };
 }
 
 /**
@@ -78,6 +83,7 @@ export async function getLiveNextStep(state: DomainState, context: LiveContext):
     locale: context.locale,
     proposalId: proposalId(candidates),
     timezone: context.timezone || 'UTC',
+    ...(context.routine ? { routine: context.routine } : {}),
   });
   const latencyMs = Math.round(performance.now() - startedAt);
   const proposal = selection.recommendation;
