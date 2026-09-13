@@ -22,14 +22,33 @@
  * `Intl.DateTimeFormat` with an explicit `timeZone`, which is the only way to
  * ask "what is the offset in Jerusalem on that date" without a tz library.
  */
-export type PostponePreset = 'oneHour' | 'threeHours' | 'tomorrowMorning' | 'nextWeek';
+export type PostponePreset =
+  | 'oneHour'
+  | 'threeHours'
+  | 'thisEvening'
+  | 'tomorrowMorning'
+  | 'nextWeek';
 
+/** The four the details sheet offers for "not now" (UC-2.R3, #173). */
 export const POSTPONE_PRESETS: readonly PostponePreset[] = [
   'oneHour', 'threeHours', 'tomorrowMorning', 'nextWeek',
 ];
 
+/**
+ * The three the next step offers for "later" (UC-2.9, #170).
+ *
+ * A shorter list than postponing, and deliberately: deferring a *suggestion* is
+ * a small "not right now", and offering to push it a week would turn one tap
+ * into a decision about the rest of the month.
+ */
+export const DEFER_PRESETS: readonly PostponePreset[] = [
+  'oneHour', 'thisEvening', 'tomorrowMorning',
+];
+
 /** 09:00 is the design's "morning": late enough to be awake, early enough to act. */
 const MORNING_HOUR = 9;
+/** 18:00 is "this evening": after a working day, before it is too late to act. */
+const EVENING_HOUR = 18;
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -99,6 +118,17 @@ export function postponeTo(preset: PostponePreset, now: Date, timeZone: string):
   if (preset === 'threeHours') return new Date(now.getTime() + 3 * HOUR_MS).toISOString();
 
   const today = partsIn(now, timeZone);
+
+  if (preset === 'thisEvening') {
+    const evening = instantForWallClock({ ...today, hour: EVENING_HOUR }, timeZone);
+    // Past six already: "this evening" has gone, and answering with a time in
+    // the past would defer nothing at all. Tomorrow evening is what the words
+    // still honestly mean.
+    return (evening.getTime() > now.getTime()
+      ? evening
+      : instantForWallClock({ ...addDays(today, 1), hour: EVENING_HOUR }, timeZone)).toISOString();
+  }
+
   const target = addDays(today, preset === 'tomorrowMorning' ? 1 : 7);
   return instantForWallClock({ ...target, hour: MORNING_HOUR }, timeZone).toISOString();
 }

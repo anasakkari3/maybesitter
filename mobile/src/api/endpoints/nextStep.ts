@@ -31,6 +31,8 @@ export function recordNextStepDecision(input: {
   proposal: NextStepRecommendation;
   idempotencyKey: string;
   editedTitle?: string;
+  /** When a deferred step becomes eligible again (UC-2.9, #170). */
+  deferUntil?: string;
 }) {
   return apiRequest('POST', '/api/mobile/recommendations/next-step/actions', {
     body: {
@@ -39,6 +41,7 @@ export function recordNextStepDecision(input: {
       proposal: input.proposal,
       idempotencyKey: input.idempotencyKey,
       ...(input.editedTitle ? { editedTitle: input.editedTitle } : {}),
+      ...(input.deferUntil ? { deferUntil: input.deferUntil } : {}),
     },
     schema: nextStepDecisionResponseSchema,
   });

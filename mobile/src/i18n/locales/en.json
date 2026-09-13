@@ -480,5 +480,7 @@
   "nextStepDismiss": "Not this one",
   "nextStepDone": "Already done",
   "nextStepEditTitle": "Change the step",
-  "nextStepEditSave": "Use this"
+  "nextStepEditSave": "Use this",
+  "postponeThisEvening": "This evening",
+  "nextStepDeferTitle": "Bring it back when?"
 }
