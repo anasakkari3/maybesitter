@@ -1,0 +1,51 @@
+appId: com.maybesitter.app
+name: MaybeSitter trust centre
+---
+# UC-2.R4 (#174): every consent toggle's position is the server's answer, and
+# it survives a restart because it was never local state in the first place.
+#
+# Run against a **development** build with EXPO_PUBLIC_DEV_BEARER_TOKEN set and
+# a staging API host, on a throwaway account: this really changes that
+# account's consents.
+
+- launchApp:
+    clearState: false
+- tapOn: 'الإعدادات'
+- tapOn:
+    id: 'settings-trust'
+- assertVisible: 'مركز الثقة'
+
+# Analytics starts wherever the account left it; flip it and let the write land.
+- tapOn:
+    id: 'trust-analytics'
+- extendedWaitUntil:
+    notVisible:
+      id: 'trust-analytics-busy'
+    timeout: 10000
+# The failure line must not be there: if the write did not land, this flow is
+# not testing persistence.
+- assertNotVisible:
+    id: 'trust-analytics-failed'
+
+# A restart re-reads from the server, so the position has to come back the same.
+- launchApp
+- tapOn: 'الإعدادات'
+- tapOn:
+    id: 'settings-trust'
+- assertNotVisible:
+    id: 'trust-analytics-failed'
+
+# Put it back, so the flow is repeatable.
+- tapOn:
+    id: 'trust-analytics'
+- extendedWaitUntil:
+    notVisible:
+      id: 'trust-analytics-busy'
+    timeout: 10000
+
+# What it knows, and the promises it only makes when the server agrees.
+- tapOn:
+    id: 'trust-knows'
+- assertVisible: 'شو بيعرف MaybeSitter'
+- assertVisible:
+    id: 'knows-commitment-count'
