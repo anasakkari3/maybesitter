@@ -62,8 +62,20 @@ export interface ClarifyOptions {
 export interface ClarifyDependencies {
   store: CaptureProposalStore;
   extractor?: typeof extractWithFallback;
-  /** `{ type:'clarification_answered', … }`. The free text itself is never in it. */
-  recordEvent?: (event: ClarificationAnsweredEvent) => void | Promise<void>;
+  /**
+   * Where the answer is written down.
+   *
+   * Required, and called without a `?.`, because it was neither: the port was
+   * optional and the call was optional-chained, the single production
+   * construction site never passed one, and so for the whole life of UC-2.5
+   * the event was assembled and dropped with nothing that could go red about
+   * it. A missing implementation is now a type error at the construction site
+   * rather than silence at runtime — which is the only version of this the
+   * suite can defend.
+   *
+   * `{ type:'clarification_answered', … }`. The free text itself is never in it.
+   */
+  recordEvent: (event: ClarificationAnsweredEvent) => void | Promise<void>;
 }
 
 export interface ClarificationAnsweredEvent {
@@ -204,7 +216,7 @@ export async function answerClarification(
 
   // The answer, never the words. A free-text answer is the user's own sentence
   // about their own commitment and has no business in an event log.
-  await dependencies.recordEvent?.({
+  await dependencies.recordEvent({
     type: 'clarification_answered',
     proposalId: input.proposalId,
     itemId: input.itemId,
