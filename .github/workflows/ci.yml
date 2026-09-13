@@ -201,3 +201,11 @@ jobs:
       # (UC-1.6a #150).
       - name: No credentials in the repository
         run: npm run check:no-credentials
+
+      # Apple does not reliably read privacy manifests out of static CocoaPods,
+      # and this app uses static frameworks because RN Firebase needs them. So a
+      # dependency that brings a new required-reason API has to be declared in
+      # the app's own manifest — and if it is not, nothing fails until an
+      # ITMS-91053 email arrives an hour after the upload (UC-4.3a #178).
+      - name: Privacy manifests cover what the dependencies use
+        run: npm run check:privacy-manifests
