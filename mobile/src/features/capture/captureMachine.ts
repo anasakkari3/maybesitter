@@ -1,0 +1,324 @@
+/**
+ * The capture flow, as a pure reducer (UC-2.R2, #172).
+ *
+ * Every transition the flow can make lives here, with no React, no navigation
+ * and no network. That is what makes the invariants testable as arithmetic
+ * rather than as a screen: "nothing is committed before confirm" is a statement
+ * about which actions can produce `persisted`, and this file is where it can be
+ * read off.
+ *
+ * ── Why a reducer and not component state ────────────────────────
+ *
+ * The flow has thirteen states and several of them look alike from the outside
+ * — `analyzing` and `confirming` are both spinners, `networkError` and
+ * `extractionFailed` are both "try again". Spread across three screens as
+ * booleans, the combinations that cannot happen become combinations nobody
+ * checked. Here they cannot be constructed.
+ *
+ * ── The draft never touches disk ─────────────────────────────────
+ *
+ * There is no serialization in this file and no storage import. A half-written
+ * capture is the most sensitive text the product ever holds — it is whatever
+ * the user was about to commit to, before they decided whether to — and it
+ * lives in memory for exactly as long as the flow does. #172's acceptance
+ * criteria require this, and `captureMachine.test.ts` asserts the module graph
+ * pulls in no storage.
+ */
+import type { CaptureProposal, CaptureConfirmation } from '../../api/schemas/capture';
+
+/**
+ * Where the flow is.
+ *
+ * Ported from the archived Flutter controller's status list, which had been
+ * through real use — the distinctions in it are ones the UI genuinely needs,
+ * and collapsing them would lose the difference between "the model could not
+ * read this" and "the network is down", which are different messages and
+ * different recoveries.
+ */
+export type CaptureStatus =
+  /** Nothing typed yet. */
+  | 'idle'
+  /** The user is typing or has a transcript in the field. */
+  | 'editing'
+  /** `POST /api/mobile/capture` in flight. */
+  | 'analyzing'
+  /** A proposal came back with at least one item to confirm. */
+  | 'needsConfirmation'
+  /** Every item needs a question answered before it can be confirmed (#165). */
+  | 'needsClarification'
+  /** The message named no commitment. Nothing was created (#166). */
+  | 'noCommitment'
+  /** The request is one the product does not do. */
+  | 'unsupportedRequest'
+  /** The server refused the input itself. */
+  | 'validationError'
+  /** Offline, or the request never arrived. */
+  | 'networkError'
+  /** The server answered, but could not read the message. */
+  | 'extractionFailed'
+  /** `POST /api/mobile/capture/confirm` in flight. */
+  | 'confirming'
+  /** Confirmed. `persisted` is what the server actually saved. */
+  | 'saved'
+  /** The confirm failed. The proposal is still there to retry. */
+  | 'confirmFailed';
+
+/**
+ * How the flow was entered. `widget` and `share` arrive by deep link; only
+ * `tab` and `notification` come from inside the app.
+ */
+export type CaptureSource = 'tab' | 'widget' | 'share' | 'notification';
+
+/** Which input the user was offered first. */
+export type CaptureInputMode = 'text' | 'voice';
+
+/**
+ * An edit the user made in review, before anything was saved.
+ *
+ * Held here and applied at confirm — never afterwards. #172's original plan was
+ * a `PATCH /commitments/:id {title}` after the confirm landed, which meant the
+ * user briefly had a commitment with a title they had already changed, and a
+ * failed PATCH left it that way permanently. UC-2.4 (#164) replaces that with
+ * an atomic confirm that carries the edits, and this is the shape it consumes.
+ *
+ * Empty until #164 lands: this file keeps the slot so that the reducer, the
+ * selection logic and the confirm payload do not have to be rewritten when it
+ * does, and so nothing in the meantime invents a temporary mechanism that would
+ * have to be removed again.
+ */
+export interface CaptureItemEdit {
+  title?: string;
+  /** Local wall clock, `YYYY-MM-DDTHH:mm`, resolved in the device zone. */
+  localDateTime?: string;
+  priority?: 'high' | 'normal' | 'low';
+}
+
+export interface CaptureState {
+  status: CaptureStatus;
+  source: CaptureSource;
+  inputMode: CaptureInputMode;
+  /** What the user typed or dictated. The only copy, and it is in memory. */
+  text: string;
+  /** The server's proposal. Null until one comes back. */
+  proposal: CaptureProposal | null;
+  /**
+   * The original proposal, kept beside any edits.
+   *
+   * #164 needs to show what changed and to send the edits against the shape
+   * they were made on. Keeping one mutable copy would make "what did the user
+   * actually see when they confirmed" unanswerable.
+   */
+  original: CaptureProposal | null;
+  /** Item ids the user has selected. Everything confirmable starts selected. */
+  selected: string[];
+  /** Edits by item id, applied atomically at confirm (#164). */
+  edits: Record<string, CaptureItemEdit>;
+  /** What the server reported saved. Only ever set from its response. */
+  persisted: CaptureConfirmation['persisted'];
+  /** What the server refused, with its reason. Never presented as saved. */
+  failed: CaptureConfirmation['failed'];
+  /** A machine-readable reason for an error status, for the copy to map. */
+  errorReason: string | null;
+  /** True while the undo window is open. */
+  undoable: boolean;
+}
+
+export type CaptureEvent =
+  | { type: 'open'; source?: CaptureSource; inputMode?: CaptureInputMode }
+  | { type: 'textChanged'; text: string }
+  | { type: 'analyzeStarted' }
+  | { type: 'analyzeSucceeded'; proposal: CaptureProposal }
+  | { type: 'analyzeFailed'; kind: 'network' | 'validation' | 'extraction'; reason?: string }
+  | { type: 'toggleItem'; itemId: string }
+  | { type: 'editItem'; itemId: string; edit: CaptureItemEdit }
+  | { type: 'clearEdit'; itemId: string }
+  | { type: 'confirmStarted' }
+  | { type: 'confirmSucceeded'; confirmation: CaptureConfirmation }
+  | { type: 'confirmFailed'; reason?: string }
+  | { type: 'undoWindowClosed' }
+  | { type: 'backToComposer' }
+  | { type: 'reset' };
+
+/** The longest capture the backend will read. Its trace truncates at 2000. */
+export const MAX_CAPTURE_LENGTH = 2000;
+/** The longest title the commitment validator accepts. */
+export const MAX_TITLE_LENGTH = 200;
+/** How long Undo stays available, in milliseconds. */
+export const UNDO_WINDOW_MS = 5_000;
+
+export function initialCaptureState(
+  source: CaptureSource = 'tab',
+  inputMode: CaptureInputMode = 'text',
+): CaptureState {
+  return {
+    status: 'idle',
+    source,
+    inputMode,
+    text: '',
+    proposal: null,
+    original: null,
+    selected: [],
+    edits: {},
+    persisted: [],
+    failed: [],
+    errorReason: null,
+    undoable: false,
+  };
+}
+
+/**
+ * Which items a user can actually confirm.
+ *
+ * An item needing clarification is not one of them: it has no resolved time, so
+ * confirming it would persist a commitment with nothing to remind anyone about.
+ * It becomes selectable once #165's question is answered or #164's manual edit
+ * supplies the missing piece.
+ */
+export function confirmableItems(proposal: CaptureProposal | null): string[] {
+  if (!proposal || proposal.status !== 'proposed') return [];
+  return proposal.items.filter((item) => !item.needsClarification).map((item) => item.itemId);
+}
+
+/** What the confirm request carries. Only the selection, and only its edits. */
+export function confirmPayload(state: CaptureState): {
+  proposalId: string;
+  itemIds: string[];
+  edits: Record<string, CaptureItemEdit>;
+} {
+  const itemIds = state.selected.filter((id) => confirmableItems(state.proposal).includes(id));
+  // Edits for items that are not being confirmed are dropped rather than sent.
+  // Sending them would ask the server to validate a change to something the
+  // user chose not to save.
+  const edits: Record<string, CaptureItemEdit> = {};
+  for (const id of itemIds) {
+    if (state.edits[id]) edits[id] = state.edits[id];
+  }
+  return { proposalId: state.proposal?.proposalId ?? '', itemIds, edits };
+}
+
+/** True when the user has something worth a discard confirmation. */
+export function hasUnsavedText(state: CaptureState): boolean {
+  return state.text.trim().length > 0 && state.status !== 'saved';
+}
+
+function statusForProposal(proposal: CaptureProposal): CaptureStatus {
+  switch (proposal.status) {
+    case 'proposed':
+      // Every item needing a question is the clarification flow, even though
+      // the proposal itself says 'proposed'.
+      return confirmableItems(proposal).length > 0 ? 'needsConfirmation' : 'needsClarification';
+    case 'needs_clarification':
+      return 'needsClarification';
+    case 'no_commitment':
+      return 'noCommitment';
+    case 'rejected':
+      return 'unsupportedRequest';
+    default:
+      return 'extractionFailed';
+  }
+}
+
+export function captureReducer(state: CaptureState, event: CaptureEvent): CaptureState {
+  switch (event.type) {
+    case 'open':
+      return initialCaptureState(event.source ?? state.source, event.inputMode ?? state.inputMode);
+
+    case 'textChanged': {
+      // Truncated here rather than refused, so a long paste keeps its beginning
+      // instead of silently doing nothing.
+      const text = event.text.slice(0, MAX_CAPTURE_LENGTH);
+      return { ...state, text, status: text.trim() ? 'editing' : 'idle', errorReason: null };
+    }
+
+    case 'analyzeStarted':
+      if (!state.text.trim()) return state;
+      return { ...state, status: 'analyzing', errorReason: null, proposal: null, original: null };
+
+    case 'analyzeSucceeded':
+      return {
+        ...state,
+        status: statusForProposal(event.proposal),
+        proposal: event.proposal,
+        // The untouched copy, for #164 to diff against.
+        original: event.proposal,
+        selected: confirmableItems(event.proposal),
+        edits: {},
+        errorReason: null,
+      };
+
+    case 'analyzeFailed':
+      return {
+        ...state,
+        status: event.kind === 'network' ? 'networkError'
+          : event.kind === 'validation' ? 'validationError'
+            : 'extractionFailed',
+        errorReason: event.reason ?? null,
+        proposal: null,
+        original: null,
+      };
+
+    case 'toggleItem': {
+      if (!confirmableItems(state.proposal).includes(event.itemId)) return state;
+      const selected = state.selected.includes(event.itemId)
+        ? state.selected.filter((id) => id !== event.itemId)
+        : [...state.selected, event.itemId];
+      return { ...state, selected };
+    }
+
+    case 'editItem': {
+      if (!state.proposal?.items.some((item) => item.itemId === event.itemId)) return state;
+      const title = event.edit.title?.slice(0, MAX_TITLE_LENGTH);
+      return {
+        ...state,
+        edits: {
+          ...state.edits,
+          [event.itemId]: {
+            ...state.edits[event.itemId],
+            ...event.edit,
+            ...(title !== undefined ? { title } : {}),
+          },
+        },
+      };
+    }
+
+    case 'clearEdit': {
+      const edits = { ...state.edits };
+      delete edits[event.itemId];
+      return { ...state, edits };
+    }
+
+    case 'confirmStarted':
+      if (confirmPayload(state).itemIds.length === 0) return state;
+      return { ...state, status: 'confirming', errorReason: null };
+
+    case 'confirmSucceeded':
+      return {
+        ...state,
+        status: 'saved',
+        // Straight from the server. The success screen shows exactly this, and
+        // nothing the client believed it was saving.
+        persisted: event.confirmation.persisted,
+        failed: event.confirmation.failed,
+        undoable: event.confirmation.persisted.length > 0,
+      };
+
+    case 'confirmFailed':
+      // The proposal survives, so Retry has something to retry.
+      return { ...state, status: 'confirmFailed', errorReason: event.reason ?? null };
+
+    case 'undoWindowClosed':
+      return { ...state, undoable: false };
+
+    case 'backToComposer':
+      // The text is kept on purpose: this is the Edit button on a
+      // no-commitment or error state, and losing what they wrote would be the
+      // worst possible response to "I could not read that".
+      return { ...state, status: state.text.trim() ? 'editing' : 'idle', proposal: null, original: null, selected: [], edits: {}, errorReason: null };
+
+    case 'reset':
+      return initialCaptureState(state.source, state.inputMode);
+
+    default:
+      return state;
+  }
+}

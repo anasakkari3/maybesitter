@@ -14,6 +14,7 @@ import { nextStepDecisionResponseSchema, nextStepResponseSchema } from '../schem
 import { trustResponseSchema } from '../schemas/trust';
 import { alphaFeedbackSchema, feedbackHistorySchema, feedbackRevokeSchema } from '../schemas/feedback';
 import { analyticsAckSchema } from '../schemas/analytics';
+import { consentsViewSchema } from '../schemas/consents';
 
 /**
  * The drift detector.
@@ -55,6 +56,7 @@ const CASES: Array<[string, z.ZodType]> = [
   ['feedback.revoked', feedbackRevokeSchema],
   ['alphaFeedback.flag', alphaFeedbackSchema],
   ['analytics.ack', analyticsAckSchema],
+  ['consents.view', consentsViewSchema],
   ['errors.unauthorized', errorBodySchema],
 ];
 
