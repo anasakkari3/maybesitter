@@ -94,10 +94,11 @@ function PostponeSheet() {
   const choose = (preset: PostponePreset) => {
     const id = query.data?.id;
     if (!id) return;
+    // No past-instant guard here, and none is needed: every preset is `now`
+    // plus something, so none can resolve into the past. `isPostponable` is
+    // for the custom picker, where the user really can choose yesterday — it
+    // lands with that picker rather than as an unreachable branch here.
     const until = postponeTo(preset, new Date(), timezone);
-    // The server refuses a past instant with a 400. Saying so first is the
-    // difference between a picker that guides and one that just fails.
-    
     act.mutate({ id, action: 'postpone', postponedUntil: until }, {
       onSuccess: () => actions.toast(t.toastPostponed),
     });
