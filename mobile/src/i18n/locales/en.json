@@ -419,5 +419,18 @@
   "obAboutReviewNone": "Nothing to suggest from that. You can add things yourself in Settings later.",
   "obAboutSuggested": "Suggested by AI",
   "obAboutSaveSelected": "Save what I ticked",
-  "obAboutSaveNone": "Save nothing"
+  "obAboutSaveNone": "Save nothing",
+  "todayWhyOverdue": "Why first: the time has passed",
+  "todayWhySoon": "Why first: due within two hours",
+  "todayWhyToday": "Why first: due today",
+  "todayWhyMust": "Why first: you marked it must",
+  "todayWhyEstimated": "Why first: looks important",
+  "todayWhyNoDeadline": "Why first: no time set",
+  "todayWhyJoin": "{first} · {second}",
+  "todayGroupMust": "Must",
+  "todayGroupShould": "Should",
+  "todayGroupNice": "Nice",
+  "todayGroupFinished": "Finished",
+  "todayEstimatedMark": "estimated",
+  "todayCountOpen": "{n, plural, =0{Nothing open} one{# thing open} other{# things open}}"
 }
