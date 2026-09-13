@@ -1,10 +1,9 @@
 import React from 'react';
 import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import * as WebBrowser from 'expo-web-browser';
 import { useApp } from '../state/AppContext';
 import { useAuth } from '../auth/AuthProvider';
-import { legalUrls } from '../config/env';
+import { openLegal, privacyPolicyUrl, termsUrl } from '../config/legalLinks';
 import { Btn, Card, Pill, Txt } from '../ui/primitives';
 
 /**
@@ -27,10 +26,12 @@ export function SignInScreen({
   googleSlot?: React.ReactNode;
   onEmail: () => void;
 }) {
-  const { t, p } = useApp();
+  const { t, p, lang } = useApp();
   const { lastSignOutReason, devBypass } = useAuth();
   const insets = useSafeAreaInsets();
-  const legal = legalUrls();
+  // Routed by the language the screen is actually rendering in, not by the
+  // device's: somebody reading an Arabic sign-in screen gets the Arabic policy.
+  const legal = { privacy: privacyPolicyUrl(lang), terms: termsUrl(lang) };
 
   const notice =
     lastSignOutReason === 'session_expired'
@@ -71,16 +72,21 @@ export function SignInScreen({
         <Txt size={12} color={p.mu} align="center" style={{ marginTop: 20 }}>{t.authDevMode}</Txt>
       ) : null}
 
-      <View style={{ marginTop: 28, alignItems: 'center' }}>
+      {/* A notice, not a checkbox: continuing implies the terms, and the one
+          thing that needs an explicit yes — sending words to a model — is asked
+          separately in onboarding (UC-2.1 #161). Each link is its own pressable
+          rather than a span inside the sentence, so nothing has to be
+          concatenated across a bidi run. */}
+      <View testID="signin-legal-notice" style={{ marginTop: 28, alignItems: 'center' }}>
         <Txt size={12} color={p.mu} align="center">{t.authLegalNote}</Txt>
         <View style={{ flexDirection: 'row', gap: 20, marginTop: 10 }}>
           {legal.privacy ? (
-            <Btn label={t.authPrivacy} onPress={() => void WebBrowser.openBrowserAsync(legal.privacy as string)}>
+            <Btn label={t.authPrivacy} onPress={() => void openLegal(legal.privacy)}>
               <Txt size={13} weight={600} color={p.ac}>{t.authPrivacy}</Txt>
             </Btn>
           ) : null}
           {legal.terms ? (
-            <Btn label={t.authTerms} onPress={() => void WebBrowser.openBrowserAsync(legal.terms as string)}>
+            <Btn label={t.authTerms} onPress={() => void openLegal(legal.terms)}>
               <Txt size={13} weight={600} color={p.ac}>{t.authTerms}</Txt>
             </Btn>
           ) : null}

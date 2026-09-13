@@ -6,6 +6,7 @@ import { useAuth } from '../auth/AuthProvider';
 import { LANGUAGE_ENDONYM } from '../i18n/language';
 import { fill } from '../i18n/strings';
 import { Btn, Card, Pill, Txt } from '../ui/primitives';
+import { LegalLinks } from '../features/legal/LegalLinks';
 import { ScreenIn } from '../ui/motion';
 
 export function SettingsScreen() {
@@ -46,6 +47,11 @@ export function SettingsScreen() {
             </Btn>
           ))}
         </Card>
+        {/* Only rendered once a legal site is configured — see
+            src/config/legalLinks.ts on why a dead policy link is worse than
+            none (UC-4.2 #177). */}
+        <LegalLinks />
+
         {user ? (
           <Card pad={18} style={{ gap: 14 }}>
             <Txt size={13} weight={600} color={p.mu}>{t.settingsAccount}</Txt>
