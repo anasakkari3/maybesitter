@@ -116,3 +116,49 @@ test('spoken Arabic hours are counted like typed ones', () => {
   // as one confident commitment.
   assert.equal(countTimeExpressions('بكرا الساعة تسعة دكتور وبعدين الساعة تلاتة الجامعة'), 2);
 });
+
+test('splitInput: Arabic and Hebrew connectors separate two commitments (#162)', async () => {
+  const { proposeCapture, MemoryCaptureProposalStore, TransactionalCapturePersistenceAdapter } =
+    await import('../../lib/services/captureBoundary/index.ts');
+  const { createEmptyDomainState } = await import('../../src/domain/stateMachine.ts');
+
+  // «وبعدين» is "and then". Before #162 only English connectors were read, so
+  // this arrived as one segment, the extractor's non-global time match kept the
+  // first time and dropped the second, and the safety valve turned the whole
+  // capture into a clarification — safe, but the product failing to read an
+  // entirely ordinary sentence.
+  const proposal = await proposeCapture(
+    'بكرة الساعة 9 الصبح عندي دكتور وبعدين الساعة 3 العصر عندي جامعة',
+    { now: new Date('2026-09-13T06:00:00.000Z'), timezone: 'Asia/Jerusalem', scopeId: 'seg', requestedEngine: 'rules' },
+    {
+      store: new MemoryCaptureProposalStore(),
+      persistence: new TransactionalCapturePersistenceAdapter(createEmptyDomainState()),
+    },
+  );
+
+  assert.equal(proposal.items.length, 2, 'two appointments, two items');
+  assert.equal(
+    proposal.items.filter((item) => item.resolvedTime !== null).length,
+    2,
+    'both times survived segmentation',
+  );
+});
+
+test('splitInput: a bare «و» is not a connector (#162)', async () => {
+  const { proposeCapture, MemoryCaptureProposalStore, TransactionalCapturePersistenceAdapter } =
+    await import('../../lib/services/captureBoundary/index.ts');
+  const { createEmptyDomainState } = await import('../../src/domain/stateMachine.ts');
+
+  // «و» joins words far more often than clauses. Splitting on it would turn one
+  // errand into two commitments with half a sentence each.
+  const proposal = await proposeCapture(
+    'بكرة الساعة 5 العصر بدي أحكي مع أحمد وسامي',
+    { now: new Date('2026-09-13T06:00:00.000Z'), timezone: 'Asia/Jerusalem', scopeId: 'seg2', requestedEngine: 'rules' },
+    {
+      store: new MemoryCaptureProposalStore(),
+      persistence: new TransactionalCapturePersistenceAdapter(createEmptyDomainState()),
+    },
+  );
+
+  assert.equal(proposal.items.length, 1, 'one errand naming two people is one commitment');
+});

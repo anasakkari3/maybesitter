@@ -63,10 +63,28 @@ const INJECTION = /(?:ignore|disregard|override).{0,40}(?:instruction|system|pol
  */
 const MAX_MODEL_SEGMENTS = 5;
 
+/**
+ * One capture, split into the commitments it actually names.
+ *
+ * English connectors were the only ones here, so «بكرة الساعة 9 دكتور وبعدين
+ * الساعة 3 الجامعة» — two appointments — arrived as one segment, and the second
+ * time was dropped by the extractor's non-global match. The multi-time safety
+ * valve then caught it and asked for clarification, which is safe but is the
+ * product failing to read a perfectly ordinary sentence (#162 step 3).
+ *
+ * The Arabic comma «،» and the Hebrew connectors are here for the same reason.
+ * A bare «و» (and) is deliberately *not* a connector: it joins words far more
+ * often than clauses — «أحمد وسامي» is one errand, not two.
+ */
 function splitInput(raw: string): string[] {
   const segments = raw
     .replace(/[;\n]+/g, '|')
     .replace(/\s+(?:and then|then|also)\s+/gi, '|')
+    // «وبعدين»/«وبعدها»/«وكمان» (and then / and after / and also), and Hebrew
+    // «ואז»/«וגם». Each is a whole word, so «وكمانك» is untouched.
+    .replace(/\s*(?:وبعدين|وبعدها|وبعدين|وكمان|ثم|بعدين)\s+/g, '|')
+    .replace(/\s*(?:ואז|וגם|אחר כך)\s+/g, '|')
+    .replace(/،+/g, '|')
     .split('|')
     .map((part) => part.trim())
     .filter(Boolean);

@@ -197,6 +197,15 @@ function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
   if (clock) {
     hour = clock.hour;
     minute = clock.minute;
+    // «الساعة 3 العصر» is three in the *afternoon*. `parseClock` only reads
+    // مساء/بالليل/am/pm as a meridiem, so العصر — and English "at 8 tonight" —
+    // left the hour in the morning half and scheduled 03:00. The part-of-day
+    // word is exactly the meridiem the sentence gave, so it is used as one.
+    // Only when there was no explicit AM/PM to begin with: `ampm` and `hhmm`
+    // have already said which half of the day they mean.
+    if (evidence === 'daypart' && daypart !== null && daypart >= 12 && hour >= 1 && hour <= 11) {
+      hour += 12;
+    }
     timeConfidence = Math.max(timeConfidence, 0.95);
   } else if (daypart !== null) {
     hour = daypart;
