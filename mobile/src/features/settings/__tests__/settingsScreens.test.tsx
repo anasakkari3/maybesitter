@@ -206,3 +206,69 @@ describe('the retired pilot delete action', () => {
     expect(offenders).toEqual([]);
   });
 });
+
+describe('the answers you gave to next steps (#170, #174)', () => {
+  /**
+   * Listed beside the behaviour log, not merged into it.
+   *
+   * A behaviour row is an observation the system made and offers to revoke; a
+   * decision is a choice the person made and there is nothing to correct.
+   * Listing them under one heading would tell somebody their own decision was
+   * something we inferred about them.
+   */
+  const decision = (over: Record<string, unknown> = {}) => ({
+    proposalId: 'p-1',
+    commitmentId: 'c-1',
+    decision: 'defer',
+    at: '2026-09-13T09:00:00.000Z',
+    deferUntil: '2026-09-13T10:00:00.000Z',
+    ...over,
+  });
+
+  it('lists them in words, not as enum values', async () => {
+    jest.spyOn(feedbackEndpoints, 'getFeedbackHistory').mockResolvedValue({
+      version: 'v1', rows: [], nextStepDecisions: [decision()],
+    } as never);
+    await show(<FeedbackHistoryScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('history-decisions')).not.toBeNull());
+    // Isolated with U+2066/U+2069, like the outcome rows above it, so a Latin
+    // fragment cannot reverse inside an Arabic line.
+    expect(screen.queryByText(`\u2066${en.historyDecisionDefer}\u2069`)).not.toBeNull();
+    expect(screen.queryByText('defer')).toBeNull();
+  });
+
+  it('keeps them out of the behaviour rows', async () => {
+    jest.spyOn(feedbackEndpoints, 'getFeedbackHistory').mockResolvedValue({
+      version: 'v1', rows: [], nextStepDecisions: [decision()],
+    } as never);
+    await show(<FeedbackHistoryScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('history-decisions')).not.toBeNull());
+    // The behaviour log is genuinely empty and still says so.
+    expect(screen.queryByTestId('feedback-history-empty')).not.toBeNull();
+  });
+
+  it('says the section is empty rather than hiding it', async () => {
+    jest.spyOn(feedbackEndpoints, 'getFeedbackHistory').mockResolvedValue({
+      version: 'v1', rows: [],
+    } as never);
+    await show(<FeedbackHistoryScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('history-decisions-empty')).not.toBeNull());
+  });
+
+  it('skips an answer this build has no words for', async () => {
+    // A server that learns a sixth decision must not put its enum on screen.
+    jest.spyOn(feedbackEndpoints, 'getFeedbackHistory').mockResolvedValue({
+      version: 'v1', rows: [], nextStepDecisions: [decision({ decision: 'snoozed_forever' })],
+    } as never);
+    await show(<FeedbackHistoryScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('history-decisions')).not.toBeNull());
+    expect(screen.queryByText('snoozed_forever')).toBeNull();
+  });
+
+  it('shows nothing at all when the whole history is unavailable', async () => {
+    jest.spyOn(feedbackEndpoints, 'getFeedbackHistory').mockRejectedValue(new Error('503'));
+    await show(<FeedbackHistoryScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('feedback-history-unavailable')).not.toBeNull());
+    expect(screen.queryByTestId('history-decisions-empty')).toBeNull();
+  });
+});

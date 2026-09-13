@@ -1,5 +1,6 @@
 import { installDefaultFeedbackHistoryPort } from '../../../../../../lib/feedbackHistory/bootstrap';
-import { mobileAuthErrorResponse } from '../../../../../../lib/auth/mobileAuth';
+import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
+import { listRecentNextStepDecisions } from '../../../../../../lib/services/mobile/nextStepDecisionLog';
 import {
   feedbackHistoryUnavailableResponse,
   requireFeedbackHistoryPort,
@@ -25,8 +26,10 @@ installDefaultFeedbackHistoryPort();
  */
 export async function GET(request: Request) {
   let scopeId: string;
+  let uid: string;
   try {
     scopeId = await resolveFeedbackScope(request);
+    uid = (await requireMobileUser(request)).uid;
   } catch (error) {
     return mobileAuthErrorResponse(error);
   }
@@ -35,5 +38,33 @@ export async function GET(request: Request) {
   if (!port) return feedbackHistoryUnavailableResponse();
 
   const limit = resolveHistoryLimit(new URL(request.url).searchParams.get('limit'));
-  return Response.json(await buildHistoryResponse(port, scopeId, limit));
+
+  /*
+   * The user's own next-step answers (UC-2.9, #170), read from their own
+   * ledger and listed beside the behaviour log.
+   *
+   * A failure here does not fail the response. The behaviour history is the
+   * thing this route exists for, and losing all of it because a second store
+   * was slow would be the wrong trade — the decisions are simply absent, which
+   * the client renders as an empty section rather than as an error.
+   */
+  let nextStepDecisions: Awaited<ReturnType<typeof listRecentNextStepDecisions>> = [];
+  try {
+    nextStepDecisions = await listRecentNextStepDecisions(uid, new Date());
+  } catch {
+    nextStepDecisions = [];
+  }
+
+  return Response.json(await buildHistoryResponse(
+    port,
+    scopeId,
+    limit,
+    nextStepDecisions.map((record) => ({
+      proposalId: record.proposalId,
+      commitmentId: record.commitmentId,
+      decision: record.decision,
+      at: record.at,
+      deferUntil: record.deferUntil,
+    })),
+  ));
 }

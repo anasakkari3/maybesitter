@@ -13,6 +13,7 @@ import {
   type FeedbackEvent,
   type FeedbackHistoryResponse,
   type FeedbackHistoryRow,
+  type NextStepDecisionRow,
 } from '../../src/contracts/v1/feedbackContracts';
 import type { FeedbackHistoryPort } from './feedbackHistoryPort';
 
@@ -58,6 +59,15 @@ export async function buildHistoryResponse(
   port: FeedbackHistoryPort,
   scopeId: string,
   limit: number = DEFAULT_HISTORY_LIMIT,
+  /**
+   * The user's own next-step answers (#170), listed beside the behaviour log
+   * rather than merged into it.
+   *
+   * Passed in rather than read here: this module knows about the feedback port
+   * and nothing else, and a second store reached through it would make the
+   * history screen depend on the recommendation feature being present at all.
+   */
+  nextStepDecisions: readonly NextStepDecisionRow[] = [],
 ): Promise<FeedbackHistoryResponse> {
   const rows = [...(await port.listForScope(scopeId))]
     .sort(newestFirst)
@@ -78,5 +88,6 @@ export async function buildHistoryResponse(
     baselineNotice: baseline && hasCounters
       ? { counters: baseline.counters, lastUpdatedAt: baseline.lastUpdatedAt }
       : null,
+    ...(nextStepDecisions.length > 0 ? { nextStepDecisions } : {}),
   };
 }
