@@ -1,0 +1,59 @@
+appId: com.maybesitter.app
+name: The next step, accepted and dismissed
+---
+# UC-2.9 (#170) and UC-2.R3 (#173) step 4, on a device.
+#
+# Needs a signed-in build with recommendation consent granted in onboarding —
+# the launch consent, not the Trust switch. Without it the card does not appear
+# at all, which is the correct behaviour and would make this flow fail for the
+# right reason.
+- launchApp
+
+- assertVisible: 'يومك'
+- assertVisible: 'خطوتك التالية'
+
+# ── It never implies it has acted ──────────────────────────────────
+# Unconditional, on every proposal. If this line is missing the card is
+# claiming more than the contract allows.
+- assertVisible: 'هذا اقتراح. لم يتغيّر أي شيء بعد.'
+
+# ── The reason is in the user's language ───────────────────────────
+- tapOn:
+    id: 'next-step-why-toggle'
+- assertVisible:
+    id: 'next-step-why'
+# The English `evidenceLabels` travel in the same response. Seeing one here
+# means the card fell back to them instead of rendering the codes.
+- assertNotVisible: 'overdue'
+- assertNotVisible: 'Based on'
+- assertVisible: 'استعملنا بس التزاماتك ومواعيدك وروتينك.'
+
+# ── Later asks when, and shows what each choice means ──────────────
+- tapOn:
+    id: 'next-step-defer'
+- assertVisible: 'إيمتى نرجّعها؟'
+- assertVisible:
+    id: 'next-step-defer-when-oneHour'
+- tapOn:
+    id: 'next-step-defer-oneHour'
+# Deferred: the card moves on rather than offering the same step again.
+- assertNotVisible:
+    id: 'next-step-defer-oneHour'
+
+# ── Dismiss ────────────────────────────────────────────────────────
+- assertVisible: 'خطوتك التالية'
+- tapOn:
+    id: 'next-step-dismiss'
+- assertVisible: 'يومك'
+
+# ── Accept, on whatever it offers next ─────────────────────────────
+- runFlow:
+    when:
+      visible:
+        id: 'next-step-accept'
+    commands:
+      - tapOn:
+          id: 'next-step-accept'
+      # Accepting records the decision and nothing else — the commitment is
+      # still open, because accepting is not completing.
+      - assertVisible: 'يومك'
