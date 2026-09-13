@@ -29,10 +29,33 @@ export const MEMORY_RECORD_SCHEMA_VERSION = 'runtime-memory-v1' as const;
 export const DEFAULT_MEMORY_TTL_MS = 90 * 24 * 60 * 60 * 1_000;
 
 /**
+ * How long something the user said themselves stays true: ten years, which is
+ * this store's way of saying "until they change it" (UC-2.7a, #167).
+ *
+ * The 90-day default is calibrated for an *inference* — a guess about someone
+ * drawn from their behaviour should have to be re-earned. A routine answer is
+ * not a guess. Nobody's declared sleep window becomes false because a quarter
+ * went by, and letting one expire would quietly drop it out of `retrieve`,
+ * out of the planner, and off the memory screen, with no event the user could
+ * have seen and nothing they could have done to prevent it.
+ *
+ * A user-stated fact leaves the store when the user supersedes it, revokes it
+ * or deletes it. Those are the only three, and all three are their own action.
+ */
+export const USER_STATED_MEMORY_TTL_MS = 10 * 365 * 24 * 60 * 60 * 1_000;
+
+/**
  * The kinds MemoryKind declares but EnabledMemoryKind withholds from the
  * canonical path. Runtime memory owns exactly these.
+ *
+ * `goal` joined them in UC-2.7a (#167). A goal is not a preference — "finish
+ * the thesis by March" is a thing the user is trying to reach, with a target
+ * date and a done state, where "I sleep at 22:30" is a standing fact about how
+ * they live. Ranking (UC-2.8, #169) and the next step (UC-2.9, #170) treat the
+ * two differently, so filing a goal as a preference would make it invisible to
+ * the code that is supposed to act on it.
  */
-export type RuntimeMemoryKind = 'fact' | 'preference' | 'hypothesis';
+export type RuntimeMemoryKind = 'fact' | 'preference' | 'hypothesis' | 'goal';
 
 export type MemorySource = 'user_stated' | 'deterministic_rule' | 'model_inferred';
 
@@ -48,6 +71,45 @@ export type MemoryStatus = 'active' | 'superseded' | 'revoked' | 'expired';
  * personal content; nothing in Sprint 02 produces one automatically.
  */
 export type ExportPolicy = 'personal_never_export' | 'shareable_aggregate';
+
+/**
+ * Where a fact came from (UC-2.7a, #167).
+ *
+ * `source` already says *what kind of thing* asserted the fact — the user, a
+ * rule, or a model. This says *which path* it arrived by, which is the part
+ * the user is shown: "You said", "From onboarding", "Suggested by AI, you
+ * confirmed". The two are deliberately not merged, and `source` is deliberately
+ * not repeated here: one field that can contradict another is a field that
+ * eventually will, and the record's own `source` is the single answer.
+ *
+ * Optional on the record. Records written before #167 have none, and a shape
+ * guard that rejected them would make a user's existing memory disappear
+ * rather than display without a chip.
+ */
+export type MemoryOrigin = 'routine_survey' | 'self_description' | 'manual' | 'capture';
+
+export const MEMORY_ORIGINS: readonly MemoryOrigin[] = [
+  'routine_survey',
+  'self_description',
+  'manual',
+  'capture',
+];
+
+export interface MemoryProvenance {
+  readonly origin: MemoryOrigin;
+  /** The proposal id, or the survey version that produced this fact. */
+  readonly originRef?: string;
+  /** The model id, when a model proposed it. Never set for a user-stated fact. */
+  readonly model?: string;
+  readonly promptVersion?: string;
+  /**
+   * When the user explicitly confirmed a suggestion. Absent means nobody
+   * confirmed it, which is what separates "AI guessed" from "AI guessed and
+   * you agreed" on the screen — and nothing model-inferred is stored without
+   * this being set (UC-2.7b, #168).
+   */
+  readonly confirmedByUserAt?: string;
+}
 
 export interface RuntimeMemoryRecord {
   readonly version: typeof MEMORY_RECORD_SCHEMA_VERSION;
@@ -72,6 +134,8 @@ export interface RuntimeMemoryRecord {
   readonly revokedAt?: string;
   /** Observation ids backing this memory. */
   readonly evidenceIds: readonly string[];
+  /** How this fact reached the store. Absent on records written before #167. */
+  readonly provenance?: MemoryProvenance;
 }
 
 /**
@@ -92,6 +156,7 @@ export interface CreateMemoryInput {
   readonly exportPolicy?: ExportPolicy;
   /** Overrides the store's defaultTtlMs for this record. */
   readonly ttlMs?: number;
+  readonly provenance?: MemoryProvenance;
 }
 
 /**

@@ -47,6 +47,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   DEFAULT_MEMORY_TTL_MS,
+  MEMORY_ORIGINS,
   MEMORY_RECORD_SCHEMA_VERSION,
   type CreateMemoryInput,
   type ExportPolicy,
@@ -54,6 +55,7 @@ import {
   type MemoryLanguage,
   type MemoryQuery,
   type MemorySource,
+  type MemoryProvenance,
   type MemoryStatus,
   type RuntimeMemoryKind,
   type RuntimeMemoryRecord,
@@ -82,7 +84,7 @@ const MAX_TTL_MS = 8_640_000_000_000_000;
  */
 const RECORD_ID_PATTERN = /^mem_[A-Za-z0-9-]{1,64}$/;
 
-const RUNTIME_MEMORY_KINDS: readonly RuntimeMemoryKind[] = ['fact', 'preference', 'hypothesis'];
+const RUNTIME_MEMORY_KINDS: readonly RuntimeMemoryKind[] = ['fact', 'preference', 'hypothesis', 'goal'];
 const MEMORY_SOURCES: readonly MemorySource[] = ['user_stated', 'deterministic_rule', 'model_inferred'];
 const MEMORY_LANGUAGES: readonly MemoryLanguage[] = ['ar', 'he', 'en', 'mixed'];
 const MEMORY_STATUSES: readonly MemoryStatus[] = ['active', 'superseded', 'revoked', 'expired'];
@@ -133,6 +135,40 @@ function assertValidInput(input: CreateMemoryInput): void {
     && (!Array.isArray(input.evidenceIds) || !input.evidenceIds.every((id) => isNonEmptyString(id)))) {
     fail('evidenceIds must be an array of non-empty strings');
   }
+  if (input.provenance !== undefined) assertValidProvenance(input.provenance, input.source);
+}
+
+/**
+ * Provenance is validated as strictly as the rest of the record, and against
+ * the record's own `source`, because it is what the user is shown as the reason
+ * to trust a fact. A record that claims `user_stated` while naming the model
+ * that produced it is not a labelling slip — it is the screen telling somebody
+ * they said something they did not.
+ */
+function assertValidProvenance(provenance: MemoryProvenance, source: CreateMemoryInput['source']): void {
+  if (!provenance || typeof provenance !== 'object' || Array.isArray(provenance)) {
+    fail('provenance must be an object');
+  }
+  if (!MEMORY_ORIGINS.includes(provenance.origin)) {
+    fail(`provenance.origin must be one of ${MEMORY_ORIGINS.join(', ')}`);
+  }
+  for (const field of ['originRef', 'model', 'promptVersion'] as const) {
+    const value = provenance[field];
+    if (value !== undefined && !isNonEmptyString(value)) fail(`provenance.${field} must be a non-empty string`);
+  }
+  if (provenance.confirmedByUserAt !== undefined) {
+    assertTimestamp(provenance.confirmedByUserAt, 'provenance.confirmedByUserAt');
+  }
+  if (source !== 'model_inferred' && provenance.model !== undefined) {
+    fail(`provenance.model is set on a ${source} record, which no model produced`);
+  }
+  // The one asymmetry worth spelling out: a model-inferred record may exist
+  // unconfirmed *inside* an extraction proposal, but nothing writes one to the
+  // store without the user having agreed to it (UC-2.7b, #168). Enforced here
+  // so the rule survives a future caller that forgets it.
+  if (source === 'model_inferred' && provenance.confirmedByUserAt === undefined) {
+    fail('a model_inferred record must carry provenance.confirmedByUserAt');
+  }
 }
 
 /** Frozen records make the readonly contract enforceable at runtime, not only in types. */
@@ -173,6 +209,7 @@ function buildRecord(
     staleAfter: new Date(Date.parse(now) + ttlMs).toISOString(),
     ...(supersedesId ? { supersedesId } : {}),
     evidenceIds: [...(input.evidenceIds ?? [])],
+    ...(input.provenance ? { provenance: Object.freeze({ ...input.provenance }) } : {}),
   };
   return freezeRecord(record);
 }
