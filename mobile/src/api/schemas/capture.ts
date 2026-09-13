@@ -66,7 +66,11 @@ export const captureProposalSchema = z.object({
   provenance: z
     .object({
       requestedEngine: z.enum(['model', 'rules']),
-      executedEngine: z.string(),
+      // The three the contract declares (src/contracts/v1/captureContracts.ts:167),
+      // not `z.string()`. UC-2.0 (#160) asks the app to fail on an engine it does
+      // not know about; a bare string accepts one silently, which is the same
+      // shape of defect as a test that cannot go red.
+      executedEngine: z.enum(['gemini', 'ollama', 'rule-based']),
       fallbackUsed: z.boolean(),
     })
     .optional(),

@@ -120,6 +120,25 @@ describe('what the schemas assert about the shape', () => {
     expect(failed.failed[0]?.reason).toBe('proposal_not_found');
   });
 
+  it('refuses an extraction engine the contract does not declare', () => {
+    // UC-2.0 (#160) asks the app to fail on an unknown engine. `executedEngine`
+    // was `z.string()`, so a server that started answering `"gpt-5"` — or a typo
+    // in a fallback path — parsed clean and rendered as if nothing was odd. The
+    // contract declares exactly three (src/contracts/v1/captureContracts.ts:167).
+    const proposal = fixture('capture.proposal') as { provenance?: { executedEngine?: string } };
+    expect(proposal.provenance?.executedEngine).toBe('rule-based');
+
+    for (const engine of ['gemini', 'ollama', 'rule-based']) {
+      const ok = { ...proposal, provenance: { ...proposal.provenance, executedEngine: engine } };
+      expect(() => captureProposalSchema.parse(ok)).not.toThrow();
+    }
+
+    for (const engine of ['gpt-5', 'Gemini', 'rulebased', '', 'rule_based']) {
+      const bad = { ...proposal, provenance: { ...proposal.provenance, executedEngine: engine } };
+      expect(() => captureProposalSchema.parse(bad)).toThrow();
+    }
+  });
+
   it('keeps the whole recommendation, because the decision endpoint echoes it', () => {
     const response = nextStepResponseSchema.parse(fixture('nextStep.recommendation'));
     // A client that kept only the id could not satisfy `proposalFrom` in
