@@ -190,19 +190,19 @@ function useAppModel() {
     closeSheet: () => set({ sheet: null }),
     closeSheetHome: () => set({ sheet: null, screen: 'today' }),
     openReadings: () => set({ sheet: 'readings' }),
-    openRearrange: () => set({ sheet: 'rearrange' }),
+    openPostpone: () => set({ sheet: 'postpone' }),
+    openEdit: () => set({ sheet: 'edit' }),
+    openConfirmDrop: () => set({ sheet: 'confirmDrop' }),
+    openConfirmDelete: () => set({ sheet: 'confirmDelete' }),
+    /** Sheet-as-toast, the design's confirmation for a write that succeeded. */
+    toast: (message: string) => set({ sheet: 'toast', toast: message }),
     pickTime: (h: number) => set(st => ({ proposals: st.proposals.map(q => (q.needsTime ? { ...q, h, m: 0, needsTime: false } : q)), sheet: null })),
     clarifySkip: () => set(st => ({ proposals: st.proposals.map(q => ({ ...q, needsTime: false })), sheet: null })),
     pickReading: (day: number) => set(st => ({ proposals: st.proposals.map(q => (q.ambiguous ? { ...q, day, ambiguous: false } : q)), sheet: null })),
 
-    // details / rearrange
+    // details
     setStatus: (id: string, status: Status, toast: string) =>
       set(st => ({ commitments: st.commitments.map(c => (c.id === id ? { ...c, status } : c)), sheet: 'toast', toast })),
-    intensify: (id: string) =>
-      set(st => ({ commitments: st.commitments.map(c => (c.id === id ? { ...c, dur: 30 } : c)), sheet: 'toast', toast: tRef.current.toastIntensify })),
-    extend: (id: string) =>
-      set(st => ({ commitments: st.commitments.map(c => (c.id === id ? { ...c, day: TODAY + 1, h: 10, m: 0 } : c)), sheet: 'toast', toast: tRef.current.toastExtend })),
-    shrink: () => set({ sheet: 'toast', toast: tRef.current.toastShrink }),
 
     // close-out
     markYesterday: (id: string, res: 'done' | 'later') => set(st => ({ yesterday: st.yesterday.map(q => (q.id === id ? { ...q, res } : q)) })),
@@ -257,7 +257,7 @@ function useAppModel() {
           return;
         }
         case 'details': set({ detailId: 'c3', prev: 'today', screen: 'details', sheet: null }); return;
-        case 'rearrange': set({ detailId: 'c3', prev: 'today', screen: 'details', sheet: 'rearrange' }); return;
+        case 'postpone': set({ detailId: 'c3', prev: 'today', screen: 'details', sheet: 'postpone' }); return;
       }
     },
   };
