@@ -43,6 +43,17 @@ export const CLARIFICATIONS = 'clarifications';
 export const ANALYTICS_EVENTS = 'analyticsEvents';
 /** Capture proposals between proposing and confirming (#252). */
 export const CAPTURE_PROPOSALS = 'captureProposals';
+/**
+ * Self-description suggestions between proposing and confirming (#168).
+ *
+ * Separate from `captureProposals` because the two hold different things and
+ * expire for different reasons — and because a self-description's suggestions
+ * are claims about a person, which should be findable and deletable as their
+ * own category rather than mixed in with commitments.
+ *
+ * The raw description is never in here. Only the suggestions derived from it.
+ */
+export const PROFILE_PROPOSALS = 'profileProposals';
 /** One document per UTC day: how many model calls this account has spent (#160). */
 export const USAGE = 'usage';
 
@@ -74,6 +85,7 @@ export const USER_SCOPED_COLLECTIONS = [
   CLARIFICATIONS,
   ANALYTICS_EVENTS,
   CAPTURE_PROPOSALS,
+  PROFILE_PROPOSALS,
   USAGE,
 ] as const;
 
