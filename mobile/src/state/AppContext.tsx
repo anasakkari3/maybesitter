@@ -7,26 +7,27 @@ import {
 } from '../i18n/language';
 import { googleCalendarDemoEnabled } from '../config/env';
 import { palettes, type Palette, type Scheme } from '../theme/tokens';
-import { analyzeText, exampleText } from '../services/mockCapture';
 import { seedCommitments, seedYesterday, TODAY } from './seed';
-import type {
-  CapState, Commitment, ExampleKey, Part, Proposal, Screen, Sheet, Status, ThemePref, YesterdayItem,
-} from './types';
+import type { Commitment, Screen, Sheet, Status, ThemePref, YesterdayItem } from './types';
+import type { CaptureInputMode, CaptureSource } from '../features/capture/captureMachine';
 
 export type AppState = {
   screen: Screen;
   prev: Screen;
-  cap: CapState;
-  input: string;
-  liveWords: number;
-  exampleKey: ExampleKey | null;
-  proposals: Proposal[];
-  parts: Part[];
-  kind: string | null;
+  /**
+   * Capture holds none of its state here any more (UC-2.R2, #172).
+   *
+   * The draft, the proposal, the selection and the undo window live in
+   * `CaptureProvider`'s reducer, mounted inside `Root`. That is deliberate: the
+   * draft is the most sensitive text the product handles, and keeping it in the
+   * app-wide store gave it the app's lifetime instead of the flow's. Signing
+   * out unmounts `Root`, so it goes with it.
+   */
+  /** How capture was entered, for the flow to pick up on mount (#172). */
+  captureSource: CaptureSource;
+  captureInput: CaptureInputMode;
   sheet: Sheet;
   toast: string;
-  undoLeft: number;
-  savedIds: string[];
   nextDismissed: boolean;
   fmMode: 'sessions' | 'twomin';
   /**
@@ -44,15 +45,11 @@ export type AppState = {
 
 const initial: AppState = {
   screen: 'today', prev: 'today',
-  cap: 'idle', input: '', liveWords: 0, exampleKey: null,
-  proposals: [], parts: [], kind: null,
+  captureSource: 'tab', captureInput: 'text',
   sheet: null, toast: '',
-  undoLeft: 5, savedIds: [],
   nextDismissed: false, fmMode: 'sessions', selDay: 0, detailId: null,
   commitments: seedCommitments, yesterday: seedYesterday,
 };
-
-const captureReset = { cap: 'idle' as CapState, input: '', proposals: [] as Proposal[], parts: [] as Part[] };
 
 function useAppModel() {
   const [s, setS] = useState<AppState>(initial);
@@ -118,7 +115,6 @@ function useAppModel() {
     resetForNewUser,
     go: (screen: Screen) => set(st => ({ prev: st.screen, screen, sheet: null })),
     back: () => set(st => ({ screen: st.prev === 'details' || st.prev === 'firstmove' ? 'today' : st.prev, sheet: null })),
-    goCapture: () => set(st => ({ prev: st.screen, screen: 'capture', cap: 'idle', input: '', sheet: null })),
     openDetail: (id: string) => set(st => ({ detailId: id, prev: st.screen, screen: 'details' })),
     toggle: (id: string) => set(st => ({
       commitments: st.commitments.map(c => (c.id === id ? { ...c, status: c.status === 'done' ? 'active' : 'done' } : c)),
@@ -126,79 +122,27 @@ function useAppModel() {
     setSelDay: (d: number) => set({ selDay: d }),
     dismissNext: () => set({ nextDismissed: true }),
 
-    // capture
-    setInput: (input: string) => set({ input }),
-    startListening: () => {
-      const key = sRef.current.exampleKey || 'doctor';
-      const text = exampleText(key, tRef.current);
-      set({ cap: 'listening', input: text, liveWords: 0, exampleKey: key });
-      const words = text.split(' ').length;
-      for (let i = 1; i <= words; i++) later(() => set(st => (st.cap === 'listening' ? { liveWords: i } : null)), 350 + i * 320);
-    },
-    stopListening: () => set({ cap: 'transcript' }),
-    micDown: () => { holdAt.current = Date.now(); actions.startListening(); },
-    micUp: () => { if (Date.now() - holdAt.current > 700) actions.stopListening(); },
-    startTyping: () => set({ cap: 'typing', input: '' }),
-    useExample: (key: ExampleKey) => set({ exampleKey: key, input: exampleText(key, tRef.current), cap: 'typing' }),
-    analyze: () => {
-      if (!sRef.current.input.trim()) return;
-      set({ cap: 'processing' });
-      later(() => {
-        const res = analyzeText(sRef.current.input, tRef.current, lang);
-        if (res.kind === 'hi') { set({ cap: 'nothing', kind: 'hi' }); return; }
-        const needsTime = res.proposals.some(pr => pr.needsTime);
-        const ambiguous = res.proposals.some(pr => pr.ambiguous);
-        set({
-          kind: res.kind, parts: res.parts, proposals: res.proposals,
-          screen: 'review', prev: 'capture',
-          sheet: needsTime ? 'clarify' : ambiguous ? 'readings' : null,
-        });
-      }, 1300);
-    },
-    backToCapture: () => set({ screen: 'capture', cap: 'transcript', sheet: null }),
-    closeCapture: () => set({ ...captureReset, sheet: null, screen: 'today' }),
-
-    // review
-    setProposalTitle: (id: string, title: string) => set(st => ({ proposals: st.proposals.map(q => (q.id === id ? { ...q, title } : q)) })),
-    removeProposal: (id: string) => set(st => ({ proposals: st.proposals.filter(q => q.id !== id) })),
-    cycleDay: (id: string) => set(st => ({ proposals: st.proposals.map(q => (q.id === id ? { ...q, day: (q.day + 1) % 7 } : q)) })),
-    cycleTime: (id: string) => set(st => ({
-      proposals: st.proposals.map(q => (q.id === id ? { ...q, h: q.h == null ? 9 : q.h + 1 > 21 ? 8 : q.h + 1, needsTime: false } : q)),
-    })),
-    confirm: () => {
-      const st0 = sRef.current;
-      if (!st0.proposals.length) return;
-      const stamp = Date.now();
-      const created: Commitment[] = st0.proposals.map((q, i) => ({
-        id: `n${stamp}${i}`, title: { ar: q.title, en: q.title }, day: q.day, h: q.h, m: q.m, dur: 60, imp: q.imp, status: 'active',
-      }));
-      set(st => ({ commitments: [...st.commitments, ...created], savedIds: created.map(c => c.id), screen: 'saved', prev: 'review', undoLeft: 5 }));
-      for (let i = 1; i <= 5; i++) later(() => set(st => (st.screen === 'saved' ? { undoLeft: 5 - i } : null)), i * 1000);
-    },
-
-    // saved
-    undo: () => set(st => ({ commitments: st.commitments.filter(c => !st.savedIds.includes(c.id)), screen: 'review', savedIds: [] })),
-    finishSaved: () => set(st => ({ ...captureReset, screen: st.kind === 'study' ? 'firstmove' : 'today', prev: 'saved' })),
-    viewSavedDay: () => set(st => {
-      // Capture is still on the mock proposals, whose `day` is a seed weekday
-      // index; the difference from the seed's today is a real day offset.
-      const d = st.proposals[0]?.day ?? TODAY;
-      return { ...captureReset, screen: d === TODAY ? 'today' : 'calendar', selDay: Math.max(0, d - TODAY) };
-    }),
+    /**
+     * Enter the capture flow (UC-2.R2, #172).
+     *
+     * `source` is recorded so a widget or share entry is distinguishable from a
+     * tab tap, and `inputMode` so `input=voice` can focus the mic. The flow's
+     * own reducer picks both up on mount; nothing about the draft is stored
+     * here.
+     */
+    goCapture: (source: CaptureSource = 'tab', inputMode: CaptureInputMode = 'text') =>
+      set(st => ({ prev: st.screen, screen: 'capture', captureSource: source, captureInput: inputMode, sheet: null })),
+    closeCapture: () => set({ sheet: null, screen: 'today' }),
 
     // sheets
     closeSheet: () => set({ sheet: null }),
     closeSheetHome: () => set({ sheet: null, screen: 'today' }),
-    openReadings: () => set({ sheet: 'readings' }),
     openPostpone: () => set({ sheet: 'postpone' }),
     openEdit: () => set({ sheet: 'edit' }),
     openConfirmDrop: () => set({ sheet: 'confirmDrop' }),
     openConfirmDelete: () => set({ sheet: 'confirmDelete' }),
     /** Sheet-as-toast, the design's confirmation for a write that succeeded. */
     toast: (message: string) => set({ sheet: 'toast', toast: message }),
-    pickTime: (h: number) => set(st => ({ proposals: st.proposals.map(q => (q.needsTime ? { ...q, h, m: 0, needsTime: false } : q)), sheet: null })),
-    clarifySkip: () => set(st => ({ proposals: st.proposals.map(q => ({ ...q, needsTime: false })), sheet: null })),
-    pickReading: (day: number) => set(st => ({ proposals: st.proposals.map(q => (q.ambiguous ? { ...q, day, ambiguous: false } : q)), sheet: null })),
 
     // details
     setStatus: (id: string, status: Status, toast: string) =>
@@ -227,11 +171,6 @@ function useAppModel() {
      * state" list, reachable through maybesitter://<name> links (src/links.ts).
      */
     jump: (name: string) => {
-      const tt = tRef.current;
-      const review = (text: string) => {
-        const res = analyzeText(text, tt, lang);
-        return res.kind === 'hi' ? {} : { kind: res.kind, parts: res.parts, proposals: res.proposals, input: text, cap: 'transcript' as CapState, screen: 'review' as Screen, prev: 'capture' as Screen };
-      };
       switch (name) {
         // Development only, so a release build cannot reach the gallery.
         case 'gallery': if (__DEV__) set({ screen: 'gallery', sheet: null }); return;
@@ -240,22 +179,11 @@ function useAppModel() {
         case 'calendarDemo': if (googleCalendarDemoEnabled()) set({ screen: 'calendarDemo', sheet: null }); return;
         case 'today': case 'calendar': case 'settings': case 'closeout': case 'firstmove':
           set({ screen: name, sheet: null }); return;
-        case 'capture': set({ ...captureReset, screen: 'capture', sheet: null }); return;
-        case 'typing': set({ screen: 'capture', cap: 'typing', input: tt.exDoctor, sheet: null }); return;
-        case 'listening': set({ screen: 'capture', sheet: null, exampleKey: 'doctor' }); actions.startListening(); return;
-        case 'processing': set({ screen: 'capture', cap: 'processing', input: tt.exDoctor, sheet: null }); return;
-        case 'nothing': set({ screen: 'capture', cap: 'nothing', input: tt.exHi, sheet: null }); return;
-        case 'review': set({ ...review(tt.exDoctor), sheet: null }); return;
-        case 'clarify': set({ ...review(tt.exReport), sheet: 'clarify' }); return;
-        case 'readings': set({ ...review(tt.exSami), sheet: 'readings' }); return;
-        case 'saved': {
-          const r = analyzeText(tt.exDoctor, tt, lang);
-          if (r.kind === 'hi') return;
-          const stamp = Date.now();
-          const created: Commitment[] = r.proposals.map((q, i) => ({ id: `n${stamp}${i}`, title: { ar: q.title, en: q.title }, day: q.day, h: q.h, m: q.m, dur: 60, imp: q.imp, status: 'active' }));
-          set(st => ({ kind: r.kind, parts: r.parts, proposals: r.proposals, commitments: [...st.commitments, ...created], savedIds: created.map(c => c.id), screen: 'saved', prev: 'review', undoLeft: 5, sheet: null }));
-          return;
-        }
+        // Capture has one entry now. The gallery's old `typing`, `listening`,
+        // `processing`, `nothing`, `review`, `clarify`, `readings` and `saved`
+        // jumps each forced a mock sub-state directly; those states are the
+        // reducer's and are reached by using the flow (UC-2.R2, #172).
+        case 'capture': set({ screen: 'capture', captureSource: 'tab', captureInput: 'text', sheet: null }); return;
         case 'details': set({ detailId: 'c3', prev: 'today', screen: 'details', sheet: null }); return;
         case 'postpone': set({ detailId: 'c3', prev: 'today', screen: 'details', sheet: 'postpone' }); return;
       }

@@ -40,9 +40,10 @@ export type Screen =
   | 'calendar'
   | 'settings'
   | 'details'
+  // One entry for the whole capture flow (UC-2.R2, #172). Review and success
+  // are not screens any more: which one shows is derived from the flow's own
+  // status, so there is no second place for it to be recorded wrongly.
   | 'capture'
-  | 'review'
-  | 'saved'
   | 'closeout'
   | 'firstmove'
   // Development only: the design gallery (src/design/Gallery.tsx).
@@ -71,8 +72,9 @@ export type CapState = 'idle' | 'listening' | 'transcript' | 'typing' | 'process
  */
 export type Sheet =
   | null
-  | 'clarify'
-  | 'readings'
+  // `clarify` and `readings` were the mock capture flow's sheets. UC-2.5
+  // (#165) renders the server's own question against the live proposal, so a
+  // second clarify state would be a second thing to wire up by mistake.
   | 'postpone'
   | 'edit'
   | 'confirmDrop'

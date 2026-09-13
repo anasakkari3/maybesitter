@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { Animated, Pressable, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
-import { TODAY } from '../state/seed';
 import { ltr } from '../i18n/strings';
 import { useTimeZone } from '../i18n/timezone';
 import { formatRelativeDay, formatTime } from '../i18n/format';
@@ -11,66 +10,21 @@ import { POSTPONE_PRESETS, postponeTo, type PostponePreset } from '../features/c
 import type { Strings } from '../i18n/strings';
 import { family } from '../theme/fonts';
 import { Btn, Pill, Txt } from '../ui/primitives';
-import { CheckIcon, MicIcon } from '../ui/icons';
+import { CheckIcon } from '../ui/icons';
 import { useSheetMotion } from '../ui/motion';
 
-function ClarifySheet() {
-  const { t, p, ar, actions } = useApp();
-  const chips = [
-    { label: t.morning, h: 9 },
-    { label: t.noon, h: 13 },
-    { label: t.evening, h: 19 },
-  ];
-  return (
-    <View style={{ gap: 14 }}>
-      <Txt size={12} color={p.mu}>{t.oneQuestion}</Txt>
-      <Txt size={22} weight={600} lh={1.5}>{t.clarifyQ}</Txt>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-        {chips.map(c => (
-          <Btn key={c.h} onPress={() => actions.pickTime(c.h)} style={{ backgroundColor: p.acs, borderRadius: 999, paddingVertical: 12, paddingHorizontal: 18, minHeight: 48, justifyContent: 'center' }}>
-            <Txt size={15} weight={600} color={p.ac}>{c.label}</Txt>
-          </Btn>
-        ))}
-      </View>
-      <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-        <TextInput
-          placeholder={t.orTypeTime}
-          placeholderTextColor={p.mu}
-          style={{ flex: 1, backgroundColor: p.sf2, borderRadius: 999, paddingVertical: 12, paddingHorizontal: 16, fontSize: 14, minHeight: 48, color: p.tx, fontFamily: family(400, ar), textAlign: ar ? 'right' : 'left' }}
-        />
-        <Btn onPress={actions.closeSheet} label={t.orTypeTime} style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: p.sf2, alignItems: 'center', justifyContent: 'center' }}>
-          <MicIcon size={20} color={p.ac} />
-        </Btn>
-      </View>
-      <Pill label={t.skipNoTime} onPress={actions.clarifySkip} kind="ghost" size={13} weight={400} pad={6} />
-    </View>
-  );
-}
-
-function ReadingsSheet() {
-  const { t, p, actions } = useApp();
-  const readings = [
-    { title: t.thisThu, when: t.thisThuWhen, day: TODAY },
-    { title: t.nextThu, when: t.nextThuWhen, day: TODAY + 7 },
-  ];
-  return (
-    <View style={{ gap: 14 }}>
-      <Txt size={22} weight={600} lh={1.5}>{t.readingsTitle}</Txt>
-      <Txt size={14} color={p.mu}>{t.readingsBody}</Txt>
-      <View style={{ flexDirection: 'row', gap: 10 }}>
-        {readings.map(r => (
-          <Btn key={r.day} onPress={() => actions.pickReading(r.day)} style={{ flex: 1, backgroundColor: p.sf2, borderRadius: 20, padding: 16, gap: 6, minHeight: 110 }}>
-            <Txt size={16} weight={600}>{r.title}</Txt>
-            <Txt size={13} color={p.mu}>{r.when}</Txt>
-          </Btn>
-        ))}
-      </View>
-      <View style={{ backgroundColor: p.bg, borderRadius: 14, paddingVertical: 10, paddingHorizontal: 12 }}>
-        <Txt size={12} color={p.mu}>{t.readingsPrivacy}</Txt>
-      </View>
-    </View>
-  );
-}
+/*
+ * The design's ClarifySheet and ReadingsSheet were here.
+ *
+ * Both drove `src/services/mockCapture.ts`: the clarify sheet set an hour on a
+ * mock proposal, the readings sheet picked between two hard-coded Thursdays.
+ * Neither ever reached the server, and both are now the parallel duplicate of
+ * a real thing — UC-2.5 (#165) renders the server's own `clarification`
+ * question, from its `questionKey` and options, against the live proposal.
+ *
+ * They are removed rather than left dormant: a second clarify UI is exactly
+ * what a later change would wire up by mistake.
+ */
 
 /**
  * "Not now" — the four presets (UC-2.R3, #173).
@@ -291,8 +245,6 @@ export function SheetHost() {
         ]}
       >
         <View style={{ width: 40, height: 5, borderRadius: 3, backgroundColor: p.ln, alignSelf: 'center', marginBottom: 4 }} />
-        {s.sheet === 'clarify' && <ClarifySheet />}
-        {s.sheet === 'readings' && <ReadingsSheet />}
         {s.sheet === 'postpone' && <PostponeSheet />}
         {s.sheet === 'edit' && <EditSheet />}
         {s.sheet === 'confirmDrop' && <ConfirmSheet intent="drop" />}
