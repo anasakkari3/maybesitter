@@ -14,7 +14,23 @@
 # (buildArtifactPaths in eas.json). Symbolicate during triage with:
 #
 #   npx metro-symbolicate build/sourcemaps/<platform>.jsbundle.map < stack.txt
+#
+# Run by EAS Build itself: `eas-build-on-success` in package.json is the hook
+# EAS invokes at the end of a successful build, from the project root — the
+# same directory build/sourcemaps and eas.json are resolved against. It was
+# missing until #180's follow-up, which meant the map was never produced and
+# buildArtifactPaths collected an empty directory.
 set -euo pipefail
+
+# A development build ships a development client, not an embedded bundle, so
+# there is nothing for this map to correspond to. Producing one anyway is the
+# hazard this script's header warns about: a map from a different bundle
+# symbolicates to the wrong lines and looks like an answer. The profile is only
+# set inside EAS, so a hand-run `export-sourcemap.sh ios` still works.
+if [ "${EAS_BUILD_PROFILE:-}" = "development" ]; then
+  echo "development profile: no embedded bundle, so no source map to export."
+  exit 0
+fi
 
 PLATFORM="${EAS_BUILD_PLATFORM:-${1:-}}"
 if [ -z "${PLATFORM}" ]; then

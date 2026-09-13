@@ -231,6 +231,8 @@
   "errorsNotFound": "זה כבר לא כאן.",
   "errorsGeneric": "זה לא עבד. נסה שוב.",
   "errorsRetry": "נסה שוב",
+  "crashTitle": "MaybeSitter נעצר לרגע",
+  "crashBody": "שום דבר שאישרת לא אבד. נסה כשתהיה מוכן.",
   "errorsConsentRequired": "הפעל את זה בהגדרות כדי לראות הצעות.",
   "errorsQuietMode": "מצב שקט פעיל. לא יוצעו דברים עד שתכבה אותו.",
   "errorsFeatureDisabled": "זה עדיין לא זמין.",

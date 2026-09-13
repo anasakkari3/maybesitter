@@ -49,6 +49,7 @@ export function configProblems(): string[] {
     devBearerToken: process.env.EXPO_PUBLIC_DEV_BEARER_TOKEN,
     apiMode: process.env.EXPO_PUBLIC_API_MODE ?? extra().apiMode ?? undefined,
     googleCalendarDemo: process.env.EXPO_PUBLIC_ENABLE_GOOGLE_CALENDAR_DEMO,
+    testCrash: process.env.EXPO_PUBLIC_ENABLE_TEST_CRASH,
   });
 }
 
@@ -183,4 +184,26 @@ export function googleCalendarDemoEnabled(isDevBundle: boolean = __DEV__): boole
  */
 export function accountDeletionUrl(): string | null {
   return httpsUrlOrNull(process.env.EXPO_PUBLIC_ACCOUNT_DELETION_URL);
+}
+
+/**
+ * Whether the hidden test-crash row is on the About screen (UC-4.4 #180 step 8).
+ *
+ * Two conditions: the build is not production, and the variable is set to
+ * `true`. Deliberately *not* the `googleCalendarDemoEnabled` shape above —
+ * that one additionally demands a development bundle, and a development bundle
+ * is exactly where a test crash is worthless. Collection is off in development
+ * (`crashCollectionEnabled`), nothing is minified, and there is no dSYM or R8
+ * mapping to symbolicate against; a crash from there proves nothing about the
+ * two criteria the row exists to satisfy.
+ *
+ * So it is reachable in staging — a release build, internally distributed,
+ * built the way production is — and never in production. The production half
+ * is not enforced here: `releaseConfigProblems` refuses to *configure* a
+ * production build with the variable set at all, so the binary is never made.
+ * This is the second lock on the same door, for a build that somehow exists.
+ */
+export function testCrashEnabled(): boolean {
+  if (appEnv() === 'production') return false;
+  return (process.env.EXPO_PUBLIC_ENABLE_TEST_CRASH ?? '').trim() === 'true';
 }

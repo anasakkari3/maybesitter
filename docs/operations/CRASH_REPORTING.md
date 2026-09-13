@@ -19,6 +19,13 @@ is the enforcement point rather than a convenience wrapper:
   up six months from now.
 - **Nothing is collected in development.** A developer's own crashes are noise
   in a dashboard measuring a closed test.
+- **A render error shows a screen, not a blank.** `mobile/src/ui/ErrorBoundary.tsx`
+  wraps the whole app, above every provider, so a provider's own first render
+  failing is caught too. It records the error as a non-fatal with the
+  `render_failed` breadcrumb and offers "try again", which remounts the tree.
+  The message itself is never shown and never logged — a stack trace on screen
+  helps nobody who is looking at it, and a `console.error` in a release build
+  is that same text in the device log.
 
 ## Symbols
 
@@ -45,7 +52,17 @@ Pods/FirebaseCrashlytics/upload-symbols \
 
 Hermes frames arrive minified. `scripts/export-sourcemap.sh` writes the map for
 the bundle that build embedded into `build/sourcemaps/`, which `eas.json`
-collects as a **private** build artifact.
+collects as a **private** build artifact on the staging and production
+profiles.
+
+The script is run by EAS itself: `eas-build-on-success` in
+`mobile/package.json` is the hook EAS invokes at the end of a successful build,
+from the project root. It is skipped for the `development` profile, which ships
+a development client and embeds no bundle — a map for a bundle the binary does
+not contain symbolicates to the wrong lines, which is worse than none.
+`mobile/src/config/__tests__/sourceMapArtifact.test.ts` fails if the hook is
+removed, misnamed, or if the path the script writes stops being the path
+`eas.json` collects.
 
 ```
 npx metro-symbolicate build/sourcemaps/ios.jsbundle.map < stack.txt
@@ -55,6 +72,24 @@ The map is per-build and is not committed. The same source at a different
 commit produces a different map, and symbolicating with the wrong one gives
 wrong line numbers — which is worse than none, because it looks like an answer.
 Check the build number before using a map.
+
+## Causing a crash on purpose
+
+Both symbolication checks need a crash somebody made deliberately, in a
+**release** build. `EXPO_PUBLIC_ENABLE_TEST_CRASH=true` puts two rows at the
+bottom of Settings → About:
+
+- *Force a native crash (test)* — exercises the dSYM and the R8 mapping.
+- *Throw a JavaScript error (test)* — exercises the exported source map.
+
+Set it on the **staging** profile, install, tap a row, then look for readable
+frames in Crashlytics. Development is deliberately not the place for this:
+collection is off there, nothing is minified, and there is no dSYM or mapping
+to resolve against.
+
+Production cannot have it. `releaseConfigProblems` fails the *build* when the
+variable is set for production, so no store binary that could reach those rows
+is ever made — `npx expo config` stops with `CFG-1` in seconds.
 
 ## Crash-free sessions
 
@@ -76,5 +111,7 @@ Crashes. Targets: **≥ 99.0%** to promote a build, **≥ 99.5%** at launch.
 
 A real crash, symbolicated, in the Crashlytics console. That needs a release
 build on TestFlight or a Play closed track, which needs the store accounts
-(#158). Until then the wrapper's rules are tested and the upload paths are
-configured, and neither of those is evidence that a crash arrives.
+(#158). Until then the wrapper's rules are tested, the boundary's reporting is
+tested, the trigger is tested, and the upload paths are configured and asserted
+— and none of that is evidence that a crash arrives with `src/` names on it.
+The first EAS staging build is what turns the configuration into evidence.

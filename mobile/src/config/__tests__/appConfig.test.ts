@@ -290,6 +290,51 @@ describe('what a release build must never carry', () => {
     ).toThrow(/CFG-1/);
   });
 
+  /**
+   * The hidden test-crash row (UC-4.4, #180 step 8).
+   *
+   * Production only, and that asymmetry is the whole design: the row exists to
+   * prove that a native crash and a JS error come back symbolicated, which can
+   * only be shown on a release build — so staging has to be allowed to build
+   * with it, and a store binary must not be buildable with it at all. Asserted
+   * in both directions, because "allowed in staging" is the half a future
+   * tidy-up would delete first.
+   */
+  it('refuses production with the test-crash row enabled', () => {
+    expect(() =>
+      execFileSync('npx', ['expo', 'config', '--type', 'introspect', '--json'], {
+        cwd: ROOT,
+        env: {
+          ...process.env,
+          APP_ENV: 'production',
+          EXPO_PUBLIC_API_BASE_URL: 'https://api.example.com',
+          EXPO_PUBLIC_DEV_BEARER_TOKEN: '',
+          EXPO_PUBLIC_ENABLE_TEST_CRASH: 'true',
+        },
+        encoding: 'utf8',
+        stdio: 'pipe',
+      }),
+    ).toThrow(/CFG-1/);
+  });
+
+  it('still builds staging with the test-crash row enabled', () => {
+    expect(() =>
+      execFileSync('npx', ['expo', 'config', '--type', 'introspect', '--json'], {
+        cwd: ROOT,
+        env: {
+          ...process.env,
+          APP_ENV: 'staging',
+          EXPO_PUBLIC_API_BASE_URL: 'https://api.example.com',
+          EXPO_PUBLIC_DEV_BEARER_TOKEN: '',
+          EXPO_PUBLIC_ENABLE_TEST_CRASH: 'true',
+        },
+        encoding: 'utf8',
+        stdio: 'pipe',
+        maxBuffer: 32 * 1024 * 1024,
+      }),
+    ).not.toThrow();
+  });
+
   it.each(['staging', 'production'] as const)('refuses %s in mock API mode', profile => {
     expect(() =>
       execFileSync('npx', ['expo', 'config', '--type', 'introspect', '--json'], {
