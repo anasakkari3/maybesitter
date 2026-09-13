@@ -16,12 +16,12 @@
  * be identifiable to us for having read it, and a page that took `?uid=` would
  * make the policy itself the tracking.
  *
- * ── Hebrew is routed even though it is not selectable ────────────
+ * ── Hebrew was routed before it was selectable ───────────────────
  *
- * `src/i18n/locale.ts` keeps `he` out of the picker (no reviewed copy, no
- * Hebrew glyphs in the shipped fonts). The site publishes `/he/` regardless,
- * so the mapping is here and correct for the day the font gate clears — and
- * `apiLocale` can already return `he` for a device set that way.
+ * This mapping was written while `he` was still out of the picker, so that the
+ * day the font gate cleared the policy links would already be right. The gate
+ * cleared in UC-2.R5: the app bundles a Hebrew face and the picker offers
+ * עברית, and `/he/` has been the correct page all along.
  */
 import * as WebBrowser from 'expo-web-browser';
 import { legalBaseUrl, legalUrls } from './env';

@@ -48,7 +48,7 @@ export function FeedbackFlagButton({ proposalId, commitmentId }: {
   proposalId: string;
   commitmentId?: string | undefined;
 }) {
-  const { t, p, ar } = useApp();
+  const { t, p, rtl, script } = useApp();
   const flag = useAlphaFlag();
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState('');
@@ -116,7 +116,7 @@ export function FeedbackFlagButton({ proposalId, commitmentId }: {
         placeholder={t.flagNote}
         placeholderTextColor={p.mu}
         multiline
-        style={{ backgroundColor: p.sf2, borderRadius: 18, paddingVertical: 10, paddingHorizontal: 14, fontSize: 13, minHeight: 44, color: p.tx, fontFamily: family(400, ar), textAlign: ar ? 'right' : 'left' }}
+        style={{ backgroundColor: p.sf2, borderRadius: 18, paddingVertical: 10, paddingHorizontal: 14, fontSize: 13, minHeight: 44, color: p.tx, fontFamily: family(400, script), textAlign: rtl ? 'right' : 'left' }}
       />
       <Pill testID="next-step-flag-close" label={t.back} onPress={() => setOpen(false)} kind="ghost" size={13} weight={400} pad={6} />
     </View>

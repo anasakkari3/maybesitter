@@ -4,7 +4,21 @@ export type Imp = 'must' | 'should' | 'nice';
 // item with a new time) and dropped on purpose. There is no "overdue".
 export type Status = 'active' | 'done' | 'dropped';
 
-export type Localized = { ar: string; en: string };
+/**
+ * A string from the design's sample week, in the languages it was written in.
+ *
+ * Deliberately **not** `Record<Lang, string>` now that Hebrew is a language the
+ * UI can be set to. This is fixture copy — the round-1 prototype's seven
+ * commitments — and `src/state/seed.ts` says in its own first line that it is
+ * waiting to be replaced by `/api/mobile/commitments/*` (UC-2.R3, #173). Real
+ * commitment titles come from the account as one plain string in whatever
+ * language the user wrote them in; they are never translated, which is the
+ * whole reason `isolateAuto` exists. Machine-translating seven placeholder
+ * titles into a third language would be inventing content to satisfy a type.
+ *
+ * So Hebrew is optional here and `titleOf` falls back in the open.
+ */
+export type Localized = { ar: string; en: string; he?: string };
 
 export type Commitment = {
   id: string;

@@ -75,8 +75,9 @@
   "fonts": {
     "latin": "Outfit",
     "arabic": "Noto Naskh Arabic",
+    "hebrew": "Noto Sans Hebrew",
     "weightsLoaded": [400, 500, 600, 700],
-    "$comment": "The export loads exactly these two families from Google Fonts. Neither carries Hebrew glyphs; a Hebrew face is still needed before `he` can be offered (UC-1.R3 #156)."
+    "$comment": "The round-1 export loads the first two families from Google Fonts and neither carries a Hebrew glyph, which is what kept `he` out of the picker. Noto Sans Hebrew was added in UC-2.R5 at the same four weights; it is the one face here the export did not name."
   },
   "deviations": [
     {

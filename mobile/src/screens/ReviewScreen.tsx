@@ -8,7 +8,7 @@ import { EditProposalItemSheet } from '../features/capture/EditProposalItemSheet
 import { questionText } from '../features/capture/clarificationCopy';
 import { useTimeZone } from '../i18n/timezone';
 import { formatRelativeDay, formatTime } from '../i18n/format';
-import { ltr } from '../i18n/strings';
+import { ltr, type Lang } from '../i18n/strings';
 import { cardShadow } from '../theme/tokens';
 import { Btn, FlowHeader, ImpBadge, Pill, Txt } from '../ui/primitives';
 import { CheckIcon } from '../ui/icons';
@@ -161,7 +161,7 @@ function ItemCard({
   selected: boolean;
   onToggle: () => void;
   onEdit: () => void;
-  lang: 'ar' | 'en';
+  lang: Lang;
 }) {
   const { t, p } = useApp();
   const timezone = useTimeZone();

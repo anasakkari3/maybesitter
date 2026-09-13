@@ -21,4 +21,11 @@ export function impColors(i: Imp, p: Palette) {
   return { bg: p.sf2, fg: p.mu };
 }
 
+/**
+ * A seed commitment's title in the UI language, falling back to Arabic.
+ *
+ * The fallback is Arabic rather than English because Arabic is the language
+ * the design was written in and the app's default. It is reachable only for
+ * Hebrew, and only for this fixture data — see `Localized` in ./types.
+ */
 export const titleOf = (c: Commitment, lang: Lang) => c.title[lang] || c.title.ar;

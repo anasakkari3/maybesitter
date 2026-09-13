@@ -117,10 +117,11 @@ export function resolveSpeechLocale(
 /**
  * The app language a speech locale should be requested for.
  *
- * The app displays only English and Arabic (`SELECTABLE_LOCALES`), but it reads
- * and captures Hebrew, so the speech language is resolved from the device tag
- * rather than from what the UI is rendered in. Someone whose phone is Hebrew
- * should be able to dictate Hebrew into an English-looking app.
+ * Resolved from the device tag rather than from what the UI is rendered in.
+ * That mattered most when the app could not display Hebrew at all; it still
+ * matters now that it can, and for a better reason: which language somebody
+ * *dictates* in is a fact about the device and the room, not about the app's
+ * language. Somebody reading the app in Arabic may well talk to it in English.
  */
 export function speechLanguageForTag(tag: string | null | undefined): SpeechLanguage {
   const language = languageOf(tag ?? '');

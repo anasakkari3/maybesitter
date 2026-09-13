@@ -3,7 +3,8 @@ import MessageFormat from 'intl-messageformat';
 import ar from '../locales/ar.json';
 import en from '../locales/en.json';
 import he from '../locales/he.json';
-import { LOCALES, intlLocale, type Locale } from '../locale';
+import { LOCALES, SELECTABLE_LOCALES, intlLocale, type Locale } from '../locale';
+import { strings } from '../strings';
 
 // A locale file that drifts is not a bug you see: a missing key silently falls
 // back to English and a renamed placeholder silently renders empty. These tests
@@ -60,6 +61,17 @@ function argumentsOf(message: string, locale: string): string[] {
 describe('locale file parity', () => {
   it('covers every supported locale', () => {
     expect(Object.keys(bundles).sort()).toEqual([...LOCALES].sort());
+  });
+
+  /**
+   * The screens read `strings[lang]`, not the JSON. That view was `{ ar, en }`
+   * while `he.json` sat in i18next's resources, so every test in this file
+   * could hold Hebrew to English's standard and the screens still had no way
+   * to reach it. The two maps are the same set now, and stay so.
+   */
+  it('is the same set the screens can actually render', () => {
+    expect(Object.keys(strings).sort()).toEqual([...LOCALES].sort());
+    expect([...SELECTABLE_LOCALES].sort()).toEqual([...LOCALES].sort());
   });
 
   it('has the same key set in every locale', () => {

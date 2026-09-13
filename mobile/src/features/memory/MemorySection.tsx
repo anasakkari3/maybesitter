@@ -39,7 +39,7 @@ import { CHIP_STRING, memorySentence, provenanceChip } from './memoryDisplay';
  * UC-1.R3 (#156)'s helper and every rendered fact goes through it.
  */
 export function MemorySection() {
-  const { t, p, lang } = useApp();
+  const { t, p, rtl } = useApp();
   const memory = useMemory();
   const create = useCreateMemory();
   const patch = usePatchMemory();
@@ -101,7 +101,7 @@ export function MemorySection() {
             placeholderTextColor={p.mu}
             maxLength={200}
             multiline
-            style={{ color: p.tx, fontSize: 15, minHeight: 44, textAlign: lang === 'ar' ? 'right' : 'left' }}
+            style={{ color: p.tx, fontSize: 15, minHeight: 44, textAlign: rtl ? 'right' : 'left' }}
           />
           <View style={{ flexDirection: 'row', gap: 10 }}>
             <SmallAction
@@ -176,7 +176,7 @@ function MemoryRow({
   onCancelDelete: () => void;
   onDelete: () => void;
 }) {
-  const { t, p, lang } = useApp();
+  const { t, p, rtl } = useApp();
   const [draft, setDraft] = useState(item.content);
   const chip = provenanceChip(item.provenance, item.source);
 
@@ -191,7 +191,7 @@ function MemoryRow({
             onChangeText={setDraft}
             maxLength={200}
             multiline
-            style={{ color: p.tx, fontSize: 15, minHeight: 44, textAlign: lang === 'ar' ? 'right' : 'left' }}
+            style={{ color: p.tx, fontSize: 15, minHeight: 44, textAlign: rtl ? 'right' : 'left' }}
           />
           <View style={{ flexDirection: 'row', gap: 10 }}>
             <SmallAction

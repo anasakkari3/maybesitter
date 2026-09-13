@@ -74,8 +74,14 @@ them otherwise.
 ## Fonts
 
 Outfit (Latin) and Noto Naskh Arabic, both at 400/500/600/700, exactly as the
-export loads them. **Neither carries Hebrew glyphs.** A Hebrew face has to be
-added before `he` can be offered in the language picker (UC-1.R3 #156).
+export loads them — plus **Noto Sans Hebrew**, added at the same four weights in
+UC-2.R5. Neither of the first two carries a single Hebrew glyph, which is what
+kept `he` out of the language picker; the third is what let it in.
+
+The choice is argued in `src/theme/fonts.ts` and measured against the shipped
+binaries in `src/theme/__tests__/fontCoverage.test.ts`, including the line box
+each script is given. It is the only face this app has that the round-1 export
+did not name.
 
 ## What is not here
 

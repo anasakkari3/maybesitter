@@ -43,7 +43,7 @@ export function EditProposalItemSheet({
   onChange(next: CaptureItemEdit): void;
   onClose(): void;
 }) {
-  const { t, p, ar, lang } = useApp();
+  const { t, p, rtl, script, lang } = useApp();
   const timezone = useTimeZone();
 
   const originalLocal = item.resolvedTime ? localDateTimeFor(new Date(item.resolvedTime), timezone) : '';
@@ -103,7 +103,7 @@ export function EditProposalItemSheet({
         onChangeText={setTitle}
         maxLength={MAX_TITLE_LENGTH}
         multiline
-        style={{ backgroundColor: p.sf2, borderRadius: 18, paddingVertical: 12, paddingHorizontal: 16, fontSize: 16, minHeight: 56, color: p.tx, fontFamily: family(400, ar), textAlign: ar ? 'right' : 'left' }}
+        style={{ backgroundColor: p.sf2, borderRadius: 18, paddingVertical: 12, paddingHorizontal: 16, fontSize: 16, minHeight: 56, color: p.tx, fontFamily: family(400, script), textAlign: rtl ? 'right' : 'left' }}
       />
 
       <Txt size={13} color={p.mu}>{t.editFieldPriority}</Txt>

@@ -78,6 +78,21 @@ describe('preferences carried on a link', () => {
     expect('theme' in link).toBe(false);
   });
 
+  it('carries every language the app can be put into, Hebrew included', () => {
+    // `?lang=he` used to be dropped on the floor — not refused for being
+    // unsafe, just not in the list — and the language it named was one the app
+    // had full copy for. The list and SELECTABLE_LOCALES agree now.
+    for (const lang of ['en', 'ar', 'he'] as const) {
+      expect(parseLink(`maybesitter://today?lang=${lang}`)?.lang).toBe(lang);
+    }
+  });
+
+  it('still refuses “system”, which is a preference and not a language', () => {
+    // A stranger's link may pick a language. It may not put the app back on
+    // following the device, which is a choice only the picker offers.
+    expect('lang' in parseLink('maybesitter://today?lang=system')!).toBe(false);
+  });
+
   it('ignores values it does not recognise', () => {
     const link = parseLink('maybesitter://today?lang=fr&theme=neon')!;
     expect('lang' in link).toBe(false);

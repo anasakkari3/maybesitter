@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { useTimeZone } from '../i18n/timezone';
 import { formatTime } from '../i18n/format';
-import { ltr } from '../i18n/strings';
+import { ltr, type Lang } from '../i18n/strings';
 import { useCommitmentAction, useToday } from '../api/queries';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
 import { groupForToday, topItemFor, type CommitmentView, type TodayGroups } from '../features/commitments/model';
@@ -143,7 +143,7 @@ function Group({
   topId: string | null;
   why: string | null;
   timezone: string;
-  lang: 'ar' | 'en';
+  lang: Lang;
   testID: string;
 }) {
   const { p } = useApp();
@@ -175,7 +175,7 @@ function Row({
   why: string | null;
   first: boolean;
   timezone: string;
-  lang: 'ar' | 'en';
+  lang: Lang;
 }) {
   const { t, p, actions } = useApp();
   const act = useCommitmentAction();

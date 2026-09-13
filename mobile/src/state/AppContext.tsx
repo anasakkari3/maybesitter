@@ -2,6 +2,8 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { useColorScheme } from 'react-native';
 import { strings, type Lang, type Strings } from '../i18n/strings';
 import { setLocale, tFor } from '../i18n';
+import { isRtl, scriptFor } from '../i18n/locale';
+import type { Script } from '../theme/fonts';
 import {
   loadLanguagePref, nextLanguagePref, resolveLanguage, saveLanguagePref, systemLanguageTag, type LanguagePref,
 } from '../i18n/language';
@@ -54,12 +56,16 @@ const initial: AppState = {
 
 function useAppModel() {
   const [s, setS] = useState<AppState>(initial);
-  // The stored choice (System / English / العربية) and the language it resolves
+  // The stored choice (System / English / العربية / עברית) and the language it resolves
   // to. The device tag is read once: changing the phone's language restarts the
   // app anyway, and re-reading it every render is a native call for nothing.
   const [langPref, setLangPref] = useState<LanguagePref>('system');
   const systemTag = useMemo(() => systemLanguageTag(), []);
   const lang: Lang = resolveLanguage(langPref, systemTag);
+  // Direction and alphabet are two questions, not one. See the fields below.
+  const rtl = isRtl(lang);
+  const script = scriptFor(lang);
+  const rtlScript: Script | false = rtl ? script : false;
   const [themePref, setThemePref] = useState<ThemePref>('system');
   const system = useColorScheme();
   const scheme: Scheme = themePref === 'system' ? (system === 'dark' ? 'dark' : 'light') : themePref;
@@ -170,8 +176,7 @@ function useAppModel() {
     fmAccept: () => set({ nextDismissed: true, screen: 'today', sheet: 'toast', toast: tRef.current.toastFm }),
 
     // preferences
-    // The language picker: System → English → العربية → System. Hebrew is not
-    // offered; src/i18n/README.md says what it is still waiting on.
+    // The language picker: System → English → العربية → עברית → System.
     cycleLanguage: () => applyLangPref(nextLanguagePref(langPref)),
     cycleTheme: () =>
       applyThemePref(themePref === 'system' ? 'light' : themePref === 'light' ? 'dark' : 'system'),
@@ -204,7 +209,38 @@ function useAppModel() {
     },
   };
 
-  return { s, t, tr, p, lang, langPref, ar: lang === 'ar', scheme, themePref, actions };
+  return {
+    s, t, tr, p, lang, langPref, scheme, themePref, actions,
+    /**
+     * Which way the UI reads. Arabic and Hebrew both go right to left; `Root`
+     * is the single place that acts on it (`direction` on the root view).
+     */
+    rtl,
+    /**
+     * Which alphabet to set text in: 'latin' | 'arabic' | 'hebrew'. Separate
+     * from `rtl` because Hebrew shares Arabic's direction and none of its
+     * glyphs — see `src/theme/fonts.ts`.
+     */
+    script,
+    /**
+     * The RTL script, or `false` when the UI reads left to right.
+     *
+     * This used to be `lang === 'ar'`, from when the app had two languages and
+     * "is it Arabic" answered three different questions at once — direction,
+     * alignment and font. Widening `Lang` made it wrong for all three, and
+     * `false | Script` is the shape that keeps every existing spelling of those
+     * questions correct without a cast: `ar ? 'rtl' : 'ltr'` and
+     * `ar ? 'right' : 'left'` still read as before, and `family(400, ar)` now
+     * resolves to Noto Sans Hebrew in Hebrew instead of to a Latin face with no
+     * Hebrew glyphs in it.
+     *
+     * New code should read `rtl` and `script`, which say what they mean. The
+     * one file still on this name is `src/screens/Sheets.tsx`, which is owned
+     * by another change in flight; it is correct in all three languages as it
+     * stands, and the field goes when its last reader does.
+     */
+    ar: rtlScript,
+  };
 }
 
 export type AppModel = ReturnType<typeof useAppModel>;

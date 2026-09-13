@@ -28,6 +28,7 @@ export function CloseoutScreen() {
         <View style={{ gap: 10 }}>
           {s.yesterday.map((q, i) => (
             <View key={q.id} style={[{ backgroundColor: p.sf, borderRadius: 22, padding: 16, gap: 12 }, cardShadow(p)]}>
+              {/* Fixture copy, and `Localized` has no Hebrew — see src/state/types.ts. */}
               <Txt size={16} weight={500}>{q.title[lang] || q.title.ar}</Txt>
               {q.res == null ? (
                 <View style={{ flexDirection: 'row', gap: 8 }}>

@@ -2,8 +2,8 @@ import React from 'react';
 import { Pressable, Text, View, useColorScheme } from 'react-native';
 import i18next from 'i18next';
 import { tFor } from '../i18n';
-import { apiLocale } from '../i18n/locale';
-import { family } from '../theme/fonts';
+import { apiLocale, isRtl, scriptFor } from '../i18n/locale';
+import { family, LINE_HEIGHT, type Script } from '../theme/fonts';
 import { palettes, radius, space, typeScale } from '../theme/tokens';
 import { recordError } from '../lib/crash';
 
@@ -90,6 +90,13 @@ export class ErrorBoundary extends React.Component<Props, State> {
  * product has no danger role, and a red screen tells somebody their day is
  * broken when it is not.
  */
+/**
+ * Large type is set tighter than body copy, so the title has its own map rather
+ * than reading LINE_HEIGHT. The two RTL faces keep the boxes their own metrics
+ * ask for; only Outfit is squeezed, and only here.
+ */
+const TITLE_LINE: Record<Script, number> = { latin: 1.3, arabic: 1.6, hebrew: 1.5 };
+
 export function CrashFallback({ onRetry }: { onRetry: () => void }) {
   const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
   const p = palettes[scheme];
@@ -97,8 +104,11 @@ export function CrashFallback({ onRetry }: { onRetry: () => void }) {
   // AppProvider survived; it falls back to English rather than to nothing.
   const locale = apiLocale(i18next.language);
   const t = tFor(locale);
-  const rtl = locale === 'ar' || locale === 'he';
-  const arabic = locale === 'ar';
+  const rtl = isRtl(locale);
+  // Not `locale === 'ar'`: this screen already read Hebrew as RTL, and drew it
+  // in a face with no Hebrew glyphs in it. A crash screen nobody can read is
+  // the one screen where that is least affordable.
+  const script = scriptFor(locale);
 
   return (
     <View
@@ -117,9 +127,9 @@ export function CrashFallback({ onRetry }: { onRetry: () => void }) {
         <Text
           testID="crash-title"
           style={{
-            fontFamily: family(600, arabic),
+            fontFamily: family(600, script),
             fontSize: typeScale.title2,
-            lineHeight: Math.round(typeScale.title2 * (arabic ? 1.6 : 1.3)),
+            lineHeight: Math.round(typeScale.title2 * TITLE_LINE[script]),
             color: p.tx,
             textAlign: rtl ? 'right' : 'left',
             writingDirection: rtl ? 'rtl' : 'ltr',
@@ -130,9 +140,9 @@ export function CrashFallback({ onRetry }: { onRetry: () => void }) {
         <Text
           testID="crash-body"
           style={{
-            fontFamily: family(400, arabic),
+            fontFamily: family(400, script),
             fontSize: typeScale.bodyLarge,
-            lineHeight: Math.round(typeScale.bodyLarge * (arabic ? 1.6 : 1.4)),
+            lineHeight: Math.round(typeScale.bodyLarge * LINE_HEIGHT[script]),
             color: p.mu,
             textAlign: rtl ? 'right' : 'left',
             writingDirection: rtl ? 'rtl' : 'ltr',
@@ -158,9 +168,9 @@ export function CrashFallback({ onRetry }: { onRetry: () => void }) {
       >
         <Text
           style={{
-            fontFamily: family(600, arabic),
+            fontFamily: family(600, script),
             fontSize: typeScale.body,
-            lineHeight: Math.round(typeScale.body * (arabic ? 1.6 : 1.4)),
+            lineHeight: Math.round(typeScale.body * LINE_HEIGHT[script]),
             color: p.onAccent,
             writingDirection: rtl ? 'rtl' : 'ltr',
           }}

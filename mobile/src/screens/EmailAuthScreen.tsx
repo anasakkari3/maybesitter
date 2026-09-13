@@ -30,7 +30,7 @@ type AuthMessageKey = FieldErrorKey | AuthErrorKey;
  * test cannot print one either.
  */
 export function EmailAuthScreen({ onBack, initialMode = 'signIn' }: { onBack: () => void; initialMode?: EmailAuthMode }) {
-  const { t, p, ar } = useApp();
+  const { t, p, rtl } = useApp();
   const { repository } = useAuth();
   const [mode, setMode] = useState<EmailAuthMode>(initialMode);
   const [email, setEmail] = useState('');
@@ -103,7 +103,7 @@ export function EmailAuthScreen({ onBack, initialMode = 'signIn' }: { onBack: ()
     fontSize: 16,
     color: p.tx,
     minHeight: 52,
-    textAlign: (ar ? 'right' : 'left') as 'left' | 'right',
+    textAlign: (rtl ? 'right' : 'left') as 'left' | 'right',
   };
 
   return (
