@@ -30,6 +30,10 @@ export const CLIENT_REPORTABLE_EVENTS = [
   'widget_snapshot_published',
   'source_intake_reviewed', 'source_intake_confirmed',
   'pilot_feedback_submitted', 'soft_awareness_action', 'soft_awareness_missed',
+  // UC-2.R1 (#171). Reportable because only the device knows the person
+  // reached the end of onboarding; it feeds no funnel state, which stays
+  // derived from domain state so a client cannot forge progress.
+  'onboarding_completed',
 ] as const;
 
 export type ClientReportableEvent = typeof CLIENT_REPORTABLE_EVENTS[number];

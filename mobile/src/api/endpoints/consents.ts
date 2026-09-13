@@ -1,5 +1,11 @@
 import { apiRequest } from '../client';
-import { consentsViewSchema, type ConsentsView } from '../schemas/consents';
+import {
+  aiConsentUpdatedSchema,
+  consentsViewSchema,
+  recommendationConsentUpdatedSchema,
+  type ConsentsView,
+  type ConsentState,
+} from '../schemas/consents';
 
 /**
  * Reads consent from the server, every time (UC-2.1, #161).
@@ -10,4 +16,33 @@ import { consentsViewSchema, type ConsentsView } from '../schemas/consents';
  */
 export function getConsents(): Promise<ConsentsView> {
   return apiRequest('GET', '/api/mobile/consents', { schema: consentsViewSchema });
+}
+
+export interface ConsentAnswer {
+  state: ConsentState;
+  /** The version the server said it recognises, from `currentVersions`. */
+  version: string;
+  locale?: 'ar' | 'he' | 'en';
+  platform?: 'ios' | 'android';
+}
+
+/**
+ * Records an answer (UC-2.1 #161, UC-2.9 #170, asked by UC-2.R1 #171).
+ *
+ * The version is echoed from `getConsents` rather than hard-coded: an unknown
+ * one is refused outright, and a hard-coded one would claim agreement to words
+ * this build cannot prove were shown.
+ */
+export function putAiConsent(answer: ConsentAnswer) {
+  return apiRequest('PUT', '/api/mobile/consents/ai-processing', {
+    body: answer,
+    schema: aiConsentUpdatedSchema,
+  });
+}
+
+export function putRecommendationConsent(answer: ConsentAnswer) {
+  return apiRequest('PUT', '/api/mobile/consents/recommendations', {
+    body: answer,
+    schema: recommendationConsentUpdatedSchema,
+  });
 }

@@ -40,6 +40,7 @@ export const CLIENT_REPORTABLE_EVENTS = [
   'pilot_feedback_submitted',
   'soft_awareness_action',
   'soft_awareness_missed',
+  'onboarding_completed',
 ] as const;
 
 export type ClientReportableEvent = (typeof CLIENT_REPORTABLE_EVENTS)[number];

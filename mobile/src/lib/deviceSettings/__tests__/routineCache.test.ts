@@ -6,6 +6,7 @@
  * decision must favour the device only while it holds something the server has
  * never seen.
  */
+import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   EMPTY_CACHE,
@@ -16,7 +17,7 @@ import {
   saveRoutineCache,
   serverCopyWins,
   type RoutineCache,
-} from '../routineStore';
+} from '../routineCache';
 
 const CACHE: RoutineCache = {
   ...EMPTY_CACHE,

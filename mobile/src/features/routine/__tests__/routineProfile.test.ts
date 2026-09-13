@@ -6,6 +6,7 @@
  * different answer from the one they gave. Both directions are exhaustive over
  * the enums, so this iterates every option rather than sampling.
  */
+import { describe, expect, it } from '@jest/globals';
 import {
   EMPTY_ANSWERS,
   ROUTINE_OPTIONS,

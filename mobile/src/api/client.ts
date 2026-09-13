@@ -36,7 +36,11 @@ import { commitmentSchema } from './schemas/common';
 
 export const REQUEST_TIMEOUT_MS = 15_000;
 
-export type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE';
+// `PUT` joined in UC-2.1 (#161) and UC-2.7a (#167): a consent answer and a
+// routine profile are both whole-resource writes, and both have to be safe
+// to send twice — which is what lets #167 re-send after a failed sync
+// without a replay queue.
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 export interface RequestOptions<T> {
   query?: Record<string, string | number | boolean | undefined>;

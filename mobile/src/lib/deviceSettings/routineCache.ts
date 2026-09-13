@@ -27,7 +27,7 @@
  * cache is a degradation, and blocking the app on it would be a defect.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { EMPTY_ANSWERS, type RoutineAnswers } from './routineProfile';
+import { EMPTY_ANSWERS, type RoutineAnswers } from '../../features/routine/routineProfile';
 
 export const ROUTINE_STORAGE_KEY = 'routine.profile.v1';
 

@@ -19,6 +19,11 @@ export const ANALYTICS_EVENT_NAMES = [
   'widget_snapshot_published',
   'source_intake_reviewed', 'source_intake_confirmed',
   'pilot_feedback_submitted', 'soft_awareness_action', 'soft_awareness_missed',
+  // Additive UC-2.R1 (#171): the app reporting that somebody finished
+  // onboarding. Content-free by construction — it carries no properties at
+  // all — and it is only ever sent when analytics consent was granted on
+  // the consent screen it is reporting the end of.
+  'onboarding_completed',
 ] as const;
 
 export type AnalyticsEventName = typeof ANALYTICS_EVENT_NAMES[number];

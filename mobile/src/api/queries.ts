@@ -4,7 +4,6 @@ import { useTimeZone } from '../i18n/timezone';
 import { apiLocale } from '../i18n/locale';
 import { useAuth } from '../auth/AuthProvider';
 import { confirmCapture, proposeCapture } from './endpoints/capture';
-import { getConsents } from './endpoints/consents';
 import {
   actOnCommitment,
   deleteCommitment,
@@ -19,6 +18,17 @@ import { getNextStep, recordNextStepDecision } from './endpoints/nextStep';
 import { getTrust, updateTrust } from './endpoints/trust';
 import { flagAlphaFeedback, getFeedbackHistory, revokeFeedback } from './endpoints/feedback';
 import { recordAnalyticsEvent } from './endpoints/analytics';
+import { getConsents, putAiConsent, putRecommendationConsent, type ConsentAnswer } from './endpoints/consents';
+import {
+  createMemory,
+  deleteAllMemory,
+  deleteMemory,
+  getProfile,
+  listMemory,
+  patchMemory,
+  putRoutine,
+} from './endpoints/profile';
+import type { RoutineProfilePayload } from '../features/routine/routineProfile';
 import type { NextStepDecisionKind, NextStepRecommendation } from './schemas/nextStep';
 import type { TrustAction } from './schemas/trust';
 import type { AlphaFeedbackCategory } from './schemas/feedback';
@@ -43,6 +53,8 @@ export const queryKeys = {
   nextStep: (uid: string, locale: string) => ['user', uid, 'nextStep', locale] as const,
   trust: (uid: string) => ['user', uid, 'trust'] as const,
   feedbackHistory: (uid: string) => ['user', uid, 'feedbackHistory'] as const,
+  profile: (uid: string) => ['user', uid, 'profile'] as const,
+  memory: (uid: string) => ['user', uid, 'memory'] as const,
 };
 
 /** The signed-in uid, or the one value that can never collide with one. */
@@ -161,6 +173,11 @@ export function useConsents() {
     queryKey: queryKeys.consents(uid),
     queryFn: () => getConsents(),
     enabled: uid !== 'signed-out',
+    // Never from a cache. Somebody who revoked on another device has to see it
+    // revoked here on the next look, and a toggle rendered from a stale answer
+    // is a toggle that lies about what the server will actually do — which is
+    // also why UC-2.R1 (#171)'s consent screen renders straight off this.
+    staleTime: 0,
   });
 }
 
@@ -338,4 +355,99 @@ export function useRecordAnalytics() {
     mutationFn: (input: { eventName: ClientReportableEvent; properties?: AnalyticsProperties }) =>
       recordAnalyticsEvent(input.eventName, input.properties ?? {}),
   });
+}
+
+/**
+ * Records one consent answer.
+ *
+ * There is no optimistic update, deliberately. The switch moves when the
+ * server says it moved — the alternative shows somebody "AI: on" for the
+ * moment before a failed write, which is the one place in this app where a
+ * hopeful UI would be a lie about their privacy. `onSettled` refetches so a
+ * failure snaps the control back to the truth.
+ */
+export function useSetAiConsent() {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn: (answer: ConsentAnswer) => putAiConsent(answer),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.consents(uid) });
+    },
+  });
+}
+
+export function useSetRecommendationConsent() {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn: (answer: ConsentAnswer) => putRecommendationConsent(answer),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.consents(uid) });
+      // The next step is gated on this answer, so it is wrong the moment it
+      // changes.
+      void client.invalidateQueries({ queryKey: ['user', uid, 'nextStep'] });
+    },
+  });
+}
+
+/** The account's routine profile. `routine: null` means never answered. */
+export function useProfile() {
+  const uid = useUid();
+  return useQuery({
+    queryKey: queryKeys.profile(uid),
+    queryFn: getProfile,
+  });
+}
+
+export function usePutRoutine() {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn: (profile: RoutineProfilePayload) => putRoutine(profile),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.profile(uid) });
+      // Saving the survey supersedes the facts derived from it.
+      void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
+      void client.invalidateQueries({ queryKey: ['user', uid, 'nextStep'] });
+    },
+  });
+}
+
+export function useMemory() {
+  const uid = useUid();
+  return useQuery({
+    queryKey: queryKeys.memory(uid),
+    queryFn: listMemory,
+  });
+}
+
+function useMemoryMutation<TInput>(mutationFn: (input: TInput) => Promise<unknown>) {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn,
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
+      // A routine fact edited by hand changes the profile the screen shows.
+      void client.invalidateQueries({ queryKey: queryKeys.profile(uid) });
+    },
+  });
+}
+
+export function useCreateMemory() {
+  return useMemoryMutation((input: { kind: 'fact' | 'preference' | 'goal'; content: string; language: 'ar' | 'he' | 'en' | 'mixed' }) =>
+    createMemory(input));
+}
+
+export function usePatchMemory() {
+  return useMemoryMutation((input: { id: string; content: string }) => patchMemory(input.id, input.content));
+}
+
+export function useDeleteMemory() {
+  return useMemoryMutation((id: string) => deleteMemory(id));
+}
+
+export function useDeleteAllMemory() {
+  return useMemoryMutation((_: void) => deleteAllMemory());
 }
