@@ -394,5 +394,17 @@
   "memoryIntensityNone": "صامتة",
   "memoryIntensitySoft": "خفيفة",
   "memoryIntensityFollowUp": "بتتكرّر إذا ما رديت",
-  "memoryIntensityStrong": "حازمة للمهمّات"
+  "memoryIntensityStrong": "حازمة للمهمّات",
+  "clarifyAskAction": "شو بدك تعمل؟",
+  "clarifyAskTime": "أي وقت بناسبك؟",
+  "clarifyAskAmPm": "أي {hour} قصدت؟",
+  "clarifyAskDay": "أي يوم؟",
+  "clarifyMorning": "الصبح",
+  "clarifyAfternoon": "العصر",
+  "clarifyEvening": "المسا",
+  "clarifyNoTime": "بدون وقت محدد",
+  "clarifyToday": "اليوم",
+  "clarifyTomorrow": "بكرا",
+  "clarifyAmPmOption": "{hour} {period}",
+  "clarifyOwnWords": "أو احكيها بطريقتك"
 }

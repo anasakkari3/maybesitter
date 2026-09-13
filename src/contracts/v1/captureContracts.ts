@@ -33,6 +33,62 @@ export interface CaptureProposalItemContract {
 }
 
 /**
+ * The one question the product may ask about an item (UC-2.5, #165).
+ *
+ * ── Keys, never sentences ────────────────────────────────────────
+ *
+ * The server sends a `questionKey` and parameters; the phone renders the
+ * sentence from its own locale files. The question text is therefore never
+ * model-generated, which is the whole point: a model asked to phrase a question
+ * will eventually phrase one that is long, or leading, or wrong in Arabic — and
+ * a clarification the user cannot trust is worse than no clarification, because
+ * the answer is applied to their commitment.
+ *
+ * It also means the three languages stay consistent and reviewable: the copy
+ * lives in `mobile/src/i18n/locales/*.json` where a person can read all of it at
+ * once, rather than being produced fresh per request.
+ *
+ * ── One question, one round ──────────────────────────────────────
+ *
+ * Never a chain. A product that asks twice has stopped being a capture box and
+ * become an interview, and the fallback — #164's edit sheet — is a better answer
+ * than a second question.
+ */
+export type ClarificationQuestionKey = 'ask_time' | 'ask_action' | 'ask_am_pm' | 'ask_day';
+export type ClarificationField = 'time' | 'action' | 'time_period' | 'which_day';
+
+export interface ClarificationOptionContract {
+  optionId: string;
+  /** An i18n key. The phone renders it; the server never sends prose. */
+  labelKey: string;
+  labelParams: Record<string, string>;
+  /**
+   * What choosing this means, as a local wall clock.
+   *
+   * Deliberately local rather than an instant: the answer is composed against
+   * the proposal's own timezone when it arrives, by the same deterministic code
+   * that resolved the capture (#162). An instant computed here would be an
+   * instant computed twice, in two places, from two clocks.
+   */
+  value: { localTime?: string; localDate?: string };
+}
+
+export interface ClarificationContract {
+  questionId: string;
+  field: ClarificationField;
+  questionKey: ClarificationQuestionKey;
+  params: Record<string, string>;
+  options: ClarificationOptionContract[];
+  /** Whether the user may answer in their own words instead of picking. */
+  allowFreeText: boolean;
+}
+
+/** At most one question per item, ever (UC-2.5, #165). */
+export const CLARIFICATION_MAX_ROUNDS = 1;
+/** The longest free-text answer the clarify endpoint will read. */
+export const CLARIFICATION_FREE_TEXT_MAX = 200;
+
+/**
  * One change a user made in review, before anything was saved (UC-2.4, #164).
  *
  * Only three fields, and deliberately: title, time and priority are what the

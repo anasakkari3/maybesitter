@@ -394,5 +394,17 @@
   "memoryIntensityNone": "silent",
   "memoryIntensitySoft": "gentle",
   "memoryIntensityFollowUp": "repeated if unanswered",
-  "memoryIntensityStrong": "firm for the important ones"
+  "memoryIntensityStrong": "firm for the important ones",
+  "clarifyAskAction": "What would you like to do?",
+  "clarifyAskTime": "What time works?",
+  "clarifyAskAmPm": "Which {hour} did you mean?",
+  "clarifyAskDay": "Which day?",
+  "clarifyMorning": "Morning",
+  "clarifyAfternoon": "Afternoon",
+  "clarifyEvening": "Evening",
+  "clarifyNoTime": "No specific time",
+  "clarifyToday": "Today",
+  "clarifyTomorrow": "Tomorrow",
+  "clarifyAmPmOption": "{hour} {period}",
+  "clarifyOwnWords": "Or say it your way"
 }

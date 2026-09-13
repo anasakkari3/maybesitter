@@ -32,6 +32,35 @@ export const captureProposalSchema = z.object({
        * fact is how a product loses the right to make guesses.
        */
       priorityEstimated: z.boolean().optional(),
+      /**
+       * The one question to ask about this item (UC-2.5, #165).
+       *
+       * Keys and parameters, never a sentence: the phone renders the question
+       * from its own locale files, so the text is never model-generated. An
+       * unrecognised `questionKey` means a newer server — the app opens #164's
+       * edit sheet rather than rendering something it cannot read.
+       *
+       * Null with `needsClarification` still true means the one round is spent,
+       * and the fallback is the same edit sheet.
+       */
+      clarification: z
+        .object({
+          questionId: z.string(),
+          field: z.enum(['time', 'action', 'time_period', 'which_day']),
+          questionKey: z.string(),
+          params: z.record(z.string(), z.string()),
+          options: z.array(
+            z.object({
+              optionId: z.string(),
+              labelKey: z.string(),
+              labelParams: z.record(z.string(), z.string()),
+              value: z.object({ localTime: z.string().optional(), localDate: z.string().optional() }),
+            }),
+          ),
+          allowFreeText: z.boolean(),
+        })
+        .nullable()
+        .optional(),
     }),
   ),
   provenance: z

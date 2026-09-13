@@ -15,6 +15,7 @@ import {
   type NoCommitmentReason,
 } from '../../../src/contracts/v1/captureContracts';
 import { applyEditToCommands, InvalidEditError, validateEdit } from './applyEdits';
+import { buildClarification } from './clarificationBuilder';
 import { NegatedRequestError } from '../mobile/safety';
 import type { Command } from '../../../src/domain/stateMachine';
 import type { CapturePersistenceAdapter } from './persistenceAdapter';
@@ -229,6 +230,13 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
         // `user_explicit` means the person said so; anything else is ours. A
         // guess presented as a fact is how a product loses the right to guess.
         priorityEstimated: extracted.result.priority.source !== 'user_explicit',
+        // The one question worth asking, chosen deterministically (#165). Null
+        // when there is nothing worth asking, or when every sensible option has
+        // fallen into the past — in which case the app falls back to #164's edit
+        // sheet rather than asking something unanswerable.
+        ...(needsClarification
+          ? { clarification: buildClarification(extracted.result, { now: options.now, timezone: options.timezone }) }
+          : {}),
       });
       commandsByItemId.set(itemId, needsClarification ? [] : mapExtractionToCommand(extracted.result, options.now.toISOString()));
     } catch (error) {
