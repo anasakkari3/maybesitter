@@ -8,6 +8,7 @@ import { ltr } from '../i18n/strings';
 import { useToday, useUpcoming } from '../api/queries';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
 import { groupUpcoming, toViewModel, type CommitmentView } from '../features/commitments/model';
+import { rowAccessibilityLabel } from '../features/commitments/accessibility';
 import { STRIP_DAYS, weekStripKeys } from '../features/commitments/weekStrip';
 import { Btn, Card, Txt } from '../ui/primitives';
 import { ScreenIn } from '../ui/motion';
@@ -134,7 +135,9 @@ export function CalendarScreen() {
               <Btn
                 key={item.id}
                 testID={`calendar-item-${item.id}`}
-                label={item.title}
+                label={rowAccessibilityLabel(item, t, item.shownAt
+                  ? ltr(formatTime(new Date(item.shownAt), { locale: lang, timeZone: timezone }))
+                  : null)}
                 onPress={() => actions.openDetail(item.id)}
                 scaleTo={0.98}
                 style={[{ backgroundColor: p.sf, borderRadius: 18, paddingVertical: 14, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 12 }, cardShadow(p)]}
