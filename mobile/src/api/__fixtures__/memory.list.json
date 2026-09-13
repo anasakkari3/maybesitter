@@ -1,0 +1,60 @@
+{
+  "items": [
+    {
+      "id": "mem_00000000-0000-4000-8000-000000000001",
+      "kind": "preference",
+      "content": "focus_window:09:00-17:00",
+      "language": "mixed",
+      "source": "user_stated",
+      "confidence": 1,
+      "createdAt": "2026-08-09T09:00:00.000Z",
+      "observedAt": "2026-08-09T09:00:00.000Z",
+      "provenance": {
+        "origin": "routine_survey",
+        "originRef": "routine-survey-v1"
+      }
+    },
+    {
+      "id": "mem_00000000-0000-4000-8000-000000000002",
+      "kind": "preference",
+      "content": "sleep_window:23:30-07:30",
+      "language": "mixed",
+      "source": "user_stated",
+      "confidence": 1,
+      "createdAt": "2026-08-09T09:00:00.000Z",
+      "observedAt": "2026-08-09T09:00:00.000Z",
+      "provenance": {
+        "origin": "routine_survey",
+        "originRef": "routine-survey-v1"
+      }
+    },
+    {
+      "id": "mem_00000000-0000-4000-8000-000000000003",
+      "kind": "preference",
+      "content": "quiet_hours:22:30-07:30",
+      "language": "mixed",
+      "source": "user_stated",
+      "confidence": 1,
+      "createdAt": "2026-08-09T09:00:00.000Z",
+      "observedAt": "2026-08-09T09:00:00.000Z",
+      "provenance": {
+        "origin": "routine_survey",
+        "originRef": "routine-survey-v1"
+      }
+    },
+    {
+      "id": "mem_00000000-0000-4000-8000-000000000004",
+      "kind": "preference",
+      "content": "reminder_intensity:followUp",
+      "language": "mixed",
+      "source": "user_stated",
+      "confidence": 1,
+      "createdAt": "2026-08-09T09:00:00.000Z",
+      "observedAt": "2026-08-09T09:00:00.000Z",
+      "provenance": {
+        "origin": "routine_survey",
+        "originRef": "routine-survey-v1"
+      }
+    }
+  ]
+}

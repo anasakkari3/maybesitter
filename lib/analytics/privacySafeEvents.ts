@@ -19,6 +19,9 @@ const EVENT_PROPERTIES: Record<AnalyticsEventName, readonly string[]> = {
   recommendation_dismissed: ['proposalId'],
   recommendation_completed: ['proposalId', 'commitmentId'],
   reason_opened: ['proposalId'],
+  // No properties at all: which screens somebody saw on the way through
+  // onboarding is not something worth knowing about them (#171).
+  onboarding_completed: [],
   calendar_connect_started: ['provider'],
   calendar_connected: ['provider'],
   data_deleted: ['deletionScope'],

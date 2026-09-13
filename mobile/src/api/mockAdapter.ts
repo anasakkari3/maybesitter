@@ -41,6 +41,14 @@ import feedbackHistory from './__fixtures__/feedback.history.json';
 import feedbackRevoked from './__fixtures__/feedback.revoked.json';
 import nextStepDecision from './__fixtures__/nextStep.decision.json';
 import nextStepRecommendation from './__fixtures__/nextStep.recommendation.json';
+import consentsAnswered from './__fixtures__/consents.answered.json';
+import consentsAiRecorded from './__fixtures__/consents.aiRecorded.json';
+import consentsRecommendationsRecorded from './__fixtures__/consents.recommendationsRecorded.json';
+import memoryCreated from './__fixtures__/memory.created.json';
+import memoryDeleted from './__fixtures__/memory.deleted.json';
+import memoryList from './__fixtures__/memory.list.json';
+import profileOne from './__fixtures__/profile.one.json';
+import profileSaved from './__fixtures__/profile.saved.json';
 import trustState from './__fixtures__/trust.state.json';
 import trustUpdated from './__fixtures__/trust.updated.json';
 
@@ -74,6 +82,18 @@ const ROUTES: [string, RegExp, MockResponse][] = [
   ['POST', /^\/api\/mobile\/feedback\/[^/]+\/revoke$/, { status: 200, body: feedbackRevoked }],
   ['POST', /^\/api\/mobile\/alpha\/feedback$/, { status: 201, body: alphaFeedbackFlag }],
   ['POST', /^\/api\/mobile\/analytics$/, { status: 200, body: analyticsAck }],
+
+  ['GET', /^\/api\/mobile\/consents$/, { status: 200, body: consentsAnswered }],
+  ['PUT', /^\/api\/mobile\/consents\/ai-processing$/, { status: 200, body: consentsAiRecorded }],
+  ['PUT', /^\/api\/mobile\/consents\/recommendations$/, { status: 200, body: consentsRecommendationsRecorded }],
+
+  ['GET', /^\/api\/mobile\/profile$/, { status: 200, body: profileOne }],
+  ['PUT', /^\/api\/mobile\/profile\/routine$/, { status: 200, body: profileSaved }],
+  ['GET', /^\/api\/mobile\/memory$/, { status: 200, body: memoryList }],
+  ['POST', /^\/api\/mobile\/memory$/, { status: 201, body: memoryCreated }],
+  ['PATCH', /^\/api\/mobile\/memory\/[^/]+$/, { status: 200, body: memoryCreated }],
+  ['DELETE', /^\/api\/mobile\/memory\/[^/]+$/, { status: 200, body: memoryDeleted }],
+  ['DELETE', /^\/api\/mobile\/memory$/, { status: 200, body: memoryDeleted }],
 ];
 
 /** True when this build is serving fixtures. Always false in a release. */

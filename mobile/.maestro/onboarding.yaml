@@ -1,0 +1,68 @@
+appId: com.maybesitter.app
+name: MaybeSitter onboarding
+---
+# UC-2.R1 (#171): a signed-in user who has not been through onboarding cannot
+# reach the product, and every consent starts off.
+#
+# Run this against a **development** build with EXPO_PUBLIC_DEV_BEARER_TOKEN
+# set, so the app starts signed in and this flow is about onboarding rather
+# than about sign-in. `.maestro/auth-gate.yaml` covers the other half.
+#
+# Maestro cannot type into a secure field, so nothing here signs in by hand.
+
+- launchApp:
+    clearState: true
+
+# ── Welcome ────────────────────────────────────────────────────────
+# Arabic is the default language.
+- assertVisible: 'MaybeSitter بيمسك اللي بتقوله'
+# And the product is not reachable behind it.
+- assertNotVisible: 'احكيها'
+- assertVisible: 'ما بينحفظ إشي قبل ما تأكّده.'
+- tapOn: 'كمّل'
+
+# ── Consent ────────────────────────────────────────────────────────
+- assertVisible: 'شو بيقدر MaybeSitter يستخدم؟'
+# Nothing is chosen: the screen says what it is waiting for.
+- assertVisible: 'اختار وحدة من الجوابين فوق عشان تكمّل.'
+# The AI card names what is sent, to whom, and what never is.
+- assertVisible:
+    text: 'لوين: Google Cloud Vertex AI .*'
+- assertVisible:
+    text: 'ما بينبعث أبداً: .*'
+
+# Declining is an equal choice and says what still works.
+- tapOn: 'مش هلّق (قواعد بس)'
+- assertVisible: 'التقاط الالتزامات بيضل شغّال. بيقرا كلامك بالقواعد، وبيقلّك.'
+# Changing your mind is allowed, both ways.
+- tapOn: 'اسمح للذكاء الاصطناعي'
+- assertNotVisible: 'اختار وحدة من الجوابين فوق عشان تكمّل.'
+
+# The two switches start off; turn one on so the survey step is reached with a
+# mixed set of answers rather than all-or-nothing.
+- tapOn:
+    id: 'اقترح خطوة وحدة جاية'
+- tapOn: 'كمّل'
+
+# ── Routine ────────────────────────────────────────────────────────
+- assertVisible: 'كيف بيمشي يومك عادةً؟'
+# The one notice that these answers leave the device.
+- assertVisible:
+    id: 'routine-sync-disclosure'
+- tapOn: 'عادي — حوالي 23:30'
+- tapOn: 'من 22:30'
+- tapOn: 'كمّل'
+
+# ── Notifications, education only ──────────────────────────────────
+- assertVisible: 'تذكيرات، وقت ما بدك ياها'
+# No OS permission dialog appears here: the request belongs to S3 reminders.
+- assertNotVisible: 'Allow'
+- tapOn: 'يلا نبلّش'
+
+# ── Today ──────────────────────────────────────────────────────────
+- assertVisible: 'احكيها'
+
+# And a relaunch goes straight there: onboarding is not shown twice.
+- launchApp
+- assertVisible: 'احكيها'
+- assertNotVisible: 'MaybeSitter بيمسك اللي بتقوله'

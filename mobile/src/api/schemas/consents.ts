@@ -32,3 +32,26 @@ export const consentsViewSchema = z.object({
 
 export type ConsentsView = z.infer<typeof consentsViewSchema>;
 export type ConsentView = z.infer<typeof consentViewSchema>;
+
+/**
+ * The reply to a `PUT` (UC-2.R1, #171). The record without `asked` — the
+ * question was self-evidently just asked, and the route does not send it.
+ */
+export const consentStateSchema = z.enum(['granted', 'declined']);
+
+const consentRecordSchema = consentViewSchema.omit({ asked: true }).extend({
+  locale: z.enum(['ar', 'he', 'en']).optional(),
+  platform: z.enum(['ios', 'android']).optional(),
+});
+
+export const aiConsentUpdatedSchema = z.object({
+  success: z.literal(true),
+  aiProcessing: consentRecordSchema,
+});
+
+export const recommendationConsentUpdatedSchema = z.object({
+  success: z.literal(true),
+  recommendations: consentRecordSchema,
+});
+
+export type ConsentState = z.infer<typeof consentStateSchema>;

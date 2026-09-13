@@ -14,7 +14,18 @@ import { nextStepDecisionResponseSchema, nextStepResponseSchema } from '../schem
 import { trustResponseSchema } from '../schemas/trust';
 import { alphaFeedbackSchema, feedbackHistorySchema, feedbackRevokeSchema } from '../schemas/feedback';
 import { analyticsAckSchema } from '../schemas/analytics';
-import { consentsViewSchema } from '../schemas/consents';
+import {
+  aiConsentUpdatedSchema,
+  consentsViewSchema,
+  recommendationConsentUpdatedSchema,
+} from '../schemas/consents';
+import {
+  memoryCreatedSchema,
+  memoryDeletedSchema,
+  memoryListSchema,
+  profileResponseSchema,
+  routineSavedSchema,
+} from '../schemas/profile';
 
 /**
  * The drift detector.
@@ -48,6 +59,20 @@ const CASES: Array<[string, z.ZodType]> = [
   ['commitments.notFound', errorBodySchema],
   ['commitments.stale', staleCommitmentSchema],
   ['commitments.invalidTransition', invalidTransitionSchema],
+  ['consents.unanswered', consentsViewSchema],
+  ['consents.answered', consentsViewSchema],
+  ['consents.aiRecorded', aiConsentUpdatedSchema],
+  ['consents.recommendationsRecorded', recommendationConsentUpdatedSchema],
+  ['consents.unsupportedVersion', errorBodySchema],
+  ['profile.empty', profileResponseSchema],
+  ['profile.one', profileResponseSchema],
+  ['profile.saved', routineSavedSchema],
+  ['memory.list', memoryListSchema],
+  ['memory.created', memoryCreatedSchema],
+  ['memory.patched', memoryCreatedSchema],
+  ['memory.deleted', memoryDeletedSchema],
+  ['memory.deletedAll', memoryDeletedSchema],
+  ['memory.notFound', errorBodySchema],
   ['nextStep.recommendation', nextStepResponseSchema],
   ['nextStep.decision', nextStepDecisionResponseSchema],
   ['trust.state', trustResponseSchema],

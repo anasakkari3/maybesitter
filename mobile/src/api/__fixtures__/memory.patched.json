@@ -1,0 +1,17 @@
+{
+  "success": true,
+  "memory": {
+    "id": "mem_00000000-0000-4000-8000-000000000001",
+    "kind": "goal",
+    "content": "Finish the thesis by April",
+    "language": "en",
+    "source": "user_stated",
+    "confidence": 1,
+    "createdAt": "2026-08-09T09:00:00.000Z",
+    "observedAt": "2026-08-09T09:00:00.000Z",
+    "provenance": {
+      "origin": "manual",
+      "confirmedByUserAt": "2026-08-09T09:00:00.000Z"
+    }
+  }
+}

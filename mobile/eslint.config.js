@@ -38,6 +38,13 @@ module.exports = defineConfig([
      *
      * `src/i18n/language.ts` is the exception the rule allows for: a stored
      * language preference is not content, and it has to survive a relaunch.
+     *
+     * `src/lib/deviceSettings/` is the second, and is outside the globs below
+     * on purpose (UC-2.R1 #171). It is the directory this rule's own message
+     * names, it holds exactly two things — which onboarding step this install
+     * reached, and an offline copy of the five coarse routine answers whose
+     * canonical home is the account — and its README makes the argument for
+     * each. Anything added there needs the same argument in its own header.
      */
     files: ['src/api/**/*.{ts,tsx}', 'src/features/**/*.{ts,tsx}', 'src/screens/**/*.{ts,tsx}'],
     // Tests are excluded because the rule is about what *ships*: a test that

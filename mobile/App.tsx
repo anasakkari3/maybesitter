@@ -6,7 +6,7 @@ import { AppProvider } from './src/state/AppContext';
 import { ApiProvider } from './src/api/ui/ApiProvider';
 import { AccountDeletionProvider } from './src/features/account/AccountDeletionProvider';
 import { AccountDeletedGate } from './src/features/account/AccountDeletedGate';
-import { AuthGate } from './src/auth/AuthGate';
+import { OnboardingGate } from './src/features/onboarding/OnboardingGate';
 import { AuthProvider } from './src/auth/AuthProvider';
 import { Root } from './src/Root';
 import { fontMap } from './src/theme/fonts';
@@ -33,9 +33,12 @@ export default function App() {
                   frame — and the receipt the user is owed would vanish with
                   it (UC-1.5 #149). */}
               <AccountDeletedGate>
-                <AuthGate>
+                {/* The sign-in gate, with UC-2.R1 (#171)'s onboarding composed
+                    into the slot it has always had. A signed-in user who has
+                    not been through the consent screen does not reach Root. */}
+                <OnboardingGate>
                   <Root />
-                </AuthGate>
+                </OnboardingGate>
               </AccountDeletedGate>
             </AccountDeletionProvider>
           </ApiProvider>
