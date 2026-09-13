@@ -72,22 +72,28 @@ describe('storage that will not co-operate', () => {
 });
 
 describe('the order of the steps', () => {
-  it('runs welcome → consent → routine → notifications → done', () => {
+  it('runs welcome → consent → routine → about → notifications → done', () => {
     expect(nextStep('welcome')).toBe('consent');
     expect(nextStep('consent')).toBe('routine');
-    expect(nextStep('routine')).toBe('notifications');
+    // The self-description comes after the survey (#168): it asks for far more
+    // of somebody than five multiple-choice questions do.
+    expect(nextStep('routine')).toBe('about');
+    expect(nextStep('about')).toBe('notifications');
     expect(nextStep('notifications')).toBe('done');
   });
 
   it('goes back everywhere except the first step', () => {
     expect(previousStep('welcome')).toBeNull();
     expect(previousStep('consent')).toBe('welcome');
-    expect(previousStep('notifications')).toBe('routine');
+    expect(previousStep('notifications')).toBe('about');
+    expect(previousStep('about')).toBe('routine');
   });
 
   it('puts consent before anything the product does', () => {
-    // If the consent screen ever stops being the second step, somebody could
-    // reach the survey — which syncs to the account — before being asked.
+    // If the consent screen ever stops coming first, somebody could reach the
+    // survey — which syncs to the account — before being asked. And the
+    // self-description, which reaches a model, must be later still.
     expect(ONBOARDING_STEPS.indexOf('consent')).toBeLessThan(ONBOARDING_STEPS.indexOf('routine'));
+    expect(ONBOARDING_STEPS.indexOf('consent')).toBeLessThan(ONBOARDING_STEPS.indexOf('about'));
   });
 });

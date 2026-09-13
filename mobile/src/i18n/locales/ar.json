@@ -406,5 +406,18 @@
   "clarifyToday": "اليوم",
   "clarifyTomorrow": "بكرا",
   "clarifyAmPmOption": "{hour} {period}",
-  "clarifyOwnWords": "أو احكيها بطريقتك"
+  "clarifyOwnWords": "أو احكيها بطريقتك",
+  "obAboutTitle": "بكم سطر: كيف أسبوعك، وشو بدك تخلّص؟",
+  "obAboutPlaceholder": "أي إشي بدك ياه يعرفه",
+  "obAboutRead": "اقراه",
+  "obAboutReading": "عم يقرا…",
+  "obAboutFailed": "ما قدرنا نقراه. ما انحفظ إشي.",
+  "obAboutManualTitle": "ضيف أهدافك بنفسك",
+  "obAboutManualBody": "الذكاء الاصطناعي مطفي، فما بينبعث إشي بتكتبه هون لأي مكان. ضيف أي إشي بدك MaybeSitter يتذكّره، سطر سطر.",
+  "obAboutReviewTitle": "في إشي من هدول صح؟",
+  "obAboutReviewLede": "ما انحفظ إشي لهلّق. علّم بس على اللي بدك MaybeSitter يتذكّره — بتقدر تعدّل أي واحد.",
+  "obAboutReviewNone": "ما في إشي نقترحه من هيك. بتقدر تضيف إشي بنفسك من الإعدادات بعدين.",
+  "obAboutSuggested": "اقتراح من الذكاء الاصطناعي",
+  "obAboutSaveSelected": "احفظ اللي علّمت عليه",
+  "obAboutSaveNone": "ما تحفظ إشي"
 }

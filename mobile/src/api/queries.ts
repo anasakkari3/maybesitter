@@ -20,6 +20,8 @@ import { flagAlphaFeedback, getFeedbackHistory, revokeFeedback } from './endpoin
 import { recordAnalyticsEvent } from './endpoints/analytics';
 import { getConsents, putAiConsent, putRecommendationConsent, type ConsentAnswer } from './endpoints/consents';
 import {
+  confirmProfileSuggestions,
+  describeProfile,
   createMemory,
   deleteAllMemory,
   deleteMemory,
@@ -450,4 +452,30 @@ export function useDeleteMemory() {
 
 export function useDeleteAllMemory() {
   return useMemoryMutation((_: void) => deleteAllMemory());
+}
+
+/**
+ * Reads a self-description (UC-2.7b, #168).
+ *
+ * A mutation rather than a query: it costs a model call and must happen once,
+ * when the user presses the button, never on a refetch or a remount.
+ */
+export function useDescribeProfile() {
+  return useMutation({
+    mutationFn: (text: string) => describeProfile(text),
+  });
+}
+
+export function useConfirmProfileSuggestions() {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn: (input: { proposalId: string; accepted: Array<{ index: number; content?: string }> }) =>
+      confirmProfileSuggestions(input.proposalId, input.accepted),
+    onSuccess: () => {
+      // The confirmed facts are memory now, so the "what it knows" screen is
+      // out of date the moment this returns.
+      void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
+    },
+  });
 }

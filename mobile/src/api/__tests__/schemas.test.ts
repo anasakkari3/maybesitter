@@ -20,6 +20,8 @@ import {
   recommendationConsentUpdatedSchema,
 } from '../schemas/consents';
 import {
+  profileConfirmedSchema,
+  profileProposalSchema,
   memoryCreatedSchema,
   memoryDeletedSchema,
   memoryListSchema,
@@ -67,6 +69,9 @@ const CASES: Array<[string, z.ZodType]> = [
   ['profile.empty', profileResponseSchema],
   ['profile.one', profileResponseSchema],
   ['profile.saved', routineSavedSchema],
+  ['profile.described', profileProposalSchema],
+  ['profile.describeConfirmed', profileConfirmedSchema],
+  ['profile.describeExpired', errorBodySchema],
   ['memory.list', memoryListSchema],
   ['memory.created', memoryCreatedSchema],
   ['memory.patched', memoryCreatedSchema],

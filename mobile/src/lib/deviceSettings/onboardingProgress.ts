@@ -25,7 +25,17 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 export const ONBOARDING_STORAGE_KEY = 'onboarding.v1';
 
 /** In order. `done` is the terminal value and means the app is reachable. */
-export const ONBOARDING_STEPS = ['welcome', 'consent', 'routine', 'notifications'] as const;
+export const ONBOARDING_STEPS = [
+  'welcome',
+  'consent',
+  'routine',
+  // The self-description (UC-2.7b, #168). After the routine survey, because it
+  // asks for far more of somebody than five multiple-choice questions do, and
+  // a person who has already answered something small is being asked for the
+  // larger thing in context rather than cold.
+  'about',
+  'notifications',
+] as const;
 export type OnboardingStep = (typeof ONBOARDING_STEPS)[number];
 
 export type OnboardingProgress = OnboardingStep | 'done';

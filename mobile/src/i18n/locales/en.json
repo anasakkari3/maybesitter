@@ -406,5 +406,18 @@
   "clarifyToday": "Today",
   "clarifyTomorrow": "Tomorrow",
   "clarifyAmPmOption": "{hour} {period}",
-  "clarifyOwnWords": "Or say it your way"
+  "clarifyOwnWords": "Or say it your way",
+  "obAboutTitle": "In a few lines: what is your week like, and what do you want to get done?",
+  "obAboutPlaceholder": "Whatever you want it to know",
+  "obAboutRead": "Read it",
+  "obAboutReading": "Reading…",
+  "obAboutFailed": "Couldn't read that. Nothing was saved.",
+  "obAboutManualTitle": "Add goals yourself",
+  "obAboutManualBody": "AI is off, so nothing you write here is sent anywhere. Add anything you want MaybeSitter to remember, one line at a time.",
+  "obAboutReviewTitle": "Is any of this right?",
+  "obAboutReviewLede": "Nothing is saved yet. Tick only what you want MaybeSitter to remember — you can edit any of it.",
+  "obAboutReviewNone": "Nothing to suggest from that. You can add things yourself in Settings later.",
+  "obAboutSuggested": "Suggested by AI",
+  "obAboutSaveSelected": "Save what I ticked",
+  "obAboutSaveNone": "Save nothing"
 }

@@ -1,5 +1,7 @@
 import { apiRequest } from '../client';
 import {
+  profileConfirmedSchema,
+  profileProposalSchema,
   memoryCreatedSchema,
   memoryDeletedSchema,
   memoryListSchema,
@@ -60,4 +62,35 @@ export function deleteMemory(id: string) {
 
 export function deleteAllMemory() {
   return apiRequest('DELETE', '/api/mobile/memory', { schema: memoryDeletedSchema });
+}
+
+/**
+ * Reads a self-description and proposes what it might mean (UC-2.7b, #168).
+ *
+ * Answers 403 `consent_required` when AI processing has not been agreed to,
+ * which the screen renders as the manual-entry path rather than as an error —
+ * declining is a normal choice, not a failure.
+ */
+export function describeProfile(text: string) {
+  return apiRequest('POST', '/api/mobile/profile/describe', {
+    body: { text },
+    schema: profileProposalSchema,
+  });
+}
+
+/**
+ * Saves the suggestions the user ticked, and only those.
+ *
+ * `content` on an entry is the user's edit; sending it makes the stored fact
+ * `user_stated` rather than `model_inferred`, which is what the provenance
+ * chip on the memory screen then shows.
+ */
+export function confirmProfileSuggestions(
+  proposalId: string,
+  accepted: Array<{ index: number; content?: string }>,
+) {
+  return apiRequest('POST', '/api/mobile/profile/describe/confirm', {
+    body: { proposalId, accepted },
+    schema: profileConfirmedSchema,
+  });
 }
