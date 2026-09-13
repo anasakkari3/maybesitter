@@ -64,7 +64,20 @@ export type Screen =
 
 export type CapState = 'idle' | 'listening' | 'transcript' | 'typing' | 'processing' | 'nothing';
 
-export type Sheet = null | 'clarify' | 'readings' | 'rearrange' | 'toast';
+/**
+ * `rearrange` is gone (UC-2.R3, #173): three of its four choices operated on a
+ * duration and a scope the domain does not have, and only ever showed a toast.
+ * `postpone` is the transition the actions route actually implements.
+ */
+export type Sheet =
+  | null
+  | 'clarify'
+  | 'readings'
+  | 'postpone'
+  | 'edit'
+  | 'confirmDrop'
+  | 'confirmDelete'
+  | 'toast';
 
 export type ExampleKey = 'doctor' | 'report' | 'sami' | 'study' | 'hi';
 

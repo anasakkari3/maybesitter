@@ -106,7 +106,7 @@ export function Btn({
 type PillKind = 'accent' | 'soft' | 'outline' | 'warm' | 'ink' | 'ghost';
 
 export function Pill({
-  label, onPress, kind = 'accent', style, size = 16, weight = 600, disabled, pad = 16, radius = 999,
+  label, onPress, kind = 'accent', style, size = 16, weight = 600, disabled, pad = 16, radius = 999, testID,
 }: {
   label: string;
   onPress?: () => void;
@@ -117,6 +117,8 @@ export function Pill({
   disabled?: boolean;
   pad?: number;
   radius?: number;
+  /** See `Btn`. Two pills legitimately read the same on the details screen. */
+  testID?: string | undefined;
 }) {
   const { p } = useApp();
   const look: Record<PillKind, { bg: string; fg: string; border?: string }> = {
@@ -133,6 +135,7 @@ export function Pill({
       onPress={disabled ? undefined : onPress}
       label={label}
       disabled={disabled}
+      testID={testID}
       style={[
         {
           backgroundColor: l.bg, borderRadius: radius, paddingVertical: pad, paddingHorizontal: 18,
