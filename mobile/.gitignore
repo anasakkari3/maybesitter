@@ -59,3 +59,8 @@ yarn-error.*
 # Toolkit, Token Service and Firebase Installations.
 !firebase/google-services.json
 !firebase/GoogleService-Info.plist
+
+# Per-build JS source maps for crash symbolication (UC-4.4, #180). Kept as a
+# private EAS build artifact, never committed: a map from a different commit
+# symbolicates to the wrong lines, which looks like an answer.
+build/sourcemaps/

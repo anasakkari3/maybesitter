@@ -1,4 +1,5 @@
 import type { z } from 'zod';
+import { Platform } from 'react-native';
 import { apiBaseUrl } from '../config/env';
 import { getIdToken, refreshIdToken, signOutExpired, signOutForbidden } from './auth';
 import {
@@ -96,7 +97,18 @@ async function send(
   const onExternalAbort = () => controller.abort();
   signal?.addEventListener('abort', onExternalAbort);
 
-  const headers: Record<string, string> = { Accept: 'application/json' };
+  /*
+   * `X-App-Platform` is the denominator of crash-free sessions (UC-4.4, #180).
+   *
+   * A Cloud Logging metric counts these requests per platform per day, and the
+   * numerator comes from Crashlytics. That is the whole reason there is no
+   * analytics SDK: a header the backend already receives is enough, and it
+   * carries no user id, no device id and nothing to join on.
+   */
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'X-App-Platform': Platform.OS,
+  };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (token) headers.Authorization = `Bearer ${token}`;
   if (ifMatch) headers['If-Match'] = ifMatch;
