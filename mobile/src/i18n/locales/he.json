@@ -409,5 +409,18 @@
   "clarifyToday": "היום",
   "clarifyTomorrow": "מחר",
   "clarifyAmPmOption": "{hour} {period}",
-  "clarifyOwnWords": "או תנסח את זה בדרכך"
+  "clarifyOwnWords": "או תנסח את זה בדרכך",
+  "obAboutTitle": "בכמה שורות: איך נראה השבוע שלך, ומה אתה רוצה להספיק?",
+  "obAboutPlaceholder": "כל מה שתרצה שהוא יידע",
+  "obAboutRead": "לקרוא",
+  "obAboutReading": "קורא…",
+  "obAboutFailed": "לא הצלחנו לקרוא. שום דבר לא נשמר.",
+  "obAboutManualTitle": "להוסיף מטרות בעצמך",
+  "obAboutManualBody": "ה־AI כבוי, ולכן שום דבר שתכתוב כאן לא נשלח לשום מקום. הוסף כל מה שתרצה ש־MaybeSitter יזכור, שורה אחת בכל פעם.",
+  "obAboutReviewTitle": "משהו מזה נכון?",
+  "obAboutReviewLede": "שום דבר עדיין לא נשמר. סמן רק את מה שתרצה ש־MaybeSitter יזכור — אפשר לערוך כל אחד.",
+  "obAboutReviewNone": "אין מה להציע מזה. תוכל להוסיף דברים בעצמך בהגדרות מאוחר יותר.",
+  "obAboutSuggested": "הוצע על ידי AI",
+  "obAboutSaveSelected": "לשמור את מה שסימנתי",
+  "obAboutSaveNone": "לא לשמור כלום"
 }

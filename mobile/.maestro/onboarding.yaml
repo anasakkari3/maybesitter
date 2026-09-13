@@ -53,6 +53,13 @@ name: MaybeSitter onboarding
 - tapOn: 'من 22:30'
 - tapOn: 'كمّل'
 
+# ── About you ──────────────────────────────────────────────────────
+# AI was allowed above, so this asks for a description. Skip is visible from
+# the first frame, and taking it must reach the next step with nothing stored.
+- assertVisible: 'بكم سطر: كيف أسبوعك، وشو بدك تخلّص؟'
+- assertVisible: 'تخطّى هلّق'
+- tapOn: 'تخطّى هلّق'
+
 # ── Notifications, education only ──────────────────────────────────
 - assertVisible: 'تذكيرات، وقت ما بدك ياها'
 # No OS permission dialog appears here: the request belongs to S3 reminders.

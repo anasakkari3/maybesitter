@@ -64,6 +64,8 @@ import { PUT as aiConsentPut } from '../../src/app/api/mobile/consents/ai-proces
 import { PUT as recommendationConsentPut } from '../../src/app/api/mobile/consents/recommendations/route.ts';
 import { GET as profileGet } from '../../src/app/api/mobile/profile/route.ts';
 import { PUT as routinePut } from '../../src/app/api/mobile/profile/routine/route.ts';
+import { POST as describePost } from '../../src/app/api/mobile/profile/describe/route.ts';
+import { POST as describeConfirmPost } from '../../src/app/api/mobile/profile/describe/confirm/route.ts';
 import {
   DELETE as memoryDeleteAll,
   GET as memoryGet,
@@ -424,6 +426,28 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     })));
 
     await record('profile.one', 200, await profileGet(request('/api/mobile/profile')));
+
+    // ── the self-description pair (#168) ───────────────────────────
+    // No model is configured here, so the suggestion list comes back empty —
+    // which is the shape the client must handle anyway, and the honest record
+    // of what this handler returns without one.
+    const described = await record('profile.described', 200, await describePost(request('/api/mobile/profile/describe', {
+      body: { text: 'I am a nursing student and my thesis is due in March.' },
+    })));
+
+    await record('profile.describeConfirmed', 200, await describeConfirmPost(
+      request('/api/mobile/profile/describe/confirm', {
+        body: { proposalId: (described as { proposalId: string }).proposalId, accepted: [] },
+      }),
+    ));
+
+    // The refusal the review screen has to render: a proposal that expired
+    // while the user was reading it.
+    await record('profile.describeExpired', 404, await describeConfirmPost(
+      request('/api/mobile/profile/describe/confirm', {
+        body: { proposalId: 'not-a-real-proposal', accepted: [] },
+      }),
+    ));
 
     // The survey's own facts, each with the provenance chip the screen renders.
     await record('memory.list', 200, await memoryGet(request('/api/mobile/memory')));

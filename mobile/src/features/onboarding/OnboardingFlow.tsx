@@ -17,6 +17,11 @@ import { WelcomeStep } from './WelcomeStep';
 import { ConsentStep, type ConsentChoices } from './ConsentStep';
 import { RoutineStep } from './RoutineStep';
 import { NotificationsStep } from './NotificationsStep';
+import { AboutYouStep } from './AboutYouStep';
+import { AboutYouReviewStep } from './AboutYouReviewStep';
+import type { ProfileSuggestion } from '../../api/schemas/profile';
+import { useConfirmProfileSuggestions, useDescribeProfile } from '../../api/queries';
+import type { AcceptedSuggestion } from './aboutYou';
 import { recordConsents } from './recordConsents';
 import type { ConsentLocale, ConsentPlatformName } from './consentTypes';
 import {
@@ -68,6 +73,17 @@ export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
   const [answers, setAnswers] = useState<RoutineAnswers>(EMPTY_ANSWERS);
   const [consentFailed, setConsentFailed] = useState(false);
   const [routineSaveFailed, setRoutineSaveFailed] = useState(false);
+
+  // The self-description (UC-2.7b, #168). `proposal === null` means the step
+  // has not produced suggestions yet, so the write screen shows; once it has,
+  // the review list replaces it without changing the stored step — a reload
+  // mid-review comes back to a blank description rather than to a stale
+  // proposal, because the proposal expires in thirty minutes anyway and
+  // resuming into an empty checklist would be worse than asking again.
+  const [proposal, setProposal] = useState<{ id: string; suggestions: ProfileSuggestion[] } | null>(null);
+  const [describeFailed, setDescribeFailed] = useState(false);
+  const describe = useDescribeProfile();
+  const confirmSuggestions = useConfirmProfileSuggestions();
 
   // Resume where the last run stopped, and re-open the survey on whatever this
   // device already has cached.
@@ -165,6 +181,31 @@ export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
     await advance('routine');
   }, [advance, answers, putRoutine, timezone]);
 
+  const readDescription = useCallback(async (text: string) => {
+    setDescribeFailed(false);
+    try {
+      const result = await describe.mutateAsync(text);
+      setProposal({ id: result.proposalId, suggestions: result.suggestions });
+    } catch {
+      // Includes a revoked consent and a model that is simply off. Either way
+      // there is nothing to show, and nothing was written.
+      setDescribeFailed(true);
+    }
+  }, [describe]);
+
+  const saveSuggestions = useCallback(async (proposalId: string, accepted: AcceptedSuggestion[]) => {
+    // An empty list is a real answer — "none of these are right" — and is sent
+    // rather than skipped, so the proposal is cleaned up server-side too.
+    try {
+      await confirmSuggestions.mutateAsync({ proposalId, accepted });
+    } catch {
+      // The proposal expired underneath them. Nothing was saved, and pressing
+      // on is better than trapping somebody on a checklist that cannot commit.
+    }
+    setProposal(null);
+    await advance('about');
+  }, [advance, confirmSuggestions]);
+
   if (step === null || step === 'done') {
     // Held on the plain background while the stored step is read, for the same
     // reason AuthGate does: flashing the welcome screen at somebody who is
@@ -198,6 +239,33 @@ export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
         onContinue={() => void saveRoutine(false)}
         onSkip={() => void saveRoutine(true)}
         saveFailed={routineSaveFailed}
+      />
+    );
+  }
+
+  if (step === 'about') {
+    if (proposal) {
+      return (
+        <AboutYouReviewStep
+          suggestions={proposal.suggestions}
+          saving={confirmSuggestions.isPending}
+          onBack={() => { setProposal(null); setDescribeFailed(false); }}
+          onSave={(accepted) => void saveSuggestions(proposal.id, accepted)}
+        />
+      );
+    }
+    return (
+      <AboutYouStep
+        aiGranted={choices.ai === 'granted'}
+        reading={describe.isPending}
+        failed={describeFailed}
+        onDescribe={(text) => void readDescription(text)}
+        // With AI off there is nothing to read, so the step just ends. Anything
+        // the user wants remembered goes in by hand from the memory screen,
+        // which stores it without a model.
+        onManual={() => void advance('about')}
+        onSkip={() => void advance('about')}
+        onBack={() => goBack('about')}
       />
     );
   }

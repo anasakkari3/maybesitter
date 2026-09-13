@@ -81,3 +81,39 @@ export type RoutineProfile = z.infer<typeof routineProfileSchema>;
 export type ProfileResponse = z.infer<typeof profileResponseSchema>;
 export type MemoryItem = z.infer<typeof memoryItemSchema>;
 export type MemoryProvenance = z.infer<typeof memoryProvenanceSchema>;
+
+/**
+ * A suggestion drawn from a self-description (UC-2.7b, #168).
+ *
+ * Held for thirty minutes and shown as a checklist; nothing here is stored
+ * until the user ticks it. The raw description is deliberately **not** in the
+ * response — it is not stored anywhere, so there is nothing to echo.
+ */
+export const profileSuggestionSchema = z.object({
+  kind: z.enum(['fact', 'preference', 'goal']),
+  category: z.enum([
+    'work_study', 'schedule', 'household', 'social',
+    'fitness_habit', 'learning', 'personal_project', 'other',
+  ]),
+  content: z.string(),
+  targetDate: z.string().nullable(),
+  confidence: z.number(),
+});
+
+export const profileProposalSchema = z.object({
+  success: z.literal(true),
+  proposalId: z.string(),
+  suggestions: z.array(profileSuggestionSchema),
+  createdAt: isoDateTime,
+  promptVersion: z.string(),
+  model: z.string().nullable(),
+});
+
+export const profileConfirmedSchema = z.object({
+  success: z.literal(true),
+  saved: z.number(),
+  kinds: z.record(z.string(), z.number()),
+});
+
+export type ProfileSuggestion = z.infer<typeof profileSuggestionSchema>;
+export type ProfileProposal = z.infer<typeof profileProposalSchema>;
