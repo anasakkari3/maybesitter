@@ -214,11 +214,16 @@ test('mobile API supports capture, confirm, list, detail, patch, action, and del
   }
 });
 
-test('mobile capture rejects malformed time and negated requests before persistence', async () => {
+test('mobile capture answers a negated request with no commitment, not an error', async () => {
   const cleanup = setup();
   try {
+    // This used to be HTTP 400 — an error, for a request the product understood
+    // perfectly and was right to refuse. "Don't remind me" is not malformed
+    // input; it is an instruction, and the answer is to create nothing and say
+    // so (UC-2.6 #166, Gap B).
     for (const text of [
       "Don't remind me to call Maya tomorrow at 3pm",
+      'no need to remind me about the gym',
     ]) {
       const response = await capturePost(request('/api/mobile/capture', {
         text,
@@ -226,8 +231,13 @@ test('mobile capture rejects malformed time and negated requests before persiste
         timezone: 'UTC',
         scopeId: 'safety-test',
       }));
-      assert.equal(response.status, 400);
-      assert.equal(await commitmentCount(), 0);
+      assert.equal(response.status, 200, text);
+      const proposal = await json(response);
+      assert.equal(proposal.status, 'no_commitment', text);
+      assert.equal(proposal.noCommitmentReason, 'negated_request', text);
+      // The invariant that mattered all along, and still holds.
+      assert.deepEqual(proposal.items, [], text);
+      assert.equal(await commitmentCount(), 0, text);
     }
 
     const malformed = await capturePost(request('/api/mobile/capture', {

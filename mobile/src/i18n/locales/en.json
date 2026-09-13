@@ -269,5 +269,11 @@
   "accountDeletedReceiptLabel": "Receipt",
   "accountDeletedCopy": "Copy receipt",
   "accountDeletedCopied": "Copied.",
-  "accountDeletedContinue": "Done"
+  "accountDeletedContinue": "Done",
+  "noCommitmentInformational": "Nothing to save here. Nothing was added to your day.",
+  "noCommitmentGreetingOrChat": "Nothing to save here. Write a task or reminder when you're ready.",
+  "noCommitmentQuestion": "MaybeSitter only saves commitments. It can't answer questions yet.",
+  "noCommitmentPastEvent": "This looks like something that already happened. Nothing was added.",
+  "noCommitmentNegatedRequest": "Understood. No reminder was created.",
+  "noCommitmentLowConfidence": "Couldn't read a commitment here. Try naming the task and a time."
 }

@@ -1,4 +1,5 @@
 import type { ExtractionContext, ExtractionResult, LocalTimeSpec } from './extractionTypes';
+import { classifyMessageKind, createsNothing } from './messageKind';
 import {
   CLOCK_PATTERN_SOURCES,
   RANGE_PATTERN_SOURCES,
@@ -290,8 +291,64 @@ function confidence(overall: number, action: number, time: number, priority = 0.
   return { overall, type: overall, action, time, priority };
 }
 
+/**
+ * A result that produces no commitment, and says why.
+ *
+ * `informational_context` for everything the user was telling us, and `unknown`
+ * for a negated request — which is not information, it is an instruction not to
+ * act, and the disposition policy already refuses to auto-confirm it.
+ *
+ * The title is null on purpose. Echoing the sentence back as a title is how
+ * «صباح الخير» became a commitment in the first place, and a no-commitment
+ * outcome has nothing to name.
+ */
+function nothingResult(raw: string, kind: ReturnType<typeof classifyMessageKind>): ExtractionResult {
+  const negated = kind === 'negated_request';
+  return {
+    type: negated ? 'unknown' : 'informational_context',
+    action: null,
+    title: null,
+    person: null,
+    dueAt: null,
+    remindAt: null,
+    localTimeSpec: null,
+    timeEvidence: 'none',
+    priority: { level: 'normal', source: 'default', pressureAllowed: false, pressureImplied: false },
+    flexibility: 'soft',
+    // A negated request is capped below `MEDIUM_CONFIDENCE`, the same cap the
+    // schema validator has always applied to one. Without it the disposition
+    // policy reads `unknown` with high confidence as `needs_clarification`, and
+    // the product would answer "don't remind me about the gym" with a question
+    // about the gym.
+    confidence: negated
+      ? { overall: 0.55, type: 0.95, action: 0.1, time: 0.1, priority: 0.8 }
+      : { overall: 0.95, type: 0.95, action: 0.1, time: 0.1, priority: 0.8 },
+    missingFields: ['action'],
+    ambiguityFlags: negated
+      ? ['negated_request']
+      : kind === 'informational' || kind === 'past_event'
+        ? ['informational_without_action']
+        : ['no_action_verb'],
+    explicitReminderRequest: false,
+    explicitPressureRequest: false,
+    rawText: raw,
+    parserVersion: PARSER_VERSION,
+  };
+}
+
 export function extract(rawText: string, context: ExtractionContext): ExtractionResult {
   const raw = rawText.trim();
+
+  // Before asking what commitment is in this, ask whether it is asking for one
+  // (UC-2.6, #166). Without this the extractor answered "what task is this" for
+  // every input, so «صباح الخير» became a task titled "الخير" and «מה השעה?»
+  // became one titled "מה השעה?" — 27 of the 40 synthetic safety cases created
+  // something. The classifier is deterministic rather than a prompt instruction
+  // because this extractor is *the* engine whenever AI consent has not been
+  // granted, which is every new account.
+  const kind = classifyMessageKind(raw);
+  if (createsNothing(kind)) return nothingResult(raw, kind);
+
   const lower = raw.toLowerCase();
   const negatedReminderRequest = /\b(don't|dont|do not|not)\s+(remind|remember|bug)\b/.test(lower) || /\b(remind me|remember to|bug me)\s+not\b/.test(lower);
   const explicitReminderRequest = !negatedReminderRequest && (/\b(remind me|remember to|bug me)\b/.test(lower) || /(ذكرني|ذكريني)/.test(lower));

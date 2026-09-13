@@ -6,6 +6,18 @@ export const captureProposalSchema = z.object({
   version: z.string(),
   proposalId: z.string(),
   status: z.enum(['proposed', 'needs_clarification', 'no_commitment', 'rejected']),
+  /**
+   * Why nothing was created, on a `no_commitment` proposal (UC-2.6, #166).
+   *
+   * A reason code, never a reading of what the person wrote. The client maps it
+   * to one fixed neutral line; it does not compose a sentence about it, and
+   * there is deliberately no therapeutic or emotional interpretation anywhere in
+   * that mapping — «حسّيت بضغط» is `informational` because nothing was asked
+   * for, not because the product has an opinion about how somebody feels.
+   */
+  noCommitmentReason: z
+    .enum(['informational', 'greeting_or_chat', 'question', 'past_event', 'negated_request', 'low_confidence'])
+    .optional(),
   items: z.array(
     z.object({
       itemId: z.string(),

@@ -269,5 +269,11 @@
   "accountDeletedReceiptLabel": "الإيصال",
   "accountDeletedCopy": "انسخ الإيصال",
   "accountDeletedCopied": "انتسخ.",
-  "accountDeletedContinue": "تمّ"
+  "accountDeletedContinue": "تمّ",
+  "noCommitmentInformational": "ما في شي للحفظ هنا. ما ضفنا شي ليومك.",
+  "noCommitmentGreetingOrChat": "ما في شي للحفظ. اكتب مهمة أو تذكير لما تكون جاهز.",
+  "noCommitmentQuestion": "MaybeSitter بيحفظ الالتزامات بس. لسا ما بيجاوب على أسئلة.",
+  "noCommitmentPastEvent": "مبين إنه إشي صار من قبل. ما ضفنا شي.",
+  "noCommitmentNegatedRequest": "تمام. ما عملنا تذكير.",
+  "noCommitmentLowConfidence": "ما قدرنا نقرا التزام من هاد. جرّب تكتب المهمة والوقت."
 }
