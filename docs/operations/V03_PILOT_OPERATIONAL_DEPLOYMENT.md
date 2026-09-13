@@ -227,3 +227,80 @@ For 25-40 participants/month:
 * LLM provider API: about $30
 * Total estimate: about $65
 
+
+## Launch v1 cost guardrails (UC-4.5, #181)
+
+The ₪100/month budget is **alert-only**: it notices, it does not stop anything.
+The brakes that actually refuse a call live in the application, in
+`lib/llm/usageGuard.ts`, and there is exactly one of them — UC-2.0 (#160) built
+the per-call reservation and #181 extended it rather than adding a second
+counter. Two quota subsystems would mean two answers to "how much has this
+account spent today" and no way to tell which was right.
+
+### The limits, and what each one is for
+
+| limit | default | env var | stops |
+|---|---|---|---|
+| calls per user per day | 60 | `MAYBESITTER_LLM_DAILY_CALL_CAP` | a slow leak, or very heavy use |
+| tokens per user per day | 150 000 | `MAYBESITTER_LLM_DAILY_TOKEN_CAP` | sixty *large* calls, which a call cap cannot see |
+| calls per user per minute | 8 | `MAYBESITTER_LLM_MINUTE_CALL_CAP` | a client in a retry loop |
+| calls across everyone per day | 3 000 | `MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP` | everybody at once |
+| characters in one call | 20 000 | — | a paste that costs a day of ordinary use |
+
+Calls are **reserved before** the model is asked; tokens are **committed after**
+it answers, because the true count is only known then. Both counters live on one
+document per user per UTC day, `users/<uid>/usage/<YYYY-MM-DD>`, with the global
+count at `llmUsage/<YYYY-MM-DD>`. Every document carries `expireAt`, seven days
+out, for the Firestore TTL policy.
+
+The per-minute window is a field on that same document rather than a document of
+its own or an in-process counter. In process it would cap each Cloud Run instance
+separately — the real limit becoming the cap times however many instances happen
+to be up. In its own document it would double the writes on the hottest path.
+
+### The kill switch
+
+`MAYBESITTER_AI_DISABLED=true` takes every model call out of the product at once:
+capture falls back to the rule-based extractor, which is a working product. Set
+it in Cloud Run → Edit & deploy new revision → Variables. It is read per call, so
+it takes effect on the next request rather than after a restart.
+
+Production ships with it **on** and `MAYBESITTER_LLM_PROVIDER=none`. Turning a
+paid model on for real users is not something a deploy should do by itself.
+
+**We do not disable billing programmatically.** That takes the whole app down for
+everyone rather than just the model. The caps and this switch are the brakes.
+
+### Cloud Run
+
+`infra/cloudrun/flags.sh` already carried the bounds #181 asks for, from UC-1.0d
+(#143): `--timeout=60`, `--concurrency=40`, `--min-instances=0`, and
+`--max-instances` of 2 (staging) / 3 (production). Two deliberate differences
+from the issue's text:
+
+- **`--memory=1Gi`, not 512Mi.** #143 chose 1Gi against the real image. Halving
+  it to match a figure written before that image existed risks an OOM on a cold
+  start, and memory is not what the model costs.
+- **`--max-instances=3` stands.** #181 made raising it from 1 conditional on no
+  process-local write queue remaining. `grep -r "class .*Queue" src lib` finds
+  none, so the condition holds.
+
+CPU throttling is the Cloud Run default. The flag that *disables* it
+(`--no-cpu-throttling`) is the one that costs money, and it is absent.
+
+### Alarms
+
+`bash infra/cloudrun/ai-cost-alerts.sh print` shows every command;
+`apply <email>` creates them. Budgets, threshold rules, log-based metrics and
+alert policies are all free — none of this needs new spend.
+
+The application logs one JSON line per refusal, `{"event":"ai_quota_exceeded",
+"scope":…,"uidHash":…}`, carrying a scope and a hashed uid and nothing a person
+wrote. `global_daily` above zero is the alert that matters: it means everyone is
+being refused, which is a different problem from one heavy account.
+
+### Still owner-side
+
+Raising the Vertex per-minute quota to 30 (step 6), the budget threshold rules
+(they need the billing account id, which is deliberately not in this
+repository), and the 2026-11-04 Firestore usage review.

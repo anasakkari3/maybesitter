@@ -276,7 +276,6 @@
   "noCommitmentPastEvent": "This looks like something that already happened. Nothing was added.",
   "noCommitmentNegatedRequest": "Understood. No reminder was created.",
   "noCommitmentLowConfidence": "Couldn't read a commitment here. Try naming the task and a time.",
-
   "obWelcomeTitle": "MaybeSitter keeps what you say",
   "obWelcomeBody": "Say a commitment out loud or type it. MaybeSitter turns it into something you can see, move, or drop on purpose.",
   "obWelcomeCard1": "Nothing is saved until you confirm it.",
@@ -332,5 +331,9 @@
   "obNotifBody": "MaybeSitter can remind you at the times you chose. Your phone will ask before it does — not now, and never during your quiet hours.",
   "obNotifLater": "Later",
   "obDone": "Start",
-  "obStepOf": "Step {current} of {total}"
+  "obStepOf": "Step {current} of {total}",
+  "aiQuotaUserDaily": "You've reached today's AI limit. Your text is safe — try again tomorrow.",
+  "aiQuotaTryLater": "Too many requests just now. Your text is safe — try again in a moment.",
+  "aiServiceUnavailable": "AI is busy for everyone right now. Your text is safe — try again later.",
+  "aiInputTooLong": "That text is too long to analyse. Shorten it and try again."
 }

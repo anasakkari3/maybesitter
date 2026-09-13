@@ -2,9 +2,11 @@ import type { Strings } from '../../i18n/strings';
 import {
   ContractError,
   ForbiddenError,
+  InputTooLargeError,
   InvalidTransitionError,
   NetworkError,
   NotFoundError,
+  QuotaExceededError,
   ServerError,
   ServiceUnavailableError,
   StaleCommitmentError,
@@ -51,6 +53,14 @@ export function userFacingMessage(error: unknown, t: Strings): string {
   // something another device did rather than something the user got wrong.
   if (error instanceof StaleCommitmentError) return t.errorsStaleCommitment;
   if (error instanceof InvalidTransitionError) return t.errorsInvalidTransition;
+  // Before the generic branches. A spent quota is not a server fault and not a
+  // bad request; it is a limit that will clear, and which one decides the words
+  // (#181). `global_daily` is nobody's fault and says so.
+  if (error instanceof QuotaExceededError) {
+    if (error.scope === 'global_daily') return t.aiServiceUnavailable;
+    return error.scope === 'user_minute' ? t.aiQuotaTryLater : t.aiQuotaUserDaily;
+  }
+  if (error instanceof InputTooLargeError) return t.aiInputTooLong;
   if (error instanceof NetworkError || error instanceof TimeoutError) return t.errorsNetwork;
   if (error instanceof ServerError || error instanceof ServiceUnavailableError || error instanceof ContractError) {
     return t.errorsServer;

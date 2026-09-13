@@ -279,7 +279,6 @@
   "noCommitmentPastEvent": "נראה שזה משהו שכבר קרה. לא הוספנו כלום.",
   "noCommitmentNegatedRequest": "הבנתי. לא נוצרה תזכורת.",
   "noCommitmentLowConfidence": "לא הצלחנו לקרוא כאן התחייבות. נסה לציין את המשימה והשעה.",
-
   "obWelcomeTitle": "MaybeSitter שומר את מה שאתה אומר",
   "obWelcomeBody": "תגיד מחויבות בקול או תכתוב אותה. MaybeSitter הופך אותה למשהו שאפשר לראות, להזיז, או להפיל במודע.",
   "obWelcomeCard1": "שום דבר לא נשמר עד שתאשר.",
@@ -335,5 +334,9 @@
   "obNotifBody": "MaybeSitter יכול להזכיר לך בזמנים שבחרת. הטלפון ישאל לפני כן — לא עכשיו, ולעולם לא בשעות השקט שלך.",
   "obNotifLater": "אחר כך",
   "obDone": "להתחיל",
-  "obStepOf": "שלב {current} מתוך {total}"
+  "obStepOf": "שלב {current} מתוך {total}",
+  "aiQuotaUserDaily": "הגעת למגבלת ה-AI להיום. הטקסט שלך נשמר — נסה מחר.",
+  "aiQuotaTryLater": "יותר מדי בקשות כרגע. הטקסט שלך נשמר — נסה בעוד רגע.",
+  "aiServiceUnavailable": "ה-AI עמוס כרגע לכולם. הטקסט שלך נשמר — נסה מאוחר יותר.",
+  "aiInputTooLong": "הטקסט ארוך מדי לניתוח. קצר אותו ונסה שוב."
 }
