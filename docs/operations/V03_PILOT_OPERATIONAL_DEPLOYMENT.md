@@ -114,7 +114,9 @@ Turn recommendation exposure off without deleting commitments:
 MAYBESITTER_KILL_SWITCH_RECOMMENDATION=true
 ```
 
-Expected result: recommendation proposal/action endpoints fail closed with
+Expected result: the recommendation proposal endpoint answers 200 with no card
+and `exposure.reason = kill_switch_active` (silent on the user's screen, legible
+in the audit log), and the action endpoint fails closed with 403
 `kill_switch_active`; capture, confirmed commitments, trust view, revoke, delete,
 and operator incident handling remain available.
 

@@ -27,6 +27,13 @@
  * makes the client render an error on a screen where nothing is wrong. So
  * `quiet_hours` is its own reason and the route answers 200 with no card.
  *
+ * ── A thrown kill switch is not an error either ──────────────────
+ *
+ * The reason still means "you may not have this", but nothing the user can do
+ * is relevant to it, so showing them a failure with a Retry is wrong twice.
+ * See `isSilentRefusal` and `stillRecordsDecision` at the foot of this file:
+ * the read goes silent, the write does not.
+ *
  * ── Missing means declined, everywhere ───────────────────────────
  *
  * A fresh account has never been asked, so it has not agreed, so there is no
@@ -145,10 +152,41 @@ export async function resolveNextStepAccess(
 /**
  * Whether a refusal should read as an error to the client.
  *
- * `quiet_hours` is the only one that should not: nothing is wrong, the user
- * simply asked not to be spoken to right now. The route answers 200 with no
- * card, and the screen shows nothing rather than a message about a problem.
+ * `quiet_hours` and `quiet_mode` should not: nothing is wrong, the user simply
+ * asked not to be spoken to right now. The route answers 200 with no card, and
+ * the screen shows nothing rather than a message about a problem.
+ *
+ * `kill_switch_active` is here for a different reason with the same answer
+ * (#170). A 403 made `QueryBoundary` draw "something went wrong" **with a
+ * Retry button** on the home screen — telling every user the product is broken
+ * during the one incident when operators most need the surface quiet, and
+ * offering them a button whose whole purpose is to re-attempt the thing the
+ * switch was thrown to stop. The switch is an operator's decision about the
+ * feature, not a fault the user can act on, so the feature simply is not
+ * there. The audit event still records `kill_switch_active`, and `exposure` on
+ * the response still carries it, so it stays legible to us without being
+ * narrated to them.
  */
 export function isSilentRefusal(reason: NextStepAccessReason): boolean {
+  return reason === 'quiet_hours' || reason === 'quiet_mode' || reason === 'kill_switch_active';
+}
+
+/**
+ * Whether a decision the user already made may still be recorded.
+ *
+ * Narrower than `isSilentRefusal` on purpose, and the difference is the whole
+ * reason there are two functions. Quiet hours can begin while a card is on
+ * screen, and refusing the tap that follows would throw away a choice somebody
+ * made about a suggestion they were legitimately shown — recording it speaks
+ * to nobody.
+ *
+ * A kill switch is the opposite: it is thrown to stop this feature doing work,
+ * and a recorded decision *is* work — it writes, and `done` completes a
+ * commitment. Silencing the card and still accepting taps against it would
+ * leave the switch half thrown. So the read goes quiet and the write is
+ * refused, which is why adding a reason to `isSilentRefusal` alone would be
+ * the wrong shape.
+ */
+export function stillRecordsDecision(reason: NextStepAccessReason): boolean {
   return reason === 'quiet_hours' || reason === 'quiet_mode';
 }

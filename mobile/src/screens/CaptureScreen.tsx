@@ -18,6 +18,7 @@ import {
   type SpeechLanguagePref,
 } from '../lib/deviceSettings/speechLanguage';
 import { Btn, FlowHeader, Pill, Txt } from '../ui/primitives';
+import type { UserFacingKey } from '../api/ui/userFacingMessage';
 import { ProcessingDots, ScreenIn } from '../ui/motion';
 
 /**
@@ -113,8 +114,14 @@ export function CaptureScreen() {
             </View>
           ) : state.status === 'noCommitment' ? (
             <NothingFound line={noCommitmentLine(state.proposal?.noCommitmentReason, strings)} onClose={leave} />
-          ) : state.status === 'networkError' || state.status === 'validationError' || state.status === 'extractionFailed' ? (
-            <Failed status={state.status} onRetry={() => void flow.analyze()} onBack={() => flow.backToComposer()} />
+          ) : state.status === 'networkError' || state.status === 'validationError'
+            || state.status === 'extractionFailed' || state.status === 'refused' ? (
+              <Failed
+                status={state.status}
+                messageKey={state.messageKey}
+                onRetry={() => void flow.analyze()}
+                onBack={() => flow.backToComposer()}
+              />
           ) : (
             <>
               <View style={{ flex: 1, gap: 12 }}>
@@ -235,36 +242,49 @@ function NothingFound({ line, onClose }: { line: string; onClose: () => void }) 
 }
 
 /**
- * The three ways analyze can fail, told apart.
+ * The four ways analyze can fail, told apart.
  *
- * A 400 is the server refusing this input and it will refuse it again, so there
- * is no Retry — offering one would invite the user to press it until they gave
- * up. Network and extraction both get one, because both can succeed next time.
+ * ── The words are not chosen here ────────────────────────────────
+ *
+ * `messageKey` comes from `userFacingMessageKey`, the one table that turns an
+ * error into copy. This screen used to pick between three strings itself, and
+ * the AI refusals — a spent daily quota, a minute's rate limit, a busy
+ * service, text too long — had localized lines in en/ar/he that no branch
+ * could reach: all four came out as "something went wrong" (#181). A screen
+ * that writes its own copy is a second table, and a second table drifts.
+ *
+ * ── Which failures get a Retry ───────────────────────────────────
+ *
+ * A 400 is the server refusing this input and it will refuse it again, so
+ * there is no Retry — offering one would invite the user to press it until
+ * they gave up. A refusal is the same answer for a different reason: pressing
+ * Retry against a spent quota is precisely the loop the quota exists to stop.
+ * Back is always there, and it returns to the composer with the text intact.
  */
 function Failed({
-  status, onRetry, onBack,
+  status, messageKey, onRetry, onBack,
 }: {
-  status: 'networkError' | 'validationError' | 'extractionFailed';
+  status: 'networkError' | 'validationError' | 'extractionFailed' | 'refused';
+  messageKey: UserFacingKey | null;
   onRetry: () => void;
   onBack: () => void;
 }) {
   const { t, p } = useApp();
-  const message = status === 'networkError'
-    ? t.errorsNetwork
-    : status === 'validationError'
-      ? t.errorsValidation
-      : t.errorsGeneric;
+  // Read now, not when the failure happened: switching language with this on
+  // screen has to change the sentence, which a stored message could not do.
+  const message = messageKey ? t[messageKey] : t.errorsGeneric;
+  const retryable = status === 'networkError' || status === 'extractionFailed';
 
   return (
     <>
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, paddingHorizontal: 12 }} testID={`capture-error-${status}`}>
         <Txt size={20} weight={600} align="center">{t.captureFailedTitle}</Txt>
-        <Txt size={14} color={p.mu} align="center">{message}</Txt>
+        <Txt size={14} color={p.mu} align="center" testID="capture-error-message">{message}</Txt>
       </View>
       <View style={{ gap: 10 }}>
-        {status === 'validationError' ? null : (
+        {retryable ? (
           <Pill testID="capture-retry" label={t.errorsRetry} onPress={onRetry} />
-        )}
+        ) : null}
         <Pill testID="capture-error-back" label={t.back} onPress={onBack} kind="outline" />
       </View>
     </>

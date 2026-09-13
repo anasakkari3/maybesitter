@@ -16,6 +16,7 @@ import { resolveUserAccess } from '../../pilot/pilotAccess';
 import {
   isSilentRefusal,
   resolveNextStepAccess,
+  stillRecordsDecision,
   type NextStepAccess,
 } from './nextStepAccess';
 import {
@@ -226,6 +227,11 @@ export async function getMobileNextStep(participantId: string, input: MobilePilo
   // so the answer is 200 with no card and an `exposure` that says why. The
   // state is `empty` and not something warmer on purpose — claiming the day is
   // empty would be a second lie, so the client reads `exposure`, not `state`.
+  //
+  // A thrown kill switch answers the same way (#170) for a different reason:
+  // it is our decision about the feature, not a fault the user can act on, and
+  // a 403 there drew "something went wrong" with a Retry button on the home
+  // screen of every user, during an incident. The exposure still names it.
   if (!access.allowed) {
     if (!isSilentRefusal(access.reason)) {
       throw new MobilePilotError('next step unavailable', 403, access.reason);
@@ -260,11 +266,13 @@ export async function getMobileNextStep(participantId: string, input: MobilePilo
 }
 
 /**
- * The shape returned when the user asked for quiet.
+ * The shape returned when there is to be no card.
  *
  * No proposal is computed at all — not computed and withheld. During quiet
  * hours the selector should not be reading the person's commitments to decide
- * something nobody will be shown.
+ * something nobody will be shown, and with the kill switch thrown it must not
+ * run at all: a switch that stopped the *rendering* while the engine kept
+ * working would not be a kill switch.
  */
 function silentRecommendation(locale: NextStepLocale): NextStepRecommendationContract {
   return {
@@ -372,13 +380,18 @@ export function resetMobilePilotDecisionReplaysForTests(): void {
 export async function recordMobileNextStepDecision(participantId: string, input: MobilePilotSource) {
   const now = new Date();
   const at = now.toISOString();
-  // The same gate as the read, with one difference: a silent refusal does not
-  // block a decision. Quiet hours can begin while a card is on screen, and
-  // refusing the tap that follows would throw away a decision the user has
-  // already made about a suggestion they were legitimately shown. It records
-  // what they chose; it does not speak to them.
+  // The same gate as the read, with one difference: quiet does not block a
+  // decision. Quiet hours can begin while a card is on screen, and refusing
+  // the tap that follows would throw away a decision the user has already made
+  // about a suggestion they were legitimately shown. It records what they
+  // chose; it does not speak to them.
+  //
+  // `stillRecordsDecision` and not `isSilentRefusal`: a thrown kill switch is
+  // silent on the read — no card, no error — but it must still refuse the
+  // write. Recording a decision is exactly the work the switch was thrown to
+  // stop, and `done` completes a commitment.
   const access = await nextStepAccessFor(participantId, at);
-  if (!access.allowed && !isSilentRefusal(access.reason)) {
+  if (!access.allowed && !stillRecordsDecision(access.reason)) {
     throw new MobilePilotError('next step unavailable', 403, access.reason);
   }
   const proposal = proposalFrom(input.proposal);

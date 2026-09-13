@@ -6,8 +6,8 @@
  * actually about.
  */
 import { describe, expect, it } from '@jest/globals';
-import { captureReducer, initialCaptureState, type CaptureEvent, type CaptureState } from '../captureMachine';
-import { analyzeCapture, confirmCapture, undoCapture, type CaptureGateway } from '../captureFlowActions';
+import { captureReducer, initialCaptureState, type CaptureEvent, type CaptureFailureKind, type CaptureState } from '../captureMachine';
+import { analyzeCapture, confirmCapture, undoCapture, type AnalyzeFailure, type CaptureGateway } from '../captureFlowActions';
 import type { CaptureConfirmation, CaptureProposal } from '../../../api/schemas/capture';
 
 function proposal(over: Partial<CaptureProposal> = {}): CaptureProposal {
@@ -50,8 +50,15 @@ const run = (...events: CaptureEvent[]): CaptureState => events.reduce(captureRe
 const analyzed = (p: CaptureProposal = proposal()): CaptureState =>
   run({ type: 'textChanged', text: 'call the clinic tomorrow at 9' }, { type: 'analyzeStarted' }, { type: 'analyzeSucceeded', proposal: p });
 
-const classify = (error: unknown) =>
-  (error as { kind?: 'network' | 'validation' | 'extraction' }).kind ?? 'extraction';
+/**
+ * A stand-in for `classifyFailure`. It answers both halves the real one does —
+ * which recovery, and which locale key — so the outcome shape this file
+ * asserts is the one the provider actually dispatches.
+ */
+const classify = (error: unknown): AnalyzeFailure => {
+  const kind = (error as { kind?: CaptureFailureKind }).kind ?? 'extraction';
+  return { kind, messageKey: kind === 'refused' ? 'aiQuotaUserDaily' : 'errorsGeneric' };
+};
 
 describe('analyze', () => {
   it('asks once, with the text as typed', async () => {
@@ -62,10 +69,14 @@ describe('analyze', () => {
     expect(g.calls).toEqual(['propose:call the clinic tomorrow at 9']);
   });
 
-  it('reports the failure kind without throwing', async () => {
-    for (const kind of ['network', 'validation', 'extraction'] as const) {
+  it('reports the failure kind and its line without throwing', async () => {
+    for (const kind of ['network', 'validation', 'extraction', 'refused'] as const) {
       const g = gateway({ propose: async () => { throw { kind }; } });
-      expect(await analyzeCapture(g.gateway, 'x', classify)).toEqual({ ok: false, kind });
+      expect(await analyzeCapture(g.gateway, 'x', classify)).toEqual({
+        ok: false,
+        kind,
+        messageKey: kind === 'refused' ? 'aiQuotaUserDaily' : 'errorsGeneric',
+      });
     }
   });
 });

@@ -9,7 +9,7 @@
  *
  * ── Why a reducer and not component state ────────────────────────
  *
- * The flow has thirteen states and several of them look alike from the outside
+ * The flow has fourteen states and several of them look alike from the outside
  * — `analyzing` and `confirming` are both spinners, `networkError` and
  * `extractionFailed` are both "try again". Spread across three screens as
  * booleans, the combinations that cannot happen become combinations nobody
@@ -25,6 +25,7 @@
  * pulls in no storage.
  */
 import type { CaptureProposal, CaptureConfirmation } from '../../api/schemas/capture';
+import type { UserFacingKey } from '../../api/ui/userFacingMessage';
 
 /**
  * Where the flow is.
@@ -56,6 +57,17 @@ export type CaptureStatus =
   | 'networkError'
   /** The server answered, but could not read the message. */
   | 'extractionFailed'
+  /**
+   * The server declined to do the work at all: the AI quota is spent, or the
+   * text is longer than a model call may carry (UC-4.5, #181).
+   *
+   * Its own status rather than one of the three above, because none of them is
+   * true: the network is fine, the input is not malformed, and the extractor
+   * never ran. It carries no Retry — pressing one against a spent quota is the
+   * loop the quota exists to stop — and the text survives in `text`, so Back
+   * returns the person to the composer with what they wrote still in it.
+   */
+  | 'refused'
   /** `POST /api/mobile/capture/confirm` in flight. */
   | 'confirming'
   /** Confirmed. `persisted` is what the server actually saved. */
@@ -68,6 +80,9 @@ export type CaptureStatus =
  * `tab` and `notification` come from inside the app.
  */
 export type CaptureSource = 'tab' | 'widget' | 'share' | 'notification';
+
+/** How an analyze failed, before it becomes a status. */
+export type CaptureFailureKind = 'network' | 'validation' | 'extraction' | 'refused';
 
 /** Which input the user was offered first. */
 export type CaptureInputMode = 'text' | 'voice';
@@ -124,6 +139,17 @@ export interface CaptureState {
   failed: CaptureConfirmation['failed'];
   /** A machine-readable reason for an error status, for the copy to map. */
   errorReason: string | null;
+  /**
+   * Which line the failed analyze should show, as a locale key (#181).
+   *
+   * A key and not a message: the words are looked up at render time, so
+   * switching language while an error is on screen re-renders it in the new
+   * one. It comes from `userFacingMessageKey`, which is the product's only
+   * copy table for a failure — the composer used to keep its own three-branch
+   * copy beside it, and a quota refusal fell through it as "something went
+   * wrong" in every locale.
+   */
+  messageKey: UserFacingKey | null;
   /** True while the undo window is open. */
   undoable: boolean;
 }
@@ -133,7 +159,7 @@ export type CaptureEvent =
   | { type: 'textChanged'; text: string }
   | { type: 'analyzeStarted' }
   | { type: 'analyzeSucceeded'; proposal: CaptureProposal }
-  | { type: 'analyzeFailed'; kind: 'network' | 'validation' | 'extraction'; reason?: string }
+  | { type: 'analyzeFailed'; kind: CaptureFailureKind; messageKey?: UserFacingKey; reason?: string }
   | { type: 'toggleItem'; itemId: string }
   | { type: 'editItem'; itemId: string; edit: CaptureItemEdit }
   | { type: 'clearEdit'; itemId: string }
@@ -167,6 +193,7 @@ export function initialCaptureState(
     persisted: [],
     failed: [],
     errorReason: null,
+    messageKey: null,
     undoable: false,
   };
 }
@@ -232,12 +259,12 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
       // Truncated here rather than refused, so a long paste keeps its beginning
       // instead of silently doing nothing.
       const text = event.text.slice(0, MAX_CAPTURE_LENGTH);
-      return { ...state, text, status: text.trim() ? 'editing' : 'idle', errorReason: null };
+      return { ...state, text, status: text.trim() ? 'editing' : 'idle', errorReason: null, messageKey: null };
     }
 
     case 'analyzeStarted':
       if (!state.text.trim()) return state;
-      return { ...state, status: 'analyzing', errorReason: null, proposal: null, original: null };
+      return { ...state, status: 'analyzing', errorReason: null, messageKey: null, proposal: null, original: null };
 
     case 'analyzeSucceeded':
       return {
@@ -249,15 +276,22 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
         selected: confirmableItems(event.proposal),
         edits: {},
         errorReason: null,
+        messageKey: null,
       };
 
     case 'analyzeFailed':
+      // `text` is deliberately absent from this object. Whatever the person
+      // typed survives every failure, including a quota refusal, because
+      // losing somebody's words because a counter was full would be the worst
+      // available response (UC-4.5, #181).
       return {
         ...state,
         status: event.kind === 'network' ? 'networkError'
           : event.kind === 'validation' ? 'validationError'
-            : 'extractionFailed',
+            : event.kind === 'refused' ? 'refused'
+              : 'extractionFailed',
         errorReason: event.reason ?? null,
+        messageKey: event.messageKey ?? null,
         proposal: null,
         original: null,
       };
@@ -318,7 +352,7 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
       // The text is kept on purpose: this is the Edit button on a
       // no-commitment or error state, and losing what they wrote would be the
       // worst possible response to "I could not read that".
-      return { ...state, status: state.text.trim() ? 'editing' : 'idle', proposal: null, original: null, selected: [], edits: {}, errorReason: null };
+      return { ...state, status: state.text.trim() ? 'editing' : 'idle', proposal: null, original: null, selected: [], edits: {}, errorReason: null, messageKey: null };
 
     case 'reset':
       return initialCaptureState(state.source, state.inputMode);

@@ -295,6 +295,24 @@ describe('when the user asked for quiet', () => {
     expect(screen.queryByTestId('next-step-card')).toBeNull();
   });
 
+  /**
+   * And the same for a thrown kill switch (#170).
+   *
+   * The route used to answer 403 for it, which `QueryBoundary` renders as
+   * "something went wrong" with a Retry button — on the home screen, for every
+   * user, during the incident somebody threw the switch for. It answers 200
+   * with `exposure.allowed: false` now, so the card is simply not there.
+   */
+  it('renders nothing, and no retry, with the kill switch thrown', async () => {
+    await show(response(quiet, { allowed: false, reason: 'kill_switch_active' }));
+    expect(screen.queryByTestId('next-step-card')).toBeNull();
+    expect(screen.queryByTestId('next-step-empty')).toBeNull();
+    expect(screen.queryByTestId('query-error')).toBeNull();
+    expect(screen.queryByText(en.errorsGeneric)).toBeNull();
+    // The button that re-attempts what the switch was thrown to stop.
+    expect(screen.queryByText(en.errorsRetry)).toBeNull();
+  });
+
   it('still renders a genuinely empty day, which is a different thing', async () => {
     await show(response(quiet, { allowed: true, reason: 'authorized' }));
     expect(screen.queryByTestId('next-step-empty')).not.toBeNull();
