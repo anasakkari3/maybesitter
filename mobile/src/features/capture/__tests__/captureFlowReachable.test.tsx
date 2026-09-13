@@ -19,6 +19,7 @@ import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { AppProvider } from '../../../state/AppContext';
 import { AuthProvider } from '../../../auth/AuthProvider';
@@ -27,8 +28,10 @@ import { resetAuthForTests, setAuthRepository } from '../../../api/auth';
 import type { AuthUser } from '../../../auth/types';
 import { Root } from '../../../Root';
 import en from '../../../i18n/locales/en.json';
+import ar from '../../../i18n/locales/ar.json';
+import { LANGUAGE_STORAGE_KEY } from '../../../i18n/language';
 
-import { NetworkError, ValidationError } from '../../../api/errors';
+import { InputTooLargeError, NetworkError, QuotaExceededError, ValidationError } from '../../../api/errors';
 import * as captureEndpoints from '../../../api/endpoints/capture';
 import * as commitmentEndpoints from '../../../api/endpoints/commitments';
 
@@ -342,6 +345,77 @@ describe('failures are told apart', () => {
     await waitFor(() => expect(screen.queryByTestId('capture-error-validationError')).not.toBeNull());
     // It will be refused again. A Retry here invites pressing until they give up.
     expect(screen.queryByTestId('capture-retry')).toBeNull();
+  });
+});
+
+/**
+ * Hitting the AI cap (UC-4.5, #181).
+ *
+ * The localized lines existed; nothing could reach them. The composer saw a 429
+ * as neither a `ValidationError` nor retryable, called it `extraction`, and
+ * drew its own "something went wrong" with a Retry button underneath — against
+ * a quota, which is the one thing a retry cannot help and the loop the quota
+ * exists to stop.
+ *
+ * This drives the real screens from the tab bar, in both languages the app can
+ * actually be in. Hebrew is not one of them: `src/i18n/strings.ts` types `Lang`
+ * as 'ar' | 'en' and `resolveLanguage` falls back to English for anything else,
+ * so a "Hebrew" render here would be an English render with a Hebrew label on
+ * it. The Hebrew copy and its mapping are asserted directly in
+ * `src/api/__tests__/quotaError.test.ts`.
+ */
+describe('a spent AI quota says so', () => {
+  const TYPED = 'Call the clinic tomorrow at 9 and book Lina’s dentist';
+
+  async function refuse(error: unknown, lang: 'en' | 'ar' = 'en') {
+    await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, lang);
+    jest.spyOn(captureEndpoints, 'proposeCapture').mockRejectedValue(error as Error);
+    await openApp();
+    await enterCapture();
+    await fireEvent.changeText(screen.getByTestId('capture-input'), TYPED);
+    await fireEvent.press(screen.getByTestId('capture-analyze'));
+    await waitFor(() => expect(screen.queryByTestId('capture-error-refused')).not.toBeNull());
+  }
+
+  it('shows the daily-limit line, not “something went wrong”', async () => {
+    await refuse(new QuotaExceededError('user_daily', 3600));
+    expect(screen.queryByText(en.aiQuotaUserDaily)).not.toBeNull();
+    expect(screen.queryByText(en.errorsGeneric)).toBeNull();
+  });
+
+  it('shows the same line in Arabic', async () => {
+    await refuse(new QuotaExceededError('user_daily', 3600), 'ar');
+    expect(screen.queryByText(ar.aiQuotaUserDaily)).not.toBeNull();
+    expect(screen.queryByText(ar.errorsGeneric)).toBeNull();
+  });
+
+  it('tells a minute’s rate limit apart from a day’s', async () => {
+    await refuse(new QuotaExceededError('user_minute', 30));
+    expect(screen.queryByText(en.aiQuotaTryLater)).not.toBeNull();
+  });
+
+  it('does not blame the user when the service itself is out', async () => {
+    await refuse(new QuotaExceededError('global_daily', 7200));
+    expect(screen.queryByText(en.aiServiceUnavailable)).not.toBeNull();
+  });
+
+  it('says the text is too long when it is', async () => {
+    await refuse(new InputTooLargeError(20_000));
+    expect(screen.queryByText(en.aiInputTooLong)).not.toBeNull();
+  });
+
+  it('offers no Retry, because pressing it is what the quota refuses', async () => {
+    await refuse(new QuotaExceededError('user_daily', 3600));
+    expect(screen.queryByTestId('capture-retry')).toBeNull();
+  });
+
+  it('still has what the person typed, in the field, after Back', async () => {
+    // The worst available response to a full counter is losing somebody's
+    // words. Asserted on the input's own value, not on the reducer.
+    await refuse(new QuotaExceededError('user_daily', 3600));
+    await fireEvent.press(screen.getByTestId('capture-error-back'));
+    await waitFor(() => expect(screen.queryByTestId('capture-input')).not.toBeNull());
+    expect(screen.getByTestId('capture-input').props.value).toBe(TYPED);
   });
 });
 

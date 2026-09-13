@@ -25,6 +25,12 @@ import {
  * locale files, and `errorCopy.test.ts` asserts that no string any locale
  * produces contains "Error:", "http", "backend" or a stack frame.
  *
+ * It is also the *only* copy table for a failure. A screen that decided its own
+ * words from its own state — as the composer once did, with three branches that
+ * could not say "the AI quota is spent" at all — is a second table that drifts.
+ * Screens ask for a key (`userFacingMessageKey`) or for words
+ * (`userFacingMessage`); neither is allowed to write copy of its own.
+ *
  * The 403 reasons are not errors at all. `revoked`, `deleted`,
  * `consent_required`, `quiet_mode` and `feature_disabled` are each a state the
  * product has a screen for, and `QueryBoundary` renders that rather than a
@@ -48,31 +54,55 @@ export function forbiddenReason(error: unknown): ForbiddenReason | null {
   return FORBIDDEN_REASONS.includes(reason) ? (reason as ForbiddenReason) : null;
 }
 
-export function userFacingMessage(error: unknown, t: Strings): string {
+/**
+ * A locale key this module is allowed to return.
+ *
+ * Narrowed to the keys whose value is a plain string: one key in the bundle is
+ * a list of day names, and `t[key]` has to be something a screen can render.
+ */
+export type UserFacingKey = {
+  [K in keyof Strings]: Strings[K] extends string ? K : never;
+}[keyof Strings];
+
+/**
+ * The decision itself, as a key rather than as words.
+ *
+ * Split out of `userFacingMessage` for the composer (#181). That screen holds
+ * its failure in a reducer and renders it several frames later, so it needs
+ * *which* message this error is without freezing the words — a message resolved
+ * at failure time would keep the old language after somebody switched it. The
+ * table stays here, once: `userFacingMessage` is this function plus a lookup,
+ * and the composer is the same lookup against its own `t`.
+ */
+export function userFacingMessageKey(error: unknown): UserFacingKey {
   // Before the generic ConflictError branch: both are conflicts, and both are
   // something another device did rather than something the user got wrong.
-  if (error instanceof StaleCommitmentError) return t.errorsStaleCommitment;
-  if (error instanceof InvalidTransitionError) return t.errorsInvalidTransition;
+  if (error instanceof StaleCommitmentError) return 'errorsStaleCommitment';
+  if (error instanceof InvalidTransitionError) return 'errorsInvalidTransition';
   // Before the generic branches. A spent quota is not a server fault and not a
   // bad request; it is a limit that will clear, and which one decides the words
   // (#181). `global_daily` is nobody's fault and says so.
   if (error instanceof QuotaExceededError) {
-    if (error.scope === 'global_daily') return t.aiServiceUnavailable;
-    return error.scope === 'user_minute' ? t.aiQuotaTryLater : t.aiQuotaUserDaily;
+    if (error.scope === 'global_daily') return 'aiServiceUnavailable';
+    return error.scope === 'user_minute' ? 'aiQuotaTryLater' : 'aiQuotaUserDaily';
   }
-  if (error instanceof InputTooLargeError) return t.aiInputTooLong;
-  if (error instanceof NetworkError || error instanceof TimeoutError) return t.errorsNetwork;
+  if (error instanceof InputTooLargeError) return 'aiInputTooLong';
+  if (error instanceof NetworkError || error instanceof TimeoutError) return 'errorsNetwork';
   if (error instanceof ServerError || error instanceof ServiceUnavailableError || error instanceof ContractError) {
-    return t.errorsServer;
+    return 'errorsServer';
   }
-  if (error instanceof ValidationError) return t.errorsValidation;
-  if (error instanceof UnauthorizedError) return t.authSessionExpired;
-  if (error instanceof NotFoundError) return t.errorsNotFound;
+  if (error instanceof ValidationError) return 'errorsValidation';
+  if (error instanceof UnauthorizedError) return 'authSessionExpired';
+  if (error instanceof NotFoundError) return 'errorsNotFound';
   const reason = forbiddenReason(error);
-  if (reason === 'revoked') return t.authSignedOutRevoked;
-  if (reason === 'deleted') return t.authSignedOutDeleted;
-  if (reason === 'consent_required') return t.errorsConsentRequired;
-  if (reason === 'quiet_mode') return t.errorsQuietMode;
-  if (reason === 'feature_disabled') return t.errorsFeatureDisabled;
-  return t.errorsGeneric;
+  if (reason === 'revoked') return 'authSignedOutRevoked';
+  if (reason === 'deleted') return 'authSignedOutDeleted';
+  if (reason === 'consent_required') return 'errorsConsentRequired';
+  if (reason === 'quiet_mode') return 'errorsQuietMode';
+  if (reason === 'feature_disabled') return 'errorsFeatureDisabled';
+  return 'errorsGeneric';
+}
+
+export function userFacingMessage(error: unknown, t: Strings): string {
+  return t[userFacingMessageKey(error)];
 }

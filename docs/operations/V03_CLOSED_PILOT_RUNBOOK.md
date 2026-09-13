@@ -81,9 +81,14 @@ not cached at boot — so no redeploy and no restart is needed. Reverse it with
 
 What it does and does not do:
 
-- `resolveNextStepAccess` answers `kill_switch_active`, the route returns 403,
-  and the card shows the blocked message. Nothing is deleted and no commitment
-  changes.
+- `resolveNextStepAccess` answers `kill_switch_active`. The read route
+  (`GET /api/mobile/recommendations/next-step`) returns **200 with no card** and
+  `exposure: { allowed: false, reason: 'kill_switch_active' }`, so the home
+  screen simply has no suggestion on it — it used to return 403, which drew
+  "something went wrong" with a Retry button for every user during the incident
+  (#170). The action route still returns **403**: the switch is thrown to stop
+  this feature writing, and a recorded decision is a write. Nothing is deleted
+  and no commitment changes.
 - It does **not** stop capture, the lists, reminders, or anything a user has
   already saved. It stops the product making suggestions.
 - Decisions already recorded in `nextStepDecisions` stay. A user who deferred

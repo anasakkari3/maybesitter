@@ -16,9 +16,11 @@
  */
 import {
   confirmPayload,
+  type CaptureFailureKind,
   type CaptureItemEdit,
   type CaptureState,
 } from './captureMachine';
+import type { UserFacingKey } from '../../api/ui/userFacingMessage';
 import type { CaptureConfirmation, CaptureProposal } from '../../api/schemas/capture';
 
 /** The calls the flow is allowed to make. Nothing else reaches the network. */
@@ -33,9 +35,23 @@ export interface CaptureGateway {
   remove(commitmentId: string): Promise<unknown>;
 }
 
+/**
+ * What a failed analyze is: which recovery the screen offers, and which line
+ * it shows.
+ *
+ * The two are separate answers. `kind` decides whether there is a Retry —
+ * a refused input and a spent quota both mean "not by pressing that button" —
+ * and `messageKey` is the words, which come from the product's one copy table
+ * (`userFacingMessageKey`) rather than from a branch in a screen (#181).
+ */
+export interface AnalyzeFailure {
+  kind: CaptureFailureKind;
+  messageKey: UserFacingKey;
+}
+
 export type AnalyzeOutcome =
   | { ok: true; proposal: CaptureProposal }
-  | { ok: false; kind: 'network' | 'validation' | 'extraction' };
+  | ({ ok: false } & AnalyzeFailure);
 
 export type ConfirmOutcome =
   | { ok: true; confirmation: CaptureConfirmation }
@@ -50,12 +66,12 @@ export interface UndoOutcome {
 export function analyzeCapture(
   gateway: Pick<CaptureGateway, 'propose'>,
   text: string,
-  classify: (error: unknown) => 'network' | 'validation' | 'extraction',
+  classify: (error: unknown) => AnalyzeFailure,
 ): Promise<AnalyzeOutcome> {
   return gateway
     .propose(text)
     .then((proposal): AnalyzeOutcome => ({ ok: true, proposal }))
-    .catch((error): AnalyzeOutcome => ({ ok: false, kind: classify(error) }));
+    .catch((error): AnalyzeOutcome => ({ ok: false, ...classify(error) }));
 }
 
 /**

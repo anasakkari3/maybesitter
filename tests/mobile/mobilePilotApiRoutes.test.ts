@@ -684,3 +684,79 @@ test('incident reporting uses the authenticated uid and drops raw notes', async 
     cleanup();
   }
 });
+
+/**
+ * The kill switch takes the card away; it does not report a fault (#170).
+ *
+ * `MAYBESITTER_KILL_SWITCH_RECOMMENDATION=true` used to make the read answer
+ * 403, and `QueryBoundary` draws a 403 it has no screen for as "something went
+ * wrong" **with a Retry button**. So the one lever operators pull during an
+ * incident told every user the product was broken, and then invited them to
+ * press the button that re-attempts the thing the switch was thrown to stop.
+ *
+ * The read is silent now. The write is not: recording a decision is exactly
+ * the work the switch stops, and `done` completes a commitment.
+ */
+test('a thrown kill switch hides the next step without reporting an error', async () => {
+  const cleanup = setup();
+  try {
+    await grantRecommendation(A);
+    await createConfirmedCommitment(A, 'Remind me to call Alice tomorrow at 9am');
+
+    const before = await nextStep(A);
+    const proposal = before.recommendation as NextStepRecommendationContract;
+    assert.equal((before.exposure as { allowed: boolean }).allowed, true);
+    assert.equal(proposal.state, 'ready');
+
+    process.env.MAYBESITTER_KILL_SWITCH_RECOMMENDATION = 'true';
+
+    // 200 and no card, exactly as quiet hours answer. `readRuntimeControls` is
+    // read per call, so this is the live switch and not a restart.
+    const thrown = await getNextStep(request('/api/mobile/recommendations/next-step?timezone=UTC', { participantId: A }));
+    assert.equal(thrown.status, 200);
+    const body = await json(thrown) as {
+      exposure: { allowed: boolean; reason: string };
+      recommendation: { state: string; primaryStep: unknown; availableActions: string[] };
+    };
+    assert.equal(body.exposure.allowed, false);
+    // Silent to the user, legible to us: the reason is still on the response
+    // and still in the audit log.
+    assert.equal(body.exposure.reason, 'kill_switch_active');
+    assert.equal(body.recommendation.state, 'empty');
+    assert.equal(body.recommendation.primaryStep, null);
+    assert.deepEqual(body.recommendation.availableActions, []);
+    assert.equal(
+      (await listAllAuditEvents()).some((event) => event.reasonCode === 'kill_switch_active'),
+      true,
+      'the switch must stay legible in the audit log',
+    );
+
+    // The write is still refused. Silencing the card and then accepting taps
+    // against it would leave the switch half thrown.
+    const decision = await recordNextStepAction(request('/api/mobile/recommendations/next-step/actions', {
+      participantId: A,
+      body: { proposal, decision: 'done', idempotencyKey: 'during-the-incident' },
+    }));
+    assert.equal(decision.status, 403);
+    assert.equal((await json(decision)).reason, 'kill_switch_active');
+
+    process.env.MAYBESITTER_KILL_SWITCH_RECOMMENDATION = 'false';
+    assert.equal(((await nextStep(A)).exposure as { allowed: boolean }).allowed, true);
+  } finally {
+    cleanup();
+  }
+});
+
+test('turning the feature off is still an answer the client can explain', async () => {
+  // `feature_disabled` has a screen of its own — "not shipped here" — so it
+  // must not be swept into the kill switch's silence.
+  const cleanup = setup({ MAYBESITTER_FEATURE_RECOMMENDATION: 'false' });
+  try {
+    await grantRecommendation(A);
+    const response = await getNextStep(request('/api/mobile/recommendations/next-step?timezone=UTC', { participantId: A }));
+    assert.equal(response.status, 403);
+    assert.equal((await json(response)).reason, 'feature_disabled');
+  } finally {
+    cleanup();
+  }
+});

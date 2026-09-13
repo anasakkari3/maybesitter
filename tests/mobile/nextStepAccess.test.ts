@@ -16,7 +16,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
-import { isWithinWindow, resolveNextStepAccess } from '../../lib/services/mobile/nextStepAccess.ts';
+import {
+  isSilentRefusal,
+  isWithinWindow,
+  resolveNextStepAccess,
+  stillRecordsDecision,
+} from '../../lib/services/mobile/nextStepAccess.ts';
 import { setRecommendationConsent } from '../../lib/consents/recommendationConsentService.ts';
 import { saveRoutineProfile } from '../../lib/services/mobile/routineProfileService.ts';
 import { applyTrustAction } from '../../lib/pilot/pilotTrustStore.ts';
@@ -243,4 +248,47 @@ test('a malformed window is not a quiet window', () => {
   // somebody did not want, not silence they cannot explain.
   assert.equal(isWithinWindow({ start: '25:00', end: '07:30' }, AT, 'UTC'), false);
   assert.equal(isWithinWindow({ start: 'nonsense', end: '07:30' }, AT, 'UTC'), false);
+});
+
+// ── Which refusals the user is told about ────────────────────────
+
+/**
+ * A thrown kill switch is silent on the screen and still refuses a write
+ * (UC-2.9, #170).
+ *
+ * It used to answer 403, which `QueryBoundary` renders as "something went
+ * wrong" **with a Retry button** — on the home screen, for every user, during
+ * the incident the switch was thrown for. The card must simply not be there.
+ *
+ * Silent is not the same as permitted, though, and the two predicates are
+ * separate for that reason: a decision is a write, `done` completes a
+ * commitment, and accepting taps against a card nobody should be seeing would
+ * leave the switch half thrown.
+ */
+test('a thrown kill switch hides the card instead of reporting a failure', () => {
+  assert.equal(isSilentRefusal('kill_switch_active'), true);
+});
+
+test('a thrown kill switch still refuses to record a decision', () => {
+  assert.equal(stillRecordsDecision('kill_switch_active'), false);
+});
+
+test('quiet still records a decision the user already made', () => {
+  // A card can be on screen when quiet hours begin. Refusing the tap that
+  // follows throws away a choice about a suggestion they were legitimately
+  // shown; recording it speaks to nobody.
+  for (const reason of ['quiet_hours', 'quiet_mode'] as const) {
+    assert.equal(isSilentRefusal(reason), true, reason);
+    assert.equal(stillRecordsDecision(reason), true, reason);
+  }
+});
+
+test('every other refusal is still an error the client must show', () => {
+  // `feature_disabled` is "not shipped here" and has its own screen;
+  // `consent_required`, `revoked` and `deleted` each have one too. Silencing
+  // any of them would hide a state the product has words for.
+  for (const reason of ['feature_disabled', 'consent_required', 'revoked', 'deleted'] as const) {
+    assert.equal(isSilentRefusal(reason), false, reason);
+    assert.equal(stillRecordsDecision(reason), false, reason);
+  }
 });

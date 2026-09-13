@@ -22,12 +22,14 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useCapture, useClarifyCapture, useConfirmCapture, useAiConsentGranted } from '../../api/queries';
 import { useTimeZone } from '../../i18n/timezone';
 import { deleteCommitment } from '../../api/endpoints/commitments';
-import { isRetryable, ValidationError } from '../../api/errors';
+import { InputTooLargeError, isRetryable, QuotaExceededError, ValidationError } from '../../api/errors';
+import { userFacingMessageKey } from '../../api/ui/userFacingMessage';
 import {
   captureReducer,
   confirmPayload,
   initialCaptureState,
   UNDO_WINDOW_MS,
+  type CaptureFailureKind,
   type CaptureInputMode,
   type CaptureItemEdit,
   type CaptureSource,
@@ -38,6 +40,7 @@ import {
   analyzeCapture,
   confirmCapture as runConfirm,
   undoCapture,
+  type AnalyzeFailure,
   type UndoOutcome,
 } from './captureFlowActions';
 
@@ -72,16 +75,35 @@ interface CaptureContextValue {
 const CaptureContext = createContext<CaptureContextValue | null>(null);
 
 /**
- * Which failure the user is looking at.
+ * Which recovery the user is offered.
  *
  * A 400 is the server refusing the input and will refuse it again, so it is a
- * validation state with no Retry. Anything retryable is the network. Everything
- * else is the extractor having answered but not been able to read the message —
- * three different messages and three different recoveries.
+ * validation state with no Retry. A 429 or a 413 is the server declining to do
+ * the work at all — the quota is spent, or the text is too long for a model
+ * call — and neither is cured by pressing a button, so `refused` has no Retry
+ * either. Anything retryable is the network. Everything else is the extractor
+ * having answered but not been able to read the message.
+ *
+ * This decides the *buttons* only. The words come from `classifyFailure`.
  */
-function failureKind(error: unknown): 'network' | 'validation' | 'extraction' {
+function failureKind(error: unknown): CaptureFailureKind {
   if (error instanceof ValidationError) return 'validation';
+  if (error instanceof QuotaExceededError || error instanceof InputTooLargeError) return 'refused';
   return isRetryable(error) ? 'network' : 'extraction';
+}
+
+/**
+ * The failure as the screen needs it: a recovery and a locale key.
+ *
+ * The key comes from `userFacingMessageKey` — the same table `QueryBoundary`
+ * reads — rather than from a branch in the composer. The composer used to
+ * choose between three strings of its own, and every failure that was not a
+ * 400 or a network drop came out as "something went wrong"; the four AI
+ * refusal lines existed in all three locales and no code path could reach
+ * them (#181).
+ */
+export function classifyFailure(error: unknown): AnalyzeFailure {
+  return { kind: failureKind(error), messageKey: userFacingMessageKey(error) };
 }
 
 /**
@@ -128,11 +150,11 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
     const outcome = await analyzeCapture(
       { propose: (text) => capture.mutateAsync(text) },
       state.text,
-      failureKind,
+      classifyFailure,
     );
     dispatch(outcome.ok
       ? { type: 'analyzeSucceeded', proposal: outcome.proposal }
-      : { type: 'analyzeFailed', kind: outcome.kind });
+      : { type: 'analyzeFailed', kind: outcome.kind, messageKey: outcome.messageKey });
   }, [capture, state.text]);
 
   const toggleItem = useCallback((itemId: string) => dispatch({ type: 'toggleItem', itemId }), []);
