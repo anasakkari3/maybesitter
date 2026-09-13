@@ -1,8 +1,14 @@
 # S2 checkpoint — code reconciled, not code complete
 
 - **Date:** 2026-09-13
-- **SHA:** `541dcefedd43d7aa32c564da777709b505b06088`
 - **Tag:** `checkpoint/s2-reconciled`
+- **Code verified at:** `541dcefedd43d7aa32c564da777709b505b06088`
+- **Tagged SHA:** the commit that adds this document. The only difference between
+  the two is this file and the line you are reading — no source, no test, no
+  configuration. The gates below were re-run on the tagged SHA as well, and the
+  numbers were identical; both runs are recorded because a checkpoint that
+  quietly tags a different tree than it verified is the sort of claim this
+  document exists to make impossible.
 - **Verdict:** **S2 CLOSURE INCOMPLETE** — deliberately, and the tag name says so.
 
 The tag is not called `s2-code-complete` because S2's code is not complete, and a
