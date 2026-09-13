@@ -123,7 +123,30 @@ export async function listMemory(
 ): Promise<MemoryDto[]> {
   requireUserId(uid);
   const records = await storeOf(options).retrieve({ scopeId: uid, now });
-  return records.map(memoryToDto);
+  // Re-sorted, because the store's order is not stable enough here.
+  //
+  // `retrieve` breaks ties on the record id, which is a random uuid. The
+  // routine facts a survey writes all share one `observedAt` and one
+  // `createdAt` — they were one save — so their order came out different on
+  // every read. On the screen whose whole job is "here is what we know about
+  // you", rows reshuffling on each pull-to-refresh reads as the app being
+  // unsure of itself.
+  //
+  // Content is the last meaningful tiebreak: stable, visible to the user, and
+  // it groups a routine answer next to its siblings. Code points, never
+  // `localeCompare`, so the order cannot shift with the server's locale.
+  return records.map(memoryToDto).sort((a, b) => (
+    Date.parse(b.observedAt) - Date.parse(a.observedAt)
+    || Date.parse(b.createdAt) - Date.parse(a.createdAt)
+    || compareByCodePoint(a.content, b.content)
+    || compareByCodePoint(a.id, b.id)
+  ));
+}
+
+function compareByCodePoint(left: string, right: string): number {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
 }
 
 export interface CreateManualMemoryInput {
