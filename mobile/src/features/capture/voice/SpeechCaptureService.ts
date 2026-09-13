@@ -20,6 +20,16 @@ export type SpeechStatus =
   | 'listening'
   | 'reviewingTranscript'
   | 'permissionDenied'
+  /**
+   * The recogniser works, but not in this language (UC-2.3, #163).
+   *
+   * Distinct from `unavailable`, which is "no recogniser here at all". The two
+   * need different words: one is a device without dictation, the other is a
+   * device that will happily dictate English at somebody speaking Arabic, and
+   * the second is the one where offering the button anyway would be worse than
+   * hiding it.
+   */
+  | 'localeUnavailable'
   | 'unavailable'
   | 'failed';
 

@@ -9,6 +9,8 @@ import { fill } from '../i18n/strings';
 import { family } from '../theme/fonts';
 import { cardShadow } from '../theme/tokens';
 import { VoiceButton } from '../features/capture/voice/VoiceButton';
+import { createSpeechCaptureService, SpeechEventBridge } from '../features/capture/voice/speechService';
+import { speechLanguageForTag } from '../features/capture/voice/speechLocale';
 import { Btn, FlowHeader, Pill, Txt } from '../ui/primitives';
 import { ProcessingDots, ScreenIn } from '../ui/motion';
 
@@ -35,9 +37,12 @@ import { ProcessingDots, ScreenIn } from '../ui/motion';
  * first, because a mis-tap should not be able to destroy it silently.
  */
 export function CaptureScreen() {
-  const { t, p, ar, actions } = useApp();
+  const { t, p, ar, lang, actions } = useApp();
   const flow = useCaptureFlow();
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
+  // One per mount of the composer. Rebuilding it on every render would drop the
+  // recogniser's listeners under somebody mid-sentence.
+  const [speech] = useState(() => createSpeechCaptureService(() => speechLanguageForTag(lang)));
   const strings = t as unknown as Record<string, string>;
   const { state } = flow;
 
@@ -57,6 +62,9 @@ export function CaptureScreen() {
 
   return (
     <ScreenIn style={{ backgroundColor: p.bg }}>
+      {/* Renders nothing; it gives the recogniser's hooks a component to live
+          in so the service can stay a plain object (UC-2.3, #163). */}
+      <SpeechEventBridge />
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <FlowHeader pill={t.cancel} onPill={requestClose} title={t.captureTitle} />
         <ScrollView
@@ -148,6 +156,7 @@ export function CaptureScreen() {
                     A transcript lands in the field and is never submitted for
                     the user. */}
                 <VoiceButton
+                  service={speech}
                   autoFocus={state.inputMode === 'voice'}
                   onPartial={flow.setText}
                   onFinal={flow.setText}

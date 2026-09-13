@@ -286,6 +286,22 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     // React Native Firebase's iOS SDK needs static frameworks under Expo's
     // prebuild; without this the pods link dynamically and the app crashes on
     // launch. The deployment target follows the Firebase Apple SDK's minimum.
+    /*
+     * On-device dictation (UC-2.3, #163).
+     *
+     * The plugin adds `RECORD_AUDIO` and the Android `<queries>` entry a
+     * `RecognitionService` needs to be discoverable at all. Both permission
+     * strings say what actually happens: the device turns speech into text, and
+     * MaybeSitter is handed the text. It never receives the audio, and saying so
+     * in the prompt is the only place most people will ever read it.
+     */
+    ['expo-speech-recognition', {
+      microphonePermission:
+        'MaybeSitter uses the microphone only while you hold the mic button to dictate a reminder.',
+      speechRecognitionPermission:
+        'Your device turns your speech into text. MaybeSitter never receives the audio.',
+      androidSpeechServicePackages: ['com.google.android.googlequicksearchbox', 'com.google.android.as'],
+    }],
     // The date and time pickers on the capture review sheet (UC-2.4, #164).
     // A config plugin rather than autolinking alone, because the Android side
     // needs its own theme resources merged into the manifest.
