@@ -15,11 +15,35 @@ export interface CaptureProposalItemContract {
   needsClarification: boolean;
 }
 
+/**
+ * Why a capture produced nothing (UC-2.6, #166).
+ *
+ * Present only on a `no_commitment` proposal, and used for one thing: choosing
+ * which single neutral line the client shows. It carries no content — a reason
+ * code, not a reading of what the person wrote — and the client maps it to fixed
+ * copy rather than composing a sentence about it.
+ *
+ * `informational`, `greeting_or_chat`, `question` and `past_event` describe what
+ * kind of message arrived. `negated_request` is someone asking not to be
+ * reminded, which used to be answered with HTTP 400 — an error, for a request
+ * the product understood perfectly and was right to refuse. `low_confidence` is
+ * the extractor not having read enough to propose anything.
+ */
+export type NoCommitmentReason =
+  | 'informational'
+  | 'greeting_or_chat'
+  | 'question'
+  | 'past_event'
+  | 'negated_request'
+  | 'low_confidence';
+
 /** A proposal cannot claim or imply persistence. */
 export interface CaptureProposalContract {
   version: typeof CAPTURE_CONTRACT_VERSION;
   proposalId: string;
   status: CaptureProposalStatus;
+  /** Set only when `status` is `no_commitment`. */
+  noCommitmentReason?: NoCommitmentReason;
   items: CaptureProposalItemContract[];
   provenance: {
     requestedEngine: 'model' | 'rules';

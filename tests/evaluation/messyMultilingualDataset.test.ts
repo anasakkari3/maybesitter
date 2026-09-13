@@ -124,6 +124,7 @@ test('the recorded rule-based baseline is the one the thresholds were set agains
     timeExactMatchPercent: number;
     titleKeywordMatchPercent: number;
     perLanguage: Record<string, { passRatePercent: number }>;
+    perSlice: Record<string, { passRatePercent: number }>;
     errorsByTaxonomy: Record<string, number>;
   };
 
@@ -136,12 +137,20 @@ test('the recorded rule-based baseline is the one the thresholds were set agains
   assert.equal(report.errorsByTaxonomy.invented_time_failure, 0);
 
   // A regression guard, not a target. If the rule-based engine gets worse, the
-  // bar the model is compared against would quietly drop with it.
+  // bar the model is compared against would quietly drop with it. Raised after
+  // UC-2.6 (#166) fixed the create-nothing classification, so the floors reflect
+  // what the engine actually does now rather than what it did before.
   assert.ok(report.typeAccuracyPercent >= 95, `type accuracy regressed to ${report.typeAccuracyPercent}%`);
   assert.ok(report.timeExactMatchPercent >= 70, `time match regressed to ${report.timeExactMatchPercent}%`);
   assert.ok(report.titleKeywordMatchPercent >= 95, `title keywords regressed to ${report.titleKeywordMatchPercent}%`);
-  assert.ok(report.perLanguage.ar.passRatePercent >= 70, `ar regressed to ${report.perLanguage.ar.passRatePercent}%`);
-  assert.ok(report.perLanguage.en.passRatePercent >= 78, `en regressed to ${report.perLanguage.en.passRatePercent}%`);
+  assert.ok(report.perLanguage.ar.passRatePercent >= 85, `ar regressed to ${report.perLanguage.ar.passRatePercent}%`);
+  assert.ok(report.perLanguage.en.passRatePercent >= 95, `en regressed to ${report.perLanguage.en.passRatePercent}%`);
+
+  // #166's invariant, measured on the committed baseline rather than asserted in
+  // the abstract: the rule-based engine — which is the engine whenever AI
+  // consent has not been granted — creates nothing for all 40 safety cases.
+  assert.equal(report.perSlice.safety_negative.passRatePercent, 100, 'a safety case regressed');
+  assert.equal(report.errorsByTaxonomy.creates_something_failure, 0, 'something was created for a message that asked for nothing');
 });
 
 test('the messy-v1 thresholds are above the rule-based baseline where it counts', async () => {

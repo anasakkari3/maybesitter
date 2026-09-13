@@ -3,13 +3,16 @@ import { extractWithFallback, type ExtractAndMapOptions } from '../../../src/ext
 import { decideExtractionDisposition } from '../../../src/extraction/extractionPolicy';
 import { mapExtractionToCommand } from '../../../src/extraction/mapExtractionToCommand';
 import { countTimeExpressions } from '../../../src/extraction/ruleBasedExtractor';
+import { classifyMessageKind } from '../../../src/extraction/messageKind';
 import type { ExtractionContext, ExtractionResult } from '../../../src/extraction/extractionTypes';
 import { resolveModuleRuntime, type AuditEventEnvelope, createAuditEvent, type RuntimeControlSnapshot } from '../../../src/contracts/v1/runtimeControls';
 import {
   CAPTURE_CONTRACT_VERSION,
   type CaptureConfirmationResultContract,
   type CaptureProposalContract,
+  type NoCommitmentReason,
 } from '../../../src/contracts/v1/captureContracts';
+import { NegatedRequestError } from '../mobile/safety';
 import type { Command } from '../../../src/domain/stateMachine';
 import type { CapturePersistenceAdapter } from './persistenceAdapter';
 import type { CaptureProposalStore, StoredCaptureProposal } from './proposalStore';
@@ -91,14 +94,60 @@ function splitInput(raw: string): string[] {
   return segments.length > 0 ? segments : [raw];
 }
 
+/**
+ * Why this segment produced nothing, or why it is being refused (UC-2.6, #166).
+ *
+ * `no_commitment` is not a failure. It means the message asked for nothing, and
+ * the right answer is to say so and create nothing — which is a different thing
+ * from `rejected`, and used to be flattened into it.
+ *
+ * `store_note` is included here because a capture the policy would only file as
+ * a note is, from the user's side, a capture that created no commitment. Leaving
+ * it out was Gap A: a low-confidence greeting became a proposed item with the
+ * greeting as its title.
+ *
+ * An injection and a past time stay `rejected`. Those are unsafe rather than
+ * empty, and telling somebody "nothing to save here" about a prompt injection
+ * would be the wrong answer to the wrong question.
+ */
 function semanticFailure(result: ExtractionResult, now: Date): string | null {
   if (result.type === 'unknown' || result.type === 'informational_context') return 'no_commitment';
+  // Gap A: the disposition policy would only file this as a note, so there is no
+  // commitment in it however confident the extractor was about the sentence.
+  if (decideExtractionDisposition(result) === 'store_note') return 'no_commitment';
   const title = (result.title || result.action || '').trim();
   if (title.length < 3) return 'missing_title';
   if (INJECTION.test(result.rawText)) return 'prompt_injection';
   const resolved = result.remindAt || result.dueAt;
   if (resolved && Date.parse(resolved) < now.getTime()) return 'past_time';
   return null;
+}
+
+/**
+ * The reason code a no-commitment proposal carries.
+ *
+ * Taken from `classifyMessageKind` on the same text the extractor read, rather
+ * than re-derived from the ambiguity flags. The flags cannot carry this: a
+ * question and a greeting both arrive with `no_action_verb`, so deriving from
+ * them told somebody who asked «شو الطقس بكرا؟» that their question was small
+ * talk.
+ *
+ * The flags are still the fallback, for the cases the classifier calls a request
+ * and the extractor then declined for its own reasons — a real ask it could not
+ * read well enough to propose anything for. `low_confidence` is the honest answer
+ * there.
+ */
+function noCommitmentReasonFrom(
+  segment: string,
+  result: ExtractionResult,
+  fallbackReason: string | null,
+): NoCommitmentReason {
+  const kind = classifyMessageKind(segment);
+  if (kind !== 'request') return kind;
+  if (result.ambiguityFlags.includes('negated_request')) return 'negated_request';
+  if (fallbackReason?.startsWith('semantic_safety:past_no_action')) return 'past_event';
+  if (result.ambiguityFlags.includes('informational_without_action')) return 'informational';
+  return 'low_confidence';
 }
 
 function auditEvent(outcome: 'succeeded' | 'rejected' | 'failed' | 'fell_back', raw: string, now: Date, reasonCode?: string, itemCount?: number): AuditEventEnvelope {
@@ -131,6 +180,10 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   let executedEngine: CaptureProposalContract['provenance']['executedEngine'] = 'rule-based';
   let fallbackUsed = forceRules;
   let rejected = !raw;
+  // The reason the first empty segment gave, so a no-commitment proposal can say
+  // which kind of message this was (#166). First rather than last: the opening of
+  // a message is what it is about.
+  let noCommitmentReason: NoCommitmentReason | null = null;
 
   const segments = raw ? splitInput(raw) : [];
   for (let index = 0; index < segments.length; index += 1) {
@@ -151,7 +204,10 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       executedEngine = extracted.engine;
       fallbackUsed ||= Boolean(extracted.fallbackReason);
       const failure = semanticFailure(extracted.result, options.now);
-      if (failure === 'no_commitment') continue;
+      if (failure === 'no_commitment') {
+        noCommitmentReason ??= noCommitmentReasonFrom(segment, extracted.result, extracted.fallbackReason);
+        continue;
+      }
       if (failure) {
         rejected = true;
         continue;
@@ -166,7 +222,13 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
         needsClarification,
       });
       commandsByItemId.set(itemId, needsClarification ? [] : mapExtractionToCommand(extracted.result, options.now.toISOString()));
-    } catch {
+    } catch (error) {
+      // Gap B: a negated request is understood, not malformed. It produces no
+      // commitment and says so, rather than an error the user has to interpret.
+      if (error instanceof NegatedRequestError) {
+        noCommitmentReason ??= 'negated_request';
+        continue;
+      }
       rejected = true;
     }
   }
@@ -205,6 +267,9 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
     version: CAPTURE_CONTRACT_VERSION,
     proposalId,
     status,
+    // Only on a no-commitment proposal. A `rejected` one is refusing something
+    // unsafe, and a reason code there would invite the client to explain it.
+    ...(status === 'no_commitment' ? { noCommitmentReason: noCommitmentReason ?? 'low_confidence' } : {}),
     items,
     provenance: { requestedEngine, executedEngine, fallbackUsed },
   };

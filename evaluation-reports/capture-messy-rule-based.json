@@ -4,7 +4,7 @@
   "engine": "rule-based",
   "totalCases": 165,
   "overallPassed": false,
-  "overallPassRatePercent": 59.39,
+  "overallPassRatePercent": 75.76,
   "medianLatencyMs": 3,
   "p95LatencyMs": 4,
   "perSlice": {
@@ -42,84 +42,84 @@
     },
     "safety_negative": {
       "total": 40,
-      "passed": 13,
-      "passRatePercent": 32.5,
+      "passed": 40,
+      "passRatePercent": 100,
       "errorsByTaxonomy": {
         "prompt_injection_failure": 0,
         "invented_time_failure": 0,
         "schema_validation_failure": 0,
-        "exact_match_failure": 27,
+        "exact_match_failure": 0,
         "fallback_trigger_failure": 0,
         "type_failure": 0,
         "time_match_failure": 0,
         "title_keyword_failure": 0,
-        "creates_something_failure": 27
+        "creates_something_failure": 0
       }
     }
   },
   "perLanguage": {
     "ar": {
       "total": 54,
-      "passed": 39,
-      "passRatePercent": 72.22,
+      "passed": 48,
+      "passRatePercent": 88.89,
       "errorsByTaxonomy": {
         "prompt_injection_failure": 0,
         "invented_time_failure": 0,
         "schema_validation_failure": 0,
-        "exact_match_failure": 15,
+        "exact_match_failure": 6,
         "fallback_trigger_failure": 0,
         "type_failure": 0,
         "time_match_failure": 5,
         "title_keyword_failure": 1,
-        "creates_something_failure": 9
+        "creates_something_failure": 0
       }
     },
     "he": {
       "total": 41,
-      "passed": 6,
-      "passRatePercent": 14.63,
+      "passed": 13,
+      "passRatePercent": 31.71,
       "errorsByTaxonomy": {
         "prompt_injection_failure": 0,
         "invented_time_failure": 0,
         "schema_validation_failure": 0,
-        "exact_match_failure": 35,
+        "exact_match_failure": 28,
         "fallback_trigger_failure": 0,
         "type_failure": 0,
         "time_match_failure": 28,
         "title_keyword_failure": 0,
-        "creates_something_failure": 7
+        "creates_something_failure": 0
       }
     },
     "en": {
       "total": 42,
-      "passed": 34,
-      "passRatePercent": 80.95,
+      "passed": 41,
+      "passRatePercent": 97.62,
       "errorsByTaxonomy": {
         "prompt_injection_failure": 0,
         "invented_time_failure": 0,
         "schema_validation_failure": 0,
-        "exact_match_failure": 8,
+        "exact_match_failure": 1,
         "fallback_trigger_failure": 0,
         "type_failure": 0,
         "time_match_failure": 1,
         "title_keyword_failure": 0,
-        "creates_something_failure": 7
+        "creates_something_failure": 0
       }
     },
     "mixed": {
       "total": 28,
-      "passed": 19,
-      "passRatePercent": 67.86,
+      "passed": 23,
+      "passRatePercent": 82.14,
       "errorsByTaxonomy": {
         "prompt_injection_failure": 0,
         "invented_time_failure": 0,
         "schema_validation_failure": 0,
-        "exact_match_failure": 9,
+        "exact_match_failure": 5,
         "fallback_trigger_failure": 0,
         "type_failure": 0,
         "time_match_failure": 5,
         "title_keyword_failure": 0,
-        "creates_something_failure": 4
+        "creates_something_failure": 0
       }
     }
   },
@@ -127,12 +127,12 @@
     "prompt_injection_failure": 0,
     "invented_time_failure": 0,
     "schema_validation_failure": 0,
-    "exact_match_failure": 67,
+    "exact_match_failure": 40,
     "fallback_trigger_failure": 0,
     "type_failure": 0,
     "time_match_failure": 39,
     "title_keyword_failure": 1,
-    "creates_something_failure": 27
+    "creates_something_failure": 0
   },
   "typeAccuracyPercent": 100,
   "timeExactMatchPercent": 72.41,
@@ -152,7 +152,7 @@
     "maxCreatesSomethingFailures": 0
   },
   "thresholdResults": {
-    "safetyNegativePassed": false,
+    "safetyNegativePassed": true,
     "goldPassed": true,
     "noPromptInjectionFailuresPassed": true,
     "noInventedTimeFailuresPassed": true,
@@ -162,7 +162,7 @@
     "timeExactMatchPassed": false,
     "titleKeywordMatchPassed": true,
     "p95LatencyPassed": true,
-    "createsNothingPassed": false
+    "createsNothingPassed": true
   },
   "caseResults": [
     {
@@ -304,7 +304,7 @@
       "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 2,
+      "latencyMs": 4,
       "taxonomyErrors": [],
       "mismatches": [],
       "rawResult": {
@@ -347,7 +347,7 @@
       "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 4,
+      "latencyMs": 3,
       "taxonomyErrors": [],
       "mismatches": [],
       "rawResult": {
@@ -394,7 +394,7 @@
       "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 3,
+      "latencyMs": 2,
       "taxonomyErrors": [],
       "mismatches": [],
       "rawResult": {
@@ -437,7 +437,7 @@
       "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 3,
+      "latencyMs": 4,
       "taxonomyErrors": [],
       "mismatches": [],
       "rawResult": {
@@ -523,7 +523,7 @@
       "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 2,
+      "latencyMs": 3,
       "taxonomyErrors": [],
       "mismatches": [],
       "rawResult": {
@@ -888,7 +888,7 @@
       "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 3,
+      "latencyMs": 2,
       "taxonomyErrors": [],
       "mismatches": [],
       "rawResult": {
@@ -1064,7 +1064,7 @@
       "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 3,
+      "latencyMs": 1,
       "taxonomyErrors": [],
       "mismatches": [],
       "rawResult": {
@@ -1193,7 +1193,7 @@
       "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 6,
+      "latencyMs": 3,
       "taxonomyErrors": [],
       "mismatches": [],
       "rawResult": {
@@ -1412,7 +1412,7 @@
       "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 2,
+      "latencyMs": 3,
       "taxonomyErrors": [],
       "mismatches": [],
       "rawResult": {
@@ -1651,7 +1651,7 @@
       "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 3,
+      "latencyMs": 2,
       "taxonomyErrors": [],
       "mismatches": [],
       "rawResult": {
@@ -1917,7 +1917,7 @@
       "passed": false,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 3,
+      "latencyMs": 4,
       "taxonomyErrors": [
         "time_match_failure",
         "exact_match_failure"
@@ -1969,7 +1969,7 @@
       "passed": false,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 1,
+      "latencyMs": 3,
       "taxonomyErrors": [
         "time_match_failure",
         "exact_match_failure"
@@ -2666,7 +2666,7 @@
       "passed": false,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 2,
+      "latencyMs": 3,
       "taxonomyErrors": [
         "time_match_failure",
         "exact_match_failure"
@@ -2984,7 +2984,7 @@
       "passed": false,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 3,
+      "latencyMs": 2,
       "taxonomyErrors": [
         "time_match_failure",
         "exact_match_failure"
@@ -3145,7 +3145,7 @@
       "passed": false,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 1,
+      "latencyMs": 3,
       "taxonomyErrors": [
         "time_match_failure",
         "exact_match_failure"
@@ -3873,7 +3873,7 @@
       "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 3,
+      "latencyMs": 2,
       "taxonomyErrors": [],
       "mismatches": [],
       "rawResult": {
@@ -3916,7 +3916,7 @@
       "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 2,
+      "latencyMs": 4,
       "taxonomyErrors": [],
       "mismatches": [],
       "rawResult": {
@@ -4268,7 +4268,7 @@
       "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 3,
+      "latencyMs": 6,
       "taxonomyErrors": [],
       "mismatches": [],
       "rawResult": {
@@ -4397,7 +4397,7 @@
       "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 2,
+      "latencyMs": 3,
       "taxonomyErrors": [],
       "mismatches": [],
       "rawResult": {
@@ -4440,7 +4440,7 @@
       "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 8,
+      "latencyMs": 3,
       "taxonomyErrors": [],
       "mismatches": [],
       "rawResult": {
@@ -4530,7 +4530,7 @@
       "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 3,
+      "latencyMs": 4,
       "taxonomyErrors": [],
       "mismatches": [],
       "rawResult": {
@@ -4616,7 +4616,7 @@
       "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 3,
+      "latencyMs": 4,
       "taxonomyErrors": [],
       "mismatches": [],
       "rawResult": {
@@ -5439,7 +5439,7 @@
       "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 3,
+      "latencyMs": 4,
       "taxonomyErrors": [],
       "mismatches": [],
       "rawResult": {
@@ -5805,7 +5805,7 @@
       "passed": false,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 4,
+      "latencyMs": 3,
       "taxonomyErrors": [
         "time_match_failure",
         "exact_match_failure"
@@ -5857,7 +5857,7 @@
       "passed": false,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 4,
+      "latencyMs": 3,
       "taxonomyErrors": [
         "time_match_failure",
         "exact_match_failure"
@@ -5909,7 +5909,7 @@
       "passed": false,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 4,
+      "latencyMs": 3,
       "taxonomyErrors": [
         "time_match_failure",
         "exact_match_failure"
@@ -6144,52 +6144,40 @@
     {
       "id": "safety-ar-003",
       "slice": "safety_negative",
-      "passed": false,
+      "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 6,
-      "taxonomyErrors": [
-        "creates_something_failure",
-        "exact_match_failure"
-      ],
-      "mismatches": [
-        {
-          "field": "createsNothing",
-          "expected": true,
-          "actual": {
-            "type": "task",
-            "resolvedTime": null
-          }
-        }
-      ],
+      "latencyMs": 3,
+      "taxonomyErrors": [],
+      "mismatches": [],
       "rawResult": {
-        "type": "task",
-        "action": "الخير",
-        "title": "الخير",
+        "type": "informational_context",
+        "action": null,
+        "title": null,
         "person": null,
         "dueAt": null,
         "remindAt": null,
         "localTimeSpec": null,
-        "timeEvidence": "daypart",
+        "timeEvidence": "none",
         "priority": {
           "level": "normal",
           "source": "default",
           "pressureAllowed": false,
           "pressureImplied": false
         },
-        "flexibility": "movable",
+        "flexibility": "soft",
         "confidence": {
-          "overall": 0.62,
-          "type": 0.62,
-          "action": 0.82,
+          "overall": 0.95,
+          "type": 0.95,
+          "action": 0.1,
           "time": 0.1,
           "priority": 0.8
         },
         "missingFields": [
-          "time"
+          "action"
         ],
         "ambiguityFlags": [
-          "vague_time"
+          "no_action_verb"
         ],
         "explicitReminderRequest": false,
         "explicitPressureRequest": false,
@@ -6199,28 +6187,16 @@
     {
       "id": "safety-ar-004",
       "slice": "safety_negative",
-      "passed": false,
+      "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 4,
-      "taxonomyErrors": [
-        "creates_something_failure",
-        "exact_match_failure"
-      ],
-      "mismatches": [
-        {
-          "field": "createsNothing",
-          "expected": true,
-          "actual": {
-            "type": "task",
-            "resolvedTime": null
-          }
-        }
-      ],
+      "latencyMs": 3,
+      "taxonomyErrors": [],
+      "mismatches": [],
       "rawResult": {
-        "type": "task",
-        "action": "كيفك شو الأخبار",
-        "title": "كيفك شو الأخبار",
+        "type": "informational_context",
+        "action": null,
+        "title": null,
         "person": null,
         "dueAt": null,
         "remindAt": null,
@@ -6232,19 +6208,19 @@
           "pressureAllowed": false,
           "pressureImplied": false
         },
-        "flexibility": "movable",
+        "flexibility": "soft",
         "confidence": {
-          "overall": 0.62,
-          "type": 0.62,
-          "action": 0.82,
+          "overall": 0.95,
+          "type": 0.95,
+          "action": 0.1,
           "time": 0.1,
           "priority": 0.8
         },
         "missingFields": [
-          "time"
+          "action"
         ],
         "ambiguityFlags": [
-          "vague_time"
+          "no_action_verb"
         ],
         "explicitReminderRequest": false,
         "explicitPressureRequest": false,
@@ -6254,56 +6230,40 @@
     {
       "id": "safety-ar-005",
       "slice": "safety_negative",
-      "passed": false,
+      "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 4,
-      "taxonomyErrors": [
-        "creates_something_failure",
-        "exact_match_failure"
-      ],
-      "mismatches": [
-        {
-          "field": "createsNothing",
-          "expected": true,
-          "actual": {
-            "type": "task",
-            "resolvedTime": null
-          }
-        }
-      ],
+      "latencyMs": 3,
+      "taxonomyErrors": [],
+      "mismatches": [],
       "rawResult": {
-        "type": "task",
-        "action": "كان يوم طويل وتعبان",
-        "title": "كان يوم طويل وتعبان",
+        "type": "informational_context",
+        "action": null,
+        "title": null,
         "person": null,
         "dueAt": null,
         "remindAt": null,
-        "localTimeSpec": {
-          "date": "2026-09-14",
-          "time": null,
-          "timezone": "Asia/Jerusalem"
-        },
-        "timeEvidence": "day_only",
+        "localTimeSpec": null,
+        "timeEvidence": "none",
         "priority": {
           "level": "normal",
           "source": "default",
           "pressureAllowed": false,
           "pressureImplied": false
         },
-        "flexibility": "movable",
+        "flexibility": "soft",
         "confidence": {
-          "overall": 0.62,
-          "type": 0.62,
-          "action": 0.82,
+          "overall": 0.95,
+          "type": 0.95,
+          "action": 0.1,
           "time": 0.1,
           "priority": 0.8
         },
         "missingFields": [
-          "time"
+          "action"
         ],
         "ambiguityFlags": [
-          "vague_time"
+          "informational_without_action"
         ],
         "explicitReminderRequest": false,
         "explicitPressureRequest": false,
@@ -6313,56 +6273,40 @@
     {
       "id": "safety-ar-006",
       "slice": "safety_negative",
-      "passed": false,
+      "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 4,
-      "taxonomyErrors": [
-        "creates_something_failure",
-        "exact_match_failure"
-      ],
-      "mismatches": [
-        {
-          "field": "createsNothing",
-          "expected": true,
-          "actual": {
-            "type": "task",
-            "resolvedTime": null
-          }
-        }
-      ],
+      "latencyMs": 3,
+      "taxonomyErrors": [],
+      "mismatches": [],
       "rawResult": {
-        "type": "task",
-        "action": "حسّيت بضغط من الشغل",
-        "title": "حسّيت بضغط من الشغل",
+        "type": "informational_context",
+        "action": null,
+        "title": null,
         "person": null,
         "dueAt": null,
         "remindAt": null,
-        "localTimeSpec": {
-          "date": "2026-09-14",
-          "time": null,
-          "timezone": "Asia/Jerusalem"
-        },
-        "timeEvidence": "day_only",
+        "localTimeSpec": null,
+        "timeEvidence": "none",
         "priority": {
           "level": "normal",
           "source": "default",
           "pressureAllowed": false,
           "pressureImplied": false
         },
-        "flexibility": "movable",
+        "flexibility": "soft",
         "confidence": {
-          "overall": 0.62,
-          "type": 0.62,
-          "action": 0.82,
+          "overall": 0.95,
+          "type": 0.95,
+          "action": 0.1,
           "time": 0.1,
           "priority": 0.8
         },
         "missingFields": [
-          "time"
+          "action"
         ],
         "ambiguityFlags": [
-          "vague_time"
+          "informational_without_action"
         ],
         "explicitReminderRequest": false,
         "explicitPressureRequest": false,
@@ -6372,56 +6316,40 @@
     {
       "id": "safety-ar-007",
       "slice": "safety_negative",
-      "passed": false,
+      "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
       "latencyMs": 3,
-      "taxonomyErrors": [
-        "creates_something_failure",
-        "exact_match_failure"
-      ],
-      "mismatches": [
-        {
-          "field": "createsNothing",
-          "expected": true,
-          "actual": {
-            "type": "task",
-            "resolvedTime": null
-          }
-        }
-      ],
+      "taxonomyErrors": [],
+      "mismatches": [],
       "rawResult": {
-        "type": "task",
-        "action": "شو الطقس ؟",
-        "title": "شو الطقس ؟",
+        "type": "informational_context",
+        "action": null,
+        "title": null,
         "person": null,
         "dueAt": null,
         "remindAt": null,
-        "localTimeSpec": {
-          "date": "2026-09-15",
-          "time": null,
-          "timezone": "Asia/Jerusalem"
-        },
-        "timeEvidence": "day_only",
+        "localTimeSpec": null,
+        "timeEvidence": "none",
         "priority": {
           "level": "normal",
           "source": "default",
           "pressureAllowed": false,
           "pressureImplied": false
         },
-        "flexibility": "movable",
+        "flexibility": "soft",
         "confidence": {
-          "overall": 0.62,
-          "type": 0.62,
-          "action": 0.82,
+          "overall": 0.95,
+          "type": 0.95,
+          "action": 0.1,
           "time": 0.1,
           "priority": 0.8
         },
         "missingFields": [
-          "time"
+          "action"
         ],
         "ambiguityFlags": [
-          "vague_time"
+          "no_action_verb"
         ],
         "explicitReminderRequest": false,
         "explicitPressureRequest": false,
@@ -6431,28 +6359,16 @@
     {
       "id": "safety-ar-008",
       "slice": "safety_negative",
-      "passed": false,
+      "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
       "latencyMs": 3,
-      "taxonomyErrors": [
-        "creates_something_failure",
-        "exact_match_failure"
-      ],
-      "mismatches": [
-        {
-          "field": "createsNothing",
-          "expected": true,
-          "actual": {
-            "type": "task",
-            "resolvedTime": null
-          }
-        }
-      ],
+      "taxonomyErrors": [],
+      "mismatches": [],
       "rawResult": {
-        "type": "task",
-        "action": "كيف أستخدم التطبيق؟",
-        "title": "كيف أستخدم التطبيق؟",
+        "type": "informational_context",
+        "action": null,
+        "title": null,
         "person": null,
         "dueAt": null,
         "remindAt": null,
@@ -6464,19 +6380,19 @@
           "pressureAllowed": false,
           "pressureImplied": false
         },
-        "flexibility": "movable",
+        "flexibility": "soft",
         "confidence": {
-          "overall": 0.62,
-          "type": 0.62,
-          "action": 0.82,
+          "overall": 0.95,
+          "type": 0.95,
+          "action": 0.1,
           "time": 0.1,
           "priority": 0.8
         },
         "missingFields": [
-          "time"
+          "action"
         ],
         "ambiguityFlags": [
-          "vague_time"
+          "no_action_verb"
         ],
         "explicitReminderRequest": false,
         "explicitPressureRequest": false,
@@ -6486,87 +6402,16 @@
     {
       "id": "safety-ar-009",
       "slice": "safety_negative",
-      "passed": false,
+      "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
       "latencyMs": 3,
-      "taxonomyErrors": [
-        "creates_something_failure",
-        "exact_match_failure"
-      ],
-      "mismatches": [
-        {
-          "field": "createsNothing",
-          "expected": true,
-          "actual": {
-            "type": "task",
-            "resolvedTime": null
-          }
-        }
-      ],
+      "taxonomyErrors": [],
+      "mismatches": [],
       "rawResult": {
-        "type": "task",
-        "action": "لا تذكرني بالجيم بعد",
-        "title": "لا تذكرني بالجيم بعد",
-        "person": null,
-        "dueAt": null,
-        "remindAt": null,
-        "localTimeSpec": {
-          "date": "2026-09-14",
-          "time": null,
-          "timezone": "Asia/Jerusalem"
-        },
-        "timeEvidence": "day_only",
-        "priority": {
-          "level": "normal",
-          "source": "default",
-          "pressureAllowed": false,
-          "pressureImplied": false
-        },
-        "flexibility": "movable",
-        "confidence": {
-          "overall": 0.62,
-          "type": 0.62,
-          "action": 0.82,
-          "time": 0.1,
-          "priority": 0.8
-        },
-        "missingFields": [
-          "time"
-        ],
-        "ambiguityFlags": [
-          "vague_time"
-        ],
-        "explicitReminderRequest": true,
-        "explicitPressureRequest": false,
-        "parserVersion": "rule-v1-core"
-      }
-    },
-    {
-      "id": "safety-ar-010",
-      "slice": "safety_negative",
-      "passed": false,
-      "engineUsed": "rule-based",
-      "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 3,
-      "taxonomyErrors": [
-        "creates_something_failure",
-        "exact_match_failure"
-      ],
-      "mismatches": [
-        {
-          "field": "createsNothing",
-          "expected": true,
-          "actual": {
-            "type": "task",
-            "resolvedTime": null
-          }
-        }
-      ],
-      "rawResult": {
-        "type": "task",
-        "action": "مش بدي تذكير عن الفاتورة",
-        "title": "مش بدي تذكير عن الفاتورة",
+        "type": "unknown",
+        "action": null,
+        "title": null,
         "person": null,
         "dueAt": null,
         "remindAt": null,
@@ -6578,19 +6423,62 @@
           "pressureAllowed": false,
           "pressureImplied": false
         },
-        "flexibility": "movable",
+        "flexibility": "soft",
         "confidence": {
-          "overall": 0.62,
-          "type": 0.62,
-          "action": 0.82,
+          "overall": 0.55,
+          "type": 0.95,
+          "action": 0.1,
           "time": 0.1,
           "priority": 0.8
         },
         "missingFields": [
-          "time"
+          "action"
         ],
         "ambiguityFlags": [
-          "vague_time"
+          "negated_request"
+        ],
+        "explicitReminderRequest": false,
+        "explicitPressureRequest": false,
+        "parserVersion": "rule-v1-core"
+      }
+    },
+    {
+      "id": "safety-ar-010",
+      "slice": "safety_negative",
+      "passed": true,
+      "engineUsed": "rule-based",
+      "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
+      "latencyMs": 3,
+      "taxonomyErrors": [],
+      "mismatches": [],
+      "rawResult": {
+        "type": "unknown",
+        "action": null,
+        "title": null,
+        "person": null,
+        "dueAt": null,
+        "remindAt": null,
+        "localTimeSpec": null,
+        "timeEvidence": "none",
+        "priority": {
+          "level": "normal",
+          "source": "default",
+          "pressureAllowed": false,
+          "pressureImplied": false
+        },
+        "flexibility": "soft",
+        "confidence": {
+          "overall": 0.55,
+          "type": 0.95,
+          "action": 0.1,
+          "time": 0.1,
+          "priority": 0.8
+        },
+        "missingFields": [
+          "action"
+        ],
+        "ambiguityFlags": [
+          "negated_request"
         ],
         "explicitReminderRequest": false,
         "explicitPressureRequest": false,
@@ -6609,7 +6497,7 @@
       "rawResult": {
         "type": "informational_context",
         "action": null,
-        "title": "أمي سألتني عن الصور",
+        "title": null,
         "person": null,
         "dueAt": null,
         "remindAt": null,
@@ -6623,15 +6511,14 @@
         },
         "flexibility": "soft",
         "confidence": {
-          "overall": 0.55,
-          "type": 0.55,
+          "overall": 0.95,
+          "type": 0.95,
           "action": 0.1,
           "time": 0.1,
           "priority": 0.8
         },
         "missingFields": [
-          "action",
-          "time"
+          "action"
         ],
         "ambiguityFlags": [
           "informational_without_action"
@@ -6644,28 +6531,16 @@
     {
       "id": "safety-ar-012",
       "slice": "safety_negative",
-      "passed": false,
+      "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 3,
-      "taxonomyErrors": [
-        "creates_something_failure",
-        "exact_match_failure"
-      ],
-      "mismatches": [
-        {
-          "field": "createsNothing",
-          "expected": true,
-          "actual": {
-            "type": "task",
-            "resolvedTime": null
-          }
-        }
-      ],
+      "latencyMs": 2,
+      "taxonomyErrors": [],
+      "mismatches": [],
       "rawResult": {
-        "type": "task",
-        "action": "الأسعار زادت هالشهر",
-        "title": "الأسعار زادت هالشهر",
+        "type": "informational_context",
+        "action": null,
+        "title": null,
         "person": null,
         "dueAt": null,
         "remindAt": null,
@@ -6677,19 +6552,19 @@
           "pressureAllowed": false,
           "pressureImplied": false
         },
-        "flexibility": "movable",
+        "flexibility": "soft",
         "confidence": {
-          "overall": 0.62,
-          "type": 0.62,
-          "action": 0.82,
+          "overall": 0.95,
+          "type": 0.95,
+          "action": 0.1,
           "time": 0.1,
           "priority": 0.8
         },
         "missingFields": [
-          "time"
+          "action"
         ],
         "ambiguityFlags": [
-          "vague_time"
+          "informational_without_action"
         ],
         "explicitReminderRequest": false,
         "explicitPressureRequest": false,
@@ -6742,52 +6617,40 @@
     {
       "id": "safety-he-002",
       "slice": "safety_negative",
-      "passed": false,
+      "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
       "latencyMs": 3,
-      "taxonomyErrors": [
-        "creates_something_failure",
-        "exact_match_failure"
-      ],
-      "mismatches": [
-        {
-          "field": "createsNothing",
-          "expected": true,
-          "actual": {
-            "type": "task",
-            "resolvedTime": null
-          }
-        }
-      ],
+      "taxonomyErrors": [],
+      "mismatches": [],
       "rawResult": {
-        "type": "task",
-        "action": "בוקר טוב",
-        "title": "בוקר טוב",
+        "type": "informational_context",
+        "action": null,
+        "title": null,
         "person": null,
         "dueAt": null,
         "remindAt": null,
         "localTimeSpec": null,
-        "timeEvidence": "daypart",
+        "timeEvidence": "none",
         "priority": {
           "level": "normal",
           "source": "default",
           "pressureAllowed": false,
           "pressureImplied": false
         },
-        "flexibility": "movable",
+        "flexibility": "soft",
         "confidence": {
-          "overall": 0.62,
-          "type": 0.62,
-          "action": 0.82,
+          "overall": 0.95,
+          "type": 0.95,
+          "action": 0.1,
           "time": 0.1,
           "priority": 0.8
         },
         "missingFields": [
-          "time"
+          "action"
         ],
         "ambiguityFlags": [
-          "vague_time"
+          "no_action_verb"
         ],
         "explicitReminderRequest": false,
         "explicitPressureRequest": false,
@@ -6796,336 +6659,6 @@
     },
     {
       "id": "safety-he-003",
-      "slice": "safety_negative",
-      "passed": false,
-      "engineUsed": "rule-based",
-      "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 3,
-      "taxonomyErrors": [
-        "creates_something_failure",
-        "exact_match_failure"
-      ],
-      "mismatches": [
-        {
-          "field": "createsNothing",
-          "expected": true,
-          "actual": {
-            "type": "task",
-            "resolvedTime": null
-          }
-        }
-      ],
-      "rawResult": {
-        "type": "task",
-        "action": "מה קורה",
-        "title": "מה קורה",
-        "person": null,
-        "dueAt": null,
-        "remindAt": null,
-        "localTimeSpec": null,
-        "timeEvidence": "none",
-        "priority": {
-          "level": "normal",
-          "source": "default",
-          "pressureAllowed": false,
-          "pressureImplied": false
-        },
-        "flexibility": "movable",
-        "confidence": {
-          "overall": 0.62,
-          "type": 0.62,
-          "action": 0.82,
-          "time": 0.1,
-          "priority": 0.8
-        },
-        "missingFields": [
-          "time"
-        ],
-        "ambiguityFlags": [
-          "vague_time"
-        ],
-        "explicitReminderRequest": false,
-        "explicitPressureRequest": false,
-        "parserVersion": "rule-v1-core"
-      }
-    },
-    {
-      "id": "safety-he-004",
-      "slice": "safety_negative",
-      "passed": false,
-      "engineUsed": "rule-based",
-      "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 3,
-      "taxonomyErrors": [
-        "creates_something_failure",
-        "exact_match_failure"
-      ],
-      "mismatches": [
-        {
-          "field": "createsNothing",
-          "expected": true,
-          "actual": {
-            "type": "task",
-            "resolvedTime": null
-          }
-        }
-      ],
-      "rawResult": {
-        "type": "task",
-        "action": "היה לי יום ארוך",
-        "title": "היה לי יום ארוך",
-        "person": null,
-        "dueAt": null,
-        "remindAt": null,
-        "localTimeSpec": null,
-        "timeEvidence": "none",
-        "priority": {
-          "level": "normal",
-          "source": "default",
-          "pressureAllowed": false,
-          "pressureImplied": false
-        },
-        "flexibility": "movable",
-        "confidence": {
-          "overall": 0.62,
-          "type": 0.62,
-          "action": 0.82,
-          "time": 0.1,
-          "priority": 0.8
-        },
-        "missingFields": [
-          "time"
-        ],
-        "ambiguityFlags": [
-          "vague_time"
-        ],
-        "explicitReminderRequest": false,
-        "explicitPressureRequest": false,
-        "parserVersion": "rule-v1-core"
-      }
-    },
-    {
-      "id": "safety-he-005",
-      "slice": "safety_negative",
-      "passed": false,
-      "engineUsed": "rule-based",
-      "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 3,
-      "taxonomyErrors": [
-        "creates_something_failure",
-        "exact_match_failure"
-      ],
-      "mismatches": [
-        {
-          "field": "createsNothing",
-          "expected": true,
-          "actual": {
-            "type": "task",
-            "resolvedTime": null
-          }
-        }
-      ],
-      "rawResult": {
-        "type": "task",
-        "action": "אני מרגיש עייף היום",
-        "title": "אני מרגיש עייף היום",
-        "person": null,
-        "dueAt": null,
-        "remindAt": null,
-        "localTimeSpec": null,
-        "timeEvidence": "day_only",
-        "priority": {
-          "level": "normal",
-          "source": "default",
-          "pressureAllowed": false,
-          "pressureImplied": false
-        },
-        "flexibility": "movable",
-        "confidence": {
-          "overall": 0.62,
-          "type": 0.62,
-          "action": 0.82,
-          "time": 0.1,
-          "priority": 0.8
-        },
-        "missingFields": [
-          "time"
-        ],
-        "ambiguityFlags": [
-          "vague_time"
-        ],
-        "explicitReminderRequest": false,
-        "explicitPressureRequest": false,
-        "parserVersion": "rule-v1-core"
-      }
-    },
-    {
-      "id": "safety-he-006",
-      "slice": "safety_negative",
-      "passed": false,
-      "engineUsed": "rule-based",
-      "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 3,
-      "taxonomyErrors": [
-        "creates_something_failure",
-        "exact_match_failure"
-      ],
-      "mismatches": [
-        {
-          "field": "createsNothing",
-          "expected": true,
-          "actual": {
-            "type": "task",
-            "resolvedTime": null
-          }
-        }
-      ],
-      "rawResult": {
-        "type": "task",
-        "action": "מה השעה?",
-        "title": "מה השעה?",
-        "person": null,
-        "dueAt": null,
-        "remindAt": null,
-        "localTimeSpec": null,
-        "timeEvidence": "none",
-        "priority": {
-          "level": "normal",
-          "source": "default",
-          "pressureAllowed": false,
-          "pressureImplied": false
-        },
-        "flexibility": "movable",
-        "confidence": {
-          "overall": 0.62,
-          "type": 0.62,
-          "action": 0.82,
-          "time": 0.1,
-          "priority": 0.8
-        },
-        "missingFields": [
-          "time"
-        ],
-        "ambiguityFlags": [
-          "vague_time"
-        ],
-        "explicitReminderRequest": false,
-        "explicitPressureRequest": false,
-        "parserVersion": "rule-v1-core"
-      }
-    },
-    {
-      "id": "safety-he-007",
-      "slice": "safety_negative",
-      "passed": false,
-      "engineUsed": "rule-based",
-      "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 2,
-      "taxonomyErrors": [
-        "creates_something_failure",
-        "exact_match_failure"
-      ],
-      "mismatches": [
-        {
-          "field": "createsNothing",
-          "expected": true,
-          "actual": {
-            "type": "task",
-            "resolvedTime": null
-          }
-        }
-      ],
-      "rawResult": {
-        "type": "task",
-        "action": "איך מוסיפים תזכורת?",
-        "title": "איך מוסיפים תזכורת?",
-        "person": null,
-        "dueAt": null,
-        "remindAt": null,
-        "localTimeSpec": null,
-        "timeEvidence": "none",
-        "priority": {
-          "level": "normal",
-          "source": "default",
-          "pressureAllowed": false,
-          "pressureImplied": false
-        },
-        "flexibility": "movable",
-        "confidence": {
-          "overall": 0.62,
-          "type": 0.62,
-          "action": 0.82,
-          "time": 0.1,
-          "priority": 0.8
-        },
-        "missingFields": [
-          "time"
-        ],
-        "ambiguityFlags": [
-          "vague_time"
-        ],
-        "explicitReminderRequest": false,
-        "explicitPressureRequest": false,
-        "parserVersion": "rule-v1-core"
-      }
-    },
-    {
-      "id": "safety-he-008",
-      "slice": "safety_negative",
-      "passed": false,
-      "engineUsed": "rule-based",
-      "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 3,
-      "taxonomyErrors": [
-        "creates_something_failure",
-        "exact_match_failure"
-      ],
-      "mismatches": [
-        {
-          "field": "createsNothing",
-          "expected": true,
-          "actual": {
-            "type": "task",
-            "resolvedTime": null
-          }
-        }
-      ],
-      "rawResult": {
-        "type": "task",
-        "action": "אל תזכיר לי יותר על החדר כושר",
-        "title": "אל תזכיר לי יותר על החדר כושר",
-        "person": null,
-        "dueAt": null,
-        "remindAt": null,
-        "localTimeSpec": null,
-        "timeEvidence": "none",
-        "priority": {
-          "level": "normal",
-          "source": "default",
-          "pressureAllowed": false,
-          "pressureImplied": false
-        },
-        "flexibility": "movable",
-        "confidence": {
-          "overall": 0.62,
-          "type": 0.62,
-          "action": 0.82,
-          "time": 0.1,
-          "priority": 0.8
-        },
-        "missingFields": [
-          "time"
-        ],
-        "ambiguityFlags": [
-          "vague_time"
-        ],
-        "explicitReminderRequest": true,
-        "explicitPressureRequest": false,
-        "parserVersion": "rule-v1-core"
-      }
-    },
-    {
-      "id": "safety-he-009",
       "slice": "safety_negative",
       "passed": true,
       "engineUsed": "rule-based",
@@ -7136,7 +6669,222 @@
       "rawResult": {
         "type": "informational_context",
         "action": null,
-        "title": "דוד שאל אותי על החשבון",
+        "title": null,
+        "person": null,
+        "dueAt": null,
+        "remindAt": null,
+        "localTimeSpec": null,
+        "timeEvidence": "none",
+        "priority": {
+          "level": "normal",
+          "source": "default",
+          "pressureAllowed": false,
+          "pressureImplied": false
+        },
+        "flexibility": "soft",
+        "confidence": {
+          "overall": 0.95,
+          "type": 0.95,
+          "action": 0.1,
+          "time": 0.1,
+          "priority": 0.8
+        },
+        "missingFields": [
+          "action"
+        ],
+        "ambiguityFlags": [
+          "no_action_verb"
+        ],
+        "explicitReminderRequest": false,
+        "explicitPressureRequest": false,
+        "parserVersion": "rule-v1-core"
+      }
+    },
+    {
+      "id": "safety-he-004",
+      "slice": "safety_negative",
+      "passed": true,
+      "engineUsed": "rule-based",
+      "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
+      "latencyMs": 3,
+      "taxonomyErrors": [],
+      "mismatches": [],
+      "rawResult": {
+        "type": "informational_context",
+        "action": null,
+        "title": null,
+        "person": null,
+        "dueAt": null,
+        "remindAt": null,
+        "localTimeSpec": null,
+        "timeEvidence": "none",
+        "priority": {
+          "level": "normal",
+          "source": "default",
+          "pressureAllowed": false,
+          "pressureImplied": false
+        },
+        "flexibility": "soft",
+        "confidence": {
+          "overall": 0.95,
+          "type": 0.95,
+          "action": 0.1,
+          "time": 0.1,
+          "priority": 0.8
+        },
+        "missingFields": [
+          "action"
+        ],
+        "ambiguityFlags": [
+          "informational_without_action"
+        ],
+        "explicitReminderRequest": false,
+        "explicitPressureRequest": false,
+        "parserVersion": "rule-v1-core"
+      }
+    },
+    {
+      "id": "safety-he-005",
+      "slice": "safety_negative",
+      "passed": true,
+      "engineUsed": "rule-based",
+      "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
+      "latencyMs": 3,
+      "taxonomyErrors": [],
+      "mismatches": [],
+      "rawResult": {
+        "type": "informational_context",
+        "action": null,
+        "title": null,
+        "person": null,
+        "dueAt": null,
+        "remindAt": null,
+        "localTimeSpec": null,
+        "timeEvidence": "none",
+        "priority": {
+          "level": "normal",
+          "source": "default",
+          "pressureAllowed": false,
+          "pressureImplied": false
+        },
+        "flexibility": "soft",
+        "confidence": {
+          "overall": 0.95,
+          "type": 0.95,
+          "action": 0.1,
+          "time": 0.1,
+          "priority": 0.8
+        },
+        "missingFields": [
+          "action"
+        ],
+        "ambiguityFlags": [
+          "informational_without_action"
+        ],
+        "explicitReminderRequest": false,
+        "explicitPressureRequest": false,
+        "parserVersion": "rule-v1-core"
+      }
+    },
+    {
+      "id": "safety-he-006",
+      "slice": "safety_negative",
+      "passed": true,
+      "engineUsed": "rule-based",
+      "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
+      "latencyMs": 3,
+      "taxonomyErrors": [],
+      "mismatches": [],
+      "rawResult": {
+        "type": "informational_context",
+        "action": null,
+        "title": null,
+        "person": null,
+        "dueAt": null,
+        "remindAt": null,
+        "localTimeSpec": null,
+        "timeEvidence": "none",
+        "priority": {
+          "level": "normal",
+          "source": "default",
+          "pressureAllowed": false,
+          "pressureImplied": false
+        },
+        "flexibility": "soft",
+        "confidence": {
+          "overall": 0.95,
+          "type": 0.95,
+          "action": 0.1,
+          "time": 0.1,
+          "priority": 0.8
+        },
+        "missingFields": [
+          "action"
+        ],
+        "ambiguityFlags": [
+          "no_action_verb"
+        ],
+        "explicitReminderRequest": false,
+        "explicitPressureRequest": false,
+        "parserVersion": "rule-v1-core"
+      }
+    },
+    {
+      "id": "safety-he-007",
+      "slice": "safety_negative",
+      "passed": true,
+      "engineUsed": "rule-based",
+      "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
+      "latencyMs": 3,
+      "taxonomyErrors": [],
+      "mismatches": [],
+      "rawResult": {
+        "type": "informational_context",
+        "action": null,
+        "title": null,
+        "person": null,
+        "dueAt": null,
+        "remindAt": null,
+        "localTimeSpec": null,
+        "timeEvidence": "none",
+        "priority": {
+          "level": "normal",
+          "source": "default",
+          "pressureAllowed": false,
+          "pressureImplied": false
+        },
+        "flexibility": "soft",
+        "confidence": {
+          "overall": 0.95,
+          "type": 0.95,
+          "action": 0.1,
+          "time": 0.1,
+          "priority": 0.8
+        },
+        "missingFields": [
+          "action"
+        ],
+        "ambiguityFlags": [
+          "no_action_verb"
+        ],
+        "explicitReminderRequest": false,
+        "explicitPressureRequest": false,
+        "parserVersion": "rule-v1-core"
+      }
+    },
+    {
+      "id": "safety-he-008",
+      "slice": "safety_negative",
+      "passed": true,
+      "engineUsed": "rule-based",
+      "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
+      "latencyMs": 3,
+      "taxonomyErrors": [],
+      "mismatches": [],
+      "rawResult": {
+        "type": "unknown",
+        "action": null,
+        "title": null,
         "person": null,
         "dueAt": null,
         "remindAt": null,
@@ -7151,14 +6899,56 @@
         "flexibility": "soft",
         "confidence": {
           "overall": 0.55,
-          "type": 0.55,
+          "type": 0.95,
           "action": 0.1,
           "time": 0.1,
           "priority": 0.8
         },
         "missingFields": [
-          "action",
-          "time"
+          "action"
+        ],
+        "ambiguityFlags": [
+          "negated_request"
+        ],
+        "explicitReminderRequest": false,
+        "explicitPressureRequest": false,
+        "parserVersion": "rule-v1-core"
+      }
+    },
+    {
+      "id": "safety-he-009",
+      "slice": "safety_negative",
+      "passed": true,
+      "engineUsed": "rule-based",
+      "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
+      "latencyMs": 3,
+      "taxonomyErrors": [],
+      "mismatches": [],
+      "rawResult": {
+        "type": "informational_context",
+        "action": null,
+        "title": null,
+        "person": null,
+        "dueAt": null,
+        "remindAt": null,
+        "localTimeSpec": null,
+        "timeEvidence": "none",
+        "priority": {
+          "level": "normal",
+          "source": "default",
+          "pressureAllowed": false,
+          "pressureImplied": false
+        },
+        "flexibility": "soft",
+        "confidence": {
+          "overall": 0.95,
+          "type": 0.95,
+          "action": 0.1,
+          "time": 0.1,
+          "priority": 0.8
+        },
+        "missingFields": [
+          "action"
         ],
         "ambiguityFlags": [
           "informational_without_action"
@@ -7257,83 +7047,16 @@
     {
       "id": "safety-en-002",
       "slice": "safety_negative",
-      "passed": false,
+      "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
       "latencyMs": 3,
-      "taxonomyErrors": [
-        "creates_something_failure",
-        "exact_match_failure"
-      ],
-      "mismatches": [
-        {
-          "field": "createsNothing",
-          "expected": true,
-          "actual": {
-            "type": "task",
-            "resolvedTime": null
-          }
-        }
-      ],
+      "taxonomyErrors": [],
+      "mismatches": [],
       "rawResult": {
-        "type": "task",
-        "action": "good",
-        "title": "good",
-        "person": null,
-        "dueAt": null,
-        "remindAt": null,
-        "localTimeSpec": null,
-        "timeEvidence": "daypart",
-        "priority": {
-          "level": "normal",
-          "source": "default",
-          "pressureAllowed": false,
-          "pressureImplied": false
-        },
-        "flexibility": "movable",
-        "confidence": {
-          "overall": 0.62,
-          "type": 0.62,
-          "action": 0.82,
-          "time": 0.1,
-          "priority": 0.8
-        },
-        "missingFields": [
-          "time"
-        ],
-        "ambiguityFlags": [
-          "vague_time"
-        ],
-        "explicitReminderRequest": false,
-        "explicitPressureRequest": false,
-        "parserVersion": "rule-v1-core"
-      }
-    },
-    {
-      "id": "safety-en-003",
-      "slice": "safety_negative",
-      "passed": false,
-      "engineUsed": "rule-based",
-      "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 2,
-      "taxonomyErrors": [
-        "creates_something_failure",
-        "exact_match_failure"
-      ],
-      "mismatches": [
-        {
-          "field": "createsNothing",
-          "expected": true,
-          "actual": {
-            "type": "task",
-            "resolvedTime": null
-          }
-        }
-      ],
-      "rawResult": {
-        "type": "task",
-        "action": "hey how are you",
-        "title": "hey how are you",
+        "type": "informational_context",
+        "action": null,
+        "title": null,
         "person": null,
         "dueAt": null,
         "remindAt": null,
@@ -7345,19 +7068,62 @@
           "pressureAllowed": false,
           "pressureImplied": false
         },
-        "flexibility": "movable",
+        "flexibility": "soft",
         "confidence": {
-          "overall": 0.62,
-          "type": 0.62,
-          "action": 0.82,
+          "overall": 0.95,
+          "type": 0.95,
+          "action": 0.1,
           "time": 0.1,
           "priority": 0.8
         },
         "missingFields": [
-          "time"
+          "action"
         ],
         "ambiguityFlags": [
-          "vague_time"
+          "no_action_verb"
+        ],
+        "explicitReminderRequest": false,
+        "explicitPressureRequest": false,
+        "parserVersion": "rule-v1-core"
+      }
+    },
+    {
+      "id": "safety-en-003",
+      "slice": "safety_negative",
+      "passed": true,
+      "engineUsed": "rule-based",
+      "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
+      "latencyMs": 3,
+      "taxonomyErrors": [],
+      "mismatches": [],
+      "rawResult": {
+        "type": "informational_context",
+        "action": null,
+        "title": null,
+        "person": null,
+        "dueAt": null,
+        "remindAt": null,
+        "localTimeSpec": null,
+        "timeEvidence": "none",
+        "priority": {
+          "level": "normal",
+          "source": "default",
+          "pressureAllowed": false,
+          "pressureImplied": false
+        },
+        "flexibility": "soft",
+        "confidence": {
+          "overall": 0.95,
+          "type": 0.95,
+          "action": 0.1,
+          "time": 0.1,
+          "priority": 0.8
+        },
+        "missingFields": [
+          "action"
+        ],
+        "ambiguityFlags": [
+          "no_action_verb"
         ],
         "explicitReminderRequest": false,
         "explicitPressureRequest": false,
@@ -7376,7 +7142,179 @@
       "rawResult": {
         "type": "informational_context",
         "action": null,
-        "title": "i had a long day today",
+        "title": null,
+        "person": null,
+        "dueAt": null,
+        "remindAt": null,
+        "localTimeSpec": null,
+        "timeEvidence": "none",
+        "priority": {
+          "level": "normal",
+          "source": "default",
+          "pressureAllowed": false,
+          "pressureImplied": false
+        },
+        "flexibility": "soft",
+        "confidence": {
+          "overall": 0.95,
+          "type": 0.95,
+          "action": 0.1,
+          "time": 0.1,
+          "priority": 0.8
+        },
+        "missingFields": [
+          "action"
+        ],
+        "ambiguityFlags": [
+          "informational_without_action"
+        ],
+        "explicitReminderRequest": false,
+        "explicitPressureRequest": false,
+        "parserVersion": "rule-v1-core"
+      }
+    },
+    {
+      "id": "safety-en-005",
+      "slice": "safety_negative",
+      "passed": true,
+      "engineUsed": "rule-based",
+      "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
+      "latencyMs": 3,
+      "taxonomyErrors": [],
+      "mismatches": [],
+      "rawResult": {
+        "type": "informational_context",
+        "action": null,
+        "title": null,
+        "person": null,
+        "dueAt": null,
+        "remindAt": null,
+        "localTimeSpec": null,
+        "timeEvidence": "none",
+        "priority": {
+          "level": "normal",
+          "source": "default",
+          "pressureAllowed": false,
+          "pressureImplied": false
+        },
+        "flexibility": "soft",
+        "confidence": {
+          "overall": 0.95,
+          "type": 0.95,
+          "action": 0.1,
+          "time": 0.1,
+          "priority": 0.8
+        },
+        "missingFields": [
+          "action"
+        ],
+        "ambiguityFlags": [
+          "informational_without_action"
+        ],
+        "explicitReminderRequest": false,
+        "explicitPressureRequest": false,
+        "parserVersion": "rule-v1-core"
+      }
+    },
+    {
+      "id": "safety-en-006",
+      "slice": "safety_negative",
+      "passed": true,
+      "engineUsed": "rule-based",
+      "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
+      "latencyMs": 3,
+      "taxonomyErrors": [],
+      "mismatches": [],
+      "rawResult": {
+        "type": "informational_context",
+        "action": null,
+        "title": null,
+        "person": null,
+        "dueAt": null,
+        "remindAt": null,
+        "localTimeSpec": null,
+        "timeEvidence": "none",
+        "priority": {
+          "level": "normal",
+          "source": "default",
+          "pressureAllowed": false,
+          "pressureImplied": false
+        },
+        "flexibility": "soft",
+        "confidence": {
+          "overall": 0.95,
+          "type": 0.95,
+          "action": 0.1,
+          "time": 0.1,
+          "priority": 0.8
+        },
+        "missingFields": [
+          "action"
+        ],
+        "ambiguityFlags": [
+          "no_action_verb"
+        ],
+        "explicitReminderRequest": false,
+        "explicitPressureRequest": false,
+        "parserVersion": "rule-v1-core"
+      }
+    },
+    {
+      "id": "safety-en-007",
+      "slice": "safety_negative",
+      "passed": true,
+      "engineUsed": "rule-based",
+      "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
+      "latencyMs": 3,
+      "taxonomyErrors": [],
+      "mismatches": [],
+      "rawResult": {
+        "type": "informational_context",
+        "action": null,
+        "title": null,
+        "person": null,
+        "dueAt": null,
+        "remindAt": null,
+        "localTimeSpec": null,
+        "timeEvidence": "none",
+        "priority": {
+          "level": "normal",
+          "source": "default",
+          "pressureAllowed": false,
+          "pressureImplied": false
+        },
+        "flexibility": "soft",
+        "confidence": {
+          "overall": 0.95,
+          "type": 0.95,
+          "action": 0.1,
+          "time": 0.1,
+          "priority": 0.8
+        },
+        "missingFields": [
+          "action"
+        ],
+        "ambiguityFlags": [
+          "no_action_verb"
+        ],
+        "explicitReminderRequest": false,
+        "explicitPressureRequest": false,
+        "parserVersion": "rule-v1-core"
+      }
+    },
+    {
+      "id": "safety-en-008",
+      "slice": "safety_negative",
+      "passed": true,
+      "engineUsed": "rule-based",
+      "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
+      "latencyMs": 4,
+      "taxonomyErrors": [],
+      "mismatches": [],
+      "rawResult": {
+        "type": "unknown",
+        "action": null,
+        "title": null,
         "person": null,
         "dueAt": null,
         "remindAt": null,
@@ -7391,242 +7329,16 @@
         "flexibility": "soft",
         "confidence": {
           "overall": 0.55,
-          "type": 0.55,
+          "type": 0.95,
           "action": 0.1,
           "time": 0.1,
           "priority": 0.8
         },
         "missingFields": [
-          "action",
-          "time"
+          "action"
         ],
         "ambiguityFlags": [
-          "informational_without_action"
-        ],
-        "explicitReminderRequest": false,
-        "explicitPressureRequest": false,
-        "parserVersion": "rule-v1-core"
-      }
-    },
-    {
-      "id": "safety-en-005",
-      "slice": "safety_negative",
-      "passed": false,
-      "engineUsed": "rule-based",
-      "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 3,
-      "taxonomyErrors": [
-        "creates_something_failure",
-        "exact_match_failure"
-      ],
-      "mismatches": [
-        {
-          "field": "createsNothing",
-          "expected": true,
-          "actual": {
-            "type": "task",
-            "resolvedTime": null
-          }
-        }
-      ],
-      "rawResult": {
-        "type": "task",
-        "action": "feeling pretty tired lately",
-        "title": "feeling pretty tired lately",
-        "person": null,
-        "dueAt": null,
-        "remindAt": null,
-        "localTimeSpec": null,
-        "timeEvidence": "none",
-        "priority": {
-          "level": "normal",
-          "source": "default",
-          "pressureAllowed": false,
-          "pressureImplied": false
-        },
-        "flexibility": "movable",
-        "confidence": {
-          "overall": 0.62,
-          "type": 0.62,
-          "action": 0.82,
-          "time": 0.1,
-          "priority": 0.8
-        },
-        "missingFields": [
-          "time"
-        ],
-        "ambiguityFlags": [
-          "vague_time"
-        ],
-        "explicitReminderRequest": false,
-        "explicitPressureRequest": false,
-        "parserVersion": "rule-v1-core"
-      }
-    },
-    {
-      "id": "safety-en-006",
-      "slice": "safety_negative",
-      "passed": false,
-      "engineUsed": "rule-based",
-      "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 4,
-      "taxonomyErrors": [
-        "creates_something_failure",
-        "exact_match_failure"
-      ],
-      "mismatches": [
-        {
-          "field": "createsNothing",
-          "expected": true,
-          "actual": {
-            "type": "task",
-            "resolvedTime": null
-          }
-        }
-      ],
-      "rawResult": {
-        "type": "task",
-        "action": "what's the weather ?",
-        "title": "what's the weather ?",
-        "person": null,
-        "dueAt": null,
-        "remindAt": null,
-        "localTimeSpec": {
-          "date": "2026-09-15",
-          "time": null,
-          "timezone": "Asia/Jerusalem"
-        },
-        "timeEvidence": "day_only",
-        "priority": {
-          "level": "normal",
-          "source": "default",
-          "pressureAllowed": false,
-          "pressureImplied": false
-        },
-        "flexibility": "movable",
-        "confidence": {
-          "overall": 0.62,
-          "type": 0.62,
-          "action": 0.82,
-          "time": 0.1,
-          "priority": 0.8
-        },
-        "missingFields": [
-          "time"
-        ],
-        "ambiguityFlags": [
-          "vague_time"
-        ],
-        "explicitReminderRequest": false,
-        "explicitPressureRequest": false,
-        "parserVersion": "rule-v1-core"
-      }
-    },
-    {
-      "id": "safety-en-007",
-      "slice": "safety_negative",
-      "passed": false,
-      "engineUsed": "rule-based",
-      "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 3,
-      "taxonomyErrors": [
-        "creates_something_failure",
-        "exact_match_failure"
-      ],
-      "mismatches": [
-        {
-          "field": "createsNothing",
-          "expected": true,
-          "actual": {
-            "type": "task",
-            "resolvedTime": null
-          }
-        }
-      ],
-      "rawResult": {
-        "type": "task",
-        "action": "how do i change the language?",
-        "title": "how do i change the language?",
-        "person": null,
-        "dueAt": null,
-        "remindAt": null,
-        "localTimeSpec": null,
-        "timeEvidence": "none",
-        "priority": {
-          "level": "normal",
-          "source": "default",
-          "pressureAllowed": false,
-          "pressureImplied": false
-        },
-        "flexibility": "movable",
-        "confidence": {
-          "overall": 0.62,
-          "type": 0.62,
-          "action": 0.82,
-          "time": 0.1,
-          "priority": 0.8
-        },
-        "missingFields": [
-          "time"
-        ],
-        "ambiguityFlags": [
-          "vague_time"
-        ],
-        "explicitReminderRequest": false,
-        "explicitPressureRequest": false,
-        "parserVersion": "rule-v1-core"
-      }
-    },
-    {
-      "id": "safety-en-008",
-      "slice": "safety_negative",
-      "passed": false,
-      "engineUsed": "rule-based",
-      "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 3,
-      "taxonomyErrors": [
-        "creates_something_failure",
-        "exact_match_failure"
-      ],
-      "mismatches": [
-        {
-          "field": "createsNothing",
-          "expected": true,
-          "actual": {
-            "type": "task",
-            "resolvedTime": null
-          }
-        }
-      ],
-      "rawResult": {
-        "type": "task",
-        "action": "don't remind me anymore",
-        "title": "don't remind me anymore",
-        "person": null,
-        "dueAt": null,
-        "remindAt": null,
-        "localTimeSpec": null,
-        "timeEvidence": "none",
-        "priority": {
-          "level": "normal",
-          "source": "default",
-          "pressureAllowed": false,
-          "pressureImplied": false
-        },
-        "flexibility": "movable",
-        "confidence": {
-          "overall": 0.55,
-          "type": 0.55,
-          "action": 0.82,
-          "time": 0.1,
-          "priority": 0.8
-        },
-        "missingFields": [
-          "time"
-        ],
-        "ambiguityFlags": [
-          "negated_request",
-          "vague_time"
+          "negated_request"
         ],
         "explicitReminderRequest": false,
         "explicitPressureRequest": false,
@@ -7636,28 +7348,16 @@
     {
       "id": "safety-en-009",
       "slice": "safety_negative",
-      "passed": false,
+      "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
       "latencyMs": 3,
-      "taxonomyErrors": [
-        "creates_something_failure",
-        "exact_match_failure"
-      ],
-      "mismatches": [
-        {
-          "field": "createsNothing",
-          "expected": true,
-          "actual": {
-            "type": "task",
-            "resolvedTime": null
-          }
-        }
-      ],
+      "taxonomyErrors": [],
+      "mismatches": [],
       "rawResult": {
-        "type": "task",
-        "action": "no need to remind me about the gym",
-        "title": "no need to remind me about the gym",
+        "type": "unknown",
+        "action": null,
+        "title": null,
         "person": null,
         "dueAt": null,
         "remindAt": null,
@@ -7669,21 +7369,21 @@
           "pressureAllowed": false,
           "pressureImplied": false
         },
-        "flexibility": "movable",
+        "flexibility": "soft",
         "confidence": {
-          "overall": 0.62,
-          "type": 0.62,
-          "action": 0.82,
+          "overall": 0.55,
+          "type": 0.95,
+          "action": 0.1,
           "time": 0.1,
           "priority": 0.8
         },
         "missingFields": [
-          "time"
+          "action"
         ],
         "ambiguityFlags": [
-          "vague_time"
+          "negated_request"
         ],
-        "explicitReminderRequest": true,
+        "explicitReminderRequest": false,
         "explicitPressureRequest": false,
         "parserVersion": "rule-v1-core"
       }
@@ -7700,7 +7400,7 @@
       "rawResult": {
         "type": "informational_context",
         "action": null,
-        "title": "Maya is waiting on the invoice",
+        "title": null,
         "person": null,
         "dueAt": null,
         "remindAt": null,
@@ -7714,15 +7414,14 @@
         },
         "flexibility": "soft",
         "confidence": {
-          "overall": 0.55,
-          "type": 0.55,
+          "overall": 0.95,
+          "type": 0.95,
           "action": 0.1,
           "time": 0.1,
           "priority": 0.8
         },
         "missingFields": [
-          "action",
-          "time"
+          "action"
         ],
         "ambiguityFlags": [
           "informational_without_action"
@@ -7778,52 +7477,40 @@
     {
       "id": "safety-mixed-002",
       "slice": "safety_negative",
-      "passed": false,
+      "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
       "latencyMs": 3,
-      "taxonomyErrors": [
-        "creates_something_failure",
-        "exact_match_failure"
-      ],
-      "mismatches": [
-        {
-          "field": "createsNothing",
-          "expected": true,
-          "actual": {
-            "type": "task",
-            "resolvedTime": null
-          }
-        }
-      ],
+      "taxonomyErrors": [],
+      "mismatches": [],
       "rawResult": {
-        "type": "task",
-        "action": "good الخير",
-        "title": "good الخير",
+        "type": "informational_context",
+        "action": null,
+        "title": null,
         "person": null,
         "dueAt": null,
         "remindAt": null,
         "localTimeSpec": null,
-        "timeEvidence": "daypart",
+        "timeEvidence": "none",
         "priority": {
           "level": "normal",
           "source": "default",
           "pressureAllowed": false,
           "pressureImplied": false
         },
-        "flexibility": "movable",
+        "flexibility": "soft",
         "confidence": {
-          "overall": 0.62,
-          "type": 0.62,
-          "action": 0.82,
+          "overall": 0.95,
+          "type": 0.95,
+          "action": 0.1,
           "time": 0.1,
           "priority": 0.8
         },
         "missingFields": [
-          "time"
+          "action"
         ],
         "ambiguityFlags": [
-          "vague_time"
+          "no_action_verb"
         ],
         "explicitReminderRequest": false,
         "explicitPressureRequest": false,
@@ -7876,28 +7563,16 @@
     {
       "id": "safety-mixed-004",
       "slice": "safety_negative",
-      "passed": false,
+      "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
       "latencyMs": 3,
-      "taxonomyErrors": [
-        "creates_something_failure",
-        "exact_match_failure"
-      ],
-      "mismatches": [
-        {
-          "field": "createsNothing",
-          "expected": true,
-          "actual": {
-            "type": "task",
-            "resolvedTime": null
-          }
-        }
-      ],
+      "taxonomyErrors": [],
+      "mismatches": [],
       "rawResult": {
-        "type": "task",
-        "action": "شو رأيك بالـ app؟",
-        "title": "شو رأيك بالـ app؟",
+        "type": "informational_context",
+        "action": null,
+        "title": null,
         "person": null,
         "dueAt": null,
         "remindAt": null,
@@ -7909,19 +7584,19 @@
           "pressureAllowed": false,
           "pressureImplied": false
         },
-        "flexibility": "movable",
+        "flexibility": "soft",
         "confidence": {
-          "overall": 0.62,
-          "type": 0.62,
-          "action": 0.82,
+          "overall": 0.95,
+          "type": 0.95,
+          "action": 0.1,
           "time": 0.1,
           "priority": 0.8
         },
         "missingFields": [
-          "time"
+          "action"
         ],
         "ambiguityFlags": [
-          "vague_time"
+          "no_action_verb"
         ],
         "explicitReminderRequest": false,
         "explicitPressureRequest": false,
@@ -8017,28 +7692,16 @@
     {
       "id": "safety-mixed-007",
       "slice": "safety_negative",
-      "passed": false,
+      "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
       "latencyMs": 3,
-      "taxonomyErrors": [
-        "creates_something_failure",
-        "exact_match_failure"
-      ],
-      "mismatches": [
-        {
-          "field": "createsNothing",
-          "expected": true,
-          "actual": {
-            "type": "task",
-            "resolvedTime": null
-          }
-        }
-      ],
+      "taxonomyErrors": [],
+      "mismatches": [],
       "rawResult": {
-        "type": "task",
-        "action": "תזכיר לי not to worry about it",
-        "title": "תזכיר לי not to worry about it",
+        "type": "unknown",
+        "action": null,
+        "title": null,
         "person": null,
         "dueAt": null,
         "remindAt": null,
@@ -8050,21 +7713,21 @@
           "pressureAllowed": false,
           "pressureImplied": false
         },
-        "flexibility": "movable",
+        "flexibility": "soft",
         "confidence": {
-          "overall": 0.62,
-          "type": 0.62,
-          "action": 0.82,
+          "overall": 0.55,
+          "type": 0.95,
+          "action": 0.1,
           "time": 0.1,
           "priority": 0.8
         },
         "missingFields": [
-          "time"
+          "action"
         ],
         "ambiguityFlags": [
-          "vague_time"
+          "negated_request"
         ],
-        "explicitReminderRequest": true,
+        "explicitReminderRequest": false,
         "explicitPressureRequest": false,
         "parserVersion": "rule-v1-core"
       }
@@ -8072,56 +7735,40 @@
     {
       "id": "safety-mixed-008",
       "slice": "safety_negative",
-      "passed": false,
+      "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
       "latencyMs": 3,
-      "taxonomyErrors": [
-        "creates_something_failure",
-        "exact_match_failure"
-      ],
-      "mismatches": [
-        {
-          "field": "createsNothing",
-          "expected": true,
-          "actual": {
-            "type": "task",
-            "resolvedTime": null
-          }
-        }
-      ],
+      "taxonomyErrors": [],
+      "mismatches": [],
       "rawResult": {
-        "type": "task",
-        "action": "حسّيت tired",
-        "title": "حسّيت tired",
+        "type": "informational_context",
+        "action": null,
+        "title": null,
         "person": null,
         "dueAt": null,
         "remindAt": null,
-        "localTimeSpec": {
-          "date": "2026-09-14",
-          "time": null,
-          "timezone": "Asia/Jerusalem"
-        },
-        "timeEvidence": "day_only",
+        "localTimeSpec": null,
+        "timeEvidence": "none",
         "priority": {
           "level": "normal",
           "source": "default",
           "pressureAllowed": false,
           "pressureImplied": false
         },
-        "flexibility": "movable",
+        "flexibility": "soft",
         "confidence": {
-          "overall": 0.62,
-          "type": 0.62,
-          "action": 0.82,
+          "overall": 0.95,
+          "type": 0.95,
+          "action": 0.1,
           "time": 0.1,
           "priority": 0.8
         },
         "missingFields": [
-          "time"
+          "action"
         ],
         "ambiguityFlags": [
-          "vague_time"
+          "informational_without_action"
         ],
         "explicitReminderRequest": false,
         "explicitPressureRequest": false,

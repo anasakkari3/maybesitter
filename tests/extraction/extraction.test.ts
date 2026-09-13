@@ -21,7 +21,10 @@ const cases = [
   ['I should probably call Amir', 'task', 'store_note', []],
   ['Remind me to text Sam tonight', 'task', 'auto_confirm', ['CreateDraft', 'ConfirmCommitment']],
   ['Follow up with Noa tomorrow at 11am', 'follow_up', 'pending_confirmation', ['CreateDraft']],
-  ["Don't remind me to call mom tomorrow", 'task', 'store_note', []],
+  // Not a task. The user asked *not* to be reminded, and answering that with a
+  // task — even a stored-note one — is the product doing the thing it was told
+  // not to do (#166).
+  ["Don't remind me to call mom tomorrow", 'unknown', 'store_note', []],
 ] as const;
 
 test('extraction: 10 sample inputs map to expected commands', () => {

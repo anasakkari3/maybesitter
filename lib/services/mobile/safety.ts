@@ -3,6 +3,23 @@ import { extractWithFallback } from '../../../src/extraction/extractionService';
 import type { ExtractionContext } from '../../../src/extraction/extractionTypes';
 import { parseIsoInstant } from './time';
 
+/**
+ * A negated request, refused by type rather than by message (UC-2.6, #166).
+ *
+ * It used to be a bare `Error`, which the capture boundary caught and reported
+ * as `rejected` — and the route turned that into HTTP 400. So "don't remind me
+ * about the gym anymore" was answered with an error, for a request the product
+ * understood perfectly and was right to refuse. A typed error lets the boundary
+ * tell this apart from an injection or a past time, which are genuinely unsafe
+ * rather than simply empty.
+ */
+export class NegatedRequestError extends Error {
+  constructor() {
+    super('a negated reminder request cannot become a proposal');
+    this.name = 'NegatedRequestError';
+  }
+}
+
 const NEGATED_REQUEST =
   /\b(?:don't|dont|do not|never|no need to)\s+(?:remind|remember|schedule|add|create|notify)\b/i;
 
@@ -27,12 +44,12 @@ export async function guardedMobileExtract(
   extractor: MobileExtractor = extractWithFallback
 ): Promise<ExtractWithFallbackResult> {
   if (NEGATED_REQUEST.test(rawText)) {
-    throw new Error('negated reminder requests cannot become proposals');
+    throw new NegatedRequestError();
   }
 
   const extracted = await extractor(rawText, context, options);
   if (extracted.result.ambiguityFlags.includes('negated_request')) {
-    throw new Error('negated reminder requests cannot become proposals');
+    throw new NegatedRequestError();
   }
 
   assertSafeTime(extracted.result.dueAt, context.now, 'dueAt');

@@ -1,12 +1,12 @@
 {
-  "timestamp": "2026-09-13T00:48:14.451Z",
+  "timestamp": "2026-09-13T02:12:15.760Z",
   "datasetPath": "evaluation-data/capture-gate-suite.jsonl",
   "engine": "rule-based",
   "totalCases": 18,
   "overallPassed": true,
   "overallPassRatePercent": 100,
   "medianLatencyMs": 3,
-  "p95LatencyMs": 28,
+  "p95LatencyMs": 29,
   "perSlice": {
     "gold": {
       "total": 4,
@@ -134,7 +134,7 @@
       "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 28,
+      "latencyMs": 29,
       "taxonomyErrors": [],
       "mismatches": [],
       "rawResult": {
@@ -353,9 +353,9 @@
       "taxonomyErrors": [],
       "mismatches": [],
       "rawResult": {
-        "type": "task",
-        "action": "Don't remind me anymore.",
-        "title": "Don't remind me anymore.",
+        "type": "unknown",
+        "action": null,
+        "title": null,
         "person": null,
         "dueAt": null,
         "remindAt": null,
@@ -367,20 +367,19 @@
           "pressureAllowed": false,
           "pressureImplied": false
         },
-        "flexibility": "movable",
+        "flexibility": "soft",
         "confidence": {
           "overall": 0.55,
-          "type": 0.55,
-          "action": 0.82,
+          "type": 0.95,
+          "action": 0.1,
           "time": 0.1,
           "priority": 0.8
         },
         "missingFields": [
-          "time"
+          "action"
         ],
         "ambiguityFlags": [
-          "negated_request",
-          "vague_time"
+          "negated_request"
         ],
         "explicitReminderRequest": false,
         "explicitPressureRequest": false,
@@ -738,7 +737,7 @@
       "passed": true,
       "engineUsed": "rule-based",
       "fallbackReason": "Error: Ollama request failed 404: {\"error\":\"model 'llama3.2' not found\"}",
-      "latencyMs": 3,
+      "latencyMs": 4,
       "taxonomyErrors": [],
       "mismatches": [],
       "rawResult": {

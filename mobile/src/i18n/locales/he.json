@@ -272,5 +272,11 @@
   "accountDeletedReceiptLabel": "אישור",
   "accountDeletedCopy": "העתק אישור",
   "accountDeletedCopied": "הועתק.",
-  "accountDeletedContinue": "סיום"
+  "accountDeletedContinue": "סיום",
+  "noCommitmentInformational": "אין כאן מה לשמור. לא הוספנו שום דבר ליום שלך.",
+  "noCommitmentGreetingOrChat": "אין כאן מה לשמור. כתוב משימה או תזכורת כשתהיה מוכן.",
+  "noCommitmentQuestion": "MaybeSitter שומר התחייבויות בלבד. הוא עוד לא עונה על שאלות.",
+  "noCommitmentPastEvent": "נראה שזה משהו שכבר קרה. לא הוספנו כלום.",
+  "noCommitmentNegatedRequest": "הבנתי. לא נוצרה תזכורת.",
+  "noCommitmentLowConfidence": "לא הצלחנו לקרוא כאן התחייבות. נסה לציין את המשימה והשעה."
 }
