@@ -12,8 +12,26 @@ import { AuthProvider } from './src/auth/AuthProvider';
 import { Root } from './src/Root';
 import { fontMap } from './src/theme/fonts';
 import { initialiseCrashReporting } from './src/lib/crash';
+import { ErrorBoundary } from './src/ui/ErrorBoundary';
 
+/**
+ * The root, which is only the boundary (UC-4.4, #180 step 4).
+ *
+ * Everything else is `AppTree` below, so a failure in the font load, in any
+ * provider's first render, or anywhere under `Root` is caught and answered
+ * with a calm retry screen rather than a white rectangle. A boundary mounted
+ * *inside* the providers could not catch the case that blanks the app most
+ * often, which is a provider itself throwing.
+ */
 export default function App() {
+  return (
+    <ErrorBoundary>
+      <AppTree />
+    </ErrorBoundary>
+  );
+}
+
+function AppTree() {
   const [loaded, error] = useFonts(fontMap);
 
   // Started once, before anything else can fail. Off in development, and it

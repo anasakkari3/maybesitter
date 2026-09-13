@@ -24,11 +24,13 @@ class FakeReporter implements CrashReporter {
   attributes: Record<string, string> = {};
   errors: Error[] = [];
   logs: string[] = [];
+  crashes = 0;
 
   async setCrashlyticsCollectionEnabled(enabled: boolean) { this.enabled = enabled; return null; }
   async setAttributes(attributes: Record<string, string>) { this.attributes = attributes; return null; }
   recordError(error: Error) { this.errors.push(error); }
   log(message: string) { this.logs.push(message); }
+  crash() { this.crashes += 1; }
 }
 
 let fake: FakeReporter;

@@ -1,11 +1,12 @@
 import {
+  crash as crashlyticsCrash,
   getCrashlytics,
   log as crashlyticsLog,
   recordError as crashlyticsRecordError,
   setAttributes as crashlyticsSetAttributes,
   setCrashlyticsCollectionEnabled,
 } from '@react-native-firebase/crashlytics';
-import { appEnv, apiMode } from '../config/env';
+import { appEnv, apiMode, testCrashEnabled } from '../config/env';
 
 /**
  * The only module that talks to Crashlytics (UC-4.4, #180).
@@ -54,6 +55,12 @@ const BREADCRUMBS = [
   'next_step_decided',
   'sign_in_started',
   'sign_out',
+  /**
+   * The app-wide ErrorBoundary caught a render error and showed the retry
+   * screen (#180 step 4). A fact about the app, like every other name here —
+   * what was on screen when it happened is not ours to put in a crash log.
+   */
+  'render_failed',
 ] as const;
 export type CrashBreadcrumb = (typeof BREADCRUMBS)[number];
 
@@ -62,6 +69,8 @@ export interface CrashReporter {
   setAttributes(attributes: Record<string, string>): Promise<unknown>;
   recordError(error: Error, jsErrorName?: string): void;
   log(message: string): void;
+  /** Only ever reached through `triggerTestCrash` below. */
+  crash(): void;
 }
 
 let reporter: CrashReporter | null = null;
@@ -80,6 +89,7 @@ function client(): CrashReporter | null {
       setAttributes: (attributes) => crashlyticsSetAttributes(instance, attributes),
       recordError: (error, jsErrorName) => crashlyticsRecordError(instance, error, jsErrorName),
       log: (message) => crashlyticsLog(instance, message),
+      crash: () => crashlyticsCrash(instance),
     };
     return reporter;
   } catch {
@@ -149,4 +159,35 @@ export function recordError(error: unknown, context?: CrashBreadcrumb): void {
   } catch {
     // Reporting a failure must not become one.
   }
+}
+
+/**
+ * The hidden test trigger (UC-4.4, #180 step 8).
+ *
+ * Two acceptance criteria need a crash that somebody caused on purpose, in a
+ * *release* build: a native crash that arrives with real frames because the
+ * dSYM and the R8 mapping were uploaded, and a JS error that arrives with
+ * `src/` names because the exported Hermes source map was kept.
+ *
+ * Neither can be shown in a development build. Collection is off there on
+ * purpose, and a development bundle is neither minified nor obfuscated — so a
+ * crash from one proves nothing about symbols. The trigger is therefore
+ * reachable in **staging**, which is a release build a closed tester installs,
+ * and never in production: `releaseConfigProblems` refuses to *configure* a
+ * production build with `EXPO_PUBLIC_ENABLE_TEST_CRASH` set at all, so no
+ * binary that could reach this is ever made.
+ *
+ * `testCrashEnabled()` here is the belt, not the braces. The build guard is
+ * what makes the guarantee; this makes a mistake in a screen harmless too.
+ */
+export function triggerTestCrash(kind: 'native' | 'javascript'): void {
+  if (!testCrashEnabled()) return;
+  if (kind === 'javascript') {
+    // Thrown rather than recorded: what has to be proven is that an
+    // *unhandled* JS error reaches Crashlytics through React Native Firebase's
+    // global handler with Hermes frames, and that the stored map turns those
+    // offsets back into file names. `recordError` would take a different path.
+    throw new Error('MaybeSitter test crash (JavaScript)');
+  }
+  client()?.crash();
 }

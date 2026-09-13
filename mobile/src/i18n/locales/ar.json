@@ -228,6 +228,8 @@
   "errorsNotFound": "هاد ما عاد موجود.",
   "errorsGeneric": "ما زبطت. جرّب كمان مرّة.",
   "errorsRetry": "جرّب كمان مرّة",
+  "crashTitle": "MaybeSitter وقف لحظة",
+  "crashBody": "ما ضاع إشي من اللي أكّدته. جرّب لمّا تكون جاهز.",
   "errorsConsentRequired": "شغّلها من الإعدادات حتى تشوف الاقتراحات.",
   "errorsQuietMode": "وضع الهدوء شغّال. ما رح نقترح إشي لحد ما تطفّيه.",
   "errorsFeatureDisabled": "هاي لسّا مش متاحة.",

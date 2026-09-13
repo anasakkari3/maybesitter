@@ -228,6 +228,8 @@
   "errorsNotFound": "That's no longer here.",
   "errorsGeneric": "That didn't work. Try again.",
   "errorsRetry": "Try again",
+  "crashTitle": "MaybeSitter stopped for a moment",
+  "crashBody": "Nothing you confirmed was lost. Try again when you’re ready.",
   "errorsConsentRequired": "Turn this on in Settings to see suggestions.",
   "errorsQuietMode": "Quiet mode is on. Nothing will be suggested until you turn it off.",
   "errorsFeatureDisabled": "This isn't available yet.",

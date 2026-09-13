@@ -33,6 +33,22 @@ export interface ReleaseConfigInput {
    * in a build anyone else installs.
    */
   googleCalendarDemo?: string | undefined;
+  /**
+   * `EXPO_PUBLIC_ENABLE_TEST_CRASH`. The hidden row on the About screen that
+   * crashes the app on purpose (UC-4.4 #180 step 8).
+   *
+   * Unlike every other flag here it is allowed in **staging**, and that is the
+   * point rather than an oversight: the two symbolication criteria can only be
+   * shown on a release build — minified, obfuscated, with a dSYM and a mapping
+   * uploaded — and staging is the only release build anybody can install
+   * before the store accounts exist. A development build proves nothing, since
+   * collection is off there and nothing is minified.
+   *
+   * Production is a different question. A row that crashes the app is not a
+   * thing a real user may ever find, so a production build that sets this does
+   * not get made.
+   */
+  testCrash?: string | undefined;
 }
 
 export const APP_ENVS: readonly AppEnv[] = ['development', 'staging', 'production'];
@@ -67,6 +83,10 @@ export function releaseConfigProblems(input: ReleaseConfigInput): string[] {
   const apiMode = (input.apiMode ?? '').trim();
   if (apiMode !== '' && apiMode !== 'api' && apiMode !== 'mock') {
     problems.push(`EXPO_PUBLIC_API_MODE must be api or mock (got ${apiMode})`);
+  }
+
+  if (appEnv === 'production' && (input.testCrash ?? '').trim() !== '') {
+    problems.push('EXPO_PUBLIC_ENABLE_TEST_CRASH must not be set in a production build');
   }
 
   // A developer build is allowed to point at a laptop, and to run on fixtures.

@@ -18,6 +18,7 @@ const problems = releaseConfigProblems({
   devBearerToken: process.env.EXPO_PUBLIC_DEV_BEARER_TOKEN,
   apiMode: process.env.EXPO_PUBLIC_API_MODE,
   googleCalendarDemo: process.env.EXPO_PUBLIC_ENABLE_GOOGLE_CALENDAR_DEMO,
+  testCrash: process.env.EXPO_PUBLIC_ENABLE_TEST_CRASH,
 });
 if (problems.length > 0) throw new Error(releaseConfigErrorMessage(problems));
 
