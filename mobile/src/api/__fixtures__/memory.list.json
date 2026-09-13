@@ -3,7 +3,7 @@
     {
       "id": "mem_00000000-0000-4000-8000-000000000001",
       "kind": "preference",
-      "content": "focus_window:09:00-17:00",
+      "content": "reminder_intensity:followUp",
       "language": "mixed",
       "source": "user_stated",
       "confidence": 1,
@@ -45,7 +45,7 @@
     {
       "id": "mem_00000000-0000-4000-8000-000000000004",
       "kind": "preference",
-      "content": "reminder_intensity:followUp",
+      "content": "focus_window:09:00-17:00",
       "language": "mixed",
       "source": "user_stated",
       "confidence": 1,

@@ -1,6 +1,14 @@
 import type { Commitment } from '../../../src/domain/stateMachine';
+import type { RankedItem } from '../../priority/mobileRanking';
 
-export function commitmentToMobileDto(commitment: Commitment) {
+/**
+ * One commitment, as the phone reads it.
+ *
+ * `rank` and `reasonCodes` are present only when the priority module is on
+ * (UC-2.8, #169) — absent means "this build does not rank", which the client
+ * renders as the time order it has always used, rather than as rank 0.
+ */
+export function commitmentToMobileDto(commitment: Commitment, ranked?: RankedItem) {
   return {
     id: commitment.id,
     kind: commitment.kind,
@@ -17,12 +25,16 @@ export function commitmentToMobileDto(commitment: Commitment) {
     confirmedAt: commitment.confirmedAt,
     completedAt: commitment.completedAt,
     droppedAt: commitment.droppedAt,
+    ...(ranked ? { rank: ranked.rank, reasonCodes: ranked.reasonCodes } : {}),
   };
 }
 
-export function commitmentListResponse(commitments: Commitment[]) {
+export function commitmentListResponse(
+  commitments: Commitment[],
+  ranking?: Map<string, RankedItem>,
+) {
   return {
-    items: commitments.map(commitmentToMobileDto),
+    items: commitments.map((commitment) => commitmentToMobileDto(commitment, ranking?.get(commitment.id))),
   };
 }
 
