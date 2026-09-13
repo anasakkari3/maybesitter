@@ -7,6 +7,39 @@ import { captureConfirmationSchema, captureProposalSchema, type CaptureConfirmat
  * them, and no retry wrapped around the confirm.
  */
 
+/**
+ * Answers the one clarification on one item (UC-2.5, #165).
+ *
+ * The response is the whole updated proposal, not an acknowledgement: the
+ * item's time, title and `needsClarification` may all have changed, and the
+ * review screen has to show what it will actually confirm.
+ *
+ * Never retried. An answer is a decision about somebody's commitment, and a
+ * replay of one the user is no longer looking at is the failure #157 forbids
+ * for the confirm for the same reason.
+ */
+export function clarifyCapture(input: {
+  proposalId: string;
+  itemId: string;
+  questionId: string;
+  optionId?: string;
+  freeText?: string;
+  timezone: string;
+}): Promise<CaptureProposal> {
+  return apiRequest('POST', '/api/mobile/capture/clarify', {
+    body: {
+      proposalId: input.proposalId,
+      itemId: input.itemId,
+      questionId: input.questionId,
+      timezone: input.timezone,
+      referenceTime: new Date().toISOString(),
+      ...(input.optionId ? { optionId: input.optionId } : {}),
+      ...(input.freeText ? { freeText: input.freeText } : {}),
+    },
+    schema: captureProposalSchema,
+  });
+}
+
 export function proposeCapture(input: {
   text: string;
   timezone: string;
@@ -41,12 +74,21 @@ export function proposeCapture(input: {
 export async function confirmCapture(input: {
   proposalId: string;
   itemIds: string[];
+  /**
+   * Changes the user made in review, applied in the same write (UC-2.4, #164).
+   *
+   * Not a PATCH afterwards: that leaves them holding a commitment with a title
+   * they already changed for as long as the second request takes, and
+   * permanently if it fails.
+   */
+  edits?: { itemId: string; title?: string; resolvedTime?: string | null; priority?: 'high' | 'normal' | 'low' }[];
   idempotencyKey?: string;
 }): Promise<CaptureConfirmation> {
   const result = await apiRequest('POST', '/api/mobile/capture/confirm', {
     body: {
       proposalId: input.proposalId,
       itemIds: input.itemIds,
+      ...(input.edits?.length ? { edits: input.edits } : {}),
       ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
     },
     schema: captureConfirmationSchema,

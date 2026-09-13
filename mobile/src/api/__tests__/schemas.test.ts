@@ -50,6 +50,10 @@ function fixture(name: string): unknown {
 
 const CASES: Array<[string, z.ZodType]> = [
   ['capture.proposal', captureProposalSchema],
+  // Both are the same shape: the clarify endpoint answers with the whole
+  // updated proposal, not an acknowledgement (#165).
+  ['capture.needsClarification', captureProposalSchema],
+  ['capture.clarified', captureProposalSchema],
   ['capture.confirmation', captureConfirmationSchema],
   ['capture.confirmationFailed', captureConfirmationSchema],
   ['commitments.today', commitmentListSchema],

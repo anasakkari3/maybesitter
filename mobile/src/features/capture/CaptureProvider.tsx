@@ -19,7 +19,8 @@
  */
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useCapture, useConfirmCapture, useAiConsentGranted } from '../../api/queries';
+import { useCapture, useClarifyCapture, useConfirmCapture, useAiConsentGranted } from '../../api/queries';
+import { useTimeZone } from '../../i18n/timezone';
 import { deleteCommitment } from '../../api/endpoints/commitments';
 import { isRetryable, ValidationError } from '../../api/errors';
 import {
@@ -32,6 +33,7 @@ import {
   type CaptureSource,
   type CaptureState,
 } from './captureMachine';
+import { toServerEdits } from './editPayload';
 import {
   analyzeCapture,
   confirmCapture as runConfirm,
@@ -52,6 +54,15 @@ interface CaptureContextValue {
   analyze(): Promise<void>;
   toggleItem(itemId: string): void;
   editItem(itemId: string, edit: CaptureItemEdit): void;
+  /**
+   * Answers the one question on one item (UC-2.5, #165).
+   *
+   * The server returns the whole updated proposal and it replaces the one held
+   * here, so the review screen shows what it will actually confirm. A failure
+   * leaves the proposal as it was and reports it, rather than clearing the
+   * question and pretending the answer landed.
+   */
+  clarify(itemId: string, answer: { optionId?: string; freeText?: string }): Promise<boolean>;
   confirm(): Promise<void>;
   undo(): Promise<UndoOutcome>;
   backToComposer(): void;
@@ -92,8 +103,10 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(captureReducer, initialCaptureState());
   const capture = useCapture();
   const confirmCapture = useConfirmCapture();
+  const clarifyCapture = useClarifyCapture();
   const { granted: aiGranted, asked: aiAsked } = useAiConsentGranted();
   const client = useQueryClient();
+  const timezone = useTimeZone();
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // The timer is cleared on unmount, so leaving the flow cannot leave Undo
@@ -123,15 +136,45 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
   }, [capture, state.text]);
 
   const toggleItem = useCallback((itemId: string) => dispatch({ type: 'toggleItem', itemId }), []);
+
+  const clarify = useCallback(async (itemId: string, answer: { optionId?: string; freeText?: string }) => {
+    const proposal = state.proposal;
+    const question = proposal?.items.find((item) => item.itemId === itemId)?.clarification;
+    if (!proposal || !question) return false;
+    try {
+      const updated = await clarifyCapture.mutateAsync({
+        proposalId: proposal.proposalId,
+        itemId,
+        questionId: question.questionId,
+        ...(answer.optionId ? { optionId: answer.optionId } : {}),
+        ...(answer.freeText ? { freeText: answer.freeText } : {}),
+      });
+      // The whole proposal, so `needsClarification`, the title and the time all
+      // move together. Patching one field here is how the three drift apart.
+      dispatch({ type: 'analyzeSucceeded', proposal: updated });
+      return true;
+    } catch {
+      // The proposal is untouched. The screen keeps the question rather than
+      // clearing it, because an unanswered question is the honest state.
+      return false;
+    }
+  }, [clarifyCapture, state.proposal]);
   const editItem = useCallback((itemId: string, edit: CaptureItemEdit) => dispatch({ type: 'editItem', itemId, edit }), []);
 
   const confirm = useCallback(async () => {
     if (confirmPayload(state).itemIds.length === 0) return;
     dispatch({ type: 'confirmStarted' });
     const outcome = await runConfirm(
-      // The edits are held but not yet sent: the atomic confirm that carries
-      // them is UC-2.4 (#164). Nothing here applies them after the fact.
-      { confirm: ({ proposalId, itemIds }) => confirmCapture.mutateAsync({ proposalId, itemIds }) },
+      // The edits travel with the confirm (UC-2.4, #164), never as a PATCH
+      // afterwards: what the user saw when they pressed confirm is what gets
+      // written, or nothing is.
+      {
+        confirm: ({ proposalId, itemIds, edits }) => confirmCapture.mutateAsync({
+          proposalId,
+          itemIds,
+          edits: toServerEdits(edits, timezone),
+        }),
+      },
       state,
     );
     if (!outcome) return;
@@ -144,7 +187,7 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
     await invalidateCommitmentViews(client);
     if (undoTimer.current) clearTimeout(undoTimer.current);
     undoTimer.current = setTimeout(() => dispatch({ type: 'undoWindowClosed' }), UNDO_WINDOW_MS);
-  }, [client, confirmCapture, state]);
+  }, [client, confirmCapture, state, timezone]);
 
   /**
    * Soft-deletes what was saved, one at a time, and reports honestly.
@@ -170,8 +213,8 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo<CaptureContextValue>(() => ({
-    state, aiGranted, aiAsked, open, setText, analyze, toggleItem, editItem, confirm, undo, backToComposer, close,
-  }), [state, aiGranted, aiAsked, open, setText, analyze, toggleItem, editItem, confirm, undo, backToComposer, close]);
+    state, aiGranted, aiAsked, open, setText, analyze, toggleItem, editItem, clarify, confirm, undo, backToComposer, close,
+  }), [state, aiGranted, aiAsked, open, setText, analyze, toggleItem, editItem, clarify, confirm, undo, backToComposer, close]);
 
   return <CaptureContext.Provider value={value}>{children}</CaptureContext.Provider>;
 }

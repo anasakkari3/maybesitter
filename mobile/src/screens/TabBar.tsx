@@ -39,7 +39,8 @@ export function TabBar() {
         <Tab screen="today" label={t.tabToday} icon={c => <TodayIcon color={c} />} />
         <Tab screen="calendar" label={t.tabCalendar} icon={c => <CalendarIcon color={c} />} />
         <Btn
-          onPress={actions.goCapture}
+          testID="tab-capture"
+          onPress={() => actions.goCapture('tab', 'text')}
           label={t.tabCapture}
           scaleTo={0.94}
           style={[{ backgroundColor: p.ac, borderRadius: 999, height: 56, paddingHorizontal: 22, flexDirection: 'row', alignItems: 'center', gap: 8 }, accentGlow(p, 0.3)]}

@@ -3,7 +3,7 @@ import * as Crypto from 'expo-crypto';
 import { useTimeZone } from '../i18n/timezone';
 import { apiLocale } from '../i18n/locale';
 import { useAuth } from '../auth/AuthProvider';
-import { confirmCapture, proposeCapture } from './endpoints/capture';
+import { clarifyCapture, confirmCapture, proposeCapture } from './endpoints/capture';
 import {
   actOnCommitment,
   deleteCommitment,
@@ -214,12 +214,29 @@ export function useCapture() {
  * The idempotency key is minted here, once per call, from `expo-crypto`. It is
  * not retried and not queued: see `queryClient.ts` for why.
  */
+/**
+ * Answers one clarification (UC-2.5, #165).
+ *
+ * Not retried, like the confirm: an answer is a decision about a commitment,
+ * and replaying one the user is no longer looking at is the failure #157 names.
+ */
+export function useClarifyCapture() {
+  const timezone = useTimeZone();
+  return useMutation({
+    mutationFn: (input: { proposalId: string; itemId: string; questionId: string; optionId?: string; freeText?: string }) =>
+      clarifyCapture({ ...input, timezone }),
+  });
+}
+
 export function useConfirmCapture() {
   const client = useQueryClient();
   const uid = useUid();
   return useMutation({
-    mutationFn: (input: { proposalId: string; itemIds: string[] }) =>
-      confirmCapture({ ...input, idempotencyKey: Crypto.randomUUID() }),
+    mutationFn: (input: {
+      proposalId: string;
+      itemIds: string[];
+      edits?: { itemId: string; title?: string; resolvedTime?: string | null; priority?: 'high' | 'normal' | 'low' }[];
+    }) => confirmCapture({ ...input, idempotencyKey: Crypto.randomUUID() }),
     onSuccess: () => invalidateCommitments(client, uid),
   });
 }

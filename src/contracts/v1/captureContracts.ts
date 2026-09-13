@@ -30,6 +30,16 @@ export interface CaptureProposalItemContract {
    * how a product loses the right to make guesses at all.
    */
   priorityEstimated?: boolean;
+  /**
+   * The one question worth asking about this item (UC-2.5, #165).
+   *
+   * Declared here rather than only produced: `captureBoundaryService` has been
+   * spreading this onto items since #293, and a spread is not excess-property
+   * checked — so the field the phone parses was absent from the contract that
+   * is supposed to define it. Null means the round is spent and the app should
+   * open #164's edit sheet instead.
+   */
+  clarification?: ClarificationContract | null;
 }
 
 /**

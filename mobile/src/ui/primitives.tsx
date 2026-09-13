@@ -63,6 +63,7 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
  */
 export function Btn({
   onPress, onPressIn, onPressOut, style, children, disabled, label, scaleTo = 0.95, hitSlop, testID,
+  accessibilityRole = 'button',
 }: {
   // `| undefined` is explicit because the app compiles with
   // exactOptionalPressableTypes: callers pass `onPress={disabled ? undefined : fn}`.
@@ -82,12 +83,19 @@ export function Btn({
    * is what a screen reader announces; this is never shown to anyone.
    */
   testID?: string | undefined;
+  /**
+   * Overrides the default `button` role.
+   *
+   * UC-2.5 (#165)'s clarification options are a single choice, and a screen
+   * reader announcing four buttons does not say that only one may be picked.
+   */
+  accessibilityRole?: 'button' | 'radio' | 'checkbox' | 'link';
 }) {
   const v = useRef(new Animated.Value(1)).current;
   const spring = (to: number) => Animated.spring(v, { toValue: to, useNativeDriver: true, speed: 40, bounciness: 0 }).start();
   return (
     <AnimatedPressable
-      accessibilityRole="button"
+      accessibilityRole={accessibilityRole}
       accessibilityLabel={label}
       testID={testID}
       accessibilityState={{ disabled }}

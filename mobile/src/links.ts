@@ -6,6 +6,9 @@ import type { ThemePref } from './state/types';
 /**
  * Deep links (UC-2.R3, #173).
  *
+ *   maybesitter://capture?source=widget&input=voice
+ *                                          the capture flow, with how it was
+ *                                          entered (UC-2.R2, #172)
  *   maybesitter://today                    a tab or screen by name
  *   maybesitter://commitments/<id>         one commitment
  *   maybesitter://item/<id>                the same, the widget's older spelling
@@ -24,10 +27,22 @@ import type { ThemePref } from './state/types';
  * it does not match. Repairing an id would be guessing which commitment a
  * stranger meant.
  */
+export type CaptureLinkSource = 'tab' | 'widget' | 'share' | 'notification';
+export type CaptureLinkInput = 'text' | 'voice';
+
 export type LinkTarget =
   | { kind: 'screen'; name: string }
   | { kind: 'commitment'; id: string }
-  | { kind: 'nextStep' };
+  | { kind: 'nextStep' }
+  /**
+   * Capture, and how it was reached.
+   *
+   * `source` is recorded rather than assumed `tab`, because a widget or a share
+   * sheet is a different entry and #172 asks the flow to know which. Both
+   * values are validated against their enums: a link is untrusted input, and
+   * `source=<script>` must be an unrecognised link rather than a stored string.
+   */
+  | { kind: 'capture'; source: CaptureLinkSource; input: CaptureLinkInput };
 
 export interface ParsedLink {
   target: LinkTarget;
@@ -61,10 +76,10 @@ export function parseLink(url: string): ParsedLink | null {
   const path = rawPath.replace(/^\/+|\/+$/g, '');
   const segments = path.split('/').filter(segment => segment.length > 0);
 
-  const target = targetFor(segments);
+  const params = new URLSearchParams(query);
+  const target = targetFor(segments, params);
   if (!target) return null;
 
-  const params = new URLSearchParams(query);
   const lang = params.get('lang');
   const theme = params.get('theme');
   // The keys are left out entirely when the link doesn't carry them, rather
@@ -75,10 +90,26 @@ export function parseLink(url: string): ParsedLink | null {
   return link;
 }
 
-function targetFor(segments: string[]): LinkTarget | null {
+const CAPTURE_SOURCES: readonly string[] = ['tab', 'widget', 'share', 'notification'];
+const CAPTURE_INPUTS: readonly string[] = ['text', 'voice'];
+
+function targetFor(segments: string[], params: URLSearchParams): LinkTarget | null {
   if (segments.length === 0) return { kind: 'screen', name: 'today' };
 
   const [first, second] = segments;
+  if (first === 'capture') {
+    if (segments.length !== 1) return null;
+    const source = params.get('source');
+    const input = params.get('input');
+    return {
+      kind: 'capture',
+      // An unrecognised value falls back rather than refusing the link: the
+      // user asked to capture something, and losing that over an analytics
+      // parameter would be the wrong trade.
+      source: (source && CAPTURE_SOURCES.includes(source) ? source : 'tab') as CaptureLinkSource,
+      input: (input && CAPTURE_INPUTS.includes(input) ? input : 'text') as CaptureLinkInput,
+    };
+  }
   if (first === 'commitments' || first === 'item') {
     // Exactly two segments. `commitments/a/b` is not a commitment id with a
     // slash in it; it is a link this app does not understand.
@@ -96,6 +127,7 @@ export function useLinks(
     jump: (name: string) => void;
     openCommitment: (id: string) => void;
     openNextStep: () => void;
+    openCapture: (source: CaptureLinkSource, input: CaptureLinkInput) => void;
     setLang: (l: Lang) => void;
     setThemePref: (t: ThemePref) => void;
   },
@@ -115,6 +147,7 @@ export function useLinks(
       if (link.theme) handlers.setThemePref(link.theme);
       if (link.target.kind === 'commitment') handlers.openCommitment(link.target.id);
       else if (link.target.kind === 'nextStep') handlers.openNextStep();
+      else if (link.target.kind === 'capture') handlers.openCapture(link.target.source, link.target.input);
       else handlers.jump(link.target.name);
     };
     const pending = takePendingLink?.() ?? null;

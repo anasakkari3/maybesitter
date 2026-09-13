@@ -22,6 +22,29 @@ describe('what a link opens', () => {
       .toEqual({ kind: 'commitment', id: '00000000-0000-4000-8000-000000000001' });
   });
 
+  it('opens capture, and records how it was entered', () => {
+    // `source` and `input` are #172's search params. A widget or share entry is
+    // a different entry from a tab tap, and the flow is asked to know which.
+    expect(parseLink('maybesitter://capture')?.target)
+      .toEqual({ kind: 'capture', source: 'tab', input: 'text' });
+    expect(parseLink('maybesitter://capture?source=widget&input=voice')?.target)
+      .toEqual({ kind: 'capture', source: 'widget', input: 'voice' });
+    expect(parseLink('maybesitter://capture?source=share')?.target)
+      .toEqual({ kind: 'capture', source: 'share', input: 'text' });
+  });
+
+  it('falls back rather than refusing a capture link with a bad parameter', () => {
+    // The user asked to capture something. Losing that over an analytics
+    // parameter would be the wrong trade — unlike a commitment id, which names
+    // the entity and must be exact.
+    expect(parseLink('maybesitter://capture?source=<script>&input=telepathy')?.target)
+      .toEqual({ kind: 'capture', source: 'tab', input: 'text' });
+  });
+
+  it('refuses a capture link with extra path segments', () => {
+    expect(parseLink('maybesitter://capture/review')).toBeNull();
+  });
+
   it('still understands the widget’s older spellings', () => {
     // `item/<id>` and `next` are what the Flutter widget emitted. A widget on
     // someone's home screen outlives the app version that installed it.

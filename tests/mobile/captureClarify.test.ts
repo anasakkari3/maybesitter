@@ -1,0 +1,265 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
+import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
+import { proposeMobileCapture, clarifyMobileCapture } from '../../lib/services/mobile/mobileCaptureService.ts';
+import { createStorageCaptureProposalStore } from '../../lib/services/captureBoundary/proposalStore.ts';
+import { ClarifyError } from '../../lib/services/captureBoundary/clarifyService.ts';
+
+/**
+ * Answering the one question (UC-2.5, #165).
+ *
+ * ── The assertion that matters is about the command ──────────────
+ *
+ * A `resolvedTime` patched onto the proposal would look right on the review
+ * screen and leave the *command* — what a confirm actually persists — holding
+ * the old time. Somebody answering "nine in the evening" would then get a
+ * commitment at nine in the morning. So these check what the store holds after
+ * the answer, not only what comes back.
+ */
+
+const UID = 'ClarifyUser';
+const ZONE = 'Asia/Jerusalem';
+const NOW = '2026-09-13T06:00:00.000Z'; // 09:00 local
+
+function setup() {
+  setStorageForTests(createMemoryStorage());
+  return () => resetStorageForTests();
+}
+
+/**
+ * A capture with an action and no time: `decideExtractionDisposition` returns
+ * `needs_clarification`, and the builder asks `ask_time`.
+ */
+async function proposeAmbiguous(text = 'Remind me to call Dana') {
+  const proposal = await proposeMobileCapture(
+    { text, timezone: ZONE, referenceTime: NOW },
+    { participantId: UID },
+  );
+  const item = proposal.items.find((candidate) => candidate.needsClarification && candidate.clarification);
+  return { proposal, item };
+}
+
+test('a capture the extractor cannot pin down carries one question, in keys not prose', async () => {
+  const cleanup = setup();
+  try {
+    const { item } = await proposeAmbiguous();
+    assert.ok(item, 'expected an item needing clarification');
+    const question = item.clarification!;
+    assert.match(question.questionKey, /^[a-z_]+$/);
+    for (const option of question.options) {
+      // Keys only. A sentence here would be a sentence the phone cannot
+      // translate and nobody reviewed.
+      assert.match(option.labelKey, /^[a-zA-Z][a-zA-Z0-9_]*$/);
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test('choosing an option moves the command, not just the displayed time', async () => {
+  const cleanup = setup();
+  try {
+    const { proposal, item } = await proposeAmbiguous();
+    assert.ok(item);
+    const question = item.clarification!;
+    const option = question.options.find((candidate) => candidate.value.localTime) ?? question.options[0]!;
+
+    const updated = await clarifyMobileCapture(
+      { proposalId: proposal.proposalId, itemId: item.itemId, questionId: question.questionId, optionId: option.optionId, timezone: ZONE, referenceTime: NOW },
+      { participantId: UID },
+    );
+
+    const answered = updated.items.find((candidate) => candidate.itemId === item.itemId)!;
+    assert.equal(answered.needsClarification, false);
+    assert.equal(answered.clarification, null);
+
+    // The command is what a confirm persists. If the answer stopped at the
+    // contract, this is empty and the review screen is lying.
+    const stored = await createStorageCaptureProposalStore().get(proposal.proposalId);
+    const commands = stored?.commandsByItemId.get(item.itemId) ?? [];
+    assert.ok(commands.length > 0, 'expected the command to be rebuilt from the answer');
+
+    // And it is the hour they chose, on the date the option named. A meridiem
+    // read wrongly here is a twelve-hour error on somebody's commitment, which
+    // is the whole reason the question is asked instead of guessed (#162).
+    const expected = new Intl.DateTimeFormat('en-GB', {
+      timeZone: ZONE, hour: '2-digit', minute: '2-digit', hour12: false,
+    }).format(new Date(answered.resolvedTime!));
+    assert.equal(expected, option.value.localTime);
+    const expectedDay = new Intl.DateTimeFormat('en-CA', {
+      timeZone: ZONE, year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(new Date(answered.resolvedTime!));
+    assert.equal(expectedDay, option.value.localDate);
+  } finally {
+    cleanup();
+  }
+});
+
+test('the same item cannot be asked twice', async () => {
+  const cleanup = setup();
+  try {
+    const { proposal, item } = await proposeAmbiguous();
+    assert.ok(item);
+    const question = item.clarification!;
+    const body = {
+      proposalId: proposal.proposalId, itemId: item.itemId,
+      questionId: question.questionId, optionId: question.options[0]!.optionId,
+      timezone: ZONE, referenceTime: NOW,
+    };
+    await clarifyMobileCapture(body, { participantId: UID });
+    // A product that asks twice has stopped being a capture box.
+    await assert.rejects(
+      () => clarifyMobileCapture(body, { participantId: UID }),
+      (error: unknown) => error instanceof ClarifyError && error.failure === 'already_clarified',
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test('an answer to a question this proposal is not asking is refused', async () => {
+  const cleanup = setup();
+  try {
+    const { proposal, item } = await proposeAmbiguous();
+    assert.ok(item);
+    await assert.rejects(
+      () => clarifyMobileCapture(
+        { proposalId: proposal.proposalId, itemId: item.itemId, questionId: 'some-other-question', optionId: 'x', timezone: ZONE, referenceTime: NOW },
+        { participantId: UID },
+      ),
+      (error: unknown) => error instanceof ClarifyError && error.failure === 'question_mismatch',
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test('another account cannot answer this proposal', async () => {
+  const cleanup = setup();
+  try {
+    const { proposal, item } = await proposeAmbiguous();
+    assert.ok(item);
+    // The scope is the token's uid. Answering applies a change to somebody's
+    // commitment, so this is the same rule the confirm follows.
+    await assert.rejects(
+      () => clarifyMobileCapture(
+        { proposalId: proposal.proposalId, itemId: item.itemId, questionId: item.clarification!.questionId, optionId: item.clarification!.options[0]!.optionId, timezone: ZONE, referenceTime: NOW },
+        { participantId: 'SomebodyElse' },
+      ),
+      (error: unknown) => error instanceof ClarifyError && error.failure === 'proposal_not_found',
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test('an empty answer is refused, and an over-long one too', async () => {
+  const cleanup = setup();
+  try {
+    const { proposal, item } = await proposeAmbiguous();
+    assert.ok(item);
+    const base = {
+      proposalId: proposal.proposalId, itemId: item.itemId,
+      questionId: item.clarification!.questionId, timezone: ZONE, referenceTime: NOW,
+    };
+    await assert.rejects(
+      () => clarifyMobileCapture(base, { participantId: UID }),
+      (error: unknown) => error instanceof ClarifyError && error.failure === 'answer_required',
+    );
+    await assert.rejects(
+      () => clarifyMobileCapture({ ...base, freeText: 'x'.repeat(201) }, { participantId: UID }),
+      (error: unknown) => error instanceof ClarifyError && error.failure === 'free_text_too_long',
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test('free text is re-read by the extractor, not spliced into the title', async () => {
+  const cleanup = setup();
+  try {
+    const { proposal, item } = await proposeAmbiguous();
+    assert.ok(item);
+    const updated = await clarifyMobileCapture(
+      {
+        proposalId: proposal.proposalId, itemId: item.itemId,
+        questionId: item.clarification!.questionId,
+        freeText: 'بالمسا',
+        timezone: ZONE, referenceTime: NOW,
+      },
+      { participantId: UID },
+    );
+    const answered = updated.items.find((candidate) => candidate.itemId === item.itemId)!;
+    // The words the user added are not the title. Splicing them in would also
+    // skip the injection screen, which only the extractor runs.
+    assert.ok(!answered.title.includes('بالمسا'));
+  } finally {
+    cleanup();
+  }
+});
+
+test('an unknown option is refused rather than silently ignored', async () => {
+  const cleanup = setup();
+  try {
+    const { proposal, item } = await proposeAmbiguous();
+    assert.ok(item);
+    await assert.rejects(
+      () => clarifyMobileCapture(
+        { proposalId: proposal.proposalId, itemId: item.itemId, questionId: item.clarification!.questionId, optionId: 'not-an-option', timezone: ZONE, referenceTime: NOW },
+        { participantId: UID },
+      ),
+      (error: unknown) => error instanceof ClarifyError && error.failure === 'option_not_found',
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test('what the durable store keeps survives the round trip', async () => {
+  const cleanup = setup();
+  try {
+    const { proposal, item } = await proposeAmbiguous();
+    assert.ok(item);
+
+    // Read back through the storage adapter, which is what production uses.
+    // `StoredCaptureProposal` carries three things a JSON document cannot hold
+    // by itself — two Maps and, before this, `proposedAt`.
+    const stored = await createStorageCaptureProposalStore().get(proposal.proposalId);
+    assert.ok(stored, 'expected the proposal to be readable');
+
+    // `proposedAt` was written into the in-memory shape and never into the
+    // document, so on the durable store it was always undefined and #164's
+    // thirty-minute staleness guard could never fire. The Map-backed store the
+    // other tests use kept it, which is why nothing failed.
+    assert.equal(typeof stored.proposedAt, 'string');
+    assert.ok(Number.isFinite(Date.parse(stored.proposedAt!)));
+
+    assert.ok(stored.resultsByItemId?.get(item.itemId), 'expected the extraction to survive');
+    assert.ok(stored.commandsByItemId instanceof Map);
+  } finally {
+    cleanup();
+  }
+});
+
+test('a proposal older than the TTL is refused by the durable store too', async () => {
+  const cleanup = setup();
+  try {
+    const { proposal, item } = await proposeAmbiguous();
+    assert.ok(item);
+    const store = createStorageCaptureProposalStore();
+    const stored = (await store.get(proposal.proposalId))!;
+    // Thirty-one minutes ago.
+    await store.put({ ...stored, proposedAt: new Date(Date.parse(NOW) - 31 * 60 * 1000).toISOString() });
+
+    const { confirmMobileCapture } = await import('../../lib/services/mobile/mobileCaptureService.ts');
+    const result = await confirmMobileCapture(
+      { proposalId: proposal.proposalId, scopeId: UID, itemIds: [item.itemId], idempotencyKey: 'k1' },
+      { participantId: UID },
+    );
+    assert.equal(result.success, false);
+    assert.equal(result.failureCode, 'proposal_not_found');
+  } finally {
+    cleanup();
+  }
+});

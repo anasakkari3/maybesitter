@@ -180,6 +180,9 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   const context: ExtractionContext = { now: options.now, timezone: options.timezone };
   const proposalId = randomUUID();
   const commandsByItemId = new Map<string, readonly ReturnType<typeof mapExtractionToCommand>[number][]>();
+  // Kept so one clarification can be answered against the extraction the item
+  // came from, rather than by patching its contract (#165).
+  const resultsByItemId = new Map<string, ExtractionResult>();
   const items: CaptureProposalContract['items'] = [];
   let executedEngine: CaptureProposalContract['provenance']['executedEngine'] = 'rule-based';
   let fallbackUsed = forceRules;
@@ -239,6 +242,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
           : {}),
       });
       commandsByItemId.set(itemId, needsClarification ? [] : mapExtractionToCommand(extracted.result, options.now.toISOString()));
+      resultsByItemId.set(itemId, extracted.result);
     } catch (error) {
       // Gap B: a negated request is understood, not malformed. It produces no
       // commitment and says so, rather than an error the user has to interpret.
@@ -294,9 +298,19 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
     contract,
     scopeId: options.scopeId,
     commandsByItemId,
-    // When it was made, so a confirm can tell a fresh proposal from one resolved
-    // against a `now` that is hours stale (#164 step 7).
-    proposedAt: options.now.toISOString(),
+    resultsByItemId,
+    /*
+     * When it was made, by the server's clock — not `options.now`.
+     *
+     * `options.now` is the *client's* `referenceTime`, the instant "tomorrow at
+     * 9" is resolved against. Using it here conflated two different things and
+     * handed the TTL to the caller: a `referenceTime` in the future would keep
+     * a proposal confirmable indefinitely, and one in the past would kill it on
+     * arrival. The staleness guard exists to catch a proposal resolved against
+     * a stale clock, so it has to be measured by a clock the client does not
+     * choose (#164 step 7).
+     */
+    proposedAt: new Date().toISOString(),
   });
   dependencies.audit?.(auditEvent(fallbackUsed ? 'fell_back' : status === 'rejected' ? 'rejected' : 'succeeded', raw, options.now, status, items.length));
   return contract;
@@ -386,7 +400,17 @@ export async function confirmCapture(
   // to analyze the text again for both (#164 step 7).
   const now = input.now ?? new Date();
   if (stored.proposedAt) {
-    const age = now.getTime() - Date.parse(stored.proposedAt);
+    /*
+     * Both ends of this are the server's clock, deliberately.
+     *
+     * `proposedAt` is when the server made the proposal and `Date.now()` is
+     * when it is being confirmed. `input.now` is the caller's `referenceTime` —
+     * the instant relative phrases were resolved against — and measuring the
+     * age against that would let a caller send a `referenceTime` of its own
+     * choosing to keep a stale proposal alive, which is the one thing this
+     * guard exists to prevent.
+     */
+    const age = Date.now() - Date.parse(stored.proposedAt);
     if (Number.isFinite(age) && age > CAPTURE_PROPOSAL_TTL_MS) return failure('proposal_not_found');
   }
 
