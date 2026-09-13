@@ -117,6 +117,33 @@ test('the survey saved through the route comes back on the profile and as facts'
   }
 });
 
+test('the list comes back in the same order every time', async () => {
+  begin();
+  try {
+    // The routine facts are one save, so they share an `observedAt` and a
+    // `createdAt`. The store breaks that tie on a random uuid, which made the
+    // memory screen reshuffle its rows on every pull-to-refresh — on the one
+    // screen whose whole job is telling somebody what we know about them.
+    await routinePut(request(OWNER, '/api/mobile/profile/routine', { body: ROUTINE, method: 'PUT' }));
+
+    const reads = await Promise.all([1, 2, 3].map(async () => {
+      const listed = await json(await memoryGet(request(OWNER, '/api/mobile/memory')));
+      return listed.items.map((item: any) => item.content);
+    }));
+    assert.deepEqual(reads[0], reads[1]);
+    assert.deepEqual(reads[1], reads[2]);
+    // And it is an order somebody could predict, not merely a repeatable one.
+    assert.deepEqual(reads[0], [
+      'focus_window:09:00-17:00',
+      'quiet_hours:22:30-07:30',
+      'reminder_intensity:followUp',
+      'sleep_window:23:30-07:30',
+    ]);
+  } finally {
+    end();
+  }
+});
+
 test('a profile nobody has answered reads as null rather than as a 404', async () => {
   begin();
   try {
