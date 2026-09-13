@@ -1,3 +1,6 @@
+// Must stay first: installs Intl.PluralRules/Intl.Locale before intl-messageformat
+// formats anything. Hermes has neither — see ./polyfills.ts.
+import './polyfills';
 import i18next from 'i18next';
 import ICU from 'i18next-icu';
 import { initReactI18next } from 'react-i18next';
