@@ -40,6 +40,9 @@ export function Root() {
   useLinks(
     {
       jump: name => latest.current.jump(name),
+      openCommitment: id => latest.current.openDetail(id),
+      // The next step lives on Today's card; there is no screen of its own.
+      openNextStep: () => latest.current.go('today'),
       setLang: l => latest.current.setLang(l),
       setThemePref: v => latest.current.setThemePref(v),
     },
