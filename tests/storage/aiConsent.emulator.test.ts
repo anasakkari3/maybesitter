@@ -11,8 +11,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createFirestoreStorage, resetFirestoreForTests } from '../../lib/storage/firestoreAdapter.ts';
 import { userDoc } from '../../lib/storage/paths.ts';
-import { AI_CONSENT_VERSION } from '../../src/contracts/v1/consentContracts.ts';
+import { AI_CONSENT_VERSION, RECOMMENDATION_CONSENT_VERSION } from '../../src/contracts/v1/consentContracts.ts';
 import { getAiConsent, readAiConsent, setAiConsent } from '../../lib/consents/aiConsentService.ts';
+import {
+  getRecommendationConsent,
+  setRecommendationConsent,
+} from '../../lib/consents/recommendationConsentService.ts';
 import { AiConsentRequiredError, consentGatedProvider } from '../../lib/llm/consentGatedProvider.ts';
 import type { LlmProvider } from '../../src/extraction/llm/index.ts';
 
@@ -92,6 +96,33 @@ test('firestore: consent does not disturb the trust record sharing its document'
     const user = await createFirestoreStorage().get<{ trust?: unknown; consents?: unknown }>(userDoc(uid));
     assert.ok(user?.trust, 'writing consent erased the trust record');
     assert.ok(user?.consents, 'the consent was not stored');
+  } finally {
+    await createFirestoreStorage().deleteTree(userDoc(uid)).catch(() => {});
+    resetFirestoreForTests();
+  }
+});
+
+test('firestore: two consents on one document do not overwrite each other', async () => {
+  // UC-2.9 (#170) put a second answer beside UC-2.1 (#161)'s in the same map.
+  // `setConsent` reads the map and spreads it rather than trusting Firestore's
+  // own merge to reach one level down — this is the test that would catch it
+  // if that ever became a plain `set`, in which case answering one question
+  // would silently retract the other.
+  const uid = uniqueUid();
+  const storage = createFirestoreStorage();
+  try {
+    await setAiConsent(uid, { state: 'granted', version: AI_CONSENT_VERSION }, { storage });
+    await setRecommendationConsent(uid, { state: 'granted', version: RECOMMENDATION_CONSENT_VERSION }, { storage });
+
+    // Read through a fresh instance, so this is Firestore's copy and not a
+    // local object that happened to keep both fields.
+    const fresh = createFirestoreStorage();
+    assert.equal(await getAiConsent(uid, { storage: fresh }), 'granted', 'the recommendation answer erased the AI one');
+    assert.equal(await getRecommendationConsent(uid, { storage: fresh }), 'granted');
+
+    // And revoking one leaves the other exactly where it was.
+    await setRecommendationConsent(uid, { state: 'declined', version: RECOMMENDATION_CONSENT_VERSION }, { storage });
+    assert.equal(await getAiConsent(uid, { storage: createFirestoreStorage() }), 'granted');
   } finally {
     await createFirestoreStorage().deleteTree(userDoc(uid)).catch(() => {});
     resetFirestoreForTests();
