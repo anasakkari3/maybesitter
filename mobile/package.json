@@ -56,7 +56,8 @@
     "typecheck": "tsc --noEmit",
     "format": "prettier --write \"**/*.{ts,tsx,json,md}\"",
     "check:no-credentials": "bash scripts/check-no-credentials.sh",
-    "verify:release-android": "bash scripts/verify-release-android.sh"
+    "verify:release-android": "bash scripts/verify-release-android.sh",
+    "check:privacy-manifests": "node scripts/check-privacy-manifests.mjs"
   },
   "private": true,
   "jest": {

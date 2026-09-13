@@ -80,6 +80,31 @@ const NAME_SUFFIX: Record<AppEnv, string> = {
   production: '',
 };
 
+
+/**
+ * One `NSPrivacyCollectedDataTypes` entry (UC-4.3a, #178).
+ *
+ * Linked to identity and used for app functionality unless stated otherwise,
+ * and never for tracking — MaybeSitter does not track, and writing that out per
+ * entry is how the manifest stays honest when a type is added later.
+ */
+function collected(
+  type: string,
+  options: { linked?: boolean; purposes?: string[] } = {},
+): {
+  NSPrivacyCollectedDataType: string;
+  NSPrivacyCollectedDataTypeLinked: boolean;
+  NSPrivacyCollectedDataTypeTracking: boolean;
+  NSPrivacyCollectedDataTypePurposes: string[];
+} {
+  return {
+    NSPrivacyCollectedDataType: type,
+    NSPrivacyCollectedDataTypeLinked: options.linked ?? true,
+    NSPrivacyCollectedDataTypeTracking: false,
+    NSPrivacyCollectedDataTypePurposes: options.purposes ?? ['NSPrivacyCollectedDataTypePurposeAppFunctionality'],
+  };
+}
+
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: `MaybeSitter${NAME_SUFFIX[APP_ENV]}`,
@@ -109,6 +134,88 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     // Standard HTTPS only, so the app is outside the US export-compliance
     // question App Store Connect asks on every single upload.
     config: { ...config.ios?.config, usesNonExemptEncryption: false },
+    /**
+     * The app's own `PrivacyInfo.xcprivacy` (UC-4.3a, #178).
+     *
+     * ── Why the app declares what its dependencies use ───────────
+     *
+     * Apple does not reliably read manifests out of **static** CocoaPods, and
+     * this app is built with static frameworks because React Native Firebase
+     * needs them (`useFrameworks: 'static'`). So the required-reason APIs that
+     * Expo modules, React Native core and Firebase use have to be declared
+     * here, in the app target, or the upload is answered with ITMS-91053.
+     *
+     * ── These four are not a guess ───────────────────────────────
+     *
+     * They are the union of every `NSPrivacyAccessedAPITypes` entry in the
+     * manifests actually shipped inside `node_modules`, read with a plist
+     * parser rather than transcribed from the issue:
+     *
+     *   DiskSpace       85F4.1, E174.1   expo-file-system, RN core
+     *   FileTimestamp   0A2A.1, 3B52.1, C617.1
+     *   SystemBootTime  35F9.1
+     *   UserDefaults    CA92.1
+     *
+     * `scripts/check-privacy-manifests.mjs` recomputes that union from the
+     * installed tree and fails if this list no longer covers it, so adding a
+     * dependency that needs a new reason is caught in CI rather than by Apple.
+     *
+     * `1C8F.1` — UserDefaults in an App Group — is deliberately **absent**. The
+     * entitlement is declared above, but nothing reads the group yet; the
+     * widget bridge that will (UC-3.R1 #203) does not exist. Declaring a reason
+     * the app does not use would be over-declaring, which is the same kind of
+     * inaccuracy as under-declaring.
+     */
+    privacyManifests: {
+      // MaybeSitter does not track. No ATT prompt, no tracking domains.
+      NSPrivacyTracking: false,
+      NSPrivacyTrackingDomains: [],
+      NSPrivacyAccessedAPITypes: [
+        {
+          NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategoryUserDefaults',
+          NSPrivacyAccessedAPITypeReasons: ['CA92.1'],
+        },
+        {
+          NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategoryFileTimestamp',
+          NSPrivacyAccessedAPITypeReasons: ['0A2A.1', '3B52.1', 'C617.1'],
+        },
+        {
+          NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategorySystemBootTime',
+          NSPrivacyAccessedAPITypeReasons: ['35F9.1'],
+        },
+        {
+          NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategoryDiskSpace',
+          NSPrivacyAccessedAPITypeReasons: ['85F4.1', 'E174.1'],
+        },
+      ],
+      /**
+       * What the app collects, which must equal the App Store label table in
+       * UC-4.3b (#179).
+       *
+       * Every entry is `Tracking: false`, because none of it is used to track.
+       * Crash data is the one type that is **not** linked to identity: the
+       * Crashlytics wrapper (UC-4.4 #180) never calls `setUserId`, so a crash
+       * report cannot be tied back to a person.
+       *
+       * `OtherUserContent` is the capture text itself — the most sensitive
+       * thing here, and the reason it is declared plainly rather than folded
+       * into something vaguer.
+       */
+      NSPrivacyCollectedDataTypes: [
+        collected('NSPrivacyCollectedDataTypeEmailAddress'),
+        collected('NSPrivacyCollectedDataTypeName'),
+        collected('NSPrivacyCollectedDataTypeUserID'),
+        // The FCM registration token.
+        collected('NSPrivacyCollectedDataTypeDeviceID'),
+        // Captures, and the commitments made from them.
+        collected('NSPrivacyCollectedDataTypeOtherUserContent'),
+        // Not linked: no `setUserId`, so a crash cannot be tied to a person.
+        collected('NSPrivacyCollectedDataTypeCrashData', { linked: false }),
+        collected('NSPrivacyCollectedDataTypeProductInteraction', {
+          purposes: ['NSPrivacyCollectedDataTypePurposeAppFunctionality', 'NSPrivacyCollectedDataTypePurposeAnalytics'],
+        }),
+      ],
+    },
     // The App Group the home-screen widget will read the next step from
     // (UC-3.R1 #203). Declared now because EAS syncs capabilities to the App
     // ID at build time, and adding it later re-provisions.
