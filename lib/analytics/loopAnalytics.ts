@@ -34,6 +34,13 @@ export const CLIENT_REPORTABLE_EVENTS = [
   // reached the end of onboarding; it feeds no funnel state, which stays
   // derived from domain state so a client cannot forge progress.
   'onboarding_completed',
+  // UC-2.R2 (#172). The one capture-funnel event the server cannot derive:
+  // the undo lives inside a five-second window on the device, and the delete
+  // it performs is an ordinary soft delete that nothing distinguishes from a
+  // delete made a week later. Its two siblings, `capture_submitted` and
+  // `capture_confirmed`, are deliberately NOT here — they are the funnel, and
+  // a client that could report them could claim activation it never reached.
+  'capture_undone',
 ] as const;
 
 export type ClientReportableEvent = typeof CLIENT_REPORTABLE_EVENTS[number];
@@ -85,6 +92,37 @@ export async function recordCaptureAnalytics(
 export function changedFieldCount(before: Record<string, unknown> | undefined, after: Record<string, unknown> | undefined): number {
   if (!before || !after) return 0;
   return Object.keys({ ...before, ...after }).filter((key) => JSON.stringify(before[key]) !== JSON.stringify(after[key])).length;
+}
+
+/**
+ * The capture funnel's first step, for the mobile route (UC-2.R2, #172).
+ *
+ * `inputLength` and nothing else. The web route pairs it with `locale`, which
+ * it reads from its own request body; the mobile propose carries no locale, and
+ * stamping every mobile capture `en` would put a number in the report that
+ * nobody measured. An absent property reads as absent; a defaulted one reads as
+ * a finding.
+ */
+export async function recordCaptureSubmitted(
+  context: AnalyticsContext,
+  properties: { inputLength: number },
+): Promise<PrivacySafeAnalyticsEvent | null> {
+  return emitAnalyticsEvent(context, 'capture_submitted', properties);
+}
+
+/**
+ * The capture funnel's second step (UC-2.R2, #172).
+ *
+ * The count is the caller's, but the caller is expected to have derived it from
+ * committed state rather than from what the request asked for — see
+ * `confirmMobileCapture`, which counts the commitments that actually carry a
+ * `confirmedAt` after the write. Nothing here is reportable by a client.
+ */
+export async function recordCaptureConfirmed(
+  context: AnalyticsContext,
+  properties: { confirmedCount: number },
+): Promise<PrivacySafeAnalyticsEvent | null> {
+  return emitAnalyticsEvent(context, 'capture_confirmed', properties);
 }
 
 export async function recordCommitmentEdited(

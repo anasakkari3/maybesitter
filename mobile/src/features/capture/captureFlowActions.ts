@@ -133,3 +133,67 @@ export async function undoCapture(
   }
   return { undone, stillSaved };
 }
+
+/** What an undo is worth reporting: two counts, and nothing else. */
+export interface UndoCounts {
+  undoneCount: number;
+  stillSavedCount: number;
+}
+
+/** The two things reporting an undo needs, injected so both are checkable. */
+export interface UndoReporter {
+  /** Analytics consent, read from the server's record. Fails closed. */
+  analyticsConsent(): Promise<boolean>;
+  /** Fire-and-forget. Never awaited into anything the user is waiting on. */
+  report(counts: UndoCounts): void;
+}
+
+/**
+ * Reports `capture_undone` (UC-2.R2, #172).
+ *
+ * ── Why this is the one funnel event a client may send ───────────
+ *
+ * The undo happens inside a five-second window on the device and may delete
+ * nothing at all. Nothing on the server can see it: the deletes it makes are
+ * ordinary soft deletes, indistinguishable from one made a week later. Its two
+ * siblings, `capture_submitted` and `capture_confirmed`, are derived from
+ * committed domain state on the server precisely so that a client cannot claim
+ * funnel progress it did not make.
+ *
+ * ── What it carries ──────────────────────────────────────────────
+ *
+ * Two counts, taken from the outcome. Not the commitment ids, not the titles,
+ * not the text that produced them. The server's property allowlist would
+ * refuse those anyway; sending them and being refused is not the same thing as
+ * not sending them.
+ *
+ * ── Consent is asked first, and a "maybe" is a no ────────────────
+ *
+ * The server suppresses events for a user who declined, so this is the second
+ * of two gates rather than the only one. It is still worth having: the server
+ * cannot suppress a request it was never sent, and a count that never leaves
+ * the phone is a better answer than a count that arrives and is dropped. A
+ * consent read that throws is treated as a decline.
+ */
+export async function reportCaptureUndone(
+  outcome: UndoOutcome,
+  reporter: UndoReporter,
+): Promise<void> {
+  let granted = false;
+  try {
+    granted = await reporter.analyticsConsent();
+  } catch {
+    // Unknown is not granted.
+    return;
+  }
+  if (!granted) return;
+
+  try {
+    reporter.report({
+      undoneCount: outcome.undone.length,
+      stillSavedCount: outcome.stillSaved.length,
+    });
+  } catch {
+    // A metrics ping that fell over must not reach the person who pressed Undo.
+  }
+}

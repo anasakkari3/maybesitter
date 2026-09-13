@@ -24,6 +24,17 @@ export const ANALYTICS_EVENT_NAMES = [
   // all — and it is only ever sent when analytics consent was granted on
   // the consent screen it is reporting the end of.
   'onboarding_completed',
+  // Additive UC-2.R2 (#172): the rest of the capture funnel. `capture_submitted`
+  // was already named above; these are the two steps after it.
+  //
+  // `capture_confirmed` is derived on the server from committed domain state —
+  // the count of items that are actually confirmed in the user's own state
+  // after the confirm — because a funnel step a client could report is a
+  // funnel step a client could forge. `capture_undone` is the exception, and
+  // only because nothing on the server can see it: the undo happens inside a
+  // five-second window on the device and may delete nothing at all. Both carry
+  // counts and nothing else.
+  'capture_confirmed', 'capture_undone',
 ] as const;
 
 export type AnalyticsEventName = typeof ANALYTICS_EVENT_NAMES[number];

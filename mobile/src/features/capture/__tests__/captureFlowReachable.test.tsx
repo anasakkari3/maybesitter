@@ -34,6 +34,8 @@ import { LANGUAGE_STORAGE_KEY } from '../../../i18n/language';
 import { InputTooLargeError, NetworkError, QuotaExceededError, ValidationError } from '../../../api/errors';
 import * as captureEndpoints from '../../../api/endpoints/capture';
 import * as commitmentEndpoints from '../../../api/endpoints/commitments';
+import * as analyticsEndpoints from '../../../api/endpoints/analytics';
+import * as trustEndpoints from '../../../api/endpoints/trust';
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -82,6 +84,11 @@ function confirmation(over: Record<string, unknown> = {}) {
   };
 }
 
+/** Only the field `capture_undone`'s consent gate reads. */
+function trust(analyticsConsent: boolean) {
+  return { success: true, participantId: 'capture-user', trust: { analyticsConsent } };
+}
+
 beforeEach(() => {
   onlineManager.setOnline(true);
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
@@ -91,6 +98,11 @@ beforeEach(() => {
   // test is about, and an unmocked call would be a network error in the tree.
   jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [] } as never);
   jest.spyOn(commitmentEndpoints, 'listUpcoming').mockResolvedValue({ items: [] } as never);
+  // Analytics are declined unless a case says otherwise, which is also the
+  // default a new account has. `capture_undone` (UC-2.R2, #172) reads this.
+  jest.spyOn(trustEndpoints, 'getTrust').mockResolvedValue(trust(false) as never);
+  jest.spyOn(analyticsEndpoints, 'recordAnalyticsEvent')
+    .mockResolvedValue({ success: true, participantId: 'capture-user', recorded: true, eventId: 'e-1' } as never);
 });
 
 afterEach(() => {
@@ -667,5 +679,81 @@ describe('editing before anything is saved (#164)', () => {
     // Sending it would ask the server to validate a change to something the
     // user chose not to save.
     expect((confirm.mock.calls[0]![0] as { edits?: unknown[] }).edits ?? []).toEqual([]);
+  });
+});
+
+/**
+ * `capture_undone`, from the button a person presses (UC-2.R2, #172).
+ *
+ * The other two funnel events are derived on the server and are refused from a
+ * client — see `tests/analytics/captureFunnelAnalytics.test.ts`. This one the
+ * server cannot see at all: the undo lives inside a five-second window on the
+ * device, and the deletes it makes are indistinguishable from any other.
+ */
+describe('the undo is counted, and nothing else about it is', () => {
+  async function saveThenUndo() {
+    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+    jest.spyOn(captureEndpoints, 'confirmCapture').mockResolvedValue(confirmation() as never);
+    jest.spyOn(commitmentEndpoints, 'deleteCommitment')
+      .mockResolvedValue({ deleted: false, softDeleted: true, id: 'c-1' } as never);
+    await openApp();
+    await enterCapture();
+    await typeAndAnalyze();
+    await fireEvent.press(screen.getByTestId('review-confirm'));
+    await waitFor(() => expect(screen.queryByTestId('saved-undo')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('saved-undo'));
+    await waitFor(() => expect(screen.queryByTestId('saved-undo-outcome')).not.toBeNull());
+  }
+
+  it('reports counts, and never a title or an id', async () => {
+    jest.spyOn(trustEndpoints, 'getTrust').mockResolvedValue(trust(true) as never);
+    const record = jest.mocked(analyticsEndpoints.recordAnalyticsEvent);
+    await saveThenUndo();
+
+    await waitFor(() => expect(record).toHaveBeenCalled());
+    expect(record).toHaveBeenCalledTimes(1);
+    const [eventName, properties] = record.mock.calls[0]!;
+    expect(eventName).toBe('capture_undone');
+    expect(properties).toEqual({ undoneCount: 1, stillSavedCount: 0 });
+    // Everything the confirm came back with — the id and the title it is
+    // attached to — stays on the phone.
+    expect(JSON.stringify(properties)).not.toMatch(/c-1|Hand in the report/);
+  });
+
+  it('splits a partial undo into what went and what stayed', async () => {
+    jest.spyOn(trustEndpoints, 'getTrust').mockResolvedValue(trust(true) as never);
+    const record = jest.mocked(analyticsEndpoints.recordAnalyticsEvent);
+    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+    jest.spyOn(captureEndpoints, 'confirmCapture').mockResolvedValue(confirmation() as never);
+    jest.spyOn(commitmentEndpoints, 'deleteCommitment').mockRejectedValue(new Error('offline'));
+    await openApp();
+    await enterCapture();
+    await typeAndAnalyze();
+    await fireEvent.press(screen.getByTestId('review-confirm'));
+    await waitFor(() => expect(screen.queryByTestId('saved-undo')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('saved-undo'));
+    await waitFor(() => expect(screen.queryByTestId('saved-undo-partial')).not.toBeNull());
+
+    await waitFor(() => expect(record).toHaveBeenCalled());
+    expect(record.mock.calls[0]![1]).toEqual({ undoneCount: 0, stillSavedCount: 1 });
+  });
+
+  it('sends nothing for somebody who declined analytics', async () => {
+    const record = jest.mocked(analyticsEndpoints.recordAnalyticsEvent);
+    await saveThenUndo();
+
+    // The undo itself happened; only the count did not leave the phone.
+    expect(screen.queryByText(en.undoneTitle)).not.toBeNull();
+    expect(record).not.toHaveBeenCalled();
+  });
+
+  it('sends nothing when the consent record could not be read', async () => {
+    jest.spyOn(trustEndpoints, 'getTrust').mockRejectedValue(new NetworkError('offline'));
+    const record = jest.mocked(analyticsEndpoints.recordAnalyticsEvent);
+    await saveThenUndo();
+
+    // Unknown is not granted.
+    expect(screen.queryByText(en.undoneTitle)).not.toBeNull();
+    expect(record).not.toHaveBeenCalled();
   });
 });

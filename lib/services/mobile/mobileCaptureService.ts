@@ -3,9 +3,13 @@ import type {
   CaptureItemEditContract,
 } from '../../../src/contracts/v1/captureContracts';
 import { createHash } from 'crypto';
-import { analyticsContextFrom } from '../../analytics/analyticsContext';
+import { analyticsContextFrom, type AnalyticsContext } from '../../analytics/analyticsContext';
 import { appendAnalyticsEvent } from '../../analytics/eventStore';
-import { recordFirstValueReached } from '../../analytics/loopAnalytics';
+import {
+  recordCaptureConfirmed,
+  recordCaptureSubmitted,
+  recordFirstValueReached,
+} from '../../analytics/loopAnalytics';
 import { resolveUserAccess } from '../../pilot/pilotAccess';
 import { applyTrustAction } from '../../pilot/pilotTrustStore';
 import { captureLlmProvider } from '../../llm/captureProvider';
@@ -249,6 +253,34 @@ export interface MobileClarifyInput {
   scopeId?: unknown;
 }
 
+/**
+ * Runs one analytics write for the capture funnel, and never lets it matter.
+ *
+ * Two things are load-bearing here. The consent is read from the stored trust
+ * record by `analyticsContextFrom` — the caller's word is not an input, and a
+ * user who declined gets a context whose `emitAnalyticsEvent` writes nothing —
+ * and every failure is swallowed into a log. A capture that succeeded must not
+ * be reported to the user as failed because a metrics write fell over (#153);
+ * the bookkeeping being wrong is the smaller of the two wrongs.
+ */
+async function recordCaptureFunnelEvent(
+  participantId: string | undefined,
+  record: (analytics: AnalyticsContext) => Promise<unknown>,
+  now = new Date(),
+): Promise<void> {
+  if (!participantId) return;
+  try {
+    const analytics = await analyticsContextFrom(
+      { anonymousUserId: participantId },
+      appendAnalyticsEvent,
+      now,
+    );
+    if (analytics) await record(analytics);
+  } catch (error) {
+    console.error('[capture] funnel analytics failed; the capture itself is unaffected', error);
+  }
+}
+
 export async function proposeMobileCapture(input: MobileCaptureInput, context: MobileBackendContext = {}) {
   const text = typeof input.text === 'string' ? input.text.trim() : '';
   if (!text) throw new Error('text is required');
@@ -259,7 +291,7 @@ export async function proposeMobileCapture(input: MobileCaptureInput, context: M
   // the request.
   const consent = context.participantId ? await getAiConsent(context.participantId) : 'declined';
 
-  return proposeCapture(text, {
+  const proposal = await proposeCapture(text, {
     now: dateFromOptionalIso(input.referenceTime, new Date(), 'referenceTime'),
     timezone: normalizeTimezone(input.timezone),
     scopeId: scopeIdFrom(input.scopeId, context),
@@ -275,6 +307,18 @@ export async function proposeMobileCapture(input: MobileCaptureInput, context: M
       ? { llmProvider: captureLlmProvider(context.participantId), ...engineLabel() }
       : {}),
   });
+
+  // The funnel's first step (UC-2.R2, #172). Recorded for every submission the
+  // server actually handled, including the ones that found nothing to save:
+  // without the refusals the denominator is only the successes, and a funnel
+  // measured that way cannot get worse.
+  //
+  // Length, never the text. And after the proposal, not before, so a capture
+  // the extractor threw on is not counted as one that happened.
+  await recordCaptureFunnelEvent(context.participantId, (analytics) =>
+    recordCaptureSubmitted(analytics, { inputLength: text.length }));
+
+  return proposal;
 }
 
 /**
@@ -372,15 +416,37 @@ export async function confirmMobileCapture(input: MobileConfirmInput, context: M
 
   if (context.participantId && persisted.length > 0) {
     // Everything above this line is the user's: the commitment is persisted and
-    // activated. What follows is bookkeeping — the first-value marker and the
-    // analytics event that goes with it.
+    // activated. What follows is bookkeeping — the funnel event, the
+    // first-value marker and the analytics event that goes with it.
     //
     // So it cannot be allowed to decide the answer. When it threw, this confirm
     // returned HTTP 400 and told the user their capture had failed while it sat
     // safely in Firestore, which is a worse outcome than the bookkeeping simply
     // being wrong. It is logged instead, loudly enough to find (#153).
+    const now = new Date();
+
+    // The funnel's second step (UC-2.R2, #172), counted off committed state
+    // rather than off the request. `persisted` is what the boundary says it
+    // wrote; this reads the user's own tree back and counts the commitments
+    // that actually carry a `confirmedAt`. A confirm that wrote nothing, or
+    // whose activation did not take, therefore records no confirmation —
+    // which is the only way the number can be checked against anything.
+    //
+    // A replay records nothing. `replayed` means this exact confirm already
+    // landed and the boundary is handing back the first result; counting it
+    // again would turn one person's flaky connection into funnel progress.
+    if (!result.replayed) {
+      await recordCaptureFunnelEvent(context.participantId, async (analytics) => {
+        const committed = await getParticipantStateSnapshot(context.participantId as string);
+        const confirmedCount = persisted
+          .filter((item) => Boolean(committed.commitments[item.commitmentId]?.confirmedAt))
+          .length;
+        if (confirmedCount === 0) return;
+        await recordCaptureConfirmed(analytics, { confirmedCount });
+      }, now);
+    }
+
     try {
-      const now = new Date();
       const access = await resolveUserAccess(context.participantId, now.toISOString(), false);
       if (access.trust && !access.trust.firstValueAt) {
         await applyTrustAction(context.participantId, {

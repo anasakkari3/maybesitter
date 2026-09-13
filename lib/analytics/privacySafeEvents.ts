@@ -87,6 +87,15 @@ const EVENT_PROPERTIES: Record<AnalyticsEventName, readonly string[]> = {
     'flagWidget', 'flagVoice', 'flagAwareness', 'flagWatch', 'flagImports',
   ],
   first_value_reached: ['surface', 'reason'],
+  // UC-2.R2 (#172). Counts, and deliberately nothing that could carry what
+  // somebody wrote: no title, no item ids, no proposal id.
+  //
+  // `confirmedCount` is how many commitments the confirm actually left
+  // confirmed in the user's own state. `undoneCount` and `stillSavedCount`
+  // split an undo the same way the screen does, because an undo that half
+  // worked is the outcome worth being able to count.
+  capture_confirmed: ['confirmedCount'],
+  capture_undone: ['undoneCount', 'stillSavedCount'],
 };
 
 const RATING_KEYS = ['utilityRating', 'invasivenessRating'];

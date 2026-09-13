@@ -19,7 +19,14 @@
  */
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useCapture, useClarifyCapture, useConfirmCapture, useAiConsentGranted } from '../../api/queries';
+import {
+  useAnalyticsConsent,
+  useCapture,
+  useClarifyCapture,
+  useConfirmCapture,
+  useAiConsentGranted,
+  useRecordAnalytics,
+} from '../../api/queries';
 import { useTimeZone } from '../../i18n/timezone';
 import { deleteCommitment } from '../../api/endpoints/commitments';
 import { InputTooLargeError, isRetryable, QuotaExceededError, ValidationError } from '../../api/errors';
@@ -39,6 +46,7 @@ import { toServerEdits } from './editPayload';
 import {
   analyzeCapture,
   confirmCapture as runConfirm,
+  reportCaptureUndone,
   undoCapture,
   type AnalyzeFailure,
   type UndoOutcome,
@@ -127,6 +135,8 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
   const confirmCapture = useConfirmCapture();
   const clarifyCapture = useClarifyCapture();
   const { granted: aiGranted, asked: aiAsked } = useAiConsentGranted();
+  const analyticsConsent = useAnalyticsConsent();
+  const recordAnalytics = useRecordAnalytics();
   const client = useQueryClient();
   const timezone = useTimeZone();
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -223,10 +233,18 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
     const outcome = await undoCapture({ remove: (id) => deleteCommitment(id) }, state.persisted);
     if (undoTimer.current) clearTimeout(undoTimer.current);
     dispatch({ type: 'undoWindowClosed' });
+    // Not awaited, on purpose. `capture_undone` (UC-2.R2, #172) reads the
+    // consent record and then posts a count; putting either on the path
+    // between pressing Undo and being told what happened would make a metrics
+    // request part of how fast the product feels.
+    void reportCaptureUndone(outcome, {
+      analyticsConsent,
+      report: (counts) => recordAnalytics.mutate({ eventName: 'capture_undone', properties: { ...counts } }),
+    });
     // Whatever happened, the lists are now wrong until they refetch.
     await invalidateCommitmentViews(client);
     return outcome;
-  }, [client, state.persisted]);
+  }, [analyticsConsent, client, recordAnalytics, state.persisted]);
 
   const backToComposer = useCallback(() => dispatch({ type: 'backToComposer' }), []);
   const close = useCallback(() => {

@@ -1,3 +1,4 @@
+import { useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import * as Crypto from 'expo-crypto';
 import { useTimeZone } from '../i18n/timezone';
@@ -386,6 +387,29 @@ export function useRecordAnalytics() {
     mutationFn: (input: { eventName: ClientReportableEvent; properties?: AnalyticsProperties }) =>
       recordAnalyticsEvent(input.eventName, input.properties ?? {}),
   });
+}
+
+/**
+ * Reads analytics consent, and only when something is about to be reported.
+ *
+ * Deliberately not `useTrust()`. This is called from the capture flow, which is
+ * mounted for the whole session: a subscription there would fetch the trust
+ * record on every app start for the sake of an event most sessions never send.
+ * `fetchQuery` answers from the same cache `useTrust` fills, and goes to the
+ * network only when nothing fresh is there.
+ *
+ * It fails closed. A signed-out user, or a read that did not land, is not a
+ * user who consented, and the caller reports nothing — an event sent on a
+ * guess about somebody's privacy setting is the wrong way round.
+ */
+export function useAnalyticsConsent(): () => Promise<boolean> {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useCallback(async () => {
+    if (uid === 'signed-out') return false;
+    const response = await client.fetchQuery({ queryKey: queryKeys.trust(uid), queryFn: getTrust });
+    return response.trust.analyticsConsent === true;
+  }, [client, uid]);
 }
 
 /**
