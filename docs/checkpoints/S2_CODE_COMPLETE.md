@@ -104,7 +104,9 @@ pushed tags:
 **Closed — repository work complete, external work split out:**
 #160, #162, #163, #165, #167, #170, #174, #175, #178, #179, #180, #181
 
-**Open — because executable code is genuinely still missing:**
+**Open — eleven issues, because executable code is genuinely still missing.** The
+nine rows below are nine distinct gaps; the first covers three issues that share
+one blocker.
 
 | Issue | What is actually missing | Owned by |
 |---|---|---|
@@ -119,6 +121,13 @@ pushed tags:
 | #182 | The "Release log" table in `mobile/README.md` | #338 |
 
 No issue is open merely because a human must click something. That was the point.
+
+**#158** (store accounts) and **#159** (tester recruitment) were moved out of this
+milestone to S4. Both are pure owner actions — a paid account, a government ID, a
+physical Android phone, a recruitment roster deliberately never kept in the
+repository — and neither has any repository work left. Sitting in the
+implementation milestone, they made it report unfinished implementation when what
+was actually outstanding was a purchase. Their deadlines are unchanged.
 
 ## External follow-ups created
 
