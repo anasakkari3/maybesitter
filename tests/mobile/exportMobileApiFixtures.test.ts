@@ -44,6 +44,7 @@ import { configureCommandService } from '../../lib/services/commandService.ts';
 import { createEmptyDomainState } from '../../src/domain/stateMachine.ts';
 import { POST as capturePost } from '../../src/app/api/mobile/capture/route.ts';
 import { POST as confirmPost } from '../../src/app/api/mobile/capture/confirm/route.ts';
+import { POST as clarifyPost } from '../../src/app/api/mobile/capture/clarify/route.ts';
 import { GET as todayGet } from '../../src/app/api/mobile/commitments/today/route.ts';
 import { GET as upcomingGet } from '../../src/app/api/mobile/commitments/upcoming/route.ts';
 import {
@@ -217,6 +218,27 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     assert.equal(confirmation.success, true);
     const persisted = confirmation.persisted as Array<{ commitmentId: string }>;
     const commitmentId = persisted[0]!.commitmentId;
+
+    // ── the one clarification (#165) ───────────────────────────────
+    // A capture with an action and no time: the extractor cannot resolve it,
+    // so the proposal carries a question and the app has a real shape to
+    // render from keys.
+    const ambiguous = await record('capture.needsClarification', 200, await capturePost(request('/api/mobile/capture', {
+      body: { text: 'Remind me to call Dana', referenceTime: REFERENCE_TIME, timezone: 'Asia/Jerusalem' },
+    })));
+    const asking = (ambiguous.items as Array<{ itemId: string; clarification: { questionId: string; options: Array<{ optionId: string }> } | null }>)
+      .find((item) => item.clarification);
+    assert.ok(asking, 'expected an item carrying a clarification');
+    await record('capture.clarified', 200, await clarifyPost(request('/api/mobile/capture/clarify', {
+      body: {
+        proposalId: ambiguous.proposalId,
+        itemId: asking.itemId,
+        questionId: asking.clarification!.questionId,
+        optionId: asking.clarification!.options[0]!.optionId,
+        referenceTime: REFERENCE_TIME,
+        timezone: 'Asia/Jerusalem',
+      },
+    })));
 
     // The failure shape the client has to read since #252: a confirm that
     // persisted nothing answers 404, not 200, and names the items it refused.

@@ -41,6 +41,7 @@
  * catches that, because it runs against Firestore.
  */
 import type { Command } from '../../../src/domain/stateMachine';
+import type { ExtractionResult } from '../../../src/extraction/extractionTypes';
 import type { CaptureProposalContract } from '../../../src/contracts/v1/captureContracts';
 import {
   CAPTURE_PROPOSALS,
@@ -66,6 +67,21 @@ export interface StoredCaptureProposal {
    * from yesterday is wrong and the user has no way to see it.
    */
   proposedAt?: string;
+  /**
+   * The extraction each item came from, kept so one clarification can be
+   * answered (UC-2.5, #165).
+   *
+   * The answer is applied to the *result*, not to the contract: the command is
+   * then rebuilt by `mapExtractionToCommand`, the same function that built it
+   * the first time. Patching the contract's `resolvedTime` and leaving the
+   * command behind is how a user answers "9 in the evening" and gets a
+   * commitment at nine in the morning.
+   *
+   * Optional because a proposal with nothing to clarify has no use for it.
+   */
+  resultsByItemId?: ReadonlyMap<string, ExtractionResult>;
+  /** Which items have already spent their one round (#165). */
+  clarifiedItemIds?: readonly string[];
 }
 
 /**
@@ -93,6 +109,24 @@ interface StoredProposalDocument {
    */
   proposalId: string;
   commands: Record<string, Command[]>;
+  /**
+   * The extraction each item came from (UC-2.5, #165), so one clarification can
+   * be answered against it rather than by patching the contract.
+   */
+  results?: Record<string, ExtractionResult>;
+  /** Items that have spent their one clarification round (#165). */
+  clarifiedItemIds?: string[];
+  /**
+   * When the proposal was made (UC-2.4, #164).
+   *
+   * This was absent from the document while `StoredCaptureProposal` carried it,
+   * so it survived the `Map`-backed store and was dropped by the durable one —
+   * which is the only one production uses. `stored.proposedAt` was therefore
+   * always `undefined` there and the thirty-minute staleness guard could never
+   * fire: a proposal resolved against yesterday's `now` confirmed happily. The
+   * tests did not catch it because they use the Map.
+   */
+  proposedAt?: string;
   confirmedResult?: unknown;
   idempotencyKey?: string;
   expiresAt: Date;
@@ -104,6 +138,14 @@ function toDocument(proposal: StoredCaptureProposal, now: Date): StoredProposalD
     scopeId: proposal.scopeId,
     proposalId: proposal.contract.proposalId,
     commands: Object.fromEntries(Array.from(proposal.commandsByItemId, ([itemId, commands]) => [itemId, [...commands]])),
+    // Maps do not survive a JSON document; every one of them is mapped
+    // explicitly, and a field added to `StoredCaptureProposal` without a line
+    // here is a field production silently loses.
+    ...(proposal.resultsByItemId
+      ? { results: Object.fromEntries(proposal.resultsByItemId) }
+      : {}),
+    ...(proposal.clarifiedItemIds?.length ? { clarifiedItemIds: [...proposal.clarifiedItemIds] } : {}),
+    ...(proposal.proposedAt === undefined ? {} : { proposedAt: proposal.proposedAt }),
     ...(proposal.confirmedResult === undefined ? {} : { confirmedResult: proposal.confirmedResult }),
     ...(proposal.idempotencyKey === undefined ? {} : { idempotencyKey: proposal.idempotencyKey }),
     expiresAt: new Date(now.getTime() + CAPTURE_PROPOSAL_RETENTION_MS),
@@ -115,6 +157,9 @@ function fromDocument(document: StoredProposalDocument): StoredCaptureProposal {
     contract: document.contract,
     scopeId: document.scopeId,
     commandsByItemId: new Map(Object.entries(document.commands ?? {})),
+    ...(document.results ? { resultsByItemId: new Map(Object.entries(document.results)) } : {}),
+    ...(document.clarifiedItemIds ? { clarifiedItemIds: [...document.clarifiedItemIds] } : {}),
+    ...(document.proposedAt === undefined ? {} : { proposedAt: document.proposedAt }),
     ...(document.confirmedResult === undefined ? {} : { confirmedResult: document.confirmedResult }),
     ...(document.idempotencyKey === undefined ? {} : { idempotencyKey: document.idempotencyKey }),
   };

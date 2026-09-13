@@ -504,5 +504,6 @@
   "savedFailedBody": "هدول ضلّوا برا يومك. فيك تحكيهم من جديد.",
   "undoneTitle": "رجعناها. ما ضل إشي.",
   "undonePartialTitle": "رجعت نص رجعة",
-  "undonePartialBody": "هدول لسّا محفوظين: {titles}"
+  "undonePartialBody": "هدول لسّا محفوظين: {titles}",
+  "clarifyPosition": "{n} من {total}"
 }

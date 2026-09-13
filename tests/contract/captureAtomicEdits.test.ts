@@ -291,12 +291,22 @@ test('a proposal older than thirty minutes cannot be confirmed', async () => {
   const { contract, dependencies } = await proposeOne();
   const itemId = contract.items[0].itemId;
 
+  // Aged in the store, not simulated by handing the confirm a future `now`.
+  // `proposedAt` and the age are both the server's clock now: `input.now` is
+  // the caller's `referenceTime`, and letting it move the age was a way for a
+  // caller to keep a stale proposal alive by choosing its own clock.
+  const stored = (await dependencies.store.get(contract.proposalId))!;
+  await dependencies.store.put({
+    ...stored,
+    proposedAt: new Date(Date.now() - (CAPTURE_PROPOSAL_TTL_MS + 1000)).toISOString(),
+  });
+
   const stale = await confirmCapture({
     proposalId: contract.proposalId,
     scopeId: 'a',
     selectedItemIds: [itemId],
     idempotencyKey: 'k1',
-    now: later(CAPTURE_PROPOSAL_TTL_MS + 1000),
+    now,
   }, dependencies);
 
   // The same code a swept proposal gives: from the client's side they are the

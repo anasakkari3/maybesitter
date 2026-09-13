@@ -13,6 +13,7 @@ import { getAiConsent } from '../../consents/aiConsentService';
 import { configuredProviderName } from '../../../src/extraction/llm';
 import {
   captureProposalPath,
+  answerClarification,
   confirmCapture,
   createStorageCaptureProposalStore,
   type CaptureConfirmationCommitter,
@@ -236,6 +237,17 @@ async function activateConfirmedItems(
   }
 }
 
+export interface MobileClarifyInput {
+  proposalId?: unknown;
+  itemId?: unknown;
+  questionId?: unknown;
+  optionId?: unknown;
+  freeText?: unknown;
+  timezone?: unknown;
+  referenceTime?: unknown;
+  scopeId?: unknown;
+}
+
 export async function proposeMobileCapture(input: MobileCaptureInput, context: MobileBackendContext = {}) {
   const text = typeof input.text === 'string' ? input.text.trim() : '';
   if (!text) throw new Error('text is required');
@@ -262,6 +274,39 @@ export async function proposeMobileCapture(input: MobileCaptureInput, context: M
       ? { llmProvider: captureLlmProvider(context.participantId), ...engineLabel() }
       : {}),
   });
+}
+
+/**
+ * Answer the one clarification (UC-2.5, #165).
+ *
+ * The scope is the authenticated uid, exactly as the confirm does it — a
+ * `scopeId` in the body is not read. Without that a caller could answer a
+ * question on somebody else's proposal, and the answer is applied to a
+ * commitment.
+ */
+export async function clarifyMobileCapture(input: MobileClarifyInput, context: MobileBackendContext = {}) {
+  const proposalId = typeof input.proposalId === 'string' ? input.proposalId : '';
+  const itemId = typeof input.itemId === 'string' ? input.itemId : '';
+  const questionId = typeof input.questionId === 'string' ? input.questionId : '';
+  if (!proposalId || !itemId || !questionId) {
+    throw new Error('proposalId, itemId and questionId are required');
+  }
+
+  return answerClarification(
+    {
+      proposalId,
+      itemId,
+      questionId,
+      ...(typeof input.optionId === 'string' ? { optionId: input.optionId } : {}),
+      ...(typeof input.freeText === 'string' ? { freeText: input.freeText } : {}),
+    },
+    {
+      now: dateFromOptionalIso(input.referenceTime, new Date(), 'referenceTime'),
+      timezone: normalizeTimezone(input.timezone),
+      scopeId: scopeIdFrom(input.scopeId, context),
+    },
+    { store, extractor: guardedMobileExtract },
+  );
 }
 
 export async function confirmMobileCapture(input: MobileConfirmInput, context: MobileBackendContext = {}): Promise<{

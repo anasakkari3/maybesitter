@@ -504,5 +504,6 @@
   "savedFailedBody": "These stayed out of your day. You can say them again.",
   "undoneTitle": "Undone. Nothing was kept.",
   "undonePartialTitle": "Partly undone",
-  "undonePartialBody": "These are still saved: {titles}"
+  "undonePartialBody": "These are still saved: {titles}",
+  "clarifyPosition": "{n} of {total}"
 }

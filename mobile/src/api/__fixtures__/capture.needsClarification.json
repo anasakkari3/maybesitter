@@ -1,0 +1,64 @@
+{
+  "version": "v1",
+  "proposalId": "00000000-0000-4000-8000-000000000001",
+  "status": "needs_clarification",
+  "items": [
+    {
+      "itemId": "00000000-0000-4000-8000-000000000002",
+      "title": "call Dana",
+      "resolvedTime": null,
+      "needsClarification": true,
+      "priority": "normal",
+      "priorityEstimated": true,
+      "clarification": {
+        "questionId": "00000000-0000-4000-8000-000000000003",
+        "field": "time",
+        "questionKey": "ask_time",
+        "params": {
+          "title": "call Dana"
+        },
+        "options": [
+          {
+            "optionId": "morning",
+            "labelKey": "morning",
+            "labelParams": {},
+            "value": {
+              "localTime": "09:00",
+              "localDate": "2026-08-10"
+            }
+          },
+          {
+            "optionId": "afternoon",
+            "labelKey": "afternoon",
+            "labelParams": {},
+            "value": {
+              "localTime": "14:00",
+              "localDate": "2026-08-09"
+            }
+          },
+          {
+            "optionId": "evening",
+            "labelKey": "evening",
+            "labelParams": {},
+            "value": {
+              "localTime": "19:00",
+              "localDate": "2026-08-09"
+            }
+          },
+          {
+            "optionId": "none",
+            "labelKey": "noTime",
+            "labelParams": {},
+            "value": {}
+          }
+        ],
+        "allowFreeText": true
+      }
+    }
+  ],
+  "provenance": {
+    "requestedEngine": "rules",
+    "executedEngine": "rule-based",
+    "fallbackUsed": true
+  }
+}

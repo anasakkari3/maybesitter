@@ -1,8 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { useCaptureFlow } from '../features/capture/CaptureProvider';
+import { ClarifySheet } from '../features/capture/ClarifySheet';
+import { questionText } from '../features/capture/clarificationCopy';
 import { useTimeZone } from '../i18n/timezone';
 import { formatRelativeDay, formatTime } from '../i18n/format';
 import { ltr } from '../i18n/strings';
@@ -37,9 +39,27 @@ export function ReviewScreen() {
   const insets = useSafeAreaInsets();
   const flow = useCaptureFlow();
   const { state } = flow;
+  const [answering, setAnswering] = useState(false);
+  const [skipped, setSkipped] = useState<string[]>([]);
+  const strings = t as unknown as Record<string, string>;
   const items = state.proposal?.items ?? [];
   const selectedCount = state.selected.length;
   const busy = state.status === 'confirming';
+
+  /**
+   * The items still waiting on their one question (UC-2.5, #165).
+   *
+   * Asked one at a time. A question this build has no words for is not counted:
+   * the item keeps its flag and #164's edit sheet is the way to fix it, which
+   * can express anything a fixed question cannot.
+   */
+  const waiting = items.filter((item) => (
+    item.needsClarification
+    && item.clarification
+    && !skipped.includes(item.itemId)
+    && questionText(item.clarification.questionKey, item.clarification.params, strings) !== null
+  ));
+  const asking = waiting[0];
 
   return (
     <ScreenIn style={{ backgroundColor: p.bg }}>
@@ -49,6 +69,27 @@ export function ReviewScreen() {
         contentContainerStyle={{ paddingTop: 18, paddingHorizontal: 20, paddingBottom: 20, gap: 14 }}
       >
         <Txt size={12} color={p.mu} style={{ paddingHorizontal: 4 }} testID="review-note">{t.suggestionNote}</Txt>
+
+        {asking ? (
+          <View style={{ backgroundColor: p.sf, borderRadius: 24, padding: 18 }}>
+            <ClarifySheet
+              item={asking}
+              position={items.filter((item) => item.needsClarification).length - waiting.length + 1}
+              total={items.filter((item) => item.needsClarification).length}
+              busy={answering}
+              onAnswer={(answer) => {
+                setAnswering(true);
+                void flow.clarify(asking.itemId, answer).then((ok) => {
+                  setAnswering(false);
+                  // A failure leaves the question up. Skipping it silently
+                  // would look like the answer landed.
+                  if (!ok) setSkipped((current) => current);
+                });
+              }}
+              onSkip={() => setSkipped((current) => [...current, asking.itemId])}
+            />
+          </View>
+        ) : null}
 
         {state.status === 'confirmFailed' ? (
           <View style={{ backgroundColor: p.wms, borderRadius: 18, padding: 14 }} testID="review-confirm-failed">

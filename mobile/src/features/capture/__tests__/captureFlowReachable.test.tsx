@@ -385,3 +385,102 @@ describe('closing forgets the draft', () => {
     expect(screen.getByTestId('capture-input').props.value).toBe('');
   });
 });
+
+describe('the one question (#165)', () => {
+  const asking = () => proposal({
+    status: 'needs_clarification',
+    items: [{
+      itemId: 'i-1',
+      title: 'Call Dana',
+      resolvedTime: null,
+      needsClarification: true,
+      clarification: {
+        questionId: 'q-1',
+        field: 'time',
+        questionKey: 'ask_time',
+        params: {},
+        options: [
+          { optionId: 'o-morning', labelKey: 'morning', labelParams: {}, value: { localTime: '09:00' } },
+          { optionId: 'o-evening', labelKey: 'evening', labelParams: {}, value: { localTime: '19:00' } },
+        ],
+        allowFreeText: true,
+      },
+    }],
+  });
+
+  const answered = () => proposal({
+    items: [{ itemId: 'i-1', title: 'Call Dana', resolvedTime: '2026-09-14T16:00:00.000Z', needsClarification: false, clarification: null }],
+  });
+
+  async function reachTheQuestion() {
+    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(asking() as never);
+    await openApp();
+    await enterCapture();
+    await fireEvent.changeText(screen.getByTestId('capture-input'), 'remind me to call Dana');
+    await fireEvent.press(screen.getByTestId('capture-analyze'));
+    await waitFor(() => expect(screen.queryByTestId('clarify-sheet')).not.toBeNull());
+  }
+
+  it('asks it, in words from the locale files', async () => {
+    await reachTheQuestion();
+    expect(screen.getByTestId('clarify-question').props.children).toBe(en.clarifyAskTime);
+    // Not the key, and not anything the server phrased.
+    expect(screen.queryByText('ask_time')).toBeNull();
+    expect(screen.queryByText(/morning/i)).not.toBeNull();
+  });
+
+  it('sends the option the user picked, and shows the updated proposal', async () => {
+    const clarify = jest.spyOn(captureEndpoints, 'clarifyCapture').mockResolvedValue(answered() as never);
+    await reachTheQuestion();
+    await fireEvent.press(screen.getByTestId('clarify-option-o-evening'));
+    await waitFor(() => expect(clarify).toHaveBeenCalled());
+
+    const sent = clarify.mock.calls[0]![0] as { itemId: string; questionId: string; optionId?: string };
+    expect(sent).toMatchObject({ itemId: 'i-1', questionId: 'q-1', optionId: 'o-evening' });
+    // The question is gone and the item is confirmable.
+    await waitFor(() => expect(screen.queryByTestId('clarify-sheet')).toBeNull());
+    expect(screen.getByTestId('review-confirm').props.accessibilityState.disabled).toBe(false);
+  });
+
+  it('sends free text as free text, not as a title', async () => {
+    const clarify = jest.spyOn(captureEndpoints, 'clarifyCapture').mockResolvedValue(answered() as never);
+    await reachTheQuestion();
+    await fireEvent.changeText(screen.getByTestId('clarify-free-text'), 'بالمسا');
+    await fireEvent.press(screen.getByTestId('clarify-send'));
+    await waitFor(() => expect(clarify).toHaveBeenCalled());
+    expect(clarify.mock.calls[0]![0]).toMatchObject({ freeText: 'بالمسا' });
+  });
+
+  it('keeps the question up when the answer fails', async () => {
+    jest.spyOn(captureEndpoints, 'clarifyCapture').mockRejectedValue(new NetworkError('offline'));
+    await reachTheQuestion();
+    await fireEvent.press(screen.getByTestId('clarify-option-o-morning'));
+    // Clearing it would look like the answer landed.
+    await waitFor(() => expect(screen.queryByTestId('clarify-sheet')).not.toBeNull());
+  });
+
+  it('skipping leaves the item flagged rather than walling the user in', async () => {
+    await reachTheQuestion();
+    await fireEvent.press(screen.getByTestId('clarify-skip'));
+    await waitFor(() => expect(screen.queryByTestId('clarify-sheet')).toBeNull());
+    expect(screen.queryByTestId('review-needs-question-i-1')).not.toBeNull();
+  });
+
+  it('does not ask a question this build has no words for', async () => {
+    // A server ahead of the app. The item keeps its flag and #164's edit sheet
+    // is the way through; an internal token must never reach the screen.
+    const unknown = asking();
+    (unknown.items[0] as unknown as { clarification: { questionKey: string } })
+      .clarification.questionKey = 'ask_something_new';
+    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(unknown as never);
+    await openApp();
+    await enterCapture();
+    await fireEvent.changeText(screen.getByTestId('capture-input'), 'remind me to call Dana');
+    await fireEvent.press(screen.getByTestId('capture-analyze'));
+    await waitFor(() => expect(screen.queryByTestId('review-item-i-1')).not.toBeNull());
+
+    expect(screen.queryByTestId('clarify-sheet')).toBeNull();
+    expect(screen.queryByText('ask_something_new')).toBeNull();
+    expect(screen.queryByTestId('review-needs-question-i-1')).not.toBeNull();
+  });
+});

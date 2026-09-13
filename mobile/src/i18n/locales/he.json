@@ -507,5 +507,6 @@
   "savedFailedBody": "אלה נשארו מחוץ ליום שלך. אפשר לומר אותם שוב.",
   "undoneTitle": "בוטל. שום דבר לא נשמר.",
   "undonePartialTitle": "בוטל חלקית",
-  "undonePartialBody": "אלה עדיין שמורים: {titles}"
+  "undonePartialBody": "אלה עדיין שמורים: {titles}",
+  "clarifyPosition": "{n} מתוך {total}"
 }
