@@ -29,6 +29,13 @@ export type AppState = {
   savedIds: string[];
   nextDismissed: boolean;
   fmMode: 'sessions' | 'twomin';
+  /**
+   * Which day of the week strip is open, as an offset from today (0 = today).
+   *
+   * Was a weekday index into the seed week (UC-2.R3, #173). The strip now runs
+   * forward from today, so a fixed index would mean a different day depending
+   * on what day it is.
+   */
   selDay: number;
   detailId: string | null;
   commitments: Commitment[];
@@ -41,7 +48,7 @@ const initial: AppState = {
   proposals: [], parts: [], kind: null,
   sheet: null, toast: '',
   undoLeft: 5, savedIds: [],
-  nextDismissed: false, fmMode: 'sessions', selDay: TODAY, detailId: null,
+  nextDismissed: false, fmMode: 'sessions', selDay: 0, detailId: null,
   commitments: seedCommitments, yesterday: seedYesterday,
 };
 
@@ -173,8 +180,10 @@ function useAppModel() {
     undo: () => set(st => ({ commitments: st.commitments.filter(c => !st.savedIds.includes(c.id)), screen: 'review', savedIds: [] })),
     finishSaved: () => set(st => ({ ...captureReset, screen: st.kind === 'study' ? 'firstmove' : 'today', prev: 'saved' })),
     viewSavedDay: () => set(st => {
+      // Capture is still on the mock proposals, whose `day` is a seed weekday
+      // index; the difference from the seed's today is a real day offset.
       const d = st.proposals[0]?.day ?? TODAY;
-      return { ...captureReset, screen: d === TODAY ? 'today' : 'calendar', selDay: d };
+      return { ...captureReset, screen: d === TODAY ? 'today' : 'calendar', selDay: Math.max(0, d - TODAY) };
     }),
 
     // sheets

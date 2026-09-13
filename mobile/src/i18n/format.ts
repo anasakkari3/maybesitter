@@ -10,13 +10,36 @@ import { intlLocale, type Locale } from './locale';
  */
 export type FormatOptions = { locale: Locale; timeZone: string };
 
-export type DateStyle = 'short' | 'weekday' | 'full';
+export type DateStyle = 'short' | 'weekday' | 'weekdayShort' | 'dayNumber' | 'full';
 
 const DATE_STYLES: Record<DateStyle, Intl.DateTimeFormatOptions> = {
   short: { month: 'short', day: 'numeric' }, // MMM d
   weekday: { weekday: 'long', month: 'short', day: 'numeric' }, // EEEE, MMM d
+  weekdayShort: { weekday: 'short' }, // EEE, for the week strip
+  dayNumber: { day: 'numeric' }, // d, for the day circle
   full: { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }, // EEEE, MMMM d, yyyy
 };
+
+/**
+ * A day key as an instant that formats back to that same civil date anywhere.
+ *
+ * The week strip works in day keys, not instants — it asks "what are the seven
+ * days from today", which is calendar arithmetic and has no time in it. To
+ * *print* one it needs a Date, and the only safe pairing is a midday-UTC
+ * instant formatted in UTC: any real zone would shift it, and past +12 a
+ * midday-UTC instant is already the next day.
+ */
+export function civilDate(key: string): Date {
+  return new Date(`${key}T12:00:00.000Z`);
+}
+
+/** The formatter options for a `civilDate`: it is a civil date, so print it in UTC. */
+export const CIVIL_ZONE = 'UTC';
+
+/** `key` shifted by whole calendar days. Pure day arithmetic, so DST cannot reach it. */
+export function shiftDayKey(key: string, days: number): string {
+  return new Date(Date.parse(`${key}T00:00:00.000Z`) + days * 86_400_000).toISOString().slice(0, 10);
+}
 
 // The design shows plain 24-hour times ("18:00") in both languages, and so does
 // the rest of the app (`fmt` in state/derive.ts). h23 keeps them identical.
@@ -56,7 +79,7 @@ export function formatNumber(
 // "2026-09-10" for the given instant as seen in that timezone. en-CA is the
 // shortest way to an ISO-ordered date out of Intl, and it is only ever compared
 // with another one produced the same way.
-function dayKey(date: Date, timeZone: string): string {
+export function dayKey(date: Date, timeZone: string): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
 }
 

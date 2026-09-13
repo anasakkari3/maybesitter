@@ -18,6 +18,7 @@
  * one first", and it is deliberately not a status.
  */
 import type { Commitment } from '../../api/schemas/common';
+import { dayKey } from '../../i18n/format';
 
 export type Importance = 'must' | 'should' | 'nice';
 
@@ -155,4 +156,69 @@ export function topItemFor(groups: TodayGroups): CommitmentView | null {
     if (first) return first.reasonCodes.length > 0 ? first : null;
   }
   return null;
+}
+
+/** One calendar day of the future, with what is on it. */
+export interface UpcomingDay {
+  /** "2026-09-14" in the user's timezone. Compared, never displayed. */
+  key: string;
+  /**
+   * An instant that falls on that local day, for the header to format.
+   *
+   * The first item's own time, deliberately, rather than a synthesised midday:
+   * midday UTC lands on the following local day anywhere past +12, so
+   * Kiritimati would read every heading off by one.
+   */
+  at: string;
+  items: CommitmentView[];
+}
+
+/**
+ * The days ahead (UC-2.R3, #173).
+ *
+ * ── Days, from the timezone the app told the server about ────────
+ *
+ * The grouping is by calendar day in the user's zone, using the same `dayKey`
+ * the relative-day copy uses, because the server bounded `upcoming` the same
+ * way: "a later local day than today". Grouping by elapsed hours instead would
+ * put 23:30 tonight and 00:30 tomorrow on one heap.
+ *
+ * ── A calendar is chronological, even when a ranker disagrees ────
+ *
+ * #169's rank answers "what should I do next", which is a question about now.
+ * Thursday is not now. Sorting Thursday by importance would tell the user their
+ * 09:00 is after their 17:00, so the day reads by the clock and the rank is
+ * only a tiebreak between two things at the same minute.
+ *
+ * Undated items never appear: `listUpcomingRanked` excludes them because an
+ * item with no time has no later day to be on, and it stays on Today.
+ */
+export function groupUpcoming(
+  commitments: readonly Commitment[],
+  now: string,
+  timeZone: string,
+): UpcomingDay[] {
+  const byDay = new Map<string, CommitmentView[]>();
+
+  for (const commitment of commitments) {
+    const view = toViewModel(commitment, now);
+    // Defensive: the route already filters these out. A finished item holding a
+    // slot on a future day would read as something still to do.
+    if (view.status !== 'active' || !view.shownAt) continue;
+    const key = dayKey(new Date(view.shownAt), timeZone);
+    const day = byDay.get(key);
+    if (day) day.push(view);
+    else byDay.set(key, [view]);
+  }
+
+  return Array.from(byDay.entries())
+    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+    .map(([key, items]) => {
+      const sorted = items.sort((a, b) => (
+        instantOf(a) - instantOf(b)
+        || (a.rank ?? Number.POSITIVE_INFINITY) - (b.rank ?? Number.POSITIVE_INFINITY)
+        || compareIds(a.id, b.id)
+      ));
+      return { key, at: sorted[0]!.shownAt!, items: sorted };
+    });
 }
