@@ -241,9 +241,29 @@ export interface FeedbackHistoryRow {
   readonly canRevoke: boolean;
 }
 
+/**
+ * One answer the user gave to a next step (UC-2.9 #170, listed by UC-2.R4 #174).
+ *
+ * A separate list from `rows`, not an entry in it. A behaviour-feedback row is
+ * an *observation* the system made and offers to revoke; a next-step decision
+ * is a *choice the user made*, and there is nothing about it to correct. Giving
+ * it an `outcome` and a `canRevoke` to fit the same shape would be the screen
+ * telling somebody their own decision was something we inferred.
+ */
+export interface NextStepDecisionRow {
+  readonly proposalId: string;
+  readonly commitmentId: string | null;
+  readonly decision: 'accept' | 'edit' | 'defer' | 'dismiss' | 'done';
+  readonly at: string;
+  /** When a deferral runs until. Null for every other decision. */
+  readonly deferUntil: string | null;
+}
+
 export interface FeedbackHistoryResponse {
   readonly version: typeof FEEDBACK_EVENT_SCHEMA_VERSION;
   readonly rows: readonly FeedbackHistoryRow[];
+  /** What the user answered to next steps, newest first (#170). */
+  readonly nextStepDecisions?: readonly NextStepDecisionRow[];
   /** Present when the scope has pre-event-log history that has no rows. */
   readonly baselineNotice: {
     readonly counters: Readonly<Record<LegacyCounterName, number>>;

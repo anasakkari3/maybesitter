@@ -7,6 +7,7 @@ import { ConflictError } from '../../api/errors';
 import { family } from '../../theme/fonts';
 import { Btn, Card, Pill, Txt } from '../../ui/primitives';
 import { evidencePhrases } from './evidence';
+import { FeedbackFlagButton } from './FeedbackFlagButton';
 import { DEFER_PRESETS, postponeTo, type PostponePreset } from '../commitments/postpone';
 import { useTimeZone } from '../../i18n/timezone';
 import { formatRelativeDay, formatTime } from '../../i18n/format';
@@ -186,6 +187,13 @@ function Ready({
           ) : null}
         </View>
       ) : null}
+
+      {/* Saying the suggestion was wrong (#173 step 4). Below the reasons,
+          because it is a response to them. */}
+      <FeedbackFlagButton
+        proposalId={recommendation.proposalId}
+        commitmentId={step.commitmentId}
+      />
 
       {editing ? (
         <View style={{ gap: 10 }}>

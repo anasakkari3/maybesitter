@@ -27,6 +27,15 @@ import { SettingsHeader } from './SettingsChrome';
  * that nothing changed, rather than showing a generic failure that reads like
  * something was lost.
  */
+/** The five answers, each with words a person wrote. */
+const DECISION_KEY: Record<string, string> = {
+  accept: 'historyDecisionAccept',
+  edit: 'historyDecisionEdit',
+  defer: 'historyDecisionDefer',
+  dismiss: 'historyDecisionDismiss',
+  done: 'historyDecisionDone',
+};
+
 export function FeedbackHistoryScreen({ onBack }: { onBack: () => void }) {
   const { t, p, lang } = useApp();
   const insets = useSafeAreaInsets();
@@ -36,6 +45,7 @@ export function FeedbackHistoryScreen({ onBack }: { onBack: () => void }) {
   const [confirming, setConfirming] = useState<string | null>(null);
 
   const rows = history.data?.rows ?? [];
+  const decisions = history.data?.nextStepDecisions ?? [];
   const strings = t as unknown as Record<string, string>;
 
   return (
@@ -112,6 +122,51 @@ export function FeedbackHistoryScreen({ onBack }: { onBack: () => void }) {
               {history.data.baselineNotice.note}
             </Txt>
           </Card>
+        ) : null}
+        {/*
+          * The user's own answers to next steps (#170, #174).
+          *
+          * A separate section, not merged into the rows above. A behaviour row
+          * is an observation the system made and offers to revoke; a decision
+          * is a choice the person made, and there is nothing about it to
+          * correct. Listing them together under one heading would tell somebody
+          * their own decision was something we inferred about them.
+          */}
+        {history.data !== undefined && !history.isError ? (
+          <>
+            <Txt size={13} weight={600} color={p.mu} style={{ paddingHorizontal: 4, paddingTop: 6 }}>
+              {t.historyDecisionsTitle}
+            </Txt>
+            {decisions.length === 0 ? (
+              <Card pad={18}>
+                <Txt size={14} color={p.mu} lh={1.5} testID="history-decisions-empty">
+                  {t.historyDecisionsEmpty}
+                </Txt>
+              </Card>
+            ) : (
+              <Card pad={0} style={{ overflow: 'hidden' }} testID="history-decisions">
+                {decisions.map((decision, index) => (
+                  <View
+                    key={`${decision.proposalId}-${decision.at}`}
+                    testID={`history-decision-${decision.decision}`}
+                    style={{
+                      paddingHorizontal: 18, paddingVertical: 14, gap: 6,
+                      borderTopWidth: index === 0 ? 0 : 1, borderTopColor: p.ln,
+                    }}
+                  >
+                    {/* An answer this build has no words for is skipped rather
+                        than printed as its enum. */}
+                    <Txt size={15}>
+                      {isolate(strings[DECISION_KEY[decision.decision] ?? ''] ?? '')}
+                    </Txt>
+                    <Txt size={13} color={p.mu} latin>
+                      {formatDate(new Date(decision.at), 'short', { locale: lang, timeZone })}
+                    </Txt>
+                  </View>
+                ))}
+              </Card>
+            )}
+          </>
         ) : null}
       </ScrollView>
     </ScreenIn>

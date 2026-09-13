@@ -63,7 +63,7 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
  */
 export function Btn({
   onPress, onPressIn, onPressOut, style, children, disabled, label, scaleTo = 0.95, hitSlop, testID,
-  accessibilityRole = 'button',
+  accessibilityRole = 'button', accessibilityActions, onAccessibilityAction,
 }: {
   // `| undefined` is explicit because the app compiles with
   // exactOptionalPressableTypes: callers pass `onPress={disabled ? undefined : fn}`.
@@ -90,6 +90,15 @@ export function Btn({
    * reader announcing four buttons does not say that only one may be picked.
    */
   accessibilityRole?: 'button' | 'radio' | 'checkbox' | 'link';
+  /**
+   * Actions a screen reader or switch control can perform on this row.
+   *
+   * A swipe is invisible to both (UC-2.R3 #173 step 8), so anything reachable
+   * by swiping has to be reachable here too — declared from the same list, so
+   * the two cannot drift.
+   */
+  accessibilityActions?: readonly { name: string; label: string }[];
+  onAccessibilityAction?: (event: { nativeEvent: { actionName: string } }) => void;
 }) {
   const v = useRef(new Animated.Value(1)).current;
   const spring = (to: number) => Animated.spring(v, { toValue: to, useNativeDriver: true, speed: 40, bounciness: 0 }).start();
@@ -97,6 +106,8 @@ export function Btn({
     <AnimatedPressable
       accessibilityRole={accessibilityRole}
       accessibilityLabel={label}
+      {...(accessibilityActions ? { accessibilityActions: [...accessibilityActions] } : {})}
+      {...(onAccessibilityAction ? { onAccessibilityAction } : {})}
       testID={testID}
       accessibilityState={{ disabled }}
       disabled={disabled}

@@ -13,7 +13,7 @@ import React from 'react';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { render, screen, waitFor, within } from '@testing-library/react-native';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { AppProvider } from '../../state/AppContext';
@@ -298,4 +298,68 @@ describe('the why-first line in every language', () => {
       );
     });
   }
+});
+
+describe('done and not-now, from the row (#173 steps 3, 8)', () => {
+  function actOn() {
+    return jest.spyOn(commitmentEndpoints, 'actOnCommitment').mockResolvedValue({
+      data: { success: true, id: 'm', commitment: withPriority('m', 'high') },
+      etag: 'W/"v2"',
+    } as never);
+  }
+
+  it('a swipe action completes the commitment', async () => {
+    const act = actOn();
+    await show([withPriority('m', 'high')]);
+    await fireEvent.press(screen.getByTestId('today-swipe-m-complete'));
+    await waitFor(() => expect(act).toHaveBeenCalled());
+    expect(act.mock.calls[0]![1]).toBe('complete');
+  });
+
+  it('a swipe action postpones it by an hour, with a real instant', async () => {
+    const act = actOn();
+    const before = Date.now();
+    await show([withPriority('m', 'high')]);
+    await fireEvent.press(screen.getByTestId('today-swipe-m-postpone'));
+    await waitFor(() => expect(act).toHaveBeenCalled());
+
+    expect(act.mock.calls[0]![1]).toBe('postpone');
+    const until = Date.parse((act.mock.calls[0]![2] as { postponedUntil: string }).postponedUntil);
+    // A real transition, not a toast: the server is told when to bring it back.
+    expect(until).toBeGreaterThan(before + 59 * 60 * 1000);
+    expect(until).toBeLessThan(before + 61 * 60 * 1000);
+  });
+
+  it('the same two are reachable without a swipe', async () => {
+    // A swipe is invisible to a screen reader and impossible with a switch
+    // control. Anything reachable by swiping has to be reachable here.
+    const act = actOn();
+    await show([withPriority('m', 'high')]);
+    const row = screen.getByTestId('today-item-m');
+    expect((row.props.accessibilityActions ?? []).map((a: { name: string }) => a.name))
+      .toEqual(['complete', 'postpone']);
+
+    await fireEvent(row, 'accessibilityAction', { nativeEvent: { actionName: 'complete' } });
+    await waitFor(() => expect(act).toHaveBeenCalled());
+    expect(act.mock.calls[0]![1]).toBe('complete');
+  });
+
+  it('offers neither on something already finished', async () => {
+    // A control that cannot succeed is worse than an absent one.
+    await show([item({ id: 'done', status: 'completed' })]);
+    await fireEvent.press(screen.getByTestId('today-finished-toggle'));
+    await waitFor(() => expect(screen.queryByTestId('today-finished-done')).not.toBeNull());
+    expect(screen.queryByTestId('today-swipe-done-complete')).toBeNull();
+  });
+
+  it('declares the assistive actions from the same list the swipe uses', async () => {
+    // Two declarations drift, and the failure is a row completable by swipe and
+    // not by VoiceOver — which nobody sees until somebody who needs it does.
+    await show([withPriority('m', 'high')]);
+    const labels = (screen.getByTestId('today-item-m').props.accessibilityActions ?? [])
+      .map((a: { label: string }) => a.label);
+    expect(labels).toEqual([en.rowComplete, en.rowPostpone]);
+    expect(screen.queryByTestId('today-swipe-m-complete')).not.toBeNull();
+    expect(screen.queryByTestId('today-swipe-m-postpone')).not.toBeNull();
+  });
 });

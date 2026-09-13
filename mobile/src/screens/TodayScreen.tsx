@@ -5,10 +5,12 @@ import { useApp } from '../state/AppContext';
 import { useTimeZone } from '../i18n/timezone';
 import { formatTime } from '../i18n/format';
 import { ltr } from '../i18n/strings';
-import { useToday } from '../api/queries';
+import { useCommitmentAction, useToday } from '../api/queries';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
 import { groupForToday, topItemFor, type CommitmentView, type TodayGroups } from '../features/commitments/model';
 import { rowAccessibilityLabel } from '../features/commitments/accessibility';
+import { SwipeableRow, useRowActions } from '../features/commitments/RowActions';
+import { postponeTo } from '../features/commitments/postpone';
 import { whyFirstLine } from '../features/commitments/whyFirst';
 import { NextStepCard } from '../features/nextStep/NextStepCard';
 import { Btn, Card, Pill, Txt } from '../ui/primitives';
@@ -176,13 +178,35 @@ function Row({
   lang: 'ar' | 'en';
 }) {
   const { t, p, actions } = useApp();
+  const act = useCommitmentAction();
+
+  /**
+   * Done and "not now", from the row (UC-2.R3 #173 steps 3, 8).
+   *
+   * Both are real transitions on the actions route, not a toast: `complete`
+   * closes the commitment and `postpone` moves it an hour, the same default the
+   * details sheet uses when the user does not name a time.
+   */
+  const rowActions = useRowActions(item, {
+    complete: () => act.mutate({ id: item.id, action: 'complete' }),
+    postpone: () => act.mutate({
+      id: item.id,
+      action: 'postpone',
+      postponedUntil: postponeTo('oneHour', new Date(), timezone),
+    }),
+  });
   const when = item.shownAt
     ? ltr(formatTime(new Date(item.shownAt), { locale: lang, timeZone: timezone }))
     : t.noTimeYet;
 
   return (
+    <SwipeableRow actions={rowActions} testID={`today-swipe-${item.id}`}>
     <Btn
       testID={`today-item-${item.id}`}
+      accessibilityActions={rowActions.map(({ name, label }) => ({ name, label }))}
+      onAccessibilityAction={(event) => {
+        rowActions.find((action) => action.name === event.nativeEvent.actionName)?.run();
+      }}
       // Title, importance, time and status — everything the row shows. See
       // accessibility.ts on why this is not a second set of copy.
       label={rowAccessibilityLabel(item, t, item.shownAt ? when : null)}
@@ -209,6 +233,7 @@ function Row({
         <Txt size={12} color={p.ac} testID="today-why-first">{why}</Txt>
       ) : null}
     </Btn>
+    </SwipeableRow>
   );
 }
 

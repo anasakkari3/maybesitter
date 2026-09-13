@@ -18,9 +18,27 @@ const historyRowSchema = z.object({
  * Revoked rows stay in `rows`: they are the visible evidence that a correction
  * was applied, and dropping them would ask the user to take our word for it.
  */
+/**
+ * One answer the user gave to a next step (#170).
+ *
+ * A separate list from `rows`, not an entry in it: a behaviour row is an
+ * observation the system made and offers to revoke, and a decision is a choice
+ * the user made with nothing to correct. `decision` is a plain string rather
+ * than an enum so a server that learns a sixth answer does not make the whole
+ * history unparseable on an older build.
+ */
+export const nextStepDecisionRowSchema = z.object({
+  proposalId: z.string(),
+  commitmentId: z.string().nullable(),
+  decision: z.string(),
+  at: isoDateTime,
+  deferUntil: isoDateTime.nullable(),
+});
+
 export const feedbackHistorySchema = z.object({
   version: z.string(),
   rows: z.array(historyRowSchema),
+  nextStepDecisions: z.array(nextStepDecisionRowSchema).optional(),
   baselineNotice: z
     .object({ countedFrom: isoDateTime.nullable(), note: z.string() })
     .nullable()
@@ -28,6 +46,7 @@ export const feedbackHistorySchema = z.object({
 });
 
 export type FeedbackHistoryRow = z.infer<typeof historyRowSchema>;
+export type NextStepDecisionRow = z.infer<typeof nextStepDecisionRowSchema>;
 
 export const feedbackRevokeSchema = z.object({
   version: z.string(),
