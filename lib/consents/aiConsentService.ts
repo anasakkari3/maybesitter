@@ -1,158 +1,82 @@
 /**
  * Whether this account has agreed to AI processing (UC-2.1, #161).
  *
- * ── Missing means declined ───────────────────────────────────────
+ * ── Where the rules actually live ────────────────────────────────
  *
- * The single most important line in this file. A user who has never been asked
- * has not agreed, and the failure mode of getting that backwards is sending
- * somebody's sentences to Google without their knowledge. So there is no
- * default-on path, no "unset means allowed", and no way to write `granted`
- * except through `setAiConsent` with a version this server recognises.
+ * They moved to `lib/consents/consentService` when UC-2.9 (#170) added the
+ * second question. "Missing means declined", "an unknown version is refused
+ * rather than upgraded", "never cached", and "every change is audited" are now
+ * one implementation both consents share, parametrised by
+ * `AI_PROCESSING_CONSENT`. Read that file for the reasoning.
  *
- * ── Never cached ─────────────────────────────────────────────────
+ * The behaviour here is unchanged, and that is checkable rather than claimed:
+ * `tests/consents/aiConsent.test.ts` was not touched by the move, including
+ * the two enforcement-layer tests and the revocation-with-no-cache one.
  *
- * Consent is read per request, from storage, every time. A cache — even a
- * one-minute one — means revocation does not take effect until it expires, and
- * "I turned it off" has to be true on the next request rather than soon. It is
- * one document read on a path that already does several.
+ * ── Why this file still exists ───────────────────────────────────
  *
- * ── The audit trail is the existing one ──────────────────────────
- *
- * Every change appends a pilot audit event with `eventType: 'consent_changed'`,
- * which already exists, is already validated, and is already deleted with the
- * account. The alternative — the domain event log — is replayed to rebuild
- * commitments, and a consent record has no business in that stream.
+ * `getAiConsent` is the enforcement seam. `lib/llm/consentGatedProvider`,
+ * `lib/llm/captureProvider` and `lib/services/mobile/mobileCaptureService`
+ * each take it as an injectable default, and one named function that means
+ * "may this account's words be sent to a model" is worth keeping as one
+ * importable thing — the alternative is three call sites each remembering to
+ * pass the right `ConsentKindContract`, and one of them eventually passing
+ * the recommendation one.
  */
 import {
   AI_CONSENT_VERSION,
-  isSupportedAiConsentVersion,
+  AI_PROCESSING_CONSENT,
   type AiConsentRecord,
   type AiConsentState,
-  type ConsentLocale,
-  type ConsentPlatform,
 } from '../../src/contracts/v1/consentContracts';
-import { createPilotAuditEvent } from '../pilot/closedPilotControls';
-import { appendAudit } from '../pilot/pilotTrustStore';
-import { getStorage, requireUserId, userDoc, type StorageAdapter } from '../storage';
+import {
+  UnsupportedConsentVersionError,
+  consentViewFor,
+  getConsent,
+  readConsent,
+  setConsent,
+  type ConsentOptions,
+  type SetConsentInput,
+} from './consentService';
 
-/** The user document's consent map, as this service reads and writes it. */
-interface ConsentBearingUser {
-  consents?: {
-    aiProcessing?: AiConsentRecord;
-  };
-}
+export { UnsupportedConsentVersionError };
+export type AiConsentOptions = ConsentOptions;
+export type SetAiConsentInput = SetConsentInput;
 
-export class UnsupportedConsentVersionError extends Error {
-  constructor(readonly version: unknown) {
-    super('unsupported consent version');
-    this.name = 'UnsupportedConsentVersionError';
-  }
-}
-
-export interface AiConsentOptions {
-  storage?: StorageAdapter;
-}
-
-/**
- * The stored record, or null when there has never been one.
- *
- * Separate from `getAiConsent` because the API needs to tell "declined" from
- * "never asked" — that difference is what decides whether the app shows the
- * consent card — while every enforcement path only needs the yes/no.
- */
+/** The stored record, or null when there has never been one. */
 export async function readAiConsent(
   uid: string,
   options: AiConsentOptions = {},
 ): Promise<AiConsentRecord | null> {
-  requireUserId(uid);
-  const storage = options.storage ?? getStorage();
-  const user = await storage.get<ConsentBearingUser>(userDoc(uid));
-  const record = user?.consents?.aiProcessing;
-  if (!record || typeof record.state !== 'string') return null;
-  // A record written against a version this server no longer recognises is not
-  // consent to what it asks today. It reads as declined until re-asked.
-  if (!isSupportedAiConsentVersion(record.version)) return { ...record, state: 'declined' };
-  return record;
+  return readConsent(AI_PROCESSING_CONSENT, uid, options);
 }
 
-/**
- * Granted, or declined. There is no third answer and no default-on.
- */
+/** Granted, or declined. There is no third answer and no default-on. */
 export async function getAiConsent(uid: string, options: AiConsentOptions = {}): Promise<AiConsentState> {
-  const record = await readAiConsent(uid, options);
-  return record?.state === 'granted' ? 'granted' : 'declined';
+  return getConsent(AI_PROCESSING_CONSENT, uid, options);
 }
 
-export interface SetAiConsentInput {
-  state: AiConsentState;
-  version: string;
-  locale?: ConsentLocale;
-  platform?: ConsentPlatform;
-  at?: Date;
-}
-
-/**
- * Records an answer, and the fact that it was given.
- *
- * The uid is the caller's own, taken from a verified token by the route. This
- * function never accepts one from a request body.
- */
+/** Records an answer, and the fact that it was given. */
 export async function setAiConsent(
   uid: string,
   input: SetAiConsentInput,
   options: AiConsentOptions = {},
 ): Promise<AiConsentRecord> {
-  requireUserId(uid);
-  if (input.state !== 'granted' && input.state !== 'declined') {
-    throw new Error('consent state must be granted or declined');
-  }
-  // Unknown versions are refused rather than silently upgraded: accepting one
-  // would record agreement to words this server cannot show anyone.
-  if (!isSupportedAiConsentVersion(input.version)) throw new UnsupportedConsentVersionError(input.version);
-
-  const storage = options.storage ?? getStorage();
-  const at = (input.at ?? new Date()).toISOString();
-  const record: AiConsentRecord = {
-    state: input.state,
-    version: input.version,
-    changedAt: at,
-    ...(input.locale ? { locale: input.locale } : {}),
-    ...(input.platform ? { platform: input.platform } : {}),
-  };
-
-  await storage.runTransaction(async (tx) => {
-    const current = await tx.get<ConsentBearingUser>(userDoc(uid));
-    tx.merge<ConsentBearingUser>(userDoc(uid), {
-      consents: { ...(current?.consents ?? {}), aiProcessing: record },
-    });
-  });
-
-  // Appended after the write commits: an audit line for a change that did not
-  // happen would be worse than a missing one.
-  await appendAudit(createPilotAuditEvent({
-    version: 'v1',
-    eventType: 'consent_changed',
-    participantId: uid,
-    occurredAt: at,
-    outcome: 'recorded',
-    reasonCode: `ai_processing_${input.state}`,
-  }));
-
-  return record;
+  return setConsent(AI_PROCESSING_CONSENT, uid, input, options);
 }
 
-/** What `GET /api/mobile/consents` answers with. */
+/**
+ * The AI half of `GET /api/mobile/consents`.
+ *
+ * Kept for the callers that only care about this one question. The route
+ * itself answers with `allConsentsView`, which includes both.
+ */
 export async function aiConsentView(uid: string, options: AiConsentOptions = {}): Promise<{
   aiProcessing: AiConsentRecord & { asked: boolean };
   currentVersion: string;
 }> {
-  const record = await readAiConsent(uid, options);
   return {
-    aiProcessing: record
-      ? { ...record, asked: true }
-      // Never asked: declined, and the client needs to know it is allowed to
-      // ask rather than treating this as a decision the user made.
-      : { state: 'declined', version: AI_CONSENT_VERSION, changedAt: '', asked: false },
+    aiProcessing: await consentViewFor(AI_PROCESSING_CONSENT, uid, options),
     currentVersion: AI_CONSENT_VERSION,
   };
 }
