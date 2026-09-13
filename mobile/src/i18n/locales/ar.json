@@ -505,5 +505,16 @@
   "undoneTitle": "رجعناها. ما ضل إشي.",
   "undonePartialTitle": "رجعت نص رجعة",
   "undonePartialBody": "هدول لسّا محفوظين: {titles}",
-  "clarifyPosition": "{n} من {total}"
+  "clarifyPosition": "{n} من {total}",
+  "editItemTitle": "غيّر هاي",
+  "editItemName": "شو هي",
+  "editItemWhen": "إيمتى",
+  "editItemNoTime": "بدون وقت",
+  "editItemDate": "التاريخ",
+  "editItemTime": "الوقت",
+  "editItemSave": "خُد هيك",
+  "editItemCancel": "خلّيها",
+  "editItemPast": "هاد الوقت راح خلص.",
+  "editItemEmpty": "حطّلها اسم.",
+  "reviewEdit": "غيّر"
 }

@@ -508,5 +508,16 @@
   "undoneTitle": "בוטל. שום דבר לא נשמר.",
   "undonePartialTitle": "בוטל חלקית",
   "undonePartialBody": "אלה עדיין שמורים: {titles}",
-  "clarifyPosition": "{n} מתוך {total}"
+  "clarifyPosition": "{n} מתוך {total}",
+  "editItemTitle": "לשנות את זה",
+  "editItemName": "מה זה",
+  "editItemWhen": "מתי",
+  "editItemNoTime": "בלי זמן",
+  "editItemDate": "תאריך",
+  "editItemTime": "שעה",
+  "editItemSave": "קח ככה",
+  "editItemCancel": "להשאיר",
+  "editItemPast": "הזמן הזה כבר עבר.",
+  "editItemEmpty": "תן לזה שם.",
+  "reviewEdit": "שינוי"
 }

@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { useCaptureFlow } from '../features/capture/CaptureProvider';
 import { ClarifySheet } from '../features/capture/ClarifySheet';
+import { EditProposalItemSheet } from '../features/capture/EditProposalItemSheet';
 import { questionText } from '../features/capture/clarificationCopy';
 import { useTimeZone } from '../i18n/timezone';
 import { formatRelativeDay, formatTime } from '../i18n/format';
@@ -12,6 +13,8 @@ import { cardShadow } from '../theme/tokens';
 import { Btn, FlowHeader, ImpBadge, Pill, Txt } from '../ui/primitives';
 import { CheckIcon } from '../ui/icons';
 import { ScreenIn } from '../ui/motion';
+import { instantForLocalDateTime } from '../features/capture/localInstant';
+import type { CaptureItemEdit } from '../features/capture/captureMachine';
 import type { CaptureProposalItem } from '../api/schemas/capture';
 
 /**
@@ -40,6 +43,7 @@ export function ReviewScreen() {
   const flow = useCaptureFlow();
   const { state } = flow;
   const [answering, setAnswering] = useState(false);
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [skipped, setSkipped] = useState<string[]>([]);
   const strings = t as unknown as Record<string, string>;
   const items = state.proposal?.items ?? [];
@@ -101,11 +105,26 @@ export function ReviewScreen() {
           <ItemCard
             key={item.itemId}
             item={item}
+            edit={state.edits[item.itemId]}
             selected={state.selected.includes(item.itemId)}
             onToggle={() => flow.toggleItem(item.itemId)}
+            onEdit={() => setEditingItemId(item.itemId)}
             lang={lang}
           />
         ))}
+
+        {/* Held, and applied atomically at confirm (#164). Nothing is written
+            while this is open. */}
+        {editingItemId ? (
+          <View style={{ backgroundColor: p.sf, borderRadius: 24, padding: 18 }}>
+            <EditProposalItemSheet
+              item={items.find((item) => item.itemId === editingItemId)!}
+              edit={state.edits[editingItemId]}
+              onChange={(next) => flow.editItem(editingItemId, next)}
+              onClose={() => setEditingItemId(null)}
+            />
+          </View>
+        ) : null}
       </ScrollView>
 
       <View style={{ paddingTop: 12, paddingHorizontal: 20, paddingBottom: insets.bottom + 16, gap: 8, backgroundColor: p.bg, borderTopWidth: 1, borderTopColor: p.ln }}>
@@ -135,25 +154,35 @@ export function ReviewScreen() {
 const PRIORITY_IMP = { high: 'must', normal: 'should', low: 'nice' } as const;
 
 function ItemCard({
-  item, selected, onToggle, lang,
+  item, edit, selected, onToggle, onEdit, lang,
 }: {
   item: CaptureProposalItem;
+  edit: CaptureItemEdit | undefined;
   selected: boolean;
   onToggle: () => void;
+  onEdit: () => void;
   lang: 'ar' | 'en';
 }) {
   const { t, p } = useApp();
   const timezone = useTimeZone();
-  const when = item.resolvedTime
-    ? `${formatRelativeDay(new Date(item.resolvedTime), { locale: lang, timeZone: timezone })} · ${ltr(formatTime(new Date(item.resolvedTime), { locale: lang, timeZone: timezone }))}`
+  // What the card shows is what will be confirmed: the edit if there is one,
+  // the proposal otherwise. Showing the original under a card the user has
+  // changed is how they confirm something they did not mean.
+  const title = edit?.title ?? item.title;
+  const editedInstant = edit?.localDateTime !== undefined
+    ? (edit.localDateTime === '' ? null : instantForLocalDateTime(edit.localDateTime, timezone))
+    : (item.resolvedTime ? new Date(item.resolvedTime) : null);
+  const when = editedInstant
+    ? `${formatRelativeDay(editedInstant, { locale: lang, timeZone: timezone })} · ${ltr(formatTime(editedInstant, { locale: lang, timeZone: timezone }))}`
     : t.noTimeYet;
+  const priority = edit?.priority ?? item.priority;
 
   return (
     <Btn
       testID={`review-item-${item.itemId}`}
       onPress={onToggle}
       scaleTo={0.99}
-      label={`${item.title}, ${selected ? t.reviewSelected : t.reviewNotSelected}, ${when}`}
+      label={`${title}, ${selected ? t.reviewSelected : t.reviewNotSelected}, ${when}`}
       style={[
         {
           backgroundColor: p.sf, borderRadius: 24, paddingVertical: 16, paddingHorizontal: 18, gap: 12,
@@ -175,17 +204,26 @@ function ItemCard({
         >
           {selected ? <CheckIcon size={14} color={p.onAccent} /> : null}
         </View>
-        <Txt size={18} weight={600} style={{ flex: 1 }}>{item.title}</Txt>
+        <Txt size={18} weight={600} style={{ flex: 1 }}>{title}</Txt>
+        <Btn
+          testID={`review-edit-${item.itemId}`}
+          label={t.reviewEdit}
+          onPress={onEdit}
+          style={{ backgroundColor: p.sf2, borderRadius: 999, paddingVertical: 6, paddingHorizontal: 12 }}
+        >
+          <Txt size={12} weight={600} color={p.ac}>{t.reviewEdit}</Txt>
+        </Btn>
       </View>
 
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
         <View style={{ backgroundColor: p.sf2, borderRadius: 999, paddingVertical: 8, paddingHorizontal: 12 }}>
           <Txt size={13} testID={`review-when-${item.itemId}`}>{when}</Txt>
         </View>
-        {item.priority ? <ImpBadge imp={PRIORITY_IMP[item.priority]} /> : null}
-        {/* A guess named as one. A level presented as a fact the user stated is
-            how a product loses the right to guess at all (#164). */}
-        {item.priorityEstimated ? (
+        {priority ? <ImpBadge imp={PRIORITY_IMP[priority]} /> : null}
+        {/* A guess named as one — and no longer a guess once the user has set
+            it themselves. A level presented as a fact they stated is how a
+            product loses the right to guess at all (#164). */}
+        {item.priorityEstimated && edit?.priority === undefined ? (
           <Txt size={12} color={p.mu} testID={`review-estimated-${item.itemId}`}>{t.reviewEstimated}</Txt>
         ) : null}
         {item.needsClarification ? (

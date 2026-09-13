@@ -286,6 +286,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     // React Native Firebase's iOS SDK needs static frameworks under Expo's
     // prebuild; without this the pods link dynamically and the app crashes on
     // launch. The deployment target follows the Firebase Apple SDK's minimum.
+    // The date and time pickers on the capture review sheet (UC-2.4, #164).
+    // A config plugin rather than autolinking alone, because the Android side
+    // needs its own theme resources merged into the manifest.
+    '@react-native-community/datetimepicker',
     ['expo-build-properties', { ios: { useFrameworks: 'static', deploymentTarget: '16.4' } }],
     './plugins/withDataExtractionRules',
   ],

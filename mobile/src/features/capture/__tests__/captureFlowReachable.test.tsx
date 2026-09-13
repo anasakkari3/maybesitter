@@ -484,3 +484,114 @@ describe('the one question (#165)', () => {
     expect(screen.queryByTestId('review-needs-question-i-1')).not.toBeNull();
   });
 });
+
+describe('editing before anything is saved (#164)', () => {
+  async function reachReview() {
+    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+    await openApp();
+    await enterCapture();
+    await typeAndAnalyze();
+  }
+
+  it('shows the edited title on the card, not the original', async () => {
+    // Showing the original under a card the user has changed is how somebody
+    // confirms something they did not mean.
+    await reachReview();
+    await fireEvent.press(screen.getByTestId('review-edit-i-1'));
+    await waitFor(() => expect(screen.queryByTestId('edit-item-sheet')).not.toBeNull());
+    await fireEvent.changeText(screen.getByTestId('edit-item-title'), 'Hand in the short report');
+    await fireEvent.press(screen.getByTestId('edit-item-save'));
+    await waitFor(() => expect(screen.queryByTestId('edit-item-sheet')).toBeNull());
+    expect(screen.queryByText('Hand in the short report')).not.toBeNull();
+    expect(screen.queryByText('Hand in the report')).toBeNull();
+  });
+
+  it('sends the edit with the confirm, in the same request', async () => {
+    const confirm = jest.spyOn(captureEndpoints, 'confirmCapture').mockResolvedValue(confirmation() as never);
+    const patch = jest.spyOn(commitmentEndpoints, 'patchCommitment');
+    await reachReview();
+    await fireEvent.press(screen.getByTestId('review-edit-i-1'));
+    await waitFor(() => expect(screen.queryByTestId('edit-item-sheet')).not.toBeNull());
+    await fireEvent.changeText(screen.getByTestId('edit-item-title'), 'Hand in the short report');
+    await fireEvent.press(screen.getByTestId('edit-item-save'));
+    await fireEvent.press(screen.getByTestId('review-confirm'));
+    await waitFor(() => expect(confirm).toHaveBeenCalled());
+
+    const sent = confirm.mock.calls[0]![0] as { edits?: { itemId: string; title?: string }[] };
+    expect(sent.edits).toEqual([{ itemId: 'i-1', title: 'Hand in the short report' }]);
+    // Never a PATCH afterwards: that leaves the user holding a title they
+    // already changed for as long as the second request takes.
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  it('sends a priority the user set, and stops calling it a guess', async () => {
+    const confirm = jest.spyOn(captureEndpoints, 'confirmCapture').mockResolvedValue(confirmation() as never);
+    await reachReview();
+    expect(screen.queryByTestId('review-estimated-i-1')).not.toBeNull();
+
+    await fireEvent.press(screen.getByTestId('review-edit-i-1'));
+    await waitFor(() => expect(screen.queryByTestId('edit-item-priority-low')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('edit-item-priority-low'));
+    await fireEvent.press(screen.getByTestId('edit-item-save'));
+    await waitFor(() => expect(screen.queryByTestId('edit-item-sheet')).toBeNull());
+
+    // It is theirs now, so the "we guessed" mark goes.
+    expect(screen.queryByTestId('review-estimated-i-1')).toBeNull();
+
+    await fireEvent.press(screen.getByTestId('review-confirm'));
+    await waitFor(() => expect(confirm).toHaveBeenCalled());
+    expect((confirm.mock.calls[0]![0] as { edits?: { priority?: string }[] }).edits)
+      .toEqual([{ itemId: 'i-1', priority: 'low' }]);
+  });
+
+  it('"No time" is an answer, and is sent as one', async () => {
+    const confirm = jest.spyOn(captureEndpoints, 'confirmCapture').mockResolvedValue(confirmation() as never);
+    await reachReview();
+    await fireEvent.press(screen.getByTestId('review-edit-i-1'));
+    await waitFor(() => expect(screen.queryByTestId('edit-item-no-time')).not.toBeNull());
+    await fireEvent(screen.getByTestId('edit-item-no-time'), 'valueChange', true);
+    await fireEvent.press(screen.getByTestId('edit-item-save'));
+    await fireEvent.press(screen.getByTestId('review-confirm'));
+    await waitFor(() => expect(confirm).toHaveBeenCalled());
+    // `null`, not an absent field: an absent field means "not touched".
+    expect((confirm.mock.calls[0]![0] as { edits?: { resolvedTime?: string | null }[] }).edits)
+      .toEqual([{ itemId: 'i-1', resolvedTime: null }]);
+  });
+
+  it('refuses an empty title while the sheet is open', async () => {
+    await reachReview();
+    await fireEvent.press(screen.getByTestId('review-edit-i-1'));
+    await waitFor(() => expect(screen.queryByTestId('edit-item-title')).not.toBeNull());
+    await fireEvent.changeText(screen.getByTestId('edit-item-title'), '   ');
+    expect(screen.getByTestId('edit-item-save').props.accessibilityState.disabled).toBe(true);
+    expect(screen.queryByTestId('edit-item-problem')).not.toBeNull();
+  });
+
+  it('sends no edits at all when nothing was changed', async () => {
+    const confirm = jest.spyOn(captureEndpoints, 'confirmCapture').mockResolvedValue(confirmation() as never);
+    await reachReview();
+    await fireEvent.press(screen.getByTestId('review-edit-i-1'));
+    await waitFor(() => expect(screen.queryByTestId('edit-item-sheet')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('edit-item-save'));
+    await fireEvent.press(screen.getByTestId('review-confirm'));
+    await waitFor(() => expect(confirm).toHaveBeenCalled());
+    // An entry with nothing but an id asks the server to validate a change
+    // nobody made.
+    expect((confirm.mock.calls[0]![0] as { edits?: unknown[] }).edits ?? []).toEqual([]);
+  });
+
+  it('drops an edit for an item the user deselected', async () => {
+    const confirm = jest.spyOn(captureEndpoints, 'confirmCapture').mockResolvedValue(confirmation() as never);
+    await reachReview();
+    await fireEvent.press(screen.getByTestId('review-edit-i-1'));
+    await waitFor(() => expect(screen.queryByTestId('edit-item-title')).not.toBeNull());
+    await fireEvent.changeText(screen.getByTestId('edit-item-title'), 'Changed');
+    await fireEvent.press(screen.getByTestId('edit-item-save'));
+    await fireEvent.press(screen.getByTestId('review-item-i-1'));
+    await fireEvent.press(screen.getByTestId('review-confirm'));
+    await waitFor(() => expect(confirm).toHaveBeenCalled());
+    // Sending it would ask the server to validate a change to something the
+    // user chose not to save.
+    expect((confirm.mock.calls[0]![0] as { edits?: unknown[] }).edits ?? []).toEqual([]);
+  });
+});

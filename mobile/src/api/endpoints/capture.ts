@@ -74,12 +74,21 @@ export function proposeCapture(input: {
 export async function confirmCapture(input: {
   proposalId: string;
   itemIds: string[];
+  /**
+   * Changes the user made in review, applied in the same write (UC-2.4, #164).
+   *
+   * Not a PATCH afterwards: that leaves them holding a commitment with a title
+   * they already changed for as long as the second request takes, and
+   * permanently if it fails.
+   */
+  edits?: { itemId: string; title?: string; resolvedTime?: string | null; priority?: 'high' | 'normal' | 'low' }[];
   idempotencyKey?: string;
 }): Promise<CaptureConfirmation> {
   const result = await apiRequest('POST', '/api/mobile/capture/confirm', {
     body: {
       proposalId: input.proposalId,
       itemIds: input.itemIds,
+      ...(input.edits?.length ? { edits: input.edits } : {}),
       ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
     },
     schema: captureConfirmationSchema,

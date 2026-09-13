@@ -232,8 +232,11 @@ export function useConfirmCapture() {
   const client = useQueryClient();
   const uid = useUid();
   return useMutation({
-    mutationFn: (input: { proposalId: string; itemIds: string[] }) =>
-      confirmCapture({ ...input, idempotencyKey: Crypto.randomUUID() }),
+    mutationFn: (input: {
+      proposalId: string;
+      itemIds: string[];
+      edits?: { itemId: string; title?: string; resolvedTime?: string | null; priority?: 'high' | 'normal' | 'low' }[];
+    }) => confirmCapture({ ...input, idempotencyKey: Crypto.randomUUID() }),
     onSuccess: () => invalidateCommitments(client, uid),
   });
 }

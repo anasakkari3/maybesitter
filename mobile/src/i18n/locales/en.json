@@ -505,5 +505,16 @@
   "undoneTitle": "Undone. Nothing was kept.",
   "undonePartialTitle": "Partly undone",
   "undonePartialBody": "These are still saved: {titles}",
-  "clarifyPosition": "{n} of {total}"
+  "clarifyPosition": "{n} of {total}",
+  "editItemTitle": "Change this one",
+  "editItemName": "What it is",
+  "editItemWhen": "When",
+  "editItemNoTime": "No time",
+  "editItemDate": "Date",
+  "editItemTime": "Time",
+  "editItemSave": "Use this",
+  "editItemCancel": "Leave it",
+  "editItemPast": "That time has already passed.",
+  "editItemEmpty": "Give it a name.",
+  "reviewEdit": "Change"
 }

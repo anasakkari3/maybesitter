@@ -20,6 +20,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCapture, useClarifyCapture, useConfirmCapture, useAiConsentGranted } from '../../api/queries';
+import { useTimeZone } from '../../i18n/timezone';
 import { deleteCommitment } from '../../api/endpoints/commitments';
 import { isRetryable, ValidationError } from '../../api/errors';
 import {
@@ -32,6 +33,7 @@ import {
   type CaptureSource,
   type CaptureState,
 } from './captureMachine';
+import { toServerEdits } from './editPayload';
 import {
   analyzeCapture,
   confirmCapture as runConfirm,
@@ -104,6 +106,7 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
   const clarifyCapture = useClarifyCapture();
   const { granted: aiGranted, asked: aiAsked } = useAiConsentGranted();
   const client = useQueryClient();
+  const timezone = useTimeZone();
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // The timer is cleared on unmount, so leaving the flow cannot leave Undo
@@ -162,9 +165,16 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
     if (confirmPayload(state).itemIds.length === 0) return;
     dispatch({ type: 'confirmStarted' });
     const outcome = await runConfirm(
-      // The edits are held but not yet sent: the atomic confirm that carries
-      // them is UC-2.4 (#164). Nothing here applies them after the fact.
-      { confirm: ({ proposalId, itemIds }) => confirmCapture.mutateAsync({ proposalId, itemIds }) },
+      // The edits travel with the confirm (UC-2.4, #164), never as a PATCH
+      // afterwards: what the user saw when they pressed confirm is what gets
+      // written, or nothing is.
+      {
+        confirm: ({ proposalId, itemIds, edits }) => confirmCapture.mutateAsync({
+          proposalId,
+          itemIds,
+          edits: toServerEdits(edits, timezone),
+        }),
+      },
       state,
     );
     if (!outcome) return;
@@ -177,7 +187,7 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
     await invalidateCommitmentViews(client);
     if (undoTimer.current) clearTimeout(undoTimer.current);
     undoTimer.current = setTimeout(() => dispatch({ type: 'undoWindowClosed' }), UNDO_WINDOW_MS);
-  }, [client, confirmCapture, state]);
+  }, [client, confirmCapture, state, timezone]);
 
   /**
    * Soft-deletes what was saved, one at a time, and reports honestly.
