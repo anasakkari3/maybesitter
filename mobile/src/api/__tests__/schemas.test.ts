@@ -158,3 +158,39 @@ describe('what the schemas assert about the shape', () => {
     expect(commitmentSchema.safeParse(extended).success).toBe(true);
   });
 });
+
+describe('the next-step states that are not a suggestion', () => {
+  /**
+   * `nextStepReviewService` returns `explanation: null` and `primaryStep: null`
+   * for both `empty` and `insufficient_evidence`. The fixture only ever covers
+   * `ready`, because the fixture user always has a commitment — so these two
+   * shapes have no other test, and a schema that rejects them would fail only
+   * on a real device belonging to a user with an empty day.
+   */
+  const base = {
+    success: true,
+    participantId: 'user-1',
+    recommendation: {
+      version: 'v1',
+      proposalId: 'p-1',
+      locale: 'en',
+      primaryStep: null,
+      explanation: null,
+      availableActions: [],
+      persistence: { occurred: false, confirmationRequired: true },
+    },
+  };
+
+  it('parses an empty day', () => {
+    const parsed = nextStepResponseSchema.parse({
+      ...base, recommendation: { ...base.recommendation, state: 'empty' },
+    });
+    expect(parsed.recommendation.explanation).toBeNull();
+  });
+
+  it('parses a day with too little to go on', () => {
+    expect(() => nextStepResponseSchema.parse({
+      ...base, recommendation: { ...base.recommendation, state: 'insufficient_evidence' },
+    })).not.toThrow();
+  });
+});

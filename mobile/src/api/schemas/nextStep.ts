@@ -56,6 +56,12 @@ export const nextStepRecommendationSchema = z.object({
         .optional(),
       sensitiveInferenceUsed: z.boolean(),
     })
+    // `null`, not merely absent: `nextStepReviewService` sets `explanation:
+    // null` on both the `empty` and `insufficient_evidence` states. Declared
+    // optional-only, this schema rejected every response that was not a live
+    // suggestion — so the two states the card exists to render could never
+    // reach it. Found by the card's own tests (#173).
+    .nullable()
     .optional(),
   availableActions: z.array(z.string()).optional(),
   persistence: z

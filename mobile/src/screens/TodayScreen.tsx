@@ -9,6 +9,7 @@ import { useToday } from '../api/queries';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
 import { groupForToday, topItemFor, type CommitmentView, type TodayGroups } from '../features/commitments/model';
 import { whyFirstLine } from '../features/commitments/whyFirst';
+import { NextStepCard } from '../features/nextStep/NextStepCard';
 import { Btn, Card, Pill, Txt } from '../ui/primitives';
 import { CheckIcon, Glow } from '../ui/icons';
 import { ScreenIn } from '../ui/motion';
@@ -82,6 +83,10 @@ export function TodayScreen() {
           <Txt size={13} color={p.mu}>{t.dateToday}</Txt>
           <Txt size={28} weight={600} lh={1.3}>{t.todayTitle}</Txt>
         </View>
+
+        {/* Above the groups, and outside Today's own boundary: a next step
+            that fails to load must not take the day's list down with it. */}
+        <NextStepCard />
 
         <QueryBoundary isPending={today.isPending} error={today.error} onRetry={() => void today.refetch()}>
           {isEmpty ? (

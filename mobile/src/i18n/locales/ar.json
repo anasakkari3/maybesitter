@@ -466,5 +466,19 @@
   "evidenceFitsBeforeDue": "في وقت قبل ما تستحق",
   "evidenceUsuallyFinishes": "عادةً بتخلّص هالنوع",
   "evidenceOftenSetAside": "كتير بتأجّل هالنوع",
-  "evidenceUsualProductiveTime": "وقت عادةً بتنجز فيه"
+  "evidenceUsualProductiveTime": "وقت عادةً بتنجز فيه",
+  "nextStepWhy": "ليش هاي بالذات",
+  "nextStepNoSensitive": "استعملنا بس التزاماتك ومواعيدك وروتينك.",
+  "nextStepEmptyTitle": "ما في إشي نقترحه",
+  "nextStepEmptyBody": "ما في إشي مفتوح بدّه قرار هلق.",
+  "nextStepThinTitle": "لسّا ما في إشي نبني عليه",
+  "nextStepThinBody": "حطّ وقت أو قول قدّيش الإشي بيهمّك، وبيصير في إشي نقترحه.",
+  "nextStepStale": "هاي تغيّرت. هاد الاقتراح الحالي.",
+  "nextStepAccept": "بلّش فيها",
+  "nextStepEdit": "غيّرها",
+  "nextStepDefer": "بعدين",
+  "nextStepDismiss": "مش هاي",
+  "nextStepDone": "خلصتها",
+  "nextStepEditTitle": "غيّر الخطوة",
+  "nextStepEditSave": "خُد هاي"
 }
