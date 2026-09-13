@@ -1,5 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 import { execFileSync } from 'child_process';
+import { createHash } from 'crypto';
+import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 
 /**
@@ -26,6 +28,7 @@ interface IntrospectedConfig {
     config?: { usesNonExemptEncryption?: boolean };
     entitlements?: Record<string, unknown>;
     infoPlist?: Record<string, unknown>;
+    supportsTablet?: boolean;
   };
   android: {
     package?: string;
@@ -41,6 +44,9 @@ interface IntrospectedConfig {
     permissions?: string[];
   };
   extra?: Record<string, unknown>;
+  orientation?: string;
+  icon?: string;
+  locales?: Record<string, string>;
 }
 
 /** Runs the real Expo config resolution for one profile. Slow, and the point. */
@@ -299,5 +305,89 @@ describe('what a release build must never carry', () => {
         stdio: 'pipe',
       }),
     ).toThrow(/CFG-1/);
+  });
+});
+
+describe('the app as a person sees it (UC-4.1, #176)', () => {
+  it('does not rotate, on either platform', () => {
+    // v1 is a phone app held in one hand. A landscape layout nobody designed is
+    // a layout nobody checked.
+    for (const profile of PROFILES) {
+      expect(configs[profile].orientation).toBe('portrait');
+      expect(configs[profile].ios.supportsTablet).toBe(false);
+    }
+  });
+
+  it('has a real icon, opaque and at the master size', () => {
+    const icon = join(ROOT, configs.production.icon!.replace(/^\.\//, ''));
+    expect(existsSync(icon)).toBe(true);
+    // Not Expo's template icon, which is the md5 #176 names.
+    expect(createHash('md5').update(readFileSync(icon)).digest('hex'))
+      .not.toBe('c785f8932297af4acd5f5ccb7630f01c');
+  });
+
+  it('ships every branding file it points at', () => {
+    for (const asset of [
+      'assets/icon.png',
+      'assets/splash-icon.png',
+      'assets/android-icon-foreground.png',
+      'assets/android-icon-monochrome.png',
+    ]) {
+      expect(existsSync(join(ROOT, asset))).toBe(true);
+    }
+  });
+
+  it('claims the three languages it speaks', () => {
+    for (const profile of PROFILES) {
+      expect(configs[profile].ios.infoPlist?.CFBundleLocalizations).toEqual(['en', 'ar', 'he']);
+    }
+  });
+
+  it('says every permission in Arabic and Hebrew, not only English', () => {
+    /*
+     * The assertion that matters here.
+     *
+     * A purpose string is the only sentence most people ever read about what a
+     * permission is for, and an untranslated one is that sentence in a language
+     * they may not read — at the moment they are deciding. A new
+     * `NS*UsageDescription` anywhere in the config has to appear in both files
+     * or this fails.
+     */
+    const locales = configs.production.locales ?? {};
+    expect(Object.keys(locales).sort()).toEqual(['ar', 'he']);
+
+    const declared = new Set<string>();
+    const collect = (value: unknown) => {
+      if (Array.isArray(value)) return value.forEach(collect);
+      if (value && typeof value === 'object') {
+        for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+          if (/^NS.*UsageDescription$/.test(key)) declared.add(key);
+          collect(item);
+        }
+      }
+    };
+    collect(configs.production.ios.infoPlist);
+    // The speech plugin's two, which it writes at prebuild rather than into the
+    // introspected config.
+    declared.add('NSMicrophoneUsageDescription');
+    declared.add('NSSpeechRecognitionUsageDescription');
+
+    for (const [language, path] of Object.entries(locales)) {
+      const strings = JSON.parse(readFileSync(join(ROOT, path.replace(/^\.\//, '')), 'utf8')) as Record<string, string>;
+      for (const key of declared) {
+        expect(`${language}:${key}:${(strings[key] ?? '').trim().length > 0}`).toBe(`${language}:${key}:true`);
+      }
+      // The brand is one word in Latin script everywhere.
+      expect(strings.CFBundleDisplayName).toBe('MaybeSitter');
+    }
+  });
+
+  it('never writes the brand with a lower-case s', () => {
+    // "Maybesitter" is a different word, and it reads as a typo in the one
+    // place a user cannot edit.
+    for (const file of ['src/i18n/locales/en.json', 'src/i18n/locales/ar.json', 'src/i18n/locales/he.json',
+      'locales/native/ar.json', 'locales/native/he.json']) {
+      expect(`${file}:${readFileSync(join(ROOT, file), 'utf8').includes('Maybesitter')}`).toBe(`${file}:false`);
+    }
   });
 });

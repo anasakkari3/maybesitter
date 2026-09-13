@@ -26,7 +26,23 @@
     },
     "plugins": [
       "expo-font",
-      "expo-localization"
+      [
+        "expo-localization",
+        {
+          "supportedLocales": {
+            "android": [
+              "en",
+              "ar",
+              "he"
+            ],
+            "ios": [
+              "en",
+              "ar",
+              "he"
+            ]
+          }
+        }
+      ]
     ]
   }
 }

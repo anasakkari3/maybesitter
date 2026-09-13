@@ -110,6 +110,20 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   name: `MaybeSitter${NAME_SUFFIX[APP_ENV]}`,
   slug: 'maybesitter',
   scheme: 'maybesitter',
+  /**
+   * iOS system strings in the languages the app speaks (UC-4.1, #176).
+   *
+   * Expo writes an `InfoPlist.strings` per language at prebuild, so the
+   * microphone and speech prompts appear in Arabic or Hebrew rather than in
+   * English. `CFBundleDisplayName` stays `MaybeSitter` in all three: the brand
+   * is one word in Latin script everywhere, and a home-screen label that
+   * changes with the device language is a different app to the person looking
+   * for it.
+   */
+  locales: {
+    ar: './locales/native/ar.json',
+    he: './locales/native/he.json',
+  },
   // One identifier on both platforms and in every profile: the app has never
   // shipped, and one Firebase project needs exactly one iOS and one Android app.
   ios: {
@@ -129,6 +143,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       // tester with three builds installed could not tell them apart. Caught
       // by reading the generated plist, not by introspecting the config.
       CFBundleDisplayName: `MaybeSitter${NAME_SUFFIX[APP_ENV]}`,
+      // The languages the bundle claims. Without it iOS treats the app as
+      // English-only and ignores the per-locale strings above (#176 step 4).
+      CFBundleLocalizations: ['en', 'ar', 'he'],
       NSAppTransportSecurity: appTransportSecurity(APP_ENV),
     },
     // Standard HTTPS only, so the app is outside the US export-compliance
@@ -307,6 +324,22 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     // needs its own theme resources merged into the manifest.
     '@react-native-community/datetimepicker',
     ['expo-build-properties', { ios: { useFrameworks: 'static', deploymentTarget: '16.4' } }],
+    /*
+     * The launch screen (UC-4.1, #176 step 3).
+     *
+     * The plugin generates the iOS storyboard and the Android 12+ splash API
+     * resources; without it neither platform has a launch screen at all and the
+     * app opens on a white rectangle. `dark` is given its own background rather
+     * than left to invert: the brand mark is drawn for a light ground and
+     * inverting it is not the same image.
+     */
+    ['expo-splash-screen', {
+      image: './assets/splash-icon.png',
+      imageWidth: 200,
+      resizeMode: 'contain',
+      backgroundColor: '#F5F7F8',
+      dark: { image: './assets/splash-icon.png', backgroundColor: '#101416' },
+    }],
     './plugins/withDataExtractionRules',
   ],
   extra: {
