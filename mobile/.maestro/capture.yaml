@@ -1,0 +1,94 @@
+appId: com.maybesitter.app
+name: Capture, from a widget link to the undo window
+---
+# UC-2.R2 (#172) step 11, on a device: the whole capture journey, entered the
+# way a widget enters it.
+#
+# The assertions are Arabic because Arabic is the default and a misconfigured
+# build shows the CFG-1 screen instead — see .maestro/README.md.
+#
+# This flow needs a **signed-in** build. Maestro cannot type into a secure
+# field, so it cannot sign in by itself, and a pass here is not evidence that
+# sign-in works. It also needs the AI or rules path reachable: an offline
+# device fails at «فهمها» for the right reason.
+- launchApp
+
+- assertVisible: 'يومك'
+
+# ── The widget link opens the composer, not the tab ────────────────
+#
+# `source=widget` and `input=voice` are both read (src/links.ts): the flow
+# records which entry it was, and the mic takes focus where dictation exists.
+# On a simulator there is no recogniser, so the mic hides itself and the field
+# is what is left — which is exactly what the flow then uses.
+- openLink: 'maybesitter://capture?source=widget&input=voice'
+- assertVisible:
+    id: 'capture-input'
+- assertVisible: 'احكيها'
+
+# ── Nothing is read from the clipboard until it is asked for ───────
+#
+# Opening the composer must not touch the pasteboard: on iOS 14+ a silent read
+# raises the system's "pasted from …" banner, and none has appeared by here.
+# Pressing Paste is the read, and it still only proposes.
+- tapOn:
+    id: 'capture-paste'
+# Both answers are covered because a simulator's pasteboard is not ours to
+# assume: with text on it the sheet offers it, with nothing on it the sheet
+# says so. Either way the field is untouched until the user agrees.
+- runFlow:
+    when:
+      visible:
+        id: 'capture-clipboard-cancel'
+    commands:
+      - assertVisible:
+          id: 'capture-clipboard-preview'
+      - tapOn:
+          id: 'capture-clipboard-cancel'
+- runFlow:
+    when:
+      visible:
+        id: 'capture-clipboard-close'
+    commands:
+      - assertVisible:
+          id: 'capture-clipboard-empty'
+      - tapOn:
+          id: 'capture-clipboard-close'
+- assertVisible:
+    id: 'capture-input'
+
+# ── Type it, and have it understood ────────────────────────────────
+- tapOn:
+    id: 'capture-input'
+- inputText: 'ذكّرني أسلّم التقرير بكرا الساعة 3'
+- tapOn:
+    id: 'capture-analyze'
+
+# ── Review says nothing has happened yet ───────────────────────────
+#
+# Unconditional, before any write. If this line is missing the screen is
+# claiming more than the contract allows.
+- assertVisible:
+    id: 'review-note'
+- assertVisible: 'هذا اقتراح. لم يتغيّر أي شيء بعد.'
+- assertVisible: 'التقرير'
+
+# ── Confirming is what saves ───────────────────────────────────────
+- tapOn:
+    id: 'review-confirm'
+- assertVisible:
+    id: 'saved-title'
+
+# ── The undo window is open, and it really undoes ──────────────────
+#
+# Five seconds (UNDO_WINDOW_MS). Taking it deletes what was just saved, which
+# is also what keeps this flow re-runnable without leaving a commitment behind.
+- assertVisible:
+    id: 'saved-undo'
+- tapOn:
+    id: 'saved-undo'
+- assertVisible:
+    id: 'saved-undo-outcome'
+- tapOn:
+    id: 'saved-done'
+- assertVisible: 'يومك'

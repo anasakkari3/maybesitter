@@ -5,6 +5,8 @@ import { useCaptureFlow } from '../features/capture/CaptureProvider';
 import { MAX_CAPTURE_LENGTH, hasUnsavedText } from '../features/capture/captureMachine';
 import { noCommitmentLine } from '../features/capture/noCommitment';
 import { EXAMPLE_KEYS, exampleText } from '../features/capture/examples';
+import { ClipboardImportSheet } from '../features/capture/ClipboardImportSheet';
+import { readClipboardText, type ClipboardImport } from '../features/capture/clipboardImport';
 import { fill } from '../i18n/strings';
 import { family } from '../theme/fonts';
 import { cardShadow } from '../theme/tokens';
@@ -42,11 +44,29 @@ import { ProcessingDots, ScreenIn } from '../ui/motion';
  * was about to commit to, before deciding whether to. It lives only in the
  * flow's reducer, and Close resets it. With text in the field, Close asks
  * first, because a mis-tap should not be able to destroy it silently.
+ *
+ * ── Pasting is one more way to type, not a second flow ───────────
+ *
+ * The Paste button reads the clipboard once, on that press, and shows what it
+ * found (`ClipboardImportSheet`). Agreeing puts the text through `flow.setText`
+ * — the reducer's `textChanged`, the same event every keystroke dispatches — so
+ * a pasted capture is in the identical composer state a typed one is in, and
+ * goes through the same analyze → review → confirm machine. Nothing about it
+ * reaches the server any sooner than typed text does.
  */
 export function CaptureScreen() {
   const { t, p, ar, lang, actions } = useApp();
   const flow = useCaptureFlow();
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
+  /**
+   * What the last deliberate clipboard read found, while it is being reviewed.
+   *
+   * Null except between pressing Paste and answering the sheet — and there is
+   * no effect anywhere in this file that sets it. The clipboard is read on a
+   * press and on nothing else: not on mount, not on focus, not when the app
+   * comes back to the foreground. See `clipboardImport.ts`.
+   */
+  const [clipboard, setClipboard] = useState<ClipboardImport | null>(null);
   /**
    * Which language the mic listens for.
    *
@@ -85,6 +105,9 @@ export function CaptureScreen() {
     else leave();
   };
 
+  /** The only clipboard read in the app's capture flow, and it needs a tap. */
+  const pasteFromClipboard = async () => setClipboard(await readClipboardText());
+
   const tooLong = state.text.length > MAX_CAPTURE_LENGTH;
   const canAnalyze = state.text.trim().length > 0 && !tooLong && state.status !== 'analyzing';
 
@@ -106,6 +129,16 @@ export function CaptureScreen() {
               <Pill testID="capture-discard-keep" label={t.captureKeepEditing} onPress={() => setConfirmingDiscard(false)} />
               <Pill testID="capture-discard-confirm" label={t.captureDiscardConfirm} onPress={leave} kind="warm" />
             </View>
+          ) : clipboard ? (
+            <ClipboardImportSheet
+              result={clipboard}
+              replacing={state.text.trim().length > 0}
+              // `setText` is the composer's own sink — `textChanged` in the
+              // reducer. Pasted text is in the same state typed text is in the
+              // instant this returns, and nothing else here touches it.
+              onUse={(text) => { flow.setText(text); setClipboard(null); }}
+              onCancel={() => setClipboard(null)}
+            />
           ) : state.status === 'analyzing' ? (
             <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 22 }} testID="capture-analyzing">
               <ProcessingDots color={p.ac} />
@@ -170,6 +203,17 @@ export function CaptureScreen() {
                 ) : null}
 
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                  {/* Sits with the example chips because it does what they do:
+                      it fills the field, and nothing more. The clipboard is
+                      read here and only here, when this is pressed. */}
+                  <Btn
+                    testID="capture-paste"
+                    label={t.capturePaste}
+                    onPress={() => { void pasteFromClipboard(); }}
+                    style={{ backgroundColor: p.acs, borderRadius: 999, paddingVertical: 8, paddingHorizontal: 12 }}
+                  >
+                    <Txt size={12} weight={600} color={p.ac}>{t.capturePaste}</Txt>
+                  </Btn>
                   {EXAMPLE_KEYS.map((key) => (
                     <Btn
                       key={key}

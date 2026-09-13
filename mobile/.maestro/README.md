@@ -125,3 +125,31 @@ them.
 It needs recommendation consent granted **in onboarding** (the launch consent),
 not the Trust switch. Without it the card does not appear at all, which is
 correct, and the flow then fails for the right reason.
+
+## `capture.yaml` (UC-2.R2, #172)
+
+The capture journey from the entry a widget uses:
+`openLink maybesitter://capture?source=widget&input=voice`, then type, understand,
+review, confirm, and take the undo.
+
+Two assertions in it are about restraint. Review must say «هذا اقتراح. لم
+يتغيّر أي شيء بعد.» before anything is written, and pressing Paste must open a
+sheet rather than filling the field — the clipboard is read on that press and
+on nothing else, so no "pasted from …" banner appears before it.
+
+The paste half branches on both answers on purpose: a simulator's pasteboard
+is not ours to assume, so the flow accepts either the preview or the "nothing
+to paste" line and cancels out of whichever it got. Setting the pasteboard and
+asserting the pasted text lands in the field is
+`src/features/capture/__tests__/captureClipboard.test.tsx`, which can do it
+deterministically.
+
+It ends by taking the undo, which deletes what it just saved — so the flow
+leaves no commitment behind and can be run twice.
+
+Needs a **signed-in** build, and a device that can reach the API. Maestro
+cannot type into a secure field, so it cannot sign in by itself.
+
+```bash
+maestro test .maestro/capture.yaml
+```
