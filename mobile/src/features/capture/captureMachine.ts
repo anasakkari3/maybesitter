@@ -172,8 +172,21 @@ export type CaptureEvent =
 
 /** The longest capture the backend will read. Its trace truncates at 2000. */
 export const MAX_CAPTURE_LENGTH = 2000;
-/** The longest title the commitment validator accepts. */
-export const MAX_TITLE_LENGTH = 200;
+/**
+ * The longest title the confirm will accept — `CAPTURE_EDIT_TITLE_MAX` in
+ * `src/contracts/v1/captureContracts.ts`, enforced in `applyEdits.ts`.
+ *
+ * This said 200, and the comment claimed it was what the validator accepts. It
+ * was not: the validator has always refused anything over 120. The gap was not
+ * an off-by-eighty. One invalid edit fails the *entire* confirm with
+ * `invalid_edit`, including the items the person never touched — so a
+ * 121-character title was accepted by the field, shown on the card, and then
+ * took the whole save down behind a generic line that named no field.
+ *
+ * `tests/mobile/captureTitleBounds.test.ts` pins this to the contract, so the
+ * two cannot drift apart again in silence.
+ */
+export const MAX_TITLE_LENGTH = 120;
 /** How long Undo stays available, in milliseconds. */
 export const UNDO_WINDOW_MS = 5_000;
 
