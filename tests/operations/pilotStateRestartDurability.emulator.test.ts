@@ -108,6 +108,8 @@ test('participant state, trust and recorded decisions survive a restart into a f
     const { POST: capturePost } = await import('./src/app/api/mobile/capture/route.ts');
     const { POST: confirmPost } = await import('./src/app/api/mobile/capture/confirm/route.ts');
     const { GET: nextStepGet } = await import('./src/app/api/mobile/recommendations/next-step/route.ts');
+    const { PUT: recommendationConsentPut } = await import('./src/app/api/mobile/consents/recommendations/route.ts');
+    const { RECOMMENDATION_CONSENT_VERSION } = await import('./src/contracts/v1/consentContracts.ts');
     const { POST: nextStepActionPost } = await import('./src/app/api/mobile/recommendations/next-step/actions/route.ts');
 
     for (const token of [tokenA, tokenB]) {
@@ -115,6 +117,14 @@ test('participant state, trust and recorded decisions survive a restart into a f
       assert.equal(response.status, 200, await response.text());
       response = await updateTrust(req('/api/mobile/pilot/trust', token, { body: { action: { type: 'set_analytics_consent', granted: true } } }));
       assert.equal(response.status, 200);
+      // The launch consent as well. Since #170 this is the one the next step
+      // reads; the trust flag above is the closed pilot's admission control and
+      // no real account ever has it without this.
+      response = await recommendationConsentPut(req('/api/mobile/consents/recommendations', token, {
+        method: 'PUT',
+        body: { state: 'granted', version: RECOMMENDATION_CONSENT_VERSION },
+      }));
+      assert.equal(response.status, 200, await response.text());
     }
 
     async function createCommitment(token, text, key) {
