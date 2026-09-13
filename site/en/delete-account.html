@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Delete your account — MaybeSitter</title>
+<meta name="description" content="How to delete your MaybeSitter account and everything in it, from inside the app or by email.">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header>
+  <h1>Delete your account</h1>
+  <p class="meta">Effective {{EFFECTIVE_DATE}}</p>
+</header>
+
+<main>
+  <p class="lede">
+    You can delete your MaybeSitter account and everything in it at any time, without asking
+    anyone. This page exists so you can find out how without installing the app.
+  </p>
+
+  <h2>From inside the app</h2>
+  <p>
+    <strong>Settings → Trust centre → Delete my account.</strong> It asks you to confirm, then
+    deletes immediately and shows you a receipt with a reference you can keep.
+  </p>
+  <p>
+    If you signed in with Apple, this also revokes MaybeSitter's access to your Apple ID, so it
+    disappears from Settings → Apple ID → Sign in with Apple on your device.
+  </p>
+
+  <h2>If you no longer have the app</h2>
+  <p>
+    Email <a href="mailto:{{SUPPORT_EMAIL}}">{{SUPPORT_EMAIL}}</a> <strong>from the address you
+    signed in with</strong>, with the subject <em>Delete my MaybeSitter account</em>.
+  </p>
+  <p>
+    We reply from that address only, and we do it within 30 days. We ask you to write from the
+    signed-in address for one reason: it is how we know the request is yours. If you cannot,
+    tell us and we will find another way to check — we will not simply take your word for it,
+    because doing that for you means doing it for anyone who claims to be you.
+  </p>
+
+  <h2>What is deleted</h2>
+  <ul>
+    <li>Your sign-in account.</li>
+    <li>Every commitment, reminder and capture.</li>
+    <li>Everything MaybeSitter remembered about you: your routine answers and every memory
+      fact, including the ones you edited.</li>
+    <li>Your consents, your settings and your feedback history.</li>
+    <li>Any calendar data imported to your account, and the permission to read your calendar,
+      which is revoked.</li>
+    <li>Your device's notification token.</li>
+  </ul>
+  <p>
+    This is a real delete, not a flag. Once it is done we cannot restore it, and neither can
+    you — which is the point.
+  </p>
+
+  <h2>What is not deleted, and for how long</h2>
+  <ul>
+    <li><strong>Encrypted backups, up to 30 days.</strong> They exist so a failure on our side
+      cannot lose everyone's data. They are overwritten on that cycle and are never read to
+      restore a deleted account.</li>
+    <li><strong>Crash reports, up to 90 days</strong>, once crash reporting is switched on.
+      These are not linked to your identity — no account id is attached — so there is nothing
+      in them to find you by.</li>
+  </ul>
+  <p>
+    We are naming these because a deletion page that says "everything is gone" and quietly
+    keeps backups is the kind of accurate-sounding sentence nobody can check.
+  </p>
+
+  <h2>Questions</h2>
+  <p>
+    <a href="mailto:{{PRIVACY_EMAIL}}">{{PRIVACY_EMAIL}}</a>, or read the
+    <a href="/en/privacy">privacy policy</a>.
+  </p>
+</main>
+
+<footer>
+  <p><a href="/en/">MaybeSitter</a> · <a href="/en/privacy">Privacy</a> · <a href="/en/terms">Terms</a></p>
+  <p class="meta">{{LEGAL_NAME}}</p>
+</footer>
+</body>
+</html>
