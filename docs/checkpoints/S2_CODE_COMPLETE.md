@@ -1,180 +1,136 @@
-# S2 checkpoint — code reconciled, not code complete
+# S2 — code complete
 
-- **Date:** 2026-09-13
-- **Tag:** `checkpoint/s2-reconciled`
-- **Code verified at:** `541dcefedd43d7aa32c564da777709b505b06088`
-- **Tagged SHA:** the commit that adds this document. The only difference between
-  the two is this file and the line you are reading — no source, no test, no
-  configuration. The gates below were re-run on the tagged SHA as well, and the
-  numbers were identical; both runs are recorded because a checkpoint that
-  quietly tags a different tree than it verified is the sort of claim this
-  document exists to make impossible.
-- **Verdict:** **S2 CLOSURE INCOMPLETE** — deliberately, and the tag name says so.
+- **Date:** 2026-09-14
+- **Tag:** `checkpoint/s2-code-complete`
+- **Predecessor:** `checkpoint/s2-reconciled` (`fda1cda`, 2026-09-13) — kept as the
+  historical reconciliation point and deliberately not moved.
+- **Verdict:** **S2 CLOSURE COMPLETE.** Zero executable S2 implementation work
+  remains. Everything still outstanding needs a device, a store console, a paid
+  account, an owner decision or a domain, and each lives on its own issue.
 
-The tag is not called `s2-code-complete` because S2's code is not complete, and a
-checkpoint that claimed otherwise would be the exact defect this closure existed
-to remove. What *is* true at this SHA: every S2 issue has been checked against
-the code rather than against its own checklist, every gate passes on this tree,
-and nothing legitimate is stranded outside `main`.
+The reconciliation checkpoint said, honestly, that S2 was *not* code complete:
+eleven issues were open because repository work was genuinely missing. This one
+says the opposite, and the difference is nine merged pull requests rather than a
+change of definition. Nothing was moved to S3 to make a milestone look finished.
 
-## What the gates said, on this SHA
+## What the gates said, on the tagged SHA
 
-Run on a worktree created fresh from `origin/main` with a real `npm ci` — not on
-a developer checkout, and not on an earlier tree.
+Run on a worktree created fresh from `origin/main` with a real `npm ci`.
 
 | Gate | Result |
 |---|---|
 | `check:no-flutter` | pass |
 | `check:test-registration` | pass |
 | `typecheck` (root) | pass |
-| `npm test` (root) | **4009 passed, 0 failed** |
+| `npm test` (root) | **4016 passed, 0 failed** |
 | `test:contracts` | pass |
 | `build` | pass |
 | `shellcheck` | pass |
-| Firestore + Auth emulator suite (`test:emulator:attach`) | **50 passed, 0 failed** |
+| Firestore + Auth emulator suite | **50 passed, 0 failed** |
 | mobile `tsc --noEmit` | pass |
-| mobile `expo lint --no-cache` | **0 errors**, 71 warnings (unchanged from the S2 baseline) |
-| mobile `jest --runInBand` | **79 suites / 1050 passed, 0 failed** |
+| mobile `expo lint --no-cache` | **0 errors**, 71 warnings (unchanged all sprint) |
+| mobile `jest --runInBand` | **91 suites / 1177 passed, 0 failed** |
 | mobile `check:no-credentials` | pass |
 | mobile `check:privacy-manifests` | pass |
-| production config guard (no API URL) | refuses, as designed |
-| production config guard (with API URL) | accepts |
-| production build + `EXPO_PUBLIC_ENABLE_TEST_CRASH` | refuses, as designed |
+| production config guard — no API URL | refuses |
+| production config guard — with API URL | accepts |
+| production config guard — test-crash flag | refuses |
 
-Baseline at the start of closure was 3978 root tests and 71 suites / 952 mobile
-tests. The deltas are the work below, not churn.
+S2 opened at 3978 root tests and 71 suites / 952 mobile tests. It closes at 4016
+and 91 / 1177.
 
 ### Reproducing it
 
 ```sh
 git fetch origin --tags
-git worktree add --detach /tmp/s2-verify checkpoint/s2-reconciled
+git worktree add --detach /tmp/s2-verify checkpoint/s2-code-complete
 cd /tmp/s2-verify && npm ci
 npm run check:no-flutter && npm run check:test-registration
 npm run typecheck && npm test && npm run test:contracts && npm run build
 shellcheck scripts/*.sh infra/**/*.sh
 
-# emulator suite — alternate ports so a running pair elsewhere is untouched
-node -e "const c=require('./firebase.json'),e=c.emulators||{};c.emulators={...e,firestore:{...e.firestore,host:'127.0.0.1',port:8231},auth:{...e.auth,host:'127.0.0.1',port:9231},ui:{enabled:false}};require('fs').writeFileSync('.firebase-local.json',JSON.stringify(c,null,2))"
+# emulators on alternate ports, so a pair running elsewhere is untouched
+node -e "const c=require('./firebase.json'),e=c.emulators||{};c.emulators={...e,firestore:{...e.firestore,host:'127.0.0.1',port:8261},auth:{...e.auth,host:'127.0.0.1',port:9261},ui:{enabled:false}};require('fs').writeFileSync('.firebase-local.json',JSON.stringify(c,null,2))"
 npx --yes firebase-tools@14 emulators:start --only firestore,auth \
   --project demo-maybesitter --config .firebase-local.json &
-FIRESTORE_EMULATOR_HOST=127.0.0.1:8231 FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9231 \
+FIRESTORE_EMULATOR_HOST=127.0.0.1:8261 FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9261 \
   GCLOUD_PROJECT=demo-maybesitter npm run test:emulator:attach
 
 cd mobile && npm ci
 npx tsc --noEmit && npm run lint -- --no-cache && npm test -- --runInBand
 npm run check:no-credentials && npm run check:privacy-manifests
+APP_ENV=production npx expo config --type public                       # must fail
+APP_ENV=production EXPO_PUBLIC_API_BASE_URL=https://x npx expo config --type public   # must pass
 ```
 
-## What landed during closure
+## What closed the gap
 
-| PR | What it fixed |
+| PR | Gap |
 |---|---|
-| #322 | The theme preference was held in `useState`, so every cold start came back to System. Now persisted, with a test that unmounts and remounts the provider. (#155) |
-| #323 | Seventeen parity-table rows still read "In flight" for work merged weeks earlier, and nine documents still carried runnable `flutter test` commands under a `mobile/` path that is now the React Native app. (#175) |
-| #324 | `clarification_answered` had a port and no implementation, optional-chained so nothing could ever go red. The store is real and the dependency is now **required**, so a construction site that forgets it does not compile. (#165) |
-| #339 | Three copy guards that acceptance criteria named and nobody wrote: clarification key coverage against the server contract and all three locales, the ≤8-word question cap, and the ≤10-word next-step cap plus the sensitive-lexicon check. (#165, #170) |
-| #340 | The source-map hook was never invoked, so symbolication could not work; there was no `ErrorBoundary`; and there was no way to trigger a test crash at all. All three fixed, with a build-time guard that refuses the trigger in production. (#180) |
-| #341 | `executedEngine` was `z.string()` while the contract declares three values — the acceptance criterion was unfalsifiable rather than met. (#160) |
-| #342 | A quota refusal showed "something went wrong" because the composer never called `userFacingMessage`; and `kill_switch_active` rendered a generic error *with a Retry button*, which is the loop a kill switch exists to stop. (#181, #170) |
-| #343 | The mobile capture funnel was unmeasured. `capture_submitted` and `capture_confirmed` are now derived server-side from committed state — deliberately not client-reportable, so activation progress cannot be forged — and `capture_undone`, which is inherently client-side, goes through the consented client path. (#172) |
-| #230 | Cleared GHSA-w5vr-8v7q-w6rv: `baseline-browser-mapping` 2.10.15 → 2.11.21. |
+| #347 | Hermes ships no `Intl.PluralRules`, so every `{n, plural, …}` rendered as its own ICU source on device while Jest stayed green on Node's full `Intl`. Ported from the archive tag **without** the marketing site it was bundled with. |
+| #348 | `EditProposalItemSheet` and the AI-declined onboarding branch both worked and neither had a test watching them (#164, #168). |
+| #349 | iOS AppIcon dark and tinted variants, a runnable `legal-links` Maestro flow with a CI validator, and the release log (#176, #177, #182). |
+| #350 | `features.safeCommitmentPatch` did not exist and PATCH was unconditional; the details sheet could not edit time at all and `buildTimePatch` had zero production callers (#173). |
+| #353 | Clipboard import through the real capture machine, and `.maestro/capture.yaml` (#172). |
+| #354 | The capture field accepted 200 characters while the confirm refused over 120 — and one invalid edit fails the *whole* confirm (#351). |
+| #355 | Hebrew became a language the app can be put into, not just one it carries copy for (#161, #166, #169). |
+| #356 | `i18next/no-literal-string` on the onboarding tree, as an error (#171). |
 
 Every one of these carried a mutation check: the fix was broken on purpose and
-the new tests were confirmed red before being restored. A test that cannot fail
-for its own defect has bitten this repository before.
+the new tests confirmed red before being restored. Across the sprint that is
+roughly 130 mutations. This repository has shipped regression tests that could
+not fail for their own defect before, and that is the practice that catches it.
 
-## Work recovered
+### Three defects found by writing the tests, not by the audit
 
-Two pieces of unique work existed nowhere on the remote and are now preserved as
-pushed tags:
-
-- `archive/2026-09/stranded/local-main-launch-site` — a local-only commit on the
-  main checkout, mislabeled "#174", actually holding a launch marketing site, an
-  early-access backend, brand assets, **and a Hermes `Intl` polyfill fix**.
-  Hermes ships no `Intl.PluralRules` or `Intl.Locale`, so every `{n, plural, …}`
-  rendered as raw ICU source on device while Jest, running on Node's full `Intl`,
-  stayed green. That fix is **not** on `main` — see the deferred list below.
-- `archive/2026-09/stranded/s00-dataset-registry-uncommitted` — 374 insertions of
-  uncommitted calibration gold-freeze work found in a side worktree, captured
-  through a temporary index so the worktree and its own index were never touched.
+- **#351** (fixed, #354) — the title-length mismatch above.
+- **#352** (open, S3) — `PATCH` accepts a past time the capture path refuses.
+  Enforcing it turns three registered tests red, one of which *writes* the
+  committed contract fixtures the whole mobile suite parses. Named rather than
+  half-fixed.
+- Four Hebrew bugs the compiler could not see (#355): three screens aligned
+  their text on `lang === 'ar'` and so left Hebrew left-aligned inside an RTL
+  screen; `links.ts` silently dropped `?lang=he`; the voice chip had rendered
+  «עברית» as tofu since #163.
 
 ## S2 implementation issues
 
-**Closed — repository work complete, external work split out:**
-#160, #162, #163, #165, #167, #170, #174, #175, #178, #179, #180, #181
+**All closed.** #160, #161, #162, #163, #164, #165, #166, #167, #168, #169,
+#170, #171, #172, #173, #174, #175, #176, #177, #178, #179, #180, #181, #182.
 
-**Open — eleven issues, because executable code is genuinely still missing.** The
-nine rows below are nine distinct gaps; the first covers three issues that share
-one blocker.
+The milestone contains no open issue with executable code.
 
-| Issue | What is actually missing | Owned by |
-|---|---|---|
-| #161, #166, #169 | The Hebrew UI render. `Lang = 'ar' \| 'en'`, and the app ships no Hebrew font face, so `he` would render as tofu | #335 |
-| #164 | The `EditProposalItemSheet` RNTL test (RTL + localized pickers) | #338 |
-| #168 | The RNTL test for the AI-declined onboarding branch | #338 |
-| #171 | The `i18next/no-literal-string` lint rule on the onboarding tree | #338 |
-| #172 | The clipboard import sheet; `.maestro/capture.yaml` | #336 |
-| #173 | `features.safeCommitmentPatch` does not exist — PATCH is sent unconditionally; the details sheet has no time fields and `buildTimePatch` has zero production callers | #337 |
-| #176 | iOS AppIcon dark and tinted variants | #338 |
-| #177 | `.maestro/legal-links.yaml` | #338 |
-| #182 | The "Release log" table in `mobile/README.md` | #338 |
-
-No issue is open merely because a human must click something. That was the point.
-
-**#158** (store accounts) and **#159** (tester recruitment) were moved out of this
-milestone to S4. Both are pure owner actions — a paid account, a government ID, a
-physical Android phone, a recruitment roster deliberately never kept in the
-repository — and neither has any repository work left. Sitting in the
-implementation milestone, they made it report unfinished implementation when what
-was actually outstanding was a purchase. Their deadlines are unchanged.
-
-## External follow-ups created
+## What remains, and who it belongs to
 
 Owner: #325 (ar/he permission strings), #326 (privacy policy v1.1), #327
 (over-declared iOS data types), #328 (GCP budgets, quota, IAM, session metric),
-#329 (production deploy for the next step), #334 (four stale acceptance criteria).
-Paid: #330 (Gemini evaluations on real Vertex). Store: #331 (App Store Connect
-and Play Console). Device: #332 (the S2 flows on real hardware). Domain: #333
-(legal and deletion pages on a real domain). Pre-existing and still owning their
-scope: #137 (domain), #158 (store accounts), #159 (tester recruitment).
+#329 (production deploy for the next step), #334 (four stale acceptance
+criteria), #335 (native Hebrew review and device pass).
+Paid: #330 (Gemini evaluations on real Vertex), #158 (store accounts).
+Store: #331. Device: #332. Domain: #333, #137. Recruitment: #159.
 
-## Deferred, and worth naming
+S3 code dependencies: #336 (capture follow-ons), #337 (commitment details),
+#338 (remaining mobile test and config gaps), #352 (the PATCH past-time rule).
 
-- **The Hermes `Intl` polyfill is not on `main`.** It is a real, device-visible
-  defect in shipped code — plural strings render as raw ICU source — and the fix,
-  with a regression test that deletes `Intl.PluralRules` before loading the
-  module, exists only on the archive tag above. It was left out of this closure
-  because the commit carrying it also contains a marketing site, vendored
-  minified third-party JS and ~3.5 MB of screenshots, none of which belongs in
-  "AI pipeline + core screens". **It should be cherry-picked on its own, first
-  thing in S3.**
-- The launch site, the early-access backend and the brand-asset replacement from
-  that same commit are S4 scope and have no issue yet.
+## Repository state
 
-## Branches and worktrees
+`main` is the only active development branch. Kept deliberately:
 
-`main` is the only active development branch. 204 stale refs were deleted (112
-local, 92 remote) after each was verified three ways: ancestry, a merged PR
-record, or tree-identity with an archive tag.
-
-Deliberately kept:
-
-- `origin/backup/flutter-canonical-d0c865c` — the pre-migration Flutter history.
-- Six `origin/dependabot/*` branches with open PRs.
-- All 102 `archive/*` tags. These are load-bearing: twelve branches' worth of
+- `origin/backup/flutter-canonical-d0c865c` — pre-migration Flutter history.
+- Six `origin/dependabot/*` branches with open PRs, each needing a human call.
+- All 99 `archive/*` tags. These are load-bearing: twelve branches' worth of
   commits exist nowhere else, including a 9,441-line dataset-registry and
-  calibration stack that never reached `main`.
+  calibration stack that never reached `main`, and the launch-site commit that
+  carried the Hermes fix.
 
-53 worktrees were removed. Two remain: the canonical checkout, and
-`maybesitter-s00-dataset-registry`, kept because another session may own it —
-its uncommitted work is archived, so nothing there is unique any more.
+Two worktrees: the canonical checkout, and `maybesitter-s00-dataset-registry`,
+whose uncommitted work is archived at
+`archive/2026-09/stranded/s00-dataset-registry-uncommitted`.
 
 ## One thing that is not ours
 
-`/Users/anasakkari/Desktop/1-Projects/MaybeSitter/.git` is a **separate 250 MB
+`/Users/anasakkari/Desktop/1-Projects/MaybeSitter/.git` is a **separate ~250 MB
 repository with zero commits**, holding `refs/codex/turn-diffs/checkpoints/…`.
-It is ChatGPT/Codex's checkpoint store, not this project's. It is what made the
-product checkout appear to have hundreds of untracked files — the product repo
-itself is clean and was clean before this closure began. Do not delete it and do
-not `git clean` against it.
+It is ChatGPT/Codex's checkpoint store. It is what makes the product checkout
+look as though it has hundreds of untracked files; the product repository itself
+is clean. Do not delete it and do not `git clean` against it.
