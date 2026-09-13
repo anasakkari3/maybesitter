@@ -207,3 +207,33 @@ export function testCrashEnabled(): boolean {
   if (appEnv() === 'production') return false;
   return (process.env.EXPO_PUBLIC_ENABLE_TEST_CRASH ?? '').trim() === 'true';
 }
+
+/**
+ * Whether this build may edit a commitment in place (UC-2.R3, #173).
+ *
+ * On by default, and switched off by
+ * `EXPO_PUBLIC_FEATURE_SAFE_COMMITMENT_PATCH=false`.
+ *
+ * ── Why the client and not the route ─────────────────────────────
+ *
+ * The criterion is "with `features.safeCommitmentPatch=false`, no PATCH is
+ * ever sent", and *sent* is a fact about this app. A 404 from the route would
+ * be a different guarantee — the request would still leave the phone, over a
+ * connection the user is paying for, carrying the title they just typed. So the
+ * gate sits at the one place every PATCH is built, `usePatchCommitment`, and
+ * `DetailsScreen` additionally hides the Edit control when it is off, the way
+ * `appleSignInEnabled` hides a button rather than shipping one that fails.
+ *
+ * The route is deliberately left open. `PATCH /api/mobile/commitments/:id` is
+ * not a module in `runtimeControls`' sense — it is the write half of a resource
+ * whose `GET` and `If-Match` conflict handling this app depends on — and a
+ * 404 on the write of a resource that still reads is a contract this client
+ * would have to special-case everywhere.
+ *
+ * Read like a kill switch and named like the criterion: the value that turns it
+ * off is the literal string `false`, so an unset variable, an empty one, or a
+ * typo leaves editing on rather than silently disabling it.
+ */
+export function safeCommitmentPatchEnabled(): boolean {
+  return (process.env.EXPO_PUBLIC_FEATURE_SAFE_COMMITMENT_PATCH ?? '').trim() !== 'false';
+}

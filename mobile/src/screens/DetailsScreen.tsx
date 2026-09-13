@@ -6,6 +6,7 @@ import { useTimeZone } from '../i18n/timezone';
 import { formatRelativeDay, formatTime } from '../i18n/format';
 import { ltr } from '../i18n/strings';
 import { useCommitment, useCommitmentAction } from '../api/queries';
+import { safeCommitmentPatchEnabled } from '../config/env';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
 import { NotFoundError } from '../api/errors';
 import { toViewModel, type CommitmentView } from '../features/commitments/model';
@@ -31,6 +32,14 @@ import { ScreenIn } from '../ui/motion';
  * Flutter's details screen had "mark pending". The actions route accepts
  * `complete | postpone | cancel` and nothing else, so the button would have
  * been a control that fails. #173 records this as a backend follow-up.
+ *
+ * ── Edit is behind `features.safeCommitmentPatch` ────────────────
+ *
+ * Off, and the control is not drawn at all rather than drawn and refused. The
+ * guarantee itself lives in `usePatchCommitment`, which is what makes "no PATCH
+ * is ever sent" true however the mutation is reached; this is the half the user
+ * sees, and it follows `appleSignInEnabled`'s rule — hide a button you cannot
+ * honour.
  */
 export function DetailsScreen() {
   const { s, t, p, lang, actions } = useApp();
@@ -112,7 +121,9 @@ export function DetailsScreen() {
                       style={{ flex: 1 }}
                     />
                   </View>
-                  <Pill testID="details-edit" label={t.detailsEdit} onPress={actions.openEdit} kind="soft" radius={20} pad={18} />
+                  {safeCommitmentPatchEnabled() ? (
+                    <Pill testID="details-edit" label={t.detailsEdit} onPress={actions.openEdit} kind="soft" radius={20} pad={18} />
+                  ) : null}
                   <Pill
                     testID="details-drop"
                     label={t.dropIt}

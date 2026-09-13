@@ -1,12 +1,16 @@
 import React, { useState } from 'react';
-import { Animated, Pressable, TextInput, View } from 'react-native';
+import { Animated, Platform, Pressable, Switch, TextInput, View } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { ltr } from '../i18n/strings';
 import { useTimeZone } from '../i18n/timezone';
-import { formatRelativeDay, formatTime } from '../i18n/format';
+import { formatDate, formatRelativeDay, formatTime } from '../i18n/format';
 import { useCommitment, useCommitmentAction, useDeleteCommitment, usePatchCommitment } from '../api/queries';
 import { POSTPONE_PRESETS, postponeTo, type PostponePreset } from '../features/commitments/postpone';
+import { buildTimePatch } from '../features/commitments/timePatch';
+import { instantForLocalDateTime, localDateTimeFor } from '../features/capture/localInstant';
+import type { CommitmentPatch } from '../api/endpoints/commitments';
 import type { Strings } from '../i18n/strings';
 import { family } from '../theme/fonts';
 import { Btn, Pill, Txt } from '../ui/primitives';
@@ -97,34 +101,96 @@ const PRESET_LABEL = (t: Strings): Record<PostponePreset, string> => ({
 /**
  * Editing what a commitment is (UC-2.R3, #173).
  *
- * Title and importance. Editing the date and time needs a real date-time
- * picker; that lands with the native dependency rather than with a text field
- * a user can type an invalid date into.
+ * Title, importance, and when. The time half runs on the same two pieces the
+ * capture review sheet runs on — `@react-native-community/datetimepicker` and
+ * `localInstant.ts` — rather than a second date UI: the pickers work in the
+ * device's zone and the conversion to an instant happens once, at save, so
+ * nothing here ever parses a wall-clock string in whatever zone the host
+ * happens to be in.
+ *
+ * ── Three answers about the time, not two ────────────────────────
+ *
+ * Untouched, moved, and removed. `buildTimePatch` is the one place that turns
+ * them into fields: `undefined` sends nothing, an instant sends `dueDate` (or
+ * `reminderTime` for an item that only ever had a reminder), and `null` sends
+ * both as null. This sheet decides *which* of the three happened and nothing
+ * else — duplicating the field rules here is how the two would drift.
+ *
+ * ── A past time is refused ───────────────────────────────────────
+ *
+ * The same rule, the same copy and the same moment as the capture edit sheet:
+ * checked when Save is pressed, because `Date.now()` in a render body is an
+ * impure call the compiler rules refuse — and because pressing Save is the
+ * moment the answer matters. A reminder in the past is one that will never
+ * fire, which is exactly why `applyEdits.ts` refuses it on the capture path.
+ *
+ * It judges a time the user *picked*, never one that was already there. This
+ * product has no "overdue": an item whose hour has gone is still active, and a
+ * sheet that refused to save it would mean a typo in yesterday's title could
+ * never be fixed.
+ *
+ * Unlike that path, the refusal here is the client's alone: `PATCH
+ * /api/mobile/commitments/:id` still accepts a past `dueDate`. Closing that
+ * needs the three route tests whose fixtures are pinned to a frozen past
+ * (`mobileApiRoutes`, `mobilePilotApiRoutes`, `exportMobileApiFixtures`) moved
+ * onto a relative clock first, and that is a change to files this sprint is
+ * editing elsewhere. #173 carries it as the follow-up.
  *
  * Only changed fields are sent. `usePatchCommitment` makes the write
  * conditional on the validator it remembered, so an edit from a screen another
  * device has already moved past is refused rather than silently winning.
  */
 function EditSheet() {
-  const { s, t, p, ar, actions } = useApp();
+  const { s, t, p, ar, lang, actions } = useApp();
+  const timezone = useTimeZone();
   const query = useCommitment(s.detailId);
   const patch = usePatchCommitment();
   const commitment = query.data;
+  const shownAt = commitment?.timeSpec.dueAt ?? commitment?.timeSpec.remindAt ?? null;
+  const originalLocal = shownAt ? localDateTimeFor(new Date(shownAt), timezone) : '';
+
   const [title, setTitle] = useState(commitment?.title ?? '');
   const [level, setLevel] = useState<PriorityLevel>(commitment?.priority.level ?? 'normal');
-
-  if (!commitment) return null;
+  const [local, setLocal] = useState(originalLocal);
+  const [picking, setPicking] = useState<'date' | 'time' | null>(null);
+  const [pastTime, setPastTime] = useState(false);
 
   const trimmed = title.trim();
-  const changed = (trimmed !== commitment.title && trimmed.length > 0) || level !== commitment.priority.level;
+  const hasTime = local !== '';
+  const instant = hasTime ? instantForLocalDateTime(local, timezone) : null;
+  const titleChanged = commitment !== undefined && trimmed !== commitment.title && trimmed.length > 0;
+  const levelChanged = commitment !== undefined && level !== commitment.priority.level;
+  const timeChanged = local !== originalLocal;
 
-  const save = () => {
-    const body: { title?: string; priority?: PriorityLevel } = {};
-    if (trimmed !== commitment.title && trimmed.length > 0) body.title = trimmed;
+  // `useCallback` rather than a plain closure, and above the `commitment`
+  // guard rather than below it: reading the clock has to happen in an event,
+  // and a hook cannot sit after an early return.
+  const save = React.useCallback(() => {
+    if (!commitment || trimmed.length === 0) return;
+    // Only a time the user just *chose*. An item whose hour has already gone is
+    // ordinary here — there is no "overdue" in this product — and judging its
+    // untouched time would mean a typo in the title could never be fixed again.
+    if (timeChanged && instant !== null && instant.getTime() <= Date.now()) {
+      setPastTime(true);
+      return;
+    }
+    setPastTime(false);
+
+    // `undefined` when the time was not touched, `null` when it was cleared.
+    const edited = !timeChanged ? undefined : instant === null ? null : instant.toISOString();
+    const body: CommitmentPatch = {
+      ...buildTimePatch({ dueAt: commitment.timeSpec.dueAt, remindAt: commitment.timeSpec.remindAt }, edited),
+    };
+    if (trimmed !== commitment.title) body.title = trimmed;
     if (level !== commitment.priority.level) body.priority = level;
     if (Object.keys(body).length === 0) return;
     patch.mutate({ id: commitment.id, patch: body }, { onSuccess: actions.closeSheet });
-  };
+  }, [actions, commitment, instant, level, patch, timeChanged, trimmed]);
+
+  if (!commitment) return null;
+
+  const changed = titleChanged || levelChanged || timeChanged;
+  const problem = trimmed.length === 0 ? t.editItemEmpty : pastTime ? t.editItemPast : null;
 
   return (
     <View style={{ gap: 14 }}>
@@ -154,8 +220,68 @@ function EditSheet() {
         ))}
       </View>
 
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Txt size={13} color={p.mu}>{t.editItemWhen}</Txt>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Txt size={13}>{t.editItemNoTime}</Txt>
+          <Switch
+            testID="edit-no-time"
+            value={!hasTime}
+            onValueChange={(off) => {
+              // Turning it back on offers the time the item had, or an hour
+              // from now for an item that never had one.
+              setLocal(off ? '' : (originalLocal || localDateTimeFor(new Date(Date.now() + 3600_000), timezone)));
+              setPastTime(false);
+            }}
+          />
+        </View>
+      </View>
+
+      {hasTime ? (
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <Btn
+            testID="edit-pick-date"
+            label={t.editItemDate}
+            onPress={() => setPicking('date')}
+            style={{ flex: 1, backgroundColor: p.sf2, borderRadius: 18, paddingVertical: 12, alignItems: 'center', minHeight: 48, justifyContent: 'center' }}
+          >
+            <Txt size={14}>{instant ? formatDate(instant, 'short', { locale: lang, timeZone: timezone }) : t.editItemDate}</Txt>
+          </Btn>
+          <Btn
+            testID="edit-pick-time"
+            label={t.editItemTime}
+            onPress={() => setPicking('time')}
+            style={{ flex: 1, backgroundColor: p.sf2, borderRadius: 18, paddingVertical: 12, alignItems: 'center', minHeight: 48, justifyContent: 'center' }}
+          >
+            <Txt size={14} latin>{instant ? ltr(formatTime(instant, { locale: lang, timeZone: timezone })) : t.editItemTime}</Txt>
+          </Btn>
+        </View>
+      ) : null}
+
+      {picking ? (
+        <DateTimePicker
+          testID="edit-picker"
+          value={instant ?? new Date()}
+          mode={picking}
+          // 24-hour follows the locale rather than the platform default, the
+          // same way `formatTime` does, so the sheet and the card agree.
+          is24Hour={!`${new Intl.DateTimeFormat(lang, { hour: 'numeric' }).resolvedOptions().hourCycle}`.startsWith('h1')}
+          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          onChange={(_event, picked) => {
+            setPicking(Platform.OS === 'ios' ? picking : null);
+            if (picked) {
+              setLocal(localDateTimeFor(picked, timezone));
+              // Their answer to the complaint; judged again on Save.
+              setPastTime(false);
+            }
+          }}
+        />
+      ) : null}
+
+      {problem ? <Txt size={13} color={p.wm} testID="edit-problem">{problem}</Txt> : null}
+
       <View style={{ flexDirection: 'row', gap: 10 }}>
-        <Pill testID="edit-save" label={t.editSave} onPress={save} disabled={!changed || patch.isPending} style={{ flex: 1 }} />
+        <Pill testID="edit-save" label={t.editSave} onPress={save} disabled={!changed || trimmed.length === 0 || patch.isPending} style={{ flex: 1 }} />
         <Pill testID="edit-close" label={t.editClose} onPress={actions.closeSheet} kind="outline" style={{ flex: 1 }} />
       </View>
     </View>

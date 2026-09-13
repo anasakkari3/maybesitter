@@ -142,15 +142,27 @@ function priorityFromMobile(value: unknown): Partial<Priority> | undefined {
   };
 }
 
+/**
+ * One client-supplied time field: an instant, or `null` for "no time".
+ *
+ * `null` and absent are not the same answer. Absent means the edit did not
+ * touch the time; `null` means the user removed it (UC-2.R3, #173), which is a
+ * choice `applyEdits.ts` has always allowed on the capture path and which a
+ * commitment that already exists had no way to express.
+ */
+function optionalInstant(value: unknown, field: string): string | null {
+  return value === null ? null : parseIsoInstant(value, field).toISOString();
+}
+
 function patchTimeSpec(current: TimeSpec, input: PatchCommitmentInput): Partial<TimeSpec> | undefined {
   const hasDueDate = input.dueDate !== undefined;
   const hasReminderTime = input.reminderTime !== undefined;
   if (!hasDueDate && !hasReminderTime) return undefined;
 
-  const dueAt = hasDueDate ? parseIsoInstant(input.dueDate, 'dueDate').toISOString() : current.dueAt;
+  const dueAt = hasDueDate ? optionalInstant(input.dueDate, 'dueDate') : current.dueAt;
   let remindAt: string | null;
   if (hasReminderTime) {
-    remindAt = parseIsoInstant(input.reminderTime, 'reminderTime').toISOString();
+    remindAt = optionalInstant(input.reminderTime, 'reminderTime');
   } else if (hasDueDate && current.dueAt && current.remindAt && dueAt) {
     // Keep the gap the user chose rather than collapsing the reminder onto the
     // new due date or stranding it at the old one.
