@@ -1,6 +1,8 @@
 import { describe, expect, it } from '@jest/globals';
 import { isolate, isolateAuto, ltr, stripIsolates } from '../bidi';
-import { DEFAULT_LOCALE, SELECTABLE_LOCALES, apiLocale, intlLocale, isLocale } from '../locale';
+import {
+  DEFAULT_LOCALE, LOCALES, SELECTABLE_LOCALES, apiLocale, intlLocale, isLocale, isRtl, scriptFor,
+} from '../locale';
 
 describe('apiLocale', () => {
   const cases: [string | null | undefined, string][] = [
@@ -26,17 +28,38 @@ describe('apiLocale', () => {
 });
 
 describe('the digit decision', () => {
+  // The tags. What actually comes out of Intl is asserted in digits.test.ts,
+  // which is a separate file because importing a formatter here would boot
+  // i18next and give `apiLocale()` a current language the cases above assume
+  // it does not have.
   it('asks Intl for Latin digits in Arabic only', () => {
     expect(intlLocale('ar')).toBe('ar-u-nu-latn');
     expect(intlLocale('en')).toBe('en');
+    // No extension: CLDR already defaults Hebrew to `latn`. See README.md.
     expect(intlLocale('he')).toBe('he');
   });
 });
 
 describe('what the picker may offer', () => {
-  it('leaves Hebrew out — no native review and no Hebrew font face', () => {
-    expect([...SELECTABLE_LOCALES]).toEqual(['en', 'ar']);
+  it('offers Hebrew: it has a font face now, and imperfect Hebrew beats English', () => {
+    expect([...SELECTABLE_LOCALES]).toEqual(['en', 'ar', 'he']);
     expect(isLocale('he')).toBe(true);
+    // Nothing the app carries copy for is unreachable any more.
+    expect([...SELECTABLE_LOCALES].sort()).toEqual([...LOCALES].sort());
+  });
+});
+
+describe('direction and script are separate questions', () => {
+  it('reads Hebrew right to left, exactly as Arabic', () => {
+    expect(isRtl('he')).toBe(true);
+    expect(isRtl('ar')).toBe(true);
+    expect(isRtl('en')).toBe(false);
+  });
+
+  it('sets Hebrew in its own face, which is where it differs from Arabic', () => {
+    expect(scriptFor('he')).toBe('hebrew');
+    expect(scriptFor('ar')).toBe('arabic');
+    expect(scriptFor('en')).toBe('latin');
   });
 });
 

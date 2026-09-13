@@ -42,7 +42,7 @@ export function AboutYouReviewStep({
   onBack: () => void;
   saving?: boolean;
 }) {
-  const { t, p, lang } = useApp();
+  const { t, p, rtl } = useApp();
   const [choices, setChoices] = useState<ReviewChoice[]>(() => initialChoices(suggestions.length));
   const [editing, setEditing] = useState<number | null>(null);
 
@@ -110,7 +110,7 @@ export function AboutYouReviewStep({
                     onChangeText={(value) => update(index, { edited: value })}
                     maxLength={80}
                     multiline
-                    style={{ color: p.tx, fontSize: 15, textAlign: lang === 'ar' ? 'right' : 'left' }}
+                    style={{ color: p.tx, fontSize: 15, textAlign: rtl ? 'right' : 'left' }}
                   />
                 ) : (
                   <Txt size={15} lh={1.5} testID={`about-review-content-${index}`}>

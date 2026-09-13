@@ -20,7 +20,7 @@ import type { CommitmentView } from './model';
  *
  * `direction: 'rtl'` on the root view mirrors layout but not gestures. In
  * Arabic the actions are on the opposite side, so which renderer gets them is
- * chosen from `ar` rather than fixed — otherwise "done" would sit under the
+ * chosen from `rtl` rather than fixed — otherwise "done" would sit under the
  * thumb that means "not now".
  */
 export interface RowAction {
@@ -52,7 +52,7 @@ export function SwipeableRow({
   children: React.ReactNode;
   testID: string;
 }) {
-  const { p, ar } = useApp();
+  const { p, rtl } = useApp();
   const swipe = useRef<Swipeable>(null);
 
   if (actions.length === 0) return <>{children}</>;
@@ -81,7 +81,7 @@ export function SwipeableRow({
       ref={swipe}
       // One side only, chosen by direction. Both sides would put "done" under
       // the thumb that means "not now" in one of the two languages.
-      {...(ar ? { renderLeftActions: panel } : { renderRightActions: panel })}
+      {...(rtl ? { renderLeftActions: panel } : { renderRightActions: panel })}
       overshootLeft={false}
       overshootRight={false}
     >

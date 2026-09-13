@@ -25,6 +25,7 @@ import { TodayScreen } from '../TodayScreen';
 import type { Commitment } from '../../api/schemas/common';
 import en from '../../i18n/locales/en.json';
 import ar from '../../i18n/locales/ar.json';
+import he from '../../i18n/locales/he.json';
 
 import * as commitmentEndpoints from '../../api/endpoints/commitments';
 import * as language from '../../i18n/language';
@@ -261,16 +262,13 @@ describe('the why-first line in every language', () => {
    * locale would pass all of them and ship a card that explains itself to
    * English speakers and nobody else.
    *
-   * ── Hebrew is not one of them, and cannot be ─────────────────────
+   * ── Hebrew is one of them now ────────────────────────────────────
    *
-   * `Lang` is `'ar' | 'en'`. `he.json` exists and is machine-translated, but
-   * there is no way to put the app into Hebrew, so there is no rendering to
-   * assert. Listing it here with a mocked tag would produce an English screen
-   * and a green test — evidence of nothing.
-   *
-   * The Hebrew *strings* are covered where they can be: `whyFirst.test.ts`
-   * builds the line in all three. Hebrew as a UI language is its own piece of
-   * work, and #169 is reported as met in ar and en only.
+   * It could not be until UC-2.R5. `Lang` was `'ar' | 'en'` and
+   * `resolveLanguage` sent every other tag to English, so listing `he` here
+   * would have rendered an English screen under a Hebrew label — a green test
+   * and evidence of nothing. Hebrew is a selectable language with a font face
+   * of its own now, so the row below renders the Hebrew card and reads it.
    *
    * The language comes from the device locale, which `AppProvider` resolves
    * through `systemLanguageTag`, so mocking that is the whole switch.
@@ -278,6 +276,7 @@ describe('the why-first line in every language', () => {
   const LOCALES: Record<string, Record<string, string>> = {
     ar: ar as unknown as Record<string, string>,
     en: en as unknown as Record<string, string>,
+    he: he as unknown as Record<string, string>,
   };
 
   for (const [tag, strings] of Object.entries(LOCALES)) {

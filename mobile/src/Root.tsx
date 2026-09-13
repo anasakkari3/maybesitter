@@ -30,7 +30,7 @@ import { Gallery } from './design/Gallery';
 const tabScreens = ['today', 'calendar', 'settings'];
 
 export function Root() {
-  const { s, p, ar, scheme, actions } = useApp();
+  const { s, p, rtl, scheme, actions } = useApp();
   const { takePendingLink } = useAuth();
   const latest = useRef(actions);
   latest.current = actions;
@@ -58,12 +58,13 @@ export function Root() {
      * above the auth gate would keep one person's half-written commitment
      * alive across a sign-out.
      */
-    // `direction` flips every row, start/end offset and border side for Arabic.
+    // `direction` flips every row, start/end offset and border side for the two
+    // RTL languages, Arabic and Hebrew. It is set here and nowhere else.
     // This is deliberately NOT I18nManager.forceRTL + a reload (issue #156 step
     // 5): it switches language live, with no restart prompt, and it is the
     // mechanism the round-1 design was verified on. See src/i18n/README.md.
     <CaptureProvider>
-      <View style={{ flex: 1, backgroundColor: p.bg, direction: ar ? 'rtl' : 'ltr' }}>
+      <View style={{ flex: 1, backgroundColor: p.bg, direction: rtl ? 'rtl' : 'ltr' }}>
         <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
         <OfflineBanner />
         <VerifyEmailBanner />

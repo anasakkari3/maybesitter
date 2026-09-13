@@ -44,7 +44,7 @@ import { ProcessingDots, ScreenIn } from '../ui/motion';
  * first, because a mis-tap should not be able to destroy it silently.
  */
 export function CaptureScreen() {
-  const { t, p, ar, lang, actions } = useApp();
+  const { t, p, rtl, script, lang, actions } = useApp();
   const flow = useCaptureFlow();
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
   /**
@@ -154,8 +154,8 @@ export function CaptureScreen() {
                     {
                       minHeight: 150, backgroundColor: p.sf, borderWidth: 1,
                       borderColor: tooLong ? p.wm : p.ln, borderRadius: 24, padding: 18,
-                      fontSize: 20, lineHeight: 30, color: p.tx, fontFamily: family(400, ar),
-                      textAlign: ar ? 'right' : 'left', writingDirection: ar ? 'rtl' : 'ltr',
+                      fontSize: 20, lineHeight: 30, color: p.tx, fontFamily: family(400, script),
+                      textAlign: rtl ? 'right' : 'left', writingDirection: rtl ? 'rtl' : 'ltr',
                     },
                     cardShadow(p),
                   ]}

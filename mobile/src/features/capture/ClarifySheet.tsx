@@ -37,7 +37,7 @@ export function ClarifySheet({
   onAnswer(answer: { optionId?: string; freeText?: string }): void;
   onSkip(): void;
 }) {
-  const { t, p, ar } = useApp();
+  const { t, p, rtl, script } = useApp();
   const [freeText, setFreeText] = useState('');
   const strings = t as unknown as Record<string, string>;
   const question = item.clarification;
@@ -95,7 +95,7 @@ export function ClarifySheet({
               maxLength={CLARIFICATION_FREE_TEXT_MAX}
               placeholder={t.orTypeTime}
               placeholderTextColor={p.mu}
-              style={{ flex: 1, backgroundColor: p.sf2, borderRadius: 999, paddingVertical: 12, paddingHorizontal: 16, fontSize: 14, minHeight: 48, color: p.tx, fontFamily: family(400, ar), textAlign: ar ? 'right' : 'left' }}
+              style={{ flex: 1, backgroundColor: p.sf2, borderRadius: 999, paddingVertical: 12, paddingHorizontal: 16, fontSize: 14, minHeight: 48, color: p.tx, fontFamily: family(400, script), textAlign: rtl ? 'right' : 'left' }}
             />
             <Pill
               testID="clarify-send"

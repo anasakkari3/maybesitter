@@ -41,7 +41,7 @@ export function AboutYouStep({
   reading?: boolean;
   failed?: boolean;
 }) {
-  const { t, p, lang } = useApp();
+  const { t, p, rtl } = useApp();
   const [text, setText] = useState('');
   const trimmed = text.trim();
 
@@ -90,7 +90,7 @@ export function AboutYouStep({
             fontSize: 15,
             minHeight: 140,
             textAlignVertical: 'top',
-            textAlign: lang === 'ar' ? 'right' : 'left',
+            textAlign: rtl ? 'right' : 'left',
           }}
         />
       </Card>

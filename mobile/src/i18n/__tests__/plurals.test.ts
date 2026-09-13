@@ -44,6 +44,16 @@ describe('confirmN', () => {
     expect(t.ar('confirmN', { n: 11 })).toContain('11');
   });
 
+  it('uses Latin digits in Hebrew too, and reaches the two-form for n=2', () => {
+    // Hebrew's `two` is a different word, not a number with a plural noun:
+    // «שתי התחייבויות» rather than «2 התחייבויות». A build whose ICU parser
+    // lost the locale renders `other` for every count and still looks like
+    // Hebrew, so the pair below is what tells them apart.
+    expect(t.he('confirmN', { n: 2 })).not.toMatch(/2/);
+    expect(t.he('confirmN', { n: 3 })).toContain('3');
+    for (const n of [3, 11, 100]) expect(t.he('confirmN', { n })).not.toMatch(ARABIC_INDIC);
+  });
+
   it('still reads as English', () => {
     expect(t.en('confirmN', { n: 0 })).toBe('Nothing to confirm');
     expect(t.en('confirmN', { n: 1 })).toBe('Confirm 1 commitment');

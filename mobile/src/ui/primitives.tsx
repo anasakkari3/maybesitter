@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
-import { family, type Weight } from '../theme/fonts';
+import { family, LINE_HEIGHT, type Weight } from '../theme/fonts';
 import { cardShadow, type Palette } from '../theme/tokens';
 import { impColors, impLabel } from '../state/derive';
 import type { Imp } from '../state/types';
@@ -23,15 +23,19 @@ export function Txt({
   style?: StyleProp<TextStyle>;
   lines?: number;
   lh?: number;
-  /** Set digits and Latin-only labels in Outfit even inside Arabic UI. */
+  /** Set digits and Latin-only labels in Outfit even inside Arabic or Hebrew UI. */
   latin?: boolean;
   /** For an opaque id the user may need to read out or paste (#149). */
   selectable?: boolean;
   testID?: string;
 }) {
-  const { ar, p } = useApp();
-  const naskh = ar && !latin;
-  const textAlign = align === 'center' ? 'center' : (align === 'start') === ar ? 'right' : 'left';
+  const { rtl, script, p } = useApp();
+  // `latin` is the AGENTS.md escape hatch: a digit or a Latin-only label in a
+  // tight box, set in Outfit whatever the UI language is. Everything else is
+  // set in the script of the language — which for Hebrew is a different face
+  // from Arabic's, not a different direction.
+  const runScript = latin ? 'latin' : script;
+  const textAlign = align === 'center' ? 'center' : (align === 'start') === rtl ? 'right' : 'left';
   return (
     <Text
       numberOfLines={lines}
@@ -39,12 +43,12 @@ export function Txt({
       testID={testID}
       style={[
         {
-          fontFamily: family(weight, naskh),
+          fontFamily: family(weight, runScript),
           fontSize: size,
-          lineHeight: Math.round(size * (lh ?? (naskh ? 1.6 : 1.4))),
+          lineHeight: Math.round(size * (lh ?? LINE_HEIGHT[runScript])),
           color: color ?? p.tx,
           textAlign,
-          writingDirection: ar ? 'rtl' : 'ltr',
+          writingDirection: rtl ? 'rtl' : 'ltr',
         },
         style,
       ]}

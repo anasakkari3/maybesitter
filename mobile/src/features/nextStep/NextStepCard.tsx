@@ -153,7 +153,7 @@ function Ready({
   onSend: (decision: NextStepDecisionKind, extra?: { editedTitle?: string; deferUntil?: string }) => void;
   busy: boolean;
 }) {
-  const { t, p, ar, lang } = useApp();
+  const { t, p, rtl, script, lang } = useApp();
   const timezone = useTimeZone();
   const step = recommendation.primaryStep!;
   const [draft, setDraft] = useState(step.title);
@@ -203,7 +203,7 @@ function Ready({
             value={draft}
             onChangeText={setDraft}
             multiline
-            style={{ backgroundColor: p.sf2, borderRadius: 18, paddingVertical: 12, paddingHorizontal: 16, fontSize: 15, minHeight: 56, color: p.tx, fontFamily: family(400, ar), textAlign: ar ? 'right' : 'left' }}
+            style={{ backgroundColor: p.sf2, borderRadius: 18, paddingVertical: 12, paddingHorizontal: 16, fontSize: 15, minHeight: 56, color: p.tx, fontFamily: family(400, script), textAlign: rtl ? 'right' : 'left' }}
           />
           <Pill
             testID="next-step-edit-save"

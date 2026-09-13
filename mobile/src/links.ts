@@ -85,7 +85,11 @@ export function parseLink(url: string): ParsedLink | null {
   // The keys are left out entirely when the link doesn't carry them, rather
   // than set to undefined, so a link never overwrites a stored preference.
   const link: ParsedLink = { target };
-  if (lang === 'ar' || lang === 'en') link.lang = lang;
+  // Spelled out rather than validated against `LANGUAGE_OPTIONS`: a link is
+  // untrusted input, and 'system' is a preference the app resolves, not a
+  // language a stranger may set. 'he' is here because Hebrew is now a language
+  // the UI can be put into (UC-2.R5) — a `?lang=he` link used to be dropped.
+  if (lang === 'ar' || lang === 'en' || lang === 'he') link.lang = lang;
   if (theme === 'system' || theme === 'light' || theme === 'dark') link.theme = theme;
   return link;
 }

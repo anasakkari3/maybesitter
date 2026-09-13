@@ -369,12 +369,12 @@ describe('failures are told apart', () => {
  * a quota, which is the one thing a retry cannot help and the loop the quota
  * exists to stop.
  *
- * This drives the real screens from the tab bar, in both languages the app can
- * actually be in. Hebrew is not one of them: `src/i18n/strings.ts` types `Lang`
- * as 'ar' | 'en' and `resolveLanguage` falls back to English for anything else,
- * so a "Hebrew" render here would be an English render with a Hebrew label on
- * it. The Hebrew copy and its mapping are asserted directly in
- * `src/api/__tests__/quotaError.test.ts`.
+ * This drives the real screens from the tab bar, in English and Arabic. Hebrew
+ * became a third renderable language in UC-2.R5; the quota lines are not what
+ * that change was about, and `src/api/__tests__/quotaError.test.ts` already
+ * asserts the Hebrew copy and its mapping. What a Hebrew render proves — that
+ * the screens reach the Hebrew copy at all, in the right direction and the
+ * right face — is asserted once, in `src/i18n/__tests__/hebrewUi.test.tsx`.
  */
 describe('a spent AI quota says so', () => {
   const TYPED = 'Call the clinic tomorrow at 9 and book Lina’s dentist';
