@@ -25,7 +25,9 @@
       "updatedAt": "2026-08-09T09:00:00.000Z",
       "confirmedAt": "2026-08-09T09:00:00.000Z",
       "completedAt": null,
-      "droppedAt": null
+      "droppedAt": null,
+      "rank": 0,
+      "reasonCodes": []
     }
   ]
 }

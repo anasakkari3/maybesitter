@@ -169,6 +169,7 @@ function setup(): () => void {
     MAYBESITTER_EXPERIMENT_NEXT_STEP_ARMS: process.env.MAYBESITTER_EXPERIMENT_NEXT_STEP_ARMS,
     MAYBESITTER_ALPHA_FEEDBACK_ENABLED: process.env.MAYBESITTER_ALPHA_FEEDBACK_ENABLED,
     MAYBESITTER_FEATURE_MEMORY: process.env.MAYBESITTER_FEATURE_MEMORY,
+    MAYBESITTER_FEATURE_PRIORITY: process.env.MAYBESITTER_FEATURE_PRIORITY,
     MAYBESITTER_KILL_SWITCH_MEMORY: process.env.MAYBESITTER_KILL_SWITCH_MEMORY,
   };
   process.env.MAYBESITTER_DATA_DIR = directory;
@@ -177,6 +178,9 @@ function setup(): () => void {
   process.env.MAYBESITTER_EXPERIMENT_NEXT_STEP_ARMS = 'true';
   process.env.MAYBESITTER_ALPHA_FEEDBACK_ENABLED = 'true';
   process.env.MAYBESITTER_FEATURE_MEMORY = 'true';
+  // On, so the fixtures carry `rank` and `reasonCodes` and the client
+  // schema is checked against a response that has them (#169).
+  process.env.MAYBESITTER_FEATURE_PRIORITY = 'true';
   process.env.MAYBESITTER_KILL_SWITCH_MEMORY = 'false';
   configureCommandService({ initialState: createEmptyDomainState(), schedulerStore: null });
   setStorageForTests(createMemoryStorage());

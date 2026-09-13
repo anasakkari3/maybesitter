@@ -56,9 +56,23 @@ export const commitmentSchema = z.object({
   confirmedAt: isoDateTime.nullable(),
   completedAt: isoDateTime.nullable(),
   droppedAt: isoDateTime.nullable(),
+  /**
+   * Where this item sits in the day's order, and why (UC-2.8, #169).
+   *
+   * Both are **absent** when the priority module is off, which is not the same
+   * as rank 0: absent means this build does not rank, and the client keeps the
+   * time order the server sent. A default of 0 here would silently make every
+   * item the top one.
+   */
+  rank: z.number().optional(),
+  reasonCodes: z.array(z.enum([
+    'overdue', 'due_within_2h', 'due_today',
+    'user_must', 'user_low', 'estimated_important', 'no_deadline',
+  ])).optional(),
 });
 
 export type Commitment = z.infer<typeof commitmentSchema>;
+export type RankReasonCode = NonNullable<Commitment['reasonCodes']>[number];
 export type TimeSpec = z.infer<typeof timeSpecSchema>;
 
 export const commitmentListSchema = z.object({

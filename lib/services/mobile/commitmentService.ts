@@ -1,4 +1,6 @@
-import type { Command, Commitment, DomainState, Priority, TimeSpec } from '../../../src/domain/stateMachine';
+import type { Command, Commitment, DomainState, Priority, Reminder, TimeSpec } from '../../../src/domain/stateMachine';
+import { rankForMobile, type RankedItem } from '../../priority/mobileRanking';
+import { resolveModuleRuntime } from '../../../src/contracts/v1/runtimeControls';
 import { applyCommand, configureCommandService, getCommandServiceState } from '../commandService';
 import {
   applyParticipantCommand,
@@ -44,7 +46,31 @@ function sortByResolvedTime(items: Commitment[]): Commitment[] {
 }
 
 function isVisibleInLists(commitment: Commitment): boolean {
-  return !HIDDEN_LIST_STATUSES.has(commitment.status) && Boolean(resolvedCommitmentTime(commitment));
+  return !HIDDEN_LIST_STATUSES.has(commitment.status);
+}
+
+/**
+ * Ranked order, or the time order the lists have always used (UC-2.8, #169).
+ *
+ * The flag decides, per request, so turning ranking off is a config change and
+ * not a deploy — and `MAYBESITTER_FEATURE_PRIORITY=false` gives byte-identical
+ * output to the sort this function replaces, which a test asserts.
+ */
+function orderForLists(
+  commitments: Commitment[],
+  reminders: readonly Reminder[],
+  now: Date,
+): { items: Commitment[]; ranking: Map<string, RankedItem> } {
+  if (resolveModuleRuntime('priority').mode !== 'enabled') {
+    return { items: sortByResolvedTime(commitments), ranking: new Map() };
+  }
+  const ranked = rankForMobile(commitments, reminders, now.toISOString());
+  const ranking = new Map(ranked.map((entry) => [entry.commitmentId, entry]));
+  const byId = new Map(commitments.map((commitment) => [commitment.id, commitment]));
+  return {
+    items: ranked.map((entry) => byId.get(entry.commitmentId)!).filter(Boolean),
+    ranking,
+  };
 }
 
 /** Async since UC-1.0b (#141): a participant's state is a storage read. */
@@ -54,28 +80,49 @@ async function stateFor(options: { participantId?: string } = {}): Promise<Domai
   return getCommandServiceState();
 }
 
-export async function listToday(options: CommitmentQueryOptions = {}): Promise<Commitment[]> {
+/** The commitments and their ranking, so a route can send both. */
+export interface RankedCommitments {
+  items: Commitment[];
+  ranking: Map<string, RankedItem>;
+}
+
+export async function listTodayRanked(options: CommitmentQueryOptions = {}): Promise<RankedCommitments> {
   const now = options.now ?? new Date();
   const timezone = normalizeTimezone(options.timezone);
   const today = localDayKey(now, timezone);
-  return sortByResolvedTime(
-    Object.values((await stateFor(options)).commitments).filter((commitment) => {
-      const resolved = resolvedCommitmentTime(commitment);
-      return Boolean(resolved) && isVisibleInLists(commitment) && localDayKey(resolved as string, timezone) === today;
-    })
-  );
+  const state = await stateFor(options);
+  const items = Object.values(state.commitments).filter((commitment) => {
+    if (!isVisibleInLists(commitment)) return false;
+    const resolved = resolvedCommitmentTime(commitment);
+    // An item with no time belongs to today: it is not scheduled for another
+    // day, and hiding it meant "Buy milk" never reached a phone at all (#169).
+    // Ranking puts it after the dated items it ties with, saying `no_deadline`.
+    if (!resolved) return resolveModuleRuntime('priority').mode === 'enabled';
+    return localDayKey(resolved, timezone) === today;
+  });
+  return orderForLists(items, Object.values(state.reminders), now);
+}
+
+export async function listToday(options: CommitmentQueryOptions = {}): Promise<Commitment[]> {
+  return (await listTodayRanked(options)).items;
+}
+
+export async function listUpcomingRanked(options: CommitmentQueryOptions = {}): Promise<RankedCommitments> {
+  const now = options.now ?? new Date();
+  const timezone = normalizeTimezone(options.timezone);
+  const today = localDayKey(now, timezone);
+  const state = await stateFor(options);
+  const items = Object.values(state.commitments).filter((commitment) => {
+    const resolved = resolvedCommitmentTime(commitment);
+    // Upcoming is "a later day", so an undated item is never in it — it has no
+    // later day to be on. It stays on Today.
+    return Boolean(resolved) && isVisibleInLists(commitment) && localDayKey(resolved as string, timezone) > today;
+  });
+  return orderForLists(items, Object.values(state.reminders), now);
 }
 
 export async function listUpcoming(options: CommitmentQueryOptions = {}): Promise<Commitment[]> {
-  const now = options.now ?? new Date();
-  const timezone = normalizeTimezone(options.timezone);
-  const today = localDayKey(now, timezone);
-  return sortByResolvedTime(
-    Object.values((await stateFor(options)).commitments).filter((commitment) => {
-      const resolved = resolvedCommitmentTime(commitment);
-      return Boolean(resolved) && isVisibleInLists(commitment) && localDayKey(resolved as string, timezone) > today;
-    })
-  );
+  return (await listUpcomingRanked(options)).items;
 }
 
 export async function getCommitment(id: string, options: { participantId?: string } = {}): Promise<Commitment | null> {

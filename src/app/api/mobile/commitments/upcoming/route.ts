@@ -1,5 +1,5 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
-import { listUpcoming } from '../../../../../../lib/services/mobile/commitmentService';
+import { listUpcomingRanked } from '../../../../../../lib/services/mobile/commitmentService';
 import { commitmentListResponse } from '../../../../../../lib/services/mobile/response';
 import { dateFromOptionalIso } from '../../../../../../lib/services/mobile/time';
 
@@ -14,9 +14,10 @@ export async function GET(request: Request) {
   }
 
   const { searchParams } = new URL(request.url);
-  return Response.json(commitmentListResponse(await listUpcoming({
+  const ranked = await listUpcomingRanked({
     now: dateFromOptionalIso(searchParams.get('referenceTime'), new Date(), 'referenceTime'),
     timezone: searchParams.get('timezone') ?? undefined,
     participantId: user.uid,
-  })));
+  });
+  return Response.json(commitmentListResponse(ranked.items, ranked.ranking));
 }
