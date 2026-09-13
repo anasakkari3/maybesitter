@@ -18,9 +18,17 @@ import {
   resolveNextStepAccess,
   type NextStepAccess,
 } from './nextStepAccess';
+import {
+  appendNextStepDecision,
+  hiddenCommitmentIds,
+  listRecentNextStepDecisions,
+  resolveDeferUntil,
+} from './nextStepDecisionLog';
+import { completeCommitment, patchCommitment } from './commitmentService';
 import { appendAudit, appendIncident, applyTrustAction } from '../../pilot/pilotTrustStore';
 import { getLiveNextStep, prepareLiveNextStepDecision } from '../nextStepLiveService';
 import {
+  findParticipantDecision,
   getParticipantStateSnapshot,
   readParticipantState,
   replayOrRecordParticipantDecision,
@@ -163,6 +171,18 @@ async function nextStepAccessFor(participantId: string, at: string): Promise<Nex
   return access;
 }
 
+/**
+ * The commitments the next step is currently not offering (UC-2.9, #170).
+ *
+ * Deferred, or dismissed within the last day. They are excluded as
+ * *candidates* and changed in no other way: a deferred commitment keeps its
+ * due time and its place on Today, Upcoming and Details, because "not this
+ * one" is an answer about the suggestion and not an edit to the thing.
+ */
+async function hiddenFor(participantId: string, now: Date): Promise<Set<string>> {
+  return hiddenCommitmentIds(await listRecentNextStepDecisions(participantId, now), now);
+}
+
 function recommendationContext(input: MobilePilotSource, participantId: string, analyticsConsent: boolean, now: Date) {
   return {
     anonymousUserId: participantId,
@@ -198,7 +218,10 @@ export async function getMobileNextStep(participantId: string, input: MobilePilo
     };
   }
 
-  const context = recommendationContext(input, participantId, access.trust.analyticsConsent, now);
+  const context = {
+    ...recommendationContext(input, participantId, access.trust.analyticsConsent, now),
+    excludeCommitmentIds: await hiddenFor(participantId, now),
+  };
   const recommendation = await getLiveNextStep(await readParticipantState(participantId), context);
   if (recommendation.state === 'ready' && !access.trust.firstValueAt) {
     await applyTrustAction(participantId, { type: 'record_first_value', at });
@@ -274,6 +297,32 @@ function nextStepDecision(value: unknown): NextStepDecision {
   throw new Error('decision must be accept, edit, defer, dismiss, or done');
 }
 
+/** The bounds an edited next-step title must satisfy (UC-2.9, #170). */
+export const NEXT_STEP_EDIT_TITLE_MAX = 120;
+
+/**
+ * The title an `edit` carries.
+ *
+ * Refused rather than trimmed to fit. `patchCommitment` takes any string, and
+ * `cleanText(_, 120)` in the selector silently truncates — so an over-long
+ * title would be accepted here and come back shortened, which reads to the
+ * user as the product having quietly rewritten what they typed. A 400 says
+ * what happened.
+ *
+ * An `editedTitle` sent with any other decision is ignored, not an error: it
+ * is a client sending a field that does not apply, and refusing the whole
+ * decision over it would lose an answer the user did give.
+ */
+function editedTitleFrom(value: unknown, decision: NextStepDecision): string | undefined {
+  if (decision !== 'edit') return undefined;
+  if (typeof value !== 'string') throw new MobilePilotError('editedTitle is required for an edit', 400);
+  const trimmed = value.trim();
+  if (trimmed.length < 1 || trimmed.length > NEXT_STEP_EDIT_TITLE_MAX) {
+    throw new MobilePilotError(`editedTitle must be 1-${NEXT_STEP_EDIT_TITLE_MAX} characters`, 400);
+  }
+  return trimmed;
+}
+
 function proposalFrom(value: unknown): Pick<NextStepRecommendationContract, 'proposalId'> {
   if (!value || typeof value !== 'object') throw new Error('proposal is required');
   const proposal = value as Partial<NextStepRecommendationContract>;
@@ -312,7 +361,7 @@ export async function recordMobileNextStepDecision(participantId: string, input:
   }
   const proposal = proposalFrom(input.proposal);
   const decision = nextStepDecision(input.decision ?? input.action);
-  const editedTitle = typeof input.editedTitle === 'string' ? input.editedTitle : undefined;
+  const editedTitle = editedTitleFrom(input.editedTitle, decision);
   const assignment = resolveNextStepArm(participantId);
   const fingerprint = JSON.stringify({
     participantId,
@@ -322,9 +371,29 @@ export async function recordMobileNextStepDecision(participantId: string, input:
   });
   const explicitKey = stringValue(input, 'idempotencyKey');
 
+  // Before the staleness check, deliberately. A decision with effects changes
+  // the world — `done` completes the commitment — so the proposal it was made
+  // against is stale the instant it succeeds. Validating first would answer a
+  // network retry with 409 and leave the client unable to tell whether its
+  // decision landed, which is the one thing an idempotency key exists to
+  // prevent.
+  if (explicitKey) {
+    const replayed = await findParticipantDecision<{ success: true }>(participantId, explicitKey, fingerprint)
+      .catch((error: unknown) => {
+        if (error instanceof Error && /idempotencyKey body mismatch/.test(error.message)) {
+          throw new MobilePilotError(error.message, 409);
+        }
+        throw error;
+      });
+    if (replayed) return { ...replayed, replayed: true };
+  }
+
   const context = {
     ...recommendationContext(input, participantId, access.trust.analyticsConsent, now),
     emitShown: false,
+    // The same exclusions the read applied, so the proposal this validates
+    // against is the one the user was actually shown.
+    excludeCommitmentIds: await hiddenFor(participantId, now),
   };
 
   // A read, so it belongs outside the transaction that records the decision.
@@ -333,12 +402,54 @@ export async function recordMobileNextStepDecision(participantId: string, input:
     throw new MobilePilotError('proposal is stale or invalid', 409);
   }
 
+  const commitmentId = canonicalProposal.primaryStep?.commitmentId ?? null;
+  const deferUntil = decision === 'defer' ? resolveDeferUntil(input.deferUntil, now) : null;
+
+  /**
+   * What the decision actually does (UC-2.9, #170).
+   *
+   * Until now a decision emitted an analytics event and changed nothing:
+   * "Already done" left the commitment active, "Change it" discarded the new
+   * title, and "Later" brought the same item straight back on the next fetch.
+   * The card asked five questions and acted on none of the answers.
+   *
+   * Ordering: the ledger entry is written first. It is the record that the
+   * user decided, and it must survive a failing effect — a `done` whose
+   * `Complete` is refused by the state machine still happened, and the history
+   * has to say so. The effect follows, and its failure is not swallowed: the
+   * caller gets a 500 and the client refetches, rather than a cheerful 200
+   * over a commitment that never completed.
+   */
+  const applyDecision = async (): Promise<void> => {
+    await appendNextStepDecision(participantId, {
+      proposalId: canonicalProposal.proposalId,
+      commitmentId,
+      decision,
+      arm: assignment.arm,
+      evidenceCodes: (canonicalProposal.explanation?.evidenceCodes ?? []).map((item) => item.code),
+      deferUntil,
+      at,
+    });
+    if (!commitmentId) return;
+    if (decision === 'done') {
+      await completeCommitment(commitmentId, now, { participantId });
+    }
+    if (decision === 'edit' && editedTitle) {
+      await patchCommitment(commitmentId, { title: editedTitle }, now, { participantId });
+    }
+    // `defer` and `dismiss` need no write beyond the ledger: the ledger *is*
+    // the exclusion, and the commitment itself is deliberately untouched.
+  };
+
   // Collected rather than assigned to a nullable, so a retry that re-runs the
   // callback cannot leave a half-applied effect behind.
   const pendingEmits: Array<() => Promise<void>> = [];
   const create = () => {
     const prepared = prepareLiveNextStepDecision(canonicalProposal, decision, context, editedTitle);
-    pendingEmits.push(prepared.emit);
+    pendingEmits.push(async () => {
+      await applyDecision();
+      await prepared.emit();
+    });
     return {
       success: true as const,
       replayed: false,

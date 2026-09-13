@@ -396,6 +396,29 @@ export async function commitCaptureConfirmation<T>(
   });
 }
 
+/**
+ * A decision already recorded under this key, if there is one.
+ *
+ * Read separately from `replayOrRecordParticipantDecision` because the caller
+ * has to answer the replay *before* it re-validates the proposal. A decision
+ * with effects changes the world — `done` completes the commitment — so the
+ * proposal it was made against is legitimately stale the moment it succeeds.
+ * Checking staleness first would answer a network retry with 409, leaving the
+ * client unable to tell whether its decision landed.
+ */
+export async function findParticipantDecision<T>(
+  participantId: string,
+  idempotencyKey: string,
+  fingerprint: string,
+): Promise<T | null> {
+  requireUserId(participantId);
+  const path = `${userCol(participantId, RECOMMENDATION_ACTIONS)}/${docIdForKey(idempotencyKey)}`;
+  const existing = await getStorage().get<RecommendationDecisionRecord>(path);
+  if (!existing) return null;
+  if (existing.fingerprint !== fingerprint) throw new Error('idempotencyKey body mismatch');
+  return existing.response as T;
+}
+
 export async function replayOrRecordParticipantDecision<T>(
   participantId: string,
   idempotencyKey: string,
