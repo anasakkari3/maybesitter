@@ -1,0 +1,32 @@
+{
+  "success": true,
+  "routine": {
+    "schemaVersion": 1,
+    "updatedAt": "2026-08-09T09:00:00.000Z",
+    "timezone": "Asia/Jerusalem",
+    "sleepWindow": {
+      "start": "23:30",
+      "end": "07:30"
+    },
+    "focusWindows": [
+      {
+        "start": "09:00",
+        "end": "17:00",
+        "label": "work_study"
+      }
+    ],
+    "fixedCommitmentWindows": [],
+    "preferredReminderIntensity": "followUp",
+    "quietHours": {
+      "start": "22:30",
+      "end": "07:30"
+    },
+    "surveySkipped": false
+  },
+  "facts": {
+    "created": 4,
+    "superseded": 0,
+    "revoked": 0,
+    "unchanged": 0
+  }
+}

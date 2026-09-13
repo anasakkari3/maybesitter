@@ -1,0 +1,23 @@
+{
+  "aiProcessing": {
+    "state": "granted",
+    "version": "ai-consent-v1",
+    "changedAt": "2026-08-09T09:00:00.000Z",
+    "locale": "ar",
+    "platform": "ios",
+    "asked": true
+  },
+  "recommendations": {
+    "state": "granted",
+    "version": "rec-consent-v1",
+    "changedAt": "2026-08-09T09:00:00.000Z",
+    "locale": "ar",
+    "platform": "ios",
+    "asked": true
+  },
+  "currentVersions": {
+    "aiProcessing": "ai-consent-v1",
+    "recommendations": "rec-consent-v1"
+  },
+  "currentVersion": "ai-consent-v1"
+}

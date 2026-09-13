@@ -60,6 +60,23 @@ import { POST as feedbackRevokePost } from '../../src/app/api/mobile/feedback/[i
 import { POST as alphaFeedbackPost } from '../../src/app/api/mobile/alpha/feedback/route.ts';
 import { POST as analyticsPost } from '../../src/app/api/mobile/analytics/route.ts';
 import { GET as consentsGet } from '../../src/app/api/mobile/consents/route.ts';
+import { PUT as aiConsentPut } from '../../src/app/api/mobile/consents/ai-processing/route.ts';
+import { PUT as recommendationConsentPut } from '../../src/app/api/mobile/consents/recommendations/route.ts';
+import { GET as profileGet } from '../../src/app/api/mobile/profile/route.ts';
+import { PUT as routinePut } from '../../src/app/api/mobile/profile/routine/route.ts';
+import {
+  DELETE as memoryDeleteAll,
+  GET as memoryGet,
+  POST as memoryPost,
+} from '../../src/app/api/mobile/memory/route.ts';
+import {
+  DELETE as memoryDelete,
+  PATCH as memoryPatch,
+} from '../../src/app/api/mobile/memory/[id]/route.ts';
+import {
+  AI_CONSENT_VERSION,
+  RECOMMENDATION_CONSENT_VERSION,
+} from '../../src/contracts/v1/consentContracts.ts';
 
 const BASE = 'http://127.0.0.1:4321';
 const REFERENCE_TIME = '2026-08-09T08:00:00.000Z';
@@ -77,6 +94,8 @@ const FIXTURES = join(
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PREFIXED_ID = /^(next-step|fbk|incident|flag)[-_][0-9a-f]+$/i;
+/** `mem_<uuid>` — a runtime memory id (#167). Keeps its prefix and its shape. */
+const MEMORY_ID = /^mem_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
 const STABLE_INSTANT = '2026-08-09T09:00:00.000Z';
 
@@ -94,6 +113,7 @@ function stabilise(value: unknown, counters: Map<string, number>): unknown {
   }
   if (typeof value !== 'string') return value;
   if (INSTANT.test(value)) return value === REFERENCE_TIME ? value : STABLE_INSTANT;
+  if (MEMORY_ID.test(value)) return `mem_${stableId('00000000-0000-4000-8000-', 12, counters)}`;
   if (UUID.test(value)) return stableId('00000000-0000-4000-8000-', 12, counters);
   const prefixed = PREFIXED_ID.exec(value);
   if (prefixed) return `${prefixed[1]}${value.includes('_') ? '_' : '-'}${'0'.repeat(16)}`;
@@ -148,12 +168,16 @@ function setup(): () => void {
     MAYBESITTER_KILL_SWITCH_RECOMMENDATION: process.env.MAYBESITTER_KILL_SWITCH_RECOMMENDATION,
     MAYBESITTER_EXPERIMENT_NEXT_STEP_ARMS: process.env.MAYBESITTER_EXPERIMENT_NEXT_STEP_ARMS,
     MAYBESITTER_ALPHA_FEEDBACK_ENABLED: process.env.MAYBESITTER_ALPHA_FEEDBACK_ENABLED,
+    MAYBESITTER_FEATURE_MEMORY: process.env.MAYBESITTER_FEATURE_MEMORY,
+    MAYBESITTER_KILL_SWITCH_MEMORY: process.env.MAYBESITTER_KILL_SWITCH_MEMORY,
   };
   process.env.MAYBESITTER_DATA_DIR = directory;
   process.env.MAYBESITTER_FEATURE_RECOMMENDATION = 'true';
   process.env.MAYBESITTER_KILL_SWITCH_RECOMMENDATION = 'false';
   process.env.MAYBESITTER_EXPERIMENT_NEXT_STEP_ARMS = 'true';
   process.env.MAYBESITTER_ALPHA_FEEDBACK_ENABLED = 'true';
+  process.env.MAYBESITTER_FEATURE_MEMORY = 'true';
+  process.env.MAYBESITTER_KILL_SWITCH_MEMORY = 'false';
   configureCommandService({ initialState: createEmptyDomainState(), schedulerStore: null });
   setStorageForTests(createMemoryStorage());
   mkdirSync(FIXTURES, { recursive: true });
@@ -349,6 +373,96 @@ test('exports a fixture for every /api/mobile call the React Native client makes
         body: { action: 'postpone', postponedUntil: new Date(Date.now() + 86_400_000).toISOString() },
       }),
       params(commitmentId),
+    ));
+
+    // ── consents (#161, #170) ──────────────────────────────────────
+    // Recorded before anything is answered, so the client's schema covers the
+    // shape a fresh account actually sees: declined, and `asked: false`.
+    await record('consents.unanswered', 200, await consentsGet(request('/api/mobile/consents')));
+
+    await record('consents.aiRecorded', 200, await aiConsentPut(request('/api/mobile/consents/ai-processing', {
+      method: 'PUT',
+      body: { state: 'granted', version: AI_CONSENT_VERSION, locale: 'ar', platform: 'ios' },
+    })));
+
+    await record('consents.recommendationsRecorded', 200, await recommendationConsentPut(
+      request('/api/mobile/consents/recommendations', {
+        method: 'PUT',
+        body: { state: 'granted', version: RECOMMENDATION_CONSENT_VERSION, locale: 'ar', platform: 'ios' },
+      }),
+    ));
+
+    await record('consents.answered', 200, await consentsGet(request('/api/mobile/consents')));
+
+    // The refusal the onboarding screen has to be able to render: a version
+    // this server does not know is not consent to anything.
+    await record('consents.unsupportedVersion', 400, await recommendationConsentPut(
+      request('/api/mobile/consents/recommendations', {
+        method: 'PUT',
+        body: { state: 'granted', version: 'rec-consent-v99' },
+      }),
+    ));
+
+    // ── the routine profile and memory (#167) ──────────────────────
+    await record('profile.empty', 200, await profileGet(request('/api/mobile/profile')));
+
+    await record('profile.saved', 200, await routinePut(request('/api/mobile/profile/routine', {
+      method: 'PUT',
+      body: {
+        timezone: 'Asia/Jerusalem',
+        sleepWindow: { start: '23:30', end: '07:30' },
+        focusWindows: [{ start: '09:00', end: '17:00', label: 'work_study' }],
+        fixedCommitmentWindows: [],
+        preferredReminderIntensity: 'followUp',
+        quietHours: { start: '22:30', end: '07:30' },
+        surveySkipped: false,
+      },
+    })));
+
+    await record('profile.one', 200, await profileGet(request('/api/mobile/profile')));
+
+    // The survey's own facts, each with the provenance chip the screen renders.
+    await record('memory.list', 200, await memoryGet(request('/api/mobile/memory')));
+
+    const manual = await record('memory.created', 201, await memoryPost(request('/api/mobile/memory', {
+      body: { kind: 'goal', content: 'Finish the thesis by March', language: 'en' },
+    })));
+    const manualId = (manual.memory as { id: string }).id;
+
+    await record('memory.patched', 200, await memoryPatch(
+      new Request(`${BASE}/api/mobile/memory/${manualId}`, {
+        method: 'PATCH',
+        headers: { authorization: `Bearer ${tokenFor(USER)}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ content: 'Finish the thesis by April' }),
+      }),
+      params(manualId),
+    ));
+
+    const patchedId = ((await (await memoryGet(request('/api/mobile/memory'))).json() as {
+      items: Array<{ id: string; content: string }>;
+    }).items.find(item => item.content.includes('April'))!).id;
+
+    await record('memory.deleted', 200, await memoryDelete(
+      new Request(`${BASE}/api/mobile/memory/${patchedId}`, {
+        method: 'DELETE',
+        headers: { authorization: `Bearer ${tokenFor(USER)}` },
+      }),
+      params(patchedId),
+    ));
+
+    await record('memory.notFound', 404, await memoryDelete(
+      new Request(`${BASE}/api/mobile/memory/mem_00000000-0000-4000-8000-000000000000`, {
+        method: 'DELETE',
+        headers: { authorization: `Bearer ${tokenFor(USER)}` },
+      }),
+      params('mem_00000000-0000-4000-8000-000000000000'),
+    ));
+
+    await record('memory.deletedAll', 200, await memoryDeleteAll(
+      new Request(`${BASE}/api/mobile/memory`, {
+        method: 'DELETE',
+        headers: { authorization: `Bearer ${tokenFor(USER)}` },
+      }),
     ));
 
     // ── the refusals every screen must be able to render ───────────

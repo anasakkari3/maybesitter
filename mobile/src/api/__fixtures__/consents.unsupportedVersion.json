@@ -1,0 +1,5 @@
+{
+  "success": false,
+  "error": "unsupported consent version",
+  "reason": "unsupported_version"
+}
