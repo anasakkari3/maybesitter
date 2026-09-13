@@ -41,6 +41,10 @@ export const CLIENT_REPORTABLE_EVENTS = [
   'soft_awareness_action',
   'soft_awareness_missed',
   'onboarding_completed',
+  // UC-2.R2 (#172). The only capture-funnel event a client may report:
+  // `capture_submitted` and `capture_confirmed` are derived on the server from
+  // committed domain state, so nothing here can claim activation progress.
+  'capture_undone',
 ] as const;
 
 export type ClientReportableEvent = (typeof CLIENT_REPORTABLE_EVENTS)[number];

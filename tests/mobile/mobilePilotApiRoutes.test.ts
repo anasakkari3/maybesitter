@@ -540,8 +540,15 @@ test('trust and recommendation decisions are isolated per authenticated user', a
     const aStillOpen = await getNextStep(request('/api/mobile/recommendations/next-step', { participantId: A }));
     assert.equal(aStillOpen.status, 200);
 
+    // The capture pair is the funnel (UC-2.R2, #172): each
+    // `createConfirmedCommitment` is a propose and a confirm, and each is
+    // counted once, by the routes rather than by either client.
     assert.deepEqual((await getAnalyticsEvents()).map((event) => event.eventName), [
+      'capture_submitted',
+      'capture_confirmed',
       'first_value_reached',
+      'capture_submitted',
+      'capture_confirmed',
       'first_value_reached',
       'recommendation_shown',
       'recommendation_accepted',

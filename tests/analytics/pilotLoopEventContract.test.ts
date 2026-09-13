@@ -15,6 +15,10 @@ const MOBILE_EMITTED_EVENTS = [
   'deep_link_opened', 'calendar_connect_started', 'calendar_connected',
   'source_intake_reviewed', 'source_intake_confirmed',
   'pilot_feedback_submitted', 'soft_awareness_action', 'soft_awareness_missed',
+  // UC-2.R1 (#171) and UC-2.R2 (#172): the two the React Native app sends.
+  // `capture_undone` is the only capture-funnel event a client may report —
+  // the other two are derived from committed domain state on the server.
+  'onboarding_completed', 'capture_undone',
 ] as const;
 
 test('every event the mobile app emits is a known analytics event', () => {

@@ -7,7 +7,15 @@
  */
 import { describe, expect, it } from '@jest/globals';
 import { captureReducer, initialCaptureState, type CaptureEvent, type CaptureFailureKind, type CaptureState } from '../captureMachine';
-import { analyzeCapture, confirmCapture, undoCapture, type AnalyzeFailure, type CaptureGateway } from '../captureFlowActions';
+import {
+  analyzeCapture,
+  confirmCapture,
+  reportCaptureUndone,
+  undoCapture,
+  type AnalyzeFailure,
+  type CaptureGateway,
+  type UndoCounts,
+} from '../captureFlowActions';
 import type { CaptureConfirmation, CaptureProposal } from '../../../api/schemas/capture';
 
 function proposal(over: Partial<CaptureProposal> = {}): CaptureProposal {
@@ -209,5 +217,52 @@ describe('undo', () => {
     const g = gateway();
     expect(await undoCapture(g.gateway, [])).toEqual({ undone: [], stillSaved: [] });
     expect(g.removed).toEqual([]);
+  });
+});
+
+describe('reporting an undo (UC-2.R2, #172)', () => {
+  function reporter(consent: boolean | (() => Promise<boolean>), over: { throws?: boolean } = {}) {
+    const reported: UndoCounts[] = [];
+    return {
+      reported,
+      analyticsConsent: typeof consent === 'function' ? consent : async () => consent,
+      report(counts: UndoCounts) {
+        if (over.throws) throw new Error('the ping fell over');
+        reported.push(counts);
+      },
+    };
+  }
+
+  const outcome = { undone: ['c-a', 'c-b'], stillSaved: ['c-c'] };
+
+  it('sends two counts and nothing else', async () => {
+    const r = reporter(true);
+    await reportCaptureUndone(outcome, r);
+    expect(r.reported).toEqual([{ undoneCount: 2, stillSavedCount: 1 }]);
+    // The ids are what a title is attached to. They are not in the event.
+    expect(JSON.stringify(r.reported)).not.toContain('c-a');
+  });
+
+  it('reports a partial undo as a partial one', async () => {
+    const r = reporter(true);
+    await reportCaptureUndone({ undone: [], stillSaved: ['c-a'] }, r);
+    expect(r.reported).toEqual([{ undoneCount: 0, stillSavedCount: 1 }]);
+  });
+
+  it('sends nothing at all when analytics were declined', async () => {
+    const r = reporter(false);
+    await reportCaptureUndone(outcome, r);
+    expect(r.reported).toEqual([]);
+  });
+
+  it('treats a consent read it could not make as a decline', async () => {
+    const r = reporter(async () => { throw new Error('offline'); });
+    await reportCaptureUndone(outcome, r);
+    expect(r.reported).toEqual([]);
+  });
+
+  it('swallows a failed ping rather than surfacing it to whoever pressed Undo', async () => {
+    const r = reporter(true, { throws: true });
+    await expect(reportCaptureUndone(outcome, r)).resolves.toBeUndefined();
   });
 });

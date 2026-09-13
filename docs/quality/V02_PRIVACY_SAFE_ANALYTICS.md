@@ -17,8 +17,11 @@ Every event is built through `lib/analytics/analyticsContext.ts`, which stamps t
 | `recommendation_shown`, `recommendation_accepted`/`edited`/`deferred`/`dismissed`/`completed` | `lib/services/nextStepLiveService.ts` via `/api/next-step` |
 | `data_deleted` | `POST /api/commitments/clear`, and `POST /api/analytics` |
 | `reason_opened`, `calendar_connect_started`, `calendar_connected`, `pricing_viewed`, `purchase_intent` | `POST /api/analytics` |
+| `capture_submitted` | `POST /api/mobile/capture`, for every submission the server handled — the ones that found nothing to save included |
+| `capture_confirmed` | `POST /api/mobile/capture/confirm`, counting the commitments that actually carry a `confirmedAt` afterwards; a replayed confirm records nothing |
+| `capture_undone` | `POST /api/mobile/analytics`, from the app. The only capture event a client may report: the undo lives inside a five-second window on the device and nothing on the server can see it |
 
-Loop-state events are derived server-side from committed domain state, so a client cannot forge activation or funnel progress. `POST /api/analytics` accepts only the surface events a client can legitimately observe (`CLIENT_REPORTABLE_EVENTS`); anything else is a 400.
+Loop-state events are derived server-side from committed domain state, so a client cannot forge activation or funnel progress. That is why `capture_submitted` and `capture_confirmed` are absent from `CLIENT_REPORTABLE_EVENTS` on both sides — a client posting either is a 400 — while `capture_undone` carries only two counts and is gated on analytics consent by the app as well as by the server. `POST /api/analytics` accepts only the surface events a client can legitimately observe (`CLIENT_REPORTABLE_EVENTS`); anything else is a 400.
 
 Requests opt in by sending `anonymousUserId` and `consent`. Without an `anonymousUserId` collection is simply off — the product request still succeeds.
 
