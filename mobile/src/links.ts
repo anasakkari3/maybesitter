@@ -3,28 +3,99 @@ import { Linking } from 'react-native';
 import type { Lang } from './i18n/strings';
 import type { ThemePref } from './state/types';
 
-// maybesitter://<screen>[?lang=ar|en&theme=system|light|dark]
-// In Expo Go the same path arrives as exp://host:port/--/<screen>?…
-// Used by the home-screen widget later, and to open any design state directly.
-export function parseLink(url: string): { name: string; lang?: Lang; theme?: ThemePref } | null {
+/**
+ * Deep links (UC-2.R3, #173).
+ *
+ *   maybesitter://today                    a tab or screen by name
+ *   maybesitter://commitments/<id>         one commitment
+ *   maybesitter://item/<id>                the same, the widget's older spelling
+ *   maybesitter://next                     the next-step card, which lives on Today
+ *
+ * plus `?lang=` and `?theme=` on any of them. In Expo Go the same path arrives
+ * as exp://host:port/--/<path>.
+ *
+ * ── A link is untrusted input ────────────────────────────────────
+ *
+ * Any app or web page on the device can fire one of these, and the id in it is
+ * about to be interpolated into an API path. `encodeURIComponent` in the
+ * endpoint stops a traversal from changing the route, but a link is still the
+ * one place a stranger chooses a string this app then acts on — so the id is
+ * validated against a shape here and the link is dropped, not repaired, when
+ * it does not match. Repairing an id would be guessing which commitment a
+ * stranger meant.
+ */
+export type LinkTarget =
+  | { kind: 'screen'; name: string }
+  | { kind: 'commitment'; id: string }
+  | { kind: 'nextStep' };
+
+export interface ParsedLink {
+  target: LinkTarget;
+  lang?: Lang;
+  theme?: ThemePref;
+}
+
+/**
+ * What a commitment id may look like.
+ *
+ * Deliberately the same shape as `USER_ID_PATTERN` in `lib/storage/paths.ts`,
+ * which is what the storage layer already accepts as a document id — ids are
+ * `randomUUID()`, so this is wider than it needs to be, and matching the
+ * server's rule is better than inventing a second one that can disagree with
+ * it later. No slashes, no dots, no percent signs, and bounded, so a link
+ * cannot hand the client an unbounded string to put in a URL.
+ */
+const COMMITMENT_ID = /^[A-Za-z0-9_-]{1,128}$/;
+
+/** Only these names route by name; anything else is not a screen. */
+function screenTarget(name: string): LinkTarget | null {
+  return name.length > 0 && /^[a-z][a-zA-Z0-9]{0,32}$/.test(name)
+    ? { kind: 'screen', name }
+    : null;
+}
+
+export function parseLink(url: string): ParsedLink | null {
   const afterScheme = url.includes('/--/') ? url.split('/--/')[1] : url.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');
   if (afterScheme == null) return null;
-  const [path = '', query = ''] = afterScheme.split('?');
-  const name = path.replace(/^\/+|\/+$/g, '');
+  const [rawPath = '', query = ''] = afterScheme.split('?');
+  const path = rawPath.replace(/^\/+|\/+$/g, '');
+  const segments = path.split('/').filter(segment => segment.length > 0);
+
+  const target = targetFor(segments);
+  if (!target) return null;
+
   const params = new URLSearchParams(query);
   const lang = params.get('lang');
   const theme = params.get('theme');
   // The keys are left out entirely when the link doesn't carry them, rather
   // than set to undefined, so a link never overwrites a stored preference.
-  const link: { name: string; lang?: Lang; theme?: ThemePref } = { name };
+  const link: ParsedLink = { target };
   if (lang === 'ar' || lang === 'en') link.lang = lang;
   if (theme === 'system' || theme === 'light' || theme === 'dark') link.theme = theme;
   return link;
 }
 
+function targetFor(segments: string[]): LinkTarget | null {
+  if (segments.length === 0) return { kind: 'screen', name: 'today' };
+
+  const [first, second] = segments;
+  if (first === 'commitments' || first === 'item') {
+    // Exactly two segments. `commitments/a/b` is not a commitment id with a
+    // slash in it; it is a link this app does not understand.
+    if (segments.length !== 2 || !second || !COMMITMENT_ID.test(second)) return null;
+    return { kind: 'commitment', id: second };
+  }
+  if (segments.length !== 1) return null;
+  // The widget's own name for "open whatever I should do now".
+  if (first === 'next') return { kind: 'nextStep' };
+  return screenTarget(first!);
+}
+
 export function useLinks(
   handlers: {
     jump: (name: string) => void;
+    openCommitment: (id: string) => void;
+    openNextStep: () => void;
     setLang: (l: Lang) => void;
     setThemePref: (t: ThemePref) => void;
   },
@@ -42,7 +113,9 @@ export function useLinks(
       if (!link) return;
       if (link.lang) handlers.setLang(link.lang);
       if (link.theme) handlers.setThemePref(link.theme);
-      if (link.name) handlers.jump(link.name);
+      if (link.target.kind === 'commitment') handlers.openCommitment(link.target.id);
+      else if (link.target.kind === 'nextStep') handlers.openNextStep();
+      else handlers.jump(link.target.name);
     };
     const pending = takePendingLink?.() ?? null;
     if (pending) apply(pending);
