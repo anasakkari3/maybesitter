@@ -88,7 +88,12 @@ export type CaptureInputMode = 'text' | 'voice';
  */
 export interface CaptureItemEdit {
   title?: string;
-  /** Local wall clock, `YYYY-MM-DDTHH:mm`, resolved in the device zone. */
+  /**
+   * Local wall clock, `YYYY-MM-DDTHH:mm`, resolved in the device zone.
+   *
+   * The empty string is the "No time" switch — a change the user made, not an
+   * absent value, and the two have to be distinguishable.
+   */
   localDateTime?: string;
   priority?: 'high' | 'normal' | 'low';
 }

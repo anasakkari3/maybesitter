@@ -24,6 +24,14 @@ export const captureProposalSchema = z.object({
       title: z.string(),
       resolvedTime: isoDateTime.nullable(),
       needsClarification: z.boolean(),
+      /** What the extractor read the importance as: Must / Should / Nice (#164). */
+      priority: z.enum(['low', 'normal', 'high']).optional(),
+      /**
+       * True when that level is the extractor's guess rather than something the
+       * person said. The review screen marks it, because a guess presented as a
+       * fact is how a product loses the right to make guesses.
+       */
+      priorityEstimated: z.boolean().optional(),
     }),
   ),
   provenance: z
@@ -60,7 +68,15 @@ export const captureConfirmationSchema = z.object({
   ),
   failed: z.array(z.object({ itemId: z.string(), reason: z.string() })),
   failureCode: z
-    .enum(['proposal_not_found', 'proposal_rejected', 'invalid_selection', 'persistence_failed'])
+    .enum([
+      'proposal_not_found',
+      'proposal_rejected',
+      'invalid_selection',
+      'persistence_failed',
+      // An edit the server refused. Separate from `invalid_selection` because
+      // the selection was fine and a change to it was not (#164).
+      'invalid_edit',
+    ])
     .optional(),
 });
 
