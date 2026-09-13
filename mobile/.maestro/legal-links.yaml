@@ -1,0 +1,128 @@
+appId: com.maybesitter.app
+name: MaybeSitter legal links
+---
+# UC-4.2 (#177): the privacy policy and the terms, from all three places a
+# person can reach them — the signed-out sign-in screen, the Legal group in
+# Settings, and the Trust Centre.
+#
+# ── Why this flow branches ──────────────────────────────────────────
+#
+# `EXPO_PUBLIC_LEGAL_BASE_URL` is unset in every build today: the domain is not
+# bought yet (OWNER-A1 #137). With no base URL every legal link is `null` and
+# `src/features/legal/LegalLinks.tsx` renders *nothing at all* — no section
+# heading, no greyed-out row. That is deliberate, and it is the state the app
+# is actually in, so a flow that asserts the rows exist would be a flow nobody
+# can run.
+#
+# So the assertion here is the invariant that holds in **both** states: either
+# every surface offers the link, or none of them does. There is never a row
+# that looks tappable and goes nowhere, and there is never a link on one screen
+# that is missing from another. Set the variable and the same file exercises
+# the opening path instead; leave it unset and it proves the absence is total.
+#
+# The same branch is made for sign-in: a build with
+# `EXPO_PUBLIC_DEV_BEARER_TOKEN` set starts signed in and never shows the
+# sign-in screen, and Maestro cannot sign in by itself (`inputText` delivers one
+# character into a secure field). So the signed-out half runs when the sign-in
+# screen is up, and the in-app half runs when it is not. Run it twice — once
+# with the override, once without — to cover both.
+
+- launchApp:
+    clearState: false
+
+# ── Signed out ──────────────────────────────────────────────────────
+- runFlow:
+    when:
+      visible: 'أهلاً فيك بـMaybeSitter'
+    commands:
+      # The notice sentence is unconditional: continuing implies the terms, and
+      # that has to be said whether or not there is a page to link to.
+      - assertVisible:
+          id: 'signin-legal-notice'
+      # The two links are their own pressables rather than spans in the
+      # sentence, so they are asserted by label. They appear and disappear
+      # together — one without the other would mean one URL was configured.
+      - runFlow:
+          when:
+            visible: 'الخصوصية'
+          commands:
+            - assertVisible: 'الشروط'
+      - runFlow:
+          when:
+            notVisible: 'الخصوصية'
+          commands:
+            - assertNotVisible: 'الشروط'
+
+# ── Signed in: Settings, then the Trust Centre ──────────────────────
+- runFlow:
+    when:
+      notVisible: 'أهلاً فيك بـMaybeSitter'
+    commands:
+      - tapOn: 'الإعدادات'
+      - assertVisible:
+          id: 'settings-trust'
+
+      # The Legal group. Nothing here may have failed before it was touched.
+      - assertNotVisible:
+          id: 'legal-open-failed'
+      - runFlow:
+          when:
+            visible:
+              id: 'settings-privacy-policy'
+          commands:
+            - assertVisible:
+                id: 'settings-terms'
+            - assertVisible: 'قانوني'
+            - assertVisible: 'بيفتح بالمتصفح'
+            - tapOn:
+                id: 'settings-privacy-policy'
+            # The in-app browser covering Settings is the proof it opened. If
+            # it refused, the app stays in front and shows the address instead,
+            # so this row is still there and the wait times out — which is the
+            # failure this flow exists to catch.
+            - extendedWaitUntil:
+                notVisible:
+                  id: 'settings-trust'
+                timeout: 10000
+            # Come back to the app rather than driving the browser's own
+            # chrome, whose dismiss button is localised and not ours.
+            - launchApp:
+                clearState: false
+            - tapOn: 'الإعدادات'
+      - runFlow:
+          when:
+            notVisible:
+              id: 'settings-privacy-policy'
+          commands:
+            # Nothing at all, not a disabled row: no second link, no heading.
+            - assertNotVisible:
+                id: 'settings-terms'
+            - assertNotVisible: 'قانوني'
+
+      # The Trust Centre carries its own copy of the privacy link, under the
+      # same rule.
+      - tapOn:
+          id: 'settings-trust'
+      - assertVisible: 'مركز الثقة'
+      - runFlow:
+          when:
+            visible:
+              id: 'trust-privacy-policy'
+          commands:
+            - tapOn:
+                id: 'trust-privacy-policy'
+            - extendedWaitUntil:
+                notVisible:
+                  id: 'trust-knows'
+                timeout: 10000
+            - launchApp:
+                clearState: false
+      - runFlow:
+          when:
+            notVisible:
+              id: 'trust-privacy-policy'
+          commands:
+            # The card the row lives in is still there — only the legal row
+            # went, which is what says the card was not hidden by an error.
+            - assertVisible:
+                id: 'trust-knows'

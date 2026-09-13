@@ -23,6 +23,7 @@ interface IntrospectedConfig {
   name: string;
   plugins: Array<string | [string, unknown]>;
   ios: {
+    icon?: string | { light?: string; dark?: string; tinted?: string };
     bundleIdentifier?: string;
     googleServicesFile?: string;
     config?: { usesNonExemptEncryption?: boolean };
@@ -47,6 +48,25 @@ interface IntrospectedConfig {
   orientation?: string;
   icon?: string;
   locales?: Record<string, string>;
+}
+
+/**
+ * A PNG's own header, because Apple rejects on the file and not on the config.
+ *
+ * `IHDR` is always the first chunk: width and height at bytes 16–23, the colour
+ * type at byte 25. Colour types 4 and 6 carry an alpha channel; a `tRNS` chunk
+ * adds transparency to the types that do not, so both are checked.
+ */
+function pngFacts(path: string): { width: number; height: number; hasAlpha: boolean } {
+  const bytes = readFileSync(path);
+  expect(bytes.subarray(1, 4).toString('ascii')).toBe('PNG');
+  expect(bytes.subarray(12, 16).toString('ascii')).toBe('IHDR');
+  const colorType = bytes[25];
+  return {
+    width: bytes.readUInt32BE(16),
+    height: bytes.readUInt32BE(20),
+    hasAlpha: colorType === 4 || colorType === 6 || bytes.includes('tRNS'),
+  };
 }
 
 /** Runs the real Expo config resolution for one profile. Slow, and the point. */
@@ -369,6 +389,62 @@ describe('the app as a person sees it (UC-4.1, #176)', () => {
     // Not Expo's template icon, which is the md5 #176 names.
     expect(createHash('md5').update(readFileSync(icon)).digest('hex'))
       .not.toBe('c785f8932297af4acd5f5ccb7630f01c');
+  });
+
+  /**
+   * The three iOS 18 home-screen appearances (#176).
+   *
+   * Removing `dark` or `tinted` from `app.config.ts` does not break a build,
+   * does not fail a submission, and shows up only as an icon that ignores the
+   * home screen it is sitting on — which is exactly the kind of regression
+   * nobody notices. Every profile is checked because an icon set on one and not
+   * another is the same defect with a longer fuse.
+   */
+  it('gives iOS a dark and a tinted icon as well as the light one', () => {
+    for (const profile of PROFILES) {
+      const icon = configs[profile].ios.icon;
+      expect(`${profile}:${typeof icon}`).toBe(`${profile}:object`);
+      expect(icon).toEqual({
+        light: './assets/icon.png',
+        dark: './assets/icon-dark.png',
+        tinted: './assets/icon-tinted.png',
+      });
+    }
+  });
+
+  /**
+   * The files themselves, read as bytes.
+   *
+   * `expo prebuild` hands each of these to sharp and writes the result into
+   * `Images.xcassets/AppIcon.appiconset` with an
+   * `appearances: [{ appearance: 'luminosity', value: … }]` entry. It preserves
+   * transparency in `dark` and flattens `light` and `tinted` onto white
+   * (`@expo/prebuild-config/.../withIosIcons.js`), so an alpha channel in the
+   * light icon is an App Store rejection and an alpha channel in the tinted one
+   * is a white rectangle where the mark should be. Neither is visible in the
+   * config; both are visible in the PNG header.
+   *
+   * `dark` is held to the same rule even though Expo would let it through,
+   * because the decision was to give it the brand's own dark ground rather than
+   * let the system gradient show behind a cut-out — the same call the splash
+   * screen makes. This assertion is where that decision is written down; a
+   * transparent dark icon is a different design, not a tidy-up.
+   */
+  it('ships all three at the master size, with no alpha where Apple forbids it', () => {
+    const variants = configs.production.ios.icon as { light: string; dark: string; tinted: string };
+    for (const [appearance, relative] of Object.entries(variants)) {
+      const path = join(ROOT, relative.replace(/^\.\//, ''));
+      expect(`${appearance}:${existsSync(path)}`).toBe(`${appearance}:true`);
+      const { width, height, hasAlpha } = pngFacts(path);
+      expect(`${appearance}:${width}x${height}`).toBe(`${appearance}:1024x1024`);
+      expect(`${appearance}:alpha:${hasAlpha}`).toBe(`${appearance}:alpha:false`);
+    }
+    // Three different drawings, not one file referenced three times: a copied
+    // path would pass every assertion above and ship one appearance.
+    const digests = Object.values(variants).map(relative =>
+      createHash('md5').update(readFileSync(join(ROOT, relative.replace(/^\.\//, '')))).digest('hex'),
+    );
+    expect(new Set(digests).size).toBe(3);
   });
 
   it('ships every branding file it points at', () => {

@@ -62,6 +62,29 @@ Profiles live in `eas.json`. `development` produces a dev client;
 
 - Jest unit tests live next to the code in `__tests__` directories.
 - `.maestro/smoke.yaml` is an end-to-end launch check; see `.maestro/README.md`.
+- `src/config/__tests__/maestroFlows.test.ts` checks the flow *files* without a
+  device: each parses as YAML, each `appId` matches the bundle identifier
+  `app.config.ts` actually sets, and every `testID` a flow selects on is one
+  the app can render. That last one is the point — a `testID` renamed in a
+  component leaves a flow that still parses and fails only on the next device
+  run, which may be weeks away.
+
+### `.maestro/legal-links.yaml` (UC-4.2, #177)
+
+The privacy policy and the terms from all three places they are reachable: the
+signed-out sign-in screen, the Legal group in Settings, and the Trust Centre.
+
+It branches, on purpose. `EXPO_PUBLIC_LEGAL_BASE_URL` is unset in every build
+today — the domain is not bought (OWNER-A1 #137) — and with no base URL
+`LegalLinks` renders nothing at all rather than a row that 404s. So the flow
+asserts the invariant that holds either way: every surface offers the link, or
+none of them does. Set the variable and the same file exercises opening the
+in-app browser instead.
+
+It branches on sign-in for the same reason: a build with
+`EXPO_PUBLIC_DEV_BEARER_TOKEN` set starts signed in and never shows the sign-in
+screen, and Maestro cannot sign in by itself. Run it twice — once with the
+override, once without — to cover both halves.
 
 ## Layout
 
@@ -139,6 +162,31 @@ eas submit -p ios --profile production --latest
 
 `eas.json` sets `appVersionSource: remote`, so EAS owns the build numbers and
 nothing in the repository has to be bumped by hand.
+
+### Release log
+
+`version` is `1.0.0`, set once in `app.json`, and it stays there until the
+product changes enough to deserve a different number. The thing that moves
+between builds is the **build number**, and the repository does not hold it:
+`appVersionSource: remote` means EAS assigns it, `autoIncrement` on the
+`production` profile bumps it, and nothing here is bumped by hand. That is the
+right trade — a number chosen by hand is a number that collides once — but it
+leaves the repository with no record of which build carried which commit.
+
+This table is that record (UC-4.6a, #182 step 1). Add a row when a build is
+submitted to a track, not when it is built: a build nobody received is not a
+release.
+
+| Date | Platform | Version | EAS build no. | Profile | Track | Commit | Notes |
+|---|---|---|---|---|---|---|---|
+| — | — | — | — | — | — | — | No build has been cut. |
+
+**No closed-test build exists yet.** The first one is blocked on OWNER-A2
+(#158): there is no App Store Connect record and no Play app to submit to, and
+the first Android upload has to be made by hand in the Console before
+`eas submit` works at all. `docs/release/CLOSED_TEST_TRACKS.md` has the full
+list of what a person with the accounts has to do first. Rows are written after
+a submission, from `eas build:list`; nothing here is filled in ahead of time.
 
 ### Before a build reaches anyone
 

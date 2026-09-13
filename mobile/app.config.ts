@@ -131,6 +131,45 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     ...config.ios,
     bundleIdentifier: 'com.maybesitter.app',
     supportsTablet: false,
+    /**
+     * The three home-screen appearances iOS 18 asks for (UC-4.1, #176).
+     *
+     * All three are the *same* drawing — the chevron, its gradient and the
+     * construction guides — regenerated from `assets/icon.png` rather than
+     * redrawn, so a person who changes their home screen to dark or tinted
+     * still recognises the app they installed.
+     *
+     * `dark` is the master with its LAB **lightness** inverted and lifted, hue
+     * and chroma untouched. That is not an RGB negate, which would turn a blue
+     * mark orange: the mark stays the same blue, and the ground goes from pale
+     * to near-black. It matters that the *gradient* survives — the chevron is
+     * drawn fading into its ground at the tips, and inverting lightness is what
+     * keeps it fading into the dark ground instead of glowing against it.
+     *
+     * `tinted` is that dark variant in greyscale with the mark lifted well
+     * above the ground. iOS composites its own tint gradient over a fully
+     * opaque greyscale image and maps luminance to it, so anything that has to
+     * read has to be *lighter* than the background — a coloured icon here comes
+     * out as mud.
+     *
+     * All three are opaque. Expo SDK 57 preserves transparency only in `dark`
+     * and flattens `light`/`tinted` onto white
+     * (`@expo/prebuild-config/build/plugins/icons/withIosIcons.js`:
+     * `removeTransparency: appearance !== 'dark'`), and an alpha channel in the
+     * light icon is an App Store rejection. Giving `dark` its own opaque ground
+     * rather than letting the system gradient show through is the same choice
+     * the splash screen makes below, for the same reason: the brand ground is
+     * part of the mark, not a backdrop.
+     *
+     * Verified by reading the generated
+     * `ios/MaybeSitter/Images.xcassets/AppIcon.appiconset/Contents.json` after
+     * `expo prebuild`, not by introspecting this file.
+     */
+    icon: {
+      light: './assets/icon.png',
+      dark: './assets/icon-dark.png',
+      tinted: './assets/icon-tinted.png',
+    },
     // Adds the entitlement at prebuild (UC-1.1 #145). The capability still
     // has to be enabled on the App ID in the Apple Developer portal; EAS
     // syncs it at build time. Declared now because adding it later
