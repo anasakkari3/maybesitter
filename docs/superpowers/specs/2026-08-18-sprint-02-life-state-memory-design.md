@@ -1,5 +1,11 @@
 # Sprint 02 — Life-State & Memory: Design
 
+> **Historical — do not follow these commands.** This document dates from the
+> retired Flutter client, when `mobile/**` was the Flutter app. **`mobile/` is
+> now the React Native application.** Any `flutter` command below refers to the
+> archived client at tag `archive/flutter-final`, not to anything on `main`.
+> See `docs/migration/flutter-to-rn-parity.md` (UC-2.R5, #175).
+
 Date: 2026-08-18
 Issues: [#9](https://github.com/anasakkari3/maybesitter/issues/9), [#10](https://github.com/anasakkari3/maybesitter/issues/10), [#11](https://github.com/anasakkari3/maybesitter/issues/11)
 

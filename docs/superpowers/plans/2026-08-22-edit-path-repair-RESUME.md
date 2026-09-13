@@ -1,5 +1,11 @@
 # Resume point — full debt repair
 
+> **Historical — do not follow these commands.** This document dates from the
+> retired Flutter client, when `mobile/**` was the Flutter app. **`mobile/` is
+> now the React Native application.** Any `flutter` command below refers to the
+> archived client at tag `archive/flutter-final`, not to anything on `main`.
+> See `docs/migration/flutter-to-rn-parity.md` (UC-2.R5, #175).
+
 Stopped deliberately on 2026-08-23, mid-item-#10. Everything below is measured,
 not remembered.
 
