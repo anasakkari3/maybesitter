@@ -1,0 +1,5 @@
+{
+  "CFBundleDisplayName": "MaybeSitter",
+  "NSMicrophoneUsageDescription": "بنستعمل المايك بس وقت تضغط زر التسجيل عشان تحكي التزام.",
+  "NSSpeechRecognitionUsageDescription": "جهازك هو اللي بيحوّل صوتك لنص. MaybeSitter ما بيوصله الصوت أبداً."
+}

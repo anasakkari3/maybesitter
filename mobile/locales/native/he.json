@@ -1,0 +1,5 @@
+{
+  "CFBundleDisplayName": "MaybeSitter",
+  "NSMicrophoneUsageDescription": "אנחנו משתמשים במיקרופון רק בזמן שאתה מחזיק את כפתור ההקלטה כדי להכתיב מחויבות.",
+  "NSSpeechRecognitionUsageDescription": "המכשיר שלך ממיר את הדיבור לטקסט. MaybeSitter לעולם לא מקבל את ההקלטה."
+}
