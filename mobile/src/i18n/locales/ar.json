@@ -420,12 +420,12 @@
   "obAboutSuggested": "اقتراح من الذكاء الاصطناعي",
   "obAboutSaveSelected": "احفظ اللي علّمت عليه",
   "obAboutSaveNone": "ما تحفظ إشي",
-  "todayWhyOverdue": "ليش أول: الوقت مرق",
-  "todayWhySoon": "ليش أول: خلال ساعتين",
-  "todayWhyToday": "ليش أول: اليوم",
-  "todayWhyMust": "ليش أول: إنت حطيتها لازم",
-  "todayWhyEstimated": "ليش أول: بتبيّن مهمة",
-  "todayWhyNoDeadline": "ليش أول: بدون وقت",
+  "todayWhyOverdue": "الوقت مرق",
+  "todayWhySoon": "خلال ساعتين",
+  "todayWhyToday": "اليوم",
+  "todayWhyMust": "إنت حطيتها لازم",
+  "todayWhyEstimated": "بتبيّن مهمة",
+  "todayWhyNoDeadline": "بدون وقت",
   "todayWhyJoin": "{first} · {second}",
   "todayGroupMust": "لازم",
   "todayGroupShould": "يُفضّل",
@@ -484,5 +484,6 @@
   "postponeThisEvening": "المسا",
   "nextStepDeferTitle": "إيمتى نرجّعها؟",
   "evidenceImportanceEstimated": "مبيّن إنها {level}",
-  "evidenceFitsFocusTime": "بوقت حاططه للتركيز"
+  "evidenceFitsFocusTime": "بوقت حاططه للتركيز",
+  "todayWhyLead": "ليش أول: {reasons}"
 }

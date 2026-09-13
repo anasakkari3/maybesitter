@@ -24,8 +24,10 @@ import type { AuthUser } from '../../auth/types';
 import { TodayScreen } from '../TodayScreen';
 import type { Commitment } from '../../api/schemas/common';
 import en from '../../i18n/locales/en.json';
+import ar from '../../i18n/locales/ar.json';
 
 import * as commitmentEndpoints from '../../api/endpoints/commitments';
+import * as language from '../../i18n/language';
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -177,14 +179,15 @@ describe('the why-first line', () => {
     ]);
     // `getAllByTestId` would find every one; there must be exactly one.
     expect(screen.getAllByTestId('today-why-first')).toHaveLength(1);
-    expect(screen.queryByText(en.todayWhyOverdue)).not.toBeNull();
+    expect(screen.queryByText(`Why first: ${en.todayWhyOverdue}`)).not.toBeNull();
   });
 
   it('joins two reasons, deadline first', async () => {
     await show([
       { ...withPriority('top', 'high'), rank: 0, reasonCodes: ['overdue', 'user_must'] } as Commitment,
     ]);
-    expect(screen.queryByText(`${en.todayWhyOverdue} · ${en.todayWhyMust}`)).not.toBeNull();
+    // The lead once, then both reasons. Not "Why first: … · Why first: …".
+    expect(screen.queryByText(`Why first: ${en.todayWhyOverdue} · ${en.todayWhyMust}`)).not.toBeNull();
   });
 
   it('appears on nobody when the top card has nothing to say', async () => {
@@ -249,4 +252,50 @@ describe('what the screen no longer invents', () => {
     const source = readFileSync(join(__dirname, '..', 'TodayScreen.tsx'), 'utf8');
     expect(source).not.toMatch(/state\/seed/);
   });
+});
+
+describe('the why-first line in every language', () => {
+  /**
+   * UC-2.8 (#169) asks for exactly one "why first" line in each of ar, he and
+   * en. Every other test here renders in English, so a key missing from one
+   * locale would pass all of them and ship a card that explains itself to
+   * English speakers and nobody else.
+   *
+   * ── Hebrew is not one of them, and cannot be ─────────────────────
+   *
+   * `Lang` is `'ar' | 'en'`. `he.json` exists and is machine-translated, but
+   * there is no way to put the app into Hebrew, so there is no rendering to
+   * assert. Listing it here with a mocked tag would produce an English screen
+   * and a green test — evidence of nothing.
+   *
+   * The Hebrew *strings* are covered where they can be: `whyFirst.test.ts`
+   * builds the line in all three. Hebrew as a UI language is its own piece of
+   * work, and #169 is reported as met in ar and en only.
+   *
+   * The language comes from the device locale, which `AppProvider` resolves
+   * through `systemLanguageTag`, so mocking that is the whole switch.
+   */
+  const LOCALES: Record<string, Record<string, string>> = {
+    ar: ar as unknown as Record<string, string>,
+    en: en as unknown as Record<string, string>,
+  };
+
+  for (const [tag, strings] of Object.entries(LOCALES)) {
+    it(`${tag}: exactly one card explains itself, in ${tag}`, async () => {
+      jest.spyOn(language, 'systemLanguageTag').mockReturnValue(tag);
+      await show([
+        { ...withPriority('first', 'high'), rank: 0, reasonCodes: ['overdue', 'user_must'] } as Commitment,
+        { ...withPriority('second', 'high'), rank: 1, reasonCodes: ['due_today'] } as Commitment,
+      ]);
+
+      expect(screen.getAllByTestId('today-why-first')).toHaveLength(1);
+      // The whole line: the lead said once, then both reasons.
+      expect(String(screen.getByTestId('today-why-first').props.children)).toBe(
+        strings.todayWhyLead!.replace(
+          '{reasons}',
+          `${strings.todayWhyOverdue!} · ${strings.todayWhyMust!}`,
+        ),
+      );
+    });
+  }
 });
