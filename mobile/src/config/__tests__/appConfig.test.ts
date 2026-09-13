@@ -143,7 +143,63 @@ describe('Android hardening', () => {
         'android.permission.SYSTEM_ALERT_WINDOW',
         'android.permission.READ_EXTERNAL_STORAGE',
         'android.permission.WRITE_EXTERNAL_STORAGE',
+        'android.permission.USE_EXACT_ALARM',
+        'android.permission.USE_FULL_SCREEN_INTENT',
       ]);
+    }
+  });
+
+  /**
+   * The store-policy permissions (UC-4.3b, #179).
+   *
+   * Listed by name rather than checked as a set, so the failure message says
+   * *which* one appeared. Each is a Play policy declaration or a rejection on
+   * its own, and every one of them can arrive through a library's manifest
+   * without a line of this repository changing — which is why this asserts the
+   * absence rather than trusting that nobody added one.
+   */
+  it('never asks for a permission the stores would make us justify', () => {
+    const forbidden = [
+      // Play policy declarations, or outright restricted.
+      'android.permission.USE_EXACT_ALARM',
+      'android.permission.USE_FULL_SCREEN_INTENT',
+      'android.permission.SYSTEM_ALERT_WINDOW',
+      'android.permission.QUERY_ALL_PACKAGES',
+      'android.permission.MANAGE_EXTERNAL_STORAGE',
+      // Background location, SMS and call log: MaybeSitter reads none of them,
+      // and each is a separate Play declaration with its own review.
+      'android.permission.ACCESS_BACKGROUND_LOCATION',
+      'android.permission.ACCESS_FINE_LOCATION',
+      'android.permission.ACCESS_COARSE_LOCATION',
+      'android.permission.READ_SMS',
+      'android.permission.RECEIVE_SMS',
+      'android.permission.SEND_SMS',
+      'android.permission.READ_CALL_LOG',
+      'android.permission.WRITE_CALL_LOG',
+      'android.permission.READ_CONTACTS',
+    ];
+    for (const profile of PROFILES) {
+      const requested = configs[profile].android.permissions ?? [];
+      for (const permission of forbidden) {
+        expect(requested).not.toContain(permission);
+      }
+    }
+  });
+
+  /**
+   * `SCHEDULE_EXACT_ALARM` is the one this app may eventually want, and
+   * `USE_EXACT_ALARM` is the one it may not (#179 step 4).
+   *
+   * The difference is who decides: the first asks the user and can be refused,
+   * the second takes the permission without asking and is restricted by Play
+   * to alarm-clock and calendar apps. Blocking the second while leaving the
+   * first available is the whole position, and it is easy to undo by accident.
+   */
+  it('keeps the exact-alarm permission that asks, and blocks the one that does not', () => {
+    for (const profile of PROFILES) {
+      const blocked = configs[profile].android.blockedPermissions ?? [];
+      expect(blocked).toContain('android.permission.USE_EXACT_ALARM');
+      expect(blocked).not.toContain('android.permission.SCHEDULE_EXACT_ALARM');
     }
   });
 });

@@ -244,6 +244,26 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       'android.permission.SYSTEM_ALERT_WINDOW',
       'android.permission.READ_EXTERNAL_STORAGE',
       'android.permission.WRITE_EXTERNAL_STORAGE',
+      /**
+       * Blocked before anything can ask for them (UC-4.3b, #179).
+       *
+       * Nothing requests these today, which is exactly when to block them: a
+       * library added six months from now can pull one into the merged
+       * manifest without a line of our code changing, and the first anyone
+       * would hear of it is a Play policy warning on a release build.
+       *
+       * `USE_EXACT_ALARM` is the one that matters most. It grants exact alarms
+       * without asking the user, and Play restricts it to alarm-clock and
+       * calendar apps. MaybeSitter is neither: reminders the user set are
+       * `SCHEDULE_EXACT_ALARM` with an honest fallback when it is denied
+       * (S3 #196/#197), never a permission that takes the choice away.
+       *
+       * `USE_FULL_SCREEN_INTENT` lights up a locked phone with a full-screen
+       * takeover. A product whose whole premise is that it does not nag has no
+       * business holding it.
+       */
+      'android.permission.USE_EXACT_ALARM',
+      'android.permission.USE_FULL_SCREEN_INTENT',
     ],
   },
   plugins: [
