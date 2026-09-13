@@ -483,5 +483,7 @@
   "nextStepDismiss": "לא זה",
   "nextStepDone": "כבר עשיתי",
   "nextStepEditTitle": "לשנות את הצעד",
-  "nextStepEditSave": "קח את זה"
+  "nextStepEditSave": "קח את זה",
+  "postponeThisEvening": "הערב",
+  "nextStepDeferTitle": "מתי להחזיר?"
 }

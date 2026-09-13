@@ -480,5 +480,7 @@
   "nextStepDismiss": "مش هاي",
   "nextStepDone": "خلصتها",
   "nextStepEditTitle": "غيّر الخطوة",
-  "nextStepEditSave": "خُد هاي"
+  "nextStepEditSave": "خُد هاي",
+  "postponeThisEvening": "المسا",
+  "nextStepDeferTitle": "إيمتى نرجّعها؟"
 }

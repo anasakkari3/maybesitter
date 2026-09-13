@@ -7,6 +7,10 @@ import { ConflictError } from '../../api/errors';
 import { family } from '../../theme/fonts';
 import { Btn, Card, Pill, Txt } from '../../ui/primitives';
 import { evidencePhrases } from './evidence';
+import { DEFER_PRESETS, postponeTo, type PostponePreset } from '../commitments/postpone';
+import { useTimeZone } from '../../i18n/timezone';
+import { formatRelativeDay, formatTime } from '../../i18n/format';
+import { ltr } from '../../i18n/strings';
 import type { NextStepDecisionKind, NextStepRecommendation } from '../../api/schemas/nextStep';
 
 /**
@@ -55,6 +59,7 @@ export function NextStepCard() {
   const decide = useNextStepDecision();
   const [showWhy, setShowWhy] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [deferring, setDeferring] = useState(false);
   const [stale, setStale] = useState(false);
   const inFlight = useRef(false);
 
@@ -62,15 +67,18 @@ export function NextStepCard() {
   const silenced = query.data?.exposure?.allowed === false;
   const strings = t as unknown as Record<string, string>;
 
-  const send = (decision: NextStepDecisionKind, editedTitle?: string) => {
+  const send = (
+    decision: NextStepDecisionKind,
+    extra: { editedTitle?: string; deferUntil?: string } = {},
+  ) => {
     if (!recommendation || inFlight.current) return;
     inFlight.current = true;
     setStale(false);
     decide.mutate(
-      { decision, proposal: recommendation, ...(editedTitle ? { editedTitle } : {}) },
+      { decision, proposal: recommendation, ...extra },
       {
         onError: (error) => { if (error instanceof ConflictError) setStale(true); },
-        onSettled: () => { inFlight.current = false; setEditing(false); },
+        onSettled: () => { inFlight.current = false; setEditing(false); setDeferring(false); },
       },
     );
   };
@@ -91,6 +99,8 @@ export function NextStepCard() {
               onToggleWhy={() => setShowWhy(!showWhy)}
               editing={editing}
               onEdit={() => setEditing(true)}
+              deferring={deferring}
+              onDefer={() => setDeferring(true)}
               onSend={send}
               busy={decide.isPending}
             />
@@ -120,8 +130,16 @@ const ACTION_LABEL = (t: Record<string, string>): Record<NextStepDecisionKind, s
 
 const DECISIONS: readonly NextStepDecisionKind[] = ['accept', 'edit', 'defer', 'dismiss', 'done'];
 
+const DEFER_LABEL = (t: Record<string, string>): Record<PostponePreset, string> => ({
+  oneHour: t.postponeOneHour!,
+  threeHours: t.postponeThreeHours!,
+  thisEvening: t.postponeThisEvening!,
+  tomorrowMorning: t.postponeTomorrowMorning!,
+  nextWeek: t.postponeNextWeek!,
+});
+
 function Ready({
-  recommendation, strings, showWhy, onToggleWhy, editing, onEdit, onSend, busy,
+  recommendation, strings, showWhy, onToggleWhy, editing, onEdit, deferring, onDefer, onSend, busy,
 }: {
   recommendation: NextStepRecommendation;
   strings: Record<string, string>;
@@ -129,10 +147,13 @@ function Ready({
   onToggleWhy: () => void;
   editing: boolean;
   onEdit: () => void;
-  onSend: (decision: NextStepDecisionKind, editedTitle?: string) => void;
+  deferring: boolean;
+  onDefer: () => void;
+  onSend: (decision: NextStepDecisionKind, extra?: { editedTitle?: string; deferUntil?: string }) => void;
   busy: boolean;
 }) {
-  const { t, p, ar } = useApp();
+  const { t, p, ar, lang } = useApp();
+  const timezone = useTimeZone();
   const step = recommendation.primaryStep!;
   const [draft, setDraft] = useState(step.title);
   const phrases = evidencePhrases(recommendation.explanation?.evidenceCodes ?? [], strings);
@@ -180,8 +201,39 @@ function Ready({
             testID="next-step-edit-save"
             label={t.nextStepEditSave}
             disabled={busy || draft.trim().length === 0}
-            onPress={() => onSend('edit', draft.trim())}
+            onPress={() => onSend('edit', { editedTitle: draft.trim() })}
           />
+        </View>
+      ) : deferring ? (
+        /**
+         * Three choices, each showing the time it means (UC-2.9, #170).
+         *
+         * Fewer than the details sheet's four: deferring a *suggestion* is a
+         * small "not right now", and offering to push it a week would turn one
+         * tap into a decision about the rest of the month.
+         */
+        <View style={{ gap: 10 }}>
+          <Txt size={13} color={p.mu}>{t.nextStepDeferTitle}</Txt>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            {DEFER_PRESETS.map((preset) => {
+              const until = new Date(postponeTo(preset, new Date(), timezone));
+              return (
+                <Btn
+                  key={preset}
+                  testID={`next-step-defer-${preset}`}
+                  label={DEFER_LABEL(strings)[preset]}
+                  disabled={busy}
+                  onPress={() => onSend('defer', { deferUntil: until.toISOString() })}
+                  style={{ flexGrow: 1, backgroundColor: p.sf2, borderRadius: 18, paddingVertical: 12, paddingHorizontal: 14, gap: 2, alignItems: 'flex-start', opacity: busy ? 0.4 : 1 }}
+                >
+                  <Txt size={14} weight={600}>{DEFER_LABEL(strings)[preset]}</Txt>
+                  <Txt size={12} color={p.mu} testID={`next-step-defer-when-${preset}`}>
+                    {`${formatRelativeDay(until, { locale: lang, timeZone: timezone })} · ${ltr(formatTime(until, { locale: lang, timeZone: timezone }))}`}
+                  </Txt>
+                </Btn>
+              );
+            })}
+          </View>
         </View>
       ) : (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
@@ -194,7 +246,11 @@ function Ready({
               size={14}
               pad={12}
               disabled={busy}
-              onPress={() => (decision === 'edit' ? onEdit() : onSend(decision))}
+              onPress={() => {
+                if (decision === 'edit') return onEdit();
+                if (decision === 'defer') return onDefer();
+                return onSend(decision);
+              }}
             />
           ))}
         </View>

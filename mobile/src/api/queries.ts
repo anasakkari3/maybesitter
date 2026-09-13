@@ -308,6 +308,7 @@ export function useNextStepDecision() {
       decision: NextStepDecisionKind;
       proposal: NextStepRecommendation;
       editedTitle?: string;
+      deferUntil?: string;
     }) =>
       recordNextStepDecision({
         locale,
@@ -315,9 +316,20 @@ export function useNextStepDecision() {
         proposal: input.proposal,
         idempotencyKey: Crypto.randomUUID(),
         ...(input.editedTitle ? { editedTitle: input.editedTitle } : {}),
+        ...(input.deferUntil ? { deferUntil: input.deferUntil } : {}),
       }),
-    onSettled: () => {
-      void client.invalidateQueries({ queryKey: ['user', uid, 'nextStep'] });
+    /**
+     * `done` and `edit` change the commitment itself (UC-2.9, #170), so the
+     * lists showing it are stale too. Before those decisions had effects only
+     * the proposal needed refreshing; now a completed item would keep sitting
+     * on Today until something else happened to invalidate it.
+     */
+    onSettled: (_result, _error, input) => {
+      if (input.decision === 'done' || input.decision === 'edit') {
+        invalidateCommitments(client, uid, input.proposal.primaryStep?.commitmentId);
+      } else {
+        void client.invalidateQueries({ queryKey: ['user', uid, 'nextStep'] });
+      }
     },
   });
 }

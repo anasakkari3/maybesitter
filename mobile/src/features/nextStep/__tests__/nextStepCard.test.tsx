@@ -306,3 +306,51 @@ describe('when the user asked for quiet', () => {
     expect(screen.queryByTestId('next-step-card')).not.toBeNull();
   });
 });
+
+describe('later, and when', () => {
+  /**
+   * Tapping "Later" asks when before it decides anything (UC-2.9 #170). A
+   * defer with no time would be a guess about how long the user meant.
+   */
+  it('asks when, rather than deferring immediately', async () => {
+    const decide = mockDecision();
+    await show();
+    await fireEvent.press(screen.getByTestId('next-step-defer'));
+    await waitFor(() => expect(screen.queryByTestId('next-step-defer-oneHour')).not.toBeNull());
+    expect(decide).not.toHaveBeenCalled();
+  });
+
+  it('offers three choices, each showing the time it means', async () => {
+    await show();
+    await fireEvent.press(screen.getByTestId('next-step-defer'));
+    await waitFor(() => expect(screen.queryByTestId('next-step-defer-oneHour')).not.toBeNull());
+    for (const preset of ['oneHour', 'thisEvening', 'tomorrowMorning']) {
+      expect(screen.queryByTestId(`next-step-defer-${preset}`)).not.toBeNull();
+      expect(String(screen.getByTestId(`next-step-defer-when-${preset}`).props.children)).not.toBe('');
+    }
+    // Not a week. Deferring a suggestion is a small "not right now".
+    expect(screen.queryByTestId('next-step-defer-nextWeek')).toBeNull();
+  });
+
+  it('sends the instant the choice resolves to', async () => {
+    const decide = mockDecision();
+    await show();
+    await fireEvent.press(screen.getByTestId('next-step-defer'));
+    await waitFor(() => expect(screen.queryByTestId('next-step-defer-oneHour')).not.toBeNull());
+    const before = Date.now();
+    await fireEvent.press(screen.getByTestId('next-step-defer-oneHour'));
+    await waitFor(() => expect(decide).toHaveBeenCalled());
+
+    const sent = decide.mock.calls[0]![0] as { decision: string; deferUntil?: string };
+    expect(sent.decision).toBe('defer');
+    const until = Date.parse(sent.deferUntil!);
+    // An hour out, give or take the test's own runtime.
+    expect(until).toBeGreaterThan(before + 59 * 60 * 1000);
+    expect(until).toBeLessThan(before + 61 * 60 * 1000);
+  });
+
+  it('is not offered when the server did not offer defer', async () => {
+    await show(response({ availableActions: ['accept', 'dismiss'] }));
+    expect(screen.queryByTestId('next-step-defer')).toBeNull();
+  });
+});
