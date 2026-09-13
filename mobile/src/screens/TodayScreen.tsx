@@ -8,6 +8,7 @@ import { ltr } from '../i18n/strings';
 import { useToday } from '../api/queries';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
 import { groupForToday, topItemFor, type CommitmentView, type TodayGroups } from '../features/commitments/model';
+import { rowAccessibilityLabel } from '../features/commitments/accessibility';
 import { whyFirstLine } from '../features/commitments/whyFirst';
 import { NextStepCard } from '../features/nextStep/NextStepCard';
 import { Btn, Card, Pill, Txt } from '../ui/primitives';
@@ -182,7 +183,9 @@ function Row({
   return (
     <Btn
       testID={`today-item-${item.id}`}
-      label={item.title}
+      // Title, importance, time and status — everything the row shows. See
+      // accessibility.ts on why this is not a second set of copy.
+      label={rowAccessibilityLabel(item, t, item.shownAt ? when : null)}
       onPress={() => actions.openDetail(item.id)}
       scaleTo={0.98}
       style={{

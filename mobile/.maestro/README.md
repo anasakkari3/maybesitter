@@ -98,3 +98,30 @@ the simulator (see above), so the flow cannot reach Settings on its own.
 ```bash
 maestro test .maestro/delete-account.yaml
 ```
+
+## `today.yaml` (UC-2.R3, #173)
+
+Seeds one commitment through capture, then does to it everything the details
+screen offers: postpone by a preset, edit the title, decline a drop-on-purpose,
+and delete.
+
+Two assertions in it are about restraint rather than function. The review screen
+must say «هذا اقتراح. لم يتغيّر أي شيء بعد.» before anything is saved, and
+declining the drop confirm must leave the commitment exactly as it was.
+
+It needs a **signed-in** build. Maestro cannot type into a secure field, so it
+cannot sign in by itself and a pass here is not evidence that sign-in works.
+
+## `next-step.yaml` (UC-2.9 #170, UC-2.R3 #173)
+
+Opens the "why", defers by a preset, dismisses, and accepts.
+
+It asserts the suggestion notice is present unconditionally, and — the point of
+running it on a device at all — that no English evidence label leaks onto an
+Arabic screen. `evidenceLabels` travel in the same response as the codes the
+card renders, so `assertNotVisible: 'overdue'` is what catches a fallback to
+them.
+
+It needs recommendation consent granted **in onboarding** (the launch consent),
+not the Trust switch. Without it the card does not appear at all, which is
+correct, and the flow then fails for the right reason.

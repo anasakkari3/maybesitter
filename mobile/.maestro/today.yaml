@@ -1,0 +1,79 @@
+appId: com.maybesitter.app
+name: Today, and the actions on a commitment
+---
+# UC-2.R3 (#173) on a device: seed one commitment through capture, then do to it
+# everything the details screen offers.
+#
+# The assertions are Arabic because Arabic is the default and a misconfigured
+# build shows the CFG-1 screen instead — see .maestro/README.md.
+#
+# This flow needs a signed-in build. Maestro cannot type into a secure field, so
+# it cannot sign in by itself; run it against a session that is already signed
+# in, and do not read a pass here as evidence that sign-in works.
+- launchApp
+
+- assertVisible: 'يومك'
+
+# ── Seed one commitment through capture ────────────────────────────
+#
+# Driven by visible label rather than testID: the capture and review screens
+# belong to UC-2.R2 (#172) and carry none, and adding some to another lane's
+# files to make this flow read better is not a trade worth making.
+- tapOn: 'احكيها'
+- tapOn: 'أو اكتب'
+- inputText: 'ذكّرني أسلّم التقرير بكرا الساعة 3'
+- tapOn: 'فهمها'
+# The review screen says nothing has been saved yet; confirming is what saves.
+- assertVisible: 'هذا اقتراح. لم يتغيّر أي شيء بعد.'
+- tapOn:
+    text: 'أكّد.*'
+
+# ── It is on the day, in a group ───────────────────────────────────
+- tapOn: 'اليوم'
+- assertVisible: 'يومك'
+- assertVisible: 'التقرير'
+
+# ── Open it, and postpone it ───────────────────────────────────────
+- tapOn:
+    id: 'today-item-.*'
+- assertVisible: 'رجوع'
+- tapOn:
+    id: 'details-postpone'
+- assertVisible: 'لوين نأجّلها؟'
+# Each preset shows the instant it resolves to, not just its name.
+- assertVisible:
+    id: 'postpone-when-oneHour'
+- tapOn:
+    id: 'postpone-oneHour'
+- assertVisible: 'تمام. أجّلناها.'
+- tapOn: 'تمام'
+
+# ── Edit the title ─────────────────────────────────────────────────
+- tapOn:
+    id: 'today-item-.*'
+- tapOn:
+    id: 'details-edit'
+- tapOn:
+    id: 'edit-title'
+- eraseText
+- inputText: 'تسليم التقرير القصير'
+- tapOn:
+    id: 'edit-save'
+- assertVisible: 'تسليم التقرير القصير'
+
+# ── Dropping on purpose asks first, and can be declined ────────────
+- tapOn:
+    id: 'details-drop'
+- assertVisible: 'بدك تسقطها بوعي؟'
+- tapOn:
+    id: 'confirm-keep'
+# Declining changed nothing: the commitment is still here and still active.
+- assertVisible: 'تسليم التقرير القصير'
+
+# ── Delete says what is different about it, then does it ───────────
+- tapOn:
+    id: 'details-delete'
+- assertVisible: 'بدك تحذفها؟'
+- tapOn:
+    id: 'confirm-delete'
+- assertVisible: 'انحذفت.'
