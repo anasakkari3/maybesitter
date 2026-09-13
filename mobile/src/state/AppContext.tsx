@@ -6,6 +6,7 @@ import {
   loadLanguagePref, nextLanguagePref, resolveLanguage, saveLanguagePref, systemLanguageTag, type LanguagePref,
 } from '../i18n/language';
 import { googleCalendarDemoEnabled } from '../config/env';
+import { loadThemePref, saveThemePref } from '../lib/deviceSettings/theme';
 import { palettes, type Palette, type Scheme } from '../theme/tokens';
 import { seedCommitments, seedYesterday, TODAY } from './seed';
 import type { Commitment, Screen, Sheet, Status, ThemePref, YesterdayItem } from './types';
@@ -73,6 +74,11 @@ function useAppModel() {
   useEffect(() => {
     let active = true;
     void loadLanguagePref().then(pref => { if (active) setLangPref(pref); });
+    // The same hydration for the scheme (#155). Both start at 'system', which
+    // resolves to what the device already says, so the frame before either
+    // read lands is the right answer for anyone who never overrode it — and a
+    // wrong scheme for one frame is a flash, not a wrong word on a screen.
+    void loadThemePref().then(pref => { if (active) setThemePref(pref); });
     return () => { active = false; };
   }, []);
   useEffect(() => { void setLocale(lang); }, [lang]);
@@ -94,6 +100,13 @@ function useAppModel() {
   const applyLangPref = (pref: LanguagePref) => {
     setLangPref(pref);
     void saveLanguagePref(pref);
+  };
+
+  // Every route that changes the scheme goes through here, so none of them can
+  // be the one that forgets to write it down.
+  const applyThemePref = (pref: ThemePref) => {
+    setThemePref(pref);
+    void saveThemePref(pref);
   };
 
   /**
@@ -160,11 +173,12 @@ function useAppModel() {
     // The language picker: System → English → العربية → System. Hebrew is not
     // offered; src/i18n/README.md says what it is still waiting on.
     cycleLanguage: () => applyLangPref(nextLanguagePref(langPref)),
-    cycleTheme: () => setThemePref(v => (v === 'system' ? 'light' : v === 'light' ? 'dark' : 'system')),
+    cycleTheme: () =>
+      applyThemePref(themePref === 'system' ? 'light' : themePref === 'light' ? 'dark' : 'system'),
     // A maybesitter://<screen>?lang=ar link picks a language explicitly, so it
     // stops following the system exactly as tapping the row does.
     setLang: (l: Lang) => applyLangPref(l),
-    setThemePref,
+    setThemePref: applyThemePref,
 
     /**
      * Opens a screen or state directly — the design's "jump to a screen or

@@ -10,7 +10,7 @@ back. Server state belongs in Firestore under the uid, where signing in on a
 new device is what brings it back.
 
 The rule's message names this directory as the sanctioned exception, alongside
-`src/i18n/language.ts`. Two things live here, and both are admissible for the
+`src/i18n/language.ts`. Three things live here, and each is admissible for the
 same reason the language preference is:
 
 - **`onboardingProgress.ts`** — which onboarding step this *install* reached.
@@ -23,6 +23,12 @@ same reason the language preference is:
   survey works on a plane. They are enum choices about sleeping and focus
   hours, not free text, and the user can delete them from Settings, which
   deletes both copies.
+
+- **`theme.ts`** — System / Light / Dark (UC-1.R2 #155). Three enum values
+  about how a screen looks; it says nothing about what the person committed
+  to. It is a *device* fact rather than an account one on purpose: somebody
+  may want dark on the phone they read in bed and system on the tablet, and
+  the scheme a screen should use is a property of the screen being looked at.
 
 Anything new here needs the same argument made in its own header, or it belongs
 on the account instead.
