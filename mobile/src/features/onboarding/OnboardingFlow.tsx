@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Platform, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
+import { useAuth } from '../../auth/AuthProvider';
 import { useTimeZone } from '../../i18n/timezone';
 import { apiLocale } from '../../i18n/locale';
 import {
@@ -59,6 +60,9 @@ import { EMPTY_ANSWERS } from '../routine/routineProfile';
  * might not have landed yet.
  */
 export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
+  // The survey answers are the account's, not the device's (#148): every read
+  // and write of the local copy names whose it is.
+  const accountId = useAuth().user?.uid ?? null;
   const { p } = useApp();
   const timezone = useTimeZone();
   const consents = useConsents();
@@ -90,13 +94,16 @@ export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
   useEffect(() => {
     let live = true;
     void (async () => {
-      const [progress, cache] = await Promise.all([loadOnboardingProgress(), loadRoutineCache()]);
+      const [progress, cache] = await Promise.all([
+        loadOnboardingProgress(),
+        accountId ? loadRoutineCache(accountId) : Promise.resolve(null),
+      ]);
       if (!live) return;
       setStep(progress);
       if (cache) setAnswers(cache.answers);
     })();
     return () => { live = false; };
-  }, []);
+  }, [accountId]);
 
   // A second device runs onboarding again, but must not re-ask a question this
   // account has already answered. The server's copy seeds the controls.
@@ -170,16 +177,18 @@ export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
       // will reach the account on reconnect. The footer says so.
       setRoutineSaveFailed(true);
     }
-    await saveRoutineCache({
-      ...EMPTY_CACHE,
-      answers,
-      skipped,
-      timezone,
-      updatedAt: new Date().toISOString(),
-      pendingSync,
-    });
+    if (accountId) {
+      await saveRoutineCache(accountId, {
+        ...EMPTY_CACHE,
+        answers,
+        skipped,
+        timezone,
+        updatedAt: new Date().toISOString(),
+        pendingSync,
+      });
+    }
     await advance('routine');
-  }, [advance, answers, putRoutine, timezone]);
+  }, [accountId, advance, answers, putRoutine, timezone]);
 
   const readDescription = useCallback(async (text: string) => {
     setDescribeFailed(false);

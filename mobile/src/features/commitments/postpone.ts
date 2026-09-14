@@ -21,7 +21,13 @@
  * necessarily the zone we are computing for. Everything here goes through
  * `Intl.DateTimeFormat` with an explicit `timeZone`, which is the only way to
  * ask "what is the offset in Jerusalem on that date" without a tz library.
+ *
+ * The offset itself comes from `lib/time/zoneOffset`, which reads it off the
+ * clock rather than parsing a "GMT+03:00" label — Hermes does not report that
+ * label the way Node does, and this file used to fall back to UTC on a device.
  */
+import { instantForWallClock } from '../../lib/time/zoneOffset';
+
 export type PostponePreset =
   | 'oneHour'
   | 'threeHours'
@@ -61,37 +67,6 @@ function partsIn(instant: Date, timeZone: string): { year: number; month: number
   }).format(instant);
   const [year, month, day] = formatted.split('-').map(Number);
   return { year: year!, month: month!, day: day! };
-}
-
-/** The zone's offset from UTC, in minutes, at a given instant. */
-function offsetMinutes(instant: Date, timeZone: string): number {
-  // `en-US` with `timeZoneName: 'longOffset'` gives "GMT+03:00"; parsing that
-  // is more robust across engines than reconstructing from formatted parts.
-  const name = new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'longOffset' })
-    .formatToParts(instant)
-    .find((part) => part.type === 'timeZoneName')?.value ?? 'GMT+00:00';
-  const match = /GMT([+-])(\d{2}):(\d{2})/.exec(name);
-  if (!match) return 0;
-  const sign = match[1] === '-' ? -1 : 1;
-  return sign * (Number(match[2]) * 60 + Number(match[3]));
-}
-
-/**
- * The instant at which a given wall-clock time occurs in a zone.
- *
- * Resolved twice: the first pass uses the offset at the *approximate* instant,
- * which is wrong when the guess and the answer sit on opposite sides of a
- * clock change; the second uses the offset at the answer. Two passes is enough
- * for every real zone, because no zone changes offset twice within a day.
- */
-function instantForWallClock(
-  wall: { year: number; month: number; day: number; hour: number },
-  timeZone: string,
-): Date {
-  const asUtc = Date.UTC(wall.year, wall.month - 1, wall.day, wall.hour, 0, 0, 0);
-  const firstGuess = new Date(asUtc - offsetMinutes(new Date(asUtc), timeZone) * 60_000);
-  const corrected = new Date(asUtc - offsetMinutes(firstGuess, timeZone) * 60_000);
-  return corrected;
 }
 
 /** Adds days to a wall-clock date, letting `Date.UTC` carry month and year ends. */

@@ -3,7 +3,7 @@ import { RefreshControl, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { useTimeZone } from '../i18n/timezone';
-import { formatTime } from '../i18n/format';
+import { formatDate, formatTime } from '../i18n/format';
 import { ltr, type Lang } from '../i18n/strings';
 import { useCommitmentAction, useToday } from '../api/queries';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
@@ -83,7 +83,9 @@ export function TodayScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={p.ac} />}
       >
         <View style={{ gap: 2 }}>
-          <Txt size={13} color={p.mu}>{t.dateToday}</Txt>
+          <Txt size={13} color={p.mu} testID="today-date">
+            {formatDate(new Date(), 'weekday', { locale: lang, timeZone: timezone })}
+          </Txt>
           <Txt size={28} weight={600} lh={1.3}>{t.todayTitle}</Txt>
         </View>
 

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ScrollView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../../state/AppContext';
+import { useAuth } from '../../auth/AuthProvider';
 import { Btn, Txt } from '../../ui/primitives';
 import { ScreenIn } from '../../ui/motion';
 import { useTimeZone } from '../../i18n/timezone';
@@ -26,6 +27,8 @@ import { SettingsHeader } from './SettingsChrome';
  * too — changing an answer here syncs it just as much.
  */
 export function RoutineSettingsScreen({ onBack }: { onBack: () => void }) {
+  // Whose answers these are (#148).
+  const accountId = useAuth().user?.uid ?? null;
   const { t, p } = useApp();
   const insets = useSafeAreaInsets();
   const timezone = useTimeZone();
@@ -56,15 +59,17 @@ export function RoutineSettingsScreen({ onBack }: { onBack: () => void }) {
     } catch {
       setFailed(true);
     }
-    const cache = await loadRoutineCache();
-    await saveRoutineCache({
-      ...(cache ?? EMPTY_CACHE),
-      answers,
-      skipped: false,
-      timezone,
-      updatedAt: new Date().toISOString(),
-      pendingSync,
-    });
+    const cache = accountId ? await loadRoutineCache(accountId) : null;
+    if (accountId) {
+      await saveRoutineCache(accountId, {
+        ...(cache ?? EMPTY_CACHE),
+        answers,
+        skipped: false,
+        timezone,
+        updatedAt: new Date().toISOString(),
+        pendingSync,
+      });
+    }
     if (!pendingSync) onBack();
   };
 

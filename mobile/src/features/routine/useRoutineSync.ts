@@ -20,6 +20,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { onlineManager } from '@tanstack/react-query';
 import { useProfile, usePutRoutine } from '../../api/queries';
+import { useAuth } from '../../auth/AuthProvider';
 import {
   EMPTY_CACHE,
   loadRoutineCache,
@@ -39,6 +40,10 @@ export interface RoutineSyncState {
 }
 
 export function useRoutineSync(): RoutineSyncState {
+  // The answers belong to the account, not to the phone (#148). No uid means
+  // nobody to read them for, so nothing is read and nothing is written — an
+  // unowned copy is how they crossed accounts in the first place.
+  const accountId = useAuth().user?.uid ?? null;
   const profile = useProfile();
   const putRoutine = usePutRoutine();
   const [cache, setCache] = useState<RoutineCache | null>(null);
@@ -48,13 +53,13 @@ export function useRoutineSync(): RoutineSyncState {
   useEffect(() => {
     let live = true;
     void (async () => {
-      const stored = await loadRoutineCache();
+      const stored = accountId ? await loadRoutineCache(accountId) : null;
       if (!live) return;
       setCache(stored);
       setLoading(false);
     })();
     return () => { live = false; };
-  }, []);
+  }, [accountId]);
 
   /**
    * Persist first, then reflect.
@@ -65,10 +70,12 @@ export function useRoutineSync(): RoutineSyncState {
    * below free of a synchronous `setState`, which the React Compiler lint
    * rightly refuses.
    */
-  const write = useCallback((next: RoutineCache): Promise<void> =>
-    saveRoutineCache(next).then(() => {
+  const write = useCallback((next: RoutineCache): Promise<void> => {
+    if (!accountId) return Promise.resolve();
+    return saveRoutineCache(accountId, next).then(() => {
       setCache(next);
-    }), []);
+    });
+  }, [accountId]);
 
   useEffect(() => {
     if (loading) return;

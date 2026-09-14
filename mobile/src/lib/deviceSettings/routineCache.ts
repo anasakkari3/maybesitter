@@ -1,6 +1,15 @@
 /**
  * The routine survey's offline copy (UC-2.R1 #171, UC-2.7a #167).
  *
+ * ── One copy per account, not per device (#148) ──────────────────
+ *
+ * This used to be a single key for the whole installation. `src/api` has
+ * scoped its query keys by uid since #148 for exactly this reason, and the
+ * disk copy did not follow: on the 2026-09-14 audit four accounts shared one
+ * device, and every one of them opened the survey pre-filled with somebody
+ * else's answers. Sleep and focus hours are personal, so every read and write
+ * here names the account it is for, and no caller can forget to.
+ *
  * ── Why there is a local copy at all ─────────────────────────────
  *
  * The account is the source of truth: the server plans the day from the
@@ -29,7 +38,19 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { EMPTY_ANSWERS, type RoutineAnswers } from '../../features/routine/routineProfile';
 
-export const ROUTINE_STORAGE_KEY = 'routine.profile.v1';
+/**
+ * The key an earlier build used for everybody.
+ *
+ * Exported so the purge below can be asserted, and kept only to be deleted:
+ * an installation that has been through the leak is still holding one
+ * account's answers under it.
+ */
+export const LEGACY_SHARED_STORAGE_KEY = 'routine.profile.v1';
+
+/** Where one account's answers live on this device. */
+export function routineStorageKey(accountId: string): string {
+  return `routine.profile.v1.${accountId}`;
+}
 
 export const ROUTINE_CACHE_VERSION = 1;
 
@@ -93,27 +114,31 @@ export function parseRoutineCache(raw: string | null): RoutineCache | null {
   };
 }
 
-export async function loadRoutineCache(): Promise<RoutineCache | null> {
+export async function loadRoutineCache(accountId: string): Promise<RoutineCache | null> {
   try {
-    return parseRoutineCache(await AsyncStorage.getItem(ROUTINE_STORAGE_KEY));
+    // Whoever's answers these were, they are not this account's, and an
+    // upgrade is the last moment anybody can be sure of that. Deleted rather
+    // than adopted: guessing an owner is how the leak would survive the fix.
+    await AsyncStorage.removeItem(LEGACY_SHARED_STORAGE_KEY);
+    return parseRoutineCache(await AsyncStorage.getItem(routineStorageKey(accountId)));
   } catch {
     return null;
   }
 }
 
 /** Returns false when the write did not land, so a caller can say so. */
-export async function saveRoutineCache(cache: RoutineCache): Promise<boolean> {
+export async function saveRoutineCache(accountId: string, cache: RoutineCache): Promise<boolean> {
   try {
-    await AsyncStorage.setItem(ROUTINE_STORAGE_KEY, JSON.stringify(cache));
+    await AsyncStorage.setItem(routineStorageKey(accountId), JSON.stringify(cache));
     return true;
   } catch {
     return false;
   }
 }
 
-export async function clearRoutineCache(): Promise<void> {
+export async function clearRoutineCache(accountId: string): Promise<void> {
   try {
-    await AsyncStorage.removeItem(ROUTINE_STORAGE_KEY);
+    await AsyncStorage.removeItem(routineStorageKey(accountId));
   } catch {
     // Nothing to do: the caller is signing out, and an unremovable cache is
     // not a reason to keep them signed in.

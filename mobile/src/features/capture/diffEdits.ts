@@ -13,6 +13,7 @@
  * review screen was open.
  */
 import type { CaptureProposal, CaptureProposalItem } from '../../api/schemas/capture';
+import { instantForWallClock } from '../../lib/time/zoneOffset';
 import type { CaptureItemEdit } from './captureMachine';
 
 /** One edit, in the shape the confirm request carries. */
@@ -34,19 +35,20 @@ export function instantFromLocalEdit(localDateTime: string, timeZone: string): s
   const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(localDateTime.trim());
   if (!match) return null;
   const [, year, month, day, hour, minute] = match;
-  const guess = Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute));
   try {
     // Two passes, so a zone offset is removed at the offset in force *at* that
     // moment rather than at whatever it is today -- a one-hour error twice a
     // year, on exactly the days a reminder matters most.
-    const parts = new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'longOffset' })
-      .formatToParts(new Date(guess));
-    const name = parts.find((part) => part.type === 'timeZoneName')?.value ?? 'GMT';
-    const offset = /GMT([+-])(\d{2}):(\d{2})/.exec(name);
-    if (!offset) return new Date(guess).toISOString();
-    const sign = offset[1] === '-' ? -1 : 1;
-    const ms = sign * (Number(offset[2]) * 3_600 + Number(offset[3]) * 60) * 1_000;
-    return new Date(guess - ms).toISOString();
+    return instantForWallClock(
+      {
+        year: Number(year),
+        month: Number(month),
+        day: Number(day),
+        hour: Number(hour),
+        minute: Number(minute),
+      },
+      timeZone,
+    ).toISOString();
   } catch {
     return null;
   }

@@ -1,3 +1,10 @@
+// `react-native-gesture-handler` needs its own Jest setup before any component
+// of its own can render: without it `GestureHandlerRootView` throws on
+// `RNGestureHandlerModule.install`. Nothing could assert the app mounts a
+// gesture root until this was wired, which is part of why a missing root
+// reached a device — see `src/__tests__/gestureHandlerRoot.test.tsx`.
+require('react-native-gesture-handler/jestSetup');
+
 // AsyncStorage is a native module: under jest it is null unless mocked, and
 // the language preference reads it on mount, so every render test would fail.
 jest.mock('@react-native-async-storage/async-storage', () =>
