@@ -47,6 +47,20 @@ import type { NextStepRecommendationContract } from '../../src/contracts/v1/next
 const BASE = 'http://127.0.0.1:4321';
 const REFERENCE_TIME = '2026-08-09T08:00:00.000Z';
 
+/**
+ * The clock a PATCH is judged by (#352).
+ *
+ * `REFERENCE_TIME` is sent to the capture route, so it stays a literal. The
+ * PATCH route reads `new Date()` instead, and a past `dueDate` is refused
+ * there now — so the due date this flow sets is an offset from a reference
+ * taken at load, not the frozen `2026-08-10` it used to be. That literal was
+ * in the future when it was written, which is precisely why it stopped saying
+ * anything true.
+ */
+const WALL_CLOCK = new Date();
+const hoursFromNow = (hours: number): string =>
+  new Date(WALL_CLOCK.getTime() + hours * 3_600_000).toISOString();
+
 // Firebase uids rather than minted participant ids. Mixed case on purpose:
 // the id pattern these replaced was lowercase-only and rejected real accounts.
 const A = uidFor('AccountAlice');
@@ -416,7 +430,7 @@ test('authenticated mobile canonical flow stays inside the token uid scope', asy
     const patch = await commitmentPatch(request(`/api/mobile/commitments/${todayId}`, {
       method: 'PATCH',
       participantId: A,
-      body: { title: 'Call Maya with update', dueDate: '2026-08-10T12:00:00.000Z' },
+      body: { title: 'Call Maya with update', dueDate: hoursFromNow(72) },
     }), params(todayId));
     assert.equal(patch.status, 200);
     assert.equal((await json(patch)).title, 'Call Maya with update');

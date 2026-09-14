@@ -27,6 +27,22 @@ const baseUrl = 'http://127.0.0.1:4321';
 const referenceTime = '2026-08-09T08:00:00.000Z';
 
 /**
+ * The clock the PATCH cases are measured from (#352).
+ *
+ * `referenceTime` above is the extractor's "now", handed to it in the request,
+ * so it can be a literal for good. A PATCH has no such field: the route reads
+ * `new Date()`, so a patch time written as a literal is a claim about the real
+ * calendar. The literal that used to sit here — `2026-08-12` — was a month
+ * ahead when it was written and a month behind by the time the past-time rule
+ * was enforced, at which point this test was asserting that the server accepts
+ * a time in the past. Every patch time below is an offset from one reference
+ * taken when this file loads, which cannot go stale in either direction.
+ */
+const WALL_CLOCK = new Date();
+const hoursFromNow = (hours: number): string =>
+  new Date(WALL_CLOCK.getTime() + hours * 3_600_000).toISOString();
+
+/**
  * These routes used to be reachable with no credential at all, and ran on one
  * process-global command service shared by every caller. Since UC-1.0e (#144)
  * every one of them requires a verified Firebase ID token and reads and
@@ -184,7 +200,7 @@ test('mobile API supports capture, confirm, list, detail, patch, action, and del
       new Request(`${baseUrl}/api/mobile/commitments/${commitmentId}`, {
         method: 'PATCH',
         headers: new Headers({ authorization: `Bearer ${tokenFor(USER)}`, 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ dueDate: '2026-08-12T16:00:00.000Z' }),
+        body: JSON.stringify({ dueDate: hoursFromNow(72) }),
       }),
       params(commitmentId)
     );

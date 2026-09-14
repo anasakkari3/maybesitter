@@ -34,6 +34,7 @@ import {
   type CaptureItemEditContract,
 } from '../../../src/contracts/v1/captureContracts';
 import type { Command } from '../../../src/domain/stateMachine';
+import { isPastCommitmentTime } from '../commitments/timeRules';
 
 export class InvalidEditError extends Error {
   constructor(readonly itemId: string, readonly field: string, readonly detail: string) {
@@ -97,10 +98,13 @@ export function validateEdit(
       }
       const parsed = Date.parse(edit.resolvedTime);
       if (!Number.isFinite(parsed)) throw new InvalidEditError(edit.itemId, 'resolvedTime', 'not an instant');
-      // The same rule the capture path already enforces: a reminder in the past
-      // is one that will never fire, and saving it silently is worse than
-      // refusing it.
-      if (parsed < now.getTime()) throw new InvalidEditError(edit.itemId, 'resolvedTime', 'in the past');
+      // A reminder in the past is one that will never fire, and saving it
+      // silently is worse than refusing it. The comparison itself is shared
+      // with `PATCH /api/mobile/commitments/:id` (#352) so that the two paths
+      // cannot drift apart again; only the refusal below is this path's own.
+      if (isPastCommitmentTime(parsed, now)) {
+        throw new InvalidEditError(edit.itemId, 'resolvedTime', 'in the past');
+      }
       normalised.resolvedTime = new Date(parsed).toISOString();
     }
   }

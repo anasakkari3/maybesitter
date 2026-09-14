@@ -6,7 +6,8 @@ import {
   applyParticipantCommand,
   getParticipantStateSnapshot,
 } from './participantState';
-import { localDayKey, normalizeTimezone, parseIsoInstant, resolvedCommitmentTime } from './time';
+import { isPastCommitmentTime, pastTimeMessage } from '../commitments/timeRules';
+import { isDateOnly, localDayKey, normalizeTimezone, parseIsoInstant, resolvedCommitmentTime } from './time';
 
 const HIDDEN_LIST_STATUSES = new Set<Commitment['status']>(['dropped', 'archived']);
 
@@ -148,21 +149,68 @@ function priorityFromMobile(value: unknown): Partial<Priority> | undefined {
  * `null` and absent are not the same answer. Absent means the edit did not
  * touch the time; `null` means the user removed it (UC-2.R3, #173), which is a
  * choice `applyEdits.ts` has always allowed on the capture path and which a
- * commitment that already exists had no way to express.
+ * commitment that already exists had no way to express. `null` is not a time,
+ * so the clock has nothing to say about it.
+ *
+ * A time that *is* supplied goes through the same past-time rule the capture
+ * path enforces (#352). This used to take no clock at all, which is how the
+ * boundary came to accept a `dueDate` the edit sheet and the capture path both
+ * refused: a reminder behind the clock is one that will never fire.
  */
-function optionalInstant(value: unknown, field: string): string | null {
-  return value === null ? null : parseIsoInstant(value, field).toISOString();
+function optionalInstant(value: unknown, field: string, now: Date): string | null {
+  if (value === null) return null;
+  // A bare `YYYY-MM-DD` is refused for being a date, and not for whatever the
+  // hour it would have been given turns out to mean (#352).
+  //
+  // `parseIsoInstant` resolves one to UTC midnight, so today's date arrived
+  // here already behind the clock and was answered "must not be in the past" —
+  // a true sentence about a fabricated instant, and a baffling one to read
+  // about today. A *future* bare date was worse, because it was accepted: it
+  // stored 00:00Z, which is 03:00 for this product's default Asia/Jerusalem
+  // user, so a reminder fired at three in the morning on a day whose hour
+  // nobody had chosen. Both halves are the same mistake — a value with no hour
+  // being given one — and neither is a thing to guess at.
+  //
+  // This is a rule about the shape of a client field, so it lives at this
+  // boundary rather than in `timeRules.ts` next to the past-time rule. The
+  // capture path never reaches it: a `resolvedTime` comes from a picker or the
+  // extractor, already carrying an hour.
+  if (isDateOnly(value)) throw new Error(`${field} must name a time of day, not only a date`);
+  const parsed = parseIsoInstant(value, field);
+  if (isPastCommitmentTime(parsed, now)) throw new Error(pastTimeMessage(field));
+  return parsed.toISOString();
 }
 
-function patchTimeSpec(current: TimeSpec, input: PatchCommitmentInput): Partial<TimeSpec> | undefined {
+/**
+ * `now` is the request's clock, not this function's own.
+ *
+ * It judges only the fields the patch supplies. The commitment's existing time
+ * is never re-judged: there is no "overdue" in this product, and an item whose
+ * hour has gone must stay editable, or a typo in yesterday's title could never
+ * be fixed.
+ *
+ * -- A known hole, not a decision ---------------------------------
+ *
+ * The `remindAt` derived below from a preserved lead is NOT range-checked, and
+ * it is not exempt on principle — it is written by this patch, at this clock,
+ * and it can land in the past. Move a due date to an hour from now on an item
+ * whose reminder ran two hours ahead of it and the stored reminder is an hour
+ * behind the clock: exactly the reminder-that-never-fires this function now
+ * refuses when a client asks for it directly.
+ *
+ * It is left standing because the fix is a product choice this change had no
+ * mandate to make — clamp the lead, drop the reminder, or refuse the move —
+ * and each answer loses something the user asked for. #375 holds that decision.
+ */
+function patchTimeSpec(current: TimeSpec, input: PatchCommitmentInput, now: Date): Partial<TimeSpec> | undefined {
   const hasDueDate = input.dueDate !== undefined;
   const hasReminderTime = input.reminderTime !== undefined;
   if (!hasDueDate && !hasReminderTime) return undefined;
 
-  const dueAt = hasDueDate ? optionalInstant(input.dueDate, 'dueDate') : current.dueAt;
+  const dueAt = hasDueDate ? optionalInstant(input.dueDate, 'dueDate', now) : current.dueAt;
   let remindAt: string | null;
   if (hasReminderTime) {
-    remindAt = optionalInstant(input.reminderTime, 'reminderTime');
+    remindAt = optionalInstant(input.reminderTime, 'reminderTime', now);
   } else if (hasDueDate && current.dueAt && current.remindAt && dueAt) {
     // Keep the gap the user chose rather than collapsing the reminder onto the
     // new due date or stranding it at the old one.
@@ -203,7 +251,7 @@ export async function patchCommitment(
     title: stringField(input.title, 'title'),
     description: stringField(input.description, 'description'),
     priority: priorityFromMobile(input.priority),
-    timeSpec: patchTimeSpec(current.timeSpec, input),
+    timeSpec: patchTimeSpec(current.timeSpec, input, now),
   };
 
   const command: Command = {
