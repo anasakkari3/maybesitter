@@ -5,6 +5,7 @@ import { useAuth } from '../../auth/AuthProvider';
 import { setAuthRepository } from '../auth';
 import { forgetValidators } from '../queries';
 import { createAppQueryClient, installDeviceManagers } from '../queryClient';
+import { clearRoutineCache } from '../../lib/deviceSettings/routineCache';
 
 /**
  * Everything the API layer needs from React, in one place.
@@ -19,7 +20,8 @@ import { createAppQueryClient, installDeviceManagers } from '../queryClient';
  * else's commitments.
  *
  * It runs on every uid change, sign-out included, so a signed-out device holds
- * nothing in memory either.
+ * nothing in memory either — and, since the 2026-09-14 audit, nothing of the
+ * routine survey on disk either.
  */
 export function ApiProvider({
   children,
@@ -59,6 +61,10 @@ export function ApiProvider({
       // The ETags too: a validator is a fact about the previous account's
       // commitments, and sending one for a different user is meaningless.
       forgetValidators();
+      // And the survey answers on disk. Memory was never the whole of "holds
+      // nothing": sleep and focus hours outlived the sign-out and greeted the
+      // next account with them (#148, audit 2026-09-14 F-01).
+      if (previousUid.current) void clearRoutineCache(previousUid.current);
     }
     previousUid.current = uid;
   }, [status, uid, queryClient, resetForNewUser]);

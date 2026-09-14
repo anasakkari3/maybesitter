@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { Platform, View } from 'react-native';
 import { useFonts } from 'expo-font';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { apiLocale } from './src/i18n/locale';
 import { AppProvider } from './src/state/AppContext';
@@ -22,12 +23,24 @@ import { ErrorBoundary } from './src/ui/ErrorBoundary';
  * with a calm retry screen rather than a white rectangle. A boundary mounted
  * *inside* the providers could not catch the case that blanks the app most
  * often, which is a provider itself throwing.
+ *
+ * ── Why the gesture root is outside the boundary ─────────────────
+ *
+ * `react-native-gesture-handler` refuses to construct a handler that has no
+ * `GestureHandlerRootView` above it, and a row on Today is swipeable
+ * (`RowActions.tsx`). Without this the first real active row threw during
+ * render and took the whole screen with it, so an empty Today was the only
+ * Today that worked (audit 2026-09-14, F-02). It sits outside `ErrorBoundary`
+ * so the retry screen is inside it too, and because the library asks to be as
+ * close to the true root as it can get.
  */
 export default function App() {
   return (
-    <ErrorBoundary>
-      <AppTree />
-    </ErrorBoundary>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ErrorBoundary>
+        <AppTree />
+      </ErrorBoundary>
+    </GestureHandlerRootView>
   );
 }
 

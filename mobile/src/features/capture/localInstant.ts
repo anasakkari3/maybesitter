@@ -11,16 +11,11 @@
  *
  * Resolved twice, because the offset at the guess and the offset at the answer
  * differ across a clock change. Two passes is enough for every real zone: none
- * changes offset twice within a day.
+ * changes offset twice within a day. That resolution lives in
+ * `lib/time/zoneOffset`, which reads the offset off the clock instead of
+ * parsing a "GMT+03:00" label Hermes does not report the way Node does.
  */
-function offsetMinutes(instant: Date, timeZone: string): number {
-  const name = new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'longOffset' })
-    .formatToParts(instant)
-    .find((part) => part.type === 'timeZoneName')?.value ?? 'GMT+00:00';
-  const match = /GMT([+-])(\d{2}):(\d{2})/.exec(name);
-  if (!match) return 0;
-  return (match[1] === '-' ? -1 : 1) * (Number(match[2]) * 60 + Number(match[3]));
-}
+import { instantForWallClock } from '../../lib/time/zoneOffset';
 
 /** `YYYY-MM-DDTHH:mm` in `timeZone`, or null when it is not that shape. */
 export function instantForLocalDateTime(value: string, timeZone: string): Date | null {
@@ -29,9 +24,10 @@ export function instantForLocalDateTime(value: string, timeZone: string): Date |
   const [, year, month, day, hour, minute] = match.map(Number) as unknown as number[];
   if (month! < 1 || month! > 12 || day! < 1 || day! > 31 || hour! > 23 || minute! > 59) return null;
 
-  const asUtc = Date.UTC(year!, month! - 1, day!, hour!, minute!, 0, 0);
-  const firstGuess = new Date(asUtc - offsetMinutes(new Date(asUtc), timeZone) * 60_000);
-  return new Date(asUtc - offsetMinutes(firstGuess, timeZone) * 60_000);
+  return instantForWallClock(
+    { year: year!, month: month!, day: day!, hour: hour!, minute: minute! },
+    timeZone,
+  );
 }
 
 /** The inverse: an instant as `YYYY-MM-DDTHH:mm` on the clock in `timeZone`. */
