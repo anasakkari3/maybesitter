@@ -39,6 +39,31 @@ export function pastTimeMessage(field: string): string {
 }
 
 /**
+ * When moving the due date would drag the reminder behind the clock (#375).
+ *
+ * A patch that supplies only `dueDate` keeps the gap the user chose and derives
+ * `remindAt = dueAt - lead` (#134). Move the due date to inside that gap and the
+ * derived reminder lands in the past: the same never-fires reminder
+ * `pastTimeMessage` refuses when a client asks for one directly, arriving as a
+ * consequence rather than as a request.
+ *
+ * It gets its own sentence rather than `pastTimeMessage('remindAt')` because
+ * that sentence would not be true of anything the caller did. They sent a due
+ * date, and it was a fine due date; what failed is that their existing lead no
+ * longer fits in front of it. Naming `remindAt` — a field this request never
+ * mentions — would send someone looking for a mistake they did not make.
+ *
+ * So it names the field that was supplied, states the consequence in the
+ * conditional (nothing was written, and `would` has to keep saying so), and
+ * gives both ways out: send the reminder explicitly — an instant, or `null` to
+ * drop it — or leave more room in front of the due date.
+ */
+export function reminderLeadNoLongerFitsMessage(field: string): string {
+  return `${field} is sooner than this commitment's reminder lead, so the reminder would land in the past: `
+    + 'send reminderTime with it, or move the due date later';
+}
+
+/**
  * Whether an instant the user has just chosen is behind the clock.
  *
  * Exactly `now` is not past: a time chosen at this millisecond is a time the

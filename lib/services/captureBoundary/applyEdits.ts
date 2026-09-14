@@ -35,6 +35,7 @@ import {
 } from '../../../src/contracts/v1/captureContracts';
 import type { Command } from '../../../src/domain/stateMachine';
 import { isPastCommitmentTime } from '../commitments/timeRules';
+import { isDateOnly } from '../mobile/time';
 
 export class InvalidEditError extends Error {
   constructor(readonly itemId: string, readonly field: string, readonly detail: string) {
@@ -95,6 +96,26 @@ export function validateEdit(
     } else {
       if (typeof edit.resolvedTime !== 'string') {
         throw new InvalidEditError(edit.itemId, 'resolvedTime', 'not a string');
+      }
+      // Refused for being a date, before anything gives it an hour (#375).
+      //
+      // `Date.parse('2099-01-15')` is UTC midnight, which is a real instant and
+      // so passes every check below — including the past-time rule, when the
+      // date is far enough ahead. That midnight is 03:00 for this product's
+      // default Asia/Jerusalem user, so a bare date was accepted and scheduled
+      // a reminder at three in the morning on an hour nobody chose. #352 fixed
+      // the same hole on the PATCH path and left this one, because its brief
+      // was to keep this file's behaviour identical; the two answer the same
+      // question now.
+      //
+      // The shape test is shared with that boundary (`isDateOnly`) while the
+      // refusal stays this path's own, the same split the past-time rule uses.
+      // No caller in the app can reach this: both edit sheets convert a picked
+      // wall clock through `toISOString()`. `editsFrom` in
+      // `mobileCaptureService.ts` validates shape and not format, though, so
+      // any other client of `POST /api/mobile/capture/confirm` can.
+      if (isDateOnly(edit.resolvedTime)) {
+        throw new InvalidEditError(edit.itemId, 'resolvedTime', 'a date with no time of day');
       }
       const parsed = Date.parse(edit.resolvedTime);
       if (!Number.isFinite(parsed)) throw new InvalidEditError(edit.itemId, 'resolvedTime', 'not an instant');
