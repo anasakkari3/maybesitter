@@ -6,6 +6,16 @@ import { patchTimeSpecForTest } from '../../lib/services/mobile/commitmentServic
 // must carry that gap with it, and an edit that does not touch the time must
 // not touch the reminder either.
 
+/**
+ * The clock these cases are measured against, supplied rather than read.
+ *
+ * `patchTimeSpec` refuses a time behind `now` (#352), so every date below is
+ * only meaningful next to the clock it is being judged by. Passing that clock
+ * in is what keeps these literals from rotting into the past and turning these
+ * assertions into claims about a rule that no longer applies.
+ */
+const CLOCK = new Date('2026-08-20T00:00:00.000Z');
+
 test('moving the due date carries the reminder lead time with it', () => {
   const current = {
     kind: 'due_by' as const,
@@ -13,7 +23,7 @@ test('moving the due date carries the reminder lead time with it', () => {
     remindAt: '2026-08-23T10:00:00.000Z', // two hours ahead
     timezone: 'Asia/Jerusalem',
   };
-  const patched = patchTimeSpecForTest(current, { dueDate: '2026-08-25T12:00:00.000Z' });
+  const patched = patchTimeSpecForTest(current, { dueDate: '2026-08-25T12:00:00.000Z' }, CLOCK);
   assert.equal(patched?.dueAt, '2026-08-25T12:00:00.000Z');
   assert.equal(patched?.remindAt, '2026-08-25T10:00:00.000Z');
 });
@@ -25,7 +35,7 @@ test('a commitment with no reminder gains none when its due date moves', () => {
     remindAt: null,
     timezone: 'Asia/Jerusalem',
   };
-  const patched = patchTimeSpecForTest(current, { dueDate: '2026-08-25T12:00:00.000Z' });
+  const patched = patchTimeSpecForTest(current, { dueDate: '2026-08-25T12:00:00.000Z' }, CLOCK);
   assert.equal(patched?.remindAt, null);
 });
 
@@ -39,7 +49,7 @@ test('an explicit reminder time wins over the preserved lead time', () => {
   const patched = patchTimeSpecForTest(current, {
     dueDate: '2026-08-25T12:00:00.000Z',
     reminderTime: '2026-08-25T08:00:00.000Z',
-  });
+  }, CLOCK);
   assert.equal(patched?.remindAt, '2026-08-25T08:00:00.000Z');
 });
 
@@ -53,5 +63,5 @@ test('a title-only patch leaves the time spec untouched', () => {
     remindAt: '2026-08-23T10:00:00.000Z',
     timezone: 'Asia/Jerusalem',
   };
-  assert.equal(patchTimeSpecForTest(current, { title: 'Fixed a typo' }), undefined);
+  assert.equal(patchTimeSpecForTest(current, { title: 'Fixed a typo' }, CLOCK), undefined);
 });

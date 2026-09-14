@@ -16,6 +16,20 @@ const CARRIES_OFFSET = /(?:Z|[+-]\d{2}:?\d{2})$/i;
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
+ * A value that names a day but no hour.
+ *
+ * `parseIsoInstant` resolves one to UTC midnight, which is a real instant and
+ * so passes every check an instant faces. Callers for whom "which hour" is
+ * part of the answer — anything that will schedule a reminder off the value —
+ * have to be able to tell the two apart before that midnight becomes a time
+ * the user never picked. Exported so the regex has one owner rather than a
+ * copy at each such caller.
+ */
+export function isDateOnly(value: unknown): boolean {
+  return typeof value === 'string' && DATE_ONLY.test(value.trim());
+}
+
+/**
  * Parse a client-supplied timestamp into an unambiguous instant.
  *
  * `new Date('2026-08-23T15:00:00')` resolves an offset-less datetime against

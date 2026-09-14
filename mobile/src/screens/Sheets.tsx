@@ -129,12 +129,21 @@ const PRESET_LABEL = (t: Strings): Record<PostponePreset, string> => ({
  * sheet that refused to save it would mean a typo in yesterday's title could
  * never be fixed.
  *
- * Unlike that path, the refusal here is the client's alone: `PATCH
- * /api/mobile/commitments/:id` still accepts a past `dueDate`. Closing that
- * needs the three route tests whose fixtures are pinned to a frozen past
- * (`mobileApiRoutes`, `mobilePilotApiRoutes`, `exportMobileApiFixtures`) moved
- * onto a relative clock first, and that is a change to files this sprint is
- * editing elsewhere. #173 carries it as the follow-up.
+ * The server enforces it too, since #352: `PATCH /api/mobile/commitments/:id`
+ * answers 400 `dueDate must not be in the past` for a past `dueDate` or
+ * `reminderTime`, through the same rule `applyEdits.ts` uses
+ * (`lib/services/commitments/timeRules.ts`). The check here is not the
+ * protection, then — it is the message, shown at the moment of the tap instead
+ * of after a round trip.
+ *
+ * The two are not the same comparison, and deliberately so. `timeRules` uses
+ * `<`, so an instant of exactly `now` is allowed; the `<=` below refuses it.
+ * The difference is one millisecond, in the direction where the client is the
+ * stricter of the two, which is the only direction that is safe: everything
+ * this sheet lets through, the boundary also accepts. The reverse would be a
+ * save that fails with a generic error after the round trip. Do not "fix" this
+ * by loosening the client to `<` — a time the user picked at this exact
+ * millisecond is already gone by the time the request lands.
  *
  * Only changed fields are sent. `usePatchCommitment` makes the write
  * conditional on the validator it remembered, so an edit from a screen another

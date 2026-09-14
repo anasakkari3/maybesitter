@@ -16,6 +16,7 @@ import {
 } from '../../../src/contracts/v1/captureContracts';
 import { applyEditToCommands, InvalidEditError, validateEdit } from './applyEdits';
 import { buildClarification } from './clarificationBuilder';
+import { isPastCommitmentTime } from '../commitments/timeRules';
 import { NegatedRequestError } from '../mobile/safety';
 import type { Command } from '../../../src/domain/stateMachine';
 import type { CapturePersistenceAdapter } from './persistenceAdapter';
@@ -123,7 +124,10 @@ function semanticFailure(result: ExtractionResult, now: Date): string | null {
   if (title.length < 3) return 'missing_title';
   if (INJECTION.test(result.rawText)) return 'prompt_injection';
   const resolved = result.remindAt || result.dueAt;
-  if (resolved && Date.parse(resolved) < now.getTime()) return 'past_time';
+  // Same rule as the capture edits and the mobile PATCH, asked in one place
+  // (#352); only the answer differs, because a refusal here is a reason code
+  // on a proposal rather than an error.
+  if (resolved && isPastCommitmentTime(Date.parse(resolved), now)) return 'past_time';
   return null;
 }
 

@@ -1,6 +1,7 @@
 import type { ExtractAndMapOptions, ExtractWithFallbackResult } from '../../../src/extraction/extractionService';
 import { extractWithFallback } from '../../../src/extraction/extractionService';
 import type { ExtractionContext } from '../../../src/extraction/extractionTypes';
+import { isPastCommitmentTime, pastTimeMessage } from '../commitments/timeRules';
 import { parseIsoInstant } from './time';
 
 /**
@@ -29,12 +30,18 @@ type MobileExtractor = (
   options?: ExtractAndMapOptions
 ) => Promise<ExtractWithFallbackResult>;
 
+/**
+ * The extractor's answer, checked against the clock it was asked about.
+ *
+ * This wrote its own comparison and its own copy of the wording. `timeRules`
+ * owns both now (#352) — the wording especially, since this file is where
+ * `must not be in the past` was first phrased and the PATCH boundary had to
+ * match it by hand to stay consistent.
+ */
 function assertSafeTime(value: string | null, now: Date, field: string): void {
   if (!value) return;
   const parsed = parseIsoInstant(value, field);
-  if (parsed.getTime() < now.getTime()) {
-    throw new Error(`${field} must not be in the past`);
-  }
+  if (isPastCommitmentTime(parsed, now)) throw new Error(pastTimeMessage(field));
 }
 
 export async function guardedMobileExtract(

@@ -17,6 +17,11 @@ import { applyCommand, createEmptyDomainState } from '../../src/domain/stateMach
 import type { Command, DomainState } from '../../src/domain/stateMachine.ts';
 import { patchTimeSpecForTest } from '../../lib/services/mobile/commitmentService.ts';
 
+/**
+ * The clock supplied to `patchTimeSpec`, which refuses a time behind it (#352).
+ * Injected rather than read, so `DUE` below stays a future time for good.
+ */
+const CLOCK = new Date('2026-11-01T09:00:00.000Z');
 const TIMEZONE = 'Asia/Jerusalem';
 const DUE = '2026-11-20T12:00:00.000Z';
 const REMIND = '2026-11-20T10:00:00.000Z';
@@ -27,9 +32,9 @@ function timed() {
 
 test('null clears the due time, and is not the same as the field being absent', () => {
   // Absent: the patch did not touch the time, so nothing about it is returned.
-  assert.equal(patchTimeSpecForTest(timed(), { title: 'A typo fixed' }), undefined);
+  assert.equal(patchTimeSpecForTest(timed(), { title: 'A typo fixed' }, CLOCK), undefined);
 
-  const cleared = patchTimeSpecForTest(timed(), { dueDate: null, reminderTime: null });
+  const cleared = patchTimeSpecForTest(timed(), { dueDate: null, reminderTime: null }, CLOCK);
   assert.equal(cleared?.dueAt, null);
   assert.equal(cleared?.remindAt, null);
   // A commitment with nothing to be due by is unscheduled, which is what the
@@ -39,7 +44,7 @@ test('null clears the due time, and is not the same as the field being absent', 
 });
 
 test('clearing the reminder alone leaves the due time standing', () => {
-  const patched = patchTimeSpecForTest(timed(), { reminderTime: null });
+  const patched = patchTimeSpecForTest(timed(), { reminderTime: null }, CLOCK);
   assert.equal(patched?.dueAt, DUE);
   assert.equal(patched?.remindAt, null);
   // Still a deadline, just an unreminded one.
@@ -47,7 +52,7 @@ test('clearing the reminder alone leaves the due time standing', () => {
 });
 
 test('a move is still a move: null did not become the answer to everything', () => {
-  const patched = patchTimeSpecForTest(timed(), { dueDate: '2026-11-22T12:00:00.000Z' });
+  const patched = patchTimeSpecForTest(timed(), { dueDate: '2026-11-22T12:00:00.000Z' }, CLOCK);
   assert.equal(patched?.dueAt, '2026-11-22T12:00:00.000Z');
   // The two-hour lead the user chose travels with it (UC-0.2c, #134).
   assert.equal(patched?.remindAt, '2026-11-22T10:00:00.000Z');
@@ -89,7 +94,7 @@ test('clearing the time cancels the reminder that was pending', () => {
     type: 'UpdateCommitment',
     commitmentId: 'cmt_clear',
     now: '2026-11-02T09:00:00.000Z',
-    updates: { timeSpec: patchTimeSpecForTest(timed(), { dueDate: null, reminderTime: null }) },
+    updates: { timeSpec: patchTimeSpecForTest(timed(), { dueDate: null, reminderTime: null }, CLOCK) },
   } as Command).newState;
 
   assert.equal(after.commitments.cmt_clear!.timeSpec.kind, 'unscheduled');

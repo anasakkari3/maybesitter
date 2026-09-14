@@ -84,6 +84,18 @@ import {
 
 const BASE = 'http://127.0.0.1:4321';
 const REFERENCE_TIME = '2026-08-09T08:00:00.000Z';
+
+/**
+ * The due date the PATCH fixture is recorded with (#352).
+ *
+ * Every other time here is handed to a route as `referenceTime`, so a literal
+ * is safe. PATCH reads the real clock and refuses a past `dueDate`, so this
+ * one is an offset from a reference taken at load. `stabilise` rewrites it to
+ * `STABLE_INSTANT` before it is written, so the recorded contract stays
+ * byte-identical between runs — a clock-relative input, a deterministic file.
+ */
+const WALL_CLOCK = new Date();
+const PATCHED_DUE_DATE = new Date(WALL_CLOCK.getTime() + 72 * 3_600_000).toISOString();
 const USER = uidFor('FixtureUser');
 
 const FIXTURES = join(
@@ -265,7 +277,7 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       new Request(`${BASE}/api/mobile/commitments/${commitmentId}`, {
         method: 'PATCH',
         headers: { authorization: `Bearer ${tokenFor(USER)}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ title: 'Call the dentist', dueDate: '2026-08-10T14:00:00.000Z' }),
+        body: JSON.stringify({ title: 'Call the dentist', dueDate: PATCHED_DUE_DATE }),
       }),
       params(commitmentId),
     ));
