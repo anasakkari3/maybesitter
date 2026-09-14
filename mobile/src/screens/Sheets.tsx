@@ -7,7 +7,7 @@ import { ltr } from '../i18n/strings';
 import { useTimeZone } from '../i18n/timezone';
 import { formatDate, formatRelativeDay, formatTime } from '../i18n/format';
 import { useCommitment, useCommitmentAction, useDeleteCommitment, usePatchCommitment } from '../api/queries';
-import { POSTPONE_PRESETS, postponeTo, type PostponePreset } from '../features/commitments/postpone';
+import { POSTPONE_PRESETS, isPostponable, postponeTo, type PostponePreset } from '../features/commitments/postpone';
 import { buildTimePatch } from '../features/commitments/timePatch';
 import { instantForLocalDateTime, localDateTimeFor } from '../features/capture/localInstant';
 import type { CommitmentPatch } from '../api/endpoints/commitments';
@@ -31,7 +31,7 @@ import { useSheetMotion } from '../ui/motion';
  */
 
 /**
- * "Not now" — the four presets (UC-2.R3, #173).
+ * "Not now" — the four presets and "some other time" (UC-2.R3, #173; #337).
  *
  * This replaces the prototype's Rearrange sheet. Three of that sheet's four
  * choices — "Intensify: same content, shorter time", "Do less of it", "Move
@@ -41,6 +41,27 @@ import { useSheetMotion } from '../ui/motion';
  *
  * Each preset shows the instant it resolves to, because "next week" is a
  * promise and 09:00 next Tuesday is the thing the user is actually agreeing to.
+ *
+ * ── The custom picker ────────────────────────────────────────────
+ *
+ * "Some other time" opens the same two pieces the edit sheet below runs on —
+ * `@react-native-community/datetimepicker` and `localInstant.ts` — rather than
+ * a second date UI. The wall-clock string is the state and the conversion to an
+ * instant happens in the user's zone, so nothing here parses a local string in
+ * whatever zone the host happens to be in. That is the same rule `postpone.ts`
+ * states for the presets, and the arithmetic is not repeated: a preset is
+ * `postponeTo`, a custom time is `instantForLocalDateTime`, and this sheet
+ * computes neither itself.
+ *
+ * ── A past time is refused ───────────────────────────────────────
+ *
+ * The presets need no guard: each is `now` plus something, so none can resolve
+ * into the past. The custom picker can, and `postponeCommitment` on the server
+ * answers a past `postponedUntil` with a 400 before the state machine sees it.
+ * `isPostponable` says the same thing here first — checked when the button is
+ * pressed, because reading the clock in a render body is an impure call the
+ * compiler rules refuse, and because pressing it is the moment the answer
+ * matters. The refusal is visible and localised; nothing is sent.
  */
 function PostponeSheet() {
   const { s, t, p, lang, actions } = useApp();
@@ -49,17 +70,38 @@ function PostponeSheet() {
   const act = useCommitmentAction();
   const now = new Date();
 
-  const choose = (preset: PostponePreset) => {
+  // `''` is "the custom picker is closed". The same representation the edit
+  // sheet uses for "no time": a wall-clock `YYYY-MM-DDTHH:mm` in `timezone`.
+  const [local, setLocal] = useState('');
+  const [picking, setPicking] = useState<'date' | 'time' | null>(null);
+  const [pastTime, setPastTime] = useState(false);
+  const custom = local !== '';
+  const instant = custom ? instantForLocalDateTime(local, timezone) : null;
+
+  const send = (until: string) => {
     const id = query.data?.id;
     if (!id) return;
-    // No past-instant guard here, and none is needed: every preset is `now`
-    // plus something, so none can resolve into the past. `isPostponable` is
-    // for the custom picker, where the user really can choose yesterday — it
-    // lands with that picker rather than as an unreachable branch here.
-    const until = postponeTo(preset, new Date(), timezone);
     act.mutate({ id, action: 'postpone', postponedUntil: until }, {
       onSuccess: () => actions.toast(t.toastPostponed),
     });
+  };
+
+  const choose = (preset: PostponePreset) => {
+    // No past-instant guard here, and none is needed: every preset is `now`
+    // plus something, so none can resolve into the past.
+    send(postponeTo(preset, new Date(), timezone));
+  };
+
+  const confirmCustom = () => {
+    if (!instant) return;
+    // The one branch the presets cannot reach: the user really can pick
+    // yesterday. Judged against the clock at the press, not at the render.
+    if (!isPostponable(instant.toISOString(), new Date())) {
+      setPastTime(true);
+      return;
+    }
+    setPastTime(false);
+    send(instant.toISOString());
   };
 
   return (
@@ -86,6 +128,78 @@ function PostponeSheet() {
           );
         })}
       </View>
+
+      {custom ? (
+        <View style={{ gap: 10 }}>
+          <Txt size={13} color={p.mu}>{t.postponeCustomWhen}</Txt>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <Btn
+              testID="postpone-pick-date"
+              label={t.editItemDate}
+              onPress={() => setPicking('date')}
+              style={{ flex: 1, backgroundColor: p.sf2, borderRadius: 18, paddingVertical: 12, alignItems: 'center', minHeight: 48, justifyContent: 'center' }}
+            >
+              <Txt size={14} testID="postpone-custom-date">{instant ? formatDate(instant, 'short', { locale: lang, timeZone: timezone }) : t.editItemDate}</Txt>
+            </Btn>
+            <Btn
+              testID="postpone-pick-time"
+              label={t.editItemTime}
+              onPress={() => setPicking('time')}
+              style={{ flex: 1, backgroundColor: p.sf2, borderRadius: 18, paddingVertical: 12, alignItems: 'center', minHeight: 48, justifyContent: 'center' }}
+            >
+              {/* `latin` and `ltr()`: a time in a tight box, kept left-to-right
+                  inside an Arabic or Hebrew line. Latin digits come from
+                  `intlLocale` (`ar-u-nu-latn`), not from anything decided here. */}
+              <Txt size={14} latin testID="postpone-custom-time">{instant ? ltr(formatTime(instant, { locale: lang, timeZone: timezone })) : t.editItemTime}</Txt>
+            </Btn>
+          </View>
+
+          {picking ? (
+            <DateTimePicker
+              testID="postpone-picker"
+              value={instant ?? new Date()}
+              mode={picking}
+              // 24-hour follows the locale rather than the platform default,
+              // the same way `formatTime` does, so the sheet and the card agree.
+              is24Hour={!`${new Intl.DateTimeFormat(lang, { hour: 'numeric' }).resolvedOptions().hourCycle}`.startsWith('h1')}
+              display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+              onChange={(_event, picked) => {
+                setPicking(Platform.OS === 'ios' ? picking : null);
+                if (picked) {
+                  setLocal(localDateTimeFor(picked, timezone));
+                  // Their answer to the complaint; judged again on confirm.
+                  setPastTime(false);
+                }
+              }}
+            />
+          ) : null}
+
+          {pastTime ? <Txt size={13} color={p.wm} testID="postpone-problem">{t.editItemPast}</Txt> : null}
+
+          <Pill
+            testID="postpone-custom-confirm"
+            label={t.postponeCustomConfirm}
+            onPress={confirmCustom}
+            disabled={act.isPending || instant === null}
+          />
+        </View>
+      ) : (
+        <Btn
+          testID="postpone-custom"
+          label={t.postponeCustom}
+          disabled={act.isPending}
+          // An hour from now is the offer, not a default that gets sent: the
+          // same starting point the edit sheet gives an item that never had a
+          // time, and the same instant `oneHour` would have resolved to.
+          onPress={() => {
+            setLocal(localDateTimeFor(new Date(Date.now() + 3600_000), timezone));
+            setPastTime(false);
+          }}
+          style={{ backgroundColor: p.sf2, borderRadius: 20, padding: 16, minHeight: 56, alignItems: 'flex-start', justifyContent: 'center', opacity: act.isPending ? 0.4 : 1 }}
+        >
+          <Txt size={16} weight={600}>{t.postponeCustom}</Txt>
+        </Btn>
+      )}
     </View>
   );
 }
