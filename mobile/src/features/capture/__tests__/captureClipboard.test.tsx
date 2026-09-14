@@ -57,13 +57,22 @@ const COPIED = 'Hand in the report tomorrow at 3, and call Sami';
 let client: QueryClient;
 let repository: ReturnType<typeof createFakeAuthRepository>;
 
+// A literal instant is a claim about the real calendar, and these fixtures flow
+// into the edit sheet, whose guard refuses a time that has already passed. So a
+// literal does not merely age — it rots into a failing suite the moment the wall
+// clock walks past it, which is exactly what happened on 2026-09-14 (#352 fixed
+// the same rot on the backend's tests). Derive from the clock the test runs on.
+const hoursFromNow = (hours: number) => new Date(Date.now() + hours * 3_600_000).toISOString();
+const SOON = hoursFromNow(6);
+const LATER = hoursFromNow(7);
+
 function proposal(over: Record<string, unknown> = {}) {
   return {
     version: 'v1',
     proposalId: 'p-1',
     status: 'proposed',
     items: [
-      { itemId: 'i-1', title: 'Hand in the report', resolvedTime: '2026-09-14T15:00:00.000Z', needsClarification: false },
+      { itemId: 'i-1', title: 'Hand in the report', resolvedTime: SOON, needsClarification: false },
     ],
     provenance: { requestedEngine: 'rules', executedEngine: 'rule-based', fallbackUsed: false },
     ...over,
@@ -74,7 +83,7 @@ function confirmation(over: Record<string, unknown> = {}) {
   return {
     success: true,
     replayed: false,
-    persisted: [{ itemId: 'i-1', commitmentId: 'c-1', title: 'Hand in the report', resolvedTime: '2026-09-14T15:00:00.000Z' }],
+    persisted: [{ itemId: 'i-1', commitmentId: 'c-1', title: 'Hand in the report', resolvedTime: SOON }],
     failed: [],
     ...over,
   };
