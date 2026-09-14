@@ -41,7 +41,8 @@ import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
 import { configureCommandService } from '../../lib/services/commandService.ts';
-import { createEmptyDomainState } from '../../src/domain/stateMachine.ts';
+import { applyCommand as applyDomainCommand, createEmptyDomainState } from '../../src/domain/stateMachine.ts';
+import { persistParticipantState, readParticipantState } from '../../lib/services/mobile/participantState.ts';
 import { POST as capturePost } from '../../src/app/api/mobile/capture/route.ts';
 import { POST as confirmPost } from '../../src/app/api/mobile/capture/confirm/route.ts';
 import { POST as clarifyPost } from '../../src/app/api/mobile/capture/clarify/route.ts';
@@ -81,6 +82,15 @@ import {
   AI_CONSENT_VERSION,
   RECOMMENDATION_CONSENT_VERSION,
 } from '../../src/contracts/v1/consentContracts.ts';
+import { GET as planGet } from '../../src/app/api/mobile/plans/[date]/route.ts';
+import { POST as planActionPost } from '../../src/app/api/mobile/plans/[date]/actions/route.ts';
+import { POST as planRegeneratePost } from '../../src/app/api/mobile/plans/[date]/regenerate/route.ts';
+import { GET as planSettingsGet, PUT as planSettingsPut } from '../../src/app/api/mobile/settings/plan/route.ts';
+import {
+  buildAndStoreDailyPlan,
+  claimDueDelivery,
+  savePlanSettings,
+} from '../../lib/services/dailyPlan/dailyPlanService.ts';
 
 const BASE = 'http://127.0.0.1:4321';
 const REFERENCE_TIME = '2026-08-09T08:00:00.000Z';
@@ -114,6 +124,13 @@ const PREFIXED_ID = /^(next-step|fbk|incident|flag)[-_][0-9a-f]+$/i;
 const MEMORY_ID = /^mem_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
 const STABLE_INSTANT = '2026-08-09T09:00:00.000Z';
+/**
+ * A plan's `inputDigest` (#194): sha256 hex over the planning request, so it
+ * moves with the capture's random commitment ids and would otherwise rewrite
+ * the plan fixtures on every run.
+ */
+const DIGEST = /^[0-9a-f]{64}$/;
+const STABLE_DIGEST = '0'.repeat(64);
 
 /**
  * Replaces the values that differ between two identical runs, and only those.
@@ -129,6 +146,7 @@ function stabilise(value: unknown, counters: Map<string, number>): unknown {
   }
   if (typeof value !== 'string') return value;
   if (INSTANT.test(value)) return value === REFERENCE_TIME ? value : STABLE_INSTANT;
+  if (DIGEST.test(value)) return STABLE_DIGEST;
   if (MEMORY_ID.test(value)) return `mem_${stableId('00000000-0000-4000-8000-', 12, counters)}`;
   if (UUID.test(value)) return stableId('00000000-0000-4000-8000-', 12, counters);
   const prefixed = PREFIXED_ID.exec(value);
@@ -155,6 +173,10 @@ function request(path: string, options: { method?: string; body?: unknown; uid?:
 
 function params(id: string): { params: Promise<{ id: string }> } {
   return { params: Promise.resolve({ id }) };
+}
+
+function dateParams(date: string): { params: Promise<{ date: string }> } {
+  return { params: Promise.resolve({ date }) };
 }
 
 /**
@@ -532,6 +554,79 @@ test('exports a fixture for every /api/mobile call the React Native client makes
         method: 'DELETE',
         headers: { authorization: `Bearer ${tokenFor(USER)}` },
       }),
+    ));
+
+    // ── the daily plan (#194), rendered by UC-3.10b (#195) ─────────
+    // The settings pair first: `nextRunAt` is the server's own answer to "when
+    // does my next plan arrive", which the screen shows rather than recomputing
+    // a DST boundary on the phone.
+    await record('plan.settingsDefault', 200, await planSettingsGet(request('/api/mobile/settings/plan')));
+    await record('plan.settingsSaved', 200, await planSettingsPut(request('/api/mobile/settings/plan', {
+      method: 'PUT',
+      body: { enabled: true, deliveryLocalTime: '07:30' },
+    })));
+
+    // A real plan, built the way the morning job builds one: arm the delivery,
+    // claim it, build it. No model is configured in this suite, so the
+    // explanation is the deterministic template — which is also the shape the
+    // client sees whenever a model call falls back.
+    const PLAN_DATE = '2026-08-09';
+
+    // Three undated commitments, written straight into the account's domain
+    // state, purely so the plan below has something to place. The capture flow
+    // above leaves this user with one dated commitment and one deleted one, and
+    // a fixture whose `scheduled` array is empty would never exercise the item
+    // schema the plan screen (#195) parses. Nothing about the backend changes;
+    // this only gives the recorded response something to be about.
+    const seedState = ['Write the summary', 'Call the bank', 'Book the train'].reduce(
+      (state, title, index) => {
+        const id = `plan_fixture_${index}`;
+        const drafted = applyDomainCommand(state, {
+          type: 'CreateDraft',
+          now: REFERENCE_TIME,
+          commitment: { id, kind: 'task', title, timeSpec: { kind: 'due_by', dueAt: null, remindAt: null, timezone: 'Asia/Jerusalem' } },
+          draftStatus: 'pending_confirmation',
+        }).newState;
+        return applyDomainCommand(drafted, { type: 'ConfirmCommitment', commitmentId: id, now: REFERENCE_TIME, reminders: [] }).newState;
+      },
+      await readParticipantState(USER),
+    );
+    await persistParticipantState(USER, seedState);
+
+    await savePlanSettings(USER, { enabled: true, deliveryLocalTime: '07:30' }, new Date('2026-08-08T12:00:00.000Z'));
+    const claim = await claimDueDelivery(USER, new Date('2026-08-09T06:00:00.000Z'));
+    assert.ok(claim, 'the fixture user was not due for a plan');
+    assert.equal(claim.date, PLAN_DATE);
+    await buildAndStoreDailyPlan(claim, { now: () => new Date(REFERENCE_TIME) });
+
+    const plan = await record('plan.today', 200, await planGet(request(`/api/mobile/plans/${PLAN_DATE}`), dateParams(PLAN_DATE)));
+    assert.ok(
+      ((plan.plan as { scheduled: unknown[] }).scheduled).length > 0,
+      'the plan fixture placed nothing, so the item schema it exists to pin is never exercised',
+    );
+
+    await record('plan.accepted', 200, await planActionPost(
+      request(`/api/mobile/plans/${PLAN_DATE}/actions`, { body: { action: 'accept' } }),
+      dateParams(PLAN_DATE),
+    ));
+
+    // The 422 the plan screen has to render next to the item the user dragged:
+    // a reason code and the item it is about, not a sentence.
+    await record('plan.editRejected', 422, await planActionPost(
+      request(`/api/mobile/plans/${PLAN_DATE}/actions`, {
+        body: { action: 'edit', moves: [{ itemId: 'not-in-this-plan', startsAt: '2026-08-09T09:00:00.000Z' }] },
+      }),
+      dateParams(PLAN_DATE),
+    ));
+
+    await record('plan.regenerated', 200, await planRegeneratePost(
+      request(`/api/mobile/plans/${PLAN_DATE}/regenerate`, { body: {} }),
+      dateParams(PLAN_DATE),
+    ));
+
+    await record('plan.notFound', 404, await planGet(
+      request('/api/mobile/plans/2026-08-10'),
+      dateParams('2026-08-10'),
     ));
 
     // ── the refusals every screen must be able to render ───────────

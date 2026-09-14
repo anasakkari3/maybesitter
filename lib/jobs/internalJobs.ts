@@ -18,6 +18,7 @@
  * would make `applyCommand` create jobs fire-and-forget.
  */
 import { resumeStalledDeletions } from '../account/accountDeletion';
+import { runDailyPlanTick, type DailyPlanTickTotals } from '../services/dailyPlan/dailyPlanService';
 import { applyParticipantCommand } from '../services/mobile/participantState';
 import { ValidationError } from '../../src/domain/stateMachine';
 import { runDueJobs, type CommandHandler, type SchedulerStore } from '../../src/scheduler/jobRunner';
@@ -170,6 +171,7 @@ export interface InternalJobsDeps {
   verify?: OidcVerify;
   tick?: () => Promise<TickTotals>;
   maintenance?: () => Promise<{ ok: boolean; steps: MaintenanceStep[] }>;
+  dailyPlan?: () => Promise<DailyPlanTickTotals>;
 }
 
 function authOptions(deps: InternalJobsDeps): { env?: NodeJS.ProcessEnv; verify?: OidcVerify } {
@@ -186,6 +188,30 @@ export async function handleJobsRunRequest(request: HeaderBearing, deps: Interna
     // A 5xx makes Cloud Scheduler retry; the detail goes to the log only.
     console.error('[internal/jobs/run] tick failed', error);
     return Response.json({ error: 'job_run_failed' }, { status: 500 });
+  }
+}
+
+/**
+ * `POST /api/internal/jobs/daily-plan` (UC-3.10a, #194).
+ *
+ * Its own route rather than a step inside `runJobsTick`, and the separation is
+ * the point. `/jobs/run` answers 5xx so that Cloud Scheduler retries the
+ * *reminder* queue; folding plan building into it would mean one account's
+ * unreadable profile made every user's due reminders run twice. The two crons
+ * fail independently because they are two crons.
+ *
+ * The guard is the same `authorizeSchedulerRequest` — the same audience, the
+ * same service account, the same "every refusal looks identical" 401. There is
+ * deliberately no second OIDC implementation for this endpoint.
+ */
+export async function handleDailyPlanRequest(request: HeaderBearing, deps: InternalJobsDeps = {}): Promise<Response> {
+  const auth = await authorizeSchedulerRequest(request, authOptions(deps));
+  if (!auth.ok) return schedulerAuthErrorResponse(auth);
+  try {
+    return Response.json(await (deps.dailyPlan ?? runDailyPlanTick)());
+  } catch (error) {
+    console.error('[internal/jobs/daily-plan] sweep failed', error);
+    return Response.json({ error: 'daily_plan_failed' }, { status: 500 });
   }
 }
 

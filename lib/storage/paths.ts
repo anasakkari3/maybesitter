@@ -83,6 +83,23 @@ export const CAPTURE_PROPOSALS = 'captureProposals';
 export const PROFILE_PROPOSALS = 'profileProposals';
 /** One document per UTC day: how many model calls this account has spent (#160). */
 export const USAGE = 'usage';
+/**
+ * One document per local day: the plan the morning job built (UC-3.10a, #194).
+ *
+ * A proposal about time, keyed by the user's own calendar date. It is inside
+ * the user tree because it is about one person's day and goes with the account
+ * when the account goes.
+ */
+export const PLANS = 'plans';
+/**
+ * What was done to a plan, append-only (UC-3.10a, #194).
+ *
+ * Its own collection for the reason `nextStepDecisions` has one: `events` is the
+ * domain log, replayed into `DomainState` by the reducer, and a plan is not an
+ * aggregate the reducer knows. It holds a type, a date, a generation and the
+ * plan's digest — no titles and no explanation text.
+ */
+export const PLAN_EVENTS = 'planEvents';
 
 /**
  * Every user-scoped subcollection, so account deletion can be *checked* rather
@@ -116,6 +133,8 @@ export const USER_SCOPED_COLLECTIONS = [
   CAPTURE_PROPOSALS,
   PROFILE_PROPOSALS,
   USAGE,
+  PLANS,
+  PLAN_EVENTS,
 ] as const;
 
 /** Operator-only, outside every user tree. */
