@@ -528,7 +528,9 @@ describe('a picture is stripped before it is uploaded (UC-3.6, #190)', () => {
     // And the original really did carry them, so the line above is a removal.
     expect(metadataMarkersIn(stripCaseBytes('poster_ar')).length).toBeGreaterThan(0);
     // The name still travels: the server reads it once for a source hint.
-    const sent = propose.mock.calls[0]![0] as { files: { name: string; type: string }[] };
+    const sent = propose.mock.calls[0]![0] as unknown as {
+      files: readonly { name: string; type: string }[];
+    };
     expect(sent.files[0]!.name).toBe('poster_ar');
     expect(sent.files[0]!.type).toBe('image/jpeg');
   });

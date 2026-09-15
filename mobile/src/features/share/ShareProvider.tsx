@@ -67,6 +67,7 @@ import {
   normalizeShareIntent,
   urisOf,
   urisOfIntent,
+  type SharedFile,
   type SharedPayload,
   type SharePayloadProblem,
 } from './intake';
@@ -252,7 +253,7 @@ function ShareIntake({ children }: { children: React.ReactNode }) {
      * than uploading it unstripped. The copies made so far are deleted either
      * way — `created` comes back on both paths for exactly that reason.
      */
-    let uploading = sending.files;
+    let uploading: readonly SharedFile[] = sending.files;
     if (sending.kind === 'images') {
       const stripped = prepareImages(sending.files, sharedImageBytes);
       if (!stripped.ok) {
