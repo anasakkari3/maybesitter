@@ -72,6 +72,8 @@ export type Screen =
   // this app has deliberately not taken on.
   | 'trust'
   | 'knows'
+  // Trust → Knows → everything it remembers, with provenance (UC-3.16, #202).
+  | 'memory'
   | 'feedbackHistory'
   // Settings → Your activity (UC-3.15, #201). A sub-screen rather than a fifth
   // tab: the tab bar is Today · Calendar · Say it · Settings and what belongs

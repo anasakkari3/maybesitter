@@ -20,6 +20,7 @@ import { CalendarDemoScreen } from './screens/CalendarDemoScreen';
 import { DeleteAccountScreen } from './screens/DeleteAccountScreen';
 import { TrustScreen } from './features/settings/TrustScreen';
 import { KnowsScreen } from './features/settings/KnowsScreen';
+import { MemoryScreen } from './features/memory/MemoryScreen';
 import { FeedbackHistoryScreen } from './features/settings/FeedbackHistoryScreen';
 import { ActivityScreen } from './features/activity/ActivityScreen';
 import { RoutineSettingsScreen } from './features/settings/RoutineSettingsScreen';
@@ -85,7 +86,14 @@ export function Root() {
             onKnows={() => latest.current.go('knows')}
           />
         )}
-        {s.screen === 'knows' && <KnowsScreen key="knows" onBack={() => latest.current.go('trust')} />}
+        {s.screen === 'knows' && (
+          <KnowsScreen
+            key="knows"
+            onBack={() => latest.current.go('trust')}
+            onMemory={() => latest.current.go('memory')}
+          />
+        )}
+        {s.screen === 'memory' && <MemoryScreen key="memory" onBack={() => latest.current.go('knows')} />}
         {s.screen === 'feedbackHistory' && (
           <FeedbackHistoryScreen key="feedbackHistory" onBack={() => latest.current.go('settings')} />
         )}

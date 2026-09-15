@@ -6,11 +6,21 @@
     "content": "Finish the thesis by March",
     "language": "en",
     "source": "user_stated",
+    "sourceLabel": "you_told_us",
     "confidence": 1,
     "createdAt": "2026-08-09T09:00:00.000Z",
     "observedAt": "2026-08-09T09:00:00.000Z",
+    "staleAfter": "2026-08-09T09:00:00.000Z",
     "provenance": {
       "origin": "manual"
+    },
+    "evidence": {
+      "origin": "manual",
+      "observedAt": "2026-08-09T09:00:00.000Z",
+      "recordedAt": "2026-08-09T09:00:00.000Z",
+      "confirmedAt": null,
+      "edited": false,
+      "observationCount": 0
     }
   }
 }

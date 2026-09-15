@@ -25,6 +25,34 @@
  * chain behind its replacement — technically not "active", and entirely still
  * there. `deleteChain` walks `supersedesId` back to the first record and
  * `supersededById` forward to the last, and removes all of them.
+ *
+ * ── "Delete everything" has to mean the derived profile too ──────
+ *
+ * `deleteAllMemory` used to call `deleteScope` on the memory store and stop
+ * (UC-2.7a, #167). The behaviour profile is not derived from memory — it is
+ * derived from the feedback event log — so a user who asked MaybeSitter to
+ * forget everything emptied the screen and kept a profile of themselves that
+ * nothing in the app would ever show them again. That is not an incomplete
+ * feature; it is the button's own label being false (UC-3.16, #202).
+ *
+ * The cascade is `deletePersonalizationScope`, the same function the frozen web
+ * control centre and the release route call, rather than a second deletion path
+ * that could drift from it. It deletes every derived store first — the feedback
+ * log, the legacy behaviour counters the shipped classifier reads, and any
+ * pending self-description proposal — and the user's memory rows last, which is
+ * the order that fails safe: if a later step throws, the user has had *more*
+ * erased than they asked for, never less, and this function still refuses to
+ * report success.
+ *
+ * Which stores are in that set, and which are deliberately out of it, is argued
+ * in `lib/personalization/deletion.ts`'s header and enumerated against
+ * `USER_SCOPED_COLLECTIONS` by `tests/personalization/deletionScopeCoverage.test.ts`.
+ *
+ * Success is not the deleter's own opinion of itself. The receipt's remainders
+ * are re-listed from the stores after the deletes, and the audit line and the
+ * 200 are both withheld unless every remainder is zero — because the failure
+ * that matters here is precisely a delete that returns a count and leaves rows
+ * behind, and a user cannot check.
  */
 import {
   USER_STATED_MEMORY_TTL_MS,
@@ -35,6 +63,10 @@ import {
   type RuntimeMemoryRecord,
   type RuntimeMemoryStore,
 } from '../../../src/contracts/v1/memoryContracts';
+import type { MemoryOrigin } from '../../../src/contracts/v1/memoryContracts';
+import type { FeedbackEventStore } from '../../../src/contracts/v1/feedbackContracts';
+import { createStorageFeedbackEventStore } from '../../feedback/feedbackEventStore';
+import { deletePersonalizationScope } from '../../personalization/deletion';
 import { createPilotAuditEvent } from '../../pilot/closedPilotControls';
 import { appendAudit } from '../../pilot/pilotTrustStore';
 import { createStorageRuntimeMemoryStore } from '../../runtimeMemory/runtimeMemoryStore';
@@ -66,13 +98,117 @@ export class MemoryValidationError extends Error {
   }
 }
 
+/**
+ * A deletion that did not finish. Carries the remainders rather than a message,
+ * so the route can say "not deleted" without inventing a number.
+ */
+export class MemoryDeletionIncompleteError extends Error {
+  readonly remainingMemoryRecords: number;
+  /**
+   * Everything derived that survived, added together: feedback events, the
+   * pre-event-log baseline, the legacy behaviour counters and any pending
+   * self-description proposal. One number because the user is owed one answer
+   * — it did not finish — and the message names the parts.
+   */
+  readonly remainingPersonalizationRows: number;
+
+  constructor(remainingMemoryRecords: number, remainingPersonalizationRows: number) {
+    super(
+      'memory deletion did not finish: '
+      + `${remainingMemoryRecords} memory record(s) and ${remainingPersonalizationRows} personalization row(s) remain`,
+    );
+    this.name = 'MemoryDeletionIncompleteError';
+    this.remainingMemoryRecords = remainingMemoryRecords;
+    this.remainingPersonalizationRows = remainingPersonalizationRows;
+  }
+}
+
 export interface MemoryServiceOptions {
   storage?: StorageAdapter;
   memory?: RuntimeMemoryStore;
+  /** The behaviour log the profile is derived from; only delete-all reads it. */
+  feedback?: FeedbackEventStore;
 }
 
 function storeOf(options: MemoryServiceOptions): RuntimeMemoryStore {
   return options.memory ?? createStorageRuntimeMemoryStore(undefined, options.storage);
+}
+
+function feedbackOf(options: MemoryServiceOptions): FeedbackEventStore {
+  return options.feedback ?? createStorageFeedbackEventStore(options.storage);
+}
+
+/**
+ * Which sentence the screen puts under a fact (UC-3.16, #202).
+ *
+ * One token, derived from `source` and `provenance` together, because the
+ * question a user is actually asking — "why is this here, and who decided it?"
+ * — is answered by both fields at once and by neither alone. Deriving it here
+ * rather than on the phone keeps the grammar in one place: a build that words
+ * an onboarding answer as "you told us" and a later build that words it as
+ * "from the questions you answered" would otherwise disagree with each other
+ * about the same stored record.
+ *
+ * It is a projection of the record, never a stored field. There is nothing for
+ * it to contradict, which is the distinction `MemoryProvenance`'s own header
+ * draws when it refuses to repeat `source` on the record itself.
+ */
+export type MemorySourceLabel =
+  /** The user typed it, or corrected something into their own words. */
+  | 'you_told_us'
+  /** The user answered it in the routine survey. */
+  | 'you_answered_onboarding'
+  /** A deterministic rule read it off behaviour the user had confirmed. */
+  | 'noticed_from_confirmed'
+  /** A model proposed it and the user agreed. */
+  | 'model_suggested_you_confirmed'
+  /** A model proposed it and nobody has agreed yet. */
+  | 'model_suggested';
+
+export function sourceLabelOf(record: Pick<RuntimeMemoryRecord, 'source' | 'provenance'>): MemorySourceLabel {
+  if (record.source === 'model_inferred') {
+    return record.provenance?.confirmedByUserAt ? 'model_suggested_you_confirmed' : 'model_suggested';
+  }
+  if (record.source === 'deterministic_rule') return 'noticed_from_confirmed';
+  return record.provenance?.origin === 'routine_survey' ? 'you_answered_onboarding' : 'you_told_us';
+}
+
+/**
+ * What backs a fact, as the "Why?" line can actually answer it.
+ *
+ * ── Why the evidence ids are not here ────────────────────────────
+ *
+ * The record carries `evidenceIds`, and they are deliberately withheld. They
+ * name rows in stores the phone cannot read, so the screen could only print
+ * them as opaque strings — and an id a user cannot resolve is not evidence,
+ * it is a receipt for evidence. `observationCount` is the part of them that
+ * is honest to show: how many observations stand behind the sentence. It is
+ * zero for everything written today, and saying zero is the point — nothing
+ * currently reaches the store by observing the user, and the screen should be
+ * able to say so rather than imply a pile of data that does not exist.
+ *
+ * ── Why `edited` and not the prior sentence ──────────────────────
+ *
+ * An edit supersedes (see `patchMemory`), so the record a user is reading may
+ * have a replaced version behind it. `edited` says that happened. The prior
+ * *content* stays out: the user replaced that sentence on purpose, and a
+ * screen that reprinted it would be arguing with them about their own words.
+ * The id stays out too — `listMemory` shows active records only, so it would
+ * be a pointer nothing on this contract can follow.
+ */
+export interface MemoryEvidenceDto {
+  /** Which path it arrived by. `null` on records written before #167. */
+  origin: MemoryOrigin | null;
+  /** When the thing it describes was true, which may precede `recordedAt`. */
+  observedAt: string;
+  /** When the record was written. */
+  recordedAt: string;
+  /** When the user explicitly confirmed it, or `null` if they never did. */
+  confirmedAt: string | null;
+  /** Whether this record replaced an earlier version of the same fact. */
+  edited: boolean;
+  /** How many observations back it. See the header on the withheld ids. */
+  observationCount: number;
 }
 
 /** What the phone receives. Deliberately not the stored record. */
@@ -82,17 +218,36 @@ export interface MemoryDto {
   content: string;
   language: MemoryLanguage;
   source: RuntimeMemoryRecord['source'];
+  sourceLabel: MemorySourceLabel;
   confidence: number;
   createdAt: string;
   observedAt: string;
+  /**
+   * When this stops being believed. Sent since UC-3.16 (#202) — see below.
+   */
+  staleAfter: string;
   provenance: MemoryProvenance | null;
+  evidence: MemoryEvidenceDto;
 }
 
 /**
- * `scopeId`, `staleAfter`, `exportPolicy` and the supersession links are left
- * out on purpose: the first is the caller's own uid, and the rest are storage
- * mechanics the screen has no decision to make about. Sending them would make
- * them contract, and something would start depending on them.
+ * `scopeId`, `exportPolicy`, `status`, the supersession links and the raw
+ * evidence ids are left out on purpose: the first is the caller's own uid, and
+ * the rest are storage mechanics the screen has no decision to make about.
+ * Sending them would make them contract, and something would start depending
+ * on them. `exportPolicy` additionally never varies — every record here is
+ * `personal_never_export` (`lib/runtimeMemory/exportPolicy.ts`) — so a field
+ * carrying it would be a constant the client could only ever misread as a
+ * choice.
+ *
+ * `staleAfter` used to be in that list and no longer is. It was withheld as a
+ * storage mechanic, and for a user-stated fact it effectively is one: those
+ * carry a ten-year TTL that means "until you change it". But an inference is
+ * different in kind — it is a guess that has to be re-earned, and the date it
+ * expires is a thing about the user's own data that they are owed, on the one
+ * screen built to show them what is held and for how long. #202 asks for
+ * staleness and this is it; the client words it, and words it differently for
+ * a fact than for a guess.
  */
 export function memoryToDto(record: RuntimeMemoryRecord): MemoryDto {
   return {
@@ -101,11 +256,37 @@ export function memoryToDto(record: RuntimeMemoryRecord): MemoryDto {
     content: record.content,
     language: record.language,
     source: record.source,
+    sourceLabel: sourceLabelOf(record),
     confidence: record.confidence,
     createdAt: record.createdAt,
     observedAt: record.observedAt,
-    provenance: record.provenance ? { ...record.provenance } : null,
+    staleAfter: record.staleAfter,
+    provenance: record.provenance ? wireProvenance(record.provenance) : null,
+    evidence: {
+      origin: record.provenance?.origin ?? null,
+      observedAt: record.observedAt,
+      recordedAt: record.createdAt,
+      confirmedAt: record.provenance?.confirmedByUserAt ?? null,
+      edited: record.supersedesId !== undefined,
+      observationCount: record.evidenceIds.length,
+    },
   };
+}
+
+/**
+ * The provenance the phone is allowed to see.
+ *
+ * `model` and `promptVersion` are dropped. They name a model build and a prompt
+ * revision — engineering identifiers the screen has no decision to make about,
+ * and the sort of thing that becomes contract the moment it is sent. What the
+ * user is owed about a model-proposed fact is that a model proposed it and
+ * whether they agreed, which `sourceLabel` and `evidence.confirmedAt` already
+ * say in words. Nothing writes a model-inferred record today; the wire is
+ * narrowed before one exists rather than after.
+ */
+function wireProvenance(provenance: MemoryProvenance): MemoryProvenance {
+  const { model: _model, promptVersion: _promptVersion, ...visible } = provenance;
+  return visible;
 }
 
 /**
@@ -207,9 +388,12 @@ export async function patchMemory(
       ...(prior.provenance ?? { origin: 'manual' as const }),
       // The path it originally arrived by is kept — an edited onboarding answer
       // is still an onboarding answer — but the model fields go, because the
-      // sentence that is now stored is not the one any model produced.
+      // sentence that is now stored is not the one any model produced. Both of
+      // them: a `promptVersion` left behind would attribute the user's own
+      // words to the prompt revision that produced the sentence they replaced.
       confirmedByUserAt: at,
-      ...(prior.provenance?.model !== undefined ? { model: undefined } : {}),
+      model: undefined,
+      promptVersion: undefined,
     } as MemoryProvenance,
   };
   const cleaned: CreateMemoryInput = {
@@ -234,16 +418,62 @@ export async function deleteMemory(
   return removed;
 }
 
-/** Removes every record this account holds, whatever its status. */
+/**
+ * Removes every record this account holds, whatever its status, **and** the
+ * behaviour log the personalization profile is derived from.
+ *
+ * Returns the number of memory records removed — the number the button's copy
+ * is about. The feedback rows are not counted into it: they are a different
+ * kind of thing, and one total covering both would tell the user they had more
+ * "memories" than the screen ever listed.
+ *
+ * Throws `MemoryDeletionIncompleteError` rather than returning a count when
+ * anything survives. See this file's header for why success is never the
+ * deleter's own opinion of itself.
+ */
 export async function deleteAllMemory(
   uid: string,
   at: string,
   options: MemoryServiceOptions = {},
 ): Promise<number> {
   requireUserId(uid);
-  const removed = await storeOf(options).deleteScope(uid);
-  await appendMemoryDeletion(uid, at, removed, 'memory_deleted_all');
-  return removed;
+  const memory = storeOf(options);
+  const feedbackEvents = feedbackOf(options);
+
+  // Counted before the delete, from the store, because `deleteScope`'s own
+  // return value is the thing under suspicion here.
+  const held = (await memory.listAll(uid)).length;
+
+  const receipt = await deletePersonalizationScope({
+    scopeId: uid,
+    now: at,
+    feedbackEvents,
+    runtimeMemory: memory,
+  });
+
+  // The baseline is not an event, so it is not in the receipt's event count;
+  // it is pre-event-log history of the same person and has to go with them.
+  const baseline = await feedbackEvents.readBaseline(uid);
+  // Every derived remainder the receipt carries, not only the event count. The
+  // behaviour counters are the one that matters most here: they are the direct
+  // input to the shipped classifier, and a deletion that left them reported a
+  // number while the label it derives came back byte-identical (#202).
+  const remainingRows = receipt.remainingFeedbackEventCount
+    + receipt.remainingBehaviorFeedbackCount
+    + receipt.remainingProfileProposalCount
+    + (baseline === null ? 0 : 1);
+  if (receipt.remainingRuntimeMemoryRecordCount > 0 || remainingRows > 0) {
+    throw new MemoryDeletionIncompleteError(receipt.remainingRuntimeMemoryRecordCount, remainingRows);
+  }
+
+  // A row written between the remainder read above and this line survives with
+  // a 200. The window is a few milliseconds of one request and closing it would
+  // need a tombstone that refuses writes for the scope — machinery with its own
+  // failure modes, for a race only the user themselves can lose, and only by
+  // acting in two places at once. Named rather than fixed, so the next person
+  // to consider a tombstone knows this was weighed.
+  await appendMemoryDeletion(uid, at, held, 'memory_deleted_all');
+  return held;
 }
 
 /**

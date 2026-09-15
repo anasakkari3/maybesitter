@@ -1,5 +1,6 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../lib/auth/mobileAuth';
 import {
+  MemoryDeletionIncompleteError,
   MemoryValidationError,
   createManualMemory,
   deleteAllMemory,
@@ -64,11 +65,17 @@ export async function POST(request: Request) {
 }
 
 /**
- * "Delete all memory" (UC-2.7a, #167).
+ * "Delete all memory" (UC-2.7a, #167; the cascade is UC-3.16, #202).
  *
  * A real delete of every record in the account's tree, whatever its status —
- * superseded and revoked history included. Leaving history behind would make
- * the button's own label untrue.
+ * superseded and revoked history included — and of the behaviour log the
+ * personalization profile is derived from. Leaving either behind would make
+ * the button's own label untrue, and the derived profile is the half a user
+ * has no way of checking.
+ *
+ * A deletion that did not finish answers 500 with `memory_delete_incomplete`.
+ * It must not answer 200: this is the one call whose success the user cannot
+ * verify for themselves, so a wrong "done" here is believed.
  */
 export async function DELETE(request: Request) {
   let user;
@@ -85,6 +92,12 @@ export async function DELETE(request: Request) {
     const deleted = await deleteAllMemory(user.uid, new Date().toISOString());
     return Response.json({ success: true, deleted });
   } catch (error) {
+    if (error instanceof MemoryDeletionIncompleteError) {
+      return Response.json(
+        { success: false, error: error.message, reason: 'memory_delete_incomplete' },
+        { status: 500 },
+      );
+    }
     return mobileError(error instanceof Error ? error.message : 'could not delete memory', 500);
   }
 }

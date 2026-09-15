@@ -484,6 +484,8 @@ function deletionReceipt(): ShadowStudyDeletionReceipt {
       deletedAt: STARTED_AT,
       remainingFeedbackEventCount: 0,
       remainingRuntimeMemoryRecordCount: 0,
+      remainingBehaviorFeedbackCount: 0,
+      remainingProfileProposalCount: 0,
       remainingPersistedProfileCount: 0,
       emptyStateDigest: DIGEST,
     },

@@ -23,7 +23,7 @@ import { MemorySection } from '../memory/MemorySection';
  * why nothing here renders while the query is still loading: an unanswered
  * "we never read your messages" is a promise made on no authority.
  */
-export function KnowsScreen({ onBack }: { onBack: () => void }) {
+export function KnowsScreen({ onBack, onMemory }: { onBack: () => void; onMemory?: (() => void) | undefined }) {
   const { t, p } = useApp();
   const insets = useSafeAreaInsets();
   const trust = useTrust();
@@ -52,8 +52,12 @@ export function KnowsScreen({ onBack }: { onBack: () => void }) {
         ) : null}
 
         {/* Hidden entirely when the memory feature is off — the section asks
-            the server, and a 404 means there is no such thing to show. */}
-        <MemorySection />
+            the server, and a 404 means there is no such thing to show.
+            `onMemory` opens the full screen (UC-3.16, #202): the same records,
+            grouped by who asserted them, each one able to say why it is there.
+            Optional, so a caller that has no screen to open simply shows the
+            card it always did. */}
+        <MemorySection {...(onMemory ? { onOpen: onMemory } : {})} />
 
         {nevers.length > 0 ? (
           <Card pad={18} style={{ gap: 10 }} testID="knows-never">
