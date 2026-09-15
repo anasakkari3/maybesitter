@@ -113,6 +113,16 @@ function compareValues(a: unknown, b: unknown): number {
 function matches(row: Row, where: NonNullable<ListOptions['where']>): boolean {
   return where.every(([field, op, value]) => {
     const actual = fieldValue(row, field);
+    // A document that does not carry the field at all matches **no** filter on
+    // it. Firestore indexes a field per document, so a document missing it is
+    // not in that index and no query on it can return the document — while
+    // `rank` below puts `undefined` beneath every string, which made
+    // `nextRunAt <= now` true for every account that had no `nextRunAt`. That
+    // divergence is exactly the kind a memory adapter is for catching, and it
+    // hid one: an account disarmed by removing the field stayed in every sweep
+    // here and in no sweep in production. An explicit `null` is a value, is
+    // indexed, and still compares.
+    if (actual === undefined) return false;
     const comparison = compareValues(actual, value);
     return applyOperator(op, comparison);
   });

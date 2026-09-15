@@ -27,7 +27,7 @@ import {
   savePlanSettings,
 } from '../../lib/services/dailyPlan/dailyPlanService.ts';
 import { listPlanEvents, readStoredPlan } from '../../lib/services/dailyPlan/planStore.ts';
-import { MAX_REGENERATIONS_PER_DAY } from '../../lib/services/dailyPlan/planSettings.ts';
+import { MAX_PLAN_GENERATIONS_PER_DAY, MAX_PLAN_REBUILDS_PER_DAY } from '../../lib/services/dailyPlan/planSettings.ts';
 import { effectiveSchedule, regeneratePlan } from '../../lib/services/dailyPlan/planActions.ts';
 import { GET as planGet } from '../../src/app/api/mobile/plans/[date]/route.ts';
 import { POST as actionsPost } from '../../src/app/api/mobile/plans/[date]/actions/route.ts';
@@ -303,15 +303,24 @@ test('regenerate rebuilds the plan and increments the generation', async () => {
   });
 });
 
-test(`a plan can be rebuilt ${MAX_REGENERATIONS_PER_DAY} times a day and then answers 429`, async () => {
+test(`a plan can be rebuilt ${MAX_PLAN_REBUILDS_PER_DAY} times a day and then answers 429`, async () => {
   await withHarness(async ({ storage }) => {
-    for (let attempt = 1; attempt < MAX_REGENERATIONS_PER_DAY; attempt += 1) {
+    for (let attempt = 1; attempt <= MAX_PLAN_REBUILDS_PER_DAY; attempt += 1) {
       assert.equal((await regeneratePlan(USER, DATE, { storage })).ok, true, `rebuild ${attempt} was refused`);
     }
     const response = await regeneratePost(request(`/api/mobile/plans/${DATE}/regenerate`, { body: {} }), params(DATE));
     assert.equal(response.status, 429);
-    assert.equal((await response.json() as { reason: string }).reason, 'limit_reached');
-    assert.equal((await readStoredPlan(USER, DATE, storage))!.generation, MAX_REGENERATIONS_PER_DAY);
+    const body = await response.json() as { reason: string; error: string };
+    assert.equal(body.reason, 'limit_reached');
+    // The number in the sentence is the number of rebuilds the loop above got.
+    // It said five while allowing four, which is the kind of wrong a user finds
+    // by counting.
+    assert.equal(
+      body.error,
+      `a plan can be rebuilt ${MAX_PLAN_REBUILDS_PER_DAY} times a day`,
+      'the 429 promises a number of rebuilds the route does not allow',
+    );
+    assert.equal((await readStoredPlan(USER, DATE, storage))!.generation, MAX_PLAN_GENERATIONS_PER_DAY);
   });
 });
 

@@ -25,6 +25,7 @@ import {
   NO_BUSY_BLOCKS,
   buildDailyPlanInput,
   dayHorizon,
+  deadlineFor,
   workingWindowsFor,
   type BusyBlock,
 } from '../../lib/services/dailyPlan/buildDailyPlan.ts';
@@ -180,6 +181,117 @@ test('an undated low-priority commitment stays out of today', () => {
 test('every item carries a known effort, so nothing is reported merely for having no estimate', () => {
   const input = buildDailyPlanInput(args({ commitments: [commitment({ id: 'c1', title: 'One' })] }));
   assert.deepEqual(input.constraints.items[0]!.effort, { kind: 'known', minutes: DEFAULT_EFFORT_MINUTES });
+});
+
+/* ── #383: yesterday's work rolls into today ─────────────────────── */
+
+/**
+ * The owner's rule, from the planner's side.
+ *
+ * Every date here is an argument to the function under test — the day being
+ * planned is `DATE` and the overdue instants are literals relative to it — so
+ * none of this reads the machine's clock or rots when the day turns over.
+ */
+const YESTERDAY = '2026-09-14T09:00:00.000Z';
+const LAST_WEEK = '2026-09-08T09:00:00.000Z';
+const { startsAt: DAY_STARTS, endsAt: DAY_ENDS } = dayHorizon(DATE, TZ);
+
+test('a due date behind the horizon becomes the end of the day being planned', () => {
+  const overdue = commitment({
+    id: 'c_overdue',
+    title: 'Yesterday',
+    timeSpec: { kind: 'due_by', dueAt: YESTERDAY, remindAt: null, timezone: TZ },
+  });
+  assert.equal(deadlineFor(overdue, DAY_STARTS, DAY_ENDS), DAY_ENDS);
+
+  const today = commitment({
+    id: 'c_today',
+    title: 'Today',
+    timeSpec: { kind: 'due_by', dueAt: '2026-09-15T11:00:00.000Z', remindAt: null, timezone: TZ },
+  });
+  assert.equal(
+    deadlineFor(today, DAY_STARTS, DAY_ENDS),
+    '2026-09-15T11:00:00.000Z',
+    'today\'s own deadline was widened to the end of the day',
+  );
+  assert.equal(deadlineFor(commitment({ id: 'c_none', title: 'Undated' }), DAY_STARTS, DAY_ENDS), null);
+});
+
+test('an overdue commitment is placed, not reported as beyond the horizon', () => {
+  const commitments = [
+    commitment({ id: 'c_yesterday', title: 'Yesterday', timeSpec: { kind: 'due_by', dueAt: YESTERDAY, remindAt: null, timezone: TZ } }),
+    commitment({ id: 'c_last_week', title: 'Last week', timeSpec: { kind: 'due_by', dueAt: LAST_WEEK, remindAt: null, timezone: TZ } }),
+  ];
+  const { constraints, config } = buildDailyPlanInput(args({ commitments }));
+  assert.deepEqual(
+    constraints.items.map((item) => item.deadlineAt),
+    [DAY_ENDS, DAY_ENDS],
+    'an overdue deadline was passed through verbatim, so it sits behind the horizon',
+  );
+
+  const plan = schedulePlan(constraints, config);
+  assert.deepEqual(plan.scheduled.map((placed) => placed.itemId).sort(), ['c_last_week', 'c_yesterday']);
+  assert.deepEqual(
+    plan.unscheduled.map((entry) => entry.reason.code),
+    [],
+    'the user\'s backlog came back as "did not fit", which is what it did every morning before #383',
+  );
+});
+
+test('a backlog is not reported as DEADLINE_BEYOND_HORIZON every morning', () => {
+  // The review's case: seven active commitments dated yesterday. Before the
+  // rule, all seven were admitted and all seven were unplaceable.
+  const backlog = Array.from({ length: 7 }, (_, index) => commitment({
+    id: `c_backlog_${index}`,
+    title: `Backlog ${index}`,
+    timeSpec: { kind: 'due_by', dueAt: YESTERDAY, remindAt: null, timezone: TZ },
+  }));
+  const { constraints, config } = buildDailyPlanInput(args({ commitments: backlog }));
+  const plan = schedulePlan(constraints, config);
+  assert.equal(
+    plan.unscheduled.filter((entry) => entry.reason.code === 'DEADLINE_BEYOND_HORIZON').length,
+    0,
+    'the whole backlog is still permanently unplaceable',
+  );
+  assert.equal(plan.scheduled.length, 7);
+});
+
+test('a commitment pinned to an instant that has passed rolls forward instead of vanishing', () => {
+  const input = buildDailyPlanInput(args({
+    commitments: [commitment({
+      id: 'c_missed_event',
+      title: 'Yesterday\'s dentist',
+      timeSpec: { kind: 'scheduled_event', dueAt: YESTERDAY, remindAt: YESTERDAY, timezone: TZ },
+    })],
+  }));
+  assert.deepEqual(
+    input.constraints.fixedEvents.map((event) => event.eventId),
+    [],
+    'a blocking fixed event was written outside the horizon, where it blocks nothing and hides the item',
+  );
+  assert.deepEqual(input.constraints.items.map((item) => item.itemId), ['c_missed_event']);
+  assert.equal(input.constraints.items[0]!.deadlineAt, DAY_ENDS);
+  assert.equal(schedulePlan(input.constraints, input.config).scheduled.length, 1);
+});
+
+test('a postponement into a day that has passed also rolls forward', () => {
+  const input = buildDailyPlanInput(args({
+    commitments: [commitment({ id: 'c_postponed', title: 'Postponed', status: 'deferred', postponedUntil: LAST_WEEK })],
+  }));
+  assert.deepEqual(input.constraints.fixedEvents, []);
+  assert.deepEqual(input.constraints.items.map((item) => item.itemId), ['c_postponed']);
+});
+
+test('a start later today still pins, so the rule reaches only what is behind the horizon', () => {
+  const input = buildDailyPlanInput(args({
+    commitments: [commitment({
+      id: 'c_later',
+      title: 'Dentist',
+      timeSpec: { kind: 'scheduled_event', dueAt: '2026-09-15T11:00:00.000Z', remindAt: '2026-09-15T11:00:00.000Z', timezone: TZ },
+    })],
+  }));
+  assert.deepEqual(input.constraints.items, []);
+  assert.equal(input.constraints.fixedEvents.length, 1);
 });
 
 /* ── AC-1: nothing is placed inside a busy block ─────────────────── */

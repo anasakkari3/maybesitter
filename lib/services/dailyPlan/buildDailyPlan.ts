@@ -27,6 +27,21 @@
  * and unprovable end-to-end until #186 supplies a real reader. Those are two
  * different claims and the report says so rather than letting a green unit test
  * stand in for a calendar nobody has connected.
+ *
+ * ── Yesterday's work rolls into today ────────────────────────────
+ *
+ * #383's owner decision, and this module implements the planner half of it: an
+ * active commitment whose date has passed is due *today* here — its deadline is
+ * the end of the day being planned (`deadlineFor`) and a start instant that has
+ * already gone by stops pinning it (`pinnedStartOf`). Before that rule it was
+ * admitted to the plan with a deadline behind the horizon, which no scheduler
+ * can satisfy, so a backlog came back as `DEADLINE_BEYOND_HORIZON` every
+ * morning for ever.
+ *
+ * The list half of the same rule — `listTodayRanked` and `listUpcomingRanked`,
+ * which today match a past day with neither filter and drop it from the user's
+ * view entirely — is **not** in this module and is not done. #383 is the one
+ * place that rule is written down, and both halves answer to it.
  */
 import type { Commitment } from '../../../src/domain/stateMachine';
 import type { UserRoutineProfile } from '../../../src/contracts/v1/routineContracts';
@@ -217,15 +232,51 @@ const PRIORITY_RANK: Record<Commitment['priority']['level'], number> = { high: 3
 /**
  * Whether a floating commitment belongs in today's plan.
  *
- * Either it is due on or before the day being planned, or it has no due date at
- * all and the user has marked it as mattering. A commitment with no date and no
- * stated importance is not pulled into today: the plan is meant to be what
+ * Either it is due on or before the day being planned — **including a day that
+ * has already passed**, see `rollsIntoDay` — or it has no due date at all and
+ * the user has marked it as mattering. A commitment with no date and no stated
+ * importance is not pulled into today: the plan is meant to be what
  * realistically fits, and a backlog poured into a morning is the opposite.
  */
 export function belongsToDay(commitment: Commitment, dayEndsAt: Instant): boolean {
   const dueAt = commitment.timeSpec.dueAt;
   if (dueAt) return toEpochMs(dueAt) < toEpochMs(dayEndsAt);
   return commitment.priority.level !== 'low';
+}
+
+/**
+ * Whether an instant is behind the day being planned.
+ *
+ * The test for "yesterday's work", which #383 decides **rolls into today**: an
+ * active commitment whose date has passed is treated as due today by the
+ * planner, not as a date behind the horizon.
+ */
+export function rollsIntoDay(instant: Instant, dayStartsAt: Instant): boolean {
+  return toEpochMs(instant) < toEpochMs(dayStartsAt);
+}
+
+/**
+ * The instant an item has to be finished by, under #383's rule.
+ *
+ * A due date behind the horizon becomes the end of the day being planned.
+ * Passing it through verbatim — which this did — puts the deadline *before* the
+ * horizon opens, and `schedulePlan` answers `DEADLINE_BEYOND_HORIZON` for every
+ * such item: the scheduler can never place it, so the morning explanation
+ * reports the user's entire backlog as "did not fit", every day, permanently.
+ * For a user with a backlog, which is this product's core user, that is the
+ * whole plan.
+ *
+ * Today's own deadlines are still passed through, so an item due at 11:00 is
+ * not placed at 16:00 merely because the afternoon was emptier.
+ */
+export function deadlineFor(
+  commitment: Commitment,
+  dayStartsAt: Instant,
+  dayEndsAt: Instant,
+): Instant | null {
+  const dueAt = commitment.timeSpec.dueAt;
+  if (!dueAt) return null;
+  return rollsIntoDay(dueAt, dayStartsAt) ? dayEndsAt : dueAt;
 }
 
 /**
@@ -252,8 +303,19 @@ export function buildDailyPlanInput(args: DailyPlanInputArgs): DailyPlanInput {
     blocking: true,
   }));
 
-  const fromCommitments: FixedEvent[] = plannable.flatMap((commitment) => {
+  // A commitment pinned to an instant that has already passed is not pinned any
+  // more — #383 again. Left as a `FixedEvent` it would be a blocking interval
+  // outside the horizon, which blocks nothing and hides the item from the plan
+  // altogether: it is neither placed nor reported as unplaced, because only
+  // floating items become `PlanningItem`s. Rolled forward, it is a floating
+  // item due today like any other piece of yesterday's work.
+  const pinnedStartOf = (commitment: Commitment): Instant | null => {
     const start = fixedStartOf(commitment);
+    return start !== null && !rollsIntoDay(start, startsAt) ? start : null;
+  };
+
+  const fromCommitments: FixedEvent[] = plannable.flatMap((commitment) => {
+    const start = pinnedStartOf(commitment);
     if (!start) return [];
     return [{
       eventId: `commitment:${commitment.id}`,
@@ -267,15 +329,15 @@ export function buildDailyPlanInput(args: DailyPlanInputArgs): DailyPlanInput {
   });
 
   const items: PlanningItem[] = plannable
-    .filter((commitment) => fixedStartOf(commitment) === null && belongsToDay(commitment, endsAt))
+    .filter((commitment) => pinnedStartOf(commitment) === null && belongsToDay(commitment, endsAt))
     .map((commitment) => ({
       itemId: commitment.id,
       title: commitment.title,
       effort: { kind: 'known', minutes: DEFAULT_EFFORT_MINUTES },
       earliestStartAt: null,
-      // The commitment's own deadline when it has one, so an item due at 11:00
-      // is not placed at 16:00 merely because the afternoon was emptier.
-      deadlineAt: commitment.timeSpec.dueAt,
+      // The commitment's own deadline when it has one and it is not behind the
+      // horizon; the end of today when it is. See `deadlineFor`.
+      deadlineAt: deadlineFor(commitment, startsAt, endsAt),
       priority: PRIORITY_RANK[commitment.priority.level],
       dependsOn: [],
       bufferBeforeMinutes: 0,

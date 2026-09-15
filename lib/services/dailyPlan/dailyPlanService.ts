@@ -41,6 +41,22 @@
  * they guard against — a person woken twice — is the failure people turn
  * notifications off over.
  *
+ * **What neither layer covers, stated plainly:** a crash *between* the plan
+ * write and the push. The claim has advanced, the document exists, and nobody
+ * is told — and no replay exists that would notice, because `createIfAbsent`
+ * makes a replay *safe* without making one *happen*. That is one lost morning
+ * per crash, recovered by the user opening the app, and it stays open until
+ * UC-3.0b (#184) gives the push a queue of its own.
+ *
+ * ── The account's clock, read at delivery rather than at the PUT ──
+ *
+ * `planSettings.timezone` is a snapshot of `users/{uid}.timezone` at the last
+ * `savePlanSettings`. It is no longer what anything reads: `planSettingsOf`
+ * prefers the account's current zone, so a user who moves has the plan's date,
+ * the zone it is built in and every delivery instant after this one follow
+ * them. The snapshot stays in the document as the record of what the standing
+ * `nextRunAt` was computed under.
+ *
  * ── Two seams that are empty until their issues land ─────────────
  *
  * `BusyBlockReader` defaults to `NO_BUSY_BLOCKS` until UC-3.2 (#186) exists,
@@ -126,26 +142,98 @@ export interface DeliveryClaim {
 }
 
 /**
- * Takes this account's due delivery, or nothing.
+ * What one attempt to claim an account's delivery came to.
  *
- * The instant the claim is *for* is the stored `nextRunAt`, not `now`: a tick
- * that runs late must still build the morning it was late for, and must date
- * the plan by the user's clock at that moment rather than by the clock of
- * whichever instance eventually got there.
+ * Three answers rather than two, because "nothing was claimed" hid a defect
+ * that disabled the feature for everybody. `listDueAccounts` filters on the raw
+ * fields; `claimDueDelivery` re-validates through `planSettingsOf`, which reads
+ * an unrecognisable record as the defaults — `enabled: false` — and claimed
+ * nothing. `nextRunAt` was then never advanced, so the record came back in the
+ * next sweep, and the next, for ever. The query is
+ * `orderBy nextRunAt asc limit 50`, so those records sort **first**: fifty of
+ * them are the whole batch, and the totals read `due: 1, claimed: 0, failed: 0`
+ * with nothing in the log to say why nobody got a plan.
  */
-export async function claimDueDelivery(
+export type DeliveryClaimOutcome =
+  | { readonly kind: 'claimed'; readonly claim: DeliveryClaim }
+  | { readonly kind: 'not_due' }
+  /** The sweep matched this record and nothing here can read it. */
+  | { readonly kind: 'unreadable' };
+
+/** `undefined` when the value is not an instant this code can compare. */
+function instantMs(value: unknown): number | undefined {
+  if (typeof value !== 'string') return undefined;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : undefined;
+}
+
+/**
+ * Takes this account's due delivery, or says why it did not.
+ *
+ * ── The date is the user's today, not the instant's date ─────────
+ *
+ * A tick that runs late must still build the morning it was late for, and on
+ * every ordinary morning `nextRunAt` and `now` fall on the same local date, so
+ * the two readings agree. They part when the claim is **stale** — and it can
+ * be, on the launch path rather than in theory: `infra/scheduler.sh` is an
+ * owner action, so the cron does not exist until somebody runs it, while
+ * `PUT /api/mobile/settings/plan` is live the moment the deploy lands. Every
+ * account that enables delivery before the job is provisioned holds a week-old
+ * `nextRunAt` the first time the sweep runs.
+ *
+ * Dating the plan by that instant wrote `plans/2026-09-07` and pushed
+ * `plan:2026-09-07` on the 14th: a notification about a date whose `GET` is a
+ * 404. So the plan is dated by the user's clock **now**. Since a claim is only
+ * taken when `nextRunAt <= now`, that is the later of the two readings and
+ * never an earlier one.
+ *
+ * ── And the timezone is the account's as it is now ───────────────
+ *
+ * `settings.timezone` comes from `planSettingsOf`, which prefers
+ * `users/{uid}.timezone` over the snapshot the last PUT wrote. A move therefore
+ * moves the plan's date, the zone it is built in, and — through
+ * `nextDeliveryAt` below — the instant of every delivery after this one. The
+ * delivery being claimed right now is the last one that lands at the old wall
+ * clock; it is still built and stored, because skipping it would cost the user
+ * a morning silently, and its push carries `respectQuietHours`.
+ */
+export async function claimDueDeliveryOutcome(
   uid: string,
   now: Date,
   deps: DailyPlanDeps = {},
-): Promise<DeliveryClaim | null> {
+): Promise<DeliveryClaimOutcome> {
   const nowIso = now.toISOString();
-  return storageOf(deps).runTransaction(async (tx) => {
+  const nowMs = toEpochMs(nowIso);
+  return storageOf(deps).runTransaction<DeliveryClaimOutcome>(async (tx) => {
     const user = await tx.get<PlanSettingsBearingUser>(userDoc(uid));
-    const settings = planSettingsOf(user, user?.timezone ?? DEFAULT_MOBILE_TIMEZONE);
-    if (!settings.enabled || !settings.nextRunAt) return null;
-    if (toEpochMs(settings.nextRunAt) > toEpochMs(nowIso)) return null;
+    const raw = (user?.planSettings ?? null) as Record<string, unknown> | null;
+    const rawArmed = raw !== null && raw.enabled === true && raw.nextRunAt !== undefined;
+    const rawNextMs = rawArmed ? instantMs(raw!.nextRunAt) : undefined;
+    // The sweep's own predicate, as the query applied it. `undefined` — a
+    // `nextRunAt` that is present and not a parseable instant — counts as due,
+    // because Firestore compares it as a string and returns it.
+    const sweepMatched = rawArmed && (rawNextMs === undefined || rawNextMs <= nowMs);
 
-    const date = localDateOf(settings.nextRunAt, settings.timezone);
+    /** Takes the record out of every future sweep without inventing settings. */
+    const dropNextRunAt = (): DeliveryClaimOutcome => {
+      const { nextRunAt: _armed, ...keep } = raw ?? {};
+      // The rest of the record is written back untouched: it may have been
+      // written by a schema this build does not know, and replacing it with
+      // this build's defaults would destroy a preference rather than skip a
+      // morning. Absent, never null — see `planSettings`'s header.
+      tx.set(userDoc(uid), { ...(user ?? {}), planSettings: keep });
+      return { kind: 'unreadable' };
+    };
+
+    const settings = planSettingsOf(user, user?.timezone ?? DEFAULT_MOBILE_TIMEZONE);
+    if (!settings.enabled || !settings.nextRunAt) {
+      return sweepMatched ? dropNextRunAt() : { kind: 'not_due' };
+    }
+    const dueMs = instantMs(settings.nextRunAt);
+    if (dueMs === undefined) return dropNextRunAt();
+    if (dueMs > nowMs) return { kind: 'not_due' };
+
+    const date = localDateOf(nowIso, settings.timezone);
     // Advanced from `now`, not from the instant claimed: after an outage a
     // single tick owes one morning, not every morning it slept through.
     const claimed: PlanSettings = {
@@ -157,8 +245,18 @@ export async function claimDueDelivery(
     // used because the two adapters disagree about nested maps, and this write
     // has to *remove* nothing and replace `planSettings` entirely.
     tx.set(userDoc(uid), { ...(user ?? {}), planSettings: claimed });
-    return { uid, date, settings: claimed };
+    return { kind: 'claimed', claim: { uid, date, settings: claimed } };
   });
+}
+
+/** The claim, or nothing. `claimDueDeliveryOutcome` says which kind of nothing. */
+export async function claimDueDelivery(
+  uid: string,
+  now: Date,
+  deps: DailyPlanDeps = {},
+): Promise<DeliveryClaim | null> {
+  const outcome = await claimDueDeliveryOutcome(uid, now, deps);
+  return outcome.kind === 'claimed' ? outcome.claim : null;
 }
 
 export interface DailyPlanBuild {
@@ -334,8 +432,17 @@ export async function runDailyPlanTick(options: DailyPlanTickOptions = {}): Prom
 
   for (const uid of due) {
     try {
-      const claim = await claimDueDelivery(uid, now, options);
-      if (!claim) continue;
+      const outcome = await claimDueDeliveryOutcome(uid, now, options);
+      if (outcome.kind === 'unreadable') {
+        // Counted and said out loud. Before this, such a record advanced
+        // nothing, sorted first in every sweep for ever, and showed up as
+        // `due: 1, claimed: 0, failed: 0` — a batch that silently went nowhere.
+        totals.failed += 1;
+        console.error('[internal/jobs/daily-plan] a due account has unreadable plan settings; its delivery was disarmed');
+        continue;
+      }
+      if (outcome.kind !== 'claimed') continue;
+      const claim = outcome.claim;
       totals.claimed += 1;
       const result = await buildAndStoreDailyPlan(claim, options);
       if (result.created) totals.built += 1;
@@ -367,7 +474,9 @@ export async function readPlanSettings(uid: string, deps: DailyPlanDeps = {}): P
  * The timezone is the account's, never the request's: `users/{uid}.timezone` is
  * what every other dated read in this product uses, and letting a plan settings
  * call set it would give one screen the power to move every other screen's day
- * boundary.
+ * boundary. It is also read again at delivery rather than trusted from here —
+ * see `planSettingsOf` — so what this writes is a record of the zone the
+ * `nextRunAt` beside it was computed under, not the account's standing answer.
  *
  * Switching delivery off **removes** `nextRunAt` rather than nulling it. A null
  * would keep the account in the result set of every future sweep — Firestore

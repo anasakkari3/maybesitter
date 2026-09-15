@@ -42,7 +42,7 @@ import {
   type PlanMove,
   type StoredDailyPlan,
 } from './planStore';
-import { MAX_REGENERATIONS_PER_DAY } from './planSettings';
+import { MAX_PLAN_GENERATIONS_PER_DAY } from './planSettings';
 import { composeDailyPlan, type DailyPlanDeps } from './dailyPlanService';
 
 export type PlanEditReason =
@@ -263,9 +263,17 @@ export type RegenerateOutcome =
 /**
  * Rebuilds today's plan from what the commitments say now.
  *
- * Capped at five a day. The cap is read from the stored `generation` rather
- * than from a counter of its own, so it cannot drift away from the number of
- * plans that were actually built.
+ * Capped at `MAX_PLAN_GENERATIONS_PER_DAY` documents for the day — the morning
+ * build plus `MAX_PLAN_REBUILDS_PER_DAY` rebuilds. The cap is read from the
+ * stored `generation` rather than from a counter of its own, so it cannot
+ * drift away from the number of plans that were actually built.
+ *
+ * **Known cost, not fixed here:** the model is called by `composeDailyPlan`
+ * before the compare-and-set below, so two devices asking at once spend two
+ * Gemini calls and one of them is thrown away with a 409. Making that impossible
+ * means claiming the generation before composing, which leaves a burnt
+ * generation behind every failed compose — a worse trade for a race between two
+ * of one person's own devices. Recorded on #194 rather than silently accepted.
  */
 export async function regeneratePlan(
   uid: string,
@@ -274,7 +282,7 @@ export async function regeneratePlan(
 ): Promise<RegenerateOutcome> {
   const current = await readStoredPlan(uid, date, deps.storage);
   if (!current) return { ok: false, reason: 'not_found' };
-  if (current.generation >= MAX_REGENERATIONS_PER_DAY) return { ok: false, reason: 'limit_reached' };
+  if (current.generation >= MAX_PLAN_GENERATIONS_PER_DAY) return { ok: false, reason: 'limit_reached' };
 
   const rebuilt = await composeDailyPlan(uid, date, { timezone: current.timezone }, current.generation + 1, deps);
   const stored = await replaceStoredPlan(uid, rebuilt, current.generation, deps.storage);

@@ -1,7 +1,7 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../../lib/auth/mobileAuth';
 import { mobileError } from '../../../../../../../lib/services/mobile/response';
 import {
-  MAX_REGENERATIONS_PER_DAY,
+  MAX_PLAN_REBUILDS_PER_DAY,
   isPlanDate,
 } from '../../../../../../../lib/services/dailyPlan/planSettings';
 import { regeneratePlan } from '../../../../../../../lib/services/dailyPlan/planActions';
@@ -31,7 +31,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ dat
       return Response.json(
         {
           success: false,
-          error: `a plan can be rebuilt ${MAX_REGENERATIONS_PER_DAY} times a day`,
+          error: `a plan can be rebuilt ${MAX_PLAN_REBUILDS_PER_DAY} times a day`,
           reason: 'limit_reached',
         },
         { status: 429 },

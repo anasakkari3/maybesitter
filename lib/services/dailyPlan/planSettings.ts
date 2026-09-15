@@ -39,8 +39,19 @@ import { isValidTimezone } from '../../../src/contracts/v1/routineContracts';
 /** Until the user opts in through UC-3.10b (#195), nothing is built for them. */
 export const DEFAULT_PLAN_ENABLED = false;
 export const DEFAULT_DELIVERY_LOCAL_TIME = '07:30';
-/** A plan may be rebuilt this many times a day before the route refuses. */
-export const MAX_REGENERATIONS_PER_DAY = 5;
+/**
+ * How many plan documents one account may have for one day.
+ *
+ * The morning build is generation 1, so this is **one more** than the number of
+ * rebuilds a user gets. The cap is compared against the stored `generation`
+ * rather than a counter of its own, which is what keeps it honest — and is also
+ * how the 429 came to say "5 times" about a limit that allowed four. The two
+ * numbers are now one number and one subtraction, so they cannot drift again.
+ */
+export const MAX_PLAN_GENERATIONS_PER_DAY = 5;
+
+/** What the user is actually offered, and what the 429 body must say. */
+export const MAX_PLAN_REBUILDS_PER_DAY = MAX_PLAN_GENERATIONS_PER_DAY - 1;
 
 const HHMM = /^([01][0-9]|2[0-3]):([0-5][0-9])$/;
 
@@ -95,8 +106,23 @@ export function parseDeliveryLocalTime(value: unknown): { hour: number; minute: 
  * A stored record that is not readable — written by a future schema, or edited
  * by hand — reads as the defaults, which means delivery is *off*. That is the
  * safe direction: the failure mode of guessing is a push nobody asked for.
+ *
+ * ── The account's timezone wins over the stored one ──────────────
+ *
+ * `planSettings.timezone` was written at the last `savePlanSettings`, and
+ * nothing recomputed it afterwards. A user who moved Tel Aviv → New York
+ * therefore kept being delivered at 07:30 *Israel* time — 00:30 where they now
+ * are — until they toggled the setting off and on again, because every read of
+ * the settings read the snapshot rather than the account.
+ *
+ * So `accountTimezone` — `users/{uid}.timezone`, the field every other dated
+ * read in this product uses — is authoritative whenever it is a zone `Intl`
+ * knows, and the stored value survives only when it is not. The snapshot is
+ * kept in the document because it is what the last delivery was computed under,
+ * and comparing the two is how `claimDueDelivery` notices the move; it is no
+ * longer what anything reads.
  */
-export function planSettingsOf(user: PlanSettingsBearingUser | null, fallbackTimezone: string): PlanSettings {
+export function planSettingsOf(user: PlanSettingsBearingUser | null, accountTimezone: string): PlanSettings {
   const stored = user?.planSettings;
   if (
     !stored
@@ -107,8 +133,11 @@ export function planSettingsOf(user: PlanSettingsBearingUser | null, fallbackTim
     return {
       enabled: DEFAULT_PLAN_ENABLED,
       deliveryLocalTime: DEFAULT_DELIVERY_LOCAL_TIME,
-      timezone: fallbackTimezone,
+      timezone: accountTimezone,
     };
+  }
+  if (isValidTimezone(accountTimezone) && accountTimezone !== stored.timezone) {
+    return { ...stored, timezone: accountTimezone };
   }
   return stored;
 }

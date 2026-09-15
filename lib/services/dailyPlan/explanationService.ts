@@ -39,6 +39,7 @@ import type { StorageAdapter } from '../../storage';
 import type { StoredExplanation } from './planStore';
 import {
   explanationRejections,
+  hasExplanationLexicon,
   templateExplanation,
   type ExplanationFacts,
   type ExplanationRejection,
@@ -166,6 +167,14 @@ export async function explainPlan(
 ): Promise<ExplanationOutcome> {
   // The kill switch first (#181): it must not cost a reservation to be off.
   if (aiDisabled()) return templateOutcome(facts, 'ai_disabled');
+
+  // Then the language. `explanationRejections` refuses an answer in a locale it
+  // has no lexicon for, so asking for one would be paying Gemini for a sentence
+  // that is guaranteed to be thrown away — and `LOCALE_NAMES` has nothing to
+  // put in the prompt for it either.
+  if (!hasExplanationLexicon(facts.locale)) {
+    return templateOutcome(facts, 'unsupported_locale', ['unsupported_locale']);
+  }
 
   const provider = consentGatedProvider(uid, {
     ...(deps.provider ? { provider: deps.provider } : {}),

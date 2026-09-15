@@ -14,20 +14,43 @@
  *
  * ── What the checks can and cannot reach ─────────────────────────
  *
- * The structural checks — clock times, titles, counts, length — are
- * language-independent and hold for Arabic, Hebrew and English alike. The
- * lexical ones are not: `SHAME_PATTERNS`, `COERCION_PATTERNS` and
- * `PERSISTENCE_CLAIM_PATTERNS` are English, and the §13 list below is the
- * English wording of the strategy document. An Arabic sentence that shames is
- * not caught by a word list here, and saying otherwise would be worse than the
- * gap: what catches it is that the prompt is given item ids, times and counts
- * and nothing else to be judgemental *about*, plus the structural checks, plus
- * a human reading the fallback rate.
+ * **Every check here is run in Arabic and Hebrew as well as English, and the
+ * ones that read digits are run on digits this product's users actually type.**
+ * The first version of this module was neither, and said so in a comment that
+ * was wrong in the unsafe direction: JavaScript's `\d` is ASCII-only, so an
+ * answer written in Arabic-Indic numerals matched *nothing*, `[].some(...)` was
+ * `false`, and a wholly fabricated Arabic sentence — invented count, invented
+ * times — was accepted and stored `source: 'model', validated: true`. A guard
+ * that cannot see its input fails open while looking strict.
  *
- * Numbers and clock times are read as ASCII. A model answering in Arabic-Indic
- * numerals fails the count check and falls back to the template. That is the
- * conservative direction — the template is always true — and it is a known
- * limitation rather than an oversight.
+ * Two things close it:
+ *
+ *   1. `toAsciiDigits` folds Arabic-Indic (U+0660–0669), Extended Arabic-Indic
+ *      (U+06F0–06F9) and fullwidth digits to ASCII *before* the clock and count
+ *      passes. NFKC does not do this — those code points are separate digits,
+ *      not compatibility spellings — so `matchingVariants` never would have.
+ *   2. `EXPLANATION_LEXICONS` carries shame, coercion, persistence and §13
+ *      patterns per locale, and **model output in a locale that has no entry in
+ *      that table is refused outright** (`unsupported_locale`). The union of all
+ *      locales' patterns is applied to every answer, so a model replying in
+ *      English to an Arabic prompt is still read; but an answer is only
+ *      *accepted* in a language this table can read.
+ *
+ * The Arabic and Hebrew lexicons are authored here rather than translated from
+ * the English list word for word: `monitoring` says nothing about `أراقب` or
+ * `אעקוב`. They are deliberately written without `\b`, which in JavaScript is
+ * defined on `[A-Za-z0-9_]` and therefore fires in the wrong places in both
+ * scripts; substring matching also absorbs the Arabic and Hebrew proclitics
+ * (`و`, `ب`, `ال`, `ו`, `ש`, `ה`) for free. They over-catch, and over-catching
+ * costs the template, which is always true.
+ *
+ * What is still *not* reached, stated rather than discovered: `CAPITALISED_RUN`
+ * is the shape an invented title takes in a cased script, and Arabic and Hebrew
+ * have no case. In those locales an invented title is caught only when the
+ * model quotes it. Neither lexicon is a claim of coverage — a word list never
+ * is — and what carries the weight remains the structural checks, which now run
+ * in every locale, plus a prompt that is given ids, times and counts and
+ * nothing to be judgemental about.
  */
 import type { Plan } from '../../../src/contracts/v1/planningContracts';
 import type { UserLocale } from '../../storage/userDocument';
@@ -61,8 +84,130 @@ export const PROHIBITED_CLAIM_PATTERNS: readonly RegExp[] = Object.freeze([
   /\b(diagnos|therap|prescrib)(e|es|ing|y|eutic)\b/i,
 ]);
 
+/**
+ * The same four judgements, in the two languages most of this product's users
+ * read.
+ *
+ * Written as substrings rather than as `\b`-anchored words on purpose — see the
+ * header. Each list is short, concrete and answerable: a phrase is here because
+ * it is a thing a model actually writes, and an entry that would fire on the
+ * templates below would be a bug the locale template tests catch immediately.
+ *
+ * `en` is referenced, never retyped: `lib/safety/lexicon.ts` is the repository's
+ * one copy of the English lists and a second spelling of them here is exactly
+ * the drift Sprint 06 forbids.
+ */
+export interface LocaleLexicon {
+  readonly shame: readonly RegExp[];
+  readonly coercion: readonly RegExp[];
+  readonly persistence: readonly RegExp[];
+  readonly prohibited: readonly RegExp[];
+}
+
+/** Levantine and standard spellings both, because the prompt asks for Levantine. */
+const ARABIC_LEXICON: LocaleLexicon = Object.freeze({
+  shame: Object.freeze([
+    /كسول|كسلان|كسلانة/,
+    /مهمل|إهمال|اهمال/,
+    /مقصر|مقصّر/,
+    /فشلت|فاشل|فشلك/,
+    /خذلت|خيبت|خيّبت/,
+    /مخجل|تستحي|عيب عليك/,
+    /مذنب|ذنبك|غلطتك|بسببك/,
+    /غير منضبط|ما عندك انضباط/,
+    /دايما بتنسى|دائما تنسى|دايماً بتنسى/,
+    /ما بتلتزم|ما بتكمل أبدا/,
+  ]),
+  coercion: Object.freeze([
+    /ما ?[إا]لك خيار|ما في خيار|ليس لديك خيار|لا خيار/,
+    /آخر فرصة|الفرصة الأخيرة|آخر مرة/,
+    /إنذار أخير|تحذير أخير/,
+    /لازم تعمل|لازم تسوي|يجب عليك|مجبور/,
+    /وإلا رح|أو غير هيك/,
+  ]),
+  persistence: Object.freeze([
+    /حفظت|سجلت|سجّلت|خزنت|خزّنت|أنشأت|جدولت|جدولتلك|وثقت|دونت|دوّنت/,
+    /محفوظ|مسجل|مسجّل|متخزن/,
+    /رح أتابع|رح أراقب|رح أذكرك|بتابعلك|أراقب|أتتبع|بخلي عيني/,
+  ]),
+  prohibited: Object.freeze([
+    /يعالج|بيعالج|معالجة|علاج/,
+    /تشخيص|يشخص|بيشخص/,
+    /بيعرفك أكتر|يعرفك أكثر|بعرفك أكتر من حالك/,
+    /بيدير حياتك|يدير حياتك|بيمسك حياتك/,
+    /بتذكر كل إشي|بيتذكر كل شي|أتذكر كل شيء/,
+    /بديل عن حكمك|محل قرارك|بدل قرارك/,
+  ]),
+});
+
+const HEBREW_LEXICON: LocaleLexicon = Object.freeze({
+  shame: Object.freeze([
+    /עצלן|עצלנית/,
+    /חסר משמעת|חסרת משמעת|חוסר משמעת/,
+    /נכשלת|כישלון|כשלת/,
+    /אשמתך|באשמתך|זו אשמתך|אתה אשם|את אשמה/,
+    /מבייש|תתבייש|בושה/,
+    /לא עקבי|לא עקבית/,
+    /התחמקת|התחמקות/,
+    /איכזבת|אכזבת/,
+    /אתה תמיד|את תמיד|אתה אף פעם|את אף פעם/,
+  ]),
+  coercion: Object.freeze([
+    /אין לך ברירה|אין ברירה|ברירה אחרת אין/,
+    /הזדמנות אחרונה|צ'אנס אחרון/,
+    /אזהרה אחרונה/,
+    /אתה חייב|את חייבת|חייב לעשות|חייבת לעשות/,
+    /או אחרת|אחרת אפסיק/,
+  ]),
+  persistence: Object.freeze([
+    /שמרתי|רשמתי|יצרתי|קבעתי|תיעדתי|עדכנתי|הוספתי/,
+    /שמור אצלי|נשמר ביומן|רשום אצלי/,
+    /אעקוב|אנטר|במעקב|אשים עין|אזכיר לך|אשמור לך/,
+  ]),
+  prohibited: Object.freeze([
+    /מטפל ב|טיפול ב|מרפא/,
+    /מאבחן|אבחון/,
+    /מכיר אותך יותר טוב ממך|יודע עליך יותר ממך/,
+    /מנהל את החיים שלך|מנהל לך את החיים/,
+    /זוכר הכל|זוכר את הכל/,
+    /מחליף את שיקול הדעת שלך/,
+  ]),
+});
+
+/**
+ * The locales whose model output may be shown at all.
+ *
+ * A locale absent from this table has no lexicon, so none of the four
+ * judgements below can see its text — and an answer nothing can read is refused
+ * rather than shown. That refusal is the half of this fix that does not depend
+ * on anybody's word list being good: adding a fourth language to `UserLocale`
+ * without a row here turns the plan explanation back into the template, loudly,
+ * instead of silently shipping unvalidated model prose.
+ */
+export const EXPLANATION_LEXICONS: Readonly<Record<UserLocale, LocaleLexicon>> = Object.freeze({
+  en: Object.freeze({
+    shame: SHAME_PATTERNS,
+    coercion: COERCION_PATTERNS,
+    persistence: PERSISTENCE_CLAIM_PATTERNS,
+    prohibited: PROHIBITED_CLAIM_PATTERNS,
+  }),
+  ar: ARABIC_LEXICON,
+  he: HEBREW_LEXICON,
+});
+
+/** Whether a model may be asked for, and trusted with, this locale at all. */
+export function hasExplanationLexicon(locale: unknown): locale is UserLocale {
+  return typeof locale === 'string'
+    && Object.prototype.hasOwnProperty.call(EXPLANATION_LEXICONS, locale);
+}
+
+function everyLocale(pick: (lexicon: LocaleLexicon) => readonly RegExp[]): readonly RegExp[] {
+  return Object.values(EXPLANATION_LEXICONS).flatMap(pick);
+}
+
 export type ExplanationRejection =
   | 'empty'
+  | 'unsupported_locale'
   | 'too_long'
   | 'time_not_in_plan'
   | 'unknown_title'
@@ -125,6 +270,29 @@ export function explanationFactsFrom(
   };
 }
 
+/**
+ * The same numbers, written in ASCII.
+ *
+ * Arabic-Indic `٠١٢٣٤٥٦٧٨٩` (U+0660–0669), Extended Arabic-Indic `۰۱۲۳۴۵۶۷۸۹`
+ * (U+06F0–06F9) and fullwidth `０１２３４５６７８９`, plus the fullwidth colon, so
+ * that `٠٩:٠٠` is read as a clock time and `٤٢` is read as a count. Every
+ * substitution is one code point for one code point, which is what lets the
+ * offsets of a match in the folded text still index the original.
+ *
+ * NFKC — which `matchingVariants` already applies for the lexical checks — folds
+ * the fullwidth forms and **not** the two Arabic sets: those are separate
+ * digits, not compatibility spellings of ASCII ones. That is precisely why the
+ * structural checks needed their own fold and did not get one.
+ */
+export function toAsciiDigits(text: string): string {
+  return text.replace(/[\u0660-\u0669\u06F0-\u06F9\uFF10-\uFF19\uFF1A]/g, (character) => {
+    const code = character.codePointAt(0)!;
+    if (code === 0xFF1A) return ':';
+    const base = code >= 0xFF10 ? 0xFF10 : code >= 0x06F0 ? 0x06F0 : 0x0660;
+    return String(code - base);
+  });
+}
+
 const CLOCK = /\b([01]?[0-9]|2[0-3]):([0-5][0-9])\b/g;
 const QUOTED = /["“”«»']([^"“”«»'\n]{2,80})["“”«»']/g;
 /** Two or more adjacent Capitalised Latin words: the shape an invented title takes. */
@@ -155,19 +323,29 @@ function matchesSomeTitle(fragment: string, titles: readonly string[]): boolean 
 export function explanationRejections(text: unknown, facts: ExplanationFacts): ExplanationRejection[] {
   const reasons: ExplanationRejection[] = [];
   if (typeof text !== 'string' || text.trim() === '') return ['empty'];
+  // Before anything else: an answer in a language none of the lists below can
+  // read is refused whatever it says. Every other check that follows would
+  // return "clean" on it, and "clean" would be a statement about this module's
+  // vocabulary rather than about the sentence.
+  if (!hasExplanationLexicon(facts.locale)) reasons.push('unsupported_locale');
   if (text.length > MAX_EXPLANATION_CHARS) reasons.push('too_long');
 
+  // Digits first, and once: every structural check below reads the folded text,
+  // so `٠٩:٠٠` is a clock time and `٤٢` is a count. Folding is one code point
+  // for one, so `match.index` still indexes the same position in either string.
+  const scanned = toAsciiDigits(text);
+
   const allowed = new Set(facts.allowedTimes);
-  const times = Array.from(text.matchAll(CLOCK), (match) => `${match[1].padStart(2, '0')}:${match[2]}`);
+  const times = Array.from(scanned.matchAll(CLOCK), (match) => `${match[1].padStart(2, '0')}:${match[2]}`);
   if (times.some((time) => !allowed.has(time))) reasons.push('time_not_in_plan');
 
-  const quoted = Array.from(text.matchAll(QUOTED), (match) => match[1]);
+  const quoted = Array.from(scanned.matchAll(QUOTED), (match) => match[1]);
   // A capitalised run that opens the text or a sentence is ordinary English
   // ("Today Nothing…"), so only runs that start mid-sentence are treated as a
   // claimed title.
-  const capitalised = Array.from(text.matchAll(CAPITALISED_RUN))
+  const capitalised = Array.from(scanned.matchAll(CAPITALISED_RUN))
     .filter((match) => {
-      const before = text.slice(0, match.index ?? 0);
+      const before = scanned.slice(0, match.index ?? 0);
       return before.trim() !== '' && !/[.!?\n]\s*$/.test(before);
     })
     .map((match) => match[0]);
@@ -178,16 +356,20 @@ export function explanationRejections(text: unknown, facts: ExplanationFacts): E
   // Clock times and quoted titles are removed first: `09:00` is not a claim
   // about how many things there are, and a title may legitimately contain a
   // number ("Pay the 2 invoices").
-  const countable = text.replace(CLOCK, ' ').replace(QUOTED, ' ');
+  const countable = scanned.replace(CLOCK, ' ').replace(QUOTED, ' ');
   const numbers = Array.from(countable.matchAll(INTEGER), (match) => Number(match[0]));
   if (numbers.some((value) => value !== facts.scheduledCount && value !== facts.unscheduledCount)) {
     reasons.push('count_mismatch');
   }
 
-  if (matchesAny(text, SHAME_PATTERNS)) reasons.push('shame');
-  if (matchesAny(text, COERCION_PATTERNS)) reasons.push('coercion');
-  if (matchesAny(text, PERSISTENCE_CLAIM_PATTERNS)) reasons.push('persistence_claim');
-  if (matchesAny(text, PROHIBITED_CLAIM_PATTERNS)) reasons.push('prohibited_claim');
+  // Every locale's patterns on every answer, not only the account's: a model
+  // asked for Arabic that shames in English has still shamed. The account's
+  // locale decides whether the answer may be *accepted* (above), not which
+  // lists get to look at it.
+  if (matchesAny(text, everyLocale((lexicon) => lexicon.shame))) reasons.push('shame');
+  if (matchesAny(text, everyLocale((lexicon) => lexicon.coercion))) reasons.push('coercion');
+  if (matchesAny(text, everyLocale((lexicon) => lexicon.persistence))) reasons.push('persistence_claim');
+  if (matchesAny(text, everyLocale((lexicon) => lexicon.prohibited))) reasons.push('prohibited_claim');
 
   return reasons;
 }
