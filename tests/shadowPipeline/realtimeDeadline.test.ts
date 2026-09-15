@@ -14,13 +14,27 @@
  * was never reached and the test measured nothing while looking like it
  * measured everything. Two habits from that, both visible below:
  *
- *  1. **Every timing test asserts on the elapsed time it actually took**, not
- *     only on the returned variant. `timed_out` is producible by a deadline
- *     that returns it immediately; `timed_out` *after at least the budget* is
- *     not.
+ *  1. **Every test here asserts that time really passed**, not only that a
+ *     variant came back. `timed_out` is producible by a deadline that returns it
+ *     immediately; `timed_out` *after at least the budget* is not.
  *  2. **The slow side is genuinely slower than the budget by a wide margin**,
  *     and the fast side genuinely faster. A fixture whose work and budget are
  *     within scheduler noise of each other tests the scheduler.
+ *
+ * ── Which direction a clock may be read in (#380) ────────────────────────
+ *
+ * One wall-clock assertion survives below, and it is a **lower** bound: the race
+ * must not return before its budget. Load can only push elapsed time up, so a
+ * busy machine cannot falsify it — this is the shape of timing assertion that
+ * stays honest in a suite several lanes run at once.
+ *
+ * The two **upper** bounds that used to sit beside it are gone. Those are the
+ * shape that goes red because the box was busy: "returned in under 200ms" and
+ * "returned in under 40ms" are claims about the host, and #380 found the pattern
+ * costing a lane an afternoon. Both said something real, and both are now asked
+ * of something other than a clock — of the abandoned work, which knows whether
+ * it finished, and of a marker timer armed for the same budget, which a stalled
+ * loop cannot reorder ahead of a shorter one.
  *
  * The budgets here are this file's own small numbers, not
  * `SHADOW_MODULE_TIMEOUT_BUDGET_MS`. Waiting out eight real module budgets
@@ -60,9 +74,11 @@ async function elapsed<T>(of: () => Promise<T>): Promise<{ value: T; ms: number 
 
 test('work slower than its budget is really abandoned, and really takes the budget', async () => {
   const deadline = createRealtimeShadowDeadline();
+  let workFinished = false;
   const measured = await elapsed(() =>
     deadline.race(async () => {
       await sleep(SLOW_WORK_MS);
+      workFinished = true;
       return 'this value must never be accepted';
     }, SHORT_BUDGET_MS, 'planning'),
   );
@@ -88,28 +104,53 @@ test('work slower than its budget is really abandoned, and really takes the budg
     `the race returned after ${measured.ms.toFixed(1)}ms; the budget was ${SHORT_BUDGET_MS}ms, so nothing was waited on`,
   );
   // And it did not wait for the work: the whole point of a budget.
-  assert.ok(
-    measured.ms < SLOW_WORK_MS,
-    `the race took ${measured.ms.toFixed(1)}ms; the work takes ${SLOW_WORK_MS}ms, so it was not abandoned`,
+  //
+  // Asked of the work rather than of the clock (#380). `measured.ms <
+  // SLOW_WORK_MS` said the same thing by arithmetic, and said it as an *upper*
+  // bound on elapsed time — the one shape that a busy machine can falsify. The
+  // work itself knows whether it finished, and a stalled event loop cannot make
+  // it lie: a race that waited for the work would have to observe it complete.
+  assert.equal(
+    workFinished,
+    false,
+    'the race returned only after its work had finished, so the work was not abandoned',
   );
 });
 
 test('work faster than its budget settles with its value, and does not wait out the budget', async () => {
   // The other direction, which a timeout-only test cannot distinguish from a
   // deadline that abandons everything.
+  //
+  // "Does not wait out the budget" was `measured.ms < SHORT_BUDGET_MS` — an
+  // upper bound on elapsed time with 39ms of slack, which a loaded machine can
+  // spend on nothing at all (#380). It is now asked as a *race between two
+  // timers*, which a stall cannot reorder: `marker` is armed for the same
+  // budget immediately before the deadline arms its own, so the deadline's
+  // timer can only be due at the same moment or later. libuv fires expired
+  // timers in due-time order and Node drains microtasks between them, so work
+  // that settles after 1ms resolves the race before `marker` runs — however far
+  // behind the loop has fallen. A deadline that waited out its budget could
+  // only return in `marker`'s turn or after it.
   const deadline = createRealtimeShadowDeadline();
-  const measured = await elapsed(() =>
-    deadline.race(async () => {
-      await sleep(1);
-      return 'answered';
-    }, SHORT_BUDGET_MS, 'memory'),
-  );
+  let budgetElapsed = false;
+  const marker = setTimeout(() => { budgetElapsed = true; }, SHORT_BUDGET_MS);
+  try {
+    const measured = await elapsed(() =>
+      deadline.race(async () => {
+        await sleep(1);
+        return 'answered';
+      }, SHORT_BUDGET_MS, 'memory'),
+    );
 
-  assert.deepEqual(measured.value, { kind: 'settled', value: 'answered' });
-  assert.ok(
-    measured.ms < SHORT_BUDGET_MS,
-    `the race took ${measured.ms.toFixed(1)}ms for work that finishes in 1ms; the budget is not being cleared`,
-  );
+    assert.deepEqual(measured.value, { kind: 'settled', value: 'answered' });
+    assert.equal(
+      budgetElapsed,
+      false,
+      `the race returned after ${measured.ms.toFixed(1)}ms, no earlier than a ${SHORT_BUDGET_MS}ms timer armed before it; the budget is not being cleared`,
+    );
+  } finally {
+    clearTimeout(marker);
+  }
 });
 
 test('a rejection inside the budget is a reported variant, never a thrown error', async () => {

@@ -41,6 +41,7 @@ import {
 import { evaluateSafetyGate, type SafetyGateResult } from '../../lib/safety/gateway.ts';
 import { scannableInputs } from '../../lib/safety/inputs.ts';
 import { DUE_AT, NOW, cleanCandidate, cleanGraph, cleanRequest } from './candidates.ts';
+import { measureCharacterWork } from '../support/workMeter.ts';
 
 interface Attack {
   readonly name: string;
@@ -559,12 +560,37 @@ test('every boundary the contract names is exercised by the corpus', () => {
 
 /* ── Resource exhaustion ─────────────────────────────────────────── */
 
-test('a maximal hostile input is judged in bounded time', () => {
+/**
+ * `count` sensitive untrusted spans, each one character below
+ * `maxUntrustedInputChars`.
+ *
+ * Sensitive so every admitted span feeds `sharesTextRunWith` for every segment,
+ * and one below the character bound so no span is dropped by it — both literals
+ * are load-bearing, for the reasons the fixture below records.
+ */
+function hostileInputs(count: number) {
+  return Array.from({ length: count }, (_unused, index) => ({
+    inputId: `in-${index}`,
+    origin: 'user_text' as const,
+    sensitivity: 'sensitive' as const,
+    declaredTrust: 'data' as const,
+    text: 'y'.repeat(SAFETY_LIMITS.maxUntrustedInputChars - 1),
+  }));
+}
+
+test('a maximal hostile input is judged in bounded work', () => {
   // The Sprint 08 defect, restated as a regression: a valid, defect-free request
   // with one reason repeating a node id 400,000 times took 8.2 seconds of CPU on
-  // an unauthenticated route and returned 200 with a 3 KB body. The bound here is
-  // deliberately loose — this is a check that the work is bounded at all, not a
-  // benchmark, and a tight threshold on a shared runner is a flaky test.
+  // an unauthenticated route and returned 200 with a 3 KB body.
+  //
+  // "In bounded time" is how this was written, and a millisecond threshold on a
+  // shared runner is a flaky test — #380 found it red under parallel lanes. It
+  // is now bounded in *work*: `sharesTextRunWith` spends itself slicing runs out
+  // of strings, so the character work the gate does is countable, exactly
+  // reproducible, and not a function of what else the machine is doing. The
+  // assertion is the strongest form of the property — judging 1,000 hostile
+  // spans costs the **same** work as judging 65, because everything past
+  // `maxUntrustedInputs` is refused before it is scanned.
   const candidate = cleanCandidate({
     // 1,999 characters, **one below `maxSegmentChars`**, and that literal is the
     // entire point of this fixture.
@@ -606,38 +632,47 @@ test('a maximal hostile input is judged in bounded time', () => {
     // 500 inputs, not 64: the count bound must have work to do. Supplying
     // exactly the limit would leave `maxUntrustedInputs` unexercised, which is
     // how it came to be that deleting that bound failed no timing test at all.
-    inputs: Array.from({ length: 500 }, (_unused, index) => ({
-      inputId: `in-${index}`,
-      origin: 'user_text' as const,
-      sensitivity: 'sensitive' as const,
-      declaredTrust: 'data' as const,
-      text: 'y'.repeat(7_999),
-    })),
+    inputs: hostileInputs(500),
   });
 
-  // Structural, and separate from the timing assertion on purpose. A wall-clock
-  // bound cannot distinguish "the guard held" from "the fixture never reached
+  // Structural, and separate from the work assertion on purpose. A bound on
+  // cost cannot distinguish "the guard held" from "the fixture never reached
   // the guard" — that is precisely how both halves of this test came to pass
   // while measuring nothing. This says how much work actually crossed the line.
   const scannable = scannableInputs(request);
   assert.equal(
     scannable.length,
     SAFETY_LIMITS.maxUntrustedInputs,
-    'the count bound admitted the wrong number of spans, so the timing below measures something else',
+    'the count bound admitted the wrong number of spans, so the measurement below is of something else',
   );
   assert.ok(
     scannable.every((span) => span.text.length === 7_999),
     'a span was dropped by the character bound, which empties the quadratic this test bounds',
   );
 
-  const startedAt = process.hrtime.bigint();
-  const result = evaluateSafetyGate({ request, candidate, auditId: 'audit-big' });
-  const elapsedMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+  const judge = (spanCount: number) =>
+    measureCharacterWork(() => evaluateSafetyGate({
+      request: cleanRequest({ inputs: hostileInputs(spanCount) }),
+      candidate,
+      auditId: 'audit-big',
+    }));
 
-  assert.notEqual(result.verdict.disposition, 'allow');
-  assert.ok(elapsedMs < 2_000, `judging a maximal input took ${elapsedMs.toFixed(0)}ms`);
+  const atTheBound = judge(SAFETY_LIMITS.maxUntrustedInputs + 1);
+  const wellPast = judge(500);
+
+  assert.notEqual(wellPast.value.verdict.disposition, 'allow');
   assert.ok(
-    result.verdict.findings.length <= 128,
+    atTheBound.work.total > 0,
+    'the fixture did no character work at all, so the comparison below is between two empty scans',
+  );
+  assert.equal(
+    wellPast.work.total,
+    atTheBound.work.total,
+    `judging ${500} hostile spans cost ${wellPast.work.total} character operations against `
+      + `${atTheBound.work.total} for ${SAFETY_LIMITS.maxUntrustedInputs + 1}: the work grows with the input past the bound`,
+  );
+  assert.ok(
+    wellPast.value.verdict.findings.length <= 128,
     'the refusal itself grew without bound, which turns a block into a payload',
   );
 });

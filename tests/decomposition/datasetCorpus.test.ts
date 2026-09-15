@@ -786,7 +786,6 @@ test('a span-bomb row is refused instead of amplified into a million issues', ()
     ],
   };
 
-  const started = Date.now();
   const parsed = parseExampleCorpus({
     contractVersion: '1.0.0',
     schema: 'decomposition-v1',
@@ -794,14 +793,18 @@ test('a span-bomb row is refused instead of amplified into a million issues', ()
     note: 'n',
     examples: [row],
   });
-  const elapsed = Date.now() - started;
 
   assert.equal(parsed.valid, false);
   assert.ok(hasIssue(parsed, 'DXC034'), JSON.stringify(parsed.issues.slice(0, 3), null, 2));
+  // The two bounds are the guard, and they are the whole guard. A 2,000 ms
+  // wall-clock budget stood beside them until #380: the amplification it was
+  // watching for is a million issues and 253 MB of strings, which is exactly
+  // what these two lines refuse — on any machine, at any load. The budget could
+  // only add a second way to go red, and it was the way that goes red when the
+  // box is busy rather than when the code is wrong.
   assert.ok(parsed.issues.length < 50, `expected a bounded report, got ${parsed.issues.length} issues`);
   const bytes = parsed.issues.reduce((total, issue) => total + issue.message.length, 0);
   assert.ok(bytes < 100_000, `expected bounded message bytes, got ${bytes}`);
-  assert.ok(elapsed < 2000, `took ${elapsed} ms`);
 });
 
 /* ── exampleId is as untrusted as any other caller-supplied string ─ */

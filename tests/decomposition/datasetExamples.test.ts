@@ -687,12 +687,15 @@ test('SPAN_OVERLAP reports once per step pair, not once per span pair', () => {
 test('overlap findings are bounded by the step-pair count, not the span count', () => {
   // The exhaustion #27 fixed was live here verbatim: one step with 4,000
   // identical spans produced 7,998,000 violation objects in about a second.
-  const started = Date.now();
+  //
+  // The cardinality assertion below *is* the guard, and a wall-clock budget
+  // stood beside it until #380 removed it. The budget added nothing the count
+  // did not already say: per-span-pair emission produces
+  // `MAX_SPANS_PER_STEP`-choose-2 findings here, not one, so this line goes red
+  // on the defect on any machine — while the budget also went red on a machine
+  // that was merely busy.
   const violations = validateProposedSteps(SOURCE, [overlapping('a', 400)], 'multi_step');
-  const elapsed = Date.now() - started;
-
   assert.equal(violations.filter((v) => v.code === 'SPAN_OVERLAP').length, 1);
-  assert.ok(elapsed < 1000, `bounded analysis should be fast, took ${elapsed} ms`);
 });
 
 test('a step carrying more spans than any decomposition could is refused outright', () => {
@@ -744,21 +747,57 @@ test('ids of the shape this repository actually uses stay readable', () => {
 test('the span backstop bounds comparison work, not just output', () => {
   // Per-step-pair bounds how many findings are *built*; it does not bound how
   // many span pairs are *compared*. Measured with the backstop removed, 12,000
-  // spans on one step cost 1,143 ms of comparisons against 2 ms with it — so
-  // the budget below has a ~500x margin and is not a flake risk.
+  // spans on one step cost 1,143 ms of comparisons against 2 ms with it.
   const many = step({
     stepId: 's1',
     title: 'Book the venue',
     sourceSpans: Array.from({ length: 12_000 }, () => span(SOURCE, 'Book the venue')),
     inferred: false,
   });
+  assert.equal(
+    validateProposedSteps(SOURCE, [many], 'multi_step').filter((v) => v.code === 'SPAN_OVERLAP').length,
+    1,
+  );
 
-  const started = Date.now();
-  const violations = validateProposedSteps(SOURCE, [many], 'multi_step');
-  const elapsed = Date.now() - started;
-
-  assert.equal(violations.filter((v) => v.code === 'SPAN_OVERLAP').length, 1);
-  assert.ok(elapsed < 200, `comparison work is unbounded: took ${elapsed} ms`);
+  // That used to be asserted with a 200 ms budget, which is a statement about
+  // the machine (#380). The *mechanism* is assertable directly: the backstop
+  // works by excluding a step's spans past `MAX_SPANS_PER_STEP` from the
+  // pairwise pass entirely, and a span excluded from the pass cannot produce a
+  // finding. So hide a collision behind the cap and check it is not found.
+  //
+  // `loaded` cites the same range `MAX_SPANS_PER_STEP` times — one collision
+  // with itself, which is the finding that *is* expected — and then, one past
+  // the cap, cites the range `other` claims. Kept, that last span collides with
+  // `other` and the report carries two findings; dropped, it is not compared
+  // with anything and the report carries one. The comparison count is bounded
+  // because the list being compared is, and this is what bounds the list.
+  const hidden = span(SOURCE, 'send the invitations');
+  const loaded = step({
+    stepId: 'loaded',
+    title: 'Book the venue',
+    sourceSpans: [
+      ...Array.from({ length: MAX_SPANS_PER_STEP }, () => span(SOURCE, 'Book the venue')),
+      hidden,
+    ],
+    inferred: false,
+  });
+  const other = step({
+    stepId: 'other',
+    title: 'send the invitations',
+    sourceSpans: [span(SOURCE, 'send the invitations')],
+    inferred: false,
+  });
+  const overlaps = validateProposedSteps(SOURCE, [loaded, other], 'multi_step')
+    .filter((violation) => violation.code === 'SPAN_OVERLAP');
+  assert.equal(
+    overlaps.length,
+    1,
+    `a span past the cap was compared after all, so the comparison list is unbounded: ${JSON.stringify(overlaps.map((v) => v.detail))}`,
+  );
+  // And the surviving finding is the intra-step one, not the collision with
+  // `other` — which pins *which* span was dropped rather than only how many
+  // findings came back.
+  assert.match(overlaps[0].detail, /claims overlapping source code units/);
 });
 
 test('each bound in the safe-id heuristic catches something the others do not', () => {
