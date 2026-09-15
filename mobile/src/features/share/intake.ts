@@ -21,6 +21,7 @@
  * runtime import lives.
  */
 import type { ShareIntent, ShareIntentFile } from 'expo-share-intent';
+import { looksLikeEmail } from './emailTextDetector';
 
 /** The same six the server classifies into. */
 export type SharedKind = 'text' | 'images' | 'pdf' | 'textFile' | 'chatArchive' | 'calendarFile';
@@ -156,6 +157,19 @@ export function sourceHintFor(files: readonly { fileName?: string | null }[], te
   if (names.some((name) => name.endsWith('.eml') || name.endsWith('.emlx'))) return 'email';
   // WhatsApp's own "share text" carries its export header even without a file.
   if (text && /^\s*\[?\d{1,2}[./]\d{1,2}[./]\d{2,4}[,\s]/.test(text)) return 'whatsapp';
+  /*
+   * A selection out of Gmail, Outlook or Apple Mail arrives as bare text with
+   * no file and no name to read, so the *shape* is the only thing left to read
+   * (UC-3.8, #192). `emailTextDetector.ts` is the same predicate the server
+   * runs, held to the same written answers by
+   * `__tests__/emailTextDetector.test.ts`, so this hint agrees with what the
+   * server would have decided on its own.
+   *
+   * It stays a hint. The server ranks it below its own reading and re-runs the
+   * detector itself, so a wrong answer here costs a tie-break and never a
+   * refusal — which is the only reason it is safe to guess from shape at all.
+   */
+  if (text && looksLikeEmail(text)) return 'email';
   return 'unknown';
 }
 
