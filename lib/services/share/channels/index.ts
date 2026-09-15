@@ -22,6 +22,7 @@
  * `shareRegistry.ts` and never by import order. If moving a line here changes
  * behaviour, the registry has a bug.
  */
+import './email';
 import './plainText';
 
 /**
@@ -30,4 +31,5 @@ import './plainText';
  * A test that empties the registry to assert resolution order puts these back
  * rather than re-importing this module, which an ESM cache would make a no-op.
  */
+export { emailPreprocessor } from './email';
 export { plainTextPreprocessor } from './plainText';
