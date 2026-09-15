@@ -10,6 +10,7 @@ import {
   staleCommitmentSchema,
 } from '../schemas/commitments';
 import { captureConfirmationSchema, captureProposalSchema } from '../schemas/capture';
+import { shareProposalSchema } from '../schemas/share';
 import { nextStepDecisionResponseSchema, nextStepResponseSchema } from '../schemas/nextStep';
 import { trustResponseSchema } from '../schemas/trust';
 import { alphaFeedbackSchema, feedbackHistorySchema, feedbackRevokeSchema } from '../schemas/feedback';
@@ -64,6 +65,10 @@ const CASES: Array<[string, z.ZodType]> = [
   // it every recorded proposal says `rule-based` and the engine enum has
   // nothing to be wrong about.
   ['capture.geminiProposal', captureProposalSchema],
+  // The share proposal is the capture proposal plus an envelope, and it is
+  // parsed with its own schema rather than with `captureProposalSchema`, so
+  // that a missing `share` block fails here instead of being ignored (#183).
+  ['capture.shareProposal', shareProposalSchema],
   ['capture.confirmation', captureConfirmationSchema],
   ['capture.confirmationFailed', captureConfirmationSchema],
   ['commitments.today', commitmentListSchema],

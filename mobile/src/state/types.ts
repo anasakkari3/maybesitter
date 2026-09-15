@@ -58,6 +58,12 @@ export type Screen =
   // are not screens any more: which one shows is derived from the flow's own
   // status, so there is no second place for it to be recorded wrongly.
   | 'capture'
+  // What another app handed over, before anything is done with it (UC-3.0,
+  // #183). One entry, like capture: the preview, the refusal and the "not yet"
+  // notice are derived from the share flow's own status rather than recorded
+  // twice. A successful analyze leaves here for `capture`, which is where the
+  // ordinary review and confirm live.
+  | 'share'
   | 'closeout'
   | 'firstmove'
   // Development only: the design gallery (src/design/Gallery.tsx).

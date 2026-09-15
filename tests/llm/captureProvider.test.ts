@@ -15,7 +15,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { LLMUnavailableError, type LlmProvider } from '../../src/extraction/llm/index.ts';
+import { LLMUnavailableError, structuredFromJson, type LlmProvider } from '../../src/extraction/llm/index.ts';
 import { captureLlmProvider, splitPrompt } from '../../lib/llm/captureProvider.ts';
 import type { LlmCallLog } from '../../lib/llm/llmLog.ts';
 import { uidHash } from '../../lib/llm/llmLog.ts';
@@ -33,23 +33,26 @@ const PROMPT = [
 
 function answering(text: string): LlmProvider & { requests: Array<{ system: string; user: string }> } {
   const requests: Array<{ system: string; user: string }> = [];
+  const generateJson: LlmProvider['generateJson'] = async (request) => {
+    requests.push({ system: request.system, user: request.user });
+    return { text, model: 'gemini-2.5-flash', latencyMs: 12, promptTokens: 66, outputTokens: 46 };
+  };
   return {
     name: 'gemini',
     requests,
-    async generateJson(request) {
-      requests.push({ system: request.system, user: request.user });
-      return { text, model: 'gemini-2.5-flash', latencyMs: 12, promptTokens: 66, outputTokens: 46 };
-    },
+    generateJson,
+    // #183 made `generateStructured` a required member, so a double has to
+    // carry one. `structuredFromJson` is the text-only adapter, which is what
+    // this fake is.
+    generateStructured: structuredFromJson(generateJson),
   } as LlmProvider & { requests: Array<{ system: string; user: string }> };
 }
 
 function failing(error: unknown): LlmProvider {
-  return {
-    name: 'gemini',
-    async generateJson() {
-      throw error;
-    },
+  const generateJson: LlmProvider['generateJson'] = async () => {
+    throw error;
   };
+  return { name: 'gemini', generateJson, generateStructured: structuredFromJson(generateJson) };
 }
 
 /** This account agreed. #161's own refusal path is asserted separately. */
@@ -124,7 +127,8 @@ test('over the cap, the provider is never asked and the reason names which cap',
 
 test('a provider that is switched off costs nothing and reserves nothing', async () => {
   const { calls, reserve } = reserver([]);
-  const off: LlmProvider = { name: 'none', async generateJson() { throw new LLMUnavailableError('provider_none'); } };
+  const refuse = async () => { throw new LLMUnavailableError('provider_none'); };
+  const off: LlmProvider = { name: 'none', generateJson: refuse, generateStructured: refuse };
 
   await assert.rejects(
     () => captureLlmProvider(UID, { provider: off, reserve, log: () => {}, consent: granted })(PROMPT),

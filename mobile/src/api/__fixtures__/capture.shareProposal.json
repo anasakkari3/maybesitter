@@ -1,0 +1,43 @@
+{
+  "version": "v1",
+  "proposalId": "00000000-0000-4000-8000-000000000001",
+  "status": "proposed",
+  "items": [
+    {
+      "itemId": "00000000-0000-4000-8000-000000000002",
+      "title": "Call the dentist",
+      "resolvedTime": "2026-08-09T09:00:00.000Z",
+      "needsClarification": false,
+      "priority": "normal",
+      "priorityEstimated": true
+    }
+  ],
+  "provenance": {
+    "requestedEngine": "rules",
+    "executedEngine": "rule-based",
+    "fallbackUsed": true
+  },
+  "share": {
+    "channel": "plain-text",
+    "kind": "text",
+    "fileCount": 0,
+    "totalBytes": 0,
+    "ignoredSegments": 0,
+    "suggestedNextAction": {
+      "kind": "set_reminder",
+      "itemId": "00000000-0000-4000-8000-000000000003"
+    },
+    "evidence": [
+      {
+        "itemId": "00000000-0000-4000-8000-000000000004",
+        "sourceIndex": null,
+        "excerpt": "Call the dentist tomorrow at 3pm"
+      }
+    ],
+    "evidenceDropped": false,
+    "metrics": {
+      "textFiles": 0,
+      "textSegments": 1
+    }
+  }
+}

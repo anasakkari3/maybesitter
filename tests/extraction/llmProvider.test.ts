@@ -235,17 +235,25 @@ test('no code path reads an API key', () => {
 
 function countingProvider(outcomes: Array<'fail-retryable' | 'fail-terminal' | 'ok'>): LlmProvider & { calls: number } {
   let calls = 0;
+  const answer = () => {
+    const outcome = outcomes[calls] ?? 'ok';
+    calls += 1;
+    if (outcome === 'fail-retryable') throw new LLMUnavailableError('server_error');
+    if (outcome === 'fail-terminal') throw new LLMUnavailableError('provider_error:400');
+    return { text: '{}', model: 'm', latencyMs: 1, promptTokens: 0, outputTokens: 0 };
+  };
   const provider = {
     name: 'gemini' as const,
     get calls() {
       return calls;
     },
     async generateJson() {
-      const outcome = outcomes[calls] ?? 'ok';
-      calls += 1;
-      if (outcome === 'fail-retryable') throw new LLMUnavailableError('server_error');
-      if (outcome === 'fail-terminal') throw new LLMUnavailableError('provider_error:400');
-      return { text: '{}', model: 'm', latencyMs: 1, promptTokens: 0, outputTokens: 0 };
+      return answer();
+    },
+    // The retry wrapper has to retry this call on the same terms (#183), so the
+    // double counts it the same way.
+    async generateStructured() {
+      return answer();
     },
   };
   return provider as LlmProvider & { calls: number };

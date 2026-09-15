@@ -322,6 +322,68 @@ export async function commitUsage(
 }
 
 /**
+ * Claims one of something a user may do N times a day (UC-3.0, #183).
+ *
+ * The share route needs a per-account daily limit on *analyses*, which is not
+ * the same number as model calls: one share is one analysis and may be one or
+ * two calls, and the two limits answer different questions — "is this account
+ * looping" versus "what is this account costing". They share this file so that
+ * both are one transaction on one document shape, with one day boundary and one
+ * TTL, rather than a second counter written somewhere else with its own rules.
+ *
+ * The document is `users/{uid}/usage/{action}-{yyyy-mm-dd}`, beside the model
+ * counters and expiring on the same policy. It does **not** touch the global
+ * counter: a global cap on model spend is a real thing, and a global cap on how
+ * many people may open a share sheet is not.
+ *
+ * `unavailable` is a refusal for the same reason it is above: a counter that
+ * cannot be read is not an absent one.
+ */
+export async function reserveDailyAction(
+  uid: string,
+  action: string,
+  cap: number,
+  options: { now?: Date; storage?: StorageAdapter } = {},
+): Promise<'ok' | 'user_cap' | 'unavailable'> {
+  const storage = options.storage ?? getStorage();
+  const now = options.now ?? new Date();
+  const day = utcDay(now);
+  const path = userDayPath(uid, `${action}-${day}`);
+
+  try {
+    return await storage.runTransaction(async (tx) => {
+      const current = await tx.get<UsageDay>(path);
+      const calls = current?.calls ?? 0;
+      if (calls >= cap) return 'user_cap';
+      tx.set<UsageDay>(path, {
+        calls: calls + 1,
+        date: day,
+        updatedAt: now.toISOString(),
+        expireAt: expireAtFor(now),
+      });
+      return 'ok';
+    });
+  } catch (error) {
+    // Named, and without the message: a storage error can quote the document it
+    // failed on, and these documents are keyed by uid.
+    console.error(`[llm/usage] ${action} reservation unavailable: ${(error as Error).name}`);
+    return 'unavailable';
+  }
+}
+
+/** What an action has been used for today, for tests and for answering "why". */
+export async function actionsToday(
+  uid: string,
+  action: string,
+  options: { now?: Date; storage?: StorageAdapter } = {},
+): Promise<number> {
+  const storage = options.storage ?? getStorage();
+  const now = options.now ?? new Date();
+  const day = await storage.get<UsageDay>(userDayPath(uid, `${action}-${utcDay(now)}`));
+  return day?.calls ?? 0;
+}
+
+/**
  * The kill switch (UC-4.5, #181 step 3).
  *
  * One environment variable that takes every model call out of the product at

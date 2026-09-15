@@ -1,0 +1,63 @@
+appId: com.maybesitter.app
+name: Deep links still work under singleTask
+---
+# UC-3.0 (#183): the share target changes the main activity's launch mode.
+#
+# `expo-share-intent`'s Android plugin sets `android:launchMode="singleTask"` on
+# `.MainActivity` (plugin/build/android/withAndroidMainActivityAttributes.js).
+# That is not a cosmetic change: under `singleTask` a `maybesitter://` link
+# delivered to an already-running task arrives through `onNewIntent` rather than
+# by starting a fresh activity, and an app that reads its link only at launch
+# stops responding to deep links the moment the share target is added. #183 lists
+# this as an acceptance criterion for exactly that reason.
+#
+# Nothing in a jest run can see it: the launch mode is a manifest attribute and
+# the behaviour is the Android activity lifecycle. So this flow is the check, and
+# it has to be run on a device build — see .maestro/README.md.
+#
+# Run it against a signed-in session. Maestro cannot type into a secure field, so
+# it cannot sign in for itself, and a pass here is not evidence that sign-in
+# works.
+- launchApp
+
+- assertVisible: 'يومك'
+
+# ── A link that names a screen ─────────────────────────────────────
+#
+# Warm: the app is already running, so on Android this is the `onNewIntent` path
+# the launch mode changes.
+- openLink: maybesitter://calendar
+- assertVisible: 'التقويم'
+- openLink: maybesitter://today
+- assertVisible: 'يومك'
+
+# ── A link that names one commitment ───────────────────────────────
+#
+# The flow seeds one first: `maybesitter://commitments/<id>` needs an id that
+# exists, and a link to a commitment that does not is correctly a no-op — which
+# would make this pass while proving nothing.
+- tapOn: 'احكيها'
+- tapOn: 'أو اكتب'
+- inputText: 'ذكّرني أحكي مع دانا بكرا الساعة 4'
+- tapOn: 'فهمها'
+- assertVisible: 'هذا اقتراح. لم يتغيّر أي شيء بعد.'
+- tapOn:
+    text: 'أكّد.*'
+- tapOn: 'اليوم'
+- tapOn:
+    id: 'today-item-.*'
+# The details screen for the item that was just saved.
+- assertVisible: 'رجوع'
+- assertVisible: 'دانا'
+- tapOn: 'رجوع'
+
+# ── The capture entry the share target will eventually use ─────────
+#
+# `source=share` already routes (src/links.ts); #183 is what finally produces it.
+# A link is not a share — it carries no files and opens the composer, not the
+# share screen — but it is the same deep-link path, and it is the one a
+# `singleTask` regression would break silently.
+- openLink: maybesitter://capture?source=share
+- assertVisible: 'احكيها'
+- tapOn: 'اليوم'
+- assertVisible: 'يومك'

@@ -47,15 +47,34 @@ export function consentGatedProvider(uid: string, options: ConsentGatedProviderO
   const inner = options.provider ?? getDefaultProvider();
   const readConsent = options.consent ?? getAiConsent;
 
+  /**
+   * Before the call, every call. The uid is the gate's, not the request's: a
+   * request object naming somebody else changes nothing about whose consent is
+   * checked.
+   */
+  async function requireConsent(): Promise<void> {
+    const consent = await readConsent(uid, options.storage ? { storage: options.storage } : {});
+    if (consent !== 'granted') throw new AiConsentRequiredError();
+  }
+
   return {
     name: inner.name,
     async generateJson(request) {
-      // Before the call, every call. The uid is the gate's, not the request's:
-      // a request object naming somebody else changes nothing about whose
-      // consent is checked.
-      const consent = await readConsent(uid, options.storage ? { storage: options.storage } : {});
-      if (consent !== 'granted') throw new AiConsentRequiredError();
+      await requireConsent();
       return inner.generateJson(request);
+    },
+    /**
+     * The same gate on the multipart call (UC-3.0, #183).
+     *
+     * This is why `generateStructured` is a required member of `LlmProvider`
+     * rather than an optional one. Optional, this wrapper could have been
+     * written without it and would have compiled — and the gate would then have
+     * had a hole shaped exactly like the newest and largest kind of user
+     * content the product handles.
+     */
+    async generateStructured(request) {
+      await requireConsent();
+      return inner.generateStructured(request);
     },
   };
 }

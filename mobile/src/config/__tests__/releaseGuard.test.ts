@@ -25,6 +25,20 @@ describe('releaseConfigProblems', () => {
     { name: 'localhost in development', env: { appEnv: 'development', apiBaseUrl: 'http://localhost:3000' }, safe: true },
     { name: 'android emulator host in development', env: { appEnv: 'development', apiBaseUrl: 'http://10.0.2.2:3000' }, safe: true },
     { name: 'dev bearer token in development', env: { appEnv: 'development', apiBaseUrl: 'http://localhost:3000', devBearerToken: 'x' }, safe: true },
+    // UC-3.0 (#183). Share intake is a launch feature, so the flag itself is
+    // allowed everywhere — but only ever spelled `true` or `false`. `1` reads as
+    // off while the share sheet still offers MaybeSitter, so every tester who
+    // uses it gets the "not yet" notice and the build log says it was enabled.
+    { name: 'share intake on in production', env: { appEnv: 'production', apiBaseUrl: 'https://api.example.com', shareIntake: 'true' }, safe: true },
+    { name: 'share intake off in production', env: { appEnv: 'production', apiBaseUrl: 'https://api.example.com', shareIntake: 'false' }, safe: true },
+    { name: 'share intake spelled 1', env: { appEnv: 'production', apiBaseUrl: 'https://api.example.com', shareIntake: '1' }, safe: false },
+    { name: 'share intake spelled yes, even in development', env: { appEnv: 'development', apiBaseUrl: 'http://localhost:3000', shareIntake: 'yes' }, safe: false },
+    // The library's debug option writes the shared payload — the text, the file
+    // paths — into the device log. A build anybody else installs must not be
+    // able to do that, so it is refused at *configure* time, not at run time.
+    { name: 'share intent debug in production', env: { appEnv: 'production', apiBaseUrl: 'https://api.example.com', shareIntentDebug: 'true' }, safe: false },
+    { name: 'share intent debug in staging', env: { appEnv: 'staging', apiBaseUrl: 'https://staging.example.com', shareIntentDebug: 'true' }, safe: false },
+    { name: 'share intent debug in development', env: { appEnv: 'development', apiBaseUrl: 'http://localhost:3000', shareIntentDebug: 'true' }, safe: true },
   ];
 
   for (const { name, env, safe } of cases) {

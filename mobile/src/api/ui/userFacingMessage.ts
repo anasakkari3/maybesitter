@@ -12,6 +12,8 @@ import {
   StaleCommitmentError,
   TimeoutError,
   UnauthorizedError,
+  UnsupportedShareError,
+  UploadTooLargeError,
   ValidationError,
 } from '../errors';
 
@@ -86,6 +88,10 @@ export function userFacingMessageKey(error: unknown): UserFacingKey {
     if (error.scope === 'global_daily') return 'aiServiceUnavailable';
     return error.scope === 'user_minute' ? 'aiQuotaTryLater' : 'aiQuotaUserDaily';
   }
+  // Before `InputTooLargeError`, whose copy counts characters. A share is
+  // refused by size in bytes and by format, and both have their own line (#183).
+  if (error instanceof UploadTooLargeError) return 'shareTooLarge';
+  if (error instanceof UnsupportedShareError) return 'shareUnsupported';
   if (error instanceof InputTooLargeError) return 'aiInputTooLong';
   if (error instanceof NetworkError || error instanceof TimeoutError) return 'errorsNetwork';
   if (error instanceof ServerError || error instanceof ServiceUnavailableError || error instanceof ContractError) {

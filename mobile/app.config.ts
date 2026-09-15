@@ -217,11 +217,22 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
      * installed tree and fails if this list no longer covers it, so adding a
      * dependency that needs a new reason is caught in CI rather than by Apple.
      *
-     * `1C8F.1` — UserDefaults in an App Group — is deliberately **absent**. The
-     * entitlement is declared above, but nothing reads the group yet; the
-     * widget bridge that will (UC-3.R1 #203) does not exist. Declaring a reason
-     * the app does not use would be over-declaring, which is the same kind of
-     * inaccuracy as under-declaring.
+     * `1C8F.1` — UserDefaults in an App Group — became **true** with UC-3.0
+     * (#183) and is declared below. It was deliberately absent before, because
+     * the entitlement existed and nothing read the group; the share extension
+     * `expo-share-intent` generates reads and writes
+     * `UserDefaults(suiteName: "group.com.maybesitter.app")` in both directions
+     * (the generated `ios/ShareExtension/ShareViewController.swift`, five call
+     * sites, and `ExpoShareIntentModule.swift`), which is exactly what that
+     * reason describes. `scripts/check-privacy-manifests.mjs` cannot see it —
+     * the extension is generated at prebuild and is in neither `node_modules`
+     * nor `targets/` — so this one was read out of `expo prebuild`'s output
+     * rather than out of the installed tree, and this comment is that record.
+     *
+     * The extension is a second bundle with a manifest of its own, which the
+     * dependency generates declaring `CA92.1` alone. `withShareExtensionFixups`
+     * adds `1C8F.1` there too: the bundle that makes the suite call is the one
+     * that has to declare the reason for it.
      */
     privacyManifests: {
       // MaybeSitter does not track. No ATT prompt, no tracking domains.
@@ -229,8 +240,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       NSPrivacyTrackingDomains: [],
       NSPrivacyAccessedAPITypes: [
         {
+          // CA92.1: the app's own UserDefaults. 1C8F.1: the share extension's
+          // App Group suite (UC-3.0, #183) — see the note above.
           NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategoryUserDefaults',
-          NSPrivacyAccessedAPITypeReasons: ['CA92.1'],
+          NSPrivacyAccessedAPITypeReasons: ['CA92.1', '1C8F.1'],
         },
         {
           NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategoryFileTimestamp',
@@ -422,6 +435,84 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       dark: { image: './assets/splash-icon.png', backgroundColor: '#101416' }
     }],
     './plugins/withDataExtractionRules',
+    /*
+     * Two corrections to what `expo-share-intent` generates, which is why this
+     * is listed *before* it (UC-3.0, #183).
+     *
+     * Config-plugin mods execute in reverse registration order — each wrapper
+     * runs the mod already registered for its key and then its own action — so
+     * the plugin that has to see everyone else's work goes first in this array.
+     * It de-duplicates the App Group both declarations ask for, and it fixes
+     * the share sheet's label, which the dependency ties to the Xcode target
+     * name. Both faults are visible only in `expo prebuild`'s output, never in
+     * `expo config --type introspect`. See plugins/withShareExtensionFixups.js.
+     */
+    './plugins/withShareExtensionFixups',
+    /*
+     * The native share targets (UC-3.0, #183).
+     *
+     * `expo-share-intent@8` is the choice. It is the only maintained option
+     * whose peer range is `expo: ^57` (this app is SDK 57 / RN 0.86 / React
+     * 19.2), it generates both sides — the iOS Share Extension target and the
+     * Android `SEND` / `SEND_MULTIPLE` intent filters — from this config alone,
+     * and it exposes the result to JavaScript. `ios/` and `android/` are
+     * generated here (CNG) and `git ls-files mobile/ios` is empty, so a config
+     * plugin is the *only* way a share target can exist in this repository at
+     * all; an approach needing hand-written Swift in a committed `ios/` folder
+     * was never available.
+     *
+     * ── The Android MIME list ────────────────────────────────────
+     *
+     * The plugin's own TypeScript narrows `androidIntentFilters` to
+     * text/image/video/*-star. That is a hint, not a validator: the
+     * implementation writes each string straight into the manifest as a
+     * `<data android:mimeType>` (read
+     * `plugin/build/android/withAndroidIntentFilters.js`), so `application/pdf`,
+     * `application/zip` and `text/calendar` produce exactly the filters #183
+     * asks for. They are listed as the issue names them, not narrowed to fit a
+     * type that is looser than it looks.
+     *
+     * ── `singleTask` ─────────────────────────────────────────────
+     *
+     * The plugin sets the main activity's launch mode. Deep links
+     * (`maybesitter://`) and notification taps have to keep working under it;
+     * `.maestro/share-deeplink-regression.yaml` is the regression, and it needs
+     * a device build.
+     *
+     * ── `iosShareExtensionName` is the target name, not the label ─
+     *
+     * #183's sketch sets it to `MaybeSitter`. That value is used for **both**
+     * the Xcode target name and the extension's `CFBundleDisplayName`, and the
+     * target-creating mod returns early when a target of that name already
+     * exists — which it does, because it is the app. Prebuild then logs
+     * "MaybeSitter already exists in project. Skipping…", writes the Swift and
+     * the plists, and produces no extension target at all: no share sheet
+     * entry, and no `com.apple.product-type.app-extension` in the generated
+     * `project.pbxproj`. So the target is `ShareExtension`, and
+     * `withShareExtensionFixups` puts `MaybeSitter` back as the label.
+     *
+     * ── The extension's bundle id ────────────────────────────────
+     *
+     * `com.maybesitter.app.share-extension`, from
+     * `getShareExtensionBundledIdentifier` with no override — independent of
+     * the name above, and confirmed in the generated `project.pbxproj`.
+     * UC-4.3a (#178) and 4.6a need it for the store listing and the
+     * provisioning profile.
+     */
+    ['expo-share-intent', {
+      iosActivationRules: {
+        NSExtensionActivationSupportsText: true,
+        NSExtensionActivationSupportsWebURLWithMaxCount: 1,
+        NSExtensionActivationSupportsImageWithMaxCount: 5,
+        NSExtensionActivationSupportsFileWithMaxCount: 1,
+      },
+      // The zip is the iOS WhatsApp export shape (UC-3.5 #189). The extension
+      // only hands files over through the App Group; it never uploads.
+      androidIntentFilters: ['text/*', 'image/*', 'application/pdf', 'application/zip', 'text/calendar'],
+      androidMultiIntentFilters: ['image/*'],
+      iosAppGroupIdentifier: 'group.com.maybesitter.app',
+      iosShareExtensionName: 'ShareExtension',
+    }],
   ],
   extra: {
     ...config.extra,

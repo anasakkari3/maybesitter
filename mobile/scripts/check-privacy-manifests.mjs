@@ -152,9 +152,16 @@ if (!/usesNonExemptEncryption:\s*false/.test(appConfigSource)) {
 /**
  * First-party native code that would need a reason of its own.
  *
- * There is none today: `targets/` and `modules/` do not exist, because the
- * widget (#203) and the share extension (#183) are S3. The check is here so the
- * day one of them lands, the symbol it uses is compared against a manifest
+ * There is none today: `targets/` and `modules/` do not exist. The widget (#203)
+ * is still to come, and the share extension UC-3.0 (#183) landed *without*
+ * putting Swift in this repository — `expo-share-intent`'s config plugin writes
+ * it during `expo prebuild`, into the gitignored `ios/`, so this walk cannot see
+ * it and never will. Its `UserDefaults(suiteName:)` use is why `1C8F.1` is
+ * declared in `app.config.ts` and added to the extension's own generated
+ * manifest by `plugins/withShareExtensionFixups.js`; the note above that
+ * declaration records how it was checked, which is by reading prebuild's output
+ * rather than the installed tree. The check is here so the day first-party
+ * native code does land, the symbol it uses is compared against a manifest
  * rather than noticed by Apple.
  */
 const SYMBOLS = /systemUptime|mach_absolute_time|creationDate|modificationDate|volumeAvailableCapacity|activeInputModes|UserDefaults/;
@@ -181,7 +188,7 @@ for (const dir of ['targets', 'modules']) {
 }
 
 if (firstPartyNative.length === 0) {
-  console.log('  no first-party native source yet (targets/ and modules/ are S3: #203, #183)');
+  console.log('  no first-party native source (the #183 share extension is generated at prebuild; #203 is still to come)');
 } else {
   for (const path of firstPartyNative) {
     if (SYMBOLS.test(readFileSync(path, 'utf8'))) {

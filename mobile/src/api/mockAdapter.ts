@@ -33,6 +33,7 @@ import alphaFeedbackFlag from './__fixtures__/alphaFeedback.flag.json';
 import analyticsAck from './__fixtures__/analytics.ack.json';
 import captureConfirmation from './__fixtures__/capture.confirmation.json';
 import captureProposal from './__fixtures__/capture.proposal.json';
+import captureShareProposal from './__fixtures__/capture.shareProposal.json';
 import commitmentsAction from './__fixtures__/commitments.action.json';
 import commitmentsDeleted from './__fixtures__/commitments.deleted.json';
 import commitmentsOne from './__fixtures__/commitments.one.json';
@@ -65,6 +66,9 @@ export interface MockResponse {
  */
 const ROUTES: [string, RegExp, MockResponse][] = [
   ['POST', /^\/api\/mobile\/capture\/confirm$/, { status: 200, body: captureConfirmation }],
+  // The share route (UC-3.0, #183). `apiUpload` consults this table too, so a
+  // share screen can be driven on fixtures with no backend and no share sheet.
+  ['POST', /^\/api\/mobile\/capture\/share$/, { status: 200, body: captureShareProposal }],
   ['POST', /^\/api\/mobile\/capture$/, { status: 200, body: captureProposal }],
 
   ['GET', /^\/api\/mobile\/commitments\/today$/, { status: 200, body: commitmentsToday }],

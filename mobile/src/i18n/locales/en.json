@@ -609,5 +609,19 @@
   "activityKindPlanAccepted": "Plan accepted",
   "activityKindReminderAcknowledged": "Reminder seen",
   "activityMovedTo": "Moved to {date}",
-  "activityUnavailable": "We can't reach your activity right now. Nothing changed."
+  "activityUnavailable": "We can't reach your activity right now. Nothing changed.",
+  "shareTitle": "What you shared",
+  "shareNothingSentYet": "Nothing has left your phone yet. Read it over first.",
+  "shareAnalyzing": "Reading what you shared…",
+  "shareDiscard": "Throw it away",
+  "shareUnavailable": "Sharing into MaybeSitter isn’t switched on yet. Nothing was sent.",
+  "shareTooLarge": "That’s too big to send. Share a smaller part of it.",
+  "shareUnsupported": "MaybeSitter can’t read that kind of file yet.",
+  "shareTooManyFiles": "Too many files at once. Share up to five images, or one file.",
+  "shareTextTooLong": "That’s a lot of text. Share a shorter part of it.",
+  "shareEmpty": "There was nothing in that to read.",
+  "shareSizeKb": "{n} KB",
+  "shareNeedsAi": "Reading a picture or a file needs the AI turned on. Nothing was sent.",
+  "shareTurnOnAi": "Look at the AI setting",
+  "shareSizeMb": "{n} MB"
 }

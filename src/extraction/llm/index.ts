@@ -26,14 +26,16 @@ import { createGeminiProvider, isRetryable } from './geminiProvider';
 import {
   LLMUnavailableError,
   NONE_PROVIDER,
+  structuredFromJson,
   type LlmProvider,
   type LlmProviderName,
   type LlmRequest,
   type LlmResponse,
+  type LlmStructuredRequest,
 } from './llmProvider';
 
 export * from './llmProvider';
-export { createGeminiProvider, isRetryable, DEFAULT_GEMINI_MODEL, DEFAULT_VERTEX_LOCATION, type GenerateContent } from './geminiProvider';
+export { createGeminiProvider, isRetryable, DEFAULT_GEMINI_MODEL, DEFAULT_VERTEX_LOCATION, DEFAULT_STRUCTURED_MAX_OUTPUT_TOKENS, DEFAULT_STRUCTURED_TIMEOUT_MS, DEFAULT_TIMEOUT_MS, type GenerateContent } from './geminiProvider';
 export { toVertexSchema } from './vertexSchema';
 
 export const DEFAULT_MAX_RETRIES = 1;
@@ -63,20 +65,32 @@ export function withSingleRetry(
   const retries = Number.isFinite(maxRetries) ? Math.max(0, maxRetries) : DEFAULT_MAX_RETRIES;
   const delayMs = options.delayMs ?? (() => RETRY_BASE_MS + Math.floor(Math.random() * RETRY_JITTER_MS));
 
+  /** One attempt loop, whichever call shape is being retried. */
+  async function attempt<T>(run: () => Promise<T>): Promise<T> {
+    let lastError: unknown;
+    for (let tries = 0; tries <= retries; tries += 1) {
+      try {
+        return await run();
+      } catch (error) {
+        lastError = error;
+        if (tries === retries || !isRetryable(error)) break;
+        await sleep(delayMs());
+      }
+    }
+    throw lastError instanceof Error ? lastError : new LLMUnavailableError('provider_error');
+  }
+
   return {
     name: provider.name,
-    async generateJson(request: LlmRequest): Promise<LlmResponse> {
-      let lastError: unknown;
-      for (let attempt = 0; attempt <= retries; attempt += 1) {
-        try {
-          return await provider.generateJson(request);
-        } catch (error) {
-          lastError = error;
-          if (attempt === retries || !isRetryable(error)) break;
-          await sleep(delayMs());
-        }
-      }
-      throw lastError instanceof Error ? lastError : new LLMUnavailableError('provider_error');
+    generateJson(request: LlmRequest): Promise<LlmResponse> {
+      return attempt(() => provider.generateJson(request));
+    },
+    // Retried on the same terms, and for the same reason: a multipart call is
+    // larger and therefore *more* likely to meet a timeout or a throttle, not
+    // less. Leaving it unretried would have made the one call shape that needs
+    // a second attempt the only one without one.
+    generateStructured(request: LlmStructuredRequest): Promise<LlmResponse> {
+      return attempt(() => provider.generateStructured(request));
     },
   };
 }
@@ -116,21 +130,26 @@ export function resetProviderForTests(): void {
  * this whole issue is trying to keep deliberate.
  */
 function createOllamaProvider(): LlmProvider {
+  const generateJson = async (request: LlmRequest): Promise<LlmResponse> => {
+    const { callOllama } = await import('../localLLMProvider');
+    const startedAt = Date.now();
+    const text = await callOllama(`${request.system}\n\n${request.user}`.trim());
+    return {
+      text,
+      model: process.env.MAYBESITTER_LLM_MODEL ?? 'llama3.2',
+      latencyMs: Date.now() - startedAt,
+      // Ollama's response carries counts this adapter does not read; the cost
+      // guard exists for the hosted provider, and local calls cost nothing.
+      promptTokens: 0,
+      outputTokens: 0,
+    };
+  };
   return {
     name: 'ollama',
-    async generateJson(request: LlmRequest): Promise<LlmResponse> {
-      const { callOllama } = await import('../localLLMProvider');
-      const startedAt = Date.now();
-      const text = await callOllama(`${request.system}\n\n${request.user}`.trim());
-      return {
-        text,
-        model: process.env.MAYBESITTER_LLM_MODEL ?? 'llama3.2',
-        latencyMs: Date.now() - startedAt,
-        // Ollama's response carries counts this adapter does not read; the cost
-        // guard exists for the hosted provider, and local calls cost nothing.
-        promptTokens: 0,
-        outputTokens: 0,
-      };
-    },
+    generateJson,
+    // Text through, bytes refused. `callOllama` posts one prompt string; there
+    // is no inline-data shape to map to, and pretending there is would hand a
+    // channel a provider that silently read nothing.
+    generateStructured: structuredFromJson(generateJson),
   };
 }

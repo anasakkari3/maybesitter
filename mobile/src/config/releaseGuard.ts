@@ -49,6 +49,27 @@ export interface ReleaseConfigInput {
    * not get made.
    */
   testCrash?: string | undefined;
+  /**
+   * `EXPO_PUBLIC_FEATURE_SHARE_INTAKE` (UC-3.0, #183).
+   *
+   * Allowed in every environment — share intake is a launch feature and will be
+   * on in production — but only ever spelled `true` or `false`. A typo here is
+   * the quiet kind of wrong: `EXPO_PUBLIC_FEATURE_SHARE_INTAKE=1` reads as off,
+   * the share sheet still offers MaybeSitter because the native target is
+   * compiled in either way, and every tester who uses it gets the "not yet"
+   * notice while the build log says the feature was enabled.
+   */
+  shareIntake?: string | undefined;
+  /**
+   * `EXPO_PUBLIC_SHARE_INTENT_DEBUG` (UC-3.0, #183).
+   *
+   * Turns on `expo-share-intent`'s own logging, which writes the shared payload
+   * — the text, the file paths — to the device log. A build anybody else
+   * installs must not be able to do that, so a staging or production build that
+   * sets it at all does not get made. The same shape as the Google Calendar
+   * demo flag above, for the same reason.
+   */
+  shareIntentDebug?: string | undefined;
 }
 
 export const APP_ENVS: readonly AppEnv[] = ['development', 'staging', 'production'];
@@ -89,6 +110,14 @@ export function releaseConfigProblems(input: ReleaseConfigInput): string[] {
     problems.push('EXPO_PUBLIC_ENABLE_TEST_CRASH must not be set in a production build');
   }
 
+  // Checked in every environment, development included: a value that is neither
+  // `true` nor `false` is a mistake wherever it is made, and the development
+  // build is where somebody would find out cheaply.
+  const shareIntake = (input.shareIntake ?? '').trim();
+  if (shareIntake !== '' && shareIntake !== 'true' && shareIntake !== 'false') {
+    problems.push(`EXPO_PUBLIC_FEATURE_SHARE_INTAKE must be true or false (got ${shareIntake})`);
+  }
+
   // A developer build is allowed to point at a laptop, and to run on fixtures.
   if (appEnv === 'development') return problems;
 
@@ -99,6 +128,13 @@ export function releaseConfigProblems(input: ReleaseConfigInput): string[] {
   if ((input.googleCalendarDemo ?? '').trim() !== '') {
     problems.push(
       'EXPO_PUBLIC_ENABLE_GOOGLE_CALENDAR_DEMO must not be set in a staging or production build',
+    );
+  }
+
+  // The share payload in the device log. Never in a build somebody installs.
+  if ((input.shareIntentDebug ?? '').trim() !== '') {
+    problems.push(
+      'EXPO_PUBLIC_SHARE_INTENT_DEBUG must not be set in a staging or production build',
     );
   }
 
