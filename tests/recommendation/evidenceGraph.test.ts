@@ -706,19 +706,18 @@ test('graph: a very deep derivation chain resolves without exhausting the stack'
   assert.deepEqual((roots as readonly ObservedEvidence[]).map((node) => node.nodeId), ['r0']);
 });
 
-test('graph: cycle detection stays linear at scale', () => {
-  // The previous detector was O(V·(V+E)) — 222ms at five thousand nodes — and
-  // its backward-reachability pass was provably dead: after the forward guard
-  // the node already reaches itself, so the intersection never excluded
-  // anything. Tarjan replaces both. The bound here is loose on purpose; it is
-  // guarding an order of growth, not a machine.
-  const nodes: EvidenceNode[] = [observed('root')];
-  for (let index = 1; index < 20000; index += 1) nodes.push(derived(`n${index}`, ['root']));
-  const started = process.hrtime.bigint();
-  assert.deepEqual(checkEvidenceGraph({ nodes }).slice(), []);
-  const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6;
-  assert.ok(elapsedMs < 2000, `checkEvidenceGraph took ${elapsedMs.toFixed(0)}ms on 20k nodes`);
-});
+/*
+ * `graph: cycle detection stays linear at scale` moved to
+ * tests/perf/evidenceGraphBounds.perf.test.ts by #380.
+ *
+ * It asserted a 2,000 ms wall-clock budget over 20,000 nodes inside `npm test`,
+ * where a busy machine could fail it and did. Nothing about it is convertible
+ * into a counted assertion: Tarjan and the O(V·(V+E)) detector it replaced
+ * return identical defect lists and read the caller's nodes the same number of
+ * times, so the only difference between them is how long they take. That claim
+ * now lives where a clock is expected. Every claim about *what* the detector
+ * reports still runs here.
+ */
 
 /* ── mutation-killing assertions on resolveEvidenceRoots ──────────── */
 

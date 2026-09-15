@@ -15,6 +15,7 @@ import type { DecompositionStepProposal } from '../../src/contracts/v1/decomposi
 import { proposeDecomposition } from '../../lib/decomposition/engine/index.ts';
 import type { DecompositionModelProvider } from '../../lib/decomposition/engine/modelProvider.ts';
 import { goldenById } from '../fixtures/decompositionGolden.ts';
+import { createWorkMeter, metered } from '../support/workMeter.ts';
 
 // Decomposition is its own registered module as of integration; it borrowed
 // `planning` only while `INTELLIGENCE_MODULES` could not be edited mid-sprint.
@@ -426,33 +427,50 @@ test('a field that changes between reads cannot be validated as one value and us
 });
 
 test('an unbounded draft is refused rather than allocated', async () => {
-  const span = { start: 0, end: 14, text: 'Book the venue' };
+  // "Rather than allocated" is the whole claim, and #380 made it assertable
+  // instead of timed. The refusal is decided from *counts* — how many steps,
+  // how many spans, how many edges — so a correctly-bounded engine never looks
+  // inside a single one of them. Every span and every dependency the hostile
+  // draft carries therefore reports its own field reads, and the assertion is
+  // that the total is zero.
+  //
+  // That is strictly stronger than the 1,000 ms budget it replaces, which could
+  // not tell "refused on counts" from "walked 75,000 spans quickly", and which
+  // went red under parallel lanes for reasons that had nothing to do with the
+  // engine.
+  const meter = createWorkMeter();
+  const span = () => metered({ start: 0, end: 14, text: 'Book the venue' }, meter);
+  const edge = () => metered({ dependsOnStepId: 's2', kind: 'temporal' }, meter);
   const oversized: readonly (readonly [string, unknown])[] = [
     ['too many steps', Array.from({ length: 20000 }, (_, index) => ({
       ...WEDDING.expectedSteps[0], stepId: `s${index}`,
     }))],
     ['too many spans on one step', [
-      { ...WEDDING.expectedSteps[0], sourceSpans: Array.from({ length: 5000 }, () => span) },
+      { ...WEDDING.expectedSteps[0], sourceSpans: Array.from({ length: 5000 }, span) },
       WEDDING.expectedSteps[1],
     ]],
     ['too many spans in total', Array.from({ length: 150 }, (_, index) => ({
       ...WEDDING.expectedSteps[0], stepId: `s${index}`,
-      sourceSpans: Array.from({ length: 15 }, () => span),
+      sourceSpans: Array.from({ length: 15 }, span),
     }))],
     ['too many dependency edges', [
-      { ...WEDDING.expectedSteps[0], dependsOn: Array.from({ length: 5000 }, () => ({ dependsOnStepId: 's2', kind: 'temporal' })) },
+      { ...WEDDING.expectedSteps[0], dependsOn: Array.from({ length: 5000 }, edge) },
       WEDDING.expectedSteps[1],
     ]],
   ];
 
   for (const [label, steps] of oversized) {
-    const started = Date.now();
+    meter.count = 0;
     const proposal = await proposeDecomposition(base(), {
       modelProvider: { async propose() { return { steps, confidence: 0.95 } as never; } },
       controls: ENABLED,
     });
     assert.equal(proposal.provenance.executedEngine, 'rules', label);
-    assert.ok(Date.now() - started < 1000, `${label} took too long`);
+    assert.equal(
+      meter.count,
+      0,
+      `${label}: the draft's spans and edges were read ${meter.count} times, so it was walked before it was refused`,
+    );
   }
 });
 

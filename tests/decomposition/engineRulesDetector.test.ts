@@ -20,6 +20,7 @@ import {
 import { detectSteps } from '../../lib/decomposition/engine/rulesDetector.ts';
 import { validateDecomposition } from '../../lib/decomposition/engine/validator.ts';
 import { DECOMPOSITION_GOLDEN, goldenById, goldenByLabel } from '../fixtures/decompositionGolden.ts';
+import { assertGrowsLinearly, measureCharacterWork } from '../support/workMeter.ts';
 
 test('English: sequencing marker splits and orders, plain conjunction splits without ordering', () => {
   const example = goldenById('en-multi-wedding');
@@ -251,15 +252,32 @@ test('many short clauses do not make the detector quadratic', () => {
   // default, so this needed no model and no hostile provider — one request
   // stalled the process.
   //
-  // The bound is generous on purpose: the point is the growth curve, not a
-  // millisecond target. The old code needed ~36,000 ms here.
-  const text = `buy${', buy'.repeat(20000)}`;
-  const started = Date.now();
-  const detected = detectSteps(text);
-  const elapsed = Date.now() - started;
+  // The point is the growth curve, not a millisecond target, so it is measured
+  // as a growth curve (#380). `detectSteps` takes a primitive string, which
+  // cannot carry an accessor, so the meter counts what the language does on the
+  // string's behalf — characters copied out by `slice`, patterns run by a
+  // `RegExp`. A pass that re-cuts the whole source once per dropped boundary
+  // spends O(n^2) characters doing it and cannot hide that from either counter.
+  //
+  // The old code needed ~36,000 ms here; under this meter it needs ~2,000x the
+  // character work, on an idle machine and on a busy one alike.
+  //
+  // The sizes are smaller than the 100 KB the old budget needed, and that is a
+  // consequence of counting rather than timing: a growth factor is scale-free,
+  // so the input only has to be big enough to have a curve, not big enough to
+  // be slow. Measured first, so a quadratic rebuild fails here in a second
+  // instead of stalling the run on the behavioural line below.
+  const listOf = (clauses: number) => `buy${', buy'.repeat(clauses)}`;
+  assertGrowsLinearly(
+    (clauses) => measureCharacterWork(() => detectSteps(listOf(clauses))).work.total,
+    { size: 1000, what: 'detectSteps over a comma-separated list of one-word clauses' },
+  );
 
-  assert.deepEqual(detected.steps, [], 'one-word clauses are conjoined objects, not steps');
-  assert.ok(elapsed < 2000, `detectSteps took ${elapsed} ms on ${text.length} characters`);
+  assert.deepEqual(
+    detectSteps(listOf(2000)).steps,
+    [],
+    'one-word clauses are conjoined objects, not steps',
+  );
 });
 
 test('dropping one boundary still lets a neighbouring boundary survive', () => {
@@ -287,13 +305,19 @@ test('markers that never merge do not make the detector quadratic either', () =>
   //
   // Fixing the case and not the class is what let this survive, so the check is
   // now derived from the token index, which cannot rescan by construction.
-  for (const [length, budget] of [[10000, 400], [100000, 1500]] as const) {
-    const text = ',.'.repeat(length / 2);
-    const started = Date.now();
-    const detected = detectSteps(text);
-    const elapsed = Date.now() - started;
-    assert.deepEqual(detected.steps, []);
-    assert.ok(elapsed < budget, `${text.length} characters took ${elapsed} ms`);
+  //
+  // Counted rather than timed (#380), for the reason the sibling growth test
+  // above states. The rescan this guards is a character walk from a cursor that
+  // never advances, so it shows up as `RegExp.prototype.test` called once per
+  // character per marker — quadratic, and visible at any size on any machine.
+  const pairs = (length: number) => ',.'.repeat(length / 2);
+  assertGrowsLinearly(
+    (length) => measureCharacterWork(() => detectSteps(pairs(length))).work.total,
+    { size: 2000, what: 'detectSteps over punctuation pairs that never merge' },
+  );
+
+  for (const length of [2000, 10000] as const) {
+    assert.deepEqual(detectSteps(pairs(length)).steps, []);
   }
 });
 

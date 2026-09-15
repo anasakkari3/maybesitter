@@ -16,6 +16,14 @@ export const SCRIPT_ONLY = {
   // Wall-clock bound on the safety gate. Fails under CPU load, so it is not in
   // `npm test`; run `npm run test:perf` on an idle machine (UC-0.3, #136).
   'tests/perf/safetyGateBound.perf.test.ts': 'test:perf',
+  // Cost bounds on `validateDecomposition` and on evidence-graph cycle
+  // detection. Both defects waste time inside their own index arrays and change
+  // neither the verdict nor the number of times the caller's data is read, so
+  // there is nothing to count and a clock is the only instrument. Not in
+  // `npm test` for the same reason as the line above; run `npm run test:perf`
+  // on an idle machine (#380).
+  'tests/perf/decompositionValidatorBounds.perf.test.ts': 'test:perf',
+  'tests/perf/evidenceGraphBounds.perf.test.ts': 'test:perf',
 };
 
 export function registrationProblems(root = process.cwd()) {

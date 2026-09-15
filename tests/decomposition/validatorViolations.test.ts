@@ -23,6 +23,7 @@ import {
   validateDecomposition,
 } from '../../lib/decomposition/engine/validator.ts';
 import { DECOMPOSITION_GOLDEN } from '../fixtures/decompositionGolden.ts';
+import { assertGrowsLinearly, createWorkMeter, metered } from '../support/workMeter.ts';
 
 const SOURCE = 'Book the venue and send the invitations.';
 
@@ -457,13 +458,29 @@ test('many overlapping spans are one finding per step pair, not one per span pai
   // process out of memory. One step double-claiming its own range is one
   // defect, which is the cardinality ruling already applied to cycles.
   const many = Array.from({ length: 4000 }, () => at(SOURCE, 'Book the venue'));
-  const started = Date.now();
   const violations = validateDecomposition({ sourceText: SOURCE, steps: [step({ sourceSpans: many })] });
-  const elapsed = Date.now() - started;
 
   assert.deepEqual(codes(violations), ['SPAN_OVERLAP']);
   assert.equal(violations.length, 1, `expected one violation, got ${violations.length}`);
-  assert.ok(elapsed < 500, `took ${elapsed} ms`);
+
+  // The cardinality above bounds the *output*. This bounds the *work*, which is
+  // the half that ran the heap out: the pairwise scan has to stop at the first
+  // collision rather than compare every pair.
+  //
+  // Counted, not timed (#380). Every span the proposal carries reports its own
+  // field reads, so a scan that compares all 4,000-choose-2 pairs is visible as
+  // a read count that quadruples when the span count doubles, on any machine and
+  // under any load. The wall-clock budget that used to stand here measured the
+  // CPU as much as the algorithm and went red under parallel lanes.
+  assertGrowsLinearly(
+    (spanCount) => {
+      const meter = createWorkMeter();
+      const spans = Array.from({ length: spanCount }, () => metered(at(SOURCE, 'Book the venue'), meter));
+      validateDecomposition({ sourceText: SOURCE, steps: [step({ sourceSpans: spans })] });
+      return meter.count;
+    },
+    { size: 2000, what: 'overlap checking over one step’s spans' },
+  );
 });
 
 test('overlaps between different steps are still reported per pair of steps', () => {
@@ -496,39 +513,26 @@ test('a violation detail is bounded no matter how large the proposal', () => {
   assert.match(violations[0].detail, /more/, 'and says how many it did not name');
 });
 
-test('a deep back-edge graph is checked without stalling', () => {
-  const size = 40000;
-  const chain = Array.from({ length: size }, (_, index) => step({
-    stepId: `s${index}`,
-    title: 'x',
-    sourceSpans: [],
-    inferred: true,
-    dependsOn: [{ dependsOnStepId: index === 0 ? `s${size - 1}` : 's0', kind: 'temporal' }],
-  }));
-  const started = Date.now();
-  validateDecomposition({ sourceText: SOURCE, steps: chain });
-  const elapsed = Date.now() - started;
-  assert.ok(elapsed < 1500, `took ${elapsed} ms`);
-});
-
-test('a proposal of span-less steps costs nothing to check for overlap', () => {
-  // Collapsing overlap to one finding per step pair introduced a regression:
-  // the pair walk covered every step, so 40,000 steps that claim no source at
-  // all cost a second in a loop that could never find anything. Only steps
-  // holding a usable span can collide.
-  const size = 40000;
-  const spanless = Array.from({ length: size }, (_, index) => step({
-    stepId: `s${index}`,
-    title: 'x',
-    sourceSpans: [],
-    inferred: true,
-    dependsOn: [{ dependsOnStepId: index === 0 ? `s${size - 1}` : 's0', kind: 'temporal' }],
-  }));
-  const started = Date.now();
-  validateDecomposition({ sourceText: SOURCE, steps: spanless });
-  const elapsed = Date.now() - started;
-  assert.ok(elapsed < 400, `took ${elapsed} ms`);
-});
+/*
+ * Two cost bounds used to sit here — `a deep back-edge graph is checked without
+ * stalling` and `a proposal of span-less steps costs nothing to check for
+ * overlap`. Both moved to tests/perf/decompositionValidatorBounds.perf.test.ts
+ * by #380.
+ *
+ * They are not in `npm test` any more because neither property has any
+ * observable consequence except cost. The back-edge graph returns the same
+ * verdict whether the cycle-start lookup is O(1) or O(depth), and a proposal of
+ * span-less steps returns the same empty report whether the pair walk skips
+ * those steps or grinds through all 800 million pairs of them: the wasted work
+ * happens inside `validateDecomposition`, over its own index arrays, touching
+ * nothing the caller supplied. There is nothing to count, so the only honest
+ * instrument is a clock — and a clock belongs in tests/perf/, not in the gate
+ * that is supposed to mean "a regression happened".
+ *
+ * The verdicts themselves stay here: `a deep acyclic chain is not reported as a
+ * cycle` and `overlaps between different steps are still reported per pair of
+ * steps` run on every `npm test`.
+ */
 
 /* ── The report itself is bounded (consolidation review) ─────────── */
 
