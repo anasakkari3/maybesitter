@@ -23,8 +23,17 @@
  * iOS provisional authorisation delivers quietly to Notification Centre with
  * no prompt. It is a real granted-enough state: the device registry treats it
  * as pushable, and it is the only way to see a notification on a simulator,
- * which cannot grant the real permission. It is requested only as a fallback
- * in development, never instead of asking.
+ * which cannot grant the real permission.
+ *
+ * This app never *asks* for it. `requestPermissionsAsync` is called without
+ * `allowProvisional`, so a device reports `provisional` only because something
+ * outside the app put it there — a dev build, or a TestFlight install that
+ * used it. Asking for it would be worse than it sounds: provisional
+ * authorisation answers the one prompt iOS allows, quietly, so the user would
+ * never be offered the real question and their reminders would arrive silently
+ * in Notification Centre for ever. The consequence for verification is stated
+ * plainly rather than worked around: a simulator cannot prove a soft reminder
+ * is *seen*, only that it was scheduled.
  */
 
 import { notificationsModule } from './nativeModules';

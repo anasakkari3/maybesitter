@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useApp } from '../../state/AppContext';
 import { useAuth } from '../../auth/AuthProvider';
 import { onBeforeSignOut } from '../../auth/beforeSignOut';
@@ -48,8 +48,19 @@ export function RemindersMount(): null {
   const upcoming = useUpcoming();
   const { resync } = useReminderSync();
 
+  /*
+   * The three listeners below are installed once and have to read the *current*
+   * actions, account and queries when a tap arrives, not the ones that existed
+   * at mount. A ref carries them across — written from an effect rather than
+   * from the render body, because a ref written during render is a value React
+   * is allowed to throw away, and `react-hooks/refs` is right to say so.
+   * Every reader of it is an event handler, which by definition runs after the
+   * render that produced the value has committed.
+   */
   const latest = useRef({ actions, accountId, today, upcoming, resync });
-  latest.current = { actions, accountId, today, upcoming, resync };
+  useEffect(() => {
+    latest.current = { actions, accountId, today, upcoming, resync };
+  });
 
   useEffect(() => {
     void configureNotifications({
@@ -86,50 +97,78 @@ export function RemindersMount(): null {
     if (latest.current.accountId) await clearAwareness(latest.current.accountId);
   }), []);
 
-  // Taps, live and from a cold start.
+  const handle = useCallback(async (data: unknown) => {
+    const route = routeFromNotification(data);
+    const { accountId: uid, today: todayQuery, upcoming: upcomingQuery } = latest.current;
+    if (route.kind === 'commitment' && uid) {
+      // The start as the app currently understands it, so a commitment that
+      // has since moved starts a fresh cycle rather than staying silenced.
+      const known = [...(todayQuery.data?.items ?? []), ...(upcomingQuery.data?.items ?? [])]
+        .find(item => item.id === route.commitmentId);
+      await markAware(uid, route.commitmentId, known ? startOf(known) : null, new Date());
+      latest.current.resync();
+    }
+    if (route.kind === 'commitment') latest.current.actions.openDetail(route.commitmentId);
+    // `plan_ready` belongs to UC-3.10b (#195), which owns the plan screen.
+    // Until then a plan tap opens Today, which is where the plan is shown.
+    else latest.current.actions.go('today');
+  }, []);
+
+  // Taps while the app is running. The process is alive, so the commitments
+  // this reads a start off are already loaded.
   useEffect(() => {
-    let cancelled = false;
     let subscription: { remove(): void } | undefined;
+    try {
+      const Notifications = notificationsModule();
+      subscription = Notifications?.addNotificationResponseReceivedListener(response => {
+        void handle(response.notification.request.content.data);
+      });
+    } catch {
+      // No native module.
+    }
+    return () => subscription?.remove();
+  }, [handle]);
 
-    const handle = async (data: unknown) => {
-      const route = routeFromNotification(data);
-      const { accountId: uid, today: todayQuery, upcoming: upcomingQuery } = latest.current;
-      if (route.kind === 'commitment' && uid) {
-        // The start as the app currently understands it, so a commitment that
-        // has since moved starts a fresh cycle rather than staying silenced.
-        const known = [...(todayQuery.data?.items ?? []), ...(upcomingQuery.data?.items ?? [])]
-          .find(item => item.id === route.commitmentId);
-        await markAware(uid, route.commitmentId, known ? startOf(known) : null, new Date());
-        latest.current.resync();
-      }
-      if (route.kind === 'commitment') latest.current.actions.openDetail(route.commitmentId);
-      // `plan_ready` belongs to UC-3.10b (#195), which owns the plan screen.
-      // Until then a plan tap opens Today, which is where the plan is shown.
-      else latest.current.actions.go('today');
-    };
+  /*
+   * The tap that launched the app — the force-quit case, and the one #196 asks
+   * about by name.
+   *
+   * It waits for the commitment queries to settle, and that wait is the whole
+   * point of the effect rather than a nicety. `getLastNotificationResponseAsync`
+   * resolves in the first frames, long before the first list has come back, so
+   * handling it immediately looked up the commitment in two empty caches, found
+   * nothing, and wrote the awareness record with an *empty* start fingerprint.
+   * `isAware` then compares that empty string against the real start, gets
+   * false, and schedules the follow-up again — so "tap, force-quit, relaunch,
+   * no follow-up" failed in exactly the way the Flutter client failed, while
+   * the record sat on disk looking like it had worked.
+   *
+   * Settled, not loaded: a list that errored is never going to answer, and
+   * waiting for it would drop the acknowledgement altogether. A commitment that
+   * is in neither list is one the engine schedules nothing for either way.
+   */
+  const commitmentsSettled = (today.isSuccess || today.isError)
+    && (upcoming.isSuccess || upcoming.isError);
+  const coldStartHandled = useRef(false);
 
+  useEffect(() => {
+    if (!commitmentsSettled || coldStartHandled.current) return;
+    coldStartHandled.current = true;
+    let cancelled = false;
     void (async () => {
       try {
         const Notifications = notificationsModule();
-        if (!Notifications || cancelled) return;
-        subscription = Notifications.addNotificationResponseReceivedListener(response => {
-          void handle(response.notification.request.content.data);
-        });
-        // The tap that launched the app: the listener above was not installed
-        // when it happened, so without this the awareness record is never
-        // written for the one case #196 asks about by name.
+        if (!Notifications) return;
         const last = await Notifications.getLastNotificationResponseAsync();
         if (last && !cancelled) await handle(last.notification.request.content.data);
       } catch {
         // No native module.
       }
     })();
-
     return () => {
       cancelled = true;
-      subscription?.remove();
     };
-  }, []);
+  }, [commitmentsSettled, handle]);
 
   return null;
 }

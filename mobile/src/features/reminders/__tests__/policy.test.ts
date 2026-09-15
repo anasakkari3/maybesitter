@@ -30,7 +30,7 @@ function settings(overrides: Partial<ReminderSettings> = {}): ReminderSettings {
 }
 
 /** What `planFor` produced, as `[stage, minutes before the start]` pairs. */
-function leads(planned: ReturnType<typeof planFor>): Array<[string, number]> {
+function leads(planned: ReturnType<typeof planFor>): [string, number][] {
   return planned.map(stage => [stage.stage, Math.round((START - stage.at) / 60_000)]);
 }
 

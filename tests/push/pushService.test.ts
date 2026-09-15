@@ -19,6 +19,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   assertPushData,
+  MAX_DEDUPE_KEY_LENGTH,
   buildFcmMessage,
   CHANNEL_FOR,
   PushPayloadError,
@@ -180,13 +181,41 @@ test('a data key outside the allowlist throws before any storage or network call
 
 test('a dedupeKey APNs would refuse is rejected before anything happens', async () => {
   const messaging = fakeMessaging();
-  for (const dedupeKey of ['x'.repeat(65), 'has space', '', 'has/slash']) {
+  for (const dedupeKey of [
+    'x'.repeat(65),
+    'has space',
+    '',
+    'has/slash',
+    /*
+     * Arabic and Hebrew, which are not decoration on this field.
+     *
+     * The dedupe key is sent verbatim as `apns-collapse-id`, and APNs
+     * specifies that header as at most **64 bytes** — not 64 characters.
+     * `MAX_DEDUPE_KEY_LENGTH` is checked against `.length`, which counts
+     * UTF-16 units, so the two agree only because the charset guard above it
+     * is ASCII. «تذكير» is five characters and ten bytes; a key of 40 Arabic
+     * characters is 80 bytes and APNs would refuse the whole request. Widening
+     * `DEDUPE_KEY` to `\p{L}` therefore does not just let an odd key through,
+     * it makes the length cap wrong — so the refusal is asserted here rather
+     * than left to the two guards happening to line up.
+     */
+    'تذكير-اليوم',
+    'תזכורת-היום',
+    'plan_ready:٢٠٢٦-٠٩-١٦',
+  ]) {
     await assert.rejects(
       () => sendToUser(message({ dedupeKey }), NOW, { storage: hostileStorage(), messaging }),
       (error: unknown) => error instanceof PushPayloadError,
       `accepted ${JSON.stringify(dedupeKey)}`,
     );
   }
+  // And the longest key APNs will take is still accepted, so the cap is a cap
+  // and not an off-by-one.
+  assertPushData(message({ dedupeKey: 'a'.repeat(MAX_DEDUPE_KEY_LENGTH) }));
+  assert.throws(
+    () => assertPushData(message({ dedupeKey: 'a'.repeat(MAX_DEDUPE_KEY_LENGTH + 1) })),
+    (error: unknown) => error instanceof PushPayloadError && error.reason === 'dedupe_key_too_long',
+  );
   assert.equal(messaging.sent.length, 0);
 });
 

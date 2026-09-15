@@ -101,7 +101,7 @@ export function desiredRequests(input: SyncInput): {
     const startsAt = commitment.startsAt ? Date.parse(commitment.startsAt) : Number.NaN;
     if (Number.isNaN(startsAt) || startsAt > horizon) continue;
 
-    const planned: Array<{ stage: ReminderStage; at: number }> = [];
+    const planned: { stage: ReminderStage; at: number }[] = [];
     for (const stage of planFor(commitment, input.settings)) {
       const outcome = deferOutOfQuietHours(stage.at, input.quietHours, input.timeZone, startsAt);
       if (outcome.kind === 'dropped') {

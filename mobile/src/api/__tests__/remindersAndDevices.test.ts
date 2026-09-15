@@ -18,7 +18,7 @@ import { forgetDevice, registerDevice } from '../endpoints/devices';
 const FIXTURES = join(__dirname, '..', '__fixtures__');
 const fixture = (name: string): unknown => JSON.parse(readFileSync(join(FIXTURES, `${name}.json`), 'utf8'));
 
-let requests: Array<{ url: string; method: string; body: unknown }> = [];
+let requests: { url: string; method: string; body: unknown }[] = [];
 
 function serve(body: unknown, status = 200): void {
   (globalThis as { fetch: unknown }).fetch = jest.fn(async (url: string, init: RequestInit) => {

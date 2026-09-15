@@ -117,10 +117,14 @@ export function deferOutOfQuietHours(
   startsAt: number,
 ): DeferOutcome {
   if (!window) return { kind: 'keep', at };
+  // An unreadable window is not a quiet one, so a malformed `start` or `end`
+  // has already returned `keep` here — which is why `endOfQuietWindow` below
+  // cannot answer null past this line, and why there is no branch for it. A
+  // `?? at` there would look like care and be unreachable, which is how a
+  // clamp on a constant shipped in #199 with a green suite around it.
   if (!isInQuietWindow(window, at, timeZone)) return { kind: 'keep', at };
 
-  const end = endOfQuietWindow(window, at, timeZone);
-  if (end === null) return { kind: 'keep', at };
+  const end = endOfQuietWindow(window, at, timeZone) as number;
   if (end > startsAt - MIN_LEAD_AFTER_DEFER_MS) return { kind: 'dropped' };
   return { kind: 'deferred', at: end };
 }

@@ -16,8 +16,9 @@ import * as commitmentEndpoints from '../../../api/endpoints/commitments';
 import * as profileEndpoints from '../../../api/endpoints/profile';
 import * as notificationsSetup from '../../../notifications/setup';
 import * as messaging from '@react-native-firebase/messaging';
+import * as notifications from 'expo-notifications';
 import { resetInstallationIdForTests } from '../../../lib/installationId';
-import { awarenessStorageKey } from '../../../lib/deviceSettings/awarenessStore';
+import { awarenessStorageKey, parseAwarenessCache } from '../../../lib/deviceSettings/awarenessStore';
 import type { AuthUser } from '../../../auth/types';
 import commitment from '../../../api/__fixtures__/commitments.one.json';
 import reminderSettings from '../../../api/__fixtures__/reminders.settingsSaved.json';
@@ -31,9 +32,17 @@ import reminderSettings from '../../../api/__fixtures__/reminders.settingsSaved.
  * whose whole value is "this happens for the whole signed-in session" cannot
  * leave that to a reading of the file.
  *
- * So the two claims here are the two acceptance criteria phrased as app
- * behaviour: signing in registers this phone, and signing out deletes its
- * device document — before the credential goes.
+ * So the claims here are acceptance criteria phrased as app behaviour: signing
+ * in registers this phone, signing out deletes its device document before the
+ * credential goes — and a tap on a reminder writes the awareness record, from
+ * the live listener and from the cold start that a force-quit produces.
+ *
+ * That last one is the one this file was missing. The store round-trips and
+ * the engine honours a record written before the launch, both proved
+ * elsewhere; neither proves that a *tap* ever writes one. Deleting the
+ * `markAware` call left this suite green, which means #196's headline promise
+ * — tap, force-quit, relaunch, no follow-up — was resting on a reading of the
+ * file. It is not any more.
  */
 
 const USER: AuthUser = {
@@ -123,5 +132,82 @@ describe('what the mount wires', () => {
     // it went while the session could still authorise the DELETE.
     await waitFor(() => expect(deviceEndpoints.forgetDevice).toHaveBeenCalledTimes(1));
     expect(repository.signOutReasons).toEqual(['user']);
+  });
+});
+
+/** One tap, as expo-notifications delivers it. */
+function response(data: Record<string, unknown>) {
+  return { notification: { request: { content: { data } } } } as never;
+}
+
+/** The record this account holds on disk, as the engine would read it. */
+async function storedAwareness() {
+  return parseAwarenessCache(await AsyncStorage.getItem(awarenessStorageKey(USER.uid)));
+}
+
+describe('tapping a reminder is the "I know" gesture', () => {
+  it('writes the awareness record, fingerprinted with the start the app knows', async () => {
+    let tapped: ((value: unknown) => void) | undefined;
+    jest.spyOn(notifications, 'addNotificationResponseReceivedListener')
+      .mockImplementation(handler => {
+        tapped = handler as unknown as (value: unknown) => void;
+        return { remove: () => {} } as never;
+      });
+
+    await mount();
+    await waitFor(() => expect(tapped).toBeDefined());
+    // The commitment has to have loaded, or the fingerprint would be written
+    // as null and the test would pass on a record that silences nothing.
+    await waitFor(() => expect(commitmentEndpoints.listToday).toHaveBeenCalled());
+
+    await act(async () => {
+      tapped?.(response({ commitmentId: commitment.id, stage: 'soft', notificationId: `${commitment.id}:soft` }));
+    });
+
+    await waitFor(async () => {
+      const cache = await storedAwareness();
+      expect(cache.entries[commitment.id]).toEqual({
+        at: expect.any(String),
+        // The start as the app currently understands it. A record fingerprinted
+        // with anything else would be discarded by `isAware` on the next sync,
+        // and the follow-up would come back — which is the defect #196 exists
+        // to fix, wearing a green test.
+        startFingerprint: commitment.timeSpec.dueAt,
+      });
+    });
+  });
+
+  it('writes it for the tap that launched the app, which is the force-quit case', async () => {
+    // The live listener was not installed when this tap happened: the process
+    // did not exist. `getLastNotificationResponseAsync` is the only way that
+    // tap is ever seen, and #196's second acceptance criterion is exactly it.
+    jest.spyOn(notifications, 'getLastNotificationResponseAsync')
+      .mockResolvedValue(response({ commitmentId: commitment.id, stage: 'soft' }));
+
+    await mount();
+
+    await waitFor(async () => {
+      const cache = await storedAwareness();
+      expect(cache.entries[commitment.id]?.startFingerprint).toBe(commitment.timeSpec.dueAt);
+    });
+  });
+
+  it('records nothing for a payload that names no commitment', async () => {
+    let tapped: ((value: unknown) => void) | undefined;
+    jest.spyOn(notifications, 'addNotificationResponseReceivedListener')
+      .mockImplementation(handler => {
+        tapped = handler as unknown as (value: unknown) => void;
+        return { remove: () => {} } as never;
+      });
+
+    await mount();
+    await waitFor(() => expect(tapped).toBeDefined());
+    await act(async () => {
+      tapped?.(response({ kind: 'plan_ready', planDate: '2026-09-16' }));
+    });
+
+    // A plan push opens Today. Marking a commitment aware off a payload that
+    // names none would silence something the user never acknowledged.
+    expect(Object.keys((await storedAwareness()).entries)).toEqual([]);
   });
 });

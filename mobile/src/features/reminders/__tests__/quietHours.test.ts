@@ -53,6 +53,53 @@ function sweep(fromIso: string, days = 3): number[] {
   return stops;
 }
 
+/*
+ * The invariant `deferOutOfQuietHours` leans on.
+ *
+ * It reads `endOfQuietWindow` without a null branch, because a window whose
+ * `end` cannot be read has already made `isInQuietWindow` false and returned.
+ * That coupling is the kind of thing a later edit breaks silently — a clamp
+ * whose input turned out to be constant is how #199 shipped dead code with a
+ * green suite around it — so it is asserted rather than commented.
+ *
+ * The Arabic-Indic row is deliberate. `[01][0-9]` is an ASCII class, and this
+ * repo has twice shipped a guard that read differently in Arabic; here the
+ * ASCII-only reading is the *correct* one, because the four quiet windows are
+ * fixed `HH:MM` constants (`features/routine/routineProfile.ts`) and a payload
+ * in other digits did not come from the app.
+ */
+describe('a window that cannot be read', () => {
+  const AT = Date.parse('2026-09-15T23:00:00.000Z');
+  it.each([
+    ['midnight as 24:00', '24:00'],
+    ['an unpadded hour', '7:00'],
+    ['a sixtieth minute', '22:60'],
+    ['nothing at all', ''],
+    ['a dash for the colon', '22-00'],
+    ['Arabic-Indic digits', '٢٢:٠٠'],
+    ['Extended Arabic-Indic digits', '۲۲:۰۰'],
+  ])('is never quiet, and defers nothing, when the end is %s', (_name, bad) => {
+    withHermesIntl(() => {
+      const window: QuietWindow = { start: '22:00', end: bad };
+      expect(isInQuietWindow(window, AT, 'Asia/Jerusalem')).toBe(false);
+      expect(endOfQuietWindow(window, AT, 'Asia/Jerusalem')).toBeNull();
+      // So the deferral keeps the stage where it was, and never reads the null.
+      expect(deferOutOfQuietHours(AT, window, 'Asia/Jerusalem', AT + 3_600_000))
+        .toEqual({ kind: 'keep', at: AT });
+    });
+  });
+
+  it.each([
+    ['midnight as 24:00', '24:00'],
+    ['an unpadded hour', '7:00'],
+    ['Arabic-Indic digits', '٢٢:٠٠'],
+  ])('is never quiet when the start is %s', (_name, bad) => {
+    withHermesIntl(() => {
+      expect(isInQuietWindow({ start: bad, end: '07:00' }, AT, 'Asia/Jerusalem')).toBe(false);
+    });
+  });
+});
+
 describe('is it quiet right now', () => {
   it.each(ZONES)('follows the wall clock in %s, including across midnight', zone => {
     withHermesIntl(() => {

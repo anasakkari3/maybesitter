@@ -141,6 +141,85 @@ test('every field is validated, and an unknown one is refused', async () => {
   }
 });
 
+/*
+ * The same fields, in the two languages this product is actually used in.
+ *
+ * Every validator above is an ASCII character class, and a guard written as
+ * `[A-Za-z0-9]` has shipped a bug in this repo twice by being widened later by
+ * somebody who only ever tested it in English. Relaxing any one of these to
+ * `\p{L}`/`\p{Nd}` left the suite green until this test existed.
+ *
+ * Each one matters for a different reason:
+ *
+ *  - `installationId` becomes a **Firestore document id** and a URL segment on
+ *    the DELETE. Its shape being exactly one uuid is what makes both safe.
+ *  - `fcmToken` is sent to Google verbatim; a token with Arabic in it is one
+ *    FCM will refuse for the life of the row.
+ *  - `appVersion` is the field somebody would eventually use as a notes box.
+ *  - `locale` is `ar`/`he`/`en` — the *code*, not the endonym. «العربية» is the
+ *    right word and the wrong value.
+ */
+test('every field refuses Arabic and Hebrew, which is not the same as refusing nonsense', async () => {
+  const teardown = setup();
+  try {
+    const cases: [string, unknown, string][] = [
+      // A uuid with Arabic-Indic digits: the same shape, a different alphabet.
+      ['installationId', '٣٣٣٣٣٣٣٣-3333-4333-8333-333333333333', 'invalid_installation_id'],
+      ['installationId', 'לללללללל-3333-4333-8333-333333333333', 'invalid_installation_id'],
+      ['fcmToken', `${'a'.repeat(40)}رمز-الإشعار`, 'invalid_token'],
+      ['fcmToken', `${'a'.repeat(40)}אסימון`, 'invalid_token'],
+      ['appVersion', '١.٠.٠', 'invalid_app_version'],
+      ['appVersion', 'نسخة-١', 'invalid_app_version'],
+      ['appVersion', 'גרסה-1', 'invalid_app_version'],
+      // The endonyms. A reader who assumed the locale field held a language
+      // *name* would send exactly these.
+      ['locale', 'العربية', 'invalid_locale'],
+      ['locale', 'עברית', 'invalid_locale'],
+      ['platform', 'آيفون', 'invalid_platform'],
+      ['pushPermission', 'مسموح', 'invalid_permission'],
+      ['pushPermission', 'מאושר', 'invalid_permission'],
+      ['timezone', 'آسيا/القدس', 'invalid_timezone'],
+    ];
+    for (const [field, value, reason] of cases) {
+      const response = await devicesPost(request({ ...VALID, [field]: value }));
+      const body = await response.json() as { reason?: string };
+      assert.equal(response.status, 400, `${field}=${String(value)} was accepted`);
+      assert.equal(body.reason, reason, `${field}=${String(value)} gave ${body.reason}`);
+    }
+    assert.equal((await devicesOf(OWNER)).length, 0);
+  } finally {
+    teardown();
+  }
+});
+
+/*
+ * And the DELETE, which puts its argument into a document path.
+ *
+ * `deleteDevice` re-checks the shape rather than trusting the route's own
+ * regex, because this is the one value that arrives as a URL segment.
+ */
+test('deleting with an installation id in Arabic digits is refused, not path-joined', async () => {
+  const teardown = setup();
+  try {
+    await devicesPost(request(VALID));
+    for (const bad of ['٣٣٣٣٣٣٣٣-3333-4333-8333-333333333333', 'מכשיר', '../../devices/x']) {
+      const response = await deviceDelete(
+        new Request(`${BASE}/api/mobile/devices/${encodeURIComponent(bad)}`, {
+          method: 'DELETE',
+          headers: new Headers({ authorization: `Bearer ${tokenFor(OWNER)}` }),
+        }),
+        { params: Promise.resolve({ installationId: bad }) },
+      );
+      assert.equal(response.status, 400, `${bad} was accepted`);
+      assert.equal((await response.json() as { reason?: string }).reason, 'invalid_installation_id');
+    }
+    // The real row is still there: nothing was deleted on the way through.
+    assert.equal((await devicesOf(OWNER)).length, 1);
+  } finally {
+    teardown();
+  }
+});
+
 test('registering twice replaces the row rather than adding one', async () => {
   const teardown = setup();
   try {

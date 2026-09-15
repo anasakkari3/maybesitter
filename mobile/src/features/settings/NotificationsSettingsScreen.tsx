@@ -4,7 +4,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../../state/AppContext';
 import { Btn, Card, Pill, Txt } from '../../ui/primitives';
 import { ScreenIn } from '../../ui/motion';
-import { useReminderSettings, useSaveReminderSettings } from '../../api/queries';
+import { useProfile, useReminderSettings, useSaveReminderSettings } from '../../api/queries';
+import { deviceTimeZone } from '../../i18n/timezone';
 import { requestNotificationPermission } from '../../notifications/permission';
 import { softRemindersEnabled } from '../../config/env';
 import { quietChoiceFor, quietWindowFor, type QuietChoice } from '../routine/routineProfile';
@@ -40,6 +41,7 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
   const { t, p } = useApp();
   const insets = useSafeAreaInsets();
   const settings = useReminderSettings();
+  const profile = useProfile();
   const save = useSaveReminderSettings();
   const [permissionDenied, setPermissionDenied] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -80,13 +82,37 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
     save.mutate({ softLeadMinutes: minutes }, { onError: () => setFailed(true) });
   };
 
+  /*
+   * The zone a quiet window is wall-clock in.
+   *
+   * The routine profile's, when there is one: a user who answered the survey
+   * in Tel Aviv and opened the app in Berlin still means 22:30 Tel Aviv until
+   * they redo the survey, which is the rule `quietTimeZone` states in
+   * `features/reminders/reminderInputs.ts`.
+   *
+   * When there is *no* profile, `GET /api/mobile/settings/reminders` answers
+   * `timezone: "UTC"` — a fallback the server invented because nobody has told
+   * it anything, not an answer anyone gave. Echoing it back was this screen's
+   * bug: the first person to set quiet hours without having done the survey
+   * had "22:30–07:30" stored as UTC, so in Israel the app went quiet from
+   * 01:30 to 10:30 and spoke at 23:00 — on the phone *and* in every server
+   * push, because the write-through makes this the profile's zone too. The
+   * zone somebody setting quiet hours means is the one they are standing in.
+   *
+   * The window's own zone is the middle fallback for the one frame before the
+   * profile query resolves; in the app it has already resolved, because
+   * `RemindersMount` holds `useProfile` open for the whole session.
+   */
+  const quietTimeZone = (): string =>
+    profile.data?.routine?.timezone ?? current?.quietHours?.timezone ?? deviceTimeZone();
+
   const setQuiet = (choice: QuietChoice) => {
     setFailed(false);
     const window = quietWindowFor(choice);
     save.mutate(
       {
         quietHours: window
-          ? { start: window.start, end: window.end, timezone: current?.timezone ?? 'UTC' }
+          ? { start: window.start, end: window.end, timezone: quietTimeZone() }
           : null,
       },
       { onError: () => setFailed(true) },

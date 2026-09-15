@@ -24,6 +24,32 @@ import en from '../../../i18n/locales/en.json';
 import * as reminderEndpoints from '../../../api/endpoints/reminders';
 import * as permission from '../../../notifications/permission';
 import settingsFixture from '../../../api/__fixtures__/reminders.settingsSaved.json';
+import * as profileEndpoints from '../../../api/endpoints/profile';
+
+// Hoisted above the imports by babel-plugin-jest-hoist, so `i18n/timezone`
+// sees it when it reaches for `getCalendars`. The phone is in Berlin; every
+// other zone in this file is Asia/Jerusalem, so a screen that sent the
+// device's zone when it should not would be visible too.
+jest.mock('expo-localization', () => ({
+  getCalendars: jest.fn(() => [{ timeZone: 'Europe/Berlin' }]),
+  getLocales: jest.fn(() => [{ languageCode: 'en', languageTag: 'en-US', textDirection: 'ltr' }]),
+}));
+
+/** The account that has answered the routine survey, in Asia/Jerusalem. */
+const ROUTINE_PROFILE = {
+  success: true,
+  routine: {
+    schemaVersion: 1,
+    timezone: 'Asia/Jerusalem',
+    sleepWindow: { start: '23:00', end: '07:00' },
+    focusWindows: [],
+    fixedCommitmentWindows: [],
+    preferredReminderIntensity: 'softAwareness',
+    quietHours: { start: '22:00', end: '07:00' },
+    surveySkipped: false,
+    updatedAt: '2026-08-09T09:00:00.000Z',
+  },
+};
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -48,6 +74,7 @@ beforeEach(() => {
   setAuthRepository(repository);
   jest.spyOn(reminderEndpoints, 'getReminderSettings').mockResolvedValue(settings() as never);
   jest.spyOn(reminderEndpoints, 'putReminderSettings').mockResolvedValue(settings() as never);
+  jest.spyOn(profileEndpoints, 'getProfile').mockResolvedValue(ROUTINE_PROFILE as never);
   jest.spyOn(permission, 'requestNotificationPermission').mockResolvedValue('granted');
 });
 
@@ -158,6 +185,50 @@ describe('the controls', () => {
     expect(patch.quietHours.start).toBe('21:30');
     expect(patch.quietHours.end).toBe('06:30');
     expect(patch.quietHours.timezone).toBe(settingsFixture.reminderSettings.timezone);
+  });
+
+  /*
+   * The zone is the one the window is answered in, and `UTC` on the wire is
+   * not an answer.
+   *
+   * An account that has never done the routine survey gets `timezone: "UTC"`
+   * on `GET /api/mobile/settings/reminders` — the server's fallback, because
+   * nobody has told it anything. Echoing it back stored the user's quiet hours
+   * in UTC, which in Israel silences the app from 01:30 to 10:30 and lets it
+   * speak at 23:00, on the phone and in every server push alike.
+   */
+  it('sends the phone\'s zone when the account has never said which one it is in', async () => {
+    jest.spyOn(profileEndpoints, 'getProfile').mockResolvedValue({ success: true, routine: null } as never);
+    jest.spyOn(reminderEndpoints, 'getReminderSettings')
+      .mockResolvedValue(settings({ quietHours: null as never, timezone: 'UTC' }) as never);
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('reminder-quiet-standard')).not.toBeNull());
+    // The profile query has to have answered `null` before the tap, or this
+    // would pass on the loading fallback rather than on the fix.
+    await waitFor(() => expect(profileEndpoints.getProfile).toHaveBeenCalled());
+
+    fireEvent.press(screen.getByTestId('reminder-quiet-standard'));
+    await waitFor(() => expect(reminderEndpoints.putReminderSettings).toHaveBeenCalled());
+    const [patch] = (reminderEndpoints.putReminderSettings as jest.Mock).mock.calls.at(-1) as [
+      { quietHours: { timezone: string } },
+    ];
+    expect(patch.quietHours.timezone).toBe('Europe/Berlin');
+  });
+
+  it('keeps the zone the survey was answered in rather than the one the phone is in now', async () => {
+    // Same traveller, the other direction: the profile says Asia/Jerusalem and
+    // the phone says Europe/Berlin. Changing the chip must not move the sleep
+    // window the survey stored, which shares this zone.
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('reminder-quiet-late')).not.toBeNull());
+    await waitFor(() => expect(profileEndpoints.getProfile).toHaveBeenCalled());
+
+    fireEvent.press(screen.getByTestId('reminder-quiet-late'));
+    await waitFor(() => expect(reminderEndpoints.putReminderSettings).toHaveBeenCalled());
+    const [patch] = (reminderEndpoints.putReminderSettings as jest.Mock).mock.calls.at(-1) as [
+      { quietHours: { timezone: string } },
+    ];
+    expect(patch.quietHours.timezone).toBe('Asia/Jerusalem');
   });
 
   it('clears the window when the user picks none', async () => {
