@@ -33,7 +33,7 @@
     "expo-splash-screen": "~57.0.9",
     "expo-status-bar": "~57.0.1",
     "expo-web-browser": "~57.0.3",
-    "fflate": "0.8.2",
+    "fflate": "0.8.3",
     "i18next": "^26.4.2",
     "i18next-icu": "^2.4.4",
     "intl-messageformat": "^11.2.14",
