@@ -25,6 +25,7 @@ import { Text } from 'react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { resetAuthForTests, setAuthRepository } from '../../../api/auth';
+import { NetworkError } from '../../../api/errors';
 import { AppProvider } from '../../../state/AppContext';
 import { AuthProvider } from '../../../auth/AuthProvider';
 import { createFakeAuthRepository } from '../../../auth/fakeAuthRepository';
@@ -117,9 +118,29 @@ async function renderApp() {
   return view;
 }
 
-/** Presses a button by the accessibility label the design gives it. */
-function press(label: string) {
-  fireEvent.press(screen.getByLabelText(label));
+/**
+ * Presses a button by the accessibility label the design gives it, and waits.
+ *
+ * `render` and `fireEvent` are both asynchronous in RNTL v14. A press that is
+ * not awaited leaves the re-render it caused unflushed — the next query reads
+ * the tree as it was before, and, worse, the *next test's* `render` mounts
+ * nothing at all and every query on it returns null. Three tests added here
+ * failed that way before this helper was awaited at every call site, and the
+ * failure looked nothing like its cause.
+ */
+async function press(label: string) {
+  await fireEvent.press(screen.getByLabelText(label));
+}
+
+/**
+ * Pressed by identity rather than by words.
+ *
+ * "Try again" is the honest label for both retries this screen can show — the
+ * one that re-sends the answers and the one that re-asks for the versions —
+ * so the test that means a particular one says which.
+ */
+async function pressTestId(testID: string) {
+  await fireEvent.press(screen.getByTestId(testID));
 }
 
 describe('the gate', () => {
@@ -166,7 +187,7 @@ describe('the gate', () => {
 describe('the consent screen', () => {
   async function reachConsent() {
     await renderApp();
-    press(en.obContinue);
+    await press(en.obContinue);
     await waitFor(() => expect(screen.queryByText(en.obConsentTitle)).not.toBeNull());
     await waitFor(() => expect(getConsents).toHaveBeenCalled());
   }
@@ -180,7 +201,7 @@ describe('the consent screen', () => {
     // And the screen says why it will not move.
     expect(screen.queryByText(en.obConsentNeedAi)).not.toBeNull();
 
-    press(en.obContinue);
+    await press(en.obContinue);
     await waitFor(() => expect(screen.queryByText(en.obConsentNeedAi)).not.toBeNull());
     expect(putAiConsent).not.toHaveBeenCalled();
     expect(screen.queryByText(en.obConsentTitle)).not.toBeNull();
@@ -189,16 +210,16 @@ describe('the consent screen', () => {
   it('says what still works when AI is declined', async () => {
     await reachConsent();
     expect(screen.queryByText(en.obAiDeclinedNote)).toBeNull();
-    press(en.obAiDecline);
+    await press(en.obAiDecline);
     await waitFor(() => expect(screen.queryByText(en.obAiDeclinedNote)).not.toBeNull());
   });
 
   it('sends each answer with the version the server said it recognises', async () => {
     await reachConsent();
-    press(en.obAiAllow);
+    await press(en.obAiAllow);
     fireEvent(screen.getByLabelText(en.obRecTitle), 'valueChange', true);
     await waitFor(() => expect(screen.getByLabelText(en.obRecTitle).props.value).toBe(true));
-    press(en.obContinue);
+    await press(en.obContinue);
 
     await waitFor(() => expect(putAiConsent).toHaveBeenCalled());
     expect(putAiConsent.mock.calls[0]![0]).toMatchObject({ state: 'granted', version: 'ai-consent-v1' });
@@ -211,8 +232,161 @@ describe('the consent screen', () => {
     await waitFor(() => expect(screen.queryByText(en.obRoutineTitle)).not.toBeNull());
   });
 
+  /**
+   * A consent the user turned **off** is not a consent (#374 follow-up).
+   *
+   * The reachable path, and the reason a device audit of new accounts could
+   * not see it: it needs somebody who already granted.
+   *
+   *  1. The account granted recommendations before — on another device, or
+   *     before a sign-out. The record is on the server.
+   *  2. Signing back in runs onboarding again, deliberately (#171), and the
+   *     screen seeds the toggle from that record: on.
+   *  3. The user turns it off. That is an explicit decline, not an absence.
+   *  4. A consents refetch lands. There is nothing exotic about it — the AI
+   *     write invalidates this very query, so it happens on the way through
+   *     the screen, and the payload really does differ because the AI record
+   *     the user just wrote now reads back as granted.
+   *
+   * With `recommendations` as a plain boolean there was no value meaning
+   * "untouched", so the seeding could not tell the decline from the default
+   * and `false || true` put the grant back.
+   */
+  async function declineAfterAnEarlierGrant() {
+    const previouslyGranted = {
+      ...CONSENTS,
+      recommendations: {
+        state: 'granted' as const, version: 'rec-consent-v1',
+        changedAt: '2026-08-01T09:00:00.000Z', asked: true,
+      },
+    };
+    // The server as it behaves: once the AI answer is written, the next GET
+    // reports it. That is what makes the refetched payload a different value
+    // from the one the screen seeded from.
+    let aiRecorded = false;
+    getConsents.mockImplementation(async () => (aiRecorded
+      ? {
+        ...previouslyGranted,
+        aiProcessing: {
+          state: 'granted' as const, version: 'ai-consent-v1',
+          changedAt: '2026-09-14T09:00:00.000Z', asked: true,
+        },
+      }
+      : previouslyGranted));
+    putAiConsent.mockImplementation(async () => {
+      aiRecorded = true;
+      return { success: true, aiProcessing: { state: 'granted', version: 'ai-consent-v1', changedAt: 'x' } } as never;
+    });
+    // One failed write, so the user is left on the screen with Retry — which
+    // is the press that sends whatever the toggle says by then.
+    putRecommendationConsent
+      .mockRejectedValueOnce(new NetworkError('no signal'))
+      .mockResolvedValue({ success: true, recommendations: { state: 'declined', version: 'rec-consent-v1', changedAt: 'x' } } as never);
 
+    await reachConsent();
+    // Seeded from the account's own earlier answer: the question is not asked
+    // twice, which is what the seeding block is for.
+    await waitFor(() => expect(screen.getByLabelText(en.obRecTitle).props.value).toBe(true));
 
+    await fireEvent(screen.getByLabelText(en.obRecTitle), 'valueChange', false);
+    await waitFor(() => expect(screen.getByLabelText(en.obRecTitle).props.value).toBe(false));
+
+    await press(en.obAiAllow);
+    await press(en.obContinue);
+
+    await waitFor(() => expect(screen.queryByText(en.obConsentFailed)).not.toBeNull());
+    // The refetch has landed, so the seeding block has had its chance to undo
+    // the user's answer.
+    await waitFor(() => expect(getConsents.mock.calls.length).toBeGreaterThan(1));
+  }
+
+  it('records the decline the user made, not the grant the refetch put back', async () => {
+    await declineAfterAnEarlierGrant();
+
+    await press(en.obConsentRetry);
+    await waitFor(() => expect(putRecommendationConsent).toHaveBeenCalledTimes(2));
+    // The assertion that matters. A flipped switch is a nuisance; a consent
+    // record written against somebody who declined is the harm, and this is
+    // the request that writes it.
+    expect(putRecommendationConsent.mock.calls[1]![0]).toMatchObject({ state: 'declined' });
+    await waitFor(() => expect(screen.queryByText(en.obRoutineTitle)).not.toBeNull());
+  });
+
+  it('leaves the switch where the user left it when the refetch lands', async () => {
+    await declineAfterAnEarlierGrant();
+    expect(screen.getByLabelText(en.obRecTitle).props.value).toBe(false);
+  });
+
+  /**
+   * The account has never been asked, so the server's "declined" is not an
+   * answer — and the screen must not present it as one by seeding a decline
+   * the user never gave. Guards the other side of the widened type: `null`
+   * still has to reach the server as a decline.
+   */
+  it('seeds nothing from a question the account was never asked', async () => {
+    await reachConsent();
+    expect(screen.getByLabelText(en.obRecTitle).props.value).toBe(false);
+    await press(en.obAiAllow);
+    await press(en.obContinue);
+    await waitFor(() => expect(putRecommendationConsent).toHaveBeenCalled());
+    expect(putRecommendationConsent.mock.calls[0]![0]).toMatchObject({ state: 'declined' });
+    await waitFor(() => expect(screen.queryByText(en.obRoutineTitle)).not.toBeNull());
+  });
+});
+
+/**
+ * The consent versions are the one thing this screen cannot proceed without,
+ * and the failure to fetch them used to be silent (#374 follow-up).
+ *
+ * Waiting is right: a guessed version is refused by the server and a
+ * hard-coded one would claim agreement to words this build cannot prove were
+ * shown. Waiting *without saying so, forever, with no way to try again* is the
+ * defect — once the AI question was answered even the "choose an answer"
+ * footnote went away, and Continue stayed dead with nothing on screen to
+ * explain it.
+ */
+describe('when the consent versions cannot be fetched', () => {
+  it('says what went wrong and offers a retry that actually recovers', async () => {
+    getConsents.mockRejectedValueOnce(new NetworkError('no signal'));
+    await renderApp();
+    await press(en.obContinue);
+    await waitFor(() => expect(screen.queryByText(en.obConsentTitle)).not.toBeNull());
+
+    // The screen says it, in the words `userFacingMessage` owns.
+    await waitFor(() => expect(screen.queryByText(en.errorsNetwork)).not.toBeNull());
+
+    // Answering does not make the explanation disappear, which is exactly what
+    // it used to do.
+    await press(en.obAiAllow);
+    expect(screen.queryByText(en.errorsNetwork)).not.toBeNull();
+    expect(putAiConsent).not.toHaveBeenCalled();
+
+    await pressTestId('onboarding-consent-refetch');
+    await waitFor(() => expect(getConsents).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByText(en.errorsNetwork)).toBeNull());
+
+    // And the screen is usable again: the same answer now records.
+    await press(en.obContinue);
+    await waitFor(() => expect(putAiConsent).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByText(en.obRoutineTitle)).not.toBeNull());
+  });
+
+  it('says it is still waiting rather than showing a dead button', async () => {
+    let release: (() => void) | undefined;
+    getConsents.mockImplementationOnce(() => new Promise(resolve => {
+      release = () => resolve(CONSENTS);
+    }) as never);
+    await renderApp();
+    await press(en.obContinue);
+    await waitFor(() => expect(screen.queryByText(en.obConsentTitle)).not.toBeNull());
+    await press(en.obAiAllow);
+
+    // Answered, and Continue still will not move: the screen has to say why.
+    await waitFor(() => expect(screen.queryByText(en.obConsentChecking)).not.toBeNull());
+
+    release?.();
+    await waitFor(() => expect(screen.queryByText(en.obConsentChecking)).toBeNull());
+  });
 });
 
 describe('finishing', () => {

@@ -13,7 +13,7 @@ import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
-import { render, screen, waitFor } from '@testing-library/react-native';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { AppProvider } from '../../../state/AppContext';
@@ -21,7 +21,9 @@ import { AuthProvider } from '../../../auth/AuthProvider';
 import { createFakeAuthRepository } from '../../../auth/fakeAuthRepository';
 import { resetAuthForTests, setAuthRepository } from '../../../api/auth';
 import type { AuthUser } from '../../../auth/types';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { KnowsScreen } from '../KnowsScreen';
+import { RoutineSettingsScreen } from '../RoutineSettingsScreen';
 import { FeedbackHistoryScreen } from '../FeedbackHistoryScreen';
 import en from '../../../i18n/locales/en.json';
 import trustFixture from '../../../api/__fixtures__/trust.state.json';
@@ -57,7 +59,13 @@ beforeEach(() => {
   jest.spyOn(feedbackEndpoints, 'getFeedbackHistory').mockResolvedValue({ version: 'v1', rows: [] } as never);
 });
 
-afterEach(() => {
+afterEach(async () => {
+  cleanup();
+  // A real macrotask, not a microtask flush. A save still settling when the
+  // tree came down leaves React work in flight, and in RNTL v14 the *next*
+  // test's `render` then mounts nothing at all — a failure that looks like a
+  // missing element rather than like the leak it is.
+  await new Promise(resolve => setTimeout(resolve, 0));
   client.clear();
   resetAuthForTests();
   jest.restoreAllMocks();
@@ -270,5 +278,45 @@ describe('the answers you gave to next steps (#170, #174)', () => {
     await show(<FeedbackHistoryScreen onBack={() => {}} />);
     await waitFor(() => expect(screen.queryByTestId('feedback-history-unavailable')).not.toBeNull());
     expect(screen.queryByTestId('history-decisions-empty')).toBeNull();
+  });
+});
+
+/**
+ * What the routine screen may claim after a save (UC-2.R4 #174, #167 step 5).
+ *
+ * `saveRoutineCache` reports a disk that refused the write, and this screen
+ * used to discard that boolean — so a phone that had stored nothing, for an
+ * account that had also not stored it, still read "saved on this phone".
+ */
+describe('saving the routine survey', () => {
+  beforeEach(() => {
+    jest.spyOn(profileEndpoints, 'getProfile').mockResolvedValue({ routine: null } as never);
+  });
+
+  it('does not claim the phone kept answers the phone refused', async () => {
+    jest.spyOn(profileEndpoints, 'putRoutine').mockRejectedValue(new Error('no signal'));
+    jest.spyOn(AsyncStorage, 'setItem').mockRejectedValue(new Error('no space'));
+
+    await show(<RoutineSettingsScreen onBack={() => {}} />);
+    await fireEvent.press(screen.getByTestId('routine-settings-save'));
+
+    await waitFor(() => expect(screen.queryByTestId('routine-settings-lost')).not.toBeNull());
+    expect(screen.queryByText(en.obRoutineSaveLost)).not.toBeNull();
+    // The line that would have been shown, and would have been false.
+    expect(screen.queryByTestId('routine-settings-failed')).toBeNull();
+  });
+
+  it('still says the phone has them when only the account write failed', async () => {
+    jest.spyOn(profileEndpoints, 'putRoutine').mockRejectedValue(new Error('no signal'));
+    // Stated rather than assumed: `AsyncStorage` is a module mock already, and
+    // a spy laid over one of its methods is not reliably put back by
+    // `restoreAllMocks`, so the disk this test needs is the one it asks for.
+    jest.spyOn(AsyncStorage, 'setItem').mockResolvedValue(undefined);
+
+    await show(<RoutineSettingsScreen onBack={() => {}} />);
+    await fireEvent.press(screen.getByTestId('routine-settings-save'));
+
+    await waitFor(() => expect(screen.queryByTestId('routine-settings-failed')).not.toBeNull());
+    expect(screen.queryByTestId('routine-settings-lost')).toBeNull();
   });
 });

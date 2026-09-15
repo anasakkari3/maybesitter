@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../../auth/AuthProvider';
 import { AuthGate } from '../../auth/AuthGate';
 import { OnboardingFlow } from './OnboardingFlow';
+import { RoutineSyncMount } from '../routine/RoutineSyncMount';
 import { clearOnboardingProgress, loadOnboardingProgress } from '../../lib/deviceSettings/onboardingProgress';
 
 /**
@@ -69,6 +70,10 @@ export function OnboardingGate({ children }: { children: React.ReactNode }) {
       onboardingComplete={complete === true}
       onboarding={<OnboardingFlow onFinished={onFinished} />}
     >
+      {/* Renders nothing. This is the first point in the tree that is both
+          signed in and past onboarding, which is exactly the lifetime the
+          routine sync should have. */}
+      <RoutineSyncMount />
       {children}
     </AuthGate>
   );

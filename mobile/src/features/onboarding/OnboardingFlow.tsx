@@ -21,6 +21,7 @@ import { NotificationsStep } from './NotificationsStep';
 import { AboutYouStep } from './AboutYouStep';
 import { AboutYouReviewStep } from './AboutYouReviewStep';
 import type { ProfileSuggestion } from '../../api/schemas/profile';
+import { NotFoundError } from '../../api/errors';
 import { useConfirmProfileSuggestions, useDescribeProfile } from '../../api/queries';
 import type { AcceptedSuggestion } from './aboutYou';
 import { recordConsents } from './recordConsents';
@@ -73,7 +74,10 @@ export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
   const recordAnalytics = useRecordAnalytics();
 
   const [step, setStep] = useState<OnboardingProgress | null>(null);
-  const [choices, setChoices] = useState<ConsentChoices>({ ai: null, recommendations: false, analytics: false });
+  // `recommendations` starts at `null`, not `false`, so "nobody has answered"
+  // and "answered no" stay distinguishable through a refetch. See the seeding
+  // block below, and `ConsentChoices`.
+  const [choices, setChoices] = useState<ConsentChoices>({ ai: null, recommendations: null, analytics: false });
   const [answers, setAnswers] = useState<RoutineAnswers>(EMPTY_ANSWERS);
   const [consentFailed, setConsentFailed] = useState(false);
   const [routineSaveFailed, setRoutineSaveFailed] = useState(false);
@@ -86,6 +90,7 @@ export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
   // resuming into an empty checklist would be worse than asking again.
   const [proposal, setProposal] = useState<{ id: string; suggestions: ProfileSuggestion[] } | null>(null);
   const [describeFailed, setDescribeFailed] = useState(false);
+  const [confirmFailure, setConfirmFailure] = useState<unknown>(undefined);
   const describe = useDescribeProfile();
   const confirmSuggestions = useConfirmProfileSuggestions();
 
@@ -119,8 +124,16 @@ export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
     setChoices(current => ({
       // A choice already made on this screen wins: the refetch must not undo
       // what the user just tapped.
+      //
+      // `??` on both, and both are three-valued for that reason. `||` here read
+      // an explicit decline as an absence — they are the same `false` — so a
+      // refetch landing after the user turned this off put the account's older
+      // grant back and `submitConsents` then recorded a consent the user had
+      // just withdrawn. A question the account has never been asked seeds
+      // nothing: the server's default `declined` is not an answer either.
       ai: current.ai ?? (server.aiProcessing.asked ? server.aiProcessing.state : null),
-      recommendations: current.recommendations || server.recommendations.state === 'granted',
+      recommendations: current.recommendations
+        ?? (server.recommendations.asked ? server.recommendations.state === 'granted' : null),
       analytics: current.analytics,
     }));
   }
@@ -143,6 +156,8 @@ export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
     if (choices.ai === null) return;
     setConsentFailed(false);
     const result = await recordConsents(
+      // `recommendations` may still be `null` — untouched — and `recordConsents`
+      // is where that becomes the declined it has always meant, once.
       { ai: choices.ai, recommendations: choices.recommendations, analytics: choices.analytics },
       consents.data?.currentVersions,
       {
@@ -205,11 +220,24 @@ export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
   const saveSuggestions = useCallback(async (proposalId: string, accepted: AcceptedSuggestion[]) => {
     // An empty list is a real answer — "none of these are right" — and is sent
     // rather than skipped, so the proposal is cleaned up server-side too.
+    setConfirmFailure(undefined);
     try {
       await confirmSuggestions.mutateAsync({ proposalId, accepted });
-    } catch {
-      // The proposal expired underneath them. Nothing was saved, and pressing
-      // on is better than trapping somebody on a checklist that cannot commit.
+    } catch (error) {
+      // Only one failure means "there is nothing left to save": the route
+      // answers 404 `proposal_not_found` once the thirty minutes are up or the
+      // proposal has already been consumed. Nothing can bring it back, so
+      // moving on beats trapping somebody on a checklist that cannot commit.
+      //
+      // Every other failure — no signal, a timeout, a 5xx, a refused body —
+      // means the ticks did not land and nobody has been told. Advancing there
+      // is the same false save this app has already shipped once: the screen
+      // stays, says what happened in `userFacingMessage`'s words, and the
+      // primary button re-sends the very same ticks.
+      if (!(error instanceof NotFoundError)) {
+        setConfirmFailure(error);
+        return;
+      }
     }
     setProposal(null);
     await advance('about');
@@ -233,7 +261,9 @@ export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
         onChange={setChoices}
         onContinue={() => void submitConsents()}
         onBack={() => goBack('consent')}
+        onRetry={() => void consents.refetch()}
         ready={consents.data !== undefined}
+        unreachable={consents.data === undefined ? consents.error : undefined}
         saving={setAi.isPending || setRecommendations.isPending || trustAction.isPending}
         failed={consentFailed}
       />
@@ -258,7 +288,8 @@ export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
         <AboutYouReviewStep
           suggestions={proposal.suggestions}
           saving={confirmSuggestions.isPending}
-          onBack={() => { setProposal(null); setDescribeFailed(false); }}
+          failure={confirmFailure}
+          onBack={() => { setProposal(null); setDescribeFailed(false); setConfirmFailure(undefined); }}
           onSave={(accepted) => void saveSuggestions(proposal.id, accepted)}
         />
       );

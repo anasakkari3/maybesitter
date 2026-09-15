@@ -26,7 +26,15 @@ import type { ConsentLocale, ConsentPlatformName } from './consentTypes';
 
 export interface ConsentAnswers {
   ai: 'granted' | 'declined';
-  recommendations: boolean;
+  /**
+   * `null` means the switch was never touched on this run.
+   *
+   * It is recorded as a decline, which is what an untouched switch has always
+   * meant — but it has to arrive here still distinguishable from a deliberate
+   * `false`, because the screen's seeding rule treats the two differently and
+   * collapsing them early is what let a refetch reinstate a withdrawn grant.
+   */
+  recommendations: boolean | null;
   analytics: boolean;
 }
 
@@ -69,7 +77,9 @@ export async function recordConsents(
 
   try {
     await deps.setRecommendationConsent({
-      state: answers.recommendations ? 'granted' : 'declined',
+      // Untouched and off are both recorded as a decline. Nothing else could
+      // be honest: a consent nobody gave is not a consent.
+      state: answers.recommendations === true ? 'granted' : 'declined',
       version: versions.recommendations,
       ...context,
     });
