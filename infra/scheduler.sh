@@ -88,6 +88,17 @@ upsert_job() { # name, schedule, path, timezone, description
 upsert_job "jobs-tick-${SUFFIX}" "* * * * *" "/api/internal/jobs/run" "Etc/UTC" \
   "Run due MaybeSitter jobs (${TARGET})"
 
+# The daily-plan sweep (UC-3.10a, #194). Every minute, like the jobs tick and
+# for the same reason: the delivery time a user picks is an HH:mm on their own
+# clock, so a coarser cron would deliver some mornings late by up to its own
+# period. It is a *separate* job from `jobs-tick` so that a plan failure retries
+# plan building and never re-runs the reminder queue.
+#
+# Each tick is one indexed range read over `users` for the accounts whose
+# `planSettings.nextRunAt` has arrived, which on a normal minute is none.
+upsert_job "daily-plan-tick-${SUFFIX}" "* * * * *" "/api/internal/jobs/daily-plan" "Etc/UTC" \
+  "Build due MaybeSitter daily plans (${TARGET})"
+
 # Nightly maintenance at 03:17 local: off-peak, and not on the hour, so it does
 # not pile onto every other cron in the world.
 upsert_job "maintenance-daily-${SUFFIX}" "17 3 * * *" "/api/internal/jobs/maintenance" "Asia/Jerusalem" \

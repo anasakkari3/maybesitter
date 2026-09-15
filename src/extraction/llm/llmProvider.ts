@@ -19,7 +19,12 @@
  * malformed extraction becomes a commitment in someone's day.
  */
 
-export type LlmPurpose = 'capture_extraction' | 'profile_extraction' | 'importance_estimate';
+export type LlmPurpose =
+  | 'capture_extraction'
+  | 'profile_extraction'
+  | 'importance_estimate'
+  /** Narrating a plan the deterministic scheduler already produced (#194). */
+  | 'plan_explanation';
 
 export type LlmProviderName = 'gemini' | 'ollama' | 'none';
 

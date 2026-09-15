@@ -1,0 +1,9 @@
+{
+  "success": true,
+  "planSettings": {
+    "enabled": false,
+    "deliveryLocalTime": "07:30",
+    "timezone": "Asia/Jerusalem",
+    "nextRunAt": null
+  }
+}

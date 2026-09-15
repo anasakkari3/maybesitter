@@ -28,6 +28,11 @@ import {
   profileResponseSchema,
   routineSavedSchema,
 } from '../schemas/profile';
+import {
+  planEditRejectedSchema,
+  planResponseSchema,
+  planSettingsResponseSchema,
+} from '../schemas/plan';
 
 /**
  * The drift detector.
@@ -91,6 +96,16 @@ const CASES: Array<[string, z.ZodType]> = [
   ['alphaFeedback.flag', alphaFeedbackSchema],
   ['analytics.ack', analyticsAckSchema],
   ['consents.view', consentsViewSchema],
+  // The daily plan (#194). GET, the accept/dismiss/edit action and regenerate
+  // all answer the same `{ success, plan }` envelope, at three points in the
+  // plan's life; the refusals differ, so they do not share a schema.
+  ['plan.today', planResponseSchema],
+  ['plan.accepted', planResponseSchema],
+  ['plan.regenerated', planResponseSchema],
+  ['plan.notFound', errorBodySchema],
+  ['plan.editRejected', planEditRejectedSchema],
+  ['plan.settingsDefault', planSettingsResponseSchema],
+  ['plan.settingsSaved', planSettingsResponseSchema],
   ['errors.unauthorized', errorBodySchema],
 ];
 
@@ -168,6 +183,27 @@ describe('what the schemas assert about the shape', () => {
     expect(importanceOf(commitment)).toBe('should');
     expect(importanceOf({ ...commitment, priority: { ...commitment.priority, level: 'high' } })).toBe('must');
     expect(importanceOf({ ...commitment, priority: { ...commitment.priority, level: 'low' } })).toBe('nice');
+  });
+
+  it('keeps the item a refused plan edit was about', () => {
+    // The 422 is rendered next to the item the user dragged, not as a
+    // page-level error, so `itemId` is the load-bearing half. `errorBodySchema`
+    // parses this body too and throws that half away.
+    const rejected = planEditRejectedSchema.parse(fixture('plan.editRejected'));
+    expect(rejected.reason).toBe('unknown_item');
+    expect(rejected.itemId).toEqual(expect.any(String));
+  });
+
+  it('reads a placed item whose commitment has since gone', () => {
+    // planDto joins titles from the commitments at read time and answers null
+    // for one that was deleted after the plan was built. A schema that required
+    // a string would fail only on that user's device.
+    const today = fixture('plan.today') as { plan: { scheduled: unknown[] } };
+    const orphaned = {
+      ...today,
+      plan: { ...today.plan, scheduled: [{ ...(today.plan.scheduled[0] as object), title: null }] },
+    };
+    expect(planResponseSchema.safeParse(orphaned).success).toBe(true);
   });
 
   it('refuses a response that lost a field', () => {
