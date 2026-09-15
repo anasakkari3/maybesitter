@@ -38,6 +38,12 @@ test('every code has a label, and none of them is empty', () => {
 test('the label strings the quality harness greps are unchanged', () => {
   // These exact phrases are matched by `alphaQualityHarness`. Rewording one is
   // a behaviour change there, so it has to be a deliberate edit here.
+  //
+  // One has been reworded, deliberately: the `overdue` label. Onboarding
+  // promises the user there is no such thing, and a device run caught the Next
+  // Step card saying it anyway. The owner's decision (#383) keeps lateness as a
+  // ranking signal and drops the word — so the code is still `overdue` and the
+  // scenario in `alphaQualityScenarios.ts` now greps the new phrase.
   assert.deepEqual(evidenceLabels([
     { code: 'overdue' },
     { code: 'due_within_24h' },
@@ -51,7 +57,7 @@ test('the label strings the quality harness greps are unchanged', () => {
     { code: 'often_set_aside' },
     { code: 'usual_productive_time' },
   ]), [
-    'overdue',
+    'waiting since its time passed',
     'due within 24 hours',
     'due within 7 days',
     'importance: high',
@@ -76,7 +82,7 @@ test('a scored candidate carries codes and labels that describe the same evidenc
   ]);
 });
 
-test('a past due time reads as overdue, and only that', () => {
+test('a past due time produces the lateness code, and only that', () => {
   const score = scoreBaselineCandidate(
     candidate({ dueAt: '2026-09-12T09:00:00.000Z', importance: null }),
     NOW,

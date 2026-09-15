@@ -11,11 +11,29 @@ import type { NextStepEvidenceCode, NextStepEvidenceContract } from '../../src/c
  * leaves the user with a reason the app cannot say, and nothing fails.
  *
  * So the rules emit codes, and every label in the system comes from here. The
- * strings are exactly the ones `nextStepBaseline` and `nextStepArms` used
- * before, character for character, because `alphaQualityHarness` greps them.
+ * strings are the ones `nextStepBaseline` and `nextStepArms` used before,
+ * character for character, because `alphaQualityHarness` greps them — with one
+ * deliberate exception, below.
+ *
+ * ── The one word this product does not say ───────────────────────
+ *
+ * `overdue` is a ranking signal and it stays one: `latenessBand` is the first
+ * key the baseline sorts on, and taking it away would make the recommender
+ * blind to the thing the user most needs surfaced. What changed (owner
+ * decision, 2026-09-15, #383) is the *word*. Onboarding promises «There is no
+ * "overdue". Only active, done, moved, or dropped on purpose.» and a device run
+ * caught the Next Step card answering "Based on overdue and importance: high"
+ * about a commitment Today and Upcoming both said did not exist.
+ *
+ * The code keeps its name — it is internal, it is what the phone matches on,
+ * and renaming it would churn a schema, a fixture and three locale tables for
+ * nothing. The label says what is true without passing sentence on the person:
+ * the thing has been waiting since its time went by. `tests/mobile/latenessCopy.test.ts`
+ * fails on the word anywhere a user could read it, in any of the three
+ * languages.
  */
 const LABELS: Record<NextStepEvidenceCode, (params: NextStepEvidenceContract['params']) => string> = {
-  overdue: () => 'overdue',
+  overdue: () => 'waiting since its time passed',
   due_within_24h: () => 'due within 24 hours',
   due_within_7d: () => 'due within 7 days',
   importance: (params) => `importance: ${params?.level ?? 'normal'}`,
