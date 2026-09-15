@@ -77,6 +77,21 @@ name: Today's plan — open it, read it, accept it
     id: 'plan-accepted'
 - assertVisible: 'حفظنا خطة اليوم'
 
+# ── The way in from Today (#195 step 4) ────────────────────────────
+#
+# The card asks for the *device's* day, and mock mode answers every date with
+# `plan.today` — so it shows that plan under today's heading whenever this runs.
+# That is a property of the adapter, which keeps no state and serves one body
+# per route, not of the card.
+- tapOn: 'اليوم'
+- assertVisible:
+    id: 'today-plan-card'
+- tapOn:
+    id: 'today-plan-open'
+- assertVisible: 'خطة اليوم'
+- assertVisible:
+    id: 'plan-why'
+
 # ── The morning plan, from Settings ────────────────────────────────
 - tapOn: 'الإعدادات'
 - tapOn:

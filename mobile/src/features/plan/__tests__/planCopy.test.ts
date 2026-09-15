@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { readFileSync } from 'fs';
+import { readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import en from '../../../i18n/locales/en.json';
 import ar from '../../../i18n/locales/ar.json';
@@ -131,6 +131,25 @@ describe('nothing on the plan screen accuses anybody', () => {
       }
     }
     expect(offences).toEqual([]);
+  });
+
+  /**
+   * A fourth language cannot arrive unpoliced.
+   *
+   * `BUNDLES` is written out, and a written-out list is a list somebody has to
+   * remember to add to. The accusations above are spelled in three scripts; a
+   * locale shipped without its own spellings here would be swept by *nothing*
+   * and would pass — the same failure mode as an Arabic pattern that matched
+   * nothing, one level up. So the bundles are checked against the directory:
+   * an unimplemented locale refuses rather than passes.
+   */
+  it('refuses a locale nobody has written accusations for', () => {
+    const shipped = readdirSync(join(__dirname, '..', '..', '..', 'i18n', 'locales'))
+      .filter(name => name.endsWith('.json'))
+      .map(name => name.replace(/\.json$/, ''))
+      .sort();
+    expect(shipped.length).toBeGreaterThan(0);
+    expect(BUNDLES.map(([locale]) => String(locale)).sort()).toEqual(shipped);
   });
 
   it('has the same plan keys in all three locales', () => {

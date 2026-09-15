@@ -667,6 +667,6 @@
   "planMorningBody": "Each morning we lay your day out and send one note when it's ready. You decide what to do with it.",
   "planMorningTime": "Arrives at",
   "planMorningNext": "Next one: {when}",
-  "planMorningOff": "Off"
-  "planCardPlaced": "{n, plural, =0{Your day is laid out} one{One thing placed today} other{# things placed today}}",
+  "planMorningOff": "Off",
+  "planCardPlaced": "{n, plural, =0{Nothing needed a time today} one{One thing placed today} other{# things placed today}}"
 }

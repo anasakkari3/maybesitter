@@ -228,3 +228,10 @@ that same plan under the wrong heading.
 The refusal path is absent for the same reason. A 422 needs the server to hold
 constraints the move collides with, and the adapter keeps no state — so
 `plan-item-refused-…` is Jest's to prove (`PlanScreen.test.tsx`), not Maestro's.
+
+The Today card (`today-plan-card`) is the one entry point only a device shows
+in place: mock mode answers every date with `plan.today`, so the card renders
+that plan under today's heading. Jest holds what the card *decides* — nothing
+while loading, nothing on an error, nothing once somebody has said "not today"
+(`TodayPlanCard.test.tsx`); this flow only shows that it is reachable and opens
+the right screen.

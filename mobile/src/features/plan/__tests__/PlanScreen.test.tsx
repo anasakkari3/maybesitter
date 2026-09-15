@@ -18,8 +18,12 @@ import { isolateAuto } from '../../../i18n/bidi';
 import en from '../../../i18n/locales/en.json';
 import ar from '../../../i18n/locales/ar.json';
 import todayFixture from '../../../api/__fixtures__/plan.today.json';
+import trustFixture from '../../../api/__fixtures__/trust.state.json';
+import ackFixture from '../../../api/__fixtures__/analytics.ack.json';
 
 import * as planEndpoints from '../../../api/endpoints/plans';
+import * as trustEndpoints from '../../../api/endpoints/trust';
+import * as analyticsEndpoints from '../../../api/endpoints/analytics';
 
 /**
  * Today's plan on a device (UC-3.10b, #195).
@@ -50,6 +54,16 @@ function planWith(over: Partial<DailyPlan> = {}): DailyPlan {
   return { ...BASE, ...over };
 }
 
+/** The trust record, with one answer changed: analytics consent. */
+function trustDeciding(granted: boolean) {
+  const base = trustFixture as unknown as { trust: Record<string, unknown>; whatKnows: Record<string, unknown> };
+  return {
+    ...base,
+    trust: { ...base.trust, analyticsConsent: granted },
+    whatKnows: { ...base.whatKnows, analyticsConsent: granted },
+  };
+}
+
 const SETTINGS_ON: PlanSettings = {
   enabled: true, deliveryLocalTime: '07:30', timezone: 'Asia/Jerusalem', nextRunAt: '2026-08-10T04:30:00.000Z',
 };
@@ -67,6 +81,12 @@ beforeEach(async () => {
   jest.spyOn(planEndpoints, 'getPlanSettings').mockResolvedValue(SETTINGS_ON as never);
   jest.spyOn(planEndpoints, 'actOnPlan').mockResolvedValue(planWith({ status: 'accepted' }) as never);
   jest.spyOn(planEndpoints, 'regeneratePlan').mockResolvedValue(planWith({ generation: 2 }) as never);
+  // The screen reads analytics consent before it reports anything (#195 step
+  // 7). Declined by default, so every case above this line exercises the
+  // screen without a metrics call in it — and so that the consent read is a
+  // decision made here rather than a request that escapes to the network.
+  jest.spyOn(trustEndpoints, 'getTrust').mockResolvedValue(trustDeciding(false) as never);
+  jest.spyOn(analyticsEndpoints, 'recordAnalyticsEvent').mockResolvedValue(ackFixture as never);
 });
 
 afterEach(() => {
@@ -560,5 +580,181 @@ describe('right to left', () => {
     // fixture and every time is read in the plan's own zone, so nothing here
     // depends on when or where the suite runs.
     expect(screen.toJSON()).toMatchSnapshot();
+  });
+});
+
+describe('what the screen reports about what somebody did', () => {
+  /** Every analytics call the screen has made, as `[eventName, properties]`. */
+  function reported(): [string, Record<string, unknown>][] {
+    return (analyticsEndpoints.recordAnalyticsEvent as jest.Mock).mock.calls as [string, Record<string, unknown>][];
+  }
+
+  function names(): string[] {
+    return reported().map(([eventName]) => eventName);
+  }
+
+  function propertiesOf(eventName: string): Record<string, unknown> | undefined {
+    return reported().find(([name]) => name === eventName)?.[1];
+  }
+
+  describe('when analytics consent has not been granted', () => {
+    it('reports nothing at all, however much is done on the screen', async () => {
+      // The server drops events for a user who declined. It cannot drop a
+      // request it was never sent, which is why the gate is also here.
+      await loaded();
+      await fireEvent.press(screen.getByTestId('plan-accept'));
+      await waitFor(() => expect(screen.queryByTestId('plan-accepted')).not.toBeNull());
+      await fireEvent.press(screen.getByTestId('plan-regenerate'));
+      await waitFor(() => expect(planEndpoints.regeneratePlan).toHaveBeenCalled());
+      expect(names()).toEqual([]);
+    });
+
+    it('treats a consent read that did not land as a decline', async () => {
+      jest.spyOn(trustEndpoints, 'getTrust').mockRejectedValue(new NetworkError('no signal') as never);
+      await loaded();
+      await fireEvent.press(screen.getByTestId('plan-accept'));
+      await waitFor(() => expect(screen.queryByTestId('plan-accepted')).not.toBeNull());
+      expect(names()).toEqual([]);
+    });
+  });
+
+  describe('when it has', () => {
+    beforeEach(() => {
+      jest.spyOn(trustEndpoints, 'getTrust').mockResolvedValue(trustDeciding(true) as never);
+    });
+
+    it('records the plan being put on screen, once', async () => {
+      // Once per plan the screen shows — not once per render. Accepting and
+      // rebuilding each replace the cached plan with a new object and
+      // re-render this component, and a second `plan_opened` there would read
+      // as somebody coming back to a screen they never left.
+      //
+      // Two whole round trips are driven before the count is read, rather than
+      // one: `plan_opened` is reported behind an awaited consent read, so it
+      // lands a microtask *after* the render that caused it. Asserting
+      // straight after the first one let a mutant keyed on the plan object
+      // through — the extra event was on its way, and simply had not arrived.
+      await loaded();
+      await waitFor(() => expect(names()).toContain('plan_opened'));
+      await fireEvent.press(screen.getByTestId('plan-accept'));
+      await waitFor(() => expect(names()).toContain('plan_accepted'));
+      await fireEvent.press(screen.getByTestId('plan-regenerate'));
+      await waitFor(() => expect(names()).toContain('plan_regenerated'));
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+      expect(names().filter(name => name === 'plan_opened')).toHaveLength(1);
+      expect(propertiesOf('plan_opened')).toEqual({
+        generation: 1,
+        scheduledCount: BASE.scheduled.length,
+        unscheduledCount: 0,
+        explanationSource: 'template',
+        status: 'proposed',
+      });
+    });
+
+    it('names the decision, from the plan the server answered with', async () => {
+      await loaded();
+      await fireEvent.press(screen.getByTestId('plan-accept'));
+      await waitFor(() => expect(names()).toContain('plan_accepted'));
+      expect(propertiesOf('plan_accepted')).toEqual({
+        generation: 1, scheduledCount: BASE.scheduled.length, unscheduledCount: 0,
+      });
+    });
+
+    it('records a dismissal as a dismissal', async () => {
+      jest.spyOn(planEndpoints, 'actOnPlan').mockResolvedValue(planWith({ status: 'dismissed' }) as never);
+      await loaded();
+      await fireEvent.press(screen.getByTestId('plan-dismiss'));
+      await waitFor(() => expect(names()).toContain('plan_dismissed'));
+      expect(names()).not.toContain('plan_accepted');
+    });
+
+    it('records the generation the rebuild produced, not the one it replaced', async () => {
+      await loaded();
+      await fireEvent.press(screen.getByTestId('plan-regenerate'));
+      await waitFor(() => expect(names()).toContain('plan_regenerated'));
+      expect(propertiesOf('plan_regenerated')).toEqual({ generation: 2 });
+    });
+
+    it('records a refused move with the reason the plan gave', async () => {
+      // The refusals are the point. A count of only the edits that worked
+      // would answer "how often does the planner refuse what people try to
+      // do" with a number that cannot go up.
+      const item = BASE.scheduled[0]!;
+      jest.spyOn(planEndpoints, 'actOnPlan')
+        .mockRejectedValue(new PlanEditRefusedError('overlaps_fixed_event', item.itemId) as never);
+      await loaded();
+      await fireEvent.press(screen.getByTestId(`plan-open-${item.itemId}`));
+      await waitFor(() => expect(screen.queryByTestId(`plan-remove-${item.itemId}`)).not.toBeNull());
+      await fireEvent.press(screen.getByTestId(`plan-remove-${item.itemId}`));
+      await waitFor(() => expect(names()).toContain('plan_edited'));
+      expect(propertiesOf('plan_edited')).toEqual({
+        movedCount: 0, removedCount: 1, outcome: 'refused', reason: 'overlaps_fixed_event',
+      });
+    });
+
+    it('records an edit the plan allowed as one that worked', async () => {
+      const item = BASE.scheduled[0]!;
+      await loaded();
+      await fireEvent.press(screen.getByTestId(`plan-open-${item.itemId}`));
+      await waitFor(() => expect(screen.queryByTestId(`plan-remove-${item.itemId}`)).not.toBeNull());
+      await fireEvent.press(screen.getByTestId(`plan-remove-${item.itemId}`));
+      await waitFor(() => expect(names()).toContain('plan_edited'));
+      expect(propertiesOf('plan_edited')).toEqual({
+        movedCount: 0, removedCount: 1, outcome: 'applied', reason: 'none',
+      });
+    });
+
+    it('says nothing about an edit that never reached the plan', async () => {
+      const item = BASE.scheduled[0]!;
+      jest.spyOn(planEndpoints, 'actOnPlan').mockRejectedValue(new NetworkError('no signal') as never);
+      await loaded();
+      await fireEvent.press(screen.getByTestId(`plan-open-${item.itemId}`));
+      await waitFor(() => expect(screen.queryByTestId(`plan-remove-${item.itemId}`)).not.toBeNull());
+      await fireEvent.press(screen.getByTestId(`plan-remove-${item.itemId}`));
+      await waitFor(() => expect(screen.queryByTestId('plan-edit-error')).not.toBeNull());
+      expect(names()).not.toContain('plan_edited');
+    });
+
+    it('carries no title, item id, explanation or date in any of it', async () => {
+      // The same rule as the AsyncStorage assertion above, on the other way
+      // out of the device. An `itemId` in a plan is a commitment id.
+      //
+      // The edit comes before the accept, in that order, because accepting
+      // settles the plan and an accepted plan is not editable from here.
+      const item = BASE.scheduled[0]!;
+      jest.spyOn(planEndpoints, 'actOnPlan')
+        .mockResolvedValueOnce(planWith({ scheduled: BASE.scheduled.slice(1) }) as never)
+        .mockResolvedValue(planWith({ status: 'accepted' }) as never);
+      await loaded();
+      await fireEvent.press(screen.getByTestId(`plan-open-${item.itemId}`));
+      await waitFor(() => expect(screen.queryByTestId(`plan-remove-${item.itemId}`)).not.toBeNull());
+      await fireEvent.press(screen.getByTestId(`plan-remove-${item.itemId}`));
+      await waitFor(() => expect(names()).toContain('plan_edited'));
+      await fireEvent.press(screen.getByTestId('plan-accept'));
+      await waitFor(() => expect(names()).toContain('plan_accepted'));
+
+      const serialized = JSON.stringify(reported());
+      for (const secret of [
+        BASE.explanation.text,
+        BASE.inputDigest,
+        DATE,
+        ...BASE.scheduled.map(entry => entry.title ?? ''),
+        ...BASE.scheduled.map(entry => entry.itemId),
+      ]) {
+        expect({ secret, sent: serialized.includes(secret) }).toEqual({ secret, sent: false });
+      }
+      expect(names().length).toBeGreaterThan(2);
+    });
+
+    it('lets the accept land even when the analytics route is down', async () => {
+      // A metrics ping that fell over must never become a failed accept.
+      jest.spyOn(analyticsEndpoints, 'recordAnalyticsEvent')
+        .mockRejectedValue(new NetworkError('no signal') as never);
+      await loaded();
+      await fireEvent.press(screen.getByTestId('plan-accept'));
+      await waitFor(() => expect(screen.queryByTestId('plan-accepted')).not.toBeNull());
+      expect(screen.queryByText(en.planAcceptedToast)).not.toBeNull();
+      expect(screen.queryByTestId('plan-edit-error')).toBeNull();
+    });
   });
 });

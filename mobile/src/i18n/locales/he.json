@@ -670,5 +670,6 @@
   "planMorningBody": "כל בוקר נסדר לך את היום ונשלח הודעה אחת כשהיא מוכנה. אתה מחליט מה לעשות איתה.",
   "planMorningTime": "מגיעה בשעה",
   "planMorningNext": "הבאה: {when}",
-  "planMorningOff": "כבויה"
+  "planMorningOff": "כבויה",
+  "planCardPlaced": "{n, plural, =0{שום דבר לא צריך שעה היום} one{דבר אחד קיבל שעה היום} two{שני דברים קיבלו שעה היום} other{# דברים קיבלו שעה היום}}"
 }

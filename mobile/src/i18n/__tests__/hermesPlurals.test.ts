@@ -94,6 +94,10 @@ describe('count messages on an engine without Intl.PluralRules (Hermes)', () => 
     }
     // A bundle that stopped being readable would otherwise pass vacuously.
     expect(checked).toContain('ar.planRegenerateLeft');
-    expect(checked.length).toBeGreaterThanOrEqual(12);
+    // The Today card's count (#195 step 4), which is a plural in all three and
+    // would render as its own ICU source on a device if the sweep missed it.
+    expect(checked).toContain('ar.planCardPlaced');
+    expect(checked).toContain('he.planCardPlaced');
+    expect(checked.length).toBeGreaterThanOrEqual(15);
   });
 });

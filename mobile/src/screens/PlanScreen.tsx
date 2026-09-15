@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Platform, ScrollView, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -160,23 +160,28 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
    * Analytics (#195 step 7), consent-gated and content-free.
    *
    * `useAnalyticsConsent` reads the trust record only when something is about
-   * to be reported, and fails closed. The reporter is held in a ref so that
-   * neither it nor the hooks it closes over can retrigger the effect below —
-   * `plan_opened` is about the plan being put on screen, not about how many
-   * times React re-rendered it.
+   * to be reported, and fails closed. Everything else here is fire-and-forget:
+   * a metrics call is never awaited into something the user is waiting on, and
+   * `planAnalytics.ts` swallows its own failures.
+   *
+   * The handlers below close over this render's `reporter`, which is all an
+   * event handler needs. The mount effect closes over the *first* render's,
+   * deliberately — `plan_opened` is about the plan being put on screen, not
+   * about how many times React re-rendered it, and accepting rewrites the
+   * cached plan and re-renders this component.
    */
   const analyticsConsent = useAnalyticsConsent();
   const recordAnalytics = useRecordAnalytics();
-  const reporter = useRef<PlanReporter>({ analyticsConsent, report: () => {} });
-  reporter.current = {
-    analyticsConsent,
-    report: event => recordAnalytics.mutate(event),
-  };
+  const record = recordAnalytics.mutate;
+  const reporter = useMemo<PlanReporter>(
+    () => ({ analyticsConsent, report: event => record(event) }),
+    [analyticsConsent, record],
+  );
 
-  // One per plan the screen actually shows. `date` rather than the plan object:
-  // accepting rewrites the cached plan, and that is not a second opening.
+  // One per plan the screen actually shows, keyed by `date` rather than by the
+  // plan object, which every action replaces.
   useEffect(() => {
-    void reportPlanOpened(plan, reporter.current);
+    void reportPlanOpened(plan, reporter);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date]);
 
@@ -197,7 +202,7 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
     accept.mutate(action, {
       // Reported from the plan the server answered with, not the one on screen
       // when the button was pressed.
-      onSuccess: settledPlan => void reportPlanDecision(action, settledPlan, reporter.current),
+      onSuccess: settledPlan => void reportPlanDecision(action, settledPlan, reporter),
       onSettled: accepting.leave,
     });
   };
@@ -280,9 +285,9 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
                 edit.mutate(moving, {
                   onSuccess: () => {
                     setOpenItem(null);
-                    void reportPlanEdited(moving, null, reporter.current);
+                    void reportPlanEdited(moving, null, reporter);
                   },
-                  onError: error => void reportPlanEdited(moving, error, reporter.current),
+                  onError: error => void reportPlanEdited(moving, error, reporter),
                   onSettled: editing.leave,
                 });
               }}
@@ -293,9 +298,9 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
                 edit.mutate(removing, {
                   onSuccess: () => {
                     setOpenItem(null);
-                    void reportPlanEdited(removing, null, reporter.current);
+                    void reportPlanEdited(removing, null, reporter);
                   },
-                  onError: error => void reportPlanEdited(removing, error, reporter.current),
+                  onError: error => void reportPlanEdited(removing, error, reporter),
                   onSettled: editing.leave,
                 });
               }}
@@ -362,7 +367,7 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
             onPress={() => {
               if (!rebuilding.enter()) return;
               rebuild.mutate(undefined, {
-                onSuccess: rebuilt => void reportPlanRegenerated(rebuilt, reporter.current),
+                onSuccess: rebuilt => void reportPlanRegenerated(rebuilt, reporter),
                 onSettled: rebuilding.leave,
               });
             }}
