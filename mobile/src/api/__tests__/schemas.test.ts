@@ -312,6 +312,25 @@ describe('what the schemas assert about the shape', () => {
     expect(items).toBeDefined();
   });
 
+  /**
+   * The other half of the calendar contract (UC-3.1, #185).
+   *
+   * The sync *deletes* what appears in `calendarOrphans`, so absent has to stay
+   * readable as "this response did not look" — which means Today's recorded
+   * response must carry the key even when it is empty. A backend that stopped
+   * computing the join would regenerate this fixture without it, and the
+   * optional schema would go on parsing happily; this is what goes red instead.
+   */
+  it('has Today say it looked for events with no commitment left', () => {
+    const today = fixture('commitments.today') as Record<string, unknown>;
+    expect('calendarOrphans' in today).toBe(true);
+    expect(commitmentListSchema.parse(today).calendarOrphans).toEqual([]);
+
+    // Upcoming deliberately does not answer, so one deletion is never asked
+    // for twice.
+    expect('calendarOrphans' in (fixture('commitments.upcoming') as object)).toBe(false);
+  });
+
   it('accepts a response that gained one, so an older client keeps working', () => {
     const extended = { ...(fixture('commitments.one') as object), somethingNew: true };
     expect(commitmentSchema.safeParse(extended).success).toBe(true);

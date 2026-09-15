@@ -62,11 +62,35 @@ export type NoReason =
   | 'undated'
   /** The event already says exactly this. */
   | 'unchanged'
+  /** The commitment is gone and there was no event to remove. */
+  | 'gone'
+  /** A capture the user has not confirmed. Nothing is written for one. */
+  | 'unconfirmed'
   /** No calendar has been picked on this device yet. */
   | 'no_calendar';
 
 export interface SyncSubject {
-  commitment: Commitment;
+  /**
+   * The commitment this is about.
+   *
+   * Carried separately from `commitment` because a subject can be a link with
+   * no commitment behind it at all, and that subject still has to name the row
+   * it is going to delete.
+   */
+  commitmentId: string;
+  /**
+   * The commitment as the account has it, or `null` when the account no longer
+   * holds it — cancelled, or gone.
+   *
+   * This is deliberately a *value* and not a `removed: true` flag. A flag is
+   * something a caller has to remember to set, and the one caller there is
+   * never set it: the pass is built from the lists, a deleted commitment is
+   * simply absent from them, and the delete branch guarded by the flag was
+   * unreachable in the shipped app while a test handed it the flag by hand and
+   * passed. `null` cannot be forgotten, because it is the only thing an orphan
+   * link has to offer.
+   */
+  commitment: Commitment | null;
   /**
    * The link as the server last answered.
    *
@@ -75,8 +99,6 @@ export interface SyncSubject {
    * and treating the two alike is how a refusal becomes a second event.
    */
   link: DeviceCalendarLink | null | undefined;
-  /** True when the commitment is gone from the account, or was dropped. */
-  removed?: boolean;
 }
 
 export interface DecideInput extends SyncSubject {
@@ -99,7 +121,7 @@ export interface DecideInput extends SyncSubject {
  * its own.
  */
 export function decide(input: DecideInput): SyncPlan {
-  const { link, writerId } = input;
+  const { link, writerId, commitment } = input;
 
   // A link we do not own is not ours to create beside, update, or delete —
   // and this is checked before the target, because a foreign link must survive
@@ -110,10 +132,14 @@ export function decide(input: DecideInput): SyncPlan {
 
   if (link) {
     // The user removed it in their Calendar app. Record that, and never write
-    // it again. Checked before `removed`, because an event that is already gone
-    // needs no delete and the link still has to stop being `linked`.
+    // it again. Checked first, because an event that is already gone needs no
+    // delete and the link still has to stop being `linked`.
     if (!input.eventStillThere) return { kind: 'detach', eventId: link.eventId };
-    if (input.removed) return { kind: 'delete', eventId: link.eventId };
+    // The commitment is gone. This is above the target check on purpose:
+    // turning the switch off stops writing, and deleting a commitment is not
+    // writing — it is taking back something already written, and it must happen
+    // whether or not the user is still adding new entries.
+    if (commitment === null) return { kind: 'delete', eventId: link.eventId };
   }
 
   if (input.writeTarget !== 'device') {
@@ -122,7 +148,20 @@ export function decide(input: DecideInput): SyncPlan {
     return { kind: 'none', because: 'target_off' };
   }
 
-  const draft = input.removed ? null : draftFor(input.commitment, input.deviceTimeZone);
+  if (commitment === null) return { kind: 'none', because: 'gone' };
+
+  // A capture waiting to be confirmed is not a commitment anybody made. The
+  // issue's own sentence is "every commitment I *confirm*", and an unconfirmed
+  // one is on Today for its stated day: without this, opening the app with an
+  // abandoned draft in it puts an hour the user never agreed to in front of
+  // everybody they share a calendar with. If one ever did get written, the link
+  // is honoured and the event taken back out rather than left orphaned.
+  if (!isConfirmed(commitment)) {
+    if (link) return { kind: 'delete', eventId: link.eventId };
+    return { kind: 'none', because: 'unconfirmed' };
+  }
+
+  const draft = draftFor(commitment, input.deviceTimeZone);
 
   if (link) {
     // The commitment lost its time, so the event has nothing left to say.
@@ -134,6 +173,20 @@ export function decide(input: DecideInput): SyncPlan {
   if (draft === null) return { kind: 'none', because: 'undated' };
   if (input.calendarId === null) return { kind: 'none', because: 'no_calendar' };
   return { kind: 'create', draft };
+}
+
+/**
+ * The statuses a capture passes through before the user has agreed to it.
+ *
+ * Named from `stateMachine.ts`'s own union — they are the three
+ * `ensureCommitmentStatus` allows a confirm command to move out of.
+ */
+const UNCONFIRMED_STATUSES: ReadonlySet<string> = new Set([
+  'draft', 'needs_clarification', 'pending_confirmation',
+]);
+
+function isConfirmed(commitment: Commitment): boolean {
+  return !UNCONFIRMED_STATUSES.has(commitment.status);
 }
 
 /** What `reconcile` did, so a screen can say so and a test can count. */
@@ -154,10 +207,16 @@ const EMPTY_OUTCOME: SyncOutcome = {
 /**
  * What the sync needs from the rest of the app, as functions it is handed.
  *
- * `putLink` and `deleteLink` are the server calls. They are *awaited before*
- * the calendar is touched on a create, which is the whole of the second-device
- * rule: the link is claimed first, so a device that loses the race is told so
- * before it has written anything.
+ * `putLink` and `deleteLink` are the server calls, and `putLink` is where the
+ * second-device rule is decided: the first installation to claim a commitment
+ * owns its event and every other claim comes back 409.
+ *
+ * The claim cannot come *first*, because the thing being claimed is an event id
+ * and there is no id until the event exists. So a create writes the event,
+ * claims it, and — if the claim is refused or never lands — takes the event
+ * back out again. `apply` below is where that happens, and it is the only
+ * reason "a second device does not leave a duplicate" is true rather than
+ * merely intended.
  */
 export interface SyncPorts {
   calendar: DeviceCalendar;
@@ -264,7 +323,7 @@ async function apply(
   outcome: SyncOutcome,
 ): Promise<void> {
   const { ports, writerId } = input;
-  const commitmentId = subject.commitment.id;
+  const commitmentId = subject.commitmentId;
 
   switch (plan.kind) {
     case 'none':
@@ -272,23 +331,52 @@ async function apply(
       return;
 
     case 'create': {
-      // The link is claimed **before** the event exists. A second device that
-      // loses this race is refused here, having written nothing into anybody's
-      // calendar — which is the only ordering that can promise that.
       const calendarId = input.calendarId;
       if (calendarId === null) {
         outcome.skipped += 1;
         return;
       }
+      /*
+       * The event has to exist before it can be claimed, because the claim *is*
+       * an event id. So this device writes first and asks second — and undoes
+       * its own write when the answer is no.
+       *
+       * Two ways the answer is no, and they are the same repair:
+       *
+       *   the claim is **refused** — another installation got there first, or
+       *   the user has deleted this event by hand before and the row is a
+       *   tombstone. Keeping the event would be the duplicate the whole link
+       *   mechanism exists to prevent, sitting in a calendar the other device
+       *   cannot reach and with no link row anywhere to clean it up: not even
+       *   "Remove events MaybeSitter added" would find it, because that walks
+       *   the links.
+       *
+       *   the claim **never landed** — a dropped connection between the write
+       *   and the claim. Leaving the event would be worse than a one-off
+       *   orphan: the next pass still sees no link, creates another, and the
+       *   user collects one duplicate per time they open the app.
+       *
+       * The error is rethrown after the repair so the pass counts this subject
+       * as skipped, or stops if what failed was the permission.
+       */
       const eventId = await ports.calendar.createEvent(calendarId, plan.draft);
       await ports.rememberEvent(eventId);
-      await ports.putLink(commitmentId, {
-        writerId,
-        calendarId,
-        eventId,
-        contentHash: plan.draft.contentHash,
-        state: 'linked',
-      });
+      try {
+        await ports.putLink(commitmentId, {
+          writerId,
+          calendarId,
+          eventId,
+          contentHash: plan.draft.contentHash,
+          state: 'linked',
+        });
+      } catch (error) {
+        // Deliberately not swallowed: if this delete fails too, its error is
+        // the one worth having — a revoked permission stops the whole pass,
+        // which a 409 must not.
+        await ports.calendar.deleteEvent(eventId);
+        await ports.forgetEvent(eventId);
+        throw error;
+      }
       outcome.created += 1;
       return;
     }
@@ -366,7 +454,7 @@ export async function removeAllWrittenEvents(input: {
     try {
       await input.ports.calendar.deleteEvent(link.eventId);
       await input.ports.forgetEvent(link.eventId);
-      await input.ports.deleteLink(subject.commitment.id, input.writerId);
+      await input.ports.deleteLink(subject.commitmentId, input.writerId);
       removed += 1;
     } catch (error) {
       if (error instanceof DeviceCalendarError && error.reason === 'permission_denied') {

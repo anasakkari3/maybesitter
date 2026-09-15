@@ -34,7 +34,7 @@ import {
   getCalendarSettings,
   putDeviceCalendarLink,
 } from '../../api/endpoints/calendar';
-import type { Commitment, DeviceCalendarLink } from '../../api/schemas/common';
+import type { CommitmentList, DeviceCalendarLink } from '../../api/schemas/common';
 import type { CalendarWriteTarget } from '../../api/schemas/calendar';
 import { calendarWriteEnabled } from '../../config/env';
 import {
@@ -109,19 +109,39 @@ export function apiSyncPorts(): SyncPorts {
 }
 
 /**
- * Every commitment the app currently holds, with its link.
+ * Every commitment the app currently holds, with its link — and every link the
+ * account holds with no commitment left behind it.
  *
  * Read out of the query cache rather than refetched: these are the exact
  * responses the screens are rendering, so the calendar cannot end up reconciled
  * against a different answer from the one the user is looking at.
+ *
+ * The orphans come from the same responses (`calendarOrphans` on Today), and
+ * they are added *after* the commitments and only for ids not already present.
+ * That ordering is the safety rule: if one list is a moment staler than the
+ * other and still shows a commitment Today has already called gone, the live
+ * row wins and the deletion waits for the next pass. Erring that way leaves an
+ * event a little too long; erring the other way deletes an entry out of
+ * somebody's calendar that should still be in it.
  */
-export function subjectsFromCache(lists: readonly ({ items: Commitment[] } | undefined)[]): SyncSubject[] {
+export function subjectsFromCache(lists: readonly (CommitmentList | undefined)[]): SyncSubject[] {
   const byId = new Map<string, SyncSubject>();
   for (const list of lists) {
     for (const commitment of list?.items ?? []) {
       byId.set(commitment.id, {
+        commitmentId: commitment.id,
         commitment,
         link: commitment.deviceCalendarLink as DeviceCalendarLink | null | undefined,
+      });
+    }
+  }
+  for (const list of lists) {
+    for (const orphan of list?.calendarOrphans ?? []) {
+      if (byId.has(orphan.commitmentId)) continue;
+      byId.set(orphan.commitmentId, {
+        commitmentId: orphan.commitmentId,
+        commitment: null,
+        link: orphan.link,
       });
     }
   }
@@ -147,7 +167,7 @@ export interface CalendarSyncState {
  * deletion can ever be noticed, since nothing tells us about it.
  */
 export function useDeviceCalendarSync(
-  lists: readonly ({ items: Commitment[] } | undefined)[],
+  lists: readonly (CommitmentList | undefined)[],
 ): CalendarSyncState {
   const uid = useUid();
   const client = useQueryClient();
@@ -202,8 +222,11 @@ export function useDeviceCalendarSync(
   }, [client]);
 
   // The lists changed: a confirm landed, an edit landed, something was deleted.
+  // `gone` rather than an `updatedAt` an orphan does not have: a commitment
+  // moving from a list into the orphan set changes the fingerprint, which is
+  // what makes a deletion run a pass at all.
   const fingerprint = subjects
-    .map((subject) => `${subject.commitment.id}:${subject.commitment.updatedAt}:${subject.link?.contentHash ?? ''}`)
+    .map((subject) => `${subject.commitmentId}:${subject.commitment?.updatedAt ?? 'gone'}:${subject.link?.contentHash ?? ''}`)
     .join('|');
   // `fingerprint` rather than `subjects`: the array is rebuilt on every render,
   // and depending on it would run a calendar pass on every render.

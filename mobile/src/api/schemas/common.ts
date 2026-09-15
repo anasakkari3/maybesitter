@@ -121,9 +121,34 @@ export type Commitment = z.infer<typeof commitmentSchema>;
 export type RankReasonCode = NonNullable<Commitment['reasonCodes']>[number];
 export type TimeSpec = z.infer<typeof timeSpecSchema>;
 
+/**
+ * One event whose commitment the account no longer holds (UC-3.1, #185).
+ *
+ * The phone cannot work this out for itself. A commitment that was cancelled
+ * and a commitment that merely dropped off Today both look like an id that
+ * stopped appearing, and guessing wrong in one direction leaves an event behind
+ * for ever while guessing wrong in the other deletes an entry out of somebody's
+ * calendar. So the server, which is the only party that can tell them apart,
+ * says which is which.
+ */
+export const calendarOrphanSchema = z.object({
+  commitmentId: z.string(),
+  link: deviceCalendarLinkSchema,
+});
+
+export type CalendarOrphan = z.infer<typeof calendarOrphanSchema>;
+
 export const commitmentListSchema = z.object({
   items: z.array(commitmentSchema),
+  /**
+   * Optional because only Today computes it. Absent is "this response did not
+   * look", `[]` is "it looked and there are none" — and the sync deletes what
+   * appears here, so the two must not collapse into one.
+   */
+  calendarOrphans: z.array(calendarOrphanSchema).optional(),
 });
+
+export type CommitmentList = z.infer<typeof commitmentListSchema>;
 
 /**
  * The design's three importance levels, from the server's priority levels.

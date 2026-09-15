@@ -46,10 +46,25 @@ export function commitmentToMobileDto(
   };
 }
 
+/**
+ * `calendarOrphans` is the other half of the calendar sync (UC-3.1, #185).
+ *
+ * The rows say which event each commitment owns; this says which events are
+ * owned by a commitment that is gone. A phone cannot work the second out for
+ * itself — a commitment that vanished from a list and a commitment that was
+ * cancelled look identical from there — and without it "deleting the commitment
+ * removes the event" is a promise no code keeps.
+ *
+ * Absent means this response did not compute it, and `[]` means it did and
+ * there are none, for the same reason `deviceCalendarLink` distinguishes the
+ * two: the sync deletes what appears here, so "I did not look" must never be
+ * readable as "I looked and found nothing".
+ */
 export function commitmentListResponse(
   commitments: Commitment[],
   ranking?: Map<string, RankedItem>,
   links?: Map<string, DeviceCalendarLink>,
+  calendarOrphans?: { commitmentId: string; link: DeviceCalendarLink }[],
 ) {
   return {
     items: commitments.map((commitment) => commitmentToMobileDto(
@@ -59,6 +74,7 @@ export function commitmentListResponse(
       // the link map answers for every row, including the rows with no link.
       links === undefined ? undefined : links.get(commitment.id) ?? null,
     )),
+    ...(calendarOrphans === undefined ? {} : { calendarOrphans }),
   };
 }
 

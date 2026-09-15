@@ -24,6 +24,7 @@ import {
   type SyncPorts,
   type SyncSubject,
 } from '../deviceCalendarSync';
+import { subjectsFromCache } from '../useDeviceCalendarSync';
 import { draftFor } from '../eventDraft';
 
 const ZONE = 'Pacific/Chatham';
@@ -77,7 +78,8 @@ function currentHash(subject: Commitment): string {
 
 function input(overrides: Partial<Parameters<typeof decide>[0]> = {}) {
   return {
-    commitment: commitment(),
+    commitmentId: 'cmt-1',
+    commitment: commitment() as Commitment | null,
     link: null as DeviceCalendarLink | null | undefined,
     writeTarget: 'device' as const,
     writerId: MINE,
@@ -86,6 +88,16 @@ function input(overrides: Partial<Parameters<typeof decide>[0]> = {}) {
     eventStillThere: true,
     ...overrides,
   };
+}
+
+/** A subject as `subjectsFromCache` builds one: the commitment, and its link. */
+function subject(value: Commitment, linkValue: DeviceCalendarLink | null | undefined): SyncSubject {
+  return { commitmentId: value.id, commitment: value, link: linkValue };
+}
+
+/** The other kind: a link the account still holds for a commitment it does not. */
+function orphan(commitmentId: string, linkValue: DeviceCalendarLink): SyncSubject {
+  return { commitmentId, commitment: null, link: linkValue };
 }
 
 /* ── The invariants ───────────────────────────────────────────────── */
@@ -116,7 +128,7 @@ describe('a link another installation owns', () => {
   it('is never deleted, even when the commitment is gone', () => {
     // The other device's calendar is not reachable from here, and its link row
     // is the only thing that will ever let it clean up after itself.
-    expect(decide(input({ link: link({ writerId: THEIRS }), removed: true })))
+    expect(decide(input({ link: link({ writerId: THEIRS }), commitment: null })))
       .toEqual({ kind: 'none', because: 'foreign_writer' });
   });
 
@@ -139,7 +151,7 @@ describe('an event the user deleted in their calendar', () => {
   });
 
   it('is not deleted again when the commitment itself goes', () => {
-    expect(decide(input({ link: link({ state: 'detached' }), removed: true })))
+    expect(decide(input({ link: link({ state: 'detached' }), commitment: null })))
       .toEqual({ kind: 'none', because: 'detached' });
   });
 });
@@ -173,7 +185,7 @@ describe('the ordinary path', () => {
   });
 
   it('removes the event when the commitment is gone', () => {
-    expect(decide(input({ link: link(), removed: true }))).toEqual({ kind: 'delete', eventId: 'evt-1' });
+    expect(decide(input({ link: link(), commitment: null }))).toEqual({ kind: 'delete', eventId: 'evt-1' });
   });
 
   it('removes the event when the commitment loses its time', () => {
@@ -193,6 +205,79 @@ describe('the ordinary path', () => {
   });
 });
 
+describe('a capture the user has not confirmed', () => {
+  /**
+   * `pending_confirmation` is not a hypothetical state. A capture stated for
+   * today sits on Today until somebody acts on it, so without this guard the
+   * first thing an abandoned draft does is put an hour nobody agreed to in
+   * front of everyone who shares the calendar.
+   */
+  it('is never written, whatever time it names', () => {
+    for (const status of ['draft', 'needs_clarification', 'pending_confirmation']) {
+      expect(decide(input({ commitment: commitment({ status, confirmedAt: null }) })))
+        .toEqual({ kind: 'none', because: 'unconfirmed' });
+    }
+  });
+
+  it('is written once it has been confirmed', () => {
+    // The other half of the guard: it must refuse the three and nothing else,
+    // or the feature is off for every commitment there is.
+    for (const status of ['active', 'deferred', 'missed', 'completed']) {
+      expect(decide(input({ commitment: commitment({ status }) })).kind).toBe('create');
+    }
+  });
+
+  it('has an event taken back out if one was ever written for it', () => {
+    expect(decide(input({ commitment: commitment({ status: 'draft' }), link: link() })))
+      .toEqual({ kind: 'delete', eventId: 'evt-1' });
+  });
+});
+
+describe('a commitment the account no longer holds', () => {
+  it('has its event removed, even with the write target off', () => {
+    // "Stop adding" does not mean "keep what you deleted". Turning the switch
+    // off stops new writes; taking a cancelled commitment's entry back out is
+    // not a write, it is the undoing of one.
+    expect(decide(input({ commitment: null, link: link(), writeTarget: 'off' })))
+      .toEqual({ kind: 'delete', eventId: 'evt-1' });
+  });
+
+  it('is nothing to do at all when it never had an event', () => {
+    expect(decide(input({ commitment: null, link: null })))
+      .toEqual({ kind: 'none', because: 'gone' });
+  });
+});
+
+/* ── Where a gone commitment comes from ───────────────────────────── */
+
+describe('the subjects a pass is built from', () => {
+  /**
+   * The reason `SyncSubject.commitment` is nullable rather than a `removed`
+   * flag. A flag has to be set by somebody, and the only thing that builds
+   * subjects builds them from lists — where a deleted commitment is an absence.
+   * These two cases are what make the delete branch reachable at all.
+   */
+  it('turns a link the account has outlived into a commitment that is gone', () => {
+    const subjects = subjectsFromCache([
+      { items: [], calendarOrphans: [{ commitmentId: 'cmt-gone', link: link() }] },
+      undefined,
+    ]);
+    expect(subjects).toEqual([{ commitmentId: 'cmt-gone', commitment: null, link: link() }]);
+  });
+
+  it('keeps a commitment a list still shows, even when the other list called it gone', () => {
+    // Two GETs resolve at two instants. A stale "gone" that deleted an entry
+    // still on somebody's Today is the one mistake here that cannot be undone.
+    const live = commitment();
+    const subjects = subjectsFromCache([
+      { items: [live] },
+      { items: [], calendarOrphans: [{ commitmentId: live.id, link: link() }] },
+    ]);
+    expect(subjects).toHaveLength(1);
+    expect(subjects[0]?.commitment).not.toBeNull();
+  });
+});
+
 /* ── Running the pass ─────────────────────────────────────────────── */
 
 interface Recorder {
@@ -206,6 +291,7 @@ function recorder(options: {
   access?: CalendarAccess;
   missing?: readonly string[];
   failCreate?: DeviceCalendarError;
+  failDelete?: DeviceCalendarError;
   failLink?: Error;
 } = {}): Recorder {
   const calls: string[] = [];
@@ -233,6 +319,7 @@ function recorder(options: {
     },
     deleteEvent: async (eventId) => {
       calls.push(`deleteEvent:${eventId}`);
+      if (options.failDelete) throw options.failDelete;
       events.delete(eventId);
     },
     eventExists: async (eventId) => {
@@ -278,29 +365,33 @@ describe('the reconcile pass', () => {
     // A build with the target off must not produce a calendar prompt. Asking
     // the OS anything here is the first step towards one.
     const rec = recorder();
-    const outcome = await run([{ commitment: commitment(), link: null }], rec, { writeTarget: 'off' });
+    const outcome = await run([subject(commitment(), null)], rec, { writeTarget: 'off' });
     expect(rec.calls).toEqual([]);
     expect(outcome).toMatchObject({ created: 0, skipped: 1, permissionDenied: false });
   });
 
-  it('claims the link before it writes the event', async () => {
+  it('claims the link the moment the event it names exists', async () => {
+    // The claim is an event id, so the event has to be written first. What must
+    // not happen is the write and the claim drifting apart — every failure
+    // between them is one this device has to repair, and the two cases below
+    // are that repair.
     const rec = recorder();
-    await run([{ commitment: commitment(), link: null }], rec);
+    await run([subject(commitment(), null)], rec);
     const created = rec.calls.indexOf('createEvent:cal-1');
     const claimed = rec.calls.findIndex((call) => call.startsWith('putLink:'));
     expect(created).toBeGreaterThanOrEqual(0);
-    expect(claimed).toBeGreaterThan(created);
+    expect(claimed).toBe(created + 2);
   });
 
   it('records the event id so UC-3.2 (#186) can skip our own events', async () => {
     const rec = recorder();
-    await run([{ commitment: commitment(), link: null }], rec);
+    await run([subject(commitment(), null)], rec);
     expect(rec.calls).toContain('rememberEvent:evt-new-1');
   });
 
   it('stops and says so when the user has not granted access', async () => {
     const rec = recorder({ access: 'denied' });
-    const outcome = await run([{ commitment: commitment(), link: null }], rec);
+    const outcome = await run([subject(commitment(), null)], rec);
     expect(outcome.permissionDenied).toBe(true);
     expect(outcome.created).toBe(0);
     expect(rec.calls).toEqual(['getAccess']);
@@ -308,8 +399,7 @@ describe('the reconcile pass', () => {
 
   it('detaches the link for an event that is no longer in the calendar', async () => {
     const rec = recorder({ missing: ['evt-1'] });
-    const subject: SyncSubject = { commitment: commitment(), link: link() };
-    const outcome = await run([subject], rec);
+    const outcome = await run([subject(commitment(), link())], rec);
     expect(outcome.detached).toBe(1);
     expect(rec.links.get('cmt-1')?.state).toBe('detached');
     // And it did not try to move or recreate it.
@@ -320,8 +410,8 @@ describe('the reconcile pass', () => {
   it('carries on past one commitment the calendar refused', async () => {
     const rec = recorder({ failCreate: new DeviceCalendarError('calendar_read_only', 'nope') });
     const outcome = await run([
-      { commitment: commitment({ id: 'a' }), link: null },
-      { commitment: commitment({ id: 'b' }), link: null },
+      subject(commitment({ id: 'a' }), null),
+      subject(commitment({ id: 'b' }), null),
     ], rec);
     // Both failed the same way here; what matters is that the pass attempted
     // the second rather than stopping on the first.
@@ -332,8 +422,8 @@ describe('the reconcile pass', () => {
   it('stops the whole pass when the permission was taken away mid-run', async () => {
     const rec = recorder({ failCreate: new DeviceCalendarError('permission_denied', 'revoked') });
     const outcome = await run([
-      { commitment: commitment({ id: 'a' }), link: null },
-      { commitment: commitment({ id: 'b' }), link: null },
+      subject(commitment({ id: 'a' }), null),
+      subject(commitment({ id: 'b' }), null),
     ], rec);
     expect(outcome.permissionDenied).toBe(true);
     expect(rec.calls.filter((call) => call === 'createEvent:cal-1')).toHaveLength(1);
@@ -344,7 +434,7 @@ describe('the reconcile pass', () => {
     // and reading that as "there is no link" is how a refusal becomes a second
     // event in somebody's calendar.
     const rec = recorder();
-    await run([{ commitment: commitment(), link: undefined }], rec);
+    await run([subject(commitment(), undefined)], rec);
     // With no link this is indistinguishable from a first write, so the pass
     // *does* try — and the server is what refuses it. What must not happen is
     // the pass treating a foreign link as absent, which the `decide` cases
@@ -352,12 +442,62 @@ describe('the reconcile pass', () => {
     expect(rec.calls).toContain('createEvent:cal-1');
   });
 
+  it('deletes the event, the local id and the link row for a commitment that is gone', async () => {
+    const rec = recorder();
+    const outcome = await run([orphan('cmt-gone', link())], rec);
+    expect(outcome.deleted).toBe(1);
+    expect(rec.calls).toContain('deleteEvent:evt-1');
+    expect(rec.calls).toContain('forgetEvent:evt-1');
+    // The row goes too, so the id is free if the same commitment ever returns.
+    expect(rec.calls).toContain('deleteLink:cmt-gone');
+  });
+
+  it('detaches rather than deletes when the user had already removed that event by hand', async () => {
+    const rec = recorder({ missing: ['evt-1'] });
+    const outcome = await run([orphan('cmt-gone', link())], rec);
+    expect(outcome.detached).toBe(1);
+    expect(rec.calls).not.toContain('deleteEvent:evt-1');
+  });
+
   it('treats a refused link claim as "leave the calendar alone", not as a failure to retry', async () => {
     const rec = recorder({ failLink: new Error('409') });
-    const outcome = await run([{ commitment: commitment(), link: null }], rec);
+    const outcome = await run([subject(commitment(), null)], rec);
     expect(outcome.created).toBe(0);
     expect(outcome.skipped).toBe(1);
     expect(outcome.permissionDenied).toBe(false);
+  });
+
+  it('takes its own event back out when another installation won the claim', async () => {
+    // The whole of "a second device does not create a duplicate". The loser
+    // cannot avoid writing — the claim it loses is the id of the event it just
+    // wrote — so what it must do is remove it again. An event with no link row
+    // is not reachable by anything afterwards, not even by "Remove events
+    // MaybeSitter added", which walks the links.
+    const rec = recorder({ failLink: new Error('409') });
+    await run([subject(commitment(), null)], rec);
+    expect(rec.calls).toContain('deleteEvent:evt-new-1');
+    expect(rec.calls).toContain('forgetEvent:evt-new-1');
+    expect(rec.events.size).toBe(0);
+  });
+
+  it('adds no event per pass when the claim keeps failing on the network', async () => {
+    // Without the repair this is the shape of the bug: one more entry in
+    // somebody's calendar every time they open the app, for ever.
+    const rec = recorder({ failLink: new Error('offline') });
+    for (let pass = 0; pass < 3; pass += 1) {
+      await run([subject(commitment(), null)], rec);
+    }
+    expect(rec.calls.filter((call) => call === 'createEvent:cal-1')).toHaveLength(3);
+    expect(rec.events.size).toBe(0);
+  });
+
+  it('stops the pass when the repair itself is refused for want of permission', async () => {
+    const rec = recorder({
+      failLink: new Error('409'),
+      failDelete: new DeviceCalendarError('permission_denied', 'revoked'),
+    });
+    const outcome = await run([subject(commitment(), null)], rec);
+    expect(outcome.permissionDenied).toBe(true);
   });
 });
 
@@ -366,9 +506,9 @@ describe('remove events MaybeSitter added', () => {
     const rec = recorder();
     const result = await removeAllWrittenEvents({
       subjects: [
-        { commitment: commitment({ id: 'mine' }), link: link({ eventId: 'evt-mine' }) },
-        { commitment: commitment({ id: 'theirs' }), link: link({ eventId: 'evt-theirs', writerId: THEIRS }) },
-        { commitment: commitment({ id: 'unlinked' }), link: null },
+        subject(commitment({ id: 'mine' }), link({ eventId: 'evt-mine' })),
+        subject(commitment({ id: 'theirs' }), link({ eventId: 'evt-theirs', writerId: THEIRS })),
+        subject(commitment({ id: 'unlinked' }), null),
       ],
       writerId: MINE,
       ports: rec.ports,
@@ -381,7 +521,7 @@ describe('remove events MaybeSitter added', () => {
   it('leaves a detached row alone, so the next confirm does not write it back', async () => {
     const rec = recorder();
     const result = await removeAllWrittenEvents({
-      subjects: [{ commitment: commitment(), link: link({ state: 'detached' }) }],
+      subjects: [subject(commitment(), link({ state: 'detached' }))],
       writerId: MINE,
       ports: rec.ports,
     });
@@ -393,7 +533,7 @@ describe('remove events MaybeSitter added', () => {
   it('forgets the link as well as the event, so a later confirm can link afresh', async () => {
     const rec = recorder();
     await removeAllWrittenEvents({
-      subjects: [{ commitment: commitment(), link: link() }],
+      subjects: [subject(commitment(), link())],
       writerId: MINE,
       ports: rec.ports,
     });
@@ -404,7 +544,7 @@ describe('remove events MaybeSitter added', () => {
   it('says so rather than half-removing when access has been revoked', async () => {
     const rec = recorder({ access: 'denied' });
     const result = await removeAllWrittenEvents({
-      subjects: [{ commitment: commitment(), link: link() }],
+      subjects: [subject(commitment(), link())],
       writerId: MINE,
       ports: rec.ports,
     });

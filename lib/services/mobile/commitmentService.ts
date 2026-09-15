@@ -130,6 +130,42 @@ async function stateFor(options: { participantId?: string } = {}): Promise<Domai
 export interface RankedCommitments {
   items: Commitment[];
   ranking: Map<string, RankedItem>;
+  /**
+   * Every commitment in the account that may still own a calendar event (#185).
+   *
+   * Not "the ones in this list". The lists are a window — Today and Upcoming
+   * together hold every live commitment, but a *settled* one drops out of both
+   * the day after it happened — and the calendar sync needs to tell the two
+   * reasons a commitment stopped appearing apart. Something finished last week
+   * keeps its entry, because the calendar is a record of the week the user
+   * lived. Something they cancelled must lose it.
+   *
+   * So this is the id set the whole account still holds, and a stored link whose
+   * commitment id is missing from it names an event with nothing left behind it.
+   * Computed from the same state read the list was built from, so the two
+   * answers cannot disagree about a commitment that changed between them.
+   */
+  calendarEligibleIds: Set<string>;
+}
+
+/**
+ * The statuses in which a commitment has no business being in a calendar (#185).
+ *
+ * Deliberately its own set rather than `HIDDEN_LIST_STATUSES`, which today
+ * holds the same two names. They mean different things: one decides what a
+ * screen draws, and the other decides whether an entry is deleted out of
+ * somebody's calendar. Sharing the constant would mean a later decision to hide
+ * one more status from a list silently reached into everyone's calendar and
+ * removed those events.
+ */
+const CALENDAR_GONE_STATUSES = new Set<Commitment['status']>(['dropped', 'archived']);
+
+function calendarEligibleIdsOf(state: DomainState): Set<string> {
+  const ids = new Set<string>();
+  for (const commitment of Object.values(state.commitments)) {
+    if (!CALENDAR_GONE_STATUSES.has(commitment.status)) ids.add(commitment.id);
+  }
+  return ids;
 }
 
 /**
@@ -277,7 +313,10 @@ export async function listTodayRanked(options: CommitmentQueryOptions = {}): Pro
   const state = await stateFor(options);
   const items = Object.values(state.commitments)
     .filter((commitment) => placeInList(commitment, today, timezone) === 'today');
-  return orderForLists(items, Object.values(state.reminders), now);
+  return {
+    ...orderForLists(items, Object.values(state.reminders), now),
+    calendarEligibleIds: calendarEligibleIdsOf(state),
+  };
 }
 
 export async function listToday(options: CommitmentQueryOptions = {}): Promise<Commitment[]> {
@@ -291,7 +330,10 @@ export async function listUpcomingRanked(options: CommitmentQueryOptions = {}): 
   const state = await stateFor(options);
   const items = Object.values(state.commitments)
     .filter((commitment) => placeInList(commitment, today, timezone) === 'upcoming');
-  return orderForLists(items, Object.values(state.reminders), now);
+  return {
+    ...orderForLists(items, Object.values(state.reminders), now),
+    calendarEligibleIds: calendarEligibleIdsOf(state),
+  };
 }
 
 export async function listUpcoming(options: CommitmentQueryOptions = {}): Promise<Commitment[]> {

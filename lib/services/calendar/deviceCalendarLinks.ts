@@ -135,6 +135,38 @@ export async function listDeviceCalendarLinks(
 }
 
 /**
+ * The links that name an event with no commitment left behind it (#185).
+ *
+ * The app reconciles its calendar against the commitments it is holding, so a
+ * commitment that stops being in any list simply stops being considered — and
+ * the event it wrote stays in the user's calendar for ever. That is right for
+ * something they *finished*, and wrong for something they cancelled: "deleting
+ * the commitment removes the event" is one of this issue's acceptance criteria,
+ * and nothing on the phone can notice a deletion by itself, because what it
+ * would have to notice is an absence.
+ *
+ * So the server names it. `stillHolds` is every commitment id the account has
+ * that could still own an event — every status except the two the user closes a
+ * commitment into — and a link outside it describes an event the phone should
+ * take back out. A *completed* commitment is inside the set, so its entry stays
+ * where it is even long after it has dropped off every screen.
+ *
+ * Sorted by commitment id so two reads of an unchanged account are the same
+ * bytes, which is what keeps the recorded fixture a contract rather than noise.
+ */
+export function orphanedDeviceCalendarLinks(
+  links: Map<string, DeviceCalendarLink>,
+  stillHolds: ReadonlySet<string>,
+): { commitmentId: string; link: DeviceCalendarLink }[] {
+  const orphans: { commitmentId: string; link: DeviceCalendarLink }[] = [];
+  links.forEach((link, commitmentId) => {
+    if (stillHolds.has(commitmentId)) return;
+    orphans.push({ commitmentId, link });
+  });
+  return orphans.sort((a, b) => (a.commitmentId < b.commitmentId ? -1 : a.commitmentId > b.commitmentId ? 1 : 0));
+}
+
+/**
  * Claims, or updates, the link for one commitment.
  *
  * Inside a transaction, so the read that decides and the write that acts cannot
