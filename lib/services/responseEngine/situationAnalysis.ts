@@ -34,7 +34,14 @@ export function analyzeUserSituation(input: {
   }
 
   if (input.event.type === 'pressure_due') {
-    if ((input.commitmentState?.pressureCount || 0) >= 2 || (input.commitmentState?.ignoredCount || 0) >= 2) {
+    // `ignoredCount` used to sit in this condition next to `pressureCount`, and
+    // `'avoiding'` is what `intentSelection` turns into `blocker_probe` — so two
+    // ignored reminders were answered with "What's blocking it?", `tone:
+    // 'direct'`, a required question. The ladder may advance on pressure this
+    // product delivered; it may not advance on what the person failed to do
+    // (UC-3.13 (#199), resolves #107). The count is still observed above as a
+    // reason code, because seeing it is not the same as answering it harder.
+    if ((input.commitmentState?.pressureCount || 0) >= 2) {
       return { situation: 'avoiding', confidence: 'medium', reasonCodes };
     }
     if (input.conversationState.recentDeferralCount >= 2) {

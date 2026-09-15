@@ -78,6 +78,10 @@ export const SHAME_PATTERNS: readonly RegExp[] = Object.freeze([
  * choice, a `blocker_probe` must ask about a blocker — and never that the
  * pressure itself was permissible. A perfectly aligned `escalate_choice` reading
  * "do it now or I stop helping you" passes every product check there is.
+ *
+ * The policy constraint these patterns sit under (#107, decided in UC-3.13
+ * (#199)): avoidance may lower or hold pressure, never raise it, and no
+ * pressure may exceed the ceiling the user chose.
  */
 export const COERCION_PATTERNS: readonly RegExp[] = Object.freeze([
   /\bno choice\b/i,

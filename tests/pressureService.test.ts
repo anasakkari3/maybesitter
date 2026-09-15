@@ -11,6 +11,7 @@ import {
   StoragePressureDeliveryStore,
 } from '../lib/services/pressureService.ts';
 import { createMemoryStorage } from '../lib/storage/memoryAdapter.ts';
+import { getConversationStateStore } from '../lib/services/responseEngine/conversationStateStore.ts';
 import type { ResponsePlan, ResponseStrategy } from '../lib/services/responseEngine/assistantTurn.ts';
 import { realizeResponsePlan } from '../lib/services/responseEngine/realization.ts';
 import { validateResponsePlanAndMessage } from '../lib/services/responseEngine/validation.ts';
@@ -113,6 +114,7 @@ function addConfirmedCommitment(
     dueAt?: string;
     remindAt?: string;
     pressureAllowed?: boolean;
+    priorityLevel?: 'normal' | 'high';
     kind?: 'task' | 'follow_up';
   } = {}
 ): DomainState {
@@ -124,7 +126,7 @@ function addConfirmedCommitment(
       kind: options.kind || 'task',
       title,
       priority: {
-        level: 'normal',
+        level: options.priorityLevel || 'normal',
         pressureAllowed: options.pressureAllowed,
       },
       timeSpec: {
@@ -143,6 +145,35 @@ function addConfirmedCommitment(
     now: '2026-04-08T06:01:00.000Z',
     reminders: [],
   }).newState;
+}
+
+function withIgnoredReminders(state: DomainState, commitmentId: string): DomainState {
+  state.reminders.first = {
+    id: 'first',
+    commitmentId,
+    reminderType: 'check_in',
+    scheduledFor: '2026-04-08T06:30:00.000Z',
+    status: 'ignored',
+    requiresAction: true,
+    deliveredAt: '2026-04-08T06:30:00.000Z',
+    acknowledgedAt: null,
+    snoozedUntil: null,
+    createdAt: '2026-04-08T06:00:00.000Z',
+    updatedAt: '2026-04-08T06:45:00.000Z',
+  };
+  state.reminders.second = {
+    ...state.reminders.first,
+    id: 'second',
+    scheduledFor: '2026-04-08T07:00:00.000Z',
+    deliveredAt: '2026-04-08T07:00:00.000Z',
+    updatedAt: '2026-04-08T07:15:00.000Z',
+  };
+  state.commitments[commitmentId] = {
+    ...state.commitments[commitmentId],
+    currentAckState: 'ignored',
+    updatedAt: '2026-04-08T07:15:00.000Z',
+  };
+  return state;
 }
 
 function item(id: string, options: Partial<AgendaItem> = {}): AgendaItem {
@@ -184,53 +215,36 @@ test('pressureService: overdue commitment gets soft pressure', async () => {
 test('pressureService: repeated ignored reminders get balanced pressure for inconsistent behavior', async () => {
   const deliveryStore = new MemoryPressureDeliveryStore();
   await clearPressureHistory(deliveryStore);
-  let state = addConfirmedCommitment(createEmptyDomainState(), 'ignored', 'Call Maya');
-  state.reminders.first = {
-    id: 'first',
-    commitmentId: 'ignored',
-    reminderType: 'check_in',
-    scheduledFor: '2026-04-08T06:30:00.000Z',
-    status: 'ignored',
-    requiresAction: true,
-    deliveredAt: '2026-04-08T06:30:00.000Z',
-    acknowledgedAt: null,
-    snoozedUntil: null,
-    createdAt: '2026-04-08T06:00:00.000Z',
-    updatedAt: '2026-04-08T06:45:00.000Z',
-  };
-  state.reminders.second = {
-    ...state.reminders.first,
-    id: 'second',
-    scheduledFor: '2026-04-08T07:00:00.000Z',
-    deliveredAt: '2026-04-08T07:00:00.000Z',
-    updatedAt: '2026-04-08T07:15:00.000Z',
-  };
-  state.commitments.ignored = {
-    ...state.commitments.ignored,
-    currentAckState: 'ignored',
-    updatedAt: '2026-04-08T07:15:00.000Z',
-  };
+  const state = withIgnoredReminders(addConfirmedCommitment(createEmptyDomainState(), 'ignored', 'Call Maya'), 'ignored');
 
   const result = await getPressureCandidateForAgenda([
     item('ignored', { title: 'Call Maya', reason: 'active', urgencyScore: 3_500, suggestedAction: 'review' }),
   ], { now, deliveryStore }, state);
 
   assert.equal(result?.tone, 'soft');
-  assert.equal(result?.intensity, 'medium');
+  // Two ignored reminders read as `inconsistent`, which used to mean
+  // `intensity: 'medium'`. Repeated ignores are the signal this product must
+  // answer most gently, so they may not move the intensity at all (#199).
+  assert.equal(result?.intensity, 'low');
   assert.match(assertPressureStrategyCopy(result?.strategy, result?.message), /call Maya/i);
   assert.doesNotMatch(result?.message || '', /missed 2 times|honest step/i);
 });
 
-test('pressureService: avoidant behavior gets firm but non-shaming pressure', async () => {
+/**
+ * This test used to assert the opposite — `tone: 'firm'`, `intensity: 'high'`,
+ * `strategy: 'blocker_probe'` — which is the defect #107 was opened about and
+ * UC-3.13 (#199) decided against. It is kept as a same-input test rather than
+ * deleted, so the exact inputs that produced the strongest pressure the product
+ * had are the inputs that now have to produce none of it.
+ */
+test('pressureService: avoidant behavior does not raise pressure or harden tone', async () => {
   const deliveryStore = new MemoryPressureDeliveryStore();
   await clearPressureHistory(deliveryStore);
   const state = addConfirmedCommitment(createEmptyDomainState(), 'ignored', 'Call Maya', {
     dueAt: '2026-04-08T06:00:00.000Z',
   });
 
-  const result = await getPressureCandidateForAgenda([
-    item('ignored', { title: 'Call Maya', reason: 'overdue', urgencyScore: 7_000, suggestedAction: 'do' }),
-  ], {
+  const avoidantSignals = {
     now,
     deliveryStore,
     adaptiveSignals: {
@@ -239,38 +253,111 @@ test('pressureService: avoidant behavior gets firm but non-shaming pressure', as
       delayFrequency: 0.1,
       clarificationFrequency: 0,
     },
-  }, state);
+  };
+  const agenda = [item('ignored', { title: 'Call Maya', reason: 'overdue', urgencyScore: 7_000, suggestedAction: 'do' })];
 
-  assert.equal(result?.tone, 'firm');
-  assert.equal(result?.intensity, 'high');
-  assert.equal(result?.strategy, 'blocker_probe');
+  const result = await getPressureCandidateForAgenda(agenda, avoidantSignals, state);
+
+  assert.equal(result?.tone, 'soft');
+  assert.equal(result?.intensity, 'low');
   assert.match(assertPressureStrategyCopy(result?.strategy, result?.message), /call Maya/i);
+
+  // Asserted against the steady-behaviour run rather than against literals:
+  // what matters is not which strategy is chosen, but that being read as
+  // avoidant chose nothing at all. The old `blocker_probe` arrived through the
+  // conversation's `pressureCount`, which the classification no longer feeds.
+  const steadyStore = new MemoryPressureDeliveryStore();
+  await clearPressureHistory(steadyStore);
+  const steady = await getPressureCandidateForAgenda(agenda, {
+    now,
+    deliveryStore: steadyStore,
+    adaptiveSignals: {
+      ignoredCommitmentsCount: 0,
+      completionRate: 1,
+      delayFrequency: 0,
+      clarificationFrequency: 0,
+    },
+  }, addConfirmedCommitment(createEmptyDomainState(), 'ignored', 'Call Maya', {
+    dueAt: '2026-04-08T06:00:00.000Z',
+  }));
+
+  assert.equal(result?.strategy, steady?.strategy);
+  assert.equal(result?.tone, steady?.tone);
+  assert.equal(result?.intensity, steady?.intensity);
+  assert.notEqual(result?.strategy, 'blocker_probe');
 });
 
+/**
+ * The other half of the same decision: pressure that the user's own ceiling
+ * allows is still reachable, so the rule above is "behaviour may not raise it",
+ * not "the tone field is dead" (#199).
+ */
+test('pressureService: a firm tone comes from the ceiling and the priority, never the classification', async () => {
+  const agenda = [item('ignored', { title: 'Call Maya', reason: 'overdue', urgencyScore: 7_000, suggestedAction: 'do' })];
+  const avoidant = {
+    ignoredCommitmentsCount: 6,
+    completionRate: 0,
+    delayFrequency: 1,
+    clarificationFrequency: 0,
+  };
+
+  async function toneAt(ceiling: 'soft' | 'followUp' | 'hard', level: 'normal' | 'high') {
+    const deliveryStore = new MemoryPressureDeliveryStore();
+    await clearPressureHistory(deliveryStore);
+    const state = addConfirmedCommitment(createEmptyDomainState(), 'ignored', 'Call Maya', {
+      dueAt: '2026-04-08T06:00:00.000Z',
+      priorityLevel: level,
+    });
+    const result = await getPressureCandidateForAgenda(agenda, {
+      now,
+      deliveryStore,
+      ceiling,
+      adaptiveSignals: avoidant,
+    }, state);
+    return { tone: result?.tone, intensity: result?.intensity };
+  }
+
+  assert.deepEqual(await toneAt('hard', 'high'), { tone: 'firm', intensity: 'low' });
+  assert.deepEqual(await toneAt('hard', 'normal'), { tone: 'soft', intensity: 'low' });
+  assert.deepEqual(await toneAt('followUp', 'high'), { tone: 'soft', intensity: 'low' });
+  assert.deepEqual(await toneAt('soft', 'high'), { tone: 'soft', intensity: 'low' });
+});
+
+/**
+ * Driven by pressure this product actually delivered, not by ignored reminders
+ * and not by the adaptive classification. Both of those used to reach
+ * `blocker_probe` and neither may since UC-3.13 (#199), so the regression this
+ * test guards — a blocker probe worded as an easy choice — has to be reached
+ * the one way that is still allowed: three surfaced nudges in a row.
+ */
 test('pressureService: blocker probe cannot realize easy-choice pressure language', async () => {
+  const scopeId = 'blocker-regression';
+  getConversationStateStore().clear(scopeId);
   const deliveryStore = new MemoryPressureDeliveryStore();
   await clearPressureHistory(deliveryStore);
   const state = addConfirmedCommitment(createEmptyDomainState(), 'ignored', 'Call Maya', {
     dueAt: '2026-04-08T06:00:00.000Z',
   });
+  const agenda = [item('ignored', { title: 'Call Maya', reason: 'overdue', urgencyScore: 7_000, suggestedAction: 'do' })];
 
-  const result = await getPressureCandidateForAgenda([
-    item('ignored', { title: 'Call Maya', reason: 'overdue', urgencyScore: 7_000, suggestedAction: 'do' }),
-  ], {
-    now,
-    sessionId: 'blocker-regression',
-    deliveryStore,
-    adaptiveSignals: {
-      ignoredCommitmentsCount: 3,
-      completionRate: 0.8,
-      delayFrequency: 0.1,
-      clarificationFrequency: 0,
-    },
-  }, state);
+  let result = await getPressureCandidateForAgenda(agenda, { now, cooldownMs: 0, pressureScopeId: scopeId, deliveryStore }, state);
+  for (let turn = 0; turn < 6 && result?.strategy !== 'blocker_probe'; turn += 1) {
+    await recordPressureDelivery('ignored', {
+      now,
+      cooldownMs: 0,
+      deliveryStore,
+      pressureScopeId: scopeId,
+      surfacedMessage: result?.message,
+      surfacedStrategy: result?.strategy,
+      surfacedPath: result?.path,
+    }, state);
+    result = await getPressureCandidateForAgenda(agenda, { now, cooldownMs: 0, pressureScopeId: scopeId, deliveryStore }, state);
+  }
 
   assert.equal(result?.strategy, 'blocker_probe');
   assert.match(assertPressureStrategyCopy(result?.strategy, result?.message), /call Maya/i);
   assert.doesNotMatch(result?.message || '', /keep it for today|move it\?/i);
+  getConversationStateStore().clear(scopeId);
 });
 
 test('pressureService: pressure validation rejects strategy-incompatible messages', async () => {

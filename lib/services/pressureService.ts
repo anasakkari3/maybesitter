@@ -36,6 +36,16 @@ import {
 export type PressureTone = 'soft' | 'firm';
 export type PressureIntensity = 'low' | 'medium' | 'high';
 
+/**
+ * The strongest reminder the user has agreed to receive — the setting written
+ * by UC-3.11 (#196)/UC-3.12a (#197) as `users/{uid}.reminderSettings
+ * .escalationCeiling`. Until those exist the caller supplies nothing and the
+ * default applies, which is the gentlest value, not the absent one.
+ */
+export type PressureCeiling = 'soft' | 'followUp' | 'hard';
+
+export const DEFAULT_PRESSURE_CEILING: PressureCeiling = 'soft';
+
 export interface PressureMessage {
   message: string;
   tone: PressureTone;
@@ -58,6 +68,8 @@ export interface PressureOptions {
   conversationId?: string;
   pressureScopeId?: string;
   adaptiveSignals?: AdaptiveSignals;
+  /** The user's own escalation ceiling. Absent means `DEFAULT_PRESSURE_CEILING`. */
+  ceiling?: PressureCeiling;
   behaviorFeedbackStore?: BehaviorFeedbackStore;
   surfacedMessage?: unknown;
   surfacedStrategy?: unknown;
@@ -308,12 +320,120 @@ async function adaptiveBehaviorFor(candidate: PressureCandidate, state: DomainSt
   return getAdaptiveBehavior(await adaptiveSignalsFor(candidate, state, options));
 }
 
-function toneFor(behavior: AdaptiveBehavior): PressureTone {
-  return behavior.userType === 'avoidant' ? 'firm' : 'soft';
+/* ══ THE INVARIANT (UC-3.13, #199; resolves #107) ══════════════════
+ *
+ * **Avoidance may lower or hold pressure. It may never raise it. No pressure
+ * may exceed the user's own ceiling.**
+ *
+ * Read in the issue's own words, that is two rules, and neither is conditional
+ * on the other:
+ *
+ *   1. *Nothing derived from what the person failed to do may raise any
+ *      dimension of pressure.* Not the intensity, not the tone, not the
+ *      strategy the conversational ladder picks, and not the wording that
+ *      counts the misses back at them. Ignores, delays and a low completion
+ *      rate enter this module in exactly two places — as a reason to consider
+ *      surfacing anything at all (`isPressureEligible`), and as a cap that can
+ *      only subtract (`AdaptiveBehavior.maxPressureLevel`).
+ *   2. *Whatever survives rule 1 is still capped by the ceiling the user
+ *      chose*, and an absent or unrecognised ceiling means the gentlest one,
+ *      never the absent one.
+ *
+ * The intensity is therefore the lowest of three independent caps:
+ *
+ *     intensity = min( base from the commitment's own priority,
+ *                      the classification's cap,
+ *                      the user's ceiling )
+ *
+ * All three terms are live. The base moves with the commitment the *user*
+ * marked high-priority — the issue's `baseIntensityFromCommitment` — so the
+ * clamp has something to clamp and its false branch is reachable from a real
+ * request. The classification's term is the one that can only ever subtract,
+ * which is how "avoidance may lower or hold pressure" is spelled in code
+ * rather than in a comment. A previous pass instead flattened the classifier
+ * to a constant and clamped the constant: green, and guaranteeing nothing,
+ * because a clamp whose input can never exceed the cap is dead code wearing a
+ * guarantee's clothes.
+ *
+ * `tone: 'firm'` is derived only from the ceiling and the commitment's own
+ * priority, both of which the user sets. `'high'` is this codebase's spelling
+ * of the issue's "Must".
+ *
+ * The ladder gate that rule 1 also requires lives at `pressureTurnFor` and
+ * `situationAnalysis`; see the note there.
+ *
+ * ── How far this reaches today, stated plainly ───────────────────
+ *
+ * `getPressureCandidateForAgenda` has exactly two callers:
+ * `src/app/api/agenda/route.ts` — the frozen legacy web surface — and
+ * `src/scheduler/scheduler.ts`. **No `/api/mobile/**` route reaches it**, so
+ * this is a domain safety constraint the React Native client does not yet run
+ * behind, not a user-visible change on the product client. The matching RN
+ * invariant needs UC-3.11 (#196)/UC-3.12a (#197) and is still open on #199.
+ * Neither caller passes a `ceiling` yet, because nothing reads
+ * `reminderSettings.escalationCeiling` from storage until those land; every
+ * request therefore runs at `DEFAULT_PRESSURE_CEILING`, which is why the
+ * default being the gentlest value and not the absent one is load-bearing.
+ */
+const CEILING_INTENSITY: Readonly<Record<PressureCeiling, PressureIntensity>> = Object.freeze({
+  soft: 'low',
+  followUp: 'medium',
+  hard: 'high',
+});
+
+const INTENSITY_RANK: Readonly<Record<PressureIntensity, number>> = Object.freeze({
+  low: 0,
+  medium: 1,
+  high: 2,
+});
+
+/**
+ * Exported so the ceiling can be validated at the boundary that reads it.
+ * UC-3.11 (#196)/UC-3.12a (#197) will hand this a Firestore string, where a
+ * value written by an older build, a hand edit or a failed migration is
+ * ordinary — and `PressureCeiling` is a compile-time type, which is no
+ * protection at all against a document. Anything not on the whitelist is the
+ * gentlest ceiling, because the failure mode of guessing wrong here is pushing
+ * a person harder than they agreed to.
+ */
+export function normalizePressureCeiling(value: unknown): PressureCeiling {
+  return value === 'soft' || value === 'followUp' || value === 'hard' ? value : DEFAULT_PRESSURE_CEILING;
 }
 
-function intensityFor(behavior: AdaptiveBehavior): PressureIntensity {
-  return behavior.pressureLevel;
+function ceilingFrom(options: PressureOptions): PressureCeiling {
+  return normalizePressureCeiling(options.ceiling);
+}
+
+function toneFor(candidate: PressureCandidate, ceiling: PressureCeiling): PressureTone {
+  return ceiling === 'hard' && candidate.commitment.priority.level === 'high' ? 'firm' : 'soft';
+}
+
+/**
+ * The base the commitment itself asks for, before any cap — the issue's
+ * `baseIntensityFromCommitment`. It reads the priority the *user* set, which
+ * is the only thing on the commitment that is theirs. `'low'` never appears
+ * because `candidateFor` refuses low-priority commitments outright.
+ */
+function baseIntensityFor(commitment: Commitment): PressureIntensity {
+  return commitment.priority.level === 'high' ? 'high' : 'medium';
+}
+
+function lowestIntensity(...levels: readonly PressureIntensity[]): PressureIntensity {
+  return levels.reduce((lowest, level) => (INTENSITY_RANK[level] < INTENSITY_RANK[lowest] ? level : lowest));
+}
+
+/**
+ * Exported as the seam the invariant is tested through: a test must be able to
+ * hand this a base above the cap, which no production input can produce while
+ * the classifier and the priority agree. A clamp that can only be exercised
+ * with inputs that do not need clamping is untested by construction.
+ */
+export function intensityFor(
+  base: PressureIntensity,
+  behavior: AdaptiveBehavior,
+  ceiling: PressureCeiling
+): PressureIntensity {
+  return lowestIntensity(base, behavior.maxPressureLevel, CEILING_INTENSITY[ceiling]);
 }
 
 function durationText(durationMs: number | null): string | null {
@@ -326,27 +446,58 @@ function durationText(durationMs: number | null): string | null {
   return `about ${days} day${days === 1 ? '' : 's'}`;
 }
 
-function countText(value: number): string {
-  if (value === 2) return 'twice';
-  if (value === 3) return 'three times';
-  return `${value} times`;
-}
-
+/**
+ * Rule 1 of the invariant above, applied to the conversational ladder.
+ *
+ * **The ladder advances on what the product did, never on what the person
+ * failed to do.** `pressureCount` — pressure this product actually delivered —
+ * is the only thing here that may move it.
+ *
+ * Two routes used to violate that, and both are closed:
+ *
+ *   - The classification is not a parameter. A behaviour-derived pressure
+ *     counter of 2 for `avoidant` and 1 for `inconsistent` was folded into
+ *     `pressureCount`, so being read as avoidant jumped a person straight to
+ *     `blocker_probe` with no pressure having been delivered at all.
+ *   - Nothing downstream reads the count of ignores as a reason to move. It
+ *     used to, twice over: `ignoredCount >= 2` made `situationAnalysis` call
+ *     the person `avoiding`, which `intentSelection` turned into
+ *     `blocker_probe` with `tone: 'direct'` and a required question, and the
+ *     event carried the count into the wording — "Call Maya has come back
+ *     twice. What's blocking it?" — at the default ceiling, on the second
+ *     ignored reminder. That is the harm #199 names, arriving by a route the
+ *     first pass left open while the reported intensity label stayed `'low'`.
+ *     The condition is gone from `situationAnalysis`, the count is gone from
+ *     the `pressure_due` event, and `intentSelection` no longer has a term
+ *     reading it.
+ *
+ * This is not gated by the ceiling. A raised ceiling means the user accepted
+ * louder reminders; it is not a statement that missing one should be answered
+ * with a harder question, and there is no evidence for that ordering either
+ * way (#378). The issue's sentence has no ceiling clause in it — "avoidance may
+ * lower or hold pressure, it may never raise it" — so neither does this.
+ *
+ * `ignoredCount` still gates *eligibility* (`isPressureEligible`) and still
+ * feeds the classifier, which can only lower. Neither can raise anything.
+ */
 function pressureTurnFor(
   candidate: PressureCandidate,
-  behavior: AdaptiveBehavior,
   scopeId: string,
   lastRecord: PressureDeliveryRecord | null
 ) {
   const conversationStore = getConversationStateStore();
   const baseCommitmentState = conversationStore.getCommitment(scopeId, candidate.commitment.id);
-  const behaviorPressureCount = behavior.userType === 'avoidant' ? 2 : behavior.userType === 'inconsistent' ? 1 : 0;
   const commitmentState = {
     ...baseCommitmentState,
+    // Observed, and deliberately still passed: the turn may know how many
+    // reminders went unanswered (it is how the situation is *described*), and
+    // nothing downstream may answer it with a harder move. Keeping the fact
+    // here rather than hiding it is what makes that refusal testable —
+    // `situationAnalysis` is handed the real count and still must not escalate.
     ignoredCount: candidate.ignoredCount,
     lastStrategy: lastRecord?.strategy || baseCommitmentState.lastStrategy,
     lastPath: lastRecord?.path || baseCommitmentState.lastPath,
-    pressureCount: Math.max(baseCommitmentState.pressureCount, lastRecord ? 1 : 0, behaviorPressureCount),
+    pressureCount: Math.max(baseCommitmentState.pressureCount, lastRecord ? 1 : 0),
   };
   const baseConversationState = conversationStore.get(scopeId);
   const persistedPaths = lastRecord?.recentPaths || [];
@@ -372,7 +523,6 @@ function pressureTurnFor(
       commitmentId: candidate.commitment.id,
       title: candidate.commitment.title || candidate.item.title || (candidate.commitment.kind === 'follow_up' ? 'This follow-up' : 'This task'),
       overdueText: durationText(candidate.oldestOverdueMs),
-      ignoredText: candidate.ignoredCount >= 2 ? countText(candidate.ignoredCount) : null,
       kind: candidate.commitment.kind,
     },
     scopeId,
@@ -524,9 +674,10 @@ export async function getPressureCandidateForAgenda(
   if (!candidate) return null;
 
   const behavior = await adaptiveBehaviorFor(candidate, state, options);
-  const tone = toneFor(behavior);
+  const ceiling = ceilingFrom(options);
+  const tone = toneFor(candidate, ceiling);
   const lastRecord = await deliveryStore.getLastRecord(scopeId, candidate.commitment.id);
-  const turn = pressureTurnFor(candidate, behavior, scopeId, lastRecord);
+  const turn = pressureTurnFor(candidate, scopeId, lastRecord);
 
   return {
     commitmentId: candidate.commitment.id,
@@ -534,7 +685,7 @@ export async function getPressureCandidateForAgenda(
     strategy: turn.plan.strategy,
     path: turn.debug?.realizationPath || 'continuity_choice',
     tone,
-    intensity: intensityFor(behavior),
+    intensity: intensityFor(baseIntensityFor(candidate.commitment), behavior, ceiling),
   };
 }
 

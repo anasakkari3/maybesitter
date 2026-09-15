@@ -1,7 +1,12 @@
 import { getCommandServiceState } from './commandService';
 import type { Commitment, DomainState, Reminder } from '../../src/domain/stateMachine';
 import { calculateAgendaUrgencyScore } from '../utils/agendaScoring';
-import { getPressureCandidateForAgenda, type PressureCandidateMessage, type PressureDeliveryStore } from './pressureService';
+import {
+  getPressureCandidateForAgenda,
+  type PressureCandidateMessage,
+  type PressureCeiling,
+  type PressureDeliveryStore,
+} from './pressureService';
 import type { BehaviorFeedbackStore } from './behaviorFeedbackService';
 
 export type AgendaReason = 'overdue' | 'due_soon' | 'pending' | 'active';
@@ -30,6 +35,13 @@ export interface AgendaOptions {
   userId?: string;
   conversationId?: string;
   pressureScopeId?: string;
+  /**
+   * The user's own reminder ceiling — `users/{uid}.reminderSettings
+   * .escalationCeiling`, which UC-3.11 (#196)/UC-3.12a (#197) will write and
+   * which nothing reads from storage yet. Absent means the gentlest ceiling,
+   * so the default is the safe one rather than the unlimited one (#199).
+   */
+  escalationCeiling?: PressureCeiling;
 }
 
 const DEFAULT_MAX_ITEMS = 7;
@@ -171,6 +183,7 @@ export async function getDailyAgenda(
     userId: options.userId,
     conversationId: options.conversationId,
     pressureScopeId: options.pressureScopeId,
+    ceiling: options.escalationCeiling,
   }, state);
 
   return pressureCandidate ? { items, pressureCandidate } : { items };

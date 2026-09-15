@@ -20,7 +20,15 @@ export type SemanticEvent =
   | { type: 'commitment_cancelled'; title?: string }
   | { type: 'commitment_updated'; title?: string; time?: string | null }
   | { type: 'multi_commitment_result'; savedCount: number; totalCount: number; scheduledTitles: string[]; reviewTitles: string[]; needsClarification: number; hadExecutionNotes: boolean }
-  | { type: 'pressure_due'; commitmentId: string; title: string; overdueText?: string | null; ignoredText?: string | null; kind?: 'task' | 'follow_up' };
+  /**
+   * There is deliberately no count of ignored reminders on this event. It used
+   * to carry one, and the realizer turned it into "Call Maya has come back
+   * twice" while `intentSelection` read it as a reason for a harder strategy.
+   * The product does not tell a person how many times they failed to answer it
+   * (UC-3.13 (#199), resolves #107). `overdueText` is about the task; a count
+   * of misses is about them.
+   */
+  | { type: 'pressure_due'; commitmentId: string; title: string; overdueText?: string | null; kind?: 'task' | 'follow_up' };
 
 export type CommunicativeIntent =
   | 'confirm_result'
