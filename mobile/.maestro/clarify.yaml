@@ -1,0 +1,95 @@
+appId: com.maybesitter.app
+name: The one clarification, answered and skipped
+---
+# UC-2.5 (#165) on a device: a capture the extractor cannot resolve asks
+# exactly one question, and the question is rendered from the app's own locale
+# files rather than from anything the server wrote.
+#
+# Needs a **signed-in** build and a device that can reach the API. Maestro
+# cannot type into a secure field, so it cannot sign in by itself.
+#
+# The input deliberately names an action and no time. If the server resolves it
+# anyway there is no question to answer and this flow fails at
+# `clarify-question` — which is the honest failure, not a false one: the
+# clarification path would then be unreachable for this input and worth
+# knowing about.
+- launchApp
+
+- assertVisible: 'يومك'
+
+# ── Half one: the question can be skipped ──────────────────────────
+- openLink: 'maybesitter://capture'
+- tapOn:
+    id: 'capture-input'
+- inputText: 'ذكّرني أحكي مع دانا'
+- tapOn:
+    id: 'capture-analyze'
+
+- assertVisible:
+    id: 'review-note'
+- assertVisible:
+    id: 'clarify-question'
+# One question, and it says which of how many — never a queue of them.
+- assertVisible:
+    id: 'clarify-position'
+# The fallback the app takes when it cannot read the server's `questionKey`
+# is #164's edit sheet. Seeing it here means the key was unrecognised and the
+# question was never really asked.
+- assertNotVisible:
+    id: 'edit-item-sheet'
+# The question is built from the locale files, so no English can appear in it.
+- assertNotVisible: 'What time'
+- assertNotVisible: 'Which day'
+
+- tapOn:
+    id: 'clarify-skip'
+- assertNotVisible:
+    id: 'clarify-question'
+# Skipped, not answered: the card says so rather than inventing a time.
+- assertVisible:
+    id: 'review-needs-question-.*'
+- assertVisible: 'بدها سؤال واحد'
+
+- tapOn:
+    id: 'review-cancel'
+- assertVisible: 'يومك'
+
+# ── Half two: the question can be answered ─────────────────────────
+- openLink: 'maybesitter://capture'
+- tapOn:
+    id: 'capture-input'
+- inputText: 'ذكّرني أحكي مع دانا'
+- tapOn:
+    id: 'capture-analyze'
+
+- assertVisible:
+    id: 'clarify-question'
+# Answering is still not saving. The notice stays up either way.
+- assertVisible: 'هذا اقتراح. لم يتغيّر أي شيء بعد.'
+- tapOn:
+    id: 'clarify-option-.*'
+
+# The answer landed: the question is gone, the card carries a time, and the
+# "needs a question" marker is not there any more.
+- extendedWaitUntil:
+    notVisible:
+      id: 'clarify-question'
+    timeout: 10000
+- assertVisible:
+    id: 'review-when-.*'
+- assertNotVisible:
+    id: 'review-needs-question-.*'
+
+- tapOn:
+    id: 'review-confirm'
+- assertVisible:
+    id: 'saved-title'
+
+# Take the undo, so the flow leaves no commitment behind and can be run twice.
+- tapOn:
+    id: 'saved-undo'
+- assertVisible:
+    id: 'saved-undo-outcome'
+- tapOn:
+    id: 'saved-done'
+- assertVisible: 'يومك'

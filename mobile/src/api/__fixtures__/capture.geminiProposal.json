@@ -1,0 +1,20 @@
+{
+  "version": "v1",
+  "proposalId": "00000000-0000-4000-8000-000000000001",
+  "status": "proposed",
+  "items": [
+    {
+      "itemId": "00000000-0000-4000-8000-000000000002",
+      "title": "Call the dentist",
+      "resolvedTime": "2026-08-09T09:00:00.000Z",
+      "needsClarification": false,
+      "priority": "normal",
+      "priorityEstimated": true
+    }
+  ],
+  "provenance": {
+    "requestedEngine": "model",
+    "executedEngine": "gemini",
+    "fallbackUsed": false
+  }
+}

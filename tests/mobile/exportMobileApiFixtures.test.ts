@@ -30,6 +30,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import nodeModule from 'node:module';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -88,6 +89,7 @@ import { GET as planGet } from '../../src/app/api/mobile/plans/[date]/route.ts';
 import { POST as planActionPost } from '../../src/app/api/mobile/plans/[date]/actions/route.ts';
 import { POST as planRegeneratePost } from '../../src/app/api/mobile/plans/[date]/regenerate/route.ts';
 import { GET as planSettingsGet, PUT as planSettingsPut } from '../../src/app/api/mobile/settings/plan/route.ts';
+import { resetProviderForTests } from '../../src/extraction/llm/index.ts';
 import {
   buildAndStoreDailyPlan,
   claimDueDelivery,
@@ -235,6 +237,128 @@ function setup(): () => void {
     }
     rmSync(directory, { recursive: true, force: true });
   };
+}
+
+
+/**
+ * ── The Gemini fixture, without a Gemini bill (#338) ─────────────
+ *
+ * `provenance.executedEngine` is a `z.enum(['gemini','ollama','rule-based'])`
+ * on the client. Every fixture recorded above says `rule-based`, because no
+ * model is configured in this suite — so the enum had nothing to be wrong
+ * about, and a client that dropped the Gemini case would have gone unnoticed.
+ *
+ * The honest way to record the Gemini shape is to run the real route with a
+ * real Gemini provider. #330 is the paid run that does that; it has not
+ * happened, and a hand-written JSON file would be a second description of the
+ * contract — exactly what this whole file exists to avoid.
+ *
+ * So everything runs except the network. The stub below replaces the
+ * `@google/genai` SDK module — the last hop, the one `geminiProvider.ts`
+ * reaches by `await import()` — and nothing else. The capture route, the
+ * consent gate, the cost guard, the call log, the prompt split, the provider's
+ * own response handling, the schema validator, the capture boundary and the
+ * proposal store all execute for real, and `llmEngine: 'gemini'` is decided by
+ * `configuredProviderName()` reading the environment, not by this file saying
+ * so. What is recorded is what the handler returns.
+ *
+ * The one thing it cannot prove is that Gemini itself answers in this shape.
+ * That is #330's job, and it is why the payload is the extractor's documented
+ * schema rather than something invented for the occasion.
+ */
+const GENAI_STUB_URL = 'maybesitter-fixture:google-genai';
+
+/**
+ * The SDK surface `resolveGenerate` touches, and no more: a constructor and
+ * `models.generateContent`. The answer comes from a global so this module's
+ * source stays a constant while the payload stays readable below.
+ */
+const GENAI_STUB_SOURCE = `
+export class GoogleGenAI {
+  constructor(options) {
+    this.options = options;
+    globalThis.__maybesitterVertexClientOptions = options;
+  }
+  get models() {
+    return { generateContent: async (input) => globalThis.__maybesitterVertexGenerate(input) };
+  }
+}
+`;
+
+type VertexStub = (input: { model: string; contents: unknown; config: Record<string, unknown> }) => Promise<{
+  text?: string;
+  modelVersion?: string;
+  usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
+}>;
+
+type StubGlobals = typeof globalThis & {
+  __maybesitterVertexGenerate?: VertexStub;
+  __maybesitterVertexClientOptions?: { location?: string };
+};
+
+/**
+ * `module.registerHooks`, typed here because `@types/node` is still on 20 while
+ * this repository runs on Node 24. Declaring the two hooks it uses is a smaller
+ * change than bumping the types of every file for one test, and it is checked:
+ * the call below is the real one, so a signature that stopped matching fails at
+ * runtime rather than silently.
+ */
+interface SyncModuleHooks {
+  resolve(specifier: string, context: unknown, nextResolve: (specifier: string, context: unknown) => unknown): unknown;
+  load(url: string, context: unknown, nextLoad: (url: string, context: unknown) => unknown): unknown;
+}
+const registerHooks = (nodeModule as unknown as {
+  registerHooks(hooks: SyncModuleHooks): { deregister(): void };
+}).registerHooks;
+
+/** Redirects `@google/genai`, and only that specifier, to the stub above. */
+function installVertexStub(generate: VertexStub): () => void {
+  (globalThis as StubGlobals).__maybesitterVertexGenerate = generate;
+  const hooks = registerHooks({
+    resolve(specifier, context, nextResolve) {
+      if (specifier === '@google/genai') return { url: GENAI_STUB_URL, shortCircuit: true };
+      return nextResolve(specifier, context);
+    },
+    load(url, context, nextLoad) {
+      if (url === GENAI_STUB_URL) return { format: 'module', source: GENAI_STUB_SOURCE, shortCircuit: true };
+      return nextLoad(url, context);
+    },
+  });
+  return () => {
+    hooks.deregister();
+    delete (globalThis as StubGlobals).__maybesitterVertexGenerate;
+  };
+}
+
+/**
+ * What a Gemini extraction of "Call the dentist tomorrow at 3pm" looks like on
+ * the wire, in the schema `ollamaExtractionSchema.ts` asks Vertex for.
+ *
+ * The instant is derived from the same `REFERENCE_TIME` the request carries,
+ * not written as a bare literal: tomorrow, 15:00 in Asia/Jerusalem. `stabilise`
+ * rewrites it before it is recorded, so the fixture on disk is the same bytes
+ * on every run and on every day this is run (#382).
+ */
+function geminiExtraction(): string {
+  const localDay = new Date(Date.parse(REFERENCE_TIME) + 86_400_000).toISOString().slice(0, 10);
+  // Asia/Jerusalem is UTC+3 in August, so 15:00 local is 12:00Z.
+  const instant = `${localDay}T12:00:00.000Z`;
+  return JSON.stringify({
+    type: 'task',
+    action: 'Call the dentist',
+    title: 'Call the dentist',
+    person: null,
+    dueAt: instant,
+    remindAt: instant,
+    localTimeSpec: { date: localDay, time: '15:00', timezone: 'Asia/Jerusalem' },
+    priority: { level: 'normal', source: 'inferred', pressureAllowed: false, pressureImplied: false },
+    flexibility: 'movable',
+    confidence: { overall: 0.94, type: 0.96, action: 0.95, time: 0.93, priority: 0.7 },
+    missingFields: [],
+    ambiguityFlags: [],
+    explicitReminderRequest: false,
+    explicitPressureRequest: false,
+  });
 }
 
 test('exports a fixture for every /api/mobile call the React Native client makes', async () => {
@@ -661,6 +785,66 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       params(commitmentId),
     );
     await record('errors.unauthorized', 401, unauthenticated);
+
+    // ── the Gemini capture (#160, #338) ────────────────────────────
+    // Last, and with the environment restored straight afterwards, so every
+    // fixture above is recorded by a server with no model configured — which
+    // is what they all say, and what they have always said.
+    //
+    // AI consent was granted through the real route at `consents.aiRecorded`
+    // above; without it `proposeMobileCapture` asks for rules and the engine
+    // could never be `gemini` however the provider is configured.
+    const previousProvider = process.env.MAYBESITTER_LLM_PROVIDER;
+    const previousLocation = process.env.MAYBESITTER_VERTEX_LOCATION;
+    let vertexCalls = 0;
+    const removeStub = installVertexStub(async (input) => {
+      vertexCalls += 1;
+      // The prompt is split at BEGIN_UNTRUSTED_USER_MESSAGE before it gets
+      // here. If that ever stops happening the rules travel as user content,
+      // which is the #162 defect — so the stub refuses to answer a request
+      // that arrives without a system instruction.
+      assert.equal(
+        typeof (input.config as { systemInstruction?: unknown }).systemInstruction,
+        'string',
+        'the capture prompt reached the provider without a system instruction',
+      );
+      return {
+        text: geminiExtraction(),
+        modelVersion: 'gemini-2.5-flash',
+        usageMetadata: { promptTokenCount: 1180, candidatesTokenCount: 96 },
+      };
+    });
+    process.env.MAYBESITTER_LLM_PROVIDER = 'gemini';
+    process.env.MAYBESITTER_VERTEX_LOCATION = 'europe-west1';
+    resetProviderForTests();
+    try {
+      const gemini = await record('capture.geminiProposal', 200, await capturePost(request('/api/mobile/capture', {
+        body: { text: 'Call the dentist tomorrow at 3pm', referenceTime: REFERENCE_TIME, timezone: 'Asia/Jerusalem' },
+      })));
+      // Each of these can go red on its own, and each says something different.
+      assert.equal(vertexCalls, 1, 'the capture never reached the provider');
+      assert.equal(
+        (globalThis as StubGlobals).__maybesitterVertexClientOptions?.location,
+        'europe-west1',
+        'the capture text was sent somewhere other than the region the consent screen names',
+      );
+      const provenance = gemini.provenance as { requestedEngine: string; executedEngine: string; fallbackUsed: boolean };
+      assert.equal(provenance.requestedEngine, 'model');
+      assert.equal(provenance.executedEngine, 'gemini', 'the model answered but provenance does not say so');
+      assert.equal(provenance.fallbackUsed, false);
+      assert.equal(gemini.status, 'proposed');
+      const geminiItems = gemini.items as Array<{ title: string; resolvedTime: string | null }>;
+      assert.equal(geminiItems.length, 1);
+      assert.equal(geminiItems[0]!.title, 'Call the dentist');
+      assert.ok(geminiItems[0]!.resolvedTime, 'a Gemini proposal with no resolved time records nothing useful');
+    } finally {
+      removeStub();
+      if (previousProvider === undefined) delete process.env.MAYBESITTER_LLM_PROVIDER;
+      else process.env.MAYBESITTER_LLM_PROVIDER = previousProvider;
+      if (previousLocation === undefined) delete process.env.MAYBESITTER_VERTEX_LOCATION;
+      else process.env.MAYBESITTER_VERTEX_LOCATION = previousLocation;
+      resetProviderForTests();
+    }
   } finally {
     teardown();
   }
