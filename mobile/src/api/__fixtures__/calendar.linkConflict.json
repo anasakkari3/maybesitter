@@ -1,0 +1,5 @@
+{
+  "success": false,
+  "error": "another installation already writes this commitment to a calendar",
+  "reason": "calendar_link_owned_elsewhere"
+}

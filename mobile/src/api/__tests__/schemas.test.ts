@@ -35,6 +35,12 @@ import {
   planResponseSchema,
   planSettingsResponseSchema,
 } from '../schemas/plan';
+import {
+  calendarSettingsResponseSchema,
+  deviceCalendarLinkConflictSchema,
+  deviceCalendarLinkRemovedSchema,
+  deviceCalendarLinkResponseSchema,
+} from '../schemas/calendar';
 
 /**
  * The drift detector.
@@ -116,6 +122,15 @@ const CASES: Array<[string, z.ZodType]> = [
   ['plan.editRejected', planEditRejectedSchema],
   ['plan.settingsDefault', planSettingsResponseSchema],
   ['plan.settingsSaved', planSettingsResponseSchema],
+  // The device calendar (UC-3.1, #185). `commitments.one` above is a commitment
+  // with no link and `commitments.oneLinked` the same read once one exists, so
+  // both halves of the nullable field are parsed from a real response.
+  ['commitments.oneLinked', commitmentSchema],
+  ['calendar.settingsDefault', calendarSettingsResponseSchema],
+  ['calendar.settingsSaved', calendarSettingsResponseSchema],
+  ['calendar.linkStored', deviceCalendarLinkResponseSchema],
+  ['calendar.linkConflict', deviceCalendarLinkConflictSchema],
+  ['calendar.linkRemoved', deviceCalendarLinkRemovedSchema],
   ['errors.unauthorized', errorBodySchema],
   ['activity.list', activityPageSchema],
   ['activity.summary', weeklySummarySchema],
@@ -137,6 +152,45 @@ describe('every response the client parses', () => {
 });
 
 describe('what the schemas assert about the shape', () => {
+  /**
+   * Absent and null are different answers (UC-3.1, #185).
+   *
+   * `commitments.one` has no link and says `deviceCalendarLink: null` — the
+   * server looked and there is none. A 409 conflict body carries a commitment
+   * and *no* such key, because a refusal is not a source of sync state. Reading
+   * the second as the first is how a refused write becomes a duplicate event,
+   * so the fixtures are asserted to differ rather than both merely parsing.
+   */
+  it('tells "there is no link" from "this response did not say"', () => {
+    const unlinked = commitmentSchema.parse(fixture('commitments.one'));
+    expect(unlinked.deviceCalendarLink).toBeNull();
+
+    const linked = commitmentSchema.parse(fixture('commitments.oneLinked'));
+    expect(linked.deviceCalendarLink?.state).toBe('linked');
+    expect(linked.deviceCalendarLink?.writerId).toBe('writer-phone');
+
+    const refused = staleCommitmentSchema.parse(fixture('commitments.stale'));
+    expect('deviceCalendarLink' in refused.current).toBe(false);
+  });
+
+  /**
+   * The calendar mapper decides between an all-day entry, a range and a short
+   * block by reading these two. A backend that stopped sending one must fail
+   * here rather than have the mapper read the absence as "no end, not all-day"
+   * and write a thirty-minute block over somebody's day off.
+   */
+  it('requires an end and an all-day flag on every time spec', () => {
+    const commitment = fixture('commitments.one') as { timeSpec: Record<string, unknown> };
+    expect(commitment.timeSpec.endAt).toBeNull();
+    expect(commitment.timeSpec.allDay).toBe(false);
+
+    for (const field of ['endAt', 'allDay']) {
+      const { [field]: _removed, ...rest } = commitment.timeSpec;
+      const without = { ...commitment, timeSpec: rest };
+      expect(`${field}:${commitmentSchema.safeParse(without).success}`).toBe(`${field}:false`);
+    }
+  });
+
   it('reads a confirmation failure from the body as well as the status', () => {
     const failed = captureConfirmationSchema.parse(fixture('capture.confirmationFailed'));
     // Before #252 this exact body came back with HTTP 200 and `success` was

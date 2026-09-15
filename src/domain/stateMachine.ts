@@ -33,10 +33,51 @@ export interface Priority {
   pressureLevel: 'none' | 'gentle' | 'firm';
 }
 
+/**
+ * When a commitment happens, in four answers rather than one (#185).
+ *
+ * `dueAt` alone says a commitment names an instant and nothing about how long
+ * it lasts or whether the hour was ever chosen. That was enough while the only
+ * consumer was a reminder, which is a point in time by construction. It is not
+ * enough for a calendar: an event has a start *and* an end, and "Thursday" is
+ * not the same claim as "Thursday at 00:00".
+ *
+ * ── `endAt` ──────────────────────────────────────────────────────
+ *
+ * The instant the commitment stops, or `null` when it names no end. `null` is
+ * not "zero minutes" and it is not "thirty minutes": it is the absence of an
+ * answer, and every consumer decides what to draw for it in its own vocabulary
+ * — `eventDraft.ts` in the app gives an ended-less commitment a default block
+ * because a calendar cannot render a point, and that is a fact about calendars
+ * rather than about this commitment.
+ *
+ * ── `allDay` ─────────────────────────────────────────────────────
+ *
+ * True when the commitment names a *day* and not a time of day. `dueAt` still
+ * carries an instant — local midnight of that day in `timezone` — because one
+ * representation is what keeps this type readable, and because a bare
+ * `YYYY-MM-DD` is exactly the value `optionalInstant` refuses for being a date
+ * that would have to be given a fabricated hour. The flag is what says the hour
+ * in there was never chosen by anybody, so nothing may present it as one.
+ *
+ * ── Why both are required rather than optional ───────────────────
+ *
+ * An optional field is a field a producer can forget, and the failure is
+ * silent: the commitment reads as a point in time, the calendar writes a
+ * thirty-minute block over somebody's day off, and no test can tell that from a
+ * commitment that genuinely is a point. Required means `defaultTimeSpec` fills
+ * them, one function decides the defaults, and `timeSpecSchema` in the app can
+ * *require* them on the wire — so a backend that stops sending one fails the
+ * mobile suite instead of a user's calendar.
+ */
 export interface TimeSpec {
   kind: 'unscheduled' | 'due_by' | 'scheduled_event';
   dueAt: string | null;
+  /** When it ends. `null` means the commitment names no end, not a zero-length one. */
+  endAt: string | null;
   remindAt: string | null;
+  /** The commitment names a day. `dueAt` is that day's local midnight, and nobody chose the hour. */
+  allDay: boolean;
   timezone: string;
 }
 
@@ -265,14 +306,48 @@ function defaultPriority(priority?: Partial<Priority>): Priority {
   };
 }
 
+/**
+ * The complete time spec, and the three things it refuses to store (#185).
+ *
+ * The defaults are the shape every commitment had before `endAt` and `allDay`
+ * existed: no end, not all-day. So a producer that has nothing to say about
+ * either keeps producing exactly what it produced, and the new fields mean
+ * "nobody said" rather than "somebody said no".
+ *
+ * The refusals are here rather than at a boundary because they are properties
+ * of the value, not of one caller's request. A range that ends before it starts
+ * and a day-long commitment on no day are not states a screen should have to
+ * render, and letting them through would mean every reader of a `TimeSpec`
+ * carries the check instead.
+ */
 function defaultTimeSpec(timeSpec?: Partial<TimeSpec>): TimeSpec {
   if (timeSpec?.dueAt) ensureValidDate(timeSpec.dueAt, 'timeSpec.dueAt');
+  if (timeSpec?.endAt) ensureValidDate(timeSpec.endAt, 'timeSpec.endAt');
   if (timeSpec?.remindAt) ensureValidDate(timeSpec.remindAt, 'timeSpec.remindAt');
+
+  const dueAt = timeSpec?.dueAt || null;
+  const endAt = timeSpec?.endAt || null;
+  const allDay = timeSpec?.allDay === true;
+
+  // An end with no start is not a range, it is half of one. Storing it would
+  // leave every consumer to guess what the other half was.
+  if (endAt && !dueAt) throw new ValidationError('timeSpec.endAt requires timeSpec.dueAt');
+  // Strictly after, matching the half-open `[start, end)` convention
+  // `lib/planning/shared/time.ts` fixed for the whole product: a zero-length
+  // range is the empty set, and a calendar draws it as nothing at all.
+  if (endAt && dueAt && Date.parse(endAt) <= Date.parse(dueAt)) {
+    throw new ValidationError('timeSpec.endAt must be after timeSpec.dueAt');
+  }
+  // "All day" is a claim about *which* day. With no day it says nothing, and a
+  // consumer reading the flag alone would write an event onto the epoch.
+  if (allDay && !dueAt) throw new ValidationError('timeSpec.allDay requires timeSpec.dueAt');
 
   return {
     kind: timeSpec?.kind || 'unscheduled',
-    dueAt: timeSpec?.dueAt || null,
+    dueAt,
+    endAt,
     remindAt: timeSpec?.remindAt || null,
+    allDay,
     timezone: timeSpec?.timezone || 'UTC',
   };
 }

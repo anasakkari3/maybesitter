@@ -33,12 +33,46 @@ export const prioritySchema = z.object({
   pressureLevel: z.string(),
 });
 
+/**
+ * When a commitment happens.
+ *
+ * `endAt` and `allDay` are **required**, not optional, and that is the whole
+ * value of them (UC-3.1, #185). The calendar mapper decides between a short
+ * event, a start–end block and an all-day entry by reading them; if a backend
+ * that stopped sending one could still parse here, the mapper would read the
+ * absence as "no end, not all-day" and quietly write a thirty-minute block over
+ * somebody's day off. `defaultTimeSpec` on the server fills both on every
+ * commitment it stores, so requiring them is a claim the fixtures prove rather
+ * than a hope.
+ */
 export const timeSpecSchema = z.object({
   kind: z.enum(['unscheduled', 'due_by', 'scheduled_event']),
   dueAt: isoDateTime.nullable(),
+  /** `null` is "this names no end", which is not the same as a zero-length one. */
+  endAt: isoDateTime.nullable(),
   remindAt: isoDateTime.nullable(),
+  /** `dueAt` is a day's local midnight in `timezone`, and nobody chose the hour. */
+  allDay: z.boolean(),
   timezone: z.string(),
 });
+
+/**
+ * Which event in this phone's calendar a commitment was written to (UC-3.1, #185).
+ *
+ * `writerId` is the installation that owns the event. The app compares it
+ * against its own and writes nothing when they differ — that is how a second
+ * device signed into the same account does not produce a second event.
+ */
+export const deviceCalendarLinkSchema = z.object({
+  writerId: z.string(),
+  calendarId: z.string(),
+  eventId: z.string(),
+  contentHash: z.string(),
+  state: z.enum(['linked', 'detached']),
+  writtenAt: isoDateTime,
+});
+
+export type DeviceCalendarLink = z.infer<typeof deviceCalendarLinkSchema>;
 
 export const commitmentSchema = z.object({
   id: z.string(),
@@ -69,6 +103,18 @@ export const commitmentSchema = z.object({
     'overdue', 'due_within_2h', 'due_today',
     'user_must', 'user_low', 'estimated_important', 'no_deadline',
   ])).optional(),
+  /**
+   * The calendar event this commitment owns (UC-3.1, #185).
+   *
+   * Three states, and the difference between two of them is what stops a
+   * duplicate: **absent** means this response did not look the link up — a 409
+   * conflict body carries a commitment and no link — while **null** means it
+   * looked and there is none. A client that read absent as null would take a
+   * refusal as proof the event had been unlinked and write a second one. The
+   * lists and the single reads always answer, so the sync pass has a complete
+   * picture from the responses the screens already hold.
+   */
+  deviceCalendarLink: deviceCalendarLinkSchema.nullable().optional(),
 });
 
 export type Commitment = z.infer<typeof commitmentSchema>;

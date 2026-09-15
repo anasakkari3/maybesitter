@@ -26,6 +26,16 @@ export interface PatchCommitmentInput {
   description?: unknown;
   priority?: unknown;
   dueDate?: unknown;
+  /**
+   * When the commitment stops (#185). An instant, or `null` for "no end".
+   *
+   * Absent and `null` differ here the way they differ for every other time
+   * field: absent means the edit did not mention the end, `null` means the user
+   * removed it.
+   */
+  endDate?: unknown;
+  /** The commitment names a day, not a time of day (#185). A boolean, or absent. */
+  allDay?: unknown;
   reminderTime?: unknown;
 }
 
@@ -377,7 +387,9 @@ function optionalInstant(value: unknown, field: string, now: Date): string | nul
 function patchTimeSpec(current: TimeSpec, input: PatchCommitmentInput, now: Date): Partial<TimeSpec> | undefined {
   const hasDueDate = input.dueDate !== undefined;
   const hasReminderTime = input.reminderTime !== undefined;
-  if (!hasDueDate && !hasReminderTime) return undefined;
+  const hasEndDate = input.endDate !== undefined;
+  const hasAllDay = input.allDay !== undefined;
+  if (!hasDueDate && !hasReminderTime && !hasEndDate && !hasAllDay) return undefined;
 
   const dueAt = hasDueDate ? optionalInstant(input.dueDate, 'dueDate', now) : current.dueAt;
   let remindAt: string | null;
@@ -403,9 +415,89 @@ function patchTimeSpec(current: TimeSpec, input: PatchCommitmentInput, now: Date
   return {
     kind: dueAt || remindAt ? 'due_by' : 'unscheduled',
     dueAt,
+    endAt: patchedEndAt(current, input, dueAt, hasDueDate, hasEndDate, now),
     remindAt,
+    allDay: patchedAllDay(current, input, dueAt, hasAllDay),
     timezone: current.timezone,
   } as Partial<TimeSpec>;
+}
+
+/**
+ * The end of the commitment after this patch (#185).
+ *
+ * ── A move carries the length, the way it carries the reminder lead ──
+ *
+ * A patch that supplies only `dueDate` is a *move*: the user dragged the thing
+ * to another hour, and they did not shorten it. `remindAt` already survives a
+ * move by keeping the lead the user chose (#134); an end that did not survive
+ * the same way would mean every reschedule of a two-hour meeting silently made
+ * it a point in time — and on a device calendar that is a two-hour event
+ * collapsing to the default block, visible to anybody who shares the calendar.
+ *
+ * So the *duration* is preserved, not the instant. The reminder keeps a lead
+ * measured backwards from the due time and the end keeps a length measured
+ * forwards from it, which is the same arithmetic from the same anchor.
+ *
+ * ── Clearing the time clears the end ─────────────────────────────
+ *
+ * `dueDate: null` is "this has no time". An `endAt` left standing after it
+ * would be an end with no start, which `defaultTimeSpec` refuses outright — so
+ * the choice here is between answering at the boundary with a 400 nobody can
+ * act on, and doing the only thing the user's sentence can mean. It means the
+ * end is gone too.
+ *
+ * ── The end is never judged against the clock ────────────────────
+ *
+ * `optionalInstant` refuses a supplied time behind `now` (#352), and an end is
+ * the one time field where that rule would be wrong. An event that started an
+ * hour ago and runs for another hour has an end in the future; one that ran
+ * this morning has an end in the past and is still a true record of a meeting
+ * that happened. What must hold is that it is after its own start, which is
+ * `defaultTimeSpec`'s invariant and is checked there for every producer rather
+ * than here for one of them. The *date-only* half of `optionalInstant` still
+ * applies, so `endDate` cannot be a bare `YYYY-MM-DD` given a fabricated hour.
+ */
+function patchedEndAt(
+  current: TimeSpec,
+  input: PatchCommitmentInput,
+  dueAt: string | null,
+  hasDueDate: boolean,
+  hasEndDate: boolean,
+  now: Date,
+): string | null {
+  if (hasEndDate) {
+    if (input.endDate === null) return null;
+    if (isDateOnly(input.endDate)) throw new Error('endDate must name a time of day, not only a date');
+    const parsed = parseIsoInstant(input.endDate, 'endDate').toISOString();
+    if (!dueAt) throw new Error('endDate requires a due date on the commitment');
+    if (Date.parse(parsed) <= Date.parse(dueAt)) throw new Error('endDate must be after the due date');
+    return parsed;
+  }
+  // No end to carry, or nothing left to carry it from.
+  if (!current.endAt || !current.dueAt || !dueAt) return dueAt ? current.endAt : null;
+  if (!hasDueDate) return current.endAt;
+  const length = Date.parse(current.endAt) - Date.parse(current.dueAt);
+  return new Date(Date.parse(dueAt) + length).toISOString();
+}
+
+/**
+ * Whether the commitment still names a day rather than an hour (#185).
+ *
+ * The flag is a claim about `dueAt`, so it cannot outlive one. Clearing the
+ * time turns it off for the same reason it clears the end: `defaultTimeSpec`
+ * refuses an all-day commitment on no day, and the only thing "this has no
+ * time" can mean is that the day went with it.
+ */
+function patchedAllDay(
+  current: TimeSpec,
+  input: PatchCommitmentInput,
+  dueAt: string | null,
+  hasAllDay: boolean,
+): boolean {
+  if (!dueAt) return false;
+  if (!hasAllDay) return current.allDay;
+  if (typeof input.allDay !== 'boolean') throw new Error('allDay must be a boolean');
+  return input.allDay;
 }
 
 export const patchTimeSpecForTest = patchTimeSpec;

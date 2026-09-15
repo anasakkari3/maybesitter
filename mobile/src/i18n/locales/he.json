@@ -354,7 +354,7 @@
   "trustQuietMode": "מצב שקט",
   "trustQuietModeBody": "בלי שום הצעות עד שתכבה את זה.",
   "trustCalendar": "יומן",
-  "trustCalendarNotConnected": "לא מחובר. חיבור יומן יגיע בגרסה מאוחרת יותר; זה רק רושם את התשובה שלך.",
+  "trustCalendarNotConnected": "לא מחובר כאן. MaybeSitter יכול להוסיף את המחויבויות המאושרות שלך ליומן שאתה בוחר — ראה הגדרות ← יומן.",
   "trustKnows": "מה MaybeSitter יודע",
   "trustRevoke": "להפסיק להשתתף",
   "trustRevokeBody": "MaybeSitter מפסיק להציע ומפסיק ללמוד ממך. הנתונים שלך נשארים עד שתמחק אותם.",
@@ -626,5 +626,16 @@
   "shareSizeKb": "{n} KB",
   "shareNeedsAi": "כדי לקרוא תמונה או קובץ צריך שה-AI יהיה מופעל. שום דבר לא נשלח.",
   "shareTurnOnAi": "לעבור להגדרת ה-AI",
-  "shareSizeMb": "{n} MB"
+  "shareSizeMb": "{n} MB",
+  "calendarWriteTitle": "יומן",
+  "calendarWriteToggle": "להוסיף את המחויבויות שלי ליומן",
+  "calendarWriteBody": "כל מחויבות שאתה מאשר ויש לה שעה נוספת ליומן שאתה בוחר. עריכה או מחיקה כאן מזיזה או מוחקת גם את האירוע. נכתבים רק הכותרת והשעה.",
+  "calendarWriteUnavailable": "כתיבה ליומן כבויה בגרסה הזו.",
+  "calendarPermissionDenied": "ל‏MaybeSitter אין גישה ליומן שלך, אז אי אפשר להוסיף כלום. הטלפון שואל רק פעם אחת — אפשר להפעיל את זה בהגדרות.",
+  "calendarPickTitle": "איזה יומן",
+  "calendarPickBody": "האירועים ייכנסו לכאן. בחר את זה שאתה רוצה שאחרים יראו, או אחד שרק אתה קורא.",
+  "calendarNoneWritable": "אין ביומן של הטלפון הזה יומן שאפשר לכתוב אליו.",
+  "calendarRemoveBody": "מסיר רק את האירועים ש‏MaybeSitter הוסיף. כל מה שהכנסת ליומן בעצמך נשאר.",
+  "calendarRemoveAction": "להסיר את האירועים ש‏MaybeSitter הוסיף",
+  "calendarRemoveDone": "הוסרו. מה שהכנסת בעצמך לא נגענו בו."
 }

@@ -102,6 +102,23 @@ export const PLANS = 'plans';
 export const PLAN_EVENTS = 'planEvents';
 
 /**
+ * Which event in the user's own phone calendar a commitment was written to
+ * (UC-3.1, #185).
+ *
+ * Its own collection rather than a field on the commitment, for the reason
+ * `nextStepDecisions` and `clarificationEvents` have their own. A commitment is
+ * a domain aggregate replayed from `events` by the reducer, and where somebody's
+ * iPhone filed a copy of it is not a domain fact: no command produces it, no
+ * state transition depends on it, and a replay that had to skip it would be a
+ * replay that could lose it. It is a pointer held *beside* the aggregate, keyed
+ * by the commitment id, written by whichever installation owns the event.
+ *
+ * What is in a row: a calendar id, an event id, a content hash, a state and a
+ * timestamp. No title, no notes, nothing read back out of the user's calendar.
+ */
+export const DEVICE_CALENDAR_LINKS = 'deviceCalendarLinks';
+
+/**
  * The activity counters behind the weekly Moments (UC-3.15, #201).
  *
  * A counter rather than a query over the user's items, because a Moment is a
@@ -147,6 +164,7 @@ export const USER_SCOPED_COLLECTIONS = [
   PLANS,
   PLAN_EVENTS,
   STATS,
+  DEVICE_CALENDAR_LINKS,
 ] as const;
 
 /** Operator-only, outside every user tree. */

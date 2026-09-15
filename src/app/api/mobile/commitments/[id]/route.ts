@@ -13,6 +13,7 @@ import {
   staleCommitmentResponse,
 } from '../../../../../../lib/services/mobile/preconditions';
 import { commitmentToMobileDto, mobileError } from '../../../../../../lib/services/mobile/response';
+import { getDeviceCalendarLink } from '../../../../../../lib/services/calendar/deviceCalendarLinks';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,7 +34,10 @@ export async function GET(
   const commitment = await getCommitment(id, { participantId: user.uid });
   if (!commitment) return mobileError('Commitment not found', 404);
   // The validator the client sends back as `If-Match` when it edits (#148).
-  return Response.json(commitmentToMobileDto(commitment), { headers: { ETag: etagFor(commitment) } });
+  const link = await getDeviceCalendarLink(user.uid, id);
+  return Response.json(commitmentToMobileDto(commitment, undefined, link), {
+    headers: { ETag: etagFor(commitment) },
+  });
 }
 
 export async function PATCH(
@@ -60,7 +64,12 @@ export async function PATCH(
       participantId: user.uid,
       expectedValidator: ifMatchFrom(request),
     });
-    return Response.json(commitmentToMobileDto(updated), { headers: { ETag: etagFor(updated) } });
+    // Read after the write: an edit that moved the time is exactly when the
+    // client has to know which event to move with it.
+    const link = await getDeviceCalendarLink(user.uid, id);
+    return Response.json(commitmentToMobileDto(updated, undefined, link), {
+      headers: { ETag: etagFor(updated) },
+    });
   } catch (error) {
     if (error instanceof StaleCommitmentError) return staleCommitmentResponse(error.current);
     if (error instanceof InvalidTransitionError) return invalidTransitionResponse();

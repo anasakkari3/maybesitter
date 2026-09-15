@@ -20,7 +20,9 @@ test('moving the due date carries the reminder lead time with it', () => {
   const current = {
     kind: 'due_by' as const,
     dueAt: '2026-08-23T12:00:00.000Z',
+    endAt: null,
     remindAt: '2026-08-23T10:00:00.000Z', // two hours ahead
+    allDay: false,
     timezone: 'Asia/Jerusalem',
   };
   const patched = patchTimeSpecForTest(current, { dueDate: '2026-08-25T12:00:00.000Z' }, CLOCK);
@@ -32,7 +34,9 @@ test('a commitment with no reminder gains none when its due date moves', () => {
   const current = {
     kind: 'due_by' as const,
     dueAt: '2026-08-23T12:00:00.000Z',
+    endAt: null,
     remindAt: null,
+    allDay: false,
     timezone: 'Asia/Jerusalem',
   };
   const patched = patchTimeSpecForTest(current, { dueDate: '2026-08-25T12:00:00.000Z' }, CLOCK);
@@ -43,7 +47,9 @@ test('an explicit reminder time wins over the preserved lead time', () => {
   const current = {
     kind: 'due_by' as const,
     dueAt: '2026-08-23T12:00:00.000Z',
+    endAt: null,
     remindAt: '2026-08-23T10:00:00.000Z',
+    allDay: false,
     timezone: 'Asia/Jerusalem',
   };
   const patched = patchTimeSpecForTest(current, {
@@ -60,7 +66,9 @@ test('a title-only patch leaves the time spec untouched', () => {
   const current = {
     kind: 'due_by' as const,
     dueAt: '2026-08-23T12:00:00.000Z',
+    endAt: null,
     remindAt: '2026-08-23T10:00:00.000Z',
+    allDay: false,
     timezone: 'Asia/Jerusalem',
   };
   assert.equal(patchTimeSpecForTest(current, { title: 'Fixed a typo' }, CLOCK), undefined);

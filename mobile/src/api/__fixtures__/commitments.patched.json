@@ -14,7 +14,9 @@
   "timeSpec": {
     "kind": "due_by",
     "dueAt": "2026-08-09T09:00:00.000Z",
+    "endAt": null,
     "remindAt": "2026-08-09T09:00:00.000Z",
+    "allDay": false,
     "timezone": "UTC"
   },
   "currentAckState": "not_seen",
@@ -23,5 +25,6 @@
   "updatedAt": "2026-08-09T09:00:00.000Z",
   "confirmedAt": "2026-08-09T09:00:00.000Z",
   "completedAt": null,
-  "droppedAt": null
+  "droppedAt": null,
+  "deviceCalendarLink": null
 }

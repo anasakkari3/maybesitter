@@ -87,6 +87,9 @@ export type Screen =
   | 'activity'
   | 'routineSettings'
   | 'notificationsSettings'
+  // Settings → Calendar (UC-3.1, #185). Where confirmed commitments are
+  // written, which calendar on this device, and the way to take them back.
+  | 'calendarSettings'
   | 'about';
 
 export type CapState = 'idle' | 'listening' | 'transcript' | 'typing' | 'processing' | 'nothing';

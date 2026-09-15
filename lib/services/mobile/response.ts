@@ -1,5 +1,6 @@
 import type { Commitment } from '../../../src/domain/stateMachine';
 import type { RankedItem } from '../../priority/mobileRanking';
+import type { DeviceCalendarLink } from '../calendar/deviceCalendarLinks';
 
 /**
  * One commitment, as the phone reads it.
@@ -7,8 +8,23 @@ import type { RankedItem } from '../../priority/mobileRanking';
  * `rank` and `reasonCodes` are present only when the priority module is on
  * (UC-2.8, #169) — absent means "this build does not rank", which the client
  * renders as the time order it has always used, rather than as rank 0.
+ *
+ * `deviceCalendarLink` (UC-3.1, #185) draws the same distinction, and it is the
+ * reason it is optional rather than always null. **Absent** means this response
+ * did not look the link up; **null** means it looked and there is none. A
+ * client that treated the two as one would read a 409 conflict body — which
+ * carries a commitment but no link, because a refusal is not a source of sync
+ * state — as proof that the user's calendar event had been unlinked, and would
+ * write a second one.
+ *
+ * The lists and the single-commitment reads always answer, so the reconcile
+ * pass has a complete picture from exactly the responses it already holds.
  */
-export function commitmentToMobileDto(commitment: Commitment, ranked?: RankedItem) {
+export function commitmentToMobileDto(
+  commitment: Commitment,
+  ranked?: RankedItem,
+  link?: DeviceCalendarLink | null,
+) {
   return {
     id: commitment.id,
     kind: commitment.kind,
@@ -26,15 +42,23 @@ export function commitmentToMobileDto(commitment: Commitment, ranked?: RankedIte
     completedAt: commitment.completedAt,
     droppedAt: commitment.droppedAt,
     ...(ranked ? { rank: ranked.rank, reasonCodes: ranked.reasonCodes } : {}),
+    ...(link === undefined ? {} : { deviceCalendarLink: link }),
   };
 }
 
 export function commitmentListResponse(
   commitments: Commitment[],
   ranking?: Map<string, RankedItem>,
+  links?: Map<string, DeviceCalendarLink>,
 ) {
   return {
-    items: commitments.map((commitment) => commitmentToMobileDto(commitment, ranking?.get(commitment.id))),
+    items: commitments.map((commitment) => commitmentToMobileDto(
+      commitment,
+      ranking?.get(commitment.id),
+      // `?? null` rather than the lookup's own undefined: a list that was given
+      // the link map answers for every row, including the rows with no link.
+      links === undefined ? undefined : links.get(commitment.id) ?? null,
+    )),
   };
 }
 

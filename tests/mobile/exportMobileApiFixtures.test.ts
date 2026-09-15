@@ -90,6 +90,11 @@ import { GET as planGet } from '../../src/app/api/mobile/plans/[date]/route.ts';
 import { POST as planActionPost } from '../../src/app/api/mobile/plans/[date]/actions/route.ts';
 import { POST as planRegeneratePost } from '../../src/app/api/mobile/plans/[date]/regenerate/route.ts';
 import { GET as planSettingsGet, PUT as planSettingsPut } from '../../src/app/api/mobile/settings/plan/route.ts';
+import { GET as calendarSettingsGet, PUT as calendarSettingsPut } from '../../src/app/api/mobile/settings/calendar/route.ts';
+import {
+  DELETE as calendarLinkDelete,
+  PUT as calendarLinkPut,
+} from '../../src/app/api/mobile/commitments/[id]/device-calendar-link/route.ts';
 import { resetProviderForTests } from '../../src/extraction/llm/index.ts';
 import {
   buildAndStoreDailyPlan,
@@ -488,6 +493,58 @@ test('exports a fixture for every /api/mobile call the React Native client makes
 
     await record('commitments.action', 200, await actionPost(
       request(`/api/mobile/commitments/${commitmentId}/actions`, { body: { action: 'complete' } }),
+      params(commitmentId),
+    ));
+
+    // ── the device calendar (UC-3.1, #185) ─────────────────────────
+    // Recorded in the order the app performs them: claim the link, read the
+    // commitment back with it attached, watch a second installation be refused,
+    // then forget it. `commitments.one` above is the same read with no link, so
+    // both halves of the nullable field are a fixture rather than a belief.
+    await record('calendar.settingsDefault', 200, await calendarSettingsGet(
+      request('/api/mobile/settings/calendar'),
+    ));
+    await record('calendar.settingsSaved', 200, await calendarSettingsPut(
+      request('/api/mobile/settings/calendar', { method: 'PUT', body: { writeTarget: 'device' } }),
+    ));
+
+    await record('calendar.linkStored', 200, await calendarLinkPut(
+      request(`/api/mobile/commitments/${commitmentId}/device-calendar-link`, {
+        method: 'PUT',
+        body: {
+          writerId: 'writer-phone',
+          calendarId: 'calendar-1',
+          eventId: 'event-1',
+          contentHash: 'b1946ac92492d2347c6235b4d2611184',
+          state: 'linked',
+        },
+      }),
+      params(commitmentId),
+    ));
+
+    await record('commitments.oneLinked', 200, await commitmentGet(
+      request(`/api/mobile/commitments/${commitmentId}`),
+      params(commitmentId),
+    ));
+
+    await record('calendar.linkConflict', 409, await calendarLinkPut(
+      request(`/api/mobile/commitments/${commitmentId}/device-calendar-link`, {
+        method: 'PUT',
+        body: {
+          writerId: 'writer-tablet',
+          calendarId: 'calendar-2',
+          eventId: 'event-2',
+          contentHash: 'b1946ac92492d2347c6235b4d2611184',
+          state: 'linked',
+        },
+      }),
+      params(commitmentId),
+    ));
+
+    await record('calendar.linkRemoved', 200, await calendarLinkDelete(
+      request(`/api/mobile/commitments/${commitmentId}/device-calendar-link?writerId=writer-phone`, {
+        method: 'DELETE',
+      }),
       params(commitmentId),
     ));
 

@@ -379,7 +379,7 @@ const DEFAULT_PRIORITY: Priority = {
 };
 
 function timeSpec(overrides: Partial<TimeSpec> = {}): TimeSpec {
-  return { kind: 'unscheduled', dueAt: null, remindAt: null, timezone: FIXTURE_TIMEZONE, ...overrides };
+  return { kind: 'unscheduled', dueAt: null, endAt: null, remindAt: null, allDay: false, timezone: FIXTURE_TIMEZONE, ...overrides };
 }
 
 function commitment(base: Pick<Commitment, 'id' | 'title'> & Partial<Commitment>): Commitment {
