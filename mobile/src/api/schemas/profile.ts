@@ -59,16 +59,53 @@ export const memoryProvenanceSchema = z.object({
   confirmedByUserAt: z.string().optional(),
 });
 
+/**
+ * The label the screen puts under a fact, decided by the server (UC-3.16 #202).
+ *
+ * A token, not a sentence: the words are this app's, in three languages, and a
+ * server that shipped English prose here would be deciding what an Arabic
+ * screen says. What the server owns is the *classification* — which needs
+ * `source` and `provenance` together — and that is what arrives.
+ */
+export const memorySourceLabelSchema = z.enum([
+  'you_told_us',
+  'you_answered_onboarding',
+  'noticed_from_confirmed',
+  'model_suggested_you_confirmed',
+  'model_suggested',
+]);
+
+/**
+ * What backs a fact, as the "Why?" line can answer it (UC-3.16, #202).
+ *
+ * No evidence ids: they name rows in stores this app cannot read, and an id a
+ * user cannot resolve is not evidence. `observationCount` is the honest part —
+ * and it is 0 for everything written today, which the screen says plainly
+ * rather than implying data that does not exist.
+ */
+export const memoryEvidenceSchema = z.object({
+  origin: z.enum(['routine_survey', 'self_description', 'manual', 'capture']).nullable(),
+  observedAt: isoDateTime,
+  recordedAt: isoDateTime,
+  confirmedAt: isoDateTime.nullable(),
+  edited: z.boolean(),
+  observationCount: z.number(),
+});
+
 export const memoryItemSchema = z.object({
   id: z.string(),
   kind: z.enum(['fact', 'preference', 'hypothesis', 'goal']),
   content: z.string(),
   language: z.enum(['ar', 'he', 'en', 'mixed']),
   source: z.enum(['user_stated', 'deterministic_rule', 'model_inferred']),
+  sourceLabel: memorySourceLabelSchema,
   confidence: z.number(),
   createdAt: isoDateTime,
   observedAt: isoDateTime,
+  /** When this stops being believed. A ten-year date means "until you change it". */
+  staleAfter: isoDateTime,
   provenance: memoryProvenanceSchema.nullable(),
+  evidence: memoryEvidenceSchema,
 });
 
 export const memoryListSchema = z.object({ items: z.array(memoryItemSchema) });
@@ -81,6 +118,8 @@ export type RoutineProfile = z.infer<typeof routineProfileSchema>;
 export type ProfileResponse = z.infer<typeof profileResponseSchema>;
 export type MemoryItem = z.infer<typeof memoryItemSchema>;
 export type MemoryProvenance = z.infer<typeof memoryProvenanceSchema>;
+export type MemorySourceLabel = z.infer<typeof memorySourceLabelSchema>;
+export type MemoryEvidence = z.infer<typeof memoryEvidenceSchema>;
 
 /**
  * A suggestion drawn from a self-description (UC-2.7b, #168).

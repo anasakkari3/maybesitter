@@ -159,6 +159,8 @@ function validReceipt(): PersonalizationDeletionReceipt {
     deletedAt: DERIVED_AT,
     remainingFeedbackEventCount: 0,
     remainingRuntimeMemoryRecordCount: 0,
+    remainingBehaviorFeedbackCount: 0,
+    remainingProfileProposalCount: 0,
     remainingPersistedProfileCount: 0,
     emptyStateDigest: 'sha256-fixture-empty-state',
   };

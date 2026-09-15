@@ -32,6 +32,66 @@
  * loud and keep saying it: if some later sprint adds a profile cache, whoever
  * adds it has to come here and decide what the number means, instead of the
  * cache quietly surviving a deletion that reports success.
+ *
+ * ── The two stores this purge was missing (UC-3.16, #202) ────────
+ *
+ * It deleted `feedbackEvents` and `memory` and stopped, which was one store
+ * too few twice over.
+ *
+ * `behaviorFeedback` holds the legacy per-action counters — ignored, completed,
+ * delayed, clarification outcomes — written on every user action and read by
+ * the *shipped* `adaptiveService` classifier that labels a person avoidant,
+ * inconsistent or disciplined. It is not dead: `agendaActionService` says in
+ * its own comment that the legacy counter write "stays authoritative for this
+ * sprint". Purging the event log while leaving it meant the derived label came
+ * back byte-identical from a deletion that reported success.
+ *
+ * `profileProposals` holds self-description suggestions between proposing and
+ * confirming. They are model-derived claims about a person, and a surviving one
+ * can be confirmed *after* the deletion into a fresh memory record — so leaving
+ * them made "delete everything" reversible from the outside. The thirty-minute
+ * TTL bounds the window; it does not make the promise true inside it.
+ *
+ * ── What is deliberately *not* purged here ───────────────────────
+ *
+ * `commitments`, `reminders`, `events`, `plans` and `planEvents` are the user's
+ * own content, or built from it — a plan is their day, rebuilt each morning
+ * out of their own commitments. This button is not a way to lose your week.
+ *
+ * `pressureDelivery` is the harder call and the answer is no. It is a per
+ * commitment record of when the product last nudged and with what text, and
+ * its live function is to *suppress* the next nudge for a cooldown. Deleting it
+ * removes a brake rather than a belief: a user who asked to be forgotten would
+ * be answered by the product immediately becoming free to push them again —
+ * the loop #107 and #388 exist to refuse. It is keyed to commitments, which are
+ * on the content side of the line, and it goes with them on account deletion,
+ * where `deleteTree` already covers it.
+ *
+ * Every one of these decisions is enumerated against `USER_SCOPED_COLLECTIONS`
+ * in `tests/personalization/deletionScopeCoverage.test.ts`, so the next store
+ * added is classified deliberately instead of missed in silence.
+ *
+ * ── The limit of a uid-keyed purge ───────────────────────────────
+ *
+ * `scopeBehaviorFeedback` resolves `feedbackScopeId || conversationId ||
+ * sessionId || userId || 'local'`, so counters can in principle be filed under
+ * something that is not a uid. This purge does not reach those, and cannot.
+ *
+ * It is not reachable from the product: the authenticated entry point is
+ * `feedbackScopeIdFor(uid)`, which passes `{ userId: uid }` and nothing else —
+ * UC-1.0e (#144) closed the collapse-to-`'local'` hole there — and no
+ * `/api/mobile/**` route reaches `applyAgendaAction` or `captureService`. The
+ * one caller that can supply a conversation or session id is the frozen web
+ * `POST /api/agenda/action`, which reads them out of an unauthenticated body.
+ *
+ * A row keyed that way does not land in the caller's tree at all: the path is
+ * `users/{docIdForKey(conversationId)}/behaviorFeedback/…`, a *different* user
+ * document. So it is equally outside `deleteTree('users/{uid}')` — it is a
+ * scoping defect of the frozen route, not of this cascade, and moving it would
+ * be guessing which uid an anonymous conversation belonged to. What is in
+ * reach is done: the whole of `users/{uid}/behaviorFeedback` goes, whatever id
+ * a row is filed under. `tests/personalization/deletionScopeCoverage.test.ts`
+ * holds the product path to the uid so this stays true.
  */
 import {
   PERSONALIZATION_CONTRACT_VERSION,
@@ -45,6 +105,9 @@ import {
 } from '../feedback/feedbackAggregation';
 import type { FeedbackEventStore } from '../../src/contracts/v1/feedbackContracts';
 import type { RuntimeMemoryStore } from '../../src/contracts/v1/memoryContracts';
+import { getStorage } from '../storage';
+import { BEHAVIOR_FEEDBACK, PROFILE_PROPOSALS, userCol } from '../storage/paths';
+import type { StorageAdapter } from '../storage/storageAdapter';
 
 export interface PersonalizationDeletionInput {
   readonly scopeId: string;
@@ -52,6 +115,13 @@ export interface PersonalizationDeletionInput {
   readonly now: Instant;
   readonly feedbackEvents: FeedbackEventStore;
   readonly runtimeMemory: RuntimeMemoryStore;
+  /**
+   * Where the two derived stores that are not ports live. Optional with a
+   * `getStorage()` default, so every existing caller — the frozen web control
+   * centre, the release route, the mobile delete-all — gains the purge without
+   * being edited.
+   */
+  readonly storage?: StorageAdapter;
   /**
    * The window the profile would have been derived over. It enters the digest,
    * so the caller and the receipt must agree on it or the recomputation will
@@ -107,7 +177,14 @@ export function emptyStateDigestFor(scopeId: string, now: Instant, windowDays?: 
 export async function deletePersonalizationScope(
   input: PersonalizationDeletionInput,
 ): Promise<PersonalizationDeletionReceipt> {
+  const storage = input.storage ?? getStorage();
+
+  // Derived stores first, the user's memory rows last. If any step throws, the
+  // user has had *more* erased than they asked for, never less, and the caller
+  // still refuses to report success — see `deleteAllMemory`.
   await input.feedbackEvents.deleteScope(input.scopeId);
+  await clearUserCollection(storage, input.scopeId, BEHAVIOR_FEEDBACK);
+  await clearUserCollection(storage, input.scopeId, PROFILE_PROPOSALS);
   await input.runtimeMemory.deleteScope(input.scopeId);
 
   return {
@@ -117,8 +194,37 @@ export async function deletePersonalizationScope(
     deletedAt: input.now,
     remainingFeedbackEventCount: (await input.feedbackEvents.list({ scopeId: input.scopeId })).length,
     remainingRuntimeMemoryRecordCount: (await input.runtimeMemory.listAll(input.scopeId)).length,
+    remainingBehaviorFeedbackCount: (await storage.list(userCol(input.scopeId, BEHAVIOR_FEEDBACK))).length,
+    remainingProfileProposalCount: (await storage.list(userCol(input.scopeId, PROFILE_PROPOSALS))).length,
     // Structurally zero: nothing persists a profile. See the header.
     remainingPersistedProfileCount: 0,
     emptyStateDigest: emptyStateDigestFor(input.scopeId, input.now, input.windowDays),
   };
+}
+
+/**
+ * Everything in one of the scope's derived collections, a document at a time.
+ *
+ * Not `deleteTree`: that takes a *document* path and these are collections, and
+ * the path guard rejects one outright rather than deleting nothing quietly.
+ *
+ * Collection-wide rather than by the one id the store derives. `behaviorFeedback`
+ * files its document under `docIdForKey(scopeId)` and `StorageBehaviorFeedbackStore.clear`
+ * removes exactly that path, which is right for the row the product writes and
+ * silently insufficient for any other row that has ever landed in the same
+ * user's collection. Deleting the collection is a superset of the store's own
+ * `clear` and cannot be outlived by a row filed under a different id.
+ *
+ * It reaches only `users/{scopeId}/…`, which is the limit of what a uid-keyed
+ * purge can promise — see the header on the scope key.
+ */
+async function clearUserCollection(
+  storage: StorageAdapter,
+  scopeId: string,
+  collection: string,
+): Promise<void> {
+  const path = userCol(scopeId, collection);
+  for (const row of await storage.list(path)) {
+    await storage.delete(`${path}/${row.id}`);
+  }
 }

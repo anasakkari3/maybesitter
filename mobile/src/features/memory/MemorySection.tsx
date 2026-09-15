@@ -37,8 +37,15 @@ import { CHIP_STRING, memorySentence, provenanceChip } from './memoryDisplay';
  * to times in Latin digits. Without an isolate the neutral characters at the
  * boundary reorder and a quiet-hours range renders backwards. `isolate` is
  * UC-1.R3 (#156)'s helper and every rendered fact goes through it.
+ *
+ * ── It is the short version of `MemoryScreen` ────────────────────
+ *
+ * `onOpen` adds the way through to the full screen (UC-3.16, #202), which
+ * groups the same records by who asserted them and can answer "why?" for each.
+ * Optional: this card is still the whole feature on its own, and a caller with
+ * nowhere to send the user simply gets no link rather than a dead one.
  */
-export function MemorySection() {
+export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } = {}) {
   const { t, p, rtl } = useApp();
   const memory = useMemory();
   const create = useCreateMemory();
@@ -128,6 +135,18 @@ export function MemorySection() {
           <Txt size={14} color={p.ac}>{t.memoryAdd}</Txt>
         </Btn>
       )}
+
+      {onOpen ? (
+        <Btn
+          label={t.memoryOpen}
+          testID="memory-open"
+          scaleTo={0.98}
+          onPress={onOpen}
+          style={{ paddingVertical: 14, paddingHorizontal: 18, borderTopWidth: 1, borderTopColor: p.ln, alignItems: 'flex-start' }}
+        >
+          <Txt size={14} color={p.ac}>{t.memoryOpen}</Txt>
+        </Btn>
+      ) : null}
 
       {items.length > 0 ? (
         <View style={{ paddingHorizontal: 18, paddingVertical: 12, borderTopWidth: 1, borderTopColor: p.ln, gap: 8 }}>

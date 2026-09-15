@@ -6,12 +6,22 @@
       "content": "focus_window:09:00-17:00",
       "language": "mixed",
       "source": "user_stated",
+      "sourceLabel": "you_answered_onboarding",
       "confidence": 1,
       "createdAt": "2026-08-09T09:00:00.000Z",
       "observedAt": "2026-08-09T09:00:00.000Z",
+      "staleAfter": "2026-08-09T09:00:00.000Z",
       "provenance": {
         "origin": "routine_survey",
         "originRef": "routine-survey-v1"
+      },
+      "evidence": {
+        "origin": "routine_survey",
+        "observedAt": "2026-08-09T09:00:00.000Z",
+        "recordedAt": "2026-08-09T09:00:00.000Z",
+        "confirmedAt": null,
+        "edited": false,
+        "observationCount": 0
       }
     },
     {
@@ -20,12 +30,22 @@
       "content": "quiet_hours:22:30-07:30",
       "language": "mixed",
       "source": "user_stated",
+      "sourceLabel": "you_answered_onboarding",
       "confidence": 1,
       "createdAt": "2026-08-09T09:00:00.000Z",
       "observedAt": "2026-08-09T09:00:00.000Z",
+      "staleAfter": "2026-08-09T09:00:00.000Z",
       "provenance": {
         "origin": "routine_survey",
         "originRef": "routine-survey-v1"
+      },
+      "evidence": {
+        "origin": "routine_survey",
+        "observedAt": "2026-08-09T09:00:00.000Z",
+        "recordedAt": "2026-08-09T09:00:00.000Z",
+        "confirmedAt": null,
+        "edited": false,
+        "observationCount": 0
       }
     },
     {
@@ -34,12 +54,22 @@
       "content": "reminder_intensity:followUp",
       "language": "mixed",
       "source": "user_stated",
+      "sourceLabel": "you_answered_onboarding",
       "confidence": 1,
       "createdAt": "2026-08-09T09:00:00.000Z",
       "observedAt": "2026-08-09T09:00:00.000Z",
+      "staleAfter": "2026-08-09T09:00:00.000Z",
       "provenance": {
         "origin": "routine_survey",
         "originRef": "routine-survey-v1"
+      },
+      "evidence": {
+        "origin": "routine_survey",
+        "observedAt": "2026-08-09T09:00:00.000Z",
+        "recordedAt": "2026-08-09T09:00:00.000Z",
+        "confirmedAt": null,
+        "edited": false,
+        "observationCount": 0
       }
     },
     {
@@ -48,12 +78,22 @@
       "content": "sleep_window:23:30-07:30",
       "language": "mixed",
       "source": "user_stated",
+      "sourceLabel": "you_answered_onboarding",
       "confidence": 1,
       "createdAt": "2026-08-09T09:00:00.000Z",
       "observedAt": "2026-08-09T09:00:00.000Z",
+      "staleAfter": "2026-08-09T09:00:00.000Z",
       "provenance": {
         "origin": "routine_survey",
         "originRef": "routine-survey-v1"
+      },
+      "evidence": {
+        "origin": "routine_survey",
+        "observedAt": "2026-08-09T09:00:00.000Z",
+        "recordedAt": "2026-08-09T09:00:00.000Z",
+        "confirmedAt": null,
+        "edited": false,
+        "observationCount": 0
       }
     }
   ]

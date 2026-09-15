@@ -821,6 +821,28 @@ export interface PersonalizationDeletionReceipt {
   readonly deletedAt: Instant;
   readonly remainingFeedbackEventCount: number;
   readonly remainingRuntimeMemoryRecordCount: number;
+  /**
+   * The legacy per-action counters (`behaviorFeedback`) still held for the
+   * scope: 0 when the document is gone, and the count of non-zero counters
+   * otherwise.
+   *
+   * It is a separate number rather than folded into the feedback-event count
+   * because the two are different stores with different shapes — one is a row
+   * per event, one is a single document of five totals — and a verifier that
+   * recounts them has to read two places. It is on the receipt at all because
+   * this store is the direct input to the shipped `adaptiveService`
+   * classifier: a deletion that leaves it behind leaves the label it derives
+   * byte-identical, which is the failure the remainders exist to expose.
+   */
+  readonly remainingBehaviorFeedbackCount: number;
+  /**
+   * Pending self-description proposals still held for the scope.
+   *
+   * They are claims about a person that have not been confirmed yet, and a
+   * surviving one can afterwards be confirmed into a *fresh* memory record —
+   * so a deletion that skipped them could be undone from the outside.
+   */
+  readonly remainingProfileProposalCount: number;
   readonly remainingPersistedProfileCount: number;
   readonly emptyStateDigest: string;
 }

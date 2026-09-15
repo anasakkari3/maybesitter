@@ -6,12 +6,22 @@
     "content": "Finish the thesis by April",
     "language": "en",
     "source": "user_stated",
+    "sourceLabel": "you_told_us",
     "confidence": 1,
     "createdAt": "2026-08-09T09:00:00.000Z",
     "observedAt": "2026-08-09T09:00:00.000Z",
+    "staleAfter": "2026-08-09T09:00:00.000Z",
     "provenance": {
       "origin": "manual",
       "confirmedByUserAt": "2026-08-09T09:00:00.000Z"
+    },
+    "evidence": {
+      "origin": "manual",
+      "observedAt": "2026-08-09T09:00:00.000Z",
+      "recordedAt": "2026-08-09T09:00:00.000Z",
+      "confirmedAt": "2026-08-09T09:00:00.000Z",
+      "edited": true,
+      "observationCount": 0
     }
   }
 }
