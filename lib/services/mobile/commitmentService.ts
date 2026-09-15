@@ -6,7 +6,11 @@ import {
   applyParticipantCommand,
   getParticipantStateSnapshot,
 } from './participantState';
-import { isPastCommitmentTime, pastTimeMessage } from '../commitments/timeRules';
+import {
+  isPastCommitmentTime,
+  pastTimeMessage,
+  reminderLeadNoLongerFitsMessage,
+} from '../commitments/timeRules';
 import { isDateOnly, localDayKey, normalizeTimezone, parseIsoInstant, resolvedCommitmentTime } from './time';
 
 const HIDDEN_LIST_STATUSES = new Set<Commitment['status']>(['dropped', 'archived']);
@@ -171,10 +175,12 @@ function optionalInstant(value: unknown, field: string, now: Date): string | nul
   // nobody had chosen. Both halves are the same mistake — a value with no hour
   // being given one — and neither is a thing to guess at.
   //
-  // This is a rule about the shape of a client field, so it lives at this
-  // boundary rather than in `timeRules.ts` next to the past-time rule. The
-  // capture path never reaches it: a `resolvedTime` comes from a picker or the
-  // extractor, already carrying an hour.
+  // This is a rule about the shape of a client field, so the shape test lives
+  // in `time.ts` and the refusal here, rather than in `timeRules.ts` next to
+  // the past-time rule. `validateEdit` asks the same question of a capture
+  // edit's `resolvedTime` now (#375) and answers it in its own vocabulary; the
+  // note that once stood here, saying the capture path could not reach a bare
+  // date, was true of the app's own screens and not of its boundary.
   if (isDateOnly(value)) throw new Error(`${field} must name a time of day, not only a date`);
   const parsed = parseIsoInstant(value, field);
   if (isPastCommitmentTime(parsed, now)) throw new Error(pastTimeMessage(field));
@@ -189,18 +195,26 @@ function optionalInstant(value: unknown, field: string, now: Date): string | nul
  * hour has gone must stay editable, or a typo in yesterday's title could never
  * be fixed.
  *
- * -- A known hole, not a decision ---------------------------------
+ * -- The derived reminder is judged too (#375) --------------------
  *
- * The `remindAt` derived below from a preserved lead is NOT range-checked, and
- * it is not exempt on principle — it is written by this patch, at this clock,
- * and it can land in the past. Move a due date to an hour from now on an item
- * whose reminder ran two hours ahead of it and the stored reminder is an hour
- * behind the clock: exactly the reminder-that-never-fires this function now
- * refuses when a client asks for it directly.
+ * The `remindAt` derived below from a preserved lead is written by this patch,
+ * at this clock, so it faces the same rule as one a client sends. Move a due
+ * date to an hour from now on an item whose reminder ran two hours ahead of it
+ * and the derived reminder is an hour behind the clock — exactly the
+ * reminder-that-never-fires this function refuses when asked for it directly,
+ * arriving through the other door.
  *
- * It is left standing because the fix is a product choice this change had no
- * mandate to make — clamp the lead, drop the reminder, or refuse the move —
- * and each answer loses something the user asked for. #375 holds that decision.
+ * #375 chose refusal over the alternatives. Clamping the lead to `now` and
+ * dropping the reminder are both silent rewrites of a time the user chose: the
+ * edit sheet would go on showing a lead the server had quietly moved or
+ * deleted, and they would find out when the reminder came at the wrong hour or
+ * never came at all. A refusal costs one more tap and is the only outcome they
+ * can act on, so it names what collided and what to do about it.
+ *
+ * It refuses the whole patch, not only the time. The due date in the same
+ * request is fine on its own, but storing it alone would leave the commitment
+ * moved with a reminder the user still believes tracks it — the silent
+ * half-write this function exists to prevent.
  */
 function patchTimeSpec(current: TimeSpec, input: PatchCommitmentInput, now: Date): Partial<TimeSpec> | undefined {
   const hasDueDate = input.dueDate !== undefined;
@@ -215,7 +229,13 @@ function patchTimeSpec(current: TimeSpec, input: PatchCommitmentInput, now: Date
     // Keep the gap the user chose rather than collapsing the reminder onto the
     // new due date or stranding it at the old one.
     const lead = Date.parse(current.dueAt) - Date.parse(current.remindAt);
-    remindAt = new Date(Date.parse(dueAt) - lead).toISOString();
+    const derived = new Date(Date.parse(dueAt) - lead);
+    // The one comparison, asked about a value this patch produced rather than
+    // one it was handed. `isPastCommitmentTime` rather than a second `<` here,
+    // so the derived reminder can never end up a millisecond stricter or looser
+    // than a supplied one (#352, #375).
+    if (isPastCommitmentTime(derived, now)) throw new Error(reminderLeadNoLongerFitsMessage('dueDate'));
+    remindAt = derived.toISOString();
   } else if (hasDueDate && !current.remindAt) {
     remindAt = null;
   } else {

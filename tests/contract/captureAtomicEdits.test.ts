@@ -174,6 +174,12 @@ test('every rule that can refuse an edit, and none of them writes anything', asy
     ['title with a newline', { title: 'two\nlines' }],
     ['a time in the past', { resolvedTime: '2020-01-01T00:00:00.000Z' }],
     ['a time that is not an instant', { resolvedTime: 'next tuesday' }],
+    // A bare date, refused for having no hour rather than for the hour a
+    // parser would invent (#375). `Date.parse` gives it UTC midnight, which
+    // is 03:00 for this product's default Asia/Jerusalem user, so this one
+    // used to be accepted and scheduled for three in the morning. Dated far
+    // enough ahead that the past-time rule above cannot be what refuses it.
+    ['a date with no time of day', { resolvedTime: '2099-01-15' }],
     ['a priority outside the enum', { priority: 'urgent' }],
   ];
 
