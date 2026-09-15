@@ -30,8 +30,11 @@ lane hands off a specific patch.
 | --- | --- | --- |
 | Share channel implementation | PR #402, PR #403 | Foundation lanes must not edit `lib/services/share/**` except future integration review. |
 | Mobile share flow | PR #402, PR #403 | No edits to `mobile/src/features/share/**` or share fixtures. |
+| Notifications, reminders, device registry | PR #405 | No edits to push/reminder/device registration, mobile notification setup, reminder settings, or related API fixtures. |
 | Root package manifest | PR #402, PR #403, dependabot PRs | Foundation lanes must not register tests or dependencies in `package.json`. |
-| Mobile package manifest and lockfile | PR #402, dependabot PRs | No native/provider package setup yet. |
+| Mobile package manifest and lockfile | PR #402, PR #405, dependabot PRs | No native/provider package setup yet. |
+| Mobile locale files | PR #405 | Integration lane batches copy changes after notification lane lands. |
+| Storage path registry | PR #405 | Foundation lanes avoid `lib/storage/paths.ts`; new storage names queue through integration. |
 | GitHub Actions dependency updates | Dependabot PR #372, #373 | Integration lane defers workflow changes. |
 
 An active collision in one subsystem does not block unrelated foundation lanes.
