@@ -1,0 +1,107 @@
+appId: com.maybesitter.app
+name: Editing a proposed item before anything is saved
+---
+# UC-2.4 (#164) on a device: the review screen's edit sheet, and the one thing
+# that makes it different from a PATCH — the change travels with the confirm,
+# so what the user saw when they pressed confirm is what gets written.
+#
+# Needs a **signed-in** build and a device that can reach the API. Maestro
+# cannot type into a secure field, so it cannot sign in by itself and a pass
+# here is not evidence that sign-in works.
+#
+# The assertions are Arabic because Arabic is the default and a misconfigured
+# build shows the CFG-1 screen instead — see .maestro/README.md.
+- launchApp
+
+- assertVisible: 'يومك'
+- openLink: 'maybesitter://capture'
+- assertVisible:
+    id: 'capture-input'
+
+- tapOn:
+    id: 'capture-input'
+- inputText: 'ذكّرني أسلّم التقرير بكرا الساعة 3'
+- tapOn:
+    id: 'capture-analyze'
+
+# Nothing has been written yet, and the screen says so before it is touched.
+- assertVisible:
+    id: 'review-note'
+- assertVisible: 'هذا اقتراح. لم يتغيّر أي شيء بعد.'
+
+# ── Open the edit sheet on whichever item came back ────────────────
+- tapOn:
+    id: 'review-edit-.*'
+- assertVisible:
+    id: 'edit-item-sheet'
+- assertVisible: 'غيّر هاي'
+
+# ── An empty title is refused here, not at the server ──────────────
+#
+# The Save button disables itself and the sheet says why. A build that only
+# refuses server-side leaves the user pressing a button that writes.
+- tapOn:
+    id: 'edit-item-title'
+- eraseText
+- assertVisible:
+    id: 'edit-item-problem'
+- assertVisible: 'حطّلها اسم.'
+
+# ── Give it a name and a level ─────────────────────────────────────
+- inputText: 'سلّم التقرير النهائي'
+- assertNotVisible:
+    id: 'edit-item-problem'
+- tapOn:
+    id: 'edit-item-priority-high'
+
+# ── The time is the device's, and the picker is reachable ──────────
+#
+# The wheel is only asserted, never spun: a Maestro swipe on a native spinner
+# lands on whatever row it lands on, and a flow that then asserted a time would
+# be asserting the swipe. Changing the instant is
+# `src/features/capture/__tests__/editProposalItemSheet.test.tsx`, which can
+# pick one deterministically.
+- assertVisible:
+    id: 'edit-item-pick-time'
+- tapOn:
+    id: 'edit-item-pick-time'
+- assertVisible:
+    id: 'edit-item-picker'
+
+# ── Saving the sheet still writes nothing ──────────────────────────
+#
+# This is the assertion the flow exists for. Save closes the sheet, the card
+# shows the new title, and the suggestion notice is still up — because the edit
+# is held and sent with the confirm (#164), not PATCHed behind the user.
+- tapOn:
+    id: 'edit-item-save'
+- assertNotVisible:
+    id: 'edit-item-sheet'
+- assertVisible: 'النهائي'
+- assertVisible: 'هذا اقتراح. لم يتغيّر أي شيء بعد.'
+
+# ── Cancelling a second edit changes nothing either ────────────────
+- tapOn:
+    id: 'review-edit-.*'
+- tapOn:
+    id: 'edit-item-cancel'
+- assertNotVisible:
+    id: 'edit-item-sheet'
+- assertVisible: 'النهائي'
+
+# ── Confirming is what saves, and it saves the edited title ────────
+- tapOn:
+    id: 'review-confirm'
+- assertVisible:
+    id: 'saved-title'
+
+# Take the undo, so the flow leaves no commitment behind and can be run twice.
+- assertVisible:
+    id: 'saved-undo'
+- tapOn:
+    id: 'saved-undo'
+- assertVisible:
+    id: 'saved-undo-outcome'
+- tapOn:
+    id: 'saved-done'
+- assertVisible: 'يومك'

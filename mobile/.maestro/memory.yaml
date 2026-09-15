@@ -1,0 +1,159 @@
+appId: com.maybesitter.app
+name: What MaybeSitter remembers, added, edited and forgotten
+---
+# UC-2.7a (#167) on a device: the memory list inside «شو بيعرف MaybeSitter»,
+# reached the way a person reaches it — Settings, Trust Centre, then the row.
+# It carries on into the long version of the same list (UC-3.16, #202), which
+# landed after this flow's issue was written.
+#
+# Needs a **signed-in** build and a device that can reach the API. Maestro
+# cannot type into a secure field, so it cannot sign in by itself.
+#
+# ── Why every row selector says `mem_` ──────────────────────────────
+#
+# A record's id is `mem_<uuid>`, so `memory-delete-mem_.*` is the row's Delete
+# and `memory-delete-all` is the one that empties the whole store. A bare
+# `memory-delete-.*` matches both, and on a list of one the wrong match is a
+# flow that quietly wipes the account instead of testing a row.
+#
+# ── Why this flow branches ──────────────────────────────────────────
+#
+# `MemorySection` renders nothing at all when the server answers 404, which is
+# what a build with the memory feature off gets. That is deliberate — there is
+# no such thing to show and nothing to apologise for — so a flow that asserted
+# the section exists would be a flow that fails on a correct build. The branch
+# below runs the whole journey when the feature is on, and asserts the absence
+# is total when it is off.
+- launchApp:
+    clearState: false
+
+- tapOn: 'الإعدادات'
+- tapOn:
+    id: 'settings-trust'
+- assertVisible: 'مركز الثقة'
+- tapOn:
+    id: 'trust-knows'
+- assertVisible: 'شو بيعرف MaybeSitter'
+
+# The feature is off: no section, and no empty state either — the absence is
+# the whole section, not a row saying nothing is here.
+- runFlow:
+    when:
+      notVisible:
+        id: 'memory-section'
+    commands:
+      - assertNotVisible:
+          id: 'memory-empty'
+      - assertNotVisible:
+          id: 'memory-add'
+
+- runFlow:
+    when:
+      visible:
+        id: 'memory-section'
+    commands:
+      - assertVisible: 'شو بيتذكّر'
+
+      # ── Adding one ────────────────────────────────────────────────
+      - tapOn:
+          id: 'memory-add'
+      - tapOn:
+          id: 'memory-add-input'
+      - inputText: 'بشتغل مسا يوم التلات'
+      - tapOn:
+          id: 'memory-add-save'
+      - extendedWaitUntil:
+          visible:
+            id: 'memory-item-mem_.*'
+          timeout: 10000
+      - assertVisible: 'يوم التلات'
+      # Where it came from, on the record itself. A fact the user typed must
+      # not be shown as one the product worked out (#167).
+      - assertVisible:
+          id: 'memory-chip-mem_.*'
+      - assertVisible: 'إنت قلت'
+
+      # ── Editing one ───────────────────────────────────────────────
+      - tapOn:
+          id: 'memory-edit-mem_.*'
+      - assertVisible:
+          id: 'memory-edit-input-mem_.*'
+      - eraseText
+      - inputText: 'بشتغل مسا يوم الأربعا'
+      - tapOn:
+          id: 'memory-save-mem_.*'
+      - extendedWaitUntil:
+          visible: 'يوم الأربعا'
+          timeout: 10000
+      - assertNotVisible: 'يوم التلات'
+
+      # ── The long version of the same list (#202) ──────────────────
+      #
+      # Same records, cut by who asserted them, each one able to say why it is
+      # there. A fact the person typed a moment ago belongs under «إنت قلته»
+      # and under nothing else — a build that filed it as something the product
+      # noticed would be claiming an inference it never made.
+      - tapOn:
+          id: 'memory-open'
+      - assertVisible: 'شو بيتذكّر عنك'
+      - assertVisible:
+          id: 'memory-group-told'
+      - assertVisible:
+          id: 'memory-screen-item-mem_.*'
+      - assertVisible:
+          id: 'memory-screen-source-mem_.*'
+      # Banded, never the number: a confidence printed as a decimal invites the
+      # reader to treat a threshold as a measurement of themselves (#202).
+      - assertVisible:
+          id: 'memory-confidence-mem_.*'
+
+      # ── "Why?" is closed until it is asked, and then it answers ───
+      - assertNotVisible:
+          id: 'memory-evidence-mem_.*'
+      - tapOn:
+          id: 'memory-why-mem_.*'
+      - assertVisible:
+          id: 'memory-evidence-mem_.*'
+      - tapOn:
+          id: 'memory-why-mem_.*'
+      - assertNotVisible:
+          id: 'memory-evidence-mem_.*'
+
+      # ── Delete here has five seconds of undo, and the card does not ──
+      #
+      # `MemorySection` confirms and then cannot be taken back; this screen
+      # removes the row at once and holds the request for UNDO_WINDOW_MS. Both
+      # are honest and they are not the same promise, so both are walked.
+      # Taking the undo also leaves the record for the card to delete for real
+      # below, which is what keeps this flow re-runnable.
+      - tapOn:
+          id: 'memory-screen-delete-mem_.*'
+      - assertVisible:
+          id: 'memory-undo-bar'
+      - assertNotVisible: 'يوم الأربعا'
+      - tapOn:
+          id: 'memory-undo'
+      - assertVisible: 'يوم الأربعا'
+      - assertNotVisible:
+          id: 'memory-undo-bar'
+
+      - tapOn: 'رجوع'
+      - assertVisible: 'شو بيعرف MaybeSitter'
+
+      # ── Forgetting one asks first ─────────────────────────────────
+      #
+      # There is no undo on the card, so the confirm is the guard. Declining it
+      # must leave the record exactly as it was.
+      - tapOn:
+          id: 'memory-delete-mem_.*'
+      - assertVisible: 'تمسحه؟ ما في رجعة.'
+      - tapOn: 'إلغاء'
+      - assertVisible: 'يوم الأربعا'
+
+      - tapOn:
+          id: 'memory-delete-mem_.*'
+      - tapOn:
+          id: 'memory-delete-confirm-mem_.*'
+      - extendedWaitUntil:
+          notVisible: 'يوم الأربعا'
+          timeout: 10000

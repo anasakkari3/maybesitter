@@ -60,6 +60,10 @@ const CASES: Array<[string, z.ZodType]> = [
   // updated proposal, not an acknowledgement (#165).
   ['capture.needsClarification', captureProposalSchema],
   ['capture.clarified', captureProposalSchema],
+  // The same schema again, over a proposal the model answered (#338). Without
+  // it every recorded proposal says `rule-based` and the engine enum has
+  // nothing to be wrong about.
+  ['capture.geminiProposal', captureProposalSchema],
   ['capture.confirmation', captureConfirmationSchema],
   ['capture.confirmationFailed', captureConfirmationSchema],
   ['commitments.today', commitmentListSchema],
@@ -155,6 +159,40 @@ describe('what the schemas assert about the shape', () => {
       const bad = { ...proposal, provenance: { ...proposal.provenance, executedEngine: engine } };
       expect(() => captureProposalSchema.parse(bad)).toThrow();
     }
+  });
+
+  /**
+   * The half the case above could not do (#338).
+   *
+   * Every value it checks is one the test wrote: it edits `executedEngine` by
+   * hand and then asks the schema what it thinks. That catches a narrowed
+   * enum, and nothing else — it passes exactly as well on a backend that has
+   * never once answered `gemini`, and until now none of the recorded responses
+   * had, because no model is configured in the fixture run. So `gemini` was a
+   * member of the enum with no evidence behind it that any server emits it.
+   *
+   * `capture.geminiProposal` is recorded from the real capture route with the
+   * `@google/genai` module stubbed and nothing else replaced, so this reads a
+   * value the server produced rather than one the test wrote. It fails if the
+   * recorded engine stops being `gemini`, if the recording falls back to the
+   * rules, or if the schema stops accepting the model's own name.
+   */
+  it('has recorded a proposal the model actually answered', () => {
+    const recorded = captureProposalSchema.parse(fixture('capture.geminiProposal'));
+    expect(recorded.provenance?.requestedEngine).toBe('model');
+    expect(recorded.provenance?.executedEngine).toBe('gemini');
+    // A model that answered and then fell back is a different recording; this
+    // one exists to be the un-fallen-back case.
+    expect(recorded.provenance?.fallbackUsed).toBe(false);
+    expect(recorded.status).toBe('proposed');
+    expect(recorded.items).toHaveLength(1);
+
+    // Between the fixtures, every engine the contract declares is now a value
+    // some recorded response really carries — except `ollama`, which is a
+    // model on a developer's laptop and has no server to record from.
+    const engines = ['capture.proposal', 'capture.clarified', 'capture.geminiProposal']
+      .map(name => (fixture(name) as { provenance?: { executedEngine?: string } }).provenance?.executedEngine);
+    expect(new Set(engines)).toEqual(new Set(['rule-based', 'gemini']));
   });
 
   it('keeps the whole recommendation, because the decision endpoint echoes it', () => {

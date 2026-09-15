@@ -153,3 +153,57 @@ cannot type into a secure field, so it cannot sign in by itself.
 ```bash
 maestro test .maestro/capture.yaml
 ```
+
+## `capture-edit.yaml` (UC-2.4, #164)
+
+The review screen's edit sheet. Renames the item, picks a level, opens the
+time wheel, saves, cancels a second edit, and only then confirms.
+
+The assertion it exists for is the one after Save: the card shows the new title
+and «هذا اقتراح. لم يتغيّر أي شيء بعد.» is *still* on screen. The edit is held
+and travels with the confirm (#164), not PATCHed behind the user, so a build
+that wrote early is a build where that line has gone.
+
+The wheel is opened and never spun. A Maestro swipe on a native spinner lands
+on whichever row it lands on, so a flow that then asserted a time would be
+asserting the swipe. Changing the instant deterministically is
+`src/features/capture/__tests__/editProposalItemSheet.test.tsx`; reading it in
+Arabic, in the right face and direction, is `…/editProposalItemSheetRtl.test.tsx`.
+
+It ends by taking the undo, so it leaves no commitment behind.
+
+## `clarify.yaml` (UC-2.5, #165)
+
+One capture the extractor cannot resolve, walked twice: skipped once, answered
+once. The input names an action and no time on purpose.
+
+What it checks that a unit test cannot: that the question is rendered from the
+app's own locale files. `edit-item-sheet` appearing instead of
+`clarify-question` means the server's `questionKey` was unrecognised and the
+fallback took over, and any English on that screen means the sentence came from
+the server rather than from `ar.json`.
+
+If the server resolves the input anyway there is no question to ask and the
+flow fails at `clarify-question`. That is the honest failure: the clarification
+path would then be unreachable for this input, which is worth knowing.
+
+## `memory.yaml` (UC-2.7a #167, UC-3.16 #202)
+
+Settings → Trust Centre → «شو بيعرف MaybeSitter», then add, edit, open the full
+memory screen, and forget.
+
+**It branches at the top on purpose.** `MemorySection` renders nothing at all
+when `GET /api/mobile/memory` answers 404, which is what a build with the
+memory feature off gets. A flow that asserted the section exists would fail on
+a correct build, so the "off" branch asserts the absence is total instead.
+
+The second half is `MemoryScreen` (#202), which did not exist when #167 was
+written: the same records grouped by who asserted them, each able to say why it
+is there. Delete means different things on the two surfaces — the card confirms
+and cannot be taken back, the screen removes the row at once and holds the
+request for five seconds — so both are walked, and the screen's undo is taken
+so the card still has a record to delete for real.
+
+Every row selector reads `memory-…-mem_.*`. A record's id is `mem_<uuid>`, and
+a bare `memory-delete-.*` also matches `memory-delete-all`: on a list of one,
+the wrong match is a flow that empties the account instead of testing a row.
