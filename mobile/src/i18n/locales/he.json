@@ -612,5 +612,19 @@
   "activityKindPlanAccepted": "התוכנית אושרה",
   "activityKindReminderAcknowledged": "התזכורת נראתה",
   "activityMovedTo": "הוזז ל-{date}",
-  "activityUnavailable": "לא הצלחנו להגיע לפעילות שלך כרגע. שום דבר לא השתנה."
+  "activityUnavailable": "לא הצלחנו להגיע לפעילות שלך כרגע. שום דבר לא השתנה.",
+  "shareTitle": "מה ששיתפת",
+  "shareNothingSentYet": "עדיין שום דבר לא יצא מהטלפון שלך. קרא את זה קודם.",
+  "shareAnalyzing": "קורא את מה ששיתפת…",
+  "shareDiscard": "לזרוק",
+  "shareUnavailable": "שיתוף לתוך MaybeSitter עדיין לא מופעל. שום דבר לא נשלח.",
+  "shareTooLarge": "זה גדול מדי לשליחה. שתף חלק קטן יותר.",
+  "shareUnsupported": "MaybeSitter עדיין לא יודע לקרוא קובץ מהסוג הזה.",
+  "shareTooManyFiles": "יותר מדי קבצים בבת אחת. שתף עד חמש תמונות, או קובץ אחד.",
+  "shareTextTooLong": "זה הרבה טקסט. שתף חלק קצר יותר.",
+  "shareEmpty": "לא היה שם שום דבר לקרוא.",
+  "shareSizeKb": "{n} KB",
+  "shareNeedsAi": "כדי לקרוא תמונה או קובץ צריך שה-AI יהיה מופעל. שום דבר לא נשלח.",
+  "shareTurnOnAi": "לעבור להגדרת ה-AI",
+  "shareSizeMb": "{n} MB"
 }

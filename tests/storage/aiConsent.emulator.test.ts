@@ -35,6 +35,10 @@ function spyProvider(): LlmProvider & { calls: number } {
       calls += 1;
       return { text: '{}', model: 'gemini-2.5-flash', latencyMs: 1, promptTokens: 1, outputTokens: 1 };
     },
+    async generateStructured() {
+      calls += 1;
+      return { text: '{}', model: 'gemini-2.5-flash', latencyMs: 1, promptTokens: 1, outputTokens: 1 };
+    },
   } as LlmProvider & { calls: number };
 }
 

@@ -38,6 +38,13 @@ export function CaptureFlow() {
   useEffect(() => {
     if (opened.current) return;
     opened.current = true;
+    // A proposal that was already there when this mounted did not come from
+    // this screen: the share pipeline analyses on its own screen and hands the
+    // result over with `adoptProposal`, which has already called `open` with
+    // `source: 'share'` (UC-3.0, #183). `open` resets the reducer, so doing it
+    // again here would discard the proposal between the hand-over and the first
+    // paint — and the user would land on an empty composer.
+    if (flow.state.proposal) return;
     flow.open(s.captureSource, s.captureInput);
   }, [flow, s.captureSource, s.captureInput]);
 

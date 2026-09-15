@@ -50,6 +50,8 @@ export function configProblems(): string[] {
     apiMode: process.env.EXPO_PUBLIC_API_MODE ?? extra().apiMode ?? undefined,
     googleCalendarDemo: process.env.EXPO_PUBLIC_ENABLE_GOOGLE_CALENDAR_DEMO,
     testCrash: process.env.EXPO_PUBLIC_ENABLE_TEST_CRASH,
+    shareIntake: process.env.EXPO_PUBLIC_FEATURE_SHARE_INTAKE,
+    shareIntentDebug: process.env.EXPO_PUBLIC_SHARE_INTENT_DEBUG,
   });
 }
 
@@ -236,4 +238,46 @@ export function testCrashEnabled(): boolean {
  */
 export function safeCommitmentPatchEnabled(): boolean {
   return (process.env.EXPO_PUBLIC_FEATURE_SAFE_COMMITMENT_PATCH ?? '').trim() !== 'false';
+}
+
+/**
+ * Whether this build accepts a share (UC-3.0, #183 step 10).
+ *
+ * **Off by default**, and turned on by `EXPO_PUBLIC_FEATURE_SHARE_INTAKE=true`.
+ * An enable flag rather than a kill switch — the opposite of `voiceEnabled` —
+ * because the thing being gated is not a feature that already works for real
+ * users. It is a new ingress that needs a native share target, a backend flag
+ * and four channels that do not exist yet; the state it must default to is off.
+ *
+ * ── Why the app and not only the route ───────────────────────────
+ *
+ * `SHARE_INTAKE_ENABLED` on the server answers 404 when it is off, and that is
+ * the outer lock. This is the inner one, and it is what makes the criterion
+ * "with the flags off the app shows the notice" true without a round trip: a
+ * share opens the screen, the screen sees the flag is off and shows the notice,
+ * and the bytes never leave the phone. Asking the server first would upload
+ * somebody's screenshot to learn that the feature is switched off.
+ *
+ * Read like the other enable flags: the literal string `true` and nothing else,
+ * so an empty value or a typo leaves it off.
+ */
+export function shareIntakeEnabled(): boolean {
+  return (process.env.EXPO_PUBLIC_FEATURE_SHARE_INTAKE ?? '').trim() === 'true';
+}
+
+/**
+ * Whether `expo-share-intent` logs what it received (UC-3.0, #183).
+ *
+ * Its `debug` option `console.debug`s the whole shared payload — the text, the
+ * file paths, the parsed intent — into the device log, where any other process
+ * on the phone can read it. That is the exact failure `src/api/`'s no-logging
+ * rule exists for, on the most sensitive content this product has ever handled,
+ * so it is a development-only switch twice over: it needs a development bundle
+ * *and* the variable, and `releaseConfigProblems` refuses to **configure** a
+ * staging or production build that sets it at all.
+ */
+export function shareIntentDebugEnabled(isDevBundle: boolean = __DEV__): boolean {
+  if (isDevBundle !== true) return false;
+  if (!isDevelopment()) return false;
+  return (process.env.EXPO_PUBLIC_SHARE_INTENT_DEBUG ?? '').trim() === 'true';
 }

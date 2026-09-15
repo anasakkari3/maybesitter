@@ -5,6 +5,8 @@ import { useTimeZone } from '../i18n/timezone';
 import { apiLocale } from '../i18n/locale';
 import { useAuth } from '../auth/AuthProvider';
 import { clarifyCapture, confirmCapture, proposeCapture } from './endpoints/capture';
+import { proposeFromShare } from './endpoints/share';
+import type { UploadFile } from './client';
 import {
   actOnCommitment,
   deleteCommitment,
@@ -249,6 +251,33 @@ export function useCapture() {
   const timezone = useTimeZone();
   return useMutation({
     mutationFn: (text: string) => proposeCapture({ text, timezone }),
+  });
+}
+
+/**
+ * Analyze what another app handed us (UC-3.0, #183).
+ *
+ * The one mutation in this file that uploads. It is the same shape as
+ * `useCapture` on purpose: what comes back is the ordinary capture proposal
+ * plus an envelope of counts, so the review, clarify, edit and confirm hooks
+ * below read it unchanged and share needed none of its own.
+ *
+ * `retry: false` is spelled out rather than inherited. An upload that may or
+ * may not have arrived is the request #157 forbids replaying, and here a replay
+ * also costs the user a second slice of their thirty-a-day and a second upload
+ * on their data plan. `apiUpload` still refreshes once on a 401, which is a
+ * request the server explicitly told us it did not process.
+ */
+export function useProposeFromShare() {
+  const timezone = useTimeZone();
+  return useMutation({
+    retry: false,
+    mutationFn: (input: {
+      text?: string | undefined;
+      files?: readonly UploadFile[];
+      sourceHint?: 'whatsapp' | 'email' | 'unknown';
+      signal?: AbortSignal;
+    }) => proposeFromShare({ ...input, timezone }),
   });
 }
 

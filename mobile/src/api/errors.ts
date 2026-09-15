@@ -141,6 +141,33 @@ export class InputTooLargeError extends ApiError {
   }
 }
 
+/**
+ * 413 on an upload — the share is larger than the route accepts (UC-3.0, #183).
+ *
+ * Separate from `InputTooLargeError`, which is about *characters* and whose
+ * copy says so. Telling somebody who shared a 20 MB PDF that "the text is
+ * longer than 20000 characters" would be a sentence about something they did
+ * not do, and the number in it would be meaningless to them.
+ */
+export class UploadTooLargeError extends ApiError {
+  constructor(readonly maxBytes: number) {
+    super(`the share is larger than ${maxBytes} bytes`);
+  }
+}
+
+/**
+ * 415 — the server will not read that kind of file (UC-3.0, #183).
+ *
+ * Its own type because it is the one refusal on this route the user can act on:
+ * every other 4xx here means "try again later" and this one means "that file is
+ * not something this app reads".
+ */
+export class UnsupportedShareError extends ApiError {
+  constructor(readonly reason: string) {
+    super(`the shared file was refused: ${reason}`);
+  }
+}
+
 /** 503 — a dependency is down. A retry, never a sign-out. */
 export class ServiceUnavailableError extends ApiError {
   constructor(message: string, readonly reason?: string) {

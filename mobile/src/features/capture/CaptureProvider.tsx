@@ -31,6 +31,7 @@ import { useTimeZone } from '../../i18n/timezone';
 import { deleteCommitment } from '../../api/endpoints/commitments';
 import { InputTooLargeError, isRetryable, QuotaExceededError, ValidationError } from '../../api/errors';
 import { userFacingMessageKey } from '../../api/ui/userFacingMessage';
+import type { CaptureProposal } from '../../api/schemas/capture';
 import {
   captureReducer,
   confirmPayload,
@@ -63,6 +64,20 @@ interface CaptureContextValue {
   open(source?: CaptureSource, inputMode?: CaptureInputMode): void;
   setText(text: string): void;
   analyze(): Promise<void>;
+  /**
+   * Enters review with a proposal this flow did not ask for (UC-3.0, #183).
+   *
+   * The share pipeline analyses on its own screen and then hands the result
+   * here, so review, clarify, edit, confirm and undo are the same code for a
+   * shared chat as for a typed sentence — which is the whole point of #183
+   * producing an ordinary capture proposal rather than a shape of its own.
+   *
+   * `text` stays empty deliberately. Putting the shared content in the
+   * composer would offer a Back that returns to an editable copy of somebody's
+   * chat export, and would make `hasUnsavedText` true for content the user
+   * never typed.
+   */
+  adoptProposal(proposal: CaptureProposal, source?: CaptureSource): void;
   toggleItem(itemId: string): void;
   editItem(itemId: string, edit: CaptureItemEdit): void;
   /**
@@ -167,6 +182,13 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
       : { type: 'analyzeFailed', kind: outcome.kind, messageKey: outcome.messageKey });
   }, [capture, state.text]);
 
+  const adoptProposal = useCallback((proposal: CaptureProposal, source: CaptureSource = 'share') => {
+    // `open` first, so nothing of a previous capture — a draft, a selection, an
+    // armed undo — is still in the state the shared proposal lands in.
+    dispatch({ type: 'open', source });
+    dispatch({ type: 'analyzeSucceeded', proposal });
+  }, []);
+
   const toggleItem = useCallback((itemId: string) => dispatch({ type: 'toggleItem', itemId }), []);
 
   const clarify = useCallback(async (itemId: string, answer: { optionId?: string; freeText?: string }) => {
@@ -253,8 +275,8 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo<CaptureContextValue>(() => ({
-    state, aiGranted, aiAsked, open, setText, analyze, toggleItem, editItem, clarify, confirm, undo, backToComposer, close,
-  }), [state, aiGranted, aiAsked, open, setText, analyze, toggleItem, editItem, clarify, confirm, undo, backToComposer, close]);
+    state, aiGranted, aiAsked, open, setText, analyze, adoptProposal, toggleItem, editItem, clarify, confirm, undo, backToComposer, close,
+  }), [state, aiGranted, aiAsked, open, setText, analyze, adoptProposal, toggleItem, editItem, clarify, confirm, undo, backToComposer, close]);
 
   return <CaptureContext.Provider value={value}>{children}</CaptureContext.Provider>;
 }

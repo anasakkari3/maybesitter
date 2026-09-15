@@ -20,7 +20,7 @@ import type { StorageAdapter } from '../../lib/storage/storageAdapter.ts';
 import { setAiConsent } from '../../lib/consents/aiConsentService.ts';
 import { AI_CONSENT_VERSION } from '../../src/contracts/v1/consentContracts.ts';
 import type { LlmProvider, LlmRequest } from '../../src/extraction/llm/llmProvider.ts';
-import { LLMUnavailableError } from '../../src/extraction/llm/llmProvider.ts';
+import { LLMUnavailableError, structuredFromJson } from '../../src/extraction/llm/llmProvider.ts';
 import { explainPlan, explanationPrompt } from '../../lib/services/dailyPlan/explanationService.ts';
 import { explanationFactsFrom, templateExplanation } from '../../lib/services/dailyPlan/explanationValidator.ts';
 import type { Plan } from '../../src/contracts/v1/planningContracts.ts';
@@ -51,15 +51,20 @@ const FACTS = explanationFactsFrom(PLAN, TITLES, TZ, 'en');
 /** A provider that counts every call it receives, and answers what it is told to. */
 function fakeProvider(answer: string | Error, delayMs = 0): LlmProvider & { calls: LlmRequest[] } {
   const calls: LlmRequest[] = [];
+  const generateJson: LlmProvider['generateJson'] = async (request: LlmRequest) => {
+    calls.push(request);
+    if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+    if (answer instanceof Error) throw answer;
+    return { text: answer, model: 'fake', latencyMs: 1, promptTokens: 10, outputTokens: 5 };
+  };
   return {
     name: 'gemini',
     calls,
-    async generateJson(request: LlmRequest) {
-      calls.push(request);
-      if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
-      if (answer instanceof Error) throw answer;
-      return { text: answer, model: 'fake', latencyMs: 1, promptTokens: 10, outputTokens: 5 };
-    },
+    generateJson,
+    // #183 made `generateStructured` a required member of `LlmProvider`, so a
+    // double has to carry one. This one only ever speaks text, which is what
+    // `structuredFromJson` adapts.
+    generateStructured: structuredFromJson(generateJson),
   };
 }
 

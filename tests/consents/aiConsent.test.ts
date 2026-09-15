@@ -71,6 +71,12 @@ function spyProvider(): LlmProvider & { calls: number } {
       calls += 1;
       return { text: '{"type":"task"}', model: 'gemini-2.5-flash', latencyMs: 1, promptTokens: 1, outputTokens: 1 };
     },
+    // Counted the same way: the gate has to refuse both calls, and a double
+    // that only carried one could not show that (#183).
+    async generateStructured() {
+      calls += 1;
+      return { text: '{"type":"task"}', model: 'gemini-2.5-flash', latencyMs: 1, promptTokens: 1, outputTokens: 1 };
+    },
   } as LlmProvider & { calls: number };
 }
 

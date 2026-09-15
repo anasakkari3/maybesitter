@@ -142,10 +142,55 @@ describe('iOS hardening', () => {
     }
   });
 
-  it('declares the App Group the widget will read', () => {
+  it('declares the App Group the widget will read, exactly once', () => {
+    // Once, not twice. Two things now ask for this group: `ios.entitlements` in
+    // `app.config.ts` (for the widget, #203) and `expo-share-intent`, whose own
+    // plugin *prepends* the group it needs to whatever is already there
+    // (plugin/build/ios/withIosAppEntitlements.js). Without
+    // `./plugins/withDedupedAppGroups` this array is the same string twice —
+    // which is a lie in a file EAS syncs to the App ID's capabilities.
+    //
+    // This runs after every mod has, so it is evidence about the entitlements
+    // that get written, not about the source that asks for them (UC-3.0, #183).
     expect(configs.production.ios.entitlements?.['com.apple.security.application-groups']).toEqual([
       'group.com.maybesitter.app',
     ]);
+  });
+
+  it('registers the share target, and the fix-up plugin ahead of it', () => {
+    const names = configs.production.plugins.map(plugin => (typeof plugin === 'string' ? plugin : plugin[0]));
+    expect(names).toContain('expo-share-intent');
+    // Ahead of it in the array, which means *after* it at run time: config
+    // plugin mods execute last-registered-first, so the plugin that has to see
+    // everyone else's work is listed first. Getting this backwards is silent —
+    // the dedupe simply runs before there is anything to dedupe — so the order
+    // is asserted rather than left to a comment.
+    expect(names.indexOf('./plugins/withShareExtensionFixups')).toBeGreaterThanOrEqual(0);
+    expect(names.indexOf('./plugins/withShareExtensionFixups')).toBeLessThan(names.indexOf('expo-share-intent'));
+  });
+
+  it('asks the share target for the MIME types #183 names, and for our App Group', () => {
+    const entry = configs.production.plugins.find(
+      plugin => Array.isArray(plugin) && plugin[0] === 'expo-share-intent',
+    ) as [string, Record<string, unknown>] | undefined;
+    expect(entry).toBeDefined();
+    const options = entry![1];
+    expect(options.iosAppGroupIdentifier).toBe('group.com.maybesitter.app');
+    // The plugin's own TypeScript narrows this to text/image/video; the
+    // implementation writes each string straight into the manifest as a
+    // `<data android:mimeType>`, so the three #183 adds are real filters and
+    // not a type error waved through.
+    expect(options.androidIntentFilters).toEqual([
+      'text/*', 'image/*', 'application/pdf', 'application/zip', 'text/calendar',
+    ]);
+    expect(options.androidMultiIntentFilters).toEqual(['image/*']);
+    // Not `MaybeSitter`, which #183's sketch asks for. That string is the Xcode
+    // **target** name as well as the share sheet label, and the plugin's
+    // target-creating mod returns early when a target of that name exists —
+    // which it does, because it is the app. The extension would never be built.
+    // `withShareExtensionFixups` restores the label; nothing restores a target
+    // that was never created.
+    expect(options.iosShareExtensionName).toBe('ShareExtension');
   });
 
   it('declares Sign in with Apple, whose entitlement Expo derives (#145)', () => {

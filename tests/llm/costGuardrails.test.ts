@@ -174,14 +174,18 @@ test('utcMinute is the window key, to the minute', () => {
 /** A provider that records whether it was reached at all. */
 function spyProvider() {
   const calls: string[] = [];
+  const answer = async () => {
+    calls.push('generateJson');
+    return { text: '{}', model: 'gemini-2.5-flash', latencyMs: 1, promptTokens: 10, outputTokens: 5 };
+  };
   return {
     calls,
     provider: {
       name: 'gemini' as const,
-      async generateJson() {
-        calls.push('generateJson');
-        return { text: '{}', model: 'gemini-2.5-flash', latencyMs: 1, promptTokens: 10, outputTokens: 5 };
-      },
+      generateJson: answer,
+      // Required since #183. This double answers the same way either way, so
+      // the spy counts a call however it was made.
+      generateStructured: answer,
     },
   };
 }

@@ -12,6 +12,8 @@ import { SettingsScreen } from './screens/SettingsScreen';
 import { DetailsScreen } from './screens/DetailsScreen';
 import { CaptureFlow } from './features/capture/CaptureFlow';
 import { CaptureProvider } from './features/capture/CaptureProvider';
+import { ShareProvider } from './features/share/ShareProvider';
+import { ShareScreen } from './screens/ShareScreen';
 import { CloseoutScreen } from './screens/CloseoutScreen';
 import { FirstMoveScreen } from './screens/FirstMoveScreen';
 import { SheetHost } from './screens/Sheets';
@@ -66,64 +68,74 @@ export function Root() {
     // 5): it switches language live, with no restart prompt, and it is the
     // mechanism the round-1 design was verified on. See src/i18n/README.md.
     <CaptureProvider>
-      <View style={{ flex: 1, backgroundColor: p.bg, direction: rtl ? 'rtl' : 'ltr' }}>
-        <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
-        <OfflineBanner />
-        <VerifyEmailBanner />
-        {s.screen === 'today' && <TodayScreen key="today" />}
-        {s.screen === 'calendar' && <CalendarScreen key="calendar" />}
-        {s.screen === 'settings' && <SettingsScreen key="settings" />}
-        {s.screen === 'deleteAccount' && (
-          <DeleteAccountScreen key="deleteAccount" onBack={() => latest.current.go('settings')} />
-        )}
-        {/* Settings sub-screens (UC-2.R4 #174). Each takes the way back rather
-            than reading history: `back()` returns to `prev`, which is Settings
-            for all of these, and Trust for the one reached from it. */}
-        {s.screen === 'trust' && (
-          <TrustScreen
-            key="trust"
-            onBack={() => latest.current.go('settings')}
-            onKnows={() => latest.current.go('knows')}
-          />
-        )}
-        {s.screen === 'knows' && (
-          <KnowsScreen
-            key="knows"
-            onBack={() => latest.current.go('trust')}
-            onMemory={() => latest.current.go('memory')}
-          />
-        )}
-        {s.screen === 'memory' && <MemoryScreen key="memory" onBack={() => latest.current.go('knows')} />}
-        {s.screen === 'feedbackHistory' && (
-          <FeedbackHistoryScreen key="feedbackHistory" onBack={() => latest.current.go('settings')} />
-        )}
-        {s.screen === 'activity' && (
-          <ActivityScreen key="activity" onBack={() => latest.current.go('settings')} />
-        )}
-        {s.screen === 'routineSettings' && (
-          <RoutineSettingsScreen key="routineSettings" onBack={() => latest.current.go('settings')} />
-        )}
-        {s.screen === 'notificationsSettings' && (
-          <NotificationsSettingsScreen key="notificationsSettings" onBack={() => latest.current.go('settings')} />
-        )}
-        {s.screen === 'about' && <AboutScreen key="about" onBack={() => latest.current.go('settings')} />}
-        {s.screen === 'details' && <DetailsScreen key="details" />}
-        {/* One entry, three screens derived from the flow's own status
-            (UC-2.R2 #172). `review` and `saved` are no longer app screens: a
-            second place to record which one is showing is a second place for it
-            to be wrong. */}
-        {s.screen === 'capture' && <CaptureFlow key="capture" />}
-        {s.screen === 'closeout' && <CloseoutScreen key="closeout" />}
-        {s.screen === 'firstmove' && <FirstMoveScreen key="firstmove" />}
-        {__DEV__ && s.screen === 'gallery' && <Gallery key="gallery" />}
-        {/* Two independent gates: the flag, and the release guard that refuses
-            to configure a staging or production build which sets it (#152). */}
-        {googleCalendarDemoEnabled() && s.screen === 'calendarDemo' && (
-          <CalendarDemoScreen key="calendarDemo" onBack={() => latest.current.go('settings')} />
-        )}
-        {tabScreens.includes(s.screen) && <TabBar />}
-        <SheetHost key={s.sheet ?? 'none'} />
-      </View>
+      {/* `ShareProvider` is inside `CaptureProvider` and inside `Root`
+          (UC-3.0, #183). Inside `CaptureProvider` because a successful analyze
+          hands its proposal to the capture flow, so review and confirm are the
+          same code for a shared chat as for a typed sentence. Inside `Root`
+          because Root renders only for a signed-in user: a share that arrives
+          while nobody is signed in stays in the native module until they are,
+          and signing out unmounts this and deletes the copies the OS made. */}
+      <ShareProvider>
+        <View style={{ flex: 1, backgroundColor: p.bg, direction: rtl ? 'rtl' : 'ltr' }}>
+          <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
+          <OfflineBanner />
+          <VerifyEmailBanner />
+          {s.screen === 'today' && <TodayScreen key="today" />}
+          {s.screen === 'calendar' && <CalendarScreen key="calendar" />}
+          {s.screen === 'settings' && <SettingsScreen key="settings" />}
+          {s.screen === 'deleteAccount' && (
+            <DeleteAccountScreen key="deleteAccount" onBack={() => latest.current.go('settings')} />
+          )}
+          {/* Settings sub-screens (UC-2.R4 #174). Each takes the way back rather
+              than reading history: `back()` returns to `prev`, which is Settings
+              for all of these, and Trust for the one reached from it. */}
+          {s.screen === 'trust' && (
+            <TrustScreen
+              key="trust"
+              onBack={() => latest.current.go('settings')}
+              onKnows={() => latest.current.go('knows')}
+            />
+          )}
+          {s.screen === 'knows' && (
+            <KnowsScreen
+              key="knows"
+              onBack={() => latest.current.go('trust')}
+              onMemory={() => latest.current.go('memory')}
+            />
+          )}
+          {s.screen === 'memory' && <MemoryScreen key="memory" onBack={() => latest.current.go('knows')} />}
+          {s.screen === 'feedbackHistory' && (
+            <FeedbackHistoryScreen key="feedbackHistory" onBack={() => latest.current.go('settings')} />
+          )}
+          {s.screen === 'activity' && (
+            <ActivityScreen key="activity" onBack={() => latest.current.go('settings')} />
+          )}
+          {s.screen === 'routineSettings' && (
+            <RoutineSettingsScreen key="routineSettings" onBack={() => latest.current.go('settings')} />
+          )}
+          {s.screen === 'notificationsSettings' && (
+            <NotificationsSettingsScreen key="notificationsSettings" onBack={() => latest.current.go('settings')} />
+          )}
+          {s.screen === 'about' && <AboutScreen key="about" onBack={() => latest.current.go('settings')} />}
+          {s.screen === 'details' && <DetailsScreen key="details" />}
+          {/* One entry, three screens derived from the flow's own status
+              (UC-2.R2 #172). `review` and `saved` are no longer app screens: a
+              second place to record which one is showing is a second place for it
+              to be wrong. */}
+          {s.screen === 'capture' && <CaptureFlow key="capture" />}
+          {s.screen === 'share' && <ShareScreen key="share" />}
+          {s.screen === 'closeout' && <CloseoutScreen key="closeout" />}
+          {s.screen === 'firstmove' && <FirstMoveScreen key="firstmove" />}
+          {__DEV__ && s.screen === 'gallery' && <Gallery key="gallery" />}
+          {/* Two independent gates: the flag, and the release guard that refuses
+              to configure a staging or production build which sets it (#152). */}
+          {googleCalendarDemoEnabled() && s.screen === 'calendarDemo' && (
+            <CalendarDemoScreen key="calendarDemo" onBack={() => latest.current.go('settings')} />
+          )}
+          {tabScreens.includes(s.screen) && <TabBar />}
+          <SheetHost key={s.sheet ?? 'none'} />
+        </View>
+      </ShareProvider>
     </CaptureProvider>
   );
 }

@@ -24,7 +24,9 @@ export type LlmPurpose =
   | 'profile_extraction'
   | 'importance_estimate'
   /** Narrating a plan the deterministic scheduler already produced (#194). */
-  | 'plan_explanation';
+  | 'plan_explanation'
+  /** One shared thing, read once (UC-3.0, #183). */
+  | 'share_extraction';
 
 export type LlmProviderName = 'gemini' | 'ollama' | 'none';
 
@@ -48,9 +50,120 @@ export interface LlmResponse {
   outputTokens: number;
 }
 
+/**
+ * What an inline part may be (UC-3.0, #183).
+ *
+ * A closed list, and deliberately not `string`. Vertex accepts a `mimeType` on
+ * an inline part and does nothing to check it against the bytes; the type that
+ * gets here has already been sniffed from the bytes by
+ * `lib/services/share/mediaType.ts`, and narrowing it to what the model can
+ * actually read is what keeps a renamed file from being handed to Gemini as
+ * whatever its name claimed.
+ */
+export type LlmInlineMediaType =
+  | 'image/jpeg'
+  | 'image/png'
+  | 'image/webp'
+  | 'image/heic'
+  | 'image/heif'
+  | 'application/pdf';
+
+/**
+ * One piece of a multipart request.
+ *
+ * `text` is content, never instructions: the instructions are the request's
+ * `system`, exactly as they are for `generateJson`. A caller that puts its
+ * rules in a text part has put them in the turn the prompt itself declares
+ * untrusted, which is the defect `splitPrompt` exists to prevent.
+ */
+export type LlmPart =
+  | { readonly kind: 'text'; readonly text: string }
+  | {
+      readonly kind: 'inlineData';
+      readonly mediaType: LlmInlineMediaType;
+      /** Request memory only. The caller zeroes it once the call has answered. */
+      readonly data: Uint8Array;
+    };
+
+/**
+ * A request that can carry bytes (UC-3.0, #183).
+ *
+ * Separate from `LlmRequest` rather than a widening of it, because the two are
+ * genuinely different asks: `generateJson` takes one untrusted string that the
+ * prompt builder has already framed, and this takes an ordered list of parts
+ * the caller assembled. Folding them together would make `user` optional on
+ * every existing call site for the benefit of one new one.
+ */
+export interface LlmStructuredRequest {
+  /** Instructions the model is to follow. Never user content. */
+  system: string;
+  /** Content, in order. At least one part. */
+  parts: readonly LlmPart[];
+  /** The shape the answer must take, in the dialect the provider accepts. */
+  responseSchema: object;
+  purpose: LlmPurpose;
+  /** Whose request this is. Used for the cost guard and the log's uid hash. */
+  uid: string;
+  /**
+   * The ceiling on the answer. Optional because most callers want the default;
+   * present because a page of shared chat yields more items than one sentence
+   * does, and a truncated answer is an `empty_response` rather than a short one.
+   */
+  maxOutputTokens?: number;
+  /**
+   * How long to wait, in milliseconds (UC-3.0, #183).
+   *
+   * Present for the same reason `maxOutputTokens` is. `generateJson` sends one
+   * sentence and 8 s of silence means the provider is not going to answer; this
+   * can carry megabytes of inline image or PDF, which has to be uploaded before
+   * the model begins. Sharing the text deadline would make every large share
+   * time out and be reported as an outage. Defaults to
+   * `DEFAULT_STRUCTURED_TIMEOUT_MS`.
+   */
+  timeoutMs?: number;
+  /** Aborted when the caller's request is. */
+  signal?: AbortSignal;
+}
+
 export interface LlmProvider {
   name: LlmProviderName;
   generateJson(request: LlmRequest): Promise<LlmResponse>;
+  /**
+   * The multipart call (UC-3.0, #183).
+   *
+   * **Required, not optional.** An optional method would mean every wrapper
+   * that forgot it — the consent gate above all — silently became a provider
+   * with no structured path, and the failure would look like "the model does
+   * not support images" rather than "the gate does not gate this call".
+   * `structuredFromJson` below makes a text-only implementation one line, so
+   * requiring it costs a wrapper nothing.
+   */
+  generateStructured(request: LlmStructuredRequest): Promise<LlmResponse>;
+}
+
+/**
+ * A `generateStructured` for a provider that only speaks text.
+ *
+ * Text parts are joined and sent through `generateJson`; a binary part is
+ * refused rather than dropped. Dropping it would send the model a request
+ * missing the only thing it was asked about and return a confident answer
+ * about nothing.
+ */
+export function structuredFromJson(
+  generateJson: (request: LlmRequest) => Promise<LlmResponse>,
+): (request: LlmStructuredRequest) => Promise<LlmResponse> {
+  return async (request: LlmStructuredRequest) => {
+    if (request.parts.some((part) => part.kind !== 'text')) {
+      throw new LLMUnavailableError('inline_data_unsupported');
+    }
+    return generateJson({
+      system: request.system,
+      user: request.parts.map((part) => (part.kind === 'text' ? part.text : '')).join('\n\n'),
+      responseSchema: request.responseSchema,
+      purpose: request.purpose,
+      uid: request.uid,
+    });
+  };
 }
 
 /**
@@ -96,6 +209,9 @@ export class LLMUnavailableError extends Error {
 export const NONE_PROVIDER: LlmProvider = {
   name: 'none',
   async generateJson() {
+    throw new LLMUnavailableError('provider_none', 'no hosted model is configured');
+  },
+  async generateStructured() {
     throw new LLMUnavailableError('provider_none', 'no hosted model is configured');
   },
 };
