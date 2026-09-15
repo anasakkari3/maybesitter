@@ -459,7 +459,7 @@ describe('a chat archive is read before it is uploaded', () => {
     // The file, not the transcript this phone just read out of it. The server
     // classifies from the bytes it receives; a client that sent its own
     // transcript would be a client the server had to believe.
-    const sent = propose.mock.calls[0]![0] as { files: { uri: string }[] };
+    const sent = propose.mock.calls[0]![0];
     expect(sent.files).toEqual([{ uri: ARCHIVE_URI, name: 'WhatsApp Chat with Dana.zip', type: 'application/zip' }]);
   });
 
