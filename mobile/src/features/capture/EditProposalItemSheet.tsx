@@ -43,7 +43,7 @@ export function EditProposalItemSheet({
   onChange(next: CaptureItemEdit): void;
   onClose(): void;
 }) {
-  const { t, p, rtl, script, lang } = useApp();
+  const { t, p, rtl, script, lang, scheme } = useApp();
   const timezone = useTimeZone();
 
   const originalLocal = item.resolvedTime ? localDateTimeFor(new Date(item.resolvedTime), timezone) : '';
@@ -160,17 +160,23 @@ export function EditProposalItemSheet({
           testID="edit-item-picker"
           value={pickerValue}
           mode={picking}
-          // 24-hour follows the locale rather than the platform default, the
-          // same way `formatTime` does, so the sheet and the card agree.
-          is24Hour={!`${new Intl.DateTimeFormat(lang, { hour: 'numeric' }).resolvedOptions().hourCycle}`.startsWith('h1')}
+          // Always 24-hour, because `formatTime` is always 24-hour: it sets
+          // `hourCycle: 'h23'` unconditionally, in all three languages, so the
+          // button beside this wheel reads "18:00" whatever the locale would
+          // have preferred. Asking the locale drew a 12-hour wheel in `ar` and
+          // `en` next to a 24-hour label.
+          is24Hour
+          // The native picker's own chrome is light unless told otherwise, and
+          // unreadable inside a dark sheet.
+          themeVariant={scheme}
           display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-          onChange={(_event, picked) => {
+          onChange={(event, picked) => {
             setPicking(Platform.OS === 'ios' ? picking : null);
-            if (picked) {
-              setLocal(localDateTimeFor(picked, timezone));
-              // Their answer to the complaint; judged again on Save.
-              setPastTime(false);
-            }
+            // A dismiss on Android carries the value the picker opened with.
+            if (event.type === 'dismissed' || !picked) return;
+            setLocal(localDateTimeFor(picked, timezone));
+            // Their answer to the complaint; judged again on Save.
+            setPastTime(false);
           }}
         />
       ) : null}
