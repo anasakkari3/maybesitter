@@ -13,6 +13,7 @@ import { SwipeableRow, useRowActions } from '../features/commitments/RowActions'
 import { postponeTo } from '../features/commitments/postpone';
 import { whyFirstLine } from '../features/commitments/whyFirst';
 import { NextStepCard } from '../features/nextStep/NextStepCard';
+import { TodayPlanCard } from '../features/plan/TodayPlanCard';
 import { Btn, Card, Pill, Txt } from '../ui/primitives';
 import { CheckIcon, Glow } from '../ui/icons';
 import { ScreenIn } from '../ui/motion';
@@ -89,8 +90,10 @@ export function TodayScreen() {
           <Txt size={28} weight={600} lh={1.3}>{t.todayTitle}</Txt>
         </View>
 
-        {/* Above the groups, and outside Today's own boundary: a next step
-            that fails to load must not take the day's list down with it. */}
+        {/* Above the groups, and outside Today's own boundary: neither a next
+            step nor a morning plan that fails to load may take the day's list
+            down with it. Both render nothing rather than an error. */}
+        <TodayPlanCard />
         <NextStepCard />
 
         <QueryBoundary isPending={today.isPending} error={today.error} onRetry={() => void today.refetch()}>

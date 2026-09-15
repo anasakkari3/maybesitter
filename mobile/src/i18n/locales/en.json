@@ -668,4 +668,5 @@
   "planMorningTime": "Arrives at",
   "planMorningNext": "Next one: {when}",
   "planMorningOff": "Off"
+  "planCardPlaced": "{n, plural, =0{Your day is laid out} one{One thing placed today} other{# things placed today}}",
 }

@@ -35,6 +35,14 @@ export const ANALYTICS_EVENT_NAMES = [
   // five-second window on the device and may delete nothing at all. Both carry
   // counts and nothing else.
   'capture_confirmed', 'capture_undone',
+  // Additive UC-3.10b (#195): what somebody did with the plan they were shown.
+  //
+  // Every one of these is content-free by construction — counts, a generation
+  // number, and two small enumerations. No title, no item id, no explanation
+  // text. The plan's item ids *are* commitment ids, so they are left out
+  // altogether rather than allowlisted: "which commitments are in your morning"
+  // is the shape of the thing this product does not collect.
+  'plan_opened', 'plan_accepted', 'plan_edited', 'plan_regenerated', 'plan_dismissed',
 ] as const;
 
 export type AnalyticsEventName = typeof ANALYTICS_EVENT_NAMES[number];

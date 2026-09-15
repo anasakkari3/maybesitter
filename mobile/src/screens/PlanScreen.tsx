@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, ScrollView, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -8,7 +8,15 @@ import { ScreenIn } from '../ui/motion';
 import { SettingsHeader } from '../features/settings/SettingsChrome';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
 import { useIsOnline } from '../api/ui/OfflineBanner';
-import { usePlan, usePlanAction, usePlanEdit, usePlanSettings, useRegeneratePlan } from '../api/queries';
+import {
+  useAnalyticsConsent,
+  usePlan,
+  usePlanAction,
+  usePlanEdit,
+  usePlanSettings,
+  useRecordAnalytics,
+  useRegeneratePlan,
+} from '../api/queries';
 import { QuotaExceededError } from '../api/errors';
 import { userFacingMessage } from '../api/ui/userFacingMessage';
 import type { DailyPlan, PlanItem } from '../api/schemas/plan';
@@ -20,6 +28,13 @@ import { editRefusalOf, unplacedReason } from '../features/plan/reasons';
 import { canRegenerate, rebuildsLeft } from '../features/plan/regenerateCap';
 import { moveKeepingLength } from '../features/plan/optimisticEdit';
 import { useOneAtATime } from '../features/plan/oneAtATime';
+import {
+  reportPlanDecision,
+  reportPlanEdited,
+  reportPlanOpened,
+  reportPlanRegenerated,
+  type PlanReporter,
+} from '../features/plan/planAnalytics';
 
 /**
  * Today's plan (UC-3.10b, #195).
@@ -142,6 +157,30 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
   const zone = plan.timezone;
 
   /*
+   * Analytics (#195 step 7), consent-gated and content-free.
+   *
+   * `useAnalyticsConsent` reads the trust record only when something is about
+   * to be reported, and fails closed. The reporter is held in a ref so that
+   * neither it nor the hooks it closes over can retrigger the effect below —
+   * `plan_opened` is about the plan being put on screen, not about how many
+   * times React re-rendered it.
+   */
+  const analyticsConsent = useAnalyticsConsent();
+  const recordAnalytics = useRecordAnalytics();
+  const reporter = useRef<PlanReporter>({ analyticsConsent, report: () => {} });
+  reporter.current = {
+    analyticsConsent,
+    report: event => recordAnalytics.mutate(event),
+  };
+
+  // One per plan the screen actually shows. `date` rather than the plan object:
+  // accepting rewrites the cached plan, and that is not a second opening.
+  useEffect(() => {
+    void reportPlanOpened(plan, reporter.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [date]);
+
+  /*
    * One tap, one request — enforced with refs rather than with `isPending`.
    *
    * `disabled` is a render behind the state it reads, so three fast taps on
@@ -155,7 +194,12 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
 
   const send = (action: 'accept' | 'dismiss') => {
     if (!accepting.enter()) return;
-    accept.mutate(action, { onSettled: accepting.leave });
+    accept.mutate(action, {
+      // Reported from the plan the server answered with, not the one on screen
+      // when the button was pressed.
+      onSuccess: settledPlan => void reportPlanDecision(action, settledPlan, reporter.current),
+      onSettled: accepting.leave,
+    });
   };
 
   const refusal = editRefusalOf(edit.error);
@@ -232,16 +276,26 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
               onMove={startsAt => {
                 if (!editing.enter()) return;
                 edit.reset();
-                edit.mutate({ moves: [moveKeepingLength(item, startsAt)] }, {
-                  onSuccess: () => setOpenItem(null),
+                const moving = { moves: [moveKeepingLength(item, startsAt)] };
+                edit.mutate(moving, {
+                  onSuccess: () => {
+                    setOpenItem(null);
+                    void reportPlanEdited(moving, null, reporter.current);
+                  },
+                  onError: error => void reportPlanEdited(moving, error, reporter.current),
                   onSettled: editing.leave,
                 });
               }}
               onRemove={() => {
                 if (!editing.enter()) return;
                 edit.reset();
-                edit.mutate({ removals: [item.itemId] }, {
-                  onSuccess: () => setOpenItem(null),
+                const removing = { removals: [item.itemId] };
+                edit.mutate(removing, {
+                  onSuccess: () => {
+                    setOpenItem(null);
+                    void reportPlanEdited(removing, null, reporter.current);
+                  },
+                  onError: error => void reportPlanEdited(removing, error, reporter.current),
                   onSettled: editing.leave,
                 });
               }}
@@ -307,7 +361,10 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
             disabled={readOnly || rebuild.isPending || capReached}
             onPress={() => {
               if (!rebuilding.enter()) return;
-              rebuild.mutate(undefined, { onSettled: rebuilding.leave });
+              rebuild.mutate(undefined, {
+                onSuccess: rebuilt => void reportPlanRegenerated(rebuilt, reporter.current),
+                onSettled: rebuilding.leave,
+              });
             }}
           />
           <Pill
