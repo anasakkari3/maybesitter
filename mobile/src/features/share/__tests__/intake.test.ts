@@ -208,6 +208,27 @@ describe('where it came from', () => {
     expect(sourceHintFor([], 'Call the dentist tomorrow')).toBe('unknown');
   });
 
+  it('reads the shape of an email out of shared text with no file at all (#192)', () => {
+    // A selection out of Gmail or Apple Mail arrives as bare text: no file, no
+    // name, nothing to read but the shape. `emailTextDetector.ts` decides, and
+    // it is the same predicate the server runs.
+    const selection = [
+      'From: Office <office@school.example>',
+      'Subject: Consent form',
+      '',
+      'Dear Anas,',
+      '',
+      'Please return the form by Monday.',
+      '',
+      'Best regards,',
+      'Dana',
+    ].join('\n');
+    expect(sourceHintFor([], selection)).toBe('email');
+    // And a typed sentence with somebody's address in it is not an email. One
+    // signal is not two, which is the whole reason the detector needs two.
+    expect(sourceHintFor([], 'Email dana@example.com about the form')).toBe('unknown');
+  });
+
   it('is only ever a hint, and never decides anything on its own', () => {
     // The kind comes from the bytes, on the server. A `.jpg` shared out of
     // WhatsApp is still `images`.
