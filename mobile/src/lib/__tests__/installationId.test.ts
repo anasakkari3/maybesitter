@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from '@jest/globals';
+import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import * as SecureStore from 'expo-secure-store';
 import {
   forgetInstallationId,
@@ -27,6 +27,30 @@ describe('minting', () => {
     const id = await installationId();
     expect(id).toMatch(UUID);
     expect(await SecureStore.getItemAsync(INSTALLATION_ID_KEY)).toBe(id);
+  });
+
+  it('keeps the entry off iCloud Keychain, so two phones stay two rows', async () => {
+    /*
+     * `WHEN_UNLOCKED_THIS_DEVICE_ONLY` is the whole of it.
+     *
+     * A synced keychain item would arrive on the user's second phone holding
+     * the first one's installation id, the two would collapse onto one
+     * `users/{uid}/devices/{id}` row, and whichever registered second would
+     * silently take every push away from the other. Nothing about that failure
+     * is visible on either device.
+     */
+    const write = jest.spyOn(SecureStore, 'setItemAsync');
+    const read = jest.spyOn(SecureStore, 'getItemAsync');
+
+    await installationId();
+
+    for (const call of [...write.mock.calls, ...read.mock.calls]) {
+      expect(call[call.length - 1]).toMatchObject({
+        keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+      });
+    }
+    expect(write).toHaveBeenCalledTimes(1);
+    jest.restoreAllMocks();
   });
 
   it('returns the same id on the next call, and after a relaunch', async () => {

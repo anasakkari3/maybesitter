@@ -154,8 +154,8 @@ describe('signing out', () => {
 
 describe('what the module may import', () => {
   it('never reaches a native module at load', () => {
-    // Every native import in this file is dynamic, because the module is
-    // reachable from a component tree that unit tests render. A static
+    // Every native module in this file is resolved at use, because the module
+    // is reachable from a component tree that unit tests render. A static
     // `@react-native-firebase/messaging` import would fail those on load.
     jest.isolateModules(() => {
       expect(() => require('../pushRegistration')).not.toThrow();

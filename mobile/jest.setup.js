@@ -138,6 +138,11 @@ jest.mock('@react-native-firebase/crashlytics', () => ({
 // `RemindersMount` render. A test that reached the real module would get
 // nothing scheduled, not a silently working scheduler.
 jest.mock('expo-notifications', () => ({
+  // `__esModule` so `import * as X` and `require('X')` are the SAME object.
+  // Without it Babel's interop hands an `import *` a *copy*, and a
+  // `jest.spyOn` on that copy is invisible to production code that resolves
+  // the module with `require` (`src/notifications/nativeModules.ts`).
+  __esModule: true,
   setNotificationHandler: () => {},
   setNotificationCategoryAsync: async () => null,
   setNotificationChannelAsync: async () => null,
@@ -160,6 +165,7 @@ jest.mock('expo-notifications', () => ({
 jest.mock('expo-secure-store', () => {
   const store = new Map();
   return {
+    __esModule: true,
     WHEN_UNLOCKED_THIS_DEVICE_ONLY: 'whenUnlockedThisDeviceOnly',
     getItemAsync: async (key) => (store.has(key) ? store.get(key) : null),
     setItemAsync: async (key, value) => {
@@ -177,6 +183,7 @@ jest.mock('expo-secure-store', () => {
 // dependencies, so the real behaviour is exercised in
 // `src/notifications/__tests__/pushRegistration.test.ts` against fakes.
 jest.mock('@react-native-firebase/messaging', () => ({
+  __esModule: true,
   getMessaging: () => ({}),
   getToken: async () => null,
   deleteToken: async () => null,
