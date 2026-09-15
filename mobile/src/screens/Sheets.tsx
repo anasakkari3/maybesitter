@@ -7,6 +7,7 @@ import { ltr } from '../i18n/strings';
 import { useTimeZone } from '../i18n/timezone';
 import { formatDate, formatRelativeDay, formatTime } from '../i18n/format';
 import { useCommitment, useCommitmentAction, useDeleteCommitment, usePatchCommitment } from '../api/queries';
+import { userFacingMessage } from '../api/ui/userFacingMessage';
 import { POSTPONE_PRESETS, isPostponable, postponeTo, type PostponePreset } from '../features/commitments/postpone';
 import { buildTimePatch } from '../features/commitments/timePatch';
 import { instantForLocalDateTime, localDateTimeFor } from '../features/capture/localInstant';
@@ -62,9 +63,24 @@ import { useSheetMotion } from '../ui/motion';
  * pressed, because reading the clock in a render body is an impure call the
  * compiler rules refuse, and because pressing it is the moment the answer
  * matters. The refusal is visible and localised; nothing is sent.
+ *
+ * `minimumDate` is the other half of that: the wheel itself does not offer a
+ * time that has gone, so the refusal is the belt to that pair of braces rather
+ * than the only thing standing between the user and a 400. `postpone.ts` says
+ * it plainly — a picker that lets somebody choose yesterday and then fails is a
+ * worse version of a picker that does not.
+ *
+ * ── A failure is said out loud ───────────────────────────────────
+ *
+ * The presets cannot draw the server's past-time 400, so until this picker
+ * existed a postpone had no realistic failure to render. It does now, and a
+ * write that fails silently reads as a write that worked. The refusal slot
+ * shows either — the client's own complaint first, then whatever the request
+ * came back with, through `userFacingMessage`, which is the only copy table a
+ * failure is allowed to use.
  */
 function PostponeSheet() {
-  const { s, t, p, lang, actions } = useApp();
+  const { s, t, p, lang, scheme, actions } = useApp();
   const timezone = useTimeZone();
   const query = useCommitment(s.detailId);
   const act = useCommitmentAction();
@@ -76,7 +92,23 @@ function PostponeSheet() {
   const [picking, setPicking] = useState<'date' | 'time' | null>(null);
   const [pastTime, setPastTime] = useState(false);
   const custom = local !== '';
-  const instant = custom ? instantForLocalDateTime(local, timezone) : null;
+  // Memoised on the two things it reads. It is the only zone conversion on this
+  // screen, and while the picker is open the sheet re-renders on every turn of
+  // the wheel.
+  const instant = React.useMemo(
+    () => (local === '' ? null : instantForLocalDateTime(local, timezone)),
+    [local, timezone],
+  );
+
+  // Read when the picker opens rather than on every render: a `minimumDate`
+  // whose milliseconds move each frame is a new native prop on every turn of
+  // the wheel.
+  const notBefore = React.useMemo(() => (picking === null ? null : new Date()), [picking]);
+
+  // The client's own refusal wins: it is about the time still on the wheel,
+  // while `act.error` is about a request that has already gone. Derived rather
+  // than stored, so switching language re-reads both in the new one.
+  const problem = pastTime ? t.editItemPast : act.error ? userFacingMessage(act.error, t) : null;
 
   const send = (until: string) => {
     const id = query.data?.id;
@@ -154,27 +186,41 @@ function PostponeSheet() {
             </Btn>
           </View>
 
-          {picking ? (
+          {/* `notBefore` is set with `picking` and narrowed with it, so the
+              picker never takes a `minimumDate` of `undefined`. */}
+          {picking && notBefore ? (
             <DateTimePicker
               testID="postpone-picker"
               value={instant ?? new Date()}
               mode={picking}
-              // 24-hour follows the locale rather than the platform default,
-              // the same way `formatTime` does, so the sheet and the card agree.
-              is24Hour={!`${new Intl.DateTimeFormat(lang, { hour: 'numeric' }).resolvedOptions().hourCycle}`.startsWith('h1')}
+              // Always 24-hour, because `formatTime` is always 24-hour: it sets
+              // `hourCycle: 'h23'` unconditionally, in all three languages, so
+              // the button beside this wheel reads "18:00" whatever the locale
+              // would have preferred. A wheel that asked the locale disagreed
+              // with that button in `ar` and `en`, which are the two locales
+              // `Intl` answers `h12` for — and Arabic is the default.
+              is24Hour
+              // Without it the native picker draws its own light chrome inside
+              // a dark sheet, which is unreadable. `scheme` is what the rest of
+              // the app is painted from, so it is what this follows.
+              themeVariant={scheme}
+              // The wheel does not offer a time that has gone.
+              minimumDate={notBefore}
               display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-              onChange={(_event, picked) => {
+              onChange={(event, picked) => {
                 setPicking(Platform.OS === 'ios' ? picking : null);
-                if (picked) {
-                  setLocal(localDateTimeFor(picked, timezone));
-                  // Their answer to the complaint; judged again on confirm.
-                  setPastTime(false);
-                }
+                // Android hands a dismiss the value the picker opened with, so
+                // a truthy `picked` is not an answer. Clearing the complaint on
+                // a cancel would drop it while the time it named is still set.
+                if (event.type === 'dismissed' || !picked) return;
+                setLocal(localDateTimeFor(picked, timezone));
+                // Their answer to the complaint; judged again on confirm.
+                setPastTime(false);
               }}
             />
           ) : null}
 
-          {pastTime ? <Txt size={13} color={p.wm} testID="postpone-problem">{t.editItemPast}</Txt> : null}
+          {problem ? <Txt size={13} color={p.wm} testID="postpone-problem">{problem}</Txt> : null}
 
           <Pill
             testID="postpone-custom-confirm"
@@ -264,7 +310,7 @@ const PRESET_LABEL = (t: Strings): Record<PostponePreset, string> => ({
  * device has already moved past is refused rather than silently winning.
  */
 function EditSheet() {
-  const { s, t, p, ar, lang, actions } = useApp();
+  const { s, t, p, ar, lang, scheme, actions } = useApp();
   const timezone = useTimeZone();
   const query = useCommitment(s.detailId);
   const patch = usePatchCommitment();
@@ -386,17 +432,25 @@ function EditSheet() {
           testID="edit-picker"
           value={instant ?? new Date()}
           mode={picking}
-          // 24-hour follows the locale rather than the platform default, the
-          // same way `formatTime` does, so the sheet and the card agree.
-          is24Hour={!`${new Intl.DateTimeFormat(lang, { hour: 'numeric' }).resolvedOptions().hourCycle}`.startsWith('h1')}
+          // Always 24-hour, for the reason the postpone sheet above gives:
+          // `formatTime` sets `hourCycle: 'h23'` unconditionally, so the button
+          // beside this wheel reads "18:00" in every language.
+          is24Hour
+          // The native picker's own chrome is light unless told otherwise, and
+          // unreadable inside a dark sheet.
+          themeVariant={scheme}
+          // No `minimumDate` here, deliberately. This sheet edits an item that
+          // may already have a time in the past, and the date it opens on would
+          // then be below its own minimum. The past is refused on Save, where
+          // the sheet can tell a time the user picked from one that was there.
           display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-          onChange={(_event, picked) => {
+          onChange={(event, picked) => {
             setPicking(Platform.OS === 'ios' ? picking : null);
-            if (picked) {
-              setLocal(localDateTimeFor(picked, timezone));
-              // Their answer to the complaint; judged again on Save.
-              setPastTime(false);
-            }
+            // A dismiss on Android carries the value the picker opened with.
+            if (event.type === 'dismissed' || !picked) return;
+            setLocal(localDateTimeFor(picked, timezone));
+            // Their answer to the complaint; judged again on Save.
+            setPastTime(false);
           }}
         />
       ) : null}

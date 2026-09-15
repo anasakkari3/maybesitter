@@ -50,9 +50,24 @@ const ID = 'c-42';
 const SOON = new Date(Date.now() + 5 * 24 * 3600_000);
 const LONG_PAST = new Date('2020-01-02T09:00:00.000Z');
 
+/**
+ * The zone the app believes it is in, and the one thing this file changes per
+ * test.
+ *
+ * A round trip through `localDateTimeFor` and `instantForLocalDateTime` returns
+ * what it was given for *any* zone, so an assertion shaped like one proves
+ * nothing about which zone was used — least of all here, where the host is
+ * `Asia/Hebron` and the mocked zone was `Asia/Jerusalem`, the same offset.
+ * `Pacific/Kiritimati` is +14 with no DST: no host runs there, and the
+ * conversion is arithmetic this file can do itself.
+ */
+let mockZone = 'Asia/Jerusalem';
+const FAR_ZONE = 'Pacific/Kiritimati';
+const FAR_OFFSET_MS = 14 * 3600_000;
+
 jest.mock('../../i18n/timezone', () => ({
   ...(jest.requireActual('../../i18n/timezone') as object),
-  useTimeZone: () => 'Asia/Jerusalem',
+  useTimeZone: () => mockZone,
 }));
 
 let client: QueryClient;
@@ -99,6 +114,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  mockZone = 'Asia/Jerusalem';
   client.clear();
   resetAuthForTests();
   jest.restoreAllMocks();
@@ -192,22 +208,34 @@ describe('the custom option', () => {
 });
 
 describe('a custom time the user picked', () => {
-  it('is postponed to the exact instant, in the user’s zone', async () => {
+  it('is postponed to the exact instant, in the user’s zone and not the host’s', async () => {
+    // +14, where nothing running this test can be.
+    mockZone = FAR_ZONE;
     const act = jest.spyOn(commitmentEndpoints, 'actOnCommitment')
       .mockResolvedValue({ data: { success: true, id: ID, commitment: commitment() }, etag: 'W/"v2"' } as never);
     await openCustom();
 
-    const chosen = new Date(SOON.getTime() + 26 * 3600_000);
-    await pickTime(chosen);
+    // A day comfortably ahead of whenever this runs, named the way Kiritimati
+    // reads it, so this does not rot when the clock passes it (#382).
+    const day = new Date(Date.now() + FAR_OFFSET_MS + 40 * 86_400_000).toISOString().slice(0, 10);
+    const wall = `${day}T17:45`;
+    // 17:45 on that day in a fixed +14 zone is this instant and no other. It is
+    // computed here by subtracting the offset, never by asking the code under
+    // test, so the assertion below is an absolute answer rather than a round
+    // trip that any zone would satisfy.
+    const expected = new Date(Date.parse(`${wall}:00.000Z`) - FAR_OFFSET_MS).toISOString();
+
+    await pickTime(new Date(expected));
+    // What the sheet reads back is the wall clock the user turned the wheel to.
+    // Parse that string in the host's zone instead and this reads 05:45.
+    expect(String(screen.getByTestId('postpone-custom-time').props.children)).toContain('17:45');
+
     await fireEvent.press(screen.getByTestId('postpone-custom-confirm'));
     await waitFor(() => expect(act).toHaveBeenCalled());
 
     expect(act.mock.calls[0]![1]).toBe('postpone');
     const sent = (act.mock.calls[0]![2] as { postponedUntil: string }).postponedUntil;
-    // The picker's own second is not part of what the user chose: the wall
-    // clock they saw was a minute, and `localInstant.ts` is the one place that
-    // converts it back — the same arithmetic the edit sheet uses.
-    expect(Date.parse(sent)).toBe(chosen.getTime() - (chosen.getTime() % 60_000));
+    expect(sent).toBe(expected);
     expect(screen.queryByTestId('postpone-problem')).toBeNull();
   });
 });
