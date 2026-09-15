@@ -28,9 +28,16 @@
  *
  * ── Nothing is persisted, here or anywhere below ─────────────────
  *
- * No storage import. The bytes never enter JavaScript at all: `apiUpload`
- * passes React Native a `{ uri, name, type }` descriptor and the platform
- * streams the file, so a 15 MB share is never a string in the JS heap.
+ * No storage import. The bytes of a text, PDF or archive share never enter
+ * JavaScript at all: `apiUpload` passes React Native a `{ uri, name, type }`
+ * descriptor and the platform streams the file, so a 15 MB share is never a
+ * string in the JS heap.
+ *
+ * A picture is the one exception, and `prepareImages.ts` is where it happens
+ * and why (UC-3.6, #190): no EXIF may be in the upload, removing a segment
+ * means rewriting the file, and rewriting means reading it. One image at a
+ * time is read, rewritten into the cache directory and dropped; the copies are
+ * deleted alongside the OS's own on every exit from this flow.
  *
  * ── Consent and the flag are both checked before the upload ──────
  *
@@ -52,7 +59,9 @@ import { useAiConsentGranted, useProposeFromShare } from '../../api/queries';
 import { userFacingMessageKey, type UserFacingKey } from '../../api/ui/userFacingMessage';
 import { shareIntakeEnabled } from '../../config/env';
 import { deleteSharedFiles } from '../../lib/shareFiles';
+import { sharedImageBytes } from '../../lib/shareImages';
 import { useCaptureFlow } from '../capture/CaptureProvider';
+import { prepareImages } from './prepareImages';
 import { ShareIntentHost, useNativeShareIntent } from './shareIntentBridge';
 import {
   normalizeShareIntent,
@@ -173,6 +182,8 @@ function ShareIntake({ children }: { children: React.ReactNode }) {
    * function identity changed.
    */
   const held = useRef<SharedPayload | null>(null);
+  /** The stripped copies this share wrote, which nothing else knows about. */
+  const created = useRef<readonly string[]>([]);
   const latest = useRef({ go: actions.go, reset, adoptProposal });
   // Kept current in an effect rather than during render, and declared *first*
   // so the effects below — which run in declaration order within one commit —
@@ -187,7 +198,8 @@ function ShareIntake({ children }: { children: React.ReactNode }) {
    * signs out without touching the screen.
    */
   useEffect(() => () => {
-    deleteSharedFiles(urisOf(held.current));
+    deleteSharedFiles([...urisOf(held.current), ...created.current]);
+    created.current = [];
     held.current = null;
   }, []);
 
@@ -209,7 +221,11 @@ function ShareIntake({ children }: { children: React.ReactNode }) {
 
   /** Deletes the copies this share left behind and forgets it. Idempotent. */
   const clear = useCallback(() => {
-    deleteSharedFiles(urisOf(held.current));
+    // Both sets: the copy the OS made, and the stripped copy `prepareImages`
+    // wrote beside it. Missing the second would leave a photograph in the cache
+    // directory for the life of the install (UC-3.6, #190).
+    deleteSharedFiles([...urisOf(held.current), ...created.current]);
+    created.current = [];
     held.current = null;
     latest.current.reset();
     setPhase({ kind: 'idle' });
@@ -223,10 +239,35 @@ function ShareIntake({ children }: { children: React.ReactNode }) {
     // must not be what decides.
     if (NEEDS_MODEL.has(sending.kind) && aiAsked && !aiGranted) return;
     setPhase({ kind: 'analyzing' });
+
+    /*
+     * Pictures are rewritten before anything leaves the phone (UC-3.6, #190).
+     *
+     * Before `setPhase`'s upload and before any consent or flag question has
+     * been asked of the network, because the criterion is about the *upload*:
+     * a photograph's GPS coordinates that reach the server and are stripped
+     * there have already crossed the network.
+     *
+     * A picture this cannot account for byte by byte refuses the share rather
+     * than uploading it unstripped. The copies made so far are deleted either
+     * way — `created` comes back on both paths for exactly that reason.
+     */
+    let uploading = sending.files;
+    if (sending.kind === 'images') {
+      const stripped = prepareImages(sending.files, sharedImageBytes);
+      if (!stripped.ok) {
+        deleteSharedFiles(stripped.created);
+        setPhase({ kind: 'failed', messageKey: PROBLEM_KEY[stripped.problem] });
+        return;
+      }
+      created.current = stripped.prepared.created;
+      uploading = stripped.prepared.files;
+    }
+
     try {
       const proposal = await propose.mutateAsync({
         ...(sending.text === undefined ? {} : { text: sending.text }),
-        files: sending.files.map((file) => ({
+        files: uploading.map((file) => ({
           uri: file.uri,
           // The server reads the name once to guess a source and then drops it.
           name: file.fileName,
