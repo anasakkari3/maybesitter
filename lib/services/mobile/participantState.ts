@@ -49,12 +49,14 @@ import {
   REMINDERS,
   requireDocId,
   requireUserId,
+  STATS,
   userCol,
   userDoc,
   type StorageReader,
   type StorageTransaction,
 } from '../../storage';
 import { newUserDocument, type UserDocument } from '../../storage/userDocument';
+import { readActivityStats, recordActivityEvents } from '../activity/activityStats';
 import { commitmentValidator } from './commitmentValidator';
 
 export type ParticipantCommandResultType = 'applied' | 'noop' | 'rejected' | 'invalid_transition';
@@ -108,6 +110,11 @@ const PARTICIPANT_COLLECTIONS = [
   ESCALATION_STATES,
   EVENTS,
   RECOMMENDATION_ACTIONS,
+  // The activity counters go with a wipe (UC-3.15, #201). A Moment survives
+  // deleting the *item* it came from, which is what #201 asks for; it does not
+  // survive the person deleting their data, which is a different request and
+  // the one where leaving a count behind would be retention nobody asked for.
+  STATS,
 ] as const;
 
 function cloneState(state: DomainState): DomainState {
@@ -241,9 +248,10 @@ export async function applyParticipantCommands(
   requireUserId(participantId);
   const at = nowIso();
   return getStorage().runTransaction(async (tx) => {
-    const [user, before] = await Promise.all([
+    const [user, before, stats] = await Promise.all([
       tx.get<UserDocument>(userDoc(participantId)),
       loadDomainState(tx, participantId),
+      readActivityStats(tx, participantId),
     ]);
     let candidate = before;
     const events: DomainEvent[] = [];
@@ -253,6 +261,7 @@ export async function applyParticipantCommands(
       events.push(...transition.events);
     }
     writeDomainDiff(tx, participantId, before, candidate, events, user, at);
+    recordActivityEvents(tx, participantId, stats, events);
     return { state: cloneState(candidate) };
   });
 }
@@ -277,9 +286,10 @@ export async function applyParticipantCommand(
   requireUserId(participantId);
   const at = nowIso();
   return getStorage().runTransaction(async (tx) => {
-    const [user, before] = await Promise.all([
+    const [user, before, stats] = await Promise.all([
       tx.get<UserDocument>(userDoc(participantId)),
       loadDomainState(tx, participantId),
+      readActivityStats(tx, participantId),
     ]);
     // Inside the transaction, against the state it just read. A commitment that
     // moves between this check and the commit moves the version the transaction
@@ -296,6 +306,7 @@ export async function applyParticipantCommand(
       const transition = applyDomainCommand(before, command);
       if (!transition.didChange) return noopResult(before, transition.events);
       writeDomainDiff(tx, participantId, before, transition.newState, transition.events, user, at);
+      recordActivityEvents(tx, participantId, stats, transition.events);
       return {
         result: 'applied' as const,
         newState: cloneState(transition.newState),
@@ -370,10 +381,11 @@ export async function commitCaptureConfirmation<T>(
   requireUserId(participantId);
   const at = nowIso();
   return getStorage().runTransaction(async (tx) => {
-    const [proposal, user, before] = await Promise.all([
+    const [proposal, user, before, stats] = await Promise.all([
       tx.get<{ confirmedResult?: T; idempotencyKey?: string }>(proposalPath),
       tx.get<UserDocument>(userDoc(participantId)),
       loadDomainState(tx, participantId),
+      readActivityStats(tx, participantId),
     ]);
 
     // Already confirmed, by an earlier request or by one that committed while
@@ -391,6 +403,7 @@ export async function commitCaptureConfirmation<T>(
       events.push(...transition.events);
     }
     writeDomainDiff(tx, participantId, before, candidate, events, user, at);
+    recordActivityEvents(tx, participantId, stats, events);
     tx.merge<{ confirmedResult: T; idempotencyKey: string }>(proposalPath, { confirmedResult: result, idempotencyKey });
     return { replayed: false, result };
   });

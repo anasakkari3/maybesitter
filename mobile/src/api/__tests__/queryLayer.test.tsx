@@ -79,6 +79,13 @@ describe('query defaults', () => {
   it('keeps query keys scoped to a uid, so two accounts cannot collide', () => {
     expect(queryKeys.today('alice', 'UTC')).not.toEqual(queryKeys.today('blake', 'UTC'));
     expect(queryKeys.today('alice', 'UTC')[1]).toBe('alice');
+    // Activity is a record of what a person did, so an unscoped key here would
+    // be the #148 leak in its most literal form (#201).
+    expect(queryKeys.activity('alice')).not.toEqual(queryKeys.activity('blake'));
+    expect(queryKeys.activity('alice')[1]).toBe('alice');
+    expect(queryKeys.activitySummary('alice', 'current')[1]).toBe('alice');
+    expect(queryKeys.activitySummary('alice', '2026-09-13'))
+      .not.toEqual(queryKeys.activitySummary('alice', '2026-09-20'));
   });
 
   it('agrees with isRetryable', () => {

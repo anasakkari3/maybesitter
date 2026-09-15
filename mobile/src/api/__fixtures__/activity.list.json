@@ -1,0 +1,26 @@
+{
+  "items": [
+    {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "kind": "completed",
+      "at": "2026-08-09T09:00:00.000Z",
+      "commitmentId": "00000000-0000-4000-8000-000000000002",
+      "commitmentTitle": "Call the dentist"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000003",
+      "kind": "confirmed",
+      "at": "2026-08-09T09:00:00.000Z",
+      "commitmentId": "00000000-0000-4000-8000-000000000004",
+      "commitmentTitle": "Call the dentist"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000005",
+      "kind": "captured",
+      "at": "2026-08-09T08:00:00.000Z",
+      "commitmentId": "00000000-0000-4000-8000-000000000006",
+      "commitmentTitle": "Call the dentist"
+    }
+  ],
+  "nextCursor": null
+}

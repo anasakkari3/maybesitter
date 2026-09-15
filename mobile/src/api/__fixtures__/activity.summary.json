@@ -1,0 +1,16 @@
+{
+  "weekStart": "2026-08-09",
+  "completedCount": 0,
+  "plannedDaysCount": 0,
+  "keptCount": 0,
+  "moments": [
+    {
+      "id": "first_capture",
+      "reachedAt": "2026-08-09T08:00:00.000Z"
+    },
+    {
+      "id": "first_done",
+      "reachedAt": "2026-08-09T09:00:00.000Z"
+    }
+  ]
+}

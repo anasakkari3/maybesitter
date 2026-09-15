@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import * as Crypto from 'expo-crypto';
 import { useTimeZone } from '../i18n/timezone';
 import { apiLocale } from '../i18n/locale';
@@ -15,6 +15,7 @@ import {
   type CommitmentAction,
   type CommitmentPatch,
 } from './endpoints/commitments';
+import { getWeeklySummary, listActivity } from './endpoints/activity';
 import { getNextStep, recordNextStepDecision } from './endpoints/nextStep';
 import { getTrust, updateTrust } from './endpoints/trust';
 import { flagAlphaFeedback, getFeedbackHistory, revokeFeedback } from './endpoints/feedback';
@@ -59,6 +60,8 @@ export const queryKeys = {
   feedbackHistory: (uid: string) => ['user', uid, 'feedbackHistory'] as const,
   profile: (uid: string) => ['user', uid, 'profile'] as const,
   memory: (uid: string) => ['user', uid, 'memory'] as const,
+  activity: (uid: string) => ['user', uid, 'activity'] as const,
+  activitySummary: (uid: string, weekStart: string) => ['user', uid, 'activitySummary', weekStart] as const,
 };
 
 /** The signed-in uid, or the one value that can never collide with one. */
@@ -100,6 +103,13 @@ function invalidateCommitments(client: QueryClient, uid: string, id?: string): v
   void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
   void client.invalidateQueries({ queryKey: ['user', uid, 'nextStep'] });
   if (id) void client.invalidateQueries({ queryKey: queryKeys.commitment(uid, id) });
+  // Anything that moves a commitment is, by definition, something that just
+  // happened — so the history and the week's counts are both out of date
+  // (UC-3.15, #201). Both keys are invalidated rather than refetched: Activity
+  // is usually not mounted, and refetching a screen nobody is looking at is a
+  // request for nothing.
+  void client.invalidateQueries({ queryKey: queryKeys.activity(uid) });
+  void client.invalidateQueries({ queryKey: ['user', uid, 'activitySummary'] });
 }
 
 export function useToday() {
@@ -160,6 +170,38 @@ export function useFeedbackHistory() {
   return useQuery({
     queryKey: queryKeys.feedbackHistory(uid),
     queryFn: () => getFeedbackHistory(),
+    enabled: uid !== 'signed-out',
+  });
+}
+
+/**
+ * This account's history, a page at a time (UC-3.15, #201).
+ *
+ * The cursor is the server's own and is only ever echoed. `initialPageParam`
+ * is null — "start at the beginning" — and a page whose `nextCursor` is null
+ * ends the list, which is what stops the infinite scroll rather than a count
+ * the client keeps.
+ */
+export function useActivity() {
+  const uid = useUid();
+  return useInfiniteQuery({
+    queryKey: queryKeys.activity(uid),
+    queryFn: ({ pageParam }) => listActivity({ cursor: pageParam }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last: { nextCursor: string | null }) => last.nextCursor,
+    enabled: uid !== 'signed-out',
+  });
+}
+
+/**
+ * The week's summary. `weekStart` omitted means "the week the server says it
+ * is", which is the only answer two devices in two timezones can agree on.
+ */
+export function useWeeklySummary(weekStart?: string) {
+  const uid = useUid();
+  return useQuery({
+    queryKey: queryKeys.activitySummary(uid, weekStart ?? 'current'),
+    queryFn: () => getWeeklySummary(weekStart),
     enabled: uid !== 'signed-out',
   });
 }

@@ -73,6 +73,10 @@ export type Screen =
   | 'trust'
   | 'knows'
   | 'feedbackHistory'
+  // Settings → Your activity (UC-3.15, #201). A sub-screen rather than a fifth
+  // tab: the tab bar is Today · Calendar · Say it · Settings and what belongs
+  // in it is a design decision, not an implementation detail of this feature.
+  | 'activity'
   | 'routineSettings'
   | 'notificationsSettings'
   | 'about';

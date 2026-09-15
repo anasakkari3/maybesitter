@@ -55,6 +55,8 @@ import {
 } from '../../src/app/api/mobile/commitments/[id]/route.ts';
 import { POST as actionPost } from '../../src/app/api/mobile/commitments/[id]/actions/route.ts';
 import { commitmentValidator } from '../../lib/services/mobile/commitmentValidator.ts';
+import { GET as activityGet } from '../../src/app/api/mobile/activity/route.ts';
+import { GET as activitySummaryGet } from '../../src/app/api/mobile/activity/summary/route.ts';
 import { GET as nextStepGet } from '../../src/app/api/mobile/recommendations/next-step/route.ts';
 import { POST as nextStepActionPost } from '../../src/app/api/mobile/recommendations/next-step/actions/route.ts';
 import { GET as trustGet, POST as trustPost } from '../../src/app/api/mobile/pilot/trust/route.ts';
@@ -308,6 +310,30 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       request(`/api/mobile/commitments/${commitmentId}/actions`, { body: { action: 'complete' } }),
       params(commitmentId),
     ));
+
+    // ── activity (#201) ────────────────────────────────────────────
+    // Read here, after the complete above, so the log already holds a
+    // captured / confirmed / completed entry for a real commitment.
+    const activity = await record('activity.list', 200, await activityGet(
+      request('/api/mobile/activity?limit=50'),
+    ));
+    assert.ok(Array.isArray(activity.items) && (activity.items as unknown[]).length > 0,
+      'the activity fixture must carry at least one entry');
+
+    /*
+     * A fixed `weekStart`, and deliberately one with nothing in it.
+     *
+     * The counts have to be the same on every run, and every event above is
+     * stamped with the real clock — so any week that contained them would
+     * change with the calendar. This is also the state #201 cares most about
+     * the client rendering: a quiet week, with the Moments still there.
+     */
+    const summary = await record('activity.summary', 200, await activitySummaryGet(
+      request('/api/mobile/activity/summary?weekStart=2026-08-09'),
+    ));
+    assert.equal(summary.completedCount, 0);
+    assert.ok(Array.isArray(summary.moments) && (summary.moments as unknown[]).length > 0,
+      'the Moments come from the counter and must survive a week with nothing in it');
 
     await record('commitments.notFound', 404, await commitmentGet(
       request('/api/mobile/commitments/not-a-real-commitment'),

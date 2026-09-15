@@ -21,6 +21,7 @@ import { DeleteAccountScreen } from './screens/DeleteAccountScreen';
 import { TrustScreen } from './features/settings/TrustScreen';
 import { KnowsScreen } from './features/settings/KnowsScreen';
 import { FeedbackHistoryScreen } from './features/settings/FeedbackHistoryScreen';
+import { ActivityScreen } from './features/activity/ActivityScreen';
 import { RoutineSettingsScreen } from './features/settings/RoutineSettingsScreen';
 import { NotificationsSettingsScreen } from './features/settings/NotificationsSettingsScreen';
 import { AboutScreen } from './features/settings/AboutScreen';
@@ -87,6 +88,9 @@ export function Root() {
         {s.screen === 'knows' && <KnowsScreen key="knows" onBack={() => latest.current.go('trust')} />}
         {s.screen === 'feedbackHistory' && (
           <FeedbackHistoryScreen key="feedbackHistory" onBack={() => latest.current.go('settings')} />
+        )}
+        {s.screen === 'activity' && (
+          <ActivityScreen key="activity" onBack={() => latest.current.go('settings')} />
         )}
         {s.screen === 'routineSettings' && (
           <RoutineSettingsScreen key="routineSettings" onBack={() => latest.current.go('settings')} />

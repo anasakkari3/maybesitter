@@ -9,6 +9,7 @@ import { getNextStep, recordNextStepDecision } from '../endpoints/nextStep';
 import { getTrust, updateTrust } from '../endpoints/trust';
 import { flagAlphaFeedback, getFeedbackHistory, revokeFeedback } from '../endpoints/feedback';
 import { recordAnalyticsEvent } from '../endpoints/analytics';
+import { getWeeklySummary, listActivity } from '../endpoints/activity';
 import { buildTimePatch } from '../../features/commitments/timePatch';
 import { nextStepResponseSchema } from '../schemas/nextStep';
 
@@ -220,5 +221,43 @@ describe('trust, feedback and analytics', () => {
     const ack = await recordAnalyticsEvent('reason_opened', { proposalId: 'p1' });
     expect(ack.success).toBe(true);
     expect(ack.recorded).toBe(false);
+  });
+});
+
+describe('activity (#201)', () => {
+  it('reads a page of history and does not send a cursor it does not have', async () => {
+    serve(fixture('activity.list'));
+    const page = await listActivity();
+    expect(requests[0]!.url).toBe('http://localhost:3000/api/mobile/activity');
+    expect(page.items[0]!.kind).toBe('completed');
+    expect(page.nextCursor).toBeNull();
+  });
+
+  it('echoes the server’s cursor back and never builds one', async () => {
+    // The one shape no fixture can carry: the mock adapter serves the same
+    // body for every request, so a fixture with a cursor would make the
+    // infinite scroll ask for the next page forever.
+    serve({ items: [], nextCursor: '2026-09-14T09:00:00.000Z|abc' });
+    const page = await listActivity({ cursor: '2026-09-13T09:00:00.000Z|xyz', limit: 10 });
+    expect(requests[0]!.url).toContain('cursor=2026-09-13T09%3A00%3A00.000Z%7Cxyz');
+    expect(requests[0]!.url).toContain('limit=10');
+    expect(page.nextCursor).toBe('2026-09-14T09:00:00.000Z|abc');
+  });
+
+  it('lets the server decide which week it is unless a week is named', async () => {
+    serve(fixture('activity.summary'));
+    await getWeeklySummary();
+    expect(requests[0]!.url).toBe('http://localhost:3000/api/mobile/activity/summary');
+
+    serve(fixture('activity.summary'));
+    await getWeeklySummary('2026-09-13');
+    expect(requests[1]!.url).toContain('weekStart=2026-09-13');
+  });
+
+  it('reads the Moments the counter answered with, on a week with nothing in it', async () => {
+    serve(fixture('activity.summary'));
+    const summary = await getWeeklySummary('2026-08-09');
+    expect(summary.completedCount).toBe(0);
+    expect(summary.moments.length).toBeGreaterThan(0);
   });
 });

@@ -102,6 +102,17 @@ export const PLANS = 'plans';
 export const PLAN_EVENTS = 'planEvents';
 
 /**
+ * The activity counters behind the weekly Moments (UC-3.15, #201).
+ *
+ * A counter rather than a query over the user's items, because a Moment is a
+ * fact about something that happened and deleting the commitment afterwards
+ * must not unhappen it. `users/{uid}/stats/activity` is advanced in the very
+ * transaction that appends the `commitment_completed` event, so the count and
+ * the log cannot disagree; see lib/services/activity/activityStats.
+ */
+export const STATS = 'stats';
+
+/**
  * Every user-scoped subcollection, so account deletion can be *checked* rather
  * than remembered. `tests/storage/deletionCoverage.test.ts` seeds one document
  * in each and asserts `deleteTree('users/U')` leaves none — a new collection
@@ -135,6 +146,7 @@ export const USER_SCOPED_COLLECTIONS = [
   USAGE,
   PLANS,
   PLAN_EVENTS,
+  STATS,
 ] as const;
 
 /** Operator-only, outside every user tree. */

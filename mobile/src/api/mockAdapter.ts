@@ -27,6 +27,8 @@
  */
 import { apiMode } from '../config/env';
 
+import activityList from './__fixtures__/activity.list.json';
+import activitySummary from './__fixtures__/activity.summary.json';
 import alphaFeedbackFlag from './__fixtures__/alphaFeedback.flag.json';
 import analyticsAck from './__fixtures__/analytics.ack.json';
 import captureConfirmation from './__fixtures__/capture.confirmation.json';
@@ -74,6 +76,15 @@ const ROUTES: [string, RegExp, MockResponse][] = [
 
   ['GET', /^\/api\/mobile\/recommendations\/next-step$/, { status: 200, body: nextStepRecommendation }],
   ['POST', /^\/api\/mobile\/recommendations\/next-step\/actions$/, { status: 200, body: nextStepDecision }],
+
+  /*
+   * The activity fixtures answer `nextCursor: null` (#201). That is not an
+   * accident of the data: this adapter serves the same body for every request,
+   * so a fixture that named a cursor would make the infinite scroll ask for
+   * the next page forever.
+   */
+  ['GET', /^\/api\/mobile\/activity\/summary$/, { status: 200, body: activitySummary }],
+  ['GET', /^\/api\/mobile\/activity$/, { status: 200, body: activityList }],
 
   ['GET', /^\/api\/mobile\/pilot\/trust$/, { status: 200, body: trustState }],
   ['POST', /^\/api\/mobile\/pilot\/trust$/, { status: 200, body: trustUpdated }],
