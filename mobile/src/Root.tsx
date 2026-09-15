@@ -29,6 +29,7 @@ import { RoutineSettingsScreen } from './features/settings/RoutineSettingsScreen
 import { NotificationsSettingsScreen } from './features/settings/NotificationsSettingsScreen';
 import { AboutScreen } from './features/settings/AboutScreen';
 import { googleCalendarDemoEnabled } from './config/env';
+import { RemindersMount } from './features/reminders/RemindersMount';
 import { Gallery } from './design/Gallery';
 
 const tabScreens = ['today', 'calendar', 'settings'];
@@ -80,6 +81,12 @@ export function Root() {
           <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
           <OfflineBanner />
           <VerifyEmailBanner />
+          {/* Notifications, for the whole signed-in session (UC-3.11 #196,
+              UC-3.0b #184): the channels, the push registration, the reminder
+              engine and the tap router. It renders nothing, and it is here
+              rather than on a screen because a reminder has to be scheduled and
+              a tap has to be routed whatever the user is looking at. */}
+          <RemindersMount />
           {s.screen === 'today' && <TodayScreen key="today" />}
           {s.screen === 'calendar' && <CalendarScreen key="calendar" />}
           {s.screen === 'settings' && <SettingsScreen key="settings" />}

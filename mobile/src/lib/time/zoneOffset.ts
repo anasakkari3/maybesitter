@@ -69,3 +69,55 @@ export function instantForWallClock(
   const firstGuess = new Date(asUtc - offsetMinutes(new Date(asUtc), timeZone) * 60_000);
   return new Date(asUtc - offsetMinutes(firstGuess, timeZone) * 60_000);
 }
+
+/** The wall-clock fields a zone showed at an instant. Hour is 0-23. */
+export interface WallClock {
+  readonly year: number;
+  /** 1-12, one-based, because these come from a clock face rather than `Date`. */
+  readonly month: number;
+  readonly day: number;
+  readonly hour: number;
+  readonly minute: number;
+}
+
+/**
+ * What the clock face read in `timeZone` at `instant`.
+ *
+ * Here rather than in the caller for the reason the header gives: reading
+ * `formatToParts` correctly on Hermes is a thing this app got wrong once, and
+ * one implementation of it is one place to be right. Quiet hours ask this
+ * question ("is it 23:30 where they are?") and `deferOutOfQuietHours` asks the
+ * reverse one through `instantForWallClock`.
+ */
+export function wallClockIn(instant: Date, timeZone: string): WallClock {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).formatToParts(instant);
+
+  const read = (type: string) => Number(parts.find((part) => part.type === type)?.value);
+  const year = read('year');
+  const month = read('month');
+  const day = read('day');
+  // Midnight renders as 24 in some engines; the same guard `offsetMinutes` has.
+  const hour = read('hour') % 24;
+  const minute = read('minute');
+
+  if ([year, month, day, hour, minute].some(Number.isNaN)) {
+    // The instant read through UTC rather than a lie about the zone: a NaN
+    // here would propagate into every comparison as `false`.
+    return {
+      year: instant.getUTCFullYear(),
+      month: instant.getUTCMonth() + 1,
+      day: instant.getUTCDate(),
+      hour: instant.getUTCHours(),
+      minute: instant.getUTCMinutes(),
+    };
+  }
+  return { year, month, day, hour, minute };
+}

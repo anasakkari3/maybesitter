@@ -87,6 +87,18 @@ const KEPT_BECAUSE: Record<string, string> = {
   usage: 'what the account spent, needed for billing and abuse limits',
   plans: 'the user’s own day, built from their own commitments and rebuilt each morning; erasing it loses today, not a belief about them',
   planEvents: 'what the user did to their own plan — a type, a date, a generation and a digest, with no titles and no explanation text',
+  devices:
+    'the phones this account signed in on, and the FCM token to reach each of '
+    + 'them. A device identifier, not a belief about the person: "forget what '
+    + 'you inferred about me" must not silently stop the reminders they asked '
+    + 'for on the phone in their hand. Signing out deletes the row, and account '
+    + 'deletion takes the whole tree (UC-3.0b, #184).',
+  pushLog:
+    'the idempotency locks for pushes already sent — a key, a kind and two '
+    + 'instants, with none of the text. Clearing it would let every push whose '
+    + 'key is still live be sent a second time, so answering "forget me" with a '
+    + 'duplicate notification. It expires on its own seven days out via the '
+    + '`expiresAt` TTL field, which is the retention this needs.',
   stats: 'the user’s own record of what they did — the counters behind the weekly Moments. #201 made a Moment survive deleting the commitment that earned it, on the ground that a fact about something that happened must not unhappen; this button forgets what was inferred about the person, not what the person achieved.',
 };
 

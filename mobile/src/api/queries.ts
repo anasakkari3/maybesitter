@@ -23,6 +23,7 @@ import { getTrust, updateTrust } from './endpoints/trust';
 import { flagAlphaFeedback, getFeedbackHistory, revokeFeedback } from './endpoints/feedback';
 import { recordAnalyticsEvent } from './endpoints/analytics';
 import { getConsents, putAiConsent, putRecommendationConsent, type ConsentAnswer } from './endpoints/consents';
+import { getReminderSettings, putReminderSettings, type ReminderSettingsPatch } from './endpoints/reminders';
 import {
   confirmProfileSuggestions,
   describeProfile,
@@ -64,6 +65,7 @@ export const queryKeys = {
   memory: (uid: string) => ['user', uid, 'memory'] as const,
   activity: (uid: string) => ['user', uid, 'activity'] as const,
   activitySummary: (uid: string, weekStart: string) => ['user', uid, 'activitySummary', weekStart] as const,
+  reminderSettings: (uid: string) => ['user', uid, 'reminderSettings'] as const,
 };
 
 /** The signed-in uid, or the one value that can never collide with one. */
@@ -619,6 +621,52 @@ export function useConfirmProfileSuggestions() {
       // The confirmed facts are memory now, so the "what it knows" screen is
       // out of date the moment this returns.
       void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
+    },
+  });
+}
+
+/**
+ * Gentle reminders: the switch, the lead time and the quiet hours (UC-3.11, #196).
+ *
+ * `staleTime: 0`, like the consents query and for a related reason: these
+ * settings decide whether the phone schedules anything at all, and a stale
+ * "on" would have the engine keep scheduling for somebody who turned it off on
+ * another device. The answer is one small document.
+ */
+export function useReminderSettings() {
+  const uid = useUid();
+  return useQuery({
+    queryKey: queryKeys.reminderSettings(uid),
+    queryFn: getReminderSettings,
+    enabled: uid !== 'signed-out',
+    staleTime: 0,
+  });
+}
+
+/**
+ * Saves the three controls.
+ *
+ * No optimistic update: the switch moves when the server says it moved, for
+ * the same reason the consent toggles do not move early. A control that
+ * claimed reminders were on before the save landed would be a promise about
+ * somebody's evening that the app had not yet made.
+ *
+ * Quiet hours saved here are stored on the routine profile, so the profile and
+ * the memory it derives are both out of date the moment this returns.
+ */
+export function useSaveReminderSettings() {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn: (patch: ReminderSettingsPatch) => putReminderSettings(patch),
+    onSettled: (_result, _error, patch) => {
+      void client.invalidateQueries({ queryKey: queryKeys.reminderSettings(uid) });
+      if (patch.quietHours !== undefined) {
+        void client.invalidateQueries({ queryKey: queryKeys.profile(uid) });
+        void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
+        // The next step is gated on the same window.
+        void client.invalidateQueries({ queryKey: ['user', uid, 'nextStep'] });
+      }
     },
   });
 }

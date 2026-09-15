@@ -35,6 +35,8 @@ import {
   planResponseSchema,
   planSettingsResponseSchema,
 } from '../schemas/plan';
+import { reminderSettingsResponseSchema } from '../schemas/reminders';
+import { deviceForgottenSchema, deviceRegisteredSchema } from '../schemas/devices';
 
 /**
  * The drift detector.
@@ -119,6 +121,13 @@ const CASES: Array<[string, z.ZodType]> = [
   ['errors.unauthorized', errorBodySchema],
   ['activity.list', activityPageSchema],
   ['activity.summary', weeklySummarySchema],
+  // Gentle reminders (#196). The quiet hours on this response come from the
+  // routine profile, which is the one place they are stored — so a change that
+  // moved them somewhere else would rewrite this fixture and fail here.
+  ['reminders.settingsDefault', reminderSettingsResponseSchema],
+  ['reminders.settingsSaved', reminderSettingsResponseSchema],
+  ['devices.registered', deviceRegisteredSchema],
+  ['devices.forgotten', deviceForgottenSchema],
 ];
 
 describe('every response the client parses', () => {

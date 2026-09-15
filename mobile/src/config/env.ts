@@ -281,3 +281,32 @@ export function shareIntentDebugEnabled(isDevBundle: boolean = __DEV__): boolean
   if (!isDevelopment()) return false;
   return (process.env.EXPO_PUBLIC_SHARE_INTENT_DEBUG ?? '').trim() === 'true';
 }
+
+/**
+ * Gentle reminders (UC-3.11, #196).
+ *
+ * On by default, and switched off by `EXPO_PUBLIC_FEATURE_SOFT_REMINDERS=false`
+ * — the same shape as `safeCommitmentPatchEnabled` above, and for the same
+ * reason: a kill switch that has to be *set* to be safe is a kill switch
+ * somebody forgets to set.
+ *
+ * Off does not mean "schedule nothing from now on". It means the app cancels
+ * everything it already has pending, because a reminder scheduled yesterday
+ * fires whether or not today's build would have scheduled it — see
+ * `cancelEveryReminder`.
+ */
+export function softRemindersEnabled(): boolean {
+  return (process.env.EXPO_PUBLIC_FEATURE_SOFT_REMINDERS ?? '').trim() !== 'false';
+}
+
+/**
+ * The version string the device registry stores (UC-3.0b, #184).
+ *
+ * From the running binary when there is one, and from the config otherwise, so
+ * a value is always available under Jest. It is the only thing about the
+ * device this app reports beyond the platform — no model, no OS build.
+ */
+export function appVersion(): string {
+  const native = Constants.expoConfig?.version;
+  return typeof native === 'string' && native.trim() !== '' ? native.trim() : '0.0.0';
+}

@@ -57,6 +57,16 @@ interface ProfileBearingUser {
 export interface RoutineProfileOptions {
   storage?: StorageAdapter;
   memory?: RuntimeMemoryStore;
+  /**
+   * The audit line's `reasonCode`, for a caller that is not the survey.
+   *
+   * `PUT /api/mobile/settings/reminders` writes quiet hours through this
+   * service (UC-3.11, #196), and an audit row saying `routine_survey_saved`
+   * for an edit made on the reminders screen would be a record of something
+   * that did not happen. The default is unchanged, so the survey's own rows
+   * read exactly as they always have.
+   */
+  reasonCode?: string;
 }
 
 function storageOf(options: RoutineProfileOptions): StorageAdapter {
@@ -125,7 +135,8 @@ export async function saveRoutineProfile(
     participantId: uid,
     occurredAt: at,
     outcome: 'recorded',
-    reasonCode: profile.surveySkipped ? 'routine_survey_skipped' : 'routine_survey_saved',
+    reasonCode: options.reasonCode
+      ?? (profile.surveySkipped ? 'routine_survey_skipped' : 'routine_survey_saved'),
   }));
 
   return { profile, facts };

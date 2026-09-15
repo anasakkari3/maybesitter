@@ -3,6 +3,7 @@ import { Linking } from 'react-native';
 import { apiBaseUrl, appEnv, devBearerToken } from '../config/env';
 import { DEV_BYPASS_USER, devBypassToken } from './devBypass';
 import { createFirebaseAuthRepository } from './firebaseAuthRepository';
+import { runBeforeSignOut } from './beforeSignOut';
 import type { AuthRepository, AuthStatus, AuthUser, SignOutReason } from './types';
 
 /**
@@ -98,6 +99,13 @@ export function AuthProvider({ children, repository, isDevBundle = __DEV__ }: Au
 
   const signOut = useCallback(
     async (options?: { reason?: SignOutReason }) => {
+      const reason = options?.reason ?? 'user';
+      // Before the credential goes. Deleting this account's device document
+      // (UC-3.0b, #184) needs a valid token, and after `repo.signOut` there is
+      // none — only for a sign-out the person pressed, because the other three
+      // reasons all mean the token is already refused. Nothing here can keep
+      // them signed in; see `beforeSignOut.ts`.
+      if (reason === 'user') await runBeforeSignOut(reason);
       await repo.signOut(options);
       // The subscription above normally sets this; setting it here too covers
       // a repository that signs out without emitting.
