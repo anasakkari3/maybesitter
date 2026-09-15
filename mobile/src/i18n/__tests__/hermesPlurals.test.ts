@@ -1,5 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it, jest } from '@jest/globals';
 import type { tFor as TFor } from '../index';
+import en from '../locales/en.json';
+import ar from '../locales/ar.json';
+import he from '../locales/he.json';
 
 // Hermes, the engine the app runs on, has no Intl.PluralRules and no
 // Intl.Locale (docs: facebook/hermes doc/IntlAPIs.md). Without them
@@ -55,5 +58,42 @@ describe('count messages on an engine without Intl.PluralRules (Hermes)', () => 
         expect(t('progressWords', { d: Math.min(n, 3), n: 3 })).not.toMatch(/plural|[{}]/);
       }
     }
+  });
+
+  /**
+   * The same assertion over every plural message there is, found rather than
+   * listed.
+   *
+   * The three keys above are the ones somebody thought to name when this
+   * defect was fixed. `planRegenerateLeft` (#195) arrived afterwards, is an
+   * ICU plural in all three locales, and was covered by nothing — which is
+   * exactly how the original escaped to a device while Node kept the suite
+   * green. A sweep cannot be added to and forgotten.
+   */
+  it('formats every plural message this app ships, in every locale', () => {
+    const bundles = { en, ar, he };
+    const checked: string[] = [];
+    for (const locale of ['en', 'ar', 'he'] as const) {
+      // The key is discovered at runtime, so it cannot be one of the literal
+      // types `t` is overloaded on; the cast is about the key, not the result.
+      const t = tFor(locale) as unknown as (key: string, values: Record<string, number>) => string;
+      for (const [key, value] of Object.entries(bundles[locale] as Record<string, unknown>)) {
+        if (typeof value !== 'string' || !/\{\s*\w+\s*,\s*plural\s*,/.test(value)) continue;
+        // Every `{name}` and `{name, plural, …}` the message reads, each given
+        // a number: a missing variable is its own kind of leak.
+        const args = Object.fromEntries(
+          [...value.matchAll(/\{\s*(\w+)/g)].map(match => [match[1] as string, 1]),
+        );
+        checked.push(`${locale}.${key}`);
+        for (const n of [0, 1, 2, 3, 11]) {
+          const rendered = t(key, { ...args, n, d: Math.min(n, 3) });
+          expect({ key: `${locale}.${key}`, n, leaks: /plural|[{}]/.test(rendered) })
+            .toEqual({ key: `${locale}.${key}`, n, leaks: false });
+        }
+      }
+    }
+    // A bundle that stopped being readable would otherwise pass vacuously.
+    expect(checked).toContain('ar.planRegenerateLeft');
+    expect(checked.length).toBeGreaterThanOrEqual(12);
   });
 });

@@ -44,6 +44,10 @@ import feedbackHistory from './__fixtures__/feedback.history.json';
 import feedbackRevoked from './__fixtures__/feedback.revoked.json';
 import nextStepDecision from './__fixtures__/nextStep.decision.json';
 import nextStepRecommendation from './__fixtures__/nextStep.recommendation.json';
+import planToday from './__fixtures__/plan.today.json';
+import planAccepted from './__fixtures__/plan.accepted.json';
+import planRegenerated from './__fixtures__/plan.regenerated.json';
+import planSettingsSaved from './__fixtures__/plan.settingsSaved.json';
 import consentsAnswered from './__fixtures__/consents.answered.json';
 import consentsAiRecorded from './__fixtures__/consents.aiRecorded.json';
 import consentsRecommendationsRecorded from './__fixtures__/consents.recommendationsRecorded.json';
@@ -89,6 +93,21 @@ const ROUTES: [string, RegExp, MockResponse][] = [
    */
   ['GET', /^\/api\/mobile\/activity\/summary$/, { status: 200, body: activitySummary }],
   ['GET', /^\/api\/mobile\/activity$/, { status: 200, body: activityList }],
+
+  /*
+   * The daily plan (#194, rendered by #195).
+   *
+   * The action route answers `plan.accepted` whatever action was sent. That is
+   * the same bargain the rest of this adapter makes — nothing accumulates, so
+   * an edit or a dismiss comes back as an accepted plan rather than as the
+   * state it asked for. Mock mode is for driving a screen before a backend is
+   * reachable, not for believing it.
+   */
+  ['GET', /^\/api\/mobile\/plans\/[^/]+$/, { status: 200, body: planToday }],
+  ['POST', /^\/api\/mobile\/plans\/[^/]+\/actions$/, { status: 200, body: planAccepted }],
+  ['POST', /^\/api\/mobile\/plans\/[^/]+\/regenerate$/, { status: 200, body: planRegenerated }],
+  ['GET', /^\/api\/mobile\/settings\/plan$/, { status: 200, body: planSettingsSaved }],
+  ['PUT', /^\/api\/mobile\/settings\/plan$/, { status: 200, body: planSettingsSaved }],
 
   ['GET', /^\/api\/mobile\/pilot\/trust$/, { status: 200, body: trustState }],
   ['POST', /^\/api\/mobile\/pilot\/trust$/, { status: 200, body: trustUpdated }],

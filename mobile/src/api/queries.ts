@@ -18,6 +18,14 @@ import {
   type CommitmentPatch,
 } from './endpoints/commitments';
 import { getWeeklySummary, listActivity } from './endpoints/activity';
+import {
+  actOnPlan,
+  getPlan,
+  getPlanSettings,
+  putPlanSettings,
+  regeneratePlan,
+  type PlanEdit,
+} from './endpoints/plans';
 import { getNextStep, recordNextStepDecision } from './endpoints/nextStep';
 import { getTrust, updateTrust } from './endpoints/trust';
 import { flagAlphaFeedback, getFeedbackHistory, revokeFeedback } from './endpoints/feedback';
@@ -35,6 +43,8 @@ import {
   putRoutine,
 } from './endpoints/profile';
 import type { RoutineProfilePayload } from '../features/routine/routineProfile';
+import { applyEditLocally } from '../features/plan/optimisticEdit';
+import type { DailyPlan } from './schemas/plan';
 import type { NextStepDecisionKind, NextStepRecommendation } from './schemas/nextStep';
 import type { TrustAction } from './schemas/trust';
 import type { AlphaFeedbackCategory } from './schemas/feedback';
@@ -64,6 +74,14 @@ export const queryKeys = {
   memory: (uid: string) => ['user', uid, 'memory'] as const,
   activity: (uid: string) => ['user', uid, 'activity'] as const,
   activitySummary: (uid: string, weekStart: string) => ['user', uid, 'activitySummary', weekStart] as const,
+  /**
+   * One day's plan (UC-3.10b, #195).
+   *
+   * Keyed by date as well as uid, so tomorrow's plan never renders under
+   * today's heading and a push for one date cannot show another's.
+   */
+  plan: (uid: string, date: string) => ['user', uid, 'plan', date] as const,
+  planSettings: (uid: string) => ['user', uid, 'planSettings'] as const,
 };
 
 /** The signed-in uid, or the one value that can never collide with one. */
@@ -438,6 +456,144 @@ export function useNextStepDecision() {
       } else {
         void client.invalidateQueries({ queryKey: ['user', uid, 'nextStep'] });
       }
+    },
+  });
+}
+
+/**
+ * Today's plan (UC-3.10b, #195).
+ *
+ * `null` is data, not an absence: the route answers 404 when no plan was built
+ * for that date, `getPlan` turns that into null, and the screen says "no plan
+ * for today" instead of an error. So a `data === null` is a settled query, and
+ * `data === undefined` is one that has not answered — which is what tells the
+ * offline states apart.
+ *
+ * Nothing about it is persisted. `queryClient.ts` installs no persister and
+ * `privacy.test.ts` asserts no module under `src/api` can import device
+ * storage, so a plan lives exactly as long as the process does.
+ */
+export function usePlan(date: string) {
+  const uid = useUid();
+  return useQuery({
+    queryKey: queryKeys.plan(uid, date),
+    queryFn: () => getPlan(date),
+    enabled: uid !== 'signed-out' && date !== '',
+  });
+}
+
+/**
+ * Everything a plan action changes.
+ *
+ * The answer *is* the new plan, so it is written straight into the cache rather
+ * than invalidated: a refetch would put a spinner over a screen that already
+ * knows the answer. The commitment lists are invalidated because an accepted or
+ * regenerated plan is a thing that just happened to this account.
+ */
+function adoptPlan(client: QueryClient, uid: string, date: string, plan: DailyPlan): void {
+  client.setQueryData(queryKeys.plan(uid, date), plan);
+  void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
+  void client.invalidateQueries({ queryKey: queryKeys.activity(uid) });
+}
+
+/**
+ * "Looks good" and "Not today".
+ *
+ * No optimistic update: both write a *status*, the screen renders that status,
+ * and there is nothing under the user's finger that would snap back. The caller
+ * guards against a second send — see `PlanScreen`, and `PlanScreen.test.tsx`,
+ * which asserts two taps produce one request.
+ */
+export function usePlanAction(date: string) {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn: (action: 'accept' | 'dismiss') => actOnPlan(date, { action }),
+    onSuccess: plan => adoptPlan(client, uid, date, plan),
+  });
+}
+
+/**
+ * Moving or removing one item, optimistically, with a real rollback.
+ *
+ * The plan the user was looking at is captured in `onMutate` and restored in
+ * `onError`. That is the whole of the acceptance criterion "the item returns to
+ * its old time": the 422 does not merely fail, it puts the screen back to the
+ * state it was in before the drag.
+ *
+ * `cancelQueries` first, so a refetch already in flight cannot land on top of
+ * the rollback with a copy of the plan from before either.
+ */
+export function usePlanEdit(date: string) {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn: (edit: PlanEdit) => actOnPlan(date, { action: 'edit', ...edit }),
+    onMutate: async (edit: PlanEdit) => {
+      const key = queryKeys.plan(uid, date);
+      await client.cancelQueries({ queryKey: key });
+      const previous = client.getQueryData<DailyPlan | null>(key) ?? null;
+      if (previous) client.setQueryData(key, applyEditLocally(previous, edit));
+      return { previous };
+    },
+    onError: (_error, _edit, context) => {
+      // `context` is undefined only if `onMutate` itself threw, in which case
+      // nothing was written and there is nothing to put back.
+      if (context) client.setQueryData(queryKeys.plan(uid, date), context.previous);
+    },
+    onSuccess: plan => adoptPlan(client, uid, date, plan),
+  });
+}
+
+/**
+ * "New plan".
+ *
+ * Not retried — mutations never are here — and deliberately not optimistic:
+ * nobody can guess what the planner will produce, and showing the old plan
+ * until the new one lands is the honest intermediate state.
+ */
+export function useRegeneratePlan(date: string) {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn: (_: void) => regeneratePlan(date),
+    onSuccess: plan => adoptPlan(client, uid, date, plan),
+  });
+}
+
+/**
+ * Whether a plan is built each morning, and when.
+ *
+ * `staleTime: 0` for the same reason `useConsents` has it: this is a switch
+ * somebody may have changed on another device, and a control rendered from a
+ * stale answer is a control that lies about what the server will do.
+ */
+export function usePlanSettings() {
+  const uid = useUid();
+  return useQuery({
+    queryKey: queryKeys.planSettings(uid),
+    queryFn: getPlanSettings,
+    enabled: uid !== 'signed-out',
+    staleTime: 0,
+  });
+}
+
+/**
+ * Saves the morning-plan switch and hour.
+ *
+ * The response is the server's own record, including the `nextRunAt` it
+ * computed, so it is adopted rather than assumed — the switch shows what was
+ * stored, never what was tapped. `onSettled` invalidates as well, so a failed
+ * write snaps the control back to the truth.
+ */
+export function useSavePlanSettings() {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn: (input: { enabled: boolean; deliveryLocalTime?: string }) => putPlanSettings(input),
+    onSuccess: settings => client.setQueryData(queryKeys.planSettings(uid), settings),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.planSettings(uid) });
     },
   });
 }

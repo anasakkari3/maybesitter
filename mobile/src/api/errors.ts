@@ -1,4 +1,5 @@
 import type { Commitment } from './schemas/common';
+import type { PlanEditRejected } from './schemas/plan';
 
 /**
  * Every way a call to `/api/mobile/**` can fail, as types the UI can switch on.
@@ -131,6 +132,29 @@ export class QuotaExceededError extends ApiError {
     message = 'the AI quota for this account is spent',
   ) {
     super(message);
+  }
+}
+
+/**
+ * 422 `plan_edit` — the plan understood the move and would not make it
+ * (UC-3.10a #194, rendered by UC-3.10b #195).
+ *
+ * Deliberately not a `ValidationError`. The request was well formed and the
+ * server understood it; what it refused was a *placement*, against the
+ * constraints the plan was built from. That is a sentence to put next to the
+ * item the user dragged, not a page-level failure — so the reason and the item
+ * it is about are carried here rather than thrown away, the same way
+ * `StaleCommitmentError` carries the commitment.
+ *
+ * `itemId` is null for the refusals raised before an item is identified: an
+ * edit that moves nothing, a move with no id.
+ */
+export class PlanEditRefusedError extends ApiError {
+  constructor(
+    readonly reason: PlanEditRejected['reason'],
+    readonly itemId: string | null,
+  ) {
+    super('the plan edit was refused');
   }
 }
 

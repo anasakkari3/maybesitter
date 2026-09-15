@@ -11,6 +11,7 @@ import {
   RecentLoginRequiredError,
   NetworkError,
   NotFoundError,
+  PlanEditRefusedError,
   ServerError,
   ServiceUnavailableError,
   ApiError,
@@ -26,6 +27,7 @@ import {
 } from './errors';
 import { mockResponseFor } from './mockAdapter';
 import { commitmentSchema } from './schemas/common';
+import { planEditRejectedSchema } from './schemas/plan';
 
 /**
  * One function every screen's data goes through.
@@ -197,6 +199,21 @@ function conflictFor(body: unknown): Error {
   return new ConflictError(refusal(body).message);
 }
 
+/**
+ * A 422 the screen can render beside the item it is about (#194, #195).
+ *
+ * Only `/api/mobile/plans/[date]/actions` answers 422, and it always answers
+ * `{ success, error, reason, itemId }`. Parsed rather than trusted: a body that
+ * does not match is a contract the client was not built against, and guessing a
+ * reason code out of it would put a sentence under the wrong item. That case
+ * falls back to the generic refusal, which says nothing specific.
+ */
+function planEditRefusal(body: unknown, message: string): Error {
+  const parsed = planEditRejectedSchema.safeParse(body);
+  if (!parsed.success) return new ValidationError(message);
+  return new PlanEditRefusedError(parsed.data.reason, parsed.data.itemId);
+}
+
 function errorForStatus(status: number, body: unknown): Error {
   const { message, reason } = refusal(body);
   switch (status) {
@@ -213,6 +230,8 @@ function errorForStatus(status: number, body: unknown): Error {
       return new NotFoundError(message);
     case 409:
       return conflictFor(body);
+    case 422:
+      return planEditRefusal(body, message);
     case 413:
       return new InputTooLargeError(
         typeof (body as { maxCharacters?: unknown })?.maxCharacters === 'number'
