@@ -42,12 +42,43 @@ export interface CommitmentMutationOptions {
   expectedValidator?: string;
 }
 
+/**
+ * Time order, which is what a list is when ranking is off.
+ *
+ * An undated commitment sorts last rather than by `updatedAt`. It could not
+ * reach this function at all until #384 — Today filtered undated items out and
+ * Upcoming still does — and `updatedAt` would have put "Buy milk" above a
+ * commitment due this afternoon purely because it was saved earlier, which is
+ * not a time order, it is a creation order wearing one. Last is also where the
+ * ranked path puts it, so turning the flag off no longer moves it.
+ *
+ * Dated items keep the exact comparison they have always had, including
+ * returning 0 on a tie: `MAYBESITTER_FEATURE_PRIORITY=false` promises
+ * byte-identical output to the order that preceded ranking.
+ *
+ * What a tie resolves to is **not decided here**, and this deliberately does
+ * not claim to decide it. `Array.prototype.sort` is stable, so tied items keep
+ * the order `Object.values(state.commitments)` gave them — and every
+ * authenticated path builds that state from `participantState`, which lists one
+ * document per commitment and returns them by id. So the tie order is the
+ * storage layer's, it is the same on every read, and a tie-break added here
+ * would be unreachable code asserting a promise this module does not own.
+ * `tests/mobile/listBoundaryRule.test.ts` asserts the observable half: the same
+ * two commitments come back in the same order however they were written.
+ */
 function sortByResolvedTime(items: Commitment[]): Commitment[] {
   return [...items].sort((a, b) => {
-    const aTime = Date.parse(resolvedCommitmentTime(a) || a.updatedAt);
-    const bTime = Date.parse(resolvedCommitmentTime(b) || b.updatedAt);
-    return aTime - bTime;
+    const aTime = instantForOrder(a);
+    const bTime = instantForOrder(b);
+    if (aTime === bTime) return 0;
+    return aTime < bTime ? -1 : 1;
   });
+}
+
+/** Undated is `Infinity`, so it sorts after everything with a time. */
+function instantForOrder(commitment: Commitment): number {
+  const resolved = resolvedCommitmentTime(commitment);
+  return resolved ? Date.parse(resolved) : Number.POSITIVE_INFINITY;
 }
 
 function isVisibleInLists(commitment: Commitment): boolean {
@@ -91,20 +122,151 @@ export interface RankedCommitments {
   ranking: Map<string, RankedItem>;
 }
 
+/**
+ * The statuses a commitment can still be acted on in.
+ *
+ * Not a list this module invents: it is `stateMachine.ts`'s own, the exact
+ * triple every action command guards on with `ensureCommitmentStatus` —
+ * Acknowledge, Complete, Postpone, Drop, and the reminder commands all name
+ * `['active', 'deferred', 'missed']`. If the user can still do something to it,
+ * it is live, and live work rolls forward.
+ */
+const LIVE_STATUSES = new Set<Commitment['status']>(['active', 'deferred', 'missed']);
+
+function isLive(commitment: Commitment): boolean {
+  return LIVE_STATUSES.has(commitment.status);
+}
+
+/**
+ * The local day a commitment belongs to, or `null` when it names no day.
+ *
+ * A live commitment is on the day it is *for*: `postponedUntil`, else the
+ * reminder, else the due date. Something settled is on the day it *happened* —
+ * `completedAt` — because that is the day the user lived, and it is what the
+ * Finished group on Today exists to draw. A settled commitment with neither
+ * falls back to the day it was last touched, so it is still on exactly one day
+ * rather than on none.
+ */
+function dayOf(commitment: Commitment, timezone: string): string | null {
+  if (isLive(commitment)) {
+    const resolved = resolvedCommitmentTime(commitment);
+    return resolved ? localDayKey(resolved, timezone) : null;
+  }
+  const settled = commitment.completedAt ?? resolvedCommitmentTime(commitment) ?? commitment.updatedAt;
+  return settled ? localDayKey(settled, timezone) : null;
+}
+
+/** Which list a commitment is on, or `null` for neither. */
+type ListPlacement = 'today' | 'upcoming' | null;
+
+/**
+ * **Live work that is not on a later day belongs to Today.**
+ *
+ * One function, so a commitment is on at most one list because a function
+ * returns one value — not because two predicates were written to negate each
+ * other and were both kept correct. Both lists are this function read twice
+ * (#383, #384).
+ *
+ * ── The partition holds within one request, and only there ───────
+ *
+ * Today and Upcoming are two GETs, and each resolves its own `now` unless the
+ * client sends `referenceTime`. A pair of calls that straddles local midnight
+ * therefore asks two different questions: a tomorrow-dated commitment answered
+ * by Today just before midnight and by Upcoming just after is on neither list
+ * across that pair, and the reverse order puts it on both. That is a property
+ * of the two requests, not of this function, and it predates #383 — the fix is
+ * one `referenceTime` sent across the pair, which is the client's to make. It
+ * is written down here so the claim above is not read as more than it is.
+ *
+ * ── The two gaps this closes ─────────────────────────────────────
+ *
+ *   #383 — Today kept `=== today` and Upcoming kept `> today`, so a commitment
+ *          dated *yesterday* matched neither. A device run watched seven of
+ *          them vanish at midnight. They existed on the server the whole time;
+ *          no list admitted them.
+ *   #384 — an *undated* commitment reached Today only when the `priority`
+ *          module runtime was enabled. Staging's is not, and neither is the
+ *          default, so the comment that stood here — hiding it "meant 'Buy
+ *          milk' never reached a phone at all (#169)" — described the live
+ *          behaviour rather than the history it recounted. Where a commitment
+ *          lives is not a property of the ranking module: a flag that decides
+ *          the *order* of a list must not decide its *membership*.
+ *
+ * ── Why only live work rolls forward ─────────────────────────────
+ *
+ * "Not on a later day" applied to everything visible would turn #383's
+ * vanishing bug into an accumulating one on the same screen. `completed` is
+ * terminal — no command in `stateMachine.ts` reaches `archived`, so nothing
+ * ever leaves it — and the list route has no cap, so Today would grow by one
+ * row for every commitment the user has ever finished, for ever, with the
+ * Finished badge counting a lifetime instead of a day. Worse for the rest:
+ * `model.ts` draws `missed` and anything it has no mapping for as a live card,
+ * so a year-old abandoned draft would sit in Must for ever.
+ *
+ * So a settled commitment is on its own day and no other: finished today, on
+ * today's Finished group; finished last March, gone tomorrow. The invariant
+ * this implements says *active* work is never invisible, and that is what
+ * rolls forward.
+ *
+ * Unconfirmed captures — `draft`, `needs_clarification`, `pending_confirmation`
+ * — deliberately do not roll forward either. They keep exactly the behaviour
+ * they had before this change: on Today on their stated day, on Upcoming on a
+ * later one. Nothing was ever committed to, so surfacing a week-old capture as
+ * a live card is the same accumulating bug wearing a different status, and
+ * whether it should happen is a product question nobody has been asked.
+ *
+ * ── The same rule the planner applies, and where it is not ───────
+ *
+ * `buildDailyPlan` decided the day comparison first (#194, merged):
+ * `rollsIntoDay` calls an instant behind the day being planned yesterday's work
+ * and rolls it forward. `localDayKey(day) < today` here and `rollsIntoDay`
+ * there are two spellings of one comparison, asked the same question at the
+ * millisecond the day turns in `tests/mobile/listBoundaryRule.test.ts`.
+ *
+ * The two rules are *not* identical on every axis, and the test file names each
+ * difference rather than letting it be discovered later:
+ *
+ *   - membership: the planner's `isPlannable` is `active || deferred`. It is a
+ *     subset of `LIVE_STATUSES`, which is the direction that matters — nothing
+ *     can be in the plan and missing from Today. The single difference is
+ *     `missed`, which no command in the state machine assigns.
+ *   - undated items: every undated live commitment is on Today, while the
+ *     planner's `belongsToDay` admits an undated commitment only when
+ *     `priority.level !== 'low'`. A low-importance undated commitment is
+ *     therefore on Today and not in the plan. That is the planner's deliberate
+ *     choice — a plan is what realistically fits — and a list is not a plan.
+ *
+ * This is not a "missed" or "overdue" state. It is yesterday's work, on today's
+ * list, until the user acts on it.
+ */
+function placeInList(commitment: Commitment, today: string, timezone: string): ListPlacement {
+  // Dropped on purpose or archived: the user closed it, and closing it is a
+  // first-class outcome in this product rather than a gap in the lists.
+  if (!isVisibleInLists(commitment)) return null;
+  const day = dayOf(commitment, timezone);
+
+  if (isLive(commitment)) {
+    // No day at all is not a later day, so it stays here (#384). Ranking puts
+    // it after the dated items it ties with, saying `no_deadline`, and
+    // `sortByResolvedTime` puts it in the same place when ranking is off.
+    if (day === null) return 'today';
+    // A day behind today rolls into today (#383).
+    return day <= today ? 'today' : 'upcoming';
+  }
+
+  if (day === null) return null;
+  if (day === today) return 'today';
+  // A capture still waiting to be confirmed, stated for a later day.
+  return day > today ? 'upcoming' : null;
+}
+
 export async function listTodayRanked(options: CommitmentQueryOptions = {}): Promise<RankedCommitments> {
   const now = options.now ?? new Date();
   const timezone = normalizeTimezone(options.timezone);
   const today = localDayKey(now, timezone);
   const state = await stateFor(options);
-  const items = Object.values(state.commitments).filter((commitment) => {
-    if (!isVisibleInLists(commitment)) return false;
-    const resolved = resolvedCommitmentTime(commitment);
-    // An item with no time belongs to today: it is not scheduled for another
-    // day, and hiding it meant "Buy milk" never reached a phone at all (#169).
-    // Ranking puts it after the dated items it ties with, saying `no_deadline`.
-    if (!resolved) return resolveModuleRuntime('priority').mode === 'enabled';
-    return localDayKey(resolved, timezone) === today;
-  });
+  const items = Object.values(state.commitments)
+    .filter((commitment) => placeInList(commitment, today, timezone) === 'today');
   return orderForLists(items, Object.values(state.reminders), now);
 }
 
@@ -117,12 +279,8 @@ export async function listUpcomingRanked(options: CommitmentQueryOptions = {}): 
   const timezone = normalizeTimezone(options.timezone);
   const today = localDayKey(now, timezone);
   const state = await stateFor(options);
-  const items = Object.values(state.commitments).filter((commitment) => {
-    const resolved = resolvedCommitmentTime(commitment);
-    // Upcoming is "a later day", so an undated item is never in it — it has no
-    // later day to be on. It stays on Today.
-    return Boolean(resolved) && isVisibleInLists(commitment) && localDayKey(resolved as string, timezone) > today;
-  });
+  const items = Object.values(state.commitments)
+    .filter((commitment) => placeInList(commitment, today, timezone) === 'upcoming');
   return orderForLists(items, Object.values(state.reminders), now);
 }
 

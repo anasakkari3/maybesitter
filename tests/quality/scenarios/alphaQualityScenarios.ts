@@ -307,7 +307,7 @@ export const ALPHA_SCENARIOS: AlphaScenario[] = [
     nextStepCandidates: [{ commitmentId: 'c4', title: 'Submit report', confirmed: true, status: 'active', dueAt: inNdaysAtTime(-1, 17), remindAt: inNdaysAtTime(-1, 17), importance: 'high', importanceIsStated: true, explicitEffortMinutes: null }],
     locale: 'en',
     constraints: [
-      { expectedRecState: 'ready', recTitleContains: ['Submit report'], recEvidenceContains: ['overdue'], failureTaxonomy: 'over_broad' },
+      { expectedRecState: 'ready', recTitleContains: ['Submit report'], recEvidenceContains: ['waiting since its time passed'], failureTaxonomy: 'over_broad' },
     ],
   },
 

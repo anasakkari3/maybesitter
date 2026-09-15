@@ -111,11 +111,33 @@ test('with the flag off, Today is exactly the time order it always was', async (
   }
 });
 
-test('with the flag off, an item with no time stays hidden, as before', async () => {
+test('with the flag off, an item with no time is on Today too, and sorts last', async () => {
+  // This test used to assert the opposite — "stays hidden, as before" — which
+  // is #384: whether a commitment is *visible* was decided by the ranking
+  // flag, and staging runs with it off. That made "Buy milk" reach no list at
+  // all, the defect #169 closed. Membership is now the same under both
+  // settings and only the order differs, which is all the flag was ever for.
+  //
+  // Last, because an item with no time ties with everything and the ranked
+  // path already puts it after the dated items it ties with. The two orders
+  // agreeing is what keeps turning the flag off from moving things about.
   begin('false');
   try {
     await seed([...DATED, commitment('milk', null)]);
-    assert.deepEqual((await todayItems()).map((item) => item.id), ['rent', 'mom', 'gym']);
+    assert.deepEqual((await todayItems()).map((item) => item.id), ['rent', 'mom', 'gym', 'milk']);
+  } finally {
+    end();
+  }
+});
+
+test('with the flag off, a commitment dated yesterday is on Today', async () => {
+  // #383's other half, through the route this time. `REFERENCE` is the clock
+  // the request carries, so nothing here depends on the day it is run.
+  begin('false');
+  try {
+    const yesterday = new Date(Date.parse(REFERENCE) - 26 * 60 * 60 * 1000).toISOString();
+    await seed([...DATED, commitment('passport', yesterday)]);
+    assert.deepEqual((await todayItems()).map((item) => item.id), ['passport', 'rent', 'mom', 'gym']);
   } finally {
     end();
   }

@@ -11,14 +11,14 @@
       "title": "Send the report to Sami"
     },
     "explanation": {
-      "summary": "Based on overdue.",
+      "summary": "Based on waiting since its time passed.",
       "evidenceCodes": [
         {
           "code": "overdue"
         }
       ],
       "evidenceLabels": [
-        "overdue"
+        "waiting since its time passed"
       ],
       "sensitiveInferenceUsed": false
     },
