@@ -48,6 +48,20 @@ describe('when every write lands', () => {
     expect(d.setAnalyticsConsent).toHaveBeenCalledWith(false);
   });
 
+  it('records an untouched switch as a decline, not as a grant', async () => {
+    // `null` is the third state the screen needs and the server does not have:
+    // nobody has answered this run. It has always meant "no", and this is the
+    // one place that is decided — the screen keeps the distinction only so a
+    // refetch cannot mistake a deliberate decline for an untouched default.
+    const d = deps();
+    expect(await recordConsents(
+      { ai: 'granted', recommendations: null, analytics: false }, VERSIONS, CONTEXT, d,
+    )).toEqual({ ok: true });
+    expect(d.setRecommendationConsent.mock.calls[0]![0]).toMatchObject({
+      state: 'declined', version: 'rec-consent-v1',
+    });
+  });
+
   it('never sends one question’s version to the other', async () => {
     // A mix-up the server refuses outright, so it would surface as an
     // unexplained failure on the consent screen rather than as bad data.

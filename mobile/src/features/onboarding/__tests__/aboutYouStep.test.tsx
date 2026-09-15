@@ -34,6 +34,7 @@ import { Text } from 'react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { resetAuthForTests, setAuthRepository } from '../../../api/auth';
+import { NetworkError, NotFoundError } from '../../../api/errors';
 import { AppProvider } from '../../../state/AppContext';
 import { AuthProvider } from '../../../auth/AuthProvider';
 import { createFakeAuthRepository } from '../../../auth/fakeAuthRepository';
@@ -85,6 +86,7 @@ const PROPOSAL = {
 let client: QueryClient;
 let repository: ReturnType<typeof createFakeAuthRepository>;
 let describeProfile: jest.SpiedFunction<typeof profileEndpoints.describeProfile>;
+let confirmProfileSuggestions: jest.SpiedFunction<typeof profileEndpoints.confirmProfileSuggestions>;
 
 beforeEach(async () => {
   await AsyncStorage.clear();
@@ -103,7 +105,7 @@ beforeEach(async () => {
   jest.spyOn(profileEndpoints, 'putRoutine').mockResolvedValue({} as never);
   jest.spyOn(analyticsEndpoints, 'recordAnalyticsEvent').mockResolvedValue({} as never);
   describeProfile = jest.spyOn(profileEndpoints, 'describeProfile').mockResolvedValue(PROPOSAL as never);
-  jest.spyOn(profileEndpoints, 'confirmProfileSuggestions')
+  confirmProfileSuggestions = jest.spyOn(profileEndpoints, 'confirmProfileSuggestions')
     .mockResolvedValue({ success: true, saved: 1, kinds: { goal: 1 } } as never);
 });
 
@@ -219,5 +221,64 @@ describe('when the user allowed AI', () => {
     await reachAboutYou('allow');
     await press(en.obAboutRead);
     expect(describeProfile).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * What the checklist is allowed to do when the save does not land (UC-2.7b
+ * #168, and the "false save" class of defect this app has already shipped
+ * once).
+ *
+ * Every failure used to be swallowed by a bare `catch {}` whose comment
+ * assumed the proposal had expired, and the flow then dropped the proposal and
+ * advanced regardless. A dropped connection was therefore indistinguishable
+ * from a save: the ticks vanished, the next screen appeared, and nothing had
+ * been written.
+ *
+ * Only one failure really does mean "there is nothing left to save" — the 404
+ * the route answers for a proposal that has expired or already been consumed —
+ * and only that one may move the user on.
+ */
+describe('when the checklist cannot be saved', () => {
+  async function reachTheChecklist() {
+    await reachAboutYou('allow');
+    await fireEvent.changeText(screen.getByTestId('about-you-input'), 'I want to swim again');
+    await press(en.obAboutRead);
+    await waitFor(() => expect(screen.queryByTestId('onboarding-about-review')).not.toBeNull());
+    // Tick the one suggestion, so there is something whose loss would matter.
+    await press(PROPOSAL.suggestions[0]!.content);
+  }
+
+  it('keeps the ticks and says so, rather than advancing past a write that never landed', async () => {
+    confirmProfileSuggestions.mockRejectedValueOnce(new NetworkError('no signal'));
+    await reachTheChecklist();
+
+    await press(en.obAboutSaveSelected);
+    await waitFor(() => expect(confirmProfileSuggestions).toHaveBeenCalledTimes(1));
+
+    // The harm first: the checklist used to be thrown away and the next screen
+    // shown, over a write that never happened.
+    expect(screen.queryByTestId('onboarding-about-review')).not.toBeNull();
+    expect(screen.queryByTestId('onboarding-notifications')).toBeNull();
+    // And told why — in the words `userFacingMessage` owns, never the error's.
+    await waitFor(() => expect(screen.queryByText(en.errorsNetwork)).not.toBeNull());
+
+    // And the same button re-sends the same ticks: pressing on is the retry.
+    await press(en.obAboutSaveSelected);
+    await waitFor(() => expect(confirmProfileSuggestions).toHaveBeenCalledTimes(2));
+    expect(confirmProfileSuggestions.mock.calls[1]).toEqual(confirmProfileSuggestions.mock.calls[0]);
+    await waitFor(() => expect(screen.queryByTestId('onboarding-notifications')).not.toBeNull());
+  });
+
+  it('moves on when the proposal itself is gone, because nothing can be saved to it', async () => {
+    // The thirty minutes elapsed, or it was already confirmed. There is
+    // nothing to retry and holding somebody on a checklist that cannot commit
+    // would be the worse failure.
+    confirmProfileSuggestions.mockRejectedValueOnce(new NotFoundError('proposal not found'));
+    await reachTheChecklist();
+
+    await press(en.obAboutSaveSelected);
+    await waitFor(() => expect(screen.queryByTestId('onboarding-notifications')).not.toBeNull());
+    expect(screen.queryByText(en.errorsNetwork)).toBeNull();
   });
 });

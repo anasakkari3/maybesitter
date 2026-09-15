@@ -37,6 +37,10 @@ export function RoutineSettingsScreen({ onBack }: { onBack: () => void }) {
   const [answers, setAnswers] = useState<RoutineAnswers>(EMPTY_ANSWERS);
   const [seeded, setSeeded] = useState(false);
   const [failed, setFailed] = useState(false);
+  // Neither copy took it. `saveRoutineCache` has always said so and this
+  // screen used to discard the answer, leaving "saved on this phone" on screen
+  // over a phone that had saved nothing.
+  const [lost, setLost] = useState(false);
 
   // Seeded once from whichever copy `useRoutineSync` settled on, then owned by
   // this screen: a refetch mid-edit must not move a chip under the user's
@@ -60,8 +64,9 @@ export function RoutineSettingsScreen({ onBack }: { onBack: () => void }) {
       setFailed(true);
     }
     const cache = accountId ? await loadRoutineCache(accountId) : null;
+    let stored = true;
     if (accountId) {
-      await saveRoutineCache(accountId, {
+      stored = await saveRoutineCache(accountId, {
         ...(cache ?? EMPTY_CACHE),
         answers,
         skipped: false,
@@ -70,6 +75,10 @@ export function RoutineSettingsScreen({ onBack }: { onBack: () => void }) {
         pendingSync,
       });
     }
+    // Only a failure on both sides is something the user has lost. A disk that
+    // refused while the account accepted is a stale cache, not a lost answer,
+    // and the sync hook says that in its own words.
+    setLost(!stored && pendingSync);
     if (!pendingSync) onBack();
   };
 
@@ -83,8 +92,13 @@ export function RoutineSettingsScreen({ onBack }: { onBack: () => void }) {
           onChange={setAnswers}
           onContinue={() => void save()}
         />
-        {failed ? (
+        {lost ? (
+          <Txt size={13} color={p.mu} testID="routine-settings-lost">{t.obRoutineSaveLost}</Txt>
+        ) : failed ? (
           <Txt size={13} color={p.mu} testID="routine-settings-failed">{t.obRoutineSaveFailed}</Txt>
+        ) : null}
+        {sync.localSaveFailed ? (
+          <Txt size={13} color={p.mu} testID="routine-settings-storage">{t.obRoutineStorageKept}</Txt>
         ) : null}
         <Btn
           label={t.memorySave}

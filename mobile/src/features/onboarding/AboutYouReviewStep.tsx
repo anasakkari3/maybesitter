@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { TextInput, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
+import { userFacingMessageKey } from '../../api/ui/userFacingMessage';
 import { isolate } from '../../i18n/bidi';
 import { Btn, Card, Txt } from '../../ui/primitives';
 import { OnboardingChrome } from './OnboardingChrome';
@@ -30,19 +31,30 @@ import type { ProfileSuggestion } from '../../api/schemas/profile';
  * being disabled. Somebody who read four guesses about themselves and agreed
  * with none of them has given a clear answer, and the screen should let them
  * give it rather than making them find the Skip.
+ *
+ * ── A save that did not land keeps the screen ────────────────────
+ *
+ * The flow used to swallow every confirm failure and move on, so a dropped
+ * connection looked exactly like a save. It no longer does: the ticks are
+ * still here, the footer says what happened, and the same button re-sends
+ * them.
  */
 export function AboutYouReviewStep({
   suggestions,
   onSave,
   onBack,
   saving = false,
+  failure,
 }: {
   suggestions: readonly ProfileSuggestion[];
   onSave: (accepted: AcceptedSuggestion[]) => void;
   onBack: () => void;
   saving?: boolean;
+  /** Why the last save did not land, when it did not. */
+  failure?: unknown;
 }) {
   const { t, p, rtl } = useApp();
+  const failed = failure !== undefined && failure !== null;
   const [choices, setChoices] = useState<ReviewChoice[]>(() => initialChoices(suggestions.length));
   const [editing, setEditing] = useState<number | null>(null);
 
@@ -58,7 +70,8 @@ export function AboutYouReviewStep({
         step="about"
         title={t.obAboutReviewTitle}
         testID="onboarding-about-review-empty"
-        primary={{ label: t.obContinue, onPress: () => onSave([]) }}
+        primary={{ label: t.obContinue, onPress: () => onSave([]), disabled: saving }}
+        footNote={failed ? t[userFacingMessageKey(failure)] : undefined}
       >
         <Card pad={18}>
           <Txt size={15} color={p.mu} lh={1.5} testID="about-review-none">{t.obAboutReviewNone}</Txt>
@@ -78,6 +91,7 @@ export function AboutYouReviewStep({
         disabled: saving,
       }}
       secondary={{ label: t.obBack, onPress: onBack }}
+      footNote={failed ? t[userFacingMessageKey(failure)] : undefined}
     >
       <Txt size={15} color={p.mu} lh={1.5}>{t.obAboutReviewLede}</Txt>
 
