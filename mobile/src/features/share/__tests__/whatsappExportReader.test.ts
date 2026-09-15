@@ -5,12 +5,13 @@
  * compression ratio over 100 is refused **on the device**"* — and, beside it,
  * that media is never extracted.
  *
- * ── Why the archives are built here and not by a library ─────────
+ * ── Why the archives are not built by a zip library ──────────────
  *
- * A zip bomb is a well-formed archive whose central directory is false. Every
- * zip writer writes true ones, so the interesting fixtures cannot come from
- * one: `zip()` below takes what the headers should *claim* separately from the
- * data they describe.
+ * A zip bomb is a well-formed archive whose central directory is false, and
+ * every zip writer writes true ones. `__fixtures__/zipFixtures.ts` takes what
+ * the headers should *claim* separately from the data they describe. It is
+ * shared with `shareFlow.test.tsx`, which needs the same bomb to prove this
+ * reader is actually reached.
  *
  * ── One test here is about fflate rather than about us ───────────
  *
@@ -23,6 +24,7 @@
  */
 import { describe, expect, it } from '@jest/globals';
 import { deflateSync, Unzip, UnzipInflate, unzipSync } from 'fflate';
+import { bomb, bulky, lyingBomb, TRANSCRIPT, zip } from '../__fixtures__/zipFixtures';
 import {
   FEED_BYTES,
   MAX_COMPRESSION_RATIO,
@@ -30,68 +32,7 @@ import {
   readWhatsAppExport,
 } from '../whatsappExportReader';
 
-interface Entry {
-  name: string;
-  data: Uint8Array;
-  /** 0 stored, 8 deflate. */
-  method?: 0 | 8;
-  declaredCompressedSize?: number;
-  declaredUncompressedSize?: number;
-}
-
-const u16 = (value: number): number[] => [value & 0xff, (value >> 8) & 0xff];
-const u32 = (value: number): number[] => [
-  value & 0xff, (value >>> 8) & 0xff, (value >>> 16) & 0xff, (value >>> 24) & 0xff,
-];
-
-/** A zip file that says whatever it is told to say about its entries. */
-function zip(entries: readonly Entry[]): Uint8Array {
-  const local: number[] = [];
-  const central: number[] = [];
-  const encoder = new TextEncoder();
-  for (const entry of entries) {
-    const method = entry.method ?? 8;
-    const body = method === 8 ? deflateSync(entry.data) : entry.data;
-    const name = Array.from(encoder.encode(entry.name));
-    const compressed = entry.declaredCompressedSize ?? body.length;
-    const uncompressed = entry.declaredUncompressedSize ?? entry.data.length;
-    const offset = local.length;
-    local.push(
-      ...u32(0x04034b50), ...u16(20), ...u16(0), ...u16(method), ...u16(0), ...u16(0),
-      ...u32(0), ...u32(compressed), ...u32(uncompressed),
-      ...u16(name.length), ...u16(0), ...name, ...Array.from(body),
-    );
-    central.push(
-      ...u32(0x02014b50), ...u16(20), ...u16(20), ...u16(0), ...u16(method), ...u16(0), ...u16(0),
-      ...u32(0), ...u32(compressed), ...u32(uncompressed),
-      ...u16(name.length), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(offset), ...name,
-    );
-  }
-  return new Uint8Array([
-    ...local, ...central,
-    ...u32(0x06054b50), ...u16(0), ...u16(0), ...u16(entries.length), ...u16(entries.length),
-    ...u32(central.length), ...u32(local.length), ...u16(0),
-  ]);
-}
-
 const encoder = new TextEncoder();
-const TRANSCRIPT = [
-  '‎[15/09/2026, 20:46:01] Dana: bring the documents tomorrow',
-  '‎[15/09/2026, 20:47:00] Sami: I will pay the bill',
-].join('\n');
-/** Deterministic text that deflates like prose rather than like a bomb. */
-function bulky(bytes: number): string {
-  let seed = 0x2f6e2b1;
-  const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789 ';
-  let out = '';
-  while (out.length < bytes) {
-    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-    out += alphabet[seed % alphabet.length];
-  }
-  return out.slice(0, bytes);
-}
-/** A run of one byte, which deflates at about a thousand to one. */
-const bomb = (bytes: number) => new Uint8Array(bytes).fill(0x41);
 
 describe('the ordinary export', () => {
   it('reads the transcript and counts the attachments without opening them', () => {
@@ -179,17 +120,6 @@ describe('the limits, as the archive declares them', () => {
 });
 
 describe('the limit that cannot be lied to', () => {
-  /** A bomb: both declarations inside the limits, the data expanding to 16 MB. */
-  function lyingBomb(): Uint8Array {
-    const payload = bomb(16 * 1024 * 1024);
-    return zip([{
-      name: '_chat.txt',
-      data: payload,
-      declaredUncompressedSize: 900 * 1024,
-      declaredCompressedSize: deflateSync(payload).length,
-    }]);
-  }
-
   it('refuses an entry that lies about its size in the header', () => {
     expect(readWhatsAppExport(lyingBomb())).toEqual({ ok: false, problem: 'entry_too_large' });
   });
