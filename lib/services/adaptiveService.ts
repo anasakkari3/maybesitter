@@ -23,7 +23,12 @@ export type NormalizedAdaptiveSignals = {
 
 export interface AdaptiveBehavior {
   userType: AdaptiveUserType;
-  pressureLevel: AdaptivePressureLevel;
+  /**
+   * The most pressure this classification permits — a cap the pressure path
+   * takes a minimum against, never a level it reaches for. See `behaviorFor`
+   * for why the asymmetry is in the name (#107, UC-3.13 (#199)).
+   */
+  maxPressureLevel: AdaptivePressureLevel;
   suggestionStyle: AdaptiveSuggestionStyle;
 }
 
@@ -116,26 +121,55 @@ function classifyUserType(signals: NormalizedAdaptiveSignals): AdaptiveUserType 
   return 'disciplined';
 }
 
+/**
+ * What the classification is allowed to do to pressure (#107, decided in
+ * UC-3.13 (#199)).
+ *
+ * It used to do the opposite of this: `avoidant` meant `pressureLevel: 'high'`
+ * worded `direct`, so three ignored commitments moved a person to the strongest
+ * setting the product had. The cohort this product is for identifies with
+ * avoidance and task-initiation difficulty — the rule read "when someone shows
+ * the difficulty this product exists for, push harder", on thresholds that rest
+ * on no evidence, inside a loop whose only observed outcome is compliance.
+ *
+ * The field is `maxPressureLevel` rather than `pressureLevel` because the
+ * decision is asymmetric and the old name hid that. It is **a cap, never a
+ * level to reach**: the pressure path takes the lowest of the commitment's own
+ * base, this cap and the user's ceiling, so a classification can only ever
+ * subtract. `disciplined` is `'high'` because it subtracts nothing, not because
+ * being disciplined earns a louder reminder — no branch here can produce more
+ * pressure than the commitment and the ceiling already allowed.
+ *
+ * Written this way the classification stays a live, meaningful input (the same
+ * rule `src/contracts/v1/personalizationContracts.ts` already states: "Many
+ * ignores may make the product quieter; they can never make it louder") instead
+ * of a constant folded flat, which is a guarantee nothing can be tested
+ * against.
+ *
+ * `suggestionStyle` is the other half: how small and how concrete the suggested
+ * step is. `avoidant` and `inconsistent` both get `supportive` because the
+ * answer to avoidance is a smaller step, not a louder one.
+ */
 function behaviorFor(userType: AdaptiveUserType): AdaptiveBehavior {
   if (userType === 'avoidant') {
     return {
       userType,
-      pressureLevel: 'high',
-      suggestionStyle: 'direct',
+      maxPressureLevel: 'low',
+      suggestionStyle: 'supportive',
     };
   }
 
   if (userType === 'inconsistent') {
     return {
       userType,
-      pressureLevel: 'medium',
+      maxPressureLevel: 'medium',
       suggestionStyle: 'supportive',
     };
   }
 
   return {
     userType,
-    pressureLevel: 'low',
+    maxPressureLevel: 'high',
     suggestionStyle: 'minimal',
   };
 }

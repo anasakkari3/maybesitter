@@ -32,13 +32,21 @@ function pressureStrategy(input: {
   conversationState: ConversationLevelState;
   commitmentState?: CommitmentConversationState;
 }): Pick<IntentSelection, 'intent' | 'strategy' | 'moves' | 'tone' | 'maxSentences' | 'requireQuestion'> {
+  /*
+   * The ladder advances on `pressureCount` — pressure this product delivered —
+   * and on nothing the person failed to do. A term reading a count of ignored
+   * reminders off the event used to sit in the `smaller_step` line, and `situation === 'avoiding'` used
+   * to be reachable from a count of ignored reminders; both were routes from
+   * avoidance to a harder move, which is what UC-3.13 (#199) forbids. What
+   * orders these five strategies against each other is still unmeasured and is
+   * tracked on #378; this only settles which inputs may move along them.
+   */
   const pressureCount = input.commitmentState?.pressureCount || 0;
-  const ignored = Boolean(input.event.ignoredText);
   let strategy: ResponseStrategy = 'easy_choice';
 
   if (pressureCount >= 3) strategy = 'close_loop';
   else if (pressureCount >= 2 || input.situation.situation === 'avoiding') strategy = 'blocker_probe';
-  else if (pressureCount >= 1 || ignored || input.situation.situation === 'possibly_overloaded') strategy = 'smaller_step';
+  else if (pressureCount >= 1 || input.situation.situation === 'possibly_overloaded') strategy = 'smaller_step';
   else if (input.situation.situation === 'deferring') strategy = 'reset_plan';
 
   if (input.commitmentState?.lastStrategy === strategy) strategy = rotateStrategy(strategy);

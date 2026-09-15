@@ -54,7 +54,9 @@ function timeFor(event: SemanticEvent, now?: Date): string | undefined {
 
 function continuityText(event: SemanticEvent): string | undefined {
   if (event.type !== 'pressure_due') return undefined;
-  if (event.ignoredText) return `${event.title} has come back ${event.ignoredText}`;
+  // No "has come back twice" branch: the event no longer carries a count of
+  // ignores, because naming the misses back at the person is pressure derived
+  // from avoidance (UC-3.13 (#199)).
   if (event.overdueText) return `${event.title} has been waiting ${event.overdueText}`;
   return `${event.title} is still open`;
 }

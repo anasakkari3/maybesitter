@@ -34,14 +34,24 @@
  * the defect codes are reported and **no reading leaks out**, because a profile
  * the contract rejects is not a profile whose readings are safe to display.
  *
- * ── The adaptive classification (#107) ───────────────────────────
+ * ── The adaptive classification (#107, decided in #199) ──────────
  *
  * `adaptiveService` classifies every user as avoidant / inconsistent /
- * disciplined from their own behaviour and sets how hard the product pushes
- * them. It is live today through `/api/agenda`, its thresholds rest on nothing,
- * and the person it is about cannot see it. It is shown here with its inputs,
- * its effect, and a note that it is a label — which is the minimum a system owes
- * someone it has categorised.
+ * disciplined from their own behaviour. It used to set how hard the product
+ * pushes them, and being read as avoidant meant the strongest setting the
+ * product had — which is why #107 was opened. Since UC-3.13 (#199) it may only
+ * change how small and how concrete the suggested step is, and cap how much
+ * pressure a reminder may carry *downward*; it can never raise intensity or
+ * harden tone. Its thresholds still rest on nothing, so it is shown here with
+ * its inputs, what it does and does not change, and a note that it is a label —
+ * which is the minimum a system owes someone it has categorised.
+ *
+ * What this screen must not do is promise a control that does not exist. It
+ * used to say a reminder's strength "is set only by you", which was not true of
+ * anything shipped: the ceiling setting arrives with UC-3.11 (#196)/UC-3.12a
+ * (#197), nothing reads `reminderSettings.escalationCeiling` from storage yet,
+ * and every request therefore runs at the default gentlest ceiling. So the copy
+ * says that instead, and `ceilingNote` will change when the setting lands.
  *
  * It is shown **regardless of personalization consent**, and that is deliberate:
  * consent governs this module's derivation, and turning it off does not turn off
@@ -269,9 +279,12 @@ export interface InventoryAdaptiveView {
   readonly explanation: string;
   readonly inputs: readonly InventoryAdaptiveInput[];
   readonly effect: {
-    readonly pressureLevel: AdaptivePressureLevel;
+    /** The most pressure this group permits — a cap it can lower, never raise. */
+    readonly maxPressureLevel: AdaptivePressureLevel;
     readonly suggestionStyle: AdaptiveSuggestionStyle;
   };
+  /** What is true of the ceiling *today*, not what #196/#197 will make true. */
+  readonly ceilingNote: string;
   readonly visibilityNote: string;
 }
 
@@ -334,8 +347,9 @@ function adaptiveView(port: PersonalizationControlsPort): InventoryAdaptiveView 
     classification: behavior.userType,
     classificationLabel: ADAPTIVE_LABELS[behavior.userType],
     explanation:
-      `The product sorts you into one of three groups from your own activity, and the group decides how much ` +
-      `pressure a reminder may carry and how directly it is worded. Yours is "${ADAPTIVE_LABELS[behavior.userType]}".`,
+      `The product sorts your recent activity into one of three groups. The group only changes how small the ` +
+      `suggested step is, and how gentle a reminder has to be. It can lower how hard the product pushes; it ` +
+      `never makes reminders stronger or their pressure firmer. Yours is "${ADAPTIVE_LABELS[behavior.userType]}".`,
     inputs: ADAPTIVE_INPUT_COPY.map((entry) => {
       const value = normalized[entry.key];
       return {
@@ -346,10 +360,15 @@ function adaptiveView(port: PersonalizationControlsPort): InventoryAdaptiveView 
         explanation: entry.explanation,
       };
     }),
-    effect: { pressureLevel: behavior.pressureLevel, suggestionStyle: behavior.suggestionStyle },
+    effect: { maxPressureLevel: behavior.maxPressureLevel, suggestionStyle: behavior.suggestionStyle },
+    ceilingNote:
+      'Every reminder is currently held at the gentlest strength there is. That is not a setting you have ' +
+      'chosen — there is no control for it yet, and until there is, the gentlest strength is what everyone ' +
+      'gets.',
     visibilityNote:
       'This classification is a label the product applies to you. It is shown here so you can see it and ' +
-      'disagree with it; it is set from behaviour rather than from anything you asked for.',
+      'disagree with it; it is set from behaviour rather than from anything you asked for. Avoiding or ' +
+      'delaying something can never make it push harder.',
   };
 }
 

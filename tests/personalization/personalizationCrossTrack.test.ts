@@ -10,14 +10,14 @@
  *
  * A check owned by the thing it checks is not a check. This file owns the seam.
  *
- * ── What is deliberately asserted as a *disagreement* ────────────
+ * ── What was a disagreement and is now an agreement ──────────────
  *
- * The shipped `adaptiveService` escalates pressure on avoidance; the contract
- * forbids behavioural inference from escalating anything. Those two rules
- * contradict each other, and the contradiction is the subject of open issue
- * #107. It is pinned here as a measured divergence rather than smoothed over,
- * so that whoever resolves #107 finds a test that already states both sides —
- * and so that nobody can quietly change one side and believe they have agreed.
+ * The shipped `adaptiveService` used to escalate pressure on avoidance while
+ * the contract forbids behavioural inference from escalating anything. That
+ * contradiction was pinned here as a measured divergence, which is how #107's
+ * resolution (UC-3.13, #199) found a test that already stated both sides. The
+ * assertion below is the same seam read the other way: the two now agree, and
+ * either of them drifting back to escalation fails here.
  */
 
 import test from 'node:test';
@@ -251,20 +251,31 @@ test('the real deriver never escalates a pressure dimension anywhere in the coho
 
 /* ── 4. The #107 divergence, asserted as a divergence ────────────── */
 
-test('the shipped classifier and this contract disagree about avoidance, and #107 is why', async () => {
-  // Two systems reading the same person. `adaptiveService` sees ignores and
-  // raises pressure to `high` with `direct` wording. The contract sees the same
-  // ignores as behavioural evidence, which may only quiet the product.
+test('the shipped classifier and this contract now agree about avoidance, which is how #107 closed', async () => {
+  // Two systems reading the same person. `adaptiveService` still sees the
+  // ignores and still names the person `avoidant` — the label did not go away,
+  // and the inventory below still shows it. What went away is the escalation:
+  // it used to answer those ignores with `pressureLevel: 'high'` and `direct`
+  // wording, against a contract that lets behavioural evidence only quiet the
+  // product. UC-3.13 (#199) decided for the contract.
   //
-  // Asserted as a *disagreement* on purpose. Making these agree is issue #107's
-  // job and it is a product decision, not a merge fix — but the divergence must
-  // not be silent, and either side changing without the other is a thing this
-  // test now catches.
+  // Still asserted across both sides rather than on one: either of them
+  // drifting back into escalation on its own must fail here.
   const avoidantSignals = { ignoredCommitmentsCount: 6, completionRate: 0.2, delayFrequency: 0.8 };
   const shipped = getAdaptiveBehavior(avoidantSignals);
+  const steady = getAdaptiveBehavior({ ignoredCommitmentsCount: 0, completionRate: 1, delayFrequency: 0 });
   assert.equal(shipped.userType, 'avoidant');
-  assert.equal(shipped.pressureLevel, 'high');
-  assert.equal(shipped.suggestionStyle, 'direct');
+  assert.notEqual(shipped.userType, steady.userType);
+  // The contract's rule, asserted against the shipped classifier in the
+  // contract's own direction: behavioural evidence may lower the cap and may
+  // never raise it. Equality would be the weaker claim and the one that hides a
+  // flattened classifier — this fails if avoidance ever caps *higher* than
+  // steady behaviour, and it also fails if the classifier stops distinguishing
+  // them at all.
+  const rank = { low: 0, medium: 1, high: 2 } as const;
+  assert.equal(shipped.maxPressureLevel, 'low');
+  assert.ok(rank[shipped.maxPressureLevel] < rank[steady.maxPressureLevel]);
+  assert.notEqual(shipped.suggestionStyle, 'direct');
 
   const profile = rebuildPersonalizationProfile({
     scopeId: SCOPE, now: NOW, consent: ENABLED, events: many('ignore', 12, 1), baseline: null,
@@ -273,17 +284,18 @@ test('the shipped classifier and this contract disagree about avoidance, and #10
     assert.notEqual(
       isEscalation(reading.dimension, reading.level as string),
       true,
-      'the contract escalated on ignores; it now agrees with adaptiveService and #107 is resolved the wrong way',
+      'the contract escalated on ignores, which is the thing #107 forbade on both sides',
     );
   }
 
-  // And the divergence is visible to the user on one screen, which is the only
-  // reason it is defensible to ship both at once.
+  // And the label is still visible to the user on one screen, with what it
+  // does and does not change, which is what #107 asked for beyond the fix.
   const port = await portWith(many('ignore', 12, 1), avoidantSignals);
   await port.consent.write(SCOPE, 'enabled', NOW);
   const view = await buildPersonalizationInventory(port, SCOPE, NOW);
   assert.equal(view.adaptive.classification, 'avoidant');
-  assert.equal(view.adaptive.effect.pressureLevel, 'high');
+  assert.equal(view.adaptive.effect.maxPressureLevel, 'low');
+  assert.match(view.adaptive.explanation, /never makes reminders stronger/i);
   assert.equal(view.preferences.kind, 'derived');
 });
 

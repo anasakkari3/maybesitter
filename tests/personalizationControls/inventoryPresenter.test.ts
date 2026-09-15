@@ -280,6 +280,9 @@ test('the #107 classification is surfaced with its inputs in plain language', as
   assert.equal(view.adaptive.classification, 'avoidant');
   assert.ok(view.adaptive.classificationLabel.length > 0);
   assert.match(view.adaptive.explanation, /pressure/i);
+  // What the group does *not* do is the part the user has to be told, because
+  // it used to do the opposite (#107, decided in UC-3.13 (#199)).
+  assert.match(view.adaptive.explanation, /never makes reminders stronger/i);
 
   const inputs = Object.fromEntries(view.adaptive.inputs.map((entry) => [entry.name, entry]));
   assert.equal(inputs.ignoredCommitments.value, 4);
@@ -290,10 +293,21 @@ test('the #107 classification is surfaced with its inputs in plain language', as
     assert.ok(entry.explanation.length > 0, `${entry.name} explained`);
   }
 
-  // What it changes is stated, not implied.
-  assert.equal(view.adaptive.effect.pressureLevel, 'high');
-  assert.equal(view.adaptive.effect.suggestionStyle, 'direct');
+  // What it changes is stated, not implied — and what it reports has to be
+  // true: the scripted signals cross every avoidant threshold, and the effect
+  // the screen shows is still the lowest pressure level the product has.
+  assert.equal(view.adaptive.effect.maxPressureLevel, 'low');
+  assert.equal(view.adaptive.effect.suggestionStyle, 'supportive');
   assert.match(view.adaptive.visibilityNote, /classification|label/i);
+
+  // The screen may not promise a control that does not exist. The ceiling
+  // setting arrives with UC-3.11 (#196)/UC-3.12a (#197); nothing reads
+  // `reminderSettings.escalationCeiling` from storage today, so the copy has to
+  // say that the gentlest strength is simply what everyone gets — not that the
+  // user chose it (#199).
+  assert.match(view.adaptive.ceilingNote, /no control for it yet|not a setting you have chosen/i);
+  assert.doesNotMatch(view.adaptive.explanation, /set only by you|you set/i);
+  assert.doesNotMatch(view.adaptive.ceilingNote, /you (?:chose|set|picked) it/i);
 });
 
 test('the adaptive classification is shown regardless of personalization consent', async () => {
