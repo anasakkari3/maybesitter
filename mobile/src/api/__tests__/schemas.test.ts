@@ -13,6 +13,7 @@ import { captureConfirmationSchema, captureProposalSchema } from '../schemas/cap
 import { nextStepDecisionResponseSchema, nextStepResponseSchema } from '../schemas/nextStep';
 import { trustResponseSchema } from '../schemas/trust';
 import { alphaFeedbackSchema, feedbackHistorySchema, feedbackRevokeSchema } from '../schemas/feedback';
+import { activityPageSchema, weeklySummarySchema } from '../schemas/activity';
 import { analyticsAckSchema } from '../schemas/analytics';
 import {
   aiConsentUpdatedSchema,
@@ -107,6 +108,8 @@ const CASES: Array<[string, z.ZodType]> = [
   ['plan.settingsDefault', planSettingsResponseSchema],
   ['plan.settingsSaved', planSettingsResponseSchema],
   ['errors.unauthorized', errorBodySchema],
+  ['activity.list', activityPageSchema],
+  ['activity.summary', weeklySummarySchema],
 ];
 
 describe('every response the client parses', () => {
