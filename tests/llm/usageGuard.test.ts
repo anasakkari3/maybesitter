@@ -21,6 +21,12 @@ import {
   isCostFree,
   type CostAttributionEvent,
 } from '../../src/contracts/v1/costAttributionContracts.ts';
+import {
+  REVENUECAT_ENTITLEMENT_POLICY,
+  decideFeatureEntitlement,
+  entitlementCheckCostEvent,
+  projectRevenueCatEntitlements,
+} from '../../lib/integrations/revenuecat/entitlements.ts';
 import { MODULE_CONTRACT_VERSION } from '../../src/contracts/v1/moduleContracts.ts';
 import {
   DEFAULT_GLOBAL_DAILY_CAP,
@@ -291,4 +297,124 @@ test('raw sensitive content fields are absent from the event contract', () => {
   for (const forbidden of ['rawPrompt', 'prompt', 'mailboxBody', 'transcript', 'healthSamples', 'content']) {
     assert.equal(keys.includes(forbidden), false, `${forbidden} must not be a cost-attribution field`);
   }
+});
+
+test('RevenueCat projects verified entitlements without receipts or transaction history', () => {
+  const projection = projectRevenueCatEntitlements({
+    scopeId: 'scope-a',
+    fetchedAt: '2026-09-16T09:00:00Z',
+    now: '2026-09-16T09:01:00Z',
+    entitlements: [
+      {
+        entitlementId: 'premium',
+        isActive: true,
+        expiresAt: '2026-10-16T09:00:00Z',
+        willRenew: true,
+        billingIssueDetectedAt: null,
+        verification: 'verified',
+      },
+      {
+        entitlementId: 'untrusted',
+        isActive: true,
+        expiresAt: null,
+        willRenew: false,
+        billingIssueDetectedAt: null,
+        verification: 'unverified',
+      },
+    ],
+  });
+
+  assert.deepEqual(projection.entitlements.map((entry) => [entry.entitlementId, entry.status]), [
+    ['premium', 'active'],
+    ['untrusted', 'unverified'],
+  ]);
+  assert.equal(JSON.stringify(projection).includes('receipt'), false);
+  assert.deepEqual(REVENUECAT_ENTITLEMENT_POLICY, {
+    projectionOnly: true,
+    rawReceiptAllowed: false,
+    storeTransactionHistory: false,
+    grantsConsent: false,
+    mutatesUserState: false,
+    nativeSdkRequiredAtThisBoundary: false,
+  });
+});
+
+test('feature entitlement checks fail closed on stale, missing, or unverified projections', () => {
+  const projection = projectRevenueCatEntitlements({
+    scopeId: 'scope-a',
+    fetchedAt: '2026-09-16T09:00:00Z',
+    now: '2026-09-16T09:00:00Z',
+    entitlements: [{
+      entitlementId: 'premium',
+      isActive: true,
+      expiresAt: null,
+      willRenew: false,
+      billingIssueDetectedAt: null,
+      verification: 'unverified',
+    }],
+  });
+
+  assert.deepEqual(decideFeatureEntitlement({
+    projection: null,
+    requiredEntitlementIds: ['premium'],
+    now: '2026-09-16T09:01:00Z',
+    maxAgeMs: 300_000,
+  }), { allowed: false, reason: 'projection_missing', entitlementId: null });
+  assert.deepEqual(decideFeatureEntitlement({
+    projection,
+    requiredEntitlementIds: ['premium'],
+    now: '2026-09-16T10:00:00Z',
+    maxAgeMs: 300_000,
+  }), { allowed: false, reason: 'projection_stale', entitlementId: null });
+  assert.deepEqual(decideFeatureEntitlement({
+    projection,
+    requiredEntitlementIds: ['premium'],
+    now: '2026-09-16T09:01:00Z',
+    maxAgeMs: 300_000,
+  }), { allowed: false, reason: 'entitlement_missing_or_inactive', entitlementId: null });
+});
+
+test('billing grace is explicit and free features do not require a provider projection', () => {
+  const projection = projectRevenueCatEntitlements({
+    scopeId: 'scope-a',
+    fetchedAt: '2026-09-16T09:00:00Z',
+    now: '2026-09-16T09:01:00Z',
+    entitlements: [{
+      entitlementId: 'premium',
+      isActive: true,
+      expiresAt: '2026-09-20T09:00:00Z',
+      willRenew: true,
+      billingIssueDetectedAt: '2026-09-15T09:00:00Z',
+      verification: 'verified',
+    }],
+  });
+
+  assert.deepEqual(decideFeatureEntitlement({
+    projection,
+    requiredEntitlementIds: ['premium'],
+    now: '2026-09-16T09:01:00Z',
+    maxAgeMs: 300_000,
+  }), { allowed: true, reason: 'entitlement_grace_period', entitlementId: 'premium' });
+  assert.deepEqual(decideFeatureEntitlement({
+    projection: null,
+    requiredEntitlementIds: [],
+    now: 'not-needed-for-free-feature',
+    maxAgeMs: 0,
+  }), { allowed: true, reason: 'free_feature', entitlementId: null });
+});
+
+test('entitlement checks reuse provider and feature cost attribution', () => {
+  const event = entitlementCheckCostEvent({
+    eventId: 'entitlement-check-1',
+    scopeId: 'scope-a',
+    occurredAt: '2026-09-16T09:01:00Z',
+    period: PERIOD,
+    status: 'success',
+    traceId: 'trace-entitlement',
+  });
+
+  assert.equal(event.provider, 'revenuecat');
+  assert.equal(event.feature, 'subscription_entitlement');
+  assert.equal(event.estimatedCostMicros, 0);
+  assert.equal(isCostFree(event), true);
 });
