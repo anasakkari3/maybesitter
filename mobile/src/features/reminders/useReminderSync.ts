@@ -36,7 +36,7 @@ import {
   toReminderCommitments,
 } from './reminderInputs';
 import type { ReminderIntensity } from './policy';
-import { recordHardReceipts } from './hardReceiptQueue';
+import { recordHardReceipts } from '../../lib/deviceSettings/hardReceiptQueue';
 import { canScheduleExactAlarms } from '../../notifications/exactAlarms';
 
 export interface ReminderSyncOptions {

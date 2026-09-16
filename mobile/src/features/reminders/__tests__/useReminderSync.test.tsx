@@ -16,7 +16,7 @@ import * as reminderEndpoints from '../../../api/endpoints/reminders';
 import * as commitmentEndpoints from '../../../api/endpoints/commitments';
 import * as profileEndpoints from '../../../api/endpoints/profile';
 import type { AuthUser } from '../../../auth/types';
-import { hardReceiptStorageKey, loadHardReceipts } from '../hardReceiptQueue';
+import { hardReceiptStorageKey, loadHardReceipts } from '../../../lib/deviceSettings/hardReceiptQueue';
 import commitment from '../../../api/__fixtures__/commitments.one.json';
 import reminderSettings from '../../../api/__fixtures__/reminders.settingsSaved.json';
 

@@ -11,7 +11,7 @@ import {
 } from '../../notifications/pushRegistration';
 import { routeFromNotification } from '../../notifications/routeFromNotification';
 import { clearAwareness, markAware } from '../../lib/deviceSettings/awarenessStore';
-import { clearHardReceipts } from './hardReceiptQueue';
+import { clearHardReceipts } from '../../lib/deviceSettings/hardReceiptQueue';
 import { useToday, useUpcoming } from '../../api/queries';
 import { startOf } from './reminderInputs';
 import { useReminderSync } from './useReminderSync';

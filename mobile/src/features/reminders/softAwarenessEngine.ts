@@ -48,7 +48,7 @@ import {
   type ReminderSettings,
   type ReminderStage,
 } from './policy';
-import type { HardReceipt } from './hardReceiptQueue';
+import type { HardReceipt } from '../../lib/deviceSettings/hardReceiptQueue';
 import { deferOutOfQuietHours, keepHigherIntensity, type QuietWindow } from './quietHours';
 import { isAware, type AwarenessCache } from '../../lib/deviceSettings/awarenessStore';
 
