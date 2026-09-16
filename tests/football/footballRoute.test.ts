@@ -45,6 +45,8 @@ import {
 } from '../../src/contracts/v1/fixtureContracts.ts';
 import { GET, PUT } from '../../src/app/api/mobile/football/route.ts';
 import { DELETE } from '../../src/app/api/mobile/football/fixtures/[commitmentId]/route.ts';
+import { DELETE as DELETE_COMMITMENT } from '../../src/app/api/mobile/commitments/[id]/route.ts';
+import { projectFixturesForUser } from '../../lib/football/projectFixtures.ts';
 
 const BASE = 'http://127.0.0.1:4321';
 const USER = uidFor('FootballUser');
@@ -270,6 +272,39 @@ test('an unsupported locale on a follow is a 400', async () => {
   try {
     const response = await PUT(authedRequest('PUT', { clubIds: ['barcelona'], locale: 'fr' }));
     assert.equal(response.status, 400);
+  } finally {
+    teardown();
+  }
+});
+
+// ── Final review I2: the app's ordinary delete was undone by the sync ────
+//
+// `DELETE /api/mobile/commitments/{id}` is a soft Drop. The projection's
+// "a dropped commitment whose fixture came back gets recreated" branch could
+// not tell that Drop from its own postponement drop, so the next change to
+// the match put it straight back on the user's calendar.
+test('a match the user deleted through the ordinary delete route stays deleted when the fixture changes', async () => {
+  const teardown = setup();
+  try {
+    await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+    const body = await json(await PUT(authedRequest('PUT', { clubIds: ['barcelona'] })));
+    const [projected] = body.fixtures as { commitmentId: string }[];
+
+    const deleted = await DELETE_COMMITMENT(new Request(`${BASE}/api/mobile/commitments/${projected!.commitmentId}`, {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${tokenFor(USER)}` },
+    }), { params: Promise.resolve({ id: projected!.commitmentId }) });
+    assert.equal(deleted.status, 200);
+
+    // The provider corrects the kickoff: a new content hash, the exact input
+    // that reaches the recreate branch.
+    await upsertFixtures([fixture('1', '2026-10-25T20:00:00.000Z')]);
+    const tally = await projectFixturesForUser(USER, '2026-10-01T09:00:00.000Z');
+    assert.equal(tally.created, 0);
+
+    const state = await readParticipantState(USER);
+    const live = Object.values(state.commitments).filter((c) => c.status !== 'dropped');
+    assert.deepEqual(live, [], 'nothing the user deleted came back');
   } finally {
     teardown();
   }

@@ -86,11 +86,19 @@
  * function dropped it), never a dismissal.
  *
  * Branch 2 (dropping a commitment for a fixture that stopped holding time)
- * is not given the same transactional guard -- dropping never resurrects
- * anything a dismissal did not already want dropped, so the only risk left
- * on that path is the ref write re-asserting a stale `detachedAt: null`,
- * which `putRefCarryingForwardDetachment` closes on its own (see that
- * function's header in `externalTaskRefStore.ts`).
+ * runs in its own transaction too (`dropCommitmentForFixtureGuarded`): the
+ * drop and the ref's `droppedByProjection` marker are written together, the
+ * ref by merge so `detachedAt` is never named, and a ref found detached inside
+ * that transaction gets no marker.
+ *
+ * ── A user's own drop is not a postponement (final review I2) ─────────────
+ * The domain has one `dropped` status, and the app's ordinary delete is a soft
+ * `Drop`. Branch 5's recreate path therefore recreates a dropped commitment
+ * only when the ref's `droppedByProjection` says this module dropped it; a
+ * dropped commitment without the marker is the user's decision and is treated
+ * like a completed one -- left alone. `tests/football/footballRoute.test.ts`'s
+ * `'a match the user deleted through the ordinary delete route stays deleted
+ * when the fixture changes'` pins it through the real route.
  *
  * `tests/football/projectFixtures.test.ts`'s `'a dismissal landing mid-sync
  * is not undone'` exercises both cases above deterministically, via the
@@ -186,7 +194,7 @@ import { getFollowedClubs } from './followedClubs';
 import { clubById, fixtureTitle, type ClubLanguage } from './clubs';
 import { listDevices } from '../push/deviceRegistry';
 import { listFixturesForTeam } from './fixtureStore';
-import { getRef, listRefs, putRef, putRefCarryingForwardDetachment, refDocPath } from './externalTaskRefStore';
+import { getRef, listRefs, putRef, refDocPath } from './externalTaskRefStore';
 
 /**
  * How far ahead a projection run looks. A season's worth of fixtures, not a
@@ -275,6 +283,29 @@ export interface FixtureExternalTaskRef extends ExternalTaskReference {
    * title reads as "different", which is what renames those commitments.
    */
   readonly title?: string;
+  /**
+   * Set when *this projection* dropped the linked commitment, and why; `null`
+   * (or absent, on a ref written before this field existed) otherwise.
+   *
+   * The domain has one `dropped` status for every way a commitment gets
+   * dropped, and the app's ordinary delete (`DELETE /api/mobile/commitments/
+   * {id}`) is a soft `Drop` too. Branch 5's "a dropped commitment whose match
+   * is back gets recreated" was reading `dropped` as "the projection dropped it
+   * for a postponement", so a user's own delete came back the next time the
+   * fixture changed. This marker is the one record of which drops are the
+   * projection's to undo: only a commitment dropped with it set is ever
+   * recreated, and every drop this module makes sets it, in the same
+   * transaction as the drop itself. A dropped commitment without it is the
+   * user's decision and is left alone, exactly like a completed one.
+   */
+  readonly droppedByProjection?: ProjectionDrop | null;
+}
+
+/** Why the projection dropped a fixture's commitment -- see `droppedByProjection`. */
+export interface ProjectionDrop {
+  /** `fixture_status`: cancelled or postponed. */
+  readonly reason: 'fixture_status';
+  readonly at: string;
 }
 
 /**
@@ -380,6 +411,7 @@ function buildRef(
     homeTeamName: fixture.homeTeamName,
     awayTeamName: fixture.awayTeamName,
     title,
+    droppedByProjection: null,
   };
 }
 
@@ -456,7 +488,7 @@ async function readGuardedInputs(
   tx: StorageTransaction,
   uid: string,
   taskRefId: string,
-): Promise<{ user: UserDocument | null; before: DomainState; stats: ActivityStats }> {
+): Promise<{ user: UserDocument | null; before: DomainState; stats: ActivityStats; freshRef: FixtureExternalTaskRef | null }> {
   const [user, before, stats, freshRef] = await Promise.all([
     tx.get<UserDocument>(userDoc(uid)),
     loadDomainState(tx, uid),
@@ -464,7 +496,7 @@ async function readGuardedInputs(
     tx.get<FixtureExternalTaskRef>(refDocPath(uid, taskRefId)),
   ]);
   if (freshRef?.detachedAt) throw new FixtureDetachedRaceError();
-  return { user, before, stats };
+  return { user, before, stats, freshRef };
 }
 
 /**
@@ -564,7 +596,7 @@ async function updateCommitmentForFixtureGuarded(
   let outcome: UpdateOutcome = 'updated';
   try {
     await getStorage().runTransaction(async (tx) => {
-      const { user, before, stats } = await readGuardedInputs(tx, uid, taskRefId);
+      const { user, before, stats, freshRef } = await readGuardedInputs(tx, uid, taskRefId);
 
       let candidate = before;
       let events: DomainEvent[] = [];
@@ -612,7 +644,7 @@ async function updateCommitmentForFixtureGuarded(
 
         const linked = before.commitments[linkedCommitmentId];
 
-        if (linked?.status === 'dropped') {
+        if (linked?.status === 'dropped' && freshRef?.droppedByProjection) {
           // The return journey: a postponement dropped this commitment
           // earlier and the match has now come back with a new kickoff.
           // `readGuardedInputs` above already ruled out this being a
@@ -629,8 +661,10 @@ async function updateCommitmentForFixtureGuarded(
           events = applied.events;
           outcome = 'recreated';
           writeRef = (t) => t.set<FixtureExternalTaskRef>(refDocPath(uid, taskRefId), buildRef(uid, fixture, commitmentId, now, title));
-        } else if (linked?.status === 'completed' || linked?.status === 'archived') {
-          // The user already dealt with this match. Create nothing, touch
+        } else if (linked?.status === 'dropped' || linked?.status === 'completed' || linked?.status === 'archived') {
+          // The user already dealt with this match: completed it, or dropped
+          // it themselves (a `dropped` with no `droppedByProjection` marker is
+          // the app's ordinary delete, never this module -- see that field). Create nothing, touch
           // nothing -- the product has no business handing it back as new
           // work because the provider corrected a detail after the fact.
           // Counted as `skipped`, not `cancelled`/dropped-count: nothing was
@@ -664,6 +698,65 @@ async function updateCommitmentForFixtureGuarded(
     throw error;
   }
 }
+
+/**
+ * Branch 2 of `projectOneFixture` as one storage transaction: drop the linked
+ * commitment of a fixture that stopped holding time, and record on the ref
+ * that the projection did it (`droppedByProjection`), together or not at all.
+ *
+ * Two separate writes -- the drop, then the marker -- would leave a crash
+ * between them holding a dropped commitment with no marker, which reads as
+ * the user's own delete and is never brought back when the match is
+ * rescheduled. Folding both into one transaction makes that state
+ * unreachable.
+ *
+ * The ref is written with `tx.merge` and never names `detachedAt`, so a
+ * dismissal is never overwritten; and a ref that is already detached (read
+ * inside this transaction) gets no marker, because the dismissal, not this
+ * module, is why that commitment is dropped.
+ *
+ * Returns whether a commitment was actually dropped. Only a live one is
+ * (`DROPPABLE_STATUSES`): a commitment already dropped has nothing left to
+ * drop.
+ */
+async function dropCommitmentForFixtureGuarded(
+  uid: string,
+  fixture: Fixture,
+  linkedCommitmentId: string,
+  now: string,
+): Promise<boolean> {
+  const taskRefId = taskRefIdOf(fixture);
+  let dropped = false;
+  await getStorage().runTransaction(async (tx) => {
+    dropped = false;
+    const [user, before, stats, freshRef] = await Promise.all([
+      tx.get<UserDocument>(userDoc(uid)),
+      loadDomainState(tx, uid),
+      readActivityStats(tx, uid),
+      tx.get<FixtureExternalTaskRef>(refDocPath(uid, taskRefId)),
+    ]);
+    const linked = before.commitments[linkedCommitmentId];
+    let refPatch: Partial<FixtureExternalTaskRef> = {
+      fingerprint: fingerprintOf(fixture, now),
+      lastSyncedAt: now,
+      updatedAt: now,
+    };
+    if (!freshRef?.detachedAt && linked && DROPPABLE_STATUSES.has(linked.status)) {
+      const { state: candidate, events } = applyCommands(before, [
+        { type: 'Drop', commitmentId: linkedCommitmentId, now },
+      ]);
+      writeDomainDiff(tx, uid, before, candidate, events, user, now);
+      recordActivityEvents(tx, uid, stats, events);
+      refPatch = { ...refPatch, droppedByProjection: { reason: 'fixture_status', at: now } };
+      dropped = true;
+    }
+    if (freshRef) tx.merge<FixtureExternalTaskRef>(refDocPath(uid, taskRefId), refPatch);
+  });
+  return dropped;
+}
+
+/** A commitment still holding time, which a fixture that stopped holding time may drop. */
+const DROPPABLE_STATUSES: ReadonlySet<Commitment['status']> = new Set<Commitment['status']>(['active', 'deferred', 'missed', 'completed']);
 
 /**
  * One fixture, projected against whatever ref (if any) already exists for
@@ -706,23 +799,8 @@ async function projectOneFixture(
   // and nothing to create either, so it is simply skipped.
   if (NON_HOLDING_STATUSES.has(fixture.status)) {
     if (ref?.linkedCommitmentId) {
-      await applyParticipantCommands(uid, [
-        { type: 'Drop', commitmentId: ref.linkedCommitmentId, now },
-      ]);
-      // `putRefCarryingForwardDetachment`, not `putRef`: dropping a
-      // commitment never resurrects anything a dismissal did not already
-      // want dropped, so this does not need the same-transaction guard the
-      // create/update paths below get -- but the ref write still must not
-      // re-assert a stale `detachedAt: null` over a dismissal that landed
-      // after this function's own `ref` read above. See that function's
-      // header in `externalTaskRefStore.ts`.
-      await putRefCarryingForwardDetachment<FixtureExternalTaskRef>(uid, {
-        ...ref,
-        fingerprint: fingerprintOf(fixture, now),
-        lastSyncedAt: now,
-        updatedAt: now,
-      });
-      tally.cancelled += 1;
+      const dropped = await dropCommitmentForFixtureGuarded(uid, fixture, ref.linkedCommitmentId, now);
+      tally[dropped ? 'cancelled' : 'skipped'] += 1;
     } else {
       tally.skipped += 1;
     }
