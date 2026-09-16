@@ -48,7 +48,7 @@ function commitment(overrides: Partial<Commitment> = {}): Commitment {
     description: null,
     person: null,
     status: 'active',
-    priority: { level: 'high', source: 'user_must', pressureAllowed: true, pressureLevel: 'none' },
+    priority: { level: 'high', source: 'user_explicit', pressureAllowed: true, pressureLevel: 'none' },
     category: null,
     categorySource: 'inferred',
     timeSpec: { kind: 'scheduled_event', dueAt: start, endAt: null, remindAt: null, allDay: false, timezone: ZONE },
@@ -108,8 +108,8 @@ test('nothing else is ever indexed', async () => {
   try {
     await ringing();
     const cases: Array<[string, Commitment]> = [
-      ['a Should', commitment({ id: 'should', priority: { level: 'normal', source: 'default', pressureAllowed: false, pressureLevel: 'none' } } as Partial<Commitment>)],
-      ['a Nice', commitment({ id: 'nice', priority: { level: 'low', source: 'user_low', pressureAllowed: false, pressureLevel: 'none' } } as Partial<Commitment>)],
+      ['a Should', commitment({ id: 'should', priority: { level: 'normal', source: 'default', pressureAllowed: false, pressureLevel: 'none' } } as unknown as Partial<Commitment>)],
+      ['a Nice', commitment({ id: 'nice', priority: { level: 'low', source: 'user_explicit', pressureAllowed: false, pressureLevel: 'none' } } as unknown as Partial<Commitment>)],
       ['no time at all', commitment({ id: 'undated', timeSpec: { kind: 'unscheduled', dueAt: null, endAt: null, remindAt: null, allDay: false, timezone: ZONE } })],
       // Its "start" is local midnight and nobody chose that hour, so ten
       // minutes before it is ten to midnight the night before.
@@ -146,7 +146,7 @@ test('an account that has not asked for ringing indexes nothing, and asking late
   }
 });
 
-test('the old strong survey answer is enough, for an account that never saw the new control', async () => {
+test('a survey answer alone never indexes a ring, not even "be firm" (#430 review F1)', async () => {
   const teardown = setup();
   try {
     await saveRoutineProfile(USER, {
@@ -159,7 +159,8 @@ test('the old strong survey answer is enough, for an account that never saw the 
       surveySkipped: false,
     }, NOW.toISOString());
     await store(commitment());
-    assert.equal((await row())?.status, 'pending');
+    // The phone will not ring (hardEnabled stays off), so there is nothing to back up.
+    assert.equal(await row(), null);
   } finally {
     teardown();
   }
@@ -178,7 +179,7 @@ test('moving the start re-arms the reminder and throws the phone s receipt away'
     });
 
     const moved = new Date(NOW.getTime() + 5 * 3_600_000).toISOString();
-    await patchCommitment('c1', { dueAt: moved }, { participantId: USER });
+    await patchCommitment('c1', { dueDate: moved }, NOW, { participantId: USER });
 
     const after = await row();
     assert.equal(after?.fireAt, new Date(Date.parse(moved) - HARD_LEAD_MS).toISOString());
@@ -197,7 +198,7 @@ test('an edit that is not the start leaves the row, and the receipt on it, alone
     const receipt = { installationId: '11111111-1111-4111-8111-111111111111', notificationId: 'c1:strong', exact: true, scheduledAt: NOW.toISOString() };
     await getStorage().set(hardReminderPath(USER, 'c1'), { ...(await row() as HardReminderEntry), localReceipt: receipt });
 
-    await patchCommitment('c1', { title: 'Dentist, the second' }, { participantId: USER });
+    await patchCommitment('c1', { title: 'Dentist, the second' }, NOW, { participantId: USER });
 
     assert.deepEqual((await row())?.localReceipt, receipt);
   } finally {
@@ -205,25 +206,44 @@ test('an edit that is not the start leaves the row, and the receipt on it, alone
   }
 });
 
-test('completing, cancelling or postponing before the reminder removes it', async () => {
+test('completing or cancelling before the reminder removes it', async () => {
+  for (const [name, act] of [
+    ['complete', () => completeCommitment('c1', NOW, { participantId: USER })],
+    ['cancel', () => dropCommitment('c1', NOW, { participantId: USER })],
+  ] as const) {
+    const teardown = setup();
+    try {
+      await ringing();
+      await store(commitment());
+      assert.notEqual(await row(), null, 'nothing to remove');
+      await act();
+      assert.equal(await row(), null, `${name} left the reminder armed`);
+    } finally {
+      teardown();
+    }
+  }
+});
+
+/*
+ * Postpone, decided from the domain rather than from #198's table.
+ *
+ * `Postpone` (src/domain/stateMachine.ts) leaves the commitment `active` and
+ * its `timeSpec.dueAt` where it was; it sets `postponedUntil`, which is a
+ * check-in time, not a new start. The phone's engine (#196/#197) reads
+ * `timeSpec.dueAt` and `status` and nothing else, so after a postpone the phone
+ * still rings at start − 10. If the server dropped the row the two would
+ * disagree, and the disagreement is a miss: a phone that could not schedule
+ * the ring would get no backup either. So the server follows the device, and
+ * a *move* — a new `dueDate` — is what re-arms at the new start (tested above).
+ */
+test('postponing keeps the reminder where the phone keeps it, at the unchanged start', async () => {
   const teardown = setup();
   try {
-    for (const [name, act] of [
-      ['complete', () => completeCommitment('c1', NOW, { participantId: USER })],
-      ['cancel', () => dropCommitment('c1', NOW, { participantId: USER })],
-      ['postpone', () => postponeCommitment('c1', new Date(NOW.getTime() + 30 * 86_400_000).toISOString(), NOW, { participantId: USER })],
-    ] as const) {
-      const inner = setup();
-      try {
-        await ringing();
-        await store(commitment());
-        assert.notEqual(await row(), null, 'nothing to remove');
-        await act();
-        assert.equal(await row(), null, `${name} left the reminder armed`);
-      } finally {
-        inner();
-      }
-    }
+    await ringing();
+    await store(commitment());
+    const before = await row();
+    await postponeCommitment('c1', new Date(NOW.getTime() + 30 * 86_400_000).toISOString(), NOW, { participantId: USER });
+    assert.deepEqual(await row(), before);
   } finally {
     teardown();
   }
