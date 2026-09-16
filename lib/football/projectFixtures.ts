@@ -27,18 +27,43 @@
  * commitment itself.
  *
  * ── The order inside `projectOneFixture`, and why it cannot be reordered ──
- * `detachedAt` is checked before the cancelled-status branch and before the
+ * `detachedAt` is checked before the non-holding-status branch and before the
  * content-hash comparison, for one reason: a dismissed match whose kickoff
  * later moves has a *different* `contentHash` than the one recorded when it
  * was dismissed, so the hash-equality shortcut ("nothing changed, skip") does
- * not apply to it. If the hash check or the cancelled check ran first, a
+ * not apply to it. If the hash check or the status check ran first, a
  * dismissed-then-rescheduled fixture would fall through to the update branch
  * and the projection would resurrect a commitment the user explicitly said
  * they did not want -- on their calendar, without their say-so, the next
  * time the sync happened to run. A dismissal a sync can undo is not a
  * dismissal. `tests/football/projectFixtures.test.ts`'s
- * `'a dismissed match stays dismissed even when it moves'` exists to catch
+ * `'a dismissed match stays dismissed even when it moves'` and `'a dismissed
+ * match stays dismissed through postponement and reschedule'` exist to catch
  * exactly this reordering.
+ *
+ * ── Which statuses hold time, and which give it back ──────────────────────
+ * `cancelled` was the only status Task 8's brief named, but the same
+ * argument applies to two more: `postponed` (football-data.org keeps the old
+ * `utcDate` on a postponed match until a new one is announced -- so an
+ * un-updated postponement is not "no evening blocked", it is "the wrong
+ * evening blocked, for a match that is not being played that night") and
+ * `finished` (a fixture whose result is already in has nothing left to block
+ * time for). All three are treated identically: drop whatever commitment
+ * exists for them, create nothing new. `NON_HOLDING_STATUSES` names the set.
+ *
+ * A postponed match is usually rescheduled later: the provider re-emits the
+ * same `providerMatchId`, `status: 'scheduled'`, and a new `kickoffUtc`. By
+ * then the ref's `linkedCommitmentId` still points at the commitment the
+ * postponement dropped -- and the domain layer correctly refuses to
+ * `UpdateCommitment` a dropped one (`stateMachine.ts`'s
+ * `ensureCommitmentStatus`; dropped is not in `UpdateCommitment`'s allowed
+ * list). That refusal is not a bug to route around with a wider allowed-list
+ * -- a dropped commitment is a closed chapter, not a draft waiting to be
+ * reopened -- so `projectOneFixture` catches exactly that
+ * `InvalidStateTransitionError` and creates a fresh commitment instead,
+ * pointing the ref at the new one. See `createCommitmentForFixture` and
+ * `tests/football/projectFixtures.test.ts`'s `'a postponed match that is
+ * later rescheduled creates a new commitment'`.
  *
  * ── Why the commitment title carries no team name ─────────────────────────
  * `homeTeamName` / `awayTeamName` are stored on the `ExternalTaskReference`,
@@ -53,7 +78,7 @@
  * layer is expected to show verbatim.
  */
 import { randomUUID } from 'node:crypto';
-import type { Fixture, FixtureWindow } from '../../src/contracts/v1/fixtureContracts';
+import type { Fixture, FixtureStatus, FixtureWindow } from '../../src/contracts/v1/fixtureContracts';
 import { FIXTURE_BLOCK_MINUTES } from '../../src/contracts/v1/fixtureContracts';
 import {
   EXTERNAL_TASK_CONTRACT_VERSION,
@@ -61,7 +86,7 @@ import {
   type ExternalTaskContentFingerprint,
   type ExternalTaskReference,
 } from '../../src/contracts/v1/externalTaskContracts';
-import type { Command, TimeSpec } from '../../src/domain/stateMachine';
+import { InvalidStateTransitionError, type Command, type TimeSpec } from '../../src/domain/stateMachine';
 import { applyParticipantCommands, readParticipantState } from '../services/mobile/participantState';
 import { getFollowedClubs } from './followedClubs';
 import { clubById } from './clubs';
@@ -88,12 +113,32 @@ const FOOTBALL_FEED_CONNECTION_ID = 'football-fixtures-feed';
  */
 const FIXTURE_TITLE_PLACEHOLDER = 'Football fixture';
 
+/**
+ * `cancelled` counts every drop this run made, not literally every fixture
+ * whose `status` was `'cancelled'` -- `postponed` and `finished` drop a
+ * commitment the same way and are folded into the same counter. Task 8's
+ * brief fixed this shape (`{ created, updated, cancelled, skipped }`) before
+ * `postponed`/`finished` were in scope, and giving each status its own
+ * counter would be a wire-shape change with no consumer asking for it yet
+ * (nothing reads `ProjectionTally` outside this module and its tests). If a
+ * future caller needs to tell "the match was called off" apart from "the
+ * match will be rescheduled," that is the moment to widen this type -- not
+ * before.
+ */
 export interface ProjectionTally {
   created: number;
   updated: number;
   cancelled: number;
   skipped: number;
 }
+
+/**
+ * Statuses that give back whatever time they were holding. A commitment that
+ * exists for one of these is dropped; one that doesn't is not created. See
+ * the module header for why `postponed` and `finished` belong here alongside
+ * the `cancelled` status Task 8's brief named on its own.
+ */
+const NON_HOLDING_STATUSES: ReadonlySet<FixtureStatus> = new Set<FixtureStatus>(['cancelled', 'postponed', 'finished']);
 
 /**
  * The ref shape this module actually stores: an `ExternalTaskReference` plus
@@ -198,6 +243,41 @@ function buildRef(
 }
 
 /**
+ * `CreateDraft` immediately followed by `ConfirmCommitment`, in one
+ * transaction, then a ref pointing at the new commitment. Following the club
+ * was the confirmation -- routing every one of a season's ~50 matches
+ * through a confirmation queue is the outcome the owner explicitly rejected.
+ *
+ * Shared by both callers that need a brand-new commitment: the ordinary "no
+ * ref yet" path, and the "a ref exists but the commitment it links is no
+ * longer updatable" path (the postponement return journey -- see the module
+ * header).
+ */
+async function createCommitmentForFixture(
+  uid: string,
+  fixture: Fixture,
+  timeSpec: TimeSpec,
+  now: string,
+): Promise<void> {
+  const commitmentId = randomUUID();
+  const commands: Command[] = [
+    {
+      type: 'CreateDraft',
+      now,
+      commitment: {
+        id: commitmentId,
+        kind: 'task',
+        title: FIXTURE_TITLE_PLACEHOLDER,
+        timeSpec,
+      },
+    },
+    { type: 'ConfirmCommitment', commitmentId, now },
+  ];
+  await applyParticipantCommands(uid, commands);
+  await putRef<FixtureExternalTaskRef>(uid, buildRef(uid, fixture, commitmentId, now));
+}
+
+/**
  * One fixture, projected against whatever ref (if any) already exists for
  * it. The order of the checks below is the whole point -- see the module
  * header before touching it.
@@ -211,21 +291,25 @@ async function projectOneFixture(
   const externalId = externalIdOf(fixture);
   const ref = await getRef<FixtureExternalTaskRef>(uid, externalId);
 
-  // 1. detachedAt FIRST. A dismissed match whose kickoff later moves has a
-  // changed contentHash, so it does *not* hit the "unchanged, skip" shortcut
-  // below -- it would otherwise fall all the way through to the update
-  // branch and resurrect a commitment the user explicitly dismissed. See the
-  // module header; this ordering is the feature this task exists to build.
+  // 1. detachedAt FIRST. A dismissed match whose kickoff later moves (or is
+  // postponed, then rescheduled) has a *different* `contentHash` than the
+  // one recorded when it was dismissed, so it does *not* hit the
+  // "unchanged, skip" shortcut below -- it would otherwise fall through to
+  // the status or update branches and resurrect a commitment the user
+  // explicitly dismissed. See the module header; this ordering is the
+  // feature this task exists to build.
   if (ref?.detachedAt) {
     tally.skipped += 1;
     return;
   }
 
-  // 2. A cancelled match drops whatever commitment it made, if any. A
-  // cancellation for a fixture nobody had projected yet (no ref) is not a
-  // drop of anything -- there is nothing to drop, and nothing to create
-  // either, so it is simply skipped.
-  if (fixture.status === 'cancelled') {
+  // 2. A fixture that no longer holds time (cancelled, postponed pending a
+  // new date, or already finished) drops whatever commitment it made, if
+  // any -- see the module header for why all three are treated alike. A
+  // fixture nobody had projected yet (no ref) arriving already in one of
+  // these statuses is not a drop of anything -- there is nothing to drop,
+  // and nothing to create either, so it is simply skipped.
+  if (NON_HOLDING_STATUSES.has(fixture.status)) {
     if (ref?.linkedCommitmentId) {
       await applyParticipantCommands(uid, [
         { type: 'Drop', commitmentId: ref.linkedCommitmentId, now },
@@ -257,37 +341,32 @@ async function projectOneFixture(
   const timeSpec = timeSpecFor(fixture);
 
   // 4. No ref, or a ref with nothing linked yet: create straight to active.
-  // Following the club was the confirmation -- routing every one of a
-  // season's ~50 matches through a confirmation queue is the outcome the
-  // owner explicitly rejected, so this is `CreateDraft` immediately followed
-  // by `ConfirmCommitment`, applied together in one transaction.
   if (!ref || !ref.linkedCommitmentId) {
-    const commitmentId = randomUUID();
-    const commands: Command[] = [
-      {
-        type: 'CreateDraft',
-        now,
-        commitment: {
-          id: commitmentId,
-          kind: 'task',
-          title: FIXTURE_TITLE_PLACEHOLDER,
-          timeSpec,
-        },
-      },
-      { type: 'ConfirmCommitment', commitmentId, now },
-    ];
-    await applyParticipantCommands(uid, commands);
-    await putRef<FixtureExternalTaskRef>(uid, buildRef(uid, fixture, commitmentId, now));
+    await createCommitmentForFixture(uid, fixture, timeSpec, now);
     tally.created += 1;
     return;
   }
 
   // 5. A ref already links a commitment and the hash changed: the kickoff
   // (or some other core fact) moved. Move the same commitment rather than
-  // creating a second one for the same match.
-  await applyParticipantCommands(uid, [
-    { type: 'UpdateCommitment', commitmentId: ref.linkedCommitmentId, now, updates: { timeSpec } },
-  ]);
+  // creating a second one for the same match -- *unless* the commitment the
+  // ref points at is no longer updatable, which happens when a postponement
+  // dropped it (branch 2, above) and the match has now come back with a new
+  // kickoff. The domain layer refuses `UpdateCommitment` on a dropped
+  // commitment on purpose (`stateMachine.ts`'s `ensureCommitmentStatus`); a
+  // dropped commitment is a closed chapter, and what comes back after a
+  // postponement is a fresh one, not a reopening of the old one. See the
+  // module header and `createCommitmentForFixture`.
+  try {
+    await applyParticipantCommands(uid, [
+      { type: 'UpdateCommitment', commitmentId: ref.linkedCommitmentId, now, updates: { timeSpec } },
+    ]);
+  } catch (error) {
+    if (!(error instanceof InvalidStateTransitionError)) throw error;
+    await createCommitmentForFixture(uid, fixture, timeSpec, now);
+    tally.created += 1;
+    return;
+  }
   await putRef<FixtureExternalTaskRef>(uid, {
     ...ref,
     fingerprint: fingerprintOf(fixture, now),

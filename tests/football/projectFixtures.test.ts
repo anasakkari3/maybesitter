@@ -159,9 +159,89 @@ test('a user who follows nobody gets nothing', async () => {
   assert.deepEqual(await projectFixturesForUser('u1', NOW), { created: 0, updated: 0, cancelled: 0, skipped: 0 });
 });
 
-test('a finished match in the past is not projected', async () => {
-  await upsertFixtures([fixture('1', '2026-09-20T19:00:00.000Z', { status: 'finished' })]);
+test('a fixture kicking off before the window start is not projected', async () => {
+  // Renamed from "a finished match in the past is not projected": that name
+  // claimed to test status filtering, but the kickoff falls before `NOW`, so
+  // `listFixturesForTeam`'s window excludes it before `projectOneFixture`
+  // ever sees its status -- this passes for a fixture in any status, which
+  // `'scheduled'` here makes explicit rather than letting `'finished'` imply
+  // this is a status test. `'a finished match in the future window is not
+  // projected'` below is the actual status-filtering test for `finished`.
+  await upsertFixtures([fixture('1', '2026-09-20T19:00:00.000Z')]);
   assert.equal((await projectFixturesForUser('u1', NOW)).created, 0);
+});
+
+test('a finished match in the future window is not projected', async () => {
+  // The status check, isolated from the window check above: a kickoff well
+  // inside the projection window, but already `finished`. Without
+  // `finished` in `NON_HOLDING_STATUSES`, this would create an ordinary
+  // active commitment for a match whose result is already known.
+  await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z', { status: 'finished' })]);
+  const tally = await projectFixturesForUser('u1', NOW);
+  assert.equal(tally.created, 0);
+  assert.deepEqual(tally, { created: 0, updated: 0, cancelled: 0, skipped: 1 });
+});
+
+test('a postponed match drops the commitment', async () => {
+  // football-data.org keeps a postponed match's old kickoff until a new one
+  // is announced -- so an unhandled postponement is not "nothing blocked",
+  // it is "the wrong evening blocked, for a match not being played that
+  // night." Same treatment as a cancelled match: drop what exists.
+  await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+  await projectFixturesForUser('u1', NOW);
+  await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z', { status: 'postponed' })]);
+  const tally = await projectFixturesForUser('u1', NOW);
+  assert.equal(tally.cancelled, 1, 'postponed drops share the cancelled counter -- see ProjectionTally\'s doc comment');
+  assert.equal((await commitments())[0].status, 'dropped');
+});
+
+test('a postponed match that is later rescheduled creates a new commitment', async () => {
+  // The return journey: a postponement is usually followed by a new date,
+  // not a permanent cancellation. The ref that the postponement's Drop left
+  // behind still points at the now-dropped commitment -- this pins that the
+  // rescheduled match gets a fresh, active commitment rather than silently
+  // vanishing (which is what happened before this fix round: the update
+  // branch tried to `UpdateCommitment` the dropped one and the domain layer
+  // threw `InvalidStateTransitionError`, which `projectFixturesForUser`
+  // would previously not have caught).
+  await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+  await projectFixturesForUser('u1', NOW);
+  await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z', { status: 'postponed' })]);
+  await projectFixturesForUser('u1', NOW);
+  assert.equal((await commitments())[0].status, 'dropped', 'sanity: the postponement did drop it');
+
+  await upsertFixtures([fixture('1', '2026-11-02T20:00:00.000Z', { status: 'scheduled' })]);
+  const tally = await projectFixturesForUser('u1', NOW);
+  assert.equal(tally.created, 1, 'the rescheduled match comes back as a new commitment');
+
+  const all = await commitments();
+  assert.equal(all.length, 2, 'the dropped commitment stays; a second, active one is added');
+  const active = all.find((c) => c.status === 'active');
+  assert.ok(active, 'the rescheduled match is active');
+  assert.equal(active.timeSpec.dueAt, '2026-11-02T20:00:00.000Z');
+  const dropped = all.find((c) => c.status === 'dropped');
+  assert.ok(dropped, 'the postponed commitment is still on record, still dropped');
+});
+
+test('a dismissed match stays dismissed through postponement and reschedule', async () => {
+  // The three-way interaction: detachedAt has to keep winning even when the
+  // fixture passes through a non-holding status on its way to a new date --
+  // not just when it moves directly, which 'a dismissed match stays
+  // dismissed even when it moves' already covers.
+  await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+  await projectFixturesForUser('u1', NOW);
+  const [created] = await commitments();
+  await dismissFixtureCommitment('u1', created.id, NOW);
+
+  await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z', { status: 'postponed' })]);
+  let tally = await projectFixturesForUser('u1', NOW);
+  assert.deepEqual(tally, { created: 0, updated: 0, cancelled: 0, skipped: 1 }, 'postponement does not un-dismiss it');
+
+  await upsertFixtures([fixture('1', '2026-11-02T20:00:00.000Z', { status: 'scheduled' })]);
+  tally = await projectFixturesForUser('u1', NOW);
+  assert.deepEqual(tally, { created: 0, updated: 0, cancelled: 0, skipped: 1 }, 'nor does the reschedule that follows it');
+
+  assert.equal((await commitments()).filter((c) => c.status !== 'dropped').length, 0);
 });
 
 test('a late kickoff lands on the local day it is played on', async () => {
