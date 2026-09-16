@@ -481,3 +481,32 @@ test('a dismissal landing mid-write on the drop path is not undone', async () =>
   const after = await getRef('u1', externalId);
   assert.ok(after?.detachedAt, 'the reference still shows the dismissal');
 });
+
+// Task 12: requirement 3 ("the match goes on the phone calendar") has no
+// implementation task on the claim that #185's `deviceCalendarSync.reconcile`
+// already writes every eligible commitment with no football-specific code --
+// because a fixture commitment is, on the wire, an ordinary commitment. The
+// mobile-side half of that proof (`mobile/src/features/calendar/__tests__/
+// fixtureCommitmentSync.test.ts`) shows `draftFor`/`decide` treat one
+// correctly *if handed one*. This is the other half: proof that a projected
+// fixture commitment is actually present in the exact lists
+// `/api/mobile/commitments/today` and `/upcoming` serve, which is what
+// `subjectsFromCache` (and therefore `reconcile`) reads on the client. If
+// either route, or `listTodayRanked`/`listUpcomingRanked` underneath it, ever
+// grew a filter that excluded a fixture-projected commitment, this is the
+// test that would catch it.
+test('a projected fixture commitment reaches listUpcomingRanked -- the list the mobile /upcoming route (and reconcile) reads', async () => {
+  await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+  await projectFixturesForUser('u1', NOW);
+  const [created] = await commitments();
+
+  const { listUpcomingRanked } = await import('../../lib/services/mobile/commitmentService.ts');
+  const upcoming = await listUpcomingRanked({ now: new Date(NOW), participantId: 'u1' });
+  const found = upcoming.items.find((item) => item.id === created.id);
+  assert.ok(found, 'the fixture commitment must be present in the exact list the mobile /upcoming route serves');
+  assert.equal(found?.timeSpec.dueAt, '2026-10-25T19:00:00.000Z');
+  // calendarEligibleIds is what deviceCalendarSync's server-side counterpart
+  // (the orphan computation) uses to decide "still eligible for a calendar
+  // entry" -- a fixture commitment must be in it too, not just in `items`.
+  assert.ok(upcoming.calendarEligibleIds.has(created.id));
+});
