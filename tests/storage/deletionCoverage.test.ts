@@ -34,8 +34,14 @@ const listed = new Set<string>(USER_SCOPED_COLLECTIONS);
  * `TOP_LEVEL_COLLECTIONS_WITHOUT_USER_DATA` instead of here. `FOOTBALL_FOLLOWS`
  * and `EXTERNAL_TASK_REFS` are the per-account halves of this feature and
  * *are* user-scoped, so they stay out of this set and go with the tree.
+ *
+ * `FOOTBALL_CLUB_SYNC_STATE` is when a curated club was last synced
+ * (football fixtures MVP, Task 9): keyed by clubId, holding no uid and
+ * nothing a person typed, also declared in
+ * `TOP_LEVEL_COLLECTIONS_WITHOUT_USER_DATA` for the same reason `FIXTURES`
+ * is.
  */
-const NOT_USER_SCOPED = new Set(['USERS', 'INCIDENTS', 'LLM_USAGE', 'FIXTURES']);
+const NOT_USER_SCOPED = new Set(['USERS', 'INCIDENTS', 'LLM_USAGE', 'FIXTURES', 'FOOTBALL_CLUB_SYNC_STATE']);
 
 test('deleteTree(users/U) leaves nothing of U in any user collection, and nothing of V is lost', async () => {
   await assertDeleteTreeCoversEveryUserCollection(createMemoryStorage(), 'user_U', 'user_V');

@@ -108,8 +108,19 @@ import { clubById } from './clubs';
 import { listFixturesForTeam } from './fixtureStore';
 import { getRef, listRefs, putRef } from './externalTaskRefStore';
 
-/** How far ahead a projection run looks. A season's worth of fixtures, not a lifetime's. */
-const PROJECTION_WINDOW_DAYS = 60;
+/**
+ * How far ahead a projection run looks. A season's worth of fixtures, not a
+ * lifetime's.
+ *
+ * Exported so `lib/football/syncFixtures.ts` (Task 9) can fetch the same span
+ * it projects over. If the two windows ever drifted apart, the sync would
+ * store fixtures the projection never gets asked to look at, or the
+ * projection would query days the sync never fetched -- silently, since
+ * both windows compute a valid-looking `FixtureWindow` either way. Sharing
+ * the one constant makes that drift impossible to introduce instead of
+ * merely easy to avoid.
+ */
+export const PROJECTION_WINDOW_DAYS = 60;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 /**

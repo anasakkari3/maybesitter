@@ -227,6 +227,25 @@ export const FIXTURES = 'fixtures';
  */
 export const LLM_USAGE = 'llmUsage';
 
+/**
+ * When each curated club was last asked of the fixture provider (football
+ * fixtures MVP, Task 9's nightly sync).
+ *
+ * Top-level and keyed by `clubId`, not under a uid, for the same reason
+ * `FIXTURES` is top-level: this is a fact about a club's own sync history,
+ * shared by every follower, not a fact about any one account. It exists so a
+ * budgeted sync tick can ask "which followed clubs have gone longest without
+ * being asked" and pick up where the previous tick left off, rather than
+ * re-walking the same prefix of the followed list every time the budget runs
+ * out before reaching the end -- see `lib/football/syncFixtures.ts`.
+ */
+export const FOOTBALL_CLUB_SYNC_STATE = 'footballClubSyncState';
+
+/** The path for one club's sync-state document. `clubId` is already a safe path segment -- `clubs.ts` validates it at load time. */
+export function footballClubSyncStateDoc(clubId: string): string {
+  return `${FOOTBALL_CLUB_SYNC_STATE}/${requireDocId(clubId)}`;
+}
+
 export const USERS = 'users';
 
 export function requireUserId(id: unknown): string {

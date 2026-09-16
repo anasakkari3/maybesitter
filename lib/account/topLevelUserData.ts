@@ -58,4 +58,9 @@ export const TOP_LEVEL_COLLECTIONS_WITHOUT_USER_DATA: readonly string[] = [
   // per-account halves are `footballFollows` and `externalTaskRefs`, which
   // *are* user-scoped and go with the tree in the ordinary way.
   'fixtures',
+  // When a curated club was last synced (football fixtures MVP, Task 9): a
+  // fact about the club's own fetch history, keyed by clubId, holding no uid
+  // and nothing a person typed. Deleting an account must not reset how
+  // recently a club everybody else still follows was synced.
+  'footballClubSyncState',
 ] as const;

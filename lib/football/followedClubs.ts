@@ -116,3 +116,37 @@ export async function listFollowedClubIdsAcrossUsers(
   }
   return Array.from(ids);
 }
+
+/**
+ * Every uid that currently follows at least one club, deduplicated
+ * (football fixtures MVP, Task 9).
+ *
+ * The same collection-group read `listFollowedClubIdsAcrossUsers` runs, but
+ * keeps the uid each row belongs to instead of discarding it — the nightly
+ * sync needs to know *whose* fixtures to project into commitments
+ * (`projectFixturesForUser`), not merely which clubs have a follower. The uid
+ * is read off `row.path` (`users/{uid}/footballFollows/clubs`, segment 1)
+ * rather than a second lookup, because `listGroup` already hands back the
+ * full document path for free — see `StorageReader.listGroup`.
+ *
+ * A doc with an empty `clubIds` (a user who unfollowed everything, but whose
+ * fixed one-document-per-account shape `setFollowedClubs` still wrote)
+ * contributes no uid: projecting for someone following nothing would only
+ * ever produce an all-zero tally, and this is the one place that can skip
+ * that read entirely instead of paying it every night forever.
+ */
+export async function listFollowedUserIds(
+  deps: FollowedClubsDeps = {},
+): Promise<readonly string[]> {
+  const storage = storageOf(deps);
+  const rows = await storage.listGroup<FollowedClubsDoc>(FOOTBALL_FOLLOWS);
+  const uids = new Set<string>();
+  for (const row of rows) {
+    if (row.data.clubIds.length === 0) continue;
+    // `userSubDoc(uid, FOOTBALL_FOLLOWS, 'clubs')` is `users/{uid}/footballFollows/clubs`;
+    // segment 0 is the literal `users`, segment 1 is the uid.
+    const uid = row.path.split('/')[1];
+    if (uid) uids.add(uid);
+  }
+  return Array.from(uids);
+}
