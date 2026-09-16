@@ -167,6 +167,12 @@ function stabilise(value: unknown, counters: Map<string, number>): unknown {
   }
   if (typeof value !== 'string') return value;
   if (INSTANT.test(value)) return value === REFERENCE_TIME ? value : STABLE_INSTANT;
+  // An activity cursor names a record, `<instant>|<id>` (#201). Opaque to the
+  // client, but it carries a real clock and a fresh id.
+  const cursor = /^([^|]+)\|([^|]+)$/.exec(value);
+  if (cursor && INSTANT.test(cursor[1]!) && UUID.test(cursor[2]!)) {
+    return `${STABLE_INSTANT}|${stableId('00000000-0000-4000-8000-', 12, counters)}`;
+  }
   if (DIGEST.test(value)) return STABLE_DIGEST;
   if (MEMORY_ID.test(value)) return `mem_${stableId('00000000-0000-4000-8000-', 12, counters)}`;
   if (UUID.test(value)) return stableId('00000000-0000-4000-8000-', 12, counters);
@@ -933,6 +939,20 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       request(`/api/mobile/plans/${PLAN_DATE}/actions`, { body: { action: 'accept' } }),
       dateParams(PLAN_DATE),
     ));
+
+    // The acceptance, read back through the history (#201). It lives in the
+    // plan ledger, not the domain log, so this is the fixture that proves the
+    // activity route reads both. A page of one: the acceptance is the newest
+    // thing this account did, and a full page also pins the non-null cursor
+    // the client echoes back.
+    const withPlan = await record('activity.planAccepted', 200, await activityGet(
+      request('/api/mobile/activity?limit=1'),
+    ));
+    assert.deepEqual(
+      (withPlan.items as Array<{ kind: string; detail?: unknown }>).map((item) => [item.kind, item.detail]),
+      [['plan_accepted', { planDate: PLAN_DATE }]],
+    );
+    assert.equal(typeof withPlan.nextCursor, 'string');
 
     // The 422 the plan screen has to render next to the item the user dragged:
     // a reason code and the item it is about, not a sentence.

@@ -87,6 +87,11 @@ export interface ListEventsOptions {
   limit?: number;
   cursor?: string | null | undefined;
   reader?: StorageReader;
+  /**
+   * The user collection to page. The domain log unless said otherwise; the
+   * plan ledger (#194) is paged by the same order, so one cursor fits both.
+   */
+  collection?: string;
 }
 
 /**
@@ -101,7 +106,7 @@ export async function listEvents(uid: string, options: ListEventsOptions = {}): 
   const limit = clampLimit(options.limit);
   const cursor = parseCursor(options.cursor);
   const reader = options.reader ?? getStorage();
-  const path = userCol(uid, EVENTS);
+  const path = userCol(uid, options.collection ?? EVENTS);
 
   let window = limit + 1;
   for (;;) {
@@ -170,9 +175,10 @@ export async function listEventsInRange(
   toExclusive: string,
   limit: number,
   reader: StorageReader = getStorage(),
+  collection: string = EVENTS,
 ): Promise<DomainEventRecord[]> {
   requireUserId(uid);
-  const rows = await reader.list<DomainEventRecord>(userCol(uid, EVENTS), {
+  const rows = await reader.list<DomainEventRecord>(userCol(uid, collection), {
     orderBy: { field: 'at', direction: 'asc' },
     limit,
     where: [

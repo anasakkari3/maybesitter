@@ -22,13 +22,12 @@
  * attempt and recomputes from it. It is a function of (stored value, events),
  * never of how many times the callback has run.
  *
- * ── The two counters with no producer yet ────────────────────────
+ * ── The plan counter ─────────────────────────────────────────────
  *
- * `plan_accepted` is emitted by UC-3.10a (#194), which is not built. The rule
- * for it is written here rather than left out, because the alternative is a
- * second change to this file later — and the account that accepts a plan the
- * day #194 lands would otherwise have no `firstPlanAcceptedAt`. Nothing emits
- * that event today, so the branch is simply never taken.
+ * `plan_accepted` is produced by UC-3.10a (#194) into its own ledger, not the
+ * domain log, so `writeDomainDiff` never sees one. `acceptPlan` calls
+ * `recordActivityEvents` itself, inside the transaction that appends the
+ * ledger entry — the same rule, a different writer.
  */
 import { STATS, userSubDoc, type StorageReader, type StorageTransaction } from '../../storage';
 import type { DomainEvent } from '../../../src/domain/stateMachine';
@@ -45,7 +44,7 @@ export interface ActivityStats {
   doneTotal: number;
   firstCaptureAt: string | null;
   firstDoneAt: string | null;
-  /** Written by UC-3.10a (#194) once it emits `plan_accepted`. */
+  /** Advanced by `acceptPlan` (UC-3.10a, #194) with its ledger entry. */
   firstPlanAcceptedAt: string | null;
   /** `{ "10": instant }` — when each threshold was crossed, so it has a date. */
   doneMilestonesAt: Record<string, string>;

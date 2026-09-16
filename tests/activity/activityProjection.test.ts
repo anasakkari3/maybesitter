@@ -103,7 +103,7 @@ test('pressure, classification and analytics events never become activity', () =
   assert.deepEqual(projectActivity(hostile, TITLES), []);
 });
 
-test('the five kinds with a producer today are projected from their events', () => {
+test('the six kinds with a producer today are projected from their events', () => {
   const items = projectActivity([
     record({ type: 'draft_created', id: 'e1', at: '2026-09-14T08:00:00.000Z' }),
     record({ type: 'commitment_activated', id: 'e2', at: '2026-09-14T08:01:00.000Z' }),
@@ -113,28 +113,41 @@ test('the five kinds with a producer today are projected from their events', () 
       payload: { postponedUntil: '2026-09-15T08:00:00.000Z' },
     }),
     record({ type: 'commitment_dropped', id: 'e5', at: '2026-09-14T08:04:00.000Z' }),
+    // Read from the plan ledger (#194) and shaped by planActivity: a day, not
+    // a commitment, so no aggregate.
+    record({ type: 'plan_accepted', id: 'e6', at: '2026-09-14T08:05:00.000Z', aggregateId: '', payload: { planDate: '2026-09-14' } }),
   ], TITLES);
 
   assert.deepEqual(items.map((item) => item.kind), [...PRODUCED_ACTIVITY_KINDS]);
-  assert.deepEqual(items.map((item) => item.commitmentTitle), Array(5).fill('Call the clinic'));
+  assert.deepEqual(items.slice(0, 5).map((item) => item.commitmentTitle), Array(5).fill('Call the clinic'));
   assert.equal(items[3]!.detail?.postponedUntil, '2026-09-15T08:00:00.000Z');
   assert.equal(items[0]!.detail, undefined);
+  assert.deepEqual(
+    [items[5]!.commitmentId, items[5]!.commitmentTitle, items[5]!.detail],
+    [null, null, { planDate: '2026-09-14' }],
+  );
 });
 
-test('the two kinds with no producer yet are in the contract and reachable', () => {
-  // Nothing in this repository emits either event — #194 and #200 will — but
-  // the mapping is here so those issues are additive rather than a reshape.
-  // This test proves the slot exists; it does not claim anything fills it.
+test('a plan date that is not a calendar date is dropped rather than passed on', () => {
+  const [item] = projectActivity([
+    record({ type: 'plan_accepted', id: 'e6', aggregateId: '', payload: { planDate: 'tomorrow' } }),
+  ], TITLES);
+  assert.equal(item!.detail, undefined);
+});
+
+test('the kind with no producer yet is in the contract and reachable', () => {
+  // Nothing in this repository emits `reminder_acknowledged` — #200 will — but
+  // the mapping is here so that issue is additive rather than a reshape. This
+  // test proves the slot exists; it does not claim anything fills it.
   const items = projectActivity([
-    record({ type: 'plan_accepted', id: 'e6', aggregateId: 'plan-1' }),
     record({ type: 'reminder_acknowledged', id: 'e7', aggregateId: 'r-1', payload: { commitmentId: 'c1' } }),
   ], TITLES);
 
-  assert.deepEqual(items.map((item) => item.kind), ['plan_accepted', 'reminder_acknowledged']);
+  assert.deepEqual(items.map((item) => item.kind), ['reminder_acknowledged']);
   // The reminder event is stamped with the reminder, so the commitment has to
   // come out of the payload or the entry would name an id nothing has.
-  assert.equal(items[1]!.commitmentId, 'c1');
-  assert.equal(items[1]!.commitmentTitle, 'Call the clinic');
+  assert.equal(items[0]!.commitmentId, 'c1');
+  assert.equal(items[0]!.commitmentTitle, 'Call the clinic');
 });
 
 test('a deleted commitment leaves the title null rather than inventing one', () => {
