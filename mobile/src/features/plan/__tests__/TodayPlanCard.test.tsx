@@ -14,6 +14,7 @@ import { NetworkError } from '../../../api/errors';
 import type { DailyPlan } from '../../../api/schemas/plan';
 import { deviceTimeZone } from '../../../i18n/timezone';
 import { LANGUAGE_STORAGE_KEY } from '../../../i18n/language';
+import { deferred } from '../../../testing/deferred';
 import { Txt } from '../../../ui/primitives';
 import en from '../../../i18n/locales/en.json';
 import ar from '../../../i18n/locales/ar.json';
@@ -151,17 +152,20 @@ describe('the card appears only when there is something to appear about', () => 
     // Today's own list is the screen. A skeleton above it would make the
     // plan's latency into the day's.
     //
-    // The request is settled at the end rather than left hanging: a promise
-    // that never resolves keeps Jest's worker alive after the run, which turns
-    // one slow assertion into a suite that does not exit.
-    let answer: (plan: DailyPlan) => void = () => {};
-    jest.spyOn(planEndpoints, 'getPlan')
-      .mockReturnValue(new Promise<DailyPlan>(resolve => { answer = resolve; }) as never);
+    // "Still asking" is held open rather than caught in flight, so the two
+    // assertions below cannot be beaten by a machine that answered faster than
+    // this line — see `src/testing/deferred.ts`.
+    //
+    // It is settled at the end rather than left hanging: a promise that never
+    // resolves keeps Jest's worker alive after the run, which turns one held
+    // state into a suite that does not exit.
+    const answer = deferred<DailyPlan>();
+    jest.spyOn(planEndpoints, 'getPlan').mockReturnValue(answer.promise as never);
     await show();
     expect(screen.queryByTestId('today-plan-card')).toBeNull();
     expect(screen.queryByTestId('query-loading')).toBeNull();
 
-    await act(async () => { answer(planWith()); });
+    await act(async () => { answer.resolve(planWith()); });
     await waitFor(() => expect(screen.queryByTestId('today-plan-card')).not.toBeNull());
   });
 

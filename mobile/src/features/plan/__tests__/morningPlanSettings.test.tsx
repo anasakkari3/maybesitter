@@ -1,6 +1,6 @@
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { AppProvider } from '../../../state/AppContext';
@@ -13,6 +13,7 @@ import type { PlanSettings } from '../../../api/schemas/plan';
 import { ValidationError } from '../../../api/errors';
 import { ltr } from '../../../i18n/strings';
 import { timeShowing } from '../pickerClock';
+import { deferred } from '../../../testing/deferred';
 import en from '../../../i18n/locales/en.json';
 
 import * as planEndpoints from '../../../api/endpoints/plans';
@@ -98,8 +99,27 @@ async function settled() {
 
 describe('the switch is the server’s record', () => {
   it('has nothing to write against until the server has answered', async () => {
+    // The state this defends exists only while the read is outstanding, so the
+    // read is *held* outstanding rather than caught in flight. The mock above
+    // resolves on its own, and against that this assertion was a race with the
+    // machine: it passed here and failed on CI, where the answer had already
+    // arrived by the time the assertion ran. Wrapping it in `waitFor` would
+    // have been worse — `waitFor` waits for something to *become* true, and
+    // would happily wait past the state it was meant to catch.
+    const answer = deferred<PlanSettings>();
+    jest.spyOn(planEndpoints, 'getPlanSettings').mockReturnValue(answer.promise as never);
+
     await show();
+    await waitFor(() => expect(planEndpoints.getPlanSettings).toHaveBeenCalled());
+    // Asked, unanswered, and it cannot become answered until the line below.
     expect(screen.getByTestId('plan-morning-toggle').props.disabled).toBe(true);
+    expect(screen.getByTestId('plan-morning-toggle').props.value).toBe(false);
+
+    // And the disabling is the *read*, not the control: it lifts when the
+    // answer lands. Without this the case would also pass on a switch that was
+    // disabled for ever.
+    await act(async () => { answer.resolve(OFF); });
+    await waitFor(() => expect(screen.getByTestId('plan-morning-toggle').props.disabled).toBe(false));
   });
 
   it('turns the morning plan on through the route, and shows what came back', async () => {
@@ -183,15 +203,32 @@ describe('when it arrives', () => {
   });
 
   it('writes nothing when the wheel is left where it was', async () => {
+    // "Nothing happened" is not something a moment of silence can prove: an
+    // assertion made straight after the event would also pass on a write that
+    // was merely slower than this line. So a second turn of the wheel — one
+    // that *is* a change — is driven afterwards, and the count is read once
+    // that write has landed. A write for the first turn would then be there to
+    // be counted, and this reads two instead of one.
     stored = ON;
     await settled();
     await fireEvent.press(screen.getByTestId('plan-delivery-time'));
     await waitFor(() => expect(screen.queryByTestId('plan-delivery-picker')).not.toBeNull());
+
     await fireEvent(screen.getByTestId('plan-delivery-picker'), 'change', {
       type: 'set',
       nativeEvent: { timestamp: timeShowing('07:30').getTime() },
     });
-    expect(planEndpoints.putPlanSettings).not.toHaveBeenCalled();
+
+    await fireEvent.press(screen.getByTestId('plan-delivery-time'));
+    await waitFor(() => expect(screen.queryByTestId('plan-delivery-picker')).not.toBeNull());
+    await fireEvent(screen.getByTestId('plan-delivery-picker'), 'change', {
+      type: 'set',
+      nativeEvent: { timestamp: timeShowing('06:45').getTime() },
+    });
+
+    await waitFor(() => expect(planEndpoints.putPlanSettings).toHaveBeenCalled());
+    expect(planEndpoints.putPlanSettings).toHaveBeenCalledTimes(1);
+    expect(planEndpoints.putPlanSettings).toHaveBeenCalledWith({ enabled: true, deliveryLocalTime: '06:45' });
   });
 });
 

@@ -14,6 +14,7 @@ import { PlanEditRefusedError, NetworkError, QuotaExceededError } from '../../..
 import type { DailyPlan, PlanSettings } from '../../../api/schemas/plan';
 import { LANGUAGE_STORAGE_KEY } from '../../../i18n/language';
 import { withHermesIntl } from '../../../testing/hermesIntl';
+import { deferred } from '../../../testing/deferred';
 import { isolateAuto } from '../../../i18n/bidi';
 import en from '../../../i18n/locales/en.json';
 import ar from '../../../i18n/locales/ar.json';
@@ -246,33 +247,96 @@ describe('moving an item the plan will not allow', () => {
     await waitFor(() => expect(screen.queryByTestId(`plan-picker-${ITEM.itemId}`)).not.toBeNull());
   }
 
-  /** The wheel's answer: an instant three hours after where the item sits. */
+  /**
+   * The wheel's answer: three hours later **on the face the wheel is showing**.
+   *
+   * Not `ITEM.startsAt + 3h`, which is what this was and which made the whole
+   * case depend on the zone the suite happened to run in. The wheel draws the
+   * *device's* clock, and `PlanScreen` reads whatever face it is left on as a
+   * device wall clock and converts that into an instant in the *plan's* zone.
+   * So an instant pushed in here is read as a wall clock and converted back —
+   * and when the device sits exactly three hours behind the plan's zone, the
+   * round trip lands on the item's own time and the "move" moves nothing. The
+   * item's row then never changes, and the assertion below waits out its
+   * budget reading the time it started with.
+   *
+   * That is one offset, out of all of them: this passed in Asia/Hebron (+03,
+   * the fixture's own offset) and in America/Los_Angeles, and failed in UTC —
+   * which is what CI runs in.
+   *
+   * Three hours added to the wheel's own value is three hours of *device* wall
+   * clock, which is three hours of plan-zone instant in every zone. Added with
+   * a local setter, the same way `pickerClock.ts` reads the wheel, so it stays
+   * wall-clock arithmetic rather than instant arithmetic across a DST edge.
+   */
   async function pickThreeHoursLater() {
-    const later = new Date(Date.parse(ITEM.startsAt) + 3 * 3_600_000);
+    // The face is built from what the *row* says — which is the item's time in
+    // the plan's zone, the same reading the wheel is opened on — plus the
+    // plan's own date, with local setters, exactly as `pickerClock.ts` reads
+    // one back. Nothing here is computed with the app's own conversions, and
+    // nothing depends on the machine's zone.
+    //
+    // It assumes the turn does not cross midnight on the wheel: the fixture
+    // sits at 12:00, so this lands on 15:00. A fixture moved late enough to
+    // roll over would break the "exactly three hours" case below rather than
+    // quietly change what this means.
+    const [hour, minute] = String(screen.getByTestId(`plan-item-time-${ITEM.itemId}`).props.children)
+      .split(':').map(Number) as [number, number];
+    const [year, month, day] = DATE.split('-').map(Number) as [number, number, number];
+    const face = new Date();
+    face.setFullYear(year, month - 1, day);
+    face.setHours(hour + 3, minute, 0, 0);
     // The real component's own `onChange` contract, not a shape this file
     // invented: `@react-native-community/datetimepicker` is what the app ships.
     await fireEvent(screen.getByTestId(`plan-picker-${ITEM.itemId}`), 'change', {
       type: 'set',
-      nativeEvent: { timestamp: later.getTime() },
+      nativeEvent: { timestamp: face.getTime() },
     });
   }
 
+  /** The move the screen actually sent, whatever the wheel was asked for. */
+  function moveSent(): { itemId: string; startsAt: string; endsAt: string } {
+    const [, body] = (planEndpoints.actOnPlan as jest.Mock).mock.calls[0] as [
+      string, { moves?: { itemId: string; startsAt: string; endsAt: string }[] },
+    ];
+    return body.moves![0]!;
+  }
+
   it('puts the item back where it was, and says why, when the time is taken', async () => {
-    let refuse: (error: unknown) => void = () => {};
-    const pending = new Promise<never>((_, reject) => { refuse = reject; });
-    jest.spyOn(planEndpoints, 'actOnPlan').mockReturnValue(pending as never);
+    // The request is held open for the whole of the optimistic half: it cannot
+    // settle until this test rejects it, so "the move is on screen and the
+    // refusal has not arrived" is a state held rather than a window to catch.
+    const move = deferred<never>();
+    jest.spyOn(planEndpoints, 'actOnPlan').mockReturnValue(move.promise as never);
 
     await openEditor();
     const before = screen.getByTestId(`plan-item-time-${ITEM.itemId}`).props.children;
     await pickThreeHoursLater();
     await fireEvent.press(screen.getByTestId(`plan-move-${ITEM.itemId}`));
 
+    await waitFor(() => expect(planEndpoints.actOnPlan).toHaveBeenCalled());
+
+    // The pick is a move at all. This comes first because it is the one thing
+    // waiting cannot establish: a wheel value that converted back onto the
+    // item's own time would leave the row unchanged for ever, and the wait
+    // below would then spend its budget and report the *screen* as broken.
+    // That is exactly how a zone-dependent wheel value read as a defect in the
+    // optimistic update for an afternoon.
+    expect(moveSent().startsAt).not.toBe(ITEM.startsAt);
+
     // The move lands under the finger first — that is the optimistic half, and
     // without it there would be nothing for the rollback to undo.
+    //
+    // Waiting is sound here, and only here, *because the request is held
+    // open*: the optimistic state cannot close on its own, so this waits for
+    // something to become true and stay true rather than racing a window shut.
+    // A bare assertion is not enough — the cache write is already done by the
+    // time the request goes out, but TanStack notifies its observers through a
+    // batch the React tree has not necessarily drained yet.
     await waitFor(() =>
       expect(screen.getByTestId(`plan-item-time-${ITEM.itemId}`).props.children).not.toBe(before));
 
-    refuse(new PlanEditRefusedError('overlaps_fixed_event', ITEM.itemId));
+    move.reject(new PlanEditRefusedError('overlaps_fixed_event', ITEM.itemId));
 
     await waitFor(() =>
       expect(screen.queryByTestId(`plan-item-refused-${ITEM.itemId}`)).not.toBeNull());
@@ -282,13 +346,24 @@ describe('moving an item the plan will not allow', () => {
     expect(screen.getByTestId(`plan-item-time-${ITEM.itemId}`).props.children).toBe(before);
   });
 
+  it('moves the item by the hours the wheel was turned, in any zone', async () => {
+    // The guard on the case above, and the reason it can no longer pass by
+    // accident: three hours on the wheel is three hours in the plan's zone
+    // whatever clock the machine running this is set to.
+    await openEditor();
+    await pickThreeHoursLater();
+    await fireEvent.press(screen.getByTestId(`plan-move-${ITEM.itemId}`));
+    await waitFor(() => expect(planEndpoints.actOnPlan).toHaveBeenCalled());
+    expect(Date.parse(moveSent().startsAt) - Date.parse(ITEM.startsAt)).toBe(3 * 3_600_000);
+  });
+
   it('sends the move with the length the planner gave it', async () => {
     await openEditor();
     await pickThreeHoursLater();
     await fireEvent.press(screen.getByTestId(`plan-move-${ITEM.itemId}`));
     await waitFor(() => expect(planEndpoints.actOnPlan).toHaveBeenCalled());
-    const [, body] = (planEndpoints.actOnPlan as jest.Mock).mock.calls[0] as [string, { moves: { startsAt: string; endsAt: string }[] }];
-    const length = Date.parse(body.moves[0]!.endsAt) - Date.parse(body.moves[0]!.startsAt);
+    const sent = moveSent();
+    const length = Date.parse(sent.endsAt) - Date.parse(sent.startsAt);
     expect(length).toBe(Date.parse(ITEM.endsAt) - Date.parse(ITEM.startsAt));
   });
 
