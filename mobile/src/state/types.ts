@@ -90,6 +90,9 @@ export type Screen =
   // Settings → Calendar (UC-3.1, #185). Where confirmed commitments are
   // written, which calendar on this device, and the way to take them back.
   | 'calendarSettings'
+  // Settings → Football (football fixtures MVP, Task 11). Pick clubs, see
+  // the matches following them just projected, dismiss the ones you don't want.
+  | 'footballSettings'
   | 'about';
 
 export type CapState = 'idle' | 'listening' | 'transcript' | 'typing' | 'processing' | 'nothing';

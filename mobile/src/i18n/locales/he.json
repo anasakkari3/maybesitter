@@ -637,5 +637,11 @@
   "calendarNoneWritable": "אין ביומן של הטלפון הזה יומן שאפשר לכתוב אליו.",
   "calendarRemoveBody": "מסיר רק את האירועים ש‏MaybeSitter הוסיף. כל מה שהכנסת ליומן בעצמך נשאר.",
   "calendarRemoveAction": "להסיר את האירועים ש‏MaybeSitter הוסיף",
-  "calendarRemoveDone": "הוסרו. מה שהכנסת בעצמך לא נגענו בו."
+  "calendarRemoveDone": "הוסרו. מה שהכנסת בעצמך לא נגענו בו.",
+  "footballTitle": "כדורגל",
+  "footballBody": "עקוב אחרי הקבוצות שאכפת לך מהן, והמשחקים שלהן ייכנסו ליומן שלך — שעתיים, משריקת הפתיחה עד שריקת הסיום.",
+  "footballFollowing": "עוקב",
+  "footballDismiss": "לא את זה",
+  "footballCollision": "כבר יש משהו אחר ביומן שלך בזמן הזה.",
+  "footballAttribution": "נתוני המשחקים מ-football-data.org"
 }

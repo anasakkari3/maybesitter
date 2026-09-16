@@ -634,5 +634,11 @@
   "calendarNoneWritable": "No calendar on this phone can be written to.",
   "calendarRemoveBody": "Removes only the events MaybeSitter added. Anything you put in your calendar yourself is untouched.",
   "calendarRemoveAction": "Remove events MaybeSitter added",
-  "calendarRemoveDone": "Removed. Your own entries were not touched."
+  "calendarRemoveDone": "Removed. Your own entries were not touched.",
+  "footballTitle": "Football",
+  "footballBody": "Follow the clubs you care about, and their matches go straight onto your calendar — two hours, kickoff to final whistle.",
+  "footballFollowing": "Following",
+  "footballDismiss": "Not this one",
+  "footballCollision": "Something else is already on your calendar at this time.",
+  "footballAttribution": "Match data from football-data.org"
 }

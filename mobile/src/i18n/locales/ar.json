@@ -634,5 +634,11 @@
   "calendarNoneWritable": "ما في تقويم بهاد التلفون فينا نكتب فيه.",
   "calendarRemoveBody": "بيشيل بس المواعيد اللي MaybeSitter ضافها. أي إشي حطّيته إنت بتقويمك بيضلّ متل ما هو.",
   "calendarRemoveAction": "شيل المواعيد اللي MaybeSitter ضافها",
-  "calendarRemoveDone": "انشالت. اللي حطّيته إنت ما انمسّ."
+  "calendarRemoveDone": "انشالت. اللي حطّيته إنت ما انمسّ.",
+  "footballTitle": "كرة القدم",
+  "footballBody": "تابع الأندية اللي بتحبها، ومبارياتها بتنحط عبتقويمك على طول -- ساعتين، من صفارة البداية لصفارة النهاية.",
+  "footballFollowing": "متابِع",
+  "footballDismiss": "مش هاي",
+  "footballCollision": "في إشي تاني محطوط بهاد الوقت بتقويمك.",
+  "footballAttribution": "بيانات المباريات من football-data.org"
 }

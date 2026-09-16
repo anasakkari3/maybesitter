@@ -24,6 +24,7 @@ import { flagAlphaFeedback, getFeedbackHistory, revokeFeedback } from './endpoin
 import { recordAnalyticsEvent } from './endpoints/analytics';
 import { putCalendarWriteTarget } from './endpoints/calendar';
 import type { CalendarWriteTarget } from './schemas/calendar';
+import { dismissFixture, getFootballSettings, putFollowedClubs } from './endpoints/football';
 import { getConsents, putAiConsent, putRecommendationConsent, type ConsentAnswer } from './endpoints/consents';
 import {
   confirmProfileSuggestions,
@@ -66,6 +67,7 @@ export const queryKeys = {
   memory: (uid: string) => ['user', uid, 'memory'] as const,
   activity: (uid: string) => ['user', uid, 'activity'] as const,
   activitySummary: (uid: string, weekStart: string) => ['user', uid, 'activitySummary', weekStart] as const,
+  football: (uid: string) => ['user', uid, 'football'] as const,
 };
 
 /** The signed-in uid, or the one value that can never collide with one. */
@@ -558,6 +560,59 @@ export function useSetCalendarWriteTarget() {
     mutationFn: (writeTarget: CalendarWriteTarget) => putCalendarWriteTarget(writeTarget),
     onSettled: () => {
       void client.invalidateQueries({ queryKey: ['user', uid, 'calendarSettings'] });
+      void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
+    },
+  });
+}
+
+/**
+ * The curated club list, this account's follows, and its currently-active
+ * fixture commitments -- one read, one route (football fixtures MVP, Task 11).
+ */
+export function useFootballSettings() {
+  const uid = useUid();
+  return useQuery({
+    queryKey: queryKeys.football(uid),
+    queryFn: getFootballSettings,
+    enabled: uid !== 'signed-out',
+  });
+}
+
+/**
+ * Saves the whole follow list, which the server projects immediately (see
+ * `putFollowedClubs`'s own header). No optimistic update, for the same
+ * reason `useSetCalendarWriteTarget` has none: an unknown club id is refused
+ * with a 400, and showing a club as followed for the moment before that
+ * refusal arrives would be worse than the round-trip's latency.
+ *
+ * Both the football query and the two commitment lists are invalidated: a
+ * save that just projected a season opener is a save that just changed what
+ * Today and Upcoming should show.
+ */
+export function useSetFollowedClubs() {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn: (clubIds: readonly string[]) => putFollowedClubs(clubIds),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.football(uid) });
+      void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
+    },
+  });
+}
+
+/**
+ * "Not this one." Removes a single fixture commitment without touching the
+ * follow that produced it -- see `dismissFixture`'s own header for what a
+ * 404 here means.
+ */
+export function useDismissFixture() {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn: (commitmentId: string) => dismissFixture(commitmentId),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.football(uid) });
       void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
     },
   });
