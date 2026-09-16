@@ -99,6 +99,14 @@ upsert_job "jobs-tick-${SUFFIX}" "* * * * *" "/api/internal/jobs/run" "Etc/UTC" 
 upsert_job "daily-plan-tick-${SUFFIX}" "* * * * *" "/api/internal/jobs/daily-plan" "Etc/UTC" \
   "Build due MaybeSitter daily plans (${TARGET})"
 
+# The Must-reminder backup (UC-3.12b, #198). Every minute, and separate from
+# the other two for the same reason they are separate from each other: a
+# failure here must retry the reminders due in this minute and nothing else.
+# Each tick is one collection-group range read over `hardReminders` for the
+# rows whose `fireAt` has arrived, which on a normal minute is none.
+upsert_job "hard-reminders-tick-${SUFFIX}" "* * * * *" "/api/internal/jobs/hard-reminders" "Etc/UTC" \
+  "Send MaybeSitter Must-reminder backups (${TARGET})"
+
 # Nightly maintenance at 03:17 local: off-peak, and not on the hour, so it does
 # not pile onto every other cron in the world.
 upsert_job "maintenance-daily-${SUFFIX}" "17 3 * * *" "/api/internal/jobs/maintenance" "Asia/Jerusalem" \

@@ -121,6 +121,14 @@ const KEPT_BECAUSE: Record<string, string> = {
     + 'key is still live be sent a second time, so answering "forget me" with a '
     + 'duplicate notification. It expires on its own seven days out via the '
     + '`expiresAt` TTL field, which is the retention this needs.',
+  hardReminders:
+    'one row per Must commitment whose reminder the server may have to back up — the commitment '
+    + 'id, the instant it is for, a status, and the receipt a phone uploaded saying it will ring '
+    + 'locally. An index over the user’s own commitments, not a belief about them: clearing it '
+    + 'would answer "forget what you inferred about me" by silently dropping the backup for the '
+    + 'reminders they explicitly asked to ring, and the next commitment write or receipt upload '
+    + 'would rebuild it anyway. It goes with the commitment (a completed one deletes its row), '
+    + 'with account deletion, and with the `expiresAt` TTL two days past the reminder.',
   stats: 'the user’s own record of what they did — the counters behind the weekly Moments. #201 made a Moment survive deleting the commitment that earned it, on the ground that a fact about something that happened must not unhappen; this button forgets what was inferred about the person, not what the person achieved.',
 };
 
