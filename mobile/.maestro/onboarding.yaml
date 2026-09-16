@@ -13,6 +13,15 @@ name: MaybeSitter onboarding
 - launchApp:
     clearState: true
 
+# ── Language, first (#469) ────────────────────────────────────────
+# A fresh install asks for its language before anything else. 'العربية' is
+# named in itself, so the tap reads the same whatever language the device is in.
+- assertVisible:
+    id: 'language-step'
+- tapOn: 'العربية'
+- tapOn:
+    id: 'language-continue'
+
 # ── Welcome ────────────────────────────────────────────────────────
 # Arabic is the default language.
 - assertVisible: 'MaybeSitter بيمسك اللي بتقوله'
