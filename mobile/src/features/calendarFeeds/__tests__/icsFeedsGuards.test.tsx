@@ -5,7 +5,8 @@
  */
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { cleanup, render, screen, waitFor } from '@testing-library/react-native';
+import { cleanup, render, renderHook, screen, waitFor } from '@testing-library/react-native';
+import { useIcsFeeds } from '../../../api/queries';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { AppProvider } from '../../../state/AppContext';
@@ -115,6 +116,28 @@ describe('the entry in Settings → Calendar', () => {
     process.env[FLAG] = 'true';
     await show();
     expect(screen.queryByTestId('calendar-feeds-entry')).not.toBeNull();
+  });
+
+  it('the feeds query itself refuses to run without the flag, wherever it is mounted', async () => {
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <AuthProvider repository={repository} isDevBundle={false}>
+        <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      </AuthProvider>
+    );
+    jest.spyOn(feedEndpoints, 'listIcsFeeds').mockResolvedValue({ success: true, feeds: [], deadlines: [] } as never);
+    delete process.env[FLAG];
+    const off = await renderHook(() => useIcsFeeds(), { wrapper });
+    await new Promise(resolve => setTimeout(resolve, 50));
+    expect(off.result.current.fetchStatus).toBe('idle');
+    expect(feedEndpoints.listIcsFeeds).not.toHaveBeenCalled();
+    off.unmount();
+
+    // The control: the same mount with the flag on does ask.
+    process.env[FLAG] = 'true';
+    const on = await renderHook(() => useIcsFeeds(), { wrapper });
+    await waitFor(() => expect(on.result.current.isSuccess).toBe(true));
+    expect(feedEndpoints.listIcsFeeds).toHaveBeenCalled();
+    on.unmount();
   });
 
   it('is absent, not disabled, when it does not — and nothing asks for feeds', async () => {

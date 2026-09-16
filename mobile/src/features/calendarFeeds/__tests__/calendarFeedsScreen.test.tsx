@@ -144,6 +144,16 @@ describe('consent', () => {
   });
 });
 
+describe('consent that is not a yes', () => {
+  it('treats a trust record without a calendar answer as no consent', async () => {
+    jest.spyOn(trustEndpoints, 'getTrust')
+      .mockResolvedValue({ success: true, participantId: USER.uid, trust: { analyticsConsent: false } } as never);
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('ics-consent')).not.toBeNull());
+    expect(screen.queryByTestId('ics-url-input')).toBeNull();
+  });
+});
+
 describe('pasting a link', () => {
   it('sends it once with the choices made, shows the preview, and keeps no copy anywhere', async () => {
     await show();
@@ -263,12 +273,15 @@ describe('the deadlines', () => {
       deadlines: [
         deadline({ itemKey: 'auto', state: 'accepted', autoAccepted: true, commitmentId: 'c1' }),
         deadline({ itemKey: 'mine', state: 'accepted', autoAccepted: false, commitmentId: 'c2', notice: 'removed' }),
+        deadline({ itemKey: 'kept', state: 'accepted', autoAccepted: false, commitmentId: 'c3', notice: null }),
       ],
     } as never);
     await show();
     await waitFor(() => expect(screen.queryByTestId('ics-deadline-auto')).not.toBeNull());
     expect(screen.queryByTestId('ics-auto-added-auto')).not.toBeNull();
     expect(screen.queryByTestId('ics-undo-mine')).toBeNull();
+    await waitFor(() => expect(screen.queryByTestId('ics-deadline-kept')).not.toBeNull());
+    expect(screen.queryByTestId('ics-undo-kept')).toBeNull();
     expect(text('ics-removed-mine')).toBe(en.icsFeedsRemovedFromSource);
     await fireEvent.press(screen.getByTestId('ics-undo-auto'));
     await waitFor(() => expect(feedEndpoints.decideIcsDeadline).toHaveBeenCalledWith('feed-1', 'auto', 'undo'));
