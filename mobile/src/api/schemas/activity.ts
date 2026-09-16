@@ -6,16 +6,15 @@ import { isoDateTime } from './common';
  *
  * ── `kind` is a string, not an enum ──────────────────────────────
  *
- * Two of the seven kinds the contract names have no producer in the backend
- * yet: `plan_accepted` arrives with UC-3.10a (#194) and
- * `reminder_acknowledged` with UC-3.14 (#200). A server that starts sending
- * one of them — or an eighth kind later — must not make the whole history
+ * One of the seven kinds the contract names has no producer in the backend
+ * yet: `reminder_acknowledged` arrives with UC-3.14 (#200). (`plan_accepted`
+ * is read from UC-3.10a's plan ledger.) A server that starts sending it — or
+ * an eighth kind later — must not make the whole history
  * unparseable on a build that predates it. So the wire type is a string, the
  * kinds this build has words and an icon for are listed below, and the screen
  * skips an entry it cannot name rather than failing the screen.
  *
- * Same reasoning for a Moment's id, for the same reason: `first_plan_accepted`
- * cannot be reached until #194 lands.
+ * Same reasoning for a Moment's id: a later backend may add one.
  */
 
 export const ACTIVITY_KINDS = [
@@ -58,7 +57,11 @@ export const activityItemSchema = z.object({
   commitmentId: z.string().nullable(),
   /** Null when the commitment has been deleted; the screen names that. */
   commitmentTitle: z.string().nullable(),
-  detail: z.object({ postponedUntil: isoDateTime.optional() }).optional(),
+  detail: z.object({
+    postponedUntil: isoDateTime.optional(),
+    /** The local day an accepted plan was for, `YYYY-MM-DD` (#194). */
+    planDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  }).optional(),
 });
 
 export const activityPageSchema = z.object({

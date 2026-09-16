@@ -3,7 +3,7 @@ import { RefreshControl, SectionList, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../../state/AppContext';
 import { isolateAuto } from '../../i18n/bidi';
-import { CIVIL_ZONE, civilDate, dayKey, formatRelativeDay, formatTime } from '../../i18n/format';
+import { CIVIL_ZONE, civilDate, dayKey, formatDate, formatRelativeDay, formatTime } from '../../i18n/format';
 import type { Locale } from '../../i18n/locale';
 import { fill } from '../../i18n/strings';
 import { useTimeZone } from '../../i18n/timezone';
@@ -47,8 +47,9 @@ const KIND_KEY: Record<string, keyof Strings> = {
   completed: 'activityKindCompleted',
   postponed: 'activityKindPostponed',
   dropped: 'activityKindDropped',
-  // No producer yet: #194 and #200. Present so those land additively.
+  // Read from #194's plan ledger by the server.
   plan_accepted: 'activityKindPlanAccepted',
+  // No producer yet: #200. Present so it lands additively.
   reminder_acknowledged: 'activityKindReminderAcknowledged',
 };
 
@@ -86,6 +87,17 @@ export function groupByDay(items: readonly ActivityItem[], timeZone: string): Da
  */
 export function dayHeading(key: string, todayKey: string, locale: Locale): string {
   return formatRelativeDay(civilDate(key), { locale, timeZone: CIVIL_ZONE, now: civilDate(todayKey) });
+}
+
+/**
+ * "Your plan for Monday, Sep 14" — the day an accepted plan was for.
+ *
+ * `planDate` is a civil date the server read in the account's zone, not an
+ * instant, so it is printed in the civil zone. Formatting it in the device
+ * zone would slide it a day for anyone west of UTC.
+ */
+export function planLine(planDate: string, locale: Locale, t: Strings): string {
+  return fill(t.activityPlanFor, { date: formatDate(civilDate(planDate), 'weekday', { locale, timeZone: CIVIL_ZONE }) });
 }
 
 export function ActivityScreen({ onBack }: { onBack: () => void }) {
@@ -206,14 +218,18 @@ export function ActivityScreen({ onBack }: { onBack: () => void }) {
 function ActivityRow({ item, timeZone }: { item: ActivityItem; timeZone: string }) {
   const { t, p, lang } = useApp();
   // A kind this build has no words for is skipped rather than printed as its
-  // own enum — #200 and #194 each add one, and an older build must degrade to
-  // "not shown" rather than to "reminder_acknowledged".
+  // own enum — a later backend may add one, and an older build must degrade
+  // to "not shown" rather than to its enum.
   if (!knownActivityKind(item.kind)) return null;
   const key = KIND_KEY[item.kind];
   const kindLabel = key ? (t[key] as unknown as string) : '';
   if (!kindLabel) return null;
 
   const moved = item.detail?.postponedUntil;
+  // An accepted plan is about a day, not a commitment. Its null title is not a
+  // deletion, so it must never fall through to "an item you removed".
+  const isPlan = item.kind === 'plan_accepted';
+  const planDate = isPlan ? item.detail?.planDate : undefined;
 
   return (
     <Card pad={14} style={{ gap: 4 }} testID={`activity-item-${item.kind}`}>
@@ -226,9 +242,13 @@ function ActivityRow({ item, timeZone }: { item: ActivityItem; timeZone: string 
       </View>
       {/* The title is the user's own words in whatever language they wrote
           them in, so it is isolated rather than trusted to sit in the line. */}
-      <Txt size={15}>
-        {item.commitmentTitle ? isolateAuto(item.commitmentTitle) : t.activityRemovedItem}
-      </Txt>
+      {isPlan ? (
+        planDate ? <Txt size={15} testID="activity-plan-date">{planLine(planDate, lang, t)}</Txt> : null
+      ) : (
+        <Txt size={15}>
+          {item.commitmentTitle ? isolateAuto(item.commitmentTitle) : t.activityRemovedItem}
+        </Txt>
+      )}
       {moved ? (
         <Txt size={13} color={p.mu}>
           {fill(t.activityMovedTo, { date: formatRelativeDay(new Date(moved), { locale: lang, timeZone }) })}

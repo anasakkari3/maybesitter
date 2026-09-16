@@ -1,0 +1,78 @@
+appId: com.maybesitter.app
+name: What you did, and a quiet week that is okay
+---
+# UC-3.15 (#201) on a device: Settings → «نشاطي».
+#
+# #201's acceptance criterion is this flow on a **staging** build signed in
+# with a **fresh** account: no fixture data is reachable (a staging build
+# refuses EXPO_PUBLIC_API_MODE=mock — `releaseConfigProblems`), so what the
+# screen shows is the server's answer for an account that has done nothing.
+#
+# Needs a signed-in build and a device that can reach the API. Maestro cannot
+# type into a secure field, so it cannot sign in by itself; sign in by hand
+# first, and do not read a pass here as evidence that sign-in works.
+#
+#   maestro test .maestro/activity.yaml
+#
+# ── Why this flow branches ──────────────────────────────────────────
+#
+# On a fresh account the history is empty and the week is quiet. On an account
+# that has done something, neither is true, and both are correct. The flow
+# asserts the calm copy when the empty state is what it got, and asserts a
+# real entry when it is not — never "a fresh account" on an account that is
+# not one.
+- launchApp:
+    clearState: false
+
+- tapOn: 'الإعدادات'
+- tapOn:
+    id: 'settings-activity'
+- assertVisible: 'نشاطي'
+
+# The week card answers before anything else on the screen matters.
+- extendedWaitUntil:
+    visible:
+      id: 'activity-week'
+    timeout: 15000
+- assertVisible: 'هالأسبوع'
+
+# ── A fresh account: one calm sentence, never three zeroes ──────────
+- runFlow:
+    when:
+      visible:
+        id: 'activity-empty'
+    commands:
+      - assertVisible: 'لسّا ما في إشي هون. كل شي بتسجّله أو بتخلّصه بيبيّن هون.'
+      - assertVisible:
+          id: 'activity-week-quiet'
+      - assertVisible: 'أسبوع هادي. وهاد تمام.'
+      - assertNotVisible:
+          id: 'activity-week-done'
+      # No invented history: the retired Flutter mock seeded this exact line.
+      - assertNotVisible: 'Check water filter'
+
+# ── An account with a history: real entries, in Arabic ──────────────
+- runFlow:
+    when:
+      notVisible:
+        id: 'activity-empty'
+    commands:
+      - assertVisible: 'شو عملت'
+      - assertVisible:
+          id: 'activity-item-.*'
+
+# ── Nothing on this screen judges, in either branch ─────────────────
+- assertNotVisible: 'فاتك'
+- assertNotVisible: 'متأخر'
+- assertNotVisible: 'سلسلة'
+- assertNotVisible: 'streak'
+- assertNotVisible: 'missed'
+
+# Pull to refresh answers without losing what is already on screen.
+- swipe:
+    direction: DOWN
+- assertVisible: 'هالأسبوع'
+
+- tapOn: 'رجوع'
+- assertVisible:
+    id: 'settings-activity'

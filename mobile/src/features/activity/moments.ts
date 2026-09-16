@@ -4,9 +4,8 @@ import { knownMomentId, type Moment } from '../../api/schemas/activity';
 /**
  * A Moment's id → the words for it (UC-3.15, #201).
  *
- * `first_plan_accepted` is in the map although nothing can reach it yet:
- * UC-3.10a (#194) emits the event it comes from. A build that shipped without
- * the copy would show a Moment with no words the day that lands.
+ * `first_plan_accepted` is reached through UC-3.10a's (#194) plan ledger: the
+ * server advances its counter in the same write as the acceptance.
  */
 export interface NamedMoment {
   moment: Moment;

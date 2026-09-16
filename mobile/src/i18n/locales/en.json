@@ -627,6 +627,7 @@
   "activityKindDropped": "Dropped on purpose",
   "activityKindPlanAccepted": "Plan accepted",
   "activityKindReminderAcknowledged": "Reminder seen",
+  "activityPlanFor": "Your plan for {date}",
   "activityMovedTo": "Moved to {date}",
   "activityUnavailable": "We can't reach your activity right now. Nothing changed.",
   "shareTitle": "What you shared",

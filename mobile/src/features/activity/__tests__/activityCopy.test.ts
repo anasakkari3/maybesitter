@@ -26,7 +26,7 @@ const KEYS = [
   'activityMomentDone100', 'activityHistoryTitle', 'activityEmpty', 'activityRemovedItem',
   'activityKindCaptured', 'activityKindConfirmed', 'activityKindCompleted', 'activityKindPostponed',
   'activityKindDropped', 'activityKindPlanAccepted', 'activityKindReminderAcknowledged',
-  'activityMovedTo', 'activityUnavailable',
+  'activityPlanFor', 'activityMovedTo', 'activityUnavailable',
 ] as const;
 
 const BUNDLES: Record<string, Record<string, string>> = {
@@ -141,14 +141,16 @@ describe('the activity copy', () => {
     }
   });
 
-  it('has a word for every kind the contract names, including the two with no producer', () => {
-    // #194 and #200 emit `plan_accepted` and `reminder_acknowledged`. A build
-    // shipped without their copy would render an entry with no words the day
-    // either lands, which is why the keys exist before the events do.
+  it('has a word for every kind the contract names, including the one with no producer', () => {
+    // #194's ledger now feeds `plan_accepted`; #200 will emit
+    // `reminder_acknowledged`. A build shipped without its copy would render
+    // an entry with no words the day it lands, which is why the key exists
+    // before the event does.
     for (const bundle of Object.values(BUNDLES)) {
       expect(typeof bundle.activityKindPlanAccepted).toBe('string');
       expect(typeof bundle.activityKindReminderAcknowledged).toBe('string');
       expect(typeof bundle.activityMomentFirstPlan).toBe('string');
+      expect(bundle.activityPlanFor).toContain('{date}');
     }
   });
 });

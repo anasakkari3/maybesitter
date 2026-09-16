@@ -22,7 +22,7 @@ import { AuthProvider } from '../../../auth/AuthProvider';
 import { createFakeAuthRepository } from '../../../auth/fakeAuthRepository';
 import { resetAuthForTests, setAuthRepository } from '../../../api/auth';
 import type { AuthUser } from '../../../auth/types';
-import { ActivityScreen, dayHeading, groupByDay } from '../ActivityScreen';
+import { ActivityScreen, dayHeading, groupByDay, planLine } from '../ActivityScreen';
 import { dayKey } from '../../../i18n/format';
 import * as timezone from '../../../i18n/timezone';
 import { namedMoments } from '../moments';
@@ -33,7 +33,10 @@ import { isolateAuto } from '../../../i18n/bidi';
 import { LANGUAGE_STORAGE_KEY } from '../../../i18n/language';
 import listFixture from '../../../api/__fixtures__/activity.list.json';
 import summaryFixture from '../../../api/__fixtures__/activity.summary.json';
-import type { ActivityItem, ActivityPage, WeeklySummary } from '../../../api/schemas/activity';
+import planAcceptedFixture from '../../../api/__fixtures__/activity.planAccepted.json';
+import he from '../../../i18n/locales/he.json';
+import { withHermesIntl } from '../../../testing/hermesIntl';
+import { activityPageSchema, type ActivityItem, type ActivityPage, type WeeklySummary } from '../../../api/schemas/activity';
 
 import * as activityEndpoints from '../../../api/endpoints/activity';
 
@@ -228,17 +231,79 @@ describe('the history', () => {
         item({ id: '3', kind: 'completed' }),
         item({ id: '4', kind: 'postponed', detail: { postponedUntil: '2026-09-15T09:00:00.000Z' } }),
         item({ id: '5', kind: 'dropped' }),
+        item({ id: '6', kind: 'plan_accepted', commitmentId: null, commitmentTitle: null, detail: { planDate: '2026-09-14' } }),
       ],
       nextCursor: null,
     } as ActivityPage as never);
 
     await show();
     await waitFor(() => expect(screen.queryByTestId('activity-item-completed')).not.toBeNull());
-    for (const kind of ['captured', 'confirmed', 'completed', 'postponed', 'dropped']) {
+    for (const kind of ['captured', 'confirmed', 'completed', 'postponed', 'dropped', 'plan_accepted']) {
       expect(screen.queryByTestId(`activity-item-${kind}`)).not.toBeNull();
     }
     // The dropped label is the design's own words, not a failure word.
     expect(screen.queryByText(en.activityKindDropped)).not.toBeNull();
+  });
+});
+
+describe('an accepted plan (#194)', () => {
+  const PLAN = item({
+    id: 'plan', kind: 'plan_accepted', commitmentId: null, commitmentTitle: null, detail: { planDate: '2026-09-14' },
+  });
+
+  it('names the day the plan was for, and never reads as an item somebody removed', async () => {
+    jest.spyOn(activityEndpoints, 'listActivity').mockResolvedValue({ items: [PLAN], nextCursor: null } as never);
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('activity-item-plan_accepted')).not.toBeNull());
+
+    // The entry is about a day, not a commitment, so its null title is not a
+    // deletion. Saying "an item you removed" here would be a false statement
+    // about something the person did.
+    expect(screen.queryByText(en.activityRemovedItem)).toBeNull();
+    expect(screen.queryByText(en.activityKindPlanAccepted)).not.toBeNull();
+    expect(screen.getByTestId('activity-plan-date').props.children).toBe('Your plan for Monday, Sep 14');
+  });
+
+  it('says only that a plan was accepted when the entry carries no date', async () => {
+    jest.spyOn(activityEndpoints, 'listActivity').mockResolvedValue({
+      items: [{ ...PLAN, detail: undefined }], nextCursor: null,
+    } as never);
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('activity-item-plan_accepted')).not.toBeNull());
+    expect(screen.queryByText(en.activityRemovedItem)).toBeNull();
+    expect(screen.queryByTestId('activity-plan-date')).toBeNull();
+  });
+
+  /*
+   * The plan date is a civil date — the day the plan was *for*, in the
+   * account's zone — so it is printed as one, in the civil zone. Read as an
+   * instant in the device zone it would slide to the 13th west of UTC. Run
+   * under Hermes' Intl, because Node's is the one that hides device bugs.
+   */
+  it.each([
+    ['en', en.activityPlanFor, 'Monday'],
+    ['ar', ar.activityPlanFor, 'الاثنين'],
+    ['he', he.activityPlanFor, 'שני'],
+  ] as const)('prints the plan day in %s under Hermes Intl', (lang, template, weekday) => {
+    const line = withHermesIntl(() => planLine('2026-09-14', lang, strings[lang]));
+    expect(line).toContain(weekday);
+    expect(line).toContain('14');
+    expect(line).not.toMatch(/[{}]/);
+    expect(line.startsWith(template.split('{date}')[0]!)).toBe(true);
+    // Digits stay Latin, as everywhere else in the app.
+    expect(/[٠-٩]/.test(line)).toBe(false);
+  });
+
+  it('renders the fixture the backend generated from a real acceptance, as the schema parses it', async () => {
+    // Through the schema the client ships, not around it: a schema that did
+    // not name `planDate` would strip it silently and the day would vanish.
+    const parsed = activityPageSchema.parse(planAcceptedFixture);
+    expect(parsed.items[0]!.detail?.planDate).toBe(planAcceptedFixture.items[0]!.detail.planDate);
+    jest.spyOn(activityEndpoints, 'listActivity').mockResolvedValue(parsed as never);
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('activity-item-plan_accepted')).not.toBeNull());
+    expect(screen.queryByTestId('activity-plan-date')).not.toBeNull();
+    expect(screen.queryByText(en.activityRemovedItem)).toBeNull();
   });
 });
 

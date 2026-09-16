@@ -145,6 +145,9 @@ const CASES: Array<[string, z.ZodType]> = [
   ['errors.unauthorized', errorBodySchema],
   ['activity.list', activityPageSchema],
   ['activity.summary', weeklySummarySchema],
+  // An accepted plan read back through the history: the plan ledger (#194)
+  // merged into the activity route, with the day it was for and a live cursor.
+  ['activity.planAccepted', activityPageSchema],
   // Gentle reminders (#196). The quiet hours on this response come from the
   // routine profile, which is the one place they are stored — so a change that
   // moved them somewhere else would rewrite this fixture and fail here.
