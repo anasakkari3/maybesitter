@@ -436,6 +436,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   plugins: [
     ...(config.plugins ?? []),
+    // Fix default channel meta-data collision and receiver duplicates (#458)
+    './plugins/withAndroidFixups',
     // `disableSPM` is required, not optional. React Native Firebase 26 resolves
     // firebase-ios-sdk through Swift Package Manager, whose products are
     // automatic libraries — so under `useFrameworks: 'static'` every
@@ -536,7 +538,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
        * one, which means minification has to be on. Without this an Android
        * crash arrives as obfuscated class names nobody can act on.
        */
-      android: { enableMinifyInReleaseBuilds: true },
+      android: { minSdkVersion: 26, enableMinifyInReleaseBuilds: true },
     }],
     /*
      * The launch screen (UC-4.1, #176 step 3).
