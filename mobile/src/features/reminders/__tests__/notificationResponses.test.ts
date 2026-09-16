@@ -7,6 +7,7 @@ import { DEFAULT_DEFER_MS, registerReminderActions, reminderActions } from '../.
 import { AWARENESS_CATEGORY_ID, HARD_CATEGORY_ID } from '../../../notifications/channels';
 import * as notifications from 'expo-notifications';
 import { outcomeOfError } from '../outboxSender';
+import { mustRingIdentifier } from '../mustRingIdentifier';
 import {
   ConflictError, InvalidTransitionError, NetworkError, NotFoundError, ServerError, TimeoutError, UnauthorizedError, ValidationError,
 } from '../../../api/errors';
@@ -106,6 +107,23 @@ describe('applyTap', () => {
     expect(effects.dismissed).toEqual(['c1:soft']);
     expect(effects.flushes).toBe(1);
     expect((await loadOutbox('acct')).items).toHaveLength(1);
+  });
+
+  it('a tap on the Must ring of a 128-character id maps back to the commitment and cancels the hashed request (#198)', async () => {
+    const id = 'x'.repeat(128);
+    const ring = mustRingIdentifier(id);
+    expect(ring).not.toContain(id);
+    const effects = fakeEffects();
+    const decision = decideResponse('done', { commitmentId: id, stage: 'strong', notificationId: ring }, ring, NOW);
+    expect(decision).toEqual({ kind: 'enqueue', commitmentId: id, action: 'complete', notificationId: ring });
+    if (decision.kind !== 'enqueue') throw new Error('unreachable');
+    await applyTap(decision, effects);
+    expect(effects.cancelled).toContain(ring);
+    expect(effects.dismissed).toEqual([ring]);
+    expect((await loadOutbox('acct')).items[0]!.commitmentId).toBe(id);
+    // The server's backup push carries the same data (`hardReminderMessage`).
+    expect(decideResponse('later', { kind: 'hard_reminder', commitmentId: id, notificationId: ring, tag: ring }, ring, NOW))
+      .toMatchObject({ kind: 'enqueue', commitmentId: id, action: 'postpone' });
   });
 
   it('a body tap cancels nothing', async () => {

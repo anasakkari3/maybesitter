@@ -63,7 +63,15 @@ import {
 import { newUserDocument, type UserDocument } from '../../storage/userDocument';
 import { readActivityStats, recordActivityEvents } from '../activity/activityStats';
 import { commitmentValidator } from './commitmentValidator';
-import { writeHardReminderIndexDiff } from '../reminders/hardReminderIndex';
+import {
+  HARD_REMINDER_RETENTION_MS,
+  hardFireAtFor,
+  hardReminderPath,
+  isTooLate,
+  writeHardReminderIndexDiff,
+  type HardReminderEntry,
+} from '../reminders/hardReminderIndex';
+import { hardSettingsOfUser } from './reminderSettingsService';
 
 export type ParticipantCommandResultType = 'applied' | 'noop' | 'rejected' | 'invalid_transition';
 
@@ -324,10 +332,17 @@ async function applyCommandInTransaction(
   at: string,
   precondition?: CommitmentPrecondition,
 ): Promise<ParticipantCommandResult> {
-  const [user, before, stats] = await Promise.all([
+  // A tap on a reminder (#200) stands the server's backup push down (#198). The
+  // row is read here, with the other reads, because a transaction may not read
+  // after it has written.
+  const acknowledging = command.type === 'MarkAware' && command.source === 'reminder';
+  const [user, before, stats, hardRow] = await Promise.all([
     tx.get<UserDocument>(userDoc(participantId)),
     loadDomainState(tx, participantId),
     readActivityStats(tx, participantId),
+    acknowledging
+      ? tx.get<HardReminderEntry>(hardReminderPath(participantId, command.commitmentId))
+      : Promise.resolve(null),
   ]);
   // Inside the transaction, against the state it just read. A commitment that
   // moves between this check and the commit moves the version the transaction
@@ -345,6 +360,9 @@ async function applyCommandInTransaction(
     if (!transition.didChange) return noopResult(before, transition.events);
     writeDomainDiff(tx, participantId, before, transition.newState, transition.events, user, at);
     recordActivityEvents(tx, participantId, stats, transition.events);
+    if (acknowledging && transition.events.some((event) => event.type === 'reminder_acknowledged')) {
+      suppressAcknowledgedHardReminder(tx, participantId, transition.newState.commitments[command.commitmentId], hardRow, user, at);
+    }
     return {
       result: 'applied' as const,
       newState: cloneState(transition.newState),
@@ -358,6 +376,39 @@ async function applyCommandInTransaction(
     if (error instanceof MissingEntityError || error instanceof ValidationError) return rejectedResult(before);
     throw error;
   }
+}
+
+/**
+ * The person answered this cycle's reminder, so the server does not back it up
+ * (#198's "acknowledged before fireAt → no push").
+ *
+ * Written after the index diff in the same transaction, which may just have
+ * re-armed or created the row (acknowledging clears `postponedUntil`), so the
+ * row is rebuilt for the fire time the commitment is owed now. A row already
+ * decided for that fire time — sent, or suppressed for another reason — is left
+ * as it is. No fire time owed means no row, and nothing is written.
+ */
+function suppressAcknowledgedHardReminder(
+  tx: StorageTransaction,
+  uid: string,
+  commitment: Commitment | undefined,
+  previous: HardReminderEntry | null,
+  user: unknown,
+  at: string,
+): void {
+  if (!commitment) return;
+  const fireAt = hardFireAtFor(commitment, hardSettingsOfUser(user));
+  if (!fireAt || isTooLate(fireAt, Date.parse(at))) return;
+  if (previous && previous.fireAt === fireAt && previous.status !== 'pending') return;
+  tx.set<HardReminderEntry>(hardReminderPath(uid, commitment.id), {
+    commitmentId: commitment.id,
+    fireAt,
+    startFingerprint: commitment.timeSpec.dueAt as string,
+    status: 'suppressed',
+    reason: 'acknowledged',
+    updatedAt: at,
+    expiresAt: new Date(Date.parse(fireAt) + HARD_REMINDER_RETENTION_MS),
+  });
 }
 
 /** What a notification tap recorded (#200). No titles: ids, an action, times. */
