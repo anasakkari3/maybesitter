@@ -86,6 +86,16 @@ export const REQUEST_SPACING_MS = 6_000;
  * response the scheduler is waiting on actually arrives inside the deadline
  * instead of racing it. Kept as an independent constant rather than an
  * import — see the module header.
+ *
+ * This number and the actual deadline are declared in two different files
+ * that nothing ties together automatically: the deadline lives in
+ * `infra/scheduler.sh`'s `upsert_job` (`--attempt-deadline=60s`, shared by
+ * every internal job route including this one's, at
+ * `src/app/api/internal/jobs/football-sync/route.ts`). If either number
+ * changes without the other, this budget either stops protecting the
+ * deadline it was built for, or gives up sooner than it needs to for no
+ * reason — see that route file's own comment, which states the same
+ * relationship from the other side.
  */
 export const DEFAULT_SYNC_BUDGET_MS = 45_000;
 

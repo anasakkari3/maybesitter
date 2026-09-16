@@ -99,6 +99,32 @@ upsert_job "jobs-tick-${SUFFIX}" "* * * * *" "/api/internal/jobs/run" "Etc/UTC" 
 upsert_job "daily-plan-tick-${SUFFIX}" "* * * * *" "/api/internal/jobs/daily-plan" "Etc/UTC" \
   "Build due MaybeSitter daily plans (${TARGET})"
 
+# The football fixture sync (football fixtures MVP, Task 9): once a night,
+# not every minute like the two ticks above -- a fixture list does not change
+# hour to hour, so there is nothing to gain from polling it that often, only
+# free-tier request budget to waste.
+#
+# 01:00 Asia/Jerusalem: before `maintenance-daily` (03:17) so the two nightly
+# jobs do not land in the same minute, and -- the real reason for choosing the
+# small hours specifically -- comfortably before `daily-plan-tick` builds
+# anyone's morning plan. `daily-plan-tick` runs every minute and claims
+# whichever accounts are due *right now* in their own local time, so there is
+# no single "morning" instant this job could dodge for every user; running in
+# the deep night is what makes it earlier than everyone's morning, not later
+# than anyone's. A football-derived commitment synced after a user's plan was
+# already built for the day would not appear in that plan -- see
+# `lib/football/projectFixtures.ts` for how a fixture becomes a commitment.
+#
+# `--attempt-deadline=60s` (below, shared by every job `upsert_job` creates)
+# is the deadline `DEFAULT_SYNC_BUDGET_MS` in `lib/football/syncFixtures.ts`
+# budgets itself against -- see that file's header and
+# `src/app/api/internal/jobs/football-sync/route.ts`'s for the explicit
+# statement of that relationship. If this deadline is ever set per-job
+# instead of shared, football-sync's must stay above 45s or the budget it was
+# built around stops meaning anything.
+upsert_job "football-sync-daily-${SUFFIX}" "0 1 * * *" "/api/internal/jobs/football-sync" "Asia/Jerusalem" \
+  "Daily MaybeSitter football fixture sync (${TARGET})"
+
 # Nightly maintenance at 03:17 local: off-peak, and not on the hour, so it does
 # not pile onto every other cron in the world.
 upsert_job "maintenance-daily-${SUFFIX}" "17 3 * * *" "/api/internal/jobs/maintenance" "Asia/Jerusalem" \

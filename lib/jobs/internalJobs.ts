@@ -270,14 +270,20 @@ export interface FootballSyncJobOptions {
  * nothing today demonstrates the deadline is actually at risk.
  */
 export async function runFootballSyncJob(options: FootballSyncJobOptions = {}): Promise<FootballSyncJobReport> {
-  // Read directly off `process.env` here rather than assigning it to a local
-  // (as `authOptions` does for the wider `NodeJS.ProcessEnv` the other
-  // handlers need) -- a property *read* off `process.env` is fine wherever
-  // it happens, but re-assigning the whole object into another weakly-typed
-  // `env` parameter downstream is what actually triggers the mismatch this
-  // narrower type exists to avoid. See the interface's own comment.
-  const apiKey = options.env?.FOOTBALL_DATA_API_KEY ?? process.env.FOOTBALL_DATA_API_KEY;
-  if (!options.provider && !apiKey) {
+  // The object itself defaults to `process.env`, not the individual field --
+  // `options.env ?? process.env`, not `options.env?.FOOTBALL_DATA_API_KEY ??
+  // process.env.FOOTBALL_DATA_API_KEY`. The latter would let an *explicitly*
+  // empty test environment (`{ env: {} }`, meaning "no key, on purpose")
+  // silently fall back to whatever happens to be exported in the real shell
+  // running the test -- the exact ambient-environment defect Task 3's own
+  // report flagged once already (`footballDataProvider.ts`'s own `env =
+  // deps.env ?? process.env` comment explains the same choice for the same
+  // reason). A property *read* off the result is fine wherever it happens;
+  // it is only re-assigning the whole object into another weakly-typed `env`
+  // parameter downstream that the interface's narrower type exists to avoid
+  // -- see `FootballSyncJobOptions.env`'s own comment.
+  const env = options.env ?? process.env;
+  if (!options.provider && !env.FOOTBALL_DATA_API_KEY) {
     return { enabled: false };
   }
 
