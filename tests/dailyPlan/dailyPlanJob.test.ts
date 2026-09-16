@@ -41,6 +41,9 @@ import {
   type PlanReadyNotice,
 } from '../../lib/services/dailyPlan/dailyPlanService.ts';
 import { listPlanEvents, readStoredPlan } from '../../lib/services/dailyPlan/planStore.ts';
+import { busyBlockId, replaceBusyBlocks, type BusyBlock } from '../../lib/calendar/busyBlocks.ts';
+import { dayHorizon } from '../../lib/services/dailyPlan/buildDailyPlan.ts';
+import { toEpochMs } from '../../lib/planning/shared/time.ts';
 import { persistParticipantState } from '../../lib/services/mobile/participantState.ts';
 import { applyCommand as applyDomainCommand, createEmptyDomainState } from '../../src/domain/stateMachine.ts';
 import type { DomainState } from '../../src/domain/stateMachine.ts';
@@ -258,6 +261,76 @@ test('a plan document that already exists is never overwritten, and never pushed
     assert.equal(push.sent.length, 1, 'a second push went out for a plan that already existed');
     assert.deepEqual(await readStoredPlan('user_exists_1', '2026-09-15', storage), first);
   });
+});
+
+/* ── AC-1, through the job rather than the mapping ───────────────── */
+
+const SOURCE = 'device:1b2c3d4e-5f60-4718-8293-a4b5c6d7e8f9';
+const HORIZON_0915 = dayHorizon('2026-09-15', TZ);
+/** Local `hours` on 2026-09-15 in Jerusalem, as an instant. */
+const at0915 = (hours: number): string => new Date(toEpochMs(HORIZON_0915.startsAt) + hours * 3_600_000).toISOString();
+
+function busyBlock(nativeId: string, fromHour: number, toHour: number): BusyBlock {
+  return {
+    blockId: busyBlockId(SOURCE, nativeId, at0915(fromHour)),
+    sourceId: SOURCE,
+    sourceKind: 'device',
+    startAt: at0915(fromHour),
+    endAt: at0915(toHour),
+    allDay: false,
+  };
+}
+
+/**
+ * The issue's first criterion, end to end: the tick, the default busy-block
+ * reader over stored blocks, and the stored document. `buildDailyPlan.test.ts`
+ * proves the mapping with injected blocks and `busyPlanning.test.ts` proves one
+ * stored block through a claim; this is the criterion as written — three items,
+ * two blocks, the job, `plans/{date}`, and the digest across two runs.
+ *
+ * The blocks sit at 08:00–09:00 and 09:30–10:30, the first hours of the
+ * fallback working window, where three half-hour items would otherwise go. The
+ * control run without them proves that, so "no overlap" is not satisfied by a
+ * planner that never looked at those hours.
+ */
+async function tickWithBusy(blocks: readonly BusyBlock[]) {
+  const storage = createMemoryStorage();
+  setStorageForTests(storage);
+  try {
+    await seed(storage, 'user_ac1', { titles: ['Write the summary', 'Call the bank', 'Book the train'] });
+    await replaceBusyBlocks('user_ac1', SOURCE, HORIZON_0915, blocks, { storage, platform: 'ios', now: MORNING });
+    const totals = await runDailyPlanTick({ storage, push: recorder().push, now: () => MORNING });
+    assert.equal(totals.built, 1, 'the job did not write the plan');
+    const stored = await readStoredPlan('user_ac1', '2026-09-15', storage);
+    assert.ok(stored, 'plans/2026-09-15 was not written');
+    return stored!;
+  } finally {
+    resetStorageForTests();
+  }
+}
+
+test('AC-1: three confirmed items and two stored busy blocks — the job\'s plan never overlaps them, and its digest is stable', async () => {
+  const blocks = [busyBlock('standup', 8, 9), busyBlock('lecture', 9.5, 10.5)];
+  const overlaps = (interval: { startsAt: string; endsAt: string }) => blocks.some((block) => (
+    toEpochMs(interval.startsAt) < toEpochMs(block.endAt) && toEpochMs(interval.endsAt) > toEpochMs(block.startAt)
+  ));
+
+  const control = await tickWithBusy([]);
+  assert.ok(
+    control.plan.scheduled.some((placed) => overlaps(placed.reservedInterval)),
+    'without the blocks the planner never uses those hours, so the check below would prove nothing',
+  );
+
+  const first = await tickWithBusy(blocks);
+  const second = await tickWithBusy(blocks);
+  assert.equal(first.plan.scheduled.length, 3, 'the three items did not all fit around the busy blocks');
+  for (const placed of first.plan.scheduled) {
+    assert.equal(overlaps(placed.reservedInterval), false, `${placed.itemId} was placed inside a busy block`);
+  }
+  assert.equal(first.inputDigest, first.plan.inputDigest);
+  assert.equal(second.inputDigest, first.inputDigest, 'the same input gave two digests on two runs');
+  assert.deepEqual(second.plan.scheduled, first.plan.scheduled);
+  assert.notEqual(control.inputDigest, first.inputDigest, 'the digest does not cover the busy blocks');
 });
 
 /* ── One bad account does not cost the others their morning ──────── */
