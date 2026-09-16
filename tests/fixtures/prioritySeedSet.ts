@@ -193,6 +193,8 @@ function side(spec: SideSpec): SeedCommitment {
     description: spec.description ?? null,
     person: spec.person ?? null,
     status,
+    category: null,
+    categorySource: 'inferred',
     priority: {
       level: spec.level ?? 'normal',
       source: spec.source ?? 'inferred',

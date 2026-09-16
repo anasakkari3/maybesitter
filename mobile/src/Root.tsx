@@ -10,6 +10,7 @@ import { TodayScreen } from './screens/TodayScreen';
 import { CalendarScreen } from './screens/CalendarScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { DetailsScreen } from './screens/DetailsScreen';
+import { PlanScreen } from './screens/PlanScreen';
 import { CaptureFlow } from './features/capture/CaptureFlow';
 import { CaptureProvider } from './features/capture/CaptureProvider';
 import { ShareProvider } from './features/share/ShareProvider';
@@ -28,10 +29,12 @@ import { ActivityScreen } from './features/activity/ActivityScreen';
 import { RoutineSettingsScreen } from './features/settings/RoutineSettingsScreen';
 import { NotificationsSettingsScreen } from './features/settings/NotificationsSettingsScreen';
 import { CalendarSettingsScreen } from './features/settings/CalendarSettingsScreen';
+import { CategorySettingsScreen } from './features/settings/CategorySettingsScreen';
 import { DeviceCalendarSyncHost } from './features/calendar/useDeviceCalendarSync';
 import { BusyCalendarHost } from './features/calendar/useBusyCalendar';
 import { AboutScreen } from './features/settings/AboutScreen';
 import { googleCalendarDemoEnabled } from './config/env';
+import { RemindersMount } from './features/reminders/RemindersMount';
 import { Gallery } from './design/Gallery';
 
 const tabScreens = ['today', 'calendar', 'settings'];
@@ -47,6 +50,9 @@ export function Root() {
     {
       jump: name => latest.current.jump(name),
       openCommitment: id => latest.current.openDetail(id),
+      // UC-3.10b (#195). The morning "your plan is ready" notification opens
+      // maybesitter://plan/<date>, and the date it carries is the one shown.
+      openPlan: date => latest.current.openPlan(date),
       // The next step lives on Today's card; there is no screen of its own.
       openNextStep: () => latest.current.go('today'),
       openCapture: (source, input) => latest.current.goCapture(source, input),
@@ -88,6 +94,12 @@ export function Root() {
               session rather than only while the calendar settings screen is
               open — a confirm on Today has to reach the calendar too. */}
           <DeviceCalendarSyncHost />
+          {/* Notifications, for the whole signed-in session (UC-3.11 #196,
+              UC-3.0b #184): the channels, the push registration, the reminder
+              engine and the tap router. It renders nothing, and it is here
+              rather than on a screen because a reminder has to be scheduled and
+              a tap has to be routed whatever the user is looking at. */}
+          <RemindersMount />
           {/* Also draws nothing (UC-3.2, #186). It keeps the busy times this
               phone reads in step with the calendar, for the whole session:
               the conflict chips are on Today and on the review card, and both
@@ -132,8 +144,17 @@ export function Root() {
           {s.screen === 'calendarSettings' && (
             <CalendarSettingsScreen key="calendarSettings" onBack={() => latest.current.go('settings')} />
           )}
+          {s.screen === 'categorySettings' && (
+            <CategorySettingsScreen key="categorySettings" onBack={() => latest.current.go('settings')} />
+          )}
           {s.screen === 'about' && <AboutScreen key="about" onBack={() => latest.current.go('settings')} />}
           {s.screen === 'details' && <DetailsScreen key="details" />}
+          {/* Today's plan (UC-3.10b, #195). Keyed by its date so a second link
+              for another day remounts rather than re-using the first day's
+              open editor and picked time. */}
+          {s.screen === 'plan' && s.planDate ? (
+            <PlanScreen key={`plan-${s.planDate}`} date={s.planDate} onBack={() => latest.current.back()} />
+          ) : null}
           {/* One entry, three screens derived from the flow's own status
               (UC-2.R2 #172). `review` and `saved` are no longer app screens: a
               second place to record which one is showing is a second place for it

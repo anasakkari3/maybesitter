@@ -5,12 +5,13 @@ import { useApp } from '../state/AppContext';
 import { useTimeZone } from '../i18n/timezone';
 import { formatRelativeDay, formatTime } from '../i18n/format';
 import { ltr } from '../i18n/strings';
-import { useCommitment, useCommitmentAction } from '../api/queries';
+import { useCategoryPreferences, useCommitment, useCommitmentAction, usePatchCommitment } from '../api/queries';
 import { safeCommitmentPatchEnabled } from '../config/env';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
 import { NotFoundError } from '../api/errors';
 import { toViewModel, type CommitmentView } from '../features/commitments/model';
-import { Card, HeaderPill, ImpBadge, Pill, Txt } from '../ui/primitives';
+import type { CommitmentCategory } from '../features/commitments/categoryFilter';
+import { Btn, Card, HeaderPill, ImpBadge, Pill, Txt } from '../ui/primitives';
 import { ScreenIn } from '../ui/motion';
 
 /**
@@ -51,6 +52,17 @@ export function DetailsScreen() {
   const view = query.data ? toViewModel(query.data, new Date().toISOString()) : null;
   const gone = query.error instanceof NotFoundError;
 
+  // Only the categories this account uses are offered (#415). A picker that
+  // listed all six would let somebody file a commitment under a category their
+  // own filter bar will never show, and it would simply disappear from every
+  // list they look at.
+  const preferences = useCategoryPreferences();
+  const patch = usePatchCommitment();
+  const filePicked = (category: CommitmentCategory | null) => {
+    if (!s.detailId) return;
+    patch.mutate({ id: s.detailId, patch: { category } });
+  };
+
   const complete = () => {
     if (!view) return;
     act.mutate({ id: view.id, action: 'complete' }, { onSuccess: () => actions.toast(t.toastDone) });
@@ -90,11 +102,26 @@ export function DetailsScreen() {
                       ? formatRelativeDay(new Date(view.shownAt), { locale: lang, timeZone: timezone })
                       : t.noTimeYet}
                   </Row>
-                  <Row label={t.timeLabel} testID="details-time" last>
+                  <Row label={t.timeLabel} testID="details-time">
                     {view.shownAt
                       ? ltr(formatTime(new Date(view.shownAt), { locale: lang, timeZone: timezone }))
                       : t.noTimeYet}
                   </Row>
+                  {/* Shown whether or not there is one (#415). An absent row
+                      would mean the only commitments a user could file are the
+                      ones the model already filed — backwards, since the ones
+                      it could not read are the ones worth correcting. */}
+                  <CategoryRow
+                    category={query.data?.category ?? null}
+                    enabled={preferences.data?.categoryPreferences.enabled ?? []}
+                    onPick={filePicked}
+                    disabled={patch.isPending}
+                    /* The picker sends a PATCH, so it follows the same gate as
+                       the edit button above: the label still shows — reading
+                       where something was filed costs nothing — but the way to
+                       change it is not drawn when it cannot be honoured. */
+                    canEdit={safeCommitmentPatchEnabled()}
+                  />
                 </Card>
 
                 {/* Done, not now and drop-on-purpose carry equal weight; only
@@ -149,6 +176,97 @@ function statusLabel(view: CommitmentView, t: { doneS: string; dropped: string; 
   if (view.status === 'dropped') return t.dropped;
   return t.active;
 }
+
+/**
+ * The category, named and changeable (#415).
+ *
+ * The row is always drawn, and says "no category" when there is none. Hiding
+ * it for an uncategorised commitment would mean the only ones a user could
+ * file are the ones the model already filed — backwards, because the ones it
+ * could not read are exactly the ones worth a correction.
+ *
+ * The picker opens in place rather than in a sheet. Filing something is a
+ * one-tap correction made while reading the commitment, and a sheet would
+ * cover the title the decision is being made about.
+ *
+ * Only the categories the account uses are offered, plus a way to clear.
+ * Listing all six would let somebody file a commitment under a category their
+ * own filter bar will never draw, and it would vanish from every list they
+ * look at.
+ */
+function CategoryRow({
+  category, enabled, onPick, disabled, canEdit,
+}: {
+  category: CommitmentCategory | null;
+  enabled: readonly CommitmentCategory[];
+  onPick: (category: CommitmentCategory | null) => void;
+  disabled: boolean;
+  canEdit: boolean;
+}) {
+  const { t, p } = useApp();
+  const [open, setOpen] = React.useState(false);
+  const strings = t as unknown as Record<string, string>;
+  const label = category === null ? t.catNone : strings[CATEGORY_LABEL[category]]!;
+
+  return (
+    <View style={{ paddingVertical: 12 }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Txt size={15} color={p.mu}>{t.catDetailsLabel}</Txt>
+        {canEdit ? (
+          <Btn
+            testID="details-category-edit"
+            label={t.catDetailsLabel}
+            onPress={() => setOpen(current => !current)}
+            disabled={disabled}
+            scaleTo={0.97}
+            style={{ paddingVertical: 2, paddingHorizontal: 2, minHeight: 28 }}
+          >
+            <Txt size={15} color={p.ac} testID="details-category">{label}</Txt>
+          </Btn>
+        ) : (
+          <Txt size={15} testID="details-category">{label}</Txt>
+        )}
+      </View>
+
+      {open ? (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingTop: 12 }}>
+          {enabled.map(candidate => (
+            <Pill
+              key={candidate}
+              testID={`category-pick-${candidate}`}
+              label={strings[CATEGORY_LABEL[candidate]]!}
+              kind={candidate === category ? 'ink' : 'outline'}
+              size={13}
+              weight={500}
+              pad={14}
+              disabled={disabled}
+              onPress={() => { setOpen(false); onPick(candidate); }}
+            />
+          ))}
+          <Pill
+            testID="category-pick-none"
+            label={t.catNone}
+            kind={category === null ? 'ink' : 'outline'}
+            size={13}
+            weight={500}
+            pad={14}
+            disabled={disabled}
+            onPress={() => { setOpen(false); onPick(null); }}
+          />
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+const CATEGORY_LABEL: Record<CommitmentCategory, string> = {
+  work: 'catWork',
+  family: 'catFamily',
+  health: 'catHealth',
+  finance: 'catFinance',
+  social: 'catSocial',
+  errands: 'catErrands',
+};
 
 function Row({
   label, children, testID, last,

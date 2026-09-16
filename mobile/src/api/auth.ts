@@ -19,6 +19,7 @@
  *
  * Nothing here logs a token, and no caller is ever handed one to log.
  */
+import { runBeforeSignOut } from '../auth/beforeSignOut';
 import type { AuthRepository } from '../auth/types';
 
 let repository: AuthRepository | null = null;
@@ -55,13 +56,28 @@ export async function refreshIdToken(): Promise<string | null> {
   return inFlightRefresh;
 }
 
-/** Ends the session and tells the sign-in screen why. */
+/**
+ * Ends the session and tells the sign-in screen why.
+ *
+ * These two bypass `AuthProvider.signOut` — a 401 or a 403 can land in any
+ * request, from anywhere — so they run the before-sign-out tasks themselves.
+ * That matters for exactly one of them: the FCM token has to be deleted from
+ * the handset however the session ended, or the next person to sign in on this
+ * phone receives the last person's notifications. See
+ * `notifications/pushRegistration.ts`.
+ *
+ * A task that throws is already swallowed by `runBeforeSignOut`, so nothing
+ * here can leave somebody signed in to a session the server has stopped
+ * accepting.
+ */
 export async function signOutExpired(): Promise<void> {
+  await runBeforeSignOut('session_expired');
   await repository?.signOut({ reason: 'session_expired' });
 }
 
 /** Ends the session because the account itself was revoked or deleted. */
 export async function signOutForbidden(reason: 'revoked' | 'deleted'): Promise<void> {
+  await runBeforeSignOut(reason);
   await repository?.signOut({ reason });
 }
 

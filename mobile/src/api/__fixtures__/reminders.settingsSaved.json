@@ -1,0 +1,14 @@
+{
+  "success": true,
+  "reminderSettings": {
+    "softEnabled": true,
+    "softLeadMinutes": 30,
+    "quietHours": {
+      "start": "22:00",
+      "end": "07:00",
+      "timezone": "Asia/Jerusalem"
+    },
+    "timezone": "Asia/Jerusalem",
+    "updatedAt": "2026-08-09T09:00:00.000Z"
+  }
+}

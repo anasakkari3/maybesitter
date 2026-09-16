@@ -388,6 +388,8 @@ function commitment(base: Pick<Commitment, 'id' | 'title'> & Partial<Commitment>
     description: null,
     person: null,
     status: 'active',
+    category: null,
+    categorySource: 'inferred',
     priority: DEFAULT_PRIORITY,
     timeSpec: timeSpec(),
     currentAckState: 'not_seen',

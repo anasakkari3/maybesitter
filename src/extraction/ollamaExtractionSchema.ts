@@ -1,4 +1,5 @@
 import { toVertexSchema } from './llm/vertexSchema';
+import { COMMITMENT_CATEGORIES } from '../contracts/v1/categoryContracts';
 
 /**
  * Native Ollama structured-output schema for the production ExtractionResult.
@@ -45,6 +46,18 @@ export const OLLAMA_EXTRACTION_SCHEMA = {
       required: ['level', 'source', 'pressureAllowed', 'pressureImplied'],
     },
     flexibility: { type: 'string', enum: ['movable', 'soft'] },
+    category: {
+      type: ['string', 'null'],
+      enum: COMMITMENT_CATEGORIES,
+      description:
+        'Which part of the user\'s life this belongs to, or null when the text does not say. Guessing from the topic alone is worse than null.',
+    },
+    categoryConfidence: {
+      type: 'number',
+      minimum: 0,
+      maximum: 1,
+      description: 'How sure the category is. The app drops anything it is not sure enough about.',
+    },
     confidence: {
       type: 'object',
       additionalProperties: false,
@@ -90,6 +103,8 @@ export const OLLAMA_EXTRACTION_SCHEMA = {
     'localTimeSpec',
     'priority',
     'flexibility',
+    'category',
+    'categoryConfidence',
     'confidence',
     'missingFields',
     'ambiguityFlags',

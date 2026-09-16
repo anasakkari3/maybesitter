@@ -1,3 +1,5 @@
+import type { CommitmentCategory } from '../contracts/v1/categoryContracts';
+
 export type ExtractionType = 'task' | 'follow_up' | 'informational_context' | 'unknown';
 
 export type MissingField = 'action' | 'time' | 'person' | 'commitment_strength';
@@ -72,6 +74,17 @@ export interface ExtractionResult {
     pressureImplied: boolean;
   };
   flexibility: 'movable' | 'soft';
+  /**
+   * Which part of the user's life this belongs to, as the model read it (#415).
+   *
+   * Raw: a name from the catalog, or `null`. Whether it is good enough to keep
+   * is not decided here — `resolveCategory` weighs it against the confidence
+   * floor and the categories this user actually uses. Two layers applying the
+   * same floor is two places to get it wrong.
+   */
+  category: CommitmentCategory | null;
+  /** How sure the model was, clamped to [0, 1]. Always 0 when `category` is null. */
+  categoryConfidence: number;
   confidence: {
     overall: number;
     type: number;
@@ -91,6 +104,15 @@ export interface ExtractionContext {
   now: Date;
   timezone?: string;
   defaultReminderHour?: number;
+  /**
+   * The categories this user kept, for the prompt to offer (#415).
+   *
+   * Absent means the whole catalog — a caller that has not plumbed the
+   * preference through still gets a model that categorises. An empty array is
+   * a different answer: a user who turned every category off, who is told not
+   * to categorise at all.
+   */
+  categories?: readonly CommitmentCategory[];
 }
 
 export type ExtractionDisposition = 'auto_confirm' | 'pending_confirmation' | 'needs_clarification' | 'store_note';

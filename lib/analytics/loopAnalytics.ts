@@ -41,6 +41,12 @@ export const CLIENT_REPORTABLE_EVENTS = [
   // `capture_confirmed`, are deliberately NOT here — they are the funnel, and
   // a client that could report them could claim activation it never reached.
   'capture_undone',
+  // UC-3.10b (#195). Only the device knows what somebody did with the plan it
+  // showed them: the server stores a status, but "opened it", "asked for
+  // another", and "moved something and was refused" are events with no trace
+  // in domain state. None of them feeds activation or retention, which stay
+  // derived on the server so a client cannot forge funnel progress.
+  'plan_opened', 'plan_accepted', 'plan_edited', 'plan_regenerated', 'plan_dismissed',
 ] as const;
 
 export type ClientReportableEvent = typeof CLIENT_REPORTABLE_EVENTS[number];

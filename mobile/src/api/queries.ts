@@ -18,6 +18,16 @@ import {
   type CommitmentPatch,
 } from './endpoints/commitments';
 import { getWeeklySummary, listActivity } from './endpoints/activity';
+import { getCategoryPreferences, putCategoryPreferences } from './endpoints/categories';
+import type { CategoryPreferences } from './schemas/categories';
+import {
+  actOnPlan,
+  getPlan,
+  getPlanSettings,
+  putPlanSettings,
+  regeneratePlan,
+  type PlanEdit,
+} from './endpoints/plans';
 import { getNextStep, recordNextStepDecision } from './endpoints/nextStep';
 import { getTrust, updateTrust } from './endpoints/trust';
 import { flagAlphaFeedback, getFeedbackHistory, revokeFeedback } from './endpoints/feedback';
@@ -25,6 +35,7 @@ import { recordAnalyticsEvent } from './endpoints/analytics';
 import { putCalendarWriteTarget } from './endpoints/calendar';
 import type { CalendarWriteTarget } from './schemas/calendar';
 import { getConsents, putAiConsent, putRecommendationConsent, type ConsentAnswer } from './endpoints/consents';
+import { getReminderSettings, putReminderSettings, type ReminderSettingsPatch } from './endpoints/reminders';
 import {
   confirmProfileSuggestions,
   describeProfile,
@@ -37,6 +48,8 @@ import {
   putRoutine,
 } from './endpoints/profile';
 import type { RoutineProfilePayload } from '../features/routine/routineProfile';
+import { applyEditLocally } from '../features/plan/optimisticEdit';
+import type { DailyPlan } from './schemas/plan';
 import type { NextStepDecisionKind, NextStepRecommendation } from './schemas/nextStep';
 import type { TrustAction } from './schemas/trust';
 import type { AlphaFeedbackCategory } from './schemas/feedback';
@@ -66,6 +79,16 @@ export const queryKeys = {
   memory: (uid: string) => ['user', uid, 'memory'] as const,
   activity: (uid: string) => ['user', uid, 'activity'] as const,
   activitySummary: (uid: string, weekStart: string) => ['user', uid, 'activitySummary', weekStart] as const,
+  /**
+   * One day's plan (UC-3.10b, #195).
+   *
+   * Keyed by date as well as uid, so tomorrow's plan never renders under
+   * today's heading and a push for one date cannot show another's.
+   */
+  plan: (uid: string, date: string) => ['user', uid, 'plan', date] as const,
+  planSettings: (uid: string) => ['user', uid, 'planSettings'] as const,
+  reminderSettings: (uid: string) => ['user', uid, 'reminderSettings'] as const,
+  categoryPreferences: (uid: string) => ['user', uid, 'categoryPreferences'] as const,
 };
 
 /** The signed-in uid, or the one value that can never collide with one. */
@@ -122,6 +145,25 @@ export function useToday() {
   return useQuery({
     queryKey: queryKeys.today(uid, timezone),
     queryFn: () => listToday({ timezone }),
+    enabled: uid !== 'signed-out',
+  });
+}
+
+/**
+ * Which categories this account uses, and whether its lists are split (#415).
+ *
+ * No `retry` override and no error surface: a screen calls this to decide
+ * whether to draw a filter bar, and a preference that will not load means the
+ * ordinary one-list app rather than an error the user has to dismiss. The
+ * caller reads `data?.categoryPreferences` and falls back to "off", so a
+ * failure and a user who never turned it on look the same — which is correct,
+ * because they *are* the same to the person holding the phone.
+ */
+export function useCategoryPreferences() {
+  const uid = useUid();
+  return useQuery({
+    queryKey: queryKeys.categoryPreferences(uid),
+    queryFn: () => getCategoryPreferences(),
     enabled: uid !== 'signed-out',
   });
 }
@@ -444,6 +486,144 @@ export function useNextStepDecision() {
   });
 }
 
+/**
+ * Today's plan (UC-3.10b, #195).
+ *
+ * `null` is data, not an absence: the route answers 404 when no plan was built
+ * for that date, `getPlan` turns that into null, and the screen says "no plan
+ * for today" instead of an error. So a `data === null` is a settled query, and
+ * `data === undefined` is one that has not answered — which is what tells the
+ * offline states apart.
+ *
+ * Nothing about it is persisted. `queryClient.ts` installs no persister and
+ * `privacy.test.ts` asserts no module under `src/api` can import device
+ * storage, so a plan lives exactly as long as the process does.
+ */
+export function usePlan(date: string) {
+  const uid = useUid();
+  return useQuery({
+    queryKey: queryKeys.plan(uid, date),
+    queryFn: () => getPlan(date),
+    enabled: uid !== 'signed-out' && date !== '',
+  });
+}
+
+/**
+ * Everything a plan action changes.
+ *
+ * The answer *is* the new plan, so it is written straight into the cache rather
+ * than invalidated: a refetch would put a spinner over a screen that already
+ * knows the answer. The commitment lists are invalidated because an accepted or
+ * regenerated plan is a thing that just happened to this account.
+ */
+function adoptPlan(client: QueryClient, uid: string, date: string, plan: DailyPlan): void {
+  client.setQueryData(queryKeys.plan(uid, date), plan);
+  void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
+  void client.invalidateQueries({ queryKey: queryKeys.activity(uid) });
+}
+
+/**
+ * "Looks good" and "Not today".
+ *
+ * No optimistic update: both write a *status*, the screen renders that status,
+ * and there is nothing under the user's finger that would snap back. The caller
+ * guards against a second send — see `PlanScreen`, and `PlanScreen.test.tsx`,
+ * which asserts two taps produce one request.
+ */
+export function usePlanAction(date: string) {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn: (action: 'accept' | 'dismiss') => actOnPlan(date, { action }),
+    onSuccess: plan => adoptPlan(client, uid, date, plan),
+  });
+}
+
+/**
+ * Moving or removing one item, optimistically, with a real rollback.
+ *
+ * The plan the user was looking at is captured in `onMutate` and restored in
+ * `onError`. That is the whole of the acceptance criterion "the item returns to
+ * its old time": the 422 does not merely fail, it puts the screen back to the
+ * state it was in before the drag.
+ *
+ * `cancelQueries` first, so a refetch already in flight cannot land on top of
+ * the rollback with a copy of the plan from before either.
+ */
+export function usePlanEdit(date: string) {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn: (edit: PlanEdit) => actOnPlan(date, { action: 'edit', ...edit }),
+    onMutate: async (edit: PlanEdit) => {
+      const key = queryKeys.plan(uid, date);
+      await client.cancelQueries({ queryKey: key });
+      const previous = client.getQueryData<DailyPlan | null>(key) ?? null;
+      if (previous) client.setQueryData(key, applyEditLocally(previous, edit));
+      return { previous };
+    },
+    onError: (_error, _edit, context) => {
+      // `context` is undefined only if `onMutate` itself threw, in which case
+      // nothing was written and there is nothing to put back.
+      if (context) client.setQueryData(queryKeys.plan(uid, date), context.previous);
+    },
+    onSuccess: plan => adoptPlan(client, uid, date, plan),
+  });
+}
+
+/**
+ * "New plan".
+ *
+ * Not retried — mutations never are here — and deliberately not optimistic:
+ * nobody can guess what the planner will produce, and showing the old plan
+ * until the new one lands is the honest intermediate state.
+ */
+export function useRegeneratePlan(date: string) {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn: (_: void) => regeneratePlan(date),
+    onSuccess: plan => adoptPlan(client, uid, date, plan),
+  });
+}
+
+/**
+ * Whether a plan is built each morning, and when.
+ *
+ * `staleTime: 0` for the same reason `useConsents` has it: this is a switch
+ * somebody may have changed on another device, and a control rendered from a
+ * stale answer is a control that lies about what the server will do.
+ */
+export function usePlanSettings() {
+  const uid = useUid();
+  return useQuery({
+    queryKey: queryKeys.planSettings(uid),
+    queryFn: getPlanSettings,
+    enabled: uid !== 'signed-out',
+    staleTime: 0,
+  });
+}
+
+/**
+ * Saves the morning-plan switch and hour.
+ *
+ * The response is the server's own record, including the `nextRunAt` it
+ * computed, so it is adopted rather than assumed — the switch shows what was
+ * stored, never what was tapped. `onSettled` invalidates as well, so a failed
+ * write snaps the control back to the truth.
+ */
+export function useSavePlanSettings() {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn: (input: { enabled: boolean; deliveryLocalTime?: string }) => putPlanSettings(input),
+    onSuccess: settings => client.setQueryData(queryKeys.planSettings(uid), settings),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.planSettings(uid) });
+    },
+  });
+}
+
 export function useTrustAction() {
   const client = useQueryClient();
   const uid = useUid();
@@ -563,6 +743,26 @@ export function useSetCalendarWriteTarget() {
   });
 }
 
+/**
+ * Saving the category preference (#415).
+ *
+ * The lists are invalidated as well as the preference, because turning the
+ * split on changes what Today draws and turning a category off changes which
+ * chips it can draw. Invalidating only the preference would leave a filter bar
+ * offering a category the next capture will no longer produce.
+ */
+export function useSetCategoryPreferences() {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn: (preferences: CategoryPreferences) => putCategoryPreferences(preferences),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.categoryPreferences(uid) });
+      void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
+    },
+  });
+}
+
 /** The account's routine profile. `routine: null` means never answered. */
 export function useProfile() {
   const uid = useUid();
@@ -646,6 +846,52 @@ export function useConfirmProfileSuggestions() {
       // The confirmed facts are memory now, so the "what it knows" screen is
       // out of date the moment this returns.
       void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
+    },
+  });
+}
+
+/**
+ * Gentle reminders: the switch, the lead time and the quiet hours (UC-3.11, #196).
+ *
+ * `staleTime: 0`, like the consents query and for a related reason: these
+ * settings decide whether the phone schedules anything at all, and a stale
+ * "on" would have the engine keep scheduling for somebody who turned it off on
+ * another device. The answer is one small document.
+ */
+export function useReminderSettings() {
+  const uid = useUid();
+  return useQuery({
+    queryKey: queryKeys.reminderSettings(uid),
+    queryFn: getReminderSettings,
+    enabled: uid !== 'signed-out',
+    staleTime: 0,
+  });
+}
+
+/**
+ * Saves the three controls.
+ *
+ * No optimistic update: the switch moves when the server says it moved, for
+ * the same reason the consent toggles do not move early. A control that
+ * claimed reminders were on before the save landed would be a promise about
+ * somebody's evening that the app had not yet made.
+ *
+ * Quiet hours saved here are stored on the routine profile, so the profile and
+ * the memory it derives are both out of date the moment this returns.
+ */
+export function useSaveReminderSettings() {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn: (patch: ReminderSettingsPatch) => putReminderSettings(patch),
+    onSettled: (_result, _error, patch) => {
+      void client.invalidateQueries({ queryKey: queryKeys.reminderSettings(uid) });
+      if (patch.quietHours !== undefined) {
+        void client.invalidateQueries({ queryKey: queryKeys.profile(uid) });
+        void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
+        // The next step is gated on the same window.
+        void client.invalidateQueries({ queryKey: ['user', uid, 'nextStep'] });
+      }
     },
   });
 }

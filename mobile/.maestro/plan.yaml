@@ -1,0 +1,107 @@
+appId: com.maybesitter.app
+name: Today's plan — open it, read it, accept it
+---
+# UC-3.10b (#195) on a device, in mock mode.
+#
+# Run against a development build started with EXPO_PUBLIC_API_MODE=mock, which
+# serves the committed fixtures `plan.today`, `plan.accepted` and
+# `plan.settingsSaved` — the ones the real route handlers produced. A release
+# build cannot serve them (see src/api/mockAdapter.ts), so this flow only ever
+# runs against a developer's own build.
+#
+#   maestro test .maestro/plan.yaml
+#
+# The assertions are Arabic because Arabic is the default and a misconfigured
+# build shows the CFG-1 screen instead — see .maestro/README.md.
+#
+# This flow needs a signed-in build. Maestro cannot type into a secure field, so
+# it cannot sign in by itself; run it against a session that is already signed
+# in, and do not read a pass here as evidence that sign-in works.
+#
+# ── What this flow does NOT prove ─────────────────────────────────
+#
+# Tapping the morning "your plan is ready" notification on a killed app. That
+# needs #184's APNs key and a physical handset; `openLink` is a deep link fired
+# from the shell, which is the same *route* the notification tap takes but not
+# the same delivery. The push half is untested here and in Jest.
+- launchApp
+
+# ── The link the morning notification fires ────────────────────────
+#
+# The date is the fixture's own day. The router accepts only YYYY-MM-DD, so a
+# link with anything else in it is dropped rather than repaired.
+- openLink: maybesitter://plan/2026-08-09
+- assertVisible: 'خطة اليوم'
+
+# ── The reasoning is shown, and it is not badged as the model's ────
+- assertVisible: 'ليش هيك رتّبناها'
+- assertVisible:
+    id: 'plan-why'
+# `plan.today`'s explanation is `source: 'template'`, so there is no
+# "the assistant wrote this" line to find.
+- assertNotVisible:
+    id: 'plan-model-note'
+
+# ── What goes where ────────────────────────────────────────────────
+- assertVisible:
+    id: 'plan-item-plan_fixture_0'
+- assertVisible:
+    id: 'plan-item-plan_fixture_1'
+
+# ── A new plan is still on offer: the morning build is generation 1 ─
+- assertVisible:
+    id: 'plan-regenerate-left'
+- assertNotVisible:
+    id: 'plan-regenerate-capped'
+
+# ── Opening an item offers a new time and taking it off the day ────
+- tapOn:
+    id: 'plan-open-plan_fixture_0'
+- assertVisible:
+    id: 'plan-pick-plan_fixture_0'
+- assertVisible:
+    id: 'plan-remove-plan_fixture_0'
+# Leave it where it is: this flow is about reading and accepting. The refusal
+# path needs a busy block the mock adapter has no way to produce — it serves one
+# body per route and keeps no state.
+- tapOn:
+    id: 'plan-cancel-plan_fixture_0'
+
+# ── "Looks good" ───────────────────────────────────────────────────
+- tapOn:
+    id: 'plan-accept'
+# The confirmation is on the screen the user is reading. The app-wide toast
+# sheet is not used here: its only button goes home, which would throw them off
+# the plan the moment they accepted it.
+- assertVisible:
+    id: 'plan-accepted'
+- assertVisible: 'حفظنا خطة اليوم'
+
+# ── The way in from Today (#195 step 4) ────────────────────────────
+#
+# The card asks for the *device's* day, and mock mode answers every date with
+# `plan.today` — so it shows that plan under today's heading whenever this runs.
+# That is a property of the adapter, which keeps no state and serves one body
+# per route, not of the card.
+- tapOn: 'اليوم'
+- assertVisible:
+    id: 'today-plan-card'
+- tapOn:
+    id: 'today-plan-open'
+- assertVisible: 'خطة اليوم'
+- assertVisible:
+    id: 'plan-why'
+
+# ── The morning plan, from Settings ────────────────────────────────
+- tapOn: 'الإعدادات'
+- tapOn:
+    id: 'settings-notifications'
+- assertVisible: 'خطة الصبح'
+- assertVisible:
+    id: 'plan-morning-toggle'
+- assertVisible:
+    id: 'plan-delivery-time'
+# And the way back to the plan from here.
+- tapOn:
+    id: 'plan-open'
+- assertVisible: 'خطة اليوم'

@@ -152,6 +152,34 @@ export const CALENDAR_SOURCES = 'calendarSources';
 export const BUSY_BLOCKS = 'busyBlocks';
 
 /**
+ * One document per installation this account has signed in on (UC-3.0b, #184).
+ *
+ * The FCM registration token lives here, keyed by an installation id the phone
+ * mints once and keeps in its keychain. Keyed by installation rather than by
+ * token because a token is rotated by Firebase without anybody asking: keying
+ * on it would leave a dead document behind on every rotation, and the server
+ * would keep pushing into it until FCM refused.
+ *
+ * A token is a device identifier, so the document is inside the user's tree
+ * and goes with the account. It holds no email, no display name and no device
+ * model — see `lib/push/deviceRegistry` for the closed field list.
+ */
+export const DEVICES = 'devices';
+
+/**
+ * One document per push already sent, as the idempotency lock (UC-3.0b, #184).
+ *
+ * `sendToUser` creates this document *before* it calls FCM, and a create that
+ * fails because the document is there is what makes a second call with the
+ * same `dedupeKey` a no-op. It is a lock rather than a log: it holds the key,
+ * the kind and two instants, and never the text that was sent.
+ *
+ * `expiresAt` is the Firestore TTL field (seven days out). Note the spelling —
+ * `expireAt` is a field nothing deletes.
+ */
+export const PUSH_LOG = 'pushLog';
+
+/**
  * The activity counters behind the weekly Moments (UC-3.15, #201).
  *
  * A counter rather than a query over the user's items, because a Moment is a
@@ -200,6 +228,8 @@ export const USER_SCOPED_COLLECTIONS = [
   DEVICE_CALENDAR_LINKS,
   CALENDAR_SOURCES,
   BUSY_BLOCKS,
+  DEVICES,
+  PUSH_LOG,
 ] as const;
 
 /** Operator-only, outside every user tree. */

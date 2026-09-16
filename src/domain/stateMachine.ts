@@ -1,5 +1,10 @@
 import { randomUUID } from 'crypto';
 
+import type {
+  CommitmentCategory,
+  CommitmentCategorySource,
+} from '../contracts/v1/categoryContracts';
+
 export type CommitmentKind = 'task' | 'follow_up';
 export type CommitmentStatus =
   | 'draft'
@@ -89,6 +94,24 @@ export interface Commitment {
   person: string | null;
   status: CommitmentStatus;
   priority: Priority;
+  /**
+   * Which part of the user's life this belongs to, or `null` for the ordinary
+   * case where nobody decided (#415).
+   *
+   * `null` is not a failure and not a seventh category — see
+   * `categoryContracts.ts`. Everything downstream must render an uncategorised
+   * commitment as an ordinary one.
+   */
+  category: CommitmentCategory | null;
+  /**
+   * Who put the category there.
+   *
+   * Starts as `inferred` even when the category is `null`, because "the app
+   * has not been told" is exactly what an unstated inference is. It becomes
+   * `user_explicit` the moment the user files the commitment themselves, and
+   * from then on no inference may move it.
+   */
+  categorySource: CommitmentCategorySource;
   timeSpec: TimeSpec;
   currentAckState: AckState;
   postponedUntil: string | null;
@@ -161,6 +184,7 @@ export type CreateDraft = {
     description?: string | null;
     person?: string | null;
     priority?: Partial<Priority>;
+    category?: CommitmentCategory | null;
     timeSpec?: Partial<TimeSpec>;
   };
   draftStatus?: Extract<CommitmentStatus, 'draft' | 'needs_clarification' | 'pending_confirmation'>;
@@ -222,6 +246,20 @@ export type UpdateCommitment = {
     description?: string | null;
     person?: string | null;
     priority?: Partial<Priority>;
+    /**
+     * Where the user — or a later inference — says this belongs.
+     *
+     * `null` is a value, not an omission: it is the user clearing the
+     * category, and it is recorded as their decision. Leaving the key out
+     * entirely is what means "do not touch the category".
+     */
+    category?: CommitmentCategory | null;
+    /**
+     * Defaults to `user_explicit`, because the ordinary caller of this command
+     * is a person tapping a chip. A background re-classification must pass
+     * `inferred` and will then be refused if the user has already decided.
+     */
+    categorySource?: CommitmentCategorySource;
     timeSpec?: Partial<TimeSpec>;
   };
 };
@@ -591,6 +629,8 @@ export function applyCommand(state: DomainState, command: Command): StateTransit
         person: command.commitment.person || null,
         status,
         priority: defaultPriority(command.commitment.priority),
+        category: command.commitment.category ?? null,
+        categorySource: 'inferred',
         timeSpec: defaultTimeSpec(command.commitment.timeSpec),
         currentAckState: 'not_seen',
         postponedUntil: null,
@@ -781,11 +821,32 @@ export function applyCommand(state: DomainState, command: Command): StateTransit
         : commitment.timeSpec;
       const timeSpecChanged = JSON.stringify(commitment.timeSpec) !== JSON.stringify(nextTimeSpec);
 
+      // An inference never overwrites a decision (#415). The only place both
+      // the stored provenance and the incoming one are in hand is here, so the
+      // refusal lives here rather than in each caller — a route that forgot the
+      // check would quietly re-file commitments the user had already sorted.
+      const categoryOffered = command.updates.category !== undefined;
+      const incomingCategorySource: CommitmentCategorySource =
+        command.updates.categorySource ?? 'user_explicit';
+      const categoryIsRefused =
+        categoryOffered &&
+        incomingCategorySource === 'inferred' &&
+        commitment.categorySource === 'user_explicit';
+      const categoryChanged =
+        categoryOffered && !categoryIsRefused && commitment.category !== command.updates.category;
+      const nextCategory = categoryChanged
+        ? (command.updates.category ?? null)
+        : commitment.category;
+      const nextCategorySource = categoryChanged
+        ? incomingCategorySource
+        : commitment.categorySource;
+
       if (
         commitment.title === nextTitle &&
         commitment.description === nextDescription &&
         commitment.person === nextPerson &&
         JSON.stringify(commitment.priority) === JSON.stringify(nextPriority) &&
+        !categoryChanged &&
         !timeSpecChanged
       ) {
         break;
@@ -795,6 +856,8 @@ export function applyCommand(state: DomainState, command: Command): StateTransit
       commitment.description = nextDescription;
       commitment.person = nextPerson;
       commitment.priority = nextPriority;
+      commitment.category = nextCategory;
+      commitment.categorySource = nextCategorySource;
       commitment.timeSpec = nextTimeSpec;
       commitment.updatedAt = command.now;
       if (timeSpecChanged) {
