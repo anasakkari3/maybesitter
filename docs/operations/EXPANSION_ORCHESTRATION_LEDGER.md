@@ -1,7 +1,7 @@
 # Expansion orchestration ledger
 
 Updated: 2026-09-16
-Current integration base: `e624f9a4434a8edee36a4d5a33c71723684651c5`
+Current integration base: `d828b65769fca884ae66bb05dc5b01b40507359d`
 
 This is the live ownership and dependency ledger for the expansion program.
 Git and current GitHub state remain authoritative; Graphify is refreshed
@@ -27,10 +27,9 @@ these shared surfaces unless the integration lane explicitly hands off a file.
 
 | Collision | Current owner | Program effect |
 | --- | --- | --- |
-| ICS calendar ingestion, root packages, calendar/storage surfaces | PR #445 | Avoid its calendar files, `lib/storage/paths.ts`, root package files, and related shared tests until it lands. |
 | Home widgets, mobile app config/packages/locales/settings | PR #449 | Native health config, readiness UX, App Intents registration, and RevenueCat SDK wiring stay out of shared mobile files. Narrow local modules may proceed. |
 | Mobile package manifests and lockfile | Dependabot #229, #363, #365, #367, #368, #370 plus #449 | Integration lane must reconcile versions; feature lanes do not edit these files. |
-| Root package manifests and lockfile | Dependabot #228, #358-#362 plus #445 | Dependency-free domains proceed; root dependency additions wait for ownership clearance. |
+| Root package manifests and lockfile | Dependabot #228, #358-#362 | Dependency-free domains proceed; integration classifies dependency PRs before adding a solver package. |
 | Deployment workflow | Dependabot #372-#373 | No expansion lane edits `.github/workflows/deploy.yml`. |
 
 An active conflict in one subsystem is not a program-wide blocker.
@@ -39,20 +38,20 @@ An active conflict in one subsystem is not a program-wide blocker.
 
 | Lane | Status | Branch | Base SHA | Owned files | Upstream dependencies | Active collisions | PR | CI / test status | Merge status | External blockers |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Integration | active | `program/integration-ledger-live` | `e624f9a` | this ledger; later shared config/package/privacy changes | all landed contracts | #445, #449, Dependabot shared files | pending | documentation-only validation pending | not opened | Apple/Google store declarations later |
+| Integration | active | `program/integration-ledger-live` | `d828b65` | this ledger; later shared config/package/privacy changes | all landed contracts | #449 and Dependabot shared files | #455 | documentation-only validation passed | open | Apple/Google store declarations later |
 | Foundations | complete | merged stack | through `e624f9a` | connection, readiness, UserState, task, policy, cost, architecture, provider runtime contracts | none | none | #406-#436 | merged CI green | merged | none |
-| Gmail provider | CI running | `program/gmail-provider-domain` | `e624f9a` | Gmail adapter; prompt boundary tests | provider runtime | none | #437 | focused 11 pass; typecheck and registration pass | open | OAuth app credentials for live verification |
-| Microsoft Graph provider | CI running | `program/microsoft-graph-provider-domain` | `e624f9a` | Graph adapter; busy-block tests | provider runtime | none | #438 | focused 31 pass; typecheck and registration pass | open | Microsoft app credentials for live verification |
-| Todoist + Notion providers | CI running | `program/task-provider-sync-domain` | `e624f9a` | task provider adapters; integration tests | provider runtime; canonical external task | none | #439 | focused 10 pass; typecheck and registration pass | open | provider credentials for live verification |
-| RescueTime context | CI running | `program/rescuetime-context-domain` | `e624f9a` | aggregate context adapter; UserState projection tests | provider runtime; UserState projection | none | #440 | focused 34 pass; typecheck and registration pass | open | provider credentials for live verification |
-| Meeting intelligence | CI running | `program/meeting-intelligence-domain` | `e624f9a` | meeting proposal boundary; proposal tests | provider runtime; canonical commitment proposal | none | #441 | focused 61 pass; typecheck and registration pass | open | meeting-provider credentials for live verification |
-| Travel planning | CI running | `program/travel-planning-domain` | `e624f9a` | travel constraint projection; planner tests | canonical planner | none | #442 | focused 28 pass; typecheck and registration pass | open | live travel estimate provider not selected |
-| HealthKit native bridge | ready for PR | `program/healthkit-native-bridge` | `e624f9a` | local Expo module, iOS bridge, narrow adapters/tests | canonical readiness | shared app config remains owned by #449 | pending | root 18 + mobile 3 pass; root/mobile typecheck and registration pass; prebuild passed | local commits | physical iOS permission/read verification; Apple declarations |
-| Health Connect native bridge | ready for PR | `program/health-connect-native-bridge` | `e624f9a` | local Expo module, Android bridge/manifest, narrow adapters/tests | canonical readiness | shared app config/package remains owned by #449 | pending | root 18 + mobile 3 pass; root/mobile typecheck and registration pass; prebuild passed; Gradle blocked before compile by missing Android SDK | local commits | Android SDK/device permission verification; Play declaration |
-| Action Gateway runtime | CI running | `program/action-gateway-runtime` | `e624f9a` | canonical action execution and audit runtime | Action Policy | none | #450 | focused 42 pass; typecheck and registration pass | open | provider executors require credentials |
+| Gmail provider | CI running | `program/gmail-provider-domain` | `d828b65` | Gmail adapter; prompt boundary tests | provider runtime | none | #437 | focused 11 pass; typecheck and registration pass | open | OAuth app credentials for live verification |
+| Microsoft Graph provider | CI running | `program/microsoft-graph-provider-domain` | `d828b65` | Graph adapter; busy-block tests | provider runtime | none | #438 | focused 31 pass; typecheck and registration pass | open | Microsoft app credentials for live verification |
+| Todoist + Notion providers | CI running | `program/task-provider-sync-domain` | `d828b65` | task provider adapters; integration tests | provider runtime; canonical external task | none | #439 | focused 10 pass; typecheck and registration pass | open | provider credentials for live verification |
+| RescueTime context | CI running | `program/rescuetime-context-domain` | `d828b65` | aggregate context adapter; UserState projection tests | provider runtime; UserState projection | none | #440 | focused 34 pass; typecheck and registration pass | open | provider credentials for live verification |
+| Meeting intelligence | CI running | `program/meeting-intelligence-domain` | `d828b65` | meeting proposal boundary; proposal tests | provider runtime; canonical commitment proposal | none | #441 | focused 61 pass; typecheck and registration pass | open | meeting-provider credentials for live verification |
+| Travel planning | CI running | `program/travel-planning-domain` | `d828b65` | travel constraint projection; planner tests | canonical planner | none | #442 | focused 28 pass; typecheck and registration pass | open | live travel estimate provider not selected |
+| HealthKit native bridge | ready for PR | `program/healthkit-native-bridge` | `d828b65` | local Expo module, iOS bridge, narrow adapters/tests | canonical readiness | shared app config remains owned by #449 | pending | root 18 + mobile 3 pass; root/mobile typecheck and registration pass; prebuild passed; native build running | local commits | physical iOS permission/read verification; Apple declarations |
+| Health Connect native bridge | ready for PR | `program/health-connect-native-bridge` | `d828b65` | local Expo module, Android bridge/manifest, narrow adapters/tests | canonical readiness | shared app config/package remains owned by #449 | pending | root 18 + mobile 3 pass; root/mobile typecheck and registration pass; prebuild passed; native compile running | local commits | Android device permission verification; Play declaration |
+| Action Gateway runtime | CI running | `program/action-gateway-runtime` | `d828b65` | canonical action execution and audit runtime | Action Policy | none | #450 | focused 42 pass; typecheck and registration pass | open | provider executors require credentials |
 | MCP capability gateway | stacked CI running | `program/mcp-capability-domain` | `2f6b78d` | MCP capability adapter; policy/red-team tests | #450 | none | #451 | focused 59 pass; typecheck and registration pass | open, stacked | operator mappings and live MCP credentials |
-| RevenueCat entitlement domain | CI running | `program/revenuecat-entitlement-domain` | `e624f9a` | entitlement projection and tests | entitlement foundation | SDK wiring collides with #449/Dependabot mobile packages | #452 | focused 18 pass; typecheck and registration pass | open | store products, RevenueCat credentials, device restore verification |
-| Timefold shadow experiment | CI running | `program/timefold-shadow-experiment` | `e624f9a` | dependency-free planner experiment and metrics | canonical planner | solver dependency addition collides with root package owners | #453 | focused 16 pass; typecheck and registration pass | open | none for dependency-free boundary |
+| RevenueCat entitlement domain | CI running | `program/revenuecat-entitlement-domain` | `d828b65` | entitlement projection and tests | entitlement foundation | SDK wiring collides with #449/Dependabot mobile packages | #452 | focused 18 pass; typecheck and registration pass | open | store products, RevenueCat credentials, device restore verification |
+| Timefold shadow experiment | CI running | `program/timefold-shadow-experiment` | `d828b65` | dependency-free planner experiment and metrics | canonical planner | solver dependency addition requires Dependabot reconciliation | #453 | focused 16 pass; typecheck and registration pass | open | none for dependency-free boundary |
 | Controlled email actions | stacked CI running | `program/controlled-email-actions` | `2f6b78d` | review-bound draft/send flow; safety tests | #450; Gmail/Graph executors | none | #454 | focused 53 pass; typecheck and registration pass | open, stacked | live provider credentials |
 
 ## Automatically unblocked
@@ -62,6 +61,9 @@ An active conflict in one subsystem is not a program-wide blocker.
   implemented as isolated local Expo modules.
 - #436 landed the canonical provider runtime. Provider PRs #437-#441 now target
   `main` directly and no longer duplicate the runtime contract in their diffs.
+- #445 landed ICS ingestion and released the root package, calendar, and storage
+  ownership boundary. All active program branches were rebased and retested on
+  `d828b65`.
 - Action, travel, Timefold, entitlement, MCP, and controlled-email lanes have
   advanced without waiting for unrelated package collisions.
 
@@ -73,7 +75,7 @@ An active conflict in one subsystem is not a program-wide blocker.
 | Health Connect shared Android/app declarations | #449 and mobile package PRs own shared mobile setup | Reconcile after current mobile owners merge. |
 | Mobile readiness UX and locale copy | #449 owns settings/locales | Start from refreshed main after #449 merges. |
 | RevenueCat SDK/native wiring | #449 and mobile Dependabot own manifests/lockfile; store products need owner | Reconcile packages, then prebuild and device-test. |
-| Timefold solver dependency | #445 and root Dependabot own package surfaces | Add only after root package ownership clears and benchmark boundary is merged. |
+| Timefold solver dependency | root Dependabot PRs own package surfaces | Classify and reconcile dependency PRs after the benchmark boundary merges. |
 | Live OAuth/provider verification | external app credentials | Run contract-approved smoke tests when credentials are supplied. |
 
 ## Merge discipline
