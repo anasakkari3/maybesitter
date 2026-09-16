@@ -38,7 +38,6 @@ function commitmentAt(id: string, dueAt: string, endAt: string | null): Commitme
   return {
     id,
     kind: 'task',
-    origin: 'user',
     title: id,
     description: null,
     person: null,

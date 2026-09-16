@@ -189,7 +189,6 @@ function side(spec: SideSpec): SeedCommitment {
   const commitment: Commitment = {
     id: spec.id,
     kind: spec.kind ?? 'task',
-    origin: 'user',
     title: spec.title,
     description: spec.description ?? null,
     person: spec.person ?? null,

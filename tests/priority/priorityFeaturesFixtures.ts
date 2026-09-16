@@ -11,7 +11,6 @@ export function commitmentOf(overrides: Partial<Commitment> = {}): Commitment {
   return {
     id: 'cmt_1',
     kind: 'task',
-    origin: 'user',
     title: 'Send the invoice',
     description: null,
     person: null,

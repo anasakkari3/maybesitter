@@ -79,7 +79,6 @@ function commitment(id: string, overrides: Partial<Commitment> = {}): Commitment
   return {
     id,
     kind: 'task',
-    origin: 'user',
     title: 'Call the clinic',
     description: null,
     person: null,

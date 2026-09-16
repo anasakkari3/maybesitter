@@ -7,7 +7,7 @@ import { getLiveNextStep, recordLiveNextStepDecision } from '../../lib/services/
 import { MODULE_FEATURE_FLAG_DEFAULTS, MODULE_KILL_SWITCH_DEFAULTS } from '../../src/contracts/v1/runtimeControls.ts';
 
 const commitment: Commitment = {
-  id: 'c1', kind: 'task', origin: 'user', title: 'Call Maya', description: null, person: null, status: 'active',
+  id: 'c1', kind: 'task', title: 'Call Maya', description: null, person: null, status: 'active',
   priority: { level: 'high', source: 'user_explicit', pressureAllowed: false, pressureLevel: 'none' },
   timeSpec: { kind: 'due_by', dueAt: '2026-08-31T10:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
   currentAckState: 'aware', postponedUntil: null, createdAt: '2026-08-30T00:00:00.000Z', updatedAt: '2026-08-30T00:00:00.000Z', confirmedAt: '2026-08-30T00:00:00.000Z', completedAt: null, droppedAt: null,

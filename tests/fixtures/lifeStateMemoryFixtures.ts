@@ -385,7 +385,6 @@ function timeSpec(overrides: Partial<TimeSpec> = {}): TimeSpec {
 function commitment(base: Pick<Commitment, 'id' | 'title'> & Partial<Commitment>): Commitment {
   return {
     kind: 'task',
-    origin: 'user',
     description: null,
     person: null,
     status: 'active',

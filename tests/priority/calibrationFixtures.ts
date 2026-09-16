@@ -43,7 +43,6 @@ export function subjectOf(spec: SubjectSpec): CalibrationSubject {
   const commitment: Commitment = {
     id: spec.id,
     kind: 'task',
-    origin: 'user',
     title: `commitment ${spec.id}`,
     description: null,
     person: null,
