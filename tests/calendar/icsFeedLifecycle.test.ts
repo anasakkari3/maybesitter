@@ -245,6 +245,17 @@ test('a Moodle export subscribes with a preview of its counts, and lectures beco
     assert.equal(body.feed.label, 'CS101 Moodle');
     assert.equal(body.feed.autoAcceptDeadlines, false);
     assert.equal(body.feed.pendingDeadlines, 4);
+    // The whole key set, so a field added to the stored document cannot ride
+    // along into the response by accident.
+    assert.deepEqual(Object.keys(body.feed).sort(), [
+      'autoAcceptDeadlines', 'busyBlocks', 'consecutiveFailures', 'feedId', 'label', 'lastErrorCode',
+      'lastFetchedAt', 'nextFetchAt', 'pendingDeadlines', 'status',
+    ]);
+    const listed = await json(await call(handleListFeeds, request('GET', '/api/mobile/calendar/ics'), h.deps));
+    assert.deepEqual(Object.keys(listed.feeds[0]).sort(), Object.keys(body.feed).sort());
+    assert.deepEqual(Object.keys(listed.deadlines[0]).sort(), [
+      'allDay', 'autoAccepted', 'commitmentId', 'dueAt', 'feedId', 'itemKey', 'notice', 'proposedDueAt', 'state', 'title',
+    ]);
 
     const feedId = body.feed.feedId as string;
     const busy = await icsBusyBlocks(USER, feedId, { now: () => NOW });
