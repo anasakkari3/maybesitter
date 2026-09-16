@@ -22,6 +22,11 @@ import {
   type CapabilityId,
 } from '../../src/contracts/v1/actionPolicyContracts.ts';
 import {
+  PROVIDER_CONTEXT_CATALOG,
+  providerCatalogEntry,
+  providerCatalogForProvider,
+} from '../../lib/integrations/providers/providerCatalog.ts';
+import {
   AUDIT_LEAK_DEFAULT_RUN_LENGTH,
   SAFETY_BLOCK_SCOPES,
   SAFETY_BOUNDARIES,
@@ -244,6 +249,48 @@ test('unknown capabilities and raw provider tool names are denied', () => {
   });
   assert.equal(rawTool.decision, 'denied');
   assert.equal(rawTool.reason, 'raw_provider_tool_denied');
+});
+
+test('provider context catalog routes Gmail, Graph, tasks, notes, and RescueTime through central policy', () => {
+  assert.deepEqual(
+    PROVIDER_CONTEXT_CATALOG.map((entry) => entry.surface),
+    ['gmail', 'microsoft_graph', 'todoist', 'notion', 'rescuetime'],
+  );
+  assert.equal(providerCatalogEntry('gmail').provider, 'google');
+  assert.equal(providerCatalogEntry('microsoft_graph').provider, 'microsoft');
+  assert.deepEqual(providerCatalogForProvider('notion').map((entry) => entry.surface), ['notion']);
+
+  for (const entry of PROVIDER_CONTEXT_CATALOG) {
+    assert.equal(entry.rawProviderToolsAllowedForModel, false);
+    for (const capability of entry.actionCapabilities) {
+      assert.ok(policyForCapability(capability), `${entry.surface} capability ${capability} needs action policy`);
+    }
+  }
+
+  assert.deepEqual(providerCatalogEntry('gmail').actionCapabilities, ['read_email', 'draft_email', 'send_email']);
+  assert.deepEqual(providerCatalogEntry('todoist').connectionCapabilities, ['task_read', 'task_write']);
+  assert.deepEqual(providerCatalogEntry('rescuetime').connectionCapabilities, ['focus_session_read']);
+
+  const graphSend = evaluateActionPolicy({
+    capability: 'send_email',
+    provider: providerCatalogEntry('microsoft_graph').provider,
+    actor: 'model',
+    userConfirmed: false,
+    strongConfirmation: false,
+    settingsAllowAutomaticExternalWrites: true,
+  });
+  assert.equal(graphSend.decision, 'requires_confirmation');
+
+  const rawGmailTool = evaluateActionPolicy({
+    capability: 'gmail.users.messages.send',
+    provider: providerCatalogEntry('gmail').provider,
+    actor: 'model',
+    userConfirmed: true,
+    strongConfirmation: true,
+    settingsAllowAutomaticExternalWrites: true,
+  });
+  assert.equal(rawGmailTool.decision, 'denied');
+  assert.equal(rawGmailTool.reason, 'raw_provider_tool_denied');
 });
 
 /* ── The partition ───────────────────────────────────────────────── */
