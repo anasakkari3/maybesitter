@@ -54,6 +54,7 @@ export function configProblems(): string[] {
     shareIntentDebug: process.env.EXPO_PUBLIC_SHARE_INTENT_DEBUG,
     calendarWrite: process.env.EXPO_PUBLIC_FEATURE_CALENDAR_WRITE,
     calendarRead: process.env.EXPO_PUBLIC_FEATURE_CALENDAR_READ,
+    icsFeeds: process.env.EXPO_PUBLIC_FEATURE_ICS_FEEDS,
   });
 }
 
@@ -266,6 +267,23 @@ export function safeCommitmentPatchEnabled(): boolean {
  */
 export function calendarWriteEnabled(): boolean {
   return (process.env.EXPO_PUBLIC_FEATURE_CALENDAR_WRITE ?? '').trim() === 'true';
+}
+
+/**
+ * Whether this build shows subscribed calendar feeds (UC-3.4, #188).
+ *
+ * **Off by default**, on only for `EXPO_PUBLIC_FEATURE_ICS_FEEDS=true` — the
+ * mirror of the server's `ICS_FEEDS_ENABLED`, which is also an enable flag and
+ * also off by default. The two are separate on purpose: a build with the
+ * screen and a server without the routes gets a 404 it renders as "not
+ * available", and the server can be switched off without shipping a binary.
+ *
+ * The entry point, the screen and every feed query check it, so a hidden row
+ * is not the only thing standing between a build that should not have this and
+ * a request to the routes.
+ */
+export function icsFeedsEnabled(): boolean {
+  return (process.env.EXPO_PUBLIC_FEATURE_ICS_FEEDS ?? '').trim() === 'true';
 }
 
 /**

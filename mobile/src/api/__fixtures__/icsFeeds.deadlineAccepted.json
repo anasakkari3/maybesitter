@@ -1,0 +1,16 @@
+{
+  "success": true,
+  "deadline": {
+    "itemKey": "0000000000000000000000000000000000000000000000000000000000000000",
+    "feedId": "00000000-0000-4000-8000-000000000001",
+    "title": "Essay 1 is due",
+    "dueAt": "2026-08-09T09:00:00.000Z",
+    "allDay": false,
+    "state": "accepted",
+    "notice": null,
+    "proposedDueAt": null,
+    "commitmentId": "00000000-0000-4000-8000-000000000002",
+    "autoAccepted": false
+  },
+  "replayed": false
+}

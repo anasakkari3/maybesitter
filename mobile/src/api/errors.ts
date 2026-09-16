@@ -1,5 +1,6 @@
 import type { Commitment } from './schemas/common';
 import type { PlanEditRejected } from './schemas/plan';
+import type { IcsFeedReason } from './schemas/icsFeeds';
 
 /**
  * Every way a call to `/api/mobile/**` can fail, as types the UI can switch on.
@@ -250,4 +251,19 @@ export function isRetryable(error: unknown): boolean {
   if (error instanceof NetworkError || error instanceof TimeoutError) return true;
   if (error instanceof ServiceUnavailableError) return true;
   return error instanceof ServerError && error.status >= 500;
+}
+
+/**
+ * A calendar feed route refused, with its own reason (UC-3.4, #188).
+ *
+ * One class for every status those routes use (400, 404, 409, 422, 429, 503),
+ * because what the screen says depends on the reason — "that link is not a
+ * calendar" and "that link cannot be fetched from here" are both 422 — and the
+ * generic classes for those statuses drop it. `detail` is a code too (which
+ * guard refused a URL), never text from the server.
+ */
+export class IcsFeedRefusedError extends ApiError {
+  constructor(readonly reason: IcsFeedReason, readonly detail: string | null) {
+    super(`the calendar feed request was refused: ${reason}`);
+  }
 }

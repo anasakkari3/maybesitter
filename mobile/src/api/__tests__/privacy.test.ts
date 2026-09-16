@@ -9,6 +9,7 @@ import {
   ConflictError,
   ContractError,
   ForbiddenError,
+  IcsFeedRefusedError,
   NetworkError,
   NotFoundError,
   ServerError,
@@ -82,6 +83,17 @@ describe('userFacingMessage is the only way an error becomes words', () => {
     ['feature disabled', new ForbiddenError('no', 'feature_disabled'), 'errorsFeatureDisabled'],
     ['conflict', new ConflictError('stale'), 'errorsGeneric'],
     ['something else', new Error('boom'), 'errorsGeneric'],
+    // The calendar feed refusals (UC-3.4, #188): one sentence per reason, and a
+    // detail code that never reaches the screen.
+    ['feed url refused', new IcsFeedRefusedError('invalid_url', 'blocked_address'), 'icsFeedsErrInvalidUrl'],
+    ['feed not a calendar', new IcsFeedRefusedError('not_a_calendar', null), 'icsFeedsErrNotCalendar'],
+    ['feed fetch failed', new IcsFeedRefusedError('fetch_failed', 'timeout'), 'icsFeedsErrFetch'],
+    ['feed too complex', new IcsFeedRefusedError('calendar_too_complex', null), 'icsFeedsErrTooComplex'],
+    ['feed cap', new IcsFeedRefusedError('too_many_feeds', null), 'icsFeedsErrTooMany'],
+    ['feed refresh cooldown', new IcsFeedRefusedError('refresh_too_soon', null), 'icsFeedsErrTooSoon'],
+    ['deadline passed', new IcsFeedRefusedError('past_due', null), 'icsFeedsErrPast'],
+    ['deadline changed', new IcsFeedRefusedError('invalid_action', null), 'icsFeedsErrChanged'],
+    ['feed storage unavailable', new IcsFeedRefusedError('encryption_unavailable', 'kms_unavailable'), 'icsFeedsErrUnavailable'],
   ];
 
   it.each(cases)('maps a %s failure to its own copy', (_name, error, key) => {

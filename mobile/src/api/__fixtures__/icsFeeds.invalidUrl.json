@@ -1,0 +1,6 @@
+{
+  "success": false,
+  "error": "invalid_url",
+  "reason": "invalid_url",
+  "detail": "blocked_scheme"
+}

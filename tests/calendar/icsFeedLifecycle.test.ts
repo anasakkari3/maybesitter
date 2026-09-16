@@ -1185,3 +1185,42 @@ test('F4: a refresh does not write a proposal back over an accept made while it 
     assert.deepEqual([row.state, row.commitmentId, row.notice], ['accepted', 'accepted-meanwhile', 'moved']);
   });
 });
+
+test('after consent is withdrawn: no refresh, no accept, no move — but skip, undo and remove still work', async () => {
+  await withWorld(async (h) => {
+    h.bodies.set(FEED_URL, calendar([
+      { uid: 'essay', title: 'Essay due', dueInHours: 48 },
+      { uid: 'lab', title: 'Lab due', dueInHours: 72 },
+      { uid: 'quiz', title: 'Quiz due', dueInHours: 90 },
+    ]));
+    const feedId = (await subscribe(h, { autoAcceptDeadlines: true })).body.feed.feedId as string;
+    const quiz = byTitle(await items(), 'Quiz due');
+    // Two turned back into pending proposals, one moved notice on the auto-accepted quiz.
+    for (const title of ['Essay due', 'Lab due']) {
+      const row = byTitle(await items(), title);
+      await decide(h, feedId, row.itemKey, 'undo');
+      await getStorage().set(userSubDoc(USER, ICS_FEED_ITEMS, row.itemKey), { ...byTitle(await items(), title), state: 'pending', commitmentId: null, autoAccepted: false });
+    }
+    await getStorage().set(userSubDoc(USER, ICS_FEED_ITEMS, quiz.itemKey), {
+      ...byTitle(await items(), 'Quiz due'), notice: 'moved', proposedDueAt: new Date(NOW.getTime() + 100 * HOUR).toISOString(),
+    });
+    await applyTrustAction(USER, { type: 'set_calendar_consent', granted: false, at: NOW.toISOString() });
+    const activeBefore = (await commitments()).filter((c) => c.status === 'active').length;
+    const fetchesBefore = h.fetches.length;
+
+    const refresh = await call(handleRefreshFeed, request('POST', `/r/${feedId}`), feedId, h.deps);
+    assert.deepEqual([refresh.status, (await refresh.json()).reason], [403, 'calendar_consent_required']);
+    assert.equal(h.fetches.length, fetchesBefore);
+
+    const essay = byTitle(await items(), 'Essay due');
+    const accepted = await decide(h, feedId, essay.itemKey, 'accept');
+    assert.deepEqual([accepted.status, accepted.body.reason], [403, 'consent_required']);
+    const moved = await decide(h, feedId, quiz.itemKey, 'apply_move');
+    assert.deepEqual([moved.status, moved.body.reason], [403, 'consent_required']);
+    assert.equal((await commitments()).filter((c) => c.status === 'active').length, activeBefore);
+
+    assert.equal((await decide(h, feedId, essay.itemKey, 'dismiss')).status, 200);
+    assert.equal((await decide(h, feedId, quiz.itemKey, 'undo')).status, 200);
+    assert.equal((await call(handleDeleteFeed, request('DELETE', `/x/${feedId}`), feedId, h.deps)).status, 200);
+  });
+});

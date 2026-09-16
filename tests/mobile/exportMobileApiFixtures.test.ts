@@ -106,6 +106,15 @@ import {
 } from '../../src/app/api/mobile/calendar/busy/route.ts';
 import { busyBlockId } from '../../lib/calendar/busyBlocks.ts';
 import {
+  handleCreateFeed,
+  handleDeadlineDecision,
+  handleDeleteFeed,
+  handleListFeeds,
+  handleRefreshFeed,
+  handleUpdateFeed,
+} from '../../lib/calendar/icsFeedRoutes.ts';
+import { createInMemoryKms } from '../../lib/security/inMemoryKms.ts';
+import {
   GET as reminderSettingsGet,
   PUT as reminderSettingsPut,
 } from '../../src/app/api/mobile/settings/reminders/route.ts';
@@ -656,6 +665,77 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     // below saying what they said before this section existed: the calendar
     // consent they carry is the *unconsented* shape, which is the one the
     // Trust Center renders for everybody who has never turned it on.
+    // ── subscribed calendar feeds (UC-3.4, #188) ───────────────────
+    // Recorded through the handlers every `/calendar/ics` route file calls
+    // once it has authenticated (lib/calendar/icsFeedRoutes). Two things are
+    // injected, and only two: the network — a fetch that answers a small
+    // Moodle-shaped calendar instead of dialling out — and the in-memory KMS
+    // double, because the real key does not exist here. Everything else,
+    // including the feature flag's own check, is the production path.
+    // Its own account, so accepting a deadline here does not add a commitment
+    // to the activity and trust fixtures recorded for FixtureUser.
+    {
+      const ICS_USER = uidFor('IcsFixtureUser');
+      const icsConsentAt = new Date().toISOString();
+      await applyTrustAction(ICS_USER, { type: 'record_first_value', at: icsConsentAt });
+      await applyTrustAction(ICS_USER, { type: 'set_calendar_consent', granted: true, at: icsConsentAt });
+      const icsKms = createInMemoryKms();
+      const icsNow = new Date();
+      const stamp = (hours: number) => new Date(icsNow.getTime() + hours * 3_600_000)
+        .toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+      const calendarBody = [
+        'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Moodle Pty Ltd//NONSGML Moodle//EN',
+        'BEGIN:VEVENT', 'UID:essay@moodle.example', 'SUMMARY:Essay 1 is due', 'DTSTAMP:20260915T080000Z',
+        `DTSTART:${stamp(48)}`, `DTEND:${stamp(48)}`, 'END:VEVENT',
+        'BEGIN:VEVENT', 'UID:lecture@moodle.example', 'SUMMARY:CS101 Lecture', 'DTSTAMP:20260915T080000Z',
+        `DTSTART:${stamp(5)}`, `DTEND:${stamp(7)}`, 'END:VEVENT',
+        'END:VCALENDAR', '',
+      ].join('\r\n');
+      const icsDeps = {
+        env: { NODE_ENV: 'test', ICS_FEEDS_ENABLED: 'true' } as NodeJS.ProcessEnv,
+        encryption: { kms: icsKms, env: { NODE_ENV: 'test', MAYBESITTER_KMS_KEY_NAME: icsKms.keyName } as NodeJS.ProcessEnv },
+        log: () => undefined,
+        fetch: async () => ({ notModified: false as const, body: calendarBody, etag: null, lastModified: null }),
+      };
+      const feedUrl = 'https://moodle.example/calendar/export_execute.php?authtoken=FIXTURE';
+
+      const created = await record('icsFeeds.created', 201, await handleCreateFeed(
+        request('/api/mobile/calendar/ics', { body: { url: feedUrl, label: 'CS101', autoAcceptDeadlines: false }, uid: ICS_USER }),
+        ICS_USER, icsDeps,
+      ));
+      const feedId = (created.feed as { feedId: string }).feedId;
+      assert.ok(!JSON.stringify(created).includes('authtoken'), 'a feed response carried its URL');
+
+      const listed = await record('icsFeeds.list', 200, await handleListFeeds(request('/api/mobile/calendar/ics', { uid: ICS_USER }), ICS_USER, icsDeps));
+      const itemKey = (listed.deadlines as Array<{ itemKey: string }>)[0]!.itemKey;
+      assert.equal((listed.deadlines as unknown[]).length, 1);
+
+      await record('icsFeeds.updated', 200, await handleUpdateFeed(
+        request(`/api/mobile/calendar/ics/${feedId}`, { method: 'PATCH', body: { label: 'CS101 Moodle' }, uid: ICS_USER }),
+        ICS_USER, feedId, icsDeps,
+      ));
+      await record('icsFeeds.refreshed', 200, await handleRefreshFeed(
+        request(`/api/mobile/calendar/ics/${feedId}/refresh`, { method: 'POST', uid: ICS_USER }),
+        ICS_USER, feedId, icsDeps,
+      ));
+      await record('icsFeeds.refreshTooSoon', 429, await handleRefreshFeed(
+        request(`/api/mobile/calendar/ics/${feedId}/refresh`, { method: 'POST', uid: ICS_USER }),
+        ICS_USER, feedId, icsDeps,
+      ));
+      await record('icsFeeds.deadlineAccepted', 200, await handleDeadlineDecision(
+        request(`/api/mobile/calendar/ics/${feedId}/deadlines/${itemKey}`, { body: { action: 'accept' }, uid: ICS_USER }),
+        ICS_USER, feedId, itemKey, icsDeps,
+      ));
+      await record('icsFeeds.invalidUrl', 400, await handleCreateFeed(
+        request('/api/mobile/calendar/ics', { body: { url: 'http://moodle.example/calendar.ics' }, uid: ICS_USER }),
+        ICS_USER, icsDeps,
+      ));
+      await record('icsFeeds.deleted', 200, await handleDeleteFeed(
+        request(`/api/mobile/calendar/ics/${feedId}`, { method: 'DELETE', uid: ICS_USER }),
+        ICS_USER, feedId, icsDeps,
+      ));
+    }
+
     await applyTrustAction(USER, { type: 'set_calendar_consent', granted: false, at: new Date().toISOString() });
 
     // ── activity (#201) ────────────────────────────────────────────

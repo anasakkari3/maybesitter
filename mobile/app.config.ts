@@ -21,6 +21,7 @@ const problems = releaseConfigProblems({
   testCrash: process.env.EXPO_PUBLIC_ENABLE_TEST_CRASH,
   calendarWrite: process.env.EXPO_PUBLIC_FEATURE_CALENDAR_WRITE,
   calendarRead: process.env.EXPO_PUBLIC_FEATURE_CALENDAR_READ,
+  icsFeeds: process.env.EXPO_PUBLIC_FEATURE_ICS_FEEDS,
 });
 if (problems.length > 0) throw new Error(releaseConfigErrorMessage(problems));
 

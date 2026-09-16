@@ -2,6 +2,7 @@ import type { Strings } from '../../i18n/strings';
 import {
   ContractError,
   ForbiddenError,
+  IcsFeedRefusedError,
   InputTooLargeError,
   InvalidTransitionError,
   NetworkError,
@@ -56,6 +57,23 @@ export function forbiddenReason(error: unknown): ForbiddenReason | null {
   return FORBIDDEN_REASONS.includes(reason) ? (reason as ForbiddenReason) : null;
 }
 
+/** One sentence per feed refusal. Never the server's text, never the URL. */
+const ICS_FEED_KEYS: Partial<Record<IcsFeedRefusedError['reason'], UserFacingKey>> = {
+  invalid_url: 'icsFeedsErrInvalidUrl',
+  invalid_request: 'icsFeedsErrInvalidUrl',
+  not_a_calendar: 'icsFeedsErrNotCalendar',
+  fetch_failed: 'icsFeedsErrFetch',
+  calendar_too_complex: 'icsFeedsErrTooComplex',
+  too_many_feeds: 'icsFeedsErrTooMany',
+  refresh_too_soon: 'icsFeedsErrTooSoon',
+  past_due: 'icsFeedsErrPast',
+  invalid_action: 'icsFeedsErrChanged',
+  item_not_found: 'icsFeedsErrChanged',
+  feed_not_found: 'icsFeedsErrChanged',
+  encryption_unavailable: 'icsFeedsErrUnavailable',
+  feature_disabled: 'icsFeedsUnavailable',
+};
+
 /**
  * A locale key this module is allowed to return.
  *
@@ -77,6 +95,11 @@ export type UserFacingKey = {
  * and the composer is the same lookup against its own `t`.
  */
 export function userFacingMessageKey(error: unknown): UserFacingKey {
+  // The calendar feed routes (UC-3.4, #188). First, because their reasons are
+  // carried at statuses the generic branches below would flatten: "not a
+  // calendar" and "cannot be fetched" are both 422 and ask different things
+  // of the user.
+  if (error instanceof IcsFeedRefusedError) return ICS_FEED_KEYS[error.reason] ?? 'errorsGeneric';
   // Before the generic ConflictError branch: both are conflicts, and both are
   // something another device did rather than something the user got wrong.
   if (error instanceof StaleCommitmentError) return 'errorsStaleCommitment';

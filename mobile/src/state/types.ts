@@ -96,6 +96,9 @@ export type Screen =
   // Settings → Football (football fixtures MVP, Task 11). Pick clubs, see
   // the matches following them just projected, dismiss the ones you don't want.
   | 'footballSettings'
+  // Settings → Calendar → Calendar links (UC-3.4, #188). Subscribed ICS
+  // feeds and the deadlines they propose.
+  | 'calendarFeeds'
   // Settings → Categories (#415). Which parts of life this account uses, and
   // whether the lists carry a filter bar.
   | 'categorySettings'

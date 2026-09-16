@@ -3,6 +3,7 @@ import { Platform } from 'react-native';
 import { apiBaseUrl } from '../config/env';
 import { getIdToken, refreshIdToken, signOutExpired, signOutForbidden } from './auth';
 import {
+  IcsFeedRefusedError,
   ConfirmationRequiredError,
   ConflictError,
   DeviceCalendarLinkConflictError,
@@ -29,6 +30,7 @@ import {
 import { mockResponseFor } from './mockAdapter';
 import { commitmentSchema } from './schemas/common';
 import { planEditRejectedSchema } from './schemas/plan';
+import { icsFeedRefusalSchema } from './schemas/icsFeeds';
 
 /**
  * One function every screen's data goes through.
@@ -222,6 +224,11 @@ function planEditRefusal(body: unknown, message: string): Error {
 
 function errorForStatus(status: number, body: unknown): Error {
   const { message, reason } = refusal(body);
+  // The calendar feed routes (UC-3.4, #188) answer with their own reason at
+  // several statuses; the reason is what the screen needs, so it is kept. The
+  // body is parsed rather than trusted, like every other refusal here.
+  const icsRefusal = icsFeedRefusalSchema.safeParse(body);
+  if (icsRefusal.success) return new IcsFeedRefusedError(icsRefusal.data.reason, icsRefusal.data.detail ?? null);
   switch (status) {
     case 400:
       // The deletion route's own refusal, so the screen can say what to do

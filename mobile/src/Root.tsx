@@ -33,10 +33,11 @@ import { FootballSettingsScreen } from './features/settings/FootballSettingsScre
 import { CategorySettingsScreen } from './features/settings/CategorySettingsScreen';
 import { DeviceCalendarSyncHost } from './features/calendar/useDeviceCalendarSync';
 import { BusyCalendarHost } from './features/calendar/useBusyCalendar';
+import { CalendarFeedsScreen } from './features/calendarFeeds/CalendarFeedsScreen';
 import { AboutScreen } from './features/settings/AboutScreen';
 import { WidgetSettingsScreen } from './features/widget/WidgetSettingsScreen';
 import { WidgetSnapshotHost } from './features/widget/useWidgetSnapshotSync';
-import { googleCalendarDemoEnabled } from './config/env';
+import { googleCalendarDemoEnabled, icsFeedsEnabled } from './config/env';
 import { RemindersMount } from './features/reminders/RemindersMount';
 import { Gallery } from './design/Gallery';
 
@@ -150,7 +151,16 @@ export function Root() {
             <NotificationsSettingsScreen key="notificationsSettings" onBack={() => latest.current.go('settings')} />
           )}
           {s.screen === 'calendarSettings' && (
-            <CalendarSettingsScreen key="calendarSettings" onBack={() => latest.current.go('settings')} />
+            <CalendarSettingsScreen
+              key="calendarSettings"
+              onBack={() => latest.current.go('settings')}
+              onFeeds={() => latest.current.go('calendarFeeds')}
+            />
+          )}
+          {/* Behind the build flag here as well as inside the screen, so a
+              build without the feature cannot reach it by a stale screen name. */}
+          {icsFeedsEnabled() && s.screen === 'calendarFeeds' && (
+            <CalendarFeedsScreen key="calendarFeeds" onBack={() => latest.current.go('calendarSettings')} />
           )}
           {s.screen === 'footballSettings' && (
             <FootballSettingsScreen key="footballSettings" onBack={() => latest.current.go('settings')} />
