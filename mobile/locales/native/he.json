@@ -2,6 +2,7 @@
   "CFBundleDisplayName": "MaybeSitter",
   "NSMicrophoneUsageDescription": "אנחנו משתמשים במיקרופון רק בזמן שאתה מחזיק את כפתור ההקלטה כדי להכתיב מחויבות.",
   "NSSpeechRecognitionUsageDescription": "המכשיר שלך ממיר את הדיבור לטקסט. MaybeSitter לעולם לא מקבל את ההקלטה.",
+  "NSHealthShareUsageDescription": "MaybeSitter קוראת רק את סיכומי השינה, הלב והצעדים שתאשר, ושומרת רמת מוכנות במקום נתוני בריאות גולמיים.",
   "NSCalendarsUsageDescription": "MaybeSitter מוסיפה את ההתחייבויות שאתה מאשר ליומן שתבחר, וקוראת מתי אתה עסוק — רק הזמנים, אף פעם לא הכותרות — כדי לתכנן סביבם ולהתריע על התנגשות.",
   "NSCalendarsFullAccessUsageDescription": "MaybeSitter מוסיפה את ההתחייבויות שאתה מאשר ליומן שתבחר, וקוראת מתי אתה עסוק — רק הזמנים, אף פעם לא הכותרות — כדי לתכנן סביבם ולהתריע על התנגשות."
 }

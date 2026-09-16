@@ -200,6 +200,16 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
        * builds, so it is deliberately not written here.
        */
       UIBackgroundModes: ['remote-notification'],
+      /*
+       * On-device readiness import.
+       *
+       * HealthKit is read-only here. The native bridge asks for the minimum
+       * samples the provider-independent readiness contract understands
+       * (sleep, resting heart rate, HRV and steps), then the app sends/stores a
+       * normalized readiness snapshot rather than raw HealthKit samples.
+       */
+      NSHealthShareUsageDescription:
+        'MaybeSitter reads only the sleep, heart and step summaries you allow, then stores a readiness band instead of raw Health data.',
     },
     // Standard HTTPS only, so the app is outside the US export-compliance
     // question App Store Connect asks on every single upload.
@@ -332,6 +342,15 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
          * never used for tracking.
          */
         collected('NSPrivacyCollectedDataTypeOtherDataTypes'),
+        /*
+         * Normalized readiness from HealthKit / Health Connect.
+         *
+         * Raw health samples stay on-device inside the native adapters. What
+         * the app sends to the backend is the provider-independent readiness
+         * snapshot used for planning, linked to the signed-in account and never
+         * used for tracking.
+         */
+        collected('NSPrivacyCollectedDataTypeHealth'),
         collected('NSPrivacyCollectedDataTypeProductInteraction', {
           purposes: ['NSPrivacyCollectedDataTypePurposeAppFunctionality', 'NSPrivacyCollectedDataTypePurposeAnalytics'],
         }),
@@ -364,6 +383,11 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
        * apps. MaybeSitter is none of those, and #197 decides not to ask.
        */
       'com.apple.developer.usernotifications.time-sensitive': true,
+      /*
+       * HealthKit read access for the local readiness bridge. There is no
+       * write entitlement: MaybeSitter does not write Health data.
+       */
+      'com.apple.developer.healthkit': true,
     },
     // Committed on purpose (UC-1.7 #151): these files identify the Firebase
     // project and authorise nothing. The API keys they carry are restricted to
