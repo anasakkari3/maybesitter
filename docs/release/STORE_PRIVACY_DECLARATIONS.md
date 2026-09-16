@@ -1,5 +1,9 @@
 # Store privacy declarations — drafts and the consistency matrix (UC-4.3b, #179)
 
+> This baseline was verified on 2026-09-13. For calendar, health, connected
+> providers, meetings, and subscriptions added by the expansion program, read
+> `EXPANSION_PRIVACY_STORE_DELTA.md` before preparing any console answer.
+
 **Neither console exists** (#158 is owner/paid-deferred), so nothing here has
 been submitted. These are the answers to give, worked out against what the code
 actually does, plus the comparison #179 step 7 asks for.
