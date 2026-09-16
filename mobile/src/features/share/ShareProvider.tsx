@@ -60,9 +60,9 @@ import { userFacingMessageKey, type UserFacingKey } from '../../api/ui/userFacin
 import { shareIntakeEnabled } from '../../config/env';
 import { deleteSharedFiles } from '../../lib/shareFiles';
 import { readSharedFileBytes } from '../../lib/shareBytes';
-import { sharedImageBytes } from '../../lib/shareImages';
+import { sharedImageBytes, sharedImageCodec } from '../../lib/shareImages';
 import { useCaptureFlow } from '../capture/CaptureProvider';
-import { prepareImages } from './prepareImages';
+import { prepareImages, type PrepareImagesProblem } from './prepareImages';
 import { ShareIntentHost, useNativeShareIntent } from './shareIntentBridge';
 import {
   MAX_ARCHIVE_BYTES,
@@ -132,6 +132,19 @@ const PROBLEM_KEY: Readonly<Record<SharePayloadProblem, UserFacingKey>> = {
   file_too_large: 'shareTooLarge',
   text_too_long: 'shareTextTooLong',
   unsupported: 'shareUnsupported',
+};
+
+/**
+ * A picture this phone will not upload, as one locale key (#404).
+ *
+ * `unreadable_image` has its own sentence because it has something the user
+ * can do about it: the phone could not open the file, but it can show it, so a
+ * screenshot of it can be shared instead.
+ */
+const IMAGE_PROBLEM_KEY: Readonly<Record<PrepareImagesProblem, UserFacingKey>> = {
+  unsupported: 'shareUnsupported',
+  unreadable_image: 'shareImageUnreadable',
+  file_too_large: 'shareTooLarge',
 };
 
 /**
@@ -311,23 +324,26 @@ function ShareIntake({ children }: { children: React.ReactNode }) {
     setPhase({ kind: 'analyzing' });
 
     /*
-     * Pictures are rewritten before anything leaves the phone (UC-3.6, #190).
+     * Pictures are rewritten before anything leaves the phone (UC-3.6, #190, #404).
      *
      * Before `setPhase`'s upload and before any consent or flag question has
      * been asked of the network, because the criterion is about the *upload*:
      * a photograph's GPS coordinates that reach the server and are stripped
      * there have already crossed the network.
      *
-     * A picture this cannot account for byte by byte refuses the share rather
-     * than uploading it unstripped. The copies made so far are deleted either
-     * way — `created` comes back on both paths for exactly that reason.
+     * Each picture is decoded, brought down to a 2048 px long edge, re-encoded
+     * as JPEG — which is how an iPhone's HEIF becomes something this can strip —
+     * and only then stripped. A picture the phone cannot open, or whose encoded
+     * bytes this cannot account for, refuses the share rather than uploading it.
+     * The files made so far are deleted either way — `created` comes back on
+     * both paths for exactly that reason.
      */
     let uploading: readonly SharedFile[] = sending.files;
     if (sending.kind === 'images') {
-      const stripped = prepareImages(sending.files, sharedImageBytes);
+      const stripped = await prepareImages(sending.files, { bytes: sharedImageBytes, codec: sharedImageCodec });
       if (!stripped.ok) {
         deleteSharedFiles(stripped.created);
-        setPhase({ kind: 'failed', messageKey: PROBLEM_KEY[stripped.problem] });
+        setPhase({ kind: 'failed', messageKey: IMAGE_PROBLEM_KEY[stripped.problem] });
         return;
       }
       created.current = stripped.prepared.created;

@@ -637,6 +637,7 @@
   "shareUnavailable": "المشاركة لجوّا MaybeSitter لسّا مش مشغّلة. ما انبعت إشي.",
   "shareTooLarge": "هاد كبير كتير لينبعت. شارك جزء أصغر منه.",
   "shareUnsupported": "MaybeSitter لسّا ما بيعرف يقرأ هيك نوع ملفات.",
+  "shareImageUnreadable": "MaybeSitter ما قدر يفتح هالصورة، فما انبعت إشي. خود سكرين شوت إلها وشارك السكرين شوت بدالها.",
   "shareTooManyFiles": "ملفات كتير مرة وحدة. شارك لحد خمس صور، أو ملف واحد.",
   "shareTextTooLong": "هاد نص كتير. شارك جزء أقصر منه.",
   "shareEmpty": "ما كان في إشي فيه لأقرأه.",

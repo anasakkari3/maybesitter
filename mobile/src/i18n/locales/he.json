@@ -640,6 +640,7 @@
   "shareUnavailable": "שיתוף לתוך MaybeSitter עדיין לא מופעל. שום דבר לא נשלח.",
   "shareTooLarge": "זה גדול מדי לשליחה. שתף חלק קטן יותר.",
   "shareUnsupported": "MaybeSitter עדיין לא יודע לקרוא קובץ מהסוג הזה.",
+  "shareImageUnreadable": "MaybeSitter לא הצליח לפתוח את התמונה הזאת, אז שום דבר לא נשלח. צלם מסך שלה ושתף את צילום המסך במקום.",
   "shareTooManyFiles": "יותר מדי קבצים בבת אחת. שתף עד חמש תמונות, או קובץ אחד.",
   "shareTextTooLong": "זה הרבה טקסט. שתף חלק קצר יותר.",
   "shareEmpty": "לא היה שם שום דבר לקרוא.",
