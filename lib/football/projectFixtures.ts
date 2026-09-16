@@ -781,9 +781,9 @@ async function dropCommitmentForFixtureGuarded(
  * Completes a fixture's linked commitment in one transaction, if it is still
  * live and its ref is not detached. Returns whether it did.
  *
- * Complete, not Drop: a match that was played happened, and the commitment's
- * history should say it was kept -- the same outcome a user tapping "done" on
- * it produces. A commitment the user already completed, dropped or dismissed
+ * Complete, not Drop: a match that was played happened, so the commitment
+ * closes as completed rather than cancelled. Unlike a user tapping "done", it
+ * earns no activity credit -- see the comment at the write below. A commitment the user already completed, dropped or dismissed
  * is not live and is left exactly as it is.
  */
 async function completeCommitmentForFixtureGuarded(
@@ -807,8 +807,19 @@ async function completeCommitmentForFixtureGuarded(
     const { state: candidate, events } = applyCommands(before, [
       { type: 'Complete', commitmentId: linkedCommitmentId, now },
     ]);
-    writeDomainDiff(tx, uid, before, candidate, events, user, now);
-    recordActivityEvents(tx, uid, stats, events);
+    // A match ending is not the user doing something. `commitment_completed`
+    // is the product's record of a person finishing a thing: the event log
+    // turns it into the week's completed/kept counts and the activity feed,
+    // and `recordActivityEvents` into `doneTotal`, `firstDoneAt` and the
+    // 10/25/50/100 Moments -- which that module defines as facts about what
+    // the user did. The final whistle blows whether or not they watched, so
+    // crediting it would hand every follower an unearned "done" each week.
+    // The commitment's state still closes (status, completedAt, reminders
+    // cancelled); only the credit-bearing event is withheld, from both the log
+    // and the stats.
+    const credited = events.filter((event) => event.type !== 'commitment_completed');
+    writeDomainDiff(tx, uid, before, candidate, credited, user, now);
+    recordActivityEvents(tx, uid, stats, credited);
     tx.merge<FixtureExternalTaskRef>(refDocPath(uid, taskRefId), { updatedAt: now });
     completed = true;
   });

@@ -749,3 +749,37 @@ test('a postponed status leaves an archived match archived', async () => {
   await projectFixturesForUser('u1', NOW);
   assert.equal((await commitments())[0].status, 'archived');
 });
+
+// ── Residual R2: a match ending was credited as something the user did ──
+test('closing an ended match gives the user no activity credit: no done count, no weekly completion, no feed entry', async () => {
+  const { readActivityStats } = await import('../../lib/services/activity/activityStats.ts');
+  const { weeklySummaryFor, listActivity } = await import('../../lib/services/activity/activityService.ts');
+  await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+  await projectFixturesForUser('u1', NOW);
+  const statsBefore = await readActivityStats(getStorage(), 'u1');
+  const summaryBefore = await weeklySummaryFor({ uid: 'u1', now: new Date(AFTER_MATCH) });
+
+  const tally = await projectFixturesForUser('u1', AFTER_MATCH);
+  assert.equal(tally.completed, 1);
+  assert.equal((await commitments())[0].status, 'completed');
+
+  const statsAfter = await readActivityStats(getStorage(), 'u1');
+  assert.deepEqual(statsAfter, statsBefore);
+  assert.equal(statsAfter.doneTotal, 0);
+  assert.equal(statsAfter.firstDoneAt, null);
+  const summaryAfter = await weeklySummaryFor({ uid: 'u1', now: new Date(AFTER_MATCH) });
+  assert.equal(summaryAfter.completedCount, summaryBefore.completedCount);
+  assert.equal(summaryAfter.keptCount, summaryBefore.keptCount);
+  const feed = await listActivity({ uid: 'u1' });
+  assert.equal(feed.items.some((item) => (item as { kind?: string }).kind === 'completed'), false);
+});
+
+test('a finished status closes the match without activity credit too', async () => {
+  const { readActivityStats } = await import('../../lib/services/activity/activityStats.ts');
+  await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+  await projectFixturesForUser('u1', NOW);
+  await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z', { status: 'finished' })]);
+  await projectFixturesForUser('u1', NOW);
+  assert.equal((await commitments())[0].status, 'completed');
+  assert.equal((await readActivityStats(getStorage(), 'u1')).doneTotal, 0);
+});
