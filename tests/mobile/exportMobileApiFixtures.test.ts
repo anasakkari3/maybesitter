@@ -109,6 +109,7 @@ import {
   GET as reminderSettingsGet,
   PUT as reminderSettingsPut,
 } from '../../src/app/api/mobile/settings/reminders/route.ts';
+import { POST as hardReceiptsPost } from '../../src/app/api/mobile/reminders/receipts/route.ts';
 import { POST as devicesPost } from '../../src/app/api/mobile/devices/route.ts';
 import { DELETE as deviceDelete } from '../../src/app/api/mobile/devices/[installationId]/route.ts';
 import { resetProviderForTests } from '../../src/extraction/llm/index.ts';
@@ -1070,6 +1071,16 @@ test('exports a fixture for every /api/mobile call the React Native client makes
         },
       }),
     ));
+
+    // The Must-reminder receipts (#198). A commitment this account does not
+    // have, so the recorded answer is the "nothing to stand down" shape — the
+    // shape is what the app parses, and it is the same either way.
+    await record('reminders.receiptsRecorded', 200, await hardReceiptsPost(request('/api/mobile/reminders/receipts', {
+      body: {
+        installationId: '44444444-4444-4444-8444-444444444444',
+        receipts: [{ commitmentId: 'fixture-must', notificationId: 'fixture-must:strong', fireAt: '2026-08-09T09:50:00.000Z', exact: true }],
+      },
+    })));
 
     const INSTALLATION = '44444444-4444-4444-8444-444444444444';
     await record('devices.registered', 200, await devicesPost(request('/api/mobile/devices', {
