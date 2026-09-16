@@ -6,9 +6,9 @@
     "permission": "ALLOWED"
   },
   "resultSet": {
-    "count": 6,
+    "count": 7,
     "first": "2026-09-20",
-    "last": "2026-11-08",
+    "last": "2026-11-15",
     "played": 1
   },
   "matches": [
@@ -235,6 +235,46 @@
         "shortName": "Atletico Madrid",
         "tla": "ATM",
         "crest": "https://crests.football-data.org/78.png"
+      },
+      "venue": "Camp Nou",
+      "score": {
+        "winner": null,
+        "duration": "REGULAR",
+        "fullTime": { "home": null, "away": null },
+        "halfTime": { "home": null, "away": null }
+      },
+      "odds": { "msg": "Activate Odds-Package in User-Panel to retrieve odds." },
+      "referees": []
+    },
+    {
+      "_malformed": "unrecognised status",
+      "id": 419477,
+      "utcDate": "2026-11-15T20:00:00Z",
+      "status": "ABANDONED",
+      "matchday": 10,
+      "stage": "REGULAR_SEASON",
+      "group": null,
+      "lastUpdated": "2026-09-14T10:00:00Z",
+      "competition": {
+        "id": 2014,
+        "name": "Primera Division",
+        "code": "PD",
+        "type": "LEAGUE",
+        "emblem": "https://crests.football-data.org/PD.png"
+      },
+      "homeTeam": {
+        "id": 81,
+        "name": "FC Barcelona",
+        "shortName": "Barcelona",
+        "tla": "FCB",
+        "crest": "https://crests.football-data.org/81.png"
+      },
+      "awayTeam": {
+        "id": 559,
+        "name": "Getafe CF",
+        "shortName": "Getafe",
+        "tla": "GET",
+        "crest": "https://crests.football-data.org/559.png"
       },
       "venue": "Camp Nou",
       "score": {

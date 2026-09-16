@@ -202,10 +202,23 @@ export function createFootballDataProvider(deps: FootballDataProviderDeps = {}):
       }
 
       const body = (await response.json()) as { matches?: unknown };
-      const rawMatches = Array.isArray(body.matches) ? body.matches : [];
+
+      // A 2xx whose body has no readable `matches` array is not the same fact
+      // as "this club has no fixtures in this window" -- that fact arrives as
+      // `matches: []`, which normalizes to an empty result below, same as
+      // any other well-formed response. An envelope this adapter cannot even
+      // parse is a second door into the exact failure the non-2xx guard
+      // above already locks: silently reading it as zero matches would let
+      // the sync clear somebody's evening on the strength of a response this
+      // code never actually understood.
+      if (!Array.isArray(body.matches)) {
+        throw new Error(
+          `football-data response has no readable "matches" array (team ${providerTeamId})`,
+        );
+      }
 
       const fixtures: Fixture[] = [];
-      for (const raw of rawMatches) {
+      for (const raw of body.matches) {
         const fixture = normalizeMatch(raw);
         // A malformed row is skipped, not fatal -- see the module comment.
         if (fixture) fixtures.push(fixture);

@@ -10,17 +10,42 @@ test('statuses map onto the contract', () => {
   assert.deepEqual([...new Set(byStatus)].sort(), ['cancelled', 'finished', 'postponed', 'scheduled']);
 });
 
-test('malformed matches are skipped, not fatal', () => {
+test('malformed matches are skipped, not fatal -- and it is the marked rows that are skipped', () => {
   // One bad row in a response must not cost the user the rest of them.
-  // Derived from the fixture's own `_malformed` markers rather than a
-  // hardcoded `- 1`, so a third malformed row added later fails loudly here
-  // instead of silently passing a stale count.
-  const malformed = PAYLOAD.matches.filter((match: { _malformed?: unknown }) => match._malformed !== undefined);
-  assert.ok(malformed.length >= 2, 'fixture should exercise more than one skip reason');
+  // Checked by id, not just by count: a bug that skipped a valid row while
+  // accepting a row marked `_malformed` would balance the totals and pass a
+  // cardinality-only check. Comparing the two id sets catches that.
+  const malformedIds = new Set(
+    PAYLOAD.matches
+      .filter((match: { _malformed?: unknown }) => match._malformed !== undefined)
+      .map((match: { id: number }) => match.id),
+  );
+  assert.ok(malformedIds.size >= 2, 'fixture should exercise more than one skip reason');
 
-  const all = PAYLOAD.matches.map(normalizeMatch);
-  assert.equal(all.filter((fixture: unknown) => fixture === null).length, malformed.length);
-  assert.equal(all.filter(Boolean).length, PAYLOAD.matches.length - malformed.length);
+  const normalizedIds = new Set(
+    PAYLOAD.matches
+      .map((raw: { id: number }) => [raw.id, normalizeMatch(raw)] as const)
+      .filter(([, fixture]) => fixture !== null)
+      .map(([id]) => id),
+  );
+  const expectedIds = new Set(
+    PAYLOAD.matches.map((match: { id: number }) => match.id).filter((id: number) => !malformedIds.has(id)),
+  );
+
+  assert.deepEqual(normalizedIds, expectedIds);
+});
+
+test('an unrecognised status yields null, never a silently-defaulted "scheduled"', () => {
+  // Guards the rule itself (`STATUS_MAP[rawStatus] ?? 'scheduled'` would pass
+  // every other test in this file, including the skip-count test above,
+  // since that test only cares that the row is skipped -- not why). A
+  // regression here is exactly the failure the spec names: an evening
+  // blocked for a game that was never actually scheduled to be played.
+  const unrecognised = PAYLOAD.matches.find(
+    (match: { _malformed?: unknown }) => match._malformed === 'unrecognised status',
+  );
+  assert.ok(unrecognised, 'fixture should include a row whose status this adapter does not recognise');
+  assert.equal(normalizeMatch(unrecognised), null);
 });
 
 test('kickoff is kept as a UTC instant', () => {
@@ -61,6 +86,20 @@ test('a 5xx rejects and does not return an empty list', async () => {
   const provider = createFootballDataProvider({
     apiKey: 'k',
     fetchImpl: (async () => new Response('', { status: 503 })) as typeof fetch,
+  });
+  await assert.rejects(() => provider.listFixtures('81', { fromIso: '2026-09-16', toIso: '2026-11-15' }));
+});
+
+test('a 2xx with no matches array rejects rather than pretending the club has none', async () => {
+  // Same failure as the 5xx case, arriving through a different door: a 200
+  // whose body this adapter cannot read is not the same fact as "no
+  // fixtures in this window" (that fact is `matches: []`, handled fine
+  // elsewhere). Defaulting an unreadable envelope to an empty list would let
+  // the sync clear somebody's evening on the strength of a response this
+  // code never actually understood.
+  const provider = createFootballDataProvider({
+    apiKey: 'k',
+    fetchImpl: (async () => new Response(JSON.stringify({ filters: {} }), { status: 200 })) as typeof fetch,
   });
   await assert.rejects(() => provider.listFixtures('81', { fromIso: '2026-09-16', toIso: '2026-11-15' }));
 });
