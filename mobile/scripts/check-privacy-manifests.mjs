@@ -152,8 +152,11 @@ if (!/usesNonExemptEncryption:\s*false/.test(appConfigSource)) {
 /**
  * First-party native code that would need a reason of its own.
  *
- * There is none today: `targets/` and `modules/` do not exist. The widget (#203)
- * is still to come, and the share extension UC-3.0 (#183) landed *without*
+ * The widget extension (#203) is the first: `targets/widget/*.swift` reads the
+ * App Group with `UserDefaults(suiteName:)`, and a target that uses a
+ * required-reason symbol now **fails** this check unless its own folder carries
+ * a `PrivacyInfo.xcprivacy` naming that API category — the extension is its own
+ * bundle, so the app's manifest does not cover it. The share extension UC-3.0 (#183) landed *without*
  * putting Swift in this repository — `expo-share-intent`'s config plugin writes
  * it during `expo prebuild`, into the gitignored `ios/`, so this walk cannot see
  * it and never will. Its `UserDefaults(suiteName:)` use is why `1C8F.1` is
@@ -188,11 +191,27 @@ for (const dir of ['targets', 'modules']) {
 }
 
 if (firstPartyNative.length === 0) {
-  console.log('  no first-party native source (the #183 share extension is generated at prebuild; #203 is still to come)');
+  console.log('  no first-party native source');
 } else {
+  // Only UserDefaults is mapped to its category here; any other symbol still
+  // fails until someone writes down which category it belongs to.
+  const CATEGORY_OF = { UserDefaults: 'NSPrivacyAccessedAPICategoryUserDefaults' };
   for (const path of firstPartyNative) {
-    if (SYMBOLS.test(readFileSync(path, 'utf8'))) {
-      console.log(`  ${path} uses a required-reason symbol; its target needs its own manifest`);
+    const source = readFileSync(path, 'utf8');
+    const symbol = source.match(SYMBOLS)?.[0];
+    if (!symbol) continue;
+    const targetDir = path.split('/').slice(0, 2).join('/');
+    let manifest = '';
+    try {
+      manifest = readFileSync(join(targetDir, 'PrivacyInfo.xcprivacy'), 'utf8');
+    } catch {
+      // Missing: reported below.
+    }
+    const category = CATEGORY_OF[symbol];
+    if (!category || !manifest.includes(category)) {
+      fail(`${path} uses ${symbol}; ${targetDir}/PrivacyInfo.xcprivacy must declare ${category ?? 'its category'}`);
+    } else {
+      console.log(`  ${path} uses ${symbol}; declared in ${targetDir}/PrivacyInfo.xcprivacy`);
     }
   }
 }
