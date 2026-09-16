@@ -137,6 +137,12 @@ describe('what the engine is given about a commitment', () => {
     expect(mergeById([commitment], [commitment])).toHaveLength(1);
   });
 
+  it('carries the postponement through, so a postponed Must ring is not owed (#198, verdict B)', () => {
+    const base = commitmentFixture as unknown as Commitment;
+    const [narrowed] = toReminderCommitments([{ ...base, postponedUntil: '2026-09-16T18:00:00.000Z' }]);
+    expect(narrowed!.postponedUntil).toBe('2026-09-16T18:00:00.000Z');
+  });
+
   it('reads Must, Should and Nice exactly as the cards do', () => {
     const base = commitmentFixture as unknown as Commitment;
     const at = (level: string) => toReminderCommitments([
