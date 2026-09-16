@@ -400,16 +400,28 @@ export async function buildAndStoreDailyPlan(
     ...(deps.messaging ? { messaging: deps.messaging } : {}),
     now: deps.now ?? (() => new Date()),
   });
-  const outcome = await sender({
-    uid: claim.uid,
-    kind: 'plan_ready',
-    dedupeKey: `plan:${stored.date}`,
-    data: { planDate: stored.date },
-    respectQuietHours: true,
-    urgency: 'normal',
-    locale: stored.locale,
-  });
-  const pushed = !outcome || outcome.status === 'sent';
+  // The plan exists from here on, whatever the push does. A push that throws —
+  // FCM's `internal-error`, an unreadable device registry — used to escape this
+  // function, so the tick counted the account `failed` and not `built` while
+  // `plans/{date}` sat in storage. It is logged, reported as not pushed, and
+  // does not fail the account. It is not retried: `nextRunAt` has moved, and
+  // a retry is the quiet-hours question (#426 review F5), not this one.
+  let pushed = false;
+  try {
+    const outcome = await sender({
+      uid: claim.uid,
+      kind: 'plan_ready',
+      dedupeKey: `plan:${stored.date}`,
+      data: { planDate: stored.date },
+      respectQuietHours: true,
+      urgency: 'normal',
+      locale: stored.locale,
+    });
+    pushed = !outcome || outcome.status === 'sent';
+  } catch (error) {
+    // No uid, as with every other line this job logs.
+    console.error('[internal/jobs/daily-plan] push_failed', error instanceof Error ? error.name : 'unknown');
+  }
 
   return { uid: claim.uid, date: claim.date, created: true, pushed, stored };
 }

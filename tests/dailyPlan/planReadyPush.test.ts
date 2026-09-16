@@ -25,6 +25,10 @@ import { resetStorageForTests, setStorageForTests } from '../../lib/storage/inde
 import type { StorageAdapter } from '../../lib/storage/storageAdapter.ts';
 import { userDoc } from '../../lib/storage/paths.ts';
 import { upsertDevice } from '../../lib/push/deviceRegistry.ts';
+import { saveRoutineProfile } from '../../lib/services/mobile/routineProfileService.ts';
+import { applyPilotTrustAction, createPilotTrustState } from '../../lib/pilot/closedPilotControls.ts';
+import { docIdForKey, PUSH_LOG, userSubDoc } from '../../lib/storage/paths.ts';
+import { readStoredPlan } from '../../lib/services/dailyPlan/planStore.ts';
 import { assertPushData, type FcmMessage, type MessagingClient } from '../../lib/push/pushService.ts';
 import { runDailyPlanTick, savePlanSettings } from '../../lib/services/dailyPlan/dailyPlanService.ts';
 import { PLAN_READY_COPY, planReadyMessage } from '../../lib/services/dailyPlan/planReadyPush.ts';
@@ -171,4 +175,107 @@ test('the notification text is generic and localised, and never carries a commit
   // Arabic and Hebrew are not English with a different key.
   assert.match(PLAN_READY_COPY.ar.title, /[؀-ۿ]/);
   assert.match(PLAN_READY_COPY.he.title, /[֐-׿]/);
+});
+
+/* ── A push that did not happen is not reported as one (review F4) ─ */
+
+/**
+ * `pushed` is true only for `sent`. Each row is a real `sendToUser` outcome
+ * reached through the production sender, with a device registered, so the
+ * only reason nothing is delivered is the one the row names.
+ */
+const NOT_PUSHED: ReadonlyArray<readonly [string, (storage: StorageAdapter, uid: string) => Promise<void>]> = [
+  ['quiet hours', async (storage, uid) => {
+    await saveRoutineProfile(uid, {
+      timezone: TZ,
+      sleepWindow: null,
+      focusWindows: [],
+      fixedCommitmentWindows: [],
+      preferredReminderIntensity: 'softAwareness',
+      // 09:00 local, when the tick runs, is inside 06:00-10:00.
+      quietHours: { start: '06:00', end: '10:00' },
+      surveySkipped: false,
+    }, '2026-09-14T12:00:00.000Z', { storage });
+  }],
+  ['a revoked account', async (storage, uid) => {
+    const trust = applyPilotTrustAction(createPilotTrustState(uid, '2026-09-14T12:00:00.000Z'), { type: 'revoke', at: '2026-09-14T12:00:00.000Z' });
+    const user = await storage.get<Record<string, unknown>>(userDoc(uid));
+    await storage.set(userDoc(uid), { ...(user ?? {}), trust });
+  }],
+  ['a key already spent', async (storage, uid) => {
+    await storage.set(userSubDoc(uid, PUSH_LOG, docIdForKey('plan:2026-09-15')), {
+      dedupeKey: 'plan:2026-09-15',
+      kind: 'plan_ready',
+      createdAt: '2026-09-15T05:00:00.000Z',
+      expiresAt: '2026-09-22T05:00:00.000Z',
+    });
+  }],
+];
+
+for (const [label, arrange] of NOT_PUSHED) {
+  test(`a plan whose push is refused for ${label} is built and not reported as pushed`, async () => {
+    await withStorage(async (storage) => {
+      const uid = `push_refused_${label.replace(/[^a-z]/g, '')}`;
+      await seed(storage, uid, 'en', 1);
+      await arrange(storage, uid);
+      const messaging = fakeMessaging();
+
+      const totals = await runDailyPlanTick({ storage, messaging, now: () => MORNING });
+
+      assert.equal(messaging.sent.length, 0, `the premise is wrong: ${label} still reached FCM`);
+      assert.deepEqual({ built: totals.built, pushed: totals.pushed, failed: totals.failed }, { built: 1, pushed: 0, failed: 0 });
+    });
+  });
+}
+
+/* ── A push that throws does not unmake the plan (review F2) ──────── */
+
+/**
+ * Before: the throw escaped `buildAndStoreDailyPlan`, the tick counted the
+ * account `failed` and not `built`, while `plans/{date}` existed and
+ * `nextRunAt` had already moved — so the totals described a morning that did
+ * not happen and hid the one that did.
+ */
+test('an FCM failure after the plan is written counts the plan as built, and fails nothing', async () => {
+  await withStorage(async (storage) => {
+    await seed(storage, 'push_throws_1', 'he', 1);
+    const messaging: MessagingClient = {
+      async send() {
+        throw Object.assign(new Error('internal'), { code: 'messaging/internal-error' });
+      },
+    };
+    const logged: string[] = [];
+    const error = console.error;
+    console.error = (...args: unknown[]) => { logged.push(args.map(String).join(' ')); };
+    let totals;
+    try {
+      totals = await runDailyPlanTick({ storage, messaging, now: () => MORNING });
+    } finally {
+      console.error = error;
+    }
+
+    assert.deepEqual({ built: totals.built, pushed: totals.pushed, failed: totals.failed }, { built: 1, pushed: 0, failed: 0 });
+    assert.ok(await readStoredPlan('push_throws_1', '2026-09-15', storage), 'the plan was lost with the push');
+    assert.ok(logged.some((line) => line.includes('push_failed')), 'the failed push was not logged');
+    assert.equal(logged.some((line) => line.includes('push_throws_1')), false, 'the uid reached the log');
+  });
+});
+
+test('a sender that throws before reaching FCM is isolated the same way', async () => {
+  await withStorage(async (storage) => {
+    await seed(storage, 'push_throws_2', 'ar', 0);
+    const error = console.error;
+    console.error = () => undefined;
+    let totals;
+    try {
+      totals = await runDailyPlanTick({
+        storage,
+        push: async () => { throw new Error('device registry unreadable'); },
+        now: () => MORNING,
+      });
+    } finally {
+      console.error = error;
+    }
+    assert.deepEqual({ built: totals.built, pushed: totals.pushed, failed: totals.failed }, { built: 1, pushed: 0, failed: 0 });
+  });
 });
