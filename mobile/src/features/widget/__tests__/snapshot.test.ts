@@ -136,7 +136,16 @@ describe('buildSnapshot — the opt-in', () => {
     const snapshot = buildSnapshot(input({ titlesAllowed: true }));
     expect(snapshot.items.map((item) => item.title)).toEqual(['להתקשר לסבתא', 'Pay the rent', 'موعد الدكتور']);
     expect(snapshot.items.every((item) => !item.titleRedacted && item.redactionReason === null)).toBe(true);
-    expect(snapshot.titlePrivacy).toEqual({ mode: 'allowedSurfacesOnly', allowedSurfaceIds: ['widget', 'lockScreen'] });
+    expect(snapshot.titlePrivacy).toEqual({ mode: 'allowedSurfacesOnly', allowedSurfaceIds: ['widget'] });
+  });
+
+  it('never gives the lock screen a title, even after the opt-in', () => {
+    const snapshot = buildSnapshot(input({ titlesAllowed: true, surface: 'lockScreen' }));
+    const json = JSON.stringify(snapshot);
+    for (const title of REAL_TITLES) expect(json).not.toContain(title);
+    expect(snapshot.titlePrivacy.allowedSurfaceIds).not.toContain('lockScreen');
+    // And the home-screen snapshot the lock-screen families also read does not allow them either.
+    expect(buildSnapshot(input({ titlesAllowed: true })).titlePrivacy.allowedSurfaceIds).not.toContain('lockScreen');
   });
 
   it('still redacts for a surface that is not in the allowed list', () => {

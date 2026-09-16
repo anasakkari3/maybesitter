@@ -49,14 +49,18 @@ export const APP_GROUP = 'group.com.maybesitter.app';
 /**
  * Where a snapshot is drawn.
  *
- * `widget` is the home screen, `lockScreen` the iOS accessory families. The
- * opt-in allows both; a surface not in the list — a future watch face — is
- * redacted even for a user who opted in, because they opted in to the two
- * surfaces the setting names.
+ * `widget` is the home screen, `lockScreen` the iOS accessory families.
+ *
+ * The opt-in allows **the home screen only**. The lock screen is readable by
+ * anyone holding the phone without unlocking it, and a widget cannot tell
+ * whether the phone is locked, so it never receives titles — not even from a
+ * user who turned them on. On the home screen the Swift views are also marked
+ * `.privacySensitive()`, so iOS hides them while the device is locked
+ * (StandBy, an iPad home screen seen from the lock screen).
  */
 export type WidgetSurface = 'widget' | 'lockScreen';
 
-export const OPT_IN_SURFACES: readonly WidgetSurface[] = ['widget', 'lockScreen'];
+export const OPT_IN_SURFACES: readonly WidgetSurface[] = ['widget'];
 
 export type WidgetLabels = {
   privateCommitment: string;

@@ -56,6 +56,8 @@ struct NextStepWidgetView: View {
   @Environment(\.widgetFamily) private var family
   let entry: NextStepEntry
 
+  /// Lock-screen families read the same snapshot, whose privacy never lists
+  /// `lockScreen` — so `safeItems(on: .lockScreen)` is always redacted.
   private var surface: WidgetSurface {
     switch family {
     case .accessoryInline, .accessoryRectangular: return .lockScreen
@@ -103,6 +105,7 @@ struct NextStepWidgetView: View {
   @ViewBuilder private var inline: some View {
     if let first = items.first {
       Text(first.timeLabel.map { "\($0) · \(first.title)" } ?? first.title)
+        .privacySensitive()
         .widgetURL(first.url ?? Deep.today)
     } else if entry.state == .empty, let snapshot = entry.snapshot {
       Text(snapshot.labels.empty).widgetURL(Deep.capture)
@@ -120,7 +123,7 @@ struct NextStepWidgetView: View {
       } else {
         ForEach(items) { item in
           HStack(spacing: 4) {
-            Text(item.title).font(.caption).lineLimit(1)
+            Text(item.title).font(.caption).lineLimit(1).privacySensitive()
             Spacer(minLength: 0)
             if let time = item.timeLabel { Text(time).font(.caption2) }
           }
@@ -155,6 +158,9 @@ struct NextStepWidgetView: View {
             HStack(spacing: 6) {
               Circle().fill(dotColor(item.priority)).frame(width: 7, height: 7)
               Text(item.title)
+                // Hidden by iOS while the device is locked, even on the home
+                // screen and even when the user allowed titles there.
+                .privacySensitive()
                 .font(index == 0 ? .headline : .subheadline)
                 .foregroundStyle(item.isRedacted ? Color("textMuted") : Color("textPrimary"))
                 .lineLimit(family == .systemSmall && index == 0 ? 2 : 1)

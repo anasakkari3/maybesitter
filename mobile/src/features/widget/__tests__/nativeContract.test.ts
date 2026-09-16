@@ -50,6 +50,16 @@ describe('the widget extension', () => {
     for (const field of declared('WidgetLabels')) expect(Object.keys(snapshot.labels)).toContain(field);
   });
 
+  it('reads the lock-screen families as the lock-screen surface and hides titles while locked', () => {
+    const view = readFileSync(join(TARGET, 'NextStepWidget.swift'), 'utf8');
+    expect(view).toMatch(/case \.accessoryInline, \.accessoryRectangular: return \.lockScreen/);
+    expect(view).toContain('snapshot.safeItems(on: surface)');
+    // Every place a title is drawn is privacy-sensitive.
+    const titleDraws = view.split('\n').filter((line) => /Text\((item|first)\.(title|timeLabel)/.test(line));
+    expect(titleDraws.length).toBeGreaterThanOrEqual(3);
+    expect((view.match(/\.privacySensitive\(\)/g) ?? []).length).toBeGreaterThanOrEqual(3);
+  });
+
   it('declares its own App Group UserDefaults reason in its privacy manifest', () => {
     const manifest = readFileSync(join(TARGET, 'PrivacyInfo.xcprivacy'), 'utf8');
     expect(manifest).toContain('NSPrivacyAccessedAPICategoryUserDefaults');
