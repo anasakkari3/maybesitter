@@ -122,7 +122,12 @@ export class HealthConnectReadinessAdapter {
         windowStart: input.windowStart,
         windowEnd: input.windowEnd,
       });
-      const snapshot = buildHealthConnectReadinessSnapshot({ ...input, ...records });
+      const snapshot = buildHealthConnectReadinessSnapshot({
+        ...input,
+        ...(records.sleep !== undefined ? { sleep: records.sleep } : {}),
+        ...(records.heart !== undefined ? { heart: records.heart } : {}),
+        ...(records.steps !== undefined ? { steps: records.steps } : {}),
+      });
       const newestSampleAt = newestObservedAt(records);
       const state = snapshot.signals.length === 0
         ? 'empty'
