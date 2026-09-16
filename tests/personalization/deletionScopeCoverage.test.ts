@@ -96,6 +96,12 @@ const KEPT_BECAUSE: Record<string, string> = {
     + 'as much as the live rows — a `detached` row is the record that the user deleted that event '
     + 'by hand, and clearing it is how the product starts putting it back.',
   stats: 'the user’s own record of what they did — the counters behind the weekly Moments. #201 made a Moment survive deleting the commitment that earned it, on the ground that a fact about something that happened must not unhappen; this button forgets what was inferred about the person, not what the person achieved.',
+  footballFollows: 'the user’s own choice of which clubs to follow, not something derived about them — the same reason consents is kept',
+  externalTaskRefs:
+    'a pointer beside a commitment, same as deviceCalendarLinks: which external fixture a commitment came '
+    + 'from and whether the user dismissed it. Commitments survive this purge, so the ref that keeps a '
+    + 'dismissal honoured must survive with them — erasing it would let the next sync recreate a match '
+    + 'the user explicitly removed.',
 };
 
 test('every user-scoped collection is either purged by "delete everything" or deliberately kept', () => {

@@ -53,4 +53,9 @@ export const TOP_LEVEL_COLLECTIONS_WITHOUT_USER_DATA: readonly string[] = [
   // Removing them as part of a deletion would erase the proof that it happened.
   'accountDeletions',
   'deletionReceipts',
+  // A football match (football fixtures MVP, Task 5): a shared row about a
+  // game, not a fact about any one account. No uid appears in it — the
+  // per-account halves are `footballFollows` and `externalTaskRefs`, which
+  // *are* user-scoped and go with the tree in the ordinary way.
+  'fixtures',
 ] as const;

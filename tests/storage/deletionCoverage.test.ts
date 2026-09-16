@@ -27,8 +27,15 @@ const listed = new Set<string>(USER_SCOPED_COLLECTIONS);
  * `LLM_USAGE` is the service's own daily model spend (#160): a count per UTC
  * day and nothing else, with no uid in it. The per-account half of that guard
  * is `USAGE`, which *is* user-scoped and goes with the tree.
+ *
+ * `FIXTURES` is a football match (football fixtures MVP, Task 5): shared
+ * public data about a game, not a fact about any one account, so it is
+ * declared in `lib/account/topLevelUserData.ts`'s
+ * `TOP_LEVEL_COLLECTIONS_WITHOUT_USER_DATA` instead of here. `FOOTBALL_FOLLOWS`
+ * and `EXTERNAL_TASK_REFS` are the per-account halves of this feature and
+ * *are* user-scoped, so they stay out of this set and go with the tree.
  */
-const NOT_USER_SCOPED = new Set(['USERS', 'INCIDENTS', 'LLM_USAGE']);
+const NOT_USER_SCOPED = new Set(['USERS', 'INCIDENTS', 'LLM_USAGE', 'FIXTURES']);
 
 test('deleteTree(users/U) leaves nothing of U in any user collection, and nothing of V is lost', async () => {
   await assertDeleteTreeCoversEveryUserCollection(createMemoryStorage(), 'user_U', 'user_V');
