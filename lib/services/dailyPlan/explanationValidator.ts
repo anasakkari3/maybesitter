@@ -47,7 +47,11 @@
  * What is still *not* reached, stated rather than discovered: `CAPITALISED_RUN`
  * is the shape an invented title takes in a cased script, and Arabic and Hebrew
  * have no case. In those locales an invented title is caught only when the
- * model quotes it. Neither lexicon is a claim of coverage — a word list never
+ * model quotes it. A count or a time written as words — `تسع إشيا`,
+ * `תשעה דברים`, `nine things`, `at nine` — is not read in any locale: the
+ * structural checks read digits. That is a fidelity gap rather than a safety
+ * one (the plan screen lists the real items), and it is stated here so nobody
+ * mistakes the count check for coverage of it. Neither lexicon is a claim of coverage — a word list never
  * is — and what carries the weight remains the structural checks, which now run
  * in every locale, plus a prompt that is given ids, times and counts and
  * nothing to be judgemental about.
@@ -122,11 +126,11 @@ const ARABIC_LEXICON: LocaleLexicon = Object.freeze({
     /ما ?[إا]لك خيار|ما في خيار|ليس لديك خيار|لا خيار/,
     /آخر فرصة|الفرصة الأخيرة|آخر مرة/,
     /إنذار أخير|تحذير أخير/,
-    /لازم تعمل|لازم تسوي|يجب عليك|مجبور/,
+    /لازم تعمل|لازم تسوي|لازم تخلص|لازم تنهي|لازم تكمل|يجب عليك|مجبور/,
     /وإلا رح|أو غير هيك/,
   ]),
   persistence: Object.freeze([
-    /حفظت|سجلت|سجّلت|خزنت|خزّنت|أنشأت|جدولت|جدولتلك|وثقت|دونت|دوّنت/,
+    /حفظت|سجلت|سجّلت|خزنت|خزّنت|أنشأت|جدولت|جدولتلك|وثقت|دونت|دوّنت|ضفت|أضفت/,
     /محفوظ|مسجل|مسجّل|متخزن/,
     /رح أتابع|رح أراقب|رح أذكرك|بتابعلك|أراقب|أتتبع|بخلي عيني/,
   ]),
@@ -156,7 +160,7 @@ const HEBREW_LEXICON: LocaleLexicon = Object.freeze({
     /אין לך ברירה|אין ברירה|ברירה אחרת אין/,
     /הזדמנות אחרונה|צ'אנס אחרון/,
     /אזהרה אחרונה/,
-    /אתה חייב|את חייבת|חייב לעשות|חייבת לעשות/,
+    /אתה חייב|את חייבת|חייב לעשות|חייבת לעשות|חובה עליך|חובה לסיים/,
     /או אחרת|אחרת אפסיק/,
   ]),
   persistence: Object.freeze([
@@ -201,9 +205,69 @@ export function hasExplanationLexicon(locale: unknown): locale is UserLocale {
     && Object.prototype.hasOwnProperty.call(EXPLANATION_LEXICONS, locale);
 }
 
-function everyLocale(pick: (lexicon: LocaleLexicon) => readonly RegExp[]): readonly RegExp[] {
-  return Object.values(EXPLANATION_LEXICONS).flatMap(pick);
+/**
+ * Arabic and Hebrew as they are written, reduced to the spelling the lexicons use.
+ *
+ * The lexicons are substrings over bare letters, and the first probe of them in
+ * the scripts they exist for found every one of these accepted — each a word
+ * the lists already carried:
+ *
+ *   - harakat and Hebrew niqqud (`كَسُول`, `עַצְלָן`), which models do emit,
+ *     and which NFKC leaves alone because they are not compatibility forms;
+ *   - the tatweel U+0640 (`كسـول`), a letter-stretching character;
+ *   - the Arabic letter mark U+061C and the bidi isolates U+2066–2069, which
+ *     `safetyContracts`' format-character class does not include;
+ *   - alef with hamza or madda (`آخر` typed as `اخر`), alef maqsura for yeh,
+ *     and ta marbuta for heh — the spellings Levantine Arabic is actually typed
+ *     in, and the ones the lists half-anticipated with `[إا]` and `اهمال`.
+ *
+ * Marks are removed and letter variants folded to one letter, on the text **and
+ * on the patterns** (see `FOLDED`), so an entry written with a hamza still
+ * matches text typed without one and the reverse. Hebrew geresh and gershayim
+ * are punctuation, not marks, and are kept: the title check reads them as
+ * quotation marks.
+ *
+ * Over-catching is the safe direction here — a refusal costs the template —
+ * which is why folding letters together is acceptable in a guard and would not
+ * be in, say, a search index.
+ */
+const SCRIPT_MARKS = /[\u00AD\u0591-\u05BD\u05BF\u05C1\u05C2\u05C4\u05C5\u05C7\u0610-\u061A\u061C\u0640\u064B-\u065F\u0670\u06D6-\u06DC\u06DF-\u06E8\u06EA-\u06ED\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/g;
+
+/**
+ * The invisible characters in `SCRIPT_MARKS`: soft hyphen, the Arabic letter
+ * mark, zero-width and bidi controls, word joiner and invisible operators,
+ * bidi isolates, BOM.
+ *
+ * `foldScript` removes them, which is right for one inside a word (`كس<ALM>ول`)
+ * and wrong for one standing where a space was (`You<ZWSP>always`, which
+ * removal turns into `Youalways`). The lexical pass therefore reads both.
+ */
+const INVISIBLE = /[\u00AD\u061C\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/g;
+
+export function foldScript(text: string): string {
+  return text
+    .normalize('NFKC')
+    .replace(SCRIPT_MARKS, '')
+    .replace(/[\u0622\u0623\u0625\u0671]/g, '\u0627')
+    .replace(/\u0649/g, '\u064A')
+    .replace(/\u0629/g, '\u0647');
 }
+
+function foldPattern(pattern: RegExp): RegExp {
+  return new RegExp(foldScript(pattern.source), pattern.flags);
+}
+
+type LexiconKey = keyof LocaleLexicon;
+
+/** Every locale's patterns for one judgement, folded once at load. */
+const FOLDED: Readonly<Record<LexiconKey, readonly RegExp[]>> = (() => {
+  const keys: LexiconKey[] = ['shame', 'coercion', 'persistence', 'prohibited'];
+  const folded = {} as Record<LexiconKey, readonly RegExp[]>;
+  for (const key of keys) {
+    folded[key] = Object.freeze(Object.values(EXPLANATION_LEXICONS).flatMap((lexicon) => lexicon[key].map(foldPattern)));
+  }
+  return Object.freeze(folded);
+})();
 
 export type ExplanationRejection =
   | 'empty'
@@ -294,23 +358,44 @@ export function toAsciiDigits(text: string): string {
 }
 
 const CLOCK = /\b([01]?[0-9]|2[0-3]):([0-5][0-9])\b/g;
-const QUOTED = /["“”«»']([^"“”«»'\n]{2,80})["“”«»']/g;
+/**
+ * Quotation marks, including the ones Hebrew is quoted in: gershayim U+05F4 and
+ * the low-high pair „“. Without them an invented title in a Hebrew sentence was
+ * accepted as long as it was quoted the way Hebrew quotes.
+ */
+const QUOTED = /["“”«»'״„‟＂]([^"“”«»'״„‟＂\n]{2,80})["“”«»'״„‟＂]/g;
 /** Two or more adjacent Capitalised Latin words: the shape an invented title takes. */
 const CAPITALISED_RUN = /\b[A-Z][a-z'’]+(?:\s+[A-Z][a-z'’]+)+/g;
-const INTEGER = /\b\d{1,4}\b/g;
+/** Any run of digits: `12345` is not less of a count claim for being long. */
+const INTEGER = /\b\d+\b/g;
 
 function normalise(value: string): string {
   return value.toLowerCase().replace(/[\s‏‎]+/g, ' ').trim();
 }
 
-/** True when the fragment is part of some title the plan actually placed. */
+/**
+ * True when the fragment is part of some title the plan actually placed.
+ *
+ * One direction only. A fragment that merely *contains* a title —
+ * `"Call the bank, then 9 more"` — is not that title, and accepting it both
+ * let the invented tail through and, because a title's span is removed before
+ * the count check, hid the `9` from it. Both sides are folded the same way,
+ * digits included, so `«ادفع ٧ فواتير»` quoted back matches its own title.
+ */
 function matchesSomeTitle(fragment: string, titles: readonly string[]): boolean {
-  const needle = normalise(fragment);
+  const needle = normalise(toAsciiDigits(foldScript(fragment)));
   if (needle.length < 2) return true;
-  return titles.some((title) => {
-    const hay = normalise(title);
-    return hay.includes(needle) || needle.includes(hay);
-  });
+  return titles.some((title) => normalise(toAsciiDigits(foldScript(title))).includes(needle));
+}
+
+/**
+ * Gershayim written between two Hebrew letters is an abbreviation mark —
+ * עו״ד, סה״כ, רו״ח — and not a quotation mark. It is swapped for a geresh,
+ * which is not a quote, one code point for one, so offsets are unchanged.
+ * Without this the span between two abbreviations was read as a quoted title.
+ */
+function withoutHebrewAbbreviations(text: string): string {
+  return text.replace(/([\u05D0-\u05EA])\u05F4(?=[\u05D0-\u05EA])/g, '$1\u05F3');
 }
 
 /**
@@ -333,13 +418,17 @@ export function explanationRejections(text: unknown, facts: ExplanationFacts): E
   // Digits first, and once: every structural check below reads the folded text,
   // so `٠٩:٠٠` is a clock time and `٤٢` is a count. Folding is one code point
   // for one, so `match.index` still indexes the same position in either string.
-  const scanned = toAsciiDigits(text);
+  // Marks and invisible characters go first: `٠١<RLM>:٠٢` is a clock time to a
+  // reader, and must be one to the pattern. Removal is not one-for-one, which
+  // is fine — every offset below indexes `scanned`, never `text`.
+  const scanned = toAsciiDigits(foldScript(text));
 
   const allowed = new Set(facts.allowedTimes);
   const times = Array.from(scanned.matchAll(CLOCK), (match) => `${match[1].padStart(2, '0')}:${match[2]}`);
   if (times.some((time) => !allowed.has(time))) reasons.push('time_not_in_plan');
 
-  const quoted = Array.from(scanned.matchAll(QUOTED), (match) => match[1]);
+  const quotable = withoutHebrewAbbreviations(scanned);
+  const quoted = Array.from(quotable.matchAll(QUOTED), (match) => match[1]);
   // A capitalised run that opens the text or a sentence is ordinary English
   // ("Today Nothing…"), so only runs that start mid-sentence are treated as a
   // claimed title.
@@ -356,7 +445,11 @@ export function explanationRejections(text: unknown, facts: ExplanationFacts): E
   // Clock times and quoted titles are removed first: `09:00` is not a claim
   // about how many things there are, and a title may legitimately contain a
   // number ("Pay the 2 invoices").
-  const countable = scanned.replace(CLOCK, ' ').replace(QUOTED, ' ');
+  // Only a span that really is a title is removed: an invented one keeps its
+  // numbers in the count, so it cannot smuggle a count past it.
+  const countable = quotable
+    .replace(CLOCK, ' ')
+    .replace(QUOTED, (span, inner: string) => (matchesSomeTitle(inner, facts.titles) ? ' ' : span));
   const numbers = Array.from(countable.matchAll(INTEGER), (match) => Number(match[0]));
   if (numbers.some((value) => value !== facts.scheduledCount && value !== facts.unscheduledCount)) {
     reasons.push('count_mismatch');
@@ -366,10 +459,14 @@ export function explanationRejections(text: unknown, facts: ExplanationFacts): E
   // asked for Arabic that shames in English has still shamed. The account's
   // locale decides whether the answer may be *accepted* (above), not which
   // lists get to look at it.
-  if (matchesAny(text, everyLocale((lexicon) => lexicon.shame))) reasons.push('shame');
-  if (matchesAny(text, everyLocale((lexicon) => lexicon.coercion))) reasons.push('coercion');
-  if (matchesAny(text, everyLocale((lexicon) => lexicon.persistence))) reasons.push('persistence_claim');
-  if (matchesAny(text, everyLocale((lexicon) => lexicon.prohibited))) reasons.push('prohibited_claim');
+  // Both readings of an invisible character: removed (inside a word) and as a
+  // space (between two). One reading alone fails open for the other.
+  const lexical = [foldScript(text), foldScript(text.replace(INVISIBLE, ' '))];
+  const said = (patterns: readonly RegExp[]) => lexical.some((variant) => matchesAny(variant, patterns));
+  if (said(FOLDED.shame)) reasons.push('shame');
+  if (said(FOLDED.coercion)) reasons.push('coercion');
+  if (said(FOLDED.persistence)) reasons.push('persistence_claim');
+  if (said(FOLDED.prohibited)) reasons.push('prohibited_claim');
 
   return reasons;
 }
