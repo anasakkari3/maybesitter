@@ -28,7 +28,7 @@ import {
 } from '../captureBoundary';
 import { createEmptyDomainState, type Command, type Commitment } from '../../../src/domain/stateMachine';
 import { applyCommand, configureCommandService, getCommandServiceState } from '../commandService';
-import { findCollisions, type CollisionWarning } from '../timeCollision';
+import { collisionsForCommitment, type CollisionWarning } from '../timeCollision';
 import { CommandServiceCapturePersistenceAdapter } from './canonicalPersistence';
 import {
   applyParticipantCommand,
@@ -217,7 +217,8 @@ async function persistedItem(
 
 /**
  * Whether any commitment just confirmed lands on top of another open,
- * scheduled one -- the warning half of #football-fixtures task 10 ("warn him
+ * timed one (`collisionIntervalOf`: a `due_by` with a time counts, which is
+ * what capture writes) -- the warning half of #football-fixtures task 10 ("warn him
  * if he adds a commitment that there is a collision"). Read against the same
  * participant-scoped snapshot `persistedItem` and `activateConfirmedItems`
  * already use, so this sees exactly the state the confirm just wrote, not a
@@ -237,12 +238,8 @@ async function collisionsForPersisted(
   const state = context.participantId
     ? await getParticipantStateSnapshot(context.participantId)
     : getCommandServiceState();
-  return persisted.flatMap((item) => {
-    const commitment = state.commitments[item.commitmentId];
-    if (!commitment || commitment.timeSpec.kind !== 'scheduled_event' || !commitment.timeSpec.dueAt) return [];
-    const others = Object.values(state.commitments).filter((candidate) => candidate.id !== item.commitmentId);
-    return findCollisions({ dueAt: commitment.timeSpec.dueAt, endAt: commitment.timeSpec.endAt }, others);
-  });
+  const all = Object.values(state.commitments);
+  return persisted.flatMap((item) => [...collisionsForCommitment(state.commitments[item.commitmentId], all)]);
 }
 
 async function activateConfirmedItems(

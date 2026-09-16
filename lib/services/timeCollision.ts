@@ -103,10 +103,54 @@ export function fixedEndFor(commitment: Commitment, start: Instant): Instant {
 }
 
 /**
+ * Whether a commitment names a stretch of clock time a collision can be
+ * measured against, and if so where it starts and what it says about its end.
+ *
+ * A commitment is *timed* when it has a `dueAt`, is not all-day, and is a
+ * `scheduled_event` or a `due_by`. The `due_by` half is the point: everything
+ * a user adds -- capture's extraction, an edit that moves a time, the legacy
+ * create route -- writes `due_by`, never `scheduled_event` (only the football
+ * projection writes that). Checking `scheduled_event` alone meant the warning
+ * could never fire for a commitment the user added, which is the one case the
+ * owner asked for. "Call the dentist at 8pm" occupies 8pm: it is measured from
+ * `dueAt` for its `endAt`, or `DEFAULT_FIXED_EVENT_MINUTES` without one.
+ *
+ * This is about *warning*, not planning. The planner keeps its own rule for
+ * which commitments block time (`buildDailyPlan.ts`), and a `due_by` item stays
+ * a deadline there; nothing here turns a deadline into a blocking event.
+ *
+ * `unscheduled` and all-day commitments name no clock interval, so they
+ * collide with nothing.
+ */
+export function collisionIntervalOf(
+  commitment: Commitment,
+): { readonly dueAt: string; readonly endAt: string | null } | null {
+  const { kind, dueAt, endAt, allDay } = commitment.timeSpec;
+  if (!dueAt || allDay) return null;
+  if (kind !== 'scheduled_event' && kind !== 'due_by') return null;
+  return { dueAt, endAt };
+}
+
+/**
+ * The collisions for a commitment that already exists in `all` -- the capture
+ * confirm, the edit route and the legacy create route all ask exactly this --
+ * or none when it is not timed. It is never compared with itself.
+ */
+export function collisionsForCommitment(
+  commitment: Commitment | undefined,
+  all: readonly Commitment[],
+): readonly CollisionWarning[] {
+  if (!commitment) return [];
+  const interval = collisionIntervalOf(commitment);
+  if (!interval) return [];
+  return findCollisions(interval, all.filter((candidate) => candidate.id !== commitment.id));
+}
+
+/**
  * Which existing commitments a candidate write would land on top of.
  *
- * `against` is filtered to `scheduled_event` commitments in an open status
- * (`isCollidable`) before anything is compared: a `due_by` or `unscheduled`
+ * `against` is filtered to timed commitments (`collisionIntervalOf`) in an
+ * open status before anything is compared: an `unscheduled` or all-day
  * commitment names no interval to collide with, and a `completed` or
  * `dropped` one is not a claim on the calendar any more.
  *
@@ -127,11 +171,11 @@ export function findCollisions(
   };
 
   return against
-    .filter((commitment) => COLLIDABLE_STATUSES.has(commitment.status) && commitment.timeSpec.kind === 'scheduled_event')
+    .filter((commitment) => COLLIDABLE_STATUSES.has(commitment.status))
     .flatMap((commitment): CollisionWarning[] => {
-      const start = commitment.timeSpec.dueAt;
-      if (!start) return [];
-      const interval: TimeInterval = { startsAt: start, endsAt: fixedEndFor(commitment, start) };
+      const timed = collisionIntervalOf(commitment);
+      if (!timed) return [];
+      const interval: TimeInterval = { startsAt: timed.dueAt, endsAt: fixedEndFor(commitment, timed.dueAt) };
       if (!intervalsOverlap(candidateInterval, interval)) return [];
       return [{
         commitmentId: commitment.id,

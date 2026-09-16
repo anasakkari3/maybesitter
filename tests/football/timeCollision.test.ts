@@ -8,7 +8,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { findCollisions } from '../../lib/services/timeCollision.ts';
+import { collisionsForCommitment, findCollisions } from '../../lib/services/timeCollision.ts';
 import { normalizeStoredTimeSpec, type Commitment } from '../../src/domain/stateMachine.ts';
 
 const TZ = 'Asia/Jerusalem';
@@ -63,10 +63,22 @@ test('a candidate with no end is measured at the default length', () => {
   assert.equal(findCollisions({ dueAt: '2026-10-25T20:45:00.000Z', endAt: null }, [MATCH]).length, 1);
 });
 
-test('an unscheduled commitment cannot be collided with', () => {
+test('a timed due_by commitment -- what capture writes -- collides like an event', () => {
+  // Final review C2: user commitments are `due_by`, and a check that only
+  // looked at `scheduled_event` could never warn about one.
+  const dentist = commitmentAt('dentist', '2026-10-25T19:15:00.000Z', null);
+  dentist.timeSpec = { ...dentist.timeSpec, kind: 'due_by' };
+  assert.deepEqual(findCollisions({ dueAt: '2026-10-25T19:00:00.000Z', endAt: '2026-10-25T21:00:00.000Z' }, [dentist]).map((w) => w.commitmentId), ['dentist']);
+  assert.deepEqual(collisionsForCommitment(dentist, [dentist, MATCH]).map((w) => w.commitmentId), ['match']);
+});
+
+test('an unscheduled or all-day commitment cannot be collided with', () => {
   const floating = commitmentAt('todo', '2026-10-25T19:00:00.000Z', null);
-  floating.timeSpec = { ...floating.timeSpec, kind: 'due_by' };
-  assert.deepEqual(findCollisions({ dueAt: '2026-10-25T19:30:00.000Z', endAt: null }, [floating]), []);
+  floating.timeSpec = { ...floating.timeSpec, kind: 'unscheduled', dueAt: null };
+  const allDay = commitmentAt('birthday', '2026-10-25T00:00:00.000Z', null);
+  allDay.timeSpec = { ...allDay.timeSpec, kind: 'due_by', allDay: true };
+  assert.deepEqual(findCollisions({ dueAt: '2026-10-25T00:00:00.000Z', endAt: '2026-10-26T00:00:00.000Z' }, [floating, allDay]), []);
+  assert.deepEqual(collisionsForCommitment(allDay, [allDay, MATCH]), []);
 });
 
 test('a dropped commitment cannot be collided with', () => {

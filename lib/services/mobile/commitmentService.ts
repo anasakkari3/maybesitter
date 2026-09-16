@@ -9,6 +9,7 @@ import {
 } from '../../../src/contracts/v1/categoryContracts';
 import { resolveModuleRuntime } from '../../../src/contracts/v1/runtimeControls';
 import { applyCommand, configureCommandService, getCommandServiceState } from '../commandService';
+import { collisionsForCommitment, type CollisionWarning } from '../timeCollision';
 import {
   applyParticipantCommand,
   getParticipantStateSnapshot,
@@ -660,6 +661,20 @@ export async function patchCommitment(
   };
   await applyCommitmentCommand(id, command, options, 'Could not update commitment');
   return (await getCommitment(id, options)) ?? current;
+}
+
+/**
+ * What a commitment now lands on top of, read from the same state an edit just
+ * wrote (#football-fixtures, final review C2). The edit route returns it with
+ * the updated commitment, so moving "call the dentist" onto Saturday's match
+ * is warned about exactly the way capturing it there is.
+ */
+export async function collisionsForExistingCommitment(
+  id: string,
+  options: { participantId?: string } = {},
+): Promise<readonly CollisionWarning[]> {
+  const state = await stateFor(options);
+  return collisionsForCommitment(state.commitments[id], Object.values(state.commitments));
 }
 
 /**
