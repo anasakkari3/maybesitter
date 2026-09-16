@@ -53,12 +53,22 @@ export async function configureNotifications(names: ChannelNames): Promise<void>
      * badge does not, for the reason `permission.ts` gives.
      */
     Notifications.setNotificationHandler({
-      handleNotification: async () => ({
-        shouldShowBanner: true,
-        shouldShowList: true,
-        shouldPlaySound: true,
-        shouldSetBadge: false,
-      }),
+      handleNotification: async notification => {
+        // The server's backup for a Must reminder the phone is already showing
+        // (UC-3.12b, #198). Asked only for that kind, so every other
+        // notification pays nothing for the lookup.
+        const show = !isBackupForShownRing(notification.request.content.data)
+          || !isBackupAlreadyShown(
+            notification.request.content.data,
+            (await Notifications.getPresentedNotificationsAsync()).map(shown => shown.request.identifier),
+          );
+        return {
+          shouldShowBanner: show,
+          shouldShowList: show,
+          shouldPlaySound: show,
+          shouldSetBadge: false,
+        };
+      },
     });
 
     /*
@@ -102,4 +112,25 @@ export async function configureNotifications(names: ChannelNames): Promise<void>
 
 export function resetNotificationSetupForTests(): void {
   configured = false;
+}
+
+/** A push the server sent as the backup for a Must reminder (#198). */
+export function isBackupForShownRing(data: unknown): boolean {
+  return !!data && typeof data === 'object' && (data as Record<string, unknown>).kind === 'hard_reminder';
+}
+
+/**
+ * Whether the local Must ring this backup stands in for is already on screen.
+ *
+ * In the background the two cannot both be shown: the push carries the local
+ * ring's identifier as its collapse id (iOS) and tag (Android), and each
+ * platform replaces a notification under the same identifier. In the
+ * foreground this handler decides, so it drops the backup when the ring is
+ * there — the one place a double could still reach the person.
+ */
+export function isBackupAlreadyShown(data: unknown, presentedIdentifiers: readonly string[]): boolean {
+  if (!isBackupForShownRing(data)) return false;
+  const commitmentId = (data as Record<string, unknown>).commitmentId;
+  if (typeof commitmentId !== 'string' || commitmentId === '') return false;
+  return presentedIdentifiers.includes(`${commitmentId}:strong`);
 }

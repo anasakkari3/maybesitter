@@ -149,3 +149,33 @@ describe('the gateway', () => {
     expect(soft?.content).not.toHaveProperty('interruptionLevel');
   });
 });
+
+describe('the server s backup for a Must ring already on screen (#198)', () => {
+  afterEach(() => {
+    resetNotificationSetupForTests();
+    jest.restoreAllMocks();
+  });
+
+  it('is not shown in the foreground when the local ring is presented', async () => {
+    const Notifications = jest.requireMock<typeof import('expo-notifications')>('expo-notifications');
+    let handler: { handleNotification: (n: unknown) => Promise<{ shouldShowBanner: boolean; shouldPlaySound: boolean }> } | null = null;
+    jest.spyOn(Notifications, 'setNotificationHandler').mockImplementation(h => {
+      handler = h as never;
+    });
+    const presented = jest.spyOn(Notifications, 'getPresentedNotificationsAsync')
+      .mockResolvedValue([{ request: { identifier: 'm1:strong' } }] as never);
+    await configureNotifications(names);
+    const handle = (data: Record<string, string>) =>
+      handler!.handleNotification({ request: { content: { data } } });
+
+    expect(await handle({ kind: 'hard_reminder', commitmentId: 'm1', notificationId: 'm1:strong' }))
+      .toMatchObject({ shouldShowBanner: false, shouldPlaySound: false });
+    // A backup for a ring that is not showing is the whole point of the backup.
+    expect(await handle({ kind: 'hard_reminder', commitmentId: 'm2', notificationId: 'm2:strong' }))
+      .toMatchObject({ shouldShowBanner: true, shouldPlaySound: true });
+    // Anything else is shown without looking.
+    presented.mockClear();
+    expect(await handle({ kind: 'plan_ready', planDate: '2026-09-16' })).toMatchObject({ shouldShowBanner: true });
+    expect(presented).not.toHaveBeenCalled();
+  });
+});
