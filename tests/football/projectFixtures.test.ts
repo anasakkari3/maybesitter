@@ -394,14 +394,14 @@ test('a dismissal landing mid-recreate wins the race, not the sync', async () =>
 test('a stale ref write never clears a detachedAt set after it was read', async () => {
   // `putRefCarryingForwardDetachment` is branch 2's (dropping a commitment
   // for a fixture that stopped holding time) half of the same fix -- see
-  // `externalTaskRefStore.ts`'s header on that function. Unlike the
-  // transactional branches above, branch 2 has no transaction to hang a
-  // `setBeforeCommitHookForTests` interleaving on (its ref write is a plain
-  // `get` then `set`, same as `dismissFixtureCommitment`'s own), so this
-  // proves the mechanism directly: build the exact call branch 2 makes --
+  // `externalTaskRefStore.ts`'s header on that function. This is the basic,
+  // no-concurrency-machinery version: build the exact call branch 2 makes --
   // spreading a *stale* copy of the ref, read before a concurrent dismissal
-  // landed -- and confirm the write it produces does not undo that
-  // dismissal.
+  // landed -- and confirm the write it produces does not undo a dismissal
+  // that had already fully landed by the time this function's own
+  // transaction opened. The test below this one covers the narrower window
+  // this one does not: a dismissal landing *during* this function's own
+  // transaction.
   await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
   await projectFixturesForUser('u1', NOW);
   const externalId = 'football-data:1';
@@ -426,4 +426,58 @@ test('a stale ref write never clears a detachedAt set after it was read', async 
 
   const after = await getRef('u1', externalId);
   assert.ok(after?.detachedAt, 'the concurrent dismissal was not undone by the stale write');
+});
+
+test('a dismissal landing mid-write on the drop path is not undone', async () => {
+  // Round 1 of this fix: `putRefCarryingForwardDetachment` used to re-read
+  // the ref immediately before writing, but as two separate,
+  // unsynchronised calls (`storage.get` then `storage.set`) -- so a
+  // dismissal landing in the gap between *those* two calls was still
+  // silently overwritten, the identical failure the create/update paths'
+  // transactional guard exists to prevent, just moved into a smaller
+  // window. `externalTaskRefStore.ts`'s header calls this out by name. This
+  // test is what the test above cannot be: a dismissal landing *during*
+  // `putRefCarryingForwardDetachment`'s own transaction, the same
+  // `setBeforeCommitHookForTests` interleaving
+  // `'a dismissal landing mid-recreate wins the race, not the sync'` uses
+  // for the create/update paths, now that this function has a transaction
+  // to hang it on.
+  const storage = createMemoryStorage();
+  setStorageForTests(storage);
+  await setFollowedClubs('u1', ['barcelona'], NOW);
+
+  await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+  await projectFixturesForUser('u1', NOW);
+  const externalId = 'football-data:1';
+  const before = await getRef('u1', externalId);
+  assert.equal(before?.detachedAt, null, 'sanity: not dismissed yet');
+
+  // The interleaving: fires once, after `putRefCarryingForwardDetachment`'s
+  // own transactional `tx.get` but before it commits -- a plain,
+  // non-transactional write, exactly like `dismissFixtureCommitment`'s own
+  // ref write (not a call to `dismissFixtureCommitment` itself, which has
+  // no commitment left to drop here and would in general risk the same
+  // nested-transaction deadlock the create/update paths' own test avoids).
+  let fired = false;
+  storage.setBeforeCommitHookForTests(async () => {
+    if (fired) return;
+    fired = true;
+    const stale = await getRef('u1', externalId);
+    await putRef('u1', { ...stale!, linkState: 'detached', detachedAt: NOW, updatedAt: NOW });
+  });
+
+  try {
+    await putRefCarryingForwardDetachment('u1', {
+      ...before!,
+      fingerprint: before!.fingerprint,
+      lastSyncedAt: NOW,
+      updatedAt: NOW,
+    });
+  } finally {
+    storage.setBeforeCommitHookForTests(null);
+  }
+
+  assert.equal(fired, true, 'the interleaving actually landed inside the transaction');
+  const after = await getRef('u1', externalId);
+  assert.ok(after?.detachedAt, 'the reference still shows the dismissal');
 });

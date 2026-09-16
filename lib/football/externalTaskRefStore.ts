@@ -89,9 +89,9 @@ export async function putRef<T extends ExternalTaskReference>(
 
 /**
  * Writes `ref` the way `putRef` does, except it re-reads whatever is
- * actually stored immediately beforehand and carries that row's
- * `detachedAt`/`linkState` forward instead of trusting the caller's own
- * (necessarily earlier) copy of them.
+ * actually stored -- inside the same storage transaction as the write --
+ * and carries that row's `detachedAt`/`linkState` forward instead of
+ * trusting the caller's own (necessarily earlier) copy of them.
  *
  * `projectOneFixture`'s design rule, verbatim: "a dismissal a sync can undo
  * is worse than no dismissal at all." Every one of this module's callers
@@ -101,22 +101,37 @@ export async function putRef<T extends ExternalTaskReference>(
  * that copy's `detachedAt` may already be stale. `putRef`'s plain overwrite
  * would then re-assert `detachedAt: null` over a dismissal
  * `dismissFixtureCommitment` recorded in the meantime. This function is the
- * fix for the one caller left that still needs a plain (non-transactional)
- * write: `projectOneFixture`'s branch 2, dropping a commitment for a
- * fixture that stopped holding time. See `projectFixtures.ts`'s module
- * header for why the *create/update* branches use a stronger fix instead (a
- * same-transaction re-read, not a same-function-call one) -- dropping never
- * resurrects anything a dismissal did not already want dropped, so a
- * same-call re-read closes the only risk that write still carries.
+ * fix for the one caller left that still needs a write of its own (as
+ * opposed to `projectFixtures.ts`'s create/update paths, which fold their
+ * ref write into a transaction they already have open for the matching
+ * commitment write): `projectOneFixture`'s branch 2, dropping a commitment
+ * for a fixture that stopped holding time.
  *
- * Still not a transaction -- see `putRef`'s own header for the argument that
- * a transaction here would have nothing concurrent to protect against
- * *before* this task; this function narrows the one window that argument no
- * longer covers, without claiming to close it completely (a second dismissal
- * landing in the instant between this function's own read and its write is
- * still possible in principle -- vanishingly narrow, and self-correcting the
- * moment `dismissFixtureCommitment` is called again, the same residual
- * accepted throughout this codebase's non-transactional reads-then-writes).
+ * ── Round 1: this used to be a plain `get` then `set`, and that gap was
+ *    real, not hypothetical ──────────────────────────────────────────────
+ * The first version of this function re-read the ref immediately before
+ * writing but did the read and the write as two separate, unsynchronised
+ * calls -- narrowing the clobber window from "the whole rest of a sync run"
+ * (`putRef`'s stale-spread problem) down to "the gap between this
+ * function's own `get` and `set`", but not closing it: a dismissal landing
+ * in that gap was still silently overwritten, the identical failure the
+ * transactional guard on the create/update paths exists to prevent, just
+ * moved to a smaller window. A same-storage-transaction `tx.get` then
+ * `tx.set` closes it the same way those paths do: `runTransaction` records
+ * every path a callback reads and refuses to commit if any of them moved,
+ * retrying instead (`memoryAdapter.ts`'s `readsStillValid`) -- so a
+ * concurrent write to this exact ref, at any point between this
+ * transaction's read and its commit, forces a retry that reads the
+ * dismissal fresh rather than committing over it.
+ * `tests/football/projectFixtures.test.ts`'s `'a dismissal landing
+ * mid-write on the drop path is not undone'` proves this deterministically,
+ * the same way the create/update paths' own race test does.
+ *
+ * `storageOf(deps)`, not the module-level `getStorage()`: this function
+ * (like every other one here) must reach the storage a caller injected via
+ * `deps.storage` -- a test that constructs its own adapter and passes it in
+ * would otherwise have this transaction silently run against the real
+ * default backend instead.
  */
 export async function putRefCarryingForwardDetachment<T extends ExternalTaskReference>(
   uid: string,
@@ -125,11 +140,13 @@ export async function putRefCarryingForwardDetachment<T extends ExternalTaskRefe
 ): Promise<void> {
   const storage = storageOf(deps);
   const path = refDocPath(uid, ref.identity.externalId);
-  const current = await storage.get<T>(path);
-  const next = current?.detachedAt
-    ? { ...ref, detachedAt: current.detachedAt, linkState: current.linkState }
-    : ref;
-  await storage.set(path, next);
+  await storage.runTransaction(async (tx) => {
+    const current = await tx.get<T>(path);
+    const next = current?.detachedAt
+      ? { ...ref, detachedAt: current.detachedAt, linkState: current.linkState }
+      : ref;
+    tx.set(path, next);
+  });
 }
 
 /**
