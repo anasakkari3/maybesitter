@@ -166,7 +166,16 @@ export interface FootballDataProviderDeps {
    * production default is unaffected.
    */
   env?: { FOOTBALL_DATA_API_KEY?: string };
+  /** Defaults to `FOOTBALL_DATA_REQUEST_TIMEOUT_MS`; a test shortens it. */
+  timeoutMs?: number;
 }
+
+/**
+ * How long one request may take before it is aborted. A hung request with no
+ * timeout would hold the whole nightly sync past its scheduler deadline;
+ * `syncFixtures.ts` counts this against its budget before starting a request.
+ */
+export const FOOTBALL_DATA_REQUEST_TIMEOUT_MS = 8_000;
 
 /**
  * Builds the `FixtureProvider` for football-data.org.
@@ -197,7 +206,22 @@ export function createFootballDataProvider(deps: FootballDataProviderDeps = {}):
       url.searchParams.set('dateFrom', window.fromIso);
       url.searchParams.set('dateTo', window.toIso);
 
-      const response = await fetchImpl(url, { headers: { 'X-Auth-Token': apiKey } });
+      const timeoutMs = deps.timeoutMs ?? FOOTBALL_DATA_REQUEST_TIMEOUT_MS;
+      let response: Response;
+      try {
+        response = await fetchImpl(url, {
+          headers: { 'X-Auth-Token': apiKey },
+          // Aborts a request the vendor never answers, so one hung club
+          // becomes one recorded failure instead of a sync that outlives its
+          // scheduler deadline.
+          signal: AbortSignal.timeout(timeoutMs),
+        });
+      } catch (error) {
+        if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
+          throw new Error(`football-data request timed out after ${timeoutMs}ms (team ${providerTeamId})`);
+        }
+        throw error;
+      }
 
       // A non-2xx rejects rather than resolving to an empty list. An empty
       // list here would be silently indistinguishable from "no fixtures in

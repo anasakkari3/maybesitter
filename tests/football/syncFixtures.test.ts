@@ -13,11 +13,13 @@ import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { setFollowedClubs } from '../../lib/football/followedClubs.ts';
 import {
+  DEFAULT_SYNC_BUDGET_MS,
   REQUEST_SPACING_MS,
   syncFollowedClubs,
   type SyncReport,
 } from '../../lib/football/syncFixtures.ts';
 import { listFixturesForTeam } from '../../lib/football/fixtureStore.ts';
+import { FOOTBALL_DATA_REQUEST_TIMEOUT_MS } from '../../lib/football/footballDataProvider.ts';
 import { fixtureContentHash, FIXTURE_CONTRACT_VERSION, FIXTURE_SCHEMA_VERSION, type Fixture, type FixtureCore } from '../../src/contracts/v1/fixtureContracts.ts';
 import { runFootballSyncJob, handleFootballSyncRequest, type FootballSyncJobReport } from '../../lib/jobs/internalJobs.ts';
 import { readParticipantState } from '../../lib/services/mobile/participantState.ts';
@@ -335,4 +337,20 @@ test('football-sync route: a valid scheduler token reaches the real job', async 
     if (previousKey === undefined) delete process.env.FOOTBALL_DATA_API_KEY;
     else process.env.FOOTBALL_DATA_API_KEY = previousKey;
   }
+});
+
+// ── Final review M1: the budget ignored the spacing and the request ─────
+test('a request is not started when the spacing sleep plus a full request could overrun the budget', async () => {
+  await setFollowedClubs('u1', ['barcelona', 'liverpool'], NOW);
+  const calls: string[] = [];
+  let clock = 0;
+  // After the first request, only 31s of the 45s budget has gone -- but the
+  // 6s spacing sleep and a request that may take its full timeout would end
+  // past the deadline, so the second request must not start.
+  const provider = providerReturning({ '81': [], '64': [] }, calls, () => {
+    clock = DEFAULT_SYNC_BUDGET_MS - REQUEST_SPACING_MS - FOOTBALL_DATA_REQUEST_TIMEOUT_MS + 1;
+  });
+  const report = await syncFollowedClubs({ provider, now: NOW, clock: () => clock, sleep: noSleep });
+  assert.deepEqual(calls, ['81']);
+  assert.equal(report.stoppedBy, 'budget');
 });

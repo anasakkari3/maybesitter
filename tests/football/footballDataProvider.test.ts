@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { createFootballDataProvider, normalizeMatch } from '../../lib/football/footballDataProvider.ts';
+import { createFootballDataProvider, FOOTBALL_DATA_REQUEST_TIMEOUT_MS, normalizeMatch } from '../../lib/football/footballDataProvider.ts';
 import type { Fixture } from '../../src/contracts/v1/fixtureContracts.ts';
 
 /**
@@ -136,4 +136,26 @@ test('a 2xx with no matches array rejects rather than pretending the club has no
     fetchImpl: (async () => new Response(JSON.stringify({ filters: {} }), { status: 200 })) as typeof fetch,
   });
   await assert.rejects(() => provider.listFixtures('81', { fromIso: '2026-09-16', toIso: '2026-11-15' }));
+});
+
+// ── Final review M1: a hung request had no timeout ──────────────────────
+test('a request that never answers is aborted and rejects, instead of hanging the sync', async () => {
+  let signal: AbortSignal | undefined;
+  const provider = createFootballDataProvider({
+    apiKey: 'k',
+    timeoutMs: 20,
+    fetchImpl: ((_url: unknown, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      signal = init?.signal ?? undefined;
+      signal?.addEventListener('abort', () => reject(signal!.reason));
+    })) as typeof fetch,
+  });
+  await assert.rejects(
+    () => provider.listFixtures('81', { fromIso: '2026-09-16', toIso: '2026-11-15' }),
+    /timed out|abort/i,
+  );
+  assert.ok(signal, 'the request carried an abort signal');
+});
+
+test('the default request timeout is eight seconds', () => {
+  assert.equal(FOOTBALL_DATA_REQUEST_TIMEOUT_MS, 8_000);
 });

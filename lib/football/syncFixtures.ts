@@ -64,6 +64,7 @@
  * that wiring creates against `dismissFixtureCommitment` and why it is not
  * made worse here.
  */
+import { FOOTBALL_DATA_REQUEST_TIMEOUT_MS } from './footballDataProvider';
 import {
   getStorage,
   type StorageAdapter,
@@ -231,7 +232,10 @@ export async function syncFollowedClubs(deps: SyncFollowedClubsDeps): Promise<Sy
       // late anyway. The very first candidate is always attempted
       // unconditionally, so a misconfigured near-zero budget still makes
       // progress -- one club a tick, forever, rather than none.
-      if (clock() - started >= budgetMs) {
+      // The whole cost of the next request counts, not only what has already
+      // been spent: the spacing sleep plus a request that may run to its
+      // full timeout (final review M1).
+      if (clock() - started + REQUEST_SPACING_MS + FOOTBALL_DATA_REQUEST_TIMEOUT_MS > budgetMs) {
         report.stoppedBy = 'budget';
         break;
       }
