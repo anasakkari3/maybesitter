@@ -23,6 +23,9 @@ import { DELETE as memoryDelete, PATCH as memoryPatch } from '../../src/app/api/
 import { POST as suggestionPost } from '../../src/app/api/mobile/memory/suggestions/[ruleId]/route.ts';
 import { EVENTS, MEMORY, MEMORY_DISMISSALS, userCol, userDoc, userSubDoc } from '../../lib/storage/paths.ts';
 import { KEPT_SUGGESTION_CONTENT } from '../../lib/memoryGrowth/templates.ts';
+import { GROWTH_EVENT_READ_LIMIT } from '../../lib/memoryGrowth/suggestionService.ts';
+import { deleteAllMemory } from '../../lib/services/mobile/memoryService.ts';
+import { listAuditEvents } from '../../lib/pilot/pilotTrustStore.ts';
 
 const baseUrl = 'http://127.0.0.1:4321';
 const OWNER = uidFor('GrowthOwner');
@@ -515,6 +518,69 @@ test('"delete everything" leaves zero memory, zero dismissals and zero personali
     // The completions are the user's own history and stay; the suggestion is
     // computed again, because nothing about it was ever saved.
     assert.equal((await suggestionsFor(OWNER)).length, 1);
+  } finally {
+    end();
+  }
+});
+
+test('a log too large to read whole yields no suggestion rather than one skewed toward old habits', async () => {
+  begin();
+  try {
+    await seedMorningHabit(OWNER);
+    await enableConsent(OWNER);
+    assert.equal((await suggestionsFor(OWNER)).length, 1);
+    // Fill the 28 days to the read bound with events that are not completions.
+    const at = localInstant(3, 14, 0);
+    for (let index = 0; index < GROWTH_EVENT_READ_LIMIT; index += 1) {
+      await getStorage().set(userSubDoc(OWNER, EVENTS, `ev_bulk_${index}`), {
+        id: `ev_bulk_${index}`, type: 'draft_created', at, aggregateId: `c_bulk_${index}`, payload: {},
+      });
+    }
+    assert.deepEqual(await suggestionsFor(OWNER), []);
+  } finally {
+    end();
+  }
+});
+
+test('a dismissal left behind is a failed deletion, not a 200', async () => {
+  begin();
+  try {
+    await getStorage().set(userSubDoc(OWNER, MEMORY_DISMISSALS, 'R1_focus_window'), {
+      ruleId: 'R1_focus_window', fingerprint: 'R1_focus_window:09:00-12:00', dismissedAt: new Date(NOW_MS).toISOString(),
+    });
+    const storage = getStorage();
+    const real = storage.delete.bind(storage);
+    (storage as { delete: unknown }).delete = async (path: string) => {
+      if (path.includes(`/${MEMORY_DISMISSALS}/`)) return;
+      await real(path);
+    };
+    let response: Response;
+    try {
+      response = await memoryDeleteAll(request(OWNER, '/api/mobile/memory', { method: 'DELETE' }));
+    } finally {
+      (storage as { delete: unknown }).delete = real;
+    }
+    assert.equal(response.status, 500);
+    assert.equal((await json(response)).reason, 'memory_delete_incomplete');
+    assert.deepEqual((await listAuditEvents(OWNER)).filter((event) => event.eventType === 'memory_deleted'), []);
+  } finally {
+    end();
+  }
+});
+
+test('delete-all purges dismissals from the storage it was handed, not the process default', async () => {
+  begin();
+  try {
+    const injected = createMemoryStorage();
+    await injected.set(userSubDoc(OWNER, MEMORY_DISMISSALS, 'R1_focus_window'), {
+      ruleId: 'R1_focus_window', fingerprint: 'R1_focus_window:09:00-12:00', dismissedAt: new Date(NOW_MS).toISOString(),
+    });
+    await deleteAllMemory(OWNER, new Date(NOW_MS).toISOString(), {
+      storage: injected,
+      memory: createStorageRuntimeMemoryStore(undefined, injected),
+      feedback: createStorageFeedbackEventStore(injected),
+    });
+    assert.equal((await injected.list(userCol(OWNER, MEMORY_DISMISSALS))).length, 0);
   } finally {
     end();
   }

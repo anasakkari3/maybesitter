@@ -71,6 +71,10 @@ test('the adapter uses a focus hint only when the routine names no focus window'
   });
   assert.deepEqual(windowsOf(withRoutine.constraints), [[780, 1020]], 'what the user said about their day outranks a pattern');
 
+  // A late habit ends at the end of the day, and is still a window the planner can use.
+  const late = buildDailyPlanInput({ ...base, profile: null, focusHint: { start: '21:00', end: '24:00' } });
+  assert.deepEqual(windowsOf(late.constraints), [[1260, 1440]]);
+
   const none = buildDailyPlanInput({ ...base, profile: null });
   assert.deepEqual(windowsOf(none.constraints), [[480, 1200]]);
 });

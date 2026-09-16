@@ -135,6 +135,26 @@ test('a window never wraps midnight, because a working window may not', () => {
   assert.equal(suggestion, null);
 });
 
+test('a late habit is described as ending at the end of the day, not past it', () => {
+  const late = Array.from({ length: 10 }, (_, index) => completionAt(`l${index}`, index + 1, '23:30'));
+  const suggestion = suggestFocusWindow(late, ZONE, NOW);
+  assert.ok(suggestion);
+  assert.deepEqual(suggestion.window, { start: '21:00', end: '24:00' });
+  assert.deepEqual(parseFocusWindowFingerprint(suggestion.fingerprint), suggestion.window);
+});
+
+test('the latest completion of a reopened commitment is the one that counts, in either input order', () => {
+  // Five of eight distinct things in the morning is 62.5%. One of those five
+  // was reopened and finished again in the evening, which makes it four of
+  // eight — and no suggestion — whichever order the two events arrive in.
+  const morning = ['09:10', '09:50', '10:20', '10:40', '11:30'].map((time, index) => completionAt(`m${index}`, index + 5, time));
+  const evening = ['19:00', '20:00', '21:00'].map((time, index) => completionAt(`v${index}`, index + 11, time));
+  const again = { ...completionAt('m0_again', 1, '20:15'), commitmentId: morning[0]!.commitmentId };
+  assert.ok(suggestFocusWindow([...morning, ...evening], ZONE, NOW), 'the baseline must suggest, or this proves nothing');
+  assert.equal(suggestFocusWindow([...morning, ...evening, again], ZONE, NOW), null);
+  assert.equal(suggestFocusWindow([again, ...morning, ...evening], ZONE, NOW), null);
+});
+
 test('the fingerprint round-trips and refuses anything it did not write', () => {
   assert.equal(focusWindowFingerprint({ start: '09:00', end: '12:00' }), 'R1_focus_window:09:00-12:00');
   assert.deepEqual(parseFocusWindowFingerprint('R1_focus_window:09:00-12:00'), { start: '09:00', end: '12:00' });

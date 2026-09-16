@@ -165,6 +165,23 @@ function minuteOfDay(value: string): number | null {
   return match ? Number(match[1]) * 60 + Number(match[2]) : null;
 }
 
+/**
+ * A kept focus window as one minute range.
+ *
+ * Not `minuteRanges`: a rule's window never wraps, and it may end at the very
+ * end of the day — "between 21:00 and 24:00" — which `minuteOfDay` rightly
+ * refuses as a time of day but is a perfectly good window end. Read through
+ * `minuteRanges`, that habit would be kept by the user and silently ignored by
+ * the planner.
+ */
+function hintRange(window: { start: string; end: string } | null): Array<[number, number]> {
+  if (!window) return [];
+  const start = minuteOfDay(window.start);
+  const end = window.end === '24:00' ? 1440 : minuteOfDay(window.end);
+  if (start === null || end === null || end <= start) return [];
+  return [[start, end]];
+}
+
 /** A wall-clock window as one or two non-wrapping minute ranges. */
 function minuteRanges(window: { start: string; end: string } | null): Array<[number, number]> {
   if (!window) return [];
@@ -210,7 +227,7 @@ export function workingWindowsFor(
   focusHint: { readonly start: string; readonly end: string } | null = null,
 ): WorkingWindow[] {
   const focus = (profile?.focusWindows ?? []).flatMap((window) => minuteRanges(window));
-  const hinted = focus.length > 0 ? [] : minuteRanges(focusHint);
+  const hinted = focus.length > 0 ? [] : hintRange(focusHint);
   const ranges = focus.length > 0
     ? focus
     : hinted.length > 0
