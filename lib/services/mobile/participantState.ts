@@ -46,6 +46,7 @@ import {
   ESCALATION_STATES,
   EVENTS,
   getStorage,
+  HARD_REMINDERS,
   PLAN_EVENTS,
   PLANS,
   RECOMMENDATION_ACTIONS,
@@ -61,6 +62,7 @@ import {
 import { newUserDocument, type UserDocument } from '../../storage/userDocument';
 import { readActivityStats, recordActivityEvents } from '../activity/activityStats';
 import { commitmentValidator } from './commitmentValidator';
+import { writeHardReminderIndexDiff } from '../reminders/hardReminderIndex';
 
 export type ParticipantCommandResultType = 'applied' | 'noop' | 'rejected' | 'invalid_transition';
 
@@ -109,6 +111,8 @@ interface RecommendationDecisionRecord {
 /** Every subcollection holding this participant's own data. Deletion walks it. */
 const PARTICIPANT_COLLECTIONS = [
   COMMITMENTS,
+  // The index of their Must reminders goes with the commitments it indexes (#198).
+  HARD_REMINDERS,
   REMINDERS,
   ESCALATION_STATES,
   EVENTS,
@@ -159,6 +163,11 @@ function entityDocId(id: string): string {
 
 function entryPath(uid: string, collection: string, id: string): string {
   return `${userCol(uid, collection)}/${entityDocId(id)}`;
+}
+
+/** Where one commitment is stored, for a reader that needs exactly one (#198). */
+export function commitmentDocPath(uid: string, commitmentId: string): string {
+  return entryPath(requireUserId(uid), COMMITMENTS, commitmentId);
 }
 
 /** The three domain subcollections, assembled back into a `DomainState`. */
@@ -217,6 +226,10 @@ export function writeDomainDiff(
   diffCollection(tx, uid, COMMITMENTS, before.commitments, after.commitments);
   diffCollection(tx, uid, REMINDERS, before.reminders, after.reminders);
   diffCollection(tx, uid, ESCALATION_STATES, before.escalationStates, after.escalationStates);
+  // The Must-reminder index (UC-3.12b, #198), in the same commit as the
+  // commitment it describes — this is the one place every commitment write
+  // passes through, so it is the one place the index cannot be forgotten.
+  writeHardReminderIndexDiff(tx, uid, before.commitments, after.commitments, user, at);
 
   for (const event of events) {
     // `create`, never `set`: the event log is append-only, and an id that

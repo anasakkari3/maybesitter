@@ -44,6 +44,7 @@
  */
 import {
   buildRoutineProfile,
+  isUserRoutineProfile,
   isValidTimezone,
   parseRoutineProfileInput,
   type RoutineProfileInput,
@@ -210,6 +211,43 @@ function readStoredHard(value: unknown): Pick<StoredReminderSettings, 'hardEnabl
   };
 }
 
+/** The three Must-reminder settings, as every reader has to resolve them. */
+export interface HardReminderSettings {
+  readonly hardEnabled: boolean;
+  readonly escalationCeiling: PressureCeiling;
+  readonly mustThroughQuietHours: boolean;
+}
+
+/**
+ * The Must-reminder settings from a `users/{uid}` document, with no read (#198).
+ *
+ * Pure, because the one place that must answer this on every commitment write —
+ * `writeDomainDiff`, inside a transaction that may issue no further reads — has
+ * the user document already and nothing else. The settings screen's reader and
+ * the backup-push job go through the same function, so the three can never
+ * disagree about whether an account rings.
+ */
+export function hardSettingsOfUser(user: unknown): HardReminderSettings {
+  const record = user && typeof user === 'object' ? user as Record<string, unknown> : {};
+  const hard = readStoredHard(record.reminderSettings);
+  const profile = record.profile && typeof record.profile === 'object'
+    ? (record.profile as Record<string, unknown>).routine
+    : undefined;
+  const legacy = legacyHardSettings(
+    profile && isUserRoutineProfile(profile) ? profile.preferredReminderIntensity : undefined,
+  );
+  return {
+    hardEnabled: hard.hardEnabled ?? legacy.hardEnabled,
+    escalationCeiling: hard.escalationCeiling ?? legacy.escalationCeiling,
+    mustThroughQuietHours: hard.mustThroughQuietHours ?? false,
+  };
+}
+
+/** Whether a Must commitment on this account may ring at all. */
+export function ringsForMust(settings: HardReminderSettings): boolean {
+  return settings.hardEnabled && settings.escalationCeiling === 'hard';
+}
+
 export async function readReminderSettings(
   uid: string,
   options: ReminderSettingsOptions = {},
@@ -218,16 +256,15 @@ export async function readReminderSettings(
   const storage = storageOf(options);
   const user = await storage.get<ReminderSettingsBearingUser>(userDoc(uid));
   const stored = readStored(user?.reminderSettings);
-  const hard = readStoredHard(user?.reminderSettings);
+  const hard = hardSettingsOfUser(user);
   const profile = await readRoutineProfile(uid, { storage });
-  const legacy = legacyHardSettings(profile?.preferredReminderIntensity);
 
   return Object.freeze({
     softEnabled: stored?.softEnabled ?? DEFAULT_SOFT_ENABLED,
     softLeadMinutes: stored?.softLeadMinutes ?? DEFAULT_SOFT_LEAD_MINUTES,
-    hardEnabled: hard.hardEnabled ?? legacy.hardEnabled,
-    escalationCeiling: hard.escalationCeiling ?? legacy.escalationCeiling,
-    mustThroughQuietHours: hard.mustThroughQuietHours ?? false,
+    hardEnabled: hard.hardEnabled,
+    escalationCeiling: hard.escalationCeiling,
+    mustThroughQuietHours: hard.mustThroughQuietHours,
     quietHours: profile?.quietHours ?? null,
     timezone: profile?.timezone
       ?? (typeof user?.timezone === 'string' && user.timezone ? user.timezone : 'UTC'),
@@ -302,6 +339,12 @@ export async function saveReminderSettings(
   if (input.quietHours !== undefined) {
     await writeQuietHoursThrough(uid, input, at, { storage });
   }
+
+  // Turning Must reminders on, off, or to another ceiling changes which
+  // commitments the server may have to back up (#198). The commitments did not
+  // change, so no commitment write will rebuild the index; this does.
+  const { reconcileHardReminderIndex } = await import('../reminders/hardReminderIndex');
+  await reconcileHardReminderIndex(uid, new Date(at), { storage });
 
   return readReminderSettings(uid, { storage });
 }

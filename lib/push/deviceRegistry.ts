@@ -87,6 +87,11 @@ export class DeviceValidationError extends Error {
  * and the set of shapes the phone can produce is exactly one.
  */
 const INSTALLATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+/** Whether a string is an installation id this app could have minted. */
+export function isInstallationId(value: unknown): value is string {
+  return typeof value === 'string' && INSTALLATION_ID.test(value);
+}
+
 /** FCM tokens are long opaque strings; the cap is generous and the charset is not. */
 const FCM_TOKEN = /^[A-Za-z0-9_:.~%-]{32,4096}$/;
 /** `1.4.2`, `1.4.2-staging.3`. Long enough for a real version, short enough not to be a note. */
