@@ -1,0 +1,16 @@
+{
+  "success": true,
+  "outcome": "updated",
+  "feed": {
+    "feedId": "00000000-0000-4000-8000-000000000001",
+    "label": "CS101 Moodle",
+    "autoAcceptDeadlines": false,
+    "status": "ok",
+    "consecutiveFailures": 0,
+    "lastErrorCode": null,
+    "lastFetchedAt": "2026-08-09T09:00:00.000Z",
+    "nextFetchAt": "2026-08-09T09:00:00.000Z",
+    "busyBlocks": 1,
+    "pendingDeadlines": 1
+  }
+}

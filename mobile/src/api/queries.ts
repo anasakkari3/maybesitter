@@ -66,7 +66,16 @@ import type { MemorySuggestion } from './schemas/profile';
 import type { AlphaFeedbackCategory } from './schemas/feedback';
 import type { AnalyticsProperties, ClientReportableEvent } from './schemas/analytics';
 import { ForbiddenError, InvalidTransitionError, StaleCommitmentError } from './errors';
-import { safeCommitmentPatchEnabled } from '../config/env';
+import { icsFeedsEnabled, safeCommitmentPatchEnabled } from '../config/env';
+import {
+  createIcsFeed,
+  decideIcsDeadline,
+  deleteIcsFeed,
+  listIcsFeeds,
+  refreshIcsFeed,
+  updateIcsFeed,
+} from './endpoints/icsFeeds';
+import type { IcsDeadlineAction } from './schemas/icsFeeds';
 
 /**
  * The hooks screens use, and the invalidation rules that keep them honest.
@@ -101,6 +110,8 @@ export const queryKeys = {
   planSettings: (uid: string) => ['user', uid, 'planSettings'] as const,
   reminderSettings: (uid: string) => ['user', uid, 'reminderSettings'] as const,
   categoryPreferences: (uid: string) => ['user', uid, 'categoryPreferences'] as const,
+  /** Subscribed calendar feeds and the deadlines they propose (UC-3.4, #188). Never a URL. */
+  icsFeeds: (uid: string) => ['user', uid, 'icsFeeds'] as const,
 };
 
 /** The signed-in uid, or the one value that can never collide with one. */
@@ -1020,6 +1031,95 @@ export function useSaveReminderSettings() {
         // The next step is gated on the same window.
         void client.invalidateQueries({ queryKey: ['user', uid, 'nextStep'] });
       }
+    },
+  });
+}
+
+/* ── Subscribed calendar feeds (UC-3.4, #188) ───────────────────────── */
+
+/**
+ * The feeds and the deadlines waiting on the user. Disabled outright when the
+ * build's flag is off, so a build without the feature never calls the routes.
+ */
+export function useIcsFeeds() {
+  const uid = useUid();
+  return useQuery({
+    queryKey: queryKeys.icsFeeds(uid),
+    queryFn: listIcsFeeds,
+    enabled: uid !== 'signed-out' && icsFeedsEnabled(),
+  });
+}
+
+/**
+ * Subscribing. The URL goes into the request and nowhere else: this mutation
+ * has no `onMutate`, no optimistic entry and no `meta`, and TanStack keeps
+ * `variables` only on the mutation object the screen holds — which the screen
+ * resets the moment the call settles (see `CalendarFeedsScreen`).
+ */
+export function useCreateIcsFeed() {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn: (input: { url: string; label: string | null; autoAcceptDeadlines: boolean }) => createIcsFeed(input),
+    // Kept out of the mutation cache's history once it settles, so no copy of
+    // the variables outlives the call.
+    gcTime: 0,
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.icsFeeds(uid) });
+    },
+  });
+}
+
+export function useUpdateIcsFeed() {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn: (input: { feedId: string; autoAcceptDeadlines?: boolean; label?: string | null }) => {
+      const { feedId, ...changes } = input;
+      return updateIcsFeed(feedId, changes);
+    },
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.icsFeeds(uid) });
+    },
+  });
+}
+
+export function useRefreshIcsFeed() {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn: (feedId: string) => refreshIcsFeed(feedId),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.icsFeeds(uid) });
+      // Lectures are busy time, and busy time shapes the plan and the lists.
+      void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
+    },
+  });
+}
+
+export function useDeleteIcsFeed() {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn: (feedId: string) => deleteIcsFeed(feedId),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.icsFeeds(uid) });
+      void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
+    },
+  });
+}
+
+export function useDecideIcsDeadline() {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn: (input: { feedId: string; itemKey: string; action: IcsDeadlineAction }) =>
+      decideIcsDeadline(input.feedId, input.itemKey, input.action),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.icsFeeds(uid) });
+      // Accept, undo and apply-move change commitments.
+      void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
+      void client.invalidateQueries({ queryKey: queryKeys.activity(uid) });
     },
   });
 }

@@ -1,0 +1,31 @@
+{
+  "success": true,
+  "feeds": [
+    {
+      "feedId": "00000000-0000-4000-8000-000000000001",
+      "label": "CS101",
+      "autoAcceptDeadlines": false,
+      "status": "ok",
+      "consecutiveFailures": 0,
+      "lastErrorCode": null,
+      "lastFetchedAt": "2026-08-09T09:00:00.000Z",
+      "nextFetchAt": "2026-08-09T09:00:00.000Z",
+      "busyBlocks": 1,
+      "pendingDeadlines": 1
+    }
+  ],
+  "deadlines": [
+    {
+      "itemKey": "0000000000000000000000000000000000000000000000000000000000000000",
+      "feedId": "00000000-0000-4000-8000-000000000002",
+      "title": "Essay 1 is due",
+      "dueAt": "2026-08-09T09:00:00.000Z",
+      "allDay": false,
+      "state": "pending",
+      "notice": null,
+      "proposedDueAt": null,
+      "commitmentId": null,
+      "autoAccepted": false
+    }
+  ]
+}

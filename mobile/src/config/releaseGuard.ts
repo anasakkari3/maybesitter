@@ -81,6 +81,14 @@ export interface ReleaseConfigInput {
    */
   calendarRead?: string | undefined;
   /**
+   * `EXPO_PUBLIC_FEATURE_ICS_FEEDS` (UC-3.4, #188).
+   *
+   * The phone half of the server's `ICS_FEEDS_ENABLED`, and read the same way:
+   * on only for the literal `true`. Checked here so a typo is a refused build
+   * rather than a screen that silently never appears.
+   */
+  icsFeeds?: string | undefined;
+  /**
    * `EXPO_PUBLIC_SHARE_INTENT_DEBUG` (UC-3.0, #183).
    *
    * Turns on `expo-share-intent`'s own logging, which writes the shared payload
@@ -141,6 +149,11 @@ export function releaseConfigProblems(input: ReleaseConfigInput): string[] {
   const calendarRead = (input.calendarRead ?? '').trim();
   if (calendarRead !== '' && calendarRead !== 'true' && calendarRead !== 'false') {
     problems.push(`EXPO_PUBLIC_FEATURE_CALENDAR_READ must be true or false (got ${calendarRead})`);
+  }
+
+  const icsFeeds = (input.icsFeeds ?? '').trim();
+  if (icsFeeds !== '' && icsFeeds !== 'true' && icsFeeds !== 'false') {
+    problems.push(`EXPO_PUBLIC_FEATURE_ICS_FEEDS must be true or false (got ${icsFeeds})`);
   }
 
   const calendarWrite = (input.calendarWrite ?? '').trim();
