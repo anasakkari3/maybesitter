@@ -53,6 +53,7 @@ export function configProblems(): string[] {
     shareIntake: process.env.EXPO_PUBLIC_FEATURE_SHARE_INTAKE,
     shareIntentDebug: process.env.EXPO_PUBLIC_SHARE_INTENT_DEBUG,
     calendarWrite: process.env.EXPO_PUBLIC_FEATURE_CALENDAR_WRITE,
+    calendarRead: process.env.EXPO_PUBLIC_FEATURE_CALENDAR_READ,
   });
 }
 
@@ -265,6 +266,26 @@ export function safeCommitmentPatchEnabled(): boolean {
  */
 export function calendarWriteEnabled(): boolean {
   return (process.env.EXPO_PUBLIC_FEATURE_CALENDAR_WRITE ?? '').trim() === 'true';
+}
+
+/**
+ * Whether this build reads busy time out of the phone's calendar
+ * (UC-3.2, #186 step 9).
+ *
+ * **On by default**, and turned off by `EXPO_PUBLIC_FEATURE_CALENDAR_READ=false`
+ * — the opposite default from `calendarWriteEnabled` above, and the difference
+ * is the point. Writing puts an entry into a place somebody shares with other
+ * people; reading puts nothing anywhere that the user has not already seen, and
+ * it cannot happen at all until they turn the calendar switch on and the OS
+ * agrees. So the thing that needs a device run before it is trusted is the
+ * write, and this is a kill switch rather than a launch gate.
+ *
+ * Read as "anything but the literal string `false`", so a typo leaves the
+ * feature on — again the mirror of the enable flags, because for a kill switch
+ * the dangerous typo is the one that silently disables.
+ */
+export function calendarReadEnabled(): boolean {
+  return (process.env.EXPO_PUBLIC_FEATURE_CALENDAR_READ ?? '').trim() !== 'false';
 }
 
 /**

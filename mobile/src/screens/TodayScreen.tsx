@@ -15,6 +15,10 @@ import { SwipeableRow, useRowActions } from '../features/commitments/RowActions'
 import { postponeTo } from '../features/commitments/postpone';
 import { whyFirstLine } from '../features/commitments/whyFirst';
 import { NextStepCard } from '../features/nextStep/NextStepCard';
+import { BusyConflictChip } from '../features/calendar/BusyConflictChip';
+import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
+import { busyAt } from '../features/calendar/conflicts';
+import type { DeviceBusyBlock } from '../features/calendar/busyBlocks';
 import { TodayPlanCard } from '../features/plan/TodayPlanCard';
 import { Btn, Card, Pill, Txt } from '../ui/primitives';
 import { CheckIcon, Glow } from '../ui/icons';
@@ -54,6 +58,9 @@ export function TodayScreen() {
   const insets = useSafeAreaInsets();
   const timezone = useTimeZone();
   const today = useToday();
+  // From the local cache (UC-3.2, #186). Today renders before any request has
+  // finished, and a chip that arrived after the list would move rows about.
+  const busy = useBusyBlocks();
   const [refreshing, setRefreshing] = useState(false);
 
   // Off unless the account says otherwise, and off when the preference will not
@@ -148,6 +155,7 @@ export function TodayScreen() {
                   why={why}
                   timezone={timezone}
                   lang={lang}
+                  busy={busy}
                 />
               ))}
 
@@ -169,7 +177,7 @@ const GROUP_TITLE = {
 } as const;
 
 function Group({
-  title, items, topId, why, timezone, lang, testID,
+  title, items, topId, why, timezone, lang, testID, busy,
 }: {
   title: string;
   items: CommitmentView[];
@@ -178,6 +186,7 @@ function Group({
   timezone: string;
   lang: Lang;
   testID: string;
+  busy: readonly DeviceBusyBlock[];
 }) {
   const { p } = useApp();
   if (items.length === 0) return null;
@@ -195,6 +204,7 @@ function Group({
           first={index === 0}
           timezone={timezone}
           lang={lang}
+          busy={busy}
         />
       ))}
     </Card>
@@ -202,13 +212,14 @@ function Group({
 }
 
 function Row({
-  item, why, first, timezone, lang,
+  item, why, first, timezone, lang, busy,
 }: {
   item: CommitmentView;
   why: string | null;
   first: boolean;
   timezone: string;
   lang: Lang;
+  busy: readonly DeviceBusyBlock[];
 }) {
   const { t, p, actions } = useApp();
   const act = useCommitmentAction();
@@ -262,6 +273,13 @@ function Row({
           <Txt size={12} color={p.mu} testID={`today-estimated-${item.id}`}>{t.todayEstimatedMark}</Txt>
         ) : null}
       </View>
+      {/* What else is happening then (UC-3.2, #186). A note in the muted
+          colour, under the time it is about — never a warning, and never
+          something that stops the row being opened or completed. */}
+      <BusyConflictChip
+        blocks={item.shownAt ? busyAt(item.shownAt, busy) : []}
+        testID={`today-busy-${item.id}`}
+      />
       {why ? (
         <Txt size={12} color={p.ac} testID="today-why-first">{why}</Txt>
       ) : null}

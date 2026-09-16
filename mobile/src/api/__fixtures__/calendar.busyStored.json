@@ -1,0 +1,10 @@
+{
+  "success": true,
+  "blocks": 2,
+  "source": {
+    "sourceId": "device:writer-phone",
+    "lastSyncedAt": "2026-08-09T09:00:00.000Z",
+    "windowStart": "2026-08-09T09:00:00.000Z",
+    "windowEnd": "2026-08-09T09:00:00.000Z"
+  }
+}

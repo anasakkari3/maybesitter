@@ -96,6 +96,11 @@ import {
   PUT as calendarLinkPut,
 } from '../../src/app/api/mobile/commitments/[id]/device-calendar-link/route.ts';
 import {
+  DELETE as calendarBusyDelete,
+  POST as calendarBusyPost,
+} from '../../src/app/api/mobile/calendar/busy/route.ts';
+import { busyBlockId } from '../../lib/calendar/busyBlocks.ts';
+import {
   GET as reminderSettingsGet,
   PUT as reminderSettingsPut,
 } from '../../src/app/api/mobile/settings/reminders/route.ts';
@@ -553,6 +558,56 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       }),
       params(commitmentId),
     ));
+
+    // ── busy time (UC-3.2, #186) ───────────────────────────────────
+    // The one route somebody's calendar travels over. Recorded with two blocks
+    // — one timed, one all-day — and then disconnected, so both the stored and
+    // the deleted shape are a fixture the app's schemas are parsed against.
+    // Note what is *not* in the response: no block, no id, nothing the user
+    // would recognise. An echo would be the only place in this feature where
+    // busy intervals came back over the network.
+    // The trust store refuses a backdated action, so these two carry the wall
+    // clock rather than the fixture's reference time. Nothing recorded below
+    // depends on either value.
+    const trustAt = new Date().toISOString();
+    await applyTrustAction(USER, { type: 'record_first_value', at: trustAt });
+    await applyTrustAction(USER, { type: 'set_calendar_consent', granted: true, at: trustAt });
+
+    const busySource = 'device:writer-phone';
+    await record('calendar.busyStored', 200, await calendarBusyPost(
+      request('/api/mobile/calendar/busy', {
+        body: {
+          sourceId: busySource,
+          platform: 'ios',
+          windowStart: '2026-08-09T00:00:00.000Z',
+          windowEnd: '2026-09-06T00:00:00.000Z',
+          blocks: [
+            {
+              blockId: busyBlockId(busySource, 'event-lecture', '2026-08-10T07:00:00.000Z'),
+              startAt: '2026-08-10T07:00:00.000Z',
+              endAt: '2026-08-10T09:00:00.000Z',
+              allDay: false,
+            },
+            {
+              blockId: busyBlockId(busySource, 'event-holiday', '2026-08-12T00:00:00.000Z'),
+              startAt: '2026-08-12T00:00:00.000Z',
+              endAt: '2026-08-13T00:00:00.000Z',
+              allDay: true,
+            },
+          ],
+        },
+      }),
+    ));
+
+    await record('calendar.busyDeleted', 200, await calendarBusyDelete(
+      request(`/api/mobile/calendar/busy?sourceId=${encodeURIComponent(busySource)}`, { method: 'DELETE' }),
+    ));
+    // And switched back off, which is what "disconnect" means for the account
+    // as well as for the phone. It also leaves the trust fixtures recorded
+    // below saying what they said before this section existed: the calendar
+    // consent they carry is the *unconsented* shape, which is the one the
+    // Trust Center renders for everybody who has never turned it on.
+    await applyTrustAction(USER, { type: 'set_calendar_consent', granted: false, at: new Date().toISOString() });
 
     // ── activity (#201) ────────────────────────────────────────────
     // Read here, after the complete above, so the log already holds a

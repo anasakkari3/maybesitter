@@ -59,11 +59,15 @@
  *
  * ── Two seams that are empty until their issues land ─────────────
  *
- * `BusyBlockReader` defaults to `NO_BUSY_BLOCKS` until UC-3.2 (#186) exists,
- * and `PlanPushSender` defaults to `NO_PLAN_PUSH` until UC-3.0b (#184) does.
- * Both are arguments, both are unit-tested against injected fakes, and neither
- * is faked into looking finished: with today's `main`, a plan is built from
- * commitments only and nobody's phone rings.
+ * `PlanPushSender` defaults to `NO_PLAN_PUSH` until UC-3.0b (#184) exists. It
+ * is an argument, it is unit-tested against an injected fake, and it is not
+ * faked into looking finished: with today's `main`, nobody's phone rings.
+ *
+ * The other one is closed. UC-3.2 (#186) supplies `storedBusyBlocks` below, so
+ * the default reader is the real one and a plan is built against whatever the
+ * account's connected calendars say. `tests/calendar/busyPlanning.test.ts`
+ * injects nothing, which is what makes that a claim about production rather
+ * than about a fake.
  */
 import { getStorage, type StorageAdapter } from '../../storage';
 import { USERS, userDoc } from '../../storage/paths';
@@ -74,11 +78,11 @@ import { schedulePlan } from '../../planning/scheduler';
 import { toEpochMs } from '../../planning/shared/time';
 import type { Commitment } from '../../../src/domain/stateMachine';
 import {
-  NO_BUSY_BLOCKS,
   buildDailyPlanInput,
   dayHorizon,
   type BusyBlockReader,
 } from './buildDailyPlan';
+import { readBusyBlocksForPlanning } from '../../calendar/busyBlocks';
 import { explanationFactsFrom } from './explanationValidator';
 import { explainPlan, type ExplanationDeps } from './explanationService';
 import {
@@ -132,6 +136,22 @@ export interface DailyPlanDeps {
 
 function storageOf(deps: DailyPlanDeps): StorageAdapter {
   return deps.storage ?? getStorage();
+}
+
+/**
+ * The production reader (UC-3.2, #186).
+ *
+ * Bound to the adapter this build is already using rather than reaching for
+ * `getStorage()` of its own, so a test that hands the service one store cannot
+ * have its busy time read out of another.
+ *
+ * All-day entries are dropped inside `readBusyBlocksForPlanning`, which is
+ * #186's decision: a birthday is not eight hours of unavailable time, and a
+ * planner that treated one as blocking would answer "nothing fits" for a day
+ * the user is perfectly able to work in.
+ */
+function storedBusyBlocks(storage: StorageAdapter): BusyBlockReader {
+  return (uid, window) => readBusyBlocksForPlanning(uid, window, { storage });
 }
 
 export interface DeliveryClaim {
@@ -297,7 +317,7 @@ export async function composeDailyPlan(
   const commitments = Object.values(state.commitments);
   const profile = await readRoutineProfile(uid, { storage });
   const horizon = dayHorizon(date, timezone);
-  const busyBlocks = await (deps.busyBlocks ?? NO_BUSY_BLOCKS)(uid, horizon);
+  const busyBlocks = await (deps.busyBlocks ?? storedBusyBlocks(storage))(uid, horizon);
 
   const { constraints, config } = buildDailyPlanInput({
     uid,

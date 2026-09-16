@@ -31,6 +31,7 @@ import { NotificationsSettingsScreen } from './features/settings/NotificationsSe
 import { CalendarSettingsScreen } from './features/settings/CalendarSettingsScreen';
 import { CategorySettingsScreen } from './features/settings/CategorySettingsScreen';
 import { DeviceCalendarSyncHost } from './features/calendar/useDeviceCalendarSync';
+import { BusyCalendarHost } from './features/calendar/useBusyCalendar';
 import { AboutScreen } from './features/settings/AboutScreen';
 import { googleCalendarDemoEnabled } from './config/env';
 import { RemindersMount } from './features/reminders/RemindersMount';
@@ -99,6 +100,11 @@ export function Root() {
               rather than on a screen because a reminder has to be scheduled and
               a tap has to be routed whatever the user is looking at. */}
           <RemindersMount />
+          {/* Also draws nothing (UC-3.2, #186). It keeps the busy times this
+              phone reads in step with the calendar, for the whole session:
+              the conflict chips are on Today and on the review card, and both
+              are screens the settings page is not open behind. */}
+          <BusyCalendarHost />
           {s.screen === 'today' && <TodayScreen key="today" />}
           {s.screen === 'calendar' && <CalendarScreen key="calendar" />}
           {s.screen === 'settings' && <SettingsScreen key="settings" />}

@@ -2,6 +2,6 @@
   "CFBundleDisplayName": "MaybeSitter",
   "NSMicrophoneUsageDescription": "بنستعمل المايك بس وقت تضغط زر التسجيل عشان تحكي التزام.",
   "NSSpeechRecognitionUsageDescription": "جهازك هو اللي بيحوّل صوتك لنص. MaybeSitter ما بيوصله الصوت أبداً.",
-  "NSCalendarsUsageDescription": "MaybeSitter بيحطّ الالتزامات اللي بتأكّدها بتقويم إنت بتختاره، وبيقرا بس المواعيد اللي هو ضافها، عشان يقدر ينقلها أو يشيلها لما إنت تعمل هيك.",
-  "NSCalendarsFullAccessUsageDescription": "MaybeSitter بيحطّ الالتزامات اللي بتأكّدها بتقويم إنت بتختاره، وبيقرا بس المواعيد اللي هو ضافها، عشان يقدر ينقلها أو يشيلها لما إنت تعمل هيك."
+  "NSCalendarsUsageDescription": "MaybeSitter بيحطّ الالتزامات اللي بتأكّدها بتقويم إنت بتختاره، وبيقرا إيمتى إنت مشغول — الأوقات بس، مش عناوين المواعيد — عشان يرتّب حواليها وينبّهك إذا في تعارض.",
+  "NSCalendarsFullAccessUsageDescription": "MaybeSitter بيحطّ الالتزامات اللي بتأكّدها بتقويم إنت بتختاره، وبيقرا إيمتى إنت مشغول — الأوقات بس، مش عناوين المواعيد — عشان يرتّب حواليها وينبّهك إذا في تعارض."
 }

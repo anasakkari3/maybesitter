@@ -44,7 +44,12 @@ const GUARDED_VIA_SCOPE = new Set([
 ]);
 
 test('every mobile route file exists and is enumerated', () => {
-  // Thirty-five today: UC-3.1 (#185) added `PUT|DELETE /api/mobile/commitments/
+  // Thirty-six today: UC-3.2 (#186) added `POST|DELETE /api/mobile/calendar/
+  // busy`. It is the route somebody's calendar travels over, so the guard is
+  // the thing that decides whether busy time is filed under the account that
+  // owns it — and the `DELETE`, which is "disconnect and remove what you
+  // have", must not be reachable by anybody but that account.
+  // Thirty-five before that: UC-3.1 (#185) added `PUT|DELETE /api/mobile/commitments/
   // {id}/device-calendar-link` and `GET|PUT /api/mobile/settings/calendar`. The
   // link route is the one whose *refusal* is load-bearing rather than its
   // success — it is what stops a second device writing a duplicate event — so
@@ -79,7 +84,11 @@ test('every mobile route file exists and is enumerated', () => {
   // display preference, but it is also what the extraction prompt is built from
   // — an unauthenticated write would choose which categories somebody else's
   // captures are sorted into.
-  assert.equal(files.length, 39, `found:\n${files.join('\n')}`);
+  // Forty after #186 merged on top: `POST|DELETE /api/mobile/calendar/busy`,
+  // the route somebody's calendar travels over. Its DELETE is "disconnect and
+  // remove what you hold", and it must not be reachable by anyone but the
+  // account that owns the source.
+  assert.equal(files.length, 40, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {

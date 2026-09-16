@@ -2,6 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 import { readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import type { z } from 'zod';
+import type { CalendarBusyUpload } from '../endpoints/calendar';
 import { commitmentListSchema, commitmentSchema, errorBodySchema, importanceOf } from '../schemas/common';
 import {
   commitmentActionResultSchema,
@@ -36,6 +37,8 @@ import {
   planSettingsResponseSchema,
 } from '../schemas/plan';
 import {
+  calendarBusyDeletedSchema,
+  calendarBusyStoredSchema,
   calendarSettingsResponseSchema,
   deviceCalendarLinkConflictSchema,
   deviceCalendarLinkRemovedSchema,
@@ -133,6 +136,12 @@ const CASES: Array<[string, z.ZodType]> = [
   ['calendar.linkStored', deviceCalendarLinkResponseSchema],
   ['calendar.linkConflict', deviceCalendarLinkConflictSchema],
   ['calendar.linkRemoved', deviceCalendarLinkRemovedSchema],
+  // Busy time (UC-3.2, #186). What is worth reading in these two fixtures is
+  // what is *not* in them: a count and a window, and not one interval. The app
+  // already knows what it sent, and an echo would be the only place in this
+  // feature where busy times travelled back over the network.
+  ['calendar.busyStored', calendarBusyStoredSchema],
+  ['calendar.busyDeleted', calendarBusyDeletedSchema],
   ['errors.unauthorized', errorBodySchema],
   ['activity.list', activityPageSchema],
   ['activity.summary', weeklySummarySchema],
@@ -144,6 +153,29 @@ const CASES: Array<[string, z.ZodType]> = [
   ['devices.registered', deviceRegisteredSchema],
   ['devices.forgotten', deviceForgottenSchema],
 ];
+
+/**
+ * The upload body, checked against the route's own allowlist (UC-3.2, #186).
+ *
+ * The response fixtures above prove what comes back. This proves what goes:
+ * `parseBusyUpload` on the server refuses a block with a fifth key, so the
+ * client's type having exactly four is not a style choice, it is the request
+ * succeeding. Asserted as a key set rather than as "no title", because a test
+ * for the field somebody remembered passes for the one they did not.
+ */
+describe('what the busy upload is allowed to carry', () => {
+  it('has four keys per block, and five on the envelope', () => {
+    const body: CalendarBusyUpload = {
+      sourceId: 'device:w1',
+      platform: 'ios',
+      windowStart: '2026-08-09T00:00:00.000Z',
+      windowEnd: '2026-09-06T00:00:00.000Z',
+      blocks: [{ blockId: 'a'.repeat(64), startAt: '2026-08-10T07:00:00.000Z', endAt: '2026-08-10T09:00:00.000Z', allDay: false }],
+    };
+    expect(Object.keys(body).sort()).toEqual(['blocks', 'platform', 'sourceId', 'windowEnd', 'windowStart']);
+    expect(Object.keys(body.blocks[0]!).sort()).toEqual(['allDay', 'blockId', 'endAt', 'startAt']);
+  });
+});
 
 describe('every response the client parses', () => {
   it.each(CASES)('%s matches its schema', (name, schema) => {
