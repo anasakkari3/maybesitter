@@ -34,6 +34,8 @@ function commitment(timeSpec: Partial<Commitment['timeSpec']>, overrides: Partia
     description: null,
     person: null,
     status: 'active',
+    category: null,
+    categorySource: 'inferred',
     priority: { level: 'normal', source: 'default', pressureAllowed: false, pressureLevel: 'none' },
     timeSpec: {
       kind: 'due_by',

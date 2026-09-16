@@ -42,6 +42,8 @@ export type AppState = {
    */
   selDay: number;
   detailId: string | null;
+  /** The `YYYY-MM-DD` the plan screen is showing, or null when it is closed. */
+  planDate: string | null;
   commitments: Commitment[];
   yesterday: YesterdayItem[];
 };
@@ -50,7 +52,7 @@ const initial: AppState = {
   screen: 'today', prev: 'today',
   captureSource: 'tab', captureInput: 'text',
   sheet: null, toast: '',
-  nextDismissed: false, fmMode: 'sessions', selDay: 0, detailId: null,
+  nextDismissed: false, fmMode: 'sessions', selDay: 0, detailId: null, planDate: null,
   commitments: seedCommitments, yesterday: seedYesterday,
 };
 
@@ -135,6 +137,14 @@ function useAppModel() {
     go: (screen: Screen) => set(st => ({ prev: st.screen, screen, sheet: null })),
     back: () => set(st => ({ screen: st.prev === 'details' || st.prev === 'firstmove' ? 'today' : st.prev, sheet: null })),
     openDetail: (id: string) => set(st => ({ detailId: id, prev: st.screen, screen: 'details' })),
+    /**
+     * Today's plan, for one named date (UC-3.10b, #195).
+     *
+     * The date is always passed in, never defaulted here: it arrives from a
+     * `maybesitter://plan/<date>` link, which `src/links.ts` has already
+     * checked is a plain `YYYY-MM-DD`.
+     */
+    openPlan: (date: string) => set(st => ({ planDate: date, prev: st.screen, screen: 'plan', sheet: null })),
     toggle: (id: string) => set(st => ({
       commitments: st.commitments.map(c => (c.id === id ? { ...c, status: c.status === 'done' ? 'active' : 'done' } : c)),
     })),

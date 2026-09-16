@@ -14,6 +14,11 @@ import { PLANNING_SCHEMA_VERSION } from '../../src/contracts/v1/planningContract
 import { RECOMMENDATION_SCHEMA_VERSION } from '../../src/contracts/v1/recommendationContracts.ts';
 import { SAFETY_SCHEMA_VERSION } from '../../src/contracts/v1/safetyContracts.ts';
 import { COACHING_SCHEMA_VERSION } from '../../src/contracts/v1/coachingContracts.ts';
+import {
+  normalizeMicrosoftTask,
+  normalizeNotionTask,
+  normalizeTodoistTask,
+} from '../../lib/integrations/tasks/externalTaskNormalizer.ts';
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(testDir, '..', '..');
@@ -260,4 +265,54 @@ test('provider adapters cannot introduce a private planner or memory store by na
     .map((file) => relative(repoRoot, file));
 
   assert.deepEqual(duplicates, []);
+});
+
+test('external task provider payloads normalize to one task reference contract', () => {
+  const providerIdentity = {
+    provider: 'todoist',
+    providerAccountId: 'acct-1',
+    providerSpaceId: null,
+    displayName: 'Tasks',
+  } as const;
+  const base = {
+    scopeId: 'scope-a',
+    connectionId: 'conn-task',
+    providerIdentity,
+    externalId: 'task-1',
+    title: '  Call the school office  ',
+    notes: 'Ask about pickup forms',
+    dueAt: '2026-09-17T09:00:00.000Z',
+    completed: false,
+    updatedAt: '2026-09-16T09:00:00.000Z',
+  };
+
+  const todoist = normalizeTodoistTask(base);
+  const notion = normalizeNotionTask({
+    ...base,
+    providerIdentity: { ...providerIdentity, provider: 'notion', providerSpaceId: 'workspace-1' },
+    externalId: 'page-1',
+    externalUrl: 'https://example.invalid/page-1',
+  });
+  const microsoft = normalizeMicrosoftTask({
+    ...base,
+    providerIdentity: { ...providerIdentity, provider: 'microsoft' },
+    externalId: 'todo-1',
+    title: 'Call the school office',
+  });
+
+  assert.equal(todoist.schemaVersion, 'external-task-v1');
+  assert.equal(todoist.identity.provider, 'todoist');
+  assert.equal(notion.identity.provider, 'notion');
+  assert.equal(microsoft.identity.provider, 'microsoft');
+  assert.equal(todoist.linkState, 'candidate');
+  assert.equal(todoist.syncState, 'remote_pending');
+  assert.equal(todoist.conflict.state, 'none');
+  assert.deepEqual(todoist.fingerprint.dedupeKeys, [
+    'title:call the school office',
+    'due:2026-09-17',
+  ]);
+  assert.equal(todoist.fingerprint.dedupeHash, notion.fingerprint.dedupeHash);
+  assert.equal(todoist.fingerprint.dedupeHash, microsoft.fingerprint.dedupeHash);
+  assert.notEqual(todoist.fingerprint.contentHash, notion.fingerprint.contentHash);
+  assert.notEqual(todoist.taskRefId, notion.taskRefId);
 });

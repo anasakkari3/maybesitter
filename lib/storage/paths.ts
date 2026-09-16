@@ -150,6 +150,67 @@ export const FOOTBALL_FOLLOWS = 'footballFollows';
 export const EXTERNAL_TASK_REFS = 'externalTaskRefs';
 
 /**
+ * Which calendars this account has connected for *reading* busy time
+ * (UC-3.2, #186).
+ *
+ * One document per source — `device:{installationId}` today, a Google account
+ * (UC-3.3, #187) or an ICS feed (UC-3.4, #188) later. It holds the kind, the
+ * platform, the window the last sync covered and when it ran. It is the row the
+ * Trust Center counts and the row "Disconnect" removes.
+ *
+ * A source id is free text as far as a path is concerned — `device:` contains a
+ * colon, which `requireDocId` refuses — so the document id is `docIdForKey` of
+ * it and the raw value is a field, exactly as the header above prescribes.
+ */
+export const CALENDAR_SOURCES = 'calendarSources';
+
+/**
+ * The busy intervals themselves (UC-3.2, #186).
+ *
+ * Beside `calendarSources` rather than nested inside it, which is a deliberate
+ * departure from #186's sketch. The question every reader asks is "what is this
+ * person busy with between these two instants", across *every* source at once;
+ * nested, that is a collection-group query, and the only group query this
+ * repo's storage seam offers spans the whole database rather than one user's
+ * tree. Flat, it is a single user-scoped list, and #187 and #188 add a source
+ * without touching the read at all.
+ *
+ * A row is six fields — a block id, its source, the source's kind, a start, an
+ * end and whether it is all-day. There is no title, no notes, no location and
+ * no attendee: `toBusyBlocks` on the phone drops them and this collection has
+ * never had a column for one.
+ */
+export const BUSY_BLOCKS = 'busyBlocks';
+
+/**
+ * One document per installation this account has signed in on (UC-3.0b, #184).
+ *
+ * The FCM registration token lives here, keyed by an installation id the phone
+ * mints once and keeps in its keychain. Keyed by installation rather than by
+ * token because a token is rotated by Firebase without anybody asking: keying
+ * on it would leave a dead document behind on every rotation, and the server
+ * would keep pushing into it until FCM refused.
+ *
+ * A token is a device identifier, so the document is inside the user's tree
+ * and goes with the account. It holds no email, no display name and no device
+ * model — see `lib/push/deviceRegistry` for the closed field list.
+ */
+export const DEVICES = 'devices';
+
+/**
+ * One document per push already sent, as the idempotency lock (UC-3.0b, #184).
+ *
+ * `sendToUser` creates this document *before* it calls FCM, and a create that
+ * fails because the document is there is what makes a second call with the
+ * same `dedupeKey` a no-op. It is a lock rather than a log: it holds the key,
+ * the kind and two instants, and never the text that was sent.
+ *
+ * `expiresAt` is the Firestore TTL field (seven days out). Note the spelling —
+ * `expireAt` is a field nothing deletes.
+ */
+export const PUSH_LOG = 'pushLog';
+
+/**
  * The activity counters behind the weekly Moments (UC-3.15, #201).
  *
  * A counter rather than a query over the user's items, because a Moment is a
@@ -198,6 +259,10 @@ export const USER_SCOPED_COLLECTIONS = [
   DEVICE_CALENDAR_LINKS,
   FOOTBALL_FOLLOWS,
   EXTERNAL_TASK_REFS,
+  CALENDAR_SOURCES,
+  BUSY_BLOCKS,
+  DEVICES,
+  PUSH_LOG,
 ] as const;
 
 /** Operator-only, outside every user tree. */

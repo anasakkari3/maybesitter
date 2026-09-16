@@ -60,6 +60,8 @@ function dated(): Commitment {
     description: null,
     person: null,
     status: 'active',
+    category: null,
+    categorySource: 'inferred',
     priority: { level: 'normal', source: 'default', pressureAllowed: false, pressureLevel: 'none' },
     timeSpec: { kind: 'due_by', dueAt, endAt: null, remindAt: null, allDay: false, timezone: 'Asia/Jerusalem' },
     currentAckState: 'not_seen',

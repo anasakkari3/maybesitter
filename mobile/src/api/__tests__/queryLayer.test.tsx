@@ -88,6 +88,27 @@ describe('query defaults', () => {
       .not.toEqual(queryKeys.activitySummary('alice', '2026-09-20'));
   });
 
+  /**
+   * The same rule, asserted over the whole table rather than key by key.
+   *
+   * The list above names the keys somebody thought to name, which is exactly
+   * how `plan` and `planSettings` arrived (#195) uncovered: a new hook adds a
+   * key and nothing asks whether it carries a uid. Every builder here takes the
+   * uid first and every key this app has is `['user', uid, …]`, so the rule can
+   * be checked without being restated — and the count is pinned so a key that
+   * stops being enumerable is a failure rather than a vacuous pass.
+   */
+  it('scopes every key in the table, including ones added later', () => {
+    const builders = Object.entries(queryKeys);
+    expect(builders.length).toBeGreaterThanOrEqual(10);
+    for (const [name, build] of builders) {
+      const mine = (build as (...args: string[]) => readonly unknown[])('alice', '2026-08-09', '2026-08-09');
+      const theirs = (build as (...args: string[]) => readonly unknown[])('blake', '2026-08-09', '2026-08-09');
+      expect({ name, scope: mine[0], uid: mine[1] }).toEqual({ name, scope: 'user', uid: 'alice' });
+      expect({ name, collides: JSON.stringify(mine) === JSON.stringify(theirs) }).toEqual({ name, collides: false });
+    }
+  });
+
   it('agrees with isRetryable', () => {
     expect(isRetryable(new NetworkError('x'))).toBe(true);
     expect(isRetryable(new ValidationError('x'))).toBe(false);

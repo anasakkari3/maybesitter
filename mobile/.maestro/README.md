@@ -207,3 +207,31 @@ so the card still has a record to delete for real.
 Every row selector reads `memory-…-mem_.*`. A record's id is `mem_<uuid>`, and
 a bare `memory-delete-.*` also matches `memory-delete-all`: on a list of one,
 the wrong match is a flow that empties the account instead of testing a row.
+
+## `plan.yaml` (UC-3.10b, #195)
+
+`maybesitter://plan/<date>` → today's plan: the reasoning card, the order of the
+day, an item's editor, "Looks good", and the morning-plan switch in Settings →
+Notifications.
+
+**It does not prove the acceptance criterion it looks closest to.** "Tapping the
+plan-ready push on a killed app opens that date's plan" needs #184's APNs key
+and a physical handset. `openLink` fires the same deep link the notification
+tap resolves to, so it exercises the router and the screen — not the delivery,
+not the tap, and not a cold launch from a killed process. Read a pass here as
+"the link works", never as "the notification works".
+
+The date is `plan.today`'s own (`2026-08-09`) rather than today's: the mock
+adapter serves one fixture per route, so asking for any other day would render
+that same plan under the wrong heading.
+
+The refusal path is absent for the same reason. A 422 needs the server to hold
+constraints the move collides with, and the adapter keeps no state — so
+`plan-item-refused-…` is Jest's to prove (`PlanScreen.test.tsx`), not Maestro's.
+
+The Today card (`today-plan-card`) is the one entry point only a device shows
+in place: mock mode answers every date with `plan.today`, so the card renders
+that plan under today's heading. Jest holds what the card *decides* — nothing
+while loading, nothing on an error, nothing once somebody has said "not today"
+(`TodayPlanCard.test.tsx`); this flow only shows that it is reachable and opens
+the right screen.

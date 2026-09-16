@@ -15,6 +15,8 @@ import { createEmptyDomainState, type Commitment } from '../../src/domain/stateM
 
 const commitment: Commitment = {
   id: 'c1', kind: 'task', title: 'Call Maya', description: null, person: null, status: 'active',
+  category: null,
+  categorySource: 'inferred',
   priority: { level: 'high', source: 'user_explicit', pressureAllowed: false, pressureLevel: 'none' },
   timeSpec: { kind: 'due_by', dueAt: '2099-08-02T10:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
   currentAckState: 'aware', postponedUntil: null, createdAt: '2026-08-01T00:00:00.000Z',

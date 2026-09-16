@@ -5,14 +5,21 @@ import { useApp } from '../state/AppContext';
 import { useTimeZone } from '../i18n/timezone';
 import { formatDate, formatTime } from '../i18n/format';
 import { ltr, type Lang } from '../i18n/strings';
-import { useCommitmentAction, useToday } from '../api/queries';
+import { useCategoryPreferences, useCommitmentAction, useToday } from '../api/queries';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
 import { groupForToday, topItemFor, type CommitmentView, type TodayGroups } from '../features/commitments/model';
+import { CategoryBar } from '../features/commitments/CategoryBar';
+import { categoryChipsFor, filterByCategory, type CategoryChip } from '../features/commitments/categoryFilter';
 import { rowAccessibilityLabel } from '../features/commitments/accessibility';
 import { SwipeableRow, useRowActions } from '../features/commitments/RowActions';
 import { postponeTo } from '../features/commitments/postpone';
 import { whyFirstLine } from '../features/commitments/whyFirst';
 import { NextStepCard } from '../features/nextStep/NextStepCard';
+import { BusyConflictChip } from '../features/calendar/BusyConflictChip';
+import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
+import { busyAt } from '../features/calendar/conflicts';
+import type { DeviceBusyBlock } from '../features/calendar/busyBlocks';
+import { TodayPlanCard } from '../features/plan/TodayPlanCard';
 import { Btn, Card, Pill, Txt } from '../ui/primitives';
 import { CheckIcon, Glow } from '../ui/icons';
 import { ScreenIn } from '../ui/motion';
@@ -51,15 +58,42 @@ export function TodayScreen() {
   const insets = useSafeAreaInsets();
   const timezone = useTimeZone();
   const today = useToday();
+  // From the local cache (UC-3.2, #186). Today renders before any request has
+  // finished, and a chip that arrived after the list would move rows about.
+  const busy = useBusyBlocks();
   const [refreshing, setRefreshing] = useState(false);
+
+  // Off unless the account says otherwise, and off when the preference will not
+  // load: a filter bar is not worth an error, and "never turned it on" and
+  // "could not ask" are the same thing to the person holding the phone (#415).
+  const preferences = useCategoryPreferences();
+  const categories = preferences.data?.categoryPreferences;
+  const [chip, setChip] = useState<CategoryChip>('all');
+
+  const showBar = categories?.grouping === true;
+
+  // Chips come from the whole day, not from what is currently shown — built
+  // from the filtered list they would vanish as soon as one was tapped, and the
+  // user would have no way back to the others except an "All" that had also
+  // just disappeared.
+  const chips = useMemo(
+    () => categoryChipsFor(today.data?.items ?? [], categories?.enabled ?? []),
+    [today.data, categories?.enabled],
+  );
 
   const now = new Date().toISOString();
   const groups: TodayGroups = useMemo(
-    () => groupForToday(today.data?.items ?? [], now),
+    () => {
+      const items = today.data?.items ?? [];
+      return groupForToday(showBar ? filterByCategory(items, chip) : items, now);
+    },
     // `now` deliberately excluded: re-grouping on every render would move rows
-    // under the user's finger as the clock ticks past a due time.
+    // under the user's finger as the clock ticks past a due time. The filter
+    // *is* a dependency — a tap is the user asking for the list to change —
+    // and it is named here rather than computed above, so that the filtered
+    // array cannot be a fresh identity on every render and defeat the memo.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [today.data],
+    [today.data, showBar, chip],
   );
   const top = topItemFor(groups);
   const strings = t as unknown as Record<string, string>;
@@ -89,9 +123,13 @@ export function TodayScreen() {
           <Txt size={28} weight={600} lh={1.3}>{t.todayTitle}</Txt>
         </View>
 
-        {/* Above the groups, and outside Today's own boundary: a next step
-            that fails to load must not take the day's list down with it. */}
+        {/* Above the groups, and outside Today's own boundary: neither a next
+            step nor a morning plan that fails to load may take the day's list
+            down with it. Both render nothing rather than an error. */}
+        <TodayPlanCard />
         <NextStepCard />
+
+        {showBar ? <CategoryBar chips={chips} selected={chip} onSelect={setChip} /> : null}
 
         <QueryBoundary isPending={today.isPending} error={today.error} onRetry={() => void today.refetch()}>
           {isEmpty ? (
@@ -117,6 +155,7 @@ export function TodayScreen() {
                   why={why}
                   timezone={timezone}
                   lang={lang}
+                  busy={busy}
                 />
               ))}
 
@@ -138,7 +177,7 @@ const GROUP_TITLE = {
 } as const;
 
 function Group({
-  title, items, topId, why, timezone, lang, testID,
+  title, items, topId, why, timezone, lang, testID, busy,
 }: {
   title: string;
   items: CommitmentView[];
@@ -147,6 +186,7 @@ function Group({
   timezone: string;
   lang: Lang;
   testID: string;
+  busy: readonly DeviceBusyBlock[];
 }) {
   const { p } = useApp();
   if (items.length === 0) return null;
@@ -164,6 +204,7 @@ function Group({
           first={index === 0}
           timezone={timezone}
           lang={lang}
+          busy={busy}
         />
       ))}
     </Card>
@@ -171,13 +212,14 @@ function Group({
 }
 
 function Row({
-  item, why, first, timezone, lang,
+  item, why, first, timezone, lang, busy,
 }: {
   item: CommitmentView;
   why: string | null;
   first: boolean;
   timezone: string;
   lang: Lang;
+  busy: readonly DeviceBusyBlock[];
 }) {
   const { t, p, actions } = useApp();
   const act = useCommitmentAction();
@@ -231,6 +273,13 @@ function Row({
           <Txt size={12} color={p.mu} testID={`today-estimated-${item.id}`}>{t.todayEstimatedMark}</Txt>
         ) : null}
       </View>
+      {/* What else is happening then (UC-3.2, #186). A note in the muted
+          colour, under the time it is about — never a warning, and never
+          something that stops the row being opened or completed. */}
+      <BusyConflictChip
+        blocks={item.shownAt ? busyAt(item.shownAt, busy) : []}
+        testID={`today-busy-${item.id}`}
+      />
       {why ? (
         <Txt size={12} color={p.ac} testID="today-why-first">{why}</Txt>
       ) : null}

@@ -95,6 +95,17 @@ import {
   DELETE as calendarLinkDelete,
   PUT as calendarLinkPut,
 } from '../../src/app/api/mobile/commitments/[id]/device-calendar-link/route.ts';
+import {
+  DELETE as calendarBusyDelete,
+  POST as calendarBusyPost,
+} from '../../src/app/api/mobile/calendar/busy/route.ts';
+import { busyBlockId } from '../../lib/calendar/busyBlocks.ts';
+import {
+  GET as reminderSettingsGet,
+  PUT as reminderSettingsPut,
+} from '../../src/app/api/mobile/settings/reminders/route.ts';
+import { POST as devicesPost } from '../../src/app/api/mobile/devices/route.ts';
+import { DELETE as deviceDelete } from '../../src/app/api/mobile/devices/[installationId]/route.ts';
 import { resetProviderForTests } from '../../src/extraction/llm/index.ts';
 import {
   buildAndStoreDailyPlan,
@@ -548,6 +559,56 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       params(commitmentId),
     ));
 
+    // ── busy time (UC-3.2, #186) ───────────────────────────────────
+    // The one route somebody's calendar travels over. Recorded with two blocks
+    // — one timed, one all-day — and then disconnected, so both the stored and
+    // the deleted shape are a fixture the app's schemas are parsed against.
+    // Note what is *not* in the response: no block, no id, nothing the user
+    // would recognise. An echo would be the only place in this feature where
+    // busy intervals came back over the network.
+    // The trust store refuses a backdated action, so these two carry the wall
+    // clock rather than the fixture's reference time. Nothing recorded below
+    // depends on either value.
+    const trustAt = new Date().toISOString();
+    await applyTrustAction(USER, { type: 'record_first_value', at: trustAt });
+    await applyTrustAction(USER, { type: 'set_calendar_consent', granted: true, at: trustAt });
+
+    const busySource = 'device:writer-phone';
+    await record('calendar.busyStored', 200, await calendarBusyPost(
+      request('/api/mobile/calendar/busy', {
+        body: {
+          sourceId: busySource,
+          platform: 'ios',
+          windowStart: '2026-08-09T00:00:00.000Z',
+          windowEnd: '2026-09-06T00:00:00.000Z',
+          blocks: [
+            {
+              blockId: busyBlockId(busySource, 'event-lecture', '2026-08-10T07:00:00.000Z'),
+              startAt: '2026-08-10T07:00:00.000Z',
+              endAt: '2026-08-10T09:00:00.000Z',
+              allDay: false,
+            },
+            {
+              blockId: busyBlockId(busySource, 'event-holiday', '2026-08-12T00:00:00.000Z'),
+              startAt: '2026-08-12T00:00:00.000Z',
+              endAt: '2026-08-13T00:00:00.000Z',
+              allDay: true,
+            },
+          ],
+        },
+      }),
+    ));
+
+    await record('calendar.busyDeleted', 200, await calendarBusyDelete(
+      request(`/api/mobile/calendar/busy?sourceId=${encodeURIComponent(busySource)}`, { method: 'DELETE' }),
+    ));
+    // And switched back off, which is what "disconnect" means for the account
+    // as well as for the phone. It also leaves the trust fixtures recorded
+    // below saying what they said before this section existed: the calendar
+    // consent they carry is the *unconsented* shape, which is the one the
+    // Trust Center renders for everybody who has never turned it on.
+    await applyTrustAction(USER, { type: 'set_calendar_consent', granted: false, at: new Date().toISOString() });
+
     // ── activity (#201) ────────────────────────────────────────────
     // Read here, after the complete above, so the log already holds a
     // captured / confirmed / completed entry for a real commitment.
@@ -890,6 +951,43 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     await record('plan.notFound', 404, await planGet(
       request('/api/mobile/plans/2026-08-10'),
       dateParams('2026-08-10'),
+    ));
+
+    // ── reminders and devices (#196, #184) ─────────────────────────
+    // The quiet hours on this response come from the routine profile, which is
+    // the one place they are stored; the PUT writes them back through to it.
+    await record('reminders.settingsDefault', 200, await reminderSettingsGet(
+      request('/api/mobile/settings/reminders'),
+    ));
+    await record('reminders.settingsSaved', 200, await reminderSettingsPut(
+      request('/api/mobile/settings/reminders', {
+        method: 'PUT',
+        body: {
+          softEnabled: true,
+          softLeadMinutes: 30,
+          quietHours: { start: '22:00', end: '07:00', timezone: 'Asia/Jerusalem' },
+        },
+      }),
+    ));
+
+    const INSTALLATION = '44444444-4444-4444-8444-444444444444';
+    await record('devices.registered', 200, await devicesPost(request('/api/mobile/devices', {
+      body: {
+        installationId: INSTALLATION,
+        fcmToken: 'fGh1JkL2mNo3PqR4sTu5Vw6Xy7Za8Bc9De0FgH1IjK2LmN3OpQ4RsT5U',
+        platform: 'ios',
+        appVersion: '1.0.0',
+        locale: 'ar',
+        timezone: 'Asia/Jerusalem',
+        pushPermission: 'granted',
+      },
+    })));
+    await record('devices.forgotten', 200, await deviceDelete(
+      new Request(`${BASE}/api/mobile/devices/${INSTALLATION}`, {
+        method: 'DELETE',
+        headers: { authorization: `Bearer ${tokenFor(USER)}` },
+      }),
+      { params: Promise.resolve({ installationId: INSTALLATION }) },
     ));
 
     // ── the refusals every screen must be able to render ───────────

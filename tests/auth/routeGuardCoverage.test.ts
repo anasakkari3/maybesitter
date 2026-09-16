@@ -44,12 +44,17 @@ const GUARDED_VIA_SCOPE = new Set([
 ]);
 
 test('every mobile route file exists and is enumerated', () => {
-  // Thirty-seven today: football fixtures MVP Task 11 added `GET|PUT
-  // /api/mobile/football` and `DELETE /api/mobile/football/fixtures/{commitmentId}`
+  // Forty-two today: the football fixtures branch merged main (forty) and
+  // brings two of its own from Task 11, `GET|PUT /api/mobile/football` and `DELETE /api/mobile/football/fixtures/{commitmentId}`
   // -- the dismiss route in particular is the one whose failure mode is
   // silent rather than loud: an unauthenticated caller who could reach it
   // would learn, from a 404-vs-200 timing difference alone, whether an
   // arbitrary commitment id belongs to somebody who follows football at all.
+  // On main, UC-3.2 (#186) added `POST|DELETE /api/mobile/calendar/
+  // busy`. It is the route somebody's calendar travels over, so the guard is
+  // the thing that decides whether busy time is filed under the account that
+  // owns it — and the `DELETE`, which is "disconnect and remove what you
+  // have", must not be reachable by anybody but that account.
   // Thirty-five before that: UC-3.1 (#185) added `PUT|DELETE /api/mobile/commitments/
   // {id}/device-calendar-link` and `GET|PUT /api/mobile/settings/calendar`. The
   // link route is the one whose *refusal* is load-bearing rather than its
@@ -57,11 +62,14 @@ test('every mobile route file exists and is enumerated', () => {
   // it matters that it authenticates first: an unauthenticated caller must not
   // learn whether a commitment id is linked.
   // Thirty-three before that: UC-3.0 (#183) added `POST /api/mobile/capture/share`,
+  // Thirty-six today: UC-3.0 (#183) added `POST /api/mobile/capture/share`,
   // the one route that takes bytes. It checks its feature flag and its declared
   // body size before it authenticates — deliberately, so an unauthenticated
   // 25 MB upload costs a header read rather than a full receive — but the guard
   // is still the first thing that touches the body, and the loop below still
-  // holds it to one `requireMobileUser` per handler.
+  // holds it to one `requireMobileUser` per handler. UC-3.11 (#196) added
+  // `/settings/reminders` and UC-3.0b (#184) `POST /api/mobile/devices` and
+  // `DELETE /api/mobile/devices/{id}`.
   // Thirty-two before that: UC-3.15 (#201) added `GET /api/mobile/activity` and
   // `GET /api/mobile/activity/summary`.
   // Thirty before that: UC-3.10a (#194) added the three `/plans/{date}` routes
@@ -73,7 +81,20 @@ test('every mobile route file exists and is enumerated', () => {
   // the two memory routes, and UC-2.9 (#170) the recommendation consent route.
   // The number is asserted so that a route added without a thought about
   // authentication shows up here as well as in the loop.
-  assert.equal(files.length, 37, `found:\n${files.join('\n')}`);
+  // Thirty-eight after this lane merged with #185's: the three added here are
+  // `POST /api/mobile/devices`, `DELETE /api/mobile/devices/{installationId}`
+  // and `GET|PUT /api/mobile/settings/reminders`, on top of main's thirty-five.
+  // The number is a census, not a guarantee: it is here so that adding a route
+  // is a decision somebody takes rather than a file that appears.
+  // Thirty-nine after #415: `GET|PUT /api/mobile/settings/categories`. It is a
+  // display preference, but it is also what the extraction prompt is built from
+  // — an unauthenticated write would choose which categories somebody else's
+  // captures are sorted into.
+  // Forty after #186 merged on top: `POST|DELETE /api/mobile/calendar/busy`,
+  // the route somebody's calendar travels over. Its DELETE is "disconnect and
+  // remove what you hold", and it must not be reachable by anyone but the
+  // account that owns the source.
+  assert.equal(files.length, 42, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {

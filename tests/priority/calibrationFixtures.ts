@@ -47,6 +47,8 @@ export function subjectOf(spec: SubjectSpec): CalibrationSubject {
     description: null,
     person: null,
     status: 'active',
+    category: null,
+    categorySource: 'inferred',
     priority: {
       level: spec.level ?? 'normal',
       source: spec.source ?? 'inferred',

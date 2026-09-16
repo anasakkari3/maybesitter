@@ -15,6 +15,8 @@ function baseResult(over: Partial<ExtractionResult> = {}): ExtractionResult {
     timeEvidence: 'hhmm',
     priority: { level: 'normal', source: 'inferred', pressureAllowed: true, pressureImplied: false },
     flexibility: 'movable',
+    category: null,
+    categoryConfidence: 0,
     confidence: { overall: 0.9, type: 0.9, action: 0.9, time: 0.9, priority: 0.8 },
     missingFields: [],
     ambiguityFlags: [],

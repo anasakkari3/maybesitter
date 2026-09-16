@@ -53,6 +53,7 @@ export function configProblems(): string[] {
     shareIntake: process.env.EXPO_PUBLIC_FEATURE_SHARE_INTAKE,
     shareIntentDebug: process.env.EXPO_PUBLIC_SHARE_INTENT_DEBUG,
     calendarWrite: process.env.EXPO_PUBLIC_FEATURE_CALENDAR_WRITE,
+    calendarRead: process.env.EXPO_PUBLIC_FEATURE_CALENDAR_READ,
   });
 }
 
@@ -268,6 +269,26 @@ export function calendarWriteEnabled(): boolean {
 }
 
 /**
+ * Whether this build reads busy time out of the phone's calendar
+ * (UC-3.2, #186 step 9).
+ *
+ * **On by default**, and turned off by `EXPO_PUBLIC_FEATURE_CALENDAR_READ=false`
+ * — the opposite default from `calendarWriteEnabled` above, and the difference
+ * is the point. Writing puts an entry into a place somebody shares with other
+ * people; reading puts nothing anywhere that the user has not already seen, and
+ * it cannot happen at all until they turn the calendar switch on and the OS
+ * agrees. So the thing that needs a device run before it is trusted is the
+ * write, and this is a kill switch rather than a launch gate.
+ *
+ * Read as "anything but the literal string `false`", so a typo leaves the
+ * feature on — again the mirror of the enable flags, because for a kill switch
+ * the dangerous typo is the one that silently disables.
+ */
+export function calendarReadEnabled(): boolean {
+  return (process.env.EXPO_PUBLIC_FEATURE_CALENDAR_READ ?? '').trim() !== 'false';
+}
+
+/**
  * Whether this build accepts a share (UC-3.0, #183 step 10).
  *
  * **Off by default**, and turned on by `EXPO_PUBLIC_FEATURE_SHARE_INTAKE=true`.
@@ -307,4 +328,33 @@ export function shareIntentDebugEnabled(isDevBundle: boolean = __DEV__): boolean
   if (isDevBundle !== true) return false;
   if (!isDevelopment()) return false;
   return (process.env.EXPO_PUBLIC_SHARE_INTENT_DEBUG ?? '').trim() === 'true';
+}
+
+/**
+ * Gentle reminders (UC-3.11, #196).
+ *
+ * On by default, and switched off by `EXPO_PUBLIC_FEATURE_SOFT_REMINDERS=false`
+ * — the same shape as `safeCommitmentPatchEnabled` above, and for the same
+ * reason: a kill switch that has to be *set* to be safe is a kill switch
+ * somebody forgets to set.
+ *
+ * Off does not mean "schedule nothing from now on". It means the app cancels
+ * everything it already has pending, because a reminder scheduled yesterday
+ * fires whether or not today's build would have scheduled it — see
+ * `cancelEveryReminder`.
+ */
+export function softRemindersEnabled(): boolean {
+  return (process.env.EXPO_PUBLIC_FEATURE_SOFT_REMINDERS ?? '').trim() !== 'false';
+}
+
+/**
+ * The version string the device registry stores (UC-3.0b, #184).
+ *
+ * From the running binary when there is one, and from the config otherwise, so
+ * a value is always available under Jest. It is the only thing about the
+ * device this app reports beyond the platform — no model, no OS build.
+ */
+export function appVersion(): string {
+  const native = Constants.expoConfig?.version;
+  return typeof native === 'string' && native.trim() !== '' ? native.trim() : '0.0.0';
 }

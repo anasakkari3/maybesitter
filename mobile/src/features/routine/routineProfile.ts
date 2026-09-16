@@ -189,3 +189,21 @@ export function isComplete(answers: RoutineAnswers): boolean {
 export function answeredCount(answers: RoutineAnswers): number {
   return ROUTINE_QUESTIONS.filter(question => answers[question] !== null).length;
 }
+
+/**
+ * The quiet-hours chips, reachable from outside the survey (UC-3.11, #196).
+ *
+ * The reminders screen offers the same four windows rather than a free time
+ * picker, and that is deliberate: quiet hours are stored in one place
+ * (`users/{uid}.profile.routine.quietHours`) and re-opened on a chip by
+ * `fromRoutinePayload`. A picker here would let somebody set 22:17–06:43,
+ * which the survey could then only render as "none" — so editing them in one
+ * screen would appear to erase them in the other.
+ */
+export function quietWindowFor(choice: QuietChoice): RoutineTimeWindow | null {
+  return QUIET_WINDOWS[choice];
+}
+
+export function quietChoiceFor(window: RoutineTimeWindow | null | undefined): QuietChoice | null {
+  return window ? choiceByWindow(QUIET_WINDOWS, window) : 'none';
+}

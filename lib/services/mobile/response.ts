@@ -33,6 +33,12 @@ export function commitmentToMobileDto(
     person: commitment.person,
     status: commitment.status,
     priority: commitment.priority,
+    // Always present, and explicitly `null` when there is none (#415). A client
+    // cannot tell "this server does not send categories" from "this commitment
+    // has none" when both arrive as `undefined`, and the filter bar has to: the
+    // first means hide the bar, the second means show the row under "All".
+    category: commitment.category,
+    categorySource: commitment.categorySource,
     timeSpec: commitment.timeSpec,
     currentAckState: commitment.currentAckState,
     postponedUntil: commitment.postponedUntil,

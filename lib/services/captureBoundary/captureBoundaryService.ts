@@ -18,6 +18,7 @@ import { applyEditToCommands, InvalidEditError, validateEdit } from './applyEdit
 import { buildClarification } from './clarificationBuilder';
 import { isPastCommitmentTime } from '../commitments/timeRules';
 import { NegatedRequestError } from '../mobile/safety';
+import { readCategoryPreferences } from '../categories/categoryPreferences';
 import type { Command } from '../../../src/domain/stateMachine';
 import type { CapturePersistenceAdapter } from './persistenceAdapter';
 import type { CaptureProposalStore, StoredCaptureProposal } from './proposalStore';
@@ -181,7 +182,18 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   const runtime = resolveModuleRuntime('capture', dependencies.controls);
   const forceRules = requestedEngine === 'rules' || runtime.mode === 'rules_only';
   const extractor = dependencies.extractor ?? extractWithFallback;
-  const context: ExtractionContext = { now: options.now, timezone: options.timezone };
+  // The scope *is* the authenticated uid, so the categories this account uses
+  // are readable here. Read once for the whole capture rather than per segment:
+  // a paste that splits into five segments must not file its five commitments
+  // against five different reads of the same preference (#415).
+  const categoryPreferences = await readCategoryPreferences(options.scopeId);
+  // The same list reaches the prompt and the gate. Two lists would let the
+  // model be asked for a category the gate then silently discards.
+  const context: ExtractionContext = {
+    now: options.now,
+    timezone: options.timezone,
+    categories: categoryPreferences.enabled,
+  };
   const proposalId = randomUUID();
   const commandsByItemId = new Map<string, readonly ReturnType<typeof mapExtractionToCommand>[number][]>();
   // Kept so one clarification can be answered against the extraction the item
@@ -245,7 +257,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
           ? { clarification: buildClarification(extracted.result, { now: options.now, timezone: options.timezone }) }
           : {}),
       });
-      commandsByItemId.set(itemId, needsClarification ? [] : mapExtractionToCommand(extracted.result, options.now.toISOString()));
+      commandsByItemId.set(itemId, needsClarification ? [] : mapExtractionToCommand(extracted.result, options.now.toISOString(), categoryPreferences));
       resultsByItemId.set(itemId, extracted.result);
     } catch (error) {
       // Gap B: a negated request is understood, not malformed. It produces no
@@ -348,6 +360,13 @@ function manuallyCompleted(
     timeEvidence: 'hhmm',
     priority: { level: priority, source: 'user_explicit', pressureAllowed: false, pressureImplied: false },
     flexibility: 'movable',
+    // This path runs only when the extraction produced no command at all, so
+    // the user built the item themselves from a title and a time. Nothing was
+    // read about which part of life it belongs to and the review screen does
+    // not ask, so it starts uncategorised — which is the ordinary case anyway
+    // (#415).
+    category: null,
+    categoryConfidence: 0,
     confidence: { overall: 1, type: 1, action: 1, time: 1, priority: 1 },
     missingFields: [],
     ambiguityFlags: [],

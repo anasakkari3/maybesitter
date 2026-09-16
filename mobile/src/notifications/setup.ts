@@ -1,0 +1,84 @@
+/**
+ * Everything the notification system needs before it can be used (UC-3.11, #196).
+ *
+ * Run once, from `App.tsx`, and deliberately **not** from a screen: channels
+ * and categories are process-wide facts, and creating them twice from two
+ * mounts is how a channel ends up created with whichever importance the second
+ * caller happened to pass.
+ *
+ * It asks for nothing. Creating a channel does not prompt, registering a
+ * category does not prompt, and setting the foreground handler does not
+ * prompt. The one prompt this app makes is in `permission.ts` and is reached
+ * only when the user turns reminders on.
+ */
+import { Platform } from 'react-native';
+import { ANDROID_CHANNELS, AWARENESS_CATEGORY_ID, PLAN_CATEGORY_ID } from './channels';
+import { notificationsModule } from './nativeModules';
+
+export interface ChannelNames {
+  readonly notifChannelGeneral: string;
+  readonly notifChannelAwareness: string;
+}
+
+let configured = false;
+
+/**
+ * Installs the foreground handler and creates the channels and categories.
+ *
+ * Safe to call more than once — it is a no-op after the first — because the
+ * app's root effect runs again in development on every fast refresh.
+ */
+export async function configureNotifications(names: ChannelNames): Promise<void> {
+  if (configured) return;
+  configured = true;
+  try {
+    const Notifications = notificationsModule();
+    if (!Notifications) throw new Error('expo-notifications is not in this build');
+
+    /*
+     * A reminder that arrives while the app is open is still a reminder.
+     *
+     * The default behaviour is to show nothing in the foreground, which for
+     * this product means the user gets no heads-up for the thirty seconds they
+     * happen to be looking at their week — the one case where they might
+     * plausibly have been looking at the wrong screen. The banner shows; the
+     * badge does not, for the reason `permission.ts` gives.
+     */
+    Notifications.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowBanner: true,
+        shouldShowList: true,
+        shouldPlaySound: true,
+        shouldSetBadge: false,
+      }),
+    });
+
+    /*
+     * The category the soft reminder is filed under.
+     *
+     * No actions yet — UC-3.14 (#200) decides what the buttons do and what
+     * they mean. Registering it now means the requests this issue schedules
+     * are already the ones those buttons attach to.
+     */
+    await Notifications.setNotificationCategoryAsync(AWARENESS_CATEGORY_ID, []);
+    await Notifications.setNotificationCategoryAsync(PLAN_CATEGORY_ID, []);
+
+    if (Platform.OS === 'android') {
+      for (const channel of ANDROID_CHANNELS) {
+        await Notifications.setNotificationChannelAsync(channel.id, {
+          name: names[channel.nameKey],
+          importance: channel.importance,
+        });
+      }
+    }
+  } catch {
+    // No native module: a unit test, or a build without notifications. The app
+    // must still start — a missing reminder is a degradation, a white screen
+    // is not.
+    configured = false;
+  }
+}
+
+export function resetNotificationSetupForTests(): void {
+  configured = false;
+}

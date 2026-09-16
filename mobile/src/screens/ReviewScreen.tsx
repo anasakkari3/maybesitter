@@ -14,8 +14,12 @@ import { Btn, FlowHeader, ImpBadge, Pill, Txt } from '../ui/primitives';
 import { CheckIcon } from '../ui/icons';
 import { ScreenIn } from '../ui/motion';
 import { instantForLocalDateTime } from '../features/capture/localInstant';
+import { BusyConflictChip } from '../features/calendar/BusyConflictChip';
+import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
+import { busyAt } from '../features/calendar/conflicts';
 import type { CaptureItemEdit } from '../features/capture/captureMachine';
 import type { CaptureProposalItem } from '../api/schemas/capture';
+import type { DeviceBusyBlock } from '../features/calendar/busyBlocks';
 
 /**
  * Review, on the server's actual proposal (UC-2.R2, #172).
@@ -46,6 +50,9 @@ export function ReviewScreen() {
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [skipped, setSkipped] = useState<string[]>([]);
   const strings = t as unknown as Record<string, string>;
+  // The local cache, not a request (UC-3.2, #186). A chip that had to wait for
+  // the network would appear after the user had already pressed Confirm.
+  const busyBlocks = useBusyBlocks();
   const items = state.proposal?.items ?? [];
   const selectedCount = state.selected.length;
   const busy = state.status === 'confirming';
@@ -110,6 +117,7 @@ export function ReviewScreen() {
             onToggle={() => flow.toggleItem(item.itemId)}
             onEdit={() => setEditingItemId(item.itemId)}
             lang={lang}
+            busy={busyBlocks}
           />
         ))}
 
@@ -154,7 +162,7 @@ export function ReviewScreen() {
 const PRIORITY_IMP = { high: 'must', normal: 'should', low: 'nice' } as const;
 
 function ItemCard({
-  item, edit, selected, onToggle, onEdit, lang,
+  item, edit, selected, onToggle, onEdit, lang, busy,
 }: {
   item: CaptureProposalItem;
   edit: CaptureItemEdit | undefined;
@@ -162,6 +170,7 @@ function ItemCard({
   onToggle: () => void;
   onEdit: () => void;
   lang: Lang;
+  busy: readonly DeviceBusyBlock[];
 }) {
   const { t, p } = useApp();
   const timezone = useTimeZone();
@@ -231,6 +240,14 @@ function ItemCard({
             <Txt size={12} color={p.wm} testID={`review-needs-question-${item.itemId}`}>{t.reviewNeedsQuestion}</Txt>
           </View>
         ) : null}
+        {/* Checked against the time the card *shows*, which is the edited one
+            when there is an edit: a chip about the time the server proposed
+            would be a note about something the user has already changed. It
+            never blocks Confirm — see `BusyConflictChip`. */}
+        <BusyConflictChip
+          blocks={editedInstant ? busyAt(editedInstant.toISOString(), busy) : []}
+          testID={`review-busy-${item.itemId}`}
+        />
       </View>
     </Btn>
   );

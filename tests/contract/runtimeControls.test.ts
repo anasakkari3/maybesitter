@@ -7,6 +7,16 @@ import {
   INTELLIGENCE_MODULES,
   MODULE_CONTRACT_VERSION,
 } from '../../src/contracts/v1/moduleContracts.ts';
+import { buildWhoopReadinessSnapshot } from '../../lib/integrations/readiness/whoop.ts';
+import {
+  WHOOP_OAUTH_SCOPES,
+  buildWhoopConnectionInput,
+  buildWhoopDisconnectRequest,
+  planWhoopReadinessSync,
+  tokenState,
+  withWhoopReadinessProvenance,
+  type WhoopTokenSetMetadata,
+} from '../../lib/integrations/whoop/backend.ts';
 import {
   CONTEXT_PROVIDER_KINDS,
   INTEGRATION_CONNECTION_CONTRACT_VERSION,
@@ -243,6 +253,145 @@ test('readiness snapshot supports normalized sources without diagnosis or planne
   assert.equal(snapshot.subjective?.energy, 3);
   assert.equal(snapshot.signals[0].metric, 'sleep');
   assert.equal(snapshot.signals[1].source.kind, 'subjective');
+});
+
+test('WHOOP readings normalize into the provider-independent readiness contract', () => {
+  const snapshot = buildWhoopReadinessSnapshot({
+    scopeId: 'scope-a',
+    computedAt: '2026-09-16T09:00:00Z',
+    windowStart: '2026-09-15T09:00:00Z',
+    windowEnd: '2026-09-16T09:00:00Z',
+    connectionId: 'conn-whoop',
+    recovery: {
+      observedAt: '2026-09-16T06:30:00Z',
+      recoveryScore: 71,
+      restingHeartRate: 57,
+      hrvMilliseconds: 44,
+    },
+    sleep: {
+      observedAt: '2026-09-16T06:20:00Z',
+      sleepStart: '2026-09-15T22:45:00Z',
+      sleepEnd: '2026-09-16T06:30:00Z',
+      totalSleepMinutes: null,
+    },
+    strain: {
+      observedAt: '2026-09-15T21:00:00Z',
+      strainScore: 10.5,
+    },
+  });
+
+  assert.equal(snapshot.schemaVersion, READINESS_SCHEMA_VERSION);
+  assert.equal(snapshot.sourceKinds[0], 'whoop');
+  assert.equal(snapshot.score, 0.71);
+  assert.equal(snapshot.band, 'high');
+  assert.equal(snapshot.normalizedSignals.sleepDurationMinutes, 465);
+  assert.equal(snapshot.normalizedSignals.restingHeartRate, 57);
+  assert.equal(snapshot.normalizedSignals.hrv, 44);
+  assert.equal(snapshot.normalizedSignals.recentActivityLoad, 0.5);
+  assert.equal(snapshot.subjective, null);
+  assert.deepEqual(snapshot.missingSourceKinds, []);
+  assert.ok(snapshot.signals.every((signal) => signal.source.provider === 'whoop'));
+  assert.equal(snapshot.signals.some((signal) => signal.metric === 'strain'), true);
+});
+
+test('WHOOP backend prep keeps OAuth, sync, revoke, and provenance provider-boundary safe', () => {
+  const now = '2026-09-16T09:00:00Z';
+  const token: WhoopTokenSetMetadata = {
+    accessTokenExpiresAt: '2026-09-16T10:00:00Z',
+    refreshTokenExpiresAt: '2026-10-16T10:00:00Z',
+    grantedScopes: WHOOP_OAUTH_SCOPES,
+    hasRefreshToken: true,
+  };
+
+  const input = buildWhoopConnectionInput(
+    'scope-a',
+    { whoopUserId: 'whoop-user-1', displayName: 'WHOOP Account' },
+    token,
+    now,
+  );
+
+  assert.equal(input.identity.provider, 'whoop');
+  assert.equal(input.identity.providerAccountId, 'whoop-user-1');
+  assert.deepEqual(input.capabilities, ['readiness_read']);
+  assert.equal(input.state, 'connected');
+  assert.equal('accessToken' in input, false);
+  assert.equal('refreshToken' in input, false);
+  assert.equal(tokenState(token, now), 'active');
+  assert.equal(tokenState({ ...token, accessTokenExpiresAt: '2026-09-16T09:05:00Z' }, now), 'refresh_due');
+  assert.equal(tokenState({ ...token, refreshTokenExpiresAt: '2026-09-16T08:59:00Z' }, now), 'revoked');
+
+  const connection: IntegrationConnectionRecord = {
+    version: INTEGRATION_CONNECTION_CONTRACT_VERSION,
+    schemaVersion: INTEGRATION_CONNECTION_SCHEMA_VERSION,
+    connectionId: 'conn-whoop',
+    scopeId: 'scope-a',
+    identity: input.identity,
+    state: 'connected',
+    capabilities: input.capabilities,
+    grantedScopes: input.grantedScopes ?? [],
+    connectedAt: now,
+    lastSyncedAt: '2026-09-16T07:00:00Z',
+    expiresAt: input.expiresAt ?? null,
+    revokedAt: null,
+    updatedAt: now,
+  };
+
+  const plan = planWhoopReadinessSync(
+    connection,
+    token,
+    '2026-09-15T09:00:00Z',
+    '2026-09-16T09:00:00Z',
+    now,
+  );
+  assert.equal(plan.shouldSync, true);
+  assert.equal(plan.reason, 'ready');
+  assert.equal(plan.cursor?.lastSyncedAt, '2026-09-16T07:00:00Z');
+
+  const blocked = planWhoopReadinessSync(
+    { ...connection, capabilities: [] },
+    token,
+    '2026-09-15T09:00:00Z',
+    '2026-09-16T09:00:00Z',
+    now,
+  );
+  assert.equal(blocked.shouldSync, false);
+  assert.equal(blocked.reason, 'missing_readiness_capability');
+
+  const revoke = buildWhoopDisconnectRequest('conn-whoop', now);
+  assert.deepEqual(revoke, {
+    provider: 'whoop',
+    connectionId: 'conn-whoop',
+    revokeProviderToken: true,
+    markConnectionState: 'revoked',
+    requestedAt: now,
+  });
+
+  const readiness = buildWhoopReadinessSnapshot({
+    scopeId: 'scope-a',
+    computedAt: now,
+    windowStart: '2026-09-15T09:00:00Z',
+    windowEnd: '2026-09-16T09:00:00Z',
+    connectionId: 'conn-whoop',
+    recovery: {
+      observedAt: '2026-09-16T06:30:00Z',
+      recoveryScore: 70,
+      restingHeartRate: 57,
+      hrvMilliseconds: 44,
+    },
+  });
+
+  const withProvenance = withWhoopReadinessProvenance(readiness, 'conn-whoop');
+  assert.equal(withProvenance.provenance.provider, 'whoop');
+  assert.deepEqual(withProvenance.provenance.sourcePrecedence, [
+    'subjective',
+    'whoop',
+    'healthkit',
+    'health_connect',
+  ]);
+  assert.equal(
+    withProvenance.provenance.duplicatePolicy,
+    'prefer_connected_whoop_recovery_then_native_sleep',
+  );
 });
 
 test('user-state projection stays projection-only and references context at a high level', () => {

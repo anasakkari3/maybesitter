@@ -13,7 +13,9 @@ import {
 } from '../calendar/useDeviceCalendarSync';
 import { deviceCalendar, type CalendarAccess, type WritableCalendar } from '../calendar/deviceCalendar';
 import { loadChosenCalendarId, saveChosenCalendarId } from '../../lib/deviceSettings/calendarDevice';
-import { calendarWriteEnabled } from '../../config/env';
+import { calendarReadEnabled, calendarWriteEnabled } from '../../config/env';
+import { useBusyBlocks, useBusyCalendar } from '../calendar/useBusyCalendar';
+import { fill } from '../../i18n/strings';
 
 /**
  * Settings → Calendar (UC-3.1, #185).
@@ -45,6 +47,21 @@ import { calendarWriteEnabled } from '../../config/env';
  * the account name — because a person with a work account and a personal one
  * usually has two calendars both called "Calendar", and picking the wrong one
  * puts their dentist appointment in front of their colleagues.
+ *
+ * ── Reading is a separate thing from writing, and says so ────────
+ *
+ * UC-3.2 (#186) added the bottom half: what MaybeSitter reads *out* of the
+ * calendar, how many busy times this phone has found, and the way to stop and
+ * delete them. It is its own card rather than another line under the write
+ * toggle because they are two different permissions in the user's head — "put
+ * my things in my calendar" and "look at my calendar" — and the switch that
+ * governs reading is not here at all: it is the Trust Center's calendar
+ * consent, which is where every other "may we use this" lives.
+ *
+ * The Android caveat is written on the screen rather than only in an issue.
+ * `isCurrentUser` is iOS-only, so a meeting somebody declined still counts as
+ * busy on Android, and a product that quietly counted a refused invitation as
+ * an hour of the user's day owes them the sentence.
  */
 export function CalendarSettingsScreen({ onBack }: { onBack: () => void }) {
   const { t, p } = useApp();
@@ -54,12 +71,16 @@ export function CalendarSettingsScreen({ onBack }: { onBack: () => void }) {
   const today = useToday();
   const upcoming = useUpcoming();
   const sync = useDeviceCalendarSync([today.data, upcoming.data]);
+  const busyCalendar = useBusyCalendar();
+  const busyBlocks = useBusyBlocks();
 
   const [access, setAccess] = useState<CalendarAccess | null>(null);
   const [calendars, setCalendars] = useState<WritableCalendar[]>([]);
   const [chosen, setChosen] = useState<string | null>(null);
   const [removed, setRemoved] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
+  const [disconnected, setDisconnected] = useState<null | 'done' | 'localOnly'>(null);
+  const [disconnecting, setDisconnecting] = useState(false);
 
   const target = settings.data?.calendarSettings.writeTarget ?? 'off';
   const on = target === 'device';
@@ -126,6 +147,17 @@ export function CalendarSettingsScreen({ onBack }: { onBack: () => void }) {
       setBusy(false);
     }
   }, [sync]);
+
+  const disconnect = useCallback(async () => {
+    setDisconnecting(true);
+    setDisconnected(null);
+    try {
+      const result = await busyCalendar.disconnect();
+      setDisconnected(result.server ? 'done' : 'localOnly');
+    } finally {
+      setDisconnecting(false);
+    }
+  }, [busyCalendar]);
 
   const denied = access === 'denied';
 
@@ -208,6 +240,38 @@ export function CalendarSettingsScreen({ onBack }: { onBack: () => void }) {
             ) : null}
           </Card>
         ) : null}
+
+        {/* What is read, as opposed to what is written (UC-3.2, #186). */}
+        <Card pad={18} style={{ gap: 12 }}>
+          <Txt size={15}>{t.calendarReadTitle}</Txt>
+          <Txt size={13} color={p.mu} lh={1.5}>{t.calendarReadBody}</Txt>
+          {calendarReadEnabled() ? null : (
+            <Txt size={13} color={p.mu} lh={1.5} testID="calendar-read-unavailable">
+              {t.calendarReadUnavailable}
+            </Txt>
+          )}
+          <Txt size={13} color={p.mu} testID="calendar-busy-count">
+            {fill(t.calendarBusyCount, { n: busyBlocks.length })}
+          </Txt>
+          <Txt size={13} color={p.mu} lh={1.5} testID="calendar-declined-note">{t.calendarDeclinedNote}</Txt>
+          <Txt size={13} color={p.mu} lh={1.5}>{t.calendarDisconnectBody}</Txt>
+          <Btn
+            label={t.calendarDisconnectAction}
+            testID="calendar-disconnect"
+            onPress={() => void disconnect()}
+            disabled={disconnecting}
+            style={{ borderRadius: 16, minHeight: 52, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: p.ln }}
+          >
+            {disconnecting
+              ? <ActivityIndicator testID="calendar-disconnect-busy" color={p.ac} />
+              : <Txt size={15} color={p.ac}>{t.calendarDisconnectAction}</Txt>}
+          </Btn>
+          {disconnected === null ? null : (
+            <Txt size={13} color={p.mu} lh={1.5} testID="calendar-disconnect-result">
+              {disconnected === 'done' ? t.calendarDisconnectDone : t.calendarDisconnectFailed}
+            </Txt>
+          )}
+        </Card>
 
         <Card pad={18} style={{ gap: 12 }}>
           <Txt size={13} color={p.mu} lh={1.5}>{t.calendarRemoveBody}</Txt>

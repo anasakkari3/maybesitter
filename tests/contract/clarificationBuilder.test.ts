@@ -26,6 +26,8 @@ function result(over: Partial<ExtractionResult> = {}): ExtractionResult {
     timeEvidence: 'none',
     priority: { level: 'normal', source: 'default', pressureAllowed: false, pressureImplied: false },
     flexibility: 'movable',
+    category: null,
+    categoryConfidence: 0,
     confidence: { overall: 0.7, type: 0.7, action: 0.8, time: 0.1, priority: 0.8 },
     missingFields: [],
     ambiguityFlags: [],

@@ -16,8 +16,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { schedulePlan } from '../../lib/planning/scheduler/index.ts';
+import {
+  projectReadinessIntoPlanningConstraints,
+  schedulePlan,
+} from '../../lib/planning/scheduler/index.ts';
 import { intervalsOverlap, minutesBetween, toEpochMs } from '../../lib/planning/shared/time.ts';
+import {
+  MODULE_CONTRACT_VERSION,
+} from '../../src/contracts/v1/moduleContracts.ts';
 import type {
   FixedEvent,
   PlannedItem,
@@ -26,6 +32,13 @@ import type {
   PlanningItem,
   WorkingWindow,
 } from '../../src/contracts/v1/planningContracts.ts';
+import type {
+  ReadinessBand,
+  ReadinessSnapshot,
+} from '../../src/contracts/v1/readinessContracts.ts';
+import {
+  READINESS_SCHEMA_VERSION,
+} from '../../src/contracts/v1/readinessContracts.ts';
 
 /* ── Fixtures ───────────────────────────────────────────────────── */
 
@@ -71,6 +84,28 @@ function constraints(overrides: Partial<PlanningConstraints> = {}): PlanningCons
     fixedEvents: [],
     items: [],
     ...overrides,
+  };
+}
+
+function readiness(band: ReadinessBand, score: number | null = null): ReadinessSnapshot {
+  return {
+    version: MODULE_CONTRACT_VERSION,
+    schemaVersion: READINESS_SCHEMA_VERSION,
+    scopeId: 'scope-placement',
+    computedAt: '2026-08-17T08:00:00.000Z',
+    windowStart: '2026-08-16T08:00:00.000Z',
+    windowEnd: '2026-08-17T08:00:00.000Z',
+    band,
+    score,
+    normalizedSignals: {},
+    subjective: null,
+    derived: {
+      readinessBand: band,
+      confidence: score,
+    },
+    signals: [],
+    sourceKinds: ['subjective'],
+    missingSourceKinds: [],
   };
 }
 
@@ -262,6 +297,26 @@ test('two items whose efforts would abut are separated by their buffers', () => 
   assert.equal(placed(plan, 'a').interval.endsAt, '2026-08-17T10:00:00.000Z');
   assert.equal(placed(plan, 'b').reservedInterval.startsAt, '2026-08-17T10:30:00.000Z');
   assert.equal(placed(plan, 'b').interval.startsAt, '2026-08-17T10:45:00.000Z');
+});
+
+test('readiness projects into ordinary planning buffers before the canonical scheduler runs', () => {
+  const shape = constraints({
+    items: [
+      item('a', { priority: 10 }),
+      item('b', { priority: 5 }),
+    ],
+  });
+
+  assert.strictEqual(projectReadinessIntoPlanningConstraints(shape, readiness('high', 0.9)), shape);
+
+  const adjusted = projectReadinessIntoPlanningConstraints(shape, readiness('low', 0.2));
+  assert.notStrictEqual(adjusted, shape);
+  assert.deepEqual(shape.items.map((entry) => entry.bufferAfterMinutes), [0, 0]);
+  assert.deepEqual(adjusted.items.map((entry) => entry.bufferAfterMinutes), [15, 15]);
+
+  const plan = schedulePlan(adjusted, config());
+  assert.equal(placed(plan, 'a').interval.endsAt, '2026-08-17T10:00:00.000Z');
+  assert.equal(placed(plan, 'b').interval.startsAt, '2026-08-17T10:15:00.000Z');
 });
 
 test('no two placed items reserve overlapping time', () => {

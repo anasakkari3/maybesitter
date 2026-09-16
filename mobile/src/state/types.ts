@@ -93,7 +93,16 @@ export type Screen =
   // Settings → Football (football fixtures MVP, Task 11). Pick clubs, see
   // the matches following them just projected, dismiss the ones you don't want.
   | 'footballSettings'
-  | 'about';
+  // Settings → Categories (#415). Which parts of life this account uses, and
+  // whether the lists carry a filter bar.
+  | 'categorySettings'
+  | 'about'
+  // Today's plan (UC-3.10b, #195). Reached from the morning notification's
+  // deep link and from Settings, and carrying its own date in `planDate`
+  // rather than deriving one: the link names the day the plan is for, and a
+  // screen that recomputed "today" would open a different plan from the one
+  // the notification was about for anybody tapping it just after midnight.
+  | 'plan';
 
 export type CapState = 'idle' | 'listening' | 'transcript' | 'typing' | 'processing' | 'nothing';
 
