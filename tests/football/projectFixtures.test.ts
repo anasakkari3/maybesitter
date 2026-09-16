@@ -82,6 +82,9 @@ test('a fixture becomes an active commitment that blocks two hours', async () =>
   assert.equal(c.timeSpec.kind, 'scheduled_event');
   assert.equal(c.timeSpec.dueAt, '2026-10-25T19:00:00.000Z');
   assert.equal(c.timeSpec.endAt, '2026-10-25T21:00:00.000Z');
+  // #415: no catalog category fits a match, so it is left uncategorised.
+  assert.equal(c.category, null);
+  assert.equal(c.categorySource, 'inferred');
 });
 
 test('projecting twice does not create two commitments', async () => {

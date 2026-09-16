@@ -25,6 +25,8 @@ function commitmentAt(id: string, dueAt: string, endAt: string | null): Commitme
     person: null,
     status: 'active',
     priority: { level: 'normal', source: 'default', pressureAllowed: false, pressureLevel: 'none' },
+    category: null,
+    categorySource: 'inferred',
     timeSpec: normalizeStoredTimeSpec({ kind: 'scheduled_event', dueAt, endAt, timezone: TZ }),
     currentAckState: 'not_seen',
     postponedUntil: null,

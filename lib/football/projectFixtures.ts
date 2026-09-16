@@ -382,6 +382,14 @@ function createAndConfirmCommands(commitmentId: string, timeSpec: TimeSpec, now:
         id: commitmentId,
         kind: 'task',
         title: FIXTURE_TITLE_PLACEHOLDER,
+        // Uncategorised on purpose (#415). The catalog is work, family,
+        // health, finance, social and errands; a match somebody watches
+        // fits none of them honestly -- `social` would be a guess about
+        // whether they watch it alone -- and a wrong category hides the
+        // commitment from the filter the user is looking at, while `null`
+        // still shows under "All". Stated rather than left to the
+        // default so a later change to the default cannot re-file it.
+        category: null,
         timeSpec,
       },
     },
