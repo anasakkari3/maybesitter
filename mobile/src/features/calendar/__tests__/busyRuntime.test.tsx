@@ -158,7 +158,7 @@ describe('with the calendar switch on', () => {
  */
 describe('coming back to the front', () => {
   function captureAppState() {
-    const listeners: Array<(state: AppStateStatus) => void> = [];
+    const listeners: ((state: AppStateStatus) => void)[] = [];
     jest.spyOn(AppState, 'addEventListener').mockImplementation(((type: string, listener: (state: AppStateStatus) => void) => {
       if (type === 'change') listeners.push(listener);
       return { remove: () => {} };
