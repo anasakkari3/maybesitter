@@ -386,7 +386,7 @@ function mediaTypeOf(contentType: string | null): string | null {
 
 /** A body is a calendar if, after a BOM and whitespace, it opens with the line that makes it one. */
 function opensAsCalendar(body: string): boolean {
-  return /^﻿?\s*BEGIN:VCALENDAR/i.test(body);
+  return /^\ufeff?\s*BEGIN:VCALENDAR/i.test(body);
 }
 
 function checkContentType(contentType: string | null, body: string): void {

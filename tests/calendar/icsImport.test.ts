@@ -98,6 +98,28 @@ test('a weekly lecture expands with its EXDATE and its moved instance, across th
   ]);
 });
 
+test('a moved instance moves only its own event, not another UID that shared its start time', () => {
+  const text = vcalendar(
+    vevent('lecture-a', 'Physics', '20261006T090000Z', '20261006T100000Z', 'RRULE:FREQ=WEEKLY;COUNT=2'),
+    vevent('lecture-b', 'Chemistry', '20261006T090000Z', '20261006T100000Z', 'RRULE:FREQ=WEEKLY;COUNT=2'),
+    vevent('lecture-a', 'Physics (moved)', '20261006T150000Z', '20261006T160000Z', 'RECURRENCE-ID:20261006T090000Z'),
+  );
+  const result = classifyIcs(text, { now: NOW, timeZone: ZONE });
+  assert.deepEqual(result.busy.filter((b) => b.startAt.startsWith('2026-10-06')).map((b) => [b.uid, b.startAt]), [
+    ['lecture-b', '2026-10-06T09:00:00.000Z'],
+    ['lecture-a', '2026-10-06T15:00:00.000Z'],
+  ]);
+});
+
+test('a wall-clock time just before the clocks go back resolves to the offset it was written under', () => {
+  // 00:30 on 25 Oct in Jerusalem is still +03:00 (the change is at 02:00), but
+  // read naively as UTC it lands after the change. One refinement is not enough.
+  const text = vcalendar(vevent('late', 'Lab', '', null).replace('DTSTART:',
+    'DTSTART;TZID=Asia/Jerusalem:20261025T003000\r\nDTEND;TZID=Asia/Jerusalem:20261025T013000'));
+  const result = classifyIcs(text, { now: NOW, timeZone: 'UTC' });
+  assert.equal(result.busy[0]?.startAt, '2026-10-24T21:30:00.000Z');
+});
+
 test('the feed\'s own VTIMEZONE is not trusted: a bogus zero offset for Asia/Jerusalem changes nothing', () => {
   const result = classifyIcs(fixture('google-public.ics'), { now: NOW, timeZone: 'UTC' });
   const moved = result.busy.find((b) => b.recurrenceId === '2026-10-19T06:00:00.000Z');
@@ -151,7 +173,7 @@ test('an unbounded FREQ=SECONDLY rule stops at the expansion limit and is counte
 
 test('titles that try to instruct are skipped in English, Arabic and Hebrew, and the rest are cleaned', () => {
   const result = classifyIcs(fixture('injection.ics'), { now: NOW, timeZone: ZONE });
-  assert.deepEqual(skipped(result), { missing_title: 1, prompt_injection: 4 });
+  assert.deepEqual(skipped(result), { missing_title: 1, prompt_injection: 5 });
   const titles = result.deadlines.map((d) => d.title);
   assert.equal(titles[0], 'Essay due second line');
   assert.equal(Array.from(titles[1]!).length <= MAX_TITLE_LENGTH, true);
@@ -160,13 +182,13 @@ test('titles that try to instruct are skipped in English, Arabic and Hebrew, and
   assert.equal(titles[2], 'مـوعـد نهائى للمشروع');
   assert.equal(titles[3], 'מועד אחרון להגשת פרויקט');
   for (const title of titles) {
-    assert.ok(!/[ --‪-‮⁦-⁩]/.test(title), title);
+    assert.ok(!/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/.test(title), title);
   }
 });
 
 test('cleanTitle strips controls and bidi overrides, keeps RLM, and cuts by code point', () => {
-  assert.equal(cleanTitle('a b‮c⁦de'), 'a b c d e');
-  assert.equal(cleanTitle('שלום‏ world'), 'שלום‏ world');
+  assert.equal(cleanTitle('a\u0000b\u202ec\u2066d\u0085e'), 'a b c d e');
+  assert.equal(cleanTitle('שלום\u200f world'), 'שלום\u200f world');
   const emoji = '📚'.repeat(200);
   assert.equal(Array.from(cleanTitle(emoji)).length, MAX_TITLE_LENGTH);
   assert.equal(cleanTitle(42), '');

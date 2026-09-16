@@ -436,7 +436,7 @@ test('text/plain and octet-stream are accepted only when the body opens as a cal
   for (const type of ['text/plain', 'application/octet-stream', 'TEXT/PLAIN; charset=utf-8', undefined]) {
     await withServer((_req, res) => {
       res.writeHead(200, type ? { 'content-type': type } : {});
-      res.end(`﻿ \r\n${CALENDAR}`);
+      res.end(`\ufeff \r\n${CALENDAR}`);
     }, async (port) => {
       const result = await safeFetch('https://feed.example/cal.ics', testTransport(port));
       assert.equal(result.notModified, false, String(type));
