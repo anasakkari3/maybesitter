@@ -114,8 +114,8 @@ export function RemindersMount(): null {
       latest.current.resync();
     }
     if (route.kind === 'commitment') latest.current.actions.openDetail(route.commitmentId);
-    // `plan_ready` belongs to UC-3.10b (#195), which owns the plan screen.
-    // Until then a plan tap opens Today, which is where the plan is shown.
+    // `plan_ready` (#194) opens the day it names on the plan screen (#195).
+    else if (route.kind === 'plan') latest.current.actions.openPlan(route.planDate);
     else latest.current.actions.go('today');
   }, []);
 

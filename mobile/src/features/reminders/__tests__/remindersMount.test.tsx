@@ -4,7 +4,7 @@ import { act, cleanup, render, waitFor } from '@testing-library/react-native';
 import { Text } from 'react-native';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { AppProvider } from '../../../state/AppContext';
+import { AppProvider, useApp } from '../../../state/AppContext';
 import { AuthProvider, useAuth } from '../../../auth/AuthProvider';
 import { createFakeAuthRepository, type FakeAuthRepository } from '../../../auth/fakeAuthRepository';
 import { resetAuthForTests, setAuthRepository, signOutForbidden } from '../../../api/auth';
@@ -64,6 +64,12 @@ function SignOutButton() {
   );
 }
 
+/** Where the app is, as the screen switch in `Root` would read it. */
+function Location() {
+  const { s } = useApp();
+  return <Text testID="location">{`${s.screen}|${s.planDate ?? ''}`}</Text>;
+}
+
 async function mount() {
   return render(
     <AppProvider>
@@ -71,6 +77,7 @@ async function mount() {
         <QueryClientProvider client={client}>
           <RemindersMount />
           <SignOutButton />
+          <Location />
         </QueryClientProvider>
       </AuthProvider>
     </AppProvider>,
@@ -298,8 +305,62 @@ describe('tapping a reminder is the "I know" gesture', () => {
       tapped?.(response({ kind: 'plan_ready', planDate: '2026-09-16' }));
     });
 
-    // A plan push opens Today. Marking a commitment aware off a payload that
-    // names none would silence something the user never acknowledged.
+    // A plan push opens the plan (below). Marking a commitment aware off a
+    // payload that names none would silence something the user never
+    // acknowledged.
     expect(Object.keys((await storedAwareness()).entries)).toEqual([]);
+  });
+});
+
+/*
+ * ── A plan push opens the plan ───────────────────────────────────
+ *
+ * The server sends `plan_ready` with the day in `planDate` (#194), and
+ * `routeFromNotification` has always answered `{ kind: 'plan' }` for it. The
+ * mount then ignored that answer and opened Today, under a comment saying the
+ * plan screen (#195) did not exist yet. #195 is merged and `openPlan` exists,
+ * so the one notification the morning plan sends landed a step away from the
+ * plan, from the live listener and from a cold start alike.
+ */
+describe('tapping the morning plan push', () => {
+  const PLAN_PUSH = { kind: 'plan_ready', planDate: '2026-09-16' };
+
+  it('opens that day\'s plan when the app is running', async () => {
+    let tapped: ((value: unknown) => void) | undefined;
+    jest.spyOn(notifications, 'addNotificationResponseReceivedListener')
+      .mockImplementation(handler => {
+        tapped = handler as unknown as (value: unknown) => void;
+        return { remove: () => {} } as never;
+      });
+
+    const view = await mount();
+    await waitFor(() => expect(tapped).toBeDefined());
+    await act(async () => {
+      tapped?.(response(PLAN_PUSH));
+    });
+
+    await waitFor(() => expect(view.getByTestId('location').props.children).toBe('plan|2026-09-16'));
+  });
+
+  it('opens that day\'s plan when the tap launched the app', async () => {
+    jest.spyOn(notifications, 'getLastNotificationResponseAsync').mockResolvedValue(response(PLAN_PUSH));
+
+    const view = await mount();
+
+    await waitFor(() => expect(view.getByTestId('location').props.children).toBe('plan|2026-09-16'));
+  });
+
+  it('opens Today for a plan push whose date is not a date', async () => {
+    jest.spyOn(notifications, 'getLastNotificationResponseAsync')
+      .mockResolvedValue(response({ kind: 'plan_ready', planDate: '2026-02-30' }));
+
+    const view = await mount();
+    await waitFor(() => expect(commitmentEndpoints.listToday).toHaveBeenCalled());
+    await waitFor(() => expect(notifications.getLastNotificationResponseAsync).toHaveBeenCalled());
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+
+    expect(view.getByTestId('location').props.children).toBe('today|');
   });
 });
