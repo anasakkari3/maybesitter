@@ -112,9 +112,16 @@ const EVENT_PROPERTIES: Record<AnalyticsEventName, readonly string[]> = {
   plan_edited: ['movedCount', 'removedCount', 'outcome', 'reason'],
   plan_regenerated: ['generation'],
   plan_dismissed: ['generation'],
+  // UC-3.17 (#469). How many of the five setup questions were answered — a
+  // count, never the answers. `answeredCount` is held to an integer 0-5 below
+  // for the same reason ratings are: a "count" that accepted any number or a
+  // string would be a field that could carry something else.
+  onboarding_setup_answered: ['answeredCount'],
 };
 
 const RATING_KEYS = ['utilityRating', 'invasivenessRating'];
+/** The setup chat has five questions; the count of answered ones is 0-5. */
+const SETUP_QUESTION_COUNT = 5;
 const PRIVATE_KEY = /(raw|message|text|title|description|person|email|phone|prompt|content)/i;
 const ID = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/;
 const TARGET_ROUTES = new Set(['capture', 'today', 'commitment_detail']);
@@ -150,6 +157,9 @@ export function validateAnalyticsEvent(value: unknown): AnalyticsValidationResul
       if (key === 'targetRoute' && (typeof property !== 'string' || !TARGET_ROUTES.has(property))) errors.push(`targetRoute is not canonical: ${String(property)}`);
       if (key === 'source' && (typeof property !== 'string' || !SOURCE_VALUES.has(property))) errors.push(`source is not canonical: ${String(property)}`);
       if (RATING_KEYS.includes(key) && !isRating(property)) errors.push(`rating must be an integer ${RATING_SCALE.minimum}-${RATING_SCALE.maximum}: ${key}`);
+      if (key === 'answeredCount' && !(Number.isInteger(property) && (property as number) >= 0 && (property as number) <= SETUP_QUESTION_COUNT)) {
+        errors.push(`answeredCount must be an integer 0-${SETUP_QUESTION_COUNT}: ${String(property)}`);
+      }
     }
   }
   return { valid: errors.length === 0, errors };
