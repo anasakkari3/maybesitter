@@ -1090,6 +1090,13 @@ export interface FixtureCommitmentSummary {
   readonly commitmentId: string;
   readonly homeTeamName: string;
   readonly awayTeamName: string;
+  /**
+   * The provider's team ids, so a client can title the row with the curated
+   * club names in its own language, the rule `fixtureTitle` applies to the
+   * commitment. Absent for a ref written before refs carried them.
+   */
+  readonly homeTeamId?: string;
+  readonly awayTeamId?: string;
   readonly kickoffUtc: string;
   /**
    * Which of this user's *other* commitments this match's two-hour block
@@ -1163,6 +1170,8 @@ export async function listActiveFixtureCommitments(uid: string): Promise<readonl
       commitmentId: ref.linkedCommitmentId!,
       homeTeamName: ref.homeTeamName,
       awayTeamName: ref.awayTeamName,
+      ...(ref.homeTeamId ? { homeTeamId: ref.homeTeamId } : {}),
+      ...(ref.awayTeamId ? { awayTeamId: ref.awayTeamId } : {}),
       kickoffUtc: dueAt,
       collisions,
     });

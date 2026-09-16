@@ -30,10 +30,10 @@ export type FootballClub = z.infer<typeof footballClubSchema>;
  * client learns "this commitment is one of mine, from the feed, and may be
  * dismissed" -- not a field on `Commitment` itself. `homeTeamName`/
  * `awayTeamName` are the provider's own (Latin-script) strings, not the
- * curated `names` a followed club carries: an opponent is not necessarily a
- * club this app curates at all, so there is no dictionary to translate an
- * arbitrary opponent's name through yet. Showing the raw provider name here
- * is a known limitation, not an oversight -- see task-11-report.md.
+ * curated `names` a followed club carries. `homeTeamId`/`awayTeamId` let the
+ * screen swap in the curated name for a side the app curates, which is the
+ * same rule the server uses for the commitment's own title; an opponent the
+ * app does not curate keeps the provider's name.
  *
  * `collisions` reuses `collisionWarningSchema` from `./capture` -- Task 10's
  * shape for "what this landed on top of" -- rather than a second one defined
@@ -48,6 +48,10 @@ export const footballFixtureSchema = z.object({
   commitmentId: z.string(),
   homeTeamName: z.string(),
   awayTeamName: z.string(),
+  // Optional: an older server does not send them, and the row then falls back
+  // to the provider's names (see `fixtureTitle`).
+  homeTeamId: z.string().optional(),
+  awayTeamId: z.string().optional(),
   kickoffUtc: isoDateTime,
   collisions: collisionWarningSchema.array().optional(),
 });

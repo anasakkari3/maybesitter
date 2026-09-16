@@ -168,6 +168,10 @@ test('saving a follow projects immediately -- the first match needs no nightly j
     const fixtures = body.fixtures as { commitmentId: string; homeTeamName: string; awayTeamName: string; kickoffUtc: string; collisions: unknown[] }[];
     assert.equal(fixtures.length, 1);
     assert.equal(fixtures[0]!.homeTeamName, 'FC Barcelona');
+    // The provider ids ride along so the app can title the row with the
+    // curated names in its own language (final review M2).
+    assert.equal((fixtures[0] as { homeTeamId?: string }).homeTeamId, '81');
+    assert.equal((fixtures[0] as { awayTeamId?: string }).awayTeamId, '86');
     assert.equal(fixtures[0]!.kickoffUtc, '2026-10-25T19:00:00.000Z');
     assert.deepEqual(fixtures[0]!.collisions, []);
 

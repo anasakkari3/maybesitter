@@ -187,7 +187,28 @@ describe('dismissing a match', () => {
       }),
     );
     await show();
-    expect(await screen.findByTestId(`football-collision-${FIXTURE.commitmentId}`)).toBeTruthy();
+    const line = await screen.findByTestId(`football-collision-${FIXTURE.commitmentId}`);
+    // Final review M2: the line said only "something else is on your
+    // calendar". It names what that is now.
+    expect([line.props.children].flat().join('')).toContain('Dinner');
+  });
+
+  // Final review M2: rows printed the provider's Latin names even on an
+  // Arabic screen. They use the same title rule as the commitment itself.
+  it('titles a match with the curated names in the active language, and the provider name for anyone else', async () => {
+    jest.spyOn(footballEndpoints, 'getFootballSettings').mockResolvedValue(
+      settingsResponse({
+        followedClubIds: ['barcelona'],
+        fixtures: [
+          { ...FIXTURE, homeTeamId: '81', awayTeamId: '86', collisions: [] },
+          { ...FIXTURE, commitmentId: 'commitment-2', homeTeamId: '298', awayTeamId: '81', homeTeamName: 'Girona FC', awayTeamName: 'FC Barcelona', collisions: [] },
+        ],
+      }),
+    );
+    await show();
+    expect(await screen.findByText('برشلونة – ريال مدريد')).toBeTruthy();
+    expect(screen.getByText('Girona FC – برشلونة')).toBeTruthy();
+    expect(screen.queryByText('FC Barcelona – Real Madrid CF')).toBeNull();
   });
 });
 

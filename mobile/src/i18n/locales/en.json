@@ -705,7 +705,7 @@
   "footballFollowing": "Following",
   "footballDismiss": "Not this one",
   "footballSaveFailed": "Couldn’t save your clubs. Check your connection and tap again.",
-  "footballCollision": "Something else is already on your calendar at this time.",
+  "footballCollision": "Overlaps {titles} on your calendar.",
   "footballAttribution": "Match data from football-data.org",
   "calendarBusyConflict": "Overlaps a calendar event {range}",
   "calendarBusyConflictAllDay": "Your calendar has an all-day entry that day",

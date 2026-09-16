@@ -4,7 +4,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../../state/AppContext';
 import { useTimeZone } from '../../i18n/timezone';
 import { formatDate, formatTime } from '../../i18n/format';
-import { ltr } from '../../i18n/strings';
+import { fill, ltr } from '../../i18n/strings';
+import { fixtureTitle } from './fixtureTitle';
 import { Btn, Card, Txt } from '../../ui/primitives';
 import { ScreenIn } from '../../ui/motion';
 import { SettingsHeader } from './SettingsChrome';
@@ -135,7 +136,7 @@ export function FootballSettingsScreen({ onBack }: { onBack: () => void }) {
               >
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
                   <View style={{ flex: 1, gap: 2 }}>
-                    <Txt size={15} latin>{`${fixture.homeTeamName} – ${fixture.awayTeamName}`}</Txt>
+                    <Txt size={15}>{fixtureTitle(fixture, clubs, lang)}</Txt>
                     <Txt size={13} color={p.mu}>{matchLine(fixture)}</Txt>
                   </View>
                   <Btn
@@ -150,7 +151,7 @@ export function FootballSettingsScreen({ onBack }: { onBack: () => void }) {
                 </View>
                 {fixture.collisions && fixture.collisions.length > 0 ? (
                   <Txt size={13} color={p.wm} testID={`football-collision-${fixture.commitmentId}`}>
-                    {t.footballCollision}
+                    {fill(t.footballCollision, { titles: fixture.collisions.map((collision) => collision.title).join(lang === 'ar' ? '، ' : ', ') })}
                   </Txt>
                 ) : null}
               </View>

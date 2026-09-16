@@ -708,7 +708,7 @@
   "footballFollowing": "עוקב",
   "footballDismiss": "לא את זה",
   "footballSaveFailed": "לא הצלחנו לשמור את הקבוצות. בדקו את החיבור ונסו שוב.",
-  "footballCollision": "כבר יש משהו אחר ביומן שלך בזמן הזה.",
+  "footballCollision": "חופף ל־{titles} ביומן שלך.",
   "footballAttribution": "נתוני המשחקים מ-football-data.org",
   "calendarBusyConflict": "מתנגש עם אירוע ביומן {range}",
   "calendarBusyConflictAllDay": "ביומן שלך יש אירוע של יום שלם באותו יום",
