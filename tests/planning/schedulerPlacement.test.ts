@@ -39,6 +39,11 @@ import type {
 import {
   READINESS_SCHEMA_VERSION,
 } from '../../src/contracts/v1/readinessContracts.ts';
+import {
+  resolveReadinessForUserState,
+  SUBJECTIVE_ENERGY_POLICY,
+} from '../../lib/integrations/readiness/subjectiveEnergy.ts';
+import { composeUserStateProjection } from '../../lib/userState/composeUserStateProjection.ts';
 
 /* ── Fixtures ───────────────────────────────────────────────────── */
 
@@ -317,6 +322,99 @@ test('readiness projects into ordinary planning buffers before the canonical sch
   const plan = schedulePlan(adjusted, config());
   assert.equal(placed(plan, 'a').interval.endsAt, '2026-08-17T10:00:00.000Z');
   assert.equal(placed(plan, 'b').interval.startsAt, '2026-08-17T10:15:00.000Z');
+});
+
+test('a current explicit energy statement wins wearable disagreement before planning', () => {
+  const wearable = {
+    ...readiness('low', 0.2),
+    sourceKinds: ['healthkit' as const],
+  };
+  const resolved = resolveReadinessForUserState({
+    scopeId: 'scope-placement',
+    now: '2026-08-17T08:30:00.000Z',
+    currentSubjective: { energy: 5, observedAt: '2026-08-17T08:20:00.000Z' },
+    recentReadiness: wearable,
+  });
+
+  assert.equal(resolved.selectedSource, 'current_subjective');
+  assert.equal(resolved.snapshot?.band, 'high');
+  assert.equal(resolved.snapshot?.score, 1);
+  assert.equal(resolved.snapshot?.subjective?.energy, 5);
+  assert.deepEqual(resolved.snapshot?.sourceKinds, ['healthkit', 'subjective']);
+  const shape = constraints({ items: [item('a')] });
+  assert.strictEqual(projectReadinessIntoPlanningConstraints(shape, resolved.snapshot), shape);
+});
+
+test('a stale subjective statement does not override recent normalized readiness', () => {
+  const wearable = {
+    ...readiness('steady', 0.55),
+    computedAt: '2026-08-17T07:30:00.000Z',
+    sourceKinds: ['health_connect' as const],
+  };
+  const resolved = resolveReadinessForUserState({
+    scopeId: 'scope-placement',
+    now: '2026-08-17T08:30:00.000Z',
+    currentSubjective: { energy: 1, observedAt: '2026-08-15T08:00:00.000Z' },
+    recentReadiness: wearable,
+  });
+
+  assert.equal(resolved.selectedSource, 'recent_readiness');
+  assert.strictEqual(resolved.snapshot, wearable);
+  assert.equal(resolved.snapshot?.band, 'steady');
+});
+
+test('historical inference is an explicit stale fallback, never current user state', () => {
+  const historical = readiness('low', 0.25);
+  const resolved = resolveReadinessForUserState({
+    scopeId: 'scope-placement',
+    now: '2026-08-20T08:30:00.000Z',
+    historicalInference: historical,
+  });
+
+  assert.equal(resolved.selectedSource, 'historical_inference');
+  assert.equal(resolved.freshness, 'stale');
+  assert.strictEqual(resolved.snapshot, historical);
+  assert.deepEqual(SUBJECTIVE_ENERGY_POLICY, {
+    scale: [1, 2, 3, 4, 5],
+    currentUserStatementWins: true,
+    medicalInterpretationAllowed: false,
+    persistsCheckIn: false,
+  });
+});
+
+test('UserState composes caller-owned sources as a deterministic read projection', () => {
+  const busy = [{
+    startsAt: '2026-08-17T10:00:00.000Z',
+    endsAt: '2026-08-17T10:30:00.000Z',
+    timezone: 'UTC',
+  }];
+  const projection = composeUserStateProjection({
+    scopeId: 'scope-placement',
+    now: '2026-08-17T08:30:00.000Z',
+    readiness: readiness('steady', 0.5),
+    busy,
+    relevantMemoryIds: ['memory-b', 'memory-a', 'memory-a'],
+    deadlines: [
+      { deadlineId: 'later', dueAt: '2026-08-17T16:00:00.000Z', kind: 'manual', sourceRef: null },
+      { deadlineId: 'sooner', dueAt: '2026-08-17T12:00:00.000Z', kind: 'commitment', sourceRef: 'c-1' },
+    ],
+    availabilityUpdatedAt: '2026-08-17T08:00:00.000Z',
+    relevantMemoryUpdatedAt: '2026-08-15T07:00:00.000Z',
+    relevantMemorySummaryDigest: 'memory-summary',
+  });
+
+  assert.equal(projection.schemaVersion, 'user-state-projection-v1');
+  assert.equal(projection.current.meta.freshness, 'fresh');
+  assert.equal(projection.current.meta.inputDigest?.length, 64);
+  assert.equal(projection.relevantMemory.meta.freshness, 'stale');
+  assert.deepEqual(projection.relevantMemory.memoryIds, ['memory-a', 'memory-b']);
+  assert.deepEqual(projection.deadlines.map((entry) => entry.deadlineId), ['sooner', 'later']);
+  assert.equal(projection.plan.status, 'none');
+  assert.deepEqual(busy, [{
+    startsAt: '2026-08-17T10:00:00.000Z',
+    endsAt: '2026-08-17T10:30:00.000Z',
+    timezone: 'UTC',
+  }]);
 });
 
 test('no two placed items reserve overlapping time', () => {
