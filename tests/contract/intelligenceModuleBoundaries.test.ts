@@ -16,6 +16,11 @@ import { SAFETY_SCHEMA_VERSION } from '../../src/contracts/v1/safetyContracts.ts
 import { COACHING_SCHEMA_VERSION } from '../../src/contracts/v1/coachingContracts.ts';
 import { buildHealthConnectReadinessSnapshot } from '../../lib/integrations/readiness/healthConnect.ts';
 import {
+  HEALTH_CONNECT_MINIMUM_READ_PERMISSIONS,
+  HealthConnectReadinessAdapter,
+  type HealthConnectNativePort,
+} from '../../lib/integrations/healthConnect/adapter.ts';
+import {
   normalizeMicrosoftTask,
   normalizeNotionTask,
   normalizeTodoistTask,
@@ -305,6 +310,124 @@ test('Health Connect native readings normalize through the provider-independent 
   assert.ok(snapshot.signals.every((signal) => signal.source.provider === undefined));
   assert.equal(snapshot.signals.some((signal) => signal.metric === 'steps'), true);
   assert.equal(JSON.stringify(snapshot).includes('HealthConnectPlanner'), false);
+});
+
+function healthConnectPort(
+  overrides: Partial<HealthConnectNativePort> = {},
+): HealthConnectNativePort {
+  const authorization = {
+    state: 'authorized' as const,
+    granted: HEALTH_CONNECT_MINIMUM_READ_PERMISSIONS,
+    denied: [],
+    checkedAt: '2026-09-16T09:00:00Z',
+  };
+  return {
+    isSdkAvailable: async () => true,
+    authorization: async () => authorization,
+    requestAuthorization: async () => authorization,
+    readRecords: async () => ({
+      sleep: {
+        observedAt: '2026-09-16T06:30:00Z',
+        sleepStart: '2026-09-15T23:00:00Z',
+        sleepEnd: '2026-09-16T06:30:00Z',
+        totalSleepMinutes: 450,
+      },
+      steps: { observedAt: '2026-09-16T08:00:00Z', count: 4200 },
+    }),
+    revokeAllPermissions: async () => undefined,
+    clearLocalConnection: async () => undefined,
+    ...overrides,
+  };
+}
+
+const healthConnectWindow = {
+  scopeId: 'scope-a',
+  computedAt: '2026-09-16T09:00:00Z',
+  windowStart: '2026-09-15T09:00:00Z',
+  windowEnd: '2026-09-16T09:00:00Z',
+} as const;
+
+test('Health Connect adapter requests only the canonical minimum read permissions', async () => {
+  let requested: readonly string[] = [];
+  const port = healthConnectPort({
+    authorization: async () => ({
+      state: 'not_determined', granted: [], denied: [], checkedAt: healthConnectWindow.computedAt,
+    }),
+    requestAuthorization: async (permissions) => {
+      requested = permissions;
+      return {
+        state: 'authorized', granted: permissions, denied: [], checkedAt: healthConnectWindow.computedAt,
+      };
+    },
+  });
+
+  const result = await new HealthConnectReadinessAdapter(port).authorize();
+
+  assert.equal(result.state, 'authorized');
+  assert.deepEqual(requested, HEALTH_CONNECT_MINIMUM_READ_PERMISSIONS);
+});
+
+test('Health Connect adapter reports fresh, stale, empty, and denied reads without provider leakage', async () => {
+  const fresh = await new HealthConnectReadinessAdapter(healthConnectPort(), {
+    connectionId: 'int-health-connect',
+  }).collect(healthConnectWindow);
+  const stale = await new HealthConnectReadinessAdapter(healthConnectPort({
+    readRecords: async () => ({
+      sleep: {
+        observedAt: '2026-09-13T06:30:00Z',
+        sleepStart: '2026-09-12T23:00:00Z',
+        sleepEnd: '2026-09-13T06:30:00Z',
+        totalSleepMinutes: 450,
+      },
+    }),
+  })).collect(healthConnectWindow);
+  const empty = await new HealthConnectReadinessAdapter(healthConnectPort({
+    readRecords: async () => ({}),
+  })).collect(healthConnectWindow);
+  const denied = await new HealthConnectReadinessAdapter(healthConnectPort({
+    authorization: async () => ({
+      state: 'denied', granted: [], denied: HEALTH_CONNECT_MINIMUM_READ_PERMISSIONS,
+      checkedAt: healthConnectWindow.computedAt,
+    }),
+  })).collect(healthConnectWindow);
+
+  assert.equal(fresh.state, 'fresh');
+  assert.equal(fresh.provenance.connectionId, 'int-health-connect');
+  assert.equal(fresh.provenance.rawPayloadPersisted, false);
+  assert.equal(fresh.snapshot?.sourceKinds[0], 'health_connect');
+  assert.equal(stale.state, 'stale');
+  assert.equal(empty.state, 'empty');
+  assert.equal(denied.state, 'permission_denied');
+  assert.equal(denied.snapshot, null);
+});
+
+test('Health Connect adapter converts native failures to a stable privacy-safe result', async () => {
+  const events: unknown[] = [];
+  const adapter = new HealthConnectReadinessAdapter(healthConnectPort({
+    readRecords: async () => { throw new Error('raw provider payload must not escape'); },
+  }), { logger: { log: (event) => events.push(event) } });
+
+  const result = await adapter.collect(healthConnectWindow);
+
+  assert.equal(result.state, 'error');
+  assert.equal(result.errorCode, 'health_connect_read_failed');
+  assert.equal(JSON.stringify(events).includes('raw provider payload'), false);
+});
+
+test('Health Connect disconnect revokes provider permission and clears local connection', async () => {
+  const calls: string[] = [];
+  const adapter = new HealthConnectReadinessAdapter(healthConnectPort({
+    revokeAllPermissions: async () => { calls.push('revoke'); },
+    clearLocalConnection: async () => { calls.push('clear'); },
+  }));
+
+  const result = await adapter.disconnect();
+
+  assert.deepEqual(calls, ['revoke', 'clear']);
+  assert.deepEqual(result, {
+    localConnectionCleared: true,
+    providerPermissionRevocation: 'revoked',
+  });
 });
 
 test('external task provider payloads normalize to one task reference contract', () => {
