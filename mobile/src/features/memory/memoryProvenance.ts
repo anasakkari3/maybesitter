@@ -97,11 +97,12 @@ export const ORIGIN_STRING: Record<NonNullable<MemoryItem['evidence']['origin']>
   self_description: 'memoryOriginDescription',
   manual: 'memoryOriginManual',
   capture: 'memoryOriginCapture',
+  behaviour_rule: 'memoryOriginRule',
 };
 
 export interface EvidenceLine {
   /** Stable across languages, so a test can name a line without quoting copy. */
-  key: 'origin' | 'recorded' | 'observed' | 'confirmed' | 'edited' | 'observations' | 'stale';
+  key: 'origin' | 'recorded' | 'observed' | 'confirmed' | 'edited' | 'observations' | 'pattern' | 'plan' | 'stale';
   text: string;
 }
 
@@ -111,7 +112,7 @@ export interface EvidenceCopy {
   date: (iso: string) => string;
 }
 
-function fill(template: string, values: Record<string, string>): string {
+export function fill(template: string, values: Record<string, string>): string {
   return template.replace(/\{(\w+)\}/g, (_, key) => values[key] ?? '');
 }
 
@@ -157,6 +158,18 @@ export function evidenceLines(item: MemoryItem, copy: EvidenceCopy): EvidenceLin
       ? (strings.memoryWhyNoObservations ?? '')
       : fill(strings.memoryWhyObservations ?? '', { count: String(item.evidence.observationCount) }),
   });
+
+  // A kept suggestion says what it was read from and what it does. The second
+  // line is the one #202 insists on: a fact that changes the plan has to say
+  // so next to the Delete that stops it.
+  const pattern = item.evidence.pattern;
+  if (pattern) {
+    lines.push({
+      key: 'pattern',
+      text: fill(strings.memoryWhyPattern ?? '', { start: pattern.window.start, end: pattern.window.end }),
+    });
+    lines.push({ key: 'plan', text: strings.memoryWhyPlanUse ?? '' });
+  }
 
   lines.push({
     key: 'stale',

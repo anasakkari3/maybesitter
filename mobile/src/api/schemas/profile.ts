@@ -47,12 +47,18 @@ export const routineSavedSchema = z.object({
 });
 
 /**
+ * Which path a fact arrived by. `behaviour_rule` is a suggestion the user kept
+ * (UC-3.16, #202).
+ */
+export const memoryOriginSchema = z.enum(['routine_survey', 'self_description', 'manual', 'capture', 'behaviour_rule']);
+
+/**
  * Where a fact came from, which is what the provenance chip renders.
  * `null` on records written before #167 — the chip is then omitted rather
  * than guessed at.
  */
 export const memoryProvenanceSchema = z.object({
-  origin: z.enum(['routine_survey', 'self_description', 'manual', 'capture']),
+  origin: memoryOriginSchema,
   originRef: z.string().optional(),
   model: z.string().optional(),
   promptVersion: z.string().optional(),
@@ -84,12 +90,21 @@ export const memorySourceLabelSchema = z.enum([
  * rather than implying data that does not exist.
  */
 export const memoryEvidenceSchema = z.object({
-  origin: z.enum(['routine_survey', 'self_description', 'manual', 'capture']).nullable(),
+  origin: memoryOriginSchema.nullable(),
   observedAt: isoDateTime,
   recordedAt: isoDateTime,
   confirmedAt: isoDateTime.nullable(),
   edited: z.boolean(),
   observationCount: z.number(),
+  /**
+   * The window a rule read off the user's behaviour, on a suggestion they kept
+   * unedited. Null for everything else. Defaulted for a server older than
+   * #202's growth half, which does not send it.
+   */
+  pattern: z.object({
+    ruleId: z.literal('R1_focus_window'),
+    window: z.object({ start: z.string(), end: z.string() }),
+  }).nullable().default(null),
 });
 
 export const memoryItemSchema = z.object({
@@ -108,7 +123,45 @@ export const memoryItemSchema = z.object({
   evidence: memoryEvidenceSchema,
 });
 
-export const memoryListSchema = z.object({ items: z.array(memoryItemSchema) });
+/**
+ * Something MaybeSitter could say it noticed, computed on the read and stored
+ * nowhere until the user keeps it (UC-3.16, #202). A token and a window, not a
+ * sentence: the words are this app's, in three languages.
+ */
+export const memorySuggestionSchema = z.object({
+  ruleId: z.literal('R1_focus_window'),
+  fingerprint: z.string(),
+  window: z.object({ start: z.string(), end: z.string() }),
+  confidence: z.number(),
+  evidence: z.object({
+    matchingCount: z.number(),
+    totalCount: z.number(),
+    lookbackDays: z.number(),
+  }),
+});
+
+export const memoryListSchema = z.object({
+  items: z.array(memoryItemSchema),
+  /** Defaulted, so a server without the growth half still parses. */
+  suggestions: z.array(memorySuggestionSchema).default([]),
+});
+
+export const memorySuggestionKeptSchema = z.object({
+  success: z.literal(true),
+  decision: z.literal('keep'),
+  memory: memoryItemSchema,
+});
+
+export const memorySuggestionDismissedSchema = z.object({
+  success: z.literal(true),
+  decision: z.literal('dismiss'),
+});
+
+/** Either answer, told apart by `decision`. Both calls parse with this. */
+export const memorySuggestionDecisionSchema = z.discriminatedUnion('decision', [
+  memorySuggestionKeptSchema,
+  memorySuggestionDismissedSchema,
+]);
 
 export const memoryCreatedSchema = z.object({ success: z.literal(true), memory: memoryItemSchema });
 
@@ -120,6 +173,7 @@ export type MemoryItem = z.infer<typeof memoryItemSchema>;
 export type MemoryProvenance = z.infer<typeof memoryProvenanceSchema>;
 export type MemorySourceLabel = z.infer<typeof memorySourceLabelSchema>;
 export type MemoryEvidence = z.infer<typeof memoryEvidenceSchema>;
+export type MemorySuggestion = z.infer<typeof memorySuggestionSchema>;
 
 /**
  * A suggestion drawn from a self-description (UC-2.7b, #168).

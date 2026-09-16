@@ -54,6 +54,7 @@ import consentsRecommendationsRecorded from './__fixtures__/consents.recommendat
 import memoryCreated from './__fixtures__/memory.created.json';
 import memoryDeleted from './__fixtures__/memory.deleted.json';
 import memoryList from './__fixtures__/memory.list.json';
+import memorySuggestionKept from './__fixtures__/memory.suggestionKept.json';
 import profileOne from './__fixtures__/profile.one.json';
 import profileSaved from './__fixtures__/profile.saved.json';
 import trustState from './__fixtures__/trust.state.json';
@@ -128,6 +129,9 @@ const ROUTES: [string, RegExp, MockResponse][] = [
   ['PATCH', /^\/api\/mobile\/memory\/[^/]+$/, { status: 200, body: memoryCreated }],
   ['DELETE', /^\/api\/mobile\/memory\/[^/]+$/, { status: 200, body: memoryDeleted }],
   ['DELETE', /^\/api\/mobile\/memory$/, { status: 200, body: memoryDeleted }],
+  // Keep and dismiss share a route and the same bargain as the plan actions:
+  // whatever was decided, the kept answer comes back, and nothing accumulates.
+  ['POST', /^\/api\/mobile\/memory\/suggestions\/[^/]+$/, { status: 201, body: memorySuggestionKept }],
 ];
 
 /** True when this build is serving fixtures. Always false in a release. */

@@ -112,6 +112,12 @@ describe('grouping', () => {
     }
     expect(provenanceChip({ origin: 'manual' }, 'model_inferred')).toBe('ai');
     expect(groupOf(item({ sourceLabel: 'model_suggested' }))).toBe('suggested');
+    // A kept suggestion is "noticed" on both surfaces, and becomes the user's
+    // own on both once they rewrite it (#202).
+    expect(provenanceChip({ origin: 'behaviour_rule' }, 'deterministic_rule')).toBe('noticed');
+    expect(groupOf(item({ sourceLabel: 'noticed_from_confirmed' }))).toBe('noticed');
+    expect(provenanceChip({ origin: 'behaviour_rule' }, 'user_stated')).toBe('you');
+    expect(groupOf(item({ sourceLabel: 'you_told_us' }))).toBe('told');
   });
 });
 

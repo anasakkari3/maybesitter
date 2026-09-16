@@ -42,6 +42,8 @@ import {
   createMemory,
   deleteAllMemory,
   deleteMemory,
+  dismissMemorySuggestion,
+  keepMemorySuggestion,
   getProfile,
   listMemory,
   patchMemory,
@@ -52,6 +54,7 @@ import { applyEditLocally } from '../features/plan/optimisticEdit';
 import type { DailyPlan } from './schemas/plan';
 import type { NextStepDecisionKind, NextStepRecommendation } from './schemas/nextStep';
 import type { TrustAction } from './schemas/trust';
+import type { MemorySuggestion } from './schemas/profile';
 import type { AlphaFeedbackCategory } from './schemas/feedback';
 import type { AnalyticsProperties, ClientReportableEvent } from './schemas/analytics';
 import { ForbiddenError, InvalidTransitionError, StaleCommitmentError } from './errors';
@@ -825,6 +828,28 @@ export function useDeleteMemory() {
 
 export function useDeleteAllMemory() {
   return useMemoryMutation((_: void) => deleteAllMemory());
+}
+
+/**
+ * Keep or dismiss a suggestion (UC-3.16, #202). Both refresh the list — a kept
+ * one moves into it, a dismissed one leaves the suggestions — and the trust
+ * screen, whose "what it knows" counts include memory.
+ */
+export function useMemorySuggestion() {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn: (input: { suggestion: MemorySuggestion; decision: 'keep' | 'dismiss'; language: 'ar' | 'he' | 'en' }) =>
+      (input.decision === 'keep'
+        ? keepMemorySuggestion(input.suggestion, input.language)
+        : dismissMemorySuggestion(input.suggestion)),
+    onSettled: () => {
+      // Settled, not success: a 409 means the suggestion is gone on the
+      // server, and the list has to be re-read to stop offering it.
+      void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
+      void client.invalidateQueries({ queryKey: queryKeys.trust(uid) });
+    },
+  });
 }
 
 /**

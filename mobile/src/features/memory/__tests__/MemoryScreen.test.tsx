@@ -22,7 +22,7 @@ import { AuthProvider } from '../../../auth/AuthProvider';
 import { createFakeAuthRepository } from '../../../auth/fakeAuthRepository';
 import { resetAuthForTests, setAuthRepository } from '../../../api/auth';
 import type { AuthUser } from '../../../auth/types';
-import type { MemoryItem } from '../../../api/schemas/profile';
+import type { MemoryItem, MemorySuggestion } from '../../../api/schemas/profile';
 import { MemoryScreen, UNDO_WINDOW_MS } from '../MemoryScreen';
 import en from '../../../i18n/locales/en.json';
 
@@ -63,6 +63,7 @@ function item(over: Partial<MemoryItem> = {}): MemoryItem {
       confirmedAt: null,
       edited: false,
       observationCount: 0,
+      pattern: null,
     },
     ...over,
   } as MemoryItem;
@@ -76,22 +77,31 @@ const NOTICED = item({
   sourceLabel: 'noticed_from_confirmed',
   confidence: 0.7,
   staleAfter: NINETY_DAYS,
-  provenance: null,
+  provenance: { origin: 'behaviour_rule', originRef: 'R1_focus_window:09:00-12:00', confirmedByUserAt: RECORDED },
   evidence: {
-    origin: null,
+    origin: 'behaviour_rule',
     observedAt: RECORDED,
     recordedAt: RECORDED,
-    confirmedAt: null,
+    confirmedAt: RECORDED,
     edited: false,
     observationCount: 8,
+    pattern: { ruleId: 'R1_focus_window', window: { start: '09:00', end: '12:00' } },
   },
 });
+
+const SUGGESTION: MemorySuggestion = {
+  ruleId: 'R1_focus_window',
+  fingerprint: 'R1_focus_window:14:00-17:00',
+  window: { start: '14:00', end: '17:00' },
+  confidence: 0.7,
+  evidence: { matchingCount: 7, totalCount: 10, lookbackDays: 28 },
+};
 
 let client: QueryClient;
 let repository: ReturnType<typeof createFakeAuthRepository>;
 
-function listing(items: MemoryItem[]) {
-  jest.spyOn(profileEndpoints, 'listMemory').mockResolvedValue({ items } as never);
+function listing(items: MemoryItem[], suggestions: MemorySuggestion[] = []) {
+  jest.spyOn(profileEndpoints, 'listMemory').mockResolvedValue({ items, suggestions } as never);
 }
 
 beforeEach(() => {
@@ -103,6 +113,8 @@ beforeEach(() => {
   jest.spyOn(profileEndpoints, 'patchMemory').mockResolvedValue({ success: true, memory: item() } as never);
   jest.spyOn(profileEndpoints, 'deleteMemory').mockResolvedValue({ success: true, deleted: 1 } as never);
   jest.spyOn(profileEndpoints, 'deleteAllMemory').mockResolvedValue({ success: true, deleted: 1 } as never);
+  jest.spyOn(profileEndpoints, 'keepMemorySuggestion').mockResolvedValue({ success: true, decision: 'keep', memory: NOTICED } as never);
+  jest.spyOn(profileEndpoints, 'dismissMemorySuggestion').mockResolvedValue({ success: true, decision: 'dismiss' } as never);
 });
 
 afterEach(() => {
@@ -292,5 +304,81 @@ describe('delete everything', () => {
 
     await act(async () => { fireEvent.press(screen.getByTestId('memory-screen-delete-all-confirm')); });
     await waitFor(() => expect(profileEndpoints.deleteAllMemory).toHaveBeenCalled());
+  });
+});
+
+describe('suggestions (#202)', () => {
+  it('offers one as not saved, with what it was read from, and never the share as a number', async () => {
+    listing([item()], [SUGGESTION]);
+    await show(<MemoryScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('memory-suggestions')).not.toBeNull());
+
+    expect(screen.getByTestId('memory-suggestions-lede').props.children).toBe(en.memorySuggestionsLede);
+    const sentence = screen.getByTestId('memory-suggestion-R1_focus_window:14:00-17:00').props.children as string;
+    expect(sentence).toContain('14:00');
+    expect(sentence).toContain('17:00');
+    const evidence = screen.getByTestId('memory-suggestion-evidence-R1_focus_window:14:00-17:00').props.children as string;
+    expect(evidence).toContain('28');
+    expect(evidence).toContain('10');
+    expect(evidence).toContain('7');
+    expect(screen.queryByText('0.7')).toBeNull();
+    expect(screen.queryByText(/70%/)).toBeNull();
+  });
+
+  it('shows no suggestions card when there is nothing to suggest', async () => {
+    listing([item()]);
+    await show(<MemoryScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('memory-group-told')).not.toBeNull());
+    expect(screen.queryByTestId('memory-suggestions')).toBeNull();
+  });
+
+  it('shows a suggestion even when nothing is remembered yet', async () => {
+    listing([], [SUGGESTION]);
+    await show(<MemoryScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('memory-suggestions')).not.toBeNull());
+  });
+
+  it('Keep sends the suggestion back with the language the sentence is stored in', async () => {
+    listing([], [SUGGESTION]);
+    await show(<MemoryScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('memory-suggestion-keep-R1_focus_window:14:00-17:00')).not.toBeNull());
+
+    await act(async () => { fireEvent.press(screen.getByTestId('memory-suggestion-keep-R1_focus_window:14:00-17:00')); });
+
+    await waitFor(() => expect(profileEndpoints.keepMemorySuggestion).toHaveBeenCalled());
+    const [sent, language] = (profileEndpoints.keepMemorySuggestion as jest.Mock).mock.calls[0] as [MemorySuggestion, string];
+    expect(sent.fingerprint).toBe(SUGGESTION.fingerprint);
+    expect(['en', 'ar', 'he']).toContain(language);
+    expect(profileEndpoints.dismissMemorySuggestion).not.toHaveBeenCalled();
+  });
+
+  it('"Not right" dismisses, and keeps nothing', async () => {
+    listing([], [SUGGESTION]);
+    await show(<MemoryScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('memory-suggestion-dismiss-R1_focus_window:14:00-17:00')).not.toBeNull());
+
+    await act(async () => { fireEvent.press(screen.getByTestId('memory-suggestion-dismiss-R1_focus_window:14:00-17:00')); });
+
+    await waitFor(() => expect(profileEndpoints.dismissMemorySuggestion).toHaveBeenCalled());
+    expect(profileEndpoints.keepMemorySuggestion).not.toHaveBeenCalled();
+  });
+
+  it('a kept pattern says, under Why?, that the plan uses it and that deleting it stops that', async () => {
+    listing([NOTICED]);
+    await show(<MemoryScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('memory-why-mem_noticed')).not.toBeNull());
+    await act(async () => { fireEvent.press(screen.getByTestId('memory-why-mem_noticed')); });
+
+    expect(screen.getByTestId('memory-evidence-mem_noticed-plan').props.children).toContain(en.memoryWhyPlanUse);
+    const pattern = screen.getByTestId('memory-evidence-mem_noticed-pattern').props.children as string;
+    expect(pattern).toContain('09:00');
+    expect(screen.getByTestId('memory-evidence-mem_noticed-origin').props.children).toContain(en.memoryOriginRule);
+  });
+
+  it('a fact the user typed says nothing about the plan', async () => {
+    await show(<MemoryScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('memory-why-mem_told')).not.toBeNull());
+    await act(async () => { fireEvent.press(screen.getByTestId('memory-why-mem_told')); });
+    expect(screen.queryByTestId('memory-evidence-mem_told-plan')).toBeNull();
   });
 });

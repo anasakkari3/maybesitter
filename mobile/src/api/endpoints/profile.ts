@@ -5,9 +5,11 @@ import {
   memoryCreatedSchema,
   memoryDeletedSchema,
   memoryListSchema,
+  memorySuggestionDecisionSchema,
   profileResponseSchema,
   routineSavedSchema,
   type MemoryItem,
+  type MemorySuggestion,
   type ProfileResponse,
 } from '../schemas/profile';
 import type { RoutineProfilePayload } from '../../features/routine/routineProfile';
@@ -37,7 +39,7 @@ export function putRoutine(profile: RoutineProfilePayload) {
   });
 }
 
-export function listMemory(): Promise<{ items: MemoryItem[] }> {
+export function listMemory(): Promise<{ items: MemoryItem[]; suggestions: MemorySuggestion[] }> {
   return apiRequest('GET', '/api/mobile/memory', { schema: memoryListSchema });
 }
 
@@ -57,6 +59,25 @@ export function patchMemory(id: string, content: string) {
 export function deleteMemory(id: string) {
   return apiRequest('DELETE', `/api/mobile/memory/${encodeURIComponent(id)}`, {
     schema: memoryDeletedSchema,
+  });
+}
+
+/**
+ * Keeps a suggestion (UC-3.16, #202). The server recomputes it and stores its
+ * own sentence in `language`; a 409 means the suggestion is no longer offered.
+ */
+export function keepMemorySuggestion(suggestion: Pick<MemorySuggestion, 'ruleId' | 'fingerprint'>, language: 'ar' | 'he' | 'en') {
+  return apiRequest('POST', `/api/mobile/memory/suggestions/${encodeURIComponent(suggestion.ruleId)}`, {
+    body: { decision: 'keep', fingerprint: suggestion.fingerprint, language },
+    schema: memorySuggestionDecisionSchema,
+  });
+}
+
+/** "Not right": the same claim is not offered again until what it would say changes. */
+export function dismissMemorySuggestion(suggestion: Pick<MemorySuggestion, 'ruleId' | 'fingerprint'>) {
+  return apiRequest('POST', `/api/mobile/memory/suggestions/${encodeURIComponent(suggestion.ruleId)}`, {
+    body: { decision: 'dismiss', fingerprint: suggestion.fingerprint },
+    schema: memorySuggestionDecisionSchema,
   });
 }
 
