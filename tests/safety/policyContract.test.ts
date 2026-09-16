@@ -61,6 +61,12 @@ import {
   type SafetyVerdict,
 } from '../../src/contracts/v1/safetyContracts.ts';
 import { MODULE_CONTRACT_VERSION } from '../../src/contracts/v1/moduleContracts.ts';
+import {
+  MemoryActionGatewayAuditStore,
+  executeThroughActionGateway,
+  type ActionExecutor,
+  type ActionGatewayRequest,
+} from '../../lib/integrations/actions/actionGateway.ts';
 
 const AT = '2026-08-20T09:00:00Z' as const;
 
@@ -249,6 +255,146 @@ test('unknown capabilities and raw provider tool names are denied', () => {
   });
   assert.equal(rawTool.decision, 'denied');
   assert.equal(rawTool.reason, 'raw_provider_tool_denied');
+});
+
+function gatewayRequest(overrides: Partial<ActionGatewayRequest<{ readonly title: string }>> = {}) {
+  return {
+    requestId: 'request-1',
+    idempotencyKey: 'idem-1',
+    scopeId: 'scope-a',
+    capability: 'create_external_task',
+    provider: 'todoist',
+    actor: 'model',
+    userConfirmed: true,
+    strongConfirmation: false,
+    settingsAllowAutomaticExternalWrites: false,
+    payloadDigest: 'sha256-task-1',
+    requestedAt: AT,
+    payload: { title: 'Submit report' },
+    ...overrides,
+  } satisfies ActionGatewayRequest<{ readonly title: string }>;
+}
+
+test('the action gateway audits before external execution and replays idempotently', async () => {
+  const audit = new MemoryActionGatewayAuditStore();
+  const executions: string[] = [];
+  const executor: ActionExecutor<{ readonly title: string }> = {
+    async execute(input) {
+      executions.push(input.idempotencyKey);
+      return { executionId: 'todoist-task-1', resultRef: 'external-task:todoist-task-1' };
+    },
+  };
+
+  const first = await executeThroughActionGateway(gatewayRequest(), { audit, executor });
+  const replay = await executeThroughActionGateway(gatewayRequest({ requestId: 'request-2' }), { audit, executor });
+
+  assert.equal(first.status, 'executed');
+  assert.equal(replay.status, 'replayed');
+  assert.deepEqual(executions, ['idem-1']);
+  assert.deepEqual(audit.list().map((record) => record.phase), [
+    'execution_started',
+    'execution_succeeded',
+  ]);
+  assert.equal(JSON.stringify(audit.list()).includes('Submit report'), false);
+});
+
+test('the action gateway never executes a confirmation-gated or raw provider action', async () => {
+  const audit = new MemoryActionGatewayAuditStore();
+  let executions = 0;
+  const executor: ActionExecutor<{ readonly title: string }> = {
+    async execute() {
+      executions += 1;
+      return { executionId: 'unexpected', resultRef: null };
+    },
+  };
+
+  const unconfirmed = await executeThroughActionGateway(gatewayRequest({ userConfirmed: false }), {
+    audit,
+    executor,
+  });
+  const rawTool = await executeThroughActionGateway(gatewayRequest({
+    idempotencyKey: 'idem-raw',
+    capability: 'todoist.tasks.create',
+  }), { audit, executor });
+
+  assert.equal(unconfirmed.status, 'policy_blocked');
+  assert.equal(rawTool.status, 'policy_blocked');
+  assert.equal(executions, 0);
+  assert.deepEqual(audit.list().map((record) => record.phase), ['policy_blocked', 'policy_blocked']);
+});
+
+test('confirmation may advance a previously blocked action without changing its idempotency key', async () => {
+  const audit = new MemoryActionGatewayAuditStore();
+  let executions = 0;
+  const executor: ActionExecutor<{ readonly title: string }> = {
+    async execute() {
+      executions += 1;
+      return { executionId: 'task-after-confirmation', resultRef: null };
+    },
+  };
+
+  const blocked = await executeThroughActionGateway(gatewayRequest({ userConfirmed: false }), { audit, executor });
+  const confirmed = await executeThroughActionGateway(gatewayRequest({
+    requestId: 'request-confirmed',
+    userConfirmed: true,
+  }), { audit, executor });
+
+  assert.equal(blocked.status, 'policy_blocked');
+  assert.equal(confirmed.status, 'executed');
+  assert.equal(executions, 1);
+  assert.deepEqual(audit.list().map((record) => record.phase), [
+    'policy_blocked',
+    'execution_started',
+    'execution_succeeded',
+  ]);
+});
+
+test('an idempotency collision or incomplete prior attempt fails closed', async () => {
+  const audit = new MemoryActionGatewayAuditStore();
+  const executor: ActionExecutor<{ readonly title: string }> = {
+    async execute() {
+      return { executionId: 'task-1', resultRef: null };
+    },
+  };
+
+  await audit.append({
+    requestId: 'prior',
+    idempotencyKey: 'idem-1',
+    requestFingerprint: 'different-fingerprint',
+    scopeId: 'scope-a',
+    capability: 'create_external_task',
+    provider: 'todoist',
+    actor: 'model',
+    phase: 'execution_started',
+    recordedAt: AT,
+    policyDecision: 'allowed',
+    reason: 'policy_allows',
+    executionId: null,
+    resultRef: null,
+    safeErrorCode: null,
+  });
+
+  const collision = await executeThroughActionGateway(gatewayRequest(), { audit, executor });
+  assert.deepEqual(collision.status === 'indeterminate' ? collision.reason : null, 'idempotency_conflict');
+});
+
+test('executor errors become privacy-safe terminal audit results', async () => {
+  const audit = new MemoryActionGatewayAuditStore();
+  let executions = 0;
+  const executor: ActionExecutor<{ readonly title: string }> = {
+    async execute() {
+      executions += 1;
+      throw Object.assign(new Error('provider response with secret text'), { safeErrorCode: 'provider_rate_limited' });
+    },
+  };
+
+  const failed = await executeThroughActionGateway(gatewayRequest(), { audit, executor });
+  const replay = await executeThroughActionGateway(gatewayRequest({ requestId: 'request-2' }), { audit, executor });
+
+  assert.deepEqual(failed, replay);
+  assert.equal(failed.status === 'failed' ? failed.safeErrorCode : null, 'provider_rate_limited');
+  assert.equal(executions, 1);
+  assert.equal(JSON.stringify(audit.list()).includes('secret text'), false);
 });
 
 test('provider context catalog routes Gmail, Graph, tasks, notes, and RescueTime through central policy', () => {
