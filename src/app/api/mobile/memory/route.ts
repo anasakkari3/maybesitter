@@ -6,12 +6,20 @@ import {
   deleteAllMemory,
   listMemory,
 } from '../../../../../lib/services/mobile/memoryService';
+import { listMemorySuggestions } from '../../../../../lib/memoryGrowth/suggestionService';
 import { moduleDisabledResponse } from '../../../../../lib/services/mobile/moduleGate';
 import { mobileError } from '../../../../../lib/services/mobile/response';
 
 export const dynamic = 'force-dynamic';
 
-/** Everything MaybeSitter currently believes about this account, newest first. */
+/**
+ * Everything MaybeSitter currently believes about this account, newest first,
+ * and what it could suggest it noticed (UC-3.16, #202).
+ *
+ * `suggestions` is computed on this read and written nowhere. It is empty
+ * without personalization consent. A failure to compute it never costs the
+ * list: seeing and removing what is held must work even when growth cannot.
+ */
 export async function GET(request: Request) {
   let user;
   try {
@@ -24,7 +32,15 @@ export async function GET(request: Request) {
   if (disabled) return disabled;
 
   try {
-    return Response.json({ items: await listMemory(user.uid, new Date().toISOString()) });
+    const now = new Date().toISOString();
+    const items = await listMemory(user.uid, now);
+    let suggestions: Awaited<ReturnType<typeof listMemorySuggestions>> = [];
+    try {
+      suggestions = await listMemorySuggestions(user.uid, now);
+    } catch (error) {
+      console.error('memory suggestions could not be computed', error instanceof Error ? error.message : error);
+    }
+    return Response.json({ items, suggestions });
   } catch (error) {
     return mobileError(error instanceof Error ? error.message : 'could not read memory', 500);
   }

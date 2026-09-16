@@ -86,13 +86,24 @@ export type ExportPolicy = 'personal_never_export' | 'shareable_aggregate';
  * guard that rejected them would make a user's existing memory disappear
  * rather than display without a chip.
  */
-export type MemoryOrigin = 'routine_survey' | 'self_description' | 'manual' | 'capture';
+export type MemoryOrigin =
+  | 'routine_survey'
+  | 'self_description'
+  | 'manual'
+  | 'capture'
+  /**
+   * A deterministic rule noticed it in what the user did, and the user pressed
+   * Keep (UC-3.16, #202). `originRef` is the rule's fingerprint — the claim that
+   * was kept — and `confirmedByUserAt` is when they kept it.
+   */
+  | 'behaviour_rule';
 
 export const MEMORY_ORIGINS: readonly MemoryOrigin[] = [
   'routine_survey',
   'self_description',
   'manual',
   'capture',
+  'behaviour_rule',
 ];
 
 export interface MemoryProvenance {

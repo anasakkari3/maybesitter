@@ -81,6 +81,17 @@ export const CAPTURE_PROPOSALS = 'captureProposals';
  * The raw description is never in here. Only the suggestions derived from it.
  */
 export const PROFILE_PROPOSALS = 'profileProposals';
+
+/**
+ * Suggestions a user answered "Not right" to (UC-3.16, #202).
+ *
+ * One document per rule, holding the fingerprint that was dismissed, so the
+ * same claim is not offered again until what the rule would say changes. A
+ * fingerprint names a window of the day read off the user's behaviour, which
+ * makes this derived data about them: "delete everything" purges it, and it
+ * goes with the account.
+ */
+export const MEMORY_DISMISSALS = 'memoryDismissals';
 /** One document per UTC day: how many model calls this account has spent (#160). */
 export const USAGE = 'usage';
 /**
@@ -221,6 +232,7 @@ export const USER_SCOPED_COLLECTIONS = [
   ANALYTICS_EVENTS,
   CAPTURE_PROPOSALS,
   PROFILE_PROPOSALS,
+  MEMORY_DISMISSALS,
   USAGE,
   PLANS,
   PLAN_EVENTS,

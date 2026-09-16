@@ -1,0 +1,36 @@
+{
+  "success": true,
+  "decision": "keep",
+  "memory": {
+    "id": "mem_00000000-0000-4000-8000-000000000001",
+    "kind": "preference",
+    "content": "You often finish things between 09:00 and 12:00.",
+    "language": "en",
+    "source": "deterministic_rule",
+    "sourceLabel": "noticed_from_confirmed",
+    "confidence": 0.7,
+    "createdAt": "2026-08-09T09:00:00.000Z",
+    "observedAt": "2026-08-09T09:00:00.000Z",
+    "staleAfter": "2026-08-09T09:00:00.000Z",
+    "provenance": {
+      "origin": "behaviour_rule",
+      "originRef": "R1_focus_window:09:00-12:00",
+      "confirmedByUserAt": "2026-08-09T09:00:00.000Z"
+    },
+    "evidence": {
+      "origin": "behaviour_rule",
+      "observedAt": "2026-08-09T09:00:00.000Z",
+      "recordedAt": "2026-08-09T09:00:00.000Z",
+      "confirmedAt": "2026-08-09T09:00:00.000Z",
+      "edited": false,
+      "observationCount": 7,
+      "pattern": {
+        "ruleId": "R1_focus_window",
+        "window": {
+          "start": "09:00",
+          "end": "12:00"
+        }
+      }
+    }
+  }
+}

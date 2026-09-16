@@ -112,6 +112,12 @@ export interface DailyPlanInputArgs {
   readonly commitments: readonly Commitment[];
   readonly busyBlocks: readonly BusyBlock[];
   readonly profile: UserRoutineProfile | null;
+  /**
+   * A focus window the user kept from a suggestion (UC-3.16, #202's R1),
+   * already consent-checked by the caller. Used only when `profile` names no
+   * focus window of its own — see `workingWindowsFor`.
+   */
+  readonly focusHint?: { readonly start: string; readonly end: string } | null;
 }
 
 export interface DailyPlanInput {
@@ -190,19 +196,26 @@ function subtractRanges(base: Array<[number, number]>, cuts: Array<[number, numb
 /**
  * The wall-clock windows the user is willing to work in on `date`.
  *
- * The routine profile's focus windows when it has any. Otherwise the issue's
- * fallback — 08:00 to 20:00 minus whatever the profile calls sleep — which is a
- * guess, and is why it is only reached when the user has told us nothing.
+ * The routine profile's focus windows when it has any. Then a focus window the
+ * user kept from a suggestion (UC-3.16, #202) — something they agreed described
+ * them, and still a pattern rather than a statement, so what they said in the
+ * routine survey outranks it. Otherwise the issue's fallback — 08:00 to 20:00
+ * minus whatever the profile calls sleep — which is a guess, and is why it is
+ * only reached when the user has told us nothing.
  */
 export function workingWindowsFor(
   profile: UserRoutineProfile | null,
   timezone: string,
   weekday: Weekday,
+  focusHint: { readonly start: string; readonly end: string } | null = null,
 ): WorkingWindow[] {
   const focus = (profile?.focusWindows ?? []).flatMap((window) => minuteRanges(window));
+  const hinted = focus.length > 0 ? [] : minuteRanges(focusHint);
   const ranges = focus.length > 0
     ? focus
-    : subtractRanges([[FALLBACK_WINDOW.startMinute, FALLBACK_WINDOW.endMinute]], minuteRanges(profile?.sleepWindow ?? null));
+    : hinted.length > 0
+      ? hinted
+      : subtractRanges([[FALLBACK_WINDOW.startMinute, FALLBACK_WINDOW.endMinute]], minuteRanges(profile?.sleepWindow ?? null));
 
   return ranges.map(([startMinute, endMinute], index) => ({
     windowId: `w${index}`,
@@ -352,7 +365,7 @@ export function buildDailyPlanInput(args: DailyPlanInputArgs): DailyPlanInput {
       scopeId: `${args.uid}:${args.date}`,
       timezone: args.timezone,
       horizon: { startsAt, endsAt },
-      workingWindows: workingWindowsFor(args.profile, args.timezone, weekday),
+      workingWindows: workingWindowsFor(args.profile, args.timezone, weekday, args.focusHint ?? null),
       // Busy time first, so a reader of the stored request sees the calendar
       // before the commitments derived from it. Order is part of the digest.
       fixedEvents: [...fromBusy, ...fromCommitments],
