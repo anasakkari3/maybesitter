@@ -1,7 +1,7 @@
 # Expansion orchestration ledger
 
 Updated: 2026-09-16
-Current integration base: `d8210fc25d07b9cfe5152b7c439736595e5e2745`
+Current integration base: `58065841ea210aaaea3146f8fb39d992e149ef22`
 
 This is the live ownership and dependency ledger for the expansion program.
 Git and current GitHub state remain authoritative; Graphify is refreshed
@@ -39,7 +39,7 @@ An active conflict in one subsystem is not a program-wide blocker.
 
 | Lane | Status | Branch | Base SHA | Owned files | Upstream dependencies | Active collisions | PR | CI / test status | Merge status | External blockers |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Integration | active | `program/integration-ledger-live` | `d8210fc` | this ledger; later shared config/package/privacy changes | all landed contracts | #460, Dependabot shared files, and the local football workspace | #455 | documentation-only validation pending this refresh | open | Apple/Google store declarations later |
+| Integration | active | `program/integration-ledger-live` | `5806584` | this ledger; later shared config/package/privacy changes | all landed contracts | #460, Dependabot shared files, and the local football workspace | #455 | documentation-only validation pending this refresh | open | Apple/Google store declarations later |
 | Foundations | complete | merged stack | through `e624f9a` | connection, readiness, UserState, task, policy, cost, architecture, provider runtime contracts | none | none | #406-#436 | merged CI green | merged | none |
 | Gmail provider | complete | merged | `81aa70d` | Gmail adapter; prompt boundary tests | provider runtime | none | #437 | focused 11 pass; CI green | merged | OAuth app credentials for live verification |
 | Microsoft Graph provider | complete | merged | `3cba437` | Graph adapter; busy-block tests | provider runtime | none | #438 | focused 31 pass; CI green | merged | Microsoft app credentials for live verification |
@@ -52,13 +52,13 @@ An active conflict in one subsystem is not a program-wide blocker.
 | Health Connect native bridge | complete | merged | `98ed28c` | local Expo module, Android bridge/manifest, narrow adapters/tests | canonical readiness | app declaration and package remain owned by #460/Dependabot | #457 | focused mobile 3 pass; mobile typecheck and CI pass; prior prebuild and Kotlin target compile pass | merged | Android device permission verification; Play declaration |
 | UserState production runtime | complete | merged | `00734c7` | projection service, canonical daily-plan integration, authenticated readiness API, focused tests | readiness contracts; canonical planner | none | #461 | 41 focused auth/mobile/planner tests pass; typecheck, registration, and CI pass | merged | none |
 | Action Gateway runtime | complete | merged | `d5e96a6` | canonical action execution and audit runtime | Action Policy | none | #450 | focused 42 pass; typecheck, registration, and CI pass | merged | provider executors require credentials |
-| MCP capability gateway | CI running | `program/mcp-capability-domain` | `d8210fc` | MCP capability adapter; policy/red-team tests | #450 merged | none | #451 | focused 60 pass; typecheck and registration pass after #465 rebase | open | operator mappings and live MCP credentials |
-| Controlled email actions | CI running | `program/controlled-email-actions` | `d8210fc` | review-bound draft/send flow; safety tests | #450 merged; Gmail/Graph executors | none | #454 | focused 60 pass; typecheck and registration pass after #465 rebase | open | live provider credentials |
-| LLM observability runtime | CI running | `program/llm-observability-runtime` | `d8210fc` | canonical LLM log attribution and focused tests | cost attribution; existing usage guard | none | #462 | 9 focused tests pass; typecheck and registration pass after #465 rebase | open | none |
-| Timefold shadow experiment | CI running | `program/timefold-shadow-experiment` | `d8210fc` | dependency-free planner experiment and metrics | canonical planner | solver dependency addition requires Dependabot reconciliation | #453 | focused 16 pass; typecheck and registration pass after #465 rebase | open | none for dependency-free boundary |
-| RevenueCat entitlement domain | CI running | `program/revenuecat-entitlement-domain` | `d8210fc` | entitlement projection and tests | entitlement foundation | SDK wiring collides with #460/Dependabot mobile packages | #452 | focused 18 pass; typecheck and registration pass after #465 rebase | open | store products, RevenueCat credentials, device restore verification |
-| Provider OAuth lifecycle | CI running | `program/provider-oauth-lifecycle` | `d8210fc` | provider OAuth state, PKCE, vault handoff, disconnect boundary, focused tests | connection registry; provider runtime | none | #464 | focused 23 pass; typecheck and registration pass after #465 rebase | open | live OAuth app credentials |
-| Privacy and store declaration delta | CI running | `program/privacy-store-delta` | `d8210fc` | expansion privacy/store documentation only | merged provider and health behavior | none | #463 | `git diff --check`; evidence paths and exact overlap verified after #465 rebase | open | console submission, credentials, and device evidence remain owner actions |
+| MCP capability gateway | CI running | `program/mcp-capability-domain` | `5806584` | MCP capability adapter; policy/red-team tests | #450 merged | none | #451 | focused 60 pass; typecheck and registration pass after #466 rebase | open | operator mappings and live MCP credentials |
+| Controlled email actions | CI running | `program/controlled-email-actions` | `5806584` | review-bound draft/send flow; safety tests | #450 merged; Gmail/Graph executors | none | #454 | focused 60 pass; typecheck and registration pass after #466 rebase | open | live provider credentials |
+| LLM observability runtime | CI running | `program/llm-observability-runtime` | `5806584` | canonical LLM log attribution and focused tests | cost attribution; existing usage guard | none | #462 | 9 focused tests pass; typecheck and registration pass after #466 rebase | open | none |
+| Timefold shadow experiment | CI running | `program/timefold-shadow-experiment` | `5806584` | dependency-free planner experiment and metrics | canonical planner | solver dependency addition requires Dependabot reconciliation | #453 | focused 16 pass; typecheck and registration pass after #466 rebase | open | none for dependency-free boundary |
+| RevenueCat entitlement domain | CI running | `program/revenuecat-entitlement-domain` | `5806584` | entitlement projection and tests | entitlement foundation | SDK wiring collides with #460/Dependabot mobile packages | #452 | focused 18 pass; typecheck and registration pass after #466 rebase | open | store products, RevenueCat credentials, device restore verification |
+| Provider OAuth lifecycle | CI running | `program/provider-oauth-lifecycle` | `5806584` | provider OAuth state, PKCE, vault handoff, disconnect boundary, focused tests | connection registry; provider runtime | none | #464 | focused 23 pass; typecheck and registration pass after #466 rebase | open | live OAuth app credentials |
+| Privacy and store declaration delta | CI running | `program/privacy-store-delta` | `5806584` | expansion privacy/store documentation only | merged provider and health behavior | none | #463 | `git diff --check`; evidence paths and exact overlap verified after #466 rebase | open | console submission, credentials, and device evidence remain owner actions |
 
 ## Automatically unblocked
 
@@ -87,6 +87,9 @@ An active conflict in one subsystem is not a program-wide blocker.
 - #465 landed the Android native build fix on `d8210fc` and removed the former
   #458 blocker. #460 remains open and dirty against current main, so ICS/mobile
   ownership is still active.
+- #466 landed the mobile Android manifest-merge regression guard on `5806584`;
+  safe open lanes were rebased again because it touched mobile package/script
+  surfaces.
 
 ## Current blocked integration work
 
