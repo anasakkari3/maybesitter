@@ -123,7 +123,7 @@ const RING = settingsWith({ escalationCeiling: 'hard', hardEnabled: true });
 
 /** A Should by default: the #196 cases are about stages nobody rang for. */
 function commitment(id: string, minutes: number, priority: ReminderPriority = 'should'): ReminderCommitment {
-  return { id, startsAt: minutesFromNow(minutes), status: 'active', priority, allDay: false };
+  return { id, startsAt: minutesFromNow(minutes), status: 'active', priority, allDay: false, postponedUntil: null };
 }
 
 beforeEach(async () => {
@@ -295,7 +295,7 @@ describe('quiet hours', () => {
 
       const quiet = { start: '22:00', end: '07:00' };
       const deferred = desiredRequests(input({
-        commitments: [{ id: 'c1', startsAt: new Date(morning).toISOString(), status: 'active', priority: 'should', allDay: false }],
+        commitments: [{ id: 'c1', startsAt: new Date(morning).toISOString(), status: 'active', priority: 'should', allDay: false, postponedUntil: null }],
         settings: settingsWith(),
         quietHours: quiet,
         timeZone: zone,
@@ -305,7 +305,7 @@ describe('quiet hours', () => {
       expect(minutesAt((soft as { at: number }).at)).toBe(7 * 60);
 
       const dropped = desiredRequests(input({
-        commitments: [{ id: 'c2', startsAt: new Date(tooEarly).toISOString(), status: 'active', priority: 'should', allDay: false }],
+        commitments: [{ id: 'c2', startsAt: new Date(tooEarly).toISOString(), status: 'active', priority: 'should', allDay: false, postponedUntil: null }],
         settings: settingsWith(),
         quietHours: quiet,
         timeZone: zone,
@@ -480,7 +480,7 @@ describe('Must reminders and quiet hours', () => {
     let start = NOW.getTime() + 2 * 3_600_000;
     while (minutesAt(start) !== 7 * 60 + 7) start += 60_000;
     const must: ReminderCommitment = {
-      id: 'm1', startsAt: new Date(start).toISOString(), status: 'active', priority: 'must', allDay: false,
+      id: 'm1', startsAt: new Date(start).toISOString(), status: 'active', priority: 'must', allDay: false, postponedUntil: null,
     };
     const gateway = fakeGateway();
     const report = await withHermesIntl(() => syncCommitments(input({
@@ -509,7 +509,7 @@ describe('Must reminders and quiet hours', () => {
       let start = NOW.getTime() + 2 * 3_600_000;
       while (minutesAt(start) !== 6 * 60 + 30) start += 60_000;
       const must: ReminderCommitment = {
-        id: 'm1', startsAt: new Date(start).toISOString(), status: 'active', priority: 'must', allDay: false,
+        id: 'm1', startsAt: new Date(start).toISOString(), status: 'active', priority: 'must', allDay: false, postponedUntil: null,
       };
       const quiet = { start: '22:00', end: '07:00' };
 

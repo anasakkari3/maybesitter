@@ -38,6 +38,7 @@ export function toReminderCommitments(items: readonly Commitment[]): ReminderCom
     // reminder that rings (#197).
     priority: importanceOf(commitment),
     allDay: commitment.timeSpec.allDay,
+    postponedUntil: commitment.postponedUntil,
   }));
 }
 

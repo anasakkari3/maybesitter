@@ -27,7 +27,7 @@ import {
 const START = Date.parse('2026-09-15T12:00:00.000Z');
 
 function commitment(overrides: Partial<ReminderCommitment> = {}): ReminderCommitment {
-  return { id: 'c1', startsAt: new Date(START).toISOString(), status: 'active', priority: 'must', allDay: false, ...overrides };
+  return { id: 'c1', startsAt: new Date(START).toISOString(), status: 'active', priority: 'must', allDay: false, postponedUntil: null, ...overrides };
 }
 
 /**

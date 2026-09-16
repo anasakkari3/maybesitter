@@ -129,7 +129,27 @@ export function hardFireAtFor(commitment: Commitment, settings: HardReminderSett
   if (!dueAt) return null;
   const start = Date.parse(dueAt);
   if (Number.isNaN(start)) return null;
-  return new Date(start - HARD_LEAD_MS).toISOString();
+  const fireAt = start - HARD_LEAD_MS;
+  if (!mustRingsDespitePostpone(fireAt, commitment.postponedUntil ?? null)) return null;
+  return new Date(fireAt).toISOString();
+}
+
+/**
+ * Whether a Must ring at `fireAt` survives a postponement (council verdict B, #198).
+ *
+ * The phone's `mustRingsDespitePostpone` (`mobile/src/features/reminders/
+ * policy.ts`), line for line, and both are held to the one table in
+ * `mobile/src/features/reminders/__fixtures__/postponedHardRing.json`. A ring
+ * before `postponedUntil` is not owed; one at or after it is. Time-free, so a
+ * stale postponement is no postponement. Because `hardFireAtFor` is also what
+ * the job rechecks at send time, a postpone that lands after the row was
+ * written still cancels the backup.
+ */
+export function mustRingsDespitePostpone(fireAt: number, postponedUntil: string | null): boolean {
+  if (postponedUntil === null) return true;
+  const until = Date.parse(postponedUntil);
+  if (Number.isNaN(until)) return true;
+  return fireAt >= until;
 }
 
 function freshEntry(commitment: Commitment, fireAt: string, at: string): HardReminderEntry {

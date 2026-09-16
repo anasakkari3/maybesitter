@@ -74,6 +74,30 @@ export interface ReminderCommitment {
    * for one; see `planFor`.
    */
   readonly allDay: boolean;
+  /**
+   * When the user said "not yet" until (`Postpone`), or null. The start does
+   * not move; see `mustRingsDespitePostpone`.
+   */
+  readonly postponedUntil: string | null;
+}
+
+/**
+ * Whether a Must ring at `fireAt` survives a postponement (council verdict B, #198).
+ *
+ * A ring that would fire before `postponedUntil` does not ring; one at or after
+ * it rings as normal. Time-free on purpose: a `postponedUntil` already in the
+ * past is earlier than any ring still in the future, so a stale postponement
+ * behaves as none without a clock. An unreadable one is none too.
+ *
+ * The server applies the same predicate (`mustRingsDespitePostpone` in
+ * `lib/services/reminders/hardReminderIndex.ts`) and both are held to one
+ * table, `__fixtures__/postponedHardRing.json`.
+ */
+export function mustRingsDespitePostpone(fireAt: number, postponedUntil: string | null): boolean {
+  if (postponedUntil === null) return true;
+  const until = Date.parse(postponedUntil);
+  if (Number.isNaN(until)) return true;
+  return fireAt >= until;
 }
 
 /**
@@ -163,6 +187,9 @@ export function planFor(
     if (stage === 'strong' && commitment.allDay) continue;
     const leadMinutes = leadMinutesFor(stage, settings);
     if (stage !== 'soft' && leadMinutes >= settings.softLeadMinutes) continue;
+    const at = startsAt - leadMinutes * 60_000;
+    // Only the Must ring. The gentle stages keep #196's behaviour.
+    if (stage === 'strong' && !mustRingsDespitePostpone(at, commitment.postponedUntil)) continue;
     planned.push({ stage, at: startsAt - leadMinutes * 60_000, leadMinutes });
   }
   return planned.sort((left, right) => left.at - right.at);

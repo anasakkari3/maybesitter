@@ -225,25 +225,24 @@ test('completing or cancelling before the reminder removes it', async () => {
 });
 
 /*
- * Postpone, decided from the domain rather than from #198's table.
- *
- * `Postpone` (src/domain/stateMachine.ts) leaves the commitment `active` and
- * its `timeSpec.dueAt` where it was; it sets `postponedUntil`, which is a
- * check-in time, not a new start. The phone's engine (#196/#197) reads
- * `timeSpec.dueAt` and `status` and nothing else, so after a postpone the phone
- * still rings at start − 10. If the server dropped the row the two would
- * disagree, and the disagreement is a miss: a phone that could not schedule
- * the ring would get no backup either. So the server follows the device, and
- * a *move* — a new `dueDate` — is what re-arms at the new start (tested above).
+ * Postpone (council verdict B, #198): a Must ring before `postponedUntil` is not
+ * owed; one at or after it is. The start does not move. The full table is
+ * shared with the phone in `postponedHardRing.test.ts`; this proves the write
+ * path applies it.
  */
-test('postponing keeps the reminder where the phone keeps it, at the unchanged start', async () => {
+test('postponing past the ring removes it; postponing to before the ring keeps it', async () => {
   const teardown = setup();
   try {
     await ringing();
     await store(commitment());
     const before = await row();
-    await postponeCommitment('c1', new Date(NOW.getTime() + 30 * 86_400_000).toISOString(), NOW, { participantId: USER });
-    assert.deepEqual(await row(), before);
+    const fireAt = Date.parse(before!.fireAt);
+
+    await postponeCommitment('c1', new Date(fireAt - 30 * 60_000).toISOString(), NOW, { participantId: USER });
+    assert.deepEqual(await row(), before, 'a postponement that ends before the ring disarmed it');
+
+    await postponeCommitment('c1', new Date(fireAt + 60_000).toISOString(), NOW, { participantId: USER });
+    assert.equal(await row(), null, 'a postponement past the ring left the backup armed');
   } finally {
     teardown();
   }
