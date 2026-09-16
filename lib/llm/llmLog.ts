@@ -22,8 +22,10 @@
  * is not required, and its absence is not a silent downgrade because the thing
  * being hashed is already high-entropy.
  */
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { LlmPurpose, LlmProviderName } from '../../src/extraction/llm/llmProvider';
+import type { CostFeatureKind, CostOperationStatus } from '../../src/contracts/v1/costAttributionContracts';
+import { buildLlmObservabilityEnvelope, type LlmObservabilityEnvelope } from './observability';
 
 export type LlmOutcome = 'ok' | 'schema_invalid' | 'repaired' | 'unavailable' | 'cost_cap';
 
@@ -41,6 +43,47 @@ export interface LlmCallLog {
   fallbackReason?: string;
 }
 
+export interface AttributedLlmCallLog extends LlmCallLog {
+  /** The existing log line carries attribution; this is not another usage store. */
+  attribution: LlmObservabilityEnvelope;
+}
+
+const FEATURE_FOR_PURPOSE: Readonly<Record<LlmPurpose, CostFeatureKind>> = Object.freeze({
+  capture_extraction: 'capture',
+  profile_extraction: 'other',
+  importance_estimate: 'planning',
+  plan_explanation: 'planning',
+  share_extraction: 'share_intake',
+});
+
+function statusFor(outcome: LlmOutcome): CostOperationStatus {
+  if (outcome === 'ok' || outcome === 'repaired') return 'success';
+  if (outcome === 'cost_cap') return 'blocked_by_policy';
+  return 'failure';
+}
+
+export function attributedLlmCall(
+  entry: LlmCallLog,
+  options: { readonly occurredAt?: string; readonly eventId?: string } = {},
+): AttributedLlmCallLog {
+  const occurredAt = options.occurredAt ?? new Date().toISOString();
+  return {
+    ...entry,
+    attribution: buildLlmObservabilityEnvelope({
+      eventId: options.eventId ?? randomUUID(),
+      // The raw account id must not be reintroduced by the attribution layer.
+      scopeId: entry.uidHash,
+      occurredAt,
+      feature: FEATURE_FOR_PURPOSE[entry.purpose],
+      provider: 'llm',
+      providerOperation: `${entry.provider}:${entry.purpose}`,
+      status: statusFor(entry.outcome),
+      inputTokens: entry.promptTokens,
+      outputTokens: entry.outputTokens,
+    }),
+  };
+}
+
 /** A stable pseudonym for one account: 16 hex characters, 64 bits. */
 export function uidHash(uid: string): string {
   const salt = process.env.MAYBESITTER_LLM_UID_SALT ?? '';
@@ -55,5 +98,5 @@ export function uidHash(uid: string): string {
  * formatters could be configured to include more than this object.
  */
 export function logLlmCall(entry: LlmCallLog): void {
-  console.info(JSON.stringify(entry));
+  console.info(JSON.stringify(attributedLlmCall(entry)));
 }
