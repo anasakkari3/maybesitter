@@ -8,6 +8,14 @@ import {
   MODULE_CONTRACT_VERSION,
 } from '../../src/contracts/v1/moduleContracts.ts';
 import { buildHealthKitReadinessSnapshot } from '../../lib/integrations/readiness/healthkit.ts';
+import {
+  HEALTHKIT_MINIMUM_READ_PERMISSIONS,
+  HealthKitReadinessAdapter,
+  type HealthKitAuthorizationSnapshot,
+  type HealthKitNativePort,
+  type HealthKitSampleWindow,
+} from '../../lib/integrations/healthkit/adapter.ts';
+import type { PrivacySafeNativeReadinessLog } from '../../lib/integrations/readiness/nativeAdapterContracts.ts';
 import { buildWhoopReadinessSnapshot } from '../../lib/integrations/readiness/whoop.ts';
 import {
   WHOOP_OAUTH_SCOPES,
@@ -586,4 +594,118 @@ test('foundation contract files do not define provider-specific planner or diagn
       `provider-specific planner or diagnosis field leaked: ${forbidden}`,
     );
   }
+});
+
+const HEALTHKIT_NOW = '2026-09-16T12:00:00.000Z';
+
+class FakeHealthKitPort implements HealthKitNativePort {
+  available = true;
+  reads = 0;
+  disconnected = false;
+  authorizationState: HealthKitAuthorizationSnapshot = {
+    state: 'authorized',
+    granted: HEALTHKIT_MINIMUM_READ_PERMISSIONS,
+    denied: [],
+    checkedAt: HEALTHKIT_NOW,
+  };
+
+  async isAvailable(): Promise<boolean> { return this.available; }
+  async authorization(): Promise<HealthKitAuthorizationSnapshot> { return this.authorizationState; }
+  async requestAuthorization(): Promise<HealthKitAuthorizationSnapshot> { return this.authorizationState; }
+  async readSamples(_window: HealthKitSampleWindow) {
+    this.reads += 1;
+    return {
+      sleep: {
+        observedAt: '2026-09-16T08:00:00.000Z',
+        sleepStart: '2026-09-15T23:00:00.000Z',
+        sleepEnd: '2026-09-16T07:00:00.000Z',
+        totalSleepMinutes: 480,
+      },
+      heart: {
+        observedAt: '2026-09-16T08:05:00.000Z',
+        restingHeartRate: 58,
+        hrvMilliseconds: 44,
+      },
+      activity: { observedAt: '2026-09-16T08:10:00.000Z', stepCount: 2200 },
+    };
+  }
+  async clearLocalConnection(): Promise<void> { this.disconnected = true; }
+}
+
+function healthKitRequest() {
+  return {
+    scopeId: 'scope-1',
+    computedAt: HEALTHKIT_NOW,
+    windowStart: '2026-09-15T12:00:00.000Z',
+    windowEnd: HEALTHKIT_NOW,
+  };
+}
+
+test('HealthKit reads minimal permissions and normalizes fresh samples', async () => {
+  const port = new FakeHealthKitPort();
+  const logs: PrivacySafeNativeReadinessLog[] = [];
+  const adapter = new HealthKitReadinessAdapter(port, {
+    connectionId: 'int-healthkit',
+    logger: { log: (event) => logs.push(event) },
+  });
+  const result = await adapter.collect(healthKitRequest());
+
+  assert.equal(result.state, 'fresh');
+  assert.equal(result.snapshot?.normalizedSignals.sleepDurationMinutes, 480);
+  assert.equal(result.snapshot?.normalizedSignals.restingHeartRate, 58);
+  assert.equal(result.snapshot?.normalizedSignals.hrv, 44);
+  assert.equal(result.provenance.rawPayloadPersisted, false);
+  assert.deepEqual(HEALTHKIT_MINIMUM_READ_PERMISSIONS, [
+    'sleep_analysis',
+    'resting_heart_rate',
+    'heart_rate_variability_sdnn',
+    'step_count',
+  ]);
+  assert.equal('nativeValue' in logs[0]!, false);
+  assert.equal('rawPayload' in logs[0]!, false);
+});
+
+test('denied HealthKit access fails closed without reading samples', async () => {
+  const port = new FakeHealthKitPort();
+  port.authorizationState = {
+    state: 'denied',
+    granted: [],
+    denied: ['sleep_analysis'],
+    checkedAt: HEALTHKIT_NOW,
+  };
+  const result = await new HealthKitReadinessAdapter(port).collect(healthKitRequest());
+
+  assert.equal(result.state, 'permission_denied');
+  assert.equal(result.snapshot, null);
+  assert.equal(port.reads, 0);
+});
+
+test('old HealthKit samples remain stale context', async () => {
+  const port = new FakeHealthKitPort();
+  const result = await new HealthKitReadinessAdapter(port, { staleAfterMs: 60 * 60 * 1000 })
+    .collect(healthKitRequest());
+
+  assert.equal(result.state, 'stale');
+  assert.equal(result.snapshot?.sourceKinds[0], 'healthkit');
+});
+
+test('HealthKit failures expose a safe error category', async () => {
+  const port = new FakeHealthKitPort();
+  port.readSamples = async () => { throw new Error('private sample payload'); };
+  const result = await new HealthKitReadinessAdapter(port).collect(healthKitRequest());
+
+  assert.equal(result.state, 'error');
+  assert.equal(result.errorCode, 'healthkit_read_failed');
+  assert.equal(JSON.stringify(result).includes('private sample payload'), false);
+});
+
+test('HealthKit disconnect records the iOS settings revocation limitation', async () => {
+  const port = new FakeHealthKitPort();
+  const result = await new HealthKitReadinessAdapter(port).disconnect();
+
+  assert.equal(port.disconnected, true);
+  assert.deepEqual(result, {
+    localConnectionCleared: true,
+    providerPermissionRevocation: 'ios_settings_required',
+  });
 });
