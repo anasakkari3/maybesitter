@@ -39,6 +39,7 @@ import type { ReminderIntensity } from './policy';
 import { recordHardReceipts } from '../../lib/deviceSettings/hardReceiptQueue';
 import { canScheduleExactAlarms } from '../../notifications/exactAlarms';
 import { drainHardReceipts } from './receiptUpload';
+import { loadOutbox, pendingCommitmentIds } from '../../lib/deviceSettings/actionOutbox';
 
 export interface ReminderSyncOptions {
   /** Tests hand in a fake; the app lets this default to expo-notifications. */
@@ -166,9 +167,12 @@ export function useReminderSync(options: ReminderSyncOptions = {}): { resync: ()
     }
     inFlight.current = true;
 
-    void syncCommitments(
+    // A commitment with a Done or Later still in the outbox (#200) was answered
+    // on this phone: the cached list has not heard yet, and must not re-ring it.
+    void loadOutbox(accountId).then(outbox => syncCommitments(
       {
-        commitments: toReminderCommitments(mergeById(todayItems ?? [], upcomingItems ?? [])),
+        commitments: toReminderCommitments(mergeById(todayItems ?? [], upcomingItems ?? []))
+          .filter(commitment => !pendingCommitmentIds(outbox).has(commitment.id)),
         now: new Date(),
         settings: toEngineSettings(settingsData, intensity),
         quietHours: quietWindowOf(settingsData),
@@ -181,7 +185,7 @@ export function useReminderSync(options: ReminderSyncOptions = {}): { resync: ()
         exactAlarms: exactAlarms(),
       },
       gateway,
-    )
+    ))
       // Filed under the account the sync ran for, captured above — not
       // whichever account is signed in by the time the OS answers.
       .then(report => recordHardReceipts(accountId, report.hardReceipts, new Date()))

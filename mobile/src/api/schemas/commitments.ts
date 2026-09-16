@@ -25,6 +25,8 @@ export const commitmentActionResultSchema = z.object({
   success: z.boolean(),
   id: z.string(),
   commitment: commitmentSchema,
+  /** A repeated `clientActionId` (#200): applied earlier, not again. */
+  replayed: z.literal(true).optional(),
 });
 
 /**

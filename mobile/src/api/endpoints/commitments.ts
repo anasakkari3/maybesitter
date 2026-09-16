@@ -69,15 +69,24 @@ export function patchCommitment(
   });
 }
 
-export type CommitmentAction = 'complete' | 'postpone' | 'cancel';
+/**
+ * `aware` is a tap on a reminder notification (#200): it records
+ * `reminder_acknowledged` and changes nothing the user sees.
+ */
+export type CommitmentAction = 'complete' | 'postpone' | 'cancel' | 'aware';
 
 export function actOnCommitment(
   id: string,
   action: CommitmentAction,
-  options: { postponedUntil?: string; ifMatch?: string } = {},
-): Promise<TaggedResult<{ success: boolean; id: string; commitment: Commitment }>> {
+  options: { postponedUntil?: string; ifMatch?: string; clientActionId?: string } = {},
+): Promise<TaggedResult<{ success: boolean; id: string; commitment: Commitment; replayed?: true | undefined }>> {
   return apiRequestTagged('POST', `/api/mobile/commitments/${encodeURIComponent(id)}/actions`, {
-    body: { action, ...(options.postponedUntil ? { postponedUntil: options.postponedUntil } : {}) },
+    body: {
+      action,
+      ...(options.postponedUntil ? { postponedUntil: options.postponedUntil } : {}),
+      // The outbox's idempotency key (#200). The server applies a given id once.
+      ...(options.clientActionId ? { clientActionId: options.clientActionId } : {}),
+    },
     schema: commitmentActionResultSchema,
     ...(options.ifMatch ? { ifMatch: options.ifMatch } : {}),
   });

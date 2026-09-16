@@ -41,6 +41,7 @@ import {
   type Reminder,
 } from '../../../src/domain/stateMachine';
 import {
+  COMMITMENT_ACTION_RECEIPTS,
   COMMITMENTS,
   docIdForKey,
   ESCALATION_STATES,
@@ -62,7 +63,15 @@ import {
 import { newUserDocument, type UserDocument } from '../../storage/userDocument';
 import { readActivityStats, recordActivityEvents } from '../activity/activityStats';
 import { commitmentValidator } from './commitmentValidator';
-import { writeHardReminderIndexDiff } from '../reminders/hardReminderIndex';
+import {
+  HARD_REMINDER_RETENTION_MS,
+  hardFireAtFor,
+  hardReminderPath,
+  isTooLate,
+  writeHardReminderIndexDiff,
+  type HardReminderEntry,
+} from '../reminders/hardReminderIndex';
+import { hardSettingsOfUser } from './reminderSettingsService';
 
 export type ParticipantCommandResultType = 'applied' | 'noop' | 'rejected' | 'invalid_transition';
 
@@ -117,6 +126,8 @@ const PARTICIPANT_COLLECTIONS = [
   ESCALATION_STATES,
   EVENTS,
   RECOMMENDATION_ACTIONS,
+  // Which notification taps were already applied (#200). They name commitments.
+  COMMITMENT_ACTION_RECEIPTS,
   // The activity counters go with a wipe (UC-3.15, #201). A Moment survives
   // deleting the *item* it came from, which is what #201 asks for; it does not
   // survive the person deleting their data, which is a different request and
@@ -311,41 +322,164 @@ export async function applyParticipantCommand(
 ): Promise<ParticipantCommandResult> {
   requireUserId(participantId);
   const at = nowIso();
+  return getStorage().runTransaction((tx) => applyCommandInTransaction(tx, participantId, command, at, precondition));
+}
+
+async function applyCommandInTransaction(
+  tx: StorageTransaction,
+  participantId: string,
+  command: Command,
+  at: string,
+  precondition?: CommitmentPrecondition,
+): Promise<ParticipantCommandResult> {
+  // A tap on a reminder (#200) stands the server's backup push down (#198). The
+  // row is read here, with the other reads, because a transaction may not read
+  // after it has written.
+  const acknowledging = command.type === 'MarkAware' && command.source === 'reminder';
+  const [user, before, stats, hardRow] = await Promise.all([
+    tx.get<UserDocument>(userDoc(participantId)),
+    loadDomainState(tx, participantId),
+    readActivityStats(tx, participantId),
+    acknowledging
+      ? tx.get<HardReminderEntry>(hardReminderPath(participantId, command.commitmentId))
+      : Promise.resolve(null),
+  ]);
+  // Inside the transaction, against the state it just read. A commitment that
+  // moves between this check and the commit moves the version the transaction
+  // recorded, so the transaction retries and checks again.
+  //
+  // A commitment that is absent is left to the command: it fails as a missing
+  // entity, which the route answers 404, and that is a truer answer than
+  // "stale".
+  if (precondition) {
+    const current = before.commitments[precondition.commitmentId];
+    if (current && commitmentValidator(current) !== precondition.validator) throw new StaleCommitmentError(current);
+  }
+  try {
+    const transition = applyDomainCommand(before, command);
+    if (!transition.didChange) return noopResult(before, transition.events);
+    writeDomainDiff(tx, participantId, before, transition.newState, transition.events, user, at);
+    recordActivityEvents(tx, participantId, stats, transition.events);
+    if (acknowledging && transition.events.some((event) => event.type === 'reminder_acknowledged')) {
+      suppressAcknowledgedHardReminder(tx, participantId, transition.newState.commitments[command.commitmentId], hardRow, user, at);
+    }
+    return {
+      result: 'applied' as const,
+      newState: cloneState(transition.newState),
+      events: transition.events,
+    };
+  } catch (error) {
+    // Distinguished from `noop`: completing an already-completed commitment
+    // is a refusal the client should see, not a silent success. It used to
+    // return the unchanged commitment with HTTP 200 (#148).
+    if (error instanceof InvalidStateTransitionError) return invalidTransitionResult(before);
+    if (error instanceof MissingEntityError || error instanceof ValidationError) return rejectedResult(before);
+    throw error;
+  }
+}
+
+/**
+ * The person answered this cycle's reminder, so the server does not back it up
+ * (#198's "acknowledged before fireAt → no push").
+ *
+ * Written after the index diff in the same transaction, which may just have
+ * re-armed or created the row (acknowledging clears `postponedUntil`), so the
+ * row is rebuilt for the fire time the commitment is owed now. A row already
+ * decided for that fire time — sent, or suppressed for another reason — is left
+ * as it is. No fire time owed means no row, and nothing is written.
+ */
+function suppressAcknowledgedHardReminder(
+  tx: StorageTransaction,
+  uid: string,
+  commitment: Commitment | undefined,
+  previous: HardReminderEntry | null,
+  user: unknown,
+  at: string,
+): void {
+  if (!commitment) return;
+  const fireAt = hardFireAtFor(commitment, hardSettingsOfUser(user));
+  if (!fireAt || isTooLate(fireAt, Date.parse(at))) return;
+  if (previous && previous.fireAt === fireAt && previous.status !== 'pending') return;
+  tx.set<HardReminderEntry>(hardReminderPath(uid, commitment.id), {
+    commitmentId: commitment.id,
+    fireAt,
+    startFingerprint: commitment.timeSpec.dueAt as string,
+    status: 'suppressed',
+    reason: 'acknowledged',
+    updatedAt: at,
+    expiresAt: new Date(Date.parse(fireAt) + HARD_REMINDER_RETENTION_MS),
+  });
+}
+
+/** What a notification tap recorded (#200). No titles: ids, an action, times. */
+export interface CommitmentActionReceipt {
+  clientActionId: string;
+  commitmentId: string;
+  /** `action|postponedUntil`, so a reused id with a different meaning is caught. */
+  fingerprint: string;
+  result: 'applied' | 'noop';
+  createdAt: string;
+  /** A Date, not a string: the TTL policy only reads timestamps. */
+  expiresAt: Date;
+}
+
+export const COMMITMENT_ACTION_RECEIPT_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+export class ClientActionIdReusedError extends Error {
+  constructor() {
+    super('clientActionId was already used for a different action');
+    this.name = 'ClientActionIdReusedError';
+  }
+}
+
+export function commitmentActionReceiptPath(participantId: string, clientActionId: string): string {
+  return `${userCol(participantId, COMMITMENT_ACTION_RECEIPTS)}/${requireDocId(clientActionId)}`;
+}
+
+/**
+ * `applyParticipantCommand`, at most once per `clientActionId` (UC-3.14, #200).
+ *
+ * The receipt is read and created in the *same* transaction as the domain
+ * write, so two deliveries of one tap cannot both apply it: whichever commits
+ * second re-reads, finds the receipt, and replays. The replay check comes
+ * before the precondition, like `findParticipantDecision`: a tap that landed
+ * has changed the commitment, and answering its retry with "stale" would leave
+ * the phone unable to tell that it landed.
+ *
+ * Only an applied or no-op command leaves a receipt. A refused one (404, 409)
+ * wrote nothing, so there is nothing to replay and the same refusal is the
+ * right answer to the retry.
+ */
+export async function applyParticipantCommandOnce(
+  participantId: string,
+  clientActionId: string,
+  fingerprint: string,
+  command: Command & { commitmentId: string },
+  precondition?: CommitmentPrecondition,
+): Promise<ParticipantCommandResult | { result: 'replayed'; receipt: CommitmentActionReceipt }> {
+  requireUserId(participantId);
+  const path = commitmentActionReceiptPath(participantId, clientActionId);
+  const at = nowIso();
   return getStorage().runTransaction(async (tx) => {
-    const [user, before, stats] = await Promise.all([
-      tx.get<UserDocument>(userDoc(participantId)),
-      loadDomainState(tx, participantId),
-      readActivityStats(tx, participantId),
-    ]);
-    // Inside the transaction, against the state it just read. A commitment that
-    // moves between this check and the commit moves the version the transaction
-    // recorded, so the transaction retries and checks again.
-    //
-    // A commitment that is absent is left to the command: it fails as a missing
-    // entity, which the route answers 404, and that is a truer answer than
-    // "stale".
-    if (precondition) {
-      const current = before.commitments[precondition.commitmentId];
-      if (current && commitmentValidator(current) !== precondition.validator) throw new StaleCommitmentError(current);
+    const existing = await tx.get<CommitmentActionReceipt>(path);
+    if (existing) {
+      if (existing.fingerprint !== fingerprint || existing.commitmentId !== command.commitmentId) {
+        throw new ClientActionIdReusedError();
+      }
+      return { result: 'replayed' as const, receipt: existing };
     }
-    try {
-      const transition = applyDomainCommand(before, command);
-      if (!transition.didChange) return noopResult(before, transition.events);
-      writeDomainDiff(tx, participantId, before, transition.newState, transition.events, user, at);
-      recordActivityEvents(tx, participantId, stats, transition.events);
-      return {
-        result: 'applied' as const,
-        newState: cloneState(transition.newState),
-        events: transition.events,
-      };
-    } catch (error) {
-      // Distinguished from `noop`: completing an already-completed commitment
-      // is a refusal the client should see, not a silent success. It used to
-      // return the unchanged commitment with HTTP 200 (#148).
-      if (error instanceof InvalidStateTransitionError) return invalidTransitionResult(before);
-      if (error instanceof MissingEntityError || error instanceof ValidationError) return rejectedResult(before);
-      throw error;
+    const outcome = await applyCommandInTransaction(tx, participantId, command, at, precondition);
+    if (outcome.result === 'applied' || outcome.result === 'noop') {
+      tx.create<CommitmentActionReceipt>(path, {
+        clientActionId,
+        commitmentId: command.commitmentId,
+        fingerprint,
+        result: outcome.result,
+        createdAt: at,
+        expiresAt: new Date(Date.parse(at) + COMMITMENT_ACTION_RECEIPT_TTL_MS),
+      });
     }
+    return outcome;
   });
 }
 

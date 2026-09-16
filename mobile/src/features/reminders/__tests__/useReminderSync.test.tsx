@@ -18,6 +18,7 @@ import * as profileEndpoints from '../../../api/endpoints/profile';
 import type { AuthUser } from '../../../auth/types';
 import { hardReceiptStorageKey, loadHardReceipts } from '../../../lib/deviceSettings/hardReceiptQueue';
 import commitment from '../../../api/__fixtures__/commitments.one.json';
+import { enqueueTap, outboxStorageKey } from '../../../lib/deviceSettings/actionOutbox';
 import reminderSettings from '../../../api/__fixtures__/reminders.settingsSaved.json';
 
 /**
@@ -169,6 +170,18 @@ describe('when the engine runs', () => {
     await new Promise(resolve => setTimeout(resolve, 20));
     expect(gateway.scheduled).toEqual([]);
   });
+  it('does not re-ring a commitment whose Done is still in the outbox (#200)', async () => {
+    // Pressed offline: the cached list still says active, and the server has
+    // not heard. Scheduling it again would ring for something already answered.
+    await enqueueTap(USER.uid, { commitmentId: commitment.id, action: 'complete', notificationId: `${commitment.id}:soft` },
+      () => '3f0e8a52-7c1b-4d2e-9a61-0b5c7d9e1f24', new Date());
+    const gateway = fakeGateway();
+    await mount(gateway);
+    await waitFor(() => expect(reminderEndpoints.getReminderSettings).toHaveBeenCalled());
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(gateway.scheduled).toEqual([]);
+    await AsyncStorage.removeItem(outboxStorageKey(USER.uid));
+  });
 });
 
 describe('the kill switch', () => {
@@ -261,6 +274,24 @@ describe('Must reminders on the device (#197)', () => {
     ...SETTINGS_NO_QUIET,
     reminderSettings: { ...SETTINGS_NO_QUIET.reminderSettings, escalationCeiling: 'hard', hardEnabled: true },
   };
+
+  it('Later pressed on the Must ring: one gentle ring at postponedUntil, no strong ring and no receipt (#200)', async () => {
+    const dueAt = new Date(Date.now() + 11 * 60_000).toISOString();
+    const until = new Date(Date.now() + 60 * 60_000).toISOString();
+    jest.spyOn(reminderEndpoints, 'getReminderSettings').mockResolvedValue(RINGING as never);
+    jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({
+      items: [{ ...MUST_ITEM, timeSpec: { ...MUST_ITEM.timeSpec, dueAt }, postponedUntil: until }],
+    } as never);
+    const gateway = fakeGateway();
+    await mount(gateway);
+
+    await waitFor(() => expect(gateway.scheduled.length).toBe(1));
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(gateway.scheduled.map(request => [request.identifier, request.at.toISOString(), request.channelId]))
+      .toEqual([[`${commitment.id}:soft`, until, gateway.scheduled[0]!.channelId]]);
+    expect(gateway.scheduled[0]!.categoryIdentifier).not.toContain('hard');
+    expect((await loadHardReceipts(USER.uid)).pending).toEqual([]);
+  });
 
   it('schedules the ring and files its receipt under the account, with the exact-alarm answer', async () => {
     jest.spyOn(reminderEndpoints, 'getReminderSettings').mockResolvedValue(RINGING as never);

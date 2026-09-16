@@ -190,9 +190,21 @@ export function planFor(
     const leadMinutes = leadMinutesFor(stage, settings);
     if (stage !== 'soft' && leadMinutes >= settings.softLeadMinutes) continue;
     const at = startsAt - leadMinutes * 60_000;
-    // Only the Must ring. The gentle stages keep #196's behaviour.
-    if (stage === 'strong' && !mustRingsDespitePostpone(at, commitment.postponedUntil)) continue;
-    planned.push({ stage, at: startsAt - leadMinutes * 60_000, leadMinutes });
+    /*
+     * "Later" (#200). Nothing rings before `postponedUntil` — the Must ring by
+     * the council rule (#198), and the gentle stages by the same predicate, so
+     * a Later pressed on the soft reminder is not followed by the follow-up
+     * ten minutes on. The soft stage is instead *moved* to `postponedUntil`:
+     * one check-in, at the gentlest level whatever was pressed, because
+     * asking again later must never be louder than the reminder that was
+     * deferred. Time-free like the rule: a past `postponedUntil` moves nothing.
+     */
+    if (!mustRingsDespitePostpone(at, commitment.postponedUntil)) {
+      if (stage !== 'soft') continue;
+      planned.push({ stage, at: Date.parse(commitment.postponedUntil as string), leadMinutes });
+      continue;
+    }
+    planned.push({ stage, at, leadMinutes });
   }
   return planned.sort((left, right) => left.at - right.at);
 }

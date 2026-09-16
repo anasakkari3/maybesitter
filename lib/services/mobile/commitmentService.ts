@@ -11,8 +11,13 @@ import { resolveModuleRuntime } from '../../../src/contracts/v1/runtimeControls'
 import { applyCommand, configureCommandService, getCommandServiceState } from '../commandService';
 import {
   applyParticipantCommand,
+  applyParticipantCommandOnce,
+  ClientActionIdReusedError,
+  commitmentActionReceiptPath,
   getParticipantStateSnapshot,
+  type CommitmentActionReceipt,
 } from './participantState';
+import { getStorage } from '../../storage';
 import {
   isPastCommitmentTime,
   pastTimeMessage,
@@ -742,6 +747,110 @@ export async function dropCommitment(
 ): Promise<Commitment> {
   const command: Command = { type: 'Drop', commitmentId: id, now: now.toISOString() };
   await applyCommitmentCommand(id, command, options, 'Could not delete commitment');
+  const commitment = await getCommitment(id, options);
+  if (!commitment) throw new Error('Commitment not found');
+  return commitment;
+}
+
+export type CommitmentActionName = 'complete' | 'postpone' | 'cancel' | 'aware';
+
+/** The notification's Later default (mobile `DEFAULT_DEFER_MS`), applied to a late-arriving tap. */
+export const LATE_TAP_DEFER_MS = 60 * 60 * 1000;
+
+/**
+ * One notification-button tap, or one in-app action, applied to a commitment
+ * (UC-3.14, #200).
+ *
+ * With a `clientActionId` it is applied at most once: the receipt is created
+ * in the transaction that writes the domain event, and a second delivery
+ * answers `replayed: true` with the commitment as it now is. The receipt is
+ * looked up *before* `postponedUntil` is validated, because a defer tapped
+ * offline and delivered two hours later names an instant that is now in the
+ * past — and that delivery's answer is "already done", not "invalid".
+ */
+export async function applyCommitmentAction(
+  id: string,
+  action: CommitmentActionName,
+  input: {
+    postponedUntil?: unknown;
+    now?: Date;
+    clientActionId?: string;
+    participantId: string;
+    expectedValidator?: string;
+  },
+): Promise<{ commitment: Commitment; replayed: boolean }> {
+  const now = input.now ?? new Date();
+  const scope: CommitmentMutationOptions = {
+    participantId: input.participantId,
+    expectedValidator: input.expectedValidator,
+  };
+  if (input.clientActionId === undefined) {
+    const commitment = action === 'complete'
+      ? await completeCommitment(id, now, scope)
+      : action === 'postpone'
+        ? await postponeCommitment(id, input.postponedUntil, now, scope)
+        : action === 'cancel'
+          ? await dropCommitment(id, now, scope)
+          : await acknowledgeReminder(id, now, scope);
+    return { commitment, replayed: false };
+  }
+
+  const fingerprint = `${action}|${typeof input.postponedUntil === 'string' ? input.postponedUntil : ''}`;
+  const receipt = await getStorage().get<CommitmentActionReceipt>(
+    commitmentActionReceiptPath(input.participantId, input.clientActionId),
+  );
+  let replayed = false;
+  if (receipt) {
+    if (receipt.fingerprint !== fingerprint || receipt.commitmentId !== id) throw new ClientActionIdReusedError();
+    replayed = true;
+  } else {
+    const command = commandFor(id, action, input.postponedUntil, now, true);
+    const precondition = input.expectedValidator === undefined
+      ? undefined
+      : { commitmentId: id, validator: input.expectedValidator };
+    const outcome = await applyParticipantCommandOnce(
+      input.participantId, input.clientActionId, fingerprint, command, precondition,
+    );
+    if (outcome.result === 'replayed') replayed = true;
+    else if (outcome.result === 'rejected') {
+      throw new Error(outcome.newState.commitments[id] ? `Could not ${action} commitment` : 'Commitment not found');
+    }
+    else if (outcome.result === 'invalid_transition') throw new InvalidTransitionError();
+  }
+  const commitment = await getCommitment(id, scope);
+  if (!commitment) throw new Error('Commitment not found');
+  return { commitment, replayed };
+}
+
+function commandFor(
+  id: string,
+  action: CommitmentActionName,
+  postponedUntil: unknown,
+  now: Date,
+  fromOutbox = false,
+): Command & { commitmentId: string } {
+  if (action === 'complete') return { type: 'Complete', commitmentId: id, now: now.toISOString() };
+  if (action === 'cancel') return { type: 'Drop', commitmentId: id, now: now.toISOString() };
+  if (action === 'aware') return { type: 'MarkAware', commitmentId: id, now: now.toISOString(), source: 'reminder' };
+  let parsed = parseIsoInstant(postponedUntil, 'postponedUntil');
+  if (parsed.getTime() <= now.getTime()) {
+    // A Later pressed offline and delivered after its own instant (#200). The
+    // person asked for "later", not for nothing: defer from now by the button's
+    // default rather than refusing a tap the outbox would then drop.
+    if (!fromOutbox) throw new Error('postponedUntil must be after now');
+    parsed = new Date(now.getTime() + LATE_TAP_DEFER_MS);
+  }
+  return { type: 'Postpone', commitmentId: id, postponedUntil: parsed.toISOString(), now: now.toISOString() };
+}
+
+/** A tap on a reminder: the commitment is known about, and that is recorded (#200). */
+export async function acknowledgeReminder(
+  id: string,
+  now: Date = new Date(),
+  options: CommitmentMutationOptions = {},
+): Promise<Commitment> {
+  const command: Command = { type: 'MarkAware', commitmentId: id, now: now.toISOString(), source: 'reminder' };
+  await applyCommitmentCommand(id, command, options, 'Commitment not found');
   const commitment = await getCommitment(id, options);
   if (!commitment) throw new Error('Commitment not found');
   return commitment;

@@ -209,6 +209,13 @@ export type MarkAware = {
   commitmentId: string;
   now: string;
   reminderId?: string;
+  /**
+   * `reminder` when the awareness is a tap on a reminder notification
+   * (UC-3.14, #200). The state change is the same; the event is
+   * `reminder_acknowledged`, which activity shows, instead of the «لسّا»
+   * `commitment_aware`, which it deliberately does not (#201).
+   */
+  source?: 'reminder';
 };
 
 export type Complete = {
@@ -695,7 +702,11 @@ export function applyCommand(state: DomainState, command: Command): StateTransit
       const escalation = ensureEscalationState(newState, commitment.id);
       if (escalation.status === 'active' || escalation.status === 'eligible') escalation.status = 'none';
       sideEffects.push({ type: 'cancel_escalation', commitmentId: commitment.id });
-      events.push(makeEvent('commitment_aware', command.now, commitment.id));
+      if (command.source === 'reminder') {
+        events.push(makeEvent('reminder_acknowledged', command.now, commitment.id, { commitmentId: commitment.id }));
+      } else {
+        events.push(makeEvent('commitment_aware', command.now, commitment.id));
+      }
       didChange = true;
       break;
     }

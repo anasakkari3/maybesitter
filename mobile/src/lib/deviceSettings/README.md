@@ -37,5 +37,12 @@ same reason the language preference is:
   to be told to the server. Both are keyed by account and cleared on sign-out;
   each header makes the full argument.
 
+- **`actionOutbox.ts`** (UC-3.14 #200) — notification-button taps (Done,
+  Later, the body tap) waiting to reach the server: a commitment id, an action,
+  an instant and a random `clientActionId`, never a title. It is the one queue
+  the client keeps, because a button pressed offline or with the app killed has
+  nowhere else to wait; every item is an explicit tap. Keyed by account and
+  cleared on sign-out.
+
 Anything new here needs the same argument made in its own header, or it belongs
 on the account instead.

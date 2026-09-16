@@ -26,10 +26,10 @@
  * accepted entries to this projection shaped as records — so it is mapped
  * here once, whichever collection it was read from.
  *
- * `reminder_acknowledged` (UC-3.14, #200) still has no producer. It is in the
- * contract because the client, the schema and the copy are built around the
- * full set, so that #200 lands additively rather than moving the shape under
- * a shipped client. Nothing fabricates it: no account sees that kind today.
+ * `reminder_acknowledged` (UC-3.14, #200) is written to this log by the
+ * `MarkAware` command when the awareness is a tap on a reminder notification
+ * (`source: 'reminder'`), stamped with the commitment and carrying it in its
+ * payload.
  *
  * ── `commitment_aware` is deliberately not here ──────────────────
  *
@@ -80,13 +80,13 @@ export const ACTIVITY_KIND_BY_EVENT_TYPE: Readonly<Record<string, ActivityKind>>
   commitment_dropped: 'dropped',
   // Read from the plan ledger (#194) — see the header.
   plan_accepted: 'plan_accepted',
-  // No producer in this repository yet (#200) — see the header.
+  // A tap on a reminder notification (#200) — see the header.
   reminder_acknowledged: 'reminder_acknowledged',
 });
 
 /** The kinds an account can actually be shown today. */
 export const PRODUCED_ACTIVITY_KINDS: readonly ActivityKind[] = Object.freeze([
-  'captured', 'confirmed', 'completed', 'postponed', 'dropped', 'plan_accepted',
+  'captured', 'confirmed', 'completed', 'postponed', 'dropped', 'plan_accepted', 'reminder_acknowledged',
 ]);
 
 const PLAN_DATE = /^\d{4}-\d{2}-\d{2}$/;
