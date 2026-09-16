@@ -1,7 +1,7 @@
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { act, cleanup, render, waitFor } from '@testing-library/react-native';
-import { Text } from 'react-native';
+import { AppState, Text } from 'react-native';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppProvider, useApp } from '../../../state/AppContext';
@@ -20,6 +20,7 @@ import * as notifications from 'expo-notifications';
 import { resetInstallationIdForTests } from '../../../lib/installationId';
 import { awarenessStorageKey, parseAwarenessCache } from '../../../lib/deviceSettings/awarenessStore';
 import { hardReceiptStorageKey } from '../../../lib/deviceSettings/hardReceiptQueue';
+import { loadOutbox, outboxStorageKey } from '../actionOutbox';
 import type { AuthUser } from '../../../auth/types';
 import commitment from '../../../api/__fixtures__/commitments.one.json';
 import reminderSettings from '../../../api/__fixtures__/reminders.settingsSaved.json';
@@ -71,6 +72,12 @@ function Location() {
   return <Text testID="location">{`${s.screen}|${s.planDate ?? ''}`}</Text>;
 }
 
+/** The open sheet and the commitment it is about (#200's confirm-drop). */
+function SheetState() {
+  const { s } = useApp();
+  return <Text testID="sheet">{`${s.sheet ?? ''}|${s.detailId ?? ''}`}</Text>;
+}
+
 async function mount() {
   return render(
     <AppProvider>
@@ -79,6 +86,7 @@ async function mount() {
           <RemindersMount />
           <SignOutButton />
           <Location />
+          <SheetState />
         </QueryClientProvider>
       </AuthProvider>
     </AppProvider>,
@@ -118,6 +126,7 @@ afterEach(async () => {
   resetAuthForTests();
   resetBeforeSignOutForTests();
   await AsyncStorage.removeItem(awarenessStorageKey(USER.uid));
+  await AsyncStorage.removeItem(outboxStorageKey(USER.uid));
   jest.restoreAllMocks();
 });
 
@@ -385,5 +394,130 @@ describe('tapping the morning plan push', () => {
     });
 
     expect(view.getByTestId('location').props.children).toBe('today|');
+  });
+});
+
+describe('the buttons on a reminder (#200)', () => {
+  const tapData = { commitmentId: commitment.id, stage: 'soft', notificationId: `${commitment.id}:soft` };
+  const actionResult = { value: { success: true, id: commitment.id, commitment }, etag: null } as never;
+
+  function captureListener() {
+    const box: { tap?: (value: unknown) => void } = {};
+    jest.spyOn(notifications, 'addNotificationResponseReceivedListener')
+      .mockImplementation(handler => {
+        box.tap = handler as unknown as (value: unknown) => void;
+        return { remove: () => {} } as never;
+      });
+    return box;
+  }
+
+  it('Done completes once with a clientActionId and cancels that commitment’s stages, even delivered twice', async () => {
+    const box = captureListener();
+    // The same press also comes back as the launch response: the iOS
+    // background launch, or a relaunch replaying it.
+    jest.spyOn(notifications, 'getLastNotificationResponseAsync')
+      .mockResolvedValue(response(tapData, 'done'));
+    const act_ = jest.spyOn(commitmentEndpoints, 'actOnCommitment').mockResolvedValue(actionResult);
+    const cancel = jest.spyOn(notifications, 'cancelScheduledNotificationAsync');
+
+    await mount();
+    await waitFor(() => expect(box.tap).toBeDefined());
+    await act(async () => {
+      box.tap?.(response(tapData, 'done'));
+    });
+
+    await waitFor(() => expect(act_).toHaveBeenCalled());
+    await waitFor(async () => expect((await loadOutbox(USER.uid)).items).toHaveLength(0));
+    // Let the cold-start path settle too.
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 20));
+    });
+    expect(act_).toHaveBeenCalledTimes(1);
+    const [id, action, options] = act_.mock.calls[0]!;
+    expect([id, action]).toEqual([commitment.id, 'complete']);
+    expect((options as { clientActionId?: string }).clientActionId).toMatch(/^[0-9a-f-]{36}$/);
+    for (const stage of ['soft', 'followUp', 'strong']) {
+      expect(cancel).toHaveBeenCalledWith(`${commitment.id}:${stage}`);
+    }
+  });
+
+  it('Later offline stays queued, and coming back to the app sends it once with the same id', async () => {
+    const box = captureListener();
+    const appState: { change?: (state: string) => void } = {};
+    jest.spyOn(AppState, 'addEventListener').mockImplementation((type, handler) => {
+      if (type === 'change') appState.change = handler as (state: string) => void;
+      return { remove: () => {} } as never;
+    });
+    const { NetworkError } = jest.requireActual<typeof import('../../../api/errors')>('../../../api/errors');
+    const act_ = jest.spyOn(commitmentEndpoints, 'actOnCommitment')
+      .mockRejectedValueOnce(new NetworkError('airplane mode'))
+      .mockResolvedValue(actionResult);
+
+    await mount();
+    await waitFor(() => expect(box.tap).toBeDefined());
+    await act(async () => {
+      box.tap?.(response(tapData, 'later'));
+    });
+    await waitFor(() => expect(act_).toHaveBeenCalledTimes(1));
+    await waitFor(async () => expect((await loadOutbox(USER.uid)).items[0]?.attempts).toBe(1));
+    const [queued] = (await loadOutbox(USER.uid)).items;
+    expect(queued!.action).toBe('postpone');
+    expect(Date.parse(queued!.postponedUntil!)).toBeGreaterThan(Date.now());
+
+    // Back in the app, past the backoff.
+    const realNow = Date.now();
+    jest.spyOn(Date, 'now').mockReturnValue(realNow + 60 * 60 * 1000);
+    await act(async () => {
+      appState.change?.('active');
+    });
+    await waitFor(async () => expect((await loadOutbox(USER.uid)).items).toHaveLength(0));
+    expect(act_).toHaveBeenCalledTimes(2);
+    const ids = act_.mock.calls.map(call => (call[2] as { clientActionId: string }).clientActionId);
+    expect(ids[1]).toBe(ids[0]);
+  });
+
+  it('Not doing it opens the confirm sheet and drops nothing', async () => {
+    const box = captureListener();
+    const act_ = jest.spyOn(commitmentEndpoints, 'actOnCommitment').mockResolvedValue(actionResult);
+
+    const screen = await mount();
+    await waitFor(() => expect(box.tap).toBeDefined());
+    await act(async () => {
+      box.tap?.(response(tapData, 'drop'));
+    });
+
+    await waitFor(() => expect(screen.getByTestId('sheet').props.children).toBe(`confirmDrop|${commitment.id}`));
+    expect(act_).not.toHaveBeenCalled();
+    expect((await loadOutbox(USER.uid)).items).toHaveLength(0);
+  });
+
+  it('a body tap records aware on the server as well as on the phone', async () => {
+    const box = captureListener();
+    const act_ = jest.spyOn(commitmentEndpoints, 'actOnCommitment').mockResolvedValue(actionResult);
+
+    await mount();
+    await waitFor(() => expect(box.tap).toBeDefined());
+    await waitFor(() => expect(commitmentEndpoints.listToday).toHaveBeenCalled());
+    await act(async () => {
+      box.tap?.(response(tapData));
+    });
+
+    await waitFor(() => expect(act_).toHaveBeenCalledWith(commitment.id, 'aware', expect.anything()));
+  });
+
+  it('an unknown button does nothing', async () => {
+    const box = captureListener();
+    const act_ = jest.spyOn(commitmentEndpoints, 'actOnCommitment').mockResolvedValue(actionResult);
+
+    const screen = await mount();
+    await waitFor(() => expect(box.tap).toBeDefined());
+    await act(async () => {
+      box.tap?.(response(tapData, 'snooze'));
+    });
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 20));
+    });
+    expect(act_).not.toHaveBeenCalled();
+    expect(screen.getByTestId('location').props.children).not.toMatch(/^details/);
   });
 });
