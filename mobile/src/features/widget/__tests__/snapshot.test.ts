@@ -32,8 +32,9 @@ function commitment(overrides: Partial<Commitment> & { id: string }): Commitment
   return {
     kind: 'task',
     title: overrides.title ?? overrides.id,
-    description: null,
-    person: null,
+    // Private text that has no business on a home screen under any setting.
+    description: 'SECRET-DESCRIPTION نص خاص',
+    person: 'SECRET-PERSON סבתא',
     status: 'active',
     priority: { level: 'normal', source: 'default', pressureAllowed: false, pressureLevel: 'none' },
     category: null,
@@ -107,6 +108,26 @@ describe('buildSnapshot — the privacy default', () => {
   it('keeps priority and time when it hides the title', () => {
     const [first] = buildSnapshot(input()).items;
     expect(first).toMatchObject({ id: 'should-mid', priority: 'should', timeLabel: '11:00' });
+  });
+});
+
+describe('buildSnapshot — exactly these fields leave the app', () => {
+  const ITEM_KEYS = ['category', 'dueAt', 'id', 'isNextStep', 'link', 'priority', 'redactionReason', 'timeLabel', 'title', 'titleRedacted'];
+
+  it('writes each item with exactly the contract keys, in both privacy modes', () => {
+    for (const titlesAllowed of [false, true]) {
+      const snapshot = buildSnapshot(input({ titlesAllowed }));
+      for (const item of snapshot.items) expect(Object.keys(item).sort()).toEqual(ITEM_KEYS);
+      expect(Object.keys(snapshot).sort()).toEqual([
+        'contract', 'direction', 'expiresAt', 'generatedAt', 'items', 'labels', 'links', 'locale', 'schemaVersion', 'surface', 'titlePrivacy',
+      ]);
+    }
+  });
+
+  it('never writes a description or a person, even with titles allowed', () => {
+    const json = JSON.stringify(buildSnapshot(input({ titlesAllowed: true })));
+    expect(json).not.toContain('SECRET-DESCRIPTION');
+    expect(json).not.toContain('SECRET-PERSON');
   });
 });
 

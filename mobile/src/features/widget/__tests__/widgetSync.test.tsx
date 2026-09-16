@@ -250,6 +250,20 @@ describe('the widget snapshot in the running app', () => {
     expect(calls.slice(firstClear).every((call) => call.op === 'clear')).toBe(true);
   });
 
+  it('clears the widget when the signed-in tree goes away without a sign-out the user pressed', async () => {
+    // Session expired, access revoked and account deleted all unmount Root
+    // without running the before-sign-out tasks (`signOutExpired` skips them),
+    // so the unmount is the only clear those paths get.
+    await openApp();
+    await settled();
+    resetBeforeSignOutForTests();
+    const before = calls.length;
+    await act(async () => {
+      screen.unmount();
+    });
+    await waitFor(() => expect(calls.slice(before).some((call) => call.op === 'clear')).toBe(true));
+  });
+
   it('republishes when the app goes to the background', async () => {
     const listeners: ((state: string) => void)[] = [];
     jest.spyOn(AppState, 'addEventListener').mockImplementation(((type: string, listener: (state: string) => void) => {
