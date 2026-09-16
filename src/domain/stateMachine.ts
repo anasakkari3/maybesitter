@@ -1,6 +1,15 @@
 import { randomUUID } from 'crypto';
 
 export type CommitmentKind = 'task' | 'follow_up';
+/**
+ * Who typed the row. `'user'` is a person; `'external_feed'` is a sync job
+ * (today, the football fixture importer) that skips confirmation, may rewrite
+ * the commitment when its source changes, and must have a dismissal stick.
+ * Required, not optional, so an ownership check downstream can never read
+ * "absent" as "not mine" — see `normalizeStoredCommitment` for how a document
+ * from before this field existed still gets one.
+ */
+export type CommitmentOrigin = 'user' | 'external_feed';
 export type CommitmentStatus =
   | 'draft'
   | 'needs_clarification'
@@ -84,6 +93,7 @@ export interface TimeSpec {
 export interface Commitment {
   id: string;
   kind: CommitmentKind;
+  origin: CommitmentOrigin;
   title: string;
   description: string | null;
   person: string | null;
@@ -157,6 +167,7 @@ export type CreateDraft = {
   commitment: {
     id: string;
     kind: CommitmentKind;
+    origin?: CommitmentOrigin;
     title: string;
     description?: string | null;
     person?: string | null;
@@ -369,14 +380,24 @@ export function normalizeStoredTimeSpec(timeSpec?: Partial<TimeSpec>): TimeSpec 
  * One commitment as it was stored, completed for the fields since added (#185).
  *
  * Applied by `loadDomainState` to every document it reads, which is the single
- * place a stored commitment becomes a domain one. Only `timeSpec` is completed:
- * it is the only object on `Commitment` this product has ever widened after
- * data existed. `priority`'s required fields date from the initial commit, so
- * no stored document has ever been without them — when that stops being true,
- * this is where the next one goes.
+ * place a stored commitment becomes a domain one. `timeSpec` and `origin` are
+ * completed here: they are the fields this product has widened after data
+ * already existed. `priority`'s required fields date from the initial commit,
+ * so no stored document has ever been without them — when that stops being
+ * true, this is where the next one goes.
+ *
+ * `origin` reads missing or unrecognised values as `'user'`, the same
+ * allow-list shape `allDay` uses and for the same reason: every commitment
+ * written before this field existed was typed by a person, and defaulting the
+ * other way would hand a sync job permission to rewrite and delete
+ * commitments it never created.
  */
 export function normalizeStoredCommitment(commitment: Commitment): Commitment {
-  return { ...commitment, timeSpec: normalizeStoredTimeSpec(commitment.timeSpec) };
+  return {
+    ...commitment,
+    timeSpec: normalizeStoredTimeSpec(commitment.timeSpec),
+    origin: commitment.origin === 'external_feed' ? 'external_feed' : 'user',
+  };
 }
 
 function defaultTimeSpec(timeSpec?: Partial<TimeSpec>): TimeSpec {
@@ -586,6 +607,7 @@ export function applyCommand(state: DomainState, command: Command): StateTransit
       const commitment: Commitment = {
         id: command.commitment.id,
         kind: command.commitment.kind,
+        origin: command.commitment.origin || 'user',
         title: command.commitment.title.trim(),
         description: command.commitment.description || null,
         person: command.commitment.person || null,

@@ -15,7 +15,7 @@ const ENABLED = { [NEXT_STEP_EXPERIMENT_ENV]: 'true' };
 
 function commitment(id: string, overrides: Partial<Commitment> = {}): Commitment {
   return {
-    id, kind: 'task', title: `Step ${id}`, description: null, person: null, status: 'active',
+    id, kind: 'task', origin: 'user', title: `Step ${id}`, description: null, person: null, status: 'active',
     priority: { level: 'normal', source: 'user_explicit', pressureAllowed: false, pressureLevel: 'none' },
     timeSpec: { kind: 'due_by', dueAt: '2026-09-07T20:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
     currentAckState: 'aware', postponedUntil: null, createdAt: '2026-09-01T00:00:00.000Z',

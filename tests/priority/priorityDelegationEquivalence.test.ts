@@ -31,6 +31,7 @@ function commitment(overrides: Partial<Commitment> = {}): Commitment {
   return {
     id: 'c_1',
     kind: 'task',
+    origin: 'user',
     title: 'Call the clinic',
     description: null,
     person: null,

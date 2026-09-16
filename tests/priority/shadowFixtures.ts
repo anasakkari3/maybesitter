@@ -28,6 +28,7 @@ export function hoursBefore(hours: number): string {
 export function commitmentOf(overrides: Partial<Commitment> & { id: string }): Commitment {
   return {
     kind: 'task',
+    origin: 'user',
     title: 'Send the invoice',
     description: null,
     person: null,

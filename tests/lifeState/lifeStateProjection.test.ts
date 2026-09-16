@@ -34,6 +34,7 @@ const SCOPE = 'scope-1';
 function commitment(overrides: Partial<Commitment> & { id: string }): Commitment {
   return {
     kind: 'task',
+    origin: 'user',
     title: `title ${overrides.id}`,
     description: null,
     person: null,

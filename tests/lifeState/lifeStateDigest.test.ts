@@ -24,6 +24,7 @@ function commitmentAlpha(): Commitment {
   return {
     id: 'c_alpha',
     kind: 'task',
+    origin: 'user',
     title: 'Alpha',
     description: null,
     person: null,
@@ -56,6 +57,7 @@ function commitmentAlphaShuffled(): Commitment {
     person: null,
     description: null,
     title: 'Alpha',
+    origin: 'user',
     kind: 'task',
     id: 'c_alpha',
   };

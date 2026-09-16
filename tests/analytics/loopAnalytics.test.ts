@@ -20,7 +20,7 @@ const NOW = new Date('2026-08-31T09:00:00.000Z');
 
 function commitment(id: string, overrides: Partial<Commitment> = {}): Commitment {
   return {
-    id, kind: 'task', title: 'Call Maya', description: null, person: null, status: 'active',
+    id, kind: 'task', origin: 'user', title: 'Call Maya', description: null, person: null, status: 'active',
     priority: { level: 'high', source: 'user_explicit', pressureAllowed: false, pressureLevel: 'none' },
     timeSpec: { kind: 'due_by', dueAt: '2026-08-31T10:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
     currentAckState: 'aware', postponedUntil: null, createdAt: '2026-08-30T00:00:00.000Z',
