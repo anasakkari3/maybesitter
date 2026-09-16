@@ -126,17 +126,26 @@ function stripJpeg(bytes: Uint8Array): ImageStripResult {
 
   while (at < bytes.length) {
     if (bytes[at] !== 0xff) return FAILED;
+    // A marker may be padded with any number of 0xFF fill bytes.
     let marker = at + 1;
     while (marker < bytes.length && bytes[marker] === 0xff) marker += 1;
     if (marker >= bytes.length) return FAILED;
     const code = bytes[marker]!;
 
-    if (code === 0xda || code === 0xd9) {
-      kept.push(bytes.subarray(at));
-      sawScan = true;
-      at = bytes.length;
-      break;
+    // `EOI` ends the picture, and whatever follows it is not this picture
+    // (#404). A gain map or a Multi-Picture secondary image is a whole second
+    // JPEG with its own Exif, appended here by iOS HDR and Android Ultra HDR;
+    // copying it unread would upload that file's GPS untouched.
+    if (code === 0xd9) {
+      if (!sawScan) return FAILED;
+      kept.push(bytes.subarray(at, marker + 1));
+      if (marker + 1 < bytes.length) {
+        removedSegments += 1;
+        removedBytes += bytes.length - (marker + 1);
+      }
+      return { ok: true, bytes: concat(kept), removedSegments, removedBytes };
     }
+    // `TEM` and the restart markers carry no payload.
     if (code === 0x01 || (code >= 0xd0 && code <= 0xd7)) {
       kept.push(bytes.subarray(at, marker + 1));
       at = marker + 1;
@@ -151,14 +160,54 @@ function stripJpeg(bytes: Uint8Array): ImageStripResult {
     if (isJpegMetadata(code)) {
       removedSegments += 1;
       removedBytes += end - at;
-    } else {
-      kept.push(bytes.subarray(at, end));
+      at = end;
+      continue;
     }
+    kept.push(bytes.subarray(at, end));
     at = end;
+
+    // `SOS`: the entropy-coded picture follows its header. It is copied byte for
+    // byte up to the next real marker — which, in a progressive JPEG, may be
+    // another table, another scan, or an `APPn` or comment *between* scans, so
+    // the walk goes on rather than copying the rest of the file unread.
+    if (code === 0xda) {
+      sawScan = true;
+      const data = endOfEntropyData(bytes, at);
+      kept.push(bytes.subarray(at, data));
+      at = data;
+    }
   }
 
+  // A file that ran out before the picture started is a file this did not
+  // understand, and half of an image is not something to hand a model. One that
+  // ran out mid-scan, with no `EOI`, is kept as the scan it is.
   if (!sawScan) return FAILED;
   return { ok: true, bytes: concat(kept), removedSegments, removedBytes };
+}
+
+/**
+ * Where entropy-coded data starting at `from` ends: the offset of the next
+ * marker, or the end of the file.
+ *
+ * Inside a scan an `FF` is followed by `00` (a stuffed byte) or `D0`–`D7` (a
+ * restart marker) and neither ends it. Anything else — including a run of `FF`
+ * fill bytes in front of a marker — does.
+ */
+function endOfEntropyData(bytes: Uint8Array, from: number): number {
+  let at = from;
+  while (at + 1 < bytes.length) {
+    if (bytes[at] !== 0xff) {
+      at += 1;
+      continue;
+    }
+    const next = bytes[at + 1]!;
+    if (next === 0x00 || (next >= 0xd0 && next <= 0xd7)) {
+      at += 2;
+      continue;
+    }
+    return at;
+  }
+  return bytes.length;
 }
 
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
@@ -295,7 +344,12 @@ export function metadataSegmentsIn(bytes: Uint8Array, mimeType: string): readonl
       let marker = at + 1;
       while (marker < bytes.length && bytes[marker] === 0xff) marker += 1;
       const code = bytes[marker];
-      if (code === undefined || code === 0xda || code === 0xd9) break;
+      if (code === undefined) break;
+      if (code === 0xd9) {
+        // Anything after `EOI` is a second picture or a payload, never this one.
+        if (marker + 1 < bytes.length) found.push('trailing');
+        break;
+      }
       if (code === 0x01 || (code >= 0xd0 && code <= 0xd7)) {
         at = marker + 1;
         continue;
@@ -305,6 +359,7 @@ export function metadataSegmentsIn(bytes: Uint8Array, mimeType: string): readonl
       if (length < 2) break;
       if (isJpegMetadata(code)) found.push(code === 0xfe ? 'COM' : `APP${code - 0xe0}`);
       at = marker + 1 + length;
+      if (code === 0xda) at = endOfEntropyData(bytes, at);
     }
     return found;
   }

@@ -27,12 +27,20 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { metadataSegmentsIn, stripImageMetadata } from '../../lib/services/share/imageMetadata.ts';
 import { HIDDEN_ATTACK, HIDDEN_LOCATION, INJECTION_POSTER, POSTERS } from '../fixtures/share/images/posters.ts';
 import type { ShareMediaType } from '../../lib/services/share/shareTypes.ts';
+import { ENCODER_LAYOUTS } from '../fixtures/share/images/encoderLayouts.ts';
+
+const ENCODER_FILES = join(dirname(fileURLToPath(import.meta.url)), '..', 'fixtures', 'share', 'images', 'encoder');
+
+/** A real file an encoder wrote. See `encoder/manipulatorHarness.swift` for how each was made. */
+function encoderFile(name: string): Uint8Array {
+  return new Uint8Array(readFileSync(join(ENCODER_FILES, name)));
+}
 
 const FIXTURES = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -115,6 +123,49 @@ export const STRIP_CASES: readonly StripCase[] = [
     secrets: [],
     because: 'HEIF keeps EXIF as an item located by iloc, and a rewrite nobody can test is not a promise',
   },
+  /*
+   * ── What the manipulator hands the stripper (#404) ──────────────
+   *
+   * Every picture is now re-encoded on the phone before it is stripped, so the
+   * stripper's input is an encoder's output. The synthesized layouts carry a
+   * GPS IFD, an IFD1 thumbnail, XMP, IPTC, ICC, a second picture after EOI and
+   * metadata between progressive scans; the two real files are UIKit's encoder
+   * on the iOS simulator and ImageIO writing a camera JPEG with a thumbnail.
+   */
+  ...ENCODER_LAYOUTS.map((layout): StripCase => ({
+    name: layout.name,
+    mediaType: 'image/jpeg',
+    bytes: layout.bytes,
+    expected: 'stripped',
+    secrets: layout.secrets,
+    because: layout.because,
+  })),
+  {
+    name: 'ios_uikit_encoder_output',
+    mediaType: 'image/jpeg',
+    bytes: encoderFile('ios-uikit-encoder-from-heic.jpg'),
+    expected: 'stripped',
+    // UIKit writes APP1 Exif (orientation, resolution, colour space, size) and
+    // APP13 Photoshop 3.0 even for a picture that has nothing to say.
+    secrets: ['Exif', 'Photoshop 3.0'],
+    because: 'the real bytes UIImage.jpegData writes after the manipulator decoded a GPS-tagged HEIC',
+  },
+  {
+    name: 'imageio_camera_gps_thumbnail',
+    mediaType: 'image/jpeg',
+    bytes: encoderFile('imageio-camera-gps-thumbnail.jpg'),
+    expected: 'stripped',
+    secrets: ['HIDDEN-SERIAL', 'HIDDEN-OWNER', 'HIDDEN-EXIF-COMMENT', 'HIDDEN-IPTC-CAPTION'],
+    because: 'a real ImageIO JPEG with a GPS IFD and an embedded thumbnail',
+  },
+  {
+    name: 'heic_real_imageio',
+    mediaType: 'image/heic',
+    bytes: encoderFile('imageio-gps.heic'),
+    expected: 'refused',
+    secrets: [],
+    because: 'a real GPS-tagged HEIF is still never byte-stripped; the phone converts it to JPEG first',
+  },
   {
     name: 'truncated_png',
     mediaType: 'image/png',
@@ -166,6 +217,45 @@ test('the backend stripper does to every case what a person said it should', () 
       assert.ok(before.includes(secret), `${shared.name}: the fixture never had "${secret}"`);
       assert.ok(!after.includes(secret), `${shared.name}: "${secret}" survived`);
     }
+
+    if (shared.mediaType === 'image/jpeg') {
+      // No second picture: an embedded thumbnail or a secondary image is a
+      // whole JPEG, and its `FF D8 FF` is how it is found without a parser.
+      assert.deepEqual(nestedJpegStarts(result.bytes), [], `${shared.name}: a second picture survived`);
+      assert.deepEqual(nestedJpegStarts(shared.bytes).length > 0 || !shared.name.includes('thumbnail'), true,
+        `${shared.name}: the fixture never had a thumbnail`);
+      // No GPS: a GPS IFD lives in APP1 Exif, and there is no APPn left to hold one.
+      for (const label of ['Exif', 'http://ns.adobe.com/xap', 'Photoshop 3.0', 'ICC_PROFILE', 'MPF']) {
+        assert.ok(!after.includes(label), `${shared.name}: "${label}" survived`);
+      }
+      // Still a whole picture: it ends where a JPEG ends.
+      assert.deepEqual(Array.from(result.bytes.subarray(result.bytes.length - 2)), [0xff, 0xd9], shared.name);
+    }
+  }
+});
+
+/** Every offset past the first at which a JPEG starts. */
+function nestedJpegStarts(bytes: Uint8Array): number[] {
+  const found: number[] = [];
+  for (let at = 1; at + 2 < bytes.length; at += 1) {
+    if (bytes[at] === 0xff && bytes[at + 1] === 0xd8 && bytes[at + 2] === 0xff) found.push(at);
+  }
+  return found;
+}
+
+test('an encoder layout keeps every byte of the picture it strips around (#404)', () => {
+  // The other half of "nothing survived": a stripper that returned a bare SOI
+  // and EOI would pass every assertion above. The scan, its stuffed FF 00 and
+  // its restart markers, and the tables in front of it are all still there.
+  for (const layout of ENCODER_LAYOUTS) {
+    const result = stripImageMetadata(layout.bytes, 'image/jpeg');
+    assert.equal(result.ok, true, layout.name);
+    if (!result.ok) continue;
+    const after = Buffer.from(result.bytes).toString('latin1');
+    assert.ok(after.endsWith(Buffer.from(layout.picture).toString('latin1')), `${layout.name}: the picture was changed`);
+    for (const marker of ['\xff\xdb', '\xff\xc4', '\xff\xda', '\xff\x00', '\xff\xd0']) {
+      assert.ok(after.includes(marker), `${layout.name}: lost ${JSON.stringify(marker)}`);
+    }
   }
 });
 
@@ -176,6 +266,8 @@ test('the case list is worth running', () => {
   // that never fails closed.
   const by = (expected: StripCase['expected']) => STRIP_CASES.filter((shared) => shared.expected === expected).length;
   assert.ok(by('stripped') >= 5, 'too few files with something to remove');
+  assert.ok(STRIP_CASES.filter((shared) => shared.name.startsWith('encoder_')).length >= 3,
+    'nothing proves the stripper against what an encoder writes (#404)');
   assert.ok(by('unchanged') >= 1, 'nothing proves a clean file is left alone');
   assert.ok(by('refused') >= 3, 'nothing proves this fails closed');
   assert.ok(new Set(STRIP_CASES.map((shared) => shared.mediaType)).size >= 3, 'one container is not a test');
