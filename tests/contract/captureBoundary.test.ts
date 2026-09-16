@@ -11,6 +11,17 @@ import {
   type CapturePersistenceAdapter,
 } from '../../lib/services/captureBoundary/index.ts';
 import type { ExtractionResult } from '../../src/extraction/extractionTypes.ts';
+import {
+  MemoryActionGatewayAuditStore,
+  executeThroughActionGateway,
+} from '../../lib/integrations/actions/actionGateway.ts';
+import {
+  CONTROLLED_EMAIL_POLICY,
+  buildDraftEmailRequest,
+  buildSendEmailRequest,
+  confirmEmailReview,
+  createControlledEmailDraft,
+} from '../../lib/integrations/email/controlledActions.ts';
 
 const now = new Date('2026-08-17T08:00:00.000Z');
 
@@ -157,3 +168,118 @@ test('audit events exclude raw sensitive text by allowlist', async () => {
   assert.match(serialized, /inputHash/);
 });
 
+function emailDraft(overrides: Partial<Parameters<typeof createControlledEmailDraft>[0]> = {}) {
+  return createControlledEmailDraft({
+    draftId: 'draft-1',
+    scopeId: 'scope-a',
+    provider: 'google',
+    connectionId: 'connection-google',
+    to: ['Person@Example.com'],
+    subject: 'Project update',
+    body: 'The report is ready.',
+    createdAt: '2026-09-16T09:00:00Z',
+    ...overrides,
+  });
+}
+
+test('controlled email requires a matching fresh review before draft or send execution', async () => {
+  const draft = emailDraft();
+  const common = {
+    draft,
+    requestId: 'email-request-1',
+    idempotencyKey: 'email-idem-1',
+    requestedAt: '2026-09-16T09:02:00Z',
+  };
+
+  assert.deepEqual(buildDraftEmailRequest({ ...common, review: null }), {
+    status: 'review_required',
+    reason: 'missing_review',
+  });
+  assert.deepEqual(buildSendEmailRequest({ ...common, review: null }), {
+    status: 'review_required',
+    reason: 'missing_review',
+  });
+
+  const review = confirmEmailReview({
+    draft,
+    confirmedAt: '2026-09-16T09:01:00Z',
+    expiresAt: '2026-09-16T09:06:00Z',
+  });
+  assert.equal(buildDraftEmailRequest({ ...common, review }).status, 'ready');
+  assert.equal(buildSendEmailRequest({ ...common, review }).status, 'ready');
+  assert.deepEqual(CONTROLLED_EMAIL_POLICY, {
+    draftRequiresConfirmation: true,
+    sendRequiresFreshReview: true,
+    automaticSendAllowed: false,
+    recipientChangeInvalidatesReview: true,
+    contentChangeInvalidatesReview: true,
+    rawContentInAuditAllowed: false,
+  });
+});
+
+test('editing recipients or content invalidates an email review', () => {
+  const draft = emailDraft();
+  const review = confirmEmailReview({
+    draft,
+    confirmedAt: '2026-09-16T09:01:00Z',
+    expiresAt: '2026-09-16T09:06:00Z',
+  });
+  const request = {
+    requestId: 'email-request-1',
+    idempotencyKey: 'email-idem-1',
+    requestedAt: '2026-09-16T09:02:00Z',
+    review,
+  };
+
+  assert.deepEqual(buildSendEmailRequest({
+    ...request,
+    draft: emailDraft({ to: ['someone-else@example.com'] }),
+  }), { status: 'review_required', reason: 'review_target_changed' });
+  assert.deepEqual(buildSendEmailRequest({
+    ...request,
+    draft: emailDraft({ body: 'The report changed after review.' }),
+  }), { status: 'review_required', reason: 'review_target_changed' });
+  assert.deepEqual(buildSendEmailRequest({
+    ...request,
+    draft,
+    requestedAt: '2026-09-16T09:06:00Z',
+  }), { status: 'review_required', reason: 'review_expired' });
+});
+
+test('a reviewed email sends once through the action gateway without content in audit', async () => {
+  const draft = emailDraft({ body: 'Private body token-123.' });
+  const review = confirmEmailReview({
+    draft,
+    confirmedAt: '2026-09-16T09:01:00Z',
+    expiresAt: '2026-09-16T09:06:00Z',
+  });
+  const built = buildSendEmailRequest({
+    draft,
+    review,
+    requestId: 'email-request-1',
+    idempotencyKey: 'email-idem-1',
+    requestedAt: '2026-09-16T09:02:00Z',
+  });
+  assert.equal(built.status, 'ready');
+  if (built.status !== 'ready') return;
+
+  const audit = new MemoryActionGatewayAuditStore();
+  let sends = 0;
+  const dependencies = {
+    audit,
+    executor: {
+      async execute() {
+        sends += 1;
+        return { executionId: 'gmail-send-1', resultRef: 'gmail-message-1' };
+      },
+    },
+  };
+  const first = await executeThroughActionGateway(built.request, dependencies);
+  const replay = await executeThroughActionGateway({ ...built.request, requestId: 'email-request-2' }, dependencies);
+
+  assert.equal(first.status, 'executed');
+  assert.equal(replay.status, 'replayed');
+  assert.equal(sends, 1);
+  assert.equal(JSON.stringify(audit.list()).includes('token-123'), false);
+  assert.equal(JSON.stringify(audit.list()).includes('person@example.com'), false);
+});
