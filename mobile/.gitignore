@@ -64,3 +64,10 @@ yarn-error.*
 # private EAS build artifact, never committed: a map from a different commit
 # symbolicates to the wrong lines, which looks like an answer.
 build/sourcemaps/
+
+# Written into the widget's source folder by `@bacons/apple-targets` at every
+# `expo prebuild` (UC-3.R1, #203): the extension's Info.plist and the colour
+# assets generated from `targets/widget/expo-target.config.js`. Derived, like
+# `/ios` itself — the config file is the source.
+/targets/*/Info.plist
+/targets/*/Assets.xcassets/
