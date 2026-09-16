@@ -3,12 +3,13 @@
  *
  * ── Why the consent is given by pressing the button ──────────────
  *
- * `AboutYouStep` takes `aiGranted` as a prop, so a test could set it to
- * `false` and read the manual screen back. That would prove the component
- * branches, not that a person who declined AI on the consent screen ends up
- * there — and the branch is only worth anything because of what the user
- * said three screens earlier. So this drives the whole flow: Continue,
- * Decline, Skip, and then look at what is on screen.
+ * The flow picks the manual card or the guided setup from the AI answer, so
+ * a test could render `AboutYouStep` on its own and read the manual card
+ * back. That would prove the component renders, not that a person who
+ * declined AI on the consent screen ends up there — and the card is only
+ * worth anything because of what the user said three screens earlier. So
+ * this drives the whole flow: Continue, Decline, Skip, and then look at what
+ * is on screen.
  *
  * ── The claim is about the request, not about the field ──────────
  *
@@ -165,10 +166,10 @@ describe('when the user declined AI', () => {
     await reachAboutYou('decline');
 
     expect(screen.queryByTestId('onboarding-about-manual')).not.toBeNull();
-    expect(screen.queryByTestId('onboarding-about')).toBeNull();
-    // Not "there but disabled": reading free text needs a model, and with the
-    // model refused there is nothing this screen could do with a paragraph.
-    expect(screen.queryByTestId('about-you-input')).toBeNull();
+    expect(screen.queryByTestId('onboarding-setup')).toBeNull();
+    // Not "there but disabled": reading the answers needs a model, and with
+    // the model refused there is nothing this screen could do with them.
+    expect(screen.queryByTestId('setup-answer-input')).toBeNull();
     expect(screen.queryByText(en.obAboutManualBody)).not.toBeNull();
   });
 
@@ -193,24 +194,28 @@ describe('when the user declined AI', () => {
   });
 });
 
+/** Through the five questions with one typed answer, to "Read my answers". */
+async function answerAndRead(text: string) {
+  await fireEvent.changeText(screen.getByTestId('setup-answer-input'), text);
+  for (let i = 0; i < 4; i += 1) await press(en.obSetupNext);
+  await waitFor(() => expect(screen.queryByText(en.obSetupHabitsPrompt)).not.toBeNull());
+  await press(en.obSetupRead);
+}
+
 describe('when the user allowed AI', () => {
-  it('offers the description, and sends what they wrote to describe', async () => {
+  it('offers the guided setup, and sends what they wrote to describe', async () => {
     await reachAboutYou('allow');
 
-    expect(screen.queryByTestId('onboarding-about')).not.toBeNull();
+    expect(screen.queryByTestId('onboarding-setup')).not.toBeNull();
     expect(screen.queryByTestId('onboarding-about-manual')).toBeNull();
 
-    await fireEvent.changeText(
-      screen.getByTestId('about-you-input'),
-      '  Two kids, work Sunday to Thursday, and I want to swim again  ',
-    );
-    await press(en.obAboutRead);
+    await answerAndRead('  Two kids, work Sunday to Thursday, and I want to swim again  ');
 
     await waitFor(() => expect(describeProfile).toHaveBeenCalled());
-    // Trimmed, and exactly what was typed — no title, no padding, nothing the
-    // user cannot see on screen.
+    // Labelled with the question, trimmed, and exactly what was typed — no
+    // padding, nothing the user cannot see on screen.
     expect(describeProfile.mock.calls[0]![0])
-      .toBe('Two kids, work Sunday to Thursday, and I want to swim again');
+      .toBe(`${en.obSetupWorkLabel}: Two kids, work Sunday to Thursday, and I want to swim again`);
 
     // Settle on the checklist the suggestions produce, so the tree is not torn
     // down mid-mutation.
@@ -219,7 +224,14 @@ describe('when the user allowed AI', () => {
 
   it('will not send an empty description', async () => {
     await reachAboutYou('allow');
-    await press(en.obAboutRead);
+    // Whitespace is not an answer, so the last question offers to finish
+    // rather than to read.
+    await fireEvent.changeText(screen.getByTestId('setup-answer-input'), '   ');
+    for (let i = 0; i < 4; i += 1) await press(en.obSetupNext);
+    await waitFor(() => expect(screen.queryByText(en.obSetupHabitsPrompt)).not.toBeNull());
+    expect(screen.queryByText(en.obSetupRead)).toBeNull();
+    await press(en.obSetupFinish);
+    await waitFor(() => expect(screen.queryByTestId('onboarding-notifications')).not.toBeNull());
     expect(describeProfile).not.toHaveBeenCalled();
   });
 });
@@ -242,8 +254,7 @@ describe('when the user allowed AI', () => {
 describe('when the checklist cannot be saved', () => {
   async function reachTheChecklist() {
     await reachAboutYou('allow');
-    await fireEvent.changeText(screen.getByTestId('about-you-input'), 'I want to swim again');
-    await press(en.obAboutRead);
+    await answerAndRead('I want to swim again');
     await waitFor(() => expect(screen.queryByTestId('onboarding-about-review')).not.toBeNull());
     // Tick the one suggestion, so there is something whose loss would matter.
     await press(PROPOSAL.suggestions[0]!.content);
