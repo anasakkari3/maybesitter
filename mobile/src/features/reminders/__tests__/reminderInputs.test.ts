@@ -121,7 +121,7 @@ describe('the zone a quiet window is read in', () => {
 describe('what the engine is given about a commitment', () => {
   it('carries an id, an instant, a status and a priority, and no words', () => {
     const [narrowed] = toReminderCommitments([commitmentFixture as unknown as Commitment]);
-    expect(Object.keys(narrowed!).sort()).toEqual(['id', 'priority', 'startsAt', 'status']);
+    expect(Object.keys(narrowed!).sort()).toEqual(['allDay', 'id', 'priority', 'startsAt', 'status']);
     expect(JSON.stringify(narrowed)).not.toContain('dentist');
   });
 

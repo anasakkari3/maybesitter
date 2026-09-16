@@ -393,7 +393,7 @@
   "notifDenied": "הטלפון שלך מוגדר לא להציג דבר מ-MaybeSitter. אפשר לשנות את זה בהגדרות הטלפון.",
   "notifSaveFailed": "זה לא נשמר. נסה שוב בעוד רגע.",
   "notifChannelHard": "תזכורות חובה",
-  "notifHardTitle": "משהו חובה מתחיל בעוד 10 דקות",
+  "notifHardTitle": "משהו חובה מתחיל בקרוב",
   "notifHardBody": "פתח את MaybeSitter כדי לראות.",
   "notifMustTitle": "תזכורות חובה",
   "notifMustBody": "עד כמה תזכורת יכולה להגיע. רק מחויבויות שסימנת כחובה יכולות לצלצל.",

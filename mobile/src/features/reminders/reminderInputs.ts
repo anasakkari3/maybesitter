@@ -37,6 +37,7 @@ export function toReminderCommitments(items: readonly Commitment[]): ReminderCom
     // same mapping the cards use, so "Must" means one thing on screen and in a
     // reminder that rings (#197).
     priority: importanceOf(commitment),
+    allDay: commitment.timeSpec.allDay,
   }));
 }
 

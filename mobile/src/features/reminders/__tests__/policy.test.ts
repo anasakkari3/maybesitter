@@ -27,7 +27,7 @@ import {
 const START = Date.parse('2026-09-15T12:00:00.000Z');
 
 function commitment(overrides: Partial<ReminderCommitment> = {}): ReminderCommitment {
-  return { id: 'c1', startsAt: new Date(START).toISOString(), status: 'active', priority: 'must', ...overrides };
+  return { id: 'c1', startsAt: new Date(START).toISOString(), status: 'active', priority: 'must', allDay: false, ...overrides };
 }
 
 /**
@@ -119,6 +119,11 @@ describe('the Must stage', () => {
       const planned = planFor(commitment(), settings({ softLeadMinutes, escalationCeiling: 'hard', hardEnabled: true }));
       expect(leads(planned).find(([stage]) => stage === 'strong')).toEqual(['strong', 10]);
     }
+  });
+
+  it('never rings for an all-day commitment, whose start is a midnight nobody chose', () => {
+    const ring = settings({ escalationCeiling: 'hard', hardEnabled: true });
+    expect(planFor(commitment({ allDay: true }), ring).map(stage => stage.stage)).toEqual(['soft', 'followUp']);
   });
 
   it('stays silent when the survey says none, even with the opt-in', () => {

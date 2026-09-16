@@ -390,7 +390,7 @@
   "notifDenied": "Your phone is set to show nothing from MaybeSitter. You can change that in phone settings.",
   "notifSaveFailed": "That did not save. Try again in a moment.",
   "notifChannelHard": "Must reminders",
-  "notifHardTitle": "A Must item starts in 10 minutes",
+  "notifHardTitle": "A Must item starts soon",
   "notifHardBody": "Open MaybeSitter to see it.",
   "notifMustTitle": "Must reminders",
   "notifMustBody": "How far a reminder may go. Only commitments you marked Must can ever ring.",

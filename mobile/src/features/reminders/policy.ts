@@ -67,6 +67,13 @@ export interface ReminderCommitment {
   readonly startsAt: string | null;
   readonly status: string;
   readonly priority: ReminderPriority;
+  /**
+   * The commitment names a day and nobody chose the hour (`TimeSpec.allDay`).
+   * Its `startsAt` is that day's local midnight, so a ring "ten minutes before"
+   * would be ten to midnight the night before. The Must stage is never planned
+   * for one; see `planFor`.
+   */
+  readonly allDay: boolean;
 }
 
 /**
@@ -151,6 +158,7 @@ export function planFor(
 
   const planned: PlannedStage[] = [];
   for (const stage of stagesFor(settings, commitment.priority)) {
+    if (stage === 'strong' && commitment.allDay) continue;
     const leadMinutes = leadMinutesFor(stage, settings);
     if (stage !== 'soft' && leadMinutes >= settings.softLeadMinutes) continue;
     planned.push({ stage, at: startsAt - leadMinutes * 60_000, leadMinutes });
