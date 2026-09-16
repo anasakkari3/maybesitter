@@ -163,14 +163,42 @@ test('saving a follow projects immediately -- the first match needs no nightly j
   try {
     await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
     const body = await json(await PUT(authedRequest('PUT', { clubIds: ['barcelona'] })));
-    const fixtures = body.fixtures as { commitmentId: string; homeTeamName: string; awayTeamName: string; kickoffUtc: string }[];
+    const fixtures = body.fixtures as { commitmentId: string; homeTeamName: string; awayTeamName: string; kickoffUtc: string; collisions: unknown[] }[];
     assert.equal(fixtures.length, 1);
     assert.equal(fixtures[0]!.homeTeamName, 'FC Barcelona');
     assert.equal(fixtures[0]!.kickoffUtc, '2026-10-25T19:00:00.000Z');
+    assert.deepEqual(fixtures[0]!.collisions, []);
 
     // And GET reads the same projected list back without projecting again.
     const read = await json(await GET(authedRequest('GET')));
     assert.deepEqual(read.fixtures, body.fixtures);
+  } finally {
+    teardown();
+  }
+});
+
+test('a projected match says so when something else already landed on top of it', async () => {
+  const teardown = setup();
+  try {
+    const now = '2026-09-16T09:00:00.000Z';
+    // A commitment the user made themselves, half an hour into the match's
+    // two-hour block.
+    await applyParticipantCommand(USER, {
+      type: 'CreateDraft', now,
+      commitment: {
+        id: 'dinner', kind: 'task', title: 'Dinner with the in-laws',
+        timeSpec: { kind: 'scheduled_event', dueAt: '2026-10-25T19:30:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
+      },
+      draftStatus: 'pending_confirmation',
+    });
+    await applyParticipantCommand(USER, { type: 'ConfirmCommitment', commitmentId: 'dinner', now });
+
+    await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+    const body = await json(await PUT(authedRequest('PUT', { clubIds: ['barcelona'] })));
+    const [projected] = body.fixtures as { collisions: { commitmentId: string; title: string }[] }[];
+    assert.equal(projected!.collisions.length, 1);
+    assert.equal(projected!.collisions[0]!.commitmentId, 'dinner');
+    assert.equal(projected!.collisions[0]!.title, 'Dinner with the in-laws');
   } finally {
     teardown();
   }

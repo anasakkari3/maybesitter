@@ -101,8 +101,9 @@ import {
   type ExternalTaskContentFingerprint,
   type ExternalTaskReference,
 } from '../../src/contracts/v1/externalTaskContracts';
-import { InvalidStateTransitionError, type Command, type TimeSpec } from '../../src/domain/stateMachine';
+import { InvalidStateTransitionError, type Command, type Commitment, type TimeSpec } from '../../src/domain/stateMachine';
 import { applyParticipantCommands, readParticipantState } from '../services/mobile/participantState';
+import { findCollisions, type CollisionWarning } from '../services/timeCollision';
 import { getFollowedClubs } from './followedClubs';
 import { clubById } from './clubs';
 import { listFixturesForTeam } from './fixtureStore';
@@ -508,6 +509,17 @@ export interface FixtureCommitmentSummary {
   readonly homeTeamName: string;
   readonly awayTeamName: string;
   readonly kickoffUtc: string;
+  /**
+   * Which of this user's *other* commitments this match's two-hour block
+   * overlaps, via `findCollisions` (`lib/services/timeCollision.ts`, Task
+   * 10) -- the same query the capture-confirm route already runs, not a
+   * second collision detector. This is the fourth piece of the owner's own
+   * request that module's header names: know about the match, keep work off
+   * it, put it on the calendar, and say so if something already landed on
+   * top of it anyway. Always an array, never omitted -- a match with
+   * nothing on top of it is a fact, not a "did not check".
+   */
+  readonly collisions: readonly CollisionWarning[];
 }
 
 /**
@@ -550,6 +562,7 @@ export async function listActiveFixtureCommitments(uid: string): Promise<readonl
   if (candidates.length === 0) return [];
 
   const state = await readParticipantState(uid);
+  const allCommitments: Commitment[] = Object.values(state.commitments);
   const summaries: FixtureCommitmentSummary[] = [];
   for (const ref of candidates) {
     const commitment = state.commitments[ref.linkedCommitmentId!];
@@ -562,11 +575,14 @@ export async function listActiveFixtureCommitments(uid: string): Promise<readonl
     // than thrown: a screen listing matches should not 500 because one row
     // turned out to be inconsistent.
     if (!dueAt) continue;
+    const others = allCommitments.filter((candidate) => candidate.id !== commitment.id);
+    const collisions = findCollisions({ dueAt, endAt: commitment.timeSpec.endAt }, others);
     summaries.push({
       commitmentId: ref.linkedCommitmentId!,
       homeTeamName: ref.homeTeamName,
       awayTeamName: ref.awayTeamName,
       kickoffUtc: dueAt,
+      collisions,
     });
   }
 
