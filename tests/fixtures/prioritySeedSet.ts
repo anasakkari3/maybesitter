@@ -202,7 +202,9 @@ function side(spec: SideSpec): SeedCommitment {
     timeSpec: {
       kind: dueAt === null ? 'unscheduled' : 'due_by',
       dueAt,
+      endAt: null,
       remindAt,
+      allDay: false,
       timezone: 'UTC',
     },
     currentAckState: spec.ackState ?? 'seen',

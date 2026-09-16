@@ -27,7 +27,7 @@ const DUE = '2026-11-20T12:00:00.000Z';
 const REMIND = '2026-11-20T10:00:00.000Z';
 
 function timed() {
-  return { kind: 'due_by' as const, dueAt: DUE, remindAt: REMIND, timezone: TIMEZONE };
+  return { kind: 'due_by' as const, dueAt: DUE, endAt: null, remindAt: REMIND, allDay: false, timezone: TIMEZONE };
 }
 
 test('null clears the due time, and is not the same as the field being absent', () => {

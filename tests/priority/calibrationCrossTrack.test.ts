@@ -84,7 +84,7 @@ function commitment(id: string, overrides: Partial<Commitment> = {}): Commitment
     person: null,
     status: 'active',
     priority: { level: 'normal', source: 'default', pressureAllowed: true, pressureLevel: 'gentle' },
-    timeSpec: { kind: 'due_by', dueAt: '2026-08-19T11:00:00.000Z', remindAt: null, timezone: 'UTC' },
+    timeSpec: { kind: 'due_by', dueAt: '2026-08-19T11:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
     currentAckState: 'seen',
     postponedUntil: null,
     createdAt: '2026-08-01T00:00:00.000Z',

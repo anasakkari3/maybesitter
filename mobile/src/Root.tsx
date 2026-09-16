@@ -27,6 +27,8 @@ import { FeedbackHistoryScreen } from './features/settings/FeedbackHistoryScreen
 import { ActivityScreen } from './features/activity/ActivityScreen';
 import { RoutineSettingsScreen } from './features/settings/RoutineSettingsScreen';
 import { NotificationsSettingsScreen } from './features/settings/NotificationsSettingsScreen';
+import { CalendarSettingsScreen } from './features/settings/CalendarSettingsScreen';
+import { DeviceCalendarSyncHost } from './features/calendar/useDeviceCalendarSync';
 import { AboutScreen } from './features/settings/AboutScreen';
 import { googleCalendarDemoEnabled } from './config/env';
 import { Gallery } from './design/Gallery';
@@ -80,6 +82,11 @@ export function Root() {
           <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
           <OfflineBanner />
           <VerifyEmailBanner />
+          {/* Draws nothing (UC-3.1, #185). It keeps the phone's calendar in step
+              with the commitments the screens are already showing, for the whole
+              session rather than only while the calendar settings screen is
+              open — a confirm on Today has to reach the calendar too. */}
+          <DeviceCalendarSyncHost />
           {s.screen === 'today' && <TodayScreen key="today" />}
           {s.screen === 'calendar' && <CalendarScreen key="calendar" />}
           {s.screen === 'settings' && <SettingsScreen key="settings" />}
@@ -115,6 +122,9 @@ export function Root() {
           )}
           {s.screen === 'notificationsSettings' && (
             <NotificationsSettingsScreen key="notificationsSettings" onBack={() => latest.current.go('settings')} />
+          )}
+          {s.screen === 'calendarSettings' && (
+            <CalendarSettingsScreen key="calendarSettings" onBack={() => latest.current.go('settings')} />
           )}
           {s.screen === 'about' && <AboutScreen key="about" onBack={() => latest.current.go('settings')} />}
           {s.screen === 'details' && <DetailsScreen key="details" />}

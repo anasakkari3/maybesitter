@@ -193,6 +193,54 @@ describe('iOS hardening', () => {
     expect(options.iosShareExtensionName).toBe('ShareExtension');
   });
 
+  /**
+   * The calendar permission (UC-3.1, #185).
+   *
+   * Two things, and the second is the one that would rot quietly.
+   *
+   * **Full access.** `expo-calendar`'s `writeOnlyAccess: true` writes
+   * `NSCalendarsWriteOnlyAccessUsageDescription` *instead of*
+   * `NSCalendarsFullAccessUsageDescription`, and under it an event can be
+   * added and never looked up again — so reschedule, delete and "the user
+   * removed it in Calendar" all become impossible. Someone tidying up towards
+   * the smaller permission would break three acceptance criteria and no build
+   * would fail; this is where that stops.
+   *
+   * **No Reminders.** The plugin writes two `NSReminders*UsageDescription`
+   * keys by default for every app that installs it, and MaybeSitter never
+   * opens the Reminders store. A purpose string for a store the app does not
+   * touch is an unexplained permission on a store listing. `false` in
+   * `app.config.ts` removes them; confirmed in the generated `Info.plist`
+   * after `expo prebuild` as well as here.
+   */
+  it('asks for full calendar access and for no reminders at all', () => {
+    for (const profile of PROFILES) {
+      const plist = configs[profile].ios.infoPlist ?? {};
+      expect(typeof plist.NSCalendarsFullAccessUsageDescription).toBe('string');
+      expect(plist.NSCalendarsWriteOnlyAccessUsageDescription).toBeUndefined();
+      expect(plist.NSRemindersUsageDescription).toBeUndefined();
+      expect(plist.NSRemindersFullAccessUsageDescription).toBeUndefined();
+      // The pre-iOS-17 key, which a 16.4 deployment target still needs.
+      expect(typeof plist.NSCalendarsUsageDescription).toBe('string');
+    }
+    // And it says what it does with the access, rather than "access your
+    // calendars". The prompt is the only sentence most people ever read.
+    const copy = String(configs.production.ios.infoPlist?.NSCalendarsFullAccessUsageDescription);
+    expect(copy).toContain('MaybeSitter');
+    expect(copy.length).toBeGreaterThan(60);
+  });
+
+  it('never blocks the calendar permissions the feature needs', () => {
+    // `blockedPermissions` removes a permission from the merged manifest. One
+    // of these in that list would leave a build that asks the user for nothing
+    // and fails every write at runtime, with no error anywhere in the config.
+    for (const profile of PROFILES) {
+      const blocked = configs[profile].android.blockedPermissions ?? [];
+      expect(blocked).not.toContain('android.permission.READ_CALENDAR');
+      expect(blocked).not.toContain('android.permission.WRITE_CALENDAR');
+    }
+  });
+
   it('declares Sign in with Apple, whose entitlement Expo derives (#145)', () => {
     // Declared now rather than when Apple is switched on: adding an
     // entitlement later re-provisions the whole build.

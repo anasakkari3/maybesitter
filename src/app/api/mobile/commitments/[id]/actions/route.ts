@@ -13,6 +13,7 @@ import {
   staleCommitmentResponse,
 } from '../../../../../../../lib/services/mobile/preconditions';
 import { commitmentToMobileDto, mobileError } from '../../../../../../../lib/services/mobile/response';
+import { getDeviceCalendarLink } from '../../../../../../../lib/services/calendar/deviceCalendarLinks';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,10 +49,13 @@ export async function POST(
             ? await dropCommitment(id, new Date(), scope)
             : null;
     if (!commitment) return mobileError(`Unknown commitment action: ${String(body.action)}`);
+    // A postpone moves the event and a cancel removes it, so the link travels
+    // with the answer rather than costing the client a second request (#185).
+    const link = await getDeviceCalendarLink(user.uid, id);
     return Response.json({
       success: true,
       id,
-      commitment: commitmentToMobileDto(commitment),
+      commitment: commitmentToMobileDto(commitment, undefined, link),
     }, { headers: { ETag: etagFor(commitment) } });
   } catch (error) {
     if (error instanceof StaleCommitmentError) return staleCommitmentResponse(error.current);

@@ -1,0 +1,12 @@
+{
+  "success": true,
+  "id": "00000000-0000-4000-8000-000000000001",
+  "deviceCalendarLink": {
+    "writerId": "writer-phone",
+    "calendarId": "calendar-1",
+    "eventId": "event-1",
+    "contentHash": "b1946ac92492d2347c6235b4d2611184",
+    "state": "linked",
+    "writtenAt": "2026-08-09T09:00:00.000Z"
+  }
+}

@@ -179,7 +179,7 @@ test('priorityFeatures: dependency and effort are unknown for every input shape'
         title: 'a very long title that a proxy heuristic might be tempted to read as effort',
         description: 'blocked by the other thing',
         priority: { level: 'high' as const, source: 'user_explicit' as const, pressureAllowed: true, pressureLevel: 'firm' as const },
-        timeSpec: { kind: 'due_by' as const, dueAt: '2026-08-17T12:00:00.000Z', remindAt: null, timezone: 'UTC' },
+        timeSpec: { kind: 'due_by' as const, dueAt: '2026-08-17T12:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
         status: 'deferred' as const,
       }),
       reminders: [reminderOf({ id: 'rem_1', status: 'snoozed' })],
@@ -258,7 +258,7 @@ test('priorityFeatures: every known feature carries evidence naming its source s
     currentAckState: 'postponed',
     postponedUntil: '2026-08-19T00:00:00.000Z',
     priority: { level: 'high', source: 'user_explicit', pressureAllowed: true, pressureLevel: 'firm' },
-    timeSpec: { kind: 'due_by', dueAt: '2026-08-18T06:00:00.000Z', remindAt: null, timezone: 'UTC' },
+    timeSpec: { kind: 'due_by', dueAt: '2026-08-18T06:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
   });
   const reminders = [
     reminderOf({ id: 'rem_snooze', status: 'snoozed', updatedAt: '2026-08-17T10:00:00.000Z' }),
@@ -342,7 +342,7 @@ test('priorityFeatures: extraction is pure — the same input twice is deeply eq
     status: 'deferred',
     currentAckState: 'ignored',
     postponedUntil: '2026-08-19T00:00:00.000Z',
-    timeSpec: { kind: 'due_by', dueAt: '2026-08-18T06:00:00.000Z', remindAt: '2026-08-18T13:00:00.000Z', timezone: 'UTC' },
+    timeSpec: { kind: 'due_by', dueAt: '2026-08-18T06:00:00.000Z', endAt: null, remindAt: '2026-08-18T13:00:00.000Z', allDay: false, timezone: 'UTC' },
   });
   const reminders = [
     reminderOf({ id: 'rem_b', status: 'snoozed' }),
@@ -373,7 +373,7 @@ test('priorityFeatures: reordering the reminder list does not change the output'
 });
 
 test('priorityFeatures: extraction does not mutate its inputs', () => {
-  const commitment = commitmentOf({ timeSpec: { kind: 'due_by', dueAt: '2026-08-18T06:00:00.000Z', remindAt: null, timezone: 'UTC' } });
+  const commitment = commitmentOf({ timeSpec: { kind: 'due_by', dueAt: '2026-08-18T06:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' } });
   const reminders = [reminderOf({ id: 'rem_1', status: 'snoozed' })];
   const commitmentJson = JSON.stringify(commitment);
   const remindersJson = JSON.stringify(reminders);
@@ -490,7 +490,7 @@ test('priorityFeatures: the ignore timestamp precedence follows updatedAt, deliv
 
 test('priorityFeatures: urgency reports hours overdue unrounded so the scorer can round once', () => {
   const features = extractPriorityFeatures({
-    commitment: commitmentOf({ timeSpec: { kind: 'due_by', dueAt: '2026-08-18T10:30:00.000Z', remindAt: null, timezone: 'UTC' } }),
+    commitment: commitmentOf({ timeSpec: { kind: 'due_by', dueAt: '2026-08-18T10:30:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' } }),
     reminders: [],
     now: NOW,
   });
@@ -502,7 +502,7 @@ test('priorityFeatures: urgency reports hours overdue unrounded so the scorer ca
 test('priorityFeatures: urgency measures from the earliest overdue time, not the latest', () => {
   const features = extractPriorityFeatures({
     commitment: commitmentOf({
-      timeSpec: { kind: 'due_by', dueAt: '2026-08-18T08:00:00.000Z', remindAt: '2026-08-18T11:00:00.000Z', timezone: 'UTC' },
+      timeSpec: { kind: 'due_by', dueAt: '2026-08-18T08:00:00.000Z', endAt: null, remindAt: '2026-08-18T11:00:00.000Z', allDay: false, timezone: 'UTC' },
     }),
     reminders: [],
     now: NOW,
@@ -513,7 +513,7 @@ test('priorityFeatures: urgency measures from the earliest overdue time, not the
 
 test('priorityFeatures: dueSoonCloseness is normalised by the caller-supplied window', () => {
   const sixHoursOut = commitmentOf({
-    timeSpec: { kind: 'due_by', dueAt: '2026-08-18T18:00:00.000Z', remindAt: null, timezone: 'UTC' },
+    timeSpec: { kind: 'due_by', dueAt: '2026-08-18T18:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
   });
 
   const dayWindow = extractPriorityFeatures({
@@ -530,7 +530,7 @@ test('priorityFeatures: dueSoonCloseness is normalised by the caller-supplied wi
 test('priorityFeatures: a time beyond the due-soon window has zero closeness, not negative', () => {
   const features = extractPriorityFeatures({
     commitment: commitmentOf({
-      timeSpec: { kind: 'due_by', dueAt: '2026-08-25T12:00:00.000Z', remindAt: null, timezone: 'UTC' },
+      timeSpec: { kind: 'due_by', dueAt: '2026-08-25T12:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
     }),
     reminders: [],
     now: NOW,
@@ -543,7 +543,7 @@ test('priorityFeatures: a non-positive due-soon window yields zero closeness, ma
   for (const dueSoonWindowMs of [0, -1]) {
     const features = extractPriorityFeatures({
       commitment: commitmentOf({
-        timeSpec: { kind: 'due_by', dueAt: '2026-08-18T13:00:00.000Z', remindAt: null, timezone: 'UTC' },
+        timeSpec: { kind: 'due_by', dueAt: '2026-08-18T13:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
       }),
       reminders: [],
       now: NOW,
@@ -557,7 +557,7 @@ test('priorityFeatures: a non-positive due-soon window yields zero closeness, ma
 
 test('deriveRelevantTimes: mirrors the agenda service — due, remind, then open reminders', () => {
   const commitment = commitmentOf({
-    timeSpec: { kind: 'due_by', dueAt: '2026-08-18T06:00:00.000Z', remindAt: '2026-08-18T07:00:00.000Z', timezone: 'UTC' },
+    timeSpec: { kind: 'due_by', dueAt: '2026-08-18T06:00:00.000Z', endAt: null, remindAt: '2026-08-18T07:00:00.000Z', allDay: false, timezone: 'UTC' },
   });
   const reminders = [
     reminderOf({ id: 'rem_open', status: 'scheduled', scheduledFor: '2026-08-18T08:00:00.000Z' }),
@@ -583,7 +583,7 @@ test('priorityFeatures: reproduces the live agenda score across a matrix of comm
   const cases: Array<{ label: string; commitment: Commitment; reminders: Reminder[]; times: string[] }> = [
     {
       label: 'plain overdue',
-      commitment: commitmentOf({ timeSpec: { kind: 'due_by', dueAt: '2026-08-18T07:13:00.000Z', remindAt: null, timezone: 'UTC' } }),
+      commitment: commitmentOf({ timeSpec: { kind: 'due_by', dueAt: '2026-08-18T07:13:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' } }),
       reminders: [],
       times: ['2026-08-18T07:13:00.000Z'],
     },
@@ -591,7 +591,7 @@ test('priorityFeatures: reproduces the live agenda score across a matrix of comm
       label: 'due soon, high importance',
       commitment: commitmentOf({
         priority: { level: 'high', source: 'user_explicit', pressureAllowed: true, pressureLevel: 'firm' },
-        timeSpec: { kind: 'due_by', dueAt: '2026-08-18T17:00:00.000Z', remindAt: null, timezone: 'UTC' },
+        timeSpec: { kind: 'due_by', dueAt: '2026-08-18T17:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
       }),
       reminders: [],
       times: ['2026-08-18T17:00:00.000Z'],
@@ -609,7 +609,7 @@ test('priorityFeatures: reproduces the live agenda score across a matrix of comm
         currentAckState: 'postponed',
         postponedUntil: '2026-08-19T00:00:00.000Z',
         priority: { level: 'high', source: 'user_explicit', pressureAllowed: true, pressureLevel: 'firm' },
-        timeSpec: { kind: 'due_by', dueAt: '2026-07-18T12:00:00.000Z', remindAt: null, timezone: 'UTC' },
+        timeSpec: { kind: 'due_by', dueAt: '2026-07-18T12:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
       }),
       reminders: [
         reminderOf({ id: 'rem_1', status: 'snoozed' }),
@@ -633,14 +633,14 @@ test('priorityFeatures: reproduces the live agenda score across a matrix of comm
     },
     {
       label: 'due exactly now',
-      commitment: commitmentOf({ timeSpec: { kind: 'due_by', dueAt: NOW, remindAt: null, timezone: 'UTC' } }),
+      commitment: commitmentOf({ timeSpec: { kind: 'due_by', dueAt: NOW, endAt: null, remindAt: null, allDay: false, timezone: 'UTC' } }),
       reminders: [],
       times: [NOW],
     },
     {
       label: 'mixed overdue and upcoming',
       commitment: commitmentOf({
-        timeSpec: { kind: 'due_by', dueAt: '2026-08-18T09:20:00.000Z', remindAt: '2026-08-18T22:00:00.000Z', timezone: 'UTC' },
+        timeSpec: { kind: 'due_by', dueAt: '2026-08-18T09:20:00.000Z', endAt: null, remindAt: '2026-08-18T22:00:00.000Z', allDay: false, timezone: 'UTC' },
       }),
       reminders: [reminderOf({ id: 'rem_1', status: 'ignored', updatedAt: '2026-08-11T00:00:00.000Z' })],
       times: ['2026-08-18T09:20:00.000Z', '2026-08-18T22:00:00.000Z'],

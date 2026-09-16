@@ -1,3 +1,5 @@
+import { zoneOffsetMs } from '../../planning/shared/time';
+
 export const DEFAULT_MOBILE_TIMEZONE = 'Asia/Jerusalem';
 
 export function parseIsoDate(value: unknown, field: string): Date {
@@ -98,4 +100,47 @@ export function resolvedCommitmentTime(commitment: {
   postponedUntil?: string | null;
 }): string | null {
   return commitment.postponedUntil || commitment.timeSpec.remindAt || commitment.timeSpec.dueAt;
+}
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/**
+ * The instant local midnight of `dayKey` falls at, in `timezone` (#185).
+ *
+ * The inverse of `localDayKey`, and the only one this product needs. Resolved
+ * against the offset *at the answer* rather than at the guess: on the night a
+ * zone changes its clocks the two differ by an hour, and using the first would
+ * put the answer an hour either side of the midnight it is supposed to name.
+ *
+ * `zoneOffsetMs` comes from `lib/planning/shared/time`, which is the one place
+ * in this repository that reads a zone offset. A second implementation here
+ * would be a second thing to get wrong on exactly the days that are hard.
+ */
+export function localMidnightOf(dayKey: string, timezone: string): string {
+  const zone = normalizeTimezone(timezone);
+  const naive = Date.parse(`${dayKey}T00:00:00.000Z`);
+  if (Number.isNaN(naive)) throw new Error(`Could not read a local day from ${dayKey}`);
+  const guess = naive - zoneOffsetMs(naive, zone);
+  return new Date(naive - zoneOffsetMs(guess, zone)).toISOString();
+}
+
+/**
+ * How many local days separate two instants' days in `timezone` (#185).
+ *
+ * A count of *days*, not of milliseconds, which is the whole reason it exists:
+ * the two are not the same number across a clock change, and an all-day span is
+ * a number of days by definition. Days are compared as day keys, so the answer
+ * is an integer whatever the offsets on either side were.
+ */
+export function localDaysBetween(from: string, to: string, timezone: string): number {
+  const zone = normalizeTimezone(timezone);
+  const asDay = (value: string) => Date.parse(`${localDayKey(value, zone)}T00:00:00.000Z`);
+  return Math.round((asDay(to) - asDay(from)) / MS_PER_DAY);
+}
+
+/** Local midnight `days` after the local day `instant` falls on, in `timezone`. */
+export function addLocalDays(instant: string, days: number, timezone: string): string {
+  const zone = normalizeTimezone(timezone);
+  const shifted = Date.parse(`${localDayKey(instant, zone)}T00:00:00.000Z`) + days * MS_PER_DAY;
+  return localMidnightOf(new Date(shifted).toISOString().slice(0, 10), zone);
 }

@@ -38,7 +38,7 @@ function makeCommitment(overrides: Partial<Commitment> = {}): Commitment {
     person: null,
     status: 'active',
     priority: { level: 'normal', source: 'default', pressureAllowed: true, pressureLevel: 'gentle' },
-    timeSpec: { kind: 'due_by', dueAt: at(-HOUR_MS), remindAt: null, timezone: 'UTC' },
+    timeSpec: { kind: 'due_by', dueAt: at(-HOUR_MS), endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
     currentAckState: 'seen',
     postponedUntil: null,
     createdAt: at(-5 * DAY_MS),
