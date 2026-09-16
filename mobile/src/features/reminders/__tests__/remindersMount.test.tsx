@@ -20,7 +20,7 @@ import * as notifications from 'expo-notifications';
 import { resetInstallationIdForTests } from '../../../lib/installationId';
 import { awarenessStorageKey, parseAwarenessCache } from '../../../lib/deviceSettings/awarenessStore';
 import { hardReceiptStorageKey } from '../../../lib/deviceSettings/hardReceiptQueue';
-import { loadOutbox, outboxStorageKey } from '../actionOutbox';
+import { loadOutbox, outboxStorageKey } from '../../../lib/deviceSettings/actionOutbox';
 import type { AuthUser } from '../../../auth/types';
 import commitment from '../../../api/__fixtures__/commitments.one.json';
 import reminderSettings from '../../../api/__fixtures__/reminders.settingsSaved.json';

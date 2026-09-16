@@ -2,10 +2,9 @@ import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { applyTap, decideResponse, type TapEffects } from '../notificationResponses';
 import { handleBackgroundResponse, responseOfTaskPayload } from '../tapEffects';
-import { loadOutbox } from '../actionOutbox';
-import { reminderActions, DEFAULT_DEFER_MS } from '../../../notifications/actions';
+import { loadOutbox } from '../../../lib/deviceSettings/actionOutbox';
+import { DEFAULT_DEFER_MS, registerReminderActions, reminderActions } from '../../../notifications/actions';
 import { AWARENESS_CATEGORY_ID, HARD_CATEGORY_ID } from '../../../notifications/channels';
-import { registerReminderActions } from '../../../notifications/actions';
 import * as notifications from 'expo-notifications';
 import { outcomeOfError } from '../outboxSender';
 import {

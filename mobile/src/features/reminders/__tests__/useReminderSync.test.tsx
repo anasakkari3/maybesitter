@@ -18,7 +18,7 @@ import * as profileEndpoints from '../../../api/endpoints/profile';
 import type { AuthUser } from '../../../auth/types';
 import { hardReceiptStorageKey, loadHardReceipts } from '../../../lib/deviceSettings/hardReceiptQueue';
 import commitment from '../../../api/__fixtures__/commitments.one.json';
-import { enqueueTap, outboxStorageKey } from '../actionOutbox';
+import { enqueueTap, outboxStorageKey } from '../../../lib/deviceSettings/actionOutbox';
 import reminderSettings from '../../../api/__fixtures__/reminders.settingsSaved.json';
 
 /**

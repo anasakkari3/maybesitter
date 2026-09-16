@@ -19,7 +19,7 @@ import {
   NotFoundError,
   ValidationError,
 } from '../../api/errors';
-import type { OutboxItem, SendOutcome } from './actionOutbox';
+import type { OutboxItem, SendOutcome } from '../../lib/deviceSettings/actionOutbox';
 
 export function outcomeOfError(error: unknown): SendOutcome {
   if (error instanceof NotFoundError || error instanceof ConflictError) return 'drop';

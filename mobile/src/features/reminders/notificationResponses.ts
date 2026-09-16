@@ -22,7 +22,7 @@ import { DEFAULT_ACTION_IDENTIFIER } from 'expo-notifications';
 import { ACTION_DONE, ACTION_DROP, ACTION_LATER, DEFAULT_DEFER_MS } from '../../notifications/actions';
 import { commitmentIdOf } from '../../notifications/routeFromNotification';
 import { REMINDER_STAGES, requestIdentifier } from './policy';
-import { enqueueTap, type OutboxAction } from './actionOutbox';
+import { enqueueTap, type OutboxAction } from '../../lib/deviceSettings/actionOutbox';
 
 export type ResponseDecision =
   | {

@@ -21,7 +21,7 @@ import * as Crypto from 'expo-crypto';
 import { getAuthRepository, setAuthRepository } from '../../api/auth';
 import { createFirebaseAuthRepository } from '../../auth/firebaseAuthRepository';
 import { notificationsModule } from '../../notifications/nativeModules';
-import { flushOutbox } from './actionOutbox';
+import { flushOutbox } from '../../lib/deviceSettings/actionOutbox';
 import { applyTap, decideResponse, type TapEffects } from './notificationResponses';
 import { sendOutboxItem } from './outboxSender';
 

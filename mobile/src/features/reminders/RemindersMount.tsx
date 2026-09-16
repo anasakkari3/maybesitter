@@ -19,7 +19,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { AppState } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
 import { registerReminderActions } from '../../notifications/actions';
-import { clearOutbox } from './actionOutbox';
+import { clearOutbox } from '../../lib/deviceSettings/actionOutbox';
 import { applyTap, decideResponse, isBodyTap } from './notificationResponses';
 import { flushFor, registerNotificationResponseTask, tapEffectsFor } from './tapEffects';
 import { startOf } from './reminderInputs';

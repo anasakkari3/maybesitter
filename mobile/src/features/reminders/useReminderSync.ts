@@ -39,7 +39,7 @@ import type { ReminderIntensity } from './policy';
 import { recordHardReceipts } from '../../lib/deviceSettings/hardReceiptQueue';
 import { canScheduleExactAlarms } from '../../notifications/exactAlarms';
 import { drainHardReceipts } from './receiptUpload';
-import { loadOutbox, pendingCommitmentIds } from './actionOutbox';
+import { loadOutbox, pendingCommitmentIds } from '../../lib/deviceSettings/actionOutbox';
 
 export interface ReminderSyncOptions {
   /** Tests hand in a fake; the app lets this default to expo-notifications. */
