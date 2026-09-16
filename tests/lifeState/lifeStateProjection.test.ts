@@ -12,6 +12,16 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { MemoryIntegrationConnectionStore } from '../../lib/integrations/connections/connectionRegistry.ts';
+import {
+  RESCUETIME_DATA_POLICY,
+  RESCUETIME_READ_SCOPE,
+  buildRescueTimeDisconnectRequest,
+  normalizeRescueTimeAggregate,
+  parseRescueTimeAggregate,
+  planRescueTimeSync,
+  projectRescueTimeContextSource,
+} from '../../lib/integrations/rescuetime/adapter.ts';
 import { projectLifeState } from '../../lib/lifeState/lifeStateProjection.ts';
 import { bandForOpenCount } from '../../lib/lifeState/loadView.ts';
 import { newestTimestamp } from '../../lib/lifeState/fields.ts';
@@ -540,4 +550,72 @@ test('every field carries source, derivedFrom and computedAt', () => {
     assert.equal(field.provenance.computedAt, NOW);
     assert.equal(field.provenance.derivedFrom === null || typeof field.provenance.derivedFrom === 'string', true);
   }
+});
+
+const RESCUETIME_NOW = '2026-09-16T12:00:00.000Z';
+
+async function rescueTimeConnection() {
+  return new MemoryIntegrationConnectionStore().upsert({
+    scopeId: 'scope-rescuetime',
+    identity: { provider: 'rescuetime', providerAccountId: 'account-1', providerSpaceId: null, displayName: 'RescueTime' },
+    state: 'connected',
+    capabilities: ['focus_session_read'],
+    grantedScopes: [RESCUETIME_READ_SCOPE],
+    lastSyncedAt: RESCUETIME_NOW,
+  }, RESCUETIME_NOW);
+}
+
+const activeRescueTimeToken = {
+  accessTokenExpiresAt: '2026-09-16T13:00:00.000Z', refreshTokenExpiresAt: null,
+  grantedScopes: [RESCUETIME_READ_SCOPE], hasRefreshToken: true, revokedAt: null,
+} as const;
+
+test('RescueTime rejects raw application and URL history at the adapter boundary', () => {
+  const aggregate = {
+    windowStart: '2026-09-16T08:00:00.000Z', windowEnd: '2026-09-16T12:00:00.000Z',
+    productiveMinutes: 120, neutralMinutes: 30, distractingMinutes: 15, focusSessionMinutes: 75,
+  };
+  assert.deepEqual(parseRescueTimeAggregate(aggregate), aggregate);
+  assert.throws(() => parseRescueTimeAggregate({ ...aggregate, activities: [{ application: 'Private App' }] }), /disallowed raw fields/);
+  assert.throws(() => parseRescueTimeAggregate({ ...aggregate, urls: ['https:\/\/private.example'] }), /disallowed raw fields/);
+  assert.equal(RESCUETIME_DATA_POLICY.rawApplicationHistoryAllowed, false);
+  assert.equal(RESCUETIME_DATA_POLICY.rawUrlHistoryAllowed, false);
+});
+
+test('RescueTime normalizes aggregate focus context with freshness and provenance', () => {
+  const context = normalizeRescueTimeAggregate({
+    windowStart: '2026-09-16T08:00:00.000Z', windowEnd: '2026-09-16T11:30:00.000Z',
+    productiveMinutes: 120, neutralMinutes: 30, distractingMinutes: 10, focusSessionMinutes: 75,
+  }, 'int-rescuetime', RESCUETIME_NOW);
+
+  assert.equal(context.observedMinutes, 160);
+  assert.equal(context.focusRatio, 0.75);
+  assert.equal(context.freshness, 'fresh');
+  assert.equal(context.provenance.rawActivityPersisted, false);
+  assert.equal(JSON.stringify(context).includes('application'), false);
+  assert.equal(RESCUETIME_DATA_POLICY.medicalOrEmotionalInferenceAllowed, false);
+});
+
+test('stale RescueTime context remains labeled context and never becomes planner logic', async () => {
+  const connection = await rescueTimeConnection();
+  const context = normalizeRescueTimeAggregate({
+    windowStart: '2026-09-12T08:00:00.000Z', windowEnd: '2026-09-12T12:00:00.000Z',
+    productiveMinutes: 90, neutralMinutes: 20, distractingMinutes: 10, focusSessionMinutes: 60,
+  }, connection.connectionId, RESCUETIME_NOW);
+  const projected = projectRescueTimeContextSource(connection, context);
+
+  assert.equal(context.freshness, 'stale');
+  assert.equal(projected.freshness, 'stale');
+  assert.equal(projected.provider, 'rescuetime');
+  assert.equal(RESCUETIME_DATA_POLICY.providerSpecificPlannerFieldsAllowed, false);
+});
+
+test('RescueTime sync and disconnect use canonical connection runtime semantics', async () => {
+  const connection = await rescueTimeConnection();
+  assert.equal(planRescueTimeSync(connection, activeRescueTimeToken, RESCUETIME_NOW).shouldSync, true);
+  assert.equal(planRescueTimeSync(connection, { ...activeRescueTimeToken, revokedAt: RESCUETIME_NOW }, RESCUETIME_NOW).reason, 'token_revoked');
+  assert.deepEqual(buildRescueTimeDisconnectRequest(connection.connectionId, RESCUETIME_NOW), {
+    provider: 'rescuetime', connectionId: connection.connectionId, revokeProviderCredential: true,
+    deleteVaultCredential: true, markConnectionState: 'revoked', requestedAt: RESCUETIME_NOW,
+  });
 });
