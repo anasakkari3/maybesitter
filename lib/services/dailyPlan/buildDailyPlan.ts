@@ -55,6 +55,7 @@ import type {
   WorkingWindow,
 } from '../../../src/contracts/v1/planningContracts';
 import { instantFromResolution, resolveLocalTime, toEpochMs, weekdayAt } from '../../planning/shared/time';
+import { fixedEndFor } from '../timeCollision';
 
 /** The grid a plan is placed on. Fifteen minutes is the issue's decision. */
 export const PLAN_SLOT_MINUTES = 15;
@@ -71,8 +72,6 @@ export const DEFAULT_EFFORT_MINUTES = 30;
 export const DEFAULT_FIXED_EVENT_MINUTES = 30;
 /** Used when the routine profile names no focus window and no sleep window. */
 export const FALLBACK_WINDOW = Object.freeze({ startMinute: 8 * 60, endMinute: 20 * 60 });
-
-const MS_PER_MINUTE = 60_000;
 
 /**
  * Time the user is already committed to elsewhere.
@@ -222,24 +221,11 @@ export function fixedStartOf(commitment: Commitment): Instant | null {
   return null;
 }
 
-/**
- * How long a pinned commitment occupies.
- *
- * `endAt` when the commitment names one and it is strictly after the start —
- * the same half-open rule the domain validates on write and `eventDraft.ts`
- * applies on the device calendar. Anything else is the default: a zero-length
- * or inverted interval would be a blocking event that `intervalsOverlap`
- * reports as intersecting nothing, which is a block that silently does not
- * block.
- */
-function fixedEndFor(commitment: Commitment, start: Instant): Instant {
-  const endAt = commitment.timeSpec.endAt;
-  if (endAt) {
-    const end = Date.parse(endAt);
-    if (Number.isFinite(end) && end > toEpochMs(start)) return new Date(end).toISOString();
-  }
-  return new Date(toEpochMs(start) + DEFAULT_FIXED_EVENT_MINUTES * MS_PER_MINUTE).toISOString();
-}
+// `fixedEndFor` — how long a pinned commitment occupies — now lives in
+// `../timeCollision`, which needs the identical rule for a collision
+// candidate's duration. Two copies of "how long is this commitment" in two
+// files is how the planner and the device calendar came to disagree in the
+// first place; see that module's doc comment for the full account.
 
 /** Confirmed, still open, and not already done or abandoned. */
 export function isPlannable(commitment: Commitment): boolean {

@@ -5,6 +5,7 @@ import type { Item, ItemPriority, ReminderAttempt } from '../../src/types/index'
 import { applyCommand, configureCommandService, getCommandServiceState } from './commandService';
 import { createEmptyDomainState } from '../../src/domain/stateMachine';
 import type { Command, Commitment, DomainState, EscalationState, Priority, Reminder, TimeSpec } from '../../src/domain/stateMachine';
+import { findCollisions, type CollisionWarning } from './timeCollision';
 
 export type LegacyItemInput = Partial<Item>;
 
@@ -145,7 +146,7 @@ export async function getUnifiedAppSnapshot(): Promise<AppSnapshot> {
   };
 }
 
-export function createCommitmentFromItem(raw: LegacyItemInput): void {
+export function createCommitmentFromItem(raw: LegacyItemInput): string {
   const now = new Date().toISOString();
   const id = typeof raw.id === 'string' && raw.id ? raw.id : randomUUID();
   const title = typeof raw.title === 'string' ? raw.title.trim() : '';
@@ -180,6 +181,29 @@ export function createCommitmentFromItem(raw: LegacyItemInput): void {
     const result = applyCommand(command);
     if (result.result === 'rejected') throw new Error('Could not create commitment');
   }
+
+  return id;
+}
+
+/**
+ * Whether the commitment just created lands on top of another open,
+ * scheduled commitment (the collision warning of #football-fixtures task
+ * 10). Read straight off `commandService` state rather than the legacy
+ * `Item` projection, because `findCollisions` needs a `Commitment`'s own
+ * `timeSpec`, a distinction the legacy shape has already thrown away.
+ *
+ * A commitment with no `scheduled_event` `timeSpec` (the common case for this
+ * legacy route, whose default is `due_by` or `unscheduled` -- see
+ * `timeSpecFromItem`) names no interval, so it is never itself a collision
+ * candidate; it can still be found as one of the `against` commitments other
+ * callers check new items on this branch never reaches.
+ */
+export function collisionsFor(commitmentId: string): readonly CollisionWarning[] {
+  const state = getCommandServiceState();
+  const commitment = state.commitments[commitmentId];
+  if (!commitment || commitment.timeSpec.kind !== 'scheduled_event' || !commitment.timeSpec.dueAt) return [];
+  const others = Object.values(state.commitments).filter((candidate) => candidate.id !== commitmentId);
+  return findCollisions({ dueAt: commitment.timeSpec.dueAt, endAt: commitment.timeSpec.endAt }, others);
 }
 
 export function updateCommitmentFromItem(itemId: string, updates: LegacyItemInput): void {

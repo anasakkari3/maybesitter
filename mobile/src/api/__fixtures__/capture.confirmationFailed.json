@@ -8,5 +8,6 @@
       "itemId": "item-1",
       "reason": "proposal_not_found"
     }
-  ]
+  ],
+  "collisions": []
 }

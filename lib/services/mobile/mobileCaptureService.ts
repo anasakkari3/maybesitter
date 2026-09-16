@@ -28,6 +28,7 @@ import {
 } from '../captureBoundary';
 import { createEmptyDomainState, type Command, type Commitment } from '../../../src/domain/stateMachine';
 import { applyCommand, configureCommandService, getCommandServiceState } from '../commandService';
+import { findCollisions, type CollisionWarning } from '../timeCollision';
 import { CommandServiceCapturePersistenceAdapter } from './canonicalPersistence';
 import {
   applyParticipantCommand,
@@ -214,6 +215,36 @@ async function persistedItem(
   };
 }
 
+/**
+ * Whether any commitment just confirmed lands on top of another open,
+ * scheduled one -- the warning half of #football-fixtures task 10 ("warn him
+ * if he adds a commitment that there is a collision"). Read against the same
+ * participant-scoped snapshot `persistedItem` and `activateConfirmedItems`
+ * already use, so this sees exactly the state the confirm just wrote, not a
+ * stale read from before it.
+ *
+ * Each newly-persisted item is checked against every *other* commitment in
+ * that snapshot, including a batch-mate confirmed in the same request: two
+ * things captured together that overlap each other are still a collision
+ * worth surfacing, not a pair the check is blind to because they arrived
+ * together.
+ */
+async function collisionsForPersisted(
+  persisted: readonly PersistedProposalItem[],
+  context: MobileBackendContext = {},
+): Promise<CollisionWarning[]> {
+  if (persisted.length === 0) return [];
+  const state = context.participantId
+    ? await getParticipantStateSnapshot(context.participantId)
+    : getCommandServiceState();
+  return persisted.flatMap((item) => {
+    const commitment = state.commitments[item.commitmentId];
+    if (!commitment || commitment.timeSpec.kind !== 'scheduled_event' || !commitment.timeSpec.dueAt) return [];
+    const others = Object.values(state.commitments).filter((candidate) => candidate.id !== item.commitmentId);
+    return findCollisions({ dueAt: commitment.timeSpec.dueAt, endAt: commitment.timeSpec.endAt }, others);
+  });
+}
+
 async function activateConfirmedItems(
   proposalId: string,
   itemIds: readonly string[],
@@ -372,6 +403,14 @@ export async function confirmMobileCapture(input: MobileConfirmInput, context: M
   failed: FailedProposalItem[];
   /** Why the boundary refused, so the route can answer 404 rather than 400 (#252). */
   failureCode?: CaptureConfirmationResultContract['failureCode'];
+  /**
+   * What just got persisted lands on top of, if anything (#football-fixtures
+   * task 10). Always present, always empty on a failed confirm -- a field
+   * that only sometimes exists is a field every client has to guard, and an
+   * added field that is sometimes missing is indistinguishable from one an
+   * older client already can't see.
+   */
+  collisions: CollisionWarning[];
 }> {
   const proposalId = typeof input.proposalId === 'string' ? input.proposalId : '';
   if (!proposalId) throw new Error('proposalId is required');
@@ -406,6 +445,7 @@ export async function confirmMobileCapture(input: MobileConfirmInput, context: M
         itemId,
         reason: result.failureCode ?? 'confirmation_failed',
       })),
+      collisions: [],
     };
   }
 
@@ -476,6 +516,7 @@ export async function confirmMobileCapture(input: MobileConfirmInput, context: M
     failed: selectedItemIds
       .filter((itemId) => !result.persistedItemIds.includes(itemId))
       .map((itemId) => ({ itemId, reason: 'not_selected' })),
+    collisions: await collisionsForPersisted(persisted, context),
   };
 }
 
