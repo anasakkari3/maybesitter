@@ -9,7 +9,9 @@
  * Each required fragment stands for one claim:
  *  - it names the inference: patterns, read from when you finish things;
  *  - it suggests, and saves nothing unless kept;
- *  - off stops the suggestions **and** stops the plan using kept patterns.
+ *  - off stops the suggestions **and** stops the plan using kept patterns —
+ *    from the *next* plan, because a plan already built is a stored document
+ *    and withdrawing consent does not rewrite it.
  */
 import { describe, expect, it } from '@jest/globals';
 import ar from '../locales/ar.json';
@@ -25,21 +27,21 @@ const REQUIRED: Record<Locale, Record<string, readonly string[]>> = {
     suggests: ['suggest'],
     nothingSaved: ['Nothing is saved unless you keep it'],
     offStopsSuggestions: ['stops the suggestions'],
-    offStopsPlans: ['plan stops using patterns you kept'],
+    offStopsPlans: ['next daily plan stops using patterns you kept'],
   },
   ar: {
     inference: ['أنماط', 'الأوقات اللي بتخلّص فيها'],
     suggests: ['يقترح'],
     nothingSaved: ['ما بينحفظ إشي إلا إذا إنت حفظته'],
     offStopsSuggestions: ['بتوقف الاقتراحات'],
-    offStopsPlans: ['بتبطّل تستعمل الأنماط اللي حفظتها'],
+    offStopsPlans: ['خطة يومك الجاية بتبطّل تستعمل الأنماط اللي حفظتها'],
   },
   he: {
     inference: ['דפוסים', 'השעות שבהן דברים מסתיימים'],
     suggests: ['להציע'],
     nothingSaved: ['שום דבר לא נשמר אלא אם תשמור'],
     offStopsSuggestions: ['עוצר את ההצעות'],
-    offStopsPlans: ['מפסיקה להשתמש בדפוסים ששמרת'],
+    offStopsPlans: ['התוכנית היומית הבאה תפסיק להשתמש בדפוסים ששמרת'],
   },
 };
 

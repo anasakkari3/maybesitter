@@ -332,8 +332,12 @@ test('every change is audited, with the question named and no free text', async 
     await answer(uid, 'declined');
     const codes = (await listAuditEvents(uid))
       .filter((event) => event.eventType === 'consent_changed')
-      .map((event) => event.reasonCode);
-    assert.deepEqual(codes, ['personalization_granted', 'personalization_declined']);
+      .map((event) => event.reasonCode)
+      // Sorted: both answers land in the same millisecond, and the audit id
+      // breaks that tie on a random suffix, so their stored order is not the
+      // order they were given (as in recommendationConsent.test.ts).
+      .sort();
+    assert.deepEqual(codes, ['personalization_declined', 'personalization_granted']);
   } finally {
     end();
   }

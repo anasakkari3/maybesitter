@@ -354,7 +354,7 @@
   "trustCalendarNotConnected": "Not connected here. MaybeSitter can add your confirmed commitments to a calendar you choose — see Settings → Calendar.",
   "trustKnows": "What MaybeSitter knows",
   "trustPersonalizationTitle": "Notice patterns in when you finish things",
-  "trustPersonalizationBody": "MaybeSitter may look at the times you finish things and suggest a pattern it sees, like the hours you usually get things done. Nothing is saved unless you keep it. Turning this off stops the suggestions, and your daily plan stops using patterns you kept.",
+  "trustPersonalizationBody": "MaybeSitter may look at the times you finish things and suggest a pattern it sees, like the hours you usually get things done. Nothing is saved unless you keep it. Turning this off stops the suggestions, and your next daily plan stops using patterns you kept.",
   "trustRevoke": "Stop taking part",
   "trustRevokeBody": "MaybeSitter stops suggesting and stops learning from you. Your data stays until you delete it.",
   "trustRevokeConfirm": "Stop taking part?",
