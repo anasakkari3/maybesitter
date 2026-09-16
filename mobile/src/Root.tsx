@@ -33,6 +33,8 @@ import { CategorySettingsScreen } from './features/settings/CategorySettingsScre
 import { DeviceCalendarSyncHost } from './features/calendar/useDeviceCalendarSync';
 import { BusyCalendarHost } from './features/calendar/useBusyCalendar';
 import { AboutScreen } from './features/settings/AboutScreen';
+import { WidgetSettingsScreen } from './features/widget/WidgetSettingsScreen';
+import { WidgetSnapshotHost } from './features/widget/useWidgetSnapshotSync';
 import { googleCalendarDemoEnabled } from './config/env';
 import { RemindersMount } from './features/reminders/RemindersMount';
 import { Gallery } from './design/Gallery';
@@ -105,6 +107,11 @@ export function Root() {
               the conflict chips are on Today and on the review card, and both
               are screens the settings page is not open behind. */}
           <BusyCalendarHost />
+          {/* Draws nothing either (UC-3.R1, #203). It writes the home-screen
+              widget's snapshot — titles redacted unless this account opted in
+              on this phone — and clears it before a sign-out and when this
+              signed-in tree unmounts. */}
+          <WidgetSnapshotHost />
           {s.screen === 'today' && <TodayScreen key="today" />}
           {s.screen === 'calendar' && <CalendarScreen key="calendar" />}
           {s.screen === 'settings' && <SettingsScreen key="settings" />}
@@ -146,6 +153,9 @@ export function Root() {
           )}
           {s.screen === 'categorySettings' && (
             <CategorySettingsScreen key="categorySettings" onBack={() => latest.current.go('settings')} />
+          )}
+          {s.screen === 'widgetSettings' && (
+            <WidgetSettingsScreen key="widgetSettings" onBack={() => latest.current.go('settings')} />
           )}
           {s.screen === 'about' && <AboutScreen key="about" onBack={() => latest.current.go('settings')} />}
           {s.screen === 'details' && <DetailsScreen key="details" />}

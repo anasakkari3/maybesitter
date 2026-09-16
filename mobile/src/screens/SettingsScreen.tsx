@@ -28,6 +28,7 @@ export function SettingsScreen() {
     { label: t.settingsCategories, value: '', onPress: () => actions.go('categorySettings'), testID: 'settings-categories' },
     { label: t.sNotif, value: '', onPress: () => actions.go('notificationsSettings'), testID: 'settings-notifications' },
     { label: t.calendarWriteTitle, value: '', onPress: () => actions.go('calendarSettings'), testID: 'settings-calendar' },
+    { label: t.widgetSettingsTitle, value: '', onPress: () => actions.go('widgetSettings'), testID: 'settings-widget' },
     { label: t.sTrust, value: '', onPress: () => actions.go('trust'), testID: 'settings-trust' },
     { label: t.activityTitle, value: '', onPress: () => actions.go('activity'), testID: 'settings-activity' },
     { label: t.sHistory, value: '', onPress: () => actions.go('feedbackHistory'), testID: 'settings-history' },
