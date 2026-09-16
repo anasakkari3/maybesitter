@@ -179,6 +179,7 @@ export interface FootballProjectionSummary {
   updated: number;
   cancelled: number;
   skipped: number;
+  completed: number;
   /** One user's projection failing (a malformed ref, a transient storage error) is recorded here, not thrown -- see `runFootballSyncJob`'s own comment for why. */
   failures: Array<{ uid: string; reason: string }>;
 }
@@ -300,7 +301,7 @@ export async function runFootballSyncJob(options: FootballSyncJobOptions = {}): 
   });
 
   const projection: FootballProjectionSummary = {
-    users: 0, created: 0, updated: 0, cancelled: 0, skipped: 0, failures: [],
+    users: 0, created: 0, updated: 0, cancelled: 0, skipped: 0, completed: 0, failures: [],
   };
   const uids = await listFollowedUserIds({ storage: options.storage });
   for (const uid of uids) {
@@ -311,6 +312,7 @@ export async function runFootballSyncJob(options: FootballSyncJobOptions = {}): 
       projection.updated += tally.updated;
       projection.cancelled += tally.cancelled;
       projection.skipped += tally.skipped;
+      projection.completed += tally.completed;
     } catch (error) {
       projection.failures.push({ uid, reason: error instanceof Error ? error.message : String(error) });
     }

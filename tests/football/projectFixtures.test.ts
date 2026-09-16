@@ -109,7 +109,7 @@ test('projecting twice does not create two commitments', async () => {
   await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
   await projectFixturesForUser('u1', NOW);
   const tally = await projectFixturesForUser('u1', NOW);
-  assert.deepEqual(tally, { created: 0, updated: 0, cancelled: 0, skipped: 1 });
+  assert.deepEqual(tally, { created: 0, updated: 0, cancelled: 0, skipped: 1, completed: 0 });
   assert.equal((await commitments()).length, 1);
 });
 
@@ -153,7 +153,7 @@ test('a dismissed match stays dismissed even when it moves', async () => {
   await dismissFixtureCommitment('u1', created.id, NOW);
   await upsertFixtures([fixture('1', '2026-10-26T17:00:00.000Z')]);
   const tally = await projectFixturesForUser('u1', NOW);
-  assert.deepEqual(tally, { created: 0, updated: 0, cancelled: 0, skipped: 1 });
+  assert.deepEqual(tally, { created: 0, updated: 0, cancelled: 0, skipped: 1, completed: 0 });
 });
 
 test('following both sides of a derby gets one commitment, not two', async () => {
@@ -178,7 +178,7 @@ test('following both sides of a derby gets one commitment, not two', async () =>
 test('a user who follows nobody gets nothing', async () => {
   await setFollowedClubs('u1', [], NOW);
   await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
-  assert.deepEqual(await projectFixturesForUser('u1', NOW), { created: 0, updated: 0, cancelled: 0, skipped: 0 });
+  assert.deepEqual(await projectFixturesForUser('u1', NOW), { created: 0, updated: 0, cancelled: 0, skipped: 0, completed: 0 });
 });
 
 test('a fixture kicking off before the window start is not projected', async () => {
@@ -201,7 +201,7 @@ test('a finished match in the future window is not projected', async () => {
   await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z', { status: 'finished' })]);
   const tally = await projectFixturesForUser('u1', NOW);
   assert.equal(tally.created, 0);
-  assert.deepEqual(tally, { created: 0, updated: 0, cancelled: 0, skipped: 1 });
+  assert.deepEqual(tally, { created: 0, updated: 0, cancelled: 0, skipped: 1, completed: 0 });
 });
 
 test('a postponed match drops the commitment', async () => {
@@ -264,7 +264,7 @@ test('a completed fixture commitment is not resurrected by a later content chang
   // into the update branch (and its catch) rather than the status branch.
   await upsertFixtures([fixture('1', '2026-10-25T20:00:00.000Z')]);
   const tally = await projectFixturesForUser('u1', NOW);
-  assert.deepEqual(tally, { created: 0, updated: 0, cancelled: 0, skipped: 1 });
+  assert.deepEqual(tally, { created: 0, updated: 0, cancelled: 0, skipped: 1, completed: 0 });
 
   const all = await commitments();
   assert.equal(all.length, 1, 'no second commitment was created');
@@ -291,7 +291,7 @@ test('an archived fixture commitment is not resurrected by a later content chang
 
   await upsertFixtures([fixture('1', '2026-10-25T20:00:00.000Z')]);
   const tally = await projectFixturesForUser('u1', NOW);
-  assert.deepEqual(tally, { created: 0, updated: 0, cancelled: 0, skipped: 1 });
+  assert.deepEqual(tally, { created: 0, updated: 0, cancelled: 0, skipped: 1, completed: 0 });
 
   const all = await commitments();
   assert.equal(all.length, 1, 'no second commitment was created');
@@ -311,11 +311,11 @@ test('a dismissed match stays dismissed through postponement and reschedule', as
 
   await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z', { status: 'postponed' })]);
   let tally = await projectFixturesForUser('u1', NOW);
-  assert.deepEqual(tally, { created: 0, updated: 0, cancelled: 0, skipped: 1 }, 'postponement does not un-dismiss it');
+  assert.deepEqual(tally, { created: 0, updated: 0, cancelled: 0, skipped: 1, completed: 0 }, 'postponement does not un-dismiss it');
 
   await upsertFixtures([fixture('1', '2026-11-02T20:00:00.000Z', { status: 'scheduled' })]);
   tally = await projectFixturesForUser('u1', NOW);
-  assert.deepEqual(tally, { created: 0, updated: 0, cancelled: 0, skipped: 1 }, 'nor does the reschedule that follows it');
+  assert.deepEqual(tally, { created: 0, updated: 0, cancelled: 0, skipped: 1, completed: 0 }, 'nor does the reschedule that follows it');
 
   assert.equal((await commitments()).filter((c) => c.status !== 'dropped').length, 0);
 });
@@ -402,7 +402,7 @@ test('a dismissal landing mid-recreate wins the race, not the sync', async () =>
   }
 
   assert.equal(fired, true, 'the interleaving actually landed inside the guarded transaction');
-  assert.deepEqual(tally, { created: 0, updated: 0, cancelled: 0, skipped: 1 }, 'the race is skipped, not silently resurrected');
+  assert.deepEqual(tally, { created: 0, updated: 0, cancelled: 0, skipped: 1, completed: 0 }, 'the race is skipped, not silently resurrected');
 
   const all = await commitments();
   assert.equal(all.filter((c) => c.status === 'active').length, 0, 'no active commitment exists');
@@ -663,4 +663,58 @@ test('forget-me releases the matches of the follows it purges', async () => {
   });
   assert.deepEqual((await commitments()).map((c) => c.status), ['dropped']);
   assert.equal((await ref1())?.detachedAt, null);
+});
+
+// ── Final review I3: a played match never closed ────────────────────────
+//
+// Both the sync and the projection windows start at `now`, so a match that
+// has kicked off is never read again, `finished` never arrives, and #383's
+// roll-forward kept yesterday's still-active match on Today every day after.
+
+const AFTER_MATCH = '2026-10-26T09:00:00.000Z';
+
+test('a match that has ended is completed on the next run, not left active', async () => {
+  await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+  await projectFixturesForUser('u1', NOW);
+
+  const tally = await projectFixturesForUser('u1', AFTER_MATCH);
+  assert.equal(tally.completed, 1);
+  const [c] = await commitments();
+  assert.equal(c.status, 'completed', 'watched is the honest history, not dropped');
+
+  // Off Today the next morning: #383 rolls live work forward, not completed.
+  const { listTodayRanked } = await import('../../lib/services/mobile/commitmentService.ts');
+  const today = await listTodayRanked({ now: new Date('2026-10-27T09:00:00.000Z'), participantId: 'u1' });
+  assert.equal(today.items.some((item) => item.id === c.id), false);
+});
+
+test('a match still being played is not completed', async () => {
+  await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+  await projectFixturesForUser('u1', NOW);
+  const tally = await projectFixturesForUser('u1', '2026-10-25T20:59:00.000Z');
+  assert.equal(tally.completed, 0);
+  assert.equal((await commitments())[0].status, 'active');
+});
+
+test('a finished status completes the match rather than dropping it', async () => {
+  await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+  await projectFixturesForUser('u1', NOW);
+  await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z', { status: 'finished' })]);
+  const tally = await projectFixturesForUser('u1', NOW);
+  assert.equal(tally.completed, 1);
+  assert.equal(tally.cancelled, 0);
+  assert.equal((await commitments())[0].status, 'completed');
+});
+
+test('ending does not disturb a match the user dismissed or deleted', async () => {
+  await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z'), fixture('2', '2026-10-18T19:00:00.000Z')]);
+  await projectFixturesForUser('u1', NOW);
+  const byKickoff = async () => new Map((await commitments()).map((c) => [c.timeSpec.dueAt, c]));
+  const first = await byKickoff();
+  await dismissFixtureCommitment('u1', first.get('2026-10-25T19:00:00.000Z')!.id, NOW);
+  await applyParticipantCommands('u1', [{ type: 'Drop', commitmentId: first.get('2026-10-18T19:00:00.000Z')!.id, now: NOW }]);
+
+  const tally = await projectFixturesForUser('u1', AFTER_MATCH);
+  assert.equal(tally.completed, 0);
+  assert.deepEqual((await commitments()).map((c) => c.status), ['dropped', 'dropped']);
 });

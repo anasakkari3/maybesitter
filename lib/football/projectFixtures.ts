@@ -112,8 +112,13 @@
  * un-updated postponement is not "no evening blocked", it is "the wrong
  * evening blocked, for a match that is not being played that night") and
  * `finished` (a fixture whose result is already in has nothing left to block
- * time for). All three are treated identically: drop whatever commitment
- * exists for them, create nothing new. `NON_HOLDING_STATUSES` names the set.
+ * time for). None of the three creates anything. `cancelled` and `postponed`
+ * drop whatever commitment exists; `finished` completes it instead, because a
+ * match that was played was kept, not called off. `NON_HOLDING_STATUSES`
+ * names the set. Because the sync and projection windows start at `now`,
+ * `finished` rarely arrives for a match already projected, so each run also
+ * completes any live fixture commitment whose end has passed
+ * (`completeEndedFixtures`, final review I3).
  *
  * A postponed match is usually rescheduled later: the provider re-emits the
  * same `providerMatchId`, `status: 'scheduled'`, and a new `kickoffUtc`. By
@@ -258,6 +263,8 @@ export interface ProjectionTally {
   updated: number;
   cancelled: number;
   skipped: number;
+  /** Matches closed as watched: ended, or reported `finished` (final review I3). */
+  completed: number;
 }
 
 /**
@@ -768,6 +775,78 @@ async function dropCommitmentForFixtureGuarded(
   return dropped;
 }
 
+/**
+ * Completes a fixture's linked commitment in one transaction, if it is still
+ * live and its ref is not detached. Returns whether it did.
+ *
+ * Complete, not Drop: a match that was played happened, and the commitment's
+ * history should say it was kept -- the same outcome a user tapping "done" on
+ * it produces. A commitment the user already completed, dropped or dismissed
+ * is not live and is left exactly as it is.
+ */
+async function completeCommitmentForFixtureGuarded(
+  storage: StorageAdapter,
+  uid: string,
+  taskRefId: string,
+  linkedCommitmentId: string,
+  now: string,
+): Promise<boolean> {
+  let completed = false;
+  await storage.runTransaction(async (tx) => {
+    completed = false;
+    const [user, before, stats, freshRef] = await Promise.all([
+      tx.get<UserDocument>(userDoc(uid)),
+      loadDomainState(tx, uid),
+      readActivityStats(tx, uid),
+      tx.get<FixtureExternalTaskRef>(refDocPath(uid, taskRefId)),
+    ]);
+    const linked = before.commitments[linkedCommitmentId];
+    if (!freshRef || freshRef.detachedAt || !linked || !LIVE_STATUSES.has(linked.status)) return;
+    const { state: candidate, events } = applyCommands(before, [
+      { type: 'Complete', commitmentId: linkedCommitmentId, now },
+    ]);
+    writeDomainDiff(tx, uid, before, candidate, events, user, now);
+    recordActivityEvents(tx, uid, stats, events);
+    tx.merge<FixtureExternalTaskRef>(refDocPath(uid, taskRefId), { updatedAt: now });
+    completed = true;
+  });
+  return completed;
+}
+
+/** The statuses `Complete` accepts: a commitment still holding its time. */
+const LIVE_STATUSES: ReadonlySet<Commitment['status']> = new Set<Commitment['status']>(['active', 'deferred', 'missed']);
+
+/**
+ * Completes every live fixture commitment whose match has already ended
+ * (final review I3). Returns how many it completed.
+ *
+ * The sync and projection windows both start at `now`, so a match that has
+ * kicked off is never fetched or projected again and its `finished` status is
+ * never seen. Without this the commitment stayed active for ever, and #383's
+ * roll-forward kept yesterday's match on Today every day after. The end is the
+ * commitment's own `endAt` (kickoff plus `FIXTURE_BLOCK_MINUTES`); a match is
+ * over once that instant is not after `now`.
+ */
+async function completeEndedFixtures(uid: string, now: string): Promise<number> {
+  const refs = (await listRefs<FixtureExternalTaskRef>(uid))
+    .filter((ref) => !ref.detachedAt && ref.linkedCommitmentId);
+  if (refs.length === 0) return 0;
+  const state = await readParticipantState(uid);
+  let completed = 0;
+  for (const ref of refs) {
+    const commitment = state.commitments[ref.linkedCommitmentId!];
+    if (!commitment || !LIVE_STATUSES.has(commitment.status)) continue;
+    const { dueAt, endAt } = commitment.timeSpec;
+    if (!dueAt) continue;
+    const end = endAt ?? new Date(Date.parse(dueAt) + FIXTURE_BLOCK_MINUTES * 60_000).toISOString();
+    if (Date.parse(end) > Date.parse(now)) continue;
+    if (await completeCommitmentForFixtureGuarded(getStorage(), uid, ref.taskRefId, ref.linkedCommitmentId!, now)) {
+      completed += 1;
+    }
+  }
+  return completed;
+}
+
 /** A commitment still holding time, which a fixture that stopped holding time may drop. */
 const DROPPABLE_STATUSES: ReadonlySet<Commitment['status']> = new Set<Commitment['status']>(['active', 'deferred', 'missed', 'completed']);
 
@@ -811,7 +890,11 @@ async function projectOneFixture(
   // these statuses is not a drop of anything -- there is nothing to drop,
   // and nothing to create either, so it is simply skipped.
   if (NON_HOLDING_STATUSES.has(fixture.status)) {
-    if (ref?.linkedCommitmentId) {
+    if (ref?.linkedCommitmentId && fixture.status === 'finished') {
+      // Played, not called off: close it as watched (final review I3).
+      const completed = await completeCommitmentForFixtureGuarded(getStorage(), uid, taskRefId, ref.linkedCommitmentId, now);
+      tally[completed ? 'completed' : 'skipped'] += 1;
+    } else if (ref?.linkedCommitmentId) {
       const dropped = await dropCommitmentForFixtureGuarded(
         getStorage(), uid, taskRefId, ref.linkedCommitmentId, 'fixture_status', now,
         { fingerprint: fingerprintOf(fixture, now), lastSyncedAt: now },
@@ -880,11 +963,12 @@ export async function projectFixturesForUser(
   now: string,
   options: ProjectionOptions = {},
 ): Promise<ProjectionTally> {
-  const tally: ProjectionTally = { created: 0, updated: 0, cancelled: 0, skipped: 0 };
+  const tally: ProjectionTally = { created: 0, updated: 0, cancelled: 0, skipped: 0, completed: 0 };
 
   // Before the early return: a user who just unfollowed everything is exactly
   // the user whose matches must be released (final review I1).
   tally.cancelled += await releaseUnfollowedFixtures(uid, now);
+  tally.completed += await completeEndedFixtures(uid, now);
 
   const clubIds = await getFollowedClubs(uid);
   if (clubIds.length === 0) return tally;
