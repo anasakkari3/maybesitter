@@ -115,7 +115,10 @@ export function decideHardReminder(input: HardDecisionInput): HardDecision {
 
   if (receiptStillSpeaks(entry, input.receiptDevice)) {
     if (entry.localReceipt!.exact) return { kind: 'suppress', reason: 'local_receipt' };
-    if (fireAt + INEXACT_GRACE_MS > horizon) return { kind: 'wait' };
+    // Strictly at `fireAt + 3 min`, not "due within the next tick": the late
+    // local alarm this is waiting for usually lands inside those minutes, and
+    // every minute taken off the grace is a minute a double can happen in.
+    if (fireAt + INEXACT_GRACE_MS > now.getTime()) return { kind: 'wait' };
   }
   return { kind: 'send' };
 }
