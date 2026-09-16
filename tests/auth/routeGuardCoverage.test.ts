@@ -44,7 +44,13 @@ const GUARDED_VIA_SCOPE = new Set([
 ]);
 
 test('every mobile route file exists and is enumerated', () => {
-  // Thirty-five today: UC-3.1 (#185) added `PUT|DELETE /api/mobile/commitments/
+  // Thirty-seven today: football fixtures MVP Task 11 added `GET|PUT
+  // /api/mobile/football` and `DELETE /api/mobile/football/fixtures/{commitmentId}`
+  // -- the dismiss route in particular is the one whose failure mode is
+  // silent rather than loud: an unauthenticated caller who could reach it
+  // would learn, from a 404-vs-200 timing difference alone, whether an
+  // arbitrary commitment id belongs to somebody who follows football at all.
+  // Thirty-five before that: UC-3.1 (#185) added `PUT|DELETE /api/mobile/commitments/
   // {id}/device-calendar-link` and `GET|PUT /api/mobile/settings/calendar`. The
   // link route is the one whose *refusal* is load-bearing rather than its
   // success — it is what stops a second device writing a duplicate event — so
@@ -67,7 +73,7 @@ test('every mobile route file exists and is enumerated', () => {
   // the two memory routes, and UC-2.9 (#170) the recommendation consent route.
   // The number is asserted so that a route added without a thought about
   // authentication shows up here as well as in the loop.
-  assert.equal(files.length, 35, `found:\n${files.join('\n')}`);
+  assert.equal(files.length, 37, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {

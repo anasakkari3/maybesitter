@@ -502,6 +502,78 @@ export async function projectFixturesForUser(uid: string, now: string): Promise<
   return tally;
 }
 
+/** One row of `listActiveFixtureCommitments`'s answer -- see its own header. */
+export interface FixtureCommitmentSummary {
+  readonly commitmentId: string;
+  readonly homeTeamName: string;
+  readonly awayTeamName: string;
+  readonly kickoffUtc: string;
+}
+
+/**
+ * This user's currently-active, fixture-linked commitments -- the join the
+ * mobile football route (Task 11) serves instead of a `Commitment.origin`
+ * field that does not exist (see the module header: it was added and
+ * withdrawn, because a sealed annotation corpus checksums the whole
+ * serialised commitment).
+ *
+ * A commitment this projection made is known only by the
+ * `ExternalTaskReference` sitting beside it -- `ref.linkedCommitmentId`. So
+ * "which of this user's commitments are fixtures, and what should a screen
+ * call them" is answered here by joining `listRefs(uid)` (the refs) against
+ * `readParticipantState(uid)` (the commitments themselves, for the kickoff
+ * time and to confirm the commitment is still the one holding time for that
+ * match) -- the same two reads `dismissFixtureCommitment` and
+ * `projectOneFixture` already do, not a new index or a denormalised copy.
+ *
+ * Three kinds of ref are filtered out, deliberately:
+ *  - `detachedAt` set: dismissed. Gone from the list is the whole point of
+ *    dismissing -- see `dismissFixtureCommitment`.
+ *  - `linkedCommitmentId` null: a ref that predates any commitment (should
+ *    not happen in practice -- every write path sets it -- but a stale or
+ *    hand-edited row must not crash this read).
+ *  - the linked commitment is not `active`: `projectOneFixture`'s branch 2
+ *    (`cancelled`/`postponed`/`finished`) drops the commitment but leaves the
+ *    ref pointing at the now-`dropped` id, and branch 5's `completed`/
+ *    `archived` case leaves a closed commitment exactly where the user left
+ *    it. None of those is "a match to maybe dismiss" -- there is nothing
+ *    left for a dismiss action to do to a commitment that is not currently
+ *    holding time.
+ *
+ * Sorted by kickoff, soonest first -- the order a person actually wants to
+ * scan a list of upcoming matches in, and the same key `projectFixturesForUser`
+ * itself sorts by.
+ */
+export async function listActiveFixtureCommitments(uid: string): Promise<readonly FixtureCommitmentSummary[]> {
+  const refs = await listRefs<FixtureExternalTaskRef>(uid);
+  const candidates = refs.filter((ref) => !ref.detachedAt && ref.linkedCommitmentId);
+  if (candidates.length === 0) return [];
+
+  const state = await readParticipantState(uid);
+  const summaries: FixtureCommitmentSummary[] = [];
+  for (const ref of candidates) {
+    const commitment = state.commitments[ref.linkedCommitmentId!];
+    if (!commitment || commitment.status !== 'active') continue;
+    const dueAt = commitment.timeSpec.kind === 'scheduled_event' ? commitment.timeSpec.dueAt : null;
+    // Every fixture commitment is created with a `scheduled_event` timeSpec
+    // (see `timeSpecFor`) and `UpdateCommitment` in branch 5 only ever moves
+    // that same field -- so `dueAt` missing here would mean some other code
+    // path rewrote this commitment's time shape entirely. Skipped rather
+    // than thrown: a screen listing matches should not 500 because one row
+    // turned out to be inconsistent.
+    if (!dueAt) continue;
+    summaries.push({
+      commitmentId: ref.linkedCommitmentId!,
+      homeTeamName: ref.homeTeamName,
+      awayTeamName: ref.awayTeamName,
+      kickoffUtc: dueAt,
+    });
+  }
+
+  summaries.sort((a, b) => (a.kickoffUtc < b.kickoffUtc ? -1 : a.kickoffUtc > b.kickoffUtc ? 1 : 0));
+  return summaries;
+}
+
 /**
  * A user says "not this match." The ref is marked `detachedAt` forever
  * (never recreated by a later projection run -- see the module header) and
