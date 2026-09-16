@@ -28,10 +28,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
-import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
+import { getStorage, resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { upsertFixtures } from '../../lib/football/fixtureStore.ts';
 import { setFollowedClubs } from '../../lib/football/followedClubs.ts';
-import { projectFixturesForUser, dismissFixtureCommitment } from '../../lib/football/projectFixtures.ts';
+import { projectFixturesForUser, dismissFixtureCommitment, type FixtureExternalTaskRef } from '../../lib/football/projectFixtures.ts';
+import { deletePersonalizationScope } from '../../lib/personalization/deletion.ts';
+import { createStorageFeedbackEventStore } from '../../lib/feedback/feedbackEventStore.ts';
+import { createStorageRuntimeMemoryStore } from '../../lib/runtimeMemory/runtimeMemoryStore.ts';
 import { getRef, putRef, putRefCarryingForwardDetachment } from '../../lib/football/externalTaskRefStore.ts';
 import { applyParticipantCommands, persistParticipantState, readParticipantState } from '../../lib/services/mobile/participantState.ts';
 import { upsertDevice } from '../../lib/push/deviceRegistry.ts';
@@ -579,4 +582,85 @@ test('a match already projected is renamed when the account\'s language changes,
   assert.equal(all.length, 1);
   assert.equal(all[0].title, 'ברצלונה – ריאל מדריד');
   assert.equal(all[0].timeSpec.dueAt, '2026-10-25T19:00:00.000Z');
+});
+
+// ── Final review I1: unfollowing left that club's matches active ─────────
+//
+// The projection only ever walked the clubs a user follows, and the nightly
+// job skips a user who follows nothing, so matches for a club the user just
+// unfollowed stayed active: blocking evenings, on the calendar, reminding,
+// and frozen at whatever kickoff they had when the user stopped following.
+
+async function ref1() {
+  return getRef<FixtureExternalTaskRef>('u1', 'football-data:1');
+}
+
+test('unfollowing a club releases its matches, without dismissing them', async () => {
+  await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+  await projectFixturesForUser('u1', NOW);
+
+  await setFollowedClubs('u1', [], NOW);
+  const tally = await projectFixturesForUser('u1', NOW);
+  assert.equal(tally.cancelled, 1);
+  assert.deepEqual((await commitments()).map((c) => c.status), ['dropped']);
+  const ref = await ref1();
+  assert.equal(ref?.detachedAt, null, 'an unfollow is not a dismissal');
+  assert.equal(ref?.droppedByProjection?.reason, 'unfollowed');
+
+  // A later change to the match, while the club is still unfollowed, brings
+  // nothing back -- through either door the nightly job or a save can open.
+  await upsertFixtures([fixture('1', '2026-10-25T20:00:00.000Z')]);
+  await projectFixturesForUser('u1', NOW);
+  await setFollowedClubs('u1', ['liverpool'], NOW);
+  await projectFixturesForUser('u1', NOW);
+  assert.deepEqual((await commitments()).map((c) => c.status), ['dropped']);
+});
+
+test('following the club again brings its matches back', async () => {
+  await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+  await projectFixturesForUser('u1', NOW);
+  await setFollowedClubs('u1', [], NOW);
+  await projectFixturesForUser('u1', NOW);
+
+  await setFollowedClubs('u1', ['barcelona'], NOW);
+  const tally = await projectFixturesForUser('u1', NOW);
+  assert.equal(tally.created, 1);
+  const active = (await commitments()).filter((c) => c.status === 'active');
+  assert.equal(active.length, 1);
+  assert.equal(active[0].timeSpec.dueAt, '2026-10-25T19:00:00.000Z');
+});
+
+test('unfollowing one side of a derby keeps the match the other side still follows', async () => {
+  await setFollowedClubs('u1', ['barcelona', 'real-madrid'], NOW);
+  await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+  await projectFixturesForUser('u1', NOW);
+  await setFollowedClubs('u1', ['barcelona'], NOW);
+  await projectFixturesForUser('u1', NOW);
+  assert.deepEqual((await commitments()).map((c) => c.status), ['active']);
+});
+
+test('a ref written before team ids were recorded is still released, through the fixture store', async () => {
+  await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+  await projectFixturesForUser('u1', NOW);
+  const { homeTeamId: _h, awayTeamId: _a, ...old } = (await ref1())!;
+  await putRef('u1', old);
+
+  await setFollowedClubs('u1', [], NOW);
+  await projectFixturesForUser('u1', NOW);
+  assert.deepEqual((await commitments()).map((c) => c.status), ['dropped']);
+});
+
+test('forget-me releases the matches of the follows it purges', async () => {
+  await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+  await projectFixturesForUser('u1', NOW);
+  const storage = getStorage();
+  await deletePersonalizationScope({
+    scopeId: 'u1',
+    now: NOW,
+    storage,
+    feedbackEvents: createStorageFeedbackEventStore(storage),
+    runtimeMemory: createStorageRuntimeMemoryStore(undefined, storage),
+  });
+  assert.deepEqual((await commitments()).map((c) => c.status), ['dropped']);
+  assert.equal((await ref1())?.detachedAt, null);
 });

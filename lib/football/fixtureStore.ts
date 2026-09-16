@@ -150,3 +150,15 @@ export async function listFixturesForTeam(
     return a.providerMatchId < b.providerMatchId ? -1 : a.providerMatchId > b.providerMatchId ? 1 : 0;
   });
 }
+
+/**
+ * One stored fixture by its provider identity, or `null`. Used to recover the
+ * team ids of a reference written before references carried them.
+ */
+export async function getFixture(
+  provider: string,
+  providerMatchId: string,
+  deps: FixtureStoreDeps = {},
+): Promise<Fixture | null> {
+  return storageOf(deps).get<Fixture>(fixtureDoc(provider, providerMatchId));
+}

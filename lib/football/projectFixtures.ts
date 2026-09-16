@@ -188,12 +188,12 @@ import {
 import { applyParticipantCommands, loadDomainState, readParticipantState, writeDomainDiff } from '../services/mobile/participantState';
 import { readActivityStats, recordActivityEvents, type ActivityStats } from '../services/activity/activityStats';
 import { findCollisions, type CollisionWarning } from '../services/timeCollision';
-import { getStorage, userDoc, type StorageTransaction } from '../storage';
+import { getStorage, userDoc, type StorageAdapter, type StorageTransaction } from '../storage';
 import type { UserDocument } from '../storage/userDocument';
 import { getFollowedClubs } from './followedClubs';
 import { clubById, fixtureTitle, type ClubLanguage } from './clubs';
 import { listDevices } from '../push/deviceRegistry';
-import { listFixturesForTeam } from './fixtureStore';
+import { getFixture, listFixturesForTeam } from './fixtureStore';
 import { getRef, listRefs, putRef, refDocPath } from './externalTaskRefStore';
 
 /**
@@ -242,8 +242,9 @@ export interface ProjectionOptions {
 
 /**
  * `cancelled` counts every drop this run made, not literally every fixture
- * whose `status` was `'cancelled'` -- `postponed` and `finished` drop a
- * commitment the same way and are folded into the same counter. Task 8's
+ * whose `status` was `'cancelled'` -- `postponed` drops a commitment the same
+ * way, and so does releasing an unfollowed club's matches
+ * (`releaseUnfollowedFixtures`); all are folded into the same counter. Task 8's
  * brief fixed this shape (`{ created, updated, cancelled, skipped }`) before
  * `postponed`/`finished` were in scope, and giving each status its own
  * counter would be a wire-shape change with no consumer asking for it yet
@@ -284,6 +285,13 @@ export interface FixtureExternalTaskRef extends ExternalTaskReference {
    */
   readonly title?: string;
   /**
+   * The provider's ids for the two sides, so an unfollow can tell which refs
+   * belong to a club no longer followed. Optional: a ref written before they
+   * were recorded is resolved through the fixture store instead.
+   */
+  readonly homeTeamId?: string;
+  readonly awayTeamId?: string;
+  /**
    * Set when *this projection* dropped the linked commitment, and why; `null`
    * (or absent, on a ref written before this field existed) otherwise.
    *
@@ -303,8 +311,11 @@ export interface FixtureExternalTaskRef extends ExternalTaskReference {
 
 /** Why the projection dropped a fixture's commitment -- see `droppedByProjection`. */
 export interface ProjectionDrop {
-  /** `fixture_status`: cancelled or postponed. */
-  readonly reason: 'fixture_status';
+  /**
+   * `fixture_status`: cancelled or postponed. `unfollowed`: neither team is a
+   * club the user follows any more (see `releaseUnfollowedFixtures`).
+   */
+  readonly reason: 'fixture_status' | 'unfollowed';
   readonly at: string;
 }
 
@@ -410,6 +421,8 @@ function buildRef(
     updatedAt: now,
     homeTeamName: fixture.homeTeamName,
     awayTeamName: fixture.awayTeamName,
+    homeTeamId: fixture.homeTeamId,
+    awayTeamId: fixture.awayTeamId,
     title,
     droppedByProjection: null,
   };
@@ -635,6 +648,8 @@ async function updateCommitmentForFixtureGuarded(
           fingerprint: fingerprintOf(fixture, now),
           homeTeamName: fixture.homeTeamName,
           awayTeamName: fixture.awayTeamName,
+          homeTeamId: fixture.homeTeamId,
+          awayTeamId: fixture.awayTeamId,
           title,
           lastSyncedAt: now,
           updatedAt: now,
@@ -720,14 +735,16 @@ async function updateCommitmentForFixtureGuarded(
  * drop.
  */
 async function dropCommitmentForFixtureGuarded(
+  storage: StorageAdapter,
   uid: string,
-  fixture: Fixture,
+  taskRefId: string,
   linkedCommitmentId: string,
+  reason: ProjectionDrop['reason'],
   now: string,
+  refPatch: Partial<FixtureExternalTaskRef>,
 ): Promise<boolean> {
-  const taskRefId = taskRefIdOf(fixture);
   let dropped = false;
-  await getStorage().runTransaction(async (tx) => {
+  await storage.runTransaction(async (tx) => {
     dropped = false;
     const [user, before, stats, freshRef] = await Promise.all([
       tx.get<UserDocument>(userDoc(uid)),
@@ -736,21 +753,17 @@ async function dropCommitmentForFixtureGuarded(
       tx.get<FixtureExternalTaskRef>(refDocPath(uid, taskRefId)),
     ]);
     const linked = before.commitments[linkedCommitmentId];
-    let refPatch: Partial<FixtureExternalTaskRef> = {
-      fingerprint: fingerprintOf(fixture, now),
-      lastSyncedAt: now,
-      updatedAt: now,
-    };
+    let patch: Partial<FixtureExternalTaskRef> = { ...refPatch, updatedAt: now };
     if (!freshRef?.detachedAt && linked && DROPPABLE_STATUSES.has(linked.status)) {
       const { state: candidate, events } = applyCommands(before, [
         { type: 'Drop', commitmentId: linkedCommitmentId, now },
       ]);
       writeDomainDiff(tx, uid, before, candidate, events, user, now);
       recordActivityEvents(tx, uid, stats, events);
-      refPatch = { ...refPatch, droppedByProjection: { reason: 'fixture_status', at: now } };
+      patch = { ...patch, droppedByProjection: { reason, at: now } };
       dropped = true;
     }
-    if (freshRef) tx.merge<FixtureExternalTaskRef>(refDocPath(uid, taskRefId), refPatch);
+    if (freshRef) tx.merge<FixtureExternalTaskRef>(refDocPath(uid, taskRefId), patch);
   });
   return dropped;
 }
@@ -799,7 +812,10 @@ async function projectOneFixture(
   // and nothing to create either, so it is simply skipped.
   if (NON_HOLDING_STATUSES.has(fixture.status)) {
     if (ref?.linkedCommitmentId) {
-      const dropped = await dropCommitmentForFixtureGuarded(uid, fixture, ref.linkedCommitmentId, now);
+      const dropped = await dropCommitmentForFixtureGuarded(
+        getStorage(), uid, taskRefId, ref.linkedCommitmentId, 'fixture_status', now,
+        { fingerprint: fingerprintOf(fixture, now), lastSyncedAt: now },
+      );
       tally[dropped ? 'cancelled' : 'skipped'] += 1;
     } else {
       tally.skipped += 1;
@@ -814,7 +830,7 @@ async function projectOneFixture(
   // (rather than trusting "it was written") is what keeps a quiet night
   // quiet for the user too: no reminder gets rescheduled for a match that
   // didn't move.
-  if (ref && ref.fingerprint.contentHash === fixture.contentHash && ref.title === title) {
+  if (ref && ref.fingerprint.contentHash === fixture.contentHash && ref.title === title && !ref.droppedByProjection) {
     tally.skipped += 1;
     return;
   }
@@ -866,6 +882,10 @@ export async function projectFixturesForUser(
 ): Promise<ProjectionTally> {
   const tally: ProjectionTally = { created: 0, updated: 0, cancelled: 0, skipped: 0 };
 
+  // Before the early return: a user who just unfollowed everything is exactly
+  // the user whose matches must be released (final review I1).
+  tally.cancelled += await releaseUnfollowedFixtures(uid, now);
+
   const clubIds = await getFollowedClubs(uid);
   if (clubIds.length === 0) return tally;
 
@@ -912,6 +932,67 @@ export async function projectFixturesForUser(
   }
 
   return tally;
+}
+
+/**
+ * Drops the live commitments of every match in which neither team is a club
+ * `uid` still follows, marking each ref `droppedByProjection: 'unfollowed'`
+ * and never `detachedAt` (final review I1). Returns how many it dropped.
+ *
+ * The projection only walks followed clubs' fixtures and the nightly job skips
+ * anyone following nothing, so without this an unfollowed club's matches kept
+ * blocking evenings, stayed on the calendar, kept reminding, and froze at the
+ * kickoff they had on the day the user stopped following.
+ *
+ * Not a dismissal: re-following the club brings the matches back, because a
+ * ref carrying the projection's own drop marker skips the "unchanged, skip"
+ * shortcut and reaches the recreate branch. While the club stays unfollowed
+ * nothing can recreate them -- the projection never visits a fixture neither
+ * of whose teams is followed.
+ *
+ * Team ids come off the ref; a ref written before refs carried them is
+ * resolved through the fixture store, and one that cannot be resolved either
+ * way is left alone rather than guessed about.
+ *
+ * Called by `projectFixturesForUser` (so the follow PUT releases on save) and
+ * by the forget-me purge in `lib/personalization/deletion.ts` after it clears
+ * the follows. `deps.storage` lets that purge run against the storage it was
+ * handed.
+ */
+export async function releaseUnfollowedFixtures(
+  uid: string,
+  now: string,
+  deps: { readonly storage?: StorageAdapter } = {},
+): Promise<number> {
+  const storage = deps.storage ?? getStorage();
+  const refs = (await listRefs<FixtureExternalTaskRef>(uid, { storage }))
+    .filter((ref) => !ref.detachedAt && ref.linkedCommitmentId && ref.droppedByProjection == null);
+  if (refs.length === 0) return 0;
+
+  const followedTeamIds = new Set<string>();
+  for (const clubId of await getFollowedClubs(uid, { storage })) {
+    const club = clubById(clubId);
+    if (club) followedTeamIds.add(club.providerTeamId);
+  }
+
+  let released = 0;
+  for (const ref of refs) {
+    let homeTeamId = ref.homeTeamId;
+    let awayTeamId = ref.awayTeamId;
+    if (!homeTeamId || !awayTeamId) {
+      const stored = await getFixture(ref.identity.provider, ref.identity.externalId, { storage });
+      if (!stored) continue;
+      homeTeamId = stored.homeTeamId;
+      awayTeamId = stored.awayTeamId;
+    }
+    if (followedTeamIds.has(homeTeamId) || followedTeamIds.has(awayTeamId)) continue;
+    const dropped = await dropCommitmentForFixtureGuarded(
+      storage, uid, ref.taskRefId, ref.linkedCommitmentId!, 'unfollowed', now,
+      { homeTeamId, awayTeamId },
+    );
+    if (dropped) released += 1;
+  }
+  return released;
 }
 
 /** One row of `listActiveFixtureCommitments`'s answer -- see its own header. */

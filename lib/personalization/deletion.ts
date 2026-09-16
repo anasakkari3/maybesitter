@@ -129,6 +129,7 @@ import {
 import type { FeedbackEventStore } from '../../src/contracts/v1/feedbackContracts';
 import type { RuntimeMemoryStore } from '../../src/contracts/v1/memoryContracts';
 import { getStorage } from '../storage';
+import { releaseUnfollowedFixtures } from '../football/projectFixtures';
 import { BEHAVIOR_FEEDBACK, FOOTBALL_FOLLOWS, PROFILE_PROPOSALS, userCol } from '../storage/paths';
 import type { StorageAdapter } from '../storage/storageAdapter';
 
@@ -209,6 +210,11 @@ export async function deletePersonalizationScope(
   await clearUserCollection(storage, input.scopeId, BEHAVIOR_FEEDBACK);
   await clearUserCollection(storage, input.scopeId, PROFILE_PROPOSALS);
   await clearUserCollection(storage, input.scopeId, FOOTBALL_FOLLOWS);
+  // With the follows gone, the matches they projected stop holding time: an
+  // unfollow drop, never a dismissal, so following again brings them back.
+  // The commitments themselves are kept as dropped history, like any other
+  // commitment this purge leaves alone (football fixtures, final review I1).
+  await releaseUnfollowedFixtures(input.scopeId, input.now, { storage });
   await input.runtimeMemory.deleteScope(input.scopeId);
 
   return {
