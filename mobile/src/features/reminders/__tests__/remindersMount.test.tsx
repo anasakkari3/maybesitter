@@ -254,9 +254,12 @@ describe('signing out, by every route a session can end', () => {
   });
 });
 
-/** One tap, as expo-notifications delivers it. */
-function response(data: Record<string, unknown>) {
-  return { notification: { request: { content: { data } } } } as never;
+/** One tap, as expo-notifications delivers it: on the body unless a button is named (#200). */
+function response(data: Record<string, unknown>, actionIdentifier = 'expo.modules.notifications.actions.DEFAULT') {
+  return {
+    actionIdentifier,
+    notification: { request: { identifier: `${String(data.commitmentId ?? 'plan')}:soft`, content: { data } } },
+  } as never;
 }
 
 /** The record this account holds on disk, as the engine would read it. */

@@ -15,6 +15,13 @@ import { clearHardReceipts } from '../../lib/deviceSettings/hardReceiptQueue';
 import { drainHardReceipts } from './receiptUpload';
 import { AppState } from 'react-native';
 import { useToday, useUpcoming } from '../../api/queries';
+import { useQueryClient } from '@tanstack/react-query';
+import { AppState } from 'react-native';
+import NetInfo from '@react-native-community/netinfo';
+import { registerReminderActions } from '../../notifications/actions';
+import { clearOutbox } from './actionOutbox';
+import { applyTap, decideResponse, isBodyTap } from './notificationResponses';
+import { flushFor, registerNotificationResponseTask, tapEffectsFor } from './tapEffects';
 import { startOf } from './reminderInputs';
 import { useReminderSync } from './useReminderSync';
 
@@ -50,6 +57,7 @@ export function RemindersMount(): null {
   const today = useToday();
   const upcoming = useUpcoming();
   const { resync } = useReminderSync();
+  const queryClient = useQueryClient();
 
   /*
    * The three listeners below are installed once and have to read the *current*
@@ -60,9 +68,9 @@ export function RemindersMount(): null {
    * Every reader of it is an event handler, which by definition runs after the
    * render that produced the value has committed.
    */
-  const latest = useRef({ actions, accountId, today, upcoming, resync });
+  const latest = useRef({ actions, accountId, today, upcoming, resync, queryClient });
   useEffect(() => {
-    latest.current = { actions, accountId, today, upcoming, resync };
+    latest.current = { actions, accountId, today, upcoming, resync, queryClient };
   });
 
   // Receipts that did not reach the server last time go when the app comes
@@ -81,8 +89,44 @@ export function RemindersMount(): null {
       notifChannelGeneral: t.notifChannelGeneral,
       notifChannelAwareness: t.notifChannelAwareness,
       notifChannelHard: t.notifChannelHard,
-    });
+    })
+      // After setup, which files both categories with no buttons, and again on
+      // every language change: the OS keeps the titles it was last given (#200).
+      .then(() => registerReminderActions(t));
   }, [t]);
+
+  /*
+   * The outbox of notification-button taps (#200) is flushed on start, when
+   * the app comes back, and when the network does. Whatever is sent is
+   * reflected: the lists refetch and the engine resyncs, so a deferred item's
+   * reminders are rescheduled for its new time.
+   */
+  const flushAndRefresh = useCallback(async (uid: string) => {
+    const tally = await flushFor(uid) as { sent: number; dropped: number };
+    if (tally.sent + tally.dropped > 0) {
+      await latest.current.queryClient.invalidateQueries();
+      latest.current.resync();
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!accountId) return;
+    void registerNotificationResponseTask();
+    void flushAndRefresh(accountId).catch(() => undefined);
+    const appState = AppState.addEventListener('change', state => {
+      if (state === 'active') void flushAndRefresh(accountId).catch(() => undefined);
+    });
+    let wasConnected: boolean | null = null;
+    const unsubscribeNet = NetInfo.addEventListener(state => {
+      const connected = state.isConnected === true;
+      if (connected && wasConnected === false) void flushAndRefresh(accountId).catch(() => undefined);
+      wasConnected = connected;
+    });
+    return () => {
+      appState.remove();
+      unsubscribeNet();
+    };
+  }, [accountId, flushAndRefresh]);
 
   // Registration, and the token refresh that invalidates it. Firebase reissues
   // a token without asking, and a device row pointing at the old one is a
@@ -119,6 +163,8 @@ export function RemindersMount(): null {
       // Receipts silence the server's backup push (#198). Left behind, they
       // would speak for a phone that is no longer this account's.
       await clearHardReceipts(latest.current.accountId);
+      // Queued taps are this account's; the next person must not send them.
+      await clearOutbox(latest.current.accountId);
     }
   }), []);
 
@@ -139,6 +185,42 @@ export function RemindersMount(): null {
     else latest.current.actions.go('today');
   }, []);
 
+  /*
+   * Every response, whichever button (#200). The body keeps its #196 meaning —
+   * aware, then open — and additionally records the acknowledgement on the
+   * server. Done and Later go through the outbox. Not doing it opens the
+   * commitment with the confirm sheet up, and changes nothing until the sheet
+   * is answered.
+   */
+  const respond = useCallback(async (response: {
+    actionIdentifier: string;
+    notification: { request: { identifier: string; content: { data?: unknown } } };
+  }) => {
+    const { data } = response.notification.request.content;
+    const decision = decideResponse(
+      response.actionIdentifier, data, response.notification.request.identifier, Date.now(),
+    );
+    if (decision.kind === 'confirmDrop') {
+      latest.current.actions.openDetail(decision.commitmentId);
+      latest.current.actions.openConfirmDrop();
+      return;
+    }
+    if (decision.kind === 'ignore') {
+      // A body tap on something that is not a commitment (a plan, #194) still
+      // routes. An unknown button does nothing at all.
+      if (isBodyTap(response.actionIdentifier)) await handle(data);
+      return;
+    }
+    if (decision.action === 'aware') await handle(data);
+    const uid = latest.current.accountId;
+    if (!uid) return;
+    const fresh = await applyTap(decision, tapEffectsFor(uid));
+    if (fresh && decision.action !== 'aware') {
+      await latest.current.queryClient.invalidateQueries();
+      latest.current.resync();
+    }
+  }, [handle]);
+
   // Taps while the app is running. The process is alive, so the commitments
   // this reads a start off are already loaded.
   useEffect(() => {
@@ -146,13 +228,13 @@ export function RemindersMount(): null {
     try {
       const Notifications = notificationsModule();
       subscription = Notifications?.addNotificationResponseReceivedListener(response => {
-        void handle(response.notification.request.content.data);
+        void respond(response);
       });
     } catch {
       // No native module.
     }
     return () => subscription?.remove();
-  }, [handle]);
+  }, [respond]);
 
   /*
    * The tap that launched the app — the force-quit case, and the one #196 asks
@@ -185,7 +267,12 @@ export function RemindersMount(): null {
         const Notifications = notificationsModule();
         if (!Notifications) return;
         const last = await Notifications.getLastNotificationResponseAsync();
-        if (last && !cancelled) await handle(last.notification.request.content.data);
+        if (last && !cancelled) {
+          await respond(last);
+          // Handled once. Left in place, the same press would be offered again
+          // on a later launch, after the outbox has forgotten it (#200).
+          await Notifications.clearLastNotificationResponseAsync?.();
+        }
       } catch {
         // No native module.
       }
@@ -193,7 +280,7 @@ export function RemindersMount(): null {
     return () => {
       cancelled = true;
     };
-  }, [commitmentsSettled, handle]);
+  }, [commitmentsSettled, respond]);
 
   return null;
 }

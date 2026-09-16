@@ -38,6 +38,10 @@ export type ResponseDecision =
 /** The default action id, spelled out so a mock of the module cannot erase it. */
 const DEFAULT_TAP = DEFAULT_ACTION_IDENTIFIER ?? 'expo.modules.notifications.actions.DEFAULT';
 
+export function isBodyTap(actionIdentifier: unknown): boolean {
+  return actionIdentifier === DEFAULT_TAP;
+}
+
 /**
  * Pure. `identifier` is the OS request's identifier, which is what makes the
  * same press delivered twice recognisable.
