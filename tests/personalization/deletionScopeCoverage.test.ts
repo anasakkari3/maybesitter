@@ -112,6 +112,16 @@ const KEPT_BECAUSE: Record<string, string> = {
     + 'is restated in full by the next sync, so purging it here would answer "forget what you '
     + 'worked out about me" by deleting something for fifteen minutes. Disconnect is the button '
     + 'that means this, and account deletion takes it with everything else.',
+  icsFeeds:
+    'the calendar feeds the user subscribed to by pasting a link (UC-3.4, #188) — a label, a '
+    + 'toggle, refresh bookkeeping and the feed URL encrypted. A subscription the user made, not a '
+    + 'belief about them; purging it here would silently unsubscribe them. Removing the feed is '
+    + 'the button beside it, and account deletion takes it with everything else.',
+  icsFeedItems:
+    'deadlines a subscribed feed proposed and what the user answered — a cleaned title, a due '
+    + 'time and accepted/rejected/pending. A copy of what their university calendar says plus '
+    + 'their own decisions, not an inference; clearing it would re-propose every deadline they '
+    + 'already dismissed on the next refresh. Removing the feed deletes these rows.',
   devices:
     'the phones this account signed in on, and the FCM token to reach each of '
     + 'them. A device identifier, not a belief about the person: "forget what '

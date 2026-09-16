@@ -171,6 +171,28 @@ export const CALENDAR_SOURCES = 'calendarSources';
 export const BUSY_BLOCKS = 'busyBlocks';
 
 /**
+ * The external calendar feeds this account subscribed to (UC-3.4, #188).
+ *
+ * One document per feed, keyed by a server-minted uuid. The feed URL is a
+ * bearer secret (a Moodle export carries `authtoken=`), so it is here only as
+ * a `fieldEncryption` blob bound to `fieldPurpose('ics-url', feedId)` — never
+ * as text, never hashed, never returned. The rest is a label, a toggle, the
+ * refresh bookkeeping (status, failures, ETag, next fetch) and two counts.
+ */
+export const ICS_FEEDS = 'icsFeeds';
+
+/**
+ * What a feed proposed, one document per deadline occurrence (UC-3.4, #188).
+ *
+ * Keyed by `sha256([feedId, UID, RECURRENCE-ID])`, so a refresh that sees the
+ * same item again finds the same row rather than proposing it twice. It holds
+ * the cleaned title, the due instant, the SEQUENCE/DTSTAMP it was last seen
+ * with and the user's answer (pending, accepted, rejected, withdrawn) — not the
+ * feed's UID in clear, not DESCRIPTION, nothing else the feed said.
+ */
+export const ICS_FEED_ITEMS = 'icsFeedItems';
+
+/**
  * One document per installation this account has signed in on (UC-3.0b, #184).
  *
  * The FCM registration token lives here, keyed by an installation id the phone
@@ -262,6 +284,8 @@ export const USER_SCOPED_COLLECTIONS = [
   DEVICE_CALENDAR_LINKS,
   CALENDAR_SOURCES,
   BUSY_BLOCKS,
+  ICS_FEEDS,
+  ICS_FEED_ITEMS,
   DEVICES,
   PUSH_LOG,
   HARD_REMINDERS,

@@ -107,6 +107,14 @@ upsert_job "daily-plan-tick-${SUFFIX}" "* * * * *" "/api/internal/jobs/daily-pla
 upsert_job "hard-reminders-tick-${SUFFIX}" "* * * * *" "/api/internal/jobs/hard-reminders" "Etc/UTC" \
   "Send MaybeSitter Must-reminder backups (${TARGET})"
 
+# External calendar feeds (UC-3.4, #188). Every 30 minutes; each feed is
+# refreshed every six hours (backing off to 48 after failures), so a run only
+# fetches the feeds whose `nextFetchAt` has arrived, at most 100. A separate job
+# so a slow or failing university server never delays reminders or plans. The
+# route answers {"skipped":"feature_disabled"} until ICS_FEEDS_ENABLED=true.
+upsert_job "ics-feed-refresh-${SUFFIX}" "*/30 * * * *" "/api/internal/calendar/ics/refresh" "Etc/UTC" \
+  "Refresh due MaybeSitter calendar feeds (${TARGET})"
+
 # Nightly maintenance at 03:17 local: off-peak, and not on the hour, so it does
 # not pile onto every other cron in the world.
 upsert_job "maintenance-daily-${SUFFIX}" "17 3 * * *" "/api/internal/jobs/maintenance" "Asia/Jerusalem" \
