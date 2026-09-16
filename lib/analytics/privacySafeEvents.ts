@@ -96,6 +96,22 @@ const EVENT_PROPERTIES: Record<AnalyticsEventName, readonly string[]> = {
   // worked is the outcome worth being able to count.
   capture_confirmed: ['confirmedCount'],
   capture_undone: ['undoneCount', 'stillSavedCount'],
+  // UC-3.10b (#195). Shapes, not contents: how much was in the plan, which
+  // generation it was, and what the person did about it.
+  //
+  // `explanationSource` is deliberately not called `source` — `source` is
+  // canonicalised against SOURCE_VALUES below, and 'model'/'template' are a
+  // different question from 'app'/'widget'/'external'. Sharing the name would
+  // have meant either a wrong rejection or a widened enumeration.
+  //
+  // `reason` on an edit is the server's own refusal code (`overlaps_fixed_event`
+  // and its siblings), which says why a placement was refused without saying
+  // what was being placed.
+  plan_opened: ['generation', 'scheduledCount', 'unscheduledCount', 'explanationSource', 'status'],
+  plan_accepted: ['generation', 'scheduledCount', 'unscheduledCount'],
+  plan_edited: ['movedCount', 'removedCount', 'outcome', 'reason'],
+  plan_regenerated: ['generation'],
+  plan_dismissed: ['generation'],
 };
 
 const RATING_KEYS = ['utilityRating', 'invasivenessRating'];

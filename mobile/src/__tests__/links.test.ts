@@ -52,6 +52,32 @@ describe('what a link opens', () => {
     expect(parseLink('maybesitter://next')?.target).toEqual({ kind: 'nextStep' });
   });
 
+  it('opens one day’s plan', () => {
+    // What the morning "your plan is ready" notification fires (UC-3.10b #195).
+    expect(parseLink('maybesitter://plan/2026-08-09')?.target)
+      .toEqual({ kind: 'plan', date: '2026-08-09' });
+  });
+
+  it('refuses a plan link that does not carry a civil date', () => {
+    // The date becomes a path segment on an authenticated request, and "the
+    // plan for some day near this" is not a thing to guess at. Note that
+    // `plan` alone is refused rather than treated as today: the notification
+    // names the day it is about, and substituting the client's own idea of
+    // today would open a different plan for anyone tapping just after
+    // midnight.
+    for (const bad of [
+      'maybesitter://plan',
+      'maybesitter://plan/',
+      'maybesitter://plan/today',
+      'maybesitter://plan/2026-8-9',
+      'maybesitter://plan/2026-08-09T00:00:00Z',
+      'maybesitter://plan/2026-08-09/edit',
+      'maybesitter://plan/..%2F..%2Faccount',
+    ]) {
+      expect({ bad, parsed: parseLink(bad) }).toEqual({ bad, parsed: null });
+    }
+  });
+
   it('treats a bare link as Today', () => {
     expect(parseLink('maybesitter://')?.target).toEqual({ kind: 'screen', name: 'today' });
     expect(parseLink('maybesitter:///')?.target).toEqual({ kind: 'screen', name: 'today' });

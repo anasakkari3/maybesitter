@@ -13,6 +13,9 @@ import type { ThemePref } from './state/types';
  *   maybesitter://commitments/<id>         one commitment
  *   maybesitter://item/<id>                the same, the widget's older spelling
  *   maybesitter://next                     the next-step card, which lives on Today
+ *   maybesitter://plan/<YYYY-MM-DD>        that day's plan (UC-3.10b, #195),
+ *                                          which is what the morning "your
+ *                                          plan is ready" notification opens
  *
  * plus `?lang=` and `?theme=` on any of them. In Expo Go the same path arrives
  * as exp://host:port/--/<path>.
@@ -42,7 +45,18 @@ export type LinkTarget =
    * values are validated against their enums: a link is untrusted input, and
    * `source=<script>` must be an unrecognised link rather than a stored string.
    */
-  | { kind: 'capture'; source: CaptureLinkSource; input: CaptureLinkInput };
+  | { kind: 'capture'; source: CaptureLinkSource; input: CaptureLinkInput }
+  /**
+   * One day's plan.
+   *
+   * The date is a plain civil date and nothing else — no instant, no "today",
+   * no offset. #195 says the router accepts only `YYYY-MM-DD`, and the reason
+   * is the same as the commitment id's: this string is chosen by whoever fired
+   * the link and is about to become a path segment on an authenticated
+   * request. A link that does not carry one is dropped rather than repaired,
+   * because "the plan for some day near this" is not a thing to guess at.
+   */
+  | { kind: 'plan'; date: string };
 
 export interface ParsedLink {
   target: LinkTarget;
@@ -61,6 +75,16 @@ export interface ParsedLink {
  * cannot hand the client an unbounded string to put in a URL.
  */
 const COMMITMENT_ID = /^[A-Za-z0-9_-]{1,128}$/;
+
+/**
+ * A plan date. Shape only — that the day exists is the server's to say.
+ *
+ * Deliberately the same expression the server uses (`isPlanDate` in
+ * `lib/services/dailyPlan/planSettings.ts`) and the same one the endpoint
+ * refuses to build a path without, so a link, a client and a route cannot
+ * disagree about what a plan date is.
+ */
+const PLAN_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Only these names route by name; anything else is not a screen. */
 function screenTarget(name: string): LinkTarget | null {
@@ -114,6 +138,14 @@ function targetFor(segments: string[], params: URLSearchParams): LinkTarget | nu
       input: (input && CAPTURE_INPUTS.includes(input) ? input : 'text') as CaptureLinkInput,
     };
   }
+  if (first === 'plan') {
+    // Exactly two segments, and the second is a civil date. `plan` on its own
+    // is not "today's plan": the notification names the day it is about, and a
+    // client that substituted its own idea of today would open a different
+    // plan for anyone tapping just after midnight.
+    if (segments.length !== 2 || !second || !PLAN_DATE.test(second)) return null;
+    return { kind: 'plan', date: second };
+  }
   if (first === 'commitments' || first === 'item') {
     // Exactly two segments. `commitments/a/b` is not a commitment id with a
     // slash in it; it is a link this app does not understand.
@@ -130,6 +162,7 @@ export function useLinks(
   handlers: {
     jump: (name: string) => void;
     openCommitment: (id: string) => void;
+    openPlan: (date: string) => void;
     openNextStep: () => void;
     openCapture: (source: CaptureLinkSource, input: CaptureLinkInput) => void;
     setLang: (l: Lang) => void;
@@ -150,6 +183,7 @@ export function useLinks(
       if (link.lang) handlers.setLang(link.lang);
       if (link.theme) handlers.setThemePref(link.theme);
       if (link.target.kind === 'commitment') handlers.openCommitment(link.target.id);
+      else if (link.target.kind === 'plan') handlers.openPlan(link.target.date);
       else if (link.target.kind === 'nextStep') handlers.openNextStep();
       else if (link.target.kind === 'capture') handlers.openCapture(link.target.source, link.target.input);
       else handlers.jump(link.target.name);

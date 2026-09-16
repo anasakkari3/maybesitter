@@ -45,6 +45,13 @@ export const CLIENT_REPORTABLE_EVENTS = [
   // `capture_submitted` and `capture_confirmed` are derived on the server from
   // committed domain state, so nothing here can claim activation progress.
   'capture_undone',
+  // UC-3.10b (#195). What somebody did with the plan they were shown — counts,
+  // a generation, and two enumerations, never a title or an item id.
+  'plan_opened',
+  'plan_accepted',
+  'plan_edited',
+  'plan_regenerated',
+  'plan_dismissed',
 ] as const;
 
 export type ClientReportableEvent = (typeof CLIENT_REPORTABLE_EVENTS)[number];

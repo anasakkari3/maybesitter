@@ -1,0 +1,829 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
+<RNCSafeAreaProvider
+  onInsetsChange={[Function]}
+  style={
+    [
+      {
+        "flex": 1,
+      },
+      undefined,
+    ]
+  }
+>
+  <View
+    collapsable={false}
+    style={
+      {
+        "backgroundColor": "#F5F7F8",
+        "flex": 1,
+        "opacity": 0,
+        "transform": [
+          {
+            "translateY": 14,
+          },
+          {
+            "scale": 0.985,
+          },
+        ],
+      }
+    }
+  >
+    <RCTScrollView
+      contentContainerStyle={
+        {
+          "gap": 14,
+          "paddingBottom": 60,
+          "paddingHorizontal": 20,
+          "paddingTop": 55,
+        }
+      }
+      testID="plan-screen"
+    >
+      <View>
+        <View
+          style={
+            {
+              "gap": 10,
+            }
+          }
+        >
+          <View
+            accessibilityLabel="رجوع"
+            accessibilityRole="button"
+            accessibilityState={
+              {
+                "busy": undefined,
+                "checked": undefined,
+                "disabled": undefined,
+                "expanded": undefined,
+                "selected": undefined,
+              }
+            }
+            accessibilityValue={
+              {
+                "max": undefined,
+                "min": undefined,
+                "now": undefined,
+                "text": undefined,
+              }
+            }
+            accessible={true}
+            collapsable={false}
+            focusable={true}
+            onBlur={[Function]}
+            onClick={[Function]}
+            onFocus={[Function]}
+            onResponderGrant={[Function]}
+            onResponderMove={[Function]}
+            onResponderRelease={[Function]}
+            onResponderTerminate={[Function]}
+            onResponderTerminationRequest={[Function]}
+            onStartShouldSetResponder={[Function]}
+            style={
+              {
+                "alignSelf": "flex-start",
+                "minHeight": 32,
+                "paddingHorizontal": 2,
+                "paddingVertical": 6,
+                "transform": [
+                  {
+                    "scale": 1,
+                  },
+                ],
+              }
+            }
+          >
+            <Text
+              style={
+                [
+                  {
+                    "color": "#1F7A8C",
+                    "fontFamily": "NotoNaskhArabic_400Regular",
+                    "fontSize": 14,
+                    "lineHeight": 22,
+                    "textAlign": "right",
+                    "writingDirection": "rtl",
+                  },
+                  undefined,
+                ]
+              }
+            >
+              رجوع
+            </Text>
+          </View>
+          <Text
+            style={
+              [
+                {
+                  "color": "#14181B",
+                  "fontFamily": "NotoNaskhArabic_600SemiBold",
+                  "fontSize": 26,
+                  "lineHeight": 34,
+                  "textAlign": "right",
+                  "writingDirection": "rtl",
+                },
+                undefined,
+              ]
+            }
+          >
+            خطة اليوم
+          </Text>
+        </View>
+        <View
+          style={
+            {
+              "gap": 14,
+            }
+          }
+        >
+          <Text
+            style={
+              [
+                {
+                  "color": "#5F6B70",
+                  "fontFamily": "NotoNaskhArabic_400Regular",
+                  "fontSize": 15,
+                  "lineHeight": 24,
+                  "textAlign": "right",
+                  "writingDirection": "rtl",
+                },
+                undefined,
+              ]
+            }
+            testID="plan-date"
+          >
+            الأحد، 9 أغسطس
+          </Text>
+          <View
+            style={
+              [
+                {
+                  "backgroundColor": "#FFFFFF",
+                  "borderRadius": 24,
+                  "padding": 18,
+                },
+                {
+                  "elevation": 2,
+                  "shadowColor": "#14181B",
+                  "shadowOffset": {
+                    "height": 6,
+                    "width": 0,
+                  },
+                  "shadowOpacity": 0.06,
+                  "shadowRadius": 14,
+                },
+                {
+                  "gap": 8,
+                },
+              ]
+            }
+            testID="plan-why"
+          >
+            <Text
+              style={
+                [
+                  {
+                    "color": "#5F6B70",
+                    "fontFamily": "NotoNaskhArabic_600SemiBold",
+                    "fontSize": 13,
+                    "lineHeight": 21,
+                    "textAlign": "right",
+                    "writingDirection": "rtl",
+                  },
+                  undefined,
+                ]
+              }
+            >
+              ليش هيك رتّبناها
+            </Text>
+            <Text
+              style={
+                [
+                  {
+                    "color": "#14181B",
+                    "fontFamily": "NotoNaskhArabic_400Regular",
+                    "fontSize": 15,
+                    "lineHeight": 23,
+                    "textAlign": "right",
+                    "writingDirection": "rtl",
+                  },
+                  undefined,
+                ]
+              }
+            >
+              ⁨I placed 3 things between 09:00 and 10:30.⁩
+            </Text>
+          </View>
+          <Text
+            style={
+              [
+                {
+                  "color": "#5F6B70",
+                  "fontFamily": "NotoNaskhArabic_600SemiBold",
+                  "fontSize": 13,
+                  "lineHeight": 21,
+                  "textAlign": "right",
+                  "writingDirection": "rtl",
+                },
+                {
+                  "paddingHorizontal": 4,
+                },
+              ]
+            }
+          >
+            ترتيب اليوم
+          </Text>
+          <View
+            style={
+              {
+                "gap": 10,
+              }
+            }
+          >
+            <View
+              style={
+                [
+                  {
+                    "backgroundColor": "#FFFFFF",
+                    "borderRadius": 24,
+                    "padding": 0,
+                  },
+                  {
+                    "elevation": 2,
+                    "shadowColor": "#14181B",
+                    "shadowOffset": {
+                      "height": 6,
+                      "width": 0,
+                    },
+                    "shadowOpacity": 0.06,
+                    "shadowRadius": 14,
+                  },
+                  {
+                    "overflow": "hidden",
+                  },
+                ]
+              }
+              testID="plan-item-plan_fixture_0"
+            >
+              <View
+                accessibilityLabel="Write the summary"
+                accessibilityRole="button"
+                accessibilityState={
+                  {
+                    "busy": undefined,
+                    "checked": undefined,
+                    "disabled": false,
+                    "expanded": undefined,
+                    "selected": undefined,
+                  }
+                }
+                accessibilityValue={
+                  {
+                    "max": undefined,
+                    "min": undefined,
+                    "now": undefined,
+                    "text": undefined,
+                  }
+                }
+                accessible={true}
+                collapsable={false}
+                focusable={true}
+                onBlur={[Function]}
+                onClick={[Function]}
+                onFocus={[Function]}
+                onResponderGrant={[Function]}
+                onResponderMove={[Function]}
+                onResponderRelease={[Function]}
+                onResponderTerminate={[Function]}
+                onResponderTerminationRequest={[Function]}
+                onStartShouldSetResponder={[Function]}
+                style={
+                  {
+                    "alignItems": "flex-start",
+                    "gap": 4,
+                    "paddingHorizontal": 18,
+                    "paddingVertical": 14,
+                    "transform": [
+                      {
+                        "scale": 1,
+                      },
+                    ],
+                  }
+                }
+                testID="plan-open-plan_fixture_0"
+              >
+                <Text
+                  style={
+                    [
+                      {
+                        "color": "#5F6B70",
+                        "fontFamily": "Outfit_400Regular",
+                        "fontSize": 13,
+                        "lineHeight": 18,
+                        "textAlign": "right",
+                        "writingDirection": "rtl",
+                      },
+                      undefined,
+                    ]
+                  }
+                  testID="plan-item-time-plan_fixture_0"
+                >
+                  12:00
+                </Text>
+                <Text
+                  style={
+                    [
+                      {
+                        "color": "#14181B",
+                        "fontFamily": "NotoNaskhArabic_400Regular",
+                        "fontSize": 15,
+                        "lineHeight": 24,
+                        "textAlign": "right",
+                        "writingDirection": "rtl",
+                      },
+                      undefined,
+                    ]
+                  }
+                >
+                  ⁨Write the summary⁩
+                </Text>
+              </View>
+            </View>
+            <View
+              style={
+                [
+                  {
+                    "backgroundColor": "#FFFFFF",
+                    "borderRadius": 24,
+                    "padding": 0,
+                  },
+                  {
+                    "elevation": 2,
+                    "shadowColor": "#14181B",
+                    "shadowOffset": {
+                      "height": 6,
+                      "width": 0,
+                    },
+                    "shadowOpacity": 0.06,
+                    "shadowRadius": 14,
+                  },
+                  {
+                    "overflow": "hidden",
+                  },
+                ]
+              }
+              testID="plan-item-plan_fixture_1"
+            >
+              <View
+                accessibilityLabel="Call the bank"
+                accessibilityRole="button"
+                accessibilityState={
+                  {
+                    "busy": undefined,
+                    "checked": undefined,
+                    "disabled": false,
+                    "expanded": undefined,
+                    "selected": undefined,
+                  }
+                }
+                accessibilityValue={
+                  {
+                    "max": undefined,
+                    "min": undefined,
+                    "now": undefined,
+                    "text": undefined,
+                  }
+                }
+                accessible={true}
+                collapsable={false}
+                focusable={true}
+                onBlur={[Function]}
+                onClick={[Function]}
+                onFocus={[Function]}
+                onResponderGrant={[Function]}
+                onResponderMove={[Function]}
+                onResponderRelease={[Function]}
+                onResponderTerminate={[Function]}
+                onResponderTerminationRequest={[Function]}
+                onStartShouldSetResponder={[Function]}
+                style={
+                  {
+                    "alignItems": "flex-start",
+                    "gap": 4,
+                    "paddingHorizontal": 18,
+                    "paddingVertical": 14,
+                    "transform": [
+                      {
+                        "scale": 1,
+                      },
+                    ],
+                  }
+                }
+                testID="plan-open-plan_fixture_1"
+              >
+                <Text
+                  style={
+                    [
+                      {
+                        "color": "#5F6B70",
+                        "fontFamily": "Outfit_400Regular",
+                        "fontSize": 13,
+                        "lineHeight": 18,
+                        "textAlign": "right",
+                        "writingDirection": "rtl",
+                      },
+                      undefined,
+                    ]
+                  }
+                  testID="plan-item-time-plan_fixture_1"
+                >
+                  12:00
+                </Text>
+                <Text
+                  style={
+                    [
+                      {
+                        "color": "#14181B",
+                        "fontFamily": "NotoNaskhArabic_400Regular",
+                        "fontSize": 15,
+                        "lineHeight": 24,
+                        "textAlign": "right",
+                        "writingDirection": "rtl",
+                      },
+                      undefined,
+                    ]
+                  }
+                >
+                  ⁨Call the bank⁩
+                </Text>
+              </View>
+            </View>
+            <View
+              style={
+                [
+                  {
+                    "backgroundColor": "#FFFFFF",
+                    "borderRadius": 24,
+                    "padding": 0,
+                  },
+                  {
+                    "elevation": 2,
+                    "shadowColor": "#14181B",
+                    "shadowOffset": {
+                      "height": 6,
+                      "width": 0,
+                    },
+                    "shadowOpacity": 0.06,
+                    "shadowRadius": 14,
+                  },
+                  {
+                    "overflow": "hidden",
+                  },
+                ]
+              }
+              testID="plan-item-plan_fixture_2"
+            >
+              <View
+                accessibilityLabel="Book the train"
+                accessibilityRole="button"
+                accessibilityState={
+                  {
+                    "busy": undefined,
+                    "checked": undefined,
+                    "disabled": false,
+                    "expanded": undefined,
+                    "selected": undefined,
+                  }
+                }
+                accessibilityValue={
+                  {
+                    "max": undefined,
+                    "min": undefined,
+                    "now": undefined,
+                    "text": undefined,
+                  }
+                }
+                accessible={true}
+                collapsable={false}
+                focusable={true}
+                onBlur={[Function]}
+                onClick={[Function]}
+                onFocus={[Function]}
+                onResponderGrant={[Function]}
+                onResponderMove={[Function]}
+                onResponderRelease={[Function]}
+                onResponderTerminate={[Function]}
+                onResponderTerminationRequest={[Function]}
+                onStartShouldSetResponder={[Function]}
+                style={
+                  {
+                    "alignItems": "flex-start",
+                    "gap": 4,
+                    "paddingHorizontal": 18,
+                    "paddingVertical": 14,
+                    "transform": [
+                      {
+                        "scale": 1,
+                      },
+                    ],
+                  }
+                }
+                testID="plan-open-plan_fixture_2"
+              >
+                <Text
+                  style={
+                    [
+                      {
+                        "color": "#5F6B70",
+                        "fontFamily": "Outfit_400Regular",
+                        "fontSize": 13,
+                        "lineHeight": 18,
+                        "textAlign": "right",
+                        "writingDirection": "rtl",
+                      },
+                      undefined,
+                    ]
+                  }
+                  testID="plan-item-time-plan_fixture_2"
+                >
+                  12:00
+                </Text>
+                <Text
+                  style={
+                    [
+                      {
+                        "color": "#14181B",
+                        "fontFamily": "NotoNaskhArabic_400Regular",
+                        "fontSize": 15,
+                        "lineHeight": 24,
+                        "textAlign": "right",
+                        "writingDirection": "rtl",
+                      },
+                      undefined,
+                    ]
+                  }
+                >
+                  ⁨Book the train⁩
+                </Text>
+              </View>
+            </View>
+          </View>
+          <View
+            style={
+              {
+                "gap": 10,
+                "paddingTop": 6,
+              }
+            }
+          >
+            <View
+              accessibilityLabel="تمام هيك"
+              accessibilityRole="button"
+              accessibilityState={
+                {
+                  "busy": undefined,
+                  "checked": undefined,
+                  "disabled": false,
+                  "expanded": undefined,
+                  "selected": undefined,
+                }
+              }
+              accessibilityValue={
+                {
+                  "max": undefined,
+                  "min": undefined,
+                  "now": undefined,
+                  "text": undefined,
+                }
+              }
+              accessible={true}
+              collapsable={false}
+              focusable={true}
+              onBlur={[Function]}
+              onClick={[Function]}
+              onFocus={[Function]}
+              onResponderGrant={[Function]}
+              onResponderMove={[Function]}
+              onResponderRelease={[Function]}
+              onResponderTerminate={[Function]}
+              onResponderTerminationRequest={[Function]}
+              onStartShouldSetResponder={[Function]}
+              style={
+                {
+                  "alignItems": "center",
+                  "backgroundColor": "#1F7A8C",
+                  "borderColor": undefined,
+                  "borderRadius": 999,
+                  "borderWidth": 0,
+                  "justifyContent": "center",
+                  "minHeight": 48,
+                  "opacity": 1,
+                  "paddingHorizontal": 18,
+                  "paddingVertical": 16,
+                  "transform": [
+                    {
+                      "scale": 1,
+                    },
+                  ],
+                }
+              }
+              testID="plan-accept"
+            >
+              <Text
+                style={
+                  [
+                    {
+                      "color": "#FFFFFF",
+                      "fontFamily": "NotoNaskhArabic_600SemiBold",
+                      "fontSize": 16,
+                      "lineHeight": 26,
+                      "textAlign": "center",
+                      "writingDirection": "rtl",
+                    },
+                    undefined,
+                  ]
+                }
+              >
+                تمام هيك
+              </Text>
+            </View>
+            <View
+              style={
+                {
+                  "flexDirection": "row",
+                  "gap": 10,
+                }
+              }
+            >
+              <View
+                accessibilityLabel="خطة جديدة"
+                accessibilityRole="button"
+                accessibilityState={
+                  {
+                    "busy": undefined,
+                    "checked": undefined,
+                    "disabled": false,
+                    "expanded": undefined,
+                    "selected": undefined,
+                  }
+                }
+                accessibilityValue={
+                  {
+                    "max": undefined,
+                    "min": undefined,
+                    "now": undefined,
+                    "text": undefined,
+                  }
+                }
+                accessible={true}
+                collapsable={false}
+                focusable={true}
+                onBlur={[Function]}
+                onClick={[Function]}
+                onFocus={[Function]}
+                onResponderGrant={[Function]}
+                onResponderMove={[Function]}
+                onResponderRelease={[Function]}
+                onResponderTerminate={[Function]}
+                onResponderTerminationRequest={[Function]}
+                onStartShouldSetResponder={[Function]}
+                style={
+                  {
+                    "alignItems": "center",
+                    "backgroundColor": "#FFFFFF",
+                    "borderColor": "rgba(20,24,27,0.08)",
+                    "borderRadius": 999,
+                    "borderWidth": 1,
+                    "flex": 1,
+                    "justifyContent": "center",
+                    "minHeight": 48,
+                    "opacity": 1,
+                    "paddingHorizontal": 18,
+                    "paddingVertical": 16,
+                    "transform": [
+                      {
+                        "scale": 1,
+                      },
+                    ],
+                  }
+                }
+                testID="plan-regenerate"
+              >
+                <Text
+                  style={
+                    [
+                      {
+                        "color": "#14181B",
+                        "fontFamily": "NotoNaskhArabic_600SemiBold",
+                        "fontSize": 14,
+                        "lineHeight": 22,
+                        "textAlign": "center",
+                        "writingDirection": "rtl",
+                      },
+                      undefined,
+                    ]
+                  }
+                >
+                  خطة جديدة
+                </Text>
+              </View>
+              <View
+                accessibilityLabel="مش اليوم"
+                accessibilityRole="button"
+                accessibilityState={
+                  {
+                    "busy": undefined,
+                    "checked": undefined,
+                    "disabled": false,
+                    "expanded": undefined,
+                    "selected": undefined,
+                  }
+                }
+                accessibilityValue={
+                  {
+                    "max": undefined,
+                    "min": undefined,
+                    "now": undefined,
+                    "text": undefined,
+                  }
+                }
+                accessible={true}
+                collapsable={false}
+                focusable={true}
+                onBlur={[Function]}
+                onClick={[Function]}
+                onFocus={[Function]}
+                onResponderGrant={[Function]}
+                onResponderMove={[Function]}
+                onResponderRelease={[Function]}
+                onResponderTerminate={[Function]}
+                onResponderTerminationRequest={[Function]}
+                onStartShouldSetResponder={[Function]}
+                style={
+                  {
+                    "alignItems": "center",
+                    "backgroundColor": "transparent",
+                    "borderColor": undefined,
+                    "borderRadius": 999,
+                    "borderWidth": 0,
+                    "flex": 1,
+                    "justifyContent": "center",
+                    "minHeight": 48,
+                    "opacity": 1,
+                    "paddingHorizontal": 18,
+                    "paddingVertical": 16,
+                    "transform": [
+                      {
+                        "scale": 1,
+                      },
+                    ],
+                  }
+                }
+                testID="plan-dismiss"
+              >
+                <Text
+                  style={
+                    [
+                      {
+                        "color": "#5F6B70",
+                        "fontFamily": "NotoNaskhArabic_600SemiBold",
+                        "fontSize": 14,
+                        "lineHeight": 22,
+                        "textAlign": "center",
+                        "writingDirection": "rtl",
+                      },
+                      undefined,
+                    ]
+                  }
+                >
+                  مش اليوم
+                </Text>
+              </View>
+            </View>
+            <Text
+              style={
+                [
+                  {
+                    "color": "#5F6B70",
+                    "fontFamily": "NotoNaskhArabic_400Regular",
+                    "fontSize": 13,
+                    "lineHeight": 21,
+                    "textAlign": "right",
+                    "writingDirection": "rtl",
+                  },
+                  undefined,
+                ]
+              }
+              testID="plan-regenerate-left"
+            >
+              ضلّ 4 طلبات اليوم
+            </Text>
+          </View>
+        </View>
+      </View>
+    </RCTScrollView>
+  </View>
+</RNCSafeAreaProvider>
+`;
