@@ -47,7 +47,7 @@ import {
   deviceCalendarLinkRemovedSchema,
   deviceCalendarLinkResponseSchema,
 } from '../schemas/calendar';
-import { reminderSettingsResponseSchema } from '../schemas/reminders';
+import { reminderSettingsResponseSchema, hardReceiptsResponseSchema } from '../schemas/reminders';
 import { deviceForgottenSchema, deviceRegisteredSchema } from '../schemas/devices';
 
 /**
@@ -161,6 +161,7 @@ const CASES: Array<[string, z.ZodType]> = [
   // moved them somewhere else would rewrite this fixture and fail here.
   ['reminders.settingsDefault', reminderSettingsResponseSchema],
   ['reminders.settingsSaved', reminderSettingsResponseSchema],
+  ['reminders.receiptsRecorded', hardReceiptsResponseSchema],
   ['devices.registered', deviceRegisteredSchema],
   ['devices.forgotten', deviceForgottenSchema],
 ];

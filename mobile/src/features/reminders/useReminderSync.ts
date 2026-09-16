@@ -38,12 +38,15 @@ import {
 import type { ReminderIntensity } from './policy';
 import { recordHardReceipts } from '../../lib/deviceSettings/hardReceiptQueue';
 import { canScheduleExactAlarms } from '../../notifications/exactAlarms';
+import { drainHardReceipts } from './receiptUpload';
 
 export interface ReminderSyncOptions {
   /** Tests hand in a fake; the app lets this default to expo-notifications. */
   gateway?: NotificationGateway;
   /** Tests hand in an answer; the app asks the `exact-alarm` module on every sync. */
   exactAlarms?: () => boolean;
+  /** Tests hand in a fake; the app uploads through `receiptUpload` (#198). */
+  drainReceipts?: (accountId: string) => Promise<unknown>;
 }
 
 /**
@@ -63,6 +66,7 @@ export function useReminderSync(options: ReminderSyncOptions = {}): { resync: ()
   const [defaultGateway] = useState(createExpoGateway);
   const gateway = options.gateway ?? defaultGateway;
   const exactAlarms = options.exactAlarms ?? canScheduleExactAlarms;
+  const drainReceipts = options.drainReceipts ?? drainHardReceipts;
   const [loaded, setLoaded] = useState<{ uid: string | null; cache: AwarenessCache }>(
     { uid: null, cache: EMPTY_AWARENESS },
   );
@@ -181,6 +185,8 @@ export function useReminderSync(options: ReminderSyncOptions = {}): { resync: ()
       // Filed under the account the sync ran for, captured above — not
       // whichever account is signed in by the time the OS answers.
       .then(report => recordHardReceipts(accountId, report.hardReceipts, new Date()))
+      // …and told to the server, which stands its backup push down for each (#198).
+      .then(() => drainReceipts(accountId))
       .catch(() => {
         // A failed sync leaves the OS's pending set as it was, and the next
         // commitment change runs it again. There is nobody to show it to.
@@ -192,7 +198,7 @@ export function useReminderSync(options: ReminderSyncOptions = {}): { resync: ()
           setRerun(value => value + 1);
         }
       });
-  }, [accountId, todayItems, upcomingItems, settingsData, intensity, awareness, gateway, exactAlarms, t, rerun]);
+  }, [accountId, todayItems, upcomingItems, settingsData, intensity, awareness, gateway, exactAlarms, drainReceipts, t, rerun]);
 
   return { resync };
 }

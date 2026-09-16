@@ -121,7 +121,7 @@ describe('the zone a quiet window is read in', () => {
 describe('what the engine is given about a commitment', () => {
   it('carries an id, an instant, a status and a priority, and no words', () => {
     const [narrowed] = toReminderCommitments([commitmentFixture as unknown as Commitment]);
-    expect(Object.keys(narrowed!).sort()).toEqual(['allDay', 'id', 'priority', 'startsAt', 'status']);
+    expect(Object.keys(narrowed!).sort()).toEqual(['allDay', 'id', 'postponedUntil', 'priority', 'startsAt', 'status']);
     expect(JSON.stringify(narrowed)).not.toContain('dentist');
   });
 
@@ -135,6 +135,12 @@ describe('what the engine is given about a commitment', () => {
   it('keeps one copy of a commitment that is in both Today and Upcoming', () => {
     const commitment = commitmentFixture as unknown as Commitment;
     expect(mergeById([commitment], [commitment])).toHaveLength(1);
+  });
+
+  it('carries the postponement through, so a postponed Must ring is not owed (#198, verdict B)', () => {
+    const base = commitmentFixture as unknown as Commitment;
+    const [narrowed] = toReminderCommitments([{ ...base, postponedUntil: '2026-09-16T18:00:00.000Z' }]);
+    expect(narrowed!.postponedUntil).toBe('2026-09-16T18:00:00.000Z');
   });
 
   it('reads Must, Should and Nice exactly as the cards do', () => {

@@ -18,6 +18,8 @@
  * argument, so the stage matrix is a table test rather than a wait.
  */
 
+import { mustRingIdentifier } from './mustRingIdentifier';
+
 export const REMINDER_STAGES = ['soft', 'followUp', 'strong'] as const;
 export type ReminderStage = (typeof REMINDER_STAGES)[number];
 
@@ -74,6 +76,30 @@ export interface ReminderCommitment {
    * for one; see `planFor`.
    */
   readonly allDay: boolean;
+  /**
+   * When the user said "not yet" until (`Postpone`), or null. The start does
+   * not move; see `mustRingsDespitePostpone`.
+   */
+  readonly postponedUntil: string | null;
+}
+
+/**
+ * Whether a Must ring at `fireAt` survives a postponement (council verdict B, #198).
+ *
+ * A ring that would fire before `postponedUntil` does not ring; one at or after
+ * it rings as normal. Time-free on purpose: a `postponedUntil` already in the
+ * past is earlier than any ring still in the future, so a stale postponement
+ * behaves as none without a clock. An unreadable one is none too.
+ *
+ * The server applies the same predicate (`mustRingsDespitePostpone` in
+ * `lib/services/reminders/hardReminderIndex.ts`) and both are held to one
+ * table, `__fixtures__/hardRingParity.json`.
+ */
+export function mustRingsDespitePostpone(fireAt: number, postponedUntil: string | null): boolean {
+  if (postponedUntil === null) return true;
+  const until = Date.parse(postponedUntil);
+  if (Number.isNaN(until)) return true;
+  return fireAt >= until;
 }
 
 /**
@@ -163,6 +189,9 @@ export function planFor(
     if (stage === 'strong' && commitment.allDay) continue;
     const leadMinutes = leadMinutesFor(stage, settings);
     if (stage !== 'soft' && leadMinutes >= settings.softLeadMinutes) continue;
+    const at = startsAt - leadMinutes * 60_000;
+    // Only the Must ring. The gentle stages keep #196's behaviour.
+    if (stage === 'strong' && !mustRingsDespitePostpone(at, commitment.postponedUntil)) continue;
     planned.push({ stage, at: startsAt - leadMinutes * 60_000, leadMinutes });
   }
   return planned.sort((left, right) => left.at - right.at);
@@ -170,6 +199,9 @@ export function planFor(
 
 /** `${commitmentId}:${stage}` — the identifier the OS holds the request under. */
 export function requestIdentifier(commitmentId: string, stage: ReminderStage): string {
+  // The Must ring's identifier is also the backup push's collapse id and tag,
+  // so it is bounded to what those fields accept (#198 review F2).
+  if (stage === 'strong') return mustRingIdentifier(commitmentId);
   return `${commitmentId}:${stage}`;
 }
 

@@ -12,6 +12,8 @@ import {
 import { routeFromNotification } from '../../notifications/routeFromNotification';
 import { clearAwareness, markAware } from '../../lib/deviceSettings/awarenessStore';
 import { clearHardReceipts } from '../../lib/deviceSettings/hardReceiptQueue';
+import { drainHardReceipts } from './receiptUpload';
+import { AppState } from 'react-native';
 import { useToday, useUpcoming } from '../../api/queries';
 import { startOf } from './reminderInputs';
 import { useReminderSync } from './useReminderSync';
@@ -62,6 +64,17 @@ export function RemindersMount(): null {
   useEffect(() => {
     latest.current = { actions, accountId, today, upcoming, resync };
   });
+
+  // Receipts that did not reach the server last time go when the app comes
+  // back (#198). A sync also drains, but a phone that was offline for the sync
+  // and then returns with nothing changed would otherwise never say.
+  useEffect(() => {
+    if (!accountId) return;
+    const subscription = AppState.addEventListener('change', state => {
+      if (state === 'active') void drainHardReceipts(accountId);
+    });
+    return () => subscription.remove();
+  }, [accountId]);
 
   useEffect(() => {
     void configureNotifications({

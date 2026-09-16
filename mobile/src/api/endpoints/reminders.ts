@@ -1,5 +1,10 @@
 import { apiRequest } from '../client';
-import { reminderSettingsResponseSchema, type ReminderSettingsResponse } from '../schemas/reminders';
+import {
+  hardReceiptsResponseSchema,
+  reminderSettingsResponseSchema,
+  type HardReceiptsResponse,
+  type ReminderSettingsResponse,
+} from '../schemas/reminders';
 
 /** What this account has chosen about gentle reminders (UC-3.11, #196). */
 export function getReminderSettings(): Promise<ReminderSettingsResponse> {
@@ -35,5 +40,21 @@ export function putReminderSettings(patch: ReminderSettingsPatch): Promise<Remin
   return apiRequest('PUT', '/api/mobile/settings/reminders', {
     body: patch,
     schema: reminderSettingsResponseSchema,
+  });
+}
+
+export interface HardReceiptUpload {
+  installationId: string;
+  receipts: { commitmentId: string; notificationId: string; fireAt: string; exact: boolean }[];
+}
+
+/**
+ * "This phone will ring for these Must reminders" (UC-3.12b, #198). Ids,
+ * instants and a boolean — the server stands its backup push down for each.
+ */
+export function postHardReceipts(upload: HardReceiptUpload): Promise<HardReceiptsResponse> {
+  return apiRequest('POST', '/api/mobile/reminders/receipts', {
+    body: upload,
+    schema: hardReceiptsResponseSchema,
   });
 }

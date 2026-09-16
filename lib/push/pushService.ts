@@ -82,6 +82,8 @@ export const PUSH_DATA_KEYS: readonly string[] = [
   'commitmentId',
   'notificationId',
   'dedupeKey',
+  /** The notification's identity on Android, as expo-notifications reads it (#198). */
+  'tag',
 ];
 
 /**
@@ -121,6 +123,17 @@ export const CATEGORY_FOR: Readonly<Record<PushKind, string>> = Object.freeze({
  * cap is checked here, where the caller can still be told which key was wrong.
  */
 export const MAX_DEDUPE_KEY_LENGTH = 64;
+
+/**
+ * The sound each kind plays. `hard_reminder` plays the file the app bundles
+ * (`mobile/assets/sounds/maybesitter_hard.wav`, UC-3.12a #197); iOS looks it up
+ * by name in the app bundle. Android ignores this from 8.0 on and plays the
+ * channel's sound, which for `maybesitter_hard` is the same file.
+ */
+export const SOUND_FOR: Readonly<Record<PushKind, string>> = Object.freeze({
+  plan_ready: 'default',
+  hard_reminder: 'maybesitter_hard.wav',
+});
 const DEDUPE_KEY = /^[A-Za-z0-9][A-Za-z0-9:._-]*$/;
 
 /**
@@ -132,10 +145,10 @@ const DEDUPE_KEY = /^[A-Za-z0-9][A-Za-z0-9:._-]*$/;
  * used to delete every device the account had (see `DEAD_TOKEN_CODES`).
  *
  * There is a per-value cap and no total cap, and that is deliberate rather than
- * an omission: `PUSH_DATA_KEYS` is a closed list of five, so the whole map is
- * bounded at 5 × 256 bytes plus about 60 bytes of key names — a little over
- * 1.3 KB — and with 512 bytes each of title and body the largest message this
- * guard permits is roughly 2.4 KB against a 4 KB limit. A total cap on top of
+ * an omission: `PUSH_DATA_KEYS` is a closed list of six, so the whole map is
+ * bounded at 6 × 256 bytes plus about 65 bytes of key names — a little over
+ * 1.6 KB — and with 512 bytes each of title and body the largest message this
+ * guard permits is roughly 2.6 KB against a 4 KB limit. A total cap on top of
  * that could never fire, and a guard that cannot fail is the thing this lane
  * has already had to delete twice.
  *
@@ -159,6 +172,20 @@ export interface PushMessage {
   readonly kind: PushKind;
   readonly uid: string;
   readonly dedupeKey: string;
+  /**
+   * The identifier the notification is *shown* under, when it must be the same
+   * as one the phone may already be showing (UC-3.12b, #198).
+   *
+   * `dedupeKey` stops the server sending twice; this stops the phone showing
+   * twice. It becomes `apns-collapse-id`, which iOS uses as the notification
+   * request's identifier, and the Android notification's `tag`, which is what
+   * expo-notifications passes to `NotificationManager.notify(tag, 0, …)` for a
+   * local notification. So a backup push for a Must reminder carries the local
+   * reminder's identifier, `${commitmentId}:strong`, and whichever of the two
+   * arrives second *replaces* the first in the notification centre instead of
+   * standing beside it. Absent, both fall back to `dedupeKey` as before.
+   */
+  readonly collapseId?: string;
   /** Identifiers only; see `PUSH_DATA_KEYS`. */
   readonly data: Record<string, string>;
   /** Generic and already localised. Never a commitment title. */
@@ -209,7 +236,7 @@ export interface FcmMessage {
   android: {
     priority: 'high' | 'normal';
     collapseKey: string;
-    notification: { channelId: string };
+    notification: { channelId: string; tag: string; sound?: string };
   };
 }
 
@@ -232,6 +259,17 @@ export function assertPushData(message: PushMessage): void {
   }
   if (typeof message.dedupeKey !== 'string' || !DEDUPE_KEY.test(message.dedupeKey)) {
     throw new PushPayloadError('dedupeKey must be an identifier', 'invalid_dedupe_key');
+  }
+  if (message.collapseId !== undefined) {
+    if (typeof message.collapseId !== 'string' || !DEDUPE_KEY.test(message.collapseId)) {
+      throw new PushPayloadError('collapseId must be an identifier', 'invalid_collapse_id');
+    }
+    if (message.collapseId.length > MAX_DEDUPE_KEY_LENGTH) {
+      throw new PushPayloadError(
+        `collapseId must be at most ${MAX_DEDUPE_KEY_LENGTH} characters; APNs refuses a longer collapse id`,
+        'collapse_id_too_long',
+      );
+    }
   }
   if (message.dedupeKey.length > MAX_DEDUPE_KEY_LENGTH) {
     throw new PushPayloadError(
@@ -377,7 +415,7 @@ export function buildFcmMessage(message: PushMessage, device: DeviceRecord): Fcm
     apns: {
       headers: {
         'apns-priority': '10',
-        'apns-collapse-id': message.dedupeKey,
+        'apns-collapse-id': message.collapseId ?? message.dedupeKey,
         // Alert pushes need this; a background push would need '5'/'background'.
         'apns-push-type': 'alert',
       },
@@ -385,14 +423,20 @@ export function buildFcmMessage(message: PushMessage, device: DeviceRecord): Fcm
         aps: {
           'interruption-level': message.urgency === 'time_sensitive' ? 'time-sensitive' : 'active',
           category: CATEGORY_FOR[message.kind],
-          sound: 'default',
+          sound: SOUND_FOR[message.kind],
         },
       },
     },
     android: {
       priority: 'high',
       collapseKey: message.dedupeKey,
-      notification: { channelId: CHANNEL_FOR[message.kind] },
+      notification: {
+        channelId: CHANNEL_FOR[message.kind],
+        tag: message.collapseId ?? message.dedupeKey,
+        // Below Android 8 there are no channels and this is what plays; the
+        // resource name, without its extension, as `res/raw` holds it.
+        ...(message.kind === 'hard_reminder' ? { sound: 'maybesitter_hard' } : {}),
+      },
     },
   };
 }

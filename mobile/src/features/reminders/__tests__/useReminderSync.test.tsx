@@ -98,12 +98,18 @@ let client: QueryClient;
 let repository: FakeAuthRepository;
 const savedFlag = process.env.EXPO_PUBLIC_FEATURE_SOFT_REMINDERS;
 
+const drains: string[] = [];
+const drainReceipts = async (accountId: string) => {
+  drains.push(accountId);
+};
+
 function Harness({ gateway, exactAlarms }: { gateway: NotificationGateway; exactAlarms: () => boolean }) {
-  useReminderSync({ gateway, exactAlarms });
+  useReminderSync({ gateway, exactAlarms, drainReceipts });
   return null;
 }
 
 async function mount(gateway: NotificationGateway, exactAlarms: () => boolean = () => true) {
+  drains.length = 0;
   return render(
     <AppProvider>
       <AuthProvider repository={repository} isDevBundle={false}>
@@ -275,6 +281,8 @@ describe('Must reminders on the device (#197)', () => {
       }]);
     });
     expect(asked).toHaveBeenCalled();
+    // And drained to the server for the same account, after the receipts were filed (#198).
+    await waitFor(() => expect(drains).toContain(USER.uid));
   });
 
   it('does not ring a Must commitment for an account that has not opted in', async () => {

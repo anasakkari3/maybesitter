@@ -52,3 +52,16 @@ export const reminderSettingsResponseSchema = z.object({
 export type QuietHours = z.infer<typeof quietHoursSchema>;
 export type ReminderSettingsDto = z.infer<typeof reminderSettingsSchema>;
 export type ReminderSettingsResponse = z.infer<typeof reminderSettingsResponseSchema>;
+
+/**
+ * `POST /api/mobile/reminders/receipts` (UC-3.12b, #198). A 200 either way:
+ * `ignored` counts receipts for reminders that had moved or gone, which is a
+ * race the phone cannot act on, not an error.
+ */
+export const hardReceiptsResponseSchema = z.object({
+  success: z.literal(true),
+  accepted: z.number(),
+  ignored: z.number(),
+});
+
+export type HardReceiptsResponse = z.infer<typeof hardReceiptsResponseSchema>;

@@ -11,6 +11,8 @@
 #   deletionReceipts  400 days - proof a deletion happened, naming nobody (#149)
 #   accountDeletions  30 days  - the deletion job, kept only so a repeat request
 #                                is idempotent; it holds no uid once done (#149)
+#   hardReminders      2 days  - one Must reminder the server may have to back
+#                                up: ids and instants, no title (#198)
 #
 # Retention is enforced by Firestore rather than by a cron job we have to keep
 # alive: each document is written with an `expiresAt` timestamp and the TTL
@@ -52,6 +54,10 @@ COLLECTION_GROUPS=(
   # remove them.
   "deletionReceipts"
   "accountDeletions"
+  # UC-3.12b (#198): the Must-reminder index. A row is written with `expiresAt`
+  # two days past the reminder it describes; after that it is a record of a
+  # notification nobody can act on.
+  "hardReminders"
 )
 
 usage() {

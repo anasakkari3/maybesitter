@@ -191,6 +191,19 @@ export const DEVICES = 'devices';
 export const PUSH_LOG = 'pushLog';
 
 /**
+ * One document per Must commitment that may need a server backup push
+ * (UC-3.12b, #198), `users/{uid}/hardReminders/{sha256(commitmentId)}`.
+ *
+ * An index, not a copy: the commitment id, the instant the reminder is for, a
+ * status, and the receipt a phone uploaded saying it will ring locally. No
+ * title. Maintained by `lib/services/reminders/hardReminderIndex` from the one
+ * place every commitment write goes through (`writeDomainDiff`), and read by
+ * the hard-reminders job through a collection-group query. `expiresAt` is its
+ * TTL field.
+ */
+export const HARD_REMINDERS = 'hardReminders';
+
+/**
  * The activity counters behind the weekly Moments (UC-3.15, #201).
  *
  * A counter rather than a query over the user's items, because a Moment is a
@@ -242,6 +255,7 @@ export const USER_SCOPED_COLLECTIONS = [
   BUSY_BLOCKS,
   DEVICES,
   PUSH_LOG,
+  HARD_REMINDERS,
 ] as const;
 
 /** Operator-only, outside every user tree. */

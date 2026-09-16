@@ -19,6 +19,7 @@
  */
 import { resumeStalledDeletions } from '../account/accountDeletion';
 import { runDailyPlanTick, type DailyPlanTickTotals } from '../services/dailyPlan/dailyPlanService';
+import { runHardReminderTick, type HardReminderTickTotals } from '../services/reminders/hardReminderJob';
 import { applyParticipantCommand } from '../services/mobile/participantState';
 import { ValidationError } from '../../src/domain/stateMachine';
 import { runDueJobs, type CommandHandler, type SchedulerStore } from '../../src/scheduler/jobRunner';
@@ -172,6 +173,7 @@ export interface InternalJobsDeps {
   tick?: () => Promise<TickTotals>;
   maintenance?: () => Promise<{ ok: boolean; steps: MaintenanceStep[] }>;
   dailyPlan?: () => Promise<DailyPlanTickTotals>;
+  hardReminders?: () => Promise<HardReminderTickTotals>;
 }
 
 function authOptions(deps: InternalJobsDeps): { env?: NodeJS.ProcessEnv; verify?: OidcVerify } {
@@ -212,6 +214,26 @@ export async function handleDailyPlanRequest(request: HeaderBearing, deps: Inter
   } catch (error) {
     console.error('[internal/jobs/daily-plan] sweep failed', error);
     return Response.json({ error: 'daily_plan_failed' }, { status: 500 });
+  }
+}
+
+/**
+ * `POST /api/internal/jobs/hard-reminders` (UC-3.12b, #198).
+ *
+ * Its own cron for the same reason the daily plan has one: a failure here must
+ * retry the Must reminders that are due in this minute and nothing else. A
+ * reminder is worth at most one push and the window is minutes wide, so a 5xx
+ * that makes Cloud Scheduler retry is the right answer — the rows this call
+ * already sent have left `pending` and the retry cannot send them again.
+ */
+export async function handleHardRemindersRequest(request: HeaderBearing, deps: InternalJobsDeps = {}): Promise<Response> {
+  const auth = await authorizeSchedulerRequest(request, authOptions(deps));
+  if (!auth.ok) return schedulerAuthErrorResponse(auth);
+  try {
+    return Response.json(await (deps.hardReminders ?? runHardReminderTick)());
+  } catch (error) {
+    console.error('[internal/jobs/hard-reminders] sweep failed', error);
+    return Response.json({ error: 'hard_reminders_failed' }, { status: 500 });
   }
 }
 

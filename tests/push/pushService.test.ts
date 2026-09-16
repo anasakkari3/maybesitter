@@ -399,7 +399,7 @@ test('an oversized payload is refused before any storage or network call', async
   /*
    * And the arithmetic that says a *total* cap would be dead code, asserted
    * rather than reasoned about in a comment. `PUSH_DATA_KEYS` is closed at
-   * five, so the largest map this guard admits is five maximum-length values
+   * six (#198 added `tag`), so the largest map this guard admits is six maximum-length values
    * plus the key names — and the largest whole message is that plus a
    * maximum title and body, which has to stay under the 4 KB both platforms
    * refuse at. If a sixth key is ever added, this is what goes red.
