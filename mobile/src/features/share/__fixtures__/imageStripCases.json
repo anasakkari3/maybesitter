@@ -160,6 +160,76 @@
     "removedBytes": 0
   },
   {
+    "name": "decoy_soi_hides_app1",
+    "mediaType": "image/jpeg",
+    "expected": "refused",
+    "because": "a second SOI has no length; reading one hides an Exif GPS block inside it",
+    "input": "/9j/2AAo/+EAJEV4aWYAAEdQUy1TRUNSRVQtMzEuNzY4M04tMzUuMjEzN0X/wAALCABAAEABAREA/9oACAEBAAA/AEFC/9k=",
+    "output": null,
+    "removedSegments": 0,
+    "removedBytes": 0
+  },
+  {
+    "name": "decoy_soi_after_scan",
+    "mediaType": "image/jpeg",
+    "expected": "refused",
+    "because": "the same decoy after a scan, where the entropy walk hands it back to the marker loop",
+    "input": "/9j/wAALCABAAEABAREA/9oACAEBAAA/AEFC/9gAKP/hACRFeGlmAABHUFMtU0VDUkVULTMxLjc2ODNOLTM1LjIxMzdF/9k=",
+    "output": null,
+    "removedSegments": 0,
+    "removedBytes": 0
+  },
+  {
+    "name": "decoy_soi_hides_thumbnail",
+    "mediaType": "image/jpeg",
+    "expected": "refused",
+    "because": "a whole thumbnail with its own GPS hidden behind a decoy SOI",
+    "input": "/9j/2ABF/9j/4QAkRXhpZgAAR1BTLVNFQ1JFVC0zMS43NjgzTi0zNS4yMTM3Rf/AAAsIAEAAQAEBEQD/2gAIAQEAAD8AECD/2f/AAAsIAEAAQAEBEQD/2gAIAQEAAD8AQUL/2Q==",
+    "output": null,
+    "removedSegments": 0,
+    "removedBytes": 0
+  },
+  {
+    "name": "tem_before_scan",
+    "mediaType": "image/jpeg",
+    "expected": "refused",
+    "because": "TEM outside a scan is not in a picture an encoder writes; refusing it bounds the walk",
+    "input": "/9j/Af8B/wH/Af8B/wH/Af8B/wH/Af8B/wH/Af8B/wH/Af8B/wH/Af8B/wH/Af8B/wH/Af8B/wH/Af8B/wH/Af8B/wH/Af8B/wH/Af8B/wH/Af8B/wH/Af8B/wH/Af8B/wH/Af8B/wH/Af8B/wH/Af8B/wH/Af8B/wH/Af8B/wH/Af/AAAsIAEAAQAEBEQD/2gAIAQEAAD8AQUL/2Q==",
+    "output": null,
+    "removedSegments": 0,
+    "removedBytes": 0
+  },
+  {
+    "name": "restart_marker_before_scan",
+    "mediaType": "image/jpeg",
+    "expected": "refused",
+    "because": "a restart marker only means something inside a scan",
+    "input": "/9j/0P/Q/9D/0P/Q/9D/0P/Q/9D/0P/Q/9D/0P/Q/9D/0P/Q/9D/0P/Q/9D/0P/Q/9D/0P/Q/9D/0P/Q/9D/0P/Q/9D/0P/Q/9D/0P/Q/9D/0P/Q/9D/0P/Q/9D/0P/Q/9D/0P/Q/9D/0P/Q/9D/0P/Q/9D/0P/Q/9D/0P/Q/9D/0P/AAAsIAEAAQAEBEQD/2gAIAQEAAD8AQUL/2Q==",
+    "output": null,
+    "removedSegments": 0,
+    "removedBytes": 0
+  },
+  {
+    "name": "unknown_length_marker",
+    "mediaType": "image/jpeg",
+    "expected": "refused",
+    "because": "a segment code outside the known list is refused rather than copied (JPEG-LS SOF55 here)",
+    "input": "/9j/9wAo/+EAJEV4aWYAAEdQUy1TRUNSRVQtMzEuNzY4M04tMzUuMjEzN0X/wAALCABAAEABAREA/9oACAEBAAA/AEFC/9k=",
+    "output": null,
+    "removedSegments": 0,
+    "removedBytes": 0
+  },
+  {
+    "name": "jpeg_without_eoi",
+    "mediaType": "image/jpeg",
+    "expected": "refused",
+    "because": "a picture that never ends is one this cannot account for to the last byte",
+    "input": "/9j/wAALCABAAEABAREA/9oACAEBAAA/AEFCQw==",
+    "output": null,
+    "removedSegments": 0,
+    "removedBytes": 0
+  },
+  {
     "name": "truncated_png",
     "mediaType": "image/png",
     "expected": "refused",
