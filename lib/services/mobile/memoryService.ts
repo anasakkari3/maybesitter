@@ -481,6 +481,10 @@ export async function deleteAllMemory(
     now: at,
     feedbackEvents,
     runtimeMemory: memory,
+    // The adapter this call was handed, not the process default: otherwise a
+    // caller that injects storage has its derived collections purged from a
+    // different store than the one its memory lives in.
+    ...(options.storage ? { storage: options.storage } : {}),
   });
 
   // The baseline is not an event, so it is not in the receipt's event count;

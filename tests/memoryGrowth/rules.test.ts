@@ -172,3 +172,22 @@ test('the rules read no ambient clock and no random source', () => {
   assert.doesNotMatch(source, /Math\.random|randomUUID/);
   assert.doesNotMatch(source, /from '\.\.\/storage|getStorage/);
 });
+
+// ── The stored sentence ──────────────────────────────────────────
+
+test('the kept sentence passes the same §13, shame and coercion lexicons as the plan, in every language', async () => {
+  const { EXPLANATION_LEXICONS } = await import('../../lib/services/dailyPlan/explanationValidator.ts');
+  const { KEPT_SUGGESTION_CONTENT, KEPT_SUGGESTION_LANGUAGES, keptFocusWindowContent } = await import('../../lib/memoryGrowth/templates.ts');
+  assert.deepEqual([...KEPT_SUGGESTION_LANGUAGES].sort(), ['ar', 'en', 'he']);
+  for (const language of KEPT_SUGGESTION_LANGUAGES) {
+    const sentence = keptFocusWindowContent({ start: '09:00', end: '12:00' }, language);
+    assert.ok(sentence.includes('09:00') && sentence.includes('12:00'), `${language}: the window is not in the sentence`);
+    assert.doesNotMatch(sentence, /\{|\}/, `${language}: a placeholder survived`);
+    const lexicon = EXPLANATION_LEXICONS[language];
+    for (const [name, patterns] of Object.entries(lexicon)) {
+      for (const pattern of patterns as readonly RegExp[]) {
+        assert.doesNotMatch(sentence, pattern, `${language}: ${name} lexicon matched ${KEPT_SUGGESTION_CONTENT[language]}`);
+      }
+    }
+  }
+});
