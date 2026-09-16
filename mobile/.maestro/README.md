@@ -235,3 +235,24 @@ that plan under today's heading. Jest holds what the card *decides* — nothing
 while loading, nothing on an error, nothing once somebody has said "not today"
 (`TodayPlanCard.test.tsx`); this flow only shows that it is reachable and opens
 the right screen.
+
+## `activity.yaml` (UC-3.15, #201)
+
+Settings → «نشاطي»: the week card, the history, pull to refresh, and back.
+
+**#201's device criterion is this flow on a staging build with a fresh
+account**, which shows the calm empty history and «أسبوع هادي. وهاد تمام.»
+instead of three zeroes. A staging build cannot run in mock mode
+(`releaseConfigProblems`), so what renders is the server's answer and no
+fixture activity can reach it. On an account that has already done something
+the flow takes the other branch and asserts a real entry instead — it never
+claims "fresh account" about an account that is not.
+
+"Completing a commitment shows it in history within one refresh, with the
+correct title" is not in this flow: it needs a commitment seeded through
+capture, which needs the API and a signed-in session, and is the manual step on
+#201. What the refresh invalidates is proven in Jest
+(`queries.ts` `invalidateCommitments`, `planActivityFreshness.test.tsx`).
+
+Needs a **signed-in** build. Maestro cannot type into a secure field, so it
+cannot sign in by itself.

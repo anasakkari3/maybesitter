@@ -259,9 +259,11 @@ test('a whole plan lifecycle writes nothing into any commitments collection', as
       'the daily plan wrote into a commitments collection',
     );
     // And the wider rule: nothing outside the user document, the plan and its
-    // ledger was written at all.
+    // ledger was written at all — plus the one activity counter accepting a
+    // plan advances in the same commit as its ledger entry (UC-3.15, #201),
+    // which is a forward-only tally and names no commitment.
     assert.deepEqual(
-      writes.filter((path) => !new RegExp(`^users/${UID}(/(plans|planEvents)/[^/]+)?$`).test(path)),
+      writes.filter((path) => !new RegExp(`^users/${UID}((/(plans|planEvents)/[^/]+)|/stats/activity)?$`).test(path)),
       [],
       'the daily plan wrote somewhere this feature does not own',
     );

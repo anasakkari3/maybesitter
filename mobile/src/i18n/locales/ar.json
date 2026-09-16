@@ -627,6 +627,7 @@
   "activityKindDropped": "أسقطته بوعي",
   "activityKindPlanAccepted": "قبلت الخطة",
   "activityKindReminderAcknowledged": "شفت التذكير",
+  "activityPlanFor": "خطة {date}",
   "activityMovedTo": "أجّلته لـ {date}",
   "activityUnavailable": "ما قدرنا نوصل لنشاطك هلّق. ولا شي تغيّر.",
   "shareTitle": "الشي يلي شاركته",

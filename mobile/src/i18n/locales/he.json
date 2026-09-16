@@ -630,6 +630,7 @@
   "activityKindDropped": "הופל במודע",
   "activityKindPlanAccepted": "התוכנית אושרה",
   "activityKindReminderAcknowledged": "התזכורת נראתה",
+  "activityPlanFor": "התוכנית של {date}",
   "activityMovedTo": "הוזז ל-{date}",
   "activityUnavailable": "לא הצלחנו להגיע לפעילות שלך כרגע. שום דבר לא השתנה.",
   "shareTitle": "מה ששיתפת",

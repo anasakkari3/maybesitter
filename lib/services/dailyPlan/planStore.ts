@@ -199,10 +199,22 @@ export async function appendPlanEvent(
   event: Omit<PlanEvent, 'id'>,
   storage?: StorageAdapter,
 ): Promise<PlanEvent> {
-  const record: PlanEvent = { id: randomUUID(), ...event };
-  const docId = sortableDocId(record.at, record.id);
-  await storageOf(storage).set<PlanEvent>(`${userCol(uid, PLAN_EVENTS)}/${docId}`, record);
+  const { path, record } = preparePlanEvent(uid, event);
+  await storageOf(storage).set<PlanEvent>(path, record);
   return record;
+}
+
+/**
+ * A ledger entry and where it goes, without writing it.
+ *
+ * For a caller that must write the entry inside a transaction alongside
+ * something else — `acceptPlan` advances the activity counter (#201) in the
+ * same commit. The id is minted here, outside that transaction, so a retried
+ * transaction body writes the same record rather than a new one per attempt.
+ */
+export function preparePlanEvent(uid: string, event: Omit<PlanEvent, 'id'>): { path: string; record: PlanEvent } {
+  const record: PlanEvent = { id: randomUUID(), ...event };
+  return { path: `${userCol(uid, PLAN_EVENTS)}/${sortableDocId(record.at, record.id)}`, record };
 }
 
 export async function listPlanEvents(uid: string, storage?: StorageAdapter): Promise<PlanEvent[]> {

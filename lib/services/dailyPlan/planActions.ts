@@ -31,14 +31,18 @@ import {
 } from '../../planning/constraints';
 import { intervalsOverlap, toEpochMs } from '../../planning/shared/time';
 import type { Plan, PlannedItem, TimeInterval } from '../../../src/contracts/v1/planningContracts';
-import type { StorageAdapter } from '../../storage';
+import { getStorage, type StorageAdapter } from '../../storage';
+import { readActivityStats, recordActivityEvents } from '../activity/activityStats';
+import { earliestLedgerAcceptance, planEventAsRecord } from '../activity/planActivity';
 import { schedulePlan } from '../../planning/scheduler';
 import {
   appendPlanEvent,
   mutateStoredPlan,
+  preparePlanEvent,
   readStoredPlan,
   replaceStoredPlan,
   type PlanEdits,
+  type PlanEvent,
   type PlanMove,
   type StoredDailyPlan,
 } from './planStore';
@@ -199,9 +203,23 @@ export async function acceptPlan(uid: string, date: string, options: PlanActionO
     result: null,
   }), options.storage);
   if (!outcome) return null;
-  await appendPlanEvent(uid, {
+  const { path, record } = preparePlanEvent(uid, {
     type: 'plan_accepted', date, at, generation: outcome.stored.generation, inputDigest: outcome.stored.inputDigest,
-  }, options.storage);
+  });
+  // The ledger entry and the activity counter commit together (#201): a
+  // counter bumped in a second write drifts on every crash between the two,
+  // and the first-plan Moment would then disagree with the history.
+  await (options.storage ?? getStorage()).runTransaction(async (tx) => {
+    const stats = await readActivityStats(tx, uid);
+    // A legacy acceptance (ledger entry, no counter) keeps its own, earlier
+    // date: once this sets the counter, the summary stops scanning for one.
+    const legacy = stats.firstPlanAcceptedAt === null ? await earliestLedgerAcceptance(tx, uid) : null;
+    tx.set<PlanEvent>(path, record);
+    recordActivityEvents(tx, uid, stats, [
+      planEventAsRecord(record),
+      ...(legacy ? [{ id: 'legacy', type: 'plan_accepted', at: legacy, aggregateId: '', payload: {} }] : []),
+    ]);
+  });
   return outcome.stored;
 }
 

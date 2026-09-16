@@ -18,14 +18,18 @@
  * event types `src/domain/stateMachine.ts` actually emits, so adding one there
  * fails until it is either mapped or listed as deliberately not user-facing.
  *
- * ── Two kinds with no producer ───────────────────────────────────
+ * ── Where the last two kinds come from ───────────────────────────
  *
- * `plan_accepted` (UC-3.10a, #194) and `reminder_acknowledged` (UC-3.14, #200)
- * are in the contract because the client, the schema and the copy are built
- * around the full set — but nothing in this repository emits either event yet.
- * They are mapped here rather than added later so that when those issues land
- * the shape does not move underneath a shipped client. Nothing fabricates
- * them: an account today simply never sees those two kinds.
+ * `plan_accepted` is produced by UC-3.10a (#194), which keeps it in its own
+ * ledger (`users/{uid}/planEvents`) rather than in this log. activityService
+ * merges that ledger in, through planActivity's own allowlist, and hands the
+ * accepted entries to this projection shaped as records — so it is mapped
+ * here once, whichever collection it was read from.
+ *
+ * `reminder_acknowledged` (UC-3.14, #200) still has no producer. It is in the
+ * contract because the client, the schema and the copy are built around the
+ * full set, so that #200 lands additively rather than moving the shape under
+ * a shipped client. Nothing fabricates it: no account sees that kind today.
  *
  * ── `commitment_aware` is deliberately not here ──────────────────
  *
@@ -61,7 +65,7 @@ export interface ActivityItem {
   commitmentId: string | null;
   /** Null when the commitment is gone; the client names that, not this. */
   commitmentTitle: string | null;
-  detail?: { postponedUntil?: string };
+  detail?: { postponedUntil?: string; planDate?: string };
 }
 
 /**
@@ -74,15 +78,18 @@ export const ACTIVITY_KIND_BY_EVENT_TYPE: Readonly<Record<string, ActivityKind>>
   commitment_completed: 'completed',
   commitment_postponed: 'postponed',
   commitment_dropped: 'dropped',
-  // No producer in this repository yet — see the header.
+  // Read from the plan ledger (#194) — see the header.
   plan_accepted: 'plan_accepted',
+  // No producer in this repository yet (#200) — see the header.
   reminder_acknowledged: 'reminder_acknowledged',
 });
 
 /** The kinds an account can actually be shown today. */
 export const PRODUCED_ACTIVITY_KINDS: readonly ActivityKind[] = Object.freeze([
-  'captured', 'confirmed', 'completed', 'postponed', 'dropped',
+  'captured', 'confirmed', 'completed', 'postponed', 'dropped', 'plan_accepted',
 ]);
+
+const PLAN_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 export interface CommitmentTitleSource {
   title: string;
@@ -121,6 +128,10 @@ export function projectActivity(
     const postponedUntil = event.payload?.postponedUntil;
     if (kind === 'postponed' && typeof postponedUntil === 'string') {
       item.detail = { postponedUntil };
+    }
+    const planDate = event.payload?.planDate;
+    if (kind === 'plan_accepted' && typeof planDate === 'string' && PLAN_DATE.test(planDate)) {
+      item.detail = { planDate };
     }
     items.push(item);
   }

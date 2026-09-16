@@ -60,7 +60,7 @@ export interface WeeklySummary {
   /** The local calendar date the week starts on, `YYYY-MM-DD`. */
   weekStart: string;
   completedCount: number;
-  /** Local days in the week with an accepted plan. Zero until #194 lands. */
+  /** Local days in the week on which a plan was accepted (#194's ledger). */
   plannedDaysCount: number;
   /** Must/Should items due this week and finished within a day of their time. */
   keptCount: number;

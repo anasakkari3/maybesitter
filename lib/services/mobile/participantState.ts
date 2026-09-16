@@ -46,6 +46,8 @@ import {
   ESCALATION_STATES,
   EVENTS,
   getStorage,
+  PLAN_EVENTS,
+  PLANS,
   RECOMMENDATION_ACTIONS,
   REMINDERS,
   requireDocId,
@@ -116,6 +118,12 @@ const PARTICIPANT_COLLECTIONS = [
   // survive the person deleting their data, which is a different request and
   // the one where leaving a count behind would be retention nobody asked for.
   STATS,
+  // The daily plan and its ledger (#194). Activity reads the ledger back for
+  // history, days with a plan and a legacy first-plan Moment (#201), so a wipe
+  // that left it would resurrect all three on an account that asked to be
+  // emptied.
+  PLANS,
+  PLAN_EVENTS,
 ] as const;
 
 function cloneState(state: DomainState): DomainState {

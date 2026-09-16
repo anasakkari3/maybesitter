@@ -520,6 +520,9 @@ function adoptPlan(client: QueryClient, uid: string, date: string, plan: DailyPl
   client.setQueryData(queryKeys.plan(uid, date), plan);
   void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
   void client.invalidateQueries({ queryKey: queryKeys.activity(uid) });
+  // An accepted plan is a day with a plan, and the first one a Moment
+  // (#201) — both live in the week's summary, which is its own key.
+  void client.invalidateQueries({ queryKey: ['user', uid, 'activitySummary'] });
 }
 
 /**
