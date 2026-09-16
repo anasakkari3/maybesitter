@@ -11,6 +11,10 @@ import {
   type ProviderFailure,
   type ProviderOAuthTokenMetadata,
 } from '../providers/providerRuntime';
+import {
+  untrustedExternalContentBoundary,
+  type ExternalInstructionSignal,
+} from '../providers/untrustedExternalContent';
 
 export const GMAIL_PROVIDER = 'google' as const;
 
@@ -30,13 +34,6 @@ export interface GmailMessagePayload {
   readonly text: string;
 }
 
-export type MailInjectionSignal =
-  | 'role_override'
-  | 'tool_request'
-  | 'secret_request'
-  | 'external_write_request'
-  | 'data_deletion_request';
-
 export interface GmailUntrustedContext {
   readonly trust: 'untrusted_external_content';
   readonly contentClass: 'email';
@@ -52,7 +49,7 @@ export interface GmailUntrustedContext {
   readonly subject: string | null;
   readonly text: string;
   readonly dedupeKey: string;
-  readonly injectionSignals: readonly MailInjectionSignal[];
+  readonly injectionSignals: readonly ExternalInstructionSignal[];
   readonly provenance: {
     readonly source: 'gmail';
     readonly fetchedAt: string;
@@ -115,14 +112,6 @@ export class GmailProviderError extends Error {
   }
 }
 
-const INJECTION_PATTERNS: readonly [MailInjectionSignal, RegExp][] = [
-  ['role_override', /(?:ignore|override|replace).{0,30}(?:previous|system|developer).{0,20}(?:instruction|prompt|rule)/i],
-  ['tool_request', /(?:call|invoke|run|execute).{0,30}(?:tool|function|mcp|api)/i],
-  ['secret_request', /(?:reveal|send|print|expose).{0,30}(?:secret|token|password|credential|system prompt)/i],
-  ['external_write_request', /(?:send (?:this )?email|create (?:a )?calendar|modify (?:the )?calendar|write (?:a )?task)/i],
-  ['data_deletion_request', /(?:delete|erase|remove).{0,30}(?:data|email|calendar|task|account)/i],
-];
-
 export function gmailScopesForCapabilities(
   capabilities: readonly IntegrationCapability[],
 ): readonly string[] {
@@ -131,12 +120,6 @@ export function gmailScopesForCapabilities(
   if (capabilities.includes('mail_draft')) scopes.push(GMAIL_SCOPES.draft);
   if (capabilities.includes('mail_send')) scopes.push(GMAIL_SCOPES.send);
   return Object.freeze(Array.from(new Set(scopes)).sort());
-}
-
-export function detectMailInjectionSignals(content: string): readonly MailInjectionSignal[] {
-  return INJECTION_PATTERNS
-    .filter(([, pattern]) => pattern.test(content))
-    .map(([signal]) => signal);
 }
 
 export function normalizeGmailMessage(
@@ -148,11 +131,10 @@ export function normalizeGmailMessage(
     throw new GmailProviderError('Malformed Gmail message', null, false, true);
   }
   const combined = [payload.subject ?? '', payload.text].join('\n');
+  const trustBoundary = untrustedExternalContentBoundary(combined);
   return {
-    trust: 'untrusted_external_content',
+    ...trustBoundary,
     contentClass: 'email',
-    allowedEffect: 'interpret_or_propose_only',
-    privilegedActionAllowed: false,
     provider: GMAIL_PROVIDER,
     connectionId,
     externalId: payload.id,
@@ -163,7 +145,6 @@ export function normalizeGmailMessage(
     subject: payload.subject,
     text: payload.text,
     dedupeKey: createHash('sha256').update(`gmail\0${connectionId}\0${payload.id}`).digest('hex'),
-    injectionSignals: detectMailInjectionSignals(combined),
     provenance: { source: 'gmail', fetchedAt },
   };
 }
