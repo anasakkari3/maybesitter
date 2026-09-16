@@ -222,6 +222,25 @@ export function fixedStartOf(commitment: Commitment): Instant | null {
   return null;
 }
 
+/**
+ * How long a pinned commitment occupies.
+ *
+ * `endAt` when the commitment names one and it is strictly after the start —
+ * the same half-open rule the domain validates on write and `eventDraft.ts`
+ * applies on the device calendar. Anything else is the default: a zero-length
+ * or inverted interval would be a blocking event that `intervalsOverlap`
+ * reports as intersecting nothing, which is a block that silently does not
+ * block.
+ */
+function fixedEndFor(commitment: Commitment, start: Instant): Instant {
+  const endAt = commitment.timeSpec.endAt;
+  if (endAt) {
+    const end = Date.parse(endAt);
+    if (Number.isFinite(end) && end > toEpochMs(start)) return new Date(end).toISOString();
+  }
+  return new Date(toEpochMs(start) + DEFAULT_FIXED_EVENT_MINUTES * MS_PER_MINUTE).toISOString();
+}
+
 /** Confirmed, still open, and not already done or abandoned. */
 export function isPlannable(commitment: Commitment): boolean {
   return commitment.status === 'active' || commitment.status === 'deferred';
@@ -319,10 +338,7 @@ export function buildDailyPlanInput(args: DailyPlanInputArgs): DailyPlanInput {
     if (!start) return [];
     return [{
       eventId: `commitment:${commitment.id}`,
-      interval: {
-        startsAt: start,
-        endsAt: new Date(toEpochMs(start) + DEFAULT_FIXED_EVENT_MINUTES * MS_PER_MINUTE).toISOString(),
-      },
+      interval: { startsAt: start, endsAt: fixedEndFor(commitment, start) },
       sourceCommitmentId: commitment.id,
       blocking: true,
     }];
