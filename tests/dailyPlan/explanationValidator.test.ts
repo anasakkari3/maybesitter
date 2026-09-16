@@ -218,6 +218,93 @@ const REFUSED: ReadonlyArray<readonly [string, UserLocale, string, readonly stri
     'I placed 2 things between 09:00 and 11:30. You always let this slip.',
     ['shame'],
   ],
+  // ── Spellings the lexicon did not see (2026-09-16 probe on 74cc48e) ──
+  //
+  // Each of these was ACCEPTED. None is a synonym the word lists forgot; each
+  // is a word the lists already carry, written the way Arabic and Hebrew are
+  // really written: with harakat or niqqud, stretched with a tatweel, with a
+  // bidi mark inside it, or with the hamza dropped — which is how most people
+  // type آخر in Levantine. A substring match on the bare spelling sees none of
+  // them. An invented title in Hebrew typographic quotes, and a clock time with
+  // a right-to-left mark inside it, escaped the structural checks the same way.
+  [
+    'ar: shame written with harakat',
+    'ar',
+    'إنتَ كَسُول.',
+    ['shame'],
+  ],
+  [
+    'ar: shame stretched with a tatweel',
+    'ar',
+    'إنت كسـول.',
+    ['shame'],
+  ],
+  [
+    'ar: shame with an Arabic letter mark inside the word',
+    'ar',
+    'إنت كس\u061Cول.',
+    ['shame'],
+  ],
+  [
+    'ar: coercion with the hamza dropped, as it is usually typed',
+    'ar',
+    'هاي اخر فرصة إلك.',
+    ['coercion'],
+  ],
+  [
+    'ar: a persistence claim written with a shadda and a fatha',
+    'ar',
+    'سجَّلت كل إشي.',
+    ['persistence_claim'],
+  ],
+  [
+    'he: shame written with niqqud',
+    'he',
+    'אַתָּה עַצְלָן.',
+    ['shame'],
+  ],
+  [
+    'he: an invented title in gershayim',
+    'he',
+    'שיבצתי את ״לקנות מתנה לאמא״ ב-09:00.',
+    ['unknown_title'],
+  ],
+  [
+    'he: an invented title in low-high quotation marks',
+    'he',
+    'שיבצתי את „לקנות מתנה לאמא“ ב-09:00.',
+    ['unknown_title'],
+  ],
+  [
+    'ar: an invented time with a right-to-left mark inside it, whose digits happen to equal the counts',
+    'ar',
+    'حطيت 2 إشيا الساعة ٠١\u200F:٠٢.',
+    ['time_not_in_plan'],
+  ],
+  [
+    'ar: a count too long to be a count is still a count',
+    'ar',
+    'حطيت ٢ إشيا و١٢٣٤٥ ما لحقوا.',
+    ['count_mismatch'],
+  ],
+  [
+    'ar: a persistence claim with the everyday verb for "added"',
+    'ar',
+    'ضفتلك كل شي عالتقويم.',
+    ['persistence_claim'],
+  ],
+  [
+    'ar: coercion as "you have to finish"',
+    'ar',
+    'لازم تخلصهم اليوم.',
+    ['coercion'],
+  ],
+  [
+    'he: coercion as "it is your duty"',
+    'he',
+    'חובה עליך לסיים אותם היום.',
+    ['coercion'],
+  ],
   // The two rows below carry no shame, no invented time and no invented count:
   // every other check in the module returns clean on them. They are refused
   // only because their locale has no row in `EXPLANATION_LEXICONS` — which is
@@ -260,6 +347,11 @@ const ACCEPTED: ReadonlyArray<readonly [string, UserLocale, string]> = [
   ['ar: the plan\'s own times in Arabic-Indic numerals', 'ar', 'حطيت 2 إشيا بين ٠٩:٠٠ و١١:٣٠.'],
   ['ar: a calm sentence with the right count', 'ar', 'في 2 إشيا اليوم و1 ما لحق.'],
   ['he: the plan\'s own times', 'he', 'שיבצתי 2 דברים בין 09:00 ל-11:30.'],
+  // The fold that makes the rows above refusable must not make a true sentence
+  // refusable: harakat, niqqud and a real title in Hebrew quotes are fine.
+  ['ar: a true sentence written with harakat', 'ar', 'حطَّيت 2 إشيا بين ٠٩:٠٠ و١١:٣٠.'],
+  ['he: a true sentence written with niqqud', 'he', 'שִׁבַּצְתִּי 2 דְּבָרִים בֵּין 09:00 לְ-11:30.'],
+  ['he: a real title in gershayim', 'he', 'שיבצתי 2 דברים. ״Call the bank״ ב-11:00.'],
 ];
 
 for (const [label, locale, text] of ACCEPTED) {
@@ -326,4 +418,21 @@ test('the template says something true when nothing was placed', () => {
 test('the template says nothing about leftovers when there are none', () => {
   const clean: ExplanationFacts = { ...facts(), unscheduledCount: 0 };
   assert.deepEqual(explanationRejections(templateExplanation(clean), clean), []);
+});
+
+test('a real Arabic title quoted back verbatim is accepted, hamza and all', () => {
+  // The text is folded before the title check reads it, so `«أسأل إمي»` becomes
+  // `اسال امي`. Unless the title is folded the same way, a model that quotes
+  // the user's own words exactly is refused for inventing them.
+  const arabicTitles = new Map([['c1', 'أسأل إمّي عن الموعد'], ['c2', 'Call the bank'], ['c3', 'Book the train']]);
+  const derived = explanationFactsFrom(PLAN, arabicTitles, TZ, 'ar');
+  assert.deepEqual(
+    explanationRejections('حطيت 2 إشيا، أولها «أسأل إمّي عن الموعد» الساعة ٠٩:٠٠.', derived),
+    [],
+  );
+  assert.deepEqual(
+    explanationRejections('حطيت 2 إشيا، أولها «أسأل خالتي عن الموعد» الساعة ٠٩:٠٠.', derived),
+    ['unknown_title'],
+    'the fold made an invented title look like a real one',
+  );
 });
