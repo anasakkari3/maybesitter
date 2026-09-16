@@ -319,3 +319,85 @@ describe('the deadlines', () => {
     expect(text('ics-deadline-failure-late')).toBe(ar.icsFeedsErrPast);
   });
 });
+
+describe('after calendar consent is withdrawn', () => {
+  it('shows every feed paused, offers no refresh, auto-accept, add or move — and keeps remove, skip, undo and acknowledge', async () => {
+    jest.spyOn(trustEndpoints, 'getTrust').mockResolvedValue(trustBody(false) as never);
+    jest.spyOn(feedEndpoints, 'listIcsFeeds').mockResolvedValue({
+      success: true,
+      feeds: [{ ...FEED, status: 'error', consecutiveFailures: 5 }],
+      deadlines: [
+        deadline({ itemKey: 'p', state: 'pending' }),
+        deadline({ itemKey: 'a', state: 'accepted', autoAccepted: true, commitmentId: 'c1' }),
+        deadline({
+          itemKey: 'm', state: 'accepted', commitmentId: 'c2', notice: 'moved',
+          proposedDueAt: new Date(Date.now() + 96 * HOUR).toISOString(),
+        }),
+      ],
+    } as never);
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('ics-feed-feed-1')).not.toBeNull());
+    await waitFor(() => expect(screen.queryByTestId('ics-consent')).not.toBeNull());
+
+    expect(screen.queryByTestId('ics-feed-paused-feed-1')).not.toBeNull();
+    expect(screen.queryByTestId('ics-feed-error-feed-1')).toBeNull();
+    expect(screen.queryByTestId('ics-banner')).toBeNull();
+    expect(screen.queryByTestId('ics-refresh-feed-1')).toBeNull();
+    expect(screen.queryByTestId('ics-auto-accept-feed-1')).toBeNull();
+    expect(screen.queryByTestId('ics-accept-p')).toBeNull();
+    expect(screen.queryByTestId('ics-apply-move-m')).toBeNull();
+
+    expect(screen.queryByTestId('ics-remove-feed-1')).not.toBeNull();
+    expect(screen.queryByTestId('ics-skip-p')).not.toBeNull();
+    expect(screen.queryByTestId('ics-undo-a')).not.toBeNull();
+    expect(screen.queryByTestId('ics-keep-time-m')).not.toBeNull();
+    await fireEvent.press(screen.getByTestId('ics-remove-feed-1'));
+    await fireEvent.press(screen.getByTestId('ics-remove-confirm-feed-1'));
+    await waitFor(() => expect(feedEndpoints.deleteIcsFeed).toHaveBeenCalledWith('feed-1'));
+  });
+});
+
+describe('one decision at a time per deadline', () => {
+  it('sends only the first of Add and Skip pressed before the answer comes back', async () => {
+    let resolve!: (value: unknown) => void;
+    jest.spyOn(feedEndpoints, 'decideIcsDeadline').mockImplementation(() => new Promise(r => { resolve = r; }) as never);
+    jest.spyOn(feedEndpoints, 'listIcsFeeds').mockResolvedValue({
+      success: true, feeds: [FEED], deadlines: [deadline({ itemKey: 'k1', state: 'pending' })],
+    } as never);
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('ics-accept-k1')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('ics-accept-k1'));
+    await waitFor(() => expect(feedEndpoints.decideIcsDeadline).toHaveBeenCalledTimes(1));
+    await fireEvent.press(screen.getByTestId('ics-skip-k1'));
+    await fireEvent.press(screen.getByTestId('ics-accept-k1'));
+    expect(feedEndpoints.decideIcsDeadline).toHaveBeenCalledTimes(1);
+    resolve({ success: true, deadline: deadline({ itemKey: 'k1', state: 'accepted' }), replayed: false });
+    await waitFor(() => expect(screen.getByTestId('ics-skip-k1').props.accessibilityState?.disabled).not.toBe(true));
+  });
+
+  it('holds "keep my time" while "move mine too" is on its way, and "Got it" likewise', async () => {
+    let resolve!: (value: unknown) => void;
+    const resolvers: ((value: unknown) => void)[] = [];
+    resolve = (value) => { for (const r of resolvers) r(value); };
+    jest.spyOn(feedEndpoints, 'decideIcsDeadline').mockImplementation(() => new Promise(r => { resolvers.push(r); }) as never);
+    jest.spyOn(feedEndpoints, 'listIcsFeeds').mockResolvedValue({
+      success: true,
+      feeds: [FEED],
+      deadlines: [
+        deadline({ itemKey: 'm', state: 'accepted', commitmentId: 'c', notice: 'moved', proposedDueAt: new Date(Date.now() + 96 * HOUR).toISOString() }),
+        deadline({ itemKey: 'r', state: 'accepted', commitmentId: 'd', notice: 'removed' }),
+      ],
+    } as never);
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('ics-apply-move-m')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('ics-apply-move-m'));
+    await fireEvent.press(screen.getByTestId('ics-keep-time-m'));
+    await fireEvent.press(screen.getByTestId('ics-got-it-r'));
+    await fireEvent.press(screen.getByTestId('ics-got-it-r'));
+    expect((feedEndpoints.decideIcsDeadline as jest.Mock).mock.calls.map(call => call[2])).toEqual(['apply_move', 'acknowledge']);
+    // Both requests share the mock's last resolver; settle them and wait for the
+    // rows to come back, so nothing is left in flight when the tree unmounts.
+    resolve({ success: true, deadline: deadline({}), replayed: false });
+    await waitFor(() => expect(screen.getByTestId('ics-got-it-r').props.accessibilityState?.disabled).not.toBe(true));
+  });
+});

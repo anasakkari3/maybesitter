@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, Switch, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../../state/AppContext';
@@ -80,7 +80,8 @@ function FeedsBody({ rtl }: { rtl: boolean }) {
 
   return (
     <>
-      {list.some(feed => feed.status === 'error') ? (
+      {/* Its advice is "refresh", which is not offered without consent. */}
+      {consented && list.some(feed => feed.status === 'error') ? (
         <Card pad={18} testID="ics-banner">
           <Txt size={14} lh={1.5}>{t.icsFeedsBanner}</Txt>
         </Card>
@@ -100,7 +101,7 @@ function FeedsBody({ rtl }: { rtl: boolean }) {
             <Txt size={13} color={p.mu} testID="ics-empty">{t.icsFeedsEmpty}</Txt>
           </View>
         ) : null}
-        {list.map(feed => <FeedRow key={feed.feedId} feed={feed} />)}
+        {list.map(feed => <FeedRow key={feed.feedId} feed={feed} consented={consented} />)}
       </Card>
 
       <Card pad={0} style={{ overflow: 'hidden' }}>
@@ -113,7 +114,7 @@ function FeedsBody({ rtl }: { rtl: boolean }) {
             <Txt size={13} color={p.mu} testID="ics-nothing-waiting">{t.icsFeedsNothingWaiting}</Txt>
           </View>
         ) : null}
-        {deadlines.map(deadline => <DeadlineRow key={deadline.itemKey} deadline={deadline} />)}
+        {deadlines.map(deadline => <DeadlineRow key={deadline.itemKey} deadline={deadline} consented={consented} />)}
       </Card>
     </>
   );
@@ -255,7 +256,12 @@ function useWhen() {
   };
 }
 
-function FeedRow({ feed }: { feed: IcsFeed }) {
+/**
+ * One feed. Without calendar consent it is shown paused whatever the server
+ * last said, and offers nothing that would read the calendar again — no
+ * refresh, no auto-accept — only Remove, which must always be possible.
+ */
+function FeedRow({ feed, consented }: { feed: IcsFeed; consented: boolean }) {
   const { t, p } = useApp();
   const when = useWhen();
   const update = useUpdateIcsFeed();
@@ -270,14 +276,15 @@ function FeedRow({ feed }: { feed: IcsFeed }) {
       style={{ paddingVertical: 14, paddingHorizontal: 18, gap: 8, borderTopWidth: 1, borderTopColor: p.ln }}
     >
       <Txt size={15}>{feed.label ? isolate(feed.label, 'rtl') : t.icsFeedsUrlLabel}</Txt>
-      {feed.status === 'error' ? (
-        <Txt size={13} color={p.wm} testID={`ics-feed-error-${feed.feedId}`}>{t.icsFeedsStatusError}</Txt>
-      ) : feed.status === 'paused' ? (
+      {!consented || feed.status === 'paused' ? (
         <Txt size={13} color={p.mu} testID={`ics-feed-paused-${feed.feedId}`}>{t.icsFeedsStatusPaused}</Txt>
+      ) : feed.status === 'error' ? (
+        <Txt size={13} color={p.wm} testID={`ics-feed-error-${feed.feedId}`}>{t.icsFeedsStatusError}</Txt>
       ) : null}
       {feed.lastFetchedAt ? (
         <Txt size={13} color={p.mu}>{fill(t.icsFeedsUpdated, { when: when(feed.lastFetchedAt, false) })}</Txt>
       ) : null}
+      {consented ? (
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
         <Txt size={13} style={{ flex: 1 }}>{t.icsFeedsAutoAccept}</Txt>
         <Switch
@@ -289,13 +296,16 @@ function FeedRow({ feed }: { feed: IcsFeed }) {
           trackColor={{ false: p.ln, true: p.ac }}
         />
       </View>
+      ) : null}
       <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
-        <SmallButton
-          label={t.icsFeedsRefresh}
-          testID={`ics-refresh-${feed.feedId}`}
-          busy={refresh.isPending}
-          onPress={() => refresh.mutate(feed.feedId)}
-        />
+        {consented ? (
+          <SmallButton
+            label={t.icsFeedsRefresh}
+            testID={`ics-refresh-${feed.feedId}`}
+            busy={refresh.isPending}
+            onPress={() => refresh.mutate(feed.feedId)}
+          />
+        ) : null}
         {confirming ? null : (
           <SmallButton label={t.icsFeedsRemove} testID={`ics-remove-${feed.feedId}`} onPress={() => setConfirming(true)} />
         )}
@@ -319,20 +329,42 @@ function FeedRow({ feed }: { feed: IcsFeed }) {
   );
 }
 
-function DeadlineRow({ deadline }: { deadline: IcsDeadline }) {
+/**
+ * One deadline. Every action is disabled while a decision on this row is on its
+ * way, so Add followed by Skip before the first answer cannot send both.
+ * Without calendar consent nothing that acts on the calendar's data is offered
+ * — no Add, no "move mine too" — while Skip, Undo and acknowledging stay, so a
+ * person can always take back what the feed did.
+ */
+function DeadlineRow({ deadline, consented }: { deadline: IcsDeadline; consented: boolean }) {
   const { t, p } = useApp();
   const when = useWhen();
   const decide = useDecideIcsDeadline();
-  const act = (action: IcsDeadlineAction) => decide.mutate({ feedId: deadline.feedId, itemKey: deadline.itemKey, action });
+  // A ref as well as `isPending`: the mutation reports pending only after a
+  // render, and two taps inside that frame would both be sent.
+  const inFlight = useRef(false);
+  const [sending, setSending] = useState(false);
+  const act = (action: IcsDeadlineAction) => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setSending(true);
+    decide.mutate(
+      { feedId: deadline.feedId, itemKey: deadline.itemKey, action },
+      { onSettled: () => { inFlight.current = false; setSending(false); } },
+    );
+  };
   const id = deadline.itemKey;
+  const busy = sending || decide.isPending;
 
   let status: React.ReactNode = null;
   let actions: React.ReactNode = null;
   if (deadline.state === 'pending') {
     actions = (
       <>
-        <SmallButton label={t.icsFeedsAccept} testID={`ics-accept-${id}`} busy={decide.isPending} onPress={() => act('accept')} />
-        <SmallButton label={t.icsFeedsSkip} testID={`ics-skip-${id}`} onPress={() => act('dismiss')} />
+        {consented ? (
+          <SmallButton label={t.icsFeedsAccept} testID={`ics-accept-${id}`} busy={busy} onPress={() => act('accept')} />
+        ) : null}
+        <SmallButton label={t.icsFeedsSkip} testID={`ics-skip-${id}`} busy={busy} onPress={() => act('dismiss')} />
       </>
     );
   } else if (deadline.notice === 'moved' && deadline.proposedDueAt) {
@@ -343,16 +375,18 @@ function DeadlineRow({ deadline }: { deadline: IcsDeadline }) {
     );
     actions = (
       <>
-        <SmallButton label={t.icsFeedsApplyMove} testID={`ics-apply-move-${id}`} busy={decide.isPending} onPress={() => act('apply_move')} />
-        <SmallButton label={t.icsFeedsKeepTime} testID={`ics-keep-time-${id}`} onPress={() => act('acknowledge')} />
+        {consented ? (
+          <SmallButton label={t.icsFeedsApplyMove} testID={`ics-apply-move-${id}`} busy={busy} onPress={() => act('apply_move')} />
+        ) : null}
+        <SmallButton label={t.icsFeedsKeepTime} testID={`ics-keep-time-${id}`} busy={busy} onPress={() => act('acknowledge')} />
       </>
     );
   } else if (deadline.notice === 'removed') {
     status = <Txt size={13} color={p.mu} lh={1.5} testID={`ics-removed-${id}`}>{t.icsFeedsRemovedFromSource}</Txt>;
-    actions = <SmallButton label={t.icsFeedsGotIt} testID={`ics-got-it-${id}`} onPress={() => act('acknowledge')} />;
+    actions = <SmallButton label={t.icsFeedsGotIt} testID={`ics-got-it-${id}`} busy={busy} onPress={() => act('acknowledge')} />;
   } else if (deadline.state === 'accepted' && deadline.autoAccepted) {
     status = <Txt size={13} color={p.mu} testID={`ics-auto-added-${id}`}>{t.icsFeedsAutoAdded}</Txt>;
-    actions = <SmallButton label={t.icsFeedsUndo} testID={`ics-undo-${id}`} busy={decide.isPending} onPress={() => act('undo')} />;
+    actions = <SmallButton label={t.icsFeedsUndo} testID={`ics-undo-${id}`} busy={busy} onPress={() => act('undo')} />;
   }
 
   return (
