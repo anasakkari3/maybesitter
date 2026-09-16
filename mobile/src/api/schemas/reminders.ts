@@ -17,10 +17,28 @@ export const quietHoursSchema = z.object({
   timezone: z.string(),
 });
 
+export const escalationCeilingSchema = z.enum(['soft', 'followUp', 'hard']);
+
 export const reminderSettingsSchema = z.object({
   softEnabled: z.boolean(),
   /** 60, 30 or 15. A number rather than an enum: see `plan.ts` on reasonCode. */
   softLeadMinutes: z.number(),
+  /*
+   * The Must-reminder controls (UC-3.12a, #197).
+   *
+   * Optional on the wire, because a server that predates #197 does not send
+   * them and a schema failure there would take the whole reminders screen down
+   * with it. Absent is resolved by `toEngineSettings` through the survey's
+   * legacy mapping — the same one the server applies — never as "ring".
+   *
+   * `escalationCeiling` is an enum and not a string: a word this build does not
+   * know must not be read as a ceiling at all. It fails the parse, which the
+   * screen shows as a failed load; the engine then schedules from the last good
+   * settings or from nothing, and neither can ring louder than asked.
+   */
+  hardEnabled: z.boolean().optional(),
+  escalationCeiling: escalationCeilingSchema.optional(),
+  mustThroughQuietHours: z.boolean().optional(),
   quietHours: quietHoursSchema.nullable(),
   timezone: z.string(),
   updatedAt: isoDateTime.nullable(),

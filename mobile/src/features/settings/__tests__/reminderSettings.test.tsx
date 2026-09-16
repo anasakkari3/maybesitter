@@ -25,6 +25,8 @@ import * as reminderEndpoints from '../../../api/endpoints/reminders';
 import * as permission from '../../../notifications/permission';
 import settingsFixture from '../../../api/__fixtures__/reminders.settingsSaved.json';
 import * as profileEndpoints from '../../../api/endpoints/profile';
+import * as exactAlarms from '../../../notifications/exactAlarms';
+import { Platform } from 'react-native';
 
 // Hoisted above the imports by babel-plugin-jest-hoist, so `i18n/timezone`
 // sees it when it reaches for `getCalendars`. The phone is in Berlin; every
@@ -254,6 +256,122 @@ describe('the controls', () => {
     await waitFor(() => expect(screen.queryByTestId('reminder-lead-30')).not.toBeNull());
     fireEvent.press(screen.getByTestId('reminder-lead-30'));
     await waitFor(() => expect(screen.queryByTestId('notifications-save-failed')).not.toBeNull());
+  });
+});
+
+/*
+ * ── Must reminders (UC-3.12a, #197) ─────────────────────────────
+ */
+describe('Must reminders', () => {
+  const originalOs = Platform.OS;
+  afterEach(() => {
+    Object.defineProperty(Platform, 'OS', { value: originalOs, configurable: true });
+  });
+
+  async function readyCeiling(choice: 'soft' | 'followUp' | 'hard') {
+    await waitFor(() => expect(screen.queryByTestId(`must-ceiling-${choice}`)).not.toBeNull());
+    return screen.getByTestId(`must-ceiling-${choice}`);
+  }
+
+  it('never rings on one tap: "Ring for Must items" explains first and writes nothing', async () => {
+    await show();
+    fireEvent.press(await readyCeiling('hard'));
+
+    await waitFor(() => expect(screen.queryByTestId('must-hard-explainer')).not.toBeNull());
+    expect(screen.queryByText(en.notifHardExplainBody)).not.toBeNull();
+    expect(reminderEndpoints.putReminderSettings).not.toHaveBeenCalled();
+    expect(permission.requestNotificationPermission).not.toHaveBeenCalled();
+
+    fireEvent.press(screen.getByTestId('must-hard-cancel'));
+    await waitFor(() => expect(screen.queryByTestId('must-hard-explainer')).toBeNull());
+    expect(reminderEndpoints.putReminderSettings).not.toHaveBeenCalled();
+  });
+
+  it('turns ringing on from the explainer s confirm, opt-in and ceiling together', async () => {
+    await show();
+    fireEvent.press(await readyCeiling('hard'));
+    await waitFor(() => expect(screen.queryByTestId('must-hard-confirm')).not.toBeNull());
+    fireEvent.press(screen.getByTestId('must-hard-confirm'));
+
+    await waitFor(() => expect(reminderEndpoints.putReminderSettings)
+      .toHaveBeenCalledWith({ escalationCeiling: 'hard', hardEnabled: true }));
+    // Something that rings is something the OS has to allow.
+    expect(permission.requestNotificationPermission).toHaveBeenCalledTimes(1);
+  });
+
+  it('turns ringing off in the same write that lowers the ceiling', async () => {
+    jest.spyOn(reminderEndpoints, 'getReminderSettings')
+      .mockResolvedValue(settings({ hardEnabled: true, escalationCeiling: 'hard' }) as never);
+    await show();
+    fireEvent.press(await readyCeiling('soft'));
+    await waitFor(() => expect(reminderEndpoints.putReminderSettings)
+      .toHaveBeenCalledWith({ escalationCeiling: 'soft', hardEnabled: false }));
+    expect(permission.requestNotificationPermission).not.toHaveBeenCalled();
+  });
+
+  it('shows the quiet-hours exception only while ringing is on, and sends it alone', async () => {
+    await show();
+    await readyCeiling('soft');
+    expect(screen.queryByTestId('must-through-quiet-switch')).toBeNull();
+    cleanup();
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    jest.spyOn(reminderEndpoints, 'getReminderSettings')
+      .mockResolvedValue(settings({ hardEnabled: true, escalationCeiling: 'hard' }) as never);
+    jest.spyOn(reminderEndpoints, 'putReminderSettings')
+      .mockResolvedValue(settings({ hardEnabled: true, escalationCeiling: 'hard', mustThroughQuietHours: true }) as never);
+    client.clear();
+    await show();
+    await waitFor(() => {
+      const control = screen.getByTestId('must-through-quiet-switch');
+      expect(control.props.value).toBe(false);
+    });
+    fireEvent(screen.getByTestId('must-through-quiet-switch'), 'valueChange', true);
+    await waitFor(() => expect(reminderEndpoints.putReminderSettings)
+      .toHaveBeenCalledWith({ mustThroughQuietHours: true }));
+  });
+
+  it('shows the calm exact-alarm note on Android when ringing is on and exact alarms are denied', async () => {
+    Object.defineProperty(Platform, 'OS', { value: 'android', configurable: true });
+    jest.spyOn(exactAlarms, 'canScheduleExactAlarms').mockReturnValue(false);
+    const open = jest.spyOn(exactAlarms, 'openExactAlarmSettings').mockReturnValue(true);
+    jest.spyOn(reminderEndpoints, 'getReminderSettings')
+      .mockResolvedValue(settings({ hardEnabled: true, escalationCeiling: 'hard' }) as never);
+    await show();
+
+    await waitFor(() => expect(screen.queryByTestId('must-exact-denied')).not.toBeNull());
+    expect(screen.queryByText(en.notifExactDenied)).not.toBeNull();
+    fireEvent.press(screen.getByTestId('must-exact-open'));
+    expect(open).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows no exact-alarm note when it is granted, or when nothing rings', async () => {
+    Object.defineProperty(Platform, 'OS', { value: 'android', configurable: true });
+    const asked = jest.spyOn(exactAlarms, 'canScheduleExactAlarms').mockReturnValue(true);
+    jest.spyOn(reminderEndpoints, 'getReminderSettings')
+      .mockResolvedValue(settings({ hardEnabled: true, escalationCeiling: 'hard' }) as never);
+    await show();
+    await readyCeiling('hard');
+    await waitFor(() => expect(asked).toHaveBeenCalled());
+    expect(screen.queryByTestId('must-exact-denied')).toBeNull();
+    cleanup();
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    asked.mockReturnValue(false);
+    jest.spyOn(reminderEndpoints, 'getReminderSettings')
+      .mockResolvedValue(settings({ hardEnabled: false, escalationCeiling: 'followUp' }) as never);
+    client.clear();
+    await show();
+    await readyCeiling('followUp');
+    expect(screen.queryByTestId('must-exact-denied')).toBeNull();
+  });
+
+  it('is not there while reminders are off', async () => {
+    jest.spyOn(reminderEndpoints, 'getReminderSettings')
+      .mockResolvedValue(settings({ softEnabled: false, hardEnabled: true, escalationCeiling: 'hard' }) as never);
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('gentle-reminders-switch')).not.toBeNull());
+    expect(screen.queryByTestId('must-reminders')).toBeNull();
   });
 });
 

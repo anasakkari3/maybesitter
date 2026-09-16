@@ -23,6 +23,7 @@ import {
   MAX_PUSH_DATA_VALUE_BYTES,
   MAX_PUSH_TEXT_BYTES,
   buildFcmMessage,
+  CATEGORY_FOR,
   CHANNEL_FOR,
   PushPayloadError,
   PUSH_DATA_KEYS,
@@ -678,6 +679,24 @@ test('every channel a push names is one the app actually creates', () => {
   for (const channel of Object.values(CHANNEL_FOR)) {
     assert.ok(created.includes(channel), `${channel} is pushed to but never created`);
   }
+  // The Must reminder has its own channel, never the gentle or the general one (#197).
+  assert.equal(CHANNEL_FOR.hard_reminder, 'maybesitter_hard');
+});
+
+test('every category a push names is one the app registers (#197)', () => {
+  // iOS draws a category's buttons only if the app registered it, and #200 puts
+  // the Done/Defer/Cancel buttons on these ids. A push on a category the app
+  // never registered arrives with no buttons and no error.
+  const source = readFileSync(join(repoRoot, 'mobile/src/notifications/channels.ts'), 'utf8');
+  const registered = Array.from(
+    source.matchAll(/'(com\.maybesitter\.notification\.category\.[a-z]+)'/g),
+    (match) => match[1]!,
+  );
+  assert.ok(registered.length >= 3, 'read no categories out of the app, so this check would be vacuous');
+  for (const category of Object.values(CATEGORY_FOR)) {
+    assert.ok(registered.includes(category), `${category} is pushed with but never registered`);
+  }
+  assert.equal(CATEGORY_FOR.hard_reminder, 'com.maybesitter.notification.category.hard');
 });
 
 test('nothing under lib/push logs', () => {

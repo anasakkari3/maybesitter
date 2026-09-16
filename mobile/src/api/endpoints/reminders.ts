@@ -11,6 +11,10 @@ export function getReminderSettings(): Promise<ReminderSettingsResponse> {
 export interface ReminderSettingsPatch {
   softEnabled?: boolean;
   softLeadMinutes?: number;
+  /** The Must-reminder opt-in and ceiling (#197). The screen sends them together. */
+  hardEnabled?: boolean;
+  escalationCeiling?: 'soft' | 'followUp' | 'hard';
+  mustThroughQuietHours?: boolean;
   /** `null` clears the window. Omit the key entirely to leave it alone. */
   quietHours?: { start: string; end: string; timezone: string } | null;
 }

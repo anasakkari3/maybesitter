@@ -36,10 +36,14 @@ import {
   toReminderCommitments,
 } from './reminderInputs';
 import type { ReminderIntensity } from './policy';
+import { recordHardReceipts } from '../../lib/deviceSettings/hardReceiptQueue';
+import { canScheduleExactAlarms } from '../../notifications/exactAlarms';
 
 export interface ReminderSyncOptions {
   /** Tests hand in a fake; the app lets this default to expo-notifications. */
   gateway?: NotificationGateway;
+  /** Tests hand in an answer; the app asks the `exact-alarm` module on every sync. */
+  exactAlarms?: () => boolean;
 }
 
 /**
@@ -58,6 +62,7 @@ export function useReminderSync(options: ReminderSyncOptions = {}): { resync: ()
   const profile = useProfile();
   const [defaultGateway] = useState(createExpoGateway);
   const gateway = options.gateway ?? defaultGateway;
+  const exactAlarms = options.exactAlarms ?? canScheduleExactAlarms;
   const [loaded, setLoaded] = useState<{ uid: string | null; cache: AwarenessCache }>(
     { uid: null, cache: EMPTY_AWARENESS },
   );
@@ -95,6 +100,24 @@ export function useReminderSync(options: ReminderSyncOptions = {}): { resync: ()
   const settingsData = settings.data?.reminderSettings;
   const intensity: ReminderIntensity = profile.data?.routine?.preferredReminderIntensity ?? 'softAwareness';
   const inFlight = useRef(false);
+  /*
+   * A change that arrived while a sync was running (#197 review, F2).
+   *
+   * The in-flight guard used to drop it: the effect returned early and nothing
+   * ran it again, so a ceiling lowered from "Ring for Must items" to "Gentle
+   * only" in the middle of a sync left the Must rings scheduled until some
+   * unrelated query happened to change. Now the dropped run is remembered, and
+   * the sync that was in flight reruns the effect when it finishes (`rerun`) — against
+   * whatever the settings are by then.
+   */
+  const dirty = useRef(false);
+  /*
+   * Its own counter, in the sync effect's dependencies. Bumping `nudge` is not
+   * enough, and was tried first: `nudge` reloads awareness, and an account with
+   * nothing stored reloads the very same `EMPTY_AWARENESS` object, so React
+   * sees no change and the sync never reruns — the regression test stayed red.
+   */
+  const [rerun, setRerun] = useState(0);
 
   useEffect(() => {
     // Signed out: nothing of this account stays pending on the device.
@@ -116,7 +139,10 @@ export function useReminderSync(options: ReminderSyncOptions = {}): { resync: ()
     // Nothing has loaded yet. Syncing against an empty list would cancel every
     // pending reminder on every cold start, one frame before the data arrives.
     if (!settingsData || (todayItems === undefined && upcomingItems === undefined)) return;
-    if (inFlight.current) return;
+    if (inFlight.current) {
+      dirty.current = true;
+      return;
+    }
     inFlight.current = true;
 
     void syncCommitments(
@@ -128,12 +154,28 @@ export function useReminderSync(options: ReminderSyncOptions = {}): { resync: ()
         timeZone: quietTimeZone(settingsData),
         awareness,
         copy: { title: t.notifSoftTitle, body: t.notifSoftBody },
+        hardCopy: { title: t.notifHardTitle, body: t.notifHardBody },
+        // Asked on every sync, not once: "Alarms & reminders" can be granted or
+        // revoked from system settings while the app is backgrounded (#197).
+        exactAlarms: exactAlarms(),
       },
       gateway,
-    ).finally(() => {
-      inFlight.current = false;
-    });
-  }, [accountId, todayItems, upcomingItems, settingsData, intensity, awareness, gateway, t]);
+    )
+      // Filed under the account the sync ran for, captured above — not
+      // whichever account is signed in by the time the OS answers.
+      .then(report => recordHardReceipts(accountId, report.hardReceipts, new Date()))
+      .catch(() => {
+        // A failed sync leaves the OS's pending set as it was, and the next
+        // commitment change runs it again. There is nobody to show it to.
+      })
+      .finally(() => {
+        inFlight.current = false;
+        if (dirty.current) {
+          dirty.current = false;
+          setRerun(value => value + 1);
+        }
+      });
+  }, [accountId, todayItems, upcomingItems, settingsData, intensity, awareness, gateway, exactAlarms, t, rerun]);
 
   return { resync };
 }

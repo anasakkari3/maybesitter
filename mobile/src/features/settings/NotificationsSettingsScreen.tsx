@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Linking, Platform, ScrollView, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { AppState, Linking, Platform, ScrollView, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../../state/AppContext';
@@ -20,6 +20,9 @@ import { softRemindersEnabled } from '../../config/env';
 import { quietChoiceFor, quietWindowFor, type QuietChoice } from '../routine/routineProfile';
 import { timeShowing, timeShown } from '../plan/pickerClock';
 import { ServerToggle } from './ServerToggle';
+import { canScheduleExactAlarms, openExactAlarmSettings } from '../../notifications/exactAlarms';
+import { toEngineSettings } from '../reminders/reminderInputs';
+import type { EscalationCeiling } from '../reminders/policy';
 import { SettingsHeader, SettingsRow } from './SettingsChrome';
 
 /**
@@ -74,6 +77,7 @@ import { SettingsHeader, SettingsRow } from './SettingsChrome';
  * `features/routine/routineProfile.ts`.
  */
 const LEAD_MINUTES = [60, 30, 15] as const;
+const CEILINGS: readonly EscalationCeiling[] = ['soft', 'followUp', 'hard'];
 const QUIET_CHOICES: readonly QuietChoice[] = ['none', 'early', 'standard', 'late'];
 
 export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) {
@@ -88,9 +92,33 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
   const [permissionDenied, setPermissionDenied] = useState(false);
   const [failed, setFailed] = useState(false);
   const [picking, setPicking] = useState(false);
+  const [explainingHard, setExplainingHard] = useState(false);
+  // Bumped when the app comes back to the foreground, so the exact-alarm note
+  // re-reads a permission the user may just have granted in system settings.
+  const [foregrounded, setForegrounded] = useState(0);
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', state => {
+      if (state === 'active') setForegrounded(value => value + 1);
+    });
+    return () => subscription.remove();
+  }, []);
 
   const current = settings.data?.reminderSettings;
   const quietChoice = quietChoiceFor(current?.quietHours ?? null) ?? 'none';
+  /*
+   * The Must-reminder controls as the engine will read them — through the same
+   * function, so a server that has not sent the fields yet shows the survey's
+   * legacy answer here and schedules by it there, rather than the screen and
+   * the phone disagreeing about whether this account rings (#197).
+   */
+  const engine = current
+    ? toEngineSettings(current, profile.data?.routine?.preferredReminderIntensity ?? 'softAwareness')
+    : null;
+  const ceiling: EscalationCeiling = engine?.escalationCeiling ?? 'soft';
+  const ringing = engine !== null && engine.hardEnabled && engine.escalationCeiling === 'hard';
+  // Read at render, and re-read on `foregrounded`. It is one synchronous
+  // native call; only Android can ever answer no.
+  const exactDenied = ringing && Platform.OS === 'android' && foregrounded >= 0 && !canScheduleExactAlarms();
   const killed = !softRemindersEnabled();
 
   const plan = planSettings.data ?? null;
@@ -105,6 +133,11 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
     60: t.notifLead60,
     30: t.notifLead30,
     15: t.notifLead15,
+  };
+  const ceilingLabel: Record<EscalationCeiling, string> = {
+    soft: t.notifCeilingSoft,
+    followUp: t.notifCeilingFollowUp,
+    hard: t.notifCeilingHard,
   };
   const quietLabel: Record<QuietChoice, string> = {
     none: t.notifQuietNone,
@@ -136,6 +169,38 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
     } catch {
       setFailed(true);
       return false;
+    }
+  };
+
+  /*
+   * The ceiling (#197 step 2).
+   *
+   * "Ring for Must items" is never one tap. It opens the explainer, and only
+   * its confirm writes — so the one choice here that can make a phone ring is
+   * the one choice made with the rules in front of the person. Anything gentler
+   * writes straight away and turns ringing off in the same write: the opt-in
+   * and the ceiling travel together, so there is no state in which the screen
+   * shows "Gentle only" and a Must commitment still rings.
+   */
+  const chooseCeiling = (choice: EscalationCeiling) => {
+    setFailed(false);
+    if (choice === 'hard') {
+      if (!ringing) setExplainingHard(true);
+      return;
+    }
+    setExplainingHard(false);
+    save.mutate({ escalationCeiling: choice, hardEnabled: false }, { onError: () => setFailed(true) });
+  };
+
+  const confirmHard = async () => {
+    setExplainingHard(false);
+    setFailed(false);
+    // Ringing is a thing that rings: the same one prompt, on the way on.
+    await askForPermission();
+    try {
+      await save.mutateAsync({ escalationCeiling: 'hard', hardEnabled: true });
+    } catch {
+      setFailed(true);
     }
   };
 
@@ -244,6 +309,101 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
               ))}
             </View>
           </>
+        )}
+
+        {/* ── Must reminders (UC-3.12a, #197) ─────────────────────────
+            Inside the same gate as the gentle controls: the reminders switch
+            governs every stage the phone schedules, the Must one included, so
+            a ceiling shown while the switch is off would be a control that
+            does nothing. */}
+        {killed || !current?.softEnabled ? null : (
+          <Card pad={18} testID="must-reminders" style={{ gap: 10 }}>
+            <Txt size={15}>{t.notifMustTitle}</Txt>
+            <Txt size={13} color={p.mu} lh={1.5}>{t.notifMustBody}</Txt>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              {CEILINGS.map(choice => {
+                // A `hard` ceiling without the opt-in — the survey's "be firm"
+                // answer — schedules exactly what "Gentle + follow-up" does, so
+                // that is the chip that reads as chosen until the user confirms
+                // ringing.
+                const effective = ceiling === 'hard' ? 'followUp' : ceiling;
+                const selected = choice === 'hard' ? ringing : !ringing && effective === choice;
+                return (
+                  <Pill
+                    key={choice}
+                    label={ceilingLabel[choice]}
+                    kind={selected ? 'accent' : 'outline'}
+                    size={14}
+                    pad={12}
+                    testID={`must-ceiling-${choice}`}
+                    onPress={() => chooseCeiling(choice)}
+                  />
+                );
+              })}
+            </View>
+
+            {explainingHard ? (
+              <View testID="must-hard-explainer" style={{ gap: 10, paddingTop: 6 }}>
+                <Txt size={15}>{t.notifHardExplainTitle}</Txt>
+                <Txt size={13} color={p.mu} lh={1.5}>{t.notifHardExplainBody}</Txt>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <Pill
+                    label={t.notifHardExplainConfirm}
+                    kind="accent"
+                    size={14}
+                    pad={12}
+                    style={{ flex: 1 }}
+                    testID="must-hard-confirm"
+                    onPress={() => void confirmHard()}
+                  />
+                  <Pill
+                    label={t.notifHardExplainCancel}
+                    kind="outline"
+                    size={14}
+                    pad={12}
+                    style={{ flex: 1 }}
+                    testID="must-hard-cancel"
+                    onPress={() => setExplainingHard(false)}
+                  />
+                </View>
+              </View>
+            ) : null}
+
+            {ringing ? (
+              <ServerToggle
+                title={t.notifMustQuiet}
+                body={t.notifMustQuietBody}
+                value={engine?.mustThroughQuietHours === true}
+                onChange={async next_ => {
+                  try {
+                    const saved = await save.mutateAsync({ mustThroughQuietHours: next_ });
+                    return saved.reminderSettings.mustThroughQuietHours === next_;
+                  } catch {
+                    return false;
+                  }
+                }}
+                testID="must-through-quiet-switch"
+              />
+            ) : null}
+
+            {/* Calm, and not an error: the reminder is still scheduled, and
+                expo-notifications falls back to an inexact alarm. */}
+            {exactDenied ? (
+              <View style={{ gap: 8 }}>
+                <Txt size={13} color={p.mu} lh={1.5} testID="must-exact-denied">{t.notifExactDenied}</Txt>
+                <Pill
+                  label={t.notifExactOpen}
+                  kind="outline"
+                  size={14}
+                  pad={12}
+                  testID="must-exact-open"
+                  onPress={() => {
+                    if (!openExactAlarmSettings()) void Linking.openSettings();
+                  }}
+                />
+              </View>
+            ) : null}
+          </Card>
         )}
 
         {/* ── Morning plan (UC-3.10b, #195) ───────────────────────────

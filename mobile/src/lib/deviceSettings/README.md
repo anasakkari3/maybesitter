@@ -30,5 +30,12 @@ same reason the language preference is:
   may want dark on the phone they read in bed and system on the tablet, and
   the scheme a screen should use is a property of the screen being looked at.
 
+- **`awarenessStore.ts`** and **`hardReceiptQueue.ts`** (UC-3.11 #196,
+  UC-3.12a #197) — notification state for this installation: commitment ids,
+  instants and a boolean, never a title. The first is "the user said they
+  know", the second is "this phone will ring for that Must reminder", waiting
+  to be told to the server. Both are keyed by account and cleared on sign-out;
+  each header makes the full argument.
+
 Anything new here needs the same argument made in its own header, or it belongs
 on the account instead.

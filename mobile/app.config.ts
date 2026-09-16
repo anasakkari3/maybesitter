@@ -342,6 +342,27 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     entitlements: {
       ...config.ios?.entitlements,
       'com.apple.security.application-groups': ['group.com.maybesitter.app'],
+      /*
+       * Time Sensitive notifications (UC-3.12a, #197).
+       *
+       * The Must reminder asks for `interruptionLevel: 'timeSensitive'`, and
+       * without this entitlement iOS quietly downgrades it to `active` — which
+       * is exactly what the Flutter client shipped (the level was requested,
+       * `Runner.entitlements` lacked it). With it, the notification carries
+       * the Time Sensitive label and breaks through a Focus the user has
+       * allowed MaybeSitter to break through; it never breaks through one they
+       * have not.
+       *
+       * This is a self-service capability: EAS syncs it to the App ID at build
+       * time, and whether that sync took is an owner check in the Apple
+       * Developer portal after the first build.
+       *
+       * **Not** `com.apple.developer.usernotifications.critical-alerts`. Critical
+       * alerts bypass the mute switch and Do Not Disturb, need Apple's approval
+       * per app, and are granted to medical, public-safety and home-security
+       * apps. MaybeSitter is none of those, and #197 decides not to ask.
+       */
+      'com.apple.developer.usernotifications.time-sensitive': true,
     },
     // Committed on purpose (UC-1.7 #151): these files identify the Firebase
     // project and authorise nothing. The API keys they carry are restricted to
@@ -369,6 +390,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
      * soft reminder on an Android 14 phone with "Alarms & reminders" revoked
      * still fires — a few minutes late at worst, which for a heads-up an hour
      * ahead is not a difference anybody can feel.
+     *
+     * The Must reminder (UC-3.12a, #197) is the case where a few minutes is
+     * felt, and it is still this permission rather than `USE_EXACT_ALARM`. The
+     * app reads whether it is granted through `modules/exact-alarm`, shows a
+     * calm note when it is not, and tells the server so on the receipt, which
+     * is what the backup push (#198) keys on.
      */
     permissions: [
       ...(config.android?.permissions ?? []),
@@ -547,6 +574,15 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       icon: './assets/android-icon-monochrome.png',
       color: '#1F7A8C',
       defaultChannel: 'maybesitter_general',
+      /*
+       * The Must reminder's sound (UC-3.12a, #197). The plugin copies each file
+       * into the iOS app bundle and into Android's `res/raw`, which are the
+       * only two places either platform looks for a notification sound by
+       * name. A file not in this list is silence, not an error — so
+       * `channels.test.ts` checks that the name the app schedules with is here.
+       * Its provenance and license are in `assets/sounds/LICENSES.md`.
+       */
+      sounds: ['./assets/sounds/maybesitter_hard.wav'],
     }],
     /*
      * The keychain entry the installation id lives in (UC-3.0b, #184).

@@ -2,11 +2,16 @@ import { describe, expect, it } from '@jest/globals';
 import {
   FOLLOW_UP_LEAD_MINUTES,
   MAX_PENDING_REQUESTS,
+  STRONG_LEAD_MINUTES,
+  legacyEscalation,
   parseRequestIdentifier,
   planFor,
   requestIdentifier,
   stagesFor,
+  type EscalationCeiling,
   type ReminderCommitment,
+  type ReminderIntensity,
+  type ReminderPriority,
   type ReminderSettings,
 } from '../policy';
 
@@ -22,11 +27,24 @@ import {
 const START = Date.parse('2026-09-15T12:00:00.000Z');
 
 function commitment(overrides: Partial<ReminderCommitment> = {}): ReminderCommitment {
-  return { id: 'c1', startsAt: new Date(START).toISOString(), status: 'active', ...overrides };
+  return { id: 'c1', startsAt: new Date(START).toISOString(), status: 'active', priority: 'must', allDay: false, ...overrides };
 }
 
+/**
+ * The settings an account had before #197, derived from the survey answer the
+ * way the server and `toEngineSettings` derive them — so the #196 cases below
+ * keep testing what #196 shipped.
+ */
 function settings(overrides: Partial<ReminderSettings> = {}): ReminderSettings {
-  return { softEnabled: true, softLeadMinutes: 60, intensity: 'softAwareness', ...overrides };
+  const intensity: ReminderIntensity = overrides.intensity ?? 'softAwareness';
+  return {
+    softEnabled: true,
+    softLeadMinutes: 60,
+    intensity,
+    ...legacyEscalation(intensity),
+    mustThroughQuietHours: false,
+    ...overrides,
+  };
 }
 
 /** What `planFor` produced, as `[stage, minutes before the start]` pairs. */
@@ -35,19 +53,101 @@ function leads(planned: ReturnType<typeof planFor>): [string, number][] {
 }
 
 describe('which stages an account gets', () => {
-  it('follows the reminder intensity from the routine survey', () => {
-    expect(stagesFor(settings({ intensity: 'none' }))).toEqual([]);
-    expect(stagesFor(settings({ intensity: 'softAwareness' }))).toEqual(['soft']);
-    expect(stagesFor(settings({ intensity: 'followUp' }))).toEqual(['soft', 'followUp']);
-    // `strong` belongs to UC-3.12a (#197): it wants a HIGH-importance channel
-    // and an exact alarm, and neither exists yet. Scheduling it from here would
-    // put a Must reminder on the gentle channel.
-    expect(stagesFor(settings({ intensity: 'strongReminder' }))).toEqual(['soft', 'followUp']);
+  it('follows the survey answer for an account that never set a ceiling', () => {
+    // `settings()` derives the ceiling from the answer, as the server does.
+    expect(stagesFor(settings({ intensity: 'none' }), 'must')).toEqual([]);
+    expect(stagesFor(settings({ intensity: 'softAwareness' }), 'must')).toEqual(['soft']);
+    expect(stagesFor(settings({ intensity: 'followUp' }), 'must')).toEqual(['soft', 'followUp']);
+    // The strong answer raises the ceiling and is never, on its own, an opt-in.
+    expect(stagesFor(settings({ intensity: 'strongReminder' }), 'must')).toEqual(['soft', 'followUp']);
+    expect(stagesFor(settings({ intensity: 'strongReminder' }), 'should')).toEqual(['soft', 'followUp']);
   });
 
-  it('gets nothing at all when the switch is off, whatever the survey said', () => {
-    expect(stagesFor(settings({ softEnabled: false, intensity: 'strongReminder' }))).toEqual([]);
+  it('gets nothing at all when the switch is off, whatever the survey or the ceiling said', () => {
+    expect(stagesFor(settings({ softEnabled: false, intensity: 'strongReminder' }), 'must')).toEqual([]);
+    expect(stagesFor(settings({ softEnabled: false, escalationCeiling: 'hard', hardEnabled: true }), 'must')).toEqual([]);
     expect(planFor(commitment(), settings({ softEnabled: false }))).toEqual([]);
+  });
+});
+
+/*
+ * ── The Must stage (UC-3.12a, #197) ─────────────────────────────
+ *
+ * The whole matrix, priority × ceiling × opt-in, rather than the three cases
+ * that come to mind: the property is "strong only when all three hold", and a
+ * partial table is how an `||` survives where an `&&` belongs.
+ */
+describe('the Must stage', () => {
+  const PRIORITIES: ReminderPriority[] = ['must', 'should', 'nice'];
+  const CEILINGS: EscalationCeiling[] = ['soft', 'followUp', 'hard'];
+
+  it('is scheduled only for a Must commitment, with the opt-in, at the hard ceiling', () => {
+    for (const priority of PRIORITIES) {
+      for (const escalationCeiling of CEILINGS) {
+        for (const hardEnabled of [false, true]) {
+          const stages = planFor(commitment({ priority }), settings({ escalationCeiling, hardEnabled }))
+            .map(stage => stage.stage);
+          const expected = ['soft'];
+          if (escalationCeiling !== 'soft') expected.push('followUp');
+          if (priority === 'must' && hardEnabled && escalationCeiling === 'hard') expected.push('strong');
+          expect({ priority, escalationCeiling, hardEnabled, stages })
+            .toEqual({ priority, escalationCeiling, hardEnabled, stages: expected });
+        }
+      }
+    }
+  });
+
+  it('never comes with default settings', () => {
+    // A fresh account: soft on, no survey, the defaults the server sends.
+    expect(planFor(commitment(), settings()).map(stage => stage.stage)).toEqual(['soft']);
+  });
+
+  it('gives Must soft plus strong at "Ring for Must items", and Should and Nice never strong', () => {
+    const ring = settings({ escalationCeiling: 'hard', hardEnabled: true });
+    expect(leads(planFor(commitment({ priority: 'must' }), ring))).toEqual([
+      ['soft', 60],
+      ['followUp', FOLLOW_UP_LEAD_MINUTES],
+      ['strong', STRONG_LEAD_MINUTES],
+    ]);
+    for (const priority of ['should', 'nice'] as const) {
+      expect(planFor(commitment({ priority }), ring).some(stage => stage.stage === 'strong')).toBe(false);
+    }
+  });
+
+  it('rings ten minutes before, under every soft lead', () => {
+    for (const softLeadMinutes of [60, 30, 15]) {
+      const planned = planFor(commitment(), settings({ softLeadMinutes, escalationCeiling: 'hard', hardEnabled: true }));
+      expect(leads(planned).find(([stage]) => stage === 'strong')).toEqual(['strong', 10]);
+    }
+  });
+
+  it('never rings for an all-day commitment, whose start is a midnight nobody chose', () => {
+    const ring = settings({ escalationCeiling: 'hard', hardEnabled: true });
+    expect(planFor(commitment({ allDay: true }), ring).map(stage => stage.stage)).toEqual(['soft', 'followUp']);
+  });
+
+  it('stays silent when the survey says none, even with the opt-in', () => {
+    expect(planFor(commitment(), settings({ intensity: 'none', escalationCeiling: 'hard', hardEnabled: true })))
+      .toEqual([]);
+  });
+});
+
+describe('the survey answer before #197 gave it controls', () => {
+  it('maps the strong preference to the hard ceiling and leaves ringing off', () => {
+    expect(legacyEscalation('strongReminder')).toEqual({ escalationCeiling: 'hard', hardEnabled: false });
+  });
+
+  it('never rings a Must commitment on a survey answer alone, whatever the answer', () => {
+    for (const intensity of ['none', 'softAwareness', 'followUp', 'strongReminder'] as const) {
+      const stages = planFor(commitment({ priority: 'must' }), settings({ intensity })).map(stage => stage.stage);
+      expect({ intensity, rings: stages.includes('strong') }).toEqual({ intensity, rings: false });
+    }
+  });
+
+  it('keeps the follow-up for followUp and is the gentlest for anything else', () => {
+    expect(legacyEscalation('followUp')).toEqual({ escalationCeiling: 'followUp', hardEnabled: false });
+    expect(legacyEscalation('softAwareness')).toEqual({ escalationCeiling: 'soft', hardEnabled: false });
+    expect(legacyEscalation('none')).toEqual({ escalationCeiling: 'soft', hardEnabled: false });
   });
 });
 

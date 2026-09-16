@@ -91,6 +91,8 @@ describe('the zone a quiet window is read in', () => {
         quietHours: quietWindowOf(settings),
         awareness: EMPTY_AWARENESS,
         copy: { title: 't', body: 'b' },
+        hardCopy: { title: 'T', body: 'B' },
+        exactAlarms: true,
       };
 
       const onTheProfilesClock = desiredRequests({ ...input, timeZone: quietTimeZone(settings) });
@@ -117,9 +119,9 @@ describe('the zone a quiet window is read in', () => {
 });
 
 describe('what the engine is given about a commitment', () => {
-  it('carries an id, an instant and a status, and no words', () => {
+  it('carries an id, an instant, a status and a priority, and no words', () => {
     const [narrowed] = toReminderCommitments([commitmentFixture as unknown as Commitment]);
-    expect(Object.keys(narrowed!).sort()).toEqual(['id', 'startsAt', 'status']);
+    expect(Object.keys(narrowed!).sort()).toEqual(['allDay', 'id', 'priority', 'startsAt', 'status']);
     expect(JSON.stringify(narrowed)).not.toContain('dentist');
   });
 
@@ -135,6 +137,18 @@ describe('what the engine is given about a commitment', () => {
     expect(mergeById([commitment], [commitment])).toHaveLength(1);
   });
 
+  it('reads Must, Should and Nice exactly as the cards do', () => {
+    const base = commitmentFixture as unknown as Commitment;
+    const at = (level: string) => toReminderCommitments([
+      { ...base, priority: { ...base.priority, level } } as unknown as Commitment,
+    ])[0]!.priority;
+    expect(at('high')).toBe('must');
+    expect(at('medium')).toBe('should');
+    expect(at('low')).toBe('nice');
+    // A level this build does not know is not Must — it cannot ring.
+    expect(at('urgent')).toBe('should');
+  });
+
   it('answers with no window when the account has none', () => {
     expect(quietWindowOf(dto({ quietHours: null }))).toBeNull();
   });
@@ -145,5 +159,32 @@ describe('the mock the rest of this file leans on', () => {
     // If `getCalendars` were not the source, the first test's inequality would
     // hold for the wrong reason and prove nothing.
     expect(getCalendars).toHaveBeenCalled();
+  });
+});
+
+describe('the Must-reminder settings the engine is given (#197)', () => {
+  // What a server from before #197 answers: the same response, minus the three.
+  const legacyShape: ReminderSettingsDto = { ...dto() };
+  delete legacyShape.hardEnabled;
+  delete legacyShape.escalationCeiling;
+  delete legacyShape.mustThroughQuietHours;
+
+  it('takes the server s answer when it sends one, whatever the survey said', () => {
+    const settings = toEngineSettings(
+      { ...dto(), hardEnabled: false, escalationCeiling: 'followUp', mustThroughQuietHours: true },
+      'strongReminder',
+    );
+    expect(settings).toMatchObject({ hardEnabled: false, escalationCeiling: 'followUp', mustThroughQuietHours: true });
+  });
+
+  it('maps an older server s silence through the survey, the way the server does', () => {
+    expect(toEngineSettings(legacyShape, 'strongReminder'))
+      .toMatchObject({ hardEnabled: false, escalationCeiling: 'hard', mustThroughQuietHours: false });
+    expect(toEngineSettings(legacyShape, 'followUp'))
+      .toMatchObject({ hardEnabled: false, escalationCeiling: 'followUp', mustThroughQuietHours: false });
+    expect(toEngineSettings(legacyShape, 'softAwareness'))
+      .toMatchObject({ hardEnabled: false, escalationCeiling: 'soft', mustThroughQuietHours: false });
+    expect(toEngineSettings(legacyShape, 'none'))
+      .toMatchObject({ hardEnabled: false, escalationCeiling: 'soft', mustThroughQuietHours: false });
   });
 });
