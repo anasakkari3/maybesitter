@@ -189,6 +189,29 @@ test('a receipt from a phone that has since signed out does not silence the back
   }
 });
 
+test('a receipt from a phone that has since denied notifications does not silence the backup', async () => {
+  const teardown = setup();
+  try {
+    await world({ phones: [PHONE_A, PHONE_B] });
+    await receipt(PHONE_A, true);
+    // Same phone, same row, permission revoked in system settings.
+    await upsertDevice(USER, {
+      installationId: PHONE_A,
+      fcmToken: `token-${PHONE_A}-abcdefghijklmnopqrstuvwxyz`,
+      platform: 'android',
+      appVersion: '1.0.0',
+      locale: 'ar',
+      timezone: 'UTC',
+      pushPermission: 'denied',
+    }, NOW.toISOString());
+    const messaging = fakeMessaging();
+    await tick(messaging, at(0));
+    assert.equal(messaging.sent.length, 1);
+  } finally {
+    teardown();
+  }
+});
+
 test('another phone s inexact receipt does not reopen a backup an exact one closed', async () => {
   const teardown = setup();
   try {
