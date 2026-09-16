@@ -195,7 +195,8 @@ export type IcsFeedErrorCode =
   | 'calendar_too_complex'
   | 'invalid_action'
   | 'past_due'
-  | 'encryption_unavailable';
+  | 'encryption_unavailable'
+  | 'consent_required';
 
 const STATUS: Record<IcsFeedErrorCode, number> = {
   feature_disabled: 404,
@@ -211,6 +212,7 @@ const STATUS: Record<IcsFeedErrorCode, number> = {
   invalid_action: 409,
   past_due: 409,
   encryption_unavailable: 503,
+  consent_required: 403,
 };
 
 /** A refusal a route can answer as it stands: fixed message, a code, a status, and a detail code at most. */
@@ -554,7 +556,13 @@ async function acceptItem(
     // its way when the feed was unsubscribed, or the account deleted, must not
     // make a commitment — or, through the domain write, a user document.
     if (!guards[0]) throw new IcsFeedError('feed_not_found');
-    if (accountRefusal(user, { requireConsent: false })) throw new IcsFeedError('feed_not_found');
+    // Consent is required for a manual accept as well as an automatic one: a
+    // commitment made from a calendar the user has stopped letting us use would
+    // be the feature still acting after they said stop. They can turn it back
+    // on; skipping and undoing stay open without it.
+    const refusal = accountRefusal(user, { requireConsent: true });
+    if (refusal === 'account_gone') throw new IcsFeedError('feed_not_found');
+    if (refusal === 'consent') throw new IcsFeedError('consent_required');
     // Already accepted: the commitment exists, and this is a replay.
     if (claim.state === 'accepted') return null;
     // Dismissed, withdrawn, or accepted-then-undone. The row has moved on since
@@ -1122,10 +1130,14 @@ export async function decideIcsDeadline(
   /** A domain command and the row change, in one transaction. */
   const commandTransition = async (
     decide: (row: IcsFeedItemDocument) => { commands: Command[]; patch: Partial<IcsFeedItemDocument> } | null,
+    options: { requireConsent: boolean },
   ): Promise<boolean> => {
     try {
-      const result = await commitCommandsWithClaim<IcsFeedItemDocument>(uid, path, (row, { guards }) => {
+      const result = await commitCommandsWithClaim<IcsFeedItemDocument>(uid, path, (row, { user, guards }) => {
         if (!row || row.feedId !== feedId || !guards[0]) throw new IcsFeedError('item_not_found');
+        if (options.requireConsent && accountRefusal(user, { requireConsent: true }) === 'consent') {
+          throw new IcsFeedError('consent_required');
+        }
         return decide(row);
       }, [feedPath(uid, feedId)]);
       return result.replayed;
@@ -1165,7 +1177,8 @@ export async function decideIcsDeadline(
           commands: [{ type: 'Drop', commitmentId: row.commitmentId, now: at }],
           patch: { state: 'rejected', notice: null, proposedDueAt: null, updatedAt: at },
         };
-      });
+        // Undo removes what the feed did; it must work after consent is withdrawn.
+      }, { requireConsent: false });
       break;
     }
     case 'apply_move': {
@@ -1184,7 +1197,8 @@ export async function decideIcsDeadline(
           }],
           patch: { dueAt: row.proposedDueAt, notice: null, proposedDueAt: null, updatedAt: at },
         };
-      });
+        // Following the calendar's new time is acting on its data: consent first.
+      }, { requireConsent: true });
       break;
     }
     case 'acknowledge': {
