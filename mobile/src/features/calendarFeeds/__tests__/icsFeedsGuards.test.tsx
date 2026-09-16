@@ -118,6 +118,12 @@ describe('the entry in Settings → Calendar', () => {
     expect(screen.queryByTestId('calendar-feeds-entry')).not.toBeNull();
   });
 
+  it('is absent, not disabled, when it does not — and nothing asks for feeds', async () => {
+    delete process.env[FLAG];
+    await show();
+    expect(screen.queryByTestId('calendar-feeds-entry')).toBeNull();
+    expect(feedEndpoints.listIcsFeeds).not.toHaveBeenCalled();
+  });
   it('the feeds query itself refuses to run without the flag, wherever it is mounted', async () => {
     const wrapper = ({ children }: { children: React.ReactNode }) => (
       <AuthProvider repository={repository} isDevBundle={false}>
@@ -138,13 +144,6 @@ describe('the entry in Settings → Calendar', () => {
     await waitFor(() => expect(on.result.current.isSuccess).toBe(true));
     expect(feedEndpoints.listIcsFeeds).toHaveBeenCalled();
     on.unmount();
-  });
-
-  it('is absent, not disabled, when it does not — and nothing asks for feeds', async () => {
-    delete process.env[FLAG];
-    await show();
-    expect(screen.queryByTestId('calendar-feeds-entry')).toBeNull();
-    expect(feedEndpoints.listIcsFeeds).not.toHaveBeenCalled();
   });
 });
 
