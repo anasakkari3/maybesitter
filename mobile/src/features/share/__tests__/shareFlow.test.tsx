@@ -131,6 +131,74 @@ jest.mock('expo-file-system', () => ({
   },
 }));
 
+/**
+ * `expo-image-manipulator`, over the same in-memory disk (#404).
+ *
+ * A decode reads the bytes the OS handed over and rejects anything that is not
+ * a JPEG, PNG or HEIF — which is what the platform does with a HEIF it cannot
+ * decode. Every save writes the *worst* encoder output there is: Exif with a
+ * GPS IFD, a thumbnail and an ICC profile. So a clean upload is the stripper's
+ * doing, and the saved files are on the disk the "nothing left behind" cases
+ * inspect.
+ */
+const mockManipulator: {
+  saves: { width: number; height: number; compress: number | undefined }[];
+  picture: { width: number; height: number };
+  /** When set, an encode waits for it: the window in which the app can unmount. */
+  gate: Promise<void> | null;
+} = {
+  saves: [],
+  gate: null,
+  picture: { width: 4032, height: 3024 },
+};
+
+/** Read when a save happens, never while the mock factory is hoisted. */
+function mockEncoderOutput(png: boolean): Uint8Array {
+  return stripCaseBytes(png ? 'poster_he' : 'encoder_exif_gps_thumbnail_icc');
+}
+
+jest.mock('expo-image-manipulator', () => {
+  const readable = (bytes: Uint8Array | undefined) => Boolean(bytes && bytes.length > 12 && (
+    (bytes[0] === 0xff && bytes[1] === 0xd8)
+    || (bytes[0] === 0x89 && bytes[1] === 0x50)
+    || String.fromCharCode(bytes[4]!, bytes[5]!, bytes[6]!, bytes[7]!) === 'ftyp'));
+  const imageRef = (width: number, height: number) => ({
+    width,
+    height,
+    release: () => {},
+    saveAsync: async (options: { compress?: number; format?: string }) => {
+      if (mockManipulator.gate) await mockManipulator.gate;
+      const png = options.format === 'png';
+      const uri = `file:///cache/ImageManipulator/${mockManipulator.saves.length}.${png ? 'png' : 'jpg'}`;
+      mockManipulator.saves.push({ width, height, compress: options.compress });
+      mockFiles.add(uri);
+      mockFileBytes.set(uri, mockEncoderOutput(png));
+      return { uri, width, height };
+    },
+  });
+  return {
+    __esModule: true,
+    SaveFormat: { JPEG: 'jpeg', PNG: 'png', WEBP: 'webp' },
+    ImageManipulator: {
+      manipulate: (source: string | { width: number; height: number }) => {
+        let size: { width: number; height: number } | null = null;
+        const context = {
+          resize: (next: { width: number; height: number }) => { size = next; return context; },
+          release: () => {},
+          renderAsync: async () => {
+            if (typeof source === 'string') {
+              if (!readable(mockFileBytes.get(source))) throw new Error('Loading bitmap failed');
+              return imageRef(mockManipulator.picture.width, mockManipulator.picture.height);
+            }
+            return imageRef(size?.width ?? source.width, size?.height ?? source.height);
+          },
+        };
+        return context;
+      },
+    },
+  };
+});
+
 /* ── The harness ──────────────────────────────────────────────────── */
 
 const METRICS: Metrics = {
@@ -204,6 +272,8 @@ beforeEach(() => {
   mockShareIntent.resets = 0;
   mockFiles.clear();
   mockFileBytes.clear();
+  mockManipulator.saves = [];
+  mockManipulator.gate = null;
   originalFlag = process.env.EXPO_PUBLIC_FEATURE_SHARE_INTAKE;
   process.env.EXPO_PUBLIC_FEATURE_SHARE_INTAKE = 'true';
   jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [] } as never);
@@ -620,11 +690,11 @@ describe('a picture is stripped before it is uploaded (UC-3.6, #190)', () => {
     expect(metadataMarkersIn(uploaded!)).toEqual([]);
     // And the original really did carry them, so the line above is a removal.
     expect(metadataMarkersIn(stripCaseBytes('poster_ar')).length).toBeGreaterThan(0);
-    // The name still travels: the server reads it once for a source hint.
+    // The name still travels, as a JPEG now (#404): the server reads it once for a source hint.
     const sent = propose.mock.calls[0]![0] as unknown as {
       files: readonly { name: string; type: string }[];
     };
-    expect(sent.files[0]!.name).toBe('poster_ar');
+    expect(sent.files[0]!.name).toBe('poster_ar.jpg');
     expect(sent.files[0]!.type).toBe('image/jpeg');
   });
 
@@ -643,20 +713,89 @@ describe('a picture is stripped before it is uploaded (UC-3.6, #190)', () => {
     expect([...mockFiles]).toEqual([]);
   });
 
-  it('a picture whose metadata cannot be removed is refused here, not there', async () => {
+  it('an iPhone photo in its own format is converted, downscaled and stripped, not refused (#404)', async () => {
+    let uploaded: Uint8Array | undefined;
+    const propose = jest.spyOn(shareEndpoints, 'proposeFromShare')
+      .mockImplementation(async (payload: unknown) => {
+        const files = (payload as { files: { uri: string }[] }).files;
+        uploaded = mockFileBytes.get(files[0]!.uri);
+        return shareProposal({ share: { channel: 'image', kind: 'images', fileCount: 1, ignoredSegments: 0, suggestedNextAction: null } }) as never;
+      });
+    await openWithShare({
+      ...mockEmptyIntent,
+      files: [photograph('heic_real_imageio', 'image/heic', 'file:///tmp/share/IMG_2024.HEIC')],
+      type: 'media',
+    });
+    await fireEvent.press(screen.getByTestId('share-analyze'));
+    await waitFor(() => expect(propose).toHaveBeenCalled());
+
+    const sent = propose.mock.calls[0]![0] as unknown as { files: readonly { name: string; type: string }[] };
+    expect(sent.files[0]!.type).toBe('image/jpeg');
+    expect(sent.files[0]!.name).toBe('heic_real_imageio.jpg');
+    // Brought down to a 2048 px long edge at q0.8, once.
+    expect(mockManipulator.saves).toEqual([{ width: 2048, height: 1536, compress: 0.8 }]);
+    // The encoder's file carried GPS and a thumbnail; the upload carries neither.
+    expect(metadataMarkersIn(stripCaseBytes('encoder_exif_gps_thumbnail_icc')).length).toBeGreaterThan(0);
+    expect(uploaded).toBeDefined();
+    expect(metadataMarkersIn(uploaded!)).toEqual([]);
+    // The OS's copy, the encoder's output and the stripped copy: all gone.
+    await waitFor(() => expect(screen.queryByTestId('review-item-i-1')).not.toBeNull());
+    expect([...mockFiles]).toEqual([]);
+  });
+
+  it('a retry after a failed upload leaves none of the first attempt’s files behind (#404 review F3)', async () => {
+    const propose = jest.spyOn(shareEndpoints, 'proposeFromShare')
+      .mockRejectedValueOnce(new NetworkError('nope'))
+      .mockResolvedValueOnce(shareProposal() as never);
+    await openWithShare({
+      ...mockEmptyIntent,
+      files: [photograph('poster_ar', 'image/jpeg', 'file:///tmp/share/poster.jpg')],
+      type: 'media',
+    });
+    await fireEvent.press(screen.getByTestId('share-analyze'));
+    await waitFor(() => expect(screen.queryByTestId('share-problem')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('share-analyze'));
+    await waitFor(() => expect(screen.queryByTestId('review-item-i-1')).not.toBeNull());
+
+    expect(propose).toHaveBeenCalledTimes(2);
+    // Two encodes, two stripped copies and the OS's copy: every one is gone.
+    expect(mockManipulator.saves).toHaveLength(2);
+    expect([...mockFiles]).toEqual([]);
+  });
+
+  it('unmounting while a picture is being prepared deletes what it wrote and uploads nothing (#404 review F4)', async () => {
+    const propose = jest.spyOn(shareEndpoints, 'proposeFromShare');
+    let open: () => void = () => {};
+    mockManipulator.gate = new Promise<void>((resolve) => { open = resolve; });
+    await openWithShare({
+      ...mockEmptyIntent,
+      files: [photograph('poster_ar', 'image/jpeg', 'file:///tmp/share/poster.jpg')],
+      type: 'media',
+    });
+    await fireEvent.press(screen.getByTestId('share-analyze'));
+    // Signed out mid-encode.
+    await act(async () => { screen.unmount(); });
+    await act(async () => {
+      open();
+      for (let tick = 0; tick < 20; tick += 1) await Promise.resolve();
+    });
+
+    expect(mockManipulator.saves).toHaveLength(1);
+    expect(propose).not.toHaveBeenCalled();
+    expect([...mockFiles]).toEqual([]);
+  });
+
+  it('a picture the phone cannot open is refused here with what to do instead, not uploaded', async () => {
     const propose = jest.spyOn(shareEndpoints, 'proposeFromShare');
     await openWithShare({
       ...mockEmptyIntent,
-      files: [photograph('heic_photo', 'image/heic', 'file:///tmp/share/IMG_2024.heic')],
+      files: [photograph('not_an_image', 'image/heic', 'file:///tmp/share/IMG_2024.heic')],
       type: 'media',
     });
     await fireEvent.press(screen.getByTestId('share-analyze'));
     await waitFor(() => expect(screen.queryByTestId('share-problem')).not.toBeNull());
 
-    expect(screen.getByTestId('share-problem')).toHaveTextContent(en.shareUnsupported);
-    // Nothing crossed the network. A HEIF whose EXIF this cannot remove is a
-    // photograph whose coordinates would otherwise be uploaded and stripped at
-    // the far end, which is the thing #190 forbids.
+    expect(screen.getByTestId('share-problem')).toHaveTextContent(en.shareImageUnreadable);
     expect(propose).not.toHaveBeenCalled();
   });
 });

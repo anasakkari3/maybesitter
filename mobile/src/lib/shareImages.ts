@@ -1,5 +1,5 @@
 /**
- * Reading and writing the one file a share rewrites (UC-3.6, #190).
+ * Reading, decoding and writing the picture a share rewrites (UC-3.6, #190, #404).
  *
  * ── Why this module exists at all ────────────────────────────────
  *
@@ -39,9 +39,21 @@
  * be sent without its metadata, which is a share that must not be sent at all.
  * `prepareImages` turns a throw into a refusal the user can read. Nothing is
  * logged, because a path is a file name and a file name is content.
+ *
+ * ── And it decodes and re-encodes, since #404 ────────────────────
+ *
+ * `sharedImageCodec` is `expo-image-manipulator` behind `ImageCodecPort`. It
+ * decodes the picture the OS handed over — a HEIF included, wherever the
+ * platform can — with its orientation applied, and writes JPEGs into the
+ * manipulator's own cache directory. Those files are the downscaled picture
+ * *before* the stripper has run, so `prepareImages` returns every one of them
+ * in `created` and `ShareProvider` deletes them with the rest. A decode the
+ * platform refuses (HEIF below Android API 28, a corrupt file) rejects, and
+ * `prepareImages` turns that into words for the user.
  */
 import { File, Paths } from 'expo-file-system';
-import type { ImageBytesPort } from '../features/share/prepareImages';
+import { ImageManipulator, SaveFormat, type ImageRef } from 'expo-image-manipulator';
+import type { DecodedImage, ImageBytesPort, ImageCodecPort, ImageSize } from '../features/share/prepareImages';
 
 /** Enough to keep two shares in one session from colliding. Not a secret. */
 let written = 0;
@@ -56,5 +68,37 @@ export const sharedImageBytes: ImageBytesPort = {
     file.create({ overwrite: true, intermediates: true });
     file.write(bytes);
     return file.uri;
+  },
+};
+
+/** Renders a manipulation and releases the context whether or not it rendered. */
+async function render(context: ReturnType<typeof ImageManipulator.manipulate>): Promise<ImageRef> {
+  try {
+    return await context.renderAsync();
+  } finally {
+    context.release();
+  }
+}
+
+export const sharedImageCodec: ImageCodecPort = {
+  async decode(uri: string): Promise<DecodedImage> {
+    const image = await render(ImageManipulator.manipulate(uri));
+    return {
+      width: image.width,
+      height: image.height,
+      async encode(size: ImageSize | null, format: 'jpeg' | 'png', quality: number): Promise<string> {
+        const options = format === 'png' ? { format: SaveFormat.PNG } : { format: SaveFormat.JPEG, compress: quality };
+        if (size === null) return (await image.saveAsync(options)).uri;
+        const resized = await render(ImageManipulator.manipulate(image).resize({ width: size.width, height: size.height }));
+        try {
+          return (await resized.saveAsync(options)).uri;
+        } finally {
+          resized.release();
+        }
+      },
+      release(): void {
+        image.release();
+      },
+    };
   },
 };

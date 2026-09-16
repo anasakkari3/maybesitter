@@ -648,6 +648,7 @@
   "shareUnavailable": "Sharing into MaybeSitter isn’t switched on yet. Nothing was sent.",
   "shareTooLarge": "That’s too big to send. Share a smaller part of it.",
   "shareUnsupported": "MaybeSitter can’t read that kind of file yet.",
+  "shareImageUnreadable": "MaybeSitter couldn’t open that picture, so nothing was sent. Take a screenshot of it and share the screenshot instead.",
   "shareTooManyFiles": "Too many files at once. Share up to five images, or one file.",
   "shareTextTooLong": "That’s a lot of text. Share a shorter part of it.",
   "shareEmpty": "There was nothing in that to read.",
