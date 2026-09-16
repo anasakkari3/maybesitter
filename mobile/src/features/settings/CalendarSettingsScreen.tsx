@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../../state/AppContext';
 import { Btn, Card, Txt } from '../../ui/primitives';
 import { ScreenIn } from '../../ui/motion';
-import { SettingsHeader } from './SettingsChrome';
+import { SettingsHeader, SettingsRow } from './SettingsChrome';
 import { ServerToggle } from './ServerToggle';
 import { useSetCalendarWriteTarget, useToday, useUpcoming } from '../../api/queries';
 import {
@@ -13,7 +13,7 @@ import {
 } from '../calendar/useDeviceCalendarSync';
 import { deviceCalendar, type CalendarAccess, type WritableCalendar } from '../calendar/deviceCalendar';
 import { loadChosenCalendarId, saveChosenCalendarId } from '../../lib/deviceSettings/calendarDevice';
-import { calendarReadEnabled, calendarWriteEnabled } from '../../config/env';
+import { calendarReadEnabled, calendarWriteEnabled, icsFeedsEnabled } from '../../config/env';
 import { useBusyBlocks, useBusyCalendar } from '../calendar/useBusyCalendar';
 import { fill } from '../../i18n/strings';
 
@@ -63,7 +63,7 @@ import { fill } from '../../i18n/strings';
  * busy on Android, and a product that quietly counted a refused invitation as
  * an hour of the user's day owes them the sentence.
  */
-export function CalendarSettingsScreen({ onBack }: { onBack: () => void }) {
+export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void; onFeeds?: () => void }) {
   const { t, p } = useApp();
   const insets = useSafeAreaInsets();
   const settings = useCalendarSettings();
@@ -238,6 +238,14 @@ export function CalendarSettingsScreen({ onBack }: { onBack: () => void }) {
                 <Txt size={13} color={p.mu} testID="calendar-none-writable">{t.calendarNoneWritable}</Txt>
               </View>
             ) : null}
+          </Card>
+        ) : null}
+
+        {/* Subscribed calendar links (UC-3.4, #188). Absent, not disabled, when
+            the build does not have the feature. */}
+        {icsFeedsEnabled() && onFeeds ? (
+          <Card pad={0} style={{ overflow: 'hidden' }}>
+            <SettingsRow label={t.icsFeedsEntry} value={t.icsFeedsEntryBody} onPress={onFeeds} testID="calendar-feeds-entry" />
           </Card>
         ) : null}
 
