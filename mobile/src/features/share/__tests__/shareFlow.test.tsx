@@ -146,8 +146,12 @@ const mockManipulator: { saves: { width: number; height: number; compress: numbe
   picture: { width: 4032, height: 3024 },
 };
 
+/** Read when a save happens, never while the mock factory is hoisted. */
+function mockEncoderOutput(): Uint8Array {
+  return stripCaseBytes('encoder_exif_gps_thumbnail_icc');
+}
+
 jest.mock('expo-image-manipulator', () => {
-  const { stripCaseBytes: bytesOf } = require('../__fixtures__/stripCases') as typeof import('../__fixtures__/stripCases');
   const readable = (bytes: Uint8Array | undefined) => Boolean(bytes && bytes.length > 12 && (
     (bytes[0] === 0xff && bytes[1] === 0xd8)
     || (bytes[0] === 0x89 && bytes[1] === 0x50)
@@ -160,7 +164,7 @@ jest.mock('expo-image-manipulator', () => {
       const uri = `file:///cache/ImageManipulator/${mockManipulator.saves.length}.jpg`;
       mockManipulator.saves.push({ width, height, compress: options.compress });
       mockFiles.add(uri);
-      mockFileBytes.set(uri, bytesOf('encoder_exif_gps_thumbnail_icc'));
+      mockFileBytes.set(uri, mockEncoderOutput());
       return { uri, width, height };
     },
   });

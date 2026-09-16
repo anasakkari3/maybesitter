@@ -35,7 +35,6 @@ import {
   decodeBase64,
   metadataMarkersIn,
   stripCaseBytes,
-  stripCaseNamed,
   type StripCase,
 } from '../__fixtures__/stripCases';
 import {

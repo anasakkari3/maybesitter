@@ -165,7 +165,7 @@ const XMP = segment(0xe1, bytesOf(
 /** Photoshop 3.0 → 8BIM 0x0404 → IPTC 2:120 (caption). */
 const IPTC = (() => {
   const caption = encoder.encode(HIDDEN_IPTC_CAPTION);
-  const record = [0x1c, 0x02, 0x78, ...be16(caption.length), ...caption];
+  const record = [0x1c, 0x02, 0x78, ...be16(caption.length), ...Array.from(caption)];
   const padded = record.length % 2 === 0 ? record : [...record, 0x00];
   return segment(0xed, bytesOf(
     ascii('Photoshop 3.0'), [0x00], ascii('8BIM'), be16(0x0404), [0x00, 0x00], be32(record.length), padded,
