@@ -759,5 +759,15 @@
   "catSettingsWhichHint": "Only the ones you keep are used. Turn off the ones that are not part of your life.",
   "catSettingsNone": "You have turned off every category, so nothing will be sorted.",
   "catDetailsLabel": "Category",
-  "catSaveFailed": "Could not save that. Try again."
+  "catSaveFailed": "Could not save that. Try again.",
+  "widgetSettingsTitle": "Home screen widget",
+  "widgetShowTitles": "Show titles on the home screen widget",
+  "widgetShowTitlesBody": "Off by default. Anyone who picks up your phone can see the home screen, so the widget says “Private commitment” with the time and how much it matters. Turn this on to show the real titles on the home screen. The lock screen never shows them, and iOS hides them whenever the phone is locked.",
+  "widgetPreviewHeading": "What the widget shows",
+  "widgetPrivateCommitment": "Private commitment",
+  "widgetNextStep": "Next step",
+  "widgetEmpty": "Nothing open right now.",
+  "widgetCapture": "Say it",
+  "widgetStale": "Open MaybeSitter to refresh.",
+  "widgetSaveFailed": "Could not save that on this phone. Try again."
 }

@@ -699,6 +699,47 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       iosAppGroupIdentifier: 'group.com.maybesitter.app',
       iosShareExtensionName: 'ShareExtension',
     }],
+    /*
+     * The home-screen widgets (UC-3.R1, #203).
+     *
+     * ── iOS: `@bacons/apple-targets` ─────────────────────────────
+     *
+     * Adds a WidgetKit extension target for every `targets/<name>/expo-target.config.js`
+     * — here one, `targets/widget/` — with its own bundle id
+     * (`com.maybesitter.app.widget`), its App Group entitlement and its colour
+     * assets, and it ships the `ExtensionStorage` module the app writes the
+     * snapshot through. Chosen over #203's fallback of a hand-written
+     * `withXcodeProject` plugin because it is maintained, its peer range is
+     * `expo >=52`, and a WidgetKit target is several hundred lines of pbxproj
+     * surgery nobody here should own. `expo-widgets` (SDK 57) was the other
+     * candidate: iOS-only as well, and built on `@expo/ui`, a second UI system
+     * this app does not otherwise use. A plain SwiftUI widget reading a JSON
+     * snapshot keeps the privacy boundary in one place — `buildSnapshot`.
+     *
+     * ── Android: `react-native-android-widget` ───────────────────
+     *
+     * Registers an `AppWidgetProvider` receiver and its `appwidget-provider`
+     * XML. The widget is drawn from JSX by `src/features/widget/android/`, in a
+     * headless task registered in `index.ts`. One resizable widget, 2×2
+     * minimum and 4×2 preferred; the launcher wakes it every 30 minutes, which
+     * is when an expired snapshot turns "stale" without the app running.
+     *
+     * The label is the brand, not a sentence, for the same reason
+     * `CFBundleDisplayName` is: the widget picker is not translated per app.
+     */
+    '@bacons/apple-targets',
+    ['react-native-android-widget', {
+      widgets: [{
+        name: 'NextStep',
+        label: 'MaybeSitter',
+        minWidth: '110dp',
+        minHeight: '110dp',
+        targetCellWidth: 4,
+        targetCellHeight: 2,
+        updatePeriodMillis: 1800000,
+        resizeMode: 'horizontal|vertical',
+      }],
+    }],
   ],
   extra: {
     ...config.extra,

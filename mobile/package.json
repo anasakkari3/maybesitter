@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "main": "index.ts",
   "dependencies": {
+    "@bacons/apple-targets": "^5.0.0",
     "@expo-google-fonts/noto-naskh-arabic": "^0.4.5",
     "@expo-google-fonts/noto-sans-hebrew": "^0.4.1",
     "@expo-google-fonts/outfit": "^0.4.3",
@@ -46,6 +47,7 @@
     "react": "19.2.3",
     "react-i18next": "^17.0.13",
     "react-native": "0.86.3",
+    "react-native-android-widget": "^0.22.1",
     "react-native-gesture-handler": "~2.32.0",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-svg": "15.15.4",
@@ -98,5 +100,11 @@
   },
   "engines": {
     "node": ">=22.5.0"
+  },
+  "overrides": {
+    "@bacons/xcode": {
+      "@expo/plist": "^0.8.1",
+      "uuid": "^11.1.1"
+    }
   }
 }

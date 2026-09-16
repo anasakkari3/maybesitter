@@ -762,5 +762,15 @@
   "catSettingsWhichHint": "רק מה שתשאירו ישמש. כבו את מה שלא שייך לחיים שלכם.",
   "catSettingsNone": "כיביתם את כל הקטגוריות, אז שום דבר לא יסודר.",
   "catDetailsLabel": "קטגוריה",
-  "catSaveFailed": "לא הצלחנו לשמור. נסו שוב."
+  "catSaveFailed": "לא הצלחנו לשמור. נסו שוב.",
+  "widgetSettingsTitle": "ווידג׳ט במסך הבית",
+  "widgetShowTitles": "להציג כותרות בווידג׳ט במסך הבית",
+  "widgetShowTitlesBody": "כבוי כברירת מחדל. כל מי שמרים את הטלפון רואה את מסך הבית, ולכן הווידג׳ט כותב „התחייבות פרטית” עם השעה ועד כמה זה חשוב. הפעל כדי להציג את הכותרות האמיתיות במסך הבית. מסך הנעילה לעולם לא מציג אותן, ו-iOS מסתיר אותן בכל פעם שהטלפון נעול.",
+  "widgetPreviewHeading": "מה הווידג׳ט מציג",
+  "widgetPrivateCommitment": "התחייבות פרטית",
+  "widgetNextStep": "הצעד הבא שלך",
+  "widgetEmpty": "אין כרגע שום דבר פתוח.",
+  "widgetCapture": "להגיד",
+  "widgetStale": "פתח את MaybeSitter כדי לרענן.",
+  "widgetSaveFailed": "לא הצלחנו לשמור את זה בטלפון. נסה שוב."
 }

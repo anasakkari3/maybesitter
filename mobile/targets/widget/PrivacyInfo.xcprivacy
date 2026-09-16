@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The widget extension's own privacy manifest (UC-3.R1, #203).
+
+  The extension is a separate bundle, and the bundle that makes a
+  required-reason call is the one that must declare it (the same rule
+  withShareExtensionFixups applies to the share extension). It makes exactly
+  one: `UserDefaults(suiteName: "group.com.maybesitter.app")` in
+  Snapshot.swift, to read the snapshot the app wrote — 1C8F.1, UserDefaults in
+  an App Group shared with the app. It never uses its own standard defaults,
+  so CA92.1 is not claimed. It collects nothing and makes no network call.
+-->
+<plist version="1.0">
+  <dict>
+    <key>NSPrivacyAccessedAPITypes</key>
+    <array>
+      <dict>
+        <key>NSPrivacyAccessedAPIType</key>
+        <string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+        <key>NSPrivacyAccessedAPITypeReasons</key>
+        <array>
+          <string>1C8F.1</string>
+        </array>
+      </dict>
+    </array>
+    <key>NSPrivacyCollectedDataTypes</key>
+    <array/>
+    <key>NSPrivacyTracking</key>
+    <false/>
+  </dict>
+</plist>
