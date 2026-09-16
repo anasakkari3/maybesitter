@@ -17,6 +17,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { planExternalActionGateway } from '../../lib/actions/externalActionGateway.ts';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -84,4 +85,60 @@ test('no backend module imports the Google Gen AI SDK except the provider', () =
     ['src/extraction/llm/geminiProvider.ts'],
     'a module outside the provider imports the Gen AI SDK',
   );
+});
+
+test('external action gateway plans controlled email and MCP actions through policy', () => {
+  const sendEmail = planExternalActionGateway({
+    actionId: 'action-email-1',
+    idempotencyKey: 'idem-email-1',
+    capability: 'send_email',
+    provider: 'google',
+    actor: 'model',
+    userConfirmed: false,
+    strongConfirmation: false,
+    settingsAllowAutomaticExternalWrites: true,
+  });
+  assert.equal(sendEmail.route, 'confirmation');
+  assert.equal(sendEmail.providerExecutionAllowed, false);
+  assert.equal(sendEmail.modelMaySelectRawProviderTool, false);
+
+  const confirmedDraft = planExternalActionGateway({
+    actionId: 'action-email-2',
+    idempotencyKey: 'idem-email-2',
+    capability: 'draft_email',
+    provider: 'microsoft',
+    actor: 'model',
+    userConfirmed: true,
+    strongConfirmation: false,
+    settingsAllowAutomaticExternalWrites: false,
+  });
+  assert.equal(confirmedDraft.route, 'external_action');
+  assert.equal(confirmedDraft.providerExecutionAllowed, true);
+
+  const mcpLookup = planExternalActionGateway({
+    actionId: 'action-mcp-1',
+    idempotencyKey: null,
+    capability: 'mcp_lookup_context',
+    provider: 'mcp',
+    actor: 'system',
+    userConfirmed: false,
+    strongConfirmation: false,
+    settingsAllowAutomaticExternalWrites: false,
+  });
+  assert.equal(mcpLookup.route, 'read_context');
+  assert.equal(mcpLookup.providerExecutionAllowed, true);
+
+  const rawProviderTool = planExternalActionGateway({
+    actionId: 'action-raw-1',
+    idempotencyKey: null,
+    capability: 'gmail.users.messages.send',
+    provider: 'google',
+    actor: 'model',
+    userConfirmed: true,
+    strongConfirmation: true,
+    settingsAllowAutomaticExternalWrites: true,
+  });
+  assert.equal(rawProviderTool.route, 'blocked');
+  assert.equal(rawProviderTool.policyDecision.reason, 'raw_provider_tool_denied');
+  assert.equal(rawProviderTool.providerExecutionAllowed, false);
 });
