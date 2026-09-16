@@ -16,7 +16,6 @@ import { drainHardReceipts } from './receiptUpload';
 import { AppState } from 'react-native';
 import { useToday, useUpcoming } from '../../api/queries';
 import { useQueryClient } from '@tanstack/react-query';
-import { AppState } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
 import { registerReminderActions } from '../../notifications/actions';
 import { clearOutbox } from '../../lib/deviceSettings/actionOutbox';

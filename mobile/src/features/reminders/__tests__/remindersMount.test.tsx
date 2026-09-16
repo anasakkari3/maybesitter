@@ -463,9 +463,9 @@ describe('the buttons on a reminder (#200)', () => {
 
   it('Later offline stays queued, and coming back to the app sends it once with the same id', async () => {
     const box = captureListener();
-    const appState: { change?: (state: string) => void } = {};
+    const changeHandlers: ((state: string) => void)[] = [];
     jest.spyOn(AppState, 'addEventListener').mockImplementation((type, handler) => {
-      if (type === 'change') appState.change = handler as (state: string) => void;
+      if (type === 'change') changeHandlers.push(handler as (state: string) => void);
       return { remove: () => {} } as never;
     });
     const { NetworkError } = jest.requireActual<typeof import('../../../api/errors')>('../../../api/errors');
@@ -488,7 +488,7 @@ describe('the buttons on a reminder (#200)', () => {
     const realNow = Date.now();
     jest.spyOn(Date, 'now').mockReturnValue(realNow + 60 * 60 * 1000);
     await act(async () => {
-      appState.change?.('active');
+      for (const handler of changeHandlers) handler('active');
     });
     await waitFor(async () => expect((await loadOutbox(USER.uid)).items).toHaveLength(0));
     expect(act_).toHaveBeenCalledTimes(2);
