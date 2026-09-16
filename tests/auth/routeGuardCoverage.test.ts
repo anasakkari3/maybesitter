@@ -51,11 +51,14 @@ test('every mobile route file exists and is enumerated', () => {
   // it matters that it authenticates first: an unauthenticated caller must not
   // learn whether a commitment id is linked.
   // Thirty-three before that: UC-3.0 (#183) added `POST /api/mobile/capture/share`,
+  // Thirty-six today: UC-3.0 (#183) added `POST /api/mobile/capture/share`,
   // the one route that takes bytes. It checks its feature flag and its declared
   // body size before it authenticates — deliberately, so an unauthenticated
   // 25 MB upload costs a header read rather than a full receive — but the guard
   // is still the first thing that touches the body, and the loop below still
-  // holds it to one `requireMobileUser` per handler.
+  // holds it to one `requireMobileUser` per handler. UC-3.11 (#196) added
+  // `/settings/reminders` and UC-3.0b (#184) `POST /api/mobile/devices` and
+  // `DELETE /api/mobile/devices/{id}`.
   // Thirty-two before that: UC-3.15 (#201) added `GET /api/mobile/activity` and
   // `GET /api/mobile/activity/summary`.
   // Thirty before that: UC-3.10a (#194) added the three `/plans/{date}` routes
@@ -67,7 +70,12 @@ test('every mobile route file exists and is enumerated', () => {
   // the two memory routes, and UC-2.9 (#170) the recommendation consent route.
   // The number is asserted so that a route added without a thought about
   // authentication shows up here as well as in the loop.
-  assert.equal(files.length, 35, `found:\n${files.join('\n')}`);
+  // Thirty-eight after this lane merged with #185's: the three added here are
+  // `POST /api/mobile/devices`, `DELETE /api/mobile/devices/{installationId}`
+  // and `GET|PUT /api/mobile/settings/reminders`, on top of main's thirty-five.
+  // The number is a census, not a guarantee: it is here so that adding a route
+  // is a decision somebody takes rather than a file that appears.
+  assert.equal(files.length, 38, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {

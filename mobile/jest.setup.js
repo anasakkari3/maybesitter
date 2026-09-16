@@ -130,3 +130,66 @@ jest.mock('@react-native-firebase/crashlytics', () => ({
   setAttributes: async () => null,
   setCrashlyticsCollectionEnabled: async () => null,
 }));
+
+// expo-notifications is native (UC-3.11, #196). The mock is inert on purpose:
+// the engine's rules are tested against an injected fake gateway
+// (`src/features/reminders/__tests__/softAwarenessEngine.test.ts`), and the
+// only thing this has to do is let a component tree that mounts
+// `RemindersMount` render. A test that reached the real module would get
+// nothing scheduled, not a silently working scheduler.
+jest.mock('expo-notifications', () => ({
+  // `__esModule` so `import * as X` and `require('X')` are the SAME object.
+  // Without it Babel's interop hands an `import *` a *copy*, and a
+  // `jest.spyOn` on that copy is invisible to production code that resolves
+  // the module with `require` (`src/notifications/nativeModules.ts`).
+  __esModule: true,
+  setNotificationHandler: () => {},
+  setNotificationCategoryAsync: async () => null,
+  setNotificationChannelAsync: async () => null,
+  getPermissionsAsync: async () => ({ granted: false, status: 'undetermined' }),
+  requestPermissionsAsync: async () => ({ granted: false, status: 'undetermined' }),
+  getAllScheduledNotificationsAsync: async () => [],
+  scheduleNotificationAsync: async () => 'scheduled',
+  cancelScheduledNotificationAsync: async () => null,
+  cancelAllScheduledNotificationsAsync: async () => null,
+  addNotificationResponseReceivedListener: () => ({ remove: () => {} }),
+  getLastNotificationResponseAsync: async () => null,
+  SchedulableTriggerInputTypes: { DATE: 'date' },
+  AndroidImportance: { DEFAULT: 3, HIGH: 4 },
+}));
+
+// The keychain is native too. Backed by a plain in-memory map rather than
+// stubbed to null, so `installationId()` can be tested for the property that
+// matters — that it mints once and returns the same value afterwards — instead
+// of only for its failure path.
+jest.mock('expo-secure-store', () => {
+  const store = new Map();
+  return {
+    __esModule: true,
+    WHEN_UNLOCKED_THIS_DEVICE_ONLY: 'whenUnlockedThisDeviceOnly',
+    getItemAsync: async (key) => (store.has(key) ? store.get(key) : null),
+    setItemAsync: async (key, value) => {
+      store.set(key, value);
+    },
+    deleteItemAsync: async (key) => {
+      store.delete(key);
+    },
+    __reset: () => store.clear(),
+  };
+});
+
+// React Native Firebase messaging (UC-3.0b, #184). Inert: the registration
+// logic takes its token, its permission and its endpoints as injected
+// dependencies, so the real behaviour is exercised in
+// `src/notifications/__tests__/pushRegistration.test.ts` against fakes.
+jest.mock('@react-native-firebase/messaging', () => ({
+  __esModule: true,
+  getMessaging: () => ({}),
+  getToken: async () => null,
+  deleteToken: async () => null,
+  onTokenRefresh: () => () => {},
+  onMessage: () => () => {},
+  setBackgroundMessageHandler: () => {},
+  getInitialNotification: async () => null,
+  onNotificationOpenedApp: () => () => {},
+}));

@@ -95,6 +95,12 @@ import {
   DELETE as calendarLinkDelete,
   PUT as calendarLinkPut,
 } from '../../src/app/api/mobile/commitments/[id]/device-calendar-link/route.ts';
+import {
+  GET as reminderSettingsGet,
+  PUT as reminderSettingsPut,
+} from '../../src/app/api/mobile/settings/reminders/route.ts';
+import { POST as devicesPost } from '../../src/app/api/mobile/devices/route.ts';
+import { DELETE as deviceDelete } from '../../src/app/api/mobile/devices/[installationId]/route.ts';
 import { resetProviderForTests } from '../../src/extraction/llm/index.ts';
 import {
   buildAndStoreDailyPlan,
@@ -890,6 +896,43 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     await record('plan.notFound', 404, await planGet(
       request('/api/mobile/plans/2026-08-10'),
       dateParams('2026-08-10'),
+    ));
+
+    // ── reminders and devices (#196, #184) ─────────────────────────
+    // The quiet hours on this response come from the routine profile, which is
+    // the one place they are stored; the PUT writes them back through to it.
+    await record('reminders.settingsDefault', 200, await reminderSettingsGet(
+      request('/api/mobile/settings/reminders'),
+    ));
+    await record('reminders.settingsSaved', 200, await reminderSettingsPut(
+      request('/api/mobile/settings/reminders', {
+        method: 'PUT',
+        body: {
+          softEnabled: true,
+          softLeadMinutes: 30,
+          quietHours: { start: '22:00', end: '07:00', timezone: 'Asia/Jerusalem' },
+        },
+      }),
+    ));
+
+    const INSTALLATION = '44444444-4444-4444-8444-444444444444';
+    await record('devices.registered', 200, await devicesPost(request('/api/mobile/devices', {
+      body: {
+        installationId: INSTALLATION,
+        fcmToken: 'fGh1JkL2mNo3PqR4sTu5Vw6Xy7Za8Bc9De0FgH1IjK2LmN3OpQ4RsT5U',
+        platform: 'ios',
+        appVersion: '1.0.0',
+        locale: 'ar',
+        timezone: 'Asia/Jerusalem',
+        pushPermission: 'granted',
+      },
+    })));
+    await record('devices.forgotten', 200, await deviceDelete(
+      new Request(`${BASE}/api/mobile/devices/${INSTALLATION}`, {
+        method: 'DELETE',
+        headers: { authorization: `Bearer ${tokenFor(USER)}` },
+      }),
+      { params: Promise.resolve({ installationId: INSTALLATION }) },
     ));
 
     // ── the refusals every screen must be able to render ───────────
