@@ -820,7 +820,7 @@
   "icsFeedsKeepTime": "Keep my time",
   "icsFeedsRemovedFromSource": "The calendar no longer has this. Your commitment stays.",
   "icsFeedsGotIt": "Got it",
-  "icsFeedsErrInvalidUrl": "That isn't a calendar link we can use. It needs to start with https:// or webcal://.",
+  "icsFeedsErrInvalidUrl": "That isn't a calendar link we can use. Copy the export link again, exactly as Moodle shows it.",
   "icsFeedsErrNotCalendar": "That link opened, but there's no calendar in it. Check you copied the export link.",
   "icsFeedsErrFetch": "We couldn't open that link. Check it's right and try again.",
   "icsFeedsErrTooComplex": "That calendar is too big or complicated to read.",

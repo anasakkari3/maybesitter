@@ -820,7 +820,7 @@
   "icsFeedsKeepTime": "خلّي وقتي",
   "icsFeedsRemovedFromSource": "التقويم ما عاد فيه هاد. التزامك بيضلّ.",
   "icsFeedsGotIt": "تمام",
-  "icsFeedsErrInvalidUrl": "هاد مش رابط تقويم فينا نستعمله. لازم يبلّش بـ https:// أو webcal://.",
+  "icsFeedsErrInvalidUrl": "هاد مش رابط تقويم فينا نستعمله. انسخ رابط التصدير من جديد متل ما بيطلع بمودل.",
   "icsFeedsErrNotCalendar": "الرابط فتح، بس ما فيه تقويم. تأكّد إنك نسخت رابط التصدير.",
   "icsFeedsErrFetch": "ما قدرنا نفتح الرابط. تأكّد إنه صح وجرّب كمان مرّة.",
   "icsFeedsErrTooComplex": "هاد التقويم كبير أو معقّد كتير لنقراه.",

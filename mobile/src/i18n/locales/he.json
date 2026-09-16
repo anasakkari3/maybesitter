@@ -823,7 +823,7 @@
   "icsFeedsKeepTime": "להשאיר את השעה שלי",
   "icsFeedsRemovedFromSource": "זה כבר לא ביומן. המחויבות שלך נשארת.",
   "icsFeedsGotIt": "הבנתי",
-  "icsFeedsErrInvalidUrl": "זה לא קישור יומן שאפשר להשתמש בו. הוא צריך להתחיל ב־https:// או webcal://.",
+  "icsFeedsErrInvalidUrl": "זה לא קישור יומן שאפשר להשתמש בו. כדאי להעתיק שוב את קישור הייצוא בדיוק כמו שהוא מופיע ב‏Moodle.",
   "icsFeedsErrNotCalendar": "הקישור נפתח, אבל אין בו יומן. כדאי לבדוק שהעתקת את קישור הייצוא.",
   "icsFeedsErrFetch": "לא הצלחנו לפתוח את הקישור. כדאי לבדוק שהוא נכון ולנסות שוב.",
   "icsFeedsErrTooComplex": "היומן הזה גדול או מסובך מדי לקריאה.",

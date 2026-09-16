@@ -49,6 +49,15 @@ import {
 } from '../schemas/calendar';
 import { reminderSettingsResponseSchema, hardReceiptsResponseSchema } from '../schemas/reminders';
 import { deviceForgottenSchema, deviceRegisteredSchema } from '../schemas/devices';
+import {
+  icsDeadlineDecidedSchema,
+  icsFeedCreatedSchema,
+  icsFeedDeletedSchema,
+  icsFeedListSchema,
+  icsFeedRefreshedSchema,
+  icsFeedRefusalSchema,
+  icsFeedUpdatedSchema,
+} from '../schemas/icsFeeds';
 
 /**
  * The drift detector.
@@ -164,6 +173,17 @@ const CASES: Array<[string, z.ZodType]> = [
   ['reminders.receiptsRecorded', hardReceiptsResponseSchema],
   ['devices.registered', deviceRegisteredSchema],
   ['devices.forgotten', deviceForgottenSchema],
+  // Subscribed calendar feeds (UC-3.4, #188). The schemas are strict: a
+  // response that ever carried the feed URL, its host or a host hash would
+  // fail here, in CI, before a phone could cache it.
+  ['icsFeeds.created', icsFeedCreatedSchema],
+  ['icsFeeds.list', icsFeedListSchema],
+  ['icsFeeds.updated', icsFeedUpdatedSchema],
+  ['icsFeeds.refreshed', icsFeedRefreshedSchema],
+  ['icsFeeds.deadlineAccepted', icsDeadlineDecidedSchema],
+  ['icsFeeds.deleted', icsFeedDeletedSchema],
+  ['icsFeeds.invalidUrl', icsFeedRefusalSchema],
+  ['icsFeeds.refreshTooSoon', icsFeedRefusalSchema],
 ];
 
 /**
@@ -423,5 +443,15 @@ describe('the next-step states that are not a suggestion', () => {
     expect(() => nextStepResponseSchema.parse({
       ...base, recommendation: { ...base.recommendation, state: 'insufficient_evidence' },
     })).not.toThrow();
+  });
+});
+
+describe('the feed schemas refuse a URL', () => {
+  it('fails a feed or a created response that carries url, host or hostHash', () => {
+    const created = fixture('icsFeeds.created') as { feed: Record<string, unknown> };
+    for (const key of ['url', 'host', 'hostHash', 'encryptedUrl']) {
+      expect(icsFeedCreatedSchema.safeParse({ ...created, feed: { ...created.feed, [key]: 'x' } }).success).toBe(false);
+      expect(icsFeedCreatedSchema.safeParse({ ...created, [key]: 'x' }).success).toBe(false);
+    }
   });
 });
