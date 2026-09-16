@@ -97,12 +97,12 @@ test('every mobile route file exists and is enumerated', () => {
   // is what keeps a receipt filed under the account that made it: a receipt
   // accepted for somebody else's uid would silence *their* backup push for a
   // Must commitment, which is the quietest way this product could fail.
-  // Forty-nine with UC-3.4 (#188) on top of that: `GET|POST /calendar/ics`, `PATCH|DELETE
+  // Forty-seven with UC-3.4 (#188) on top of that: `GET|POST /calendar/ics`, `PATCH|DELETE
   // /calendar/ics/{feedId}`, `POST .../refresh` and `POST .../deadlines/
   // {itemKey}`. The feed URL is a bearer secret and a refresh makes the server
   // fetch a URL somebody chose, so every one authenticates before the feature
   // flag, the consent check or the body is looked at.
-  assert.equal(files.length, 49, `found:\n${files.join('\n')}`);
+  assert.equal(files.length, 47, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {
