@@ -21,7 +21,8 @@
         "recordedAt": "2026-08-09T09:00:00.000Z",
         "confirmedAt": null,
         "edited": false,
-        "observationCount": 0
+        "observationCount": 0,
+        "pattern": null
       }
     },
     {
@@ -45,7 +46,8 @@
         "recordedAt": "2026-08-09T09:00:00.000Z",
         "confirmedAt": null,
         "edited": false,
-        "observationCount": 0
+        "observationCount": 0,
+        "pattern": null
       }
     },
     {
@@ -69,7 +71,8 @@
         "recordedAt": "2026-08-09T09:00:00.000Z",
         "confirmedAt": null,
         "edited": false,
-        "observationCount": 0
+        "observationCount": 0,
+        "pattern": null
       }
     },
     {
@@ -93,8 +96,10 @@
         "recordedAt": "2026-08-09T09:00:00.000Z",
         "confirmedAt": null,
         "edited": false,
-        "observationCount": 0
+        "observationCount": 0,
+        "pattern": null
       }
     }
-  ]
+  ],
+  "suggestions": []
 }

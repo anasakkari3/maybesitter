@@ -2,6 +2,7 @@ import { apiRequest } from '../client';
 import {
   aiConsentUpdatedSchema,
   consentsViewSchema,
+  personalizationConsentUpdatedSchema,
   recommendationConsentUpdatedSchema,
   type ConsentsView,
   type ConsentState,
@@ -44,5 +45,19 @@ export function putRecommendationConsent(answer: ConsentAnswer) {
   return apiRequest('PUT', '/api/mobile/consents/recommendations', {
     body: answer,
     schema: recommendationConsentUpdatedSchema,
+  });
+}
+
+/**
+ * "Notice patterns in when you finish things" (UC-3.16, #202).
+ *
+ * Declining stops the suggestions and stops a pattern the user kept shaping
+ * their plan. It does not delete what they kept — that is the memory screen's
+ * Delete, and the toggle's copy says so.
+ */
+export function putPersonalizationConsent(answer: ConsentAnswer) {
+  return apiRequest('PUT', '/api/mobile/consents/personalization', {
+    body: answer,
+    schema: personalizationConsentUpdatedSchema,
   });
 }

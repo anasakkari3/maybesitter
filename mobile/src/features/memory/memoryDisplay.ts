@@ -58,7 +58,7 @@ export function memorySentence({ content, strings }: MemoryDisplayInput): string
   return fill(strings[WINDOW_TEMPLATE[key]] ?? '{from}–{to}', { from, to });
 }
 
-export type ProvenanceChip = 'you' | 'survey' | 'ai' | 'capture' | null;
+export type ProvenanceChip = 'you' | 'survey' | 'ai' | 'capture' | 'noticed' | null;
 
 /**
  * Which chip to show, from the record's own fields.
@@ -79,6 +79,8 @@ export function provenanceChip(
     case 'self_description': return 'you';
     case 'manual': return 'you';
     case 'capture': return 'capture';
+    // A suggestion the user kept (#202). Once they rewrite it, it is theirs.
+    case 'behaviour_rule': return source === 'deterministic_rule' ? 'noticed' : 'you';
     // A record written before #167 has no provenance. No chip is better than a
     // guessed one: the chip is the reason to trust the row.
     default: return null;
@@ -90,4 +92,5 @@ export const CHIP_STRING: Record<Exclude<ProvenanceChip, null>, string> = {
   survey: 'memoryFromSurvey',
   ai: 'memoryFromAi',
   capture: 'memoryFromCapture',
+  noticed: 'memorySourceNoticed',
 };

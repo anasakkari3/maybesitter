@@ -1,0 +1,5 @@
+{
+  "success": false,
+  "error": "that suggestion is no longer offered",
+  "reason": "memory_suggestion_stale"
+}

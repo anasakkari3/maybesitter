@@ -20,6 +20,7 @@ import { analyticsAckSchema } from '../schemas/analytics';
 import {
   aiConsentUpdatedSchema,
   consentsViewSchema,
+  personalizationConsentUpdatedSchema,
   recommendationConsentUpdatedSchema,
 } from '../schemas/consents';
 import {
@@ -28,6 +29,8 @@ import {
   memoryCreatedSchema,
   memoryDeletedSchema,
   memoryListSchema,
+  memorySuggestionDismissedSchema,
+  memorySuggestionKeptSchema,
   profileResponseSchema,
   routineSavedSchema,
 } from '../schemas/profile';
@@ -108,6 +111,11 @@ const CASES: Array<[string, z.ZodType]> = [
   ['memory.deleted', memoryDeletedSchema],
   ['memory.deletedAll', memoryDeletedSchema],
   ['memory.notFound', errorBodySchema],
+  ['consents.personalizationRecorded', personalizationConsentUpdatedSchema],
+  ['memory.withSuggestion', memoryListSchema],
+  ['memory.suggestionKept', memorySuggestionKeptSchema],
+  ['memory.suggestionDismissed', memorySuggestionDismissedSchema],
+  ['memory.suggestionStale', errorBodySchema],
   ['nextStep.recommendation', nextStepResponseSchema],
   ['nextStep.decision', nextStepDecisionResponseSchema],
   ['trust.state', trustResponseSchema],

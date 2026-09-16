@@ -67,6 +67,14 @@
  * on the content side of the line, and it goes with them on account deletion,
  * where `deleteTree` already covers it.
  *
+ * `memoryDismissals` (UC-3.16, #202) goes too. A dismissal is the user's answer
+ * to a suggestion, which argues for keeping it the way consent is kept — but
+ * what it stores is a fingerprint naming a window of the day read off their
+ * behaviour, which is a derived claim about them. Purging it can only cost a
+ * suggestion being offered again, which nothing saves until they press Keep;
+ * keeping it would leave a behavioural fact behind a button that says
+ * "everything".
+ *
  * Every one of these decisions is enumerated against `USER_SCOPED_COLLECTIONS`
  * in `tests/personalization/deletionScopeCoverage.test.ts`, so the next store
  * added is classified deliberately instead of missed in silence.
@@ -106,7 +114,7 @@ import {
 import type { FeedbackEventStore } from '../../src/contracts/v1/feedbackContracts';
 import type { RuntimeMemoryStore } from '../../src/contracts/v1/memoryContracts';
 import { getStorage } from '../storage';
-import { BEHAVIOR_FEEDBACK, PROFILE_PROPOSALS, userCol } from '../storage/paths';
+import { BEHAVIOR_FEEDBACK, MEMORY_DISMISSALS, PROFILE_PROPOSALS, userCol } from '../storage/paths';
 import type { StorageAdapter } from '../storage/storageAdapter';
 
 export interface PersonalizationDeletionInput {
@@ -185,6 +193,7 @@ export async function deletePersonalizationScope(
   await input.feedbackEvents.deleteScope(input.scopeId);
   await clearUserCollection(storage, input.scopeId, BEHAVIOR_FEEDBACK);
   await clearUserCollection(storage, input.scopeId, PROFILE_PROPOSALS);
+  await clearUserCollection(storage, input.scopeId, MEMORY_DISMISSALS);
   await input.runtimeMemory.deleteScope(input.scopeId);
 
   return {
@@ -196,6 +205,7 @@ export async function deletePersonalizationScope(
     remainingRuntimeMemoryRecordCount: (await input.runtimeMemory.listAll(input.scopeId)).length,
     remainingBehaviorFeedbackCount: (await storage.list(userCol(input.scopeId, BEHAVIOR_FEEDBACK))).length,
     remainingProfileProposalCount: (await storage.list(userCol(input.scopeId, PROFILE_PROPOSALS))).length,
+    remainingMemoryDismissalCount: (await storage.list(userCol(input.scopeId, MEMORY_DISMISSALS))).length,
     // Structurally zero: nothing persists a profile. See the header.
     remainingPersistedProfileCount: 0,
     emptyStateDigest: emptyStateDigestFor(input.scopeId, input.now, input.windowDays),

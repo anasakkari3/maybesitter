@@ -107,6 +107,23 @@ name: What MaybeSitter remembers, added, edited and forgotten
       - assertVisible:
           id: 'memory-confidence-mem_.*'
 
+      # ── What it noticed, offered and not saved (#202) ─────────────
+      #
+      # Present only on an account with personalization consent and enough
+      # finished things, so it is a branch, not a step. It asserts and does not
+      # press Keep or «مش صحيح»: either answer is stored on the server, and a
+      # flow that changed the account would not be re-runnable.
+      - runFlow:
+          when:
+            visible:
+              id: 'memory-suggestions'
+          commands:
+            - assertVisible: 'لاحظه، وما انحفظ'
+            - assertVisible:
+                id: 'memory-suggestion-keep-R1_focus_window:.*'
+            - assertVisible:
+                id: 'memory-suggestion-dismiss-R1_focus_window:.*'
+
       # ── "Why?" is closed until it is asked, and then it answers ───
       - assertNotVisible:
           id: 'memory-evidence-mem_.*'

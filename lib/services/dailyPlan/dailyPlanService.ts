@@ -77,6 +77,7 @@ import { USERS, userDoc } from '../../storage/paths';
 import type { UserLocale } from '../../storage/userDocument';
 import { loadDomainState } from '../mobile/participantState';
 import { readRoutineProfile } from '../mobile/routineProfileService';
+import { keptFocusWindow } from '../../memoryGrowth/suggestionService';
 import { schedulePlan } from '../../planning/scheduler';
 import { toEpochMs } from '../../planning/shared/time';
 import type { Commitment } from '../../../src/domain/stateMachine';
@@ -330,6 +331,12 @@ export async function composeDailyPlan(
   const state = await loadDomainState(storage, uid);
   const commitments = Object.values(state.commitments);
   const profile = await readRoutineProfile(uid, { storage });
+  // Read only when it could matter: a routine with focus windows outranks it.
+  // `keptFocusWindow` answers null without personalization consent, so
+  // withdrawing consent takes the hint out of the next plan (UC-3.16, #202).
+  const focusHint = (profile?.focusWindows ?? []).length > 0
+    ? null
+    : await keptFocusWindow(uid, now.toISOString(), { storage });
   const horizon = dayHorizon(date, timezone);
   const busyBlocks = await (deps.busyBlocks ?? storedBusyBlocks(storage))(uid, horizon);
 
@@ -340,6 +347,7 @@ export async function composeDailyPlan(
     commitments,
     busyBlocks,
     profile,
+    focusHint,
   });
   const plan = schedulePlan(constraints, config);
 

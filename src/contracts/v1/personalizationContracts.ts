@@ -843,6 +843,12 @@ export interface PersonalizationDeletionReceipt {
    * so a deletion that skipped them could be undone from the outside.
    */
   readonly remainingProfileProposalCount: number;
+  /**
+   * Suggestion dismissals still held for the scope (UC-3.16, #202). Each names
+   * a window of the day read off the person's behaviour, so it is derived data
+   * and goes with everything else derived.
+   */
+  readonly remainingMemoryDismissalCount: number;
   readonly remainingPersistedProfileCount: number;
   readonly emptyStateDigest: string;
 }

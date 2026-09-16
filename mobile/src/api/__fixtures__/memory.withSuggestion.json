@@ -1,0 +1,19 @@
+{
+  "items": [],
+  "suggestions": [
+    {
+      "ruleId": "R1_focus_window",
+      "fingerprint": "R1_focus_window:09:00-12:00",
+      "window": {
+        "start": "09:00",
+        "end": "12:00"
+      },
+      "confidence": 0.7,
+      "evidence": {
+        "matchingCount": 7,
+        "totalCount": 10,
+        "lookbackDays": 28
+      }
+    }
+  ]
+}

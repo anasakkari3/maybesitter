@@ -88,7 +88,11 @@ test('every mobile route file exists and is enumerated', () => {
   // the route somebody's calendar travels over. Its DELETE is "disconnect and
   // remove what you hold", and it must not be reachable by anyone but the
   // account that owns the source.
-  assert.equal(files.length, 40, `found:\n${files.join('\n')}`);
+  // Forty-two with UC-3.16 (#202): `POST /api/mobile/memory/suggestions/{ruleId}`,
+  // which writes a memory record from somebody's own event log, and
+  // `PUT /api/mobile/consents/personalization`, which is the answer that
+  // decides whether that log may be read for patterns at all.
+  assert.equal(files.length, 42, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {

@@ -12,9 +12,10 @@ import {
   useDeleteAllMemory,
   useDeleteMemory,
   useMemory,
+  useMemorySuggestion,
   usePatchMemory,
 } from '../../api/queries';
-import type { MemoryItem } from '../../api/schemas/profile';
+import type { MemoryItem, MemorySuggestion } from '../../api/schemas/profile';
 import { SettingsHeader } from '../settings/SettingsChrome';
 import { memorySentence } from './memoryDisplay';
 import {
@@ -24,6 +25,7 @@ import {
   SOURCE_LABEL_STRING,
   confidenceBand,
   evidenceLines,
+  fill,
   groupOf,
   type MemoryGroup,
 } from './memoryProvenance';
@@ -59,6 +61,15 @@ import {
  * has the record, and a cache edited to disagree would be a lie that survives a
  * remount.
  *
+ * ── Suggestions are not memory until kept ────────────────────────
+ *
+ * The "Noticed, not saved" card lists what the server computed on this read
+ * from what the user finished (UC-3.16, #202). Nothing in it is stored: Keep
+ * asks the server to store its own sentence, in the app's language, and "Not
+ * right" asks it not to offer that claim again. The share behind a suggestion
+ * is never printed — the counts it came from are, which are facts about what
+ * happened rather than a score.
+ *
  * ── Bidi isolation is not cosmetic ───────────────────────────────
  *
  * Every rendered fact goes through `isolate` for the reason `MemorySection`
@@ -79,6 +90,7 @@ export function MemoryScreen({ onBack }: { onBack: () => void }) {
   const patch = usePatchMemory();
   const remove = useDeleteMemory();
   const removeAll = useDeleteAllMemory();
+  const decide = useMemorySuggestion();
 
   const [editing, setEditing] = useState<string | null>(null);
   const [why, setWhy] = useState<string | null>(null);
@@ -135,12 +147,14 @@ export function MemoryScreen({ onBack }: { onBack: () => void }) {
   // renders its way back — a blank page with no exit is a worse answer than an
   // honest "nothing here".
   const items = (memory.data?.items ?? []).filter(item => item.id !== undoable);
+  const suggestions = memory.data?.suggestions ?? [];
+  const suggestionLanguage: 'ar' | 'he' | 'en' = lang === 'ar' || lang === 'he' ? lang : 'en';
 
   const groups = MEMORY_GROUP_ORDER
     .map(group => [group, items.filter(item => groupOf(item) === group)] as const)
     .filter(([, rows]) => rows.length > 0);
 
-  const failure = [patch.error, remove.error, removeAll.error].find(error => error != null);
+  const failure = [patch.error, remove.error, removeAll.error, decide.error].find(error => error != null);
 
   return (
     <ScreenIn style={{ backgroundColor: p.bg }}>
@@ -160,7 +174,17 @@ export function MemoryScreen({ onBack }: { onBack: () => void }) {
 
         {/* Also what a 404 renders: `items` is empty either way, and the
             screen has nothing truer to say than that it holds nothing. */}
-        {groups.length === 0 ? (
+        {suggestions.length > 0 ? (
+          <SuggestionsCard
+            suggestions={suggestions}
+            strings={strings}
+            busy={decide.isPending}
+            onKeep={suggestion => decide.mutate({ suggestion, decision: 'keep', language: suggestionLanguage })}
+            onDismiss={suggestion => decide.mutate({ suggestion, decision: 'dismiss', language: suggestionLanguage })}
+          />
+        ) : null}
+
+        {groups.length === 0 && suggestions.length === 0 ? (
           <Card pad={18}>
             <Txt size={14} color={p.mu} testID="memory-screen-empty">{t.memoryScreenEmpty}</Txt>
           </Card>
@@ -215,6 +239,60 @@ export function MemoryScreen({ onBack }: { onBack: () => void }) {
         ) : null}
       </ScrollView>
     </ScreenIn>
+  );
+}
+
+function SuggestionsCard({
+  suggestions, strings, busy, onKeep, onDismiss,
+}: {
+  suggestions: readonly MemorySuggestion[];
+  strings: Record<string, string>;
+  busy: boolean;
+  onKeep: (suggestion: MemorySuggestion) => void;
+  onDismiss: (suggestion: MemorySuggestion) => void;
+}) {
+  const { p } = useApp();
+  return (
+    <Card pad={0} style={{ overflow: 'hidden' }} testID="memory-suggestions">
+      <View style={{ paddingHorizontal: 18, paddingTop: 16, paddingBottom: 4, gap: 4 }}>
+        <Txt size={13} weight={600} color={p.mu}>{strings.memorySuggestionsTitle}</Txt>
+        <Txt size={13} color={p.mu} lh={1.5} testID="memory-suggestions-lede">{strings.memorySuggestionsLede}</Txt>
+      </View>
+      {suggestions.map(suggestion => (
+        <View
+          key={suggestion.fingerprint}
+          style={{ paddingHorizontal: 18, paddingVertical: 14, gap: 8, borderTopWidth: 1, borderTopColor: p.ln }}
+        >
+          <Txt size={15} lh={1.5} testID={`memory-suggestion-${suggestion.fingerprint}`}>
+            {isolate(fill(strings.memorySuggestionFocusWindow ?? '', {
+              start: suggestion.window.start,
+              end: suggestion.window.end,
+            }))}
+          </Txt>
+          <Txt size={13} color={p.mu} lh={1.5} testID={`memory-suggestion-evidence-${suggestion.fingerprint}`}>
+            {isolate(fill(strings.memorySuggestionEvidence ?? '', {
+              days: String(suggestion.evidence.lookbackDays),
+              total: String(suggestion.evidence.totalCount),
+              matching: String(suggestion.evidence.matchingCount),
+            }))}
+          </Txt>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+            <Action
+              label={strings.memorySuggestionKeep ?? ''}
+              testID={`memory-suggestion-keep-${suggestion.fingerprint}`}
+              disabled={busy}
+              onPress={() => onKeep(suggestion)}
+            />
+            <Action
+              label={strings.memorySuggestionDismiss ?? ''}
+              testID={`memory-suggestion-dismiss-${suggestion.fingerprint}`}
+              disabled={busy}
+              onPress={() => onDismiss(suggestion)}
+            />
+          </View>
+        </View>
+      ))}
+    </Card>
   );
 }
 

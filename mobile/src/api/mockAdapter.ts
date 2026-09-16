@@ -50,10 +50,12 @@ import planRegenerated from './__fixtures__/plan.regenerated.json';
 import planSettingsSaved from './__fixtures__/plan.settingsSaved.json';
 import consentsAnswered from './__fixtures__/consents.answered.json';
 import consentsAiRecorded from './__fixtures__/consents.aiRecorded.json';
+import consentsPersonalizationRecorded from './__fixtures__/consents.personalizationRecorded.json';
 import consentsRecommendationsRecorded from './__fixtures__/consents.recommendationsRecorded.json';
 import memoryCreated from './__fixtures__/memory.created.json';
 import memoryDeleted from './__fixtures__/memory.deleted.json';
 import memoryList from './__fixtures__/memory.list.json';
+import memorySuggestionKept from './__fixtures__/memory.suggestionKept.json';
 import profileOne from './__fixtures__/profile.one.json';
 import profileSaved from './__fixtures__/profile.saved.json';
 import trustState from './__fixtures__/trust.state.json';
@@ -120,6 +122,7 @@ const ROUTES: [string, RegExp, MockResponse][] = [
   ['GET', /^\/api\/mobile\/consents$/, { status: 200, body: consentsAnswered }],
   ['PUT', /^\/api\/mobile\/consents\/ai-processing$/, { status: 200, body: consentsAiRecorded }],
   ['PUT', /^\/api\/mobile\/consents\/recommendations$/, { status: 200, body: consentsRecommendationsRecorded }],
+  ['PUT', /^\/api\/mobile\/consents\/personalization$/, { status: 200, body: consentsPersonalizationRecorded }],
 
   ['GET', /^\/api\/mobile\/profile$/, { status: 200, body: profileOne }],
   ['PUT', /^\/api\/mobile\/profile\/routine$/, { status: 200, body: profileSaved }],
@@ -128,6 +131,9 @@ const ROUTES: [string, RegExp, MockResponse][] = [
   ['PATCH', /^\/api\/mobile\/memory\/[^/]+$/, { status: 200, body: memoryCreated }],
   ['DELETE', /^\/api\/mobile\/memory\/[^/]+$/, { status: 200, body: memoryDeleted }],
   ['DELETE', /^\/api\/mobile\/memory$/, { status: 200, body: memoryDeleted }],
+  // Keep and dismiss share a route and the same bargain as the plan actions:
+  // whatever was decided, the kept answer comes back, and nothing accumulates.
+  ['POST', /^\/api\/mobile\/memory\/suggestions\/[^/]+$/, { status: 201, body: memorySuggestionKept }],
 ];
 
 /** True when this build is serving fixtures. Always false in a release. */

@@ -21,7 +21,8 @@
       "recordedAt": "2026-08-09T09:00:00.000Z",
       "confirmedAt": "2026-08-09T09:00:00.000Z",
       "edited": true,
-      "observationCount": 0
+      "observationCount": 0,
+      "pattern": null
     }
   }
 }

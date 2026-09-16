@@ -39,7 +39,11 @@ import { applyTrustAction } from '../../lib/pilot/pilotTrustStore.ts';
 import { setRecommendationConsent } from '../../lib/consents/recommendationConsentService.ts';
 import { createStorageFeedbackEventStore } from '../../lib/feedback/feedbackEventStore.ts';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
-import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
+import { getStorage, resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
+import { EVENTS, userDoc, userSubDoc } from '../../lib/storage/paths.ts';
+import { setPersonalizationConsent } from '../../lib/consents/personalizationConsentService.ts';
+import { POST as memorySuggestionPost } from '../../src/app/api/mobile/memory/suggestions/[ruleId]/route.ts';
+import { PUT as personalizationConsentPut } from '../../src/app/api/mobile/consents/personalization/route.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
 import { configureCommandService } from '../../lib/services/commandService.ts';
 import { applyCommand as applyDomainCommand, createEmptyDomainState } from '../../src/domain/stateMachine.ts';
@@ -84,6 +88,7 @@ import {
 } from '../../src/app/api/mobile/memory/[id]/route.ts';
 import {
   AI_CONSENT_VERSION,
+  PERSONALIZATION_CONSENT_VERSION,
   RECOMMENDATION_CONSENT_VERSION,
 } from '../../src/contracts/v1/consentContracts.ts';
 import { GET as planGet } from '../../src/app/api/mobile/plans/[date]/route.ts';
@@ -195,6 +200,43 @@ function request(path: string, options: { method?: string; body?: unknown; uid?:
     method: options.method ?? (options.body === undefined ? 'GET' : 'POST'),
     headers,
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
+  });
+}
+
+/**
+ * Ten things finished in Jerusalem, seven of them between 09:00 and 12:00,
+ * spread over the last ten days of the real clock (the memory route reads it),
+ * with personalization consent on. Each instant is found by asking `Intl` what
+ * the wall clock read rather than by assuming an offset.
+ */
+async function seedFocusHabit(uid: string): Promise<void> {
+  const nowMs = Date.now();
+  const at = (daysAgo: number, hour: number, minute: number): string => {
+    const base = new Date(nowMs - daysAgo * 86_400_000);
+    for (let utcShift = -14; utcShift <= 14; utcShift += 1) {
+      const candidate = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate(), hour - utcShift, minute));
+      const shown = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Jerusalem', hour: '2-digit', hourCycle: 'h23' })
+        .formatToParts(candidate).find(part => part.type === 'hour')!.value;
+      if (Number(shown) === hour && candidate.getTime() < nowMs) return candidate.toISOString();
+    }
+    throw new Error('no instant');
+  };
+  await getStorage().set(userDoc(uid), { uid, timezone: 'Asia/Jerusalem' });
+  const times: Array<[number, number, number]> = [
+    [1, 9, 15], [2, 9, 40], [3, 10, 0], [5, 10, 30], [6, 11, 0], [8, 11, 20], [9, 11, 45],
+    [4, 19, 5], [7, 20, 5], [10, 21, 5],
+  ];
+  for (let index = 0; index < times.length; index += 1) {
+    const [daysAgo, hour, minute] = times[index]!;
+    const id = `ev_growth_${index}`;
+    await getStorage().set(userSubDoc(uid, EVENTS, id), {
+      id, type: 'commitment_completed', at: at(daysAgo, hour, minute), aggregateId: `c_growth_${index}`, payload: {},
+    });
+  }
+  await setPersonalizationConsent(uid, {
+    state: 'granted',
+    version: PERSONALIZATION_CONSENT_VERSION,
+    at: new Date(nowMs - 60_000),
   });
 }
 
@@ -884,6 +926,45 @@ test('exports a fixture for every /api/mobile call the React Native client makes
         method: 'DELETE',
         headers: { authorization: `Bearer ${tokenFor(USER)}` },
       }),
+    ));
+
+    await record('consents.personalizationRecorded', 200, await personalizationConsentPut(
+      request('/api/mobile/consents/personalization', {
+        method: 'PUT',
+        body: { state: 'granted', version: PERSONALIZATION_CONSENT_VERSION, locale: 'ar', platform: 'ios' },
+      }),
+    ));
+    // Answered and withdrawn again, so the fixture set does not leave this
+    // account personalizing while the rest of the run records other routes.
+    await personalizationConsentPut(request('/api/mobile/consents/personalization', {
+      method: 'PUT',
+      body: { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION },
+    }));
+
+    // ── memory growth (#202) ───────────────────────────────────────
+    // Accounts of their own, so the capture flows above — whose completions
+    // land at whatever hour this suite happens to run — cannot move the window
+    // or the counts in these fixtures.
+    const growthKeeper = uidFor('FixtureGrowthKeep');
+    const growthDismisser = uidFor('FixtureGrowthDismiss');
+    for (const uid of [growthKeeper, growthDismisser]) await seedFocusHabit(uid);
+
+    const withSuggestion = await record('memory.withSuggestion', 200, await memoryGet(
+      request('/api/mobile/memory', { uid: growthKeeper }),
+    ));
+    const fingerprint = (withSuggestion.suggestions as Array<{ fingerprint: string }>)[0]!.fingerprint;
+    const suggestionRequest = (uid: string, body: unknown) => memorySuggestionPost(
+      request('/api/mobile/memory/suggestions/R1_focus_window', { uid, body }),
+      { params: Promise.resolve({ ruleId: 'R1_focus_window' }) },
+    );
+    await record('memory.suggestionKept', 201, await suggestionRequest(
+      growthKeeper, { decision: 'keep', fingerprint, language: 'en' },
+    ));
+    await record('memory.suggestionStale', 409, await suggestionRequest(
+      growthKeeper, { decision: 'keep', fingerprint, language: 'en' },
+    ));
+    await record('memory.suggestionDismissed', 200, await suggestionRequest(
+      growthDismisser, { decision: 'dismiss', fingerprint },
     ));
 
     // ── the daily plan (#194), rendered by UC-3.10b (#195) ─────────

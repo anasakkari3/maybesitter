@@ -70,7 +70,9 @@ import { deletePersonalizationScope } from '../../personalization/deletion';
 import { createPilotAuditEvent } from '../../pilot/closedPilotControls';
 import { appendAudit } from '../../pilot/pilotTrustStore';
 import { createStorageRuntimeMemoryStore } from '../../runtimeMemory/runtimeMemoryStore';
-import { requireUserId, type StorageAdapter } from '../../storage';
+import { getStorage, requireUserId, type StorageAdapter } from '../../storage';
+import { recordDismissal } from '../../memoryGrowth/dismissals';
+import { R1_FOCUS_WINDOW, parseFocusWindowFingerprint, type LocalWindow } from '../../memoryGrowth/rules';
 
 /** The kinds a person may file something under by hand. */
 export const MANUAL_MEMORY_KINDS: readonly RuntimeMemoryKind[] = ['fact', 'preference', 'goal'];
@@ -209,6 +211,28 @@ export interface MemoryEvidenceDto {
   edited: boolean;
   /** How many observations back it. See the header on the withheld ids. */
   observationCount: number;
+  /**
+   * The pattern a rule read off the user's behaviour, when this record is one
+   * they kept unedited (UC-3.16, #202). Null for everything else — including a
+   * kept suggestion the user has since rewritten, because their sentence is no
+   * longer the rule's window.
+   *
+   * Sent as a structure rather than left in `provenance.originRef`, so the
+   * phone can say "between 09:00 and 12:00" and that the planner uses it
+   * without parsing a server-side key format.
+   */
+  pattern: MemoryPatternDto | null;
+}
+
+export interface MemoryPatternDto {
+  ruleId: typeof R1_FOCUS_WINDOW;
+  window: LocalWindow;
+}
+
+function patternOf(record: RuntimeMemoryRecord): MemoryPatternDto | null {
+  if (record.source !== 'deterministic_rule' || record.provenance?.origin !== 'behaviour_rule') return null;
+  const window = parseFocusWindowFingerprint(record.provenance.originRef);
+  return window ? { ruleId: R1_FOCUS_WINDOW, window } : null;
 }
 
 /** What the phone receives. Deliberately not the stored record. */
@@ -269,6 +293,7 @@ export function memoryToDto(record: RuntimeMemoryRecord): MemoryDto {
       confirmedAt: record.provenance?.confirmedByUserAt ?? null,
       edited: record.supersedesId !== undefined,
       observationCount: record.evidenceIds.length,
+      pattern: patternOf(record),
     },
   };
 }
@@ -413,7 +438,14 @@ export async function deleteMemory(
   requireUserId(uid);
   const store = storeOf(options);
   const record = await requireOwnedRecord(store, uid, id, { allowSuperseded: true });
-  const removed = await deleteChain(store, uid, record);
+  const { removed, ruleFingerprints } = await deleteChain(store, uid, record);
+  // A pattern the user deleted is a pattern they turned down. Without this, the
+  // next read would offer the same sentence straight back as a suggestion —
+  // answering "forget that" with "did you mean to keep it?" (UC-3.16, #202).
+  // After the delete, not before: the erasure is what was asked for.
+  for (let index = 0; index < ruleFingerprints.length; index += 1) {
+    await recordDismissal(options.storage ?? getStorage(), uid, ruleFingerprints[index]!, at);
+  }
   await appendMemoryDeletion(uid, at, removed, 'memory_deleted_one');
   return removed;
 }
@@ -449,6 +481,10 @@ export async function deleteAllMemory(
     now: at,
     feedbackEvents,
     runtimeMemory: memory,
+    // The adapter this call was handed, not the process default: otherwise a
+    // caller that injects storage has its derived collections purged from a
+    // different store than the one its memory lives in.
+    ...(options.storage ? { storage: options.storage } : {}),
   });
 
   // The baseline is not an event, so it is not in the receipt's event count;
@@ -461,6 +497,7 @@ export async function deleteAllMemory(
   const remainingRows = receipt.remainingFeedbackEventCount
     + receipt.remainingBehaviorFeedbackCount
     + receipt.remainingProfileProposalCount
+    + receipt.remainingMemoryDismissalCount
     + (baseline === null ? 0 : 1);
   if (receipt.remainingRuntimeMemoryRecordCount > 0 || remainingRows > 0) {
     throw new MemoryDeletionIncompleteError(receipt.remainingRuntimeMemoryRecordCount, remainingRows);
@@ -496,7 +533,7 @@ async function deleteChain(
   store: RuntimeMemoryStore,
   uid: string,
   record: RuntimeMemoryRecord,
-): Promise<number> {
+): Promise<{ removed: number; ruleFingerprints: string[] }> {
   const seen = new Set<string>();
   const queue: RuntimeMemoryRecord[] = [record];
   const chain: RuntimeMemoryRecord[] = [];
@@ -518,10 +555,13 @@ async function deleteChain(
   }
 
   let removed = 0;
+  const ruleFingerprints: string[] = [];
   for (const entry of chain) {
     if (await store.deleteById(entry.id)) removed += 1;
+    const ref = entry.provenance?.origin === 'behaviour_rule' ? entry.provenance.originRef : undefined;
+    if (ref && !ruleFingerprints.includes(ref)) ruleFingerprints.push(ref);
   }
-  return removed;
+  return { removed, ruleFingerprints };
 }
 
 /**

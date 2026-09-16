@@ -15,9 +15,16 @@
     "platform": "ios",
     "asked": true
   },
+  "personalization": {
+    "state": "declined",
+    "version": "personalization-consent-v1",
+    "changedAt": "",
+    "asked": false
+  },
   "currentVersions": {
     "aiProcessing": "ai-consent-v1",
-    "recommendations": "rec-consent-v1"
+    "recommendations": "rec-consent-v1",
+    "personalization": "personalization-consent-v1"
   },
   "currentVersion": "ai-consent-v1"
 }

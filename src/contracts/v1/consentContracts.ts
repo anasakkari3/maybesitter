@@ -27,6 +27,22 @@ export const AI_CONSENT_VERSION = 'ai-consent-v1';
  */
 export const RECOMMENDATION_CONSENT_VERSION = 'rec-consent-v1';
 
+/**
+ * "Notice patterns in when you finish things" (UC-3.16, #202).
+ *
+ * The phone's answer to the personalization question: whether MaybeSitter may
+ * read the times the user finishes things, suggest a pattern it sees there as
+ * something to remember, and let a pattern the user kept shape their daily
+ * plan. A third question, not a mode of either of the others — deciding when
+ * somebody works is a conclusion *about the person*, which neither "send my
+ * words to Google" nor "suggest one next step" asked about.
+ *
+ * Mirrored into `users/{uid}/consents/personalization` by
+ * `lib/consents/personalizationConsentService`, because that store is what the
+ * personalization contracts already read. Growth requires both to agree.
+ */
+export const PERSONALIZATION_CONSENT_VERSION = 'personalization-consent-v1';
+
 export type AiConsentState = 'granted' | 'declined';
 export type ConsentLocale = 'ar' | 'he' | 'en';
 export type ConsentPlatform = 'ios' | 'android';
@@ -57,6 +73,18 @@ export const RECOMMENDATION_CONSENT_CLAIMS_V1 = [
   'optional:changeable_in_settings',
 ] as const;
 
+/**
+ * What `personalization-consent-v1` tells the user. It names the inference
+ * outright, and it names both things turning it off stops.
+ */
+export const PERSONALIZATION_CONSENT_CLAIMS_V1 = [
+  'what_it_does:notice_patterns_in_when_you_finish_things,suggest_saving_them',
+  'from_what:the_times_you_finish_your_own_commitments,no_titles,no_model',
+  'what_is_saved:nothing_unless_you_keep_it',
+  'off_means:no_suggestions,plans_stop_using_patterns_you_kept',
+  'optional:off_by_default,changeable_in_settings',
+] as const;
+
 /** A digest of the claims, so a change to them without a version bump is caught. */
 export function aiConsentClaimsDigest(claims: readonly string[] = AI_CONSENT_CLAIMS_V1): string {
   return createHash('sha256').update(claims.join('\n')).digest('hex').slice(0, 16);
@@ -75,8 +103,14 @@ export function isSupportedRecommendationConsentVersion(version: unknown): versi
   return typeof version === 'string' && SUPPORTED_RECOMMENDATION_CONSENT_VERSIONS.includes(version);
 }
 
+export const SUPPORTED_PERSONALIZATION_CONSENT_VERSIONS: readonly string[] = [PERSONALIZATION_CONSENT_VERSION];
+
+export function isSupportedPersonalizationConsentVersion(version: unknown): version is string {
+  return typeof version === 'string' && SUPPORTED_PERSONALIZATION_CONSENT_VERSIONS.includes(version);
+}
+
 /**
- * The two consents this server knows how to record, as data.
+ * The consents this server knows how to record, as data.
  *
  * `lib/consents/consentService` is written against this rather than against
  * either one, so "missing means declined", "an unknown version is refused" and
@@ -85,7 +119,7 @@ export function isSupportedRecommendationConsentVersion(version: unknown): versi
  * come to differ from the other, in the direction nobody notices — the
  * permissive one.
  */
-export type ConsentKey = 'aiProcessing' | 'recommendations';
+export type ConsentKey = 'aiProcessing' | 'recommendations' | 'personalization';
 
 export interface ConsentKindContract {
   /** The field under `users/{uid}.consents`. */
@@ -110,9 +144,17 @@ export const RECOMMENDATION_CONSENT: ConsentKindContract = Object.freeze({
   auditCode: 'recommendations',
 });
 
+export const PERSONALIZATION_CONSENT: ConsentKindContract = Object.freeze({
+  key: 'personalization',
+  currentVersion: PERSONALIZATION_CONSENT_VERSION,
+  isSupportedVersion: isSupportedPersonalizationConsentVersion,
+  auditCode: 'personalization',
+});
+
 export const CONSENT_KINDS: readonly ConsentKindContract[] = Object.freeze([
   AI_PROCESSING_CONSENT,
   RECOMMENDATION_CONSENT,
+  PERSONALIZATION_CONSENT,
 ]);
 
 /**

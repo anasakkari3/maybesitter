@@ -161,6 +161,7 @@ function validReceipt(): PersonalizationDeletionReceipt {
     remainingRuntimeMemoryRecordCount: 0,
     remainingBehaviorFeedbackCount: 0,
     remainingProfileProposalCount: 0,
+    remainingMemoryDismissalCount: 0,
     remainingPersistedProfileCount: 0,
     emptyStateDigest: 'sha256-fixture-empty-state',
   };
