@@ -844,11 +844,24 @@ export interface PersonalizationDeletionReceipt {
    */
   readonly remainingProfileProposalCount: number;
   /**
+  /**
    * Suggestion dismissals still held for the scope (UC-3.16, #202). Each names
    * a window of the day read off the person's behaviour, so it is derived data
    * and goes with everything else derived.
    */
   readonly remainingMemoryDismissalCount: number;
+  /**
+   * Which clubs the user follows (football fixtures MVP, Task 7), still held
+   * for the scope after the purge.
+   *
+   * On the receipt for the same reason `remainingBehaviorFeedbackCount` and
+   * `remainingProfileProposalCount` are: it is a derived store the purge now
+   * clears, not the user's own content, and a verifier recounting the receipt
+   * has to be able to catch a row left behind here exactly as it would for
+   * either of those. See `lib/personalization/deletion.ts`'s header for why a
+   * followed club purges alongside them even though the user typed it.
+   */
+  readonly remainingFootballFollowsCount: number;
   readonly remainingPersistedProfileCount: number;
   readonly emptyStateDigest: string;
 }
@@ -1463,10 +1476,22 @@ export function checkPersonalizationProfile(
  * The remainder fields, in fixed emission order so two checks of one receipt
  * produce byte-identical findings. Listed once, here, so the checker and the
  * doc cannot disagree about which fields a receipt proves.
+ *
+ * `remainingBehaviorFeedbackCount` and `remainingProfileProposalCount` (#202)
+ * are missing from this list, and that is a known, pre-existing gap, not this
+ * addition's doing: adding them here would make an existing (and possibly
+ * currently-nonzero-in-some-fixture) field newly falsifiable, which could turn
+ * unrelated tests red for a reason that has nothing to do with football
+ * follows. Recorded for the final review to triage rather than fixed here.
+ * `remainingFootballFollowsCount` (football fixtures MVP, Task 7) is added
+ * below deliberately, specifically so it does not join them: a remainder
+ * field nothing checks reports a number without proving anything, which is
+ * the opposite of what this module's header promises a receipt is for.
  */
 const RECEIPT_REMAINDER_FIELDS = Object.freeze([
   'remainingFeedbackEventCount',
   'remainingRuntimeMemoryRecordCount',
+  'remainingFootballFollowsCount',
   'remainingPersistedProfileCount',
 ] as const);
 

@@ -34,6 +34,8 @@ import { flagAlphaFeedback, getFeedbackHistory, revokeFeedback } from './endpoin
 import { recordAnalyticsEvent } from './endpoints/analytics';
 import { putCalendarWriteTarget } from './endpoints/calendar';
 import type { CalendarWriteTarget } from './schemas/calendar';
+import { dismissFixture, getFootballSettings, putFollowedClubs } from './endpoints/football';
+import type { FootballSettingsResponse } from './schemas/football';
 import {
   getConsents,
   putAiConsent,
@@ -88,6 +90,7 @@ export const queryKeys = {
   memory: (uid: string) => ['user', uid, 'memory'] as const,
   activity: (uid: string) => ['user', uid, 'activity'] as const,
   activitySummary: (uid: string, weekStart: string) => ['user', uid, 'activitySummary', weekStart] as const,
+  football: (uid: string) => ['user', uid, 'football'] as const,
   /**
    * One day's plan (UC-3.10b, #195).
    *
@@ -769,6 +772,78 @@ export function useSetCalendarWriteTarget() {
     mutationFn: (writeTarget: CalendarWriteTarget) => putCalendarWriteTarget(writeTarget),
     onSettled: () => {
       void client.invalidateQueries({ queryKey: ['user', uid, 'calendarSettings'] });
+      void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
+    },
+  });
+}
+
+/**
+ * The curated club list, this account's follows, and its currently-active
+ * fixture commitments -- one read, one route (football fixtures MVP, Task 11).
+ */
+export function useFootballSettings() {
+  const uid = useUid();
+  return useQuery({
+    queryKey: queryKeys.football(uid),
+    queryFn: getFootballSettings,
+    enabled: uid !== 'signed-out',
+  });
+}
+
+/**
+ * Follows or unfollows one club, saving the whole resulting list, which the
+ * server projects immediately (see `putFollowedClubs`'s own header). No
+ * optimistic update, for the same reason `useSetCalendarWriteTarget` has none:
+ * an unknown club id is refused with a 400, and showing a club as followed for
+ * the moment before that refusal arrives would be worse than the round-trip.
+ *
+ * ── One save at a time, each from the latest server answer ───────────────
+ * The next list used to be built by the screen from the data it was showing,
+ * so a second tap before the first save came back sent a list without the
+ * first club and the server replaced one follow with the other. Saves now
+ * share a mutation `scope`, which TanStack runs strictly one after another,
+ * and each builds its list inside `mutationFn` from the cache as the previous
+ * save left it -- `onSuccess` writes the server's answer straight into the
+ * cache rather than invalidating it, so there is no refetch for a second save
+ * to race. A failed save refetches, so the screen shows what is really saved.
+ *
+ * The two commitment lists are invalidated too: a save that just projected a
+ * season opener is a save that just changed what Today and Upcoming show.
+ */
+export function useSetFollowedClubs() {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    scope: { id: `football-follows:${uid}` },
+    mutationFn: ({ clubId, locale }: { clubId: string; locale: 'ar' | 'he' | 'en' }) => {
+      const current = client.getQueryData<FootballSettingsResponse>(queryKeys.football(uid))?.followedClubIds ?? [];
+      const next = current.includes(clubId) ? current.filter((id) => id !== clubId) : [...current, clubId];
+      return putFollowedClubs(next, locale);
+    },
+    onSuccess: (data) => {
+      client.setQueryData(queryKeys.football(uid), data);
+    },
+    onError: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.football(uid) });
+    },
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
+    },
+  });
+}
+
+/**
+ * "Not this one." Removes a single fixture commitment without touching the
+ * follow that produced it -- see `dismissFixture`'s own header for what a
+ * 404 here means.
+ */
+export function useDismissFixture() {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn: (commitmentId: string) => dismissFixture(commitmentId),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.football(uid) });
       void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
     },
   });

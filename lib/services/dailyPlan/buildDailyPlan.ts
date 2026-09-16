@@ -55,6 +55,16 @@ import type {
   WorkingWindow,
 } from '../../../src/contracts/v1/planningContracts';
 import { instantFromResolution, resolveLocalTime, toEpochMs, weekdayAt } from '../../planning/shared/time';
+import { DEFAULT_FIXED_EVENT_MINUTES, fixedEndFor } from '../timeCollision';
+
+// Re-exported so existing callers (and `tests/dailyPlan/fixedEventDuration.test.ts`)
+// keep importing it from here. The value itself now lives in `../timeCollision`,
+// which is the module that owns "how long does a commitment occupy" -- see that
+// module's doc comment. The dependency between the two files now runs one way
+// only (`buildDailyPlan.ts` -> `timeCollision.ts`), not both: a cycle would mean
+// the two could never again be reasoned about, moved, or lazily loaded
+// independently, which is exactly what the extraction was for.
+export { DEFAULT_FIXED_EVENT_MINUTES };
 
 /** The grid a plan is placed on. Fifteen minutes is the issue's decision. */
 export const PLAN_SLOT_MINUTES = 15;
@@ -67,12 +77,8 @@ export const PLAN_SLOT_MINUTES = 15;
  * is the only invented number in the mapping.
  */
 export const DEFAULT_EFFORT_MINUTES = 30;
-/** A commitment with a fixed start occupies this much of the day. */
-export const DEFAULT_FIXED_EVENT_MINUTES = 30;
 /** Used when the routine profile names no focus window and no sleep window. */
 export const FALLBACK_WINDOW = Object.freeze({ startMinute: 8 * 60, endMinute: 20 * 60 });
-
-const MS_PER_MINUTE = 60_000;
 
 /**
  * Time the user is already committed to elsewhere.
@@ -252,6 +258,12 @@ export function fixedStartOf(commitment: Commitment): Instant | null {
   return null;
 }
 
+// `fixedEndFor` — how long a pinned commitment occupies — now lives in
+// `../timeCollision`, which needs the identical rule for a collision
+// candidate's duration. Two copies of "how long is this commitment" in two
+// files is how the planner and the device calendar came to disagree in the
+// first place; see that module's doc comment for the full account.
+
 /** Confirmed, still open, and not already done or abandoned. */
 export function isPlannable(commitment: Commitment): boolean {
   return commitment.status === 'active' || commitment.status === 'deferred';
@@ -349,10 +361,7 @@ export function buildDailyPlanInput(args: DailyPlanInputArgs): DailyPlanInput {
     if (!start) return [];
     return [{
       eventId: `commitment:${commitment.id}`,
-      interval: {
-        startsAt: start,
-        endsAt: new Date(toEpochMs(start) + DEFAULT_FIXED_EVENT_MINUTES * MS_PER_MINUTE).toISOString(),
-      },
+      interval: { startsAt: start, endsAt: fixedEndFor(commitment, start) },
       sourceCommitmentId: commitment.id,
       blocking: true,
     }];

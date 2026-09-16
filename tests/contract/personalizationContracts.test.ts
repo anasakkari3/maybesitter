@@ -162,6 +162,7 @@ function validReceipt(): PersonalizationDeletionReceipt {
     remainingBehaviorFeedbackCount: 0,
     remainingProfileProposalCount: 0,
     remainingMemoryDismissalCount: 0,
+    remainingFootballFollowsCount: 0,
     remainingPersistedProfileCount: 0,
     emptyStateDigest: 'sha256-fixture-empty-state',
   };
@@ -795,6 +796,16 @@ test('a non-zero remainder is reported per field, in fixed order', () => {
   });
   const findings = checkPersonalizationDeletionReceipt(leaky);
   assert.deepEqual(codesOf(findings), ['RECEIPT_REMAINDER_NOT_ZERO', 'RECEIPT_REMAINDER_NOT_ZERO']);
+});
+
+test('a followed club left behind fails the receipt, the same as any other remainder (football fixtures MVP, Task 7)', () => {
+  // A remainder field nothing checks would report a number without proving
+  // anything -- see RECEIPT_REMAINDER_FIELDS's own comment. This is the test
+  // that makes remainingFootballFollowsCount falsifiable rather than decorative.
+  const leaky = tamperedReceipt((receipt) => {
+    receipt.remainingFootballFollowsCount = 2;
+  });
+  assert.deepEqual(codesOf(checkPersonalizationDeletionReceipt(leaky)), ['RECEIPT_REMAINDER_NOT_ZERO']);
 });
 
 test('an unreadable remainder is not a passing remainder', () => {

@@ -138,6 +138,37 @@ export const PLAN_EVENTS = 'planEvents';
 export const DEVICE_CALENDAR_LINKS = 'deviceCalendarLinks';
 
 /**
+ * Which clubs a user follows (football fixtures MVP, Task 7).
+ *
+ * A subcollection under `users/{uid}`, one fixed document per account
+ * (`userSubDoc(uid, FOOTBALL_FOLLOWS, 'clubs')`), because a follow list is
+ * squarely one person's preference and belongs with the rest of their tree
+ * when the account goes. It is not `consents`: a consent is a permission bit
+ * the product checks before acting, and this is the acted-upon list itself —
+ * the nightly sync reads it with `listGroup(FOOTBALL_FOLLOWS)` to learn which
+ * clubs have any follower at all, which a permission collection has no reason
+ * to be queried that way.
+ */
+export const FOOTBALL_FOLLOWS = 'footballFollows';
+
+/**
+ * The link between one user's commitment and the external fixture it came
+ * from (football fixtures MVP, Task 8).
+ *
+ * Its own collection rather than a field on the commitment, for the same
+ * reason `deviceCalendarLinks` is not a field either: it is a pointer *beside*
+ * the aggregate, not a domain fact the reducer replays from `events`, and it
+ * carries state the commitment itself must not — a `detachedAt` recording
+ * that this user dismissed it, which the projection has to honour forever
+ * after, even once the commitment it dismissed is gone. Not
+ * `deviceCalendarLinks` either: that names an event in somebody's own phone
+ * calendar, and this names a row in a provider's feed — conflating the two
+ * would mean a dismissed match and a detached calendar event started
+ * answering the same question.
+ */
+export const EXTERNAL_TASK_REFS = 'externalTaskRefs';
+
+/**
  * Which calendars this account has connected for *reading* busy time
  * (UC-3.2, #186).
  *
@@ -282,6 +313,8 @@ export const USER_SCOPED_COLLECTIONS = [
   PLAN_EVENTS,
   STATS,
   DEVICE_CALENDAR_LINKS,
+  FOOTBALL_FOLLOWS,
+  EXTERNAL_TASK_REFS,
   CALENDAR_SOURCES,
   BUSY_BLOCKS,
   ICS_FEEDS,
@@ -295,6 +328,21 @@ export const USER_SCOPED_COLLECTIONS = [
 export const INCIDENTS = 'incidents';
 
 /**
+ * A football match, normalized from whichever provider we call this sprint
+ * (football fixtures MVP, Task 5).
+ *
+ * Top-level, not under `users/{uid}`. A fixture is public information about a
+ * match, not one person's data: a thousand people following FC Barcelona
+ * share exactly one row for Saturday's game. Nesting it per user is the
+ * per-user fetch the design rejected, and it is also the reason this
+ * collection needs no rules change — `firestore.rules`'s `match /{any=**}`
+ * already denies clients everything outside `/users/{uid}`, and this never
+ * was going to be under it. Declared free of user data in
+ * `lib/account/topLevelUserData.ts` for the same reason.
+ */
+export const FIXTURES = 'fixtures';
+
+/**
  * The service's own daily model spend, one document per UTC day (#160).
  *
  * Top-level and deliberately not under a uid: it is what MaybeSitter spent,
@@ -302,6 +350,25 @@ export const INCIDENTS = 'incidents';
  * account erased that day's global count.
  */
 export const LLM_USAGE = 'llmUsage';
+
+/**
+ * When each curated club was last asked of the fixture provider (football
+ * fixtures MVP, Task 9's nightly sync).
+ *
+ * Top-level and keyed by `clubId`, not under a uid, for the same reason
+ * `FIXTURES` is top-level: this is a fact about a club's own sync history,
+ * shared by every follower, not a fact about any one account. It exists so a
+ * budgeted sync tick can ask "which followed clubs have gone longest without
+ * being asked" and pick up where the previous tick left off, rather than
+ * re-walking the same prefix of the followed list every time the budget runs
+ * out before reaching the end -- see `lib/football/syncFixtures.ts`.
+ */
+export const FOOTBALL_CLUB_SYNC_STATE = 'footballClubSyncState';
+
+/** The path for one club's sync-state document. `clubId` is already a safe path segment -- `clubs.ts` validates it at load time. */
+export function footballClubSyncStateDoc(clubId: string): string {
+  return `${FOOTBALL_CLUB_SYNC_STATE}/${requireDocId(clubId)}`;
+}
 
 export const USERS = 'users';
 
@@ -328,6 +395,19 @@ export function userSubDoc(uid: string, collection: string, docId: string): stri
 export function docIdForKey(raw: string): string {
   if (typeof raw !== 'string' || raw.length === 0) throw new Error('a document key must be a non-empty string');
   return createHash('sha256').update(raw).digest('hex');
+}
+
+/**
+ * The path for one fixture, keyed by provider and the provider's own match id.
+ *
+ * `matchId` is free text handed to us by whichever vendor we are calling —
+ * this repo does not control its shape, and nothing stops a provider from
+ * using a `/` the way some do for composite ids. `docIdForKey` hashes the
+ * combined key instead of concatenating it raw into the path, so a slash in
+ * `matchId` cannot split `fixtures/{a}/{b}` out from under this collection.
+ */
+export function fixtureDoc(provider: string, matchId: string): string {
+  return `${FIXTURES}/${docIdForKey(`${provider}:${matchId}`)}`;
 }
 
 /**

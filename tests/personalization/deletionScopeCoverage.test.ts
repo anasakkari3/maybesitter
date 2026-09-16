@@ -25,6 +25,7 @@ import {
   docIdForKey,
   FEEDBACK_BASELINES,
   FEEDBACK_EVENTS,
+  FOOTBALL_FOLLOWS,
   MEMORY,
   MEMORY_DISMISSALS,
   PROFILE_PROPOSALS,
@@ -50,7 +51,25 @@ const PURGED: ReadonlySet<string> = new Set([
   BEHAVIOR_FEEDBACK,
   PROFILE_PROPOSALS,
   MEMORY_DISMISSALS,
+  FOOTBALL_FOLLOWS,
 ]);
+
+/**
+ * Collections classified `PURGED` whose sweep is not wired yet. Empty today:
+ * `FOOTBALL_FOLLOWS` was the one entry while no store wrote it, and
+ * `deletePersonalizationScope` now clears it with
+ * `clearUserCollection(storage, scopeId, FOOTBALL_FOLLOWS)`, so it is purged
+ * and checked by the ordinary `PURGED` branch below like the rest.
+ *
+ * The set stays as a mechanism, not a comment. An exemption nothing checks is
+ * indistinguishable from a hole -- that is how `behaviorFeedback` and
+ * `profileProposals` were missed (see the file header) -- so a collection
+ * added here is still seeded by the behavioral test below, which asserts that
+ * it *survives*. The day its sweep lands, that assertion fails with a message
+ * naming the remedy: remove the entry and let the `PURGED` branch take over.
+ * The escape hatch expires loudly instead of silently.
+ */
+const NOT_YET_WIRED: ReadonlySet<string> = new Set([]);
 
 /**
  * Kept on purpose, each with the reason it is not a derived profile.
@@ -143,6 +162,11 @@ const KEPT_BECAUSE: Record<string, string> = {
     + 'would rebuild it anyway. It goes with the commitment (a completed one deletes its row), '
     + 'with account deletion, and with the `expiresAt` TTL two days past the reminder.',
   stats: 'the user’s own record of what they did — the counters behind the weekly Moments. #201 made a Moment survive deleting the commitment that earned it, on the ground that a fact about something that happened must not unhappen; this button forgets what was inferred about the person, not what the person achieved.',
+  externalTaskRefs:
+    'a pointer beside a commitment, same as deviceCalendarLinks: which external fixture a commitment came '
+    + 'from and whether the user dismissed it. Commitments survive this purge, so the ref that keeps a '
+    + 'dismissal honoured must survive with them — erasing it would let the next sync recreate a match '
+    + 'the user explicitly removed.',
 };
 
 test('every user-scoped collection is either purged by "delete everything" or deliberately kept', () => {
@@ -208,7 +232,19 @@ test('the purge empties every derived collection for the scope and touches nobod
 
   for (const collection of USER_SCOPED_COLLECTIONS) {
     const mine = await storage.list(`${userDoc(TARGET)}/${collection}`);
-    if (PURGED.has(collection)) {
+    if (NOT_YET_WIRED.has(collection)) {
+      // Classified PURGED, but nothing sweeps it yet — see NOT_YET_WIRED's own
+      // comment for why this asserts today's truth rather than skipping the
+      // collection. The moment a real clearUserCollection call is added for
+      // it, this flips to failing, and the message says what to do about it.
+      assert.equal(
+        mine.length,
+        seedIdsFor(collection, TARGET).length,
+        `${collection} is in NOT_YET_WIRED because its sweep is not wired yet — if this `
+          + `assertion just failed, the wiring landed: remove ${collection} from `
+          + 'NOT_YET_WIRED and let the purge branch below cover it',
+      );
+    } else if (PURGED.has(collection)) {
       assert.deepEqual(
         mine.map((row) => row.id),
         [],

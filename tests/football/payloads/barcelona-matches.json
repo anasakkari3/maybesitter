@@ -1,0 +1,290 @@
+{
+  "_note": "Hand-constructed to football-data.org's documented v4 /v4/teams/{id}/matches response shape. This is NOT a recorded capture from a live call -- no API key was available in this environment and no live HTTP request was made. Field names (id, utcDate, status, competition.code, homeTeam.id/name, awayTeam.id/name, venue) follow the public v4 API docs. If a real capture later contradicts a field name here, trust the capture.",
+  "filters": {
+    "dateFrom": "2026-09-16",
+    "dateTo": "2026-11-15",
+    "permission": "ALLOWED"
+  },
+  "resultSet": {
+    "count": 7,
+    "first": "2026-09-20",
+    "last": "2026-11-15",
+    "played": 1
+  },
+  "matches": [
+    {
+      "id": 419471,
+      "utcDate": "2026-09-20T19:00:00Z",
+      "status": "SCHEDULED",
+      "matchday": 5,
+      "stage": "REGULAR_SEASON",
+      "group": null,
+      "lastUpdated": "2026-09-14T10:00:00Z",
+      "competition": {
+        "id": 2014,
+        "name": "Primera Division",
+        "code": "PD",
+        "type": "LEAGUE",
+        "emblem": "https://crests.football-data.org/PD.png"
+      },
+      "homeTeam": {
+        "id": 81,
+        "name": "FC Barcelona",
+        "shortName": "Barcelona",
+        "tla": "FCB",
+        "crest": "https://crests.football-data.org/81.png"
+      },
+      "awayTeam": {
+        "id": 86,
+        "name": "Real Madrid CF",
+        "shortName": "Real Madrid",
+        "tla": "RMA",
+        "crest": "https://crests.football-data.org/86.png"
+      },
+      "venue": "Camp Nou",
+      "score": {
+        "winner": null,
+        "duration": "REGULAR",
+        "fullTime": { "home": null, "away": null },
+        "halfTime": { "home": null, "away": null }
+      },
+      "odds": { "msg": "Activate Odds-Package in User-Panel to retrieve odds." },
+      "referees": []
+    },
+    {
+      "id": 419472,
+      "utcDate": "2026-09-27T15:15:00Z",
+      "status": "POSTPONED",
+      "matchday": 6,
+      "stage": "REGULAR_SEASON",
+      "group": null,
+      "lastUpdated": "2026-09-15T08:00:00Z",
+      "competition": {
+        "id": 2014,
+        "name": "Primera Division",
+        "code": "PD",
+        "type": "LEAGUE",
+        "emblem": "https://crests.football-data.org/PD.png"
+      },
+      "homeTeam": {
+        "id": 81,
+        "name": "FC Barcelona",
+        "shortName": "Barcelona",
+        "tla": "FCB",
+        "crest": "https://crests.football-data.org/81.png"
+      },
+      "awayTeam": {
+        "id": 90,
+        "name": "Real Betis Balompie",
+        "shortName": "Betis",
+        "tla": "BET",
+        "crest": "https://crests.football-data.org/90.png"
+      },
+      "venue": "Camp Nou",
+      "score": {
+        "winner": null,
+        "duration": "REGULAR",
+        "fullTime": { "home": null, "away": null },
+        "halfTime": { "home": null, "away": null }
+      },
+      "odds": { "msg": "Activate Odds-Package in User-Panel to retrieve odds." },
+      "referees": []
+    },
+    {
+      "id": 419473,
+      "utcDate": "2026-10-04T19:00:00Z",
+      "status": "CANCELLED",
+      "matchday": 7,
+      "stage": "REGULAR_SEASON",
+      "group": null,
+      "lastUpdated": "2026-09-16T08:00:00Z",
+      "competition": {
+        "id": 2014,
+        "name": "Primera Division",
+        "code": "PD",
+        "type": "LEAGUE",
+        "emblem": "https://crests.football-data.org/PD.png"
+      },
+      "homeTeam": {
+        "id": 78,
+        "name": "Club Atletico de Madrid",
+        "shortName": "Atletico Madrid",
+        "tla": "ATM",
+        "crest": "https://crests.football-data.org/78.png"
+      },
+      "awayTeam": {
+        "id": 81,
+        "name": "FC Barcelona",
+        "shortName": "Barcelona",
+        "tla": "FCB",
+        "crest": "https://crests.football-data.org/81.png"
+      },
+      "venue": "Civitas Metropolitano",
+      "score": {
+        "winner": null,
+        "duration": "REGULAR",
+        "fullTime": { "home": null, "away": null },
+        "halfTime": { "home": null, "away": null }
+      },
+      "odds": { "msg": "Activate Odds-Package in User-Panel to retrieve odds." },
+      "referees": []
+    },
+    {
+      "id": 419474,
+      "utcDate": "2026-09-13T19:00:00Z",
+      "status": "FINISHED",
+      "matchday": 4,
+      "stage": "REGULAR_SEASON",
+      "group": null,
+      "lastUpdated": "2026-09-13T21:10:00Z",
+      "competition": {
+        "id": 2014,
+        "name": "Primera Division",
+        "code": "PD",
+        "type": "LEAGUE",
+        "emblem": "https://crests.football-data.org/PD.png"
+      },
+      "homeTeam": {
+        "id": 81,
+        "name": "FC Barcelona",
+        "shortName": "Barcelona",
+        "tla": "FCB",
+        "crest": "https://crests.football-data.org/81.png"
+      },
+      "awayTeam": {
+        "id": 94,
+        "name": "Girona FC",
+        "shortName": "Girona",
+        "tla": "GIR",
+        "crest": "https://crests.football-data.org/94.png"
+      },
+      "venue": "Camp Nou",
+      "score": {
+        "winner": "HOME_TEAM",
+        "duration": "REGULAR",
+        "fullTime": { "home": 3, "away": 1 },
+        "halfTime": { "home": 1, "away": 0 }
+      },
+      "odds": { "msg": "Activate Odds-Package in User-Panel to retrieve odds." },
+      "referees": []
+    },
+    {
+      "_malformed": "missing utcDate",
+      "id": 419475,
+      "status": "SCHEDULED",
+      "matchday": 8,
+      "stage": "REGULAR_SEASON",
+      "group": null,
+      "lastUpdated": "2026-09-14T10:00:00Z",
+      "competition": {
+        "id": 2014,
+        "name": "Primera Division",
+        "code": "PD",
+        "type": "LEAGUE",
+        "emblem": "https://crests.football-data.org/PD.png"
+      },
+      "homeTeam": {
+        "id": 81,
+        "name": "FC Barcelona",
+        "shortName": "Barcelona",
+        "tla": "FCB",
+        "crest": "https://crests.football-data.org/81.png"
+      },
+      "awayTeam": {
+        "id": 92,
+        "name": "Sevilla FC",
+        "shortName": "Sevilla",
+        "tla": "SEV",
+        "crest": "https://crests.football-data.org/92.png"
+      },
+      "venue": "Camp Nou",
+      "score": {
+        "winner": null,
+        "duration": "REGULAR",
+        "fullTime": { "home": null, "away": null },
+        "halfTime": { "home": null, "away": null }
+      },
+      "odds": { "msg": "Activate Odds-Package in User-Panel to retrieve odds." },
+      "referees": []
+    },
+    {
+      "_malformed": "missing homeTeam.id",
+      "id": 419476,
+      "utcDate": "2026-11-08T20:00:00Z",
+      "status": "SCHEDULED",
+      "matchday": 9,
+      "stage": "REGULAR_SEASON",
+      "group": null,
+      "lastUpdated": "2026-09-14T10:00:00Z",
+      "competition": {
+        "id": 2014,
+        "name": "Primera Division",
+        "code": "PD",
+        "type": "LEAGUE",
+        "emblem": "https://crests.football-data.org/PD.png"
+      },
+      "homeTeam": {
+        "name": "FC Barcelona",
+        "shortName": "Barcelona",
+        "tla": "FCB",
+        "crest": "https://crests.football-data.org/81.png"
+      },
+      "awayTeam": {
+        "id": 78,
+        "name": "Club Atletico de Madrid",
+        "shortName": "Atletico Madrid",
+        "tla": "ATM",
+        "crest": "https://crests.football-data.org/78.png"
+      },
+      "venue": "Camp Nou",
+      "score": {
+        "winner": null,
+        "duration": "REGULAR",
+        "fullTime": { "home": null, "away": null },
+        "halfTime": { "home": null, "away": null }
+      },
+      "odds": { "msg": "Activate Odds-Package in User-Panel to retrieve odds." },
+      "referees": []
+    },
+    {
+      "_malformed": "unrecognised status",
+      "id": 419477,
+      "utcDate": "2026-11-15T20:00:00Z",
+      "status": "ABANDONED",
+      "matchday": 10,
+      "stage": "REGULAR_SEASON",
+      "group": null,
+      "lastUpdated": "2026-09-14T10:00:00Z",
+      "competition": {
+        "id": 2014,
+        "name": "Primera Division",
+        "code": "PD",
+        "type": "LEAGUE",
+        "emblem": "https://crests.football-data.org/PD.png"
+      },
+      "homeTeam": {
+        "id": 81,
+        "name": "FC Barcelona",
+        "shortName": "Barcelona",
+        "tla": "FCB",
+        "crest": "https://crests.football-data.org/81.png"
+      },
+      "awayTeam": {
+        "id": 559,
+        "name": "Getafe CF",
+        "shortName": "Getafe",
+        "tla": "GET",
+        "crest": "https://crests.football-data.org/559.png"
+      },
+      "venue": "Camp Nou",
+      "score": {
+        "winner": null,
+        "duration": "REGULAR",
+        "fullTime": { "home": null, "away": null },
+        "halfTime": { "home": null, "away": null }
+      },
+      "odds": { "msg": "Activate Odds-Package in User-Panel to retrieve odds." },
+      "referees": []
+    }
+  ]
+}

@@ -1,5 +1,6 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import {
+  collisionsForExistingCommitment,
   dropCommitment,
   getCommitment,
   InvalidTransitionError,
@@ -67,7 +68,11 @@ export async function PATCH(
     // Read after the write: an edit that moved the time is exactly when the
     // client has to know which event to move with it.
     const link = await getDeviceCalendarLink(user.uid, id);
-    return Response.json(commitmentToMobileDto(updated, undefined, link), {
+    // And what the edit now lands on top of: an edit that moves a time onto
+    // Saturday's match is warned about the way a capture there is. Additive,
+    // so a client that does not read it parses the same DTO as before.
+    const collisions = await collisionsForExistingCommitment(id, { participantId: user.uid });
+    return Response.json({ ...commitmentToMobileDto(updated, undefined, link), collisions }, {
       headers: { ETag: etagFor(updated) },
     });
   } catch (error) {

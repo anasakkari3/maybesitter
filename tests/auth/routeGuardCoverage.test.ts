@@ -44,7 +44,13 @@ const GUARDED_VIA_SCOPE = new Set([
 ]);
 
 test('every mobile route file exists and is enumerated', () => {
-  // Thirty-six today: UC-3.2 (#186) added `POST|DELETE /api/mobile/calendar/
+  // Forty-two today: the football fixtures branch merged main (forty) and
+  // brings two of its own from Task 11, `GET|PUT /api/mobile/football` and `DELETE /api/mobile/football/fixtures/{commitmentId}`
+  // -- the dismiss route in particular is the one whose failure mode is
+  // silent rather than loud: an unauthenticated caller who could reach it
+  // would learn, from a 404-vs-200 timing difference alone, whether an
+  // arbitrary commitment id belongs to somebody who follows football at all.
+  // On main, UC-3.2 (#186) added `POST|DELETE /api/mobile/calendar/
   // busy`. It is the route somebody's calendar travels over, so the guard is
   // the thing that decides whether busy time is filed under the account that
   // owns it — and the `DELETE`, which is "disconnect and remove what you
@@ -88,21 +94,9 @@ test('every mobile route file exists and is enumerated', () => {
   // the route somebody's calendar travels over. Its DELETE is "disconnect and
   // remove what you hold", and it must not be reachable by anyone but the
   // account that owns the source.
-  // Forty-two with UC-3.16 (#202): `POST /api/mobile/memory/suggestions/{ruleId}`,
-  // which writes a memory record from somebody's own event log, and
-  // `PUT /api/mobile/consents/personalization`, which is the answer that
-  // decides whether that log may be read for patterns at all.
-  // Forty-three with UC-3.12b (#198): `POST /api/mobile/reminders/receipts`, the
-  // route a phone tells the server "I will ring for that one" over. Its guard
-  // is what keeps a receipt filed under the account that made it: a receipt
-  // accepted for somebody else's uid would silence *their* backup push for a
-  // Must commitment, which is the quietest way this product could fail.
-  // Forty-seven with UC-3.4 (#188) on top of that: `GET|POST /calendar/ics`, `PATCH|DELETE
-  // /calendar/ics/{feedId}`, `POST .../refresh` and `POST .../deadlines/
-  // {itemKey}`. The feed URL is a bearer secret and a refresh makes the server
-  // fetch a URL somebody chose, so every one authenticates before the feature
-  // flag, the consent check or the body is looked at.
-  assert.equal(files.length, 47, `found:\n${files.join('\n')}`);
+  // Forty-nine total: HEAD's forty-seven routes plus football's two routes
+  // (GET|PUT /api/mobile/football and DELETE /api/mobile/football/fixtures/{commitmentId}).
+  assert.equal(files.length, 49, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {

@@ -38,7 +38,8 @@ import {
 import { PATCH as memoryPatch } from '../../src/app/api/mobile/memory/[id]/route.ts';
 import { PUT as routinePut } from '../../src/app/api/mobile/profile/routine/route.ts';
 import { listAuditEvents } from '../../lib/pilot/pilotTrustStore.ts';
-import { BEHAVIOR_FEEDBACK, FEEDBACK_BASELINES, MEMORY, PROFILE_PROPOSALS, userCol } from '../../lib/storage/paths.ts';
+import { BEHAVIOR_FEEDBACK, FEEDBACK_BASELINES, FOOTBALL_FOLLOWS, MEMORY, PROFILE_PROPOSALS, userCol } from '../../lib/storage/paths.ts';
+import { setFollowedClubs } from '../../lib/football/followedClubs.ts';
 import {
   createDefaultBehaviorFeedbackStore,
   recordBehaviorFeedback,
@@ -431,6 +432,60 @@ test('behaviour counters left behind are a failed deletion, not a 200', async ()
       [],
     );
     assert.equal((await behaviorCountersFor(OWNER)).ignoredSuggestions, 3);
+  } finally {
+    end();
+  }
+});
+
+test('delete-all clears which clubs the user follows (football fixtures MVP, Task 7)', async () => {
+  begin();
+  try {
+    await setFollowedClubs(OWNER, ['barcelona'], NOW);
+    assert.equal((await getStorage().list(userCol(OWNER, FOOTBALL_FOLLOWS))).length, 1, 'the fixture did not seed the follow');
+
+    const response = await memoryDeleteAll(request(OWNER, '/api/mobile/memory', { method: 'DELETE' }));
+    assert.equal(response.status, 200);
+
+    assert.deepEqual(
+      await getStorage().list(userCol(OWNER, FOOTBALL_FOLLOWS)),
+      [],
+      'a followed club survived delete-all: the product still believes which club the user follows',
+    );
+  } finally {
+    end();
+  }
+});
+
+test('a followed club left behind is a failed deletion, not a 200 (football fixtures MVP, Task 7)', async () => {
+  begin();
+  try {
+    await setFollowedClubs(OWNER, ['barcelona'], NOW);
+
+    // A storage that swallows the one delete, leaving the follow exactly where
+    // it was — the failure `remainingFootballFollowsCount` exists to catch. Same
+    // technique as the behaviour-counters test above, aimed at the collection
+    // this task's purge wiring added.
+    const storage = getStorage();
+    const real = storage.delete.bind(storage);
+    (storage as { delete: unknown }).delete = async (path: string) => {
+      if (path.includes(`/${FOOTBALL_FOLLOWS}/`)) return;
+      await real(path);
+    };
+
+    let response: Response;
+    try {
+      response = await memoryDeleteAll(request(OWNER, '/api/mobile/memory', { method: 'DELETE' }));
+    } finally {
+      (storage as { delete: unknown }).delete = real;
+    }
+
+    assert.equal(response.status, 500, 'a surviving followed club was reported as a completed deletion');
+    assert.equal((await json(response)).reason, 'memory_delete_incomplete');
+    assert.deepEqual(
+      (await listAuditEvents(OWNER)).filter((event) => event.eventType === 'memory_deleted'),
+      [],
+    );
+    assert.equal((await getStorage().list(userCol(OWNER, FOOTBALL_FOLLOWS))).length, 1);
   } finally {
     end();
   }

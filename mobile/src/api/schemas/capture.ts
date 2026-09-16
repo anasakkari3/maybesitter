@@ -80,6 +80,23 @@ export type CaptureProposal = z.infer<typeof captureProposalSchema>;
 export type CaptureProposalItem = CaptureProposal['items'][number];
 
 /**
+ * What a newly-persisted commitment landed on top of (#football-fixtures
+ * task 10). No `origin` field: an earlier task carried one and it was
+ * withdrawn, because a sealed annotation corpus checksums the whole
+ * serialised commitment and the field moved it. A screen that needs to know a
+ * colliding commitment came from a synced feed reads that off the commitment
+ * itself, not off this warning.
+ */
+export const collisionWarningSchema = z.object({
+  commitmentId: z.string(),
+  title: z.string(),
+  startsAt: isoDateTime,
+  endsAt: isoDateTime,
+});
+
+export type CollisionWarning = z.infer<typeof collisionWarningSchema>;
+
+/**
  * Mirrors `capture.confirmation.json` **and** `capture.confirmationFailed.json`.
  *
  * Both shapes are the same object; `success` is what separates them. Since
@@ -111,6 +128,11 @@ export const captureConfirmationSchema = z.object({
       'invalid_edit',
     ])
     .optional(),
+  // Optional, not required: it warns rather than refuses (a candidate that
+  // collides with nothing sends the same empty array an older server always
+  // did), and an older backend that has not shipped this field at all must
+  // still parse under this schema.
+  collisions: z.array(collisionWarningSchema).optional(),
 });
 
 export type CaptureConfirmation = z.infer<typeof captureConfirmationSchema>;

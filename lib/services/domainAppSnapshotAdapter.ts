@@ -5,6 +5,7 @@ import type { Item, ItemPriority, ReminderAttempt } from '../../src/types/index'
 import { applyCommand, configureCommandService, getCommandServiceState } from './commandService';
 import { createEmptyDomainState } from '../../src/domain/stateMachine';
 import type { Command, Commitment, DomainState, EscalationState, Priority, Reminder, TimeSpec } from '../../src/domain/stateMachine';
+import { collisionsForCommitment, type CollisionWarning } from './timeCollision';
 
 export type LegacyItemInput = Partial<Item>;
 
@@ -145,7 +146,7 @@ export async function getUnifiedAppSnapshot(): Promise<AppSnapshot> {
   };
 }
 
-export function createCommitmentFromItem(raw: LegacyItemInput): void {
+export function createCommitmentFromItem(raw: LegacyItemInput): string {
   const now = new Date().toISOString();
   const id = typeof raw.id === 'string' && raw.id ? raw.id : randomUUID();
   const title = typeof raw.title === 'string' ? raw.title.trim() : '';
@@ -180,6 +181,24 @@ export function createCommitmentFromItem(raw: LegacyItemInput): void {
     const result = applyCommand(command);
     if (result.result === 'rejected') throw new Error('Could not create commitment');
   }
+
+  return id;
+}
+
+/**
+ * Whether the commitment just created lands on top of another open, timed
+ * commitment (the collision warning of #football-fixtures task 10). Read
+ * straight off `commandService` state rather than the legacy `Item`
+ * projection, because the check needs a `Commitment`'s own `timeSpec`, a
+ * distinction the legacy shape has already thrown away.
+ *
+ * This route writes `due_by` (see `timeSpecFromItem`), which is why
+ * `collisionsForCommitment` treats a timed `due_by` as an interval: a check
+ * limited to `scheduled_event` could never fire here.
+ */
+export function collisionsFor(commitmentId: string): readonly CollisionWarning[] {
+  const state = getCommandServiceState();
+  return collisionsForCommitment(state.commitments[commitmentId], Object.values(state.commitments));
 }
 
 export function updateCommitmentFromItem(itemId: string, updates: LegacyItemInput): void {

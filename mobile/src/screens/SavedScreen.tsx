@@ -111,6 +111,21 @@ export function SavedScreen() {
           ))}
         </View>
 
+        {/* The server saved it and says what it lands on. It warns, it does not
+            refuse, so this sits under the saved list rather than replacing it,
+            and names what was already there so the user can decide. */}
+        {state.collisions.length > 0 ? (
+          <View style={{ alignSelf: 'stretch', gap: 6, marginTop: 4 }} testID="saved-collisions">
+            {state.collisions.map((collision) => (
+              <View key={collision.commitmentId} style={{ backgroundColor: p.wms, borderRadius: 14, paddingVertical: 10, paddingHorizontal: 12 }}>
+                <Txt size={13} color={p.wm} testID={`saved-collision-${collision.commitmentId}`}>
+                  {fill(t.savedCollision, { title: collision.title, when: whenOf(collision.startsAt) })}
+                </Txt>
+              </View>
+            ))}
+          </View>
+        ) : null}
+
         {/* Never mixed in with the saved list. A refused item shown among them
             is the product reporting a write that did not happen. */}
         {state.failed.length > 0 ? (

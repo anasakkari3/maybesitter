@@ -108,9 +108,10 @@ export class MemoryDeletionIncompleteError extends Error {
   readonly remainingMemoryRecords: number;
   /**
    * Everything derived that survived, added together: feedback events, the
-   * pre-event-log baseline, the legacy behaviour counters and any pending
-   * self-description proposal. One number because the user is owed one answer
-   * — it did not finish — and the message names the parts.
+   * pre-event-log baseline, the legacy behaviour counters, any pending
+   * self-description proposal, and which clubs the user follows (football
+   * fixtures MVP, Task 7). One number because the user is owed one answer —
+   * it did not finish — and the message names the parts.
    */
   readonly remainingPersonalizationRows: number;
 
@@ -494,10 +495,15 @@ export async function deleteAllMemory(
   // behaviour counters are the one that matters most here: they are the direct
   // input to the shipped classifier, and a deletion that left them reported a
   // number while the label it derives came back byte-identical (#202).
+  // `remainingFootballFollowsCount` (football fixtures MVP, Task 7) joins them
+  // for the same reason: this guard exists to catch the day the sweep does
+  // not run, and a guard that cannot see one of the collections deletion.ts
+  // now clears is blind exactly where that collection was just added.
   const remainingRows = receipt.remainingFeedbackEventCount
     + receipt.remainingBehaviorFeedbackCount
     + receipt.remainingProfileProposalCount
     + receipt.remainingMemoryDismissalCount
+    + receipt.remainingFootballFollowsCount
     + (baseline === null ? 0 : 1);
   if (receipt.remainingRuntimeMemoryRecordCount > 0 || remainingRows > 0) {
     throw new MemoryDeletionIncompleteError(receipt.remainingRuntimeMemoryRecordCount, remainingRows);

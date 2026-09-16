@@ -1,0 +1,92 @@
+[
+  {
+    "clubId": "barcelona",
+    "providerTeamId": "81",
+    "competition": "PD",
+    "names": { "ar": "برشلونة", "he": "ברצלונה", "en": "FC Barcelona" }
+  },
+  {
+    "clubId": "real-madrid",
+    "providerTeamId": "86",
+    "competition": "PD",
+    "names": { "ar": "ريال مدريد", "he": "ריאל מדריד", "en": "Real Madrid CF" }
+  },
+  {
+    "clubId": "atletico-madrid",
+    "providerTeamId": "78",
+    "competition": "PD",
+    "names": { "ar": "أتلتيكو مدريد", "he": "אתלטיקו מדריד", "en": "Club Atlético de Madrid" }
+  },
+  {
+    "clubId": "liverpool",
+    "providerTeamId": "64",
+    "competition": "PL",
+    "names": { "ar": "ليفربول", "he": "ליברפול", "en": "Liverpool FC" }
+  },
+  {
+    "clubId": "manchester-city",
+    "providerTeamId": "65",
+    "competition": "PL",
+    "names": { "ar": "مانشستر سيتي", "he": "מנצ'סטר סיטי", "en": "Manchester City FC" }
+  },
+  {
+    "clubId": "manchester-united",
+    "providerTeamId": "66",
+    "competition": "PL",
+    "names": { "ar": "مانشستر يونايتد", "he": "מנצ'סטר יונייטד", "en": "Manchester United FC" }
+  },
+  {
+    "clubId": "arsenal",
+    "providerTeamId": "57",
+    "competition": "PL",
+    "names": { "ar": "آرسنال", "he": "ארסנל", "en": "Arsenal FC" }
+  },
+  {
+    "clubId": "chelsea",
+    "providerTeamId": "61",
+    "competition": "PL",
+    "names": { "ar": "تشيلسي", "he": "צ'לסי", "en": "Chelsea FC" }
+  },
+  {
+    "clubId": "tottenham",
+    "providerTeamId": "73",
+    "competition": "PL",
+    "names": { "ar": "توتنهام هوتسبير", "he": "טוטנהאם", "en": "Tottenham Hotspur FC" }
+  },
+  {
+    "clubId": "bayern-munich",
+    "providerTeamId": "5",
+    "competition": "BL1",
+    "names": { "ar": "بايرن ميونخ", "he": "באיירן מינכן", "en": "FC Bayern München" }
+  },
+  {
+    "clubId": "borussia-dortmund",
+    "providerTeamId": "4",
+    "competition": "BL1",
+    "names": { "ar": "بوروسيا دورتموند", "he": "בורוסיה דורטמונד", "en": "Borussia Dortmund" }
+  },
+  {
+    "clubId": "juventus",
+    "providerTeamId": "109",
+    "competition": "SA",
+    "names": { "ar": "يوفنتوس", "he": "יובנטוס", "en": "Juventus FC" }
+  },
+  {
+    "clubId": "inter-milan",
+    "providerTeamId": "108",
+    "competition": "SA",
+    "names": { "ar": "إنتر ميلان", "he": "אינטר מילאנו", "en": "FC Internazionale Milano" }
+  },
+  {
+    "clubId": "ac-milan",
+    "providerTeamId": "98",
+    "competition": "SA",
+    "names": { "ar": "ميلان", "he": "מילאן", "en": "AC Milan" }
+  },
+  {
+    "clubId": "psg",
+    "providerTeamId": "524",
+    "competition": "FL1",
+    "names": { "ar": "باريس سان جيرمان", "he": "פריז סן ז'רמן", "en": "Paris Saint-Germain FC" }
+  }
+]

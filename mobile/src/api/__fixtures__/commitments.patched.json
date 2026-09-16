@@ -28,5 +28,6 @@
   "confirmedAt": "2026-08-09T09:00:00.000Z",
   "completedAt": null,
   "droppedAt": null,
-  "deviceCalendarLink": null
+  "deviceCalendarLink": null,
+  "collisions": []
 }

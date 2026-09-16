@@ -29,6 +29,7 @@ import { ActivityScreen } from './features/activity/ActivityScreen';
 import { RoutineSettingsScreen } from './features/settings/RoutineSettingsScreen';
 import { NotificationsSettingsScreen } from './features/settings/NotificationsSettingsScreen';
 import { CalendarSettingsScreen } from './features/settings/CalendarSettingsScreen';
+import { FootballSettingsScreen } from './features/settings/FootballSettingsScreen';
 import { CategorySettingsScreen } from './features/settings/CategorySettingsScreen';
 import { DeviceCalendarSyncHost } from './features/calendar/useDeviceCalendarSync';
 import { BusyCalendarHost } from './features/calendar/useBusyCalendar';
@@ -150,6 +151,9 @@ export function Root() {
           )}
           {s.screen === 'calendarSettings' && (
             <CalendarSettingsScreen key="calendarSettings" onBack={() => latest.current.go('settings')} />
+          )}
+          {s.screen === 'footballSettings' && (
+            <FootballSettingsScreen key="footballSettings" onBack={() => latest.current.go('settings')} />
           )}
           {s.screen === 'categorySettings' && (
             <CategorySettingsScreen key="categorySettings" onBack={() => latest.current.go('settings')} />

@@ -29,6 +29,7 @@ import type { AuthUser } from '../../../auth/types';
 import { Root } from '../../../Root';
 import en from '../../../i18n/locales/en.json';
 import ar from '../../../i18n/locales/ar.json';
+import he from '../../../i18n/locales/he.json';
 import { LANGUAGE_STORAGE_KEY } from '../../../i18n/language';
 
 import { InputTooLargeError, NetworkError, QuotaExceededError, ValidationError } from '../../../api/errors';
@@ -764,5 +765,46 @@ describe('the undo is counted, and nothing else about it is', () => {
     // Unknown is not granted.
     expect(screen.queryByText(en.undoneTitle)).not.toBeNull();
     expect(record).not.toHaveBeenCalled();
+  });
+});
+
+describe('a saved item that lands on something already there (football fixtures, final review C2)', () => {
+  // The language is per case; reset so no later test renders in it.
+  afterEach(async () => { await AsyncStorage.removeItem(LANGUAGE_STORAGE_KEY); });
+
+  // Final review C2: the server sent `collisions` and no screen read it, so
+  // "warn him if he added a commitment that there is a collision" never
+  // reached the person who added it. The line names the match, in every
+  // language the app ships.
+  it.each<['en' | 'ar' | 'he', string]>([
+    ['en', en.savedCollision],
+    ['ar', ar.savedCollision],
+    ['he', he.savedCollision],
+  ])('warns that a saved item lands on something already there, naming it (%s)', async (lang, template) => {
+    await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, lang);
+    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+    jest.spyOn(captureEndpoints, 'confirmCapture').mockResolvedValue(confirmation({
+      collisions: [{ commitmentId: 'match-1', title: 'FC Barcelona – Real Madrid CF', startsAt: SOON, endsAt: LATER }],
+    }) as never);
+    await openApp();
+    await enterCapture();
+    await typeAndAnalyze();
+    await fireEvent.press(screen.getByTestId('review-confirm'));
+    await waitFor(() => expect(screen.queryByTestId('saved-collision-match-1')).not.toBeNull());
+    const line = screen.getByTestId('saved-collision-match-1');
+    const text = [line.props.children].flat().join('');
+    expect(text).toContain('FC Barcelona – Real Madrid CF');
+    expect(text.startsWith(template.split('{title}')[0]!)).toBe(true);
+  });
+
+  it('says nothing about collisions when there are none', async () => {
+    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+    jest.spyOn(captureEndpoints, 'confirmCapture').mockResolvedValue(confirmation({ collisions: [] }) as never);
+    await openApp();
+    await enterCapture();
+    await typeAndAnalyze();
+    await fireEvent.press(screen.getByTestId('review-confirm'));
+    await waitFor(() => expect(screen.queryByTestId('saved-item-i-1')).not.toBeNull());
+    expect(screen.queryByTestId('saved-collisions')).toBeNull();
   });
 });
