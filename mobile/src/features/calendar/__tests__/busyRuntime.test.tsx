@@ -24,6 +24,7 @@ import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals
 import { render, screen, waitFor } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AppState, type AppStateStatus } from 'react-native';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { AppProvider } from '../../../state/AppContext';
 import { AuthProvider } from '../../../auth/AuthProvider';
@@ -144,6 +145,54 @@ describe('with the calendar switch on', () => {
     await waitFor(async () => {
       expect(await AsyncStorage.getItem('calendar.busy.v1')).toContain(FROM.toISOString());
     });
+  });
+});
+
+/**
+ * Coming back to the front (#418 review).
+ *
+ * The foreground trigger is the one the fifteen-minute throttle exists for, and
+ * nothing tested it: flipping `'active'` to `'background'` in the listener left
+ * the suite green. So the listener is captured here and driven by hand, with a
+ * sync already recorded long enough ago that the throttle lets it through.
+ */
+describe('coming back to the front', () => {
+  function captureAppState() {
+    const listeners: Array<(state: AppStateStatus) => void> = [];
+    jest.spyOn(AppState, 'addEventListener').mockImplementation(((type: string, listener: (state: AppStateStatus) => void) => {
+      if (type === 'change') listeners.push(listener);
+      return { remove: () => {} };
+    }) as never);
+    return (state: AppStateStatus) => { for (const listener of listeners) listener(state); };
+  }
+
+  async function settledAfterConnect() {
+    jest.spyOn(trustEndpoints, 'getTrust').mockResolvedValue(trustWith(true) as never);
+    const upload = jest.spyOn(calendarEndpoints, 'postCalendarBusy').mockResolvedValue({
+      success: true, blocks: 1,
+      source: { sourceId: 'device:x', lastSyncedAt: new Date().toISOString(), windowStart: new Date().toISOString(), windowEnd: new Date().toISOString() },
+    } as never);
+    const fire = captureAppState();
+    await openApp();
+    await waitFor(() => expect(upload).toHaveBeenCalledTimes(1));
+    // Pretend the connect sync was long ago, so only the trigger decides.
+    await AsyncStorage.setItem('calendar.busySyncedAt.v1', String(Date.now() - 60 * 60_000));
+    return { fire, upload };
+  }
+
+  it('syncs again when the app becomes active', async () => {
+    const { fire, upload } = await settledAfterConnect();
+    fire('active');
+    await waitFor(() => expect(upload).toHaveBeenCalledTimes(2));
+  });
+
+  it('does not sync when the app goes to the background', async () => {
+    const { fire, upload } = await settledAfterConnect();
+    fire('background');
+    fire('inactive');
+    // Give a sync every chance to have started.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(upload).toHaveBeenCalledTimes(1);
   });
 });
 

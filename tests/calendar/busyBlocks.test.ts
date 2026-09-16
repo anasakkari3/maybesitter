@@ -356,7 +356,7 @@ test('a block that straddles the whole window is in it', async () => {
 /* ── Into the planner ────────────────────────────────────────────── */
 
 test('a busy block becomes a blocking fixed event that belongs to no commitment', () => {
-  const [event] = toFixedEvents([block('a', 600, 660)], { includeAllDay: false });
+  const [event] = toFixedEvents([block('a', 600, 660)]);
   assert.equal(event!.eventId, block('a', 600, 660).blockId);
   assert.equal(event!.blocking, true);
   assert.equal(event!.sourceCommitmentId, null);
@@ -365,12 +365,11 @@ test('a busy block becomes a blocking fixed event that belongs to no commitment'
 
 test('an all-day event does not block the day', () => {
   const day = block('holiday', 0, 60 * 24, true);
-  assert.deepEqual(toFixedEvents([day], { includeAllDay: false }), []);
-  assert.equal(toFixedEvents([day], { includeAllDay: true }).length, 1);
+  assert.deepEqual(toFixedEvents([day]), []);
 });
 
 test('a timed event is never dropped by the all-day rule', () => {
-  assert.equal(toFixedEvents([block('a', 600, 660)], { includeAllDay: false }).length, 1);
+  assert.equal(toFixedEvents([block('a', 600, 660)]).length, 1);
 });
 
 /* ── Disconnect and delete ───────────────────────────────────────── */

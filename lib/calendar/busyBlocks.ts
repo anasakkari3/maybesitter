@@ -470,25 +470,24 @@ export async function deleteBusySource(
 
 /* ── Into the planner ────────────────────────────────────────────── */
 
-export interface ToFixedEventsOptions {
-  /**
-   * Whether an all-day entry blocks the day.
-   *
-   * #186's decision is that it does not. A birthday, a public holiday or a
-   * multi-day trip is still a day somebody works in, and a planner that treated
-   * one as twenty-four hours of unavailable time would answer "nothing fits"
-   * for a week in December. They are still returned by `listBusyBlocks`, so the
-   * conflict hint can mention one.
-   */
-  readonly includeAllDay: boolean;
-}
-
-export function toFixedEvents(
-  blocks: readonly BusyBlock[],
-  options: ToFixedEventsOptions,
-): FixedEvent[] {
+/**
+ * Busy blocks as the planner's fixed events. All-day entries are left out.
+ *
+ * #186's decision: a birthday, a public holiday or a multi-day trip is still a
+ * day somebody works in, and a planner that treated one as twenty-four hours of
+ * unavailable time would answer "nothing fits" for a week in December. They are
+ * still returned by `listBusyBlocks`, so the conflict hint can mention one.
+ *
+ * This took an `includeAllDay` option until review of #418 pointed out that
+ * nothing ever passed `true` — the one production caller hard-coded `false` and
+ * the chip reads `conflicts.ts` on the phone instead. An option with no caller
+ * looks like a decision somebody can revisit and is really dead code, so the
+ * rule is unconditional and the day #187 or #188 needs the other answer, it
+ * adds a caller along with the parameter.
+ */
+export function toFixedEvents(blocks: readonly BusyBlock[]): FixedEvent[] {
   return blocks
-    .filter((block) => options.includeAllDay || !block.allDay)
+    .filter((block) => !block.allDay)
     .map((block) => ({
       eventId: block.blockId,
       interval: { startsAt: block.startAt, endsAt: block.endAt },
@@ -515,7 +514,7 @@ export async function readBusyBlocksForPlanning(
   deps: BusyBlockDeps = {},
 ): Promise<readonly { readonly blockId: string; readonly startsAt: Instant; readonly endsAt: Instant }[]> {
   const blocks = await listBusyBlocks(uid, window, deps);
-  return toFixedEvents(blocks, { includeAllDay: false }).map((event) => ({
+  return toFixedEvents(blocks).map((event) => ({
     blockId: event.eventId,
     startsAt: event.interval.startsAt,
     endsAt: event.interval.endsAt,

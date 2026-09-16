@@ -22,6 +22,7 @@
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import {
   BUSY_SYNC_MIN_INTERVAL_MS,
+  BUSY_SYNC_UPLOAD_LIMIT,
   busySyncDecision,
   busyUploadFor,
   deviceBlockId,
@@ -167,6 +168,66 @@ describe('the upload body', () => {
   });
 });
 
+/* ── More than the cap ───────────────────────────────────────────── */
+
+/**
+ * Found by adversarial review of #418: the phone used to `slice(0, 1000)` and
+ * send the result under the full 28-day window. Blocks are sorted by start, so
+ * what was thrown away was the *end* of the month, and the server — told the
+ * window was complete — recorded those weeks as free. That is the exact failure
+ * the server's own refusal exists to prevent, done one hop earlier where nobody
+ * could see it. Removing the slice altogether left the whole suite green.
+ *
+ * Now the window is shortened to what was actually sent. The planner is told
+ * "I know up to the 19th" rather than "the 20th onwards is empty".
+ */
+describe('a calendar with more blocks than one upload carries', () => {
+  const window = { startAt: at(0), endAt: at(60 * 24 * 28) };
+  const many = (count: number) => Array.from({ length: count }, (_, index) => block(`e-${index}`, index * 30, index * 30 + 15));
+
+  it('never sends more than the cap', async () => {
+    const body = await busyUploadFor('device:w1', 'ios', window, many(BUSY_SYNC_UPLOAD_LIMIT + 50));
+    expect(body.blocks.length).toBeLessThanOrEqual(BUSY_SYNC_UPLOAD_LIMIT);
+  });
+
+  it('keeps the earliest blocks, not an arbitrary subset', async () => {
+    const body = await busyUploadFor('device:w1', 'ios', window, many(BUSY_SYNC_UPLOAD_LIMIT + 50));
+    expect(body.blocks[0]!.startAt).toBe(at(0));
+  });
+
+  it('declares a window that ends where the blocks it could not send begin', async () => {
+    const blocks = many(BUSY_SYNC_UPLOAD_LIMIT + 50);
+    const body = await busyUploadFor('device:w1', 'ios', window, blocks);
+    expect(body.windowEnd).toBe(blocks[BUSY_SYNC_UPLOAD_LIMIT]!.startAt);
+    // And every block sent is inside it, which the server now checks.
+    for (const sent of body.blocks) expect(Date.parse(sent.startAt)).toBeLessThan(Date.parse(body.windowEnd));
+  });
+
+  it('leaves the window alone when everything fits', async () => {
+    const body = await busyUploadFor('device:w1', 'ios', window, many(3));
+    expect(body.windowEnd).toBe(window.endAt);
+    expect(body.blocks).toHaveLength(3);
+  });
+
+  it('says so in the outcome, so the shortening is not silent', async () => {
+    const outcome = await runBusySync({
+      readBusy: async () => many(BUSY_SYNC_UPLOAD_LIMIT + 50),
+      ownEventIds: async () => [],
+      cache: async () => {},
+      upload: async () => {},
+      recordSync: async () => {},
+    }, {
+      trigger: 'connect', featureEnabled: true, signedIn: true, consented: true, lastSyncedAt: null,
+      now: NOW, sourceId: 'device:w1', platform: 'ios', window,
+    });
+    expect(outcome).toEqual({
+      kind: 'synced',
+      blocks: BUSY_SYNC_UPLOAD_LIMIT,
+      windowEnd: many(BUSY_SYNC_UPLOAD_LIMIT + 50)[BUSY_SYNC_UPLOAD_LIMIT]!.startAt,
+    });
+  });
+});
+
 /* ── One pass ────────────────────────────────────────────────────── */
 
 describe('a pass', () => {
@@ -214,7 +275,7 @@ describe('a pass', () => {
   });
 
   it('reads, caches, uploads and records', async () => {
-    expect(await runBusySync(ports(), input())).toEqual({ kind: 'synced', blocks: 1 });
+    expect(await runBusySync(ports(), input())).toEqual({ kind: 'synced', blocks: 1, windowEnd: input().window.endAt });
     expect(cached).toHaveLength(1);
     expect(uploaded).toHaveLength(1);
     expect(recorded).toEqual([NOW]);
@@ -249,7 +310,7 @@ describe('a pass', () => {
 
   it('uploads an empty window rather than skipping it, so an emptied calendar empties the server', async () => {
     read.mockResolvedValue([]);
-    expect(await runBusySync(ports(), input())).toEqual({ kind: 'synced', blocks: 0 });
+    expect(await runBusySync(ports(), input())).toEqual({ kind: 'synced', blocks: 0, windowEnd: input().window.endAt });
     expect(uploaded[0]!.blocks).toEqual([]);
   });
 });

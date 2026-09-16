@@ -121,7 +121,7 @@ export async function busyUploadFor(
   window: BusyUploadWindow,
   blocks: readonly DeviceBusyBlock[],
 ): Promise<CalendarBusyUpload> {
-  const capped = blocks.slice(0, BUSY_SYNC_UPLOAD_LIMIT);
+  const { capped, windowEnd } = fitToLimit(window, blocks);
   const rows = await Promise.all(capped.map(async (block) => ({
     blockId: await deviceBlockId(sourceId, block.nativeId, block.startAt),
     startAt: block.startAt,
@@ -132,9 +132,39 @@ export async function busyUploadFor(
     sourceId,
     platform,
     windowStart: window.startAt,
-    windowEnd: window.endAt,
+    windowEnd,
     blocks: rows,
   };
+}
+
+/**
+ * More blocks than one upload carries: shorten the *window*, never the truth.
+ *
+ * This used to `slice(0, 1000)` and send the result under the full 28 days.
+ * Blocks arrive sorted by start, so what was discarded was the end of the
+ * month — and the server, told the window was complete, recorded those weeks
+ * as free. The server's own comment on its cap says a refusal beats a
+ * truncation for exactly that reason, and the phone was doing the truncation
+ * one hop earlier where nobody could see it (#418 review, F5).
+ *
+ * So the window ends where the first block that did not fit begins, and every
+ * block at or after that instant is left out too. What the server then holds is
+ * "busy as shown, up to here" — a claim that is true — rather than "free after
+ * the 19th", which is not.
+ */
+export function fitToLimit(
+  window: BusyUploadWindow,
+  blocks: readonly DeviceBusyBlock[],
+): { capped: readonly DeviceBusyBlock[]; windowEnd: string } {
+  if (blocks.length <= BUSY_SYNC_UPLOAD_LIMIT) return { capped: blocks, windowEnd: window.endAt };
+  const cut = blocks[BUSY_SYNC_UPLOAD_LIMIT]!.startAt;
+  const cutMs = Date.parse(cut);
+  if (cutMs <= Date.parse(window.startAt)) {
+    // A thousand events beginning at the start of the window: there is no
+    // shorter window that is both honest and non-empty. Refuse, loudly.
+    throw new Error('more busy blocks begin at the start of the window than one upload can carry');
+  }
+  return { capped: blocks.filter((block) => Date.parse(block.startAt) < cutMs), windowEnd: cut };
 }
 
 /** Everything the sync does to the world, so a test can hand it other ones. */
@@ -155,7 +185,8 @@ export type BusySyncOutcome =
   | { kind: 'skipped'; because: BusySyncSkip }
   | { kind: 'denied' }
   | { kind: 'failed' }
-  | { kind: 'synced'; blocks: number };
+  /** `windowEnd` is earlier than the requested window when it had to be shortened. */
+  | { kind: 'synced'; blocks: number; windowEnd: string };
 
 export interface BusySyncInput extends BusySyncDecisionInput {
   readonly sourceId: string;
@@ -196,8 +227,10 @@ export async function runBusySync(
 
   await ports.cache(blocks);
 
+  let body: CalendarBusyUpload;
   try {
-    await ports.upload(await busyUploadFor(input.sourceId, input.platform, input.window, blocks));
+    body = await busyUploadFor(input.sourceId, input.platform, input.window, blocks);
+    await ports.upload(body);
   } catch {
     // Not recorded as a sync, so the next trigger tries again rather than
     // waiting out the throttle on a window the server never received.
@@ -205,5 +238,5 @@ export async function runBusySync(
   }
 
   await ports.recordSync(input.now);
-  return { kind: 'synced', blocks: Math.min(blocks.length, BUSY_SYNC_UPLOAD_LIMIT) };
+  return { kind: 'synced', blocks: body.blocks.length, windowEnd: body.windowEnd };
 }
