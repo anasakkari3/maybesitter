@@ -20,6 +20,7 @@ import {
   planNotionMutation,
   planNotionSync,
 } from '../../lib/integrations/notion/adapter.ts';
+import './crossProviderIdentity.cases.ts';
 
 const commitment: Commitment = {
   id: 'c1', kind: 'task', title: 'Call Maya', description: null, person: null, status: 'active',
