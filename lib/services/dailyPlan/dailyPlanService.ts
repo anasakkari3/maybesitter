@@ -45,8 +45,8 @@
  * write and the push. The claim has advanced, the document exists, and nobody
  * is told — and no replay exists that would notice, because `createIfAbsent`
  * makes a replay *safe* without making one *happen*. That is one lost morning
- * per crash, recovered by the user opening the app, and it stays open until
- * UC-3.0b (#184) gives the push a queue of its own.
+ * per crash, recovered by the user opening the app. UC-3.0b (#184) landed a
+ * dedupe lock, not a queue, so this is still open.
  *
  * ── The account's clock, read at delivery rather than at the PUT ──
  *
@@ -57,13 +57,16 @@
  * them. The snapshot stays in the document as the record of what the standing
  * `nextRunAt` was computed under.
  *
- * ── Two seams that are empty until their issues land ─────────────
+ * ── Two seams, both closed ───────────────────────────────────────
  *
- * `PlanPushSender` defaults to `NO_PLAN_PUSH` until UC-3.0b (#184) exists. It
- * is an argument, it is unit-tested against an injected fake, and it is not
- * faked into looking finished: with today's `main`, nobody's phone rings.
+ * The push: `PlanPushSender` defaults to `planReadyPushSender`, which hands the
+ * notice to UC-3.0b (#184)'s `sendToUser`. It defaulted to a no-op until #184
+ * landed, and nothing switched it over when #184 did — the route calls
+ * `runDailyPlanTick()` with no arguments, so production built plans and rang
+ * nobody. `tests/dailyPlan/planReadyPush.test.ts` injects no sender, only the
+ * FCM client, for that reason.
  *
- * The other one is closed. UC-3.2 (#186) supplies `storedBusyBlocks` below, so
+ * The busy time: UC-3.2 (#186) supplies `storedBusyBlocks` below, so
  * the default reader is the real one and a plan is built against whatever the
  * account's connected calendars say. `tests/calendar/busyPlanning.test.ts`
  * injects nothing, which is what makes that a claim about production rather
@@ -100,6 +103,8 @@ import {
   type PlanSettingsBearingUser,
 } from './planSettings';
 import { DEFAULT_MOBILE_TIMEZONE } from '../mobile/time';
+import type { MessagingClient } from '../../push/pushService';
+import { planReadyPushSender } from './planReadyPush';
 
 /** Accounts examined per tick. The issue's batch size. */
 export const DAILY_PLAN_BATCH = 50;
@@ -107,9 +112,9 @@ export const DAILY_PLAN_BATCH = 50;
 /**
  * The notification a finished plan sends.
  *
- * Shaped as UC-3.0b (#184) will take it — `dedupeKey` is `plan:{date}`, so even
- * a push layer that is retried at its own level sends one — and declared here
- * rather than imported, because `lib/push` does not exist yet.
+ * `dedupeKey` is `plan:{date}`, so even a push layer that is retried at its own
+ * level sends one. `planReadyMessage` turns this into UC-3.0b (#184)'s
+ * `PushMessage`; `locale` is the plan's, so the text matches the explanation.
  */
 export interface PlanReadyNotice {
   readonly uid: string;
@@ -118,18 +123,26 @@ export interface PlanReadyNotice {
   readonly data: { readonly planDate: string };
   readonly respectQuietHours: true;
   readonly urgency: 'normal';
+  readonly locale: UserLocale;
 }
 
-export type PlanPushSender = (notice: PlanReadyNotice) => Promise<void>;
-
-/** Until UC-3.0b (#184), a finished plan notifies nobody. */
-export const NO_PLAN_PUSH: PlanPushSender = async () => {};
+/**
+ * Sends the notice. A sender that reports a `status` other than `sent` — quiet
+ * hours, no reachable device, a revoked account, a duplicate — is counted as
+ * not pushed; a sender that reports nothing is taken at its word.
+ */
+export type PlanPushSender = (notice: PlanReadyNotice) => Promise<void | { readonly status: string }>;
 
 export interface DailyPlanDeps {
   storage?: StorageAdapter;
   busyBlocks?: BusyBlockReader;
   push?: PlanPushSender;
   explanation?: ExplanationDeps;
+  /**
+   * The FCM client the default sender uses. Injected by tests that exercise the
+   * production push path without a network; ignored when `push` is given.
+   */
+  messaging?: MessagingClient;
   /** Injected so a build is reproducible in a test. */
   now?: () => Date;
 }
@@ -284,6 +297,7 @@ export interface DailyPlanBuild {
   readonly date: string;
   /** False when a plan for this date already existed: nothing was written. */
   readonly created: boolean;
+  /** True when the push layer reports it delivered, or reports nothing. */
   readonly pushed: boolean;
   readonly stored: StoredDailyPlan;
 }
@@ -381,16 +395,23 @@ export async function buildAndStoreDailyPlan(
     inputDigest: stored.inputDigest,
   }, storage);
 
-  await (deps.push ?? NO_PLAN_PUSH)({
+  const sender = deps.push ?? planReadyPushSender({
+    storage,
+    ...(deps.messaging ? { messaging: deps.messaging } : {}),
+    now: deps.now ?? (() => new Date()),
+  });
+  const outcome = await sender({
     uid: claim.uid,
     kind: 'plan_ready',
     dedupeKey: `plan:${stored.date}`,
     data: { planDate: stored.date },
     respectQuietHours: true,
     urgency: 'normal',
+    locale: stored.locale,
   });
+  const pushed = !outcome || outcome.status === 'sent';
 
-  return { uid: claim.uid, date: claim.date, created: true, pushed: true, stored };
+  return { uid: claim.uid, date: claim.date, created: true, pushed, stored };
 }
 
 export interface DailyPlanTickTotals {
@@ -400,7 +421,11 @@ export interface DailyPlanTickTotals {
   claimed: number;
   /** Plan documents this tick created. */
   built: number;
-  /** Pushes this tick sent. Equal to `built`, by construction. */
+  /**
+   * Plans whose push the push layer delivered. At most `built`, by construction:
+   * the push is inside the `created` branch. Less than `built` when an account
+   * had no reachable device, was in quiet hours, or has asked not to be pushed.
+   */
   pushed: number;
   failed: number;
 }
