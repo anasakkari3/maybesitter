@@ -62,24 +62,19 @@ const PURGED: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * `FOOTBALL_FOLLOWS` is classified `PURGED` above, but no store writes it yet
- * — that is Task 7 — so `deletePersonalizationScope` has no
- * `clearUserCollection(storage, scopeId, FOOTBALL_FOLLOWS)` call to run, and
- * the collection survives the purge today regardless of its classification.
+ * Collections classified `PURGED` whose sweep is not wired yet. Empty today:
+ * `FOOTBALL_FOLLOWS` was the one entry while no store wrote it, and
+ * `deletePersonalizationScope` now clears it with
+ * `clearUserCollection(storage, scopeId, FOOTBALL_FOLLOWS)`, so it is purged
+ * and checked by the ordinary `PURGED` branch below like the rest.
  *
- * An earlier version of this test simply skipped `NOT_YET_WIRED` collections
- * in the behavioral check below, on a comment asking whoever wires the sweep
- * in Task 7 to remember to remove the entry here too. An exemption nothing
- * checks is indistinguishable from a hole: the comment can be missed exactly
- * the way `behaviorFeedback` and `profileProposals` were missed (see the file
- * header), and the test would stay green forever either way. So instead the
- * behavioral test below still seeds this collection and asserts the fact that
- * is true *today* — that it survives, because nothing clears it — with a
- * failure message that names its own remedy. The day `clearUserCollection`
- * is added for it, that assertion flips from green to red on its own, and the
- * failure message says exactly what to do: remove the entry from this set and
- * let the ordinary `PURGED` branch take over. The escape hatch expires loudly
- * instead of silently.
+ * The set stays as a mechanism, not a comment. An exemption nothing checks is
+ * indistinguishable from a hole -- that is how `behaviorFeedback` and
+ * `profileProposals` were missed (see the file header) -- so a collection
+ * added here is still seeded by the behavioral test below, which asserts that
+ * it *survives*. The day its sweep lands, that assertion fails with a message
+ * naming the remedy: remove the entry and let the `PURGED` branch take over.
+ * The escape hatch expires loudly instead of silently.
  */
 const NOT_YET_WIRED: ReadonlySet<string> = new Set([]);
 
