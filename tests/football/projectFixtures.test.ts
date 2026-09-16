@@ -32,6 +32,7 @@ import { resetStorageForTests, setStorageForTests } from '../../lib/storage/inde
 import { upsertFixtures } from '../../lib/football/fixtureStore.ts';
 import { setFollowedClubs } from '../../lib/football/followedClubs.ts';
 import { projectFixturesForUser, dismissFixtureCommitment } from '../../lib/football/projectFixtures.ts';
+import { getRef, putRef, putRefCarryingForwardDetachment } from '../../lib/football/externalTaskRefStore.ts';
 import { applyParticipantCommands, persistParticipantState, readParticipantState } from '../../lib/services/mobile/participantState.ts';
 import { fixtureContentHash, FIXTURE_CONTRACT_VERSION, FIXTURE_SCHEMA_VERSION, type Fixture, type FixtureCore } from '../../src/contracts/v1/fixtureContracts.ts';
 
@@ -308,4 +309,121 @@ test('a late kickoff lands on the local day it is played on', async () => {
   assert.equal(c.timeSpec.dueAt, '2026-10-25T22:00:00.000Z');
   assert.equal(c.timeSpec.endAt, '2026-10-26T00:00:00.000Z');
   assert.equal(c.timeSpec.allDay, false);
+});
+
+// ── Task 11: the dismiss/sync race ──────────────────────────────────────
+//
+// `task-8-report.md`'s "Fix round 3" section proved this race exists and
+// left it unfixed because neither `projectFixturesForUser` nor
+// `dismissFixtureCommitment` had a caller yet. `task-11-report.md`'s
+// "Decision 3" section confirmed both now do (the nightly job, and the
+// mobile `DELETE` route) and deferred the actual fix as its own piece of
+// work: "a transactional read-modify-write spanning both
+// `projectOneFixture` and `dismissFixtureCommitment`". These two tests are
+// that work's proof, simulated deterministically rather than by timing --
+// no `setTimeout`, no real concurrency, no flake.
+
+test('a dismissal landing mid-recreate wins the race, not the sync', async () => {
+  // The exact production race: branch 5's "recreate" path (the postponement
+  // return journey) decides "this InvalidStateTransitionError means the
+  // postponement came back" purely from the linked commitment's status
+  // being `dropped` -- which is also exactly what a *dismissal* leaves
+  // behind, via `dismissFixtureCommitment`'s own `Drop`. If a dismissal's
+  // `detachedAt` write lands after this recreate has already decided to go
+  // ahead but before it commits, the pre-Task-11 code wrote a brand-new
+  // **active** commitment and clobbered the ref's `detachedAt` back to
+  // `null` via `buildRef`'s fresh construction -- reviving a match the user
+  // had just dismissed, silently, with the DELETE request having already
+  // returned 200.
+  const storage = createMemoryStorage();
+  setStorageForTests(storage);
+  await setFollowedClubs('u1', ['barcelona'], NOW);
+
+  // 1. An ordinary active commitment.
+  await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+  await projectFixturesForUser('u1', NOW);
+
+  // 2. A genuine postponement drops it. Not simulated -- a real,
+  // already-committed prior run, exactly the state branch 5's "recreate"
+  // path exists to handle correctly.
+  await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z', { status: 'postponed' })]);
+  await projectFixturesForUser('u1', NOW);
+  assert.equal((await commitments())[0].status, 'dropped', 'sanity: the postponement really dropped it');
+
+  // 3. The match is rescheduled -- the fixture this run's `projectOneFixture`
+  // will try to "recreate" a commitment for.
+  await upsertFixtures([fixture('1', '2026-11-02T20:00:00.000Z', { status: 'scheduled' })]);
+
+  // The interleaving: fires once, after the recreate transaction's own
+  // reads (including its transactional re-read of the ref -- see
+  // `updateCommitmentForFixtureGuarded` in `projectFixtures.ts`) but before
+  // it commits (`memoryAdapter.ts`'s header on `setBeforeCommitHookForTests`:
+  // "runs between a transaction's last read and its commit check"). A
+  // plain, non-transactional write, exactly like `dismissFixtureCommitment`'s
+  // own (real) ref write -- not a call to `dismissFixtureCommitment` itself,
+  // which would deadlock here: its `applyParticipantCommands` call opens a
+  // *second* storage transaction while this one's FIFO lock
+  // (`memoryAdapter.ts`'s `acquire`) is still held by the transaction whose
+  // hook is currently running.
+  let fired = false;
+  storage.setBeforeCommitHookForTests(async () => {
+    if (fired) return;
+    fired = true;
+    const stale = await getRef('u1', 'football-data:1');
+    await putRef('u1', { ...stale!, linkState: 'detached', detachedAt: NOW, updatedAt: NOW });
+  });
+
+  let tally;
+  try {
+    tally = await projectFixturesForUser('u1', NOW);
+  } finally {
+    storage.setBeforeCommitHookForTests(null);
+  }
+
+  assert.equal(fired, true, 'the interleaving actually landed inside the guarded transaction');
+  assert.deepEqual(tally, { created: 0, updated: 0, cancelled: 0, skipped: 1 }, 'the race is skipped, not silently resurrected');
+
+  const all = await commitments();
+  assert.equal(all.filter((c) => c.status === 'active').length, 0, 'no active commitment exists');
+  assert.equal(all.length, 1, 'no second commitment was created either');
+
+  const ref = await getRef('u1', 'football-data:1');
+  assert.ok(ref?.detachedAt, 'the reference still shows the dismissal');
+});
+
+test('a stale ref write never clears a detachedAt set after it was read', async () => {
+  // `putRefCarryingForwardDetachment` is branch 2's (dropping a commitment
+  // for a fixture that stopped holding time) half of the same fix -- see
+  // `externalTaskRefStore.ts`'s header on that function. Unlike the
+  // transactional branches above, branch 2 has no transaction to hang a
+  // `setBeforeCommitHookForTests` interleaving on (its ref write is a plain
+  // `get` then `set`, same as `dismissFixtureCommitment`'s own), so this
+  // proves the mechanism directly: build the exact call branch 2 makes --
+  // spreading a *stale* copy of the ref, read before a concurrent dismissal
+  // landed -- and confirm the write it produces does not undo that
+  // dismissal.
+  await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+  await projectFixturesForUser('u1', NOW);
+  const externalId = 'football-data:1';
+
+  // What `projectOneFixture`'s own top-of-function `getRef` would have seen,
+  // before anything else happened this run.
+  const stale = await getRef('u1', externalId);
+  assert.equal(stale?.detachedAt, null, 'sanity: not dismissed yet');
+
+  // The concurrent dismissal: `dismissFixtureCommitment`'s own real,
+  // non-transactional ref write, landing in the gap after `stale` was read.
+  await putRef('u1', { ...stale!, linkState: 'detached', detachedAt: NOW, updatedAt: NOW });
+
+  // Branch 2's actual call shape, built from `stale` -- the copy that does
+  // not know about the dismissal above.
+  await putRefCarryingForwardDetachment('u1', {
+    ...stale,
+    fingerprint: stale!.fingerprint,
+    lastSyncedAt: NOW,
+    updatedAt: NOW,
+  });
+
+  const after = await getRef('u1', externalId);
+  assert.ok(after?.detachedAt, 'the concurrent dismissal was not undone by the stale write');
 });

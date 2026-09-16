@@ -41,6 +41,62 @@
  * match stays dismissed through postponement and reschedule'` exist to catch
  * exactly this reordering.
  *
+ * ── The one read above is not enough on its own (Task 11's race fix) ──────
+ * `ref` above is read once, non-transactionally, before any of branches 2-5
+ * run. `task-8-report.md`'s "Fix round 3" section proved that trusting it for
+ * the rest of the function is a real TOCTOU window -- a concurrent
+ * `dismissFixtureCommitment` (a user tapping "not this match") can set
+ * `detachedAt` and drop the linked commitment *after* this read but *before*
+ * branch 4 or 5 writes -- and left it unfixed because neither function had a
+ * caller yet. `task-11-report.md`'s "Decision 3" section confirmed the race
+ * became reachable once the nightly job and the mobile `DELETE` route were
+ * wired up, judged it low-severity and self-healing, and deferred the real
+ * fix ("a transactional read-modify-write spanning both `projectOneFixture`
+ * and `dismissFixtureCommitment`") as its own piece of work.
+ *
+ * This is that piece of work, on the `projectOneFixture` side (the side that
+ * writes an *active* commitment back -- see below for why the other side
+ * does not need to change). `createCommitmentForFixtureGuarded` and
+ * `updateCommitmentForFixtureGuarded` open their own storage transaction and
+ * `tx.get` the ref a *second* time, inside it, immediately before deciding
+ * anything -- not the stale `ref` this function read above. Two independent
+ * things then make the fix hold:
+ *
+ *  1. If a dismissal already landed by the time that second read runs, its
+ *     `detachedAt` is visible right there and the transaction throws
+ *     `FixtureDetachedRaceError` before writing anything -- caught by the
+ *     caller and counted as `skipped`.
+ *  2. If a dismissal lands *during* the transaction -- after its `tx.get`,
+ *     before it commits -- `storageAdapter.ts`'s own contract makes that
+ *     window safe for free: both adapters record every path a transaction
+ *     reads and refuse to commit if any of them moved, retrying instead (see
+ *     `memoryAdapter.ts`'s `readsStillValid`). A `putRef`/
+ *     `putRefCarryingForwardDetachment` write to that exact ref path bumps
+ *     its version, the in-flight transaction's commit is refused, and it
+ *     retries from the top -- where case 1 above catches it.
+ *
+ * `dismissFixtureCommitment` itself is unchanged and does not need a
+ * transaction of its own for this: it already writes the ref *before*
+ * dropping the commitment (see that function), so by the time a commitment
+ * it dropped is visible to a racing reader, the ref's `detachedAt` is always
+ * already visible too -- there is no ordering in which branch 5's `dropped`
+ * case can be reached by a dismissal without case 1 or 2 above having caught
+ * it first. The `dropped` case therefore still means exactly what it meant
+ * before this fix: the postponement return journey (branch 2 of *this*
+ * function dropped it), never a dismissal.
+ *
+ * Branch 2 (dropping a commitment for a fixture that stopped holding time)
+ * is not given the same transactional guard -- dropping never resurrects
+ * anything a dismissal did not already want dropped, so the only risk left
+ * on that path is the ref write re-asserting a stale `detachedAt: null`,
+ * which `putRefCarryingForwardDetachment` closes on its own (see that
+ * function's header in `externalTaskRefStore.ts`).
+ *
+ * `tests/football/projectFixtures.test.ts`'s `'a dismissal landing mid-sync
+ * is not undone'` exercises both cases above deterministically, via the
+ * memory adapter's `setBeforeCommitHookForTests` -- no real concurrency, no
+ * timing-dependent flake.
+ *
  * ── Which statuses hold time, and which give it back ──────────────────────
  * `cancelled` was the only status Task 8's brief named, but the same
  * argument applies to two more: `postponed` (football-data.org keeps the old
@@ -101,13 +157,24 @@ import {
   type ExternalTaskContentFingerprint,
   type ExternalTaskReference,
 } from '../../src/contracts/v1/externalTaskContracts';
-import { InvalidStateTransitionError, type Command, type Commitment, type TimeSpec } from '../../src/domain/stateMachine';
-import { applyParticipantCommands, readParticipantState } from '../services/mobile/participantState';
+import {
+  applyCommand as applyDomainCommand,
+  InvalidStateTransitionError,
+  type Command,
+  type Commitment,
+  type DomainEvent,
+  type DomainState,
+  type TimeSpec,
+} from '../../src/domain/stateMachine';
+import { applyParticipantCommands, loadDomainState, readParticipantState, writeDomainDiff } from '../services/mobile/participantState';
+import { readActivityStats, recordActivityEvents, type ActivityStats } from '../services/activity/activityStats';
 import { findCollisions, type CollisionWarning } from '../services/timeCollision';
+import { getStorage, userDoc, type StorageTransaction } from '../storage';
+import type { UserDocument } from '../storage/userDocument';
 import { getFollowedClubs } from './followedClubs';
 import { clubById } from './clubs';
 import { listFixturesForTeam } from './fixtureStore';
-import { getRef, listRefs, putRef } from './externalTaskRefStore';
+import { getRef, listRefs, putRef, putRefCarryingForwardDetachment, refDocPath } from './externalTaskRefStore';
 
 /**
  * How far ahead a projection run looks. A season's worth of fixtures, not a
@@ -270,24 +337,44 @@ function buildRef(
 }
 
 /**
- * `CreateDraft` immediately followed by `ConfirmCommitment`, in one
- * transaction, then a ref pointing at the new commitment. Following the club
- * was the confirmation -- routing every one of a season's ~50 matches
- * through a confirmation queue is the outcome the owner explicitly rejected.
- *
- * Shared by both callers that need a brand-new commitment: the ordinary "no
- * ref yet" path, and the "a ref exists but the commitment it links is no
- * longer updatable" path (the postponement return journey -- see the module
- * header).
+ * Thrown from inside a guarded transaction (see
+ * `createCommitmentForFixtureGuarded` and `updateCommitmentForFixtureGuarded`
+ * below) when the reference those functions re-read, transactionally, turns
+ * out to already be `detachedAt` -- see the module header's "the one read
+ * above is not enough on its own" section. Never escapes `projectOneFixture`:
+ * both guarded functions catch it and report `'raced'` to their caller,
+ * which counts the fixture as `skipped`. An app-level throw from inside
+ * `getStorage().runTransaction`'s callback is never retried by either
+ * storage adapter (`storageAdapter.ts`'s header: only a version mismatch
+ * discovered *after* the callback returns triggers a retry), so this is an
+ * immediate abort with nothing written, not a contention retry.
  */
-async function createCommitmentForFixture(
-  uid: string,
-  fixture: Fixture,
-  timeSpec: TimeSpec,
-  now: string,
-): Promise<void> {
-  const commitmentId = randomUUID();
-  const commands: Command[] = [
+class FixtureDetachedRaceError extends Error {}
+
+/** `state` after running `commands` against it, in order, plus the events they produced. */
+function applyCommands(
+  state: DomainState,
+  commands: readonly Command[],
+): { state: DomainState; events: DomainEvent[] } {
+  let candidate = state;
+  const events: DomainEvent[] = [];
+  for (const command of commands) {
+    const transition = applyDomainCommand(candidate, command);
+    candidate = transition.newState;
+    events.push(...transition.events);
+  }
+  return { state: candidate, events };
+}
+
+/**
+ * `CreateDraft` immediately followed by `ConfirmCommitment` -- a command
+ * list, not a call, because both `createCommitmentForFixtureGuarded` and
+ * `updateCommitmentForFixtureGuarded`'s postponement-return-journey branch
+ * need to run it against a domain state they already hold inside their own
+ * transaction, not a fresh one `applyParticipantCommands` would load again.
+ */
+function createAndConfirmCommands(commitmentId: string, timeSpec: TimeSpec, now: string): Command[] {
+  return [
     {
       type: 'CreateDraft',
       now,
@@ -300,8 +387,224 @@ async function createCommitmentForFixture(
     },
     { type: 'ConfirmCommitment', commitmentId, now },
   ];
-  await applyParticipantCommands(uid, commands);
-  await putRef<FixtureExternalTaskRef>(uid, buildRef(uid, fixture, commitmentId, now));
+}
+
+/**
+ * Everything a guarded transaction needs to read before it may write
+ * anything (`storageAdapter.ts`'s header: every read must precede every
+ * write inside one transaction) -- including, this is the fix, a *second*,
+ * transactional read of the fixture's own reference. Throws
+ * `FixtureDetachedRaceError` immediately if that fresh read is detached,
+ * before either caller below decides anything else.
+ */
+async function readGuardedInputs(
+  tx: StorageTransaction,
+  uid: string,
+  externalId: string,
+): Promise<{ user: UserDocument | null; before: DomainState; stats: ActivityStats }> {
+  const [user, before, stats, freshRef] = await Promise.all([
+    tx.get<UserDocument>(userDoc(uid)),
+    loadDomainState(tx, uid),
+    readActivityStats(tx, uid),
+    tx.get<FixtureExternalTaskRef>(refDocPath(uid, externalId)),
+  ]);
+  if (freshRef?.detachedAt) throw new FixtureDetachedRaceError();
+  return { user, before, stats };
+}
+
+/**
+ * `CreateDraft` immediately followed by `ConfirmCommitment`, and the ref
+ * pointing at the new commitment, all in the *same* storage transaction as a
+ * fresh, transactional re-read of that ref -- see the module header ("the
+ * one read above is not enough on its own") for why this replaced a plain
+ * `applyParticipantCommands` call followed by a separate `putRef`.
+ *
+ * ── Why this composes its own transaction instead of calling
+ *    `applyParticipantCommands` ─────────────────────────────────────────────
+ * `applyParticipantCommands` already opens `getStorage().runTransaction`, and
+ * neither storage adapter's lock is re-entrant -- `MemoryStorageAdapter.
+ * acquire()` (`memoryAdapter.ts`) awaits its own predecessor in a FIFO queue
+ * that only advances once the *current* transaction's callback has returned,
+ * so calling it again from inside an already-running transaction would
+ * deadlock rather than nest. `commitCaptureConfirmation` in
+ * `participantState.ts` is this codebase's established example of folding
+ * one more document into an existing transaction instead of nesting a
+ * second one (there, a capture proposal; here, the football ref); this
+ * function and `updateCommitmentForFixtureGuarded` follow the same shape,
+ * composed from the same already-exported pieces (`loadDomainState`,
+ * `writeDomainDiff`, `recordActivityEvents`) that function and
+ * `applyParticipantCommands` both use.
+ *
+ * Following the club was the confirmation -- routing every one of a season's
+ * ~50 matches through a confirmation queue is the outcome the owner
+ * explicitly rejected, unchanged from the original design.
+ *
+ * Shared by both callers that need a brand-new commitment: the ordinary "no
+ * ref yet" path in `projectOneFixture`, and
+ * `updateCommitmentForFixtureGuarded`'s "a ref exists but the commitment it
+ * links is no longer updatable" path (the postponement return journey -- see
+ * the module header).
+ */
+async function createCommitmentForFixtureGuarded(
+  uid: string,
+  fixture: Fixture,
+  timeSpec: TimeSpec,
+  now: string,
+): Promise<'created' | 'raced'> {
+  const externalId = externalIdOf(fixture);
+  try {
+    await getStorage().runTransaction(async (tx) => {
+      const { user, before, stats } = await readGuardedInputs(tx, uid, externalId);
+      const commitmentId = randomUUID();
+      const { state: candidate, events } = applyCommands(before, createAndConfirmCommands(commitmentId, timeSpec, now));
+      writeDomainDiff(tx, uid, before, candidate, events, user, now);
+      recordActivityEvents(tx, uid, stats, events);
+      // A full `tx.set`, not a merge: this ref is either brand new (no `ref`
+      // existed before `projectOneFixture` even called this function) or is
+      // being replaced wholesale for the postponement return journey, and
+      // either way `readGuardedInputs` above already confirmed, inside this
+      // same transaction, that whatever is currently stored is not detached
+      // -- so `detachedAt: null` here is not a guess, it is what this
+      // transaction just verified.
+      tx.set<FixtureExternalTaskRef>(refDocPath(uid, externalId), buildRef(uid, fixture, commitmentId, now));
+    });
+    return 'created';
+  } catch (error) {
+    if (error instanceof FixtureDetachedRaceError) return 'raced';
+    throw error;
+  }
+}
+
+type UpdateOutcome = 'updated' | 'recreated' | 'skipped-closed' | 'raced';
+
+/**
+ * Branch 5 of `projectOneFixture`, as one storage transaction: a fresh,
+ * transactional read of the ref (see the module header), then the same
+ * three-way decision `task-8-report.md`'s "Fix round 3" built -- move the
+ * linked commitment, recreate it (the postponement return journey), or touch
+ * nothing (`completed`/`archived`) -- made against `before` (this
+ * transaction's own read of domain state) rather than a second, separately
+ * un-transacted `readParticipantState` call made outside the failed
+ * transaction the old code used. That is not just tidier: `before` here is
+ * guaranteed to be the very state `applyDomainCommand` just threw against,
+ * where the old shape read domain state a second time afterward and trusted
+ * the two reads to agree.
+ *
+ * See `createCommitmentForFixtureGuarded`'s header for why this composes its
+ * own transaction instead of calling `applyParticipantCommands`.
+ */
+async function updateCommitmentForFixtureGuarded(
+  uid: string,
+  fixture: Fixture,
+  ref: FixtureExternalTaskRef,
+  timeSpec: TimeSpec,
+  now: string,
+): Promise<UpdateOutcome> {
+  const externalId = externalIdOf(fixture);
+  // Branch 5 (the caller) only reaches this function when `ref.linkedCommitmentId`
+  // is set.
+  const linkedCommitmentId = ref.linkedCommitmentId as string;
+  let outcome: UpdateOutcome = 'updated';
+  try {
+    await getStorage().runTransaction(async (tx) => {
+      const { user, before, stats } = await readGuardedInputs(tx, uid, externalId);
+
+      let candidate = before;
+      let events: DomainEvent[] = [];
+      let writeRef: (t: StorageTransaction) => void = () => {};
+
+      // `UpdateCommitment`'s allowed-status list (`stateMachine.ts`'s
+      // `ensureCommitmentStatus`) excludes three statuses, not one:
+      // `dropped`, `completed` and `archived` all throw the identical
+      // `InvalidStateTransitionError`, and the three mean completely
+      // different things here. `dropped` is the postponement return
+      // journey -- branch 2 of `projectOneFixture` dropped it, the match is
+      // back, a fresh commitment is right. `completed` means the user
+      // already dealt with this match; `archived` similarly. Neither is
+      // "make a new one" -- the product overruling a user's own completion,
+      // because a kickoff got corrected by a minute after the final
+      // whistle, would be the exact resurrection failure `detachedAt`-first
+      // exists to prevent, arriving through a door that doesn't check *why*
+      // the commitment was unwritable. So the catch below reads the
+      // commitment's actual current status before deciding anything, rather
+      // than treating every `InvalidStateTransitionError` here as "recreate
+      // it".
+      try {
+        const applied = applyCommands(before, [
+          { type: 'UpdateCommitment', commitmentId: linkedCommitmentId, now, updates: { timeSpec } },
+        ]);
+        candidate = applied.state;
+        events = applied.events;
+        outcome = 'updated';
+        // A `tx.merge`, not a `tx.set`: only these five fields change, and
+        // `detachedAt` is deliberately never one of them -- combined with
+        // `readGuardedInputs`' precondition above, this is belt and
+        // suspenders. The precondition makes writing over an active
+        // dismissal unreachable; the merge shape makes it inexpressible even
+        // if the precondition were ever weakened by a future edit.
+        writeRef = (t) => t.merge<FixtureExternalTaskRef>(refDocPath(uid, externalId), {
+          fingerprint: fingerprintOf(fixture, now),
+          homeTeamName: fixture.homeTeamName,
+          awayTeamName: fixture.awayTeamName,
+          lastSyncedAt: now,
+          updatedAt: now,
+        });
+      } catch (error) {
+        if (!(error instanceof InvalidStateTransitionError)) throw error;
+
+        const linked = before.commitments[linkedCommitmentId];
+
+        if (linked?.status === 'dropped') {
+          // The return journey: a postponement dropped this commitment
+          // earlier and the match has now come back with a new kickoff.
+          // `readGuardedInputs` above already ruled out this being a
+          // dismissal wearing the same `dropped` status -- see the module
+          // header's "the one read above is not enough on its own" section
+          // for why that ordering is guaranteed, not assumed:
+          // `dismissFixtureCommitment` always writes the ref *before*
+          // dropping the commitment, so a dismissal-caused `dropped` is
+          // never visible here without its `detachedAt` having already been
+          // visible to `readGuardedInputs` first.
+          const commitmentId = randomUUID();
+          const applied = applyCommands(candidate, createAndConfirmCommands(commitmentId, timeSpec, now));
+          candidate = applied.state;
+          events = applied.events;
+          outcome = 'recreated';
+          writeRef = (t) => t.set<FixtureExternalTaskRef>(refDocPath(uid, externalId), buildRef(uid, fixture, commitmentId, now));
+        } else if (linked?.status === 'completed' || linked?.status === 'archived') {
+          // The user already dealt with this match. Create nothing, touch
+          // nothing -- the product has no business handing it back as new
+          // work because the provider corrected a detail after the fact.
+          // Counted as `skipped`, not `cancelled`/dropped-count: nothing was
+          // dropped (the commitment the user closed stays exactly as they
+          // left it) and nothing was created, which is what every other
+          // no-op branch in this module means by `skipped`.
+          outcome = 'skipped-closed';
+          return;
+        } else {
+          // An `InvalidStateTransitionError` this branch did not anticipate
+          // -- `linked` missing entirely despite the ref naming it, or some
+          // future status `UpdateCommitment` excludes that isn't one of the
+          // three above. Re-throw rather than guess: the lesson of the round
+          // that added this catch is that an uncaught throw takes the whole
+          // run down, and the lesson of that round is that a catch which
+          // assumes it knows why is how a run stays up while doing the
+          // wrong thing. Absorbing an unanticipated case into "make a new
+          // one" (or into "do nothing") would be exactly that -- so this
+          // does neither, and lets it surface instead.
+          throw error;
+        }
+      }
+
+      writeDomainDiff(tx, uid, before, candidate, events, user, now);
+      recordActivityEvents(tx, uid, stats, events);
+      writeRef(tx);
+    });
+    return outcome;
+  } catch (error) {
+    if (error instanceof FixtureDetachedRaceError) return 'raced';
+    throw error;
+  }
 }
 
 /**
@@ -324,7 +627,12 @@ async function projectOneFixture(
   // "unchanged, skip" shortcut below -- it would otherwise fall through to
   // the status or update branches and resurrect a commitment the user
   // explicitly dismissed. See the module header; this ordering is the
-  // feature this task exists to build.
+  // feature this task exists to build. This is a fast-path optimisation, not
+  // the only guard any more: this `ref` was read non-transactionally, before
+  // this function did anything else, so it can already be stale by the time
+  // branches 4 and 5 below actually decide to write -- see the module
+  // header's "the one read above is not enough on its own" section for the
+  // transactional re-read that closes that window.
   if (ref?.detachedAt) {
     tally.skipped += 1;
     return;
@@ -341,7 +649,14 @@ async function projectOneFixture(
       await applyParticipantCommands(uid, [
         { type: 'Drop', commitmentId: ref.linkedCommitmentId, now },
       ]);
-      await putRef<FixtureExternalTaskRef>(uid, {
+      // `putRefCarryingForwardDetachment`, not `putRef`: dropping a
+      // commitment never resurrects anything a dismissal did not already
+      // want dropped, so this does not need the same-transaction guard the
+      // create/update paths below get -- but the ref write still must not
+      // re-assert a stale `detachedAt: null` over a dismissal that landed
+      // after this function's own `ref` read above. See that function's
+      // header in `externalTaskRefStore.ts`.
+      await putRefCarryingForwardDetachment<FixtureExternalTaskRef>(uid, {
         ...ref,
         fingerprint: fingerprintOf(fixture, now),
         lastSyncedAt: now,
@@ -368,80 +683,32 @@ async function projectOneFixture(
   const timeSpec = timeSpecFor(fixture);
 
   // 4. No ref, or a ref with nothing linked yet: create straight to active.
+  // `createCommitmentForFixtureGuarded` re-reads the ref transactionally
+  // before deciding anything -- see the module header.
   if (!ref || !ref.linkedCommitmentId) {
-    await createCommitmentForFixture(uid, fixture, timeSpec, now);
-    tally.created += 1;
+    const outcome = await createCommitmentForFixtureGuarded(uid, fixture, timeSpec, now);
+    tally[outcome === 'raced' ? 'skipped' : 'created'] += 1;
     return;
   }
 
   // 5. A ref already links a commitment and the hash changed: the kickoff
-  // (or some other core fact) moved. Move the same commitment rather than
-  // creating a second one for the same match -- *unless* the commitment the
-  // ref points at is no longer updatable. `UpdateCommitment`'s allowed-status
-  // list (`stateMachine.ts`'s `ensureCommitmentStatus`) excludes three
-  // statuses, not one: `dropped`, `completed` and `archived` all throw the
-  // identical `InvalidStateTransitionError`, and the three mean completely
-  // different things here. `dropped` is the postponement return journey --
-  // branch 2 dropped it, the match is back, a fresh commitment is right (see
-  // the module header and `createCommitmentForFixture`). `completed` means
-  // the user already dealt with this match; `archived` similarly. Neither is
-  // "make a new one" -- the product overruling a user's own completion,
-  // because a kickoff got corrected by a minute after the final whistle,
-  // would be the exact resurrection failure `detachedAt`-first exists to
-  // prevent, arriving through a door that doesn't check *why* the commitment
-  // was unwritable. So the catch below reads the commitment's actual current
-  // status before deciding anything, rather than treating every
-  // `InvalidStateTransitionError` here as "recreate it".
-  try {
-    await applyParticipantCommands(uid, [
-      { type: 'UpdateCommitment', commitmentId: ref.linkedCommitmentId, now, updates: { timeSpec } },
-    ]);
-  } catch (error) {
-    if (!(error instanceof InvalidStateTransitionError)) throw error;
-
-    const currentState = await readParticipantState(uid);
-    const linked = currentState.commitments[ref.linkedCommitmentId];
-
-    if (linked?.status === 'dropped') {
-      // The return journey: a postponement dropped this commitment earlier
-      // and the match has now come back with a new kickoff. See above.
-      await createCommitmentForFixture(uid, fixture, timeSpec, now);
+  // (or some other core fact) moved. `updateCommitmentForFixtureGuarded`
+  // re-reads the ref transactionally before deciding anything -- see the
+  // module header -- and folds the move-vs-recreate-vs-skip decision
+  // `task-8-report.md`'s "Fix round 3" built into that same transaction.
+  const outcome = await updateCommitmentForFixtureGuarded(uid, fixture, ref, timeSpec, now);
+  switch (outcome) {
+    case 'updated':
+      tally.updated += 1;
+      return;
+    case 'recreated':
       tally.created += 1;
       return;
-    }
-
-    if (linked?.status === 'completed' || linked?.status === 'archived') {
-      // The user already dealt with this match. Create nothing, touch
-      // nothing -- the product has no business handing it back as new work
-      // because the provider corrected a detail after the fact. Counted as
-      // `skipped`, not `cancelled`/dropped-count: nothing was dropped (the
-      // commitment the user closed stays exactly as they left it) and
-      // nothing was created, which is what every other no-op branch above
-      // means by `skipped`.
+    case 'skipped-closed':
+    case 'raced':
       tally.skipped += 1;
       return;
-    }
-
-    // An `InvalidStateTransitionError` this branch did not anticipate --
-    // `linked` missing entirely despite the ref naming it, or some future
-    // status `UpdateCommitment` excludes that isn't one of the three above.
-    // Re-throw rather than guess: the lesson of the round that added this
-    // catch is that an uncaught throw takes the whole run down, and the
-    // lesson of *this* round is that a catch which assumes it knows why is
-    // how a run stays up while doing the wrong thing. Absorbing an
-    // unanticipated case into "make a new one" (or into "do nothing") would
-    // be exactly that -- so this does neither, and lets it surface instead.
-    throw error;
   }
-  await putRef<FixtureExternalTaskRef>(uid, {
-    ...ref,
-    fingerprint: fingerprintOf(fixture, now),
-    homeTeamName: fixture.homeTeamName,
-    awayTeamName: fixture.awayTeamName,
-    lastSyncedAt: now,
-    updatedAt: now,
-  });
-  tally.updated += 1;
 }
 
 /**
