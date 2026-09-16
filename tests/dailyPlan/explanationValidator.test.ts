@@ -481,3 +481,51 @@ for (const [locale, template, reason] of SPACED) {
     assert.deepEqual(escaped, [], `expected exactly [${reason}] for every invisible separator`);
   });
 }
+
+/* ── What a quotation mark is, and what it hides from the count ──── */
+
+/**
+ * Adversarial review of #426, F3. Two defects in one mechanism:
+ *
+ *   - `״` is Hebrew's quotation mark *and* its abbreviation mark (עו״ד, סה״כ,
+ *     רו״ח). Read as a quote everywhere, the span between two abbreviations was
+ *     taken for a title and its digits dropped out of the count check.
+ *   - A quoted span was accepted as a title when it merely *contained* one, and
+ *     every quoted span was removed from the count check. So
+ *     `"Call the bank, then 9 more"` passed the title check and hid its 9.
+ */
+function factsWith(titles: readonly string[], locale: UserLocale): ExplanationFacts {
+  return explanationFactsFrom(PLAN, new Map([['c1', titles[0]!], ['c2', titles[1] ?? 'Call the bank'], ['c3', 'Book the train']]), TZ, locale);
+}
+
+test('gershayim between two Hebrew letters is an abbreviation, not a quotation', () => {
+  const dentist = factsWith(['רופא שיניים'], 'he');
+  assert.deepEqual(
+    explanationRejections('עו״ד: יש לך 7 משימות ואז רופא שיניים, סה״כ הכל.', dentist),
+    ['count_mismatch'],
+    'a count between two abbreviations was hidden as a "quoted title"',
+  );
+  assert.deepEqual(explanationRejections('תיאום עם עו״ד ורו״ח.', dentist), [], 'two abbreviations were read as an invented title');
+  // And a real quotation in gershayim is still one.
+  assert.deepEqual(explanationRejections('שיבצתי את ״לקנות מתנה לאמא״ ב-09:00.', dentist), ['unknown_title']);
+  assert.deepEqual(explanationRejections('שיבצתי 2 דברים, ״רופא שיניים״ ב-09:00.', dentist), []);
+});
+
+test('a quoted span that only contains a title is not that title, and its numbers are counted', () => {
+  assert.deepEqual(
+    explanationRejections('I placed 2 things: "Call the bank, then 9 more".', facts('en')).sort(),
+    ['count_mismatch', 'unknown_title'],
+  );
+  const arabic = factsWith(['الاتصال بالبنك'], 'ar');
+  assert.deepEqual(
+    explanationRejections('حطيت 2 إشيا: «الاتصال بالبنك و١٢ غيرها».', arabic).sort(),
+    ['count_mismatch', 'unknown_title'],
+  );
+});
+
+test('a number inside a real quoted title is still not a count', () => {
+  const invoices = factsWith(['Pay the 7 invoices'], 'en');
+  assert.deepEqual(explanationRejections('I placed 2 things. "Pay the 7 invoices" is at 09:00.', invoices), []);
+  const arabicInvoices = factsWith(['ادفع ٧ فواتير'], 'ar');
+  assert.deepEqual(explanationRejections('حطيت 2 إشيا، منها «ادفع ٧ فواتير» الساعة ٠٩:٠٠.', arabicInvoices), []);
+});

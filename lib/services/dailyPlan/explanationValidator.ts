@@ -373,14 +373,29 @@ function normalise(value: string): string {
   return value.toLowerCase().replace(/[\s‏‎]+/g, ' ').trim();
 }
 
-/** True when the fragment is part of some title the plan actually placed. */
+/**
+ * True when the fragment is part of some title the plan actually placed.
+ *
+ * One direction only. A fragment that merely *contains* a title —
+ * `"Call the bank, then 9 more"` — is not that title, and accepting it both
+ * let the invented tail through and, because a title's span is removed before
+ * the count check, hid the `9` from it. Both sides are folded the same way,
+ * digits included, so `«ادفع ٧ فواتير»` quoted back matches its own title.
+ */
 function matchesSomeTitle(fragment: string, titles: readonly string[]): boolean {
-  const needle = normalise(foldScript(fragment));
+  const needle = normalise(toAsciiDigits(foldScript(fragment)));
   if (needle.length < 2) return true;
-  return titles.some((title) => {
-    const hay = normalise(foldScript(title));
-    return hay.includes(needle) || needle.includes(hay);
-  });
+  return titles.some((title) => normalise(toAsciiDigits(foldScript(title))).includes(needle));
+}
+
+/**
+ * Gershayim written between two Hebrew letters is an abbreviation mark —
+ * עו״ד, סה״כ, רו״ח — and not a quotation mark. It is swapped for a geresh,
+ * which is not a quote, one code point for one, so offsets are unchanged.
+ * Without this the span between two abbreviations was read as a quoted title.
+ */
+function withoutHebrewAbbreviations(text: string): string {
+  return text.replace(/([\u05D0-\u05EA])\u05F4(?=[\u05D0-\u05EA])/g, '$1\u05F3');
 }
 
 /**
@@ -412,7 +427,8 @@ export function explanationRejections(text: unknown, facts: ExplanationFacts): E
   const times = Array.from(scanned.matchAll(CLOCK), (match) => `${match[1].padStart(2, '0')}:${match[2]}`);
   if (times.some((time) => !allowed.has(time))) reasons.push('time_not_in_plan');
 
-  const quoted = Array.from(scanned.matchAll(QUOTED), (match) => match[1]);
+  const quotable = withoutHebrewAbbreviations(scanned);
+  const quoted = Array.from(quotable.matchAll(QUOTED), (match) => match[1]);
   // A capitalised run that opens the text or a sentence is ordinary English
   // ("Today Nothing…"), so only runs that start mid-sentence are treated as a
   // claimed title.
@@ -429,7 +445,11 @@ export function explanationRejections(text: unknown, facts: ExplanationFacts): E
   // Clock times and quoted titles are removed first: `09:00` is not a claim
   // about how many things there are, and a title may legitimately contain a
   // number ("Pay the 2 invoices").
-  const countable = scanned.replace(CLOCK, ' ').replace(QUOTED, ' ');
+  // Only a span that really is a title is removed: an invented one keeps its
+  // numbers in the count, so it cannot smuggle a count past it.
+  const countable = quotable
+    .replace(CLOCK, ' ')
+    .replace(QUOTED, (span, inner: string) => (matchesSomeTitle(inner, facts.titles) ? ' ' : span));
   const numbers = Array.from(countable.matchAll(INTEGER), (match) => Number(match[0]));
   if (numbers.some((value) => value !== facts.scheduledCount && value !== facts.unscheduledCount)) {
     reasons.push('count_mismatch');
