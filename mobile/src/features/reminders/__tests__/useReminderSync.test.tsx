@@ -275,6 +275,24 @@ describe('Must reminders on the device (#197)', () => {
     reminderSettings: { ...SETTINGS_NO_QUIET.reminderSettings, escalationCeiling: 'hard', hardEnabled: true },
   };
 
+  it('Later pressed on the Must ring: one gentle ring at postponedUntil, no strong ring and no receipt (#200)', async () => {
+    const dueAt = new Date(Date.now() + 11 * 60_000).toISOString();
+    const until = new Date(Date.now() + 60 * 60_000).toISOString();
+    jest.spyOn(reminderEndpoints, 'getReminderSettings').mockResolvedValue(RINGING as never);
+    jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({
+      items: [{ ...MUST_ITEM, timeSpec: { ...MUST_ITEM.timeSpec, dueAt }, postponedUntil: until }],
+    } as never);
+    const gateway = fakeGateway();
+    await mount(gateway);
+
+    await waitFor(() => expect(gateway.scheduled.length).toBe(1));
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(gateway.scheduled.map(request => [request.identifier, request.at.toISOString(), request.channelId]))
+      .toEqual([[`${commitment.id}:soft`, until, gateway.scheduled[0]!.channelId]]);
+    expect(gateway.scheduled[0]!.categoryIdentifier).not.toContain('hard');
+    expect((await loadHardReceipts(USER.uid)).pending).toEqual([]);
+  });
+
   it('schedules the ring and files its receipt under the account, with the exact-alarm answer', async () => {
     jest.spyOn(reminderEndpoints, 'getReminderSettings').mockResolvedValue(RINGING as never);
     jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [MUST_ITEM] } as never);

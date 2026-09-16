@@ -50,11 +50,11 @@ describe('the shared hard-ring table, on the phone', () => {
       .toEqual({ rings: c.rings, fireAt: c.fireAt });
   });
 
-  it('leaves the gentle stages alone under a postponement', () => {
+  it('under a postponement the gentle stages wait too, and the soft one checks in at postponedUntil (#200)', () => {
     const c = (table.cases as Case[]).find(row => row.name === 'postponed until after the start itself')!;
     const stages = planFor({
       id: 'm1', startsAt: c.startsAt, status: 'active', priority: 'must', allDay: false, postponedUntil: c.postponedUntil,
-    }, settingsFor(c)).map(stage => stage.stage);
-    expect(stages).toEqual(['soft', 'followUp']);
+    }, settingsFor(c));
+    expect(stages.map(stage => [stage.stage, stage.at])).toEqual([['soft', Date.parse(c.postponedUntil!)]]);
   });
 });

@@ -212,3 +212,36 @@ describe('identifiers', () => {
     expect(MAX_PENDING_REQUESTS).toBeLessThan(64);
   });
 });
+
+describe('Later (#200): nothing rings before postponedUntil, and one gentle check-in rings at it', () => {
+  const ringing = settings({ intensity: 'strongReminder', escalationCeiling: 'hard', hardEnabled: true });
+  const at = (minutesBeforeStart: number) => new Date(START - minutesBeforeStart * 60_000).toISOString();
+
+  it('Later on the soft reminder: no follow-up before the hour, and the soft stage moves to the hour', () => {
+    // Soft fired at −60; Later pressed then, until −0.
+    const planned = planFor(commitment({ priority: 'should', postponedUntil: at(0) }), ringing);
+    expect(leads(planned)).toEqual([['soft', 0]]);
+  });
+
+  it('Later on a Must at −10: one gentle ring an hour on, never the strong one', () => {
+    const planned = planFor(commitment({ postponedUntil: new Date(START + 50 * 60_000).toISOString() }), ringing);
+    expect(planned.map(stage => stage.stage)).toEqual(['soft']);
+    expect(leads(planned)).toEqual([['soft', -50]]);
+  });
+
+  it('a short Later leaves the stages at or after it where they were', () => {
+    const planned = planFor(commitment({ postponedUntil: at(45) }), ringing);
+    expect(leads(planned)).toEqual([['soft', 45], ['followUp', FOLLOW_UP_LEAD_MINUTES], ['strong', STRONG_LEAD_MINUTES]]);
+  });
+
+  it('a postponement already in the past changes nothing', () => {
+    expect(leads(planFor(commitment({ postponedUntil: at(24 * 60) }), ringing)))
+      .toEqual(leads(planFor(commitment(), ringing)));
+  });
+
+  it('no check-in for an account whose soft reminders are off, or whose survey said none', () => {
+    const later = commitment({ postponedUntil: at(0) });
+    expect(planFor(later, { ...ringing, softEnabled: false })).toEqual([]);
+    expect(planFor(later, settings({ intensity: 'none' }))).toEqual([]);
+  });
+});
