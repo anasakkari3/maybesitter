@@ -89,29 +89,30 @@ of the curated list's size, not of user count.
 
 ## Data model changes
 
-### 1. Duration (`src/domain/stateMachine.ts`)
+### 1. Duration — the field already exists
 
-`TimeSpec` gains `durationMinutes: number | null`.
+**Corrected after reading the merged tree.** An earlier draft of this design
+proposed adding `TimeSpec.durationMinutes`. That would have been a mistake:
+#185 already widened `TimeSpec` with `endAt: string | null` and `allDay`, and a
+second way to say how long something lasts is worse than the bug it fixes —
+two fields that can disagree, and every consumer picking one.
 
-Today `buildDailyPlanInput` blocks a hardcoded `DEFAULT_FIXED_EVENT_MINUTES`
-(30) for every pinned commitment. A football match is ~120 minutes, so without
-this the product would block the first half and schedule work over the second.
-The planner reads `timeSpec.durationMinutes ?? DEFAULT_FIXED_EVENT_MINUTES`, so
-every existing commitment keeps its current behaviour and `defaultTimeSpec()`
-supplies `null` for stored state written before this change.
+So there is **no new field**. A fixture commitment sets
+`timeSpec.endAt = kickoff + 120min`, using the range the domain already
+validates (`endAt` requires `dueAt`; it must be strictly after it).
 
-There are three consumers of the missing duration, not one:
+What is actually missing is a consumer that reads it:
 
-| Consumer | Today | After |
+| Consumer | Today | Needed |
 |---|---|---|
-| `buildDailyPlan.ts` `DEFAULT_FIXED_EVENT_MINUTES` | blocks 30 min | blocks the real duration |
-| `mobile/src/features/calendar/eventDraft.ts` `DEFAULT_MINUTES` | 30-min calendar event | real-length event |
-| collision check (new) | n/a | compares real intervals |
+| `lib/services/dailyPlan/buildDailyPlan.ts:317-329` | hardcodes `DEFAULT_FIXED_EVENT_MINUTES` (30); **never reads `endAt`** | block `endAt` when present, 30 otherwise |
+| `mobile/src/features/calendar/eventDraft.ts:180-188` | **already reads `endAt`** correctly | nothing |
+| collision check (new) | n/a | compare real intervals |
 
-`eventDraft.ts:30` already says it gives "every commitment in the domain a
-thirty-minute duration nobody asked for". This is a general improvement, not a
-football field: a two-hour meeting has the same bug today, in all three
-places.
+The planner is therefore the single change, and it is a real bug being fixed
+rather than a football accommodation: any commitment with an end time is
+currently blocked at thirty minutes by the planner while the calendar shows
+its true length — the two surfaces disagree today, about the same commitment.
 
 ### 2. Origin (`src/domain/stateMachine.ts`)
 
@@ -306,9 +307,12 @@ added to it or it will pass by never running.
 - **Unmerged dependency.** Reminder delivery (#196/#184) is still on a branch.
   P0 and P1 do not depend on it.
 - **`main` moves under this work.** #185 merged *during* this design session
-  and turned one of its dependencies into a solved problem. Other lanes are
-  active in sibling worktrees; the plan should re-check assumptions about
-  `main` rather than trusting this document's snapshot of it.
+  and changed this document twice: it turned the device-calendar dependency
+  into a solved problem, and it had already added the `endAt` field this design
+  was about to duplicate. Both were caught by re-reading the tree, not by
+  trusting an earlier reading of it. Other lanes are active in sibling
+  worktrees — `feat/186-calendar-busy` is filling the busy-block seam right
+  now. Re-check against `main` before implementing, not against this snapshot.
 - **Free-tier ceiling.** 10 requests/minute and limited competitions. The
   curated list must stay inside covered competitions, and the provider must
   stay behind the adapter interface so it can be replaced without touching
