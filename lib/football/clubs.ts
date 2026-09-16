@@ -48,8 +48,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-
-const CLUBS_PATH = fileURLToPath(new URL('../../data/footballClubs.json', import.meta.url));
+import { join } from 'node:path';
 
 /** The three languages every club must be able to say its own name in. */
 const REQUIRED_LANGUAGES = ['ar', 'he', 'en'] as const;
@@ -130,8 +129,18 @@ function checkNoDuplicates(clubs: readonly Club[], key: 'clubId' | 'providerTeam
   }
 }
 
+function loadClubsRaw(): unknown {
+  try {
+    const clubsPath = fileURLToPath(new URL('../../data/footballClubs.json', import.meta.url));
+    return JSON.parse(readFileSync(clubsPath, 'utf8'));
+  } catch {
+    const fallbackPath = join(process.cwd(), 'data', 'footballClubs.json');
+    return JSON.parse(readFileSync(fallbackPath, 'utf8'));
+  }
+}
+
 function loadClubs(): readonly Club[] {
-  const raw: unknown = JSON.parse(readFileSync(CLUBS_PATH, 'utf8'));
+  const raw: unknown = loadClubsRaw();
   if (!Array.isArray(raw)) {
     throw new Error('footballClubs.json must be a JSON array');
   }

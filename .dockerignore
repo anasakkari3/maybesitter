@@ -21,6 +21,7 @@ infra
 evaluation-data
 evaluation-reports
 data
+!data/footballClubs.json
 
 # Never ship secrets or signing material.
 .env
