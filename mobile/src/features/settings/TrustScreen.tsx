@@ -7,6 +7,7 @@ import { ScreenIn } from '../../ui/motion';
 import {
   useConsents,
   useSetAiConsent,
+  useSetPersonalizationConsent,
   useSetRecommendationConsent,
   useTrust,
   useTrustAction,
@@ -36,6 +37,15 @@ import { Platform } from 'react-native';
  * sentences sent to a model. The two hooks below are deliberately not
  * interchangeable, and a test asserts each writes to its own endpoint.
  *
+ * ── The personalization question is a third question ────────────
+ *
+ * "Notice patterns in when you finish things" (UC-3.16, #202) is not a mode of
+ * the recommendation consent. That one is about MaybeSitter choosing what to
+ * put in front of you; this one is about it drawing a conclusion *about* you
+ * from when you finish things. Off until it is answered here, and its own copy
+ * names both things turning it off stops — the suggestions, and the daily plan
+ * using a pattern that was kept.
+ *
  * ── Deleting an account is not a trust action ────────────────────
  *
  * The old pilot `delete` action is retired (it answers 400 `use_account_
@@ -50,6 +60,7 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
   const trust = useTrust();
   const setAi = useSetAiConsent();
   const setRecommendations = useSetRecommendationConsent();
+  const setPersonalization = useSetPersonalizationConsent();
   const trustAction = useTrustAction();
   const [confirmRevoke, setConfirmRevoke] = useState(false);
 
@@ -98,6 +109,19 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
             disabled={versions === undefined}
             onChange={next => record(setRecommendations.mutateAsync({
               state: next ? 'granted' : 'declined', version: versions!.recommendations, ...context,
+            }))}
+          />
+          <ServerToggle
+            testID="trust-personalization"
+            title={t.trustPersonalizationTitle}
+            body={t.trustPersonalizationBody}
+            value={consents.data?.personalization?.state === 'granted'}
+            // A server that has not named this version cannot be answered: an
+            // older build of the API has no such question, and a guessed
+            // version is refused.
+            disabled={versions?.personalization === undefined}
+            onChange={next => record(setPersonalization.mutateAsync({
+              state: next ? 'granted' : 'declined', version: versions!.personalization!, ...context,
             }))}
           />
           <ServerToggle

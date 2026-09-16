@@ -50,6 +50,7 @@ import planRegenerated from './__fixtures__/plan.regenerated.json';
 import planSettingsSaved from './__fixtures__/plan.settingsSaved.json';
 import consentsAnswered from './__fixtures__/consents.answered.json';
 import consentsAiRecorded from './__fixtures__/consents.aiRecorded.json';
+import consentsPersonalizationRecorded from './__fixtures__/consents.personalizationRecorded.json';
 import consentsRecommendationsRecorded from './__fixtures__/consents.recommendationsRecorded.json';
 import memoryCreated from './__fixtures__/memory.created.json';
 import memoryDeleted from './__fixtures__/memory.deleted.json';
@@ -121,6 +122,7 @@ const ROUTES: [string, RegExp, MockResponse][] = [
   ['GET', /^\/api\/mobile\/consents$/, { status: 200, body: consentsAnswered }],
   ['PUT', /^\/api\/mobile\/consents\/ai-processing$/, { status: 200, body: consentsAiRecorded }],
   ['PUT', /^\/api\/mobile\/consents\/recommendations$/, { status: 200, body: consentsRecommendationsRecorded }],
+  ['PUT', /^\/api\/mobile\/consents\/personalization$/, { status: 200, body: consentsPersonalizationRecorded }],
 
   ['GET', /^\/api\/mobile\/profile$/, { status: 200, body: profileOne }],
   ['PUT', /^\/api\/mobile\/profile\/routine$/, { status: 200, body: profileSaved }],

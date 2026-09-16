@@ -34,7 +34,13 @@ import { flagAlphaFeedback, getFeedbackHistory, revokeFeedback } from './endpoin
 import { recordAnalyticsEvent } from './endpoints/analytics';
 import { putCalendarWriteTarget } from './endpoints/calendar';
 import type { CalendarWriteTarget } from './schemas/calendar';
-import { getConsents, putAiConsent, putRecommendationConsent, type ConsentAnswer } from './endpoints/consents';
+import {
+  getConsents,
+  putAiConsent,
+  putPersonalizationConsent,
+  putRecommendationConsent,
+  type ConsentAnswer,
+} from './endpoints/consents';
 import { getReminderSettings, putReminderSettings, type ReminderSettingsPatch } from './endpoints/reminders';
 import {
   confirmProfileSuggestions,
@@ -706,6 +712,25 @@ export function useSetAiConsent() {
     mutationFn: (answer: ConsentAnswer) => putAiConsent(answer),
     onSettled: () => {
       void client.invalidateQueries({ queryKey: queryKeys.consents(uid) });
+    },
+  });
+}
+
+/**
+ * Answers "notice patterns in when you finish things" (UC-3.16, #202).
+ *
+ * The memory list is invalidated too: granting it makes suggestions appear on
+ * that screen and withdrawing it empties them, so a stale cache would show
+ * the opposite of what the toggle just recorded.
+ */
+export function useSetPersonalizationConsent() {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn: (answer: ConsentAnswer) => putPersonalizationConsent(answer),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.consents(uid) });
+      void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
     },
   });
 }

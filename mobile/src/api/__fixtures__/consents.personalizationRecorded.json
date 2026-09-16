@@ -1,0 +1,10 @@
+{
+  "success": true,
+  "personalization": {
+    "state": "granted",
+    "version": "personalization-consent-v1",
+    "changedAt": "2026-08-09T09:00:00.000Z",
+    "locale": "ar",
+    "platform": "ios"
+  }
+}

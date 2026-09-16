@@ -20,6 +20,7 @@ import { analyticsAckSchema } from '../schemas/analytics';
 import {
   aiConsentUpdatedSchema,
   consentsViewSchema,
+  personalizationConsentUpdatedSchema,
   recommendationConsentUpdatedSchema,
 } from '../schemas/consents';
 import {
@@ -110,6 +111,7 @@ const CASES: Array<[string, z.ZodType]> = [
   ['memory.deleted', memoryDeletedSchema],
   ['memory.deletedAll', memoryDeletedSchema],
   ['memory.notFound', errorBodySchema],
+  ['consents.personalizationRecorded', personalizationConsentUpdatedSchema],
   ['memory.withSuggestion', memoryListSchema],
   ['memory.suggestionKept', memorySuggestionKeptSchema],
   ['memory.suggestionDismissed', memorySuggestionDismissedSchema],

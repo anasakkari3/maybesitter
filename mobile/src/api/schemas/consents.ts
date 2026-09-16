@@ -25,7 +25,20 @@ const consentViewSchema = z.object({
 export const consentsViewSchema = z.object({
   aiProcessing: consentViewSchema,
   recommendations: consentViewSchema,
-  currentVersions: z.object({ aiProcessing: z.string(), recommendations: z.string() }),
+  /**
+   * "Notice patterns in when you finish things" (UC-3.16, #202).
+   *
+   * Optional, and its version with it, so a build talking to a server from
+   * before #202 still parses the other two answers instead of rendering the
+   * whole trust centre as broken. The toggle stays disabled while the server
+   * has not named a version, exactly as it does before the query resolves.
+   */
+  personalization: consentViewSchema.optional(),
+  currentVersions: z.object({
+    aiProcessing: z.string(),
+    recommendations: z.string(),
+    personalization: z.string().optional(),
+  }),
   /** #161's shape, kept so a client written against it keeps working. */
   currentVersion: z.string().optional(),
 });
@@ -52,6 +65,11 @@ export const aiConsentUpdatedSchema = z.object({
 export const recommendationConsentUpdatedSchema = z.object({
   success: z.literal(true),
   recommendations: consentRecordSchema,
+});
+
+export const personalizationConsentUpdatedSchema = z.object({
+  success: z.literal(true),
+  personalization: consentRecordSchema,
 });
 
 export type ConsentState = z.infer<typeof consentStateSchema>;
