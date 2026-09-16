@@ -368,6 +368,8 @@ describe('one decision at a time per deadline', () => {
     await waitFor(() => expect(screen.queryByTestId('ics-accept-k1')).not.toBeNull());
     await fireEvent.press(screen.getByTestId('ics-accept-k1'));
     await waitFor(() => expect(feedEndpoints.decideIcsDeadline).toHaveBeenCalledTimes(1));
+    // Visibly held, not only ignored.
+    expect(screen.getByTestId('ics-skip-k1').props.accessibilityState?.disabled).toBe(true);
     await fireEvent.press(screen.getByTestId('ics-skip-k1'));
     await fireEvent.press(screen.getByTestId('ics-accept-k1'));
     expect(feedEndpoints.decideIcsDeadline).toHaveBeenCalledTimes(1);
@@ -393,11 +395,30 @@ describe('one decision at a time per deadline', () => {
     await fireEvent.press(screen.getByTestId('ics-apply-move-m'));
     await fireEvent.press(screen.getByTestId('ics-keep-time-m'));
     await fireEvent.press(screen.getByTestId('ics-got-it-r'));
+    expect(screen.getByTestId('ics-got-it-r').props.accessibilityState?.disabled).toBe(true);
     await fireEvent.press(screen.getByTestId('ics-got-it-r'));
     expect((feedEndpoints.decideIcsDeadline as jest.Mock).mock.calls.map(call => call[2])).toEqual(['apply_move', 'acknowledge']);
     // Both requests share the mock's last resolver; settle them and wait for the
     // rows to come back, so nothing is left in flight when the tree unmounts.
     resolve({ success: true, deadline: deadline({}), replayed: false });
     await waitFor(() => expect(screen.getByTestId('ics-got-it-r').props.accessibilityState?.disabled).not.toBe(true));
+  });
+
+  it('ignores a second tap that lands in the same frame, before the row has re-rendered', async () => {
+    let resolve!: (value: unknown) => void;
+    jest.spyOn(feedEndpoints, 'decideIcsDeadline').mockImplementation(() => new Promise(r => { resolve = r; }) as never);
+    jest.spyOn(feedEndpoints, 'listIcsFeeds').mockResolvedValue({
+      success: true, feeds: [FEED], deadlines: [deadline({ itemKey: 'k2', state: 'pending' })],
+    } as never);
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('ics-accept-k2')).not.toBeNull());
+    const accept = screen.getByTestId('ics-accept-k2');
+    const skip = screen.getByTestId('ics-skip-k2');
+    // Dispatched together, not one after the other awaited: neither press
+    // waits for the render the first one causes.
+    await Promise.all([fireEvent.press(accept), fireEvent.press(skip)]);
+    expect((feedEndpoints.decideIcsDeadline as jest.Mock).mock.calls.map(call => call[2])).toEqual(['accept']);
+    resolve({ success: true, deadline: deadline({ itemKey: 'k2', state: 'accepted' }), replayed: false });
+    await waitFor(() => expect(screen.getByTestId('ics-skip-k2').props.accessibilityState?.disabled).not.toBe(true));
   });
 });
