@@ -10,7 +10,7 @@
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { AppState } from 'react-native';
+import { AppState, Text } from 'react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { AppProvider } from '../../../state/AppContext';
@@ -84,12 +84,10 @@ function commitment(id: string, title: string): Commitment {
 
 let client: QueryClient;
 let repository: ReturnType<typeof createFakeAuthRepository>;
-let signOut: (() => Promise<void>) | null = null;
-
+/** A button outside `Root` that signs out the way Settings does. */
 function SignOutProbe() {
   const auth = useAuth();
-  signOut = () => auth.signOut();
-  return null;
+  return <Text testID="probe-sign-out" onPress={() => void auth.signOut()}>out</Text>;
 }
 
 beforeEach(async () => {
@@ -210,7 +208,7 @@ describe('the widget snapshot in the running app', () => {
     await openApp();
     await settled();
     await act(async () => {
-      await signOut!();
+      fireEvent.press(screen.getByTestId('probe-sign-out'));
     });
     await waitFor(() => expect(calls.some((call) => call.op === 'clear')).toBe(true));
     const firstClear = calls.findIndex((call) => call.op === 'clear');
@@ -218,7 +216,7 @@ describe('the widget snapshot in the running app', () => {
   });
 
   it('republishes when the app goes to the background', async () => {
-    const listeners: Array<(state: string) => void> = [];
+    const listeners: ((state: string) => void)[] = [];
     jest.spyOn(AppState, 'addEventListener').mockImplementation(((type: string, listener: (state: string) => void) => {
       if (type === 'change') listeners.push(listener);
       return { remove: () => {} };
