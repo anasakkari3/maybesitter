@@ -19,12 +19,31 @@
  * keeps a quiet night quiet.
  *
  * ── Why there is no transaction here ─────────────────────────────────────
- * `deviceCalendarLinks.ts` reads-then-writes inside a transaction because two
- * *different* devices can race to claim the same link. Nothing here races:
- * one nightly job is the only writer a fixture ever has, so the plain
- * get-then-set below has no concurrent writer to lose a race against. If a
- * second writer is ever introduced (e.g. a manual backfill job running
- * alongside the nightly sync), this is the line to make transactional.
+ * Not a "single writer" promise — the infrastructure does not give one.
+ * `infra/scheduler.sh` posts the nightly sync with `--attempt-deadline=60s`
+ * and Cloud Scheduler's default retry, and the planned sync walks roughly
+ * fifteen clubs several seconds apart, comfortably past sixty seconds end to
+ * end. A timeout retry, or an operator re-running the job by hand while the
+ * first run is still going server-side, produces two concurrent
+ * `upsertFixtures` calls over the same fixtures, with no lock between them.
+ *
+ * What makes the plain get-then-set below safe anyway is that the write is
+ * content-addressed: two overlapping runs reading the same unchanged fixture
+ * both see the same `contentHash` and either both skip it or both write the
+ * same bytes, so they converge on one document rather than corrupting it —
+ * unlike `deviceCalendarLinks.ts`, where two *different* devices can race to
+ * claim the same link with genuinely different content and a transaction is
+ * what makes one of them lose cleanly.
+ *
+ * Convergence is not free of cost, though. Two overlapping runs each compute
+ * their own `{ written, unchanged }` tally from what *they* observed, so the
+ * tally stops being a reliable "quiet night versus change night" signal the
+ * moment a retry lands — a run that raced a lucky no-op past it can report
+ * `written: 0` while the other run genuinely rewrote something, or vice
+ * versa. And every fixture in the window gets asked of the provider twice
+ * inside the same window, doubling the request budget for that run rather
+ * than the tally simply being wrong. Neither cost corrupts a fixture; both
+ * are still worth knowing before leaning on this tally or that budget.
  *
  * ── Why a team listing is two queries, not one ───────────────────────────
  * A club plays roughly half its matches at home and half away, and `where`
