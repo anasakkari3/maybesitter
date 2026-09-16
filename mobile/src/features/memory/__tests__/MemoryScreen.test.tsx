@@ -321,8 +321,10 @@ describe('suggestions (#202)', () => {
     expect(evidence).toContain('28');
     expect(evidence).toContain('10');
     expect(evidence).toContain('7');
-    expect(screen.queryByText('0.7')).toBeNull();
-    expect(screen.queryByText(/70%/)).toBeNull();
+    // Anywhere on the screen, not only as a whole text node: a share tucked
+    // onto the end of a sentence is still a score printed about a person.
+    expect(screen.queryByText(/0\.7|70\s*%/)).toBeNull();
+    expect(`${sentence} ${evidence}`).not.toMatch(/0\.7|70\s*%/);
   });
 
   it('shows no suggestions card when there is nothing to suggest', async () => {
