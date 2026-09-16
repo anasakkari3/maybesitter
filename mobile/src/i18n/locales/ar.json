@@ -759,5 +759,15 @@
   "catSettingsWhichHint": "بنستعمل يلي بتخليه بس. طفّي يلي مش من حياتك.",
   "catSettingsNone": "طفّيت كل التصنيفات، فما رح ينترتب ولا شي.",
   "catDetailsLabel": "التصنيف",
-  "catSaveFailed": "ما قدرنا نحفظ. جرّب كمان مرة."
+  "catSaveFailed": "ما قدرنا نحفظ. جرّب كمان مرة.",
+  "widgetSettingsTitle": "ويدجت الشاشة الرئيسية",
+  "widgetShowTitles": "اعرض العناوين عالويدجت",
+  "widgetShowTitlesBody": "مسكّرة من الأساس. أي حدا بيمسك تلفونك بيشوف الشاشة الرئيسية وشاشة القفل، فالويدجت بيكتب «التزام خاص» مع الوقت وقدّيش بيهمّ. شغّلها إذا بدّك العناوين الحقيقية تبيّن هناك.",
+  "widgetPreviewHeading": "شو بيبيّن الويدجت",
+  "widgetPrivateCommitment": "التزام خاص",
+  "widgetNextStep": "خطوتك التالية",
+  "widgetEmpty": "ما في إشي مفتوح هلق.",
+  "widgetCapture": "احكيها",
+  "widgetStale": "افتح MaybeSitter ليتحدّث.",
+  "widgetSaveFailed": "ما قدرنا نحفظها عهالتلفون. جرّب كمان مرة."
 }
