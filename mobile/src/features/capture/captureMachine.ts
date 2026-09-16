@@ -137,6 +137,12 @@ export interface CaptureState {
   persisted: CaptureConfirmation['persisted'];
   /** What the server refused, with its reason. Never presented as saved. */
   failed: CaptureConfirmation['failed'];
+  /**
+   * What the saved items land on top of, as the server computed it (football
+   * fixtures, final review C2). The server warns and still saves; this is how
+   * the warning reaches the person who just saved.
+   */
+  collisions: NonNullable<CaptureConfirmation['collisions']>;
   /** A machine-readable reason for an error status, for the copy to map. */
   errorReason: string | null;
   /**
@@ -205,6 +211,7 @@ export function initialCaptureState(
     edits: {},
     persisted: [],
     failed: [],
+    collisions: [],
     errorReason: null,
     messageKey: null,
     undoable: false,
@@ -351,6 +358,8 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
         // nothing the client believed it was saving.
         persisted: event.confirmation.persisted,
         failed: event.confirmation.failed,
+        // Absent from an older server: no warning, rather than a parse failure.
+        collisions: event.confirmation.collisions ?? [],
         undoable: event.confirmation.persisted.length > 0,
       };
 

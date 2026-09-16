@@ -567,6 +567,7 @@
   "savedTitle": "Saved to your days",
   "savedFailedTitle": "Some didn’t save",
   "savedFailedBody": "These stayed out of your day. You can say them again.",
+  "savedCollision": "Heads up: this overlaps {title}, {when}.",
   "undoneTitle": "Undone. Nothing was kept.",
   "undonePartialTitle": "Partly undone",
   "undonePartialBody": "These are still saved: {titles}",

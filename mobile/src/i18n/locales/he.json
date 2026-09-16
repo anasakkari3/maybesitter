@@ -570,6 +570,7 @@
   "savedTitle": "נשמר בימים שלך",
   "savedFailedTitle": "חלק לא נשמר",
   "savedFailedBody": "אלה נשארו מחוץ ליום שלך. אפשר לומר אותם שוב.",
+  "savedCollision": "שימו לב: זה חופף ל־{title}, {when}.",
   "undoneTitle": "בוטל. שום דבר לא נשמר.",
   "undonePartialTitle": "בוטל חלקית",
   "undonePartialBody": "אלה עדיין שמורים: {titles}",
