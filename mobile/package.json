@@ -81,7 +81,8 @@
     "check:no-credentials": "bash scripts/check-no-credentials.sh",
     "eas-build-on-success": "bash scripts/export-sourcemap.sh",
     "verify:release-android": "bash scripts/verify-release-android.sh",
-    "check:privacy-manifests": "node scripts/check-privacy-manifests.mjs"
+    "check:privacy-manifests": "node scripts/check-privacy-manifests.mjs",
+    "check:android-manifest": "bash scripts/check-android-manifest-merge.sh"
   },
   "private": true,
   "jest": {
