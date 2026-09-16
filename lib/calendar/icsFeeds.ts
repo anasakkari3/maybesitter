@@ -102,7 +102,8 @@ const DAY_MS = 86_400_000;
 
 /* ── Shapes ────────────────────────────────────────────────────────── */
 
-export type FeedStatus = 'ok' | 'error';
+/** `paused`: calendar consent is off; nothing is fetched until it is back. */
+export type FeedStatus = 'ok' | 'error' | 'paused';
 
 export interface IcsFeedDocument {
   feedId: string;
@@ -385,6 +386,32 @@ async function userTimeZone(uid: string, deps: IcsFeedDeps): Promise<string> {
 
 type IcsIndexedUser = UserDocument & { icsNextFetchAt?: string };
 
+interface TrustLike {
+  calendarConsent?: unknown;
+  revokedAt?: unknown;
+  deletedAt?: unknown;
+}
+
+function trustOf(user: UserDocument | null): TrustLike {
+  const trust = user?.trust;
+  return trust && typeof trust === 'object' ? (trust as TrustLike) : {};
+}
+
+/**
+ * Why an account may not have calendar data written for it right now, or null.
+ *
+ * Read inside every transaction that writes after a fetch, because a fetch
+ * takes up to ten seconds and the world moves meanwhile (review of #445, B2):
+ * the account can be deleted, the feed unsubscribed, consent withdrawn.
+ */
+function accountRefusal(user: UserDocument | null, options: { requireConsent: boolean }): 'account_gone' | 'consent' | null {
+  if (!user) return 'account_gone';
+  const trust = trustOf(user);
+  if (trust.deletedAt) return 'account_gone';
+  if (options.requireConsent && (trust.calendarConsent !== true || trust.revokedAt)) return 'consent';
+  return null;
+}
+
 /**
  * `users/{uid}.icsNextFetchAt` is the earliest `nextFetchAt` of this account's
  * feeds, or absent. The refresh job reads due accounts with one single-field
@@ -392,16 +419,63 @@ type IcsIndexedUser = UserDocument & { icsNextFetchAt?: string };
  * than a collection-group query, which would need its own index exemption.
  * Absent rather than null, because Firestore ranks null below every string and
  * `<= now` would match an account with no feeds for ever.
+ *
+ * The feeds are listed *inside* the transaction, so an unsubscribe that
+ * commits meanwhile makes this retry rather than write back an index for a
+ * feed that is gone. It never creates the user document, and it touches
+ * nothing on an account being deleted: an index there is what would keep the
+ * scheduler fetching a URL the user took back.
  */
 async function syncDueIndex(uid: string, deps: IcsFeedDeps): Promise<void> {
-  const feeds = await readFeeds(uid, deps);
-  const earliest = feeds.map((feed) => feed.nextFetchAt).sort()[0];
   await storageOf(deps).runTransaction(async (tx) => {
-    const user = await tx.get<IcsIndexedUser>(userDoc(uid));
-    if (!user && earliest === undefined) return;
-    const { icsNextFetchAt: _previous, ...rest } = (user ?? newUserDocument(new Date().toISOString())) as IcsIndexedUser;
+    const [user, rows] = await Promise.all([
+      tx.get<IcsIndexedUser>(userDoc(uid)),
+      tx.list<IcsFeedDocument>(userCol(uid, ICS_FEEDS)),
+    ]);
+    if (!user || trustOf(user).deletedAt) return;
+    const earliest = rows.map((row) => row.data.nextFetchAt).sort()[0];
+    if (earliest === user.icsNextFetchAt) return;
+    const { icsNextFetchAt: _previous, ...rest } = user;
     tx.set(userDoc(uid), earliest === undefined ? rest : { ...rest, icsNextFetchAt: earliest });
   });
+}
+
+/**
+ * Merges `patch` into the feed, or does nothing and says why.
+ *
+ * The only way anything after a fetch writes to a feed document. It re-reads
+ * the feed and the account in the transaction, so a feed deleted during the
+ * fetch stays deleted — the stale whole-document `set` this replaces put it
+ * back, encrypted URL and all — and a patch is merged rather than a remembered
+ * copy written over whatever changed meanwhile.
+ */
+async function commitFeedPatch(
+  uid: string,
+  feedId: string,
+  patch: (current: IcsFeedDocument) => Partial<IcsFeedDocument>,
+  options: { requireConsent: boolean },
+  deps: IcsFeedDeps,
+): Promise<{ feed: IcsFeedDocument } | { refused: 'feed_gone' | 'account_gone' | 'consent' }> {
+  return storageOf(deps).runTransaction(async (tx) => {
+    const [user, current] = await Promise.all([
+      tx.get<UserDocument>(userDoc(uid)),
+      tx.get<IcsFeedDocument>(feedPath(uid, feedId)),
+    ]);
+    if (!current) return { refused: 'feed_gone' as const };
+    const refusal = accountRefusal(user, options);
+    if (refusal) return { refused: refusal };
+    const changes = patch(current);
+    tx.merge<IcsFeedDocument>(feedPath(uid, feedId), changes);
+    return { feed: { ...current, ...changes } };
+  });
+}
+
+/** Everything a feed wrote besides its own document. Idempotent. */
+async function removeFeedData(uid: string, feedId: string, deps: IcsFeedDeps): Promise<{ busyBlocks: number; items: IcsFeedItemDocument[] }> {
+  const busy = await deleteBusySource(uid, icsSourceId(feedId));
+  const items = (await readItems(uid, deps)).filter((item) => item.feedId === feedId);
+  for (const item of items) await storageOf(deps).delete(itemPath(uid, item.itemKey));
+  return { busyBlocks: busy.deleted, items };
 }
 
 /* ── Fetch, classify, apply ────────────────────────────────────────── */
@@ -467,14 +541,20 @@ function commitmentCommands(
  */
 async function acceptItem(
   uid: string,
+  feedIdOfKey: string,
   itemKey: string,
   now: Date,
   autoAccepted: boolean,
 ): Promise<{ replayed: boolean }> {
   const path = itemPath(uid, itemKey);
   const ids = { commitmentId: randomUUID(), reminderId: randomUUID() };
-  return commitCommandsWithClaim<IcsFeedItemDocument>(uid, path, (claim) => {
+  return commitCommandsWithClaim<IcsFeedItemDocument>(uid, path, (claim, { user, guards }) => {
     if (!claim) throw new IcsFeedError('item_not_found');
+    // The feed and the account, read in this transaction: an auto-accept on
+    // its way when the feed was unsubscribed, or the account deleted, must not
+    // make a commitment — or, through the domain write, a user document.
+    if (!guards[0]) throw new IcsFeedError('feed_not_found');
+    if (accountRefusal(user, { requireConsent: false })) throw new IcsFeedError('feed_not_found');
     // Already accepted: the commitment exists, and this is a replay.
     if (claim.state === 'accepted') return null;
     // Dismissed, withdrawn, or accepted-then-undone. The row has moved on since
@@ -495,7 +575,7 @@ async function acceptItem(
         updatedAt: now.toISOString(),
       },
     };
-  });
+  }, [feedPath(uid, feedIdOfKey)]);
 }
 
 interface ApplyOutcome {
@@ -515,51 +595,54 @@ async function reconcileDeadlines(
   classification: IcsClassification,
   now: Date,
   deps: IcsFeedDeps,
-): Promise<ApplyOutcome> {
+): Promise<ApplyOutcome & { toAutoAccept: string[] }> {
   const storage = storageOf(deps);
   const nowMs = now.getTime();
   const at = now.toISOString();
   const outcome: ApplyOutcome = { created: 0, updated: 0, withdrawn: 0, autoAccepted: 0 };
-  const existing = new Map((await readItems(uid, deps))
-    .filter((item) => item.feedId === feed.feedId)
-    .map((item) => [item.itemKey, item]));
+  const known = (await readItems(uid, deps)).filter((item) => item.feedId === feed.feedId);
   const seen = new Set<string>();
   const toAutoAccept: string[] = [];
+
+  // One transaction per row, deciding from the row as it is at the write. A
+  // copy read at the start of a ten-second refresh and written back at the end
+  // could put `pending` over an accept the user made in between — and a second
+  // accept of that row is a second commitment (review of #445, F4).
+  const transition = (key: string, next: (row: IcsFeedItemDocument | null) => IcsFeedItemDocument | 'delete' | null) =>
+    storage.runTransaction(async (tx) => {
+      const row = await tx.get<IcsFeedItemDocument>(itemPath(uid, key));
+      const result = next(row);
+      if (result === 'delete') tx.delete(itemPath(uid, key));
+      else if (result) tx.set(itemPath(uid, key), result);
+      return { before: row, after: result };
+    });
 
   for (const candidate of classification.deadlines) {
     const key = icsItemKey(feed.feedId, candidate.uid, candidate.recurrenceId);
     if (seen.has(key)) continue;
     seen.add(key);
-    const row = existing.get(key);
-
-    if (!row) {
-      const item: IcsFeedItemDocument = {
-        itemKey: key,
-        feedId: feed.feedId,
-        recurrenceId: candidate.recurrenceId,
-        sequence: candidate.sequence,
-        dtstamp: candidate.dtstamp,
-        title: candidate.title,
-        dueAt: candidate.dueAt,
-        allDay: candidate.allDay,
-        state: 'pending',
-        notice: null,
-        proposedDueAt: null,
-        commitmentId: null,
-        autoAccepted: false,
-        reappeared: false,
-        firstSeenAt: at,
-        updatedAt: at,
-      };
-      await storage.set(itemPath(uid, key), item);
+    const { before, after } = await transition(key, (row) => (row ? reconcileRow(row, candidate, at) : {
+      itemKey: key,
+      feedId: feed.feedId,
+      recurrenceId: candidate.recurrenceId,
+      sequence: candidate.sequence,
+      dtstamp: candidate.dtstamp,
+      title: candidate.title,
+      dueAt: candidate.dueAt,
+      allDay: candidate.allDay,
+      state: 'pending',
+      notice: null,
+      proposedDueAt: null,
+      commitmentId: null,
+      autoAccepted: false,
+      reappeared: false,
+      firstSeenAt: at,
+      updatedAt: at,
+    }));
+    if (!before) {
       outcome.created += 1;
       if (feed.autoAcceptDeadlines) toAutoAccept.push(key);
-      continue;
-    }
-
-    const next = reconcileRow(row, candidate, at);
-    if (next) {
-      await storage.set(itemPath(uid, key), next);
+    } else if (after) {
       outcome.updated += 1;
     }
   }
@@ -571,34 +654,26 @@ async function reconcileDeadlines(
     && classification.deadlines.length >= MAX_DEADLINES;
   const lastKept = classification.deadlines[classification.deadlines.length - 1]?.dueAt;
   const windowEnd = nowMs + DEADLINE_WINDOW_DAYS * DAY_MS;
-  for (const row of Array.from(existing.values())) {
-    if (seen.has(row.itemKey)) continue;
-    const due = Date.parse(row.dueAt);
-    const judged = row.state === 'accepted' && row.proposedDueAt ? Date.parse(row.proposedDueAt) : due;
-    const inWindow = judged >= nowMs && judged <= windowEnd && !(capped && lastKept !== undefined && row.dueAt > lastKept);
-    if (inWindow) {
-      if (row.state === 'pending') {
-        await storage.set(itemPath(uid, row.itemKey), { ...row, state: 'withdrawn', updatedAt: at });
-        outcome.withdrawn += 1;
-      } else if (row.state === 'accepted' && row.notice !== 'removed') {
-        await storage.set(itemPath(uid, row.itemKey), { ...row, notice: 'removed', proposedDueAt: null, updatedAt: at });
-        outcome.updated += 1;
+  for (const { itemKey } of known) {
+    if (seen.has(itemKey)) continue;
+    const { after } = await transition(itemKey, (row) => {
+      if (!row) return null;
+      const due = Date.parse(row.dueAt);
+      const judged = row.state === 'accepted' && row.proposedDueAt ? Date.parse(row.proposedDueAt) : due;
+      const inWindow = judged >= nowMs && judged <= windowEnd && !(capped && lastKept !== undefined && row.dueAt > lastKept);
+      if (inWindow) {
+        if (row.state === 'pending') return { ...row, state: 'withdrawn', updatedAt: at };
+        if (row.state === 'accepted' && row.notice !== 'removed') return { ...row, notice: 'removed', proposedDueAt: null, updatedAt: at };
+        return null;
       }
-    } else if (due < nowMs - ITEM_RETENTION_MS) {
-      await storage.delete(itemPath(uid, row.itemKey));
+      return due < nowMs - ITEM_RETENTION_MS ? 'delete' : null;
+    });
+    if (after && after !== 'delete') {
+      if (after.state === 'withdrawn') outcome.withdrawn += 1;
+      else outcome.updated += 1;
     }
   }
-
-  for (const key of toAutoAccept) {
-    try {
-      const result = await acceptItem(uid, key, now, true);
-      if (!result.replayed) outcome.autoAccepted += 1;
-    } catch (error) {
-      // Left pending: the user can still accept it by hand.
-      logOf(deps)(`[ics] auto-accept failed feed=${feed.feedId} host=${feed.hostHash} error=${error instanceof Error ? error.name : 'unknown'}`);
-    }
-  }
-  return outcome;
+  return { ...outcome, toAutoAccept };
 }
 
 /** The row after seeing `candidate` again, or null when nothing changes. */
@@ -647,7 +722,7 @@ async function applyClassification(
   classification: IcsClassification,
   now: Date,
   deps: IcsFeedDeps,
-): Promise<{ busyBlocks: number; outcome: ApplyOutcome }> {
+): Promise<{ busyBlocks: number; outcome: ApplyOutcome & { toAutoAccept: string[] } }> {
   const sourceId = icsSourceId(feed.feedId);
   const blocks = new Map<string, BusyBlock>();
   for (const busy of classification.busy) {
@@ -660,6 +735,47 @@ async function applyClassification(
   await replaceBusyBlocks(uid, sourceId, window, Array.from(blocks.values()), { platform: null, now });
   const outcome = await reconcileDeadlines(uid, feed, classification, now, deps);
   return { busyBlocks: blocks.size, outcome };
+}
+
+/**
+ * Commits a refresh or a subscribe, or undoes its writes.
+ *
+ * The busy blocks and the proposal rows are written first, and only then is
+ * the feed document patched — in a transaction that checks the feed and the
+ * account are still there. If they are not, what this refresh wrote is removed
+ * again. Between the two, every interleaving with an unsubscribe ends with
+ * nothing left: an unsubscribe deletes the feed document first and the data
+ * after, so either it runs after this commit and removes everything, or this
+ * commit sees the document gone and removes what it wrote itself.
+ *
+ * Auto-accept runs only after that commit, and re-checks the feed inside its
+ * own transaction.
+ */
+async function commitApplied(
+  uid: string,
+  feed: IcsFeedDocument,
+  applied: { busyBlocks: number; outcome: ApplyOutcome & { toAutoAccept: string[] } },
+  patch: Partial<IcsFeedDocument>,
+  options: { requireConsent: boolean },
+  now: Date,
+  deps: IcsFeedDeps,
+): Promise<{ feed: IcsFeedDocument } | { refused: 'feed_gone' | 'account_gone' | 'consent' }> {
+  const committed = await commitFeedPatch(uid, feed.feedId, () => ({ ...patch, busyBlocks: applied.busyBlocks }), options, deps);
+  if ('refused' in committed) {
+    await removeFeedData(uid, feed.feedId, deps);
+    await syncDueIndex(uid, deps);
+    return committed;
+  }
+  for (const key of applied.outcome.toAutoAccept) {
+    try {
+      const result = await acceptItem(uid, feed.feedId, key, now, true);
+      if (!result.replayed) applied.outcome.autoAccepted += 1;
+    } catch (error) {
+      // Left pending: the user can still accept it by hand.
+      logOf(deps)(`[ics] auto-accept failed feed=${feed.feedId} host=${feed.hostHash} error=${error instanceof Error ? error.name : 'unknown'}`);
+    }
+  }
+  return committed;
 }
 
 function fetchWith(deps: IcsFeedDeps): (url: string, options: SafeFetchOptions) => Promise<SafeFetchResult> {
@@ -688,8 +804,9 @@ export async function createIcsFeed(uid: string, body: unknown, deps: IcsFeedDep
     throw error;
   }
 
-  const existing = await readFeeds(uid, deps);
-  if (existing.length >= MAX_FEEDS_PER_USER) throw new IcsFeedError('too_many_feeds');
+  // A cheap early refusal; the one that holds under concurrency is the
+  // transactional count at insert below (review of #445, F3).
+  if ((await readFeeds(uid, deps)).length >= MAX_FEEDS_PER_USER) throw new IcsFeedError('too_many_feeds');
 
   const now = nowOf(deps);
   const feedId = randomUUID();
@@ -751,10 +868,23 @@ export async function createIcsFeed(uid: string, body: unknown, deps: IcsFeedDep
     createdAt: now.toISOString(),
     busyBlocks: 0,
   };
-  await storageOf(deps).set(feedPath(uid, feedId), feed);
+  // Counted and inserted in one transaction: twelve subscribes arriving
+  // together each see four feeds if the count is read outside it. The account
+  // is re-checked here too — it may have been deleted, or consent withdrawn,
+  // while the link was being fetched.
+  await storageOf(deps).runTransaction(async (tx) => {
+    const [user, rows] = await Promise.all([
+      tx.get<UserDocument>(userDoc(uid)),
+      tx.list<IcsFeedDocument>(userCol(uid, ICS_FEEDS)),
+    ]);
+    if (accountRefusal(user, { requireConsent: true })) throw new IcsFeedError('feed_not_found');
+    if (rows.length >= MAX_FEEDS_PER_USER) throw new IcsFeedError('too_many_feeds');
+    tx.create(feedPath(uid, feedId), feed);
+  });
   const applied = await applyClassification(uid, feed, classification, now, deps);
-  const stored: IcsFeedDocument = { ...feed, busyBlocks: applied.busyBlocks };
-  await storageOf(deps).set(feedPath(uid, feedId), stored);
+  const committed = await commitApplied(uid, feed, applied, {}, { requireConsent: true }, now, deps);
+  if ('refused' in committed) throw new IcsFeedError('feed_not_found');
+  const stored = committed.feed;
   await syncDueIndex(uid, deps);
   log(`[ics] subscribed feed=${feedId} host=${hostHash} deadlines=${classification.deadlines.length} busy=${applied.busyBlocks}`);
 
@@ -770,7 +900,7 @@ export async function createIcsFeed(uid: string, body: unknown, deps: IcsFeedDep
 
 /* ── Refresh ───────────────────────────────────────────────────────── */
 
-export type RefreshOutcome = 'updated' | 'not_modified' | 'failed' | 'kms_retry';
+export type RefreshOutcome = 'updated' | 'not_modified' | 'failed' | 'kms_retry' | 'paused';
 
 export async function refreshIcsFeed(
   uid: string,
@@ -779,32 +909,63 @@ export async function refreshIcsFeed(
   deps: IcsFeedDeps = {},
 ): Promise<{ outcome: RefreshOutcome; feed: IcsFeedView }> {
   requireUserId(uid);
-  const storage = storageOf(deps);
   const now = nowOf(deps);
   const nowMs = now.getTime();
   const log = logOf(deps);
   let feed = await readFeed(uid, feedId, deps);
+  const view = async (current: IcsFeedDocument) => feedView(current, await readItems(uid, deps));
+  // Every refresh, scheduled or not, needs the account alive and calendar
+  // consent in force — a scheduled one never went through the route that
+  // checks it (review of #445, F1).
+  const guard = { requireConsent: true };
 
-  if (options.manual) {
-    if (feed.lastManualRefreshAt && nowMs - Date.parse(feed.lastManualRefreshAt) < MANUAL_REFRESH_COOLDOWN_MS) {
-      throw new IcsFeedError('refresh_too_soon');
+  /** A patch that found the feed or the account gone: the refresh is over, and says so. */
+  const gone = async (refused: 'feed_gone' | 'account_gone' | 'consent'): Promise<never> => {
+    log(`[ics] refresh abandoned feed=${feedId} host=${feed.hostHash} reason=${refused}`);
+    await syncDueIndex(uid, deps);
+    throw new IcsFeedError('feed_not_found');
+  };
+
+  // Consent first, before the URL is decrypted or fetched: without it the
+  // server has no business reading that calendar. The feed is paused, not
+  // failed — nothing is wrong with it — and looked at again next cycle.
+  const paused = await commitFeedPatch(uid, feedId, (current) => {
+    if (options.manual) {
+      if (current.lastManualRefreshAt && nowMs - Date.parse(current.lastManualRefreshAt) < MANUAL_REFRESH_COOLDOWN_MS) {
+        throw new IcsFeedError('refresh_too_soon');
+      }
+      // Claimed here, in the transaction, before anything is fetched: ten
+      // parallel taps were ten fetches when this was read-then-write (F2).
+      return { lastManualRefreshAt: now.toISOString() };
     }
-    feed = { ...feed, lastManualRefreshAt: now.toISOString() };
+    return {};
+  }, guard, deps);
+  if ('refused' in paused) {
+    if (paused.refused !== 'consent') return gone(paused.refused);
+    const held = await commitFeedPatch(uid, feedId, () => ({
+      status: 'paused', lastErrorCode: 'consent_required', nextFetchAt: iso(nowMs + REFRESH_INTERVAL_MS),
+    }), { requireConsent: false }, deps);
+    if ('refused' in held) return gone(held.refused);
+    await syncDueIndex(uid, deps);
+    log(`[ics] refresh paused feed=${feedId} host=${feed.hostHash} reason=consent`);
+    return { outcome: 'paused', feed: await view(held.feed) };
   }
+  feed = paused.feed;
 
   const fail = async (code: string): Promise<{ outcome: RefreshOutcome; feed: IcsFeedView }> => {
-    const failures = feed.consecutiveFailures + 1;
-    const next: IcsFeedDocument = {
-      ...feed,
-      consecutiveFailures: failures,
-      lastErrorCode: code,
-      status: failures >= FAILURES_BEFORE_ERROR ? 'error' : feed.status,
-      nextFetchAt: iso(nowMs + backoffMs(failures)),
-    };
-    await storage.set(feedPath(uid, feedId), next);
+    const committed = await commitFeedPatch(uid, feedId, (current) => {
+      const failures = current.consecutiveFailures + 1;
+      return {
+        consecutiveFailures: failures,
+        lastErrorCode: code,
+        status: failures >= FAILURES_BEFORE_ERROR ? 'error' : current.status === 'paused' ? 'ok' : current.status,
+        nextFetchAt: iso(nowMs + backoffMs(failures)),
+      };
+    }, guard, deps);
+    if ('refused' in committed) return gone(committed.refused);
     await syncDueIndex(uid, deps);
-    log(`[ics] refresh failed feed=${feedId} host=${feed.hostHash} code=${code} failures=${failures}`);
-    return { outcome: 'failed', feed: feedView(next, await readItems(uid, deps)) };
+    log(`[ics] refresh failed feed=${feedId} host=${feed.hostHash} code=${code} failures=${committed.feed.consecutiveFailures}`);
+    return { outcome: 'failed', feed: await view(committed.feed) };
   };
 
   let url: string;
@@ -814,11 +975,11 @@ export async function refreshIcsFeed(
     if (error instanceof FieldEncryptionError && (error.code === 'kms_unavailable' || error.code === 'not_configured')) {
       // Not a verdict on the stored value, and not the feed's fault: retry
       // soon, count nothing, and never clear the blob.
-      const next: IcsFeedDocument = { ...feed, nextFetchAt: iso(nowMs + KMS_RETRY_MS) };
-      await storage.set(feedPath(uid, feedId), next);
+      const committed = await commitFeedPatch(uid, feedId, () => ({ nextFetchAt: iso(nowMs + KMS_RETRY_MS) }), guard, deps);
+      if ('refused' in committed) return gone(committed.refused);
       await syncDueIndex(uid, deps);
       log(`[ics] refresh deferred feed=${feedId} host=${feed.hostHash} code=${error.code}`);
-      return { outcome: 'kms_retry', feed: feedView(next, await readItems(uid, deps)) };
+      return { outcome: 'kms_retry', feed: await view(committed.feed) };
     }
     // decrypt_failed / malformed_blob: counted, and the blob is kept.
     return fail(error instanceof FieldEncryptionError ? error.code : 'decrypt_failed');
@@ -833,18 +994,17 @@ export async function refreshIcsFeed(
   }
 
   if (fetched.notModified) {
-    const next: IcsFeedDocument = {
-      ...feed,
+    const committed = await commitFeedPatch(uid, feedId, () => ({
       status: 'ok',
       consecutiveFailures: 0,
       lastErrorCode: null,
       lastFetchedAt: now.toISOString(),
       nextFetchAt: iso(nowMs + REFRESH_INTERVAL_MS),
-    };
-    await storage.set(feedPath(uid, feedId), next);
+    }), guard, deps);
+    if ('refused' in committed) return gone(committed.refused);
     await syncDueIndex(uid, deps);
     log(`[ics] refresh not modified feed=${feedId} host=${feed.hostHash}`);
-    return { outcome: 'not_modified', feed: feedView(next, await readItems(uid, deps)) };
+    return { outcome: 'not_modified', feed: await view(committed.feed) };
   }
 
   let classification: IcsClassification;
@@ -861,8 +1021,7 @@ export async function refreshIcsFeed(
   }
 
   const applied = await applyClassification(uid, feed, classification, now, deps);
-  const next: IcsFeedDocument = {
-    ...feed,
+  const committed = await commitApplied(uid, feed, applied, {
     status: 'ok',
     consecutiveFailures: 0,
     lastErrorCode: null,
@@ -871,12 +1030,11 @@ export async function refreshIcsFeed(
     lastFetchedAt: now.toISOString(),
     lastFullFetchAt: now.toISOString(),
     nextFetchAt: iso(nowMs + REFRESH_INTERVAL_MS),
-    busyBlocks: applied.busyBlocks,
-  };
-  await storage.set(feedPath(uid, feedId), next);
+  }, guard, now, deps);
+  if ('refused' in committed) return gone(committed.refused);
   await syncDueIndex(uid, deps);
   log(`[ics] refreshed feed=${feedId} host=${feed.hostHash} created=${applied.outcome.created} updated=${applied.outcome.updated} withdrawn=${applied.outcome.withdrawn} auto=${applied.outcome.autoAccepted} busy=${applied.busyBlocks}`);
-  return { outcome: 'updated', feed: feedView(next, await readItems(uid, deps)) };
+  return { outcome: 'updated', feed: await view(committed.feed) };
 }
 
 /* ── Update and delete ─────────────────────────────────────────────── */
@@ -885,35 +1043,40 @@ export async function updateIcsFeed(uid: string, feedId: string, body: unknown, 
   requireUserId(uid);
   if (!isRecord(body)) throw new IcsFeedError('invalid_request');
   refuseUnknownKeys(body, ['label', 'autoAcceptDeadlines']);
-  const feed = await readFeed(uid, feedId, deps);
-  const next: IcsFeedDocument = {
-    ...feed,
-    ...(body.label !== undefined ? { label: labelFrom(body.label) } : {}),
-    autoAcceptDeadlines: booleanFrom(body.autoAcceptDeadlines, feed.autoAcceptDeadlines),
-  };
-  await storageOf(deps).set(feedPath(uid, feedId), next);
+  const label = body.label !== undefined ? labelFrom(body.label) : undefined;
+  if (body.autoAcceptDeadlines !== undefined) booleanFrom(body.autoAcceptDeadlines, false);
   // Turning auto-accept on does not sweep what is already pending: those were
   // proposed while it was off, and the user may be halfway through them.
-  return feedView(next, await readItems(uid, deps));
+  const committed = await commitFeedPatch(uid, feedId, (current) => ({
+    ...(label !== undefined ? { label } : {}),
+    autoAcceptDeadlines: booleanFrom(body.autoAcceptDeadlines, current.autoAcceptDeadlines),
+  }), { requireConsent: false }, deps);
+  if ('refused' in committed) throw new IcsFeedError('feed_not_found');
+  return feedView(committed.feed, await readItems(uid, deps));
 }
 
 /**
  * Unsubscribe: the encrypted URL, every busy block the feed wrote, and every
  * row it proposed. Commitments the user accepted are theirs and stay.
+ *
+ * The feed document goes first, in a transaction, and the data after. A
+ * refresh in flight commits by re-reading that document, so it either lands
+ * before this and is swept up by the deletes below, or finds the document gone
+ * and removes what it wrote (review of #445, B2).
  */
 export async function deleteIcsFeed(uid: string, feedId: string, deps: IcsFeedDeps = {}): Promise<{ busyBlocks: number; proposals: number }> {
   requireUserId(uid);
-  const storage = storageOf(deps);
   const path = feedPath(uid, feedId);
-  const feed = await storage.get<IcsFeedDocument>(path);
+  const feed = await storageOf(deps).runTransaction(async (tx) => {
+    const current = await tx.get<IcsFeedDocument>(path);
+    if (current) tx.delete(path);
+    return current;
+  });
   if (!feed) throw new IcsFeedError('feed_not_found');
-  const busy = await deleteBusySource(uid, icsSourceId(feedId));
-  const items = (await readItems(uid, deps)).filter((item) => item.feedId === feedId);
-  for (const item of items) await storage.delete(itemPath(uid, item.itemKey));
-  await storage.delete(path);
+  const removed = await removeFeedData(uid, feedId, deps);
   await syncDueIndex(uid, deps);
   logOf(deps)(`[ics] unsubscribed feed=${feedId} host=${feed.hostHash}`);
-  return { busyBlocks: busy.deleted, proposals: items.filter((item) => item.state === 'pending').length };
+  return { busyBlocks: removed.busyBlocks, proposals: removed.items.filter((item) => item.state === 'pending').length };
 }
 
 /* ── The user's answer to one deadline ─────────────────────────────── */
@@ -943,52 +1106,89 @@ export async function decideIcsDeadline(
   const at = now.toISOString();
   let replayed = false;
 
+  // Every transition decides from the row as the transaction reads it, never
+  // from `item` above: a dismissal written from a stale copy over an accept
+  // made meanwhile loses the commitment id, and the next accept makes a second
+  // commitment (review of #445, F4).
+  const rowTransition = (next: (row: IcsFeedItemDocument) => IcsFeedItemDocument | null) =>
+    storage.runTransaction(async (tx) => {
+      const [row, feed] = await Promise.all([tx.get<IcsFeedItemDocument>(path), tx.get<IcsFeedDocument>(feedPath(uid, feedId))]);
+      if (!row || row.feedId !== feedId || !feed) throw new IcsFeedError('item_not_found');
+      const result = next(row);
+      if (result) tx.set(path, result);
+      return result === null;
+    });
+
+  /** A domain command and the row change, in one transaction. */
+  const commandTransition = async (
+    decide: (row: IcsFeedItemDocument) => { commands: Command[]; patch: Partial<IcsFeedItemDocument> } | null,
+  ): Promise<boolean> => {
+    try {
+      const result = await commitCommandsWithClaim<IcsFeedItemDocument>(uid, path, (row, { guards }) => {
+        if (!row || row.feedId !== feedId || !guards[0]) throw new IcsFeedError('item_not_found');
+        return decide(row);
+      }, [feedPath(uid, feedId)]);
+      return result.replayed;
+    } catch (error) {
+      if (error instanceof IcsFeedError) throw error;
+      // The commitment has moved on in a way the command cannot apply to —
+      // completed, dropped, deleted by the user. Nothing was written.
+      throw new IcsFeedError('invalid_action');
+    }
+  };
+
   switch (action) {
     case 'accept': {
       // The same rule every other way of making a commitment follows (#352).
       if (item.state === 'pending' && Date.parse(item.dueAt) < now.getTime()) throw new IcsFeedError('past_due');
       // Whether this row may still be accepted is decided *inside* the
-      // transaction, by `acceptItem`, and not here. The read above is a moment
-      // old: a dismissal, or another tap, can land between it and the write,
-      // and a check here would answer from a row that had already changed.
-      replayed = (await acceptItem(uid, itemKey, now, false)).replayed;
+      // transaction, by `acceptItem`, and not here.
+      replayed = (await acceptItem(uid, feedId, itemKey, now, false)).replayed;
       break;
     }
     case 'dismiss': {
-      if (item.state === 'rejected') { replayed = true; break; }
-      if (item.state !== 'pending') throw new IcsFeedError('invalid_action');
-      await storage.set(path, { ...item, state: 'rejected', updatedAt: at });
+      replayed = await rowTransition((row) => {
+        if (row.state === 'rejected') return null;
+        if (row.state !== 'pending') throw new IcsFeedError('invalid_action');
+        return { ...row, state: 'rejected', updatedAt: at };
+      });
       break;
     }
     case 'undo': {
       // Only what the feed accepted on the user's behalf. Something they
       // accepted themselves is a commitment like any other, with its own
       // controls in the app.
-      if (item.state === 'rejected' && item.autoAccepted) { replayed = true; break; }
-      if (item.state !== 'accepted' || !item.autoAccepted || !item.commitmentId) throw new IcsFeedError('invalid_action');
-      await applyParticipantCommand(uid, { type: 'Drop', commitmentId: item.commitmentId, now: at });
-      await storage.set(path, { ...item, state: 'rejected', notice: null, proposedDueAt: null, updatedAt: at });
+      replayed = await commandTransition((row) => {
+        if (row.state === 'rejected' && row.autoAccepted) return null;
+        if (row.state !== 'accepted' || !row.autoAccepted || !row.commitmentId) throw new IcsFeedError('invalid_action');
+        return {
+          commands: [{ type: 'Drop', commitmentId: row.commitmentId, now: at }],
+          patch: { state: 'rejected', notice: null, proposedDueAt: null, updatedAt: at },
+        };
+      });
       break;
     }
     case 'apply_move': {
-      if (item.state !== 'accepted' || item.notice !== 'moved' || !item.proposedDueAt || !item.commitmentId) {
-        throw new IcsFeedError('invalid_action');
-      }
-      if (Date.parse(item.proposedDueAt) < now.getTime()) throw new IcsFeedError('past_due');
-      const remindAt = reminderFor(Date.parse(item.proposedDueAt), now.getTime());
-      const result = await applyParticipantCommand(uid, {
-        type: 'UpdateCommitment',
-        commitmentId: item.commitmentId,
-        now: at,
-        updates: { timeSpec: { kind: 'due_by', dueAt: item.proposedDueAt, remindAt } },
+      replayed = await commandTransition((row) => {
+        if (row.state !== 'accepted' || row.notice !== 'moved' || !row.proposedDueAt || !row.commitmentId) {
+          throw new IcsFeedError('invalid_action');
+        }
+        if (Date.parse(row.proposedDueAt) < now.getTime()) throw new IcsFeedError('past_due');
+        const remindAt = reminderFor(Date.parse(row.proposedDueAt), now.getTime());
+        return {
+          commands: [{
+            type: 'UpdateCommitment',
+            commitmentId: row.commitmentId,
+            now: at,
+            updates: { timeSpec: { kind: 'due_by', dueAt: row.proposedDueAt, remindAt } },
+          }],
+          patch: { dueAt: row.proposedDueAt, notice: null, proposedDueAt: null, updatedAt: at },
+        };
       });
-      if (result.result !== 'applied' && result.result !== 'noop') throw new IcsFeedError('invalid_action');
-      await storage.set(path, { ...item, dueAt: item.proposedDueAt, notice: null, proposedDueAt: null, updatedAt: at });
       break;
     }
     case 'acknowledge': {
-      if (item.notice === null) { replayed = true; break; }
-      await storage.set(path, { ...item, notice: null, proposedDueAt: null, updatedAt: at });
+      replayed = await rowTransition((row) => (row.notice === null ? null : { ...row, notice: null, proposedDueAt: null, updatedAt: at }));
       break;
     }
   }
@@ -1006,6 +1206,7 @@ export interface IcsRefreshTickTotals {
   notModified: number;
   failed: number;
   deferred: number;
+  paused: number;
 }
 
 export async function runIcsRefreshTick(
@@ -1017,7 +1218,7 @@ export async function runIcsRefreshTick(
   const clock = options.clock ?? Date.now;
   const started = clock();
   const budget = options.budgetMs ?? 45_000;
-  const totals: IcsRefreshTickTotals = { accounts: 0, due: 0, updated: 0, notModified: 0, failed: 0, deferred: 0 };
+  const totals: IcsRefreshTickTotals = { accounts: 0, due: 0, updated: 0, notModified: 0, failed: 0, deferred: 0, paused: 0 };
 
   const accounts = await storage.list<IcsIndexedUser>(USERS, {
     where: [['icsNextFetchAt', '<=', now.toISOString()]],
@@ -1046,6 +1247,7 @@ export async function runIcsRefreshTick(
         if (outcome === 'updated') totals.updated += 1;
         else if (outcome === 'not_modified') totals.notModified += 1;
         else if (outcome === 'kms_retry') totals.deferred += 1;
+        else if (outcome === 'paused') totals.paused += 1;
         else totals.failed += 1;
       } catch (error) {
         totals.failed += 1;

@@ -589,18 +589,28 @@ export async function commitCaptureConfirmation<T>(
 export async function commitCommandsWithClaim<D extends object>(
   participantId: string,
   claimPath: string,
-  decide: (claim: D | null) => { commands: readonly Command[]; patch: Partial<D> } | null,
+  decide: (
+    claim: D | null,
+    context: { user: UserDocument | null; guards: readonly unknown[] },
+  ) => { commands: readonly Command[]; patch: Partial<D> } | null,
+  /**
+   * Documents read in the same transaction and handed to `decide`, so it can
+   * refuse when something the claim depends on is gone — a calendar feed that
+   * was unsubscribed while this was on its way (#188).
+   */
+  guardPaths: readonly string[] = [],
 ): Promise<{ replayed: boolean }> {
   requireUserId(participantId);
   const at = nowIso();
   return getStorage().runTransaction(async (tx) => {
-    const [claim, user, before, stats] = await Promise.all([
+    const [claim, user, before, stats, guards] = await Promise.all([
       tx.get<D>(claimPath),
       tx.get<UserDocument>(userDoc(participantId)),
       loadDomainState(tx, participantId),
       readActivityStats(tx, participantId),
+      Promise.all(guardPaths.map((path) => tx.get<unknown>(path))),
     ]);
-    const decided = decide(claim);
+    const decided = decide(claim, { user, guards });
     if (decided === null) return { replayed: true };
 
     let candidate = before;

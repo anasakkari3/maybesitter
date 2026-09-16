@@ -20,7 +20,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
+import { createMemoryStorage, type MemoryStorageAdapter } from '../../lib/storage/memoryAdapter.ts';
 import { getStorage, resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { BUSY_BLOCKS, CALENDAR_SOURCES, ICS_FEED_ITEMS, ICS_FEEDS, USER_SCOPED_COLLECTIONS, userCol, userDoc, userSubDoc } from '../../lib/storage/paths.ts';
 import { applyTrustAction } from '../../lib/pilot/pilotTrustStore.ts';
@@ -74,6 +74,17 @@ interface Harness {
   logs: string[];
   clock: { now: Date };
   failNext: SafeFetchError | null;
+  /** When set, a fetch waits for it: how a test holds a refresh mid-flight. */
+  gate: { entered: () => void; release: Promise<void> } | null;
+}
+
+/** A gate a fetch will wait at, and a promise that resolves once a fetch is waiting. */
+function holdFetches(h: Harness): { waiting: Promise<void>; release: () => void } {
+  let release!: () => void;
+  let entered!: () => void;
+  const waiting = new Promise<void>((resolve) => { entered = resolve; });
+  h.gate = { entered, release: new Promise<void>((resolve) => { release = resolve; }) };
+  return { waiting, release: () => { h.gate = null; release(); } };
 }
 
 function harness(): Harness {
@@ -83,7 +94,7 @@ function harness(): Harness {
   const logs: string[] = [];
   const clock = { now: NOW };
   const h: Harness = {
-    kms, bodies, fetches, logs, clock, failNext: null,
+    kms, bodies, fetches, logs, clock, failNext: null, gate: null,
     deps: {
       env: { NODE_ENV: 'test', ICS_FEEDS_ENABLED: 'true', [KMS_KEY_ENV_VAR]: kms.keyName } as NodeJS.ProcessEnv,
       now: () => clock.now,
@@ -93,6 +104,11 @@ function harness(): Harness {
       classifyTimeoutMs: 15_000,
       fetch: async (url: string, options: SafeFetchOptions): Promise<SafeFetchResult> => {
         fetches.push({ url, options });
+        if (h.gate) {
+          const gate = h.gate;
+          gate.entered();
+          await gate.release;
+        }
         if (h.failNext) {
           const error = h.failNext;
           h.failNext = null;
@@ -822,7 +838,7 @@ for (const [label, header, payload] of REFUSED) {
         },
         tick: async () => {
           swept = true;
-          return { accounts: 0, due: 0, updated: 0, notModified: 0, failed: 0, deferred: 0 };
+          return { accounts: 0, due: 0, updated: 0, notModified: 0, failed: 0, deferred: 0, paused: 0 };
         },
       });
       assert.equal(response.status, 401);
@@ -852,7 +868,7 @@ test('the sweep refreshes exactly the feeds that are due, across accounts', asyn
       ...h.deps, env: { ...h.deps.env, ...SCHEDULER_ENV }, verify: async () => SCHEDULER,
     });
     assert.equal(response.status, 200);
-    assert.deepEqual(await response.json(), { accounts: 1, due: 1, updated: 1, notModified: 0, failed: 0, deferred: 0 });
+    assert.deepEqual(await response.json(), { accounts: 1, due: 1, updated: 1, notModified: 0, failed: 0, deferred: 0, paused: 0 });
     assert.equal(h.fetches.length, fetchesBefore + 1);
     const refreshed = (await feeds(USER)).filter((feed) => feed.lastFetchedAt === h.clock.now.toISOString());
     assert.deepEqual(refreshed.map((feed) => feed.feedId), [mine], 'the sweep refreshed a feed that was not due');
@@ -863,5 +879,309 @@ test('the sweep refreshes exactly the feeds that are due, across accounts', asyn
       ...h.deps, env: { ...SCHEDULER_ENV }, verify: async () => SCHEDULER,
     });
     assert.deepEqual(await disabled.json(), { skipped: 'feature_disabled' });
+  });
+});
+
+/* ── Races and withdrawn permission (review of #445) ───────────────── */
+
+function everythingOf(h: Harness, feedId: string) {
+  return (async () => ({
+    feeds: (await feeds()).length,
+    items: (await items()).filter((item) => item.feedId === feedId).length,
+    busy: (await getStorage().list(userCol(USER, BUSY_BLOCKS))).length,
+    sources: (await getStorage().list(userCol(USER, CALENDAR_SOURCES))).length,
+    index: (await getStorage().get<Record<string, unknown>>(userDoc(USER)))?.icsNextFetchAt,
+  }))();
+}
+
+const busyAndDeadlines = () => calendar(
+  [{ uid: 'essay', title: 'Essay due', dueInHours: 48 }, { uid: 'lab', title: 'Lab due', dueInHours: 72 }],
+  [{ uid: 'lec', startInHours: 5, hours: 2 }],
+);
+
+test('B2: unsubscribing while a refresh is fetching leaves nothing behind — no feed, no URL, no rows, no index', async () => {
+  for (const autoAcceptDeadlines of [false, true]) {
+    await withWorld(async (h) => {
+      h.bodies.set(FEED_URL, calendar([]));
+      const feedId = (await subscribe(h, { autoAcceptDeadlines })).body.feed.feedId as string;
+      h.bodies.set(FEED_URL, busyAndDeadlines());
+
+      const held = holdFetches(h);
+      const refreshing = call(handleRefreshFeed, request('POST', `/r/${feedId}`), feedId, h.deps);
+      await held.waiting;
+      const removed = await call(handleDeleteFeed, request('DELETE', `/x/${feedId}`), feedId, h.deps);
+      assert.equal(removed.status, 200);
+      held.release();
+      const late = await refreshing;
+      assert.equal(late.status, 404);
+
+      assert.deepEqual(await everythingOf(h, feedId), { feeds: 0, items: 0, busy: 0, sources: 0, index: undefined },
+        `auto-accept ${autoAcceptDeadlines}: an unsubscribed feed came back`);
+      assert.ok(!(await dumpUserTree()).includes('encryptedUrl'));
+      assert.deepEqual(await commitments(), [], 'a deleted feed auto-accepted a deadline');
+    });
+  }
+});
+
+test('B2: the scheduled sweep fetching when the feed is removed does not resurrect it either', async () => {
+  await withWorld(async (h) => {
+    h.bodies.set(FEED_URL, calendar([]));
+    const feedId = (await subscribe(h)).body.feed.feedId as string;
+    h.bodies.set(FEED_URL, busyAndDeadlines());
+    h.clock.now = new Date(NOW.getTime() + REFRESH_INTERVAL_MS + HOUR);
+    const held = holdFetches(h);
+    const sweeping = handleIcsRefreshTick(schedulerRequest('Bearer t'), {
+      ...h.deps, env: { ...h.deps.env, ...SCHEDULER_ENV }, verify: async () => SCHEDULER,
+    });
+    await held.waiting;
+    await call(handleDeleteFeed, request('DELETE', `/x/${feedId}`), feedId, h.deps);
+    held.release();
+    await sweeping;
+    assert.deepEqual(await everythingOf(h, feedId), { feeds: 0, items: 0, busy: 0, sources: 0, index: undefined });
+  });
+});
+
+test('B2: an account deleted while its feed is fetching gets no documents back, not even a user document', async () => {
+  await withWorld(async (h) => {
+    h.bodies.set(FEED_URL, calendar([]));
+    const feedId = (await subscribe(h, { autoAcceptDeadlines: true })).body.feed.feedId as string;
+    h.bodies.set(FEED_URL, busyAndDeadlines());
+    const held = holdFetches(h);
+    const refreshing = call(handleRefreshFeed, request('POST', `/r/${feedId}`), feedId, h.deps);
+    await held.waiting;
+    // What account deletion does: deny first, then remove the tree.
+    const user = await getStorage().get<Record<string, any>>(userDoc(USER));
+    await getStorage().set(userDoc(USER), { ...user, trust: { ...user!.trust, deletedAt: NOW.toISOString() } });
+    await getStorage().deleteTree(userDoc(USER));
+    held.release();
+    await refreshing;
+    assert.equal(await getStorage().get(userDoc(USER)), null, 'the user document was recreated');
+    for (const collection of USER_SCOPED_COLLECTIONS) {
+      assert.deepEqual(await getStorage().list(userCol(USER, collection)), [], `${collection} came back`);
+    }
+  });
+});
+
+test('B2: an account marked deleted but not yet swept is not written to by a refresh', async () => {
+  await withWorld(async (h) => {
+    h.bodies.set(FEED_URL, calendar([]));
+    const feedId = (await subscribe(h)).body.feed.feedId as string;
+    h.bodies.set(FEED_URL, busyAndDeadlines());
+    const held = holdFetches(h);
+    const refreshing = call(handleRefreshFeed, request('POST', `/r/${feedId}`), feedId, h.deps);
+    await held.waiting;
+    const user = await getStorage().get<Record<string, any>>(userDoc(USER));
+    const { icsNextFetchAt: _index, ...rest } = user!;
+    await getStorage().set(userDoc(USER), { ...rest, trust: { ...user!.trust, deletedAt: NOW.toISOString() } });
+    held.release();
+    assert.equal((await refreshing).status, 404);
+    const after = await everythingOf(h, feedId);
+    assert.deepEqual([after.items, after.busy, after.index], [0, 0, undefined]);
+  });
+});
+
+test('F1: a scheduled refresh without calendar consent fetches nothing and pauses the feed, and resumes when consent is back', async () => {
+  await withWorld(async (h) => {
+    h.bodies.set(FEED_URL, busyAndDeadlines());
+    const feedId = (await subscribe(h)).body.feed.feedId as string;
+    const fetchesBefore = h.fetches.length;
+    await applyTrustAction(USER, { type: 'set_calendar_consent', granted: false, at: NOW.toISOString() });
+
+    const sweep = async () => {
+      h.clock.now = new Date(h.clock.now.getTime() + REFRESH_INTERVAL_MS + HOUR);
+      const response = await handleIcsRefreshTick(schedulerRequest('Bearer t'), {
+        ...h.deps, env: { ...h.deps.env, ...SCHEDULER_ENV }, verify: async () => SCHEDULER,
+      });
+      return response.json();
+    };
+    const paused = await sweep();
+    assert.equal(paused.paused, 1);
+    assert.equal(h.fetches.length, fetchesBefore, 'the URL was fetched without consent');
+    const [feed] = await feeds();
+    assert.deepEqual([feed!.status, feed!.lastErrorCode, feed!.consecutiveFailures], ['paused', 'consent_required', 0]);
+    assert.ok(feed!.encryptedUrl);
+
+    await applyTrustAction(USER, { type: 'set_calendar_consent', granted: true, at: NOW.toISOString() });
+    const resumed = await sweep();
+    assert.equal(resumed.updated, 1);
+    assert.equal((await feeds())[0]!.status, 'ok');
+    assert.ok(feedId);
+  });
+});
+
+test('F2: ten manual refreshes at once fetch once', async () => {
+  await withWorld(async (h) => {
+    h.bodies.set(FEED_URL, calendar([]));
+    const feedId = (await subscribe(h)).body.feed.feedId as string;
+    const before = h.fetches.length;
+    const responses = await Promise.all(Array.from({ length: 10 }, () =>
+      call(handleRefreshFeed, request('POST', `/r/${feedId}`), feedId, h.deps)));
+    assert.equal(h.fetches.length - before, 1);
+    assert.deepEqual(responses.map((r) => r.status).sort(), [200, 429, 429, 429, 429, 429, 429, 429, 429, 429]);
+  });
+});
+
+test('F3: twelve subscribes at once make at most five feeds', async () => {
+  await withWorld(async (h) => {
+    h.bodies.set(FEED_URL, calendar([]));
+    const results = await Promise.all(Array.from({ length: 12 }, () => subscribe(h)));
+    assert.equal((await feeds()).length, MAX_FEEDS_PER_USER);
+    assert.equal(results.filter((r) => r.status === 201).length, MAX_FEEDS_PER_USER);
+    assert.ok(results.filter((r) => r.status !== 201).every((r) => r.body.error === 'too_many_feeds'));
+  });
+});
+
+test('F4: a dismissal racing an accept does not overwrite it', async () => {
+  await withWorld(async (h) => {
+    h.bodies.set(FEED_URL, calendar([{ uid: 'essay', title: 'Essay due', dueInHours: 48 }]));
+    const feedId = (await subscribe(h)).body.feed.feedId as string;
+    const essay = byTitle(await items(), 'Essay due');
+    const storage = getStorage() as unknown as MemoryStorageAdapter;
+    let armed = true;
+    // The competing write lands between the dismissal's read and its commit —
+    // exactly where a second instance's accept would.
+    storage.setBeforeCommitHookForTests(async () => {
+      if (!armed) return;
+      armed = false;
+      await storage.set(userSubDoc(USER, ICS_FEED_ITEMS, essay.itemKey), {
+        ...essay, state: 'accepted', commitmentId: 'accepted-elsewhere', updatedAt: NOW.toISOString(),
+      });
+    });
+    try {
+      const dismissed = await decide(h, feedId, essay.itemKey, 'dismiss');
+      assert.deepEqual([dismissed.status, dismissed.body.error], [409, 'invalid_action']);
+    } finally {
+      storage.setBeforeCommitHookForTests(null);
+    }
+    const row = byTitle(await items(), 'Essay due');
+    assert.deepEqual([row.state, row.commitmentId], ['accepted', 'accepted-elsewhere']);
+  });
+});
+
+/**
+ * Runs `action` just before the `n`th transaction after the next fetch
+ * returns commits — between that transaction's reads and its commit, which is
+ * exactly where a competing instance's write lands. The fetch is `h.deps.fetch`
+ * wrapped, so it counts only transactions of the refresh under test.
+ */
+function afterFetchTransaction(h: Harness, n: number, action: () => Promise<void>, fetch?: IcsRouteDeps['fetch']): IcsRouteDeps {
+  const storage = getStorage() as unknown as MemoryStorageAdapter;
+  let fetched = false;
+  let seen = 0;
+  storage.setBeforeCommitHookForTests(async ({ attempt }) => {
+    if (!fetched || attempt !== 1) return;
+    seen += 1;
+    if (seen === n) await action();
+  });
+  const inner = fetch ?? h.deps.fetch!;
+  return {
+    ...h.deps,
+    fetch: async (url, options) => {
+      const result = await inner(url, options);
+      fetched = true;
+      return result;
+    },
+  };
+}
+
+function clearHook(): void {
+  (getStorage() as unknown as MemoryStorageAdapter).setBeforeCommitHookForTests(null);
+}
+
+test('B2: unsubscribe removes the feed document before the data it wrote', async () => {
+  await withWorld(async (h) => {
+    h.bodies.set(FEED_URL, busyAndDeadlines());
+    const feedId = (await subscribe(h)).body.feed.feedId as string;
+    // Order is the guarantee: a refresh commits by re-reading the feed
+    // document, so data deleted while that document still exists can be
+    // written back by a refresh that commits in between.
+    const real = getStorage();
+    const order: string[] = [];
+    const note = (path: string) => {
+      if (path.includes(`/${ICS_FEEDS}/`)) order.push('feed');
+      else if (path.includes(`/${ICS_FEED_ITEMS}/`) || path.includes(`/${BUSY_BLOCKS}/`) || path.includes(`/${CALENDAR_SOURCES}/`)) order.push('data');
+    };
+    setStorageForTests(new Proxy(real, {
+      get(target, key, receiver) {
+        if (key === 'delete') return async (path: string) => { note(path); return target.delete(path); };
+        if (key === 'runTransaction') {
+          return (fn: (tx: any) => Promise<unknown>) => target.runTransaction((tx) => fn(new Proxy(tx, {
+            get(t, k) {
+              if (k === 'delete') return (path: string) => { note(path); return t.delete(path); };
+              const value = (t as any)[k];
+              return typeof value === 'function' ? value.bind(t) : value;
+            },
+          })));
+        }
+        const value = Reflect.get(target, key, receiver);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    }));
+    try {
+      assert.equal((await call(handleDeleteFeed, request('DELETE', `/x/${feedId}`), feedId, h.deps)).status, 200);
+    } finally {
+      setStorageForTests(real);
+    }
+    assert.ok(order.length > 1);
+    assert.equal(order[0], 'feed', `deleted in this order: ${order.join(', ')}`);
+  });
+});
+
+test('B2: an index written while the feed is being removed is re-read, not written from a stale list', async () => {
+  await withWorld(async (h) => {
+    h.bodies.set(FEED_URL, calendar([]));
+    const feedId = (await subscribe(h)).body.feed.feedId as string;
+    // Not modified: after the fetch there are exactly two transactions — the
+    // feed patch and the index. The unsubscribe lands inside the second.
+    const deps = afterFetchTransaction(h, 2, async () => {
+      await getStorage().delete(userSubDoc(USER, ICS_FEEDS, feedId));
+    }, async () => ({ notModified: true, etag: null, lastModified: null }));
+    try {
+      await call(handleRefreshFeed, request('POST', `/r/${feedId}`), feedId, deps);
+    } finally {
+      clearHook();
+    }
+    assert.equal((await getStorage().get<Record<string, unknown>>(userDoc(USER)))?.icsNextFetchAt, undefined,
+      'the scheduler index still points at a feed that is gone');
+  });
+});
+
+test('B2: an auto-accept already on its way when the feed is removed makes no commitment', async () => {
+  await withWorld(async (h) => {
+    h.bodies.set(FEED_URL, calendar([]));
+    const feedId = (await subscribe(h, { autoAcceptDeadlines: true })).body.feed.feedId as string;
+    h.bodies.set(FEED_URL, calendar([{ uid: 'essay', title: 'Essay due', dueInHours: 48 }]));
+    // After the fetch: the new row, the feed patch, then the accept.
+    const deps = afterFetchTransaction(h, 3, async () => {
+      await getStorage().delete(userSubDoc(USER, ICS_FEEDS, feedId));
+    });
+    try {
+      await call(handleRefreshFeed, request('POST', `/r/${feedId}`), feedId, deps);
+    } finally {
+      clearHook();
+    }
+    assert.deepEqual(await commitments(), [], 'a feed removed mid-refresh still auto-accepted');
+  });
+});
+
+test('F4: a refresh does not write a proposal back over an accept made while it was running', async () => {
+  await withWorld(async (h) => {
+    h.bodies.set(FEED_URL, calendar([{ uid: 'essay', title: 'Essay due', dueInHours: 48 }]));
+    const feedId = (await subscribe(h)).body.feed.feedId as string;
+    const essay = byTitle(await items(), 'Essay due');
+    h.bodies.set(FEED_URL, calendar([{ uid: 'essay', title: 'Essay due', dueInHours: 60, sequence: 1 }]));
+    // The first transaction after the fetch is this row's.
+    const deps = afterFetchTransaction(h, 1, async () => {
+      await getStorage().set(userSubDoc(USER, ICS_FEED_ITEMS, essay.itemKey), {
+        ...essay, state: 'accepted', commitmentId: 'accepted-meanwhile',
+      });
+    });
+    try {
+      await call(handleRefreshFeed, request('POST', `/r/${feedId}`), feedId, deps);
+    } finally {
+      clearHook();
+    }
+    const row = byTitle(await items(), 'Essay due');
+    assert.deepEqual([row.state, row.commitmentId, row.notice], ['accepted', 'accepted-meanwhile', 'moved']);
   });
 });
