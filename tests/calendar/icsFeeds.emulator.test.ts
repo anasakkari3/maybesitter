@@ -15,6 +15,7 @@ import { ICS_FEED_ITEMS, ICS_FEEDS, userCol, userDoc } from '../../lib/storage/p
 import { createInMemoryKms } from '../../lib/security/inMemoryKms.ts';
 import { KMS_KEY_ENV_VAR, decryptField, fieldPurpose, isEncryptedField } from '../../lib/security/fieldEncryption.ts';
 import { getParticipantStateSnapshot } from '../../lib/services/mobile/participantState.ts';
+import { applyTrustAction } from '../../lib/pilot/pilotTrustStore.ts';
 import {
   REFRESH_INTERVAL_MS,
   createIcsFeed,
@@ -56,6 +57,9 @@ test('firestore: subscribe, accept, sweep and unsubscribe round-trip', async () 
     fetch: async () => { fetches += 1; return { notModified: false as const, body: BODY, etag: null, lastModified: null }; },
   };
   try {
+    // Subscribing and refreshing need a live account with calendar consent.
+    await applyTrustAction(uid, { type: 'record_first_value', at: NOW.toISOString() });
+    await applyTrustAction(uid, { type: 'set_calendar_consent', granted: true, at: NOW.toISOString() });
     const created = await createIcsFeed(uid, { url: URL_, label: 'Moodle' }, deps);
     assert.deepEqual([created.preview.deadlines, created.preview.busyBlocks], [1, 1]);
     const feedId = created.feed.feedId;
