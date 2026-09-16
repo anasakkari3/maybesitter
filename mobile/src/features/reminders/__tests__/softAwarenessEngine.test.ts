@@ -469,6 +469,34 @@ describe('receipts for the server (#197 step 5, uploaded by #198)', () => {
 });
 
 describe('Must reminders and quiet hours', () => {
+  it('names the reminder on its receipt by its planned instant, not where quiet hours moved it', async () => {
+    const zone = 'Pacific/Chatham';
+    const minutesAt = (at: number) => withHermesIntl(() => {
+      const clock = wallClockIn(new Date(at), zone);
+      return clock.hour * 60 + clock.minute;
+    });
+    // A Must commitment at 07:07: its ring at 06:57 is inside 22:00–07:00 and
+    // moves to 07:00, still seven minutes ahead, so it is kept — deferred.
+    let start = NOW.getTime() + 2 * 3_600_000;
+    while (minutesAt(start) !== 7 * 60 + 7) start += 60_000;
+    const must: ReminderCommitment = {
+      id: 'm1', startsAt: new Date(start).toISOString(), status: 'active', priority: 'must',
+    };
+    const gateway = fakeGateway();
+    const report = await withHermesIntl(() => syncCommitments(input({
+      commitments: [must],
+      settings: RING,
+      quietHours: { start: '22:00', end: '07:00' },
+      timeZone: zone,
+    }), gateway));
+
+    expect(gateway.pending.get('m1:strong')).toBe(start - 7 * 60_000);
+    // The server indexes the reminder at start − 10 minutes (#198), so that is
+    // the instant the receipt has to name, or it is ignored as stale.
+    expect(report.hardReceipts.map(receipt => receipt.fireAt))
+      .toEqual([new Date(start - 10 * 60_000).toISOString()]);
+  });
+
   it('lets only the strong stage through when the user allowed it', () => {
     withHermesIntl(() => {
       const zone = 'Pacific/Chatham';

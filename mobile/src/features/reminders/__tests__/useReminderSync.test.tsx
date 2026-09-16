@@ -16,6 +16,7 @@ import * as reminderEndpoints from '../../../api/endpoints/reminders';
 import * as commitmentEndpoints from '../../../api/endpoints/commitments';
 import * as profileEndpoints from '../../../api/endpoints/profile';
 import type { AuthUser } from '../../../auth/types';
+import { hardReceiptStorageKey, loadHardReceipts } from '../hardReceiptQueue';
 import commitment from '../../../api/__fixtures__/commitments.one.json';
 import reminderSettings from '../../../api/__fixtures__/reminders.settingsSaved.json';
 
@@ -53,7 +54,16 @@ const FUTURE = new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString();
  */
 const SETTINGS_NO_QUIET = {
   ...reminderSettings,
-  reminderSettings: { ...reminderSettings.reminderSettings, quietHours: null },
+  // The gentlest ceiling, stated: the saved fixture's account answered the
+  // survey with `followUp`, and the moments below are about *whether* the
+  // engine runs, which one stage shows as clearly as three.
+  reminderSettings: {
+    ...reminderSettings.reminderSettings,
+    quietHours: null,
+    escalationCeiling: 'soft',
+    hardEnabled: false,
+    mustThroughQuietHours: false,
+  },
 };
 
 interface FakeGateway extends NotificationGateway {
@@ -88,17 +98,17 @@ let client: QueryClient;
 let repository: FakeAuthRepository;
 const savedFlag = process.env.EXPO_PUBLIC_FEATURE_SOFT_REMINDERS;
 
-function Harness({ gateway }: { gateway: NotificationGateway }) {
-  useReminderSync({ gateway });
+function Harness({ gateway, exactAlarms }: { gateway: NotificationGateway; exactAlarms: () => boolean }) {
+  useReminderSync({ gateway, exactAlarms });
   return null;
 }
 
-async function mount(gateway: NotificationGateway) {
+async function mount(gateway: NotificationGateway, exactAlarms: () => boolean = () => true) {
   return render(
     <AppProvider>
       <AuthProvider repository={repository} isDevBundle={false}>
         <QueryClientProvider client={client}>
-          <Harness gateway={gateway} />
+          <Harness gateway={gateway} exactAlarms={exactAlarms} />
         </QueryClientProvider>
       </AuthProvider>
     </AppProvider>,
@@ -123,6 +133,7 @@ afterEach(async () => {
   client.clear();
   resetAuthForTests();
   await AsyncStorage.removeItem(awarenessStorageKey(USER.uid));
+  await AsyncStorage.removeItem(hardReceiptStorageKey(USER.uid));
   if (savedFlag === undefined) delete process.env.EXPO_PUBLIC_FEATURE_SOFT_REMINDERS;
   else process.env.EXPO_PUBLIC_FEATURE_SOFT_REMINDERS = savedFlag;
   jest.restoreAllMocks();
@@ -231,5 +242,47 @@ describe('when the account changes', () => {
 
     await waitFor(() => expect(gateway.scheduled.length).toBe(1));
     expect(gateway.scheduled[0]?.identifier).toBe(`${commitment.id}:soft`);
+  });
+});
+
+describe('Must reminders on the device (#197)', () => {
+  const MUST_ITEM = {
+    ...commitment,
+    priority: { ...commitment.priority, level: 'high' },
+    timeSpec: { ...commitment.timeSpec, dueAt: FUTURE },
+  };
+  const RINGING = {
+    ...SETTINGS_NO_QUIET,
+    reminderSettings: { ...SETTINGS_NO_QUIET.reminderSettings, escalationCeiling: 'hard', hardEnabled: true },
+  };
+
+  it('schedules the ring and files its receipt under the account, with the exact-alarm answer', async () => {
+    jest.spyOn(reminderEndpoints, 'getReminderSettings').mockResolvedValue(RINGING as never);
+    jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [MUST_ITEM] } as never);
+    const gateway = fakeGateway();
+    const asked = jest.fn(() => false);
+    await mount(gateway, asked);
+
+    await waitFor(() => expect(gateway.scheduled.map(request => request.identifier))
+      .toContain(`${commitment.id}:strong`));
+    await waitFor(async () => {
+      const queue = await loadHardReceipts(USER.uid);
+      expect(queue.pending).toEqual([{
+        commitmentId: commitment.id,
+        notificationId: `${commitment.id}:strong`,
+        fireAt: new Date(Date.parse(FUTURE) - 10 * 60_000).toISOString(),
+        exact: false,
+      }]);
+    });
+    expect(asked).toHaveBeenCalled();
+  });
+
+  it('does not ring a Must commitment for an account that has not opted in', async () => {
+    jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [MUST_ITEM] } as never);
+    const gateway = fakeGateway();
+    await mount(gateway);
+    await waitFor(() => expect(gateway.scheduled.length).toBeGreaterThan(0));
+    expect(gateway.scheduled.map(request => request.identifier)).not.toContain(`${commitment.id}:strong`);
+    expect((await loadHardReceipts(USER.uid)).pending).toEqual([]);
   });
 });

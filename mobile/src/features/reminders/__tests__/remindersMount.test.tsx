@@ -19,6 +19,7 @@ import * as messaging from '@react-native-firebase/messaging';
 import * as notifications from 'expo-notifications';
 import { resetInstallationIdForTests } from '../../../lib/installationId';
 import { awarenessStorageKey, parseAwarenessCache } from '../../../lib/deviceSettings/awarenessStore';
+import { hardReceiptStorageKey } from '../hardReceiptQueue';
 import type { AuthUser } from '../../../auth/types';
 import commitment from '../../../api/__fixtures__/commitments.one.json';
 import reminderSettings from '../../../api/__fixtures__/reminders.settingsSaved.json';
@@ -230,6 +231,25 @@ describe('signing out, by every route a session can end', () => {
 
     await waitFor(async () => {
       expect(await AsyncStorage.getItem(awarenessStorageKey(USER.uid))).toBeNull();
+    });
+  });
+
+  it('forgets this account s Must-reminder receipts however the session ended (#197)', async () => {
+    const view = await mount();
+    await waitFor(() => expect(commitmentEndpoints.listToday).toHaveBeenCalled());
+    // A receipt silences the server's backup push. Left on a phone that
+    // changes hands, it would speak for an account that is no longer here.
+    await AsyncStorage.setItem(
+      hardReceiptStorageKey(USER.uid),
+      JSON.stringify({ version: 1, pending: [], sent: {} }),
+    );
+
+    await act(async () => {
+      view.getByTestId('sign-out-expired').props.onPress();
+    });
+
+    await waitFor(async () => {
+      expect(await AsyncStorage.getItem(hardReceiptStorageKey(USER.uid))).toBeNull();
     });
   });
 });

@@ -279,13 +279,15 @@ export async function syncCommitments(
    * later), and the queue drops one that is identical to what was last
    * uploaded, so re-reporting it costs nothing.
    *
-   * Only requests this run scheduled or confirmed at the right instant: a
-   * receipt is a claim that the phone *will* ring, and it is what makes the
-   * server stand down.
+   * Built from `desired`, which is exactly what this run left pending: every
+   * entry in it was either kept at its instant or scheduled above, and nothing
+   * cut by the cap or dropped for quiet hours is in it. A receipt is a claim
+   * that the phone *will* ring, and it is what makes the server stand down.
+   * (A second filter against `scheduled`/`kept` used to sit here; no input
+   * could make it remove anything, so it was a guard that could not fail.)
    */
-  const pendingNow = new Set([...scheduled, ...kept]);
   const hardReceipts: HardReceipt[] = desired
-    .filter(request => request.stage === 'strong' && pendingNow.has(request.identifier))
+    .filter(request => request.stage === 'strong')
     .map(request => ({
       commitmentId: request.commitmentId,
       notificationId: request.identifier,

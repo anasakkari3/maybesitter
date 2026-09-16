@@ -403,26 +403,56 @@ test('a wrong type or an unknown ceiling is refused, not coerced', async () => {
   }
 });
 
+async function storeReminderSettings(value: Record<string, unknown>): Promise<void> {
+  // Merged, not set: a `set` on the user document would also remove the
+  // routine profile the survey stored, and the legacy mapping would then have
+  // nothing to fall back to — which is how the first version of this test
+  // passed against the mutation it was written for.
+  await getStorage().runTransaction(async (tx) => {
+    await tx.get(userDoc(USER));
+    tx.merge(userDoc(USER), { reminderSettings: value });
+  });
+}
+
 test('a stored ceiling that is present but unreadable is the gentlest one, never the survey s louder answer', async () => {
   const teardown = setup();
   try {
     await surveyWith('strongReminder');
-    await getStorage().set(userDoc(USER), {
-      reminderSettings: {
+    await storeReminderSettings({
+      softEnabled: true,
+      softLeadMinutes: 60,
+      hardEnabled: true,
+      escalationCeiling: 'maximum',
+      updatedAt: '2026-09-10T00:00:00.000Z',
+    });
+    // The survey still says strong, so an unreadable ceiling that read as
+    // *absent* would come back `hard`.
+    assert.equal((await readRoutineProfile(USER))?.preferredReminderIntensity, 'strongReminder');
+    assert.equal((await hardHalf()).escalationCeiling, 'soft');
+  } finally {
+    teardown();
+  }
+});
+
+test('an opt-in stored as anything but a boolean is not an opt-in', async () => {
+  const teardown = setup();
+  try {
+    await surveyWith('softAwareness');
+    for (const hardEnabled of ['true', 1, 'yes', {}]) {
+      await storeReminderSettings({
         softEnabled: true,
         softLeadMinutes: 60,
-        hardEnabled: 'true',
-        escalationCeiling: 'maximum',
+        hardEnabled,
+        escalationCeiling: 'hard',
         mustThroughQuietHours: 'yes',
         updatedAt: '2026-09-10T00:00:00.000Z',
-      },
-    });
-    const half = await hardHalf();
-    // `hardEnabled: 'true'` is not a boolean, so it reads as absent and the
-    // survey's answer applies — but the ceiling is present, so it is `soft`,
-    // and a Must reminder needs both. Nothing here can ring.
-    assert.equal(half.escalationCeiling, 'soft');
-    assert.equal(half.mustThroughQuietHours, false);
+      });
+      assert.deepEqual(
+        await hardHalf(),
+        { hardEnabled: false, escalationCeiling: 'hard', mustThroughQuietHours: false },
+        `read ${JSON.stringify(hardEnabled)} as an opt-in`,
+      );
+    }
   } finally {
     teardown();
   }

@@ -92,14 +92,13 @@ export const PUSH_DATA_KEYS: readonly string[] = [
  * a channel `mobile/src/notifications/channels.ts` actually creates, and
  * `tests/push/pushService.test.ts` reads that file to check it.
  *
- * `hard_reminder` therefore points at `maybesitter_general` today. UC-3.12a
- * (#197) adds `maybesitter_must` at HIGH importance — channel importance is
- * fixed once created, which is why it needs a channel of its own rather than a
- * change to one of these — and moving this row is part of that issue.
+ * `hard_reminder` lands on `maybesitter_hard`, the HIGH-importance channel with
+ * alarm audio that UC-3.12a (#197) creates — a channel of its own, because a
+ * channel's importance is fixed once it exists.
  */
 export const CHANNEL_FOR: Readonly<Record<PushKind, string>> = Object.freeze({
   plan_ready: 'maybesitter_general',
-  hard_reminder: 'maybesitter_general',
+  hard_reminder: 'maybesitter_hard',
 });
 
 /**
@@ -111,7 +110,9 @@ export const CHANNEL_FOR: Readonly<Record<PushKind, string>> = Object.freeze({
  */
 export const CATEGORY_FOR: Readonly<Record<PushKind, string>> = Object.freeze({
   plan_ready: 'com.maybesitter.notification.category.plan',
-  hard_reminder: 'com.maybesitter.notification.category.awareness',
+  // The Must reminder's own category, registered by the app in #197 and given
+  // its buttons by #200 — the same id a locally scheduled Must reminder uses.
+  hard_reminder: 'com.maybesitter.notification.category.hard',
 });
 
 /**

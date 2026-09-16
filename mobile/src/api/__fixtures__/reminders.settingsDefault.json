@@ -3,6 +3,9 @@
   "reminderSettings": {
     "softEnabled": true,
     "softLeadMinutes": 60,
+    "hardEnabled": false,
+    "escalationCeiling": "followUp",
+    "mustThroughQuietHours": false,
     "quietHours": {
       "start": "22:30",
       "end": "07:30",
