@@ -9,16 +9,6 @@ import type { ReadinessSnapshot } from '../../../../../src/contracts/v1/readines
 
 export const dynamic = 'force-dynamic';
 
-async function mobileUser(
-  request: Request,
-): Promise<{ readonly user: Awaited<ReturnType<typeof requireMobileUser>> } | { readonly response: Response }> {
-  try {
-    return { user: await requireMobileUser(request) } as const;
-  } catch (error) {
-    return { response: mobileAuthErrorResponse(error) } as const;
-  }
-}
-
 async function bodyOf(request: Request): Promise<unknown> {
   try {
     return await request.json();
@@ -34,11 +24,15 @@ function record(value: unknown): Record<string, unknown> | null {
 }
 
 export async function GET(request: Request): Promise<Response> {
-  const auth = await mobileUser(request);
-  if ('response' in auth) return auth.response;
+  let user;
+  try {
+    user = await requireMobileUser(request);
+  } catch (error) {
+    return mobileAuthErrorResponse(error);
+  }
   try {
     const current = await composeCurrentUserState({
-      uid: auth.user.uid,
+      uid: user.uid,
       now: new Date().toISOString(),
     });
     return Response.json({
@@ -53,12 +47,16 @@ export async function GET(request: Request): Promise<Response> {
 
 /** Saves an explicit energy check-in. The authenticated account is the only scope. */
 export async function PUT(request: Request): Promise<Response> {
-  const auth = await mobileUser(request);
-  if ('response' in auth) return auth.response;
+  let user;
+  try {
+    user = await requireMobileUser(request);
+  } catch (error) {
+    return mobileAuthErrorResponse(error);
+  }
   const body = record(await bodyOf(request));
   if (!body) return mobileError('Invalid JSON request body');
   try {
-    const result = await saveSubjectiveEnergyCheckIn(auth.user.uid, {
+    const result = await saveSubjectiveEnergyCheckIn(user.uid, {
       energy: body.energy as 1 | 2 | 3 | 4 | 5,
       observedAt: body.observedAt as string,
     });
@@ -73,8 +71,12 @@ export async function PUT(request: Request): Promise<Response> {
 
 /** Saves a privacy-minimized native health summary, never a raw provider payload. */
 export async function POST(request: Request): Promise<Response> {
-  const auth = await mobileUser(request);
-  if ('response' in auth) return auth.response;
+  let user;
+  try {
+    user = await requireMobileUser(request);
+  } catch (error) {
+    return mobileAuthErrorResponse(error);
+  }
   const body = record(await bodyOf(request));
   const snapshot = record(body?.snapshot);
   if (!snapshot) return mobileError('Invalid JSON request body');
@@ -86,9 +88,9 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
   try {
-    const result = await saveNormalizedReadinessSnapshot(auth.user.uid, {
+    const result = await saveNormalizedReadinessSnapshot(user.uid, {
       ...snapshot,
-      scopeId: auth.user.uid,
+      scopeId: user.uid,
     } as unknown as ReadinessSnapshot);
     return Response.json({ success: true, result });
   } catch (error) {
