@@ -15,13 +15,19 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {
+  TRAVEL_PLANNING_POLICY,
+  projectTravelIntoPlanningConstraints,
+} from '../../lib/planning/constraints/travel.ts';
 
 import type {
   FixedEvent,
   PlanningConfig,
+  PlanningConstraints,
   PlanningHorizon,
   WorkingWindow,
 } from '../../src/contracts/v1/planningContracts.ts';
+import { schedulePlan } from '../../lib/planning/scheduler/index.ts';
 import {
   freeRunsWithin,
   isKnownTimeZone,
@@ -396,4 +402,91 @@ test('isKnownTimeZone answers the same way twice, memo or no memo', () => {
     assert.equal(isKnownTimeZone(zone), false, zone);
     assert.equal(isKnownTimeZone(zone), false, `${zone} on the second call`);
   }
+});
+
+function travelConstraints(): PlanningConstraints {
+  return {
+    scopeId: 'scope-travel',
+    timezone: 'UTC',
+    horizon: { startsAt: '2026-09-16T08:00:00.000Z', endsAt: '2026-09-16T14:00:00.000Z' },
+    workingWindows: [{ windowId: 'work', weekday: 3, startMinute: 8 * 60, endMinute: 14 * 60, timezone: 'UTC' }],
+    fixedEvents: [{
+      eventId: 'appointment',
+      interval: { startsAt: '2026-09-16T11:00:00.000Z', endsAt: '2026-09-16T12:00:00.000Z' },
+      sourceCommitmentId: 'commitment-1',
+      blocking: true,
+    }],
+    items: [{
+      itemId: 'task', title: 'Prepare the brief', effort: { kind: 'known', minutes: 90 },
+      earliestStartAt: '2026-09-16T09:00:00.000Z', deadlineAt: null, priority: 10,
+      dependsOn: [], bufferBeforeMinutes: 0, bufferAfterMinutes: 0,
+    }],
+  };
+}
+
+const freshTravel = {
+  targetEventId: 'appointment',
+  targetStartsAt: '2026-09-16T11:00:00.000Z',
+  travelMinutes: 30,
+  preparationMinutes: 15,
+  estimatedAt: '2026-09-16T08:30:00.000Z',
+  originRef: 'place-home',
+  destinationRef: 'place-clinic',
+} as const;
+
+test('fresh travel context reserves preparation and travel before the canonical fixed event', () => {
+  const projected = projectTravelIntoPlanningConstraints(
+    travelConstraints(), [freshTravel], '2026-09-16T09:00:00.000Z',
+  );
+
+  assert.equal(projected.applications[0]?.departureAt, '2026-09-16T10:15:00.000Z');
+  assert.equal(projected.applications[0]?.reservedMinutes, 45);
+  assert.deepEqual(projected.constraints.fixedEvents.find((event) => event.eventId === 'travel:appointment'), {
+    eventId: 'travel:appointment',
+    interval: { startsAt: '2026-09-16T10:15:00.000Z', endsAt: '2026-09-16T11:00:00.000Z' },
+    sourceCommitmentId: 'commitment-1',
+    blocking: true,
+  });
+});
+
+test('the existing canonical scheduler honors the projected departure block', () => {
+  const projected = projectTravelIntoPlanningConstraints(
+    travelConstraints(), [freshTravel], '2026-09-16T09:00:00.000Z',
+  );
+  const plan = schedulePlan(projected.constraints, CONFIG);
+  const placement = plan.scheduled.find((entry) => entry.itemId === 'task');
+
+  assert.ok(placement);
+  assert.equal(
+    placement.interval.endsAt <= '2026-09-16T10:15:00.000Z'
+      || placement.interval.startsAt >= '2026-09-16T12:00:00.000Z',
+    true,
+  );
+  assert.equal(TRAVEL_PLANNING_POLICY.createsSecondScheduler, false);
+});
+
+test('stale or missing location evidence never creates automatic travel assumptions', () => {
+  const constraints = travelConstraints();
+  const stale = projectTravelIntoPlanningConstraints(constraints, [{
+    ...freshTravel, estimatedAt: '2026-09-15T08:00:00.000Z',
+  }], '2026-09-16T09:00:00.000Z');
+  const missing = projectTravelIntoPlanningConstraints(constraints, [{
+    ...freshTravel, originRef: null,
+  }], '2026-09-16T09:00:00.000Z');
+
+  assert.strictEqual(stale.constraints, constraints);
+  assert.equal(stale.applications[0]?.reason, 'stale_estimate');
+  assert.strictEqual(missing.constraints, constraints);
+  assert.equal(missing.applications[0]?.reason, 'missing_location');
+  assert.equal(TRAVEL_PLANNING_POLICY.staleOrMissingLocationCreatesAssumption, false);
+});
+
+test('travel projection is idempotent for a target event', () => {
+  const first = projectTravelIntoPlanningConstraints(
+    travelConstraints(), [freshTravel], '2026-09-16T09:00:00.000Z',
+  );
+  const second = projectTravelIntoPlanningConstraints(
+    first.constraints, [freshTravel], '2026-09-16T09:00:00.000Z',
+  );
+  assert.equal(second.constraints.fixedEvents.filter((event) => event.eventId === 'travel:appointment').length, 1);
 });
