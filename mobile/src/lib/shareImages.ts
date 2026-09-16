@@ -86,11 +86,12 @@ export const sharedImageCodec: ImageCodecPort = {
     return {
       width: image.width,
       height: image.height,
-      async encodeJpeg(size: ImageSize | null, quality: number): Promise<string> {
-        if (size === null) return (await image.saveAsync({ format: SaveFormat.JPEG, compress: quality })).uri;
+      async encode(size: ImageSize | null, format: 'jpeg' | 'png', quality: number): Promise<string> {
+        const options = format === 'png' ? { format: SaveFormat.PNG } : { format: SaveFormat.JPEG, compress: quality };
+        if (size === null) return (await image.saveAsync(options)).uri;
         const resized = await render(ImageManipulator.manipulate(image).resize({ width: size.width, height: size.height }));
         try {
-          return (await resized.saveAsync({ format: SaveFormat.JPEG, compress: quality })).uri;
+          return (await resized.saveAsync(options)).uri;
         } finally {
           resized.release();
         }

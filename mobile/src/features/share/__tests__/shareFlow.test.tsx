@@ -147,8 +147,8 @@ const mockManipulator: { saves: { width: number; height: number; compress: numbe
 };
 
 /** Read when a save happens, never while the mock factory is hoisted. */
-function mockEncoderOutput(): Uint8Array {
-  return stripCaseBytes('encoder_exif_gps_thumbnail_icc');
+function mockEncoderOutput(png: boolean): Uint8Array {
+  return stripCaseBytes(png ? 'poster_he' : 'encoder_exif_gps_thumbnail_icc');
 }
 
 jest.mock('expo-image-manipulator', () => {
@@ -160,11 +160,12 @@ jest.mock('expo-image-manipulator', () => {
     width,
     height,
     release: () => {},
-    saveAsync: async (options: { compress?: number }) => {
-      const uri = `file:///cache/ImageManipulator/${mockManipulator.saves.length}.jpg`;
+    saveAsync: async (options: { compress?: number; format?: string }) => {
+      const png = options.format === 'png';
+      const uri = `file:///cache/ImageManipulator/${mockManipulator.saves.length}.${png ? 'png' : 'jpg'}`;
       mockManipulator.saves.push({ width, height, compress: options.compress });
       mockFiles.add(uri);
-      mockFileBytes.set(uri, mockEncoderOutput());
+      mockFileBytes.set(uri, mockEncoderOutput(png));
       return { uri, width, height };
     },
   });

@@ -459,8 +459,11 @@ export interface DecodedImage {
   /** Pixels, after the platform applied the photo's orientation. */
   readonly width: number;
   readonly height: number;
-  /** Writes this picture as a JPEG at `size` (null: as decoded) and returns the file's uri. */
-  encodeJpeg(size: ImageSize | null, quality: number): Promise<string>;
+  /**
+   * Writes this picture at `size` (null: as decoded) and returns the file's uri.
+   * `quality` is ignored for PNG.
+   */
+  encode(size: ImageSize | null, format: 'jpeg' | 'png', quality: number): Promise<string>;
   /** Lets the native bitmap go. Called exactly once per decode. */
   release(): void;
 }
@@ -472,6 +475,11 @@ export interface ImageCodecPort {
 export interface ImagePorts {
   readonly bytes: ImageBytesPort;
   readonly codec: ImageCodecPort;
+  /**
+   * The stripper. Always `stripImageMetadata` in the app; a test hands in one
+   * that lies, to prove the post-check behind it is what stops the upload.
+   */
+  readonly strip?: (bytes: Uint8Array, mimeType: string) => ImageStripResult;
 }
 
 /**
@@ -507,6 +515,150 @@ export const ENCODE_ATTEMPTS: readonly { readonly longEdge: number; readonly qua
   { longEdge: 1600, quality: 0.6 },
   { longEdge: 1600, quality: 0.5 },
 ];
+
+/**
+ * The encodes tried for a picture with transparency: PNG, never JPEG (#404 review).
+ *
+ * JPEG has no alpha. iOS's encoder puts a transparent area on white, but
+ * Android's `Bitmap.compress(JPEG)` puts it on black — so dark text on a
+ * transparent flyer would upload as black on black. A picture that may be
+ * transparent stays PNG, is stripped as a PNG, and past the 1600 px floor is
+ * refused as too large rather than sent as a JPEG nobody can read.
+ */
+export const PNG_ATTEMPTS: readonly { readonly longEdge: number }[] = [
+  { longEdge: 2048 },
+  { longEdge: 1600 },
+];
+
+/**
+ * The most pixels a shared picture may have before it is decoded (#404 review).
+ *
+ * The manipulator decodes at full resolution before resizing: 4 bytes a pixel,
+ * so 50 MP is ~200 MB, and a 200 MP phone photo or a PNG "bomb" of a few
+ * kilobytes would be the gigabyte that kills the app. A 48 MP iPhone photo
+ * (8064 × 6048) is under it. Checked from the file's header, before decoding.
+ */
+export const MAX_DECODE_PIXELS = 50_000_000;
+
+/** What a shared picture's header says, read without decoding it. */
+export interface ImageHeader {
+  readonly width: number;
+  readonly height: number;
+  /** Whether the container can carry transparency for this picture. */
+  readonly hasAlpha: boolean;
+}
+
+function be16At(bytes: Uint8Array, at: number): number {
+  return (bytes[at]! << 8) | bytes[at + 1]!;
+}
+
+function le24At(bytes: Uint8Array, at: number): number {
+  return bytes[at]! | (bytes[at + 1]! << 8) | (bytes[at + 2]! << 16);
+}
+
+function sized(width: number, height: number, hasAlpha: boolean): ImageHeader | null {
+  return width > 0 && height > 0 ? { width, height, hasAlpha } : null;
+}
+
+function jpegHeader(bytes: Uint8Array): ImageHeader | null {
+  let at = 2;
+  while (at + 3 < bytes.length) {
+    if (bytes[at] !== 0xff) return null;
+    let marker = at + 1;
+    while (marker < bytes.length && bytes[marker] === 0xff) marker += 1;
+    const code = bytes[marker];
+    if (code === undefined || marker + 2 >= bytes.length) return null;
+    const length = be16At(bytes, marker + 1);
+    if (length < 2) return null;
+    // `SOFn`: precision, then height, then width.
+    if (code >= 0xc0 && code <= 0xcf && code !== 0xc4 && code !== 0xc8 && code !== 0xcc) {
+      if (marker + 8 >= bytes.length) return null;
+      return sized(be16At(bytes, marker + 6), be16At(bytes, marker + 4), false);
+    }
+    if (!isJpegMetadata(code) && !isJpegPictureSegment(code)) return null;
+    at = marker + 1 + length;
+  }
+  return null;
+}
+
+function pngHeader(bytes: Uint8Array): ImageHeader | null {
+  if (bytes.length < 33 || tag(bytes, 12) !== 'IHDR') return null;
+  for (let index = 0; index < PNG_SIGNATURE.length; index += 1) {
+    if (bytes[index] !== PNG_SIGNATURE[index]) return null;
+  }
+  const width = readUint32(bytes, 16);
+  const height = readUint32(bytes, 20);
+  const colorType = bytes[25]!;
+  // Colour types 4 and 6 carry an alpha channel; any other type is transparent
+  // only if a `tRNS` chunk comes before the pixels.
+  let hasAlpha = colorType === 4 || colorType === 6;
+  let at = 8;
+  while (!hasAlpha && at + 8 <= bytes.length) {
+    const type = tag(bytes, at + 4);
+    if (type === 'IDAT' || type === 'IEND') break;
+    if (type === 'tRNS') hasAlpha = true;
+    at += 12 + readUint32(bytes, at);
+  }
+  return sized(width, height, hasAlpha);
+}
+
+function webpHeader(bytes: Uint8Array): ImageHeader | null {
+  if (bytes.length < 25 || tag(bytes, 0) !== 'RIFF' || tag(bytes, 8) !== 'WEBP') return null;
+  const first = tag(bytes, 12);
+  if (first === 'VP8X' && bytes.length >= 30) {
+    return sized(1 + le24At(bytes, 24), 1 + le24At(bytes, 27), (bytes[20]! & 0x10) !== 0);
+  }
+  if (first === 'VP8L' && bytes[20] === 0x2f) {
+    const bits = readUint32LE(bytes, 21);
+    return sized((bits & 0x3fff) + 1, ((bits >>> 14) & 0x3fff) + 1, ((bits >>> 28) & 1) === 1);
+  }
+  if (first === 'VP8 ' && bytes.length >= 30 && bytes[23] === 0x9d && bytes[24] === 0x01 && bytes[25] === 0x2a) {
+    return sized((bytes[26]! | (bytes[27]! << 8)) & 0x3fff, (bytes[28]! | (bytes[29]! << 8)) & 0x3fff, false);
+  }
+  return null;
+}
+
+/**
+ * HEIF: the largest `ispe` (image spatial extent) property inside the top-level
+ * `meta` box. The primary image of a grid carries the full size; tiles and the
+ * thumbnail carry smaller ones. Only `meta` is searched — compressed pixels in
+ * `mdat` can spell anything.
+ */
+function heifHeader(bytes: Uint8Array): ImageHeader | null {
+  let at = 0;
+  while (at + 8 <= bytes.length) {
+    let size = readUint32(bytes, at);
+    const type = tag(bytes, at + 4);
+    if (size === 1) return null; // A 64-bit box before `meta` is not a layout a phone writes.
+    if (size === 0) size = bytes.length - at;
+    if (size < 8 || at + size > bytes.length) return null;
+    if (type === 'meta') {
+      let width = 0;
+      let height = 0;
+      for (let index = at + 12; index + 16 <= at + size; index += 1) {
+        if (bytes[index] !== 0x69 || tag(bytes, index) !== 'ispe') continue;
+        const w = readUint32(bytes, index + 8);
+        const h = readUint32(bytes, index + 12);
+        if (w * h > width * height) {
+          width = w;
+          height = h;
+        }
+      }
+      return sized(width, height, false);
+    }
+    at += size;
+  }
+  return null;
+}
+
+/** A shared picture's size and transparency, from its bytes rather than its declared type. */
+export function imageHeader(bytes: Uint8Array): ImageHeader | null {
+  if (bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8) return jpegHeader(bytes);
+  if (bytes.length >= 8 && bytes[0] === 0x89 && tag(bytes, 1) === 'PNG\r') return pngHeader(bytes);
+  if (tag(bytes, 0) === 'RIFF') return webpHeader(bytes);
+  if (tag(bytes, 4) === 'ftyp') return heifHeader(bytes);
+  return null;
+}
 
 /** The size to encode at so the long edge is at most `longEdge`, or null to keep it. Never larger. */
 export function targetSize(width: number, height: number, longEdge: number): ImageSize | null {
@@ -546,18 +698,33 @@ export type PrepareImagesResult =
 /** What a share may carry as a picture. Anything else is refused before it is decoded. */
 const ACCEPTED_IMAGE_TYPES: ReadonlySet<string> = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic']);
 
-/** "IMG_2024.HEIC" → "IMG_2024.jpg": the upload is a JPEG and its name says so. */
-function jpegName(fileName: string): string {
+/** "IMG_2024.HEIC" → "IMG_2024.jpg": the upload's name says what it now is. */
+function renamed(fileName: string, extension: string): string {
   const dot = fileName.lastIndexOf('.');
-  return `${dot > 0 ? fileName.slice(0, dot) : fileName}.jpg`;
+  return `${dot > 0 ? fileName.slice(0, dot) : fileName}.${extension}`;
 }
 
 type Encoded =
-  | { readonly ok: true; readonly bytes: Uint8Array }
+  | { readonly ok: true; readonly bytes: Uint8Array; readonly format: 'jpeg' | 'png' }
   | { readonly ok: false; readonly problem: PrepareImagesProblem };
 
-/** Decode once, then encode down the ladder until one fits. Every file written goes into `created`. */
+/** Header check, decode once, then encode down the ladder until one fits. Every file written goes into `created`. */
 async function encodeWithinBudget(file: SharedFile, ports: ImagePorts, created: string[]): Promise<Encoded> {
+  let header: ImageHeader | null;
+  try {
+    header = imageHeader(ports.bytes.read(file.uri));
+  } catch {
+    return { ok: false, problem: 'unreadable_image' };
+  }
+  // Refused before a decode: a header this cannot read, or a picture too big to
+  // decode safely. The user is told to share a screenshot, which is neither.
+  if (header === null || header.width * header.height > MAX_DECODE_PIXELS) {
+    return { ok: false, problem: 'unreadable_image' };
+  }
+  const ladder: readonly { longEdge: number; format: 'jpeg' | 'png'; quality: number }[] = header.hasAlpha
+    ? PNG_ATTEMPTS.map((attempt) => ({ longEdge: attempt.longEdge, format: 'png' as const, quality: 1 }))
+    : ENCODE_ATTEMPTS.map((attempt) => ({ ...attempt, format: 'jpeg' as const }));
+
   let decoded: DecodedImage;
   try {
     decoded = await ports.codec.decode(file.uri);
@@ -567,11 +734,12 @@ async function encodeWithinBudget(file: SharedFile, ports: ImagePorts, created: 
   }
   try {
     if (!(decoded.width > 0) || !(decoded.height > 0)) return { ok: false, problem: 'unreadable_image' };
-    for (const attempt of ENCODE_ATTEMPTS) {
-      const uri = await decoded.encodeJpeg(targetSize(decoded.width, decoded.height, attempt.longEdge), attempt.quality);
+    for (const attempt of ladder) {
+      const size = targetSize(decoded.width, decoded.height, attempt.longEdge);
+      const uri = await decoded.encode(size, attempt.format, attempt.quality);
       created.push(uri);
       const bytes = ports.bytes.read(uri);
-      if (bytes.byteLength <= UPLOAD_IMAGE.maxBytes) return { ok: true, bytes };
+      if (bytes.byteLength <= UPLOAD_IMAGE.maxBytes) return { ok: true, bytes, format: attempt.format };
     }
     return { ok: false, problem: 'file_too_large' };
   } catch {
@@ -615,16 +783,19 @@ export async function prepareImages(files: readonly SharedFile[], ports: ImagePo
     const encoded = await encodeWithinBudget(file, ports, created);
     if (!encoded.ok) return { ok: false, problem: encoded.problem, created };
 
-    const stripped = stripImageMetadata(encoded.bytes, 'image/jpeg');
-    // Fail closed. An encoder output this could not account for byte by byte is
-    // one whose EXIF it cannot promise it removed.
-    if (!stripped.ok || metadataSegmentsIn(stripped.bytes, 'image/jpeg').length > 0) {
+    const mimeType = encoded.format === 'png' ? 'image/png' : 'image/jpeg';
+    const extension = encoded.format === 'png' ? 'png' : 'jpg';
+    const stripped = (ports.strip ?? stripImageMetadata)(encoded.bytes, mimeType);
+    // Fail closed, and checked by a second walk that reports anything it cannot
+    // follow as unparsed. An encoder output this could not account for byte by
+    // byte is one whose EXIF it cannot promise it removed.
+    if (!stripped.ok || metadataSegmentsIn(stripped.bytes, mimeType).length > 0) {
       return { ok: false, problem: 'unreadable_image', created };
     }
 
     let uri: string;
     try {
-      uri = ports.bytes.write(stripped.bytes, 'jpg');
+      uri = ports.bytes.write(stripped.bytes, extension);
     } catch {
       return { ok: false, problem: 'unreadable_image', created };
     }
@@ -634,8 +805,8 @@ export async function prepareImages(files: readonly SharedFile[], ports: ImagePo
     prepared.push({
       ...file,
       uri,
-      mimeType: 'image/jpeg',
-      fileName: jpegName(file.fileName),
+      mimeType,
+      fileName: renamed(file.fileName, extension),
       // The size the server will actually receive, so a preview and a limit
       // are both talking about the bytes that exist.
       sizeBytes: stripped.bytes.byteLength,
