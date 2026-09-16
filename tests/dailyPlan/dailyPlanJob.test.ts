@@ -34,6 +34,7 @@ import {
   buildAndStoreDailyPlan,
   claimDueDelivery,
   claimDueDeliveryOutcome,
+  composeDailyPlan,
   listDueAccounts,
   runDailyPlanTick,
   savePlanSettings,
@@ -47,6 +48,15 @@ import { toEpochMs } from '../../lib/planning/shared/time.ts';
 import { persistParticipantState } from '../../lib/services/mobile/participantState.ts';
 import { applyCommand as applyDomainCommand, createEmptyDomainState } from '../../src/domain/stateMachine.ts';
 import type { DomainState } from '../../src/domain/stateMachine.ts';
+import {
+  READINESS_CONTRACT_VERSION,
+  READINESS_SCHEMA_VERSION,
+  type ReadinessSnapshot,
+} from '../../src/contracts/v1/readinessContracts.ts';
+import {
+  saveNormalizedReadinessSnapshot,
+  saveSubjectiveEnergyCheckIn,
+} from '../../lib/userState/userStateService.ts';
 
 const TZ = 'Asia/Jerusalem';
 const SA = 'maybesitter-scheduler@example-project.iam.gserviceaccount.com';
@@ -58,6 +68,34 @@ const SCHEDULER: OidcPayload = { email: SA, email_verified: true, aud: AUDIENCE,
 const MORNING = new Date('2026-09-15T06:00:00.000Z');
 /** 04:00 UTC is 07:00 local: before the 07:30 delivery. */
 const TOO_EARLY = new Date('2026-09-15T04:00:00.000Z');
+
+function lowReadiness(uid: string, computedAt = '2026-09-15T05:00:00.000Z'): ReadinessSnapshot {
+  return {
+    version: READINESS_CONTRACT_VERSION,
+    schemaVersion: READINESS_SCHEMA_VERSION,
+    scopeId: uid,
+    computedAt,
+    windowStart: '2026-09-14T20:00:00.000Z',
+    windowEnd: computedAt,
+    band: 'low',
+    score: 0.2,
+    normalizedSignals: { restingHeartRate: 61, hrv: 42 },
+    subjective: null,
+    derived: { readinessBand: 'low', confidence: 0.8 },
+    signals: [{
+      signalId: 'healthkit-summary',
+      source: { kind: 'healthkit' },
+      metric: 'recovery',
+      observedAt: computedAt,
+      normalizedScore: 0.2,
+      nativeValue: 42,
+      nativeUnit: 'milliseconds',
+      confidence: 0.8,
+    }],
+    sourceKinds: ['healthkit'],
+    missingSourceKinds: ['health_connect', 'whoop', 'subjective'],
+  };
+}
 
 function bearer(token: string | null) {
   return { headers: { get: (name: string) => (name.toLowerCase() === 'authorization' ? token : null) } };
@@ -563,6 +601,88 @@ test('a profile timezone change moves the delivery without the user touching the
 
     const stored = await readStoredPlan('user_moved_1', '2026-09-15', storage);
     assert.equal(stored!.timezone, 'America/New_York', 'the plan was built against the zone they left');
+  });
+});
+
+/* ── Production UserState readiness projection ──────────────────── */
+
+test('current subjective energy outranks wearable readiness in the canonical planner', async () => {
+  await withStorage(async (storage) => {
+    const uid = 'user_readiness_precedence';
+    await seed(storage, uid, { titles: ['Write the summary'] });
+    assert.equal(await saveNormalizedReadinessSnapshot(uid, lowReadiness(uid), {
+      storage,
+      now: MORNING.toISOString(),
+    }), 'stored');
+
+    const wearablePlan = await composeDailyPlan(uid, '2026-09-15', { timezone: TZ }, 1, {
+      storage,
+      now: () => MORNING,
+    });
+    assert.ok(wearablePlan.constraints.items.length > 0);
+    assert.ok(wearablePlan.constraints.items.every((item) => item.bufferAfterMinutes === 15));
+
+    assert.equal(await saveSubjectiveEnergyCheckIn(uid, {
+      energy: 5,
+      observedAt: '2026-09-15T05:30:00.000Z',
+    }, { storage, now: MORNING.toISOString() }), 'stored');
+    const userPlan = await composeDailyPlan(uid, '2026-09-15', { timezone: TZ }, 2, {
+      storage,
+      now: () => MORNING,
+    });
+    assert.ok(userPlan.constraints.items.every((item) => item.bufferAfterMinutes === 0));
+
+    const user = await storage.get<Record<string, unknown>>(userDoc(uid));
+    const context = user!.readinessContext as { recentReadiness: ReadinessSnapshot };
+    assert.deepEqual(context.recentReadiness.normalizedSignals, {}, 'raw normalized health measurements were persisted');
+    assert.ok(context.recentReadiness.signals.every((signal) => signal.nativeValue === null));
+    assert.equal(Object.prototype.hasOwnProperty.call(user!, 'userState'), false, 'a projection was persisted as a second state system');
+  });
+});
+
+test('a stale subjective statement cannot override a recent readiness snapshot', async () => {
+  await withStorage(async (storage) => {
+    const uid = 'user_readiness_stale_subjective';
+    await seed(storage, uid, { titles: ['Prepare the brief'] });
+    await saveNormalizedReadinessSnapshot(uid, lowReadiness(uid), { storage, now: MORNING.toISOString() });
+    await saveSubjectiveEnergyCheckIn(uid, {
+      energy: 5,
+      observedAt: '2026-09-14T10:00:00.000Z',
+    }, { storage, now: MORNING.toISOString() });
+
+    const plan = await composeDailyPlan(uid, '2026-09-15', { timezone: TZ }, 1, {
+      storage,
+      now: () => MORNING,
+    });
+    assert.ok(plan.constraints.items.every((item) => item.bufferAfterMinutes === 15));
+  });
+});
+
+test('readiness snapshots cannot cross account boundaries or roll freshness backwards', async () => {
+  await withStorage(async (storage) => {
+    await seed(storage, 'user_readiness_a', { titles: ['A'] });
+    await seed(storage, 'user_readiness_b', { titles: ['B'] });
+    await assert.rejects(
+      saveNormalizedReadinessSnapshot('user_readiness_b', lowReadiness('user_readiness_a'), { storage }),
+      /another account/,
+    );
+    assert.equal(
+      await saveNormalizedReadinessSnapshot('user_readiness_a', lowReadiness('user_readiness_a'), {
+        storage,
+        now: MORNING.toISOString(),
+      }),
+      'stored',
+    );
+    assert.equal(
+      await saveNormalizedReadinessSnapshot(
+        'user_readiness_a',
+        lowReadiness('user_readiness_a', '2026-09-15T04:00:00.000Z'),
+        { storage, now: MORNING.toISOString() },
+      ),
+      'stale_ignored',
+    );
+    const other = await storage.get<Record<string, unknown>>(userDoc('user_readiness_b'));
+    assert.equal(Object.prototype.hasOwnProperty.call(other!, 'readinessContext'), false);
   });
 });
 

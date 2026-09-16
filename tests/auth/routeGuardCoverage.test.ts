@@ -102,7 +102,9 @@ test('every mobile route file exists and is enumerated', () => {
   // {itemKey}`. The feed URL is a bearer secret and a refresh makes the server
   // fetch a URL somebody chose, so every one authenticates before the feature
   // flag, the consent check or the body is looked at.
-  assert.equal(files.length, 47, `found:\n${files.join('\n')}`);
+  // Forty-eight with provider-independent readiness: `GET|PUT|POST /readiness`
+  // reads and writes only the authenticated account's privacy-minimized state.
+  assert.equal(files.length, 48, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {
