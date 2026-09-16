@@ -115,6 +115,22 @@ test('the summary matches the fixture #201 names: 4 completed, 2 plan days, 3 ke
   assert.equal(summary.weekStart, '2026-09-13');
 });
 
+test('plan days are the account’s local days, not UTC days', () => {
+  // 20:00Z is 23:00 on the 15th in Jerusalem; 22:30Z is 01:30 on the 16th.
+  // Both are the 15th in UTC, so keying by the instant's UTC date reads one day.
+  const summary = summariseWeek({
+    window: weekWindow('2026-09-13', ZONE),
+    timezone: ZONE,
+    commitmentsById: new Map(),
+    stats: NO_STATS,
+    events: [
+      event('plan_accepted', '2026-09-15T20:00:00.000Z', '', 'p1'),
+      event('plan_accepted', '2026-09-15T22:30:00.000Z', '', 'p2'),
+    ],
+  });
+  assert.equal(summary.plannedDaysCount, 2);
+});
+
 test('the kept rule allows a day of grace and nothing more', () => {
   const window = weekWindow('2026-09-13', ZONE);
   const due = '2026-09-14T09:00:00.000Z';

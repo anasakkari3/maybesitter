@@ -27,8 +27,10 @@ import { composeDailyPlan } from '../../lib/services/dailyPlan/dailyPlanService.
 import { appendPlanEvent, createIfAbsent } from '../../lib/services/dailyPlan/planStore.ts';
 import { acceptPlan, dismissPlan, editPlan, regeneratePlan } from '../../lib/services/dailyPlan/planActions.ts';
 import { activityStatsPath } from '../../lib/services/activity/activityStats.ts';
-import { LEGACY_PLAN_SCAN } from '../../lib/services/activity/activityService.ts';
-import { MAX_EVENT_PAGE } from '../../lib/services/mobile/eventLog.ts';
+import { LEGACY_PLAN_SCAN, listActivitySources } from '../../lib/services/activity/activityService.ts';
+import { compareEventsNewestFirst, MAX_EVENT_PAGE } from '../../lib/services/mobile/eventLog.ts';
+import { deleteParticipantDomainState } from '../../lib/services/mobile/participantState.ts';
+import { EVENTS, PLAN_EVENTS, sortableDocId, userCol } from '../../lib/storage/paths.ts';
 import {
   ACTIVITY_KIND_BY_PLAN_EVENT_TYPE,
   PLAN_EVENTS_NOT_USER_FACING,
@@ -109,7 +111,13 @@ function declaredPlanEventTypes(): string[] {
   const source = readFileSync(join(repoRoot, 'lib/services/dailyPlan/planStore.ts'), 'utf8');
   const declaration = /export type PlanEventType\s*=([^;]+);/.exec(source);
   assert.ok(declaration, 'PlanEventType is no longer declared where this test reads it');
-  return Array.from(declaration[1]!.matchAll(/'([a-z_]+)'/g)).map((match) => match[1]!).sort();
+  const members = Array.from(declaration[1]!.matchAll(/['"]([A-Za-z0-9_]+)['"]/g)).map((match) => match[1]!).sort();
+  // Every union member must have been read. A member the pattern cannot see
+  // (another quote style, a digit, a capital) would otherwise be undecided and
+  // silently absent from this check.
+  const unionMembers = declaration[1]!.split('|').map((part) => part.trim()).filter((part) => part !== '');
+  assert.equal(members.length, unionMembers.length, `parsed ${members.length} of ${unionMembers.length} PlanEventType members`);
+  return members;
 }
 
 test('every plan ledger event is either mapped or declared not user-facing', () => {
@@ -376,6 +384,120 @@ test('a ledger row named like a domain event is judged by the ledger allowlist, 
     assert.deepEqual(await history(OWNER), []);
     const week = await summary(OWNER, '2026-09-13');
     assert.deepEqual([week.completedCount, week.plannedDaysCount], [0, 0]);
+  } finally {
+    end();
+  }
+});
+
+/* ── The merged page, at sizes where the merge spills over ───────── */
+
+async function putDomain(uid: string, id: string, at: string, type = 'draft_created'): Promise<void> {
+  await getStorage().set(`${userCol(uid, EVENTS)}/${sortableDocId(at, id)}`, { id, type, at, aggregateId: 'c1', payload: {} });
+}
+
+async function putLedger(uid: string, id: string, at: string, type = 'plan_accepted'): Promise<void> {
+  await getStorage().set(`${userCol(uid, PLAN_EVENTS)}/${sortableDocId(at, id)}`, {
+    id, type, at, date: '2026-09-02', generation: 1, inputDigest: 'x',
+  });
+}
+
+async function walkSources(uid: string, limit: number): Promise<string[]> {
+  const seen: string[] = [];
+  let cursor: string | null = null;
+  for (let page = 0; page < 500; page += 1) {
+    const result = await listActivitySources(uid, { limit, cursor });
+    seen.push(...result.events.map((event) => event.id));
+    cursor = result.nextCursor;
+    if (cursor === null) return seen;
+  }
+  throw new Error('the walk did not end');
+}
+
+test('a page the merge overfills says there is more, even when neither collection does', async () => {
+  begin();
+  try {
+    // Each collection fits in a page of two on its own, so neither reports a
+    // next page; only the merged count shows the third record exists.
+    await putDomain(OWNER, 'd1', '2026-09-14T09:00:00.000Z');
+    await putDomain(OWNER, 'd2', '2026-09-14T08:00:00.000Z');
+    await putLedger(OWNER, 'l1', '2026-09-14T07:00:00.000Z');
+    assert.deepEqual(await walkSources(OWNER, 2), ['d1', 'd2', 'l1']);
+  } finally {
+    end();
+  }
+});
+
+/** Deterministic: the same seed writes the same log on every run. */
+function seeded(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+test('seeded logs walk in the one total order at every page size', async () => {
+  const LEDGER_TYPES = ['plan_accepted', 'plan_proposed', 'plan_regenerated', 'plan_dismissed', 'plan_edited'];
+  for (let seed = 1; seed <= 40; seed += 1) {
+    begin();
+    try {
+      const random = seeded(seed);
+      // Few distinct instants, so ties across the two collections are common.
+      const instants = 1 + Math.floor(random() * 4);
+      const expected: Array<{ id: string; at: string }> = [];
+      const count = Math.floor(random() * 16);
+      for (let index = 0; index < count; index += 1) {
+        const at = new Date(Date.parse('2026-09-01T00:00:00.000Z') + Math.floor(random() * instants) * 3_600_000).toISOString();
+        const id = `${String(Math.floor(random() * 1e9)).padStart(10, '0')}-${index}`;
+        if (random() < 0.5) {
+          await putDomain(OWNER, `d${id}`, at);
+          expected.push({ id: `d${id}`, at });
+        } else {
+          const type = LEDGER_TYPES[Math.floor(random() * LEDGER_TYPES.length)]!;
+          await putLedger(OWNER, `l${id}`, at, type);
+          if (type === 'plan_accepted') expected.push({ id: `l${id}`, at });
+        }
+      }
+      const order = expected
+        .map((entry) => ({ ...entry, type: '', aggregateId: '', payload: {} }))
+        .sort(compareEventsNewestFirst)
+        .map((entry) => entry.id);
+      for (const limit of [1, 2, 3, 5, 8]) {
+        assert.deepEqual(await walkSources(OWNER, limit), order, `seed ${seed}, page of ${limit}`);
+      }
+    } finally {
+      end();
+    }
+  }
+});
+
+/* ── A wipe takes the ledger with it ─────────────────────────────── */
+
+test('deleting the participant’s data leaves no plan, history or first-plan Moment to resurrect', async () => {
+  begin();
+  try {
+    await setProfile(OWNER, 'ar');
+    await seedTask(OWNER, 'c1', '2026-09-14T03:00:00.000Z');
+    await buildPlan(OWNER, '2026-09-14', '2026-09-14T04:00:00.000Z');
+    await acceptPlan(OWNER, '2026-09-14', { now: () => new Date('2026-09-14T05:00:00.000Z') });
+    // A legacy-style entry too, which only the ledger scan would find.
+    await appendPlanEvent(OWNER, {
+      type: 'plan_accepted', date: '2026-09-10', at: '2026-09-10T05:00:00.000Z', generation: 1, inputDigest: 'legacy',
+    });
+    await buildPlan(STRANGER, '2026-09-14', '2026-09-14T04:00:00.000Z');
+    await acceptPlan(STRANGER, '2026-09-14', { now: () => new Date('2026-09-14T05:00:00.000Z') });
+
+    await deleteParticipantDomainState(OWNER);
+
+    assert.deepEqual(await history(OWNER), []);
+    const week = await summary(OWNER, '2026-09-13');
+    assert.deepEqual([week.plannedDaysCount, week.moments], [0, []]);
+    assert.equal(await getStorage().get(`users/${OWNER}/plans/2026-09-14`), null);
+    // Only the requested participant.
+    assert.equal((await summary(STRANGER, '2026-09-13')).plannedDaysCount, 1);
   } finally {
     end();
   }

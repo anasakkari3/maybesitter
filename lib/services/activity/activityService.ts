@@ -6,7 +6,7 @@
  * here and in the two pure modules beside it, so it can be tested without a
  * Request.
  */
-import { COMMITMENTS, PLAN_EVENTS, getStorage, requireUserId, userCol, userDoc, type StorageReader } from '../../storage';
+import { COMMITMENTS, PLAN_EVENTS, getStorage, requireUserId, userCol, userDoc } from '../../storage';
 import type { Commitment } from '../../../src/domain/stateMachine';
 import type { UserDocument } from '../../storage/userDocument';
 import type { PlanEvent } from '../dailyPlan/planStore';
@@ -22,7 +22,8 @@ import {
 import { normalizeTimezone } from '../mobile/time';
 import { projectActivity, type ActivityItem } from './activityProjection';
 import { readActivityStats } from './activityStats';
-import { ACTIVITY_KIND_BY_PLAN_EVENT_TYPE, planEventAsRecord } from './planActivity';
+import { ACTIVITY_KIND_BY_PLAN_EVENT_TYPE, earliestLedgerAcceptance, planEventAsRecord } from './planActivity';
+export { LEGACY_PLAN_SCAN } from './planActivity';
 import {
   currentWeekStart,
   isWeekStartKey,
@@ -172,13 +173,18 @@ export async function weeklySummaryFor(input: WeeklySummaryInput): Promise<Weekl
     : currentWeekStart(now, timezone, locale);
   const window = weekWindow(weekStart, timezone);
 
-  const [events, planRows, titles, counted, earliestPlan] = await Promise.all([
+  const [events, planRows, titles, counted] = await Promise.all([
     listEventsInRange(uid, window.fromInclusive, window.toExclusive, SUMMARY_EVENT_LIMIT),
     listEventsInRange(uid, window.fromInclusive, window.toExclusive, SUMMARY_EVENT_LIMIT, storage, PLAN_EVENTS),
     commitmentsById(uid),
     readActivityStats(storage, uid),
-    earliestLedgerAcceptance(storage, uid),
   ]);
+  // Only an account whose counter has never seen an acceptance can have one
+  // the counter does not know about: the first real acceptance folds any
+  // legacy one in (see `acceptPlan`), so once it is set the scan is skipped.
+  const earliestPlan = counted.firstPlanAcceptedAt === null
+    ? await earliestLedgerAcceptance(storage, uid)
+    : null;
   const stats = {
     ...counted,
     firstPlanAcceptedAt: earliestOf(counted.firstPlanAcceptedAt, earliestPlan),
@@ -191,36 +197,6 @@ export async function weeklySummaryFor(input: WeeklySummaryInput): Promise<Weekl
     commitmentsById: titles,
     stats,
   });
-}
-
-/** How far into the ledger the first acceptance is looked for. */
-export const LEGACY_PLAN_SCAN = 50;
-
-/**
- * The first `plan_accepted` in the plan ledger, or null.
- *
- * For accounts that accepted a plan between #194 landing and the counter
- * learning about it: #194 wrote the ledger entry and no counter, so without
- * this their first-plan Moment would be dated by their *next* acceptance, or
- * never shown at all. The ledger is not something a person can tidy away —
- * only deleting the account removes it — so reading it back cannot withdraw a
- * Moment the way reading the commitments would.
- *
- * Bounded, oldest first. Every legacy acceptance is among an account's
- * earliest ledger entries (the window it can have happened in is days long),
- * and any acceptance past the scan happened after the counter existed, so the
- * counter already holds it.
- */
-async function earliestLedgerAcceptance(reader: StorageReader, uid: string): Promise<string | null> {
-  const rows = await reader.list<PlanEvent>(userCol(uid, PLAN_EVENTS), {
-    orderBy: { field: 'at', direction: 'asc' },
-    limit: LEGACY_PLAN_SCAN,
-  });
-  let earliest: string | null = null;
-  for (const row of rows) {
-    if (row.data.type === 'plan_accepted') earliest = earliestOf(earliest, row.data.at);
-  }
-  return earliest;
 }
 
 function earliestOf(left: string | null, right: string | null): string | null {

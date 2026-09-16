@@ -19,6 +19,7 @@
  * out of planStore so that a sixth ledger event cannot reach somebody's
  * history without a decision here.
  */
+import { PLAN_EVENTS, userCol, type StorageReader } from '../../storage';
 import type { PlanEvent } from '../dailyPlan/planStore';
 import type { DomainEventRecord } from '../mobile/eventLog';
 import type { ActivityKind } from './activityProjection';
@@ -53,4 +54,34 @@ export function planEventAsRecord(event: PlanEvent): DomainEventRecord {
     aggregateId: '',
     payload: { planDate: event.date },
   };
+}
+
+/** How far into the ledger a legacy first acceptance is looked for. */
+export const LEGACY_PLAN_SCAN = 50;
+
+/**
+ * The first `plan_accepted` among the ledger's oldest rows, or null.
+ *
+ * For accounts that accepted a plan between #194 landing and the counter
+ * learning about it: #194 wrote the ledger entry and no counter. Read only
+ * while the counter is still unset — by the summary, and by `acceptPlan`,
+ * which folds it into the counter inside its own transaction so the date
+ * survives the counter being set by a later acceptance. The ledger is not
+ * something a person can tidy away (only a wipe removes it, and a wipe removes
+ * the counter too), so reading it cannot withdraw a Moment.
+ *
+ * Bounded, oldest first: every legacy acceptance is among an account's
+ * earliest ledger rows, and one past the scan happened after the counter
+ * existed, so the counter already holds it.
+ */
+export async function earliestLedgerAcceptance(reader: StorageReader, uid: string): Promise<string | null> {
+  const rows = await reader.list<PlanEvent>(userCol(uid, PLAN_EVENTS), {
+    orderBy: { field: 'at', direction: 'asc' },
+    limit: LEGACY_PLAN_SCAN,
+  });
+  let earliest: string | null = null;
+  for (const row of rows) {
+    if (row.data.type === 'plan_accepted' && (earliest === null || row.data.at < earliest)) earliest = row.data.at;
+  }
+  return earliest;
 }
