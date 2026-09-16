@@ -570,6 +570,51 @@ export async function commitCaptureConfirmation<T>(
 }
 
 /**
+ * Domain commands and a claim on some other document, committed together
+ * (UC-3.4, #188).
+ *
+ * The same shape as `commitCaptureConfirmation`, for a claim that is not a
+ * capture proposal: accepting a calendar-feed deadline writes the commitment
+ * and marks the feed item accepted in one transaction, so two taps — or a tap
+ * racing the refresh job's auto-accept — create one commitment, not two.
+ *
+ * `decide` reads the claim document inside the transaction and answers either
+ * `null` (already done: nothing is written and the caller replays) or the patch
+ * to merge. It and `commands` must be pure: the callback re-runs on retry.
+ */
+export async function commitCommandsWithClaim<D extends object>(
+  participantId: string,
+  claimPath: string,
+  commands: readonly Command[],
+  decide: (claim: D | null) => Partial<D> | null,
+): Promise<{ replayed: boolean }> {
+  requireUserId(participantId);
+  const at = nowIso();
+  return getStorage().runTransaction(async (tx) => {
+    const [claim, user, before, stats] = await Promise.all([
+      tx.get<D>(claimPath),
+      tx.get<UserDocument>(userDoc(participantId)),
+      loadDomainState(tx, participantId),
+      readActivityStats(tx, participantId),
+    ]);
+    const patch = decide(claim);
+    if (patch === null) return { replayed: true };
+
+    let candidate = before;
+    const events: DomainEvent[] = [];
+    for (const command of commands) {
+      const transition = applyDomainCommand(candidate, command);
+      candidate = transition.newState;
+      events.push(...transition.events);
+    }
+    writeDomainDiff(tx, participantId, before, candidate, events, user, at);
+    recordActivityEvents(tx, participantId, stats, events);
+    tx.merge<D>(claimPath, patch);
+    return { replayed: false };
+  });
+}
+
+/**
  * A decision already recorded under this key, if there is one.
  *
  * Read separately from `replayOrRecordParticipantDecision` because the caller
