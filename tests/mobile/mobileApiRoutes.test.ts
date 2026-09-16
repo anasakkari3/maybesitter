@@ -5,7 +5,8 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { getParticipantStateSnapshot } from '../../lib/services/mobile/participantState.ts';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
-import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
+import { getStorage, resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
+import { userDoc } from '../../lib/storage/paths.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
 import { POST as capturePost } from '../../src/app/api/mobile/capture/route.ts';
 import { POST as confirmPost } from '../../src/app/api/mobile/capture/confirm/route.ts';
@@ -22,6 +23,15 @@ import { decideExtractionDisposition } from '../../src/extraction/extractionPoli
 import type { ExtractionResult } from '../../src/extraction/extractionTypes.ts';
 import { configureCommandService, getCommandServiceState } from '../../lib/services/commandService.ts';
 import { createEmptyDomainState } from '../../src/domain/stateMachine.ts';
+import {
+  GET as readinessGet,
+  POST as readinessPost,
+  PUT as readinessPut,
+} from '../../src/app/api/mobile/readiness/route.ts';
+import {
+  READINESS_CONTRACT_VERSION,
+  READINESS_SCHEMA_VERSION,
+} from '../../src/contracts/v1/readinessContracts.ts';
 
 const baseUrl = 'http://127.0.0.1:4321';
 const referenceTime = '2026-08-09T08:00:00.000Z';
@@ -58,6 +68,16 @@ function request(path: string, body?: unknown): Request {
   if (body !== undefined) headers.set('Content-Type', 'application/json');
   return new Request(`${baseUrl}${path}`, {
     method: body === undefined ? 'GET' : 'POST',
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+}
+
+function methodRequest(method: string, path: string, body?: unknown): Request {
+  const headers = new Headers({ authorization: `Bearer ${tokenFor(USER)}` });
+  if (body !== undefined) headers.set('Content-Type', 'application/json');
+  return new Request(`${baseUrl}${path}`, {
+    method,
     headers,
     body: body === undefined ? undefined : JSON.stringify(body),
   });
@@ -476,6 +496,72 @@ test('mobile today route includes a same-day future confirmed commitment', async
   }
 });
 
+test('mobile readiness stores no raw health values and current user energy wins', async () => {
+  const cleanup = setup();
+  try {
+    await getStorage().set(userDoc(USER), {
+      schemaVersion: 1,
+      createdAt: referenceTime,
+      updatedAt: referenceTime,
+      locale: 'en',
+      timezone: 'UTC',
+      trust: null,
+      domainVersion: 0,
+    });
+    const snapshot = {
+      version: READINESS_CONTRACT_VERSION,
+      schemaVersion: READINESS_SCHEMA_VERSION,
+      scopeId: 'a-body-cannot-select-this-account',
+      computedAt: '2026-08-09T07:45:00.000Z',
+      windowStart: '2026-08-08T20:00:00.000Z',
+      windowEnd: '2026-08-09T07:45:00.000Z',
+      band: 'low',
+      score: 0.2,
+      normalizedSignals: { restingHeartRate: 62 },
+      subjective: null,
+      derived: { readinessBand: 'low', confidence: 0.8 },
+      signals: [{
+        signalId: 'device-summary',
+        source: { kind: 'healthkit' },
+        metric: 'heart_rate',
+        observedAt: '2026-08-09T07:45:00.000Z',
+        normalizedScore: 0.2,
+        nativeValue: 62,
+        nativeUnit: 'beats_per_minute',
+        confidence: 0.8,
+      }],
+      sourceKinds: ['healthkit'],
+      missingSourceKinds: ['health_connect', 'whoop', 'subjective'],
+    };
+    assert.equal((await readinessPost(request('/api/mobile/readiness', { snapshot }))).status, 200);
+
+    const user = await getStorage().get<Record<string, unknown>>(userDoc(USER));
+    const context = user!.readinessContext as {
+      recentReadiness: { scopeId: string; normalizedSignals: Record<string, unknown>; signals: Array<{ nativeValue: unknown }> };
+    };
+    assert.equal(context.recentReadiness.scopeId, USER);
+    assert.deepEqual(context.recentReadiness.normalizedSignals, {});
+    assert.deepEqual(context.recentReadiness.signals.map((signal) => signal.nativeValue), [null]);
+
+    const put = await readinessPut(methodRequest('PUT', '/api/mobile/readiness', {
+      energy: 5,
+      observedAt: new Date().toISOString(),
+    }));
+    assert.equal(put.status, 200);
+    const current = await json(await readinessGet(request('/api/mobile/readiness')));
+    assert.equal(current.selectedSource, 'current_subjective');
+    assert.equal((current.readiness as { subjective: { energy: number } }).subjective.energy, 5);
+
+    const whoop = await readinessPost(request('/api/mobile/readiness', {
+      snapshot: { ...snapshot, sourceKinds: ['whoop'] },
+    }));
+    assert.equal(whoop.status, 400);
+    assert.equal((await json(whoop)).reason, 'invalid_source');
+  } finally {
+    cleanup();
+  }
+});
+
 test('every route in this file refuses an unauthenticated caller', async () => {
   const cleanup = setup();
   try {
@@ -487,6 +573,9 @@ test('every route in this file refuses an unauthenticated caller', async () => {
       ['detail', commitmentGet(anonymousRequest('/api/mobile/commitments/c1'), params('c1'))],
       ['action', actionPost(anonymousRequest('/api/mobile/commitments/c1/actions', { action: 'complete' }), params('c1'))],
       ['delete', commitmentDelete(anonymousRequest('/api/mobile/commitments/c1'), params('c1'))],
+      ['readiness-get', readinessGet(anonymousRequest('/api/mobile/readiness'))],
+      ['readiness-put', readinessPut(anonymousRequest('/api/mobile/readiness', { energy: 3, observedAt: referenceTime }))],
+      ['readiness-post', readinessPost(anonymousRequest('/api/mobile/readiness', { snapshot: {} }))],
     ];
     for (const [name, pending] of calls) {
       const response = await pending;
