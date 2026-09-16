@@ -53,3 +53,27 @@ export const deviceCalendarLinkConflictSchema = z.object({
   error: z.string(),
   reason: z.enum(['calendar_link_owned_elsewhere', 'calendar_link_detached']),
 });
+
+/**
+ * What the server answers a busy-time sync with (UC-3.2, #186).
+ *
+ * A count and a window, and deliberately nothing that names a single block. The
+ * app already knows what it sent; an echo of the blocks would be the one place
+ * in this feature where busy intervals travelled *back* over the network, for
+ * no purpose beyond confirming a number.
+ */
+export const calendarBusyStoredSchema = z.object({
+  success: z.literal(true),
+  blocks: z.number().int().nonnegative(),
+  source: z.object({
+    sourceId: z.string(),
+    lastSyncedAt: z.string(),
+    windowStart: z.string(),
+    windowEnd: z.string(),
+  }),
+});
+
+export const calendarBusyDeletedSchema = z.object({
+  success: z.literal(true),
+  deleted: z.number().int().nonnegative(),
+});

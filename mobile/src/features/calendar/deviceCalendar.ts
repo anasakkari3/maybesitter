@@ -37,8 +37,19 @@
  * `not_found` in particular is a *normal* outcome and not a failure: it is what
  * the app sees when the user deleted the event in their Calendar app, which is
  * the signal that puts the link into `detached`.
+ *
+ * ── The one read that is not "is this event still there?" ────────
+ *
+ * UC-3.2 (#186) added `fetchBusyBlocks`. It is the only method here that looks
+ * at a calendar entry this app did not write, and it is deliberately not
+ * `listEvents`: what it returns is `DeviceBusyBlock[]`, four fields each, with
+ * the events themselves never escaping this module. `busyBlocks.ts` does the
+ * narrowing and says at length why the guarantee had to move from the platform
+ * into this code when the Flutter bridge was replaced.
  */
+import { Platform } from 'react-native';
 import * as Calendar from 'expo-calendar';
+import { toBusyBlocks, type DeviceBusyBlock } from './busyBlocks';
 
 export type CalendarAccess = 'granted' | 'denied' | 'undetermined';
 
@@ -108,6 +119,45 @@ export interface DeviceCalendar {
   deleteEvent(eventId: string): Promise<void>;
   /** Whether the event is still in the calendar. Never throws `not_found`. */
   eventExists(eventId: string): Promise<boolean>;
+  /**
+   * When the user is busy over the next few weeks (UC-3.2, #186).
+   *
+   * Intervals, not events. Nothing a caller receives from this has ever held a
+   * title, a note, a location or a guest — see `busyBlocks.ts`.
+   */
+  fetchBusyBlocks(options?: BusyReadOptions): Promise<DeviceBusyBlock[]>;
+}
+
+/**
+ * How far ahead busy time is read.
+ *
+ * Twenty-eight days rather than the Flutter build's fourteen. The daily plan
+ * (UC-3.10a, #194) only needs today, but a conflict hint on a capture is worth
+ * having for anything somebody would say out loud — "the dentist next month" is
+ * a sentence people say — and a month is where a device calendar stops being
+ * cheap to page through.
+ */
+export const BUSY_LOOK_AHEAD_DAYS = 28;
+
+/**
+ * How many events one sync may ask about the attendees of.
+ *
+ * `getAttendees()` is a round trip into EventKit per event, on the JS thread,
+ * and a sync runs when the app comes back to the front. Somebody with a
+ * thousand entries in the month would pay a thousand of them every resume. Past
+ * the cap the answer is "busy", which is the conservative direction: a
+ * redundant conflict hint rather than a meeting the user declined being missed
+ * from their day.
+ */
+export const ATTENDEE_LOOKUP_LIMIT = 300;
+
+export interface BusyReadOptions {
+  /** Defaults to `BUSY_LOOK_AHEAD_DAYS`. */
+  lookAheadDays?: number;
+  /** From `calendar.writtenEventIds.v1`; this app's own entries are not busy. */
+  ownEventIds?: ReadonlySet<string>;
+  /** Injected so a test is not at the mercy of the second it runs in. */
+  now?: Date;
 }
 
 /**
@@ -159,6 +209,36 @@ function eventFrom(draft: CalendarEventDraft): Record<string, unknown> {
     timeZone: draft.timeZone,
     ...(draft.url === undefined ? {} : { url: draft.url }),
   };
+}
+
+/**
+ * The events the user themselves declined, as far as the platform will say.
+ *
+ * `isCurrentUser` is iOS-only. On Android the flag is never true, so this set
+ * comes back empty and a declined meeting counts as busy — conservative, and
+ * said out loud in the Trust Center copy rather than hidden.
+ *
+ * The whole lookup is skipped off iOS: it would be one round trip per event to
+ * learn something the platform cannot tell us.
+ */
+async function declinedBy(events: readonly { id?: unknown; getAttendees?: unknown }[]): Promise<ReadonlySet<string>> {
+  const declined = new Set<string>();
+  if (Platform.OS !== 'ios') return declined;
+  for (const event of events.slice(0, ATTENDEE_LOOKUP_LIMIT)) {
+    const id = typeof event.id === 'string' ? event.id : '';
+    if (id === '' || typeof event.getAttendees !== 'function') continue;
+    try {
+      const attendees = await (event.getAttendees as () => Promise<{ isCurrentUser?: boolean; status?: string }[]>)();
+      if (attendees.some((attendee) => attendee.isCurrentUser === true && attendee.status === 'declined')) {
+        declined.add(id);
+      }
+    } catch {
+      // A lookup that fails is not evidence of a refusal. Leaving the event out
+      // of this set keeps it busy, which is the direction that costs a
+      // redundant hint rather than an hour of somebody's day.
+    }
+  }
+  return declined;
 }
 
 export const deviceCalendar: DeviceCalendar = {
@@ -232,6 +312,43 @@ export const deviceCalendar: DeviceCalendar = {
       // for. Anything else — no permission, a read-only calendar — is not.
       if (failure.reason === 'not_found') return;
       throw failure;
+    }
+  },
+
+  async fetchBusyBlocks(options = {}) {
+    const now = options.now ?? new Date();
+    if ((await this.getAccess()) !== 'granted') {
+      // A throw rather than an empty list. "No calendar access" and "nothing in
+      // your calendar" are the same list and completely different facts, and
+      // the caller has to be able to tell them apart before it decides whether
+      // to overwrite a cache that still holds yesterday's answer.
+      throw new DeviceCalendarError('permission_denied', 'calendar access has not been granted');
+    }
+    try {
+      // Every event calendar, not only the writable ones. A subscribed work
+      // calendar and a holiday feed are both time somebody is spoken for, and
+      // UC-3.1's picker filter exists for a different question — which calendar
+      // may be written into.
+      const calendars = await Calendar.getCalendars(Calendar.EntityTypes.EVENT);
+      const ids = calendars.map((calendar) => calendar.id);
+      if (ids.length === 0) return [];
+
+      const start = new Date(now);
+      // Local midnight: the window a person means by "the next four weeks"
+      // starts at the beginning of today, not at this moment, or an event that
+      // began an hour ago and runs until noon would be invisible.
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(start);
+      end.setDate(end.getDate() + (options.lookAheadDays ?? BUSY_LOOK_AHEAD_DAYS));
+
+      const events = await Calendar.listEvents(ids, start, end);
+      return toBusyBlocks(events as never, {
+        ownEventIds: options.ownEventIds ?? new Set(),
+        declinedEventIds: await declinedBy(events),
+        now,
+      });
+    } catch (error) {
+      throw failureFrom(error, 'unavailable');
     }
   },
 

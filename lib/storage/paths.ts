@@ -119,6 +119,39 @@ export const PLAN_EVENTS = 'planEvents';
 export const DEVICE_CALENDAR_LINKS = 'deviceCalendarLinks';
 
 /**
+ * Which calendars this account has connected for *reading* busy time
+ * (UC-3.2, #186).
+ *
+ * One document per source — `device:{installationId}` today, a Google account
+ * (UC-3.3, #187) or an ICS feed (UC-3.4, #188) later. It holds the kind, the
+ * platform, the window the last sync covered and when it ran. It is the row the
+ * Trust Center counts and the row "Disconnect" removes.
+ *
+ * A source id is free text as far as a path is concerned — `device:` contains a
+ * colon, which `requireDocId` refuses — so the document id is `docIdForKey` of
+ * it and the raw value is a field, exactly as the header above prescribes.
+ */
+export const CALENDAR_SOURCES = 'calendarSources';
+
+/**
+ * The busy intervals themselves (UC-3.2, #186).
+ *
+ * Beside `calendarSources` rather than nested inside it, which is a deliberate
+ * departure from #186's sketch. The question every reader asks is "what is this
+ * person busy with between these two instants", across *every* source at once;
+ * nested, that is a collection-group query, and the only group query this
+ * repo's storage seam offers spans the whole database rather than one user's
+ * tree. Flat, it is a single user-scoped list, and #187 and #188 add a source
+ * without touching the read at all.
+ *
+ * A row is six fields — a block id, its source, the source's kind, a start, an
+ * end and whether it is all-day. There is no title, no notes, no location and
+ * no attendee: `toBusyBlocks` on the phone drops them and this collection has
+ * never had a column for one.
+ */
+export const BUSY_BLOCKS = 'busyBlocks';
+
+/**
  * The activity counters behind the weekly Moments (UC-3.15, #201).
  *
  * A counter rather than a query over the user's items, because a Moment is a
@@ -165,6 +198,8 @@ export const USER_SCOPED_COLLECTIONS = [
   PLAN_EVENTS,
   STATS,
   DEVICE_CALENDAR_LINKS,
+  CALENDAR_SOURCES,
+  BUSY_BLOCKS,
 ] as const;
 
 /** Operator-only, outside every user tree. */

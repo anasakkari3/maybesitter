@@ -29,6 +29,7 @@ import { RoutineSettingsScreen } from './features/settings/RoutineSettingsScreen
 import { NotificationsSettingsScreen } from './features/settings/NotificationsSettingsScreen';
 import { CalendarSettingsScreen } from './features/settings/CalendarSettingsScreen';
 import { DeviceCalendarSyncHost } from './features/calendar/useDeviceCalendarSync';
+import { BusyCalendarHost } from './features/calendar/useBusyCalendar';
 import { AboutScreen } from './features/settings/AboutScreen';
 import { googleCalendarDemoEnabled } from './config/env';
 import { Gallery } from './design/Gallery';
@@ -87,6 +88,11 @@ export function Root() {
               session rather than only while the calendar settings screen is
               open — a confirm on Today has to reach the calendar too. */}
           <DeviceCalendarSyncHost />
+          {/* Also draws nothing (UC-3.2, #186). It keeps the busy times this
+              phone reads in step with the calendar, for the whole session:
+              the conflict chips are on Today and on the review card, and both
+              are screens the settings page is not open behind. */}
+          <BusyCalendarHost />
           {s.screen === 'today' && <TodayScreen key="today" />}
           {s.screen === 'calendar' && <CalendarScreen key="calendar" />}
           {s.screen === 'settings' && <SettingsScreen key="settings" />}

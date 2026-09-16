@@ -72,6 +72,15 @@ export interface ReleaseConfigInput {
    */
   calendarWrite?: string | undefined;
   /**
+   * `EXPO_PUBLIC_FEATURE_CALENDAR_READ` (UC-3.2, #186).
+   *
+   * Checked for the same reason as the others, and it matters more here because
+   * this one is a *kill switch*: `calendarReadEnabled` treats anything but the
+   * literal `false` as on, so a typo leaves busy-time reading enabled on a
+   * build somebody meant to disable it on. The build refuses instead.
+   */
+  calendarRead?: string | undefined;
+  /**
    * `EXPO_PUBLIC_SHARE_INTENT_DEBUG` (UC-3.0, #183).
    *
    * Turns on `expo-share-intent`'s own logging, which writes the shared payload
@@ -127,6 +136,11 @@ export function releaseConfigProblems(input: ReleaseConfigInput): string[] {
   const shareIntake = (input.shareIntake ?? '').trim();
   if (shareIntake !== '' && shareIntake !== 'true' && shareIntake !== 'false') {
     problems.push(`EXPO_PUBLIC_FEATURE_SHARE_INTAKE must be true or false (got ${shareIntake})`);
+  }
+
+  const calendarRead = (input.calendarRead ?? '').trim();
+  if (calendarRead !== '' && calendarRead !== 'true' && calendarRead !== 'false') {
+    problems.push(`EXPO_PUBLIC_FEATURE_CALENDAR_READ must be true or false (got ${calendarRead})`);
   }
 
   const calendarWrite = (input.calendarWrite ?? '').trim();

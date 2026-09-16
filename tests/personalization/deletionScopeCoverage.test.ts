@@ -95,6 +95,18 @@ const KEPT_BECAUSE: Record<string, string> = {
     + 'find them and a re-confirm would write a second copy beside each one. The tombstones matter '
     + 'as much as the live rows — a `detached` row is the record that the user deleted that event '
     + 'by hand, and clearing it is how the product starts putting it back.',
+  calendarSources:
+    'a record that the user connected a calendar of their own — its kind, the platform, the '
+    + 'window the last sync covered and when it ran. Not a belief about the person, and the way '
+    + 'to remove it is the Disconnect button UC-3.2 (#186) puts beside it, which deletes the '
+    + 'source and every block under it in one action the user can see the result of.',
+  busyBlocks:
+    'intervals mirrored from the user’s own calendar — a start, an end and an all-day flag, with '
+    + 'no title, notes, location or attendee, because `toBusyBlocks` on the phone never let one '
+    + 'cross. Nothing here was inferred: it is a copy of what their calendar already says, and it '
+    + 'is restated in full by the next sync, so purging it here would answer "forget what you '
+    + 'worked out about me" by deleting something for fifteen minutes. Disconnect is the button '
+    + 'that means this, and account deletion takes it with everything else.',
   stats: 'the user’s own record of what they did — the counters behind the weekly Moments. #201 made a Moment survive deleting the commitment that earned it, on the ground that a fact about something that happened must not unhappen; this button forgets what was inferred about the person, not what the person achieved.',
 };
 

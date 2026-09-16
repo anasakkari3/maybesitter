@@ -20,6 +20,7 @@ const problems = releaseConfigProblems({
   googleCalendarDemo: process.env.EXPO_PUBLIC_ENABLE_GOOGLE_CALENDAR_DEMO,
   testCrash: process.env.EXPO_PUBLIC_ENABLE_TEST_CRASH,
   calendarWrite: process.env.EXPO_PUBLIC_FEATURE_CALENDAR_WRITE,
+  calendarRead: process.env.EXPO_PUBLIC_FEATURE_CALENDAR_READ,
 });
 if (problems.length > 0) throw new Error(releaseConfigErrorMessage(problems));
 
@@ -457,8 +458,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
      */
     ['expo-calendar', {
       calendarPermission:
-        'MaybeSitter adds the commitments you confirm to a calendar you choose, and reads back '
-        + 'only the events it added, so it can move or remove them when you do.',
+        'MaybeSitter adds the commitments you confirm to a calendar you choose, and reads when '
+        + 'you are busy — the times only, never the titles — so it can plan around them and warn '
+        + 'you about a clash.',
       remindersPermission: false,
     }],
     // The date and time pickers on the capture review sheet (UC-2.4, #164).

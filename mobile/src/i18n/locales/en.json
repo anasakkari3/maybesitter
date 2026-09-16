@@ -634,5 +634,16 @@
   "calendarNoneWritable": "No calendar on this phone can be written to.",
   "calendarRemoveBody": "Removes only the events MaybeSitter added. Anything you put in your calendar yourself is untouched.",
   "calendarRemoveAction": "Remove events MaybeSitter added",
-  "calendarRemoveDone": "Removed. Your own entries were not touched."
+  "calendarRemoveDone": "Removed. Your own entries were not touched.",
+  "calendarBusyConflict": "Overlaps a calendar event {range}",
+  "calendarBusyConflictAllDay": "Your calendar has an all-day entry that day",
+  "calendarReadTitle": "Use my calendar when planning",
+  "calendarReadBody": "MaybeSitter reads when you are busy — the times only, never what the events are called. It plans around them and tells you when something you are about to save overlaps one.",
+  "calendarReadUnavailable": "Reading your calendar is switched off in this build.",
+  "calendarDisconnectBody": "Stops reading your calendar, deletes the busy times from this phone and removes them from your account.",
+  "calendarDisconnectAction": "Disconnect and delete busy times",
+  "calendarDisconnectDone": "Disconnected. The busy times are gone from this phone and from your account.",
+  "calendarDisconnectFailed": "They were removed from this phone. Your account still has them — try again when you are back online.",
+  "calendarBusyCount": "{n} busy times from this phone",
+  "calendarDeclinedNote": "On Android a meeting you declined still counts as busy: the phone does not tell us whose reply was whose."
 }

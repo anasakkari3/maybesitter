@@ -1,5 +1,7 @@
 import { apiRequest } from '../client';
 import {
+  calendarBusyDeletedSchema,
+  calendarBusyStoredSchema,
   calendarSettingsResponseSchema,
   deviceCalendarLinkRemovedSchema,
   deviceCalendarLinkResponseSchema,
@@ -49,5 +51,36 @@ export function deleteDeviceCalendarLink(
   return apiRequest('DELETE', `/api/mobile/commitments/${encodeURIComponent(commitmentId)}/device-calendar-link`, {
     query: { writerId },
     schema: deviceCalendarLinkRemovedSchema,
+  });
+}
+
+/**
+ * One device's busy window (UC-3.2, #186).
+ *
+ * The payload is four fields per block and nothing else. That is enforced on
+ * the server — `parseBusyUpload` answers 400 for a body carrying a `title` —
+ * and the type here is the client half of the same rule, so a screen cannot
+ * reach this function holding an event.
+ */
+export interface CalendarBusyUpload {
+  sourceId: string;
+  platform: 'ios' | 'android';
+  windowStart: string;
+  windowEnd: string;
+  blocks: { blockId: string; startAt: string; endAt: string; allDay: boolean }[];
+}
+
+export function postCalendarBusy(upload: CalendarBusyUpload) {
+  return apiRequest('POST', '/api/mobile/calendar/busy', {
+    body: upload,
+    schema: calendarBusyStoredSchema,
+  });
+}
+
+/** Disconnect: the source and every block under it, on the server. */
+export function deleteCalendarBusy(sourceId: string) {
+  return apiRequest('DELETE', '/api/mobile/calendar/busy', {
+    query: { sourceId },
+    schema: calendarBusyDeletedSchema,
   });
 }
