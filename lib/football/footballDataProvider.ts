@@ -177,6 +177,19 @@ export interface FootballDataProviderDeps {
  */
 export const FOOTBALL_DATA_REQUEST_TIMEOUT_MS = 8_000;
 
+function createRequestTimeout(timeoutMs: number): { signal: AbortSignal; clear: () => void } {
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(new Error(`football-data request timed out after ${timeoutMs}ms`)),
+    timeoutMs,
+  );
+
+  return {
+    signal: controller.signal,
+    clear: () => clearTimeout(timer),
+  };
+}
+
 /**
  * Builds the `FixtureProvider` for football-data.org.
  *
@@ -207,6 +220,7 @@ export function createFootballDataProvider(deps: FootballDataProviderDeps = {}):
       url.searchParams.set('dateTo', window.toIso);
 
       const timeoutMs = deps.timeoutMs ?? FOOTBALL_DATA_REQUEST_TIMEOUT_MS;
+      const timeout = createRequestTimeout(timeoutMs);
       let response: Response;
       try {
         response = await fetchImpl(url, {
@@ -214,13 +228,18 @@ export function createFootballDataProvider(deps: FootballDataProviderDeps = {}):
           // Aborts a request the vendor never answers, so one hung club
           // becomes one recorded failure instead of a sync that outlives its
           // scheduler deadline.
-          signal: AbortSignal.timeout(timeoutMs),
+          signal: timeout.signal,
         });
       } catch (error) {
-        if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
+        if (
+          timeout.signal.aborted
+          || (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError'))
+        ) {
           throw new Error(`football-data request timed out after ${timeoutMs}ms (team ${providerTeamId})`);
         }
         throw error;
+      } finally {
+        timeout.clear();
       }
 
       // A non-2xx rejects rather than resolving to an empty list. An empty
