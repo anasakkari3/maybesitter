@@ -30,7 +30,7 @@ import ar from '../../../i18n/locales/ar.json';
 import he from '../../../i18n/locales/he.json';
 
 const FLAG = 'EXPO_PUBLIC_FEATURE_ICS_FEEDS';
-const original = process.env[FLAG];
+const original = process.env.EXPO_PUBLIC_FEATURE_ICS_FEEDS;
 
 afterEach(() => {
   if (original === undefined) delete process.env[FLAG];

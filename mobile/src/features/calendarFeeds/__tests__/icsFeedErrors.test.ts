@@ -15,7 +15,7 @@ import { apiRequest } from '../../../api/client';
 import { resetAuthForTests, setAuthRepository } from '../../../api/auth';
 import { createFakeAuthRepository } from '../../../auth/fakeAuthRepository';
 import { ForbiddenError, IcsFeedRefusedError, QuotaExceededError } from '../../../api/errors';
-import { userFacingMessage } from '../../../api/ui/userFacingMessage';
+import { userFacingMessage, type UserFacingKey } from '../../../api/ui/userFacingMessage';
 import { strings } from '../../../i18n/strings';
 import invalidUrl from '../../../api/__fixtures__/icsFeeds.invalidUrl.json';
 import refreshTooSoon from '../../../api/__fixtures__/icsFeeds.refreshTooSoon.json';
@@ -40,14 +40,15 @@ async function refusal(status: number, body: unknown): Promise<unknown> {
 afterEach(() => resetAuthForTests());
 
 describe('feed refusals keep their reason', () => {
-  it.each([
+  const CASES: [number, unknown, IcsFeedRefusedError['reason'], UserFacingKey][] = [
     [400, invalidUrl, 'invalid_url', 'icsFeedsErrInvalidUrl'],
     [429, refreshTooSoon, 'refresh_too_soon', 'icsFeedsErrTooSoon'],
     [422, { success: false, error: 'not_a_calendar', reason: 'not_a_calendar' }, 'not_a_calendar', 'icsFeedsErrNotCalendar'],
     [422, { success: false, error: 'fetch_failed', reason: 'fetch_failed', detail: 'timeout' }, 'fetch_failed', 'icsFeedsErrFetch'],
     [409, { success: false, error: 'too_many_feeds', reason: 'too_many_feeds' }, 'too_many_feeds', 'icsFeedsErrTooMany'],
     [503, { success: false, error: 'encryption_unavailable', reason: 'encryption_unavailable' }, 'encryption_unavailable', 'icsFeedsErrUnavailable'],
-  ] as const)('%i %s becomes its own sentence in every language', async (status, body, reason, key) => {
+  ];
+  it.each(CASES)('%i %s becomes its own sentence in every language', async (status, body, reason, key) => {
     const error = await refusal(status, body);
     expect(error).toBeInstanceOf(IcsFeedRefusedError);
     expect((error as IcsFeedRefusedError).reason).toBe(reason);

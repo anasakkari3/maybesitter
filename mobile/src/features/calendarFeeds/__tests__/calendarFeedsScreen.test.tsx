@@ -61,7 +61,7 @@ function deadline(overrides: Partial<IcsDeadline>): IcsDeadline {
 let client: QueryClient;
 let repository: ReturnType<typeof createFakeAuthRepository>;
 const consoleCalls: unknown[][] = [];
-const originalFlag = process.env[FLAG];
+const originalFlag = process.env.EXPO_PUBLIC_FEATURE_ICS_FEEDS;
 
 function trustBody(calendarConsent: boolean) {
   return { success: true, participantId: USER.uid, trust: { analyticsConsent: false, calendarConsent } };
@@ -189,9 +189,9 @@ describe('pasting a link', () => {
     expect(feedEndpoints.createIcsFeed).not.toHaveBeenCalled();
   });
 
-  it.each([
-    ['en', en], ['ar', ar], ['he', he],
-  ] as const)('explains a refused link in words (%s), keeps the text to fix, and caches nothing', async (lang, bundle) => {
+  const BUNDLES: Record<'en' | 'ar' | 'he', { icsFeedsErrInvalidUrl: string }> = { en, ar, he };
+  it.each(['en', 'ar', 'he'] as const)('explains a refused link in words (%s), keeps the text to fix, and caches nothing', async (lang) => {
+    const bundle = BUNDLES[lang];
     jest.spyOn(feedEndpoints, 'createIcsFeed').mockRejectedValue(new IcsFeedRefusedError('invalid_url', 'blocked_scheme') as never);
     await show(lang);
     await waitFor(() => expect(screen.queryByTestId('ics-url-input')).not.toBeNull());
