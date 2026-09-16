@@ -87,6 +87,20 @@ test('a fixture becomes an active commitment that blocks two hours', async () =>
   assert.equal(c.categorySource, 'inferred');
 });
 
+test('a fixture ref follows the normalised external task reference rule (#417)', async () => {
+  await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+  await projectFixturesForUser('u1', NOW);
+  const ref = await getRef('u1', 'football-data:1');
+  assert.ok(ref);
+  // The provider lives in identity.provider and the vendor's own id in
+  // identity.externalId; taskRefId is `${provider}:${externalId}`, exactly as
+  // normalizeExternalTaskReference builds it for every other task provider.
+  assert.equal(ref.identity.provider, 'football-data');
+  assert.equal(ref.identity.externalId, '1');
+  assert.equal(ref.taskRefId, `${ref.identity.provider}:${ref.identity.externalId}`);
+  assert.equal(ref.schemaVersion, 'external-task-v1');
+});
+
 test('projecting twice does not create two commitments', async () => {
   await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
   await projectFixturesForUser('u1', NOW);

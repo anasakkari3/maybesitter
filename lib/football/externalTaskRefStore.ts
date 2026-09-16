@@ -10,18 +10,19 @@
  * own -- the projection in `projectFixtures.ts` decides what a ref means and
  * when to write one; this module only gets, sets and lists them.
  *
- * ── Why the document id is a hash of `externalId`, not `externalId` itself ─
- * `externalId` (`${provider}:${providerMatchId}`) is free text a vendor
+ * ── Why the document id is a hash of `taskRefId`, not `taskRefId` itself ──
+ * `taskRefId` (`${provider}:${providerMatchId}`, #417's rule) is free text a vendor
  * handed us -- `fixtureDoc` in `lib/storage/paths.ts` makes the identical
  * argument for `FIXTURES` and is why `docIdForKey` exists at all. Hashing it
  * into the document id, rather than concatenating it into a path, means a
  * stray `/` in a provider's match id cannot split `externalTaskRefs/{a}/{b}`
  * out from under this collection. The raw id is not lost: it lives in
- * `ref.identity.externalId`, which is what every reader actually keys off.
+ * `ref.taskRefId`, which is what every reader actually keys off, and the
+ * vendor's own id is `ref.identity.externalId`.
  *
- * ── Why `putRef` takes the whole ref rather than `(uid, externalId, ref)` ──
- * The document's address is derived from `ref.identity.externalId`, so a
- * second `externalId` argument could disagree with the one inside the ref it
+ * ── Why `putRef` takes the whole ref rather than `(uid, taskRefId, ref)` ──
+ * The document's address is derived from `ref.taskRefId`, so a
+ * second `taskRefId` argument could disagree with the one inside the ref it
  * is about to overwrite -- silently splitting one match's history across two
  * documents. Deriving the path from the ref itself makes that class of bug
  * impossible to construct rather than merely wrong to construct.
@@ -39,12 +40,12 @@ function storageOf(deps: ExternalTaskRefStoreDeps): StorageAdapter {
 }
 
 /** The document id for a ref, derived the same way `fixtureDoc` derives one. */
-function refDocId(externalId: string): string {
-  return docIdForKey(externalId);
+function refDocId(taskRefId: string): string {
+  return docIdForKey(taskRefId);
 }
 
 /**
- * The full document path for `(uid, externalId)`'s ref. Exported (unlike
+ * The full document path for `(uid, taskRefId)`'s ref. Exported (unlike
  * `refDocId` above) so `projectFixtures.ts` can `tx.get`/`tx.set`/`tx.merge`
  * this exact document from inside its own storage transaction -- see that
  * module's header ("the projection must never write `detachedAt`", Task 11's
@@ -52,25 +53,25 @@ function refDocId(externalId: string): string {
  * time, transactionally, rather than trusting the plain `getRef` read
  * `projectOneFixture` already did before opening a transaction at all.
  */
-export function refDocPath(uid: string, externalId: string): string {
-  return userSubDoc(uid, EXTERNAL_TASK_REFS, refDocId(externalId));
+export function refDocPath(uid: string, taskRefId: string): string {
+  return userSubDoc(uid, EXTERNAL_TASK_REFS, refDocId(taskRefId));
 }
 
 /**
- * The stored ref for `(uid, externalId)`, or `null` if this match has never
+ * The stored ref for `(uid, taskRefId)`, or `null` if this match has never
  * been projected for this user -- never an error. A missing ref is the
  * ordinary state for a fixture nobody has synced yet.
  */
 export async function getRef<T extends ExternalTaskReference = ExternalTaskReference>(
   uid: string,
-  externalId: string,
+  taskRefId: string,
   deps: ExternalTaskRefStoreDeps = {},
 ): Promise<T | null> {
-  return storageOf(deps).get<T>(refDocPath(uid, externalId));
+  return storageOf(deps).get<T>(refDocPath(uid, taskRefId));
 }
 
 /**
- * Writes (creates or replaces) the ref for `ref.identity.externalId`.
+ * Writes (creates or replaces) the ref for `ref.taskRefId`.
  *
  * A plain `set`, not a transaction: the caller (`projectFixtures.ts`) already
  * reads the current ref, decides what the next one should be, and writes it
@@ -84,7 +85,7 @@ export async function putRef<T extends ExternalTaskReference>(
   ref: T,
   deps: ExternalTaskRefStoreDeps = {},
 ): Promise<void> {
-  await storageOf(deps).set(refDocPath(uid, ref.identity.externalId), ref);
+  await storageOf(deps).set(refDocPath(uid, ref.taskRefId), ref);
 }
 
 /**
@@ -139,7 +140,7 @@ export async function putRefCarryingForwardDetachment<T extends ExternalTaskRefe
   deps: ExternalTaskRefStoreDeps = {},
 ): Promise<void> {
   const storage = storageOf(deps);
-  const path = refDocPath(uid, ref.identity.externalId);
+  const path = refDocPath(uid, ref.taskRefId);
   await storage.runTransaction(async (tx) => {
     const current = await tx.get<T>(path);
     const next = current?.detachedAt

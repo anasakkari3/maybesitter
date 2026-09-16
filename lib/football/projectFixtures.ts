@@ -246,7 +246,18 @@ export interface FixtureExternalTaskRef extends ExternalTaskReference {
   readonly awayTeamName: string;
 }
 
-function externalIdOf(fixture: Fixture): string {
+/**
+ * The ref's `taskRefId`, which is also the key its document is stored under.
+ *
+ * `${provider}:${externalId}`, the same rule #417's
+ * `normalizeExternalTaskReference` applies to every task provider, so a
+ * reader joining refs across providers can rebuild one from the other.
+ * `identity.externalId` is the provider's own match id, un-prefixed, for the
+ * same reason: #417's contract keeps the provider in `identity.provider` and
+ * the vendor's id in `externalId`, and prefixing it here would make this the
+ * one provider whose refs read `football-data:football-data:1` under that rule.
+ */
+function taskRefIdOf(fixture: Fixture): string {
   return `${fixture.provider}:${fixture.providerMatchId}`;
 }
 
@@ -276,7 +287,7 @@ function timeSpecFor(fixture: Fixture): TimeSpec {
 }
 
 function fingerprintOf(fixture: Fixture, now: string): ExternalTaskContentFingerprint {
-  const externalId = externalIdOf(fixture);
+  const taskRefId = taskRefIdOf(fixture);
   return {
     // The fixture's own content hash: comparing it against the ref's stored
     // copy is exactly the "did anything about this match change" check --
@@ -286,10 +297,13 @@ function fingerprintOf(fixture: Fixture, now: string): ExternalTaskContentFinger
     // Nothing else in this feed can duplicate a match across providers, so
     // this is not doing dedupe work today; it is filled so a future provider
     // sharing this contract has a real value to compare against rather than
-    // a hole this one left behind.
+    // a hole this one left behind. Deliberately not #417's
+    // `title:`/`due:` keys: a fixture commitment's title is a fixed
+    // placeholder (see the header), so two different matches on one day would
+    // share a title-and-day dedupe hash and read as duplicates of each other.
     dedupeHash: fixture.contentHash,
     fingerprintedAt: now,
-    dedupeKeys: [externalId],
+    dedupeKeys: [taskRefId],
   };
 }
 
@@ -299,12 +313,12 @@ function buildRef(
   commitmentId: string,
   now: string,
 ): FixtureExternalTaskRef {
-  const externalId = externalIdOf(fixture);
+  const taskRefId = taskRefIdOf(fixture);
   return {
     version: EXTERNAL_TASK_CONTRACT_VERSION,
     schemaVersion: EXTERNAL_TASK_SCHEMA_VERSION,
     scopeId: uid,
-    taskRefId: externalId,
+    taskRefId,
     identity: {
       provider: fixture.provider,
       providerIdentity: {
@@ -314,7 +328,7 @@ function buildRef(
         displayName: null,
       },
       connectionId: FOOTBALL_FEED_CONNECTION_ID,
-      externalId,
+      externalId: fixture.providerMatchId,
       externalUrl: null,
     },
     linkState: 'linked',
@@ -408,13 +422,13 @@ function createAndConfirmCommands(commitmentId: string, timeSpec: TimeSpec, now:
 async function readGuardedInputs(
   tx: StorageTransaction,
   uid: string,
-  externalId: string,
+  taskRefId: string,
 ): Promise<{ user: UserDocument | null; before: DomainState; stats: ActivityStats }> {
   const [user, before, stats, freshRef] = await Promise.all([
     tx.get<UserDocument>(userDoc(uid)),
     loadDomainState(tx, uid),
     readActivityStats(tx, uid),
-    tx.get<FixtureExternalTaskRef>(refDocPath(uid, externalId)),
+    tx.get<FixtureExternalTaskRef>(refDocPath(uid, taskRefId)),
   ]);
   if (freshRef?.detachedAt) throw new FixtureDetachedRaceError();
   return { user, before, stats };
@@ -459,10 +473,10 @@ async function createCommitmentForFixtureGuarded(
   timeSpec: TimeSpec,
   now: string,
 ): Promise<'created' | 'raced'> {
-  const externalId = externalIdOf(fixture);
+  const taskRefId = taskRefIdOf(fixture);
   try {
     await getStorage().runTransaction(async (tx) => {
-      const { user, before, stats } = await readGuardedInputs(tx, uid, externalId);
+      const { user, before, stats } = await readGuardedInputs(tx, uid, taskRefId);
       const commitmentId = randomUUID();
       const { state: candidate, events } = applyCommands(before, createAndConfirmCommands(commitmentId, timeSpec, now));
       writeDomainDiff(tx, uid, before, candidate, events, user, now);
@@ -474,7 +488,7 @@ async function createCommitmentForFixtureGuarded(
       // same transaction, that whatever is currently stored is not detached
       // -- so `detachedAt: null` here is not a guess, it is what this
       // transaction just verified.
-      tx.set<FixtureExternalTaskRef>(refDocPath(uid, externalId), buildRef(uid, fixture, commitmentId, now));
+      tx.set<FixtureExternalTaskRef>(refDocPath(uid, taskRefId), buildRef(uid, fixture, commitmentId, now));
     });
     return 'created';
   } catch (error) {
@@ -508,14 +522,14 @@ async function updateCommitmentForFixtureGuarded(
   timeSpec: TimeSpec,
   now: string,
 ): Promise<UpdateOutcome> {
-  const externalId = externalIdOf(fixture);
+  const taskRefId = taskRefIdOf(fixture);
   // Branch 5 (the caller) only reaches this function when `ref.linkedCommitmentId`
   // is set.
   const linkedCommitmentId = ref.linkedCommitmentId as string;
   let outcome: UpdateOutcome = 'updated';
   try {
     await getStorage().runTransaction(async (tx) => {
-      const { user, before, stats } = await readGuardedInputs(tx, uid, externalId);
+      const { user, before, stats } = await readGuardedInputs(tx, uid, taskRefId);
 
       let candidate = before;
       let events: DomainEvent[] = [];
@@ -550,7 +564,7 @@ async function updateCommitmentForFixtureGuarded(
         // suspenders. The precondition makes writing over an active
         // dismissal unreachable; the merge shape makes it inexpressible even
         // if the precondition were ever weakened by a future edit.
-        writeRef = (t) => t.merge<FixtureExternalTaskRef>(refDocPath(uid, externalId), {
+        writeRef = (t) => t.merge<FixtureExternalTaskRef>(refDocPath(uid, taskRefId), {
           fingerprint: fingerprintOf(fixture, now),
           homeTeamName: fixture.homeTeamName,
           awayTeamName: fixture.awayTeamName,
@@ -578,7 +592,7 @@ async function updateCommitmentForFixtureGuarded(
           candidate = applied.state;
           events = applied.events;
           outcome = 'recreated';
-          writeRef = (t) => t.set<FixtureExternalTaskRef>(refDocPath(uid, externalId), buildRef(uid, fixture, commitmentId, now));
+          writeRef = (t) => t.set<FixtureExternalTaskRef>(refDocPath(uid, taskRefId), buildRef(uid, fixture, commitmentId, now));
         } else if (linked?.status === 'completed' || linked?.status === 'archived') {
           // The user already dealt with this match. Create nothing, touch
           // nothing -- the product has no business handing it back as new
@@ -626,8 +640,8 @@ async function projectOneFixture(
   now: string,
   tally: ProjectionTally,
 ): Promise<void> {
-  const externalId = externalIdOf(fixture);
-  const ref = await getRef<FixtureExternalTaskRef>(uid, externalId);
+  const taskRefId = taskRefIdOf(fixture);
+  const ref = await getRef<FixtureExternalTaskRef>(uid, taskRefId);
 
   // 1. detachedAt FIRST. A dismissed match whose kickoff later moves (or is
   // postponed, then rescheduled) has a *different* `contentHash` than the
@@ -758,7 +772,7 @@ export async function projectFixturesForUser(uid: string, now: string): Promise<
     if (!club) continue;
     const fixtures = await listFixturesForTeam(club.providerTeamId, window);
     for (const fixture of fixtures) {
-      byExternalId.set(externalIdOf(fixture), fixture);
+      byExternalId.set(taskRefIdOf(fixture), fixture);
     }
   }
 
