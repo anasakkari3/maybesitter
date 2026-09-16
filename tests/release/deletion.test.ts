@@ -155,6 +155,14 @@ test('a defective embedded personalization receipt is re-coded rather than swall
         deletedAt: NOW,
         remainingFeedbackEventCount: 0,
         remainingRuntimeMemoryRecordCount: 0,
+        // remainingBehaviorFeedbackCount and remainingProfileProposalCount are
+        // deliberately still absent here: RECEIPT_REMAINDER_FIELDS does not
+        // check them (a known, pre-existing gap — see that constant's own
+        // comment), so their absence does not add a second defect below.
+        // remainingFootballFollowsCount *is* checked (football fixtures MVP,
+        // Task 7), so it has to be present and clean or this fixture would stop
+        // testing "one defect for the blank scopeId" and start testing two.
+        remainingFootballFollowsCount: 0,
         remainingPersistedProfileCount: 0,
         emptyStateDigest: 'deadbeefdeadbeef',
       } as unknown as PersonalizationDeletionReceipt),

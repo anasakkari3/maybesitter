@@ -1469,10 +1469,22 @@ export function checkPersonalizationProfile(
  * The remainder fields, in fixed emission order so two checks of one receipt
  * produce byte-identical findings. Listed once, here, so the checker and the
  * doc cannot disagree about which fields a receipt proves.
+ *
+ * `remainingBehaviorFeedbackCount` and `remainingProfileProposalCount` (#202)
+ * are missing from this list, and that is a known, pre-existing gap, not this
+ * addition's doing: adding them here would make an existing (and possibly
+ * currently-nonzero-in-some-fixture) field newly falsifiable, which could turn
+ * unrelated tests red for a reason that has nothing to do with football
+ * follows. Recorded for the final review to triage rather than fixed here.
+ * `remainingFootballFollowsCount` (football fixtures MVP, Task 7) is added
+ * below deliberately, specifically so it does not join them: a remainder
+ * field nothing checks reports a number without proving anything, which is
+ * the opposite of what this module's header promises a receipt is for.
  */
 const RECEIPT_REMAINDER_FIELDS = Object.freeze([
   'remainingFeedbackEventCount',
   'remainingRuntimeMemoryRecordCount',
+  'remainingFootballFollowsCount',
   'remainingPersistedProfileCount',
 ] as const);
 
