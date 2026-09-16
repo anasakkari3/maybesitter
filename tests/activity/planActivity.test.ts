@@ -27,6 +27,8 @@ import { composeDailyPlan } from '../../lib/services/dailyPlan/dailyPlanService.
 import { appendPlanEvent, createIfAbsent } from '../../lib/services/dailyPlan/planStore.ts';
 import { acceptPlan, dismissPlan, editPlan, regeneratePlan } from '../../lib/services/dailyPlan/planActions.ts';
 import { activityStatsPath } from '../../lib/services/activity/activityStats.ts';
+import { LEGACY_PLAN_SCAN } from '../../lib/services/activity/activityService.ts';
+import { MAX_EVENT_PAGE } from '../../lib/services/mobile/eventLog.ts';
 import {
   ACTIVITY_KIND_BY_PLAN_EVENT_TYPE,
   PLAN_EVENTS_NOT_USER_FACING,
@@ -306,6 +308,74 @@ test('a plan accepted before this counter existed still reaches its Moment', asy
     );
     assert.equal(after.plannedDaysCount, 1);
     assert.equal((await summary(OWNER, '2026-09-06')).plannedDaysCount, 1, 'the legacy entry is a day with a plan too');
+  } finally {
+    end();
+  }
+});
+
+test('the counter answers for an acceptance further into the ledger than the legacy scan reads', async () => {
+  begin();
+  try {
+    await setProfile(OWNER, 'ar');
+    // More rebuilds than the scan reads, all older than the acceptance.
+    for (let index = 0; index < LEGACY_PLAN_SCAN + 5; index += 1) {
+      await appendPlanEvent(OWNER, {
+        type: 'plan_regenerated', date: '2026-09-01', at: new Date(Date.parse('2026-09-01T04:00:00.000Z') + index * 60_000).toISOString(),
+        generation: 1, inputDigest: 'rebuilt',
+      });
+    }
+    await seedTask(OWNER, 'c1', '2026-09-14T03:00:00.000Z');
+    await buildPlan(OWNER, '2026-09-14', '2026-09-14T04:00:00.000Z');
+    await acceptPlan(OWNER, '2026-09-14', { now: () => new Date('2026-09-14T05:00:00.000Z') });
+
+    const week = await summary(OWNER, '2026-09-20');
+    assert.deepEqual(
+      (week.moments as Array<{ id: string; reachedAt: string }>).filter((entry) => entry.id === 'first_plan_accepted'),
+      [{ id: 'first_plan_accepted', reachedAt: '2026-09-14T05:00:00.000Z' }],
+    );
+  } finally {
+    end();
+  }
+});
+
+test('a long run of rebuilt plans does not hide an older acceptance behind an empty page', async () => {
+  begin();
+  try {
+    await setProfile(OWNER, 'ar');
+    await appendPlanEvent(OWNER, {
+      type: 'plan_accepted', date: '2026-09-01', at: '2026-09-01T05:00:00.000Z', generation: 1, inputDigest: 'kept',
+    });
+    // A full page and more of ledger rows nobody is shown, all newer, and no
+    // domain events at all to fill the page instead.
+    for (let index = 0; index < MAX_EVENT_PAGE + 5; index += 1) {
+      await appendPlanEvent(OWNER, {
+        type: 'plan_regenerated', date: '2026-09-02', at: new Date(Date.parse('2026-09-02T04:00:00.000Z') + index * 60_000).toISOString(),
+        generation: 2, inputDigest: 'rebuilt',
+      });
+    }
+
+    const items = await history(OWNER);
+    assert.deepEqual(items.map((item) => [item.kind, item.detail]), [['plan_accepted', { planDate: '2026-09-01' }]]);
+  } finally {
+    end();
+  }
+});
+
+test('a ledger row named like a domain event is judged by the ledger allowlist, not the log’s', async () => {
+  begin();
+  try {
+    await setProfile(OWNER, 'ar');
+    // Not something #194 writes today — the guard is against the day a ledger
+    // type and a domain type share a name.
+    const { PLAN_EVENTS, userCol } = await import('../../lib/storage/paths.ts');
+    await getStorage().set(`${userCol(OWNER, PLAN_EVENTS)}/collides`, {
+      id: 'collides', type: 'commitment_completed', date: '2026-09-14', at: '2026-09-14T05:00:00.000Z',
+      generation: 1, inputDigest: 'x',
+    });
+
+    assert.deepEqual(await history(OWNER), []);
+    const week = await summary(OWNER, '2026-09-13');
+    assert.deepEqual([week.completedCount, week.plannedDaysCount], [0, 0]);
   } finally {
     end();
   }

@@ -45,11 +45,14 @@ async function commitmentsById(uid: string): Promise<Map<string, Commitment>> {
   return new Map(rows.map((row) => [row.data.id, row.data]));
 }
 
+/** A ledger row planActivity allows to become activity. */
+function shownOnLedger(row: DomainEventRecord): boolean {
+  return ACTIVITY_KIND_BY_PLAN_EVENT_TYPE[row.type] !== undefined;
+}
+
 /** Only the ledger entries planActivity allows, shaped as records. */
 function shownPlanRecords(rows: readonly DomainEventRecord[]): DomainEventRecord[] {
-  return rows
-    .filter((row) => ACTIVITY_KIND_BY_PLAN_EVENT_TYPE[row.type] !== undefined)
-    .map((row) => planEventAsRecord(row as unknown as PlanEvent));
+  return rows.filter(shownOnLedger).map((row) => planEventAsRecord(row as unknown as PlanEvent));
 }
 
 /**
@@ -62,6 +65,17 @@ function shownPlanRecords(rows: readonly DomainEventRecord[]): DomainEventRecord
  * cursor this returns names a record wherever it lives, and the next page of
  * *either* collection starts strictly after it. More remains when the merge
  * had records left over or either collection said it had more.
+ *
+ * The page is cut, and the cursor placed, over *every* ledger row, and only
+ * then are the rows planActivity does not allow removed. Filtering first would
+ * let a run of rebuilt or dismissed plans empty a page while older acceptances
+ * still waited behind it — a page with no last record has nowhere to put a
+ * cursor, and the walk would end there. So a page may come back shorter than
+ * `limit`, or empty, with a cursor; `listActivity` reads on through it.
+ *
+ * A ledger row keeps nothing but its allowlisted kind: one named like a
+ * domain event (`commitment_completed`) is still not a completion, because it
+ * is judged by the ledger's allowlist, never the domain log's.
  */
 export async function listActivitySources(
   uid: string,
@@ -71,11 +85,18 @@ export async function listActivitySources(
     listEvents(uid, { limit: options.limit, cursor: options.cursor }),
     listEvents(uid, { limit: options.limit, cursor: options.cursor, collection: PLAN_EVENTS }),
   ]);
-  const merged = [...domain.events, ...shownPlanRecords(plans.events)].sort(compareEventsNewestFirst);
+  const ledger = new Set(plans.events);
+  const merged = [...domain.events, ...plans.events].sort(compareEventsNewestFirst);
   const page = merged.slice(0, options.limit);
   const more = merged.length > options.limit || domain.nextCursor !== null || plans.nextCursor !== null;
   const last = page[page.length - 1];
-  return { events: page, nextCursor: more && last ? cursorFor(last) : null };
+  return {
+    events: page.flatMap((event) => {
+      if (!ledger.has(event)) return [event];
+      return shownOnLedger(event) ? [planEventAsRecord(event as unknown as PlanEvent)] : [];
+    }),
+    nextCursor: more && last ? cursorFor(last) : null,
+  };
 }
 
 /**
