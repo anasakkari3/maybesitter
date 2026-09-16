@@ -707,6 +707,7 @@
   "footballBody": "עקוב אחרי הקבוצות שאכפת לך מהן, והמשחקים שלהן ייכנסו ליומן שלך — שעתיים, משריקת הפתיחה עד שריקת הסיום.",
   "footballFollowing": "עוקב",
   "footballDismiss": "לא את זה",
+  "footballSaveFailed": "לא הצלחנו לשמור את הקבוצות. בדקו את החיבור ונסו שוב.",
   "footballCollision": "כבר יש משהו אחר ביומן שלך בזמן הזה.",
   "footballAttribution": "נתוני המשחקים מ-football-data.org",
   "calendarBusyConflict": "מתנגש עם אירוע ביומן {range}",

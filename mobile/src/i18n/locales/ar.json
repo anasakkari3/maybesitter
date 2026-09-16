@@ -704,6 +704,7 @@
   "footballBody": "تابع الأندية اللي بتحبها، ومبارياتها بتنحط عبتقويمك على طول -- ساعتين، من صفارة البداية لصفارة النهاية.",
   "footballFollowing": "متابِع",
   "footballDismiss": "مش هاي",
+  "footballSaveFailed": "ما قدرنا نحفظ الأندية. تأكد من الاتصال واضغط مرة تانية.",
   "footballCollision": "في إشي تاني محطوط بهاد الوقت بتقويمك.",
   "footballAttribution": "بيانات المباريات من football-data.org",
   "calendarBusyConflict": "بيتقاطع مع موعد بتقويمك {range}",

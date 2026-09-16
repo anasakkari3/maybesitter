@@ -704,6 +704,7 @@
   "footballBody": "Follow the clubs you care about, and their matches go straight onto your calendar — two hours, kickoff to final whistle.",
   "footballFollowing": "Following",
   "footballDismiss": "Not this one",
+  "footballSaveFailed": "Couldn’t save your clubs. Check your connection and tap again.",
   "footballCollision": "Something else is already on your calendar at this time.",
   "footballAttribution": "Match data from football-data.org",
   "calendarBusyConflict": "Overlaps a calendar event {range}",

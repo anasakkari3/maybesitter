@@ -35,6 +35,7 @@ import { recordAnalyticsEvent } from './endpoints/analytics';
 import { putCalendarWriteTarget } from './endpoints/calendar';
 import type { CalendarWriteTarget } from './schemas/calendar';
 import { dismissFixture, getFootballSettings, putFollowedClubs } from './endpoints/football';
+import type { FootballSettingsResponse } from './schemas/football';
 import { getConsents, putAiConsent, putRecommendationConsent, type ConsentAnswer } from './endpoints/consents';
 import { getReminderSettings, putReminderSettings, type ReminderSettingsPatch } from './endpoints/reminders';
 import {
@@ -759,23 +760,42 @@ export function useFootballSettings() {
 }
 
 /**
- * Saves the whole follow list, which the server projects immediately (see
- * `putFollowedClubs`'s own header). No optimistic update, for the same
- * reason `useSetCalendarWriteTarget` has none: an unknown club id is refused
- * with a 400, and showing a club as followed for the moment before that
- * refusal arrives would be worse than the round-trip's latency.
+ * Follows or unfollows one club, saving the whole resulting list, which the
+ * server projects immediately (see `putFollowedClubs`'s own header). No
+ * optimistic update, for the same reason `useSetCalendarWriteTarget` has none:
+ * an unknown club id is refused with a 400, and showing a club as followed for
+ * the moment before that refusal arrives would be worse than the round-trip.
  *
- * Both the football query and the two commitment lists are invalidated: a
- * save that just projected a season opener is a save that just changed what
- * Today and Upcoming should show.
+ * ── One save at a time, each from the latest server answer ───────────────
+ * The next list used to be built by the screen from the data it was showing,
+ * so a second tap before the first save came back sent a list without the
+ * first club and the server replaced one follow with the other. Saves now
+ * share a mutation `scope`, which TanStack runs strictly one after another,
+ * and each builds its list inside `mutationFn` from the cache as the previous
+ * save left it -- `onSuccess` writes the server's answer straight into the
+ * cache rather than invalidating it, so there is no refetch for a second save
+ * to race. A failed save refetches, so the screen shows what is really saved.
+ *
+ * The two commitment lists are invalidated too: a save that just projected a
+ * season opener is a save that just changed what Today and Upcoming show.
  */
 export function useSetFollowedClubs() {
   const client = useQueryClient();
   const uid = useUid();
   return useMutation({
-    mutationFn: (clubIds: readonly string[]) => putFollowedClubs(clubIds),
-    onSettled: () => {
+    scope: { id: `football-follows:${uid}` },
+    mutationFn: ({ clubId, locale }: { clubId: string; locale: 'ar' | 'he' | 'en' }) => {
+      const current = client.getQueryData<FootballSettingsResponse>(queryKeys.football(uid))?.followedClubIds ?? [];
+      const next = current.includes(clubId) ? current.filter((id) => id !== clubId) : [...current, clubId];
+      return putFollowedClubs(next, locale);
+    },
+    onSuccess: (data) => {
+      client.setQueryData(queryKeys.football(uid), data);
+    },
+    onError: () => {
       void client.invalidateQueries({ queryKey: queryKeys.football(uid) });
+    },
+    onSettled: () => {
       void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
     },
   });

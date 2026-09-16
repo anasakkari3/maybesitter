@@ -20,9 +20,14 @@ export function getFootballSettings(): Promise<FootballSettingsResponse> {
   });
 }
 
-export function putFollowedClubs(clubIds: readonly string[]): Promise<FootballSettingsResponse> {
+/**
+ * `locale` is the app's current language: the server titles the matches this
+ * save projects in it ("برشلونة – ريال مدريد"), since it has no other way to
+ * know which language the person reads.
+ */
+export function putFollowedClubs(clubIds: readonly string[], locale: 'ar' | 'he' | 'en'): Promise<FootballSettingsResponse> {
   return apiRequest('PUT', '/api/mobile/football', {
-    body: { clubIds },
+    body: { clubIds, locale },
     schema: footballSettingsResponseSchema,
   });
 }

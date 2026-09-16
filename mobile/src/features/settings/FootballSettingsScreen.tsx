@@ -56,13 +56,12 @@ export function FootballSettingsScreen({ onBack }: { onBack: () => void }) {
   const clubs = settings.data?.clubs ?? [];
   const fixtures = settings.data?.fixtures ?? [];
 
+  // The next list is built from the latest saved answer inside the mutation,
+  // not from what this render shows -- see `useSetFollowedClubs`. The error
+  // is shown below the list, so the promise's rejection is handled there.
   const toggle = useCallback((clubId: string) => {
-    const next = followedSet.has(clubId)
-      ? followedClubIds.filter((id) => id !== clubId)
-      : [...followedClubIds, clubId];
-    void setFollowed.mutateAsync(next);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- followedClubIds/followedSet are derived from settings.data every render
-  }, [followedClubIds, setFollowed]);
+    setFollowed.mutateAsync({ clubId, locale: lang }).catch(() => {});
+  }, [lang, setFollowed]);
 
   const dismissMatch = useCallback((commitmentId: string) => {
     void dismiss.mutateAsync(commitmentId);
@@ -116,6 +115,10 @@ export function FootballSettingsScreen({ onBack }: { onBack: () => void }) {
             })
           )}
         </Card>
+
+        {setFollowed.isError ? (
+          <Txt size={13} color={p.wm} testID="football-save-failed">{t.footballSaveFailed}</Txt>
+        ) : null}
 
         {fixtures.length > 0 ? (
           <Card pad={0} style={{ overflow: 'hidden' }} testID="football-fixture-list">

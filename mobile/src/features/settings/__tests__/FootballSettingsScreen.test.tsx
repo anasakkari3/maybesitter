@@ -133,7 +133,7 @@ describe('following a club', () => {
     await waitFor(() => expect(screen.queryByTestId('football-club-barcelona')).not.toBeNull());
 
     await fireEvent.press(screen.getByTestId('football-club-barcelona'));
-    await waitFor(() => expect(put).toHaveBeenCalledWith(['barcelona']));
+    await waitFor(() => expect(put).toHaveBeenCalledWith(['barcelona'], 'ar'));
   });
 
   it('unfollows by sending the list without it', async () => {
@@ -143,7 +143,7 @@ describe('following a club', () => {
     await waitFor(() => expect(screen.queryByTestId('football-club-barcelona')).not.toBeNull());
 
     await fireEvent.press(screen.getByTestId('football-club-barcelona'));
-    await waitFor(() => expect(put).toHaveBeenCalledWith([]));
+    await waitFor(() => expect(put).toHaveBeenCalledWith([], 'ar'));
   });
 });
 
@@ -188,5 +188,37 @@ describe('dismissing a match', () => {
     );
     await show();
     expect(await screen.findByTestId(`football-collision-${FIXTURE.commitmentId}`)).toBeTruthy();
+  });
+});
+
+// Final review M3: each tap built the next list from the data on screen, so a
+// second tap before the first save came back sent a list without the first
+// club, and a failed save was silent.
+describe('saving follows reliably', () => {
+  it('two quick taps keep both clubs', async () => {
+    jest.spyOn(footballEndpoints, 'getFootballSettings').mockResolvedValue(settingsResponse());
+    const put = jest.spyOn(footballEndpoints, 'putFollowedClubs').mockImplementation(async (clubIds) => {
+      await new Promise(resolve => setTimeout(resolve, 30));
+      return settingsResponse({ followedClubIds: [...clubIds] });
+    });
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('football-club-barcelona')).not.toBeNull());
+
+    await fireEvent.press(screen.getByTestId('football-club-barcelona'));
+    await fireEvent.press(screen.getByTestId('football-club-real-madrid'));
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(2));
+    expect(put.mock.calls[0]![0]).toEqual(['barcelona']);
+    expect(put.mock.calls[1]![0]).toEqual(['barcelona', 'real-madrid']);
+  });
+
+  it('says so when a save fails', async () => {
+    jest.spyOn(footballEndpoints, 'getFootballSettings').mockResolvedValue(settingsResponse());
+    jest.spyOn(footballEndpoints, 'putFollowedClubs').mockRejectedValue(new Error('network down'));
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('football-club-barcelona')).not.toBeNull());
+
+    await fireEvent.press(screen.getByTestId('football-club-barcelona'));
+    const notice = await screen.findByTestId('football-save-failed');
+    expect(notice.props.children).toBe(ar.footballSaveFailed);
   });
 });
