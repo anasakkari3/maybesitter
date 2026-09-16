@@ -7,7 +7,13 @@ import type { NotificationGateway, ScheduleRequest } from '../../../notification
 import type { ScheduledNotificationRequest } from '../../../notifications/types';
 import { EMPTY_AWARENESS } from '../../../lib/deviceSettings/awarenessStore';
 import fixture from '../../../api/__fixtures__/commitments.one.json';
-import { planFor, type ReminderIntensity, type ReminderSettings } from '../policy';
+import {
+  planFor,
+  type EscalationCeiling,
+  type ReminderIntensity,
+  type ReminderPriority,
+  type ReminderSettings,
+} from '../policy';
 import { STAGE_INTENSITY, type QuietWindow } from '../quietHours';
 import { desiredRequests, syncCommitments, type SyncInput } from '../softAwarenessEngine';
 import { toReminderCommitments } from '../reminderInputs';
@@ -23,61 +29,88 @@ import { toReminderCommitments } from '../reminderInputs';
  * the suite green. Every assertion here is therefore paired with the input that
  * makes its guard *do* something:
  *
- *  - the ceiling matrix includes, for every ceiling below the top, a lead and a
- *    time at which the next stage up would have been scheduled — so removing
- *    the cut in `stagesFor` produces a stage above the ceiling, not the same
- *    plan;
+ *  - the ceiling matrix includes, for every ceiling below the top, a lead, a
+ *    priority and an opt-in at which the next stage up would have been
+ *    scheduled — so removing any cut in `stagesFor` produces a stage above the
+ *    ceiling, not the same plan;
  *  - every avoidance signal is applied to a commitment that, without it, gets
  *    the full ladder — so "nothing got louder" is measured against something
  *    that could have.
  *
- * The ceiling on the phone is the user's own reminder intensity, chosen in the
- * routine survey (`preferredReminderIntensity`). Stages are ranked by
- * `STAGE_INTENSITY`, the same table quiet hours break ties with.
+ * The user's ceiling on the phone, as #197 (#430) left it: `intensity: 'none'`
+ * means nothing at all; otherwise `escalationCeiling` caps the ladder —
+ * `soft` → soft, `followUp` → follow-up, `hard` → follow-up, plus the ring only
+ * for a Must commitment *and* the explicit `hardEnabled` opt-in. Stages are
+ * ranked by `STAGE_INTENSITY`, the table quiet hours break ties with.
  */
 
 const NOW = Date.parse('2026-09-15T09:00:00.000Z');
 
-/** The highest stage rank each ceiling allows; `none` allows no stage at all. */
-const CEILING_RANK: Readonly<Record<ReminderIntensity, number>> = {
-  none: -1,
-  softAwareness: STAGE_INTENSITY.soft,
-  followUp: STAGE_INTENSITY.followUp,
-  strongReminder: STAGE_INTENSITY.strong,
+interface Ceiling {
+  readonly intensity: ReminderIntensity;
+  readonly escalationCeiling: EscalationCeiling;
+  readonly hardEnabled: boolean;
+  readonly mustThroughQuietHours: boolean;
+}
+
+/** The highest stage rank a ceiling allows a commitment of this priority; -1 is none at all. */
+function ceilingRank(ceiling: Ceiling, priority: ReminderPriority): number {
+  if (ceiling.intensity === 'none') return -1;
+  if (ceiling.escalationCeiling === 'soft') return STAGE_INTENSITY.soft;
+  if (ceiling.escalationCeiling === 'hard' && ceiling.hardEnabled && priority === 'must') {
+    return STAGE_INTENSITY.strong;
+  }
+  return STAGE_INTENSITY.followUp;
+}
+
+const INTENSITIES: ReminderIntensity[] = ['none', 'softAwareness', 'followUp', 'strongReminder'];
+const ESCALATIONS: EscalationCeiling[] = ['soft', 'followUp', 'hard'];
+const CEILINGS: Ceiling[] = INTENSITIES.flatMap(intensity => ESCALATIONS.flatMap(escalationCeiling =>
+  [false, true].flatMap(hardEnabled => [false, true].map(mustThroughQuietHours =>
+    ({ intensity, escalationCeiling, hardEnabled, mustThroughQuietHours })))));
+const TOP: Ceiling = {
+  intensity: 'strongReminder', escalationCeiling: 'hard', hardEnabled: true, mustThroughQuietHours: false,
 };
-const CEILINGS = Object.keys(CEILING_RANK) as ReminderIntensity[];
 const LEADS = [60, 30, 15];
 const LEVELS: Commitment['priority']['level'][] = ['high', 'normal', 'low'];
+const PRIORITY: Record<Commitment['priority']['level'], ReminderPriority> = { high: 'must', normal: 'should', low: 'nice' };
 
 function at(minutesFromNow: number): string {
   return new Date(NOW + minutesFromNow * 60_000).toISOString();
 }
 
 /** A full API commitment, so the narrowing in `reminderInputs` is on the path. */
-function apiCommitment(overrides: Partial<Commitment> = {}, startsInMinutes = 180): Commitment {
+function apiCommitment(
+  overrides: Partial<Commitment> = {},
+  startsInMinutes = 180,
+  level: Commitment['priority']['level'] = 'high',
+): Commitment {
   const base = fixture as unknown as Commitment;
   return {
     ...base,
     id: 'c-avoid',
     status: 'active',
-    timeSpec: { ...base.timeSpec, dueAt: at(startsInMinutes), remindAt: at(startsInMinutes) },
+    priority: { ...base.priority, level, source: 'user_explicit' },
+    timeSpec: { ...base.timeSpec, allDay: false, dueAt: at(startsInMinutes), remindAt: at(startsInMinutes) },
     ...overrides,
   };
 }
 
-function settings(intensity: ReminderIntensity, softLeadMinutes = 60, softEnabled = true): ReminderSettings {
-  return { softEnabled, softLeadMinutes, intensity };
+function settings(ceiling: Ceiling = TOP, softLeadMinutes = 60, softEnabled = true): ReminderSettings {
+  return { softEnabled, softLeadMinutes, ...ceiling };
 }
 
 function syncInput(commitments: Commitment[], overrides: Partial<SyncInput> = {}): SyncInput {
   return {
     commitments: toReminderCommitments(commitments),
     now: new Date(NOW),
-    settings: settings('followUp'),
+    settings: settings(),
     quietHours: null,
     timeZone: 'Asia/Jerusalem',
     awareness: EMPTY_AWARENESS,
     copy: { title: 'A heads-up', body: 'Something is coming up.' },
+    hardCopy: { title: 'Must', body: 'Something you said matters.' },
+    exactAlarms: true,
     ...overrides,
   };
 }
@@ -85,38 +118,40 @@ function syncInput(commitments: Commitment[], overrides: Partial<SyncInput> = {}
 describe('no stage exceeds the user\'s ceiling, for any priority', () => {
   /*
    * Quiet hours are in the matrix because deferral is the one place the engine
-   * picks between stages (`keepHigherIntensity` keeps the firmer one). A
-   * commitment at 08:00 Jerusalem with a 60-minute lead has its soft stage
+   * picks between stages (`keepHigherIntensity` keeps the firmer one), and
+   * `mustThroughQuietHours` is the one place a stage is exempt from the window.
+   * A commitment at 08:00 Jerusalem with a 60-minute lead has its soft stage
    * deferred out of a 22:30–07:30 window onto the follow-up's own instant.
    */
   const QUIET: QuietWindow = { start: '22:30', end: '07:30' };
   const EARLY = '2026-09-16T05:00:00.000Z'; // 08:00 in Jerusalem (UTC+3)
   const LATER = '2026-09-16T12:00:00.000Z'; // 15:00 in Jerusalem, clear of the window
+  const NIGHT = '2026-09-15T21:00:00.000Z'; // 00:00 in Jerusalem, every stage inside the window
 
-  it('holds across ceiling × priority × pressure flags × lead × quiet hours × switch', () => {
+  it('holds across ceiling × opt-in × priority × pressure flags × lead × quiet hours × switch', () => {
     withHermesIntl(() => {
       let planned = 0;
-      for (const intensity of CEILINGS) {
+      for (const ceiling of CEILINGS) {
         for (const level of LEVELS) {
-          for (const pressureAllowed of [false, true]) {
-            for (const pressureLevel of ['none', 'gentle', 'firm']) {
-              for (const lead of LEADS) {
-                for (const softEnabled of [true, false]) {
-                  for (const [quiet, dueAt] of [[null, LATER], [QUIET, LATER], [QUIET, EARLY]] as const) {
-                    const commitment = apiCommitment({
-                      priority: { level, source: 'user_explicit', pressureAllowed, pressureLevel },
-                      timeSpec: { ...apiCommitment().timeSpec, dueAt },
-                    });
-                    const { desired } = desiredRequests(syncInput([commitment], {
-                      settings: settings(intensity, lead, softEnabled),
-                      quietHours: quiet,
-                      timeZone: 'Asia/Jerusalem',
-                    }));
-                    for (const request of desired) {
-                      planned += 1;
-                      expect({ intensity, level, lead, stage: request.stage, withinCeiling: STAGE_INTENSITY[request.stage] <= CEILING_RANK[intensity] })
-                        .toEqual({ intensity, level, lead, stage: request.stage, withinCeiling: true });
-                    }
+          for (const firm of [false, true]) {
+            for (const lead of LEADS) {
+              for (const softEnabled of [true, false]) {
+                for (const [quiet, dueAt] of [[null, LATER], [QUIET, LATER], [QUIET, EARLY], [QUIET, NIGHT]] as const) {
+                  const commitment = apiCommitment({
+                    priority: {
+                      level, source: 'user_explicit', pressureAllowed: firm, pressureLevel: firm ? 'firm' : 'none',
+                    },
+                    timeSpec: { ...apiCommitment().timeSpec, dueAt },
+                  });
+                  const { desired } = desiredRequests(syncInput([commitment], {
+                    settings: settings(ceiling, lead, softEnabled),
+                    quietHours: quiet,
+                  }));
+                  const allowed = ceilingRank(ceiling, PRIORITY[level]);
+                  for (const request of desired) {
+                    planned += 1;
+                    expect({ ceiling, level, lead, stage: request.stage, within: STAGE_INTENSITY[request.stage] <= allowed })
+                      .toEqual({ ceiling, level, lead, stage: request.stage, within: true });
                   }
                 }
               }
@@ -128,33 +163,45 @@ describe('no stage exceeds the user\'s ceiling, for any priority', () => {
       expect(planned).toBeGreaterThan(0);
       // And the deferral collision is really in it: two stages met at 07:30.
       const collided = desiredRequests(syncInput(
-        [apiCommitment({ timeSpec: { ...apiCommitment().timeSpec, dueAt: EARLY } })],
-        { settings: settings('followUp', 60), quietHours: QUIET, timeZone: 'Asia/Jerusalem' },
+        [apiCommitment({ timeSpec: { ...apiCommitment().timeSpec, dueAt: EARLY } }, 180, 'normal')],
+        { settings: settings({ ...TOP, escalationCeiling: 'followUp' }, 60), quietHours: QUIET },
       )).desired.map(request => request.stage);
       expect(collided).toEqual(['followUp']);
     });
   });
 
   it('is a cut that does something: the stage above each ceiling exists one step up', () => {
-    // The false branch of the clamp. With a 60-minute lead the ladder has a
-    // follow-up to offer; `softAwareness` must decline it and `followUp` must
-    // take it. If both answered the same, the ceiling would be a constant.
-    const commitment = toReminderCommitments([apiCommitment()])[0]!;
-    const stagesAt = (intensity: ReminderIntensity) =>
-      planFor(commitment, settings(intensity, 60)).map(stage => stage.stage);
+    // The false branch of every clamp. Each pair differs in exactly one input,
+    // and the stage the lower one declines is one the higher one takes. If both
+    // answered the same, that ceiling would be a constant.
+    const stagesAt = (level: Commitment['priority']['level'], ceiling: Ceiling) =>
+      planFor(toReminderCommitments([apiCommitment({}, 180, level)])[0]!, settings(ceiling, 60))
+        .map(stage => stage.stage);
 
-    expect(stagesAt('none')).toEqual([]);
-    expect(stagesAt('softAwareness')).toEqual(['soft']);
-    expect(stagesAt('followUp')).toEqual(['soft', 'followUp']);
+    expect(stagesAt('high', TOP)).toEqual(['soft', 'followUp', 'strong']);
+    // Survey answer `none` overrides every stored ceiling.
+    expect(stagesAt('high', { ...TOP, intensity: 'none' })).toEqual([]);
+    expect(stagesAt('high', { ...TOP, escalationCeiling: 'soft' })).toEqual(['soft']);
+    expect(stagesAt('high', { ...TOP, escalationCeiling: 'followUp' })).toEqual(['soft', 'followUp']);
+    // The ring needs the opt-in, and a Must commitment, as well as `hard`.
+    expect(stagesAt('high', { ...TOP, hardEnabled: false })).toEqual(['soft', 'followUp']);
+    expect(stagesAt('normal', TOP)).toEqual(['soft', 'followUp']);
+    expect(stagesAt('low', TOP)).toEqual(['soft', 'followUp']);
   });
 
   it('never grows as the ceiling is lowered', () => {
     const commitment = toReminderCommitments([apiCommitment()])[0]!;
-    const order: ReminderIntensity[] = ['strongReminder', 'followUp', 'softAwareness', 'none'];
+    const order: Ceiling[] = [
+      TOP,
+      { ...TOP, hardEnabled: false },
+      { ...TOP, escalationCeiling: 'followUp' },
+      { ...TOP, escalationCeiling: 'soft' },
+      { ...TOP, escalationCeiling: 'soft', intensity: 'none' },
+    ];
     for (const lead of LEADS) {
       let previous = new Set(planFor(commitment, settings(order[0]!, lead)).map(stage => stage.stage));
-      for (const intensity of order.slice(1)) {
-        const current = new Set(planFor(commitment, settings(intensity, lead)).map(stage => stage.stage));
+      for (const ceiling of order.slice(1)) {
+        const current = new Set(planFor(commitment, settings(ceiling, lead)).map(stage => stage.stage));
         for (const stage of current) expect(previous.has(stage)).toBe(true);
         previous = current;
       }
@@ -164,7 +211,8 @@ describe('no stage exceeds the user\'s ceiling, for any priority', () => {
 
 /**
  * Every way the API can say "this person has been avoiding it", applied to a
- * commitment that otherwise gets both stages.
+ * commitment that otherwise gets the whole ladder. None of them changes the
+ * commitment's importance: that is the user's word, not a behaviour signal.
  */
 const AVOIDANCE_SIGNALS: readonly [string, Partial<Commitment>][] = [
   ['acknowledgement ignored', { currentAckState: 'ignored' }],
@@ -173,10 +221,12 @@ const AVOIDANCE_SIGNALS: readonly [string, Partial<Commitment>][] = [
   ['status missed', { status: 'missed' }],
   ['status deferred', { status: 'deferred' }],
   ['ranked overdue and first', { rank: 0, reasonCodes: ['overdue', 'user_must'] }],
-  ['server says pressure is allowed and firm', {
-    priority: { level: 'high', source: 'inferred', pressureAllowed: true, pressureLevel: 'firm' },
-  }],
 ];
+
+/** The server calling pressure allowed and firm, on whatever importance the commitment has. */
+function withFirmPressure(commitment: Commitment): Commitment {
+  return { ...commitment, priority: { ...commitment.priority, source: 'inferred', pressureAllowed: true, pressureLevel: 'firm' } };
+}
 
 function identifiersAndInstants(input: SyncInput): Map<string, number> {
   return new Map(desiredRequests(input).desired.map(request => [request.identifier, request.at]));
@@ -193,34 +243,34 @@ function expectLowerOrHold(avoided: Map<string, number>, calm: Map<string, numbe
 }
 
 describe('avoidance may lower or hold, never raise', () => {
-  it.each(AVOIDANCE_SIGNALS)('%s', (label, signal) => {
-    for (const intensity of CEILINGS) {
-      for (const lead of LEADS) {
-        const overrides = { settings: settings(intensity, lead) };
-        const calm = identifiersAndInstants(syncInput([apiCommitment()], overrides));
-        const avoided = identifiersAndInstants(syncInput([apiCommitment(signal)], overrides));
-        expectLowerOrHold(avoided, calm, `${label} / ${intensity} / ${lead}`);
-      }
-    }
-  });
+  const cases: [string, (commitment: Commitment) => Commitment][] = [
+    ...AVOIDANCE_SIGNALS.map(([label, signal]) =>
+      [label, (commitment: Commitment) => ({ ...commitment, ...signal })] as [string, (c: Commitment) => Commitment]),
+    ['server says pressure is allowed and firm', withFirmPressure],
+    ['every signal at once', commitment => withFirmPressure(Object.assign({}, commitment, ...AVOIDANCE_SIGNALS.map(([, signal]) => signal)))],
+  ];
 
-  it('holds with every signal at once', () => {
-    const everything = Object.assign({}, ...AVOIDANCE_SIGNALS.map(([, signal]) => signal)) as Partial<Commitment>;
-    for (const intensity of CEILINGS) {
-      const overrides = { settings: settings(intensity, 60) };
-      expectLowerOrHold(
-        identifiersAndInstants(syncInput([apiCommitment({ ...everything, status: 'active' })], overrides)),
-        identifiersAndInstants(syncInput([apiCommitment()], overrides)),
-        `everything / ${intensity}`,
-      );
+  it.each(cases)('%s', (label, avoid) => {
+    for (const ceiling of CEILINGS) {
+      for (const level of LEVELS) {
+        for (const lead of LEADS) {
+          const overrides = { settings: settings(ceiling, lead) };
+          const calm = apiCommitment({}, 180, level);
+          expectLowerOrHold(
+            identifiersAndInstants(syncInput([avoid(calm)], overrides)),
+            identifiersAndInstants(syncInput([calm], overrides)),
+            `${label} / ${JSON.stringify(ceiling)} / ${level} / ${lead}`,
+          );
+        }
+      }
     }
   });
 
   it('is measured against a plan that could have got louder', () => {
     // Without this, "no new stage" would hold trivially for a calm plan that
     // was already empty.
-    const calm = identifiersAndInstants(syncInput([apiCommitment()], { settings: settings('followUp', 60) }));
-    expect([...calm.keys()].sort()).toEqual(['c-avoid:followUp', 'c-avoid:soft']);
+    const calm = identifiersAndInstants(syncInput([apiCommitment()]));
+    expect([...calm.keys()].sort()).toEqual(['c-avoid:followUp', 'c-avoid:soft', 'c-avoid:strong']);
   });
 });
 
@@ -257,10 +307,10 @@ describe('ignored reminders change nothing that is still to come', () => {
     const { gateway, scheduled } = deliveringGateway(clock);
     const commitments = [apiCommitment({}, 180)];
     const first = identifiersAndInstants(syncInput(commitments));
-    expect(first.size).toBe(2);
+    expect(first.size).toBe(3);
 
-    // The soft stage fires at +120, the follow-up at +150, the commitment is at
-    // +180. The app resyncs every ten minutes throughout — commitment changes,
+    // The soft stage fires at +120, the follow-up at +150, the ring at +170,
+    // the commitment is at +180. The app resyncs every ten minutes throughout — commitment changes,
     // relaunches — and the user never taps anything.
     for (let minute = 0; minute <= 200; minute += 10) {
       clock.now = NOW + minute * 60_000;

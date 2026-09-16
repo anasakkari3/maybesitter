@@ -43,9 +43,15 @@ const USER: AuthUser = {
 
 /** Far enough out that both stages are still ahead; quiet hours removed (see useReminderSync.test.tsx). */
 const FUTURE = new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString();
+/*
+ * A settings document written before #197: no stored `escalationCeiling` or
+ * `hardEnabled`, so the ceiling is the survey's answer (`legacyEscalation`) —
+ * which is the input these tests move. A stored ceiling would override it.
+ */
+const { escalationCeiling: _ceiling, hardEnabled: _hard, ...legacySettings } = reminderSettings.reminderSettings;
 const SETTINGS_NO_QUIET = {
   ...reminderSettings,
-  reminderSettings: { ...reminderSettings.reminderSettings, softLeadMinutes: 60, quietHours: null },
+  reminderSettings: { ...legacySettings, softLeadMinutes: 60, quietHours: null },
 };
 
 function routineWith(intensity: ReminderIntensity) {
