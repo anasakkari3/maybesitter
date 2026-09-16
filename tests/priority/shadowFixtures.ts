@@ -33,7 +33,7 @@ export function commitmentOf(overrides: Partial<Commitment> & { id: string }): C
     person: null,
     status: 'active',
     priority: { level: 'normal', source: 'inferred', pressureAllowed: false, pressureLevel: 'none' },
-    timeSpec: { kind: 'due_by', dueAt: null, remindAt: null, timezone: 'UTC' },
+    timeSpec: { kind: 'due_by', dueAt: null, endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
     currentAckState: 'seen',
     postponedUntil: null,
     createdAt: '2026-08-01T00:00:00.000Z',
@@ -73,7 +73,7 @@ function overdueSubject(commitment: Commitment, reminders: readonly Reminder[] =
 export const SUBJECT_A: ShadowSubject = overdueSubject(
   commitmentOf({
     id: 'cmt_a',
-    timeSpec: { kind: 'due_by', dueAt: hoursBefore(1), remindAt: null, timezone: 'UTC' },
+    timeSpec: { kind: 'due_by', dueAt: hoursBefore(1), endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
   }),
   [reminderOf({ id: 'rem_a1', commitmentId: 'cmt_a', status: 'ignored', updatedAt: hoursBefore(1) })],
 );
@@ -91,7 +91,7 @@ export const SUBJECT_R: ShadowSubject = overdueSubject(
     id: 'cmt_r',
     currentAckState: 'ignored',
     updatedAt: 'unknown',
-    timeSpec: { kind: 'due_by', dueAt: hoursBefore(42), remindAt: null, timezone: 'UTC' },
+    timeSpec: { kind: 'due_by', dueAt: hoursBefore(42), endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
   }),
 );
 
@@ -107,7 +107,7 @@ export const SUBJECT_M: ShadowSubject = overdueSubject(
     currentAckState: 'ignored',
     updatedAt: 'unknown',
     priority: { level: 'high', source: 'inferred', pressureAllowed: false, pressureLevel: 'none' },
-    timeSpec: { kind: 'due_by', dueAt: hoursBefore(20), remindAt: null, timezone: 'UTC' },
+    timeSpec: { kind: 'due_by', dueAt: hoursBefore(20), endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
   }),
 );
 
@@ -120,7 +120,7 @@ export const SUBJECT_P: ShadowSubject = overdueSubject(
   commitmentOf({
     id: 'cmt_p',
     priority: { level: 'high', source: 'inferred', pressureAllowed: false, pressureLevel: 'none' },
-    timeSpec: { kind: 'due_by', dueAt: hoursBefore(1), remindAt: null, timezone: 'UTC' },
+    timeSpec: { kind: 'due_by', dueAt: hoursBefore(1), endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
   }),
 );
 
@@ -133,7 +133,7 @@ export const SUBJECT_P: ShadowSubject = overdueSubject(
 export const SUBJECT_Q: ShadowSubject = overdueSubject(
   commitmentOf({
     id: 'cmt_q',
-    timeSpec: { kind: 'due_by', dueAt: hoursBefore(20), remindAt: null, timezone: 'UTC' },
+    timeSpec: { kind: 'due_by', dueAt: hoursBefore(20), endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
   }),
 );
 

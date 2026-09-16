@@ -45,7 +45,7 @@ function commitment(overrides: Partial<Commitment> & { id: string; title: string
     person: null,
     status: 'active',
     priority: { level: 'normal', source: 'default', pressureAllowed: false, pressureLevel: 'none' },
-    timeSpec: { kind: 'due_by', dueAt: null, remindAt: null, timezone: TZ },
+    timeSpec: { kind: 'due_by', dueAt: null, endAt: null, remindAt: null, allDay: false, timezone: TZ },
     currentAckState: 'not_seen',
     postponedUntil: null,
     createdAt: '2026-09-14T06:00:00.000Z',
@@ -147,7 +147,7 @@ test('a commitment with a fixed start becomes a blocking fixed event, not an ite
     commitments: [commitment({
       id: 'c_fixed',
       title: 'Dentist',
-      timeSpec: { kind: 'scheduled_event', dueAt: '2026-09-15T11:00:00.000Z', remindAt: '2026-09-15T11:00:00.000Z', timezone: TZ },
+      timeSpec: { kind: 'scheduled_event', dueAt: '2026-09-15T11:00:00.000Z', endAt: null, remindAt: '2026-09-15T11:00:00.000Z', allDay: false, timezone: TZ },
     })],
   }));
   assert.deepEqual(input.constraints.items.map((item) => item.itemId), []);
@@ -200,14 +200,14 @@ test('a due date behind the horizon becomes the end of the day being planned', (
   const overdue = commitment({
     id: 'c_overdue',
     title: 'Yesterday',
-    timeSpec: { kind: 'due_by', dueAt: YESTERDAY, remindAt: null, timezone: TZ },
+    timeSpec: { kind: 'due_by', dueAt: YESTERDAY, endAt: null, remindAt: null, allDay: false, timezone: TZ },
   });
   assert.equal(deadlineFor(overdue, DAY_STARTS, DAY_ENDS), DAY_ENDS);
 
   const today = commitment({
     id: 'c_today',
     title: 'Today',
-    timeSpec: { kind: 'due_by', dueAt: '2026-09-15T11:00:00.000Z', remindAt: null, timezone: TZ },
+    timeSpec: { kind: 'due_by', dueAt: '2026-09-15T11:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: TZ },
   });
   assert.equal(
     deadlineFor(today, DAY_STARTS, DAY_ENDS),
@@ -219,8 +219,8 @@ test('a due date behind the horizon becomes the end of the day being planned', (
 
 test('an overdue commitment is placed, not reported as beyond the horizon', () => {
   const commitments = [
-    commitment({ id: 'c_yesterday', title: 'Yesterday', timeSpec: { kind: 'due_by', dueAt: YESTERDAY, remindAt: null, timezone: TZ } }),
-    commitment({ id: 'c_last_week', title: 'Last week', timeSpec: { kind: 'due_by', dueAt: LAST_WEEK, remindAt: null, timezone: TZ } }),
+    commitment({ id: 'c_yesterday', title: 'Yesterday', timeSpec: { kind: 'due_by', dueAt: YESTERDAY, endAt: null, remindAt: null, allDay: false, timezone: TZ } }),
+    commitment({ id: 'c_last_week', title: 'Last week', timeSpec: { kind: 'due_by', dueAt: LAST_WEEK, endAt: null, remindAt: null, allDay: false, timezone: TZ } }),
   ];
   const { constraints, config } = buildDailyPlanInput(args({ commitments }));
   assert.deepEqual(
@@ -244,7 +244,7 @@ test('a backlog is not reported as DEADLINE_BEYOND_HORIZON every morning', () =>
   const backlog = Array.from({ length: 7 }, (_, index) => commitment({
     id: `c_backlog_${index}`,
     title: `Backlog ${index}`,
-    timeSpec: { kind: 'due_by', dueAt: YESTERDAY, remindAt: null, timezone: TZ },
+    timeSpec: { kind: 'due_by', dueAt: YESTERDAY, endAt: null, remindAt: null, allDay: false, timezone: TZ },
   }));
   const { constraints, config } = buildDailyPlanInput(args({ commitments: backlog }));
   const plan = schedulePlan(constraints, config);
@@ -261,7 +261,7 @@ test('a commitment pinned to an instant that has passed rolls forward instead of
     commitments: [commitment({
       id: 'c_missed_event',
       title: 'Yesterday\'s dentist',
-      timeSpec: { kind: 'scheduled_event', dueAt: YESTERDAY, remindAt: YESTERDAY, timezone: TZ },
+      timeSpec: { kind: 'scheduled_event', dueAt: YESTERDAY, endAt: null, remindAt: YESTERDAY, allDay: false, timezone: TZ },
     })],
   }));
   assert.deepEqual(
@@ -287,7 +287,7 @@ test('a start later today still pins, so the rule reaches only what is behind th
     commitments: [commitment({
       id: 'c_later',
       title: 'Dentist',
-      timeSpec: { kind: 'scheduled_event', dueAt: '2026-09-15T11:00:00.000Z', remindAt: '2026-09-15T11:00:00.000Z', timezone: TZ },
+      timeSpec: { kind: 'scheduled_event', dueAt: '2026-09-15T11:00:00.000Z', endAt: null, remindAt: '2026-09-15T11:00:00.000Z', allDay: false, timezone: TZ },
     })],
   }));
   assert.deepEqual(input.constraints.items, []);

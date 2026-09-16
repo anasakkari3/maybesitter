@@ -36,7 +36,7 @@ function commitment(overrides: Partial<Commitment> = {}): Commitment {
     person: null,
     status: 'active',
     priority: { level: 'normal', source: 'default', pressureAllowed: true, pressureLevel: 'gentle' },
-    timeSpec: { kind: 'unscheduled', dueAt: null, remindAt: null, timezone: 'UTC' },
+    timeSpec: { kind: 'unscheduled', dueAt: null, endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
     currentAckState: 'seen',
     postponedUntil: null,
     createdAt: '2026-08-01T00:00:00.000Z',
@@ -125,7 +125,7 @@ const CASES: ReadonlyArray<{
   {
     label: 'overdue by one hour',
     commitment: commitment({
-      timeSpec: { kind: 'due_by', dueAt: '2026-08-19T11:00:00.000Z', remindAt: null, timezone: 'UTC' },
+      timeSpec: { kind: 'due_by', dueAt: '2026-08-19T11:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
     }),
     reminders: [],
     reason: 'overdue',
@@ -133,7 +133,7 @@ const CASES: ReadonlyArray<{
   {
     label: 'overdue far past the saturation point',
     commitment: commitment({
-      timeSpec: { kind: 'due_by', dueAt: '2026-07-01T00:00:00.000Z', remindAt: null, timezone: 'UTC' },
+      timeSpec: { kind: 'due_by', dueAt: '2026-07-01T00:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
     }),
     reminders: [],
     reason: 'overdue',
@@ -141,7 +141,7 @@ const CASES: ReadonlyArray<{
   {
     label: 'due soon, mid-window',
     commitment: commitment({
-      timeSpec: { kind: 'due_by', dueAt: '2026-08-20T00:00:00.000Z', remindAt: null, timezone: 'UTC' },
+      timeSpec: { kind: 'due_by', dueAt: '2026-08-20T00:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
     }),
     reminders: [],
     reason: 'due_soon',
@@ -149,7 +149,7 @@ const CASES: ReadonlyArray<{
   {
     label: 'due soon, exactly now',
     commitment: commitment({
-      timeSpec: { kind: 'due_by', dueAt: NOW_ISO, remindAt: null, timezone: 'UTC' },
+      timeSpec: { kind: 'due_by', dueAt: NOW_ISO, endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
     }),
     reminders: [],
     reason: 'due_soon',
@@ -203,7 +203,7 @@ const CASES: ReadonlyArray<{
       postponedUntil: '2026-08-20T09:00:00.000Z',
       updatedAt: '2026-08-19T06:00:00.000Z',
       priority: { level: 'high', source: 'user_explicit', pressureAllowed: true, pressureLevel: 'firm' },
-      timeSpec: { kind: 'due_by', dueAt: '2026-07-01T00:00:00.000Z', remindAt: null, timezone: 'UTC' },
+      timeSpec: { kind: 'due_by', dueAt: '2026-07-01T00:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
     }),
     reminders: [
       reminder({ id: 'r1', status: 'snoozed' }),
@@ -216,7 +216,7 @@ const CASES: ReadonlyArray<{
   {
     label: 'non-UTC offset on the due time',
     commitment: commitment({
-      timeSpec: { kind: 'due_by', dueAt: '2026-08-19T14:00:00.000+03:00', remindAt: null, timezone: 'Asia/Jerusalem' },
+      timeSpec: { kind: 'due_by', dueAt: '2026-08-19T14:00:00.000+03:00', endAt: null, remindAt: null, allDay: false, timezone: 'Asia/Jerusalem' },
     }),
     reminders: [],
     reason: 'due_soon',
@@ -231,7 +231,7 @@ for (const testCase of CASES) {
 
 test('delegation equivalence holds across every reason band for one commitment', () => {
   const subject = commitment({
-    timeSpec: { kind: 'due_by', dueAt: '2026-08-19T11:00:00.000Z', remindAt: null, timezone: 'UTC' },
+    timeSpec: { kind: 'due_by', dueAt: '2026-08-19T11:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
   });
   for (const reason of ['overdue', 'due_soon', 'active', 'pending'] as const) {
     assertEquivalent(`band ${reason}`, subject, [], reason);
@@ -269,7 +269,7 @@ test('an unparseable clock now throws instead of scoring from nonsense', () => {
   // from a clock we do not have is worse than a refusal.
   const subject = commitment({
     currentAckState: 'ignored',
-    timeSpec: { kind: 'due_by', dueAt: '2026-07-01T00:00:00.000Z', remindAt: null, timezone: 'UTC' },
+    timeSpec: { kind: 'due_by', dueAt: '2026-07-01T00:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
   });
 
   assert.throws(

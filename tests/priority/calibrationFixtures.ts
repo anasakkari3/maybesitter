@@ -53,7 +53,7 @@ export function subjectOf(spec: SubjectSpec): CalibrationSubject {
       pressureAllowed: false,
       pressureLevel: 'none',
     },
-    timeSpec: { kind: 'unscheduled', dueAt: null, remindAt: null, timezone: 'UTC' },
+    timeSpec: { kind: 'unscheduled', dueAt: null, endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
     currentAckState: spec.postponed === true ? 'postponed' : 'seen',
     postponedUntil: null,
     createdAt: '2026-08-01T00:00:00.000Z',

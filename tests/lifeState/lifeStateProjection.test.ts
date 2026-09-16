@@ -39,7 +39,7 @@ function commitment(overrides: Partial<Commitment> & { id: string }): Commitment
     person: null,
     status: 'active',
     priority: { level: 'normal', source: 'default', pressureAllowed: false, pressureLevel: 'none' },
-    timeSpec: { kind: 'unscheduled', dueAt: null, remindAt: null, timezone: 'UTC' },
+    timeSpec: { kind: 'unscheduled', dueAt: null, endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
     currentAckState: 'not_seen',
     postponedUntil: null,
     createdAt: '2026-08-01T00:00:00.000Z',
@@ -67,7 +67,7 @@ function project(state: DomainState, windowDays?: number): LifeState {
 test('the same input projected twice yields byte-identical output including inputDigest', () => {
   const state = stateOf([
     commitment({ id: 'c_b', status: 'completed', completedAt: '2026-08-14T09:00:00.000Z', updatedAt: '2026-08-14T09:00:00.000Z', currentAckState: 'completed' }),
-    commitment({ id: 'c_a', timeSpec: { kind: 'due_by', dueAt: '2026-08-17T09:00:00.000Z', remindAt: null, timezone: 'UTC' } }),
+    commitment({ id: 'c_a', timeSpec: { kind: 'due_by', dueAt: '2026-08-17T09:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' } }),
   ]);
 
   const first = project(state);
@@ -81,7 +81,7 @@ test('the same input projected twice yields byte-identical output including inpu
 test('reordering keys in the input state changes neither the digest nor the serialized output', () => {
   const overdue = commitment({
     id: 'c_a',
-    timeSpec: { kind: 'due_by', dueAt: '2026-08-17T09:00:00.000Z', remindAt: null, timezone: 'UTC' },
+    timeSpec: { kind: 'due_by', dueAt: '2026-08-17T09:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
     updatedAt: '2026-08-16T00:00:00.000Z',
   });
   const done = commitment({
@@ -130,11 +130,11 @@ test('projection survives arbitrary reshuffling of every record map and nested o
   const state = stateOf(
     [
       commitment({ id: 'c_3', status: 'draft' }),
-      commitment({ id: 'c_1', timeSpec: { kind: 'due_by', dueAt: '2026-08-17T09:00:00.000Z', remindAt: null, timezone: 'UTC' } }),
+      commitment({ id: 'c_1', timeSpec: { kind: 'due_by', dueAt: '2026-08-17T09:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' } }),
       commitment({ id: 'c_10', status: 'deferred', currentAckState: 'postponed', postponedUntil: '2026-08-19T09:00:00.000Z', updatedAt: '2026-08-17T09:00:00.000Z' }),
       commitment({ id: 'c_2', status: 'completed', currentAckState: 'completed', completedAt: '2026-08-13T09:00:00.000Z', updatedAt: '2026-08-13T09:00:00.000Z' }),
       commitment({ id: 'c_4', status: 'dropped', currentAckState: 'completed', droppedAt: '2026-08-12T09:00:00.000Z', updatedAt: '2026-08-12T09:00:00.000Z' }),
-      commitment({ id: 'c_5', currentAckState: 'ignored', updatedAt: '2026-08-16T09:00:00.000Z', timeSpec: { kind: 'scheduled_event', dueAt: '2026-08-19T14:00:00.000Z', remindAt: null, timezone: 'Asia/Jerusalem' } }),
+      commitment({ id: 'c_5', currentAckState: 'ignored', updatedAt: '2026-08-16T09:00:00.000Z', timeSpec: { kind: 'scheduled_event', dueAt: '2026-08-19T14:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'Asia/Jerusalem' } }),
     ],
     [
       { id: 'r_2', commitmentId: 'c_1', reminderType: 'due_soon', scheduledFor: '2026-08-17T08:00:00.000Z', status: 'snoozed', requiresAction: true, deliveredAt: null, acknowledgedAt: null, snoozedUntil: '2026-08-18T08:00:00.000Z', createdAt: '2026-08-15T09:00:00.000Z', updatedAt: '2026-08-16T09:00:00.000Z' },
@@ -287,8 +287,8 @@ test('source and derivedFrom are independent: absent means nothing was read, not
 
 test('commitments view counts every status, and open/overdue sets are id-sorted', () => {
   const projection = project(stateOf([
-    commitment({ id: 'c_z', timeSpec: { kind: 'due_by', dueAt: '2026-08-17T09:00:00.000Z', remindAt: null, timezone: 'UTC' } }),
-    commitment({ id: 'c_a', timeSpec: { kind: 'due_by', dueAt: '2026-08-10T09:00:00.000Z', remindAt: null, timezone: 'UTC' } }),
+    commitment({ id: 'c_z', timeSpec: { kind: 'due_by', dueAt: '2026-08-17T09:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' } }),
+    commitment({ id: 'c_a', timeSpec: { kind: 'due_by', dueAt: '2026-08-10T09:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' } }),
     commitment({ id: 'c_m', status: 'draft' }),
     commitment({ id: 'c_done', status: 'completed', currentAckState: 'completed', completedAt: '2026-08-15T09:00:00.000Z', updatedAt: '2026-08-15T09:00:00.000Z' }),
     commitment({ id: 'c_missed', status: 'missed', updatedAt: '2026-08-15T09:00:00.000Z' }),
@@ -352,7 +352,7 @@ test('a terminal commitment past its due date is not overdue, because overdue on
       currentAckState: 'completed',
       completedAt: '2026-08-15T09:00:00.000Z',
       updatedAt: '2026-08-15T09:00:00.000Z',
-      timeSpec: { kind: 'due_by', dueAt: '2026-08-10T09:00:00.000Z', remindAt: null, timezone: 'UTC' },
+      timeSpec: { kind: 'due_by', dueAt: '2026-08-10T09:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
     }),
   ]));
 
@@ -368,8 +368,8 @@ test('busy windows come from open timed commitments only, sorted by start time r
   // Ids are deliberately in the opposite order to the due dates, so an
   // implementation that leaned on the id ordering would fail here.
   const projection = project(stateOf([
-    commitment({ id: 'c_a', timeSpec: { kind: 'scheduled_event', dueAt: '2026-08-20T15:00:00.000Z', remindAt: null, timezone: 'Asia/Jerusalem' } }),
-    commitment({ id: 'c_b', timeSpec: { kind: 'due_by', dueAt: '2026-08-19T09:00:00.000Z', remindAt: null, timezone: 'UTC' } }),
+    commitment({ id: 'c_a', timeSpec: { kind: 'scheduled_event', dueAt: '2026-08-20T15:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'Asia/Jerusalem' } }),
+    commitment({ id: 'c_b', timeSpec: { kind: 'due_by', dueAt: '2026-08-19T09:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' } }),
     commitment({ id: 'c_c_open_untimed' }),
     commitment({
       id: 'c_d_done',
@@ -377,7 +377,7 @@ test('busy windows come from open timed commitments only, sorted by start time r
       currentAckState: 'completed',
       completedAt: '2026-08-15T09:00:00.000Z',
       updatedAt: '2026-08-15T09:00:00.000Z',
-      timeSpec: { kind: 'due_by', dueAt: '2026-08-25T09:00:00.000Z', remindAt: null, timezone: 'UTC' },
+      timeSpec: { kind: 'due_by', dueAt: '2026-08-25T09:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
     }),
   ]));
 
@@ -394,7 +394,7 @@ test('busy windows come from open timed commitments only, sorted by start time r
 
 test('a commitment carrying a dueAt under an unscheduled timeSpec still constrains time as a due_by window', () => {
   const projection = project(stateOf([
-    commitment({ id: 'c_a', timeSpec: { kind: 'unscheduled', dueAt: '2026-08-19T09:00:00.000Z', remindAt: null, timezone: 'UTC' } }),
+    commitment({ id: 'c_a', timeSpec: { kind: 'unscheduled', dueAt: '2026-08-19T09:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' } }),
   ]));
 
   assert.equal(projection.availability.known, true);
@@ -405,7 +405,7 @@ test('a commitment carrying a dueAt under an unscheduled timeSpec still constrai
 
 test('a reminder time alone is not a busy window, because a nudge is delivery machinery not an appointment', () => {
   const projection = project(stateOf([
-    commitment({ id: 'c_a', timeSpec: { kind: 'scheduled_event', dueAt: null, remindAt: '2026-08-19T09:00:00.000Z', timezone: 'UTC' } }),
+    commitment({ id: 'c_a', timeSpec: { kind: 'scheduled_event', dueAt: null, endAt: null, remindAt: '2026-08-19T09:00:00.000Z', allDay: false, timezone: 'UTC' } }),
   ]));
 
   assert.equal(projection.availability.known, false);
@@ -427,9 +427,9 @@ test('load bands follow the exported thresholds on open commitment count', () =>
 
 test('load sums agenda urgency over open commitments and counts overdue and due-soon work', () => {
   const projection = project(stateOf([
-    commitment({ id: 'c_overdue', timeSpec: { kind: 'due_by', dueAt: '2026-08-17T09:00:00.000Z', remindAt: null, timezone: 'UTC' } }),
-    commitment({ id: 'c_due_soon', timeSpec: { kind: 'due_by', dueAt: '2026-08-18T20:00:00.000Z', remindAt: null, timezone: 'UTC' } }),
-    commitment({ id: 'c_far', timeSpec: { kind: 'due_by', dueAt: '2026-09-30T09:00:00.000Z', remindAt: null, timezone: 'UTC' } }),
+    commitment({ id: 'c_overdue', timeSpec: { kind: 'due_by', dueAt: '2026-08-17T09:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' } }),
+    commitment({ id: 'c_due_soon', timeSpec: { kind: 'due_by', dueAt: '2026-08-18T20:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' } }),
+    commitment({ id: 'c_far', timeSpec: { kind: 'due_by', dueAt: '2026-09-30T09:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' } }),
     commitment({ id: 'c_done', status: 'completed', currentAckState: 'completed', completedAt: '2026-08-15T09:00:00.000Z', updatedAt: '2026-08-15T09:00:00.000Z' }),
   ]));
 
@@ -448,8 +448,8 @@ test('load sums agenda urgency over open commitments and counts overdue and due-
 
 test('load total is order-independent, so an integer sum cannot drift with insertion order', () => {
   const items = [
-    commitment({ id: 'c_1', timeSpec: { kind: 'due_by', dueAt: '2026-08-17T09:00:00.000Z', remindAt: null, timezone: 'UTC' }, priority: { level: 'high', source: 'user_explicit', pressureAllowed: true, pressureLevel: 'firm' } }),
-    commitment({ id: 'c_2', timeSpec: { kind: 'due_by', dueAt: '2026-08-18T18:00:00.000Z', remindAt: null, timezone: 'UTC' } }),
+    commitment({ id: 'c_1', timeSpec: { kind: 'due_by', dueAt: '2026-08-17T09:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' }, priority: { level: 'high', source: 'user_explicit', pressureAllowed: true, pressureLevel: 'firm' } }),
+    commitment({ id: 'c_2', timeSpec: { kind: 'due_by', dueAt: '2026-08-18T18:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' } }),
     commitment({ id: 'c_3', status: 'deferred', currentAckState: 'postponed', postponedUntil: '2026-08-19T09:00:00.000Z' }),
   ];
   const forward = project(stateOf(items));
@@ -530,7 +530,7 @@ test('newestTimestamp picks the latest instant and breaks ties without depending
 
 test('every field carries source, derivedFrom and computedAt', () => {
   const projection = project(stateOf([
-    commitment({ id: 'c_a', timeSpec: { kind: 'due_by', dueAt: '2026-08-19T09:00:00.000Z', remindAt: null, timezone: 'UTC' } }),
+    commitment({ id: 'c_a', timeSpec: { kind: 'due_by', dueAt: '2026-08-19T09:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' } }),
   ]));
 
   for (const field of [projection.commitments, projection.availability, projection.load, projection.recentOutcomes]) {

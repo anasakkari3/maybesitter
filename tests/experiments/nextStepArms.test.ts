@@ -17,7 +17,7 @@ function commitment(id: string, overrides: Partial<Commitment> = {}): Commitment
   return {
     id, kind: 'task', title: `Step ${id}`, description: null, person: null, status: 'active',
     priority: { level: 'normal', source: 'user_explicit', pressureAllowed: false, pressureLevel: 'none' },
-    timeSpec: { kind: 'due_by', dueAt: '2026-09-07T20:00:00.000Z', remindAt: null, timezone: 'UTC' },
+    timeSpec: { kind: 'due_by', dueAt: '2026-09-07T20:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
     currentAckState: 'aware', postponedUntil: null, createdAt: '2026-09-01T00:00:00.000Z',
     updatedAt: '2026-09-01T00:00:00.000Z', confirmedAt: '2026-09-01T00:00:00.000Z', completedAt: null, droppedAt: null,
     ...overrides,
@@ -32,7 +32,7 @@ const armContext = { now: NOW, locale: 'en' as const, proposalId: 'next-step-tes
 
 test('arms: the generic arm is byte-identical to the reviewed deterministic baseline', () => {
   const state = stateWith(
-    commitment('c1', { timeSpec: { kind: 'due_by', dueAt: '2026-09-06T09:00:00.000Z', remindAt: null, timezone: 'UTC' } }),
+    commitment('c1', { timeSpec: { kind: 'due_by', dueAt: '2026-09-06T09:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' } }),
     commitment('c2', { priority: { level: 'high', source: 'user_explicit', pressureAllowed: false, pressureLevel: 'none' } }),
     commitment('c3'),
   );

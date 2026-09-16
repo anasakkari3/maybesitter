@@ -50,7 +50,7 @@ function item(overrides: Partial<Commitment> & { id: string }): Commitment {
     person: null,
     status: 'active',
     priority: { level: 'normal', source: 'default', pressureAllowed: false, pressureLevel: 'none' },
-    timeSpec: { kind: 'due_by', dueAt: '2026-09-13T12:00:00.000Z', remindAt: null, timezone: 'UTC' },
+    timeSpec: { kind: 'due_by', dueAt: '2026-09-13T12:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
     currentAckState: 'not_seen',
     postponedUntil: null,
     createdAt: '2026-09-01T09:00:00.000Z',
@@ -202,7 +202,7 @@ describe('the why-first line', () => {
 describe('a time that has passed', () => {
   it('is still shown, and is not a failure state', async () => {
     // There is no "overdue" in this product, and nothing is red anywhere.
-    await show([item({ id: 'past', timeSpec: { kind: 'due_by', dueAt: '2020-01-01T09:00:00.000Z', remindAt: null, timezone: 'UTC' } })]);
+    await show([item({ id: 'past', timeSpec: { kind: 'due_by', dueAt: '2020-01-01T09:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' } })]);
     expect(screen.queryByTestId('today-item-past')).not.toBeNull();
     expect(screen.queryByTestId('today-time-past')).not.toBeNull();
   });
@@ -210,7 +210,7 @@ describe('a time that has passed', () => {
   it('shows a time for an item that has one, and a placeholder for one that does not', async () => {
     await show([
       item({ id: 'timed' }),
-      item({ id: 'untimed', timeSpec: { kind: 'unscheduled', dueAt: null, remindAt: null, timezone: 'UTC' } }),
+      item({ id: 'untimed', timeSpec: { kind: 'unscheduled', dueAt: null, endAt: null, remindAt: null, allDay: false, timezone: 'UTC' } }),
     ]);
     expect(screen.getByTestId('today-time-untimed').props.children).toBe(en.noTimeYet);
   });
@@ -242,7 +242,7 @@ describe('what the screen no longer invents', () => {
     // field was fiction; a block sized by it would tell the user they said how
     // long something takes when they only said when it was due. So the mark is
     // one time, never a range.
-    await show([item({ id: 'timed', timeSpec: { kind: 'due_by', dueAt: '2026-09-13T12:00:00.000Z', remindAt: null, timezone: 'UTC' } })]);
+    await show([item({ id: 'timed', timeSpec: { kind: 'due_by', dueAt: '2026-09-13T12:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' } })]);
     const mark = String(screen.getByTestId('today-time-timed').props.children);
     expect(mark).not.toMatch(/[–—]|\s-\s/);
   });

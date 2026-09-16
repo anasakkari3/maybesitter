@@ -16,7 +16,7 @@ export function commitmentOf(overrides: Partial<Commitment> = {}): Commitment {
     person: null,
     status: 'active',
     priority: { level: 'normal', source: 'default', pressureAllowed: false, pressureLevel: 'none' },
-    timeSpec: { kind: 'due_by', dueAt: null, remindAt: null, timezone: 'UTC' },
+    timeSpec: { kind: 'due_by', dueAt: null, endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
     currentAckState: 'not_seen',
     postponedUntil: null,
     createdAt: '2026-08-01T00:00:00.000Z',

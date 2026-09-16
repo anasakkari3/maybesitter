@@ -22,6 +22,8 @@ import { getNextStep, recordNextStepDecision } from './endpoints/nextStep';
 import { getTrust, updateTrust } from './endpoints/trust';
 import { flagAlphaFeedback, getFeedbackHistory, revokeFeedback } from './endpoints/feedback';
 import { recordAnalyticsEvent } from './endpoints/analytics';
+import { putCalendarWriteTarget } from './endpoints/calendar';
+import type { CalendarWriteTarget } from './schemas/calendar';
 import { getConsents, putAiConsent, putRecommendationConsent, type ConsentAnswer } from './endpoints/consents';
 import { getReminderSettings, putReminderSettings, type ReminderSettingsPatch } from './endpoints/reminders';
 import {
@@ -534,6 +536,31 @@ export function useSetRecommendationConsent() {
       // The next step is gated on this answer, so it is wrong the moment it
       // changes.
       void client.invalidateQueries({ queryKey: ['user', uid, 'nextStep'] });
+    },
+  });
+}
+
+/**
+ * Sets where this account writes its commitments (UC-3.1, #185).
+ *
+ * No optimistic update, for the same reason the consent switches have none: the
+ * toggle moves when the server says it moved. Showing "on" for the moment
+ * before a failed write would be the app promising to put things in somebody's
+ * calendar and then not doing it, and they would find out by looking at an
+ * empty calendar rather than at a control that snapped back.
+ *
+ * Both keys are invalidated. The commitments carry `deviceCalendarLink`, and
+ * what the reconcile pass does with those links is decided by the value this
+ * mutation just changed.
+ */
+export function useSetCalendarWriteTarget() {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn: (writeTarget: CalendarWriteTarget) => putCalendarWriteTarget(writeTarget),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: ['user', uid, 'calendarSettings'] });
+      void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
     },
   });
 }

@@ -141,8 +141,16 @@ test('the checksum is order-independent over the split but sensitive to its cont
 
 test('a lock file with no active row is rejected rather than silently unprotecting the split', () => {
   const lock = clone(parseSeedSetLock(readSeedSetLock()).lock!);
-  lock.records[0].state = 'superseded';
-  lock.records[0].supersededBy = 'priority-seed-set-locked-v2';
+  // *Every* row, not `records[0]`. The ledger held one record when this was
+  // written, so superseding the first one emptied the active set by accident;
+  // with the #185 supersession there are two, and marking only the first left
+  // the second active — so the case passed while asserting nothing. The
+  // situation being described is a ledger with no active row at all, and that
+  // is now what it builds.
+  for (const record of lock.records) {
+    record.state = 'superseded';
+    record.supersededBy = 'priority-seed-set-locked-v99';
+  }
   const resealed = sealSeedSetLock(lock);
 
   const result = verifySeedSetLock({ lock: resealed });

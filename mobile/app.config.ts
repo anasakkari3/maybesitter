@@ -19,6 +19,7 @@ const problems = releaseConfigProblems({
   apiMode: process.env.EXPO_PUBLIC_API_MODE,
   googleCalendarDemo: process.env.EXPO_PUBLIC_ENABLE_GOOGLE_CALENDAR_DEMO,
   testCrash: process.env.EXPO_PUBLIC_ENABLE_TEST_CRASH,
+  calendarWrite: process.env.EXPO_PUBLIC_FEATURE_CALENDAR_WRITE,
 });
 if (problems.length > 0) throw new Error(releaseConfigErrorMessage(problems));
 
@@ -309,6 +310,26 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         collected('NSPrivacyCollectedDataTypeOtherUserContent'),
         // Not linked: no `setUserId`, so a crash cannot be tied to a person.
         collected('NSPrivacyCollectedDataTypeCrashData', { linked: false }),
+        /*
+         * The calendar link (UC-3.1, #185).
+         *
+         * What leaves the device is the id of the calendar the user picked and
+         * the id of the event MaybeSitter itself created, plus a hash of what
+         * it wrote — stored so the app can move or remove *its own* event later
+         * and so a second device does not add a duplicate. No event the user
+         * created is read, no title is uploaded, and nothing about the rest of
+         * their calendar is sent anywhere.
+         *
+         * Apple has no "Calendar" collected-data type; the events themselves
+         * would be `OtherUserContent`, and these are not the events. Two
+         * opaque identifiers for a row this app wrote are `OtherDataTypes`,
+         * which is the entry that exists for exactly this — data that is
+         * collected and fits no other category.
+         *
+         * Linked to identity, because the row is stored under the uid, and
+         * never used for tracking.
+         */
+        collected('NSPrivacyCollectedDataTypeOtherDataTypes'),
         collected('NSPrivacyCollectedDataTypeProductInteraction', {
           purposes: ['NSPrivacyCollectedDataTypePurposeAppFunctionality', 'NSPrivacyCollectedDataTypePurposeAnalytics'],
         }),
@@ -433,6 +454,44 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       speechRecognitionPermission:
         'Your device turns your speech into text. MaybeSitter never receives the audio.',
       androidSpeechServicePackages: ['com.google.android.googlequicksearchbox', 'com.google.android.as'],
+    }],
+    /*
+     * The phone's calendar (UC-3.1, #185).
+     *
+     * ── Full access, and why the app pays for it ─────────────────
+     *
+     * `writeOnlyAccess` is not set, so this writes
+     * `NSCalendarsFullAccessUsageDescription` (iOS 17+) and
+     * `NSCalendarsUsageDescription` (before it), and asks for both
+     * `READ_CALENDAR` and `WRITE_CALENDAR` on Android.
+     *
+     * Write-only is the smaller ask and it cannot do this feature. It can add
+     * an event and can never look one up again, so "reschedule moves the
+     * event", "delete removes it" and "an event the user deleted is never
+     * recreated" are all impossible under it — three of #185's acceptance
+     * criteria. The honest trade is to ask for full access and say in the
+     * prompt exactly what is read back, which is what the string below does.
+     *
+     * ── `remindersPermission: false` ─────────────────────────────
+     *
+     * The plugin writes `NSRemindersUsageDescription` and
+     * `NSRemindersFullAccessUsageDescription` by default, for every app that
+     * installs it. MaybeSitter never touches the Reminders store — nothing in
+     * `src/features/calendar/` calls `createReminder` or `listReminders` — and
+     * a purpose string for a store the app does not open is an unexplained
+     * permission on a store listing and a question at review. `false` removes
+     * the key; verified by reading the generated `Info.plist` after
+     * `expo prebuild`, not by introspecting this file.
+     *
+     * The Arabic and Hebrew of the string below are in
+     * `locales/native/{ar,he}.json`; `appConfig.test.ts` fails if either is
+     * missing.
+     */
+    ['expo-calendar', {
+      calendarPermission:
+        'MaybeSitter adds the commitments you confirm to a calendar you choose, and reads back '
+        + 'only the events it added, so it can move or remove them when you do.',
+      remindersPermission: false,
     }],
     // The date and time pickers on the capture review sheet (UC-2.4, #164).
     // A config plugin rather than autolinking alone, because the Android side

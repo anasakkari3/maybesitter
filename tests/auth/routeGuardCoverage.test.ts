@@ -44,6 +44,13 @@ const GUARDED_VIA_SCOPE = new Set([
 ]);
 
 test('every mobile route file exists and is enumerated', () => {
+  // Thirty-five today: UC-3.1 (#185) added `PUT|DELETE /api/mobile/commitments/
+  // {id}/device-calendar-link` and `GET|PUT /api/mobile/settings/calendar`. The
+  // link route is the one whose *refusal* is load-bearing rather than its
+  // success — it is what stops a second device writing a duplicate event — so
+  // it matters that it authenticates first: an unauthenticated caller must not
+  // learn whether a commitment id is linked.
+  // Thirty-three before that: UC-3.0 (#183) added `POST /api/mobile/capture/share`,
   // Thirty-six today: UC-3.0 (#183) added `POST /api/mobile/capture/share`,
   // the one route that takes bytes. It checks its feature flag and its declared
   // body size before it authenticates — deliberately, so an unauthenticated
@@ -63,7 +70,12 @@ test('every mobile route file exists and is enumerated', () => {
   // the two memory routes, and UC-2.9 (#170) the recommendation consent route.
   // The number is asserted so that a route added without a thought about
   // authentication shows up here as well as in the loop.
-  assert.equal(files.length, 36, `found:\n${files.join('\n')}`);
+  // Thirty-eight after this lane merged with #185's: the three added here are
+  // `POST /api/mobile/devices`, `DELETE /api/mobile/devices/{installationId}`
+  // and `GET|PUT /api/mobile/settings/reminders`, on top of main's thirty-five.
+  // The number is a census, not a guarantee: it is here so that adding a route
+  // is a decision somebody takes rather than a file that appears.
+  assert.equal(files.length, 38, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {

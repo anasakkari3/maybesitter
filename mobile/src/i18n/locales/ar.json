@@ -351,7 +351,7 @@
   "trustQuietMode": "وضع الهدوء",
   "trustQuietModeBody": "ما في أي اقتراحات لحد ما تطفي هاد.",
   "trustCalendar": "التقويم",
-  "trustCalendarNotConnected": "مش موصول. ربط التقويم رح يجي بإصدار جاي؛ هاد بس بيسجّل جوابك.",
+  "trustCalendarNotConnected": "مش موصول من هون. MaybeSitter بيقدر يحطّ التزاماتك المأكّدة بتقويم إنت بتختاره — شوف الإعدادات ← التقويم.",
   "trustKnows": "شو بيعرف MaybeSitter",
   "trustRevoke": "وقّف مشاركتك",
   "trustRevokeBody": "MaybeSitter بيوقف يقترح ويوقف يتعلّم منك. بياناتك بتضل لحد ما تمسحها.",
@@ -642,5 +642,16 @@
   "shareSizeKb": "{n} كيلوبايت",
   "shareNeedsAi": "لحتى أقرأ صورة أو ملف لازم الذكاء الاصطناعي يكون مشغّل. ما انبعت إشي.",
   "shareTurnOnAi": "شوف إعداد الذكاء الاصطناعي",
-  "shareSizeMb": "{n} ميغابايت"
+  "shareSizeMb": "{n} ميغابايت",
+  "calendarWriteTitle": "التقويم",
+  "calendarWriteToggle": "حطّ التزاماتي بتقويمي",
+  "calendarWriteBody": "كل التزام بتأكّده وفيه وقت بينحط بتقويم إنت بتختاره. لو عدّلته أو حذفته من هون، بينتقل أو بينشال من التقويم كمان. بينكتب بس العنوان والوقت.",
+  "calendarWriteUnavailable": "الكتابة عالتقويم مطفية بهاد الإصدار.",
+  "calendarPermissionDenied": "MaybeSitter ما إله صلاحية عالتقويم، فما فينا نضيف إشي. تلفونك بيسأل مرّة وحدة بس — فيك تشغّلها من الإعدادات.",
+  "calendarPickTitle": "أي تقويم",
+  "calendarPickBody": "المواعيد بتروح لهون. اختار اللي بدّك غيرك يشوفه، أو واحد بس إنت بتقرأه.",
+  "calendarNoneWritable": "ما في تقويم بهاد التلفون فينا نكتب فيه.",
+  "calendarRemoveBody": "بيشيل بس المواعيد اللي MaybeSitter ضافها. أي إشي حطّيته إنت بتقويمك بيضلّ متل ما هو.",
+  "calendarRemoveAction": "شيل المواعيد اللي MaybeSitter ضافها",
+  "calendarRemoveDone": "انشالت. اللي حطّيته إنت ما انمسّ."
 }

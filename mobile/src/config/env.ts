@@ -52,6 +52,7 @@ export function configProblems(): string[] {
     testCrash: process.env.EXPO_PUBLIC_ENABLE_TEST_CRASH,
     shareIntake: process.env.EXPO_PUBLIC_FEATURE_SHARE_INTAKE,
     shareIntentDebug: process.env.EXPO_PUBLIC_SHARE_INTENT_DEBUG,
+    calendarWrite: process.env.EXPO_PUBLIC_FEATURE_CALENDAR_WRITE,
   });
 }
 
@@ -238,6 +239,32 @@ export function testCrashEnabled(): boolean {
  */
 export function safeCommitmentPatchEnabled(): boolean {
   return (process.env.EXPO_PUBLIC_FEATURE_SAFE_COMMITMENT_PATCH ?? '').trim() !== 'false';
+}
+
+/**
+ * Whether this build may write to the phone's calendar (UC-3.1, #185 step 8).
+ *
+ * **Off by default**, and turned on by `EXPO_PUBLIC_FEATURE_CALENDAR_WRITE=true`.
+ * An enable flag rather than a kill switch, like share intake and for the same
+ * reason: what is gated is not a feature that already works for real users. It
+ * writes into somebody's calendar — a place they share with other people — and
+ * none of its acceptance criteria can be proven without a device with seeded
+ * calendars. The state it must default to is off until QA has a device run.
+ *
+ * ── Why the app and not the route ────────────────────────────────
+ *
+ * There is no route to gate. The write happens on the device, through EventKit
+ * and the Android provider, and the server sees only the link afterwards. So
+ * this is the only lock there is, and it sits in `useDeviceCalendarSync` — the
+ * one place a calendar pass is started — rather than on the settings screen. A
+ * hidden toggle is a fact about one screen; this is a claim the code keeps
+ * however the sync is reached.
+ *
+ * Read like the other enable flags: the literal string `true` and nothing else,
+ * so an empty value or a typo leaves it off.
+ */
+export function calendarWriteEnabled(): boolean {
+  return (process.env.EXPO_PUBLIC_FEATURE_CALENDAR_WRITE ?? '').trim() === 'true';
 }
 
 /**

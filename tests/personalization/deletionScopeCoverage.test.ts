@@ -87,6 +87,14 @@ const KEPT_BECAUSE: Record<string, string> = {
   usage: 'what the account spent, needed for billing and abuse limits',
   plans: 'the user’s own day, built from their own commitments and rebuilt each morning; erasing it loses today, not a belief about them',
   planEvents: 'what the user did to their own plan — a type, a date, a generation and a digest, with no titles and no explanation text',
+  deviceCalendarLinks:
+    'a pointer to an event in the user’s own phone calendar — a calendar id, an event id and a '
+    + 'content hash, with no title and nothing read back out of the calendar. Not a belief about '
+    + 'the person, and erasing it would orphan every event MaybeSitter added: the app would no '
+    + 'longer know which entries were its own, so "remove the events MaybeSitter added" could not '
+    + 'find them and a re-confirm would write a second copy beside each one. The tombstones matter '
+    + 'as much as the live rows — a `detached` row is the record that the user deleted that event '
+    + 'by hand, and clearing it is how the product starts putting it back.',
   devices:
     'the phones this account signed in on, and the FCM token to reach each of '
     + 'them. A device identifier, not a belief about the person: "forget what '
