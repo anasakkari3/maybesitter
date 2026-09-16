@@ -23,6 +23,7 @@
  * behaviour, the registry has a bug.
  */
 import './email';
+import './image';
 import './plainText';
 import './whatsapp';
 
@@ -33,5 +34,6 @@ import './whatsapp';
  * rather than re-importing this module, which an ESM cache would make a no-op.
  */
 export { emailPreprocessor } from './email';
+export { imagePreprocessor } from './image';
 export { plainTextPreprocessor } from './plainText';
 export { whatsappPreprocessor } from './whatsapp';
