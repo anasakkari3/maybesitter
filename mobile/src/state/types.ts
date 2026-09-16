@@ -90,6 +90,9 @@ export type Screen =
   // Settings → Calendar (UC-3.1, #185). Where confirmed commitments are
   // written, which calendar on this device, and the way to take them back.
   | 'calendarSettings'
+  // Settings → Categories (#415). Which parts of life this account uses, and
+  // whether the lists carry a filter bar.
+  | 'categorySettings'
   | 'about'
   // Today's plan (UC-3.10b, #195). Reached from the morning notification's
   // deep link and from Settings, and carrying its own date in `planDate`

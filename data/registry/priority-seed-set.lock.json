@@ -44,13 +44,39 @@
       "lockedAt": "2026-09-15T00:00:00.000Z",
       "lockedBy": "UC-3.1 (#185)",
       "authorizingIssue": "https://github.com/anasakkari3/maybesitter/issues/19",
+      "state": "superseded",
+      "supersededBy": "priority-seed-set-locked-v3",
+      "supersessionIssue": "https://github.com/anasakkari3/maybesitter/issues/415",
+      "supersessionReason": "The domain Commitment gained category and categorySource (#415), so every side of every pair serializes differently. No pair content changed: no title, time, priority, ack state or reminder differs, and the two new fields carry the same neutral values (null / inferred) on all four locked pairs. No judgments exist against this split, so nothing is invalidated. Recorded as a supersession rather than a reseal so the serialization change stays visible.",
+      "chainChecksum": {
+        "algorithm": "sha256",
+        "value": "b7811231456ecca830dfa40ac6715f86d253d646c7b7c30030cbdc62cbd232a1"
+      }
+    },
+    {
+      "splitId": "priority-seed-set-locked-v3",
+      "rubricVersion": "priority-rubric-v1",
+      "pairIds": [
+        "ps-ar-heavy-01",
+        "ps-en-moderate-01",
+        "ps-he-overloaded-01",
+        "ps-mixed-light-01"
+      ],
+      "pairCount": 4,
+      "checksum": {
+        "algorithm": "sha256",
+        "value": "82bee5a9fd69e31e1064f2e90ac8ac049e0a1e6f2dd5e1891a37aa139672c96f"
+      },
+      "lockedAt": "2026-09-16T00:00:00.000Z",
+      "lockedBy": "#415 commitment categories",
+      "authorizingIssue": "https://github.com/anasakkari3/maybesitter/issues/415",
       "state": "active",
       "supersededBy": null,
       "supersessionIssue": null,
       "supersessionReason": null,
       "chainChecksum": {
         "algorithm": "sha256",
-        "value": "11f9f401de9baff2762f0d11d42f4d5ae6f6a3312277b12d6f7087757b187e80"
+        "value": "5a79c2ec2e2b12e6431626f1e4a3d32fd1952f3867bc1fc9e216686cd5154d56"
       }
     }
   ]

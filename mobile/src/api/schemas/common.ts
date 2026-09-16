@@ -82,6 +82,19 @@ export const commitmentSchema = z.object({
   person: z.string().nullable(),
   status: z.string(),
   priority: prioritySchema,
+  /**
+   * Which part of the user's life this belongs to, or `null` (#415).
+   *
+   * Not optional, unlike `rank` and `deviceCalendarLink`. Those distinguish "we
+   * did not look" from "there is none", and the server has three answers to
+   * give. Here it has two: every response that carries a commitment carries its
+   * category, and `null` is the ordinary one. An optional field would let a
+   * server that stopped sending categories read as a whole account that has
+   * none, and the filter bar would empty itself rather than disappear.
+   */
+  category: z.enum(['work', 'family', 'health', 'finance', 'social', 'errands']).nullable(),
+  /** Whether the user filed this themselves. The chip is drawn the same either way. */
+  categorySource: z.enum(['inferred', 'user_explicit']),
   timeSpec: timeSpecSchema,
   currentAckState: z.string(),
   postponedUntil: isoDateTime.nullable(),

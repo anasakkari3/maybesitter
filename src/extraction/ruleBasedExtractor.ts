@@ -14,6 +14,23 @@ import {
 export { CLOCK_PATTERN_SOURCES, RANGE_PATTERN_SOURCES } from './timeLexicon';
 
 const PARSER_VERSION = 'rule-v1-core';
+
+/**
+ * The rule-based path never guesses a category (#415).
+ *
+ * The tempting fix when the model is unavailable is a keyword table — "meeting"
+ * is work, "doctor" is health. It is wrong in Arabic, wrong in Hebrew, wrong
+ * for "meeting the school about Lina", and worst of all it is *confidently*
+ * wrong: it produces a category the rest of the app cannot tell apart from one
+ * the model actually reasoned about. The user would then find commitments
+ * filed under a category nobody chose, in the one situation — the model being
+ * down — where they have least reason to expect it.
+ *
+ * `null` costs the user nothing: an uncategorised commitment still appears
+ * under "All", which is where everyone who has not turned the split on is
+ * looking anyway.
+ */
+const NO_CATEGORY = { category: null, categoryConfidence: 0 } as const;
 const WEEKDAYS: Record<string, number> = {
   sunday: 0,
   monday: 1,
@@ -315,6 +332,7 @@ function nothingResult(raw: string, kind: ReturnType<typeof classifyMessageKind>
     timeEvidence: 'none',
     priority: { level: 'normal', source: 'default', pressureAllowed: false, pressureImplied: false },
     flexibility: 'soft',
+    ...NO_CATEGORY,
     // A negated request is capped below `MEDIUM_CONFIDENCE`, the same cap the
     // schema validator has always applied to one. Without it the disposition
     // policy reads `unknown` with high confidence as `needs_clarification`, and
@@ -382,6 +400,7 @@ export function extract(rawText: string, context: ExtractionContext): Extraction
       timeEvidence: parsedTime.evidence,
       priority,
       flexibility: 'movable',
+      ...NO_CATEGORY,
       confidence: confidence(parsedTime.remindAt ? 0.86 : 0.68, 0.9, parsedTime.confidence),
       missingFields,
       ambiguityFlags,
@@ -404,6 +423,7 @@ export function extract(rawText: string, context: ExtractionContext): Extraction
       timeEvidence: 'none',
       priority,
       flexibility: 'soft',
+      ...NO_CATEGORY,
       confidence: confidence(0.55, 0.1, 0.1),
       missingFields: ['action', 'time'],
       ambiguityFlags: ['informational_without_action'],
@@ -446,6 +466,7 @@ export function extract(rawText: string, context: ExtractionContext): Extraction
     timeEvidence: parsedTime.evidence,
     priority,
     flexibility: weak ? 'soft' : 'movable',
+    ...NO_CATEGORY,
     confidence: confidence(overall, actionConfidence, parsedTime.confidence),
     missingFields,
     ambiguityFlags,

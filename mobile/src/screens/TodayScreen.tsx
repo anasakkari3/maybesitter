@@ -5,9 +5,11 @@ import { useApp } from '../state/AppContext';
 import { useTimeZone } from '../i18n/timezone';
 import { formatDate, formatTime } from '../i18n/format';
 import { ltr, type Lang } from '../i18n/strings';
-import { useCommitmentAction, useToday } from '../api/queries';
+import { useCategoryPreferences, useCommitmentAction, useToday } from '../api/queries';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
 import { groupForToday, topItemFor, type CommitmentView, type TodayGroups } from '../features/commitments/model';
+import { CategoryBar } from '../features/commitments/CategoryBar';
+import { categoryChipsFor, filterByCategory, type CategoryChip } from '../features/commitments/categoryFilter';
 import { rowAccessibilityLabel } from '../features/commitments/accessibility';
 import { SwipeableRow, useRowActions } from '../features/commitments/RowActions';
 import { postponeTo } from '../features/commitments/postpone';
@@ -54,13 +56,37 @@ export function TodayScreen() {
   const today = useToday();
   const [refreshing, setRefreshing] = useState(false);
 
+  // Off unless the account says otherwise, and off when the preference will not
+  // load: a filter bar is not worth an error, and "never turned it on" and
+  // "could not ask" are the same thing to the person holding the phone (#415).
+  const preferences = useCategoryPreferences();
+  const categories = preferences.data?.categoryPreferences;
+  const [chip, setChip] = useState<CategoryChip>('all');
+
+  const showBar = categories?.grouping === true;
+
+  // Chips come from the whole day, not from what is currently shown — built
+  // from the filtered list they would vanish as soon as one was tapped, and the
+  // user would have no way back to the others except an "All" that had also
+  // just disappeared.
+  const chips = useMemo(
+    () => categoryChipsFor(today.data?.items ?? [], categories?.enabled ?? []),
+    [today.data, categories?.enabled],
+  );
+
   const now = new Date().toISOString();
   const groups: TodayGroups = useMemo(
-    () => groupForToday(today.data?.items ?? [], now),
+    () => {
+      const items = today.data?.items ?? [];
+      return groupForToday(showBar ? filterByCategory(items, chip) : items, now);
+    },
     // `now` deliberately excluded: re-grouping on every render would move rows
-    // under the user's finger as the clock ticks past a due time.
+    // under the user's finger as the clock ticks past a due time. The filter
+    // *is* a dependency — a tap is the user asking for the list to change —
+    // and it is named here rather than computed above, so that the filtered
+    // array cannot be a fresh identity on every render and defeat the memo.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [today.data],
+    [today.data, showBar, chip],
   );
   const top = topItemFor(groups);
   const strings = t as unknown as Record<string, string>;
@@ -95,6 +121,8 @@ export function TodayScreen() {
             down with it. Both render nothing rather than an error. */}
         <TodayPlanCard />
         <NextStepCard />
+
+        {showBar ? <CategoryBar chips={chips} selected={chip} onSelect={setChip} /> : null}
 
         <QueryBoundary isPending={today.isPending} error={today.error} onRetry={() => void today.refetch()}>
           {isEmpty ? (

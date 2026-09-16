@@ -26,6 +26,8 @@ function extracted(overrides: Partial<ExtractionResult> = {}): ExtractionResult 
     timeEvidence: 'hhmm',
     priority: { level: 'normal', source: 'default', pressureAllowed: false, pressureImplied: false },
     flexibility: 'movable',
+    category: null,
+    categoryConfidence: 0,
     confidence: { overall: 0.95, type: 0.95, action: 0.95, time: 0.95, priority: 0.8 },
     missingFields: [],
     ambiguityFlags: [],

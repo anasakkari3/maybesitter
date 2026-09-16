@@ -20,6 +20,8 @@ const proposal: ExtractionResult = {
   timeEvidence: 'clock_marker',
   priority: { level: 'normal', source: 'inferred', pressureAllowed: true, pressureImplied: false },
   flexibility: 'movable',
+  category: null,
+  categoryConfidence: 0,
   confidence: { overall: 0.6, type: 0.6, action: 0.6, time: 0.5, priority: 0.8 },
   missingFields: [],
   ambiguityFlags: ['multiple_commitments'],

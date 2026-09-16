@@ -1,6 +1,12 @@
 import { isLocalMidnight } from '../../../src/domain/stateMachine';
 import type { Command, Commitment, DomainState, Priority, Reminder, TimeSpec } from '../../../src/domain/stateMachine';
 import { rankForMobile, type RankedItem } from '../../priority/mobileRanking';
+import {
+  COMMITMENT_CATEGORIES,
+  isCommitmentCategory,
+  type CommitmentCategory,
+  type CommitmentCategorySource,
+} from '../../../src/contracts/v1/categoryContracts';
 import { resolveModuleRuntime } from '../../../src/contracts/v1/runtimeControls';
 import { applyCommand, configureCommandService, getCommandServiceState } from '../commandService';
 import {
@@ -34,6 +40,15 @@ export interface PatchCommitmentInput {
   title?: unknown;
   description?: unknown;
   priority?: unknown;
+  /**
+   * Which part of life this belongs to (#415).
+   *
+   * Absent and `null` differ the way they do for the time fields: absent means
+   * the edit did not mention the category, `null` means the user cleared it.
+   * Both of the present cases are the user speaking, so both are recorded as
+   * theirs and neither can be overwritten by a later inference.
+   */
+  category?: unknown;
   dueDate?: unknown;
   /**
    * When the commitment stops (#185). An instant, or `null` for "no end".
@@ -587,6 +602,30 @@ function patchedAllDay(
 
 export const patchTimeSpecForTest = patchTimeSpec;
 
+/**
+ * The category half of a patch, or nothing at all (#415).
+ *
+ * Returns an empty object when the edit did not mention the category, so the
+ * key never reaches the command — the state machine reads `undefined` as "do
+ * not touch it", and a key present with an undefined value would be
+ * indistinguishable from the user clearing it.
+ *
+ * `categorySource` is stated rather than left to default: this request came
+ * from a person tapping a chip, and saying so here means the state machine's
+ * refusal rule has something to refuse *against* when a background
+ * re-classification arrives later.
+ */
+function categoryPatchFrom(
+  value: unknown,
+): { category?: CommitmentCategory | null; categorySource?: CommitmentCategorySource } {
+  if (value === undefined) return {};
+  if (value === null) return { category: null, categorySource: 'user_explicit' };
+  if (!isCommitmentCategory(value)) {
+    throw new Error(`category must be one of ${COMMITMENT_CATEGORIES.join(', ')}, or null`);
+  }
+  return { category: value, categorySource: 'user_explicit' };
+}
+
 function stringField(value: unknown, field: string): string | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== 'string') throw new Error(`${field} must be a string`);
@@ -606,6 +645,10 @@ export async function patchCommitment(
     title: stringField(input.title, 'title'),
     description: stringField(input.description, 'description'),
     priority: priorityFromMobile(input.priority),
+    // Spread rather than assigned, because `undefined` and `null` mean
+    // different things to the state machine and writing `category: undefined`
+    // would put the key there (#415).
+    ...categoryPatchFrom(input.category),
     timeSpec: patchTimeSpec(current.timeSpec, input, now),
   };
 

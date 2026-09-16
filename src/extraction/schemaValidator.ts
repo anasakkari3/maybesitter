@@ -25,6 +25,7 @@ import {
   localTimeSpecFor,
   timeOfDayEvidence,
 } from './timeLexicon';
+import { isCommitmentCategory } from '../contracts/v1/categoryContracts';
 
 export class ValidationError extends Error {
   constructor(message: string) {
@@ -280,6 +281,14 @@ export function validateExtractionResult(
   const flexibility: ExtractionResult['flexibility'] =
     raw['flexibility'] === 'soft' ? 'soft' : 'movable';
 
+  // ── category ──────────────────────────────────────────────────────────
+  // Shape only: a name the catalog still has, or nothing. The floor and the
+  // user's own choice of categories are applied later, by `resolveCategory`
+  // (#415). A name the model invented takes its confidence with it, so no
+  // later layer can see a 1.0 next to a category that was thrown away.
+  const category = isCommitmentCategory(raw['category']) ? raw['category'] : null;
+  const categoryConfidence = category === null ? 0 : clamp(raw['categoryConfidence']);
+
   // ── time ──────────────────────────────────────────────────────────────
   // Deterministic, and after everything else: the model's instant is an input
   // here, not the answer (#162).
@@ -324,6 +333,8 @@ export function validateExtractionResult(
     timeEvidence: time.timeEvidence,
     priority,
     flexibility,
+    category,
+    categoryConfidence,
     confidence,
     missingFields,
     ambiguityFlags,

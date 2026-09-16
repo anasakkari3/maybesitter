@@ -38,6 +38,8 @@ function commitment(overrides: Partial<Commitment> & { id: string }): Commitment
     description: null,
     person: null,
     status: 'active',
+    category: null,
+    categorySource: 'inferred',
     priority: { level: 'normal', source: 'default', pressureAllowed: false, pressureLevel: 'none' },
     timeSpec: { kind: 'unscheduled', dueAt: null, endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
     currentAckState: 'not_seen',

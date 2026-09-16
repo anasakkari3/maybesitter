@@ -29,6 +29,7 @@ import { ActivityScreen } from './features/activity/ActivityScreen';
 import { RoutineSettingsScreen } from './features/settings/RoutineSettingsScreen';
 import { NotificationsSettingsScreen } from './features/settings/NotificationsSettingsScreen';
 import { CalendarSettingsScreen } from './features/settings/CalendarSettingsScreen';
+import { CategorySettingsScreen } from './features/settings/CategorySettingsScreen';
 import { DeviceCalendarSyncHost } from './features/calendar/useDeviceCalendarSync';
 import { AboutScreen } from './features/settings/AboutScreen';
 import { googleCalendarDemoEnabled } from './config/env';
@@ -136,6 +137,9 @@ export function Root() {
           )}
           {s.screen === 'calendarSettings' && (
             <CalendarSettingsScreen key="calendarSettings" onBack={() => latest.current.go('settings')} />
+          )}
+          {s.screen === 'categorySettings' && (
+            <CategorySettingsScreen key="categorySettings" onBack={() => latest.current.go('settings')} />
           )}
           {s.screen === 'about' && <AboutScreen key="about" onBack={() => latest.current.go('settings')} />}
           {s.screen === 'details' && <DetailsScreen key="details" />}
