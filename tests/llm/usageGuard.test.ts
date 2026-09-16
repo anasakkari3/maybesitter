@@ -29,6 +29,7 @@ import {
   reserveCall,
   utcDay,
 } from '../../lib/llm/usageGuard.ts';
+import { buildLlmObservabilityEnvelope } from '../../lib/llm/observability.ts';
 
 const UID = 'user_cost_guard';
 const OTHER = 'user_cost_guard_other';
@@ -197,6 +198,38 @@ test('LLM events carry token counts and estimated cost without prompt text', () 
   assert.equal(llm.tokenCounts?.inputTokens, 1200);
   assert.equal(llm.estimatedCostMicros, 4300);
   assert.equal(JSON.stringify(llm).includes('prompt'), false);
+});
+
+test('LLM observability envelope reuses cost attribution and carries no raw content', () => {
+  const envelope = buildLlmObservabilityEnvelope({
+    eventId: 'obs-1',
+    scopeId: 'scope-a',
+    occurredAt: '2026-09-16T09:14:00Z',
+    feature: 'observability',
+    provider: 'llm',
+    providerOperation: 'gemini_capture',
+    status: 'success',
+    inputTokens: 120.9,
+    outputTokens: 33.1,
+    estimatedCostMicros: 42.8,
+    currency: 'USD',
+    traceId: 'trace-1',
+  });
+
+  assert.equal(envelope.cost.schemaVersion, COST_ATTRIBUTION_SCHEMA_VERSION);
+  assert.deepEqual(envelope.cost.period, {
+    startsOn: '2026-09-16',
+    endsOn: '2026-09-16',
+    timezone: 'UTC',
+  });
+  assert.deepEqual(envelope.cost.tokenCounts, { inputTokens: 120, outputTokens: 33 });
+  assert.equal(envelope.cost.estimatedCostMicros, 42);
+  assert.deepEqual(envelope.privacy, {
+    rawPromptIncluded: false,
+    rawCompletionIncluded: false,
+    providerPayloadIncluded: false,
+  });
+  assert.equal(JSON.stringify(envelope).includes('rawPromptText'), false);
 });
 
 test('email, Microsoft, WHOOP, and MCP calls share one attribution shape', () => {
