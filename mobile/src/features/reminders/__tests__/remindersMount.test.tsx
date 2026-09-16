@@ -243,6 +243,20 @@ describe('signing out, by every route a session can end', () => {
     });
   });
 
+  it('forgets this account s queued notification taps however the session ended (#200)', async () => {
+    const view = await mount();
+    await waitFor(() => expect(commitmentEndpoints.listToday).toHaveBeenCalled());
+    await AsyncStorage.setItem(outboxStorageKey(USER.uid), JSON.stringify({ version: 1, items: [], seen: {} }));
+
+    await act(async () => {
+      view.getByTestId('sign-out-expired').props.onPress();
+    });
+
+    await waitFor(async () => {
+      expect(await AsyncStorage.getItem(outboxStorageKey(USER.uid))).toBeNull();
+    });
+  });
+
   it('forgets this account s Must-reminder receipts however the session ended (#197)', async () => {
     const view = await mount();
     await waitFor(() => expect(commitmentEndpoints.listToday).toHaveBeenCalled());

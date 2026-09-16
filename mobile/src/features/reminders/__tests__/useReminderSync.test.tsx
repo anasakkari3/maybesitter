@@ -18,6 +18,7 @@ import * as profileEndpoints from '../../../api/endpoints/profile';
 import type { AuthUser } from '../../../auth/types';
 import { hardReceiptStorageKey, loadHardReceipts } from '../../../lib/deviceSettings/hardReceiptQueue';
 import commitment from '../../../api/__fixtures__/commitments.one.json';
+import { enqueueTap, outboxStorageKey } from '../actionOutbox';
 import reminderSettings from '../../../api/__fixtures__/reminders.settingsSaved.json';
 
 /**
@@ -168,6 +169,18 @@ describe('when the engine runs', () => {
     await waitFor(() => expect(reminderEndpoints.getReminderSettings).toHaveBeenCalled());
     await new Promise(resolve => setTimeout(resolve, 20));
     expect(gateway.scheduled).toEqual([]);
+  });
+  it('does not re-ring a commitment whose Done is still in the outbox (#200)', async () => {
+    // Pressed offline: the cached list still says active, and the server has
+    // not heard. Scheduling it again would ring for something already answered.
+    await enqueueTap(USER.uid, { commitmentId: commitment.id, action: 'complete', notificationId: `${commitment.id}:soft` },
+      () => '3f0e8a52-7c1b-4d2e-9a61-0b5c7d9e1f24', new Date());
+    const gateway = fakeGateway();
+    await mount(gateway);
+    await waitFor(() => expect(reminderEndpoints.getReminderSettings).toHaveBeenCalled());
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(gateway.scheduled).toEqual([]);
+    await AsyncStorage.removeItem(outboxStorageKey(USER.uid));
   });
 });
 

@@ -7,6 +7,10 @@ import { reminderActions, DEFAULT_DEFER_MS } from '../../../notifications/action
 import { AWARENESS_CATEGORY_ID, HARD_CATEGORY_ID } from '../../../notifications/channels';
 import { registerReminderActions } from '../../../notifications/actions';
 import * as notifications from 'expo-notifications';
+import { outcomeOfError } from '../outboxSender';
+import {
+  ConflictError, InvalidTransitionError, NetworkError, NotFoundError, ServerError, TimeoutError, UnauthorizedError, ValidationError,
+} from '../../../api/errors';
 import en from '../../../i18n/locales/en.json';
 import ar from '../../../i18n/locales/ar.json';
 import he from '../../../i18n/locales/he.json';
@@ -142,5 +146,16 @@ describe('the background task', () => {
   it('ignores a payload that is a received notification, not a response', () => {
     expect(responseOfTaskPayload({ notification: null, data: { dataString: '{}' } })).toBeNull();
     expect(responseOfTaskPayload(null)).toBeNull();
+  });
+});
+
+describe('which failures are retried', () => {
+  it('drops what the server refused and retries what never got an answer', () => {
+    for (const refused of [new NotFoundError('x'), new InvalidTransitionError(), new ConflictError('x'), new ValidationError('x')]) {
+      expect(outcomeOfError(refused)).toBe('drop');
+    }
+    for (const unanswered of [new NetworkError('x'), new TimeoutError('x'), new ServerError('x', 503), new UnauthorizedError('x')]) {
+      expect(outcomeOfError(unanswered)).toBe('retry');
+    }
   });
 });
