@@ -25,6 +25,8 @@ import type { AuthUser } from '../../../auth/types';
 import type { MemoryItem, MemorySuggestion } from '../../../api/schemas/profile';
 import { MemoryScreen, UNDO_WINDOW_MS } from '../MemoryScreen';
 import en from '../../../i18n/locales/en.json';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { LANGUAGE_STORAGE_KEY } from '../../../i18n/language';
 
 import * as profileEndpoints from '../../../api/endpoints/profile';
 
@@ -352,6 +354,22 @@ describe('suggestions (#202)', () => {
     expect(sent.fingerprint).toBe(SUGGESTION.fingerprint);
     expect(['en', 'ar', 'he']).toContain(language);
     expect(profileEndpoints.dismissMemorySuggestion).not.toHaveBeenCalled();
+  });
+
+  it('Keep stores the sentence in the language the app is in, not English', async () => {
+    await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'ar');
+    try {
+      listing([], [SUGGESTION]);
+      await show(<MemoryScreen onBack={() => {}} />);
+      await waitFor(() => expect(screen.queryByTestId('memory-suggestion-keep-R1_focus_window:14:00-17:00')).not.toBeNull());
+      await act(async () => { fireEvent.press(screen.getByTestId('memory-suggestion-keep-R1_focus_window:14:00-17:00')); });
+
+      await waitFor(() => expect(profileEndpoints.keepMemorySuggestion).toHaveBeenCalled());
+      const [, language] = (profileEndpoints.keepMemorySuggestion as jest.Mock).mock.calls[0] as [MemorySuggestion, string];
+      expect(language).toBe('ar');
+    } finally {
+      await AsyncStorage.removeItem(LANGUAGE_STORAGE_KEY);
+    }
   });
 
   it('"Not right" dismisses, and keeps nothing', async () => {

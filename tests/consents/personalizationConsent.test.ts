@@ -272,7 +272,7 @@ test('turning it on makes suggestions appear, and turning it off stops them and 
   }
 });
 
-test('both records move together, and a withdrawal disables the store before it is recorded', async () => {
+test('both records move together: a grant enables the store and a withdrawal disables it', async () => {
   begin();
   try {
     const uid = uidFor('PersonalizationMirror');
@@ -352,6 +352,36 @@ test('the answer is the account’s own, and nobody else’s account is touched'
     await answer(mine, 'granted');
     assert.equal(await personalizationGrowthAllowed(theirs), false);
     assert.deepEqual(await suggestionsFor(theirs), []);
+  } finally {
+    end();
+  }
+});
+
+test('a grant whose store write fails is rolled back to declined and answered 503', async () => {
+  begin();
+  try {
+    const uid = uidFor('PersonalizationHalfGrant');
+    await seedHabit(uid);
+    const storage = getStorage();
+    const realSet = storage.set.bind(storage);
+    (storage as { set: unknown }).set = async (path: string, value: unknown) => {
+      if (path.endsWith('/consents/personalization')) throw new Error('store unavailable');
+      await realSet(path, value);
+    };
+    let response: Response;
+    try {
+      response = await answer(uid, 'granted');
+    } finally {
+      (storage as { set: unknown }).set = realSet;
+    }
+
+    assert.equal(response.status, 503);
+    assert.equal((await json(response)).reason, 'consent_not_recorded');
+    // What the phone reads next is what is in force: off.
+    const view = await json(await consentsGet(request(uid, '/api/mobile/consents')));
+    assert.equal(view.personalization.state, 'declined');
+    assert.equal(await personalizationGrowthAllowed(uid), false);
+    assert.deepEqual(await suggestionsFor(uid), []);
   } finally {
     end();
   }

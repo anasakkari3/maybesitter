@@ -235,6 +235,12 @@ test('with personalization consent off there are no suggestions, and Keep is ref
     const refused = await keep(OWNER, 'R1_focus_window:09:00-12:00');
     assert.equal(refused.status, 403);
     assert.equal((await json(refused)).reason, 'personalization_consent_required');
+    // Dismiss too: without consent nothing about this account's patterns is
+    // written, not even that one was turned down.
+    const refusedDismiss = await dismiss(OWNER, 'R1_focus_window:09:00-12:00');
+    assert.equal(refusedDismiss.status, 403);
+    assert.equal((await json(refusedDismiss)).reason, 'personalization_consent_required');
+    assert.equal((await getStorage().list(userCol(OWNER, MEMORY_DISMISSALS))).length, 0);
     assert.equal((await createStorageRuntimeMemoryStore().listAll(OWNER)).length, 0);
   } finally {
     end();

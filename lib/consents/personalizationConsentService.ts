@@ -37,6 +37,18 @@ import {
 import { getStorage, type StorageAdapter } from '../storage';
 import { getConsent, setConsent, type SetConsentInput } from './consentService';
 
+/**
+ * A yes that could not be made true. The versioned answer was recorded but the
+ * store could not be enabled, so the answer has been put back to declined —
+ * leaving it `granted` would show the switch on while the feature stays off.
+ */
+export class PersonalizationConsentNotRecordedError extends Error {
+  constructor(cause: unknown) {
+    super(`personalization consent could not be recorded: ${cause instanceof Error ? cause.message : String(cause)}`);
+    this.name = 'PersonalizationConsentNotRecordedError';
+  }
+}
+
 export interface PersonalizationConsentOptions {
   storage?: StorageAdapter;
   /** The `enabled | disabled` store; defaults to one over `storage`. */
@@ -57,7 +69,16 @@ export async function setPersonalizationConsent(
   const at = input.at ?? new Date();
   if (input.state === 'granted') {
     const record = await setConsent(PERSONALIZATION_CONSENT, uid, { ...input, at }, { storage });
-    await store.write(uid, 'enabled', record.changedAt);
+    try {
+      await store.write(uid, 'enabled', record.changedAt);
+    } catch (error) {
+      // Rolled back to what is actually in force. If this also fails, growth
+      // is still off — `personalizationGrowthAllowed` needs the store — and the
+      // caller is told the answer was not recorded either way.
+      await setConsent(PERSONALIZATION_CONSENT, uid, { ...input, state: 'declined', at }, { storage })
+        .catch(() => undefined);
+      throw new PersonalizationConsentNotRecordedError(error);
+    }
     return record;
   }
   if (input.state === 'declined') {

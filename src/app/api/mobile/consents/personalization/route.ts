@@ -1,6 +1,9 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import { UnsupportedConsentVersionError } from '../../../../../../lib/consents/consentService';
-import { setPersonalizationConsent } from '../../../../../../lib/consents/personalizationConsentService';
+import {
+  PersonalizationConsentNotRecordedError,
+  setPersonalizationConsent,
+} from '../../../../../../lib/consents/personalizationConsentService';
 import { mobileError } from '../../../../../../lib/services/mobile/response';
 import type { ConsentLocale, ConsentPlatform } from '../../../../../../src/contracts/v1/consentContracts';
 
@@ -55,6 +58,12 @@ export async function PUT(request: Request) {
     });
     return Response.json({ success: true, personalization: record });
   } catch (error) {
+    if (error instanceof PersonalizationConsentNotRecordedError) {
+      return Response.json(
+        { success: false, error: 'consent could not be recorded', reason: 'consent_not_recorded' },
+        { status: 503 },
+      );
+    }
     if (error instanceof UnsupportedConsentVersionError) {
       return Response.json(
         { success: false, error: 'unsupported consent version', reason: 'unsupported_version' },
