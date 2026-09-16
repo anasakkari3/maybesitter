@@ -26,12 +26,26 @@ import {
   withWhoopReadinessProvenance,
   type WhoopTokenSetMetadata,
 } from '../../lib/integrations/whoop/backend.ts';
+import { MemoryIntegrationConnectionStore } from '../../lib/integrations/connections/connectionRegistry.ts';
+import {
+  MemoryProviderOAuthStateStore,
+  ProviderOAuthError,
+  beginProviderOAuth,
+  completeProviderOAuth,
+  disconnectProviderOAuth,
+  type ProviderOAuthClient,
+} from '../../lib/integrations/providers/providerOAuthLifecycle.ts';
+import type {
+  ProviderCredentialVault,
+  ProviderOAuthTokenSet,
+} from '../../lib/integrations/providers/providerRuntime.ts';
 import {
   CONTEXT_PROVIDER_KINDS,
   INTEGRATION_CONNECTION_CONTRACT_VERSION,
   INTEGRATION_CONNECTION_SCHEMA_VERSION,
   isKnownContextProviderKind,
   type ContextProviderKind,
+  type IntegrationCredentialReference,
   type IntegrationConnectionRecord,
 } from '../../src/contracts/v1/integrationConnectionContracts.ts';
 import {
@@ -67,6 +81,67 @@ const ROOT = resolve(HERE, '../..');
 
 function source(path: string): string {
   return readFileSync(resolve(ROOT, path), 'utf8');
+}
+
+const OAUTH_NOW = '2026-09-17T08:00:00.000Z';
+const OAUTH_TOKEN: ProviderOAuthTokenSet = Object.freeze({
+  accessToken: 'access-token-secret',
+  refreshToken: 'refresh-token-secret',
+  accessTokenExpiresAt: '2026-09-17T09:00:00.000Z',
+  refreshTokenExpiresAt: null,
+  grantedScopes: Object.freeze(['mail.read']),
+});
+
+class TestProviderCredentialVault implements ProviderCredentialVault {
+  readonly values = new Map<string, ProviderOAuthTokenSet>();
+  readonly deleted: string[] = [];
+
+  async storeOAuthTokenSet(input: {
+    readonly scopeId: string;
+    readonly provider: ContextProviderKind;
+    readonly tokenSet: ProviderOAuthTokenSet;
+  }): Promise<IntegrationCredentialReference> {
+    const keyId = `${input.scopeId}:${input.provider}`;
+    this.values.set(keyId, input.tokenSet);
+    return { vault: 'test-vault', keyId, version: '1' };
+  }
+
+  async loadOAuthTokenSet(reference: IntegrationCredentialReference): Promise<ProviderOAuthTokenSet | null> {
+    return this.values.get(reference.keyId) ?? null;
+  }
+
+  async delete(reference: IntegrationCredentialReference): Promise<void> {
+    this.deleted.push(reference.keyId);
+    this.values.delete(reference.keyId);
+  }
+}
+
+function oauthClient(overrides: Partial<ProviderOAuthClient> = {}): ProviderOAuthClient {
+  return {
+    provider: 'google',
+    exchangeAuthorizationCode: async () => OAUTH_TOKEN,
+    loadIdentity: async () => ({
+      provider: 'google',
+      providerAccountId: 'google-account-1',
+      providerSpaceId: null,
+      displayName: 'Connected Google account',
+    }),
+    revoke: async () => undefined,
+    ...overrides,
+  };
+}
+
+async function beginGoogleOAuth(states: MemoryProviderOAuthStateStore) {
+  return beginProviderOAuth(states, {
+    scopeId: 'user-a',
+    provider: 'google',
+    capabilities: ['mail_read'],
+    requestedScopes: ['mail.read'],
+    authorizationEndpoint: 'https://accounts.example.test/oauth/authorize',
+    clientId: 'public-client-id',
+    redirectUri: 'https://app.example.test/api/oauth/callback',
+    now: OAUTH_NOW,
+  }, (size) => Buffer.alloc(size, size));
 }
 
 test('runtime defaults preserve capture and keep future modules off', () => {
@@ -708,4 +783,192 @@ test('HealthKit disconnect records the iOS settings revocation limitation', asyn
     localConnectionCleared: true,
     providerPermissionRevocation: 'ios_settings_required',
   });
+});
+
+test('provider OAuth begin creates a bounded PKCE URL without exposing verifier material', async () => {
+  const states = new MemoryProviderOAuthStateStore();
+  const result = await beginGoogleOAuth(states);
+  const url = new URL(result.authorizationUrl);
+
+  assert.equal(url.origin + url.pathname, 'https://accounts.example.test/oauth/authorize');
+  assert.equal(url.searchParams.get('response_type'), 'code');
+  assert.equal(url.searchParams.get('client_id'), 'public-client-id');
+  assert.equal(url.searchParams.get('redirect_uri'), 'https://app.example.test/api/oauth/callback');
+  assert.equal(url.searchParams.get('scope'), 'mail.read');
+  assert.equal(url.searchParams.get('state'), result.state);
+  assert.equal(url.searchParams.get('code_challenge_method'), 'S256');
+  assert.ok(url.searchParams.get('code_challenge')!.length >= 43);
+  assert.equal(result.expiresAt, '2026-09-17T08:10:00.000Z');
+  assert.equal(result.authorizationUrl.includes('access-token-secret'), false);
+  assert.equal(result.authorizationUrl.includes('refresh-token-secret'), false);
+});
+
+test('provider OAuth completion stores credentials only in the vault and rejects replay', async () => {
+  const states = new MemoryProviderOAuthStateStore();
+  const vault = new TestProviderCredentialVault();
+  const connections = new MemoryIntegrationConnectionStore();
+  const begin = await beginGoogleOAuth(states);
+
+  const record = await completeProviderOAuth(states, vault, connections, oauthClient(), {
+    scopeId: 'user-a',
+    provider: 'google',
+    state: begin.state,
+    code: 'authorization-code',
+    now: '2026-09-17T08:01:00.000Z',
+  });
+
+  assert.equal(record.identity.provider, 'google');
+  assert.equal(record.state, 'connected');
+  assert.deepEqual(record.capabilities, ['mail_read']);
+  assert.deepEqual(record.grantedScopes, ['mail.read']);
+  assert.equal(record.credentialRef?.vault, 'test-vault');
+  assert.equal(vault.values.get('user-a:google')?.accessToken, 'access-token-secret');
+  assert.equal(JSON.stringify(record).includes('access-token-secret'), false);
+  assert.equal(JSON.stringify(record).includes('refresh-token-secret'), false);
+
+  await assert.rejects(
+    completeProviderOAuth(states, vault, connections, oauthClient(), {
+      scopeId: 'user-a',
+      provider: 'google',
+      state: begin.state,
+      code: 'authorization-code',
+      now: '2026-09-17T08:02:00.000Z',
+    }),
+    (error) => error instanceof ProviderOAuthError && error.code === 'invalid_or_replayed_state',
+  );
+});
+
+test('provider OAuth callback refuses mismatched or expired state without replaying it', async () => {
+  const states = new MemoryProviderOAuthStateStore();
+  const vault = new TestProviderCredentialVault();
+  const connections = new MemoryIntegrationConnectionStore();
+  const begin = await beginGoogleOAuth(states);
+
+  await assert.rejects(
+    completeProviderOAuth(states, vault, connections, oauthClient(), {
+      scopeId: 'other-user',
+      provider: 'google',
+      state: begin.state,
+      code: 'authorization-code',
+      now: '2026-09-17T08:01:00.000Z',
+    }),
+    (error) => error instanceof ProviderOAuthError && error.code === 'state_scope_mismatch',
+  );
+  await assert.rejects(
+    completeProviderOAuth(states, vault, connections, oauthClient(), {
+      scopeId: 'user-a',
+      provider: 'google',
+      state: begin.state,
+      code: 'authorization-code',
+      now: '2026-09-17T08:01:01.000Z',
+    }),
+    (error) => error instanceof ProviderOAuthError && error.code === 'invalid_or_replayed_state',
+  );
+
+  const expired = await beginProviderOAuth(states, {
+    scopeId: 'user-a',
+    provider: 'google',
+    capabilities: ['mail_read'],
+    requestedScopes: ['mail.read'],
+    authorizationEndpoint: 'https://accounts.example.test/oauth/authorize',
+    clientId: 'public-client-id',
+    redirectUri: 'https://app.example.test/api/oauth/callback',
+    now: OAUTH_NOW,
+    stateTtlMs: 1000,
+  }, (size) => Buffer.alloc(size, 7));
+
+  await assert.rejects(
+    completeProviderOAuth(states, vault, connections, oauthClient(), {
+      scopeId: 'user-a',
+      provider: 'google',
+      state: expired.state,
+      code: 'authorization-code',
+      now: '2026-09-17T08:00:01.000Z',
+    }),
+    (error) => error instanceof ProviderOAuthError && error.code === 'invalid_or_replayed_state',
+  );
+});
+
+test('provider OAuth completion compensates if the connection registry write fails', async () => {
+  class FailingConnectionStore extends MemoryIntegrationConnectionStore {
+    override async upsert(): Promise<IntegrationConnectionRecord> {
+      throw new Error('connection store unavailable');
+    }
+  }
+
+  const states = new MemoryProviderOAuthStateStore();
+  const vault = new TestProviderCredentialVault();
+  const begin = await beginGoogleOAuth(states);
+
+  await assert.rejects(
+    completeProviderOAuth(states, vault, new FailingConnectionStore(), oauthClient(), {
+      scopeId: 'user-a',
+      provider: 'google',
+      state: begin.state,
+      code: 'authorization-code',
+      now: '2026-09-17T08:01:00.000Z',
+    }),
+    (error) => error instanceof ProviderOAuthError && error.code === 'connection_store_failed',
+  );
+  assert.deepEqual(vault.deleted, ['user-a:google']);
+  assert.equal(vault.values.has('user-a:google'), false);
+});
+
+test('provider OAuth disconnect revokes before deleting credentials and preserves retry state on failure', async () => {
+  const states = new MemoryProviderOAuthStateStore();
+  const vault = new TestProviderCredentialVault();
+  const connections = new MemoryIntegrationConnectionStore();
+  const begin = await beginGoogleOAuth(states);
+  let revocations = 0;
+  const client = oauthClient({ revoke: async () => { revocations += 1; } });
+  const record = await completeProviderOAuth(states, vault, connections, client, {
+    scopeId: 'user-a',
+    provider: 'google',
+    state: begin.state,
+    code: 'authorization-code',
+    now: '2026-09-17T08:01:00.000Z',
+  });
+
+  const revoked = await disconnectProviderOAuth(vault, connections, client, {
+    scopeId: 'user-a',
+    connectionId: record.connectionId,
+    now: '2026-09-17T08:03:00.000Z',
+  });
+  assert.equal(revocations, 1);
+  assert.equal(revoked?.state, 'revoked');
+  assert.equal(vault.values.has('user-a:google'), false);
+
+  const retryStates = new MemoryProviderOAuthStateStore();
+  const retryVault = new TestProviderCredentialVault();
+  const retryConnections = new MemoryIntegrationConnectionStore();
+  const retryBegin = await beginProviderOAuth(retryStates, {
+    scopeId: 'user-b',
+    provider: 'google',
+    capabilities: ['mail_read'],
+    requestedScopes: ['mail.read'],
+    authorizationEndpoint: 'https://accounts.example.test/oauth/authorize',
+    clientId: 'public-client-id',
+    redirectUri: 'https://app.example.test/api/oauth/callback',
+    now: OAUTH_NOW,
+  }, (size) => Buffer.alloc(size, 9));
+  const retryRecord = await completeProviderOAuth(retryStates, retryVault, retryConnections, client, {
+    scopeId: 'user-b',
+    provider: 'google',
+    state: retryBegin.state,
+    code: 'authorization-code',
+    now: '2026-09-17T08:01:00.000Z',
+  });
+
+  await assert.rejects(
+    disconnectProviderOAuth(retryVault, retryConnections, oauthClient({
+      revoke: async () => { throw new Error('provider revoke failed'); },
+    }), {
+      scopeId: 'user-b',
+      connectionId: retryRecord.connectionId,
+      now: '2026-09-17T08:03:00.000Z',
+    }),
+    (error) => error instanceof ProviderOAuthError && error.code === 'revocation_failed',
+  );
+  assert.equal((await retryConnections.get(retryRecord.connectionId))?.state, 'error');
+  assert.equal(retryVault.values.has('user-b:google'), true);
 });
