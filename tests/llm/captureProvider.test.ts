@@ -18,7 +18,7 @@ import assert from 'node:assert/strict';
 import { LLMUnavailableError, structuredFromJson, type LlmProvider } from '../../src/extraction/llm/index.ts';
 import { captureLlmProvider, splitPrompt } from '../../lib/llm/captureProvider.ts';
 import type { LlmCallLog } from '../../lib/llm/llmLog.ts';
-import { uidHash } from '../../lib/llm/llmLog.ts';
+import { attributedLlmCall, uidHash } from '../../lib/llm/llmLog.ts';
 import type { ReservationOutcome } from '../../lib/llm/usageGuard.ts';
 
 const UID = 'user_capture_provider';
@@ -179,6 +179,38 @@ test('the uid is a stable pseudonym, not the uid and not nothing', async () => {
   assert.notEqual(uidHash(UID), uidHash('another-uid'));
   assert.equal(uidHash(UID).length, 16);
   assert.equal(uidHash(UID).includes(UID), false);
+});
+
+test('the production log line carries privacy-safe cost attribution', () => {
+  const attributed = attributedLlmCall({
+    event: 'llm_call',
+    purpose: 'capture_extraction',
+    provider: 'gemini',
+    model: 'gemini-2.5-flash',
+    location: 'us-central1',
+    uidHash: uidHash(UID),
+    latencyMs: 12,
+    promptTokens: 66,
+    outputTokens: 46,
+    outcome: 'ok',
+  }, {
+    occurredAt: '2026-09-17T08:30:00.000Z',
+    eventId: 'llm-event-1',
+  });
+
+  assert.equal(attributed.attribution.cost.feature, 'capture');
+  assert.equal(attributed.attribution.cost.providerOperation, 'gemini:capture_extraction');
+  assert.equal(attributed.attribution.cost.scopeId, uidHash(UID));
+  assert.deepEqual(attributed.attribution.cost.tokenCounts, { inputTokens: 66, outputTokens: 46 });
+  assert.equal(attributed.attribution.cost.status, 'success');
+  assert.deepEqual(attributed.attribution.privacy, {
+    rawPromptIncluded: false,
+    rawCompletionIncluded: false,
+    providerPayloadIncluded: false,
+  });
+  const serialised = JSON.stringify(attributed);
+  assert.equal(serialised.includes(UID), false);
+  assert.equal(serialised.includes(SECRET), false);
 });
 
 test('an account that has not agreed is never charged and never reaches the provider', async () => {
