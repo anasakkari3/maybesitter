@@ -233,6 +233,17 @@ export function hasExplanationLexicon(locale: unknown): locale is UserLocale {
  */
 const SCRIPT_MARKS = /[\u00AD\u0591-\u05BD\u05BF\u05C1\u05C2\u05C4\u05C5\u05C7\u0610-\u061A\u061C\u0640\u064B-\u065F\u0670\u06D6-\u06DC\u06DF-\u06E8\u06EA-\u06ED\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/g;
 
+/**
+ * The invisible characters in `SCRIPT_MARKS`: soft hyphen, the Arabic letter
+ * mark, zero-width and bidi controls, word joiner and invisible operators,
+ * bidi isolates, BOM.
+ *
+ * `foldScript` removes them, which is right for one inside a word (`كس<ALM>ول`)
+ * and wrong for one standing where a space was (`You<ZWSP>always`, which
+ * removal turns into `Youalways`). The lexical pass therefore reads both.
+ */
+const INVISIBLE = /[\u00AD\u061C\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/g;
+
 export function foldScript(text: string): string {
   return text
     .normalize('NFKC')
@@ -428,11 +439,14 @@ export function explanationRejections(text: unknown, facts: ExplanationFacts): E
   // asked for Arabic that shames in English has still shamed. The account's
   // locale decides whether the answer may be *accepted* (above), not which
   // lists get to look at it.
-  const lexical = foldScript(text);
-  if (matchesAny(lexical, FOLDED.shame)) reasons.push('shame');
-  if (matchesAny(lexical, FOLDED.coercion)) reasons.push('coercion');
-  if (matchesAny(lexical, FOLDED.persistence)) reasons.push('persistence_claim');
-  if (matchesAny(lexical, FOLDED.prohibited)) reasons.push('prohibited_claim');
+  // Both readings of an invisible character: removed (inside a word) and as a
+  // space (between two). One reading alone fails open for the other.
+  const lexical = [foldScript(text), foldScript(text.replace(INVISIBLE, ' '))];
+  const said = (patterns: readonly RegExp[]) => lexical.some((variant) => matchesAny(variant, patterns));
+  if (said(FOLDED.shame)) reasons.push('shame');
+  if (said(FOLDED.coercion)) reasons.push('coercion');
+  if (said(FOLDED.persistence)) reasons.push('persistence_claim');
+  if (said(FOLDED.prohibited)) reasons.push('prohibited_claim');
 
   return reasons;
 }

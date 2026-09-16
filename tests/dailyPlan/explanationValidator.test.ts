@@ -436,3 +436,48 @@ test('a real Arabic title quoted back verbatim is accepted, hamza and all', () =
     'the fold made an invented title look like a real one',
   );
 });
+
+/* ── An invisible character standing where a space was ───────────── */
+
+/**
+ * The fold that lets `كس<ALM>ول` be read as `كسول` *removes* invisible
+ * characters, and on its own that fails open the other way: `You<ZWSP>always`
+ * becomes `Youalways`, which no pattern matches. `matchesAny` had tested a
+ * "replaced by a space" variant for exactly this, and handing it pre-folded
+ * text threw that variant away — every row below was refused on `a1e18f0` and
+ * accepted by the first version of this branch (adversarial review of #426).
+ *
+ * So both readings are tested, for every invisible character the fold knows,
+ * in all three languages. U+061C and the bidi isolates U+2066–2069 were not in
+ * `safetyContracts`' own class, so the Arabic and isolate rows here were
+ * accepted on main too.
+ */
+const INVISIBLES: readonly string[] = [
+  '­', '؜', '​', '‌', '‍', '‎', '‏',
+  '‪', '‫', '‬', '‭', '‮',
+  '⁠', '⁡', '⁢', '⁣', '⁤', '⁦', '⁧', '⁨', '⁩', '﻿',
+];
+
+const SPACED: ReadonlyArray<readonly [UserLocale, string, string]> = [
+  ['en', 'You{}always put things off.', 'shame'],
+  ['en', 'I{}remember everything.', 'prohibited_claim'],
+  ['en', 'You have no{}choice.', 'coercion'],
+  ['ar', 'هاي آخر{}فرصة.', 'coercion'],
+  ['ar', 'ما في{}خيار.', 'coercion'],
+  ['he', 'אין לך{}ברירה.', 'coercion'],
+  ['he', 'הזדמנות{}אחרונה.', 'coercion'],
+];
+
+for (const [locale, template, reason] of SPACED) {
+  test(`refused — ${locale}: "${template}" with each invisible character as the space`, () => {
+    const escaped: string[] = [];
+    for (const invisible of INVISIBLES) {
+      const text = template.replace('{}', invisible);
+      const reasons = explanationRejections(text, facts(locale));
+      if (reasons.join(',') !== reason) {
+        escaped.push(`U+${invisible.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')} -> [${reasons.join(',')}]`);
+      }
+    }
+    assert.deepEqual(escaped, [], `expected exactly [${reason}] for every invisible separator`);
+  });
+}
