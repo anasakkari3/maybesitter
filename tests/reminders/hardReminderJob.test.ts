@@ -23,6 +23,7 @@ import {
 } from '../../lib/services/mobile/commitmentService.ts';
 import { saveReminderSettings } from '../../lib/services/mobile/reminderSettingsService.ts';
 import { saveRoutineProfile } from '../../lib/services/mobile/routineProfileService.ts';
+import { mustRingIdentifier } from '../../lib/services/reminders/mustRingIdentifier.ts';
 import { upsertDevice, deleteDevice } from '../../lib/push/deviceRegistry.ts';
 import { PUSH_DATA_KEYS, sendToUser, type FcmMessage, type MessagingClient } from '../../lib/push/pushService.ts';
 import { hardReminderPath, HARD_LEAD_MS, type HardReminderEntry } from '../../lib/services/reminders/hardReminderIndex.ts';
@@ -38,7 +39,14 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const USER = 'hardJobUser';
 const PHONE_A = '11111111-1111-4111-8111-111111111111';
 const PHONE_B = '22222222-2222-4222-8222-222222222222';
-const NOW = new Date('2026-09-16T06:00:00.000Z');
+/**
+ * 06:00 UTC tomorrow, from the real clock. Not a literal: the index is written
+ * from `writeDomainDiff`, which stamps the real time, and a reminder more than
+ * five minutes in its past is not indexed at all — so a literal date would make
+ * this file fail on every day after the one it was written.
+ */
+const TODAY = new Date();
+const NOW = new Date(Date.UTC(TODAY.getUTCFullYear(), TODAY.getUTCMonth(), TODAY.getUTCDate() + 1, 6));
 const START = NOW.getTime() + 2 * 3_600_000;
 const FIRE_AT = START - HARD_LEAD_MS;
 const at = (offsetMs: number) => new Date(FIRE_AT + offsetMs);
@@ -387,7 +395,7 @@ test('the push carries ids only, generic text, and the local ring s identity', a
     const [fcm] = messaging.sent;
     assert.ok(fcm);
     for (const key of Object.keys(fcm.data)) assert.ok(PUSH_DATA_KEYS.includes(key), `data.${key}`);
-    assert.deepEqual(fcm.data, { kind: 'hard_reminder', commitmentId: 'c1', notificationId: 'c1:strong' });
+    assert.deepEqual(fcm.data, { kind: 'hard_reminder', commitmentId: 'c1', notificationId: 'c1:strong', tag: 'c1:strong' });
     const everything = JSON.stringify(fcm);
     assert.ok(!everything.includes('Dentist') && !everything.includes('طبيب'), 'commitment text in the push');
     assert.equal(fcm.notification.title, HARD_REMINDER_COPY.ar.title);
@@ -430,10 +438,104 @@ test('a row that is not pending is never decided again', () => {
     const decision = decideHardReminder({
       entry: { commitmentId: 'c1', fireAt: new Date(FIRE_AT).toISOString(), startFingerprint: '', status, updatedAt: '', expiresAt: '' },
       commitment: mustCommitment(),
-      settings: { hardEnabled: true, escalationCeiling: 'hard', mustThroughQuietHours: false },
+      settings: { hardEnabled: true, escalationCeiling: 'hard', mustThroughQuietHours: false, softEnabled: true, surveySaysNone: false },
       receiptDevice: null,
       now: at(0),
     });
     assert.deepEqual(decision, { kind: 'skip' });
+  }
+});
+
+// ── Review of #447 ───────────────────────────────────────────────
+
+test('B1: reminders switched off, or a survey answer of none, gets no row and no push', async () => {
+  const cases: Array<[string, () => Promise<unknown>]> = [
+    ['the master switch off', () => saveReminderSettings(USER, { softEnabled: false }, NOW.toISOString())],
+    ['survey none', async () => {
+      await saveRoutineProfile(USER, {
+        timezone: 'UTC', sleepWindow: null, focusWindows: [], fixedCommitmentWindows: [],
+        preferredReminderIntensity: 'none', quietHours: null, surveySkipped: false,
+      }, NOW.toISOString());
+      // The survey save does not reconcile; the job's recheck is what must hold.
+    }],
+  ];
+  for (const [name, act] of cases) {
+    const teardown = setup();
+    try {
+      await world();
+      await act();
+      const messaging = fakeMessaging();
+      for (const minutes of [0, 1, 4]) await tick(messaging, at(minutes * 60_000));
+      assert.deepEqual(messaging.sent, [], `${name} still pushed`);
+    } finally {
+      teardown();
+    }
+  }
+});
+
+test('B1: switching reminders off removes the row the moment it is saved', async () => {
+  const teardown = setup();
+  try {
+    await world();
+    assert.notEqual(await row(), null);
+    await saveReminderSettings(USER, { softEnabled: false }, NOW.toISOString());
+    assert.equal(await row(), null);
+  } finally {
+    teardown();
+  }
+});
+
+test('F1: never sent before fireAt, not even within the minute', async () => {
+  const teardown = setup();
+  try {
+    await world();
+    const messaging = fakeMessaging();
+    await tick(messaging, at(-30_000));
+    await tick(messaging, at(-1));
+    assert.deepEqual(messaging.sent, []);
+    await tick(messaging, at(0));
+    assert.equal(messaging.sent.length, 1);
+  } finally {
+    teardown();
+  }
+});
+
+test('F5: a job that reaches a reminder more than five minutes late sends nothing', async () => {
+  const teardown = setup();
+  try {
+    await world();
+    const messaging = fakeMessaging();
+    await tick(messaging, at(6 * 60_000));
+    assert.deepEqual(messaging.sent, []);
+    // And the decision says so without the query's help.
+    const decision = decideHardReminder({
+      entry: (await row()) as HardReminderEntry,
+      commitment: mustCommitment(),
+      settings: { hardEnabled: true, escalationCeiling: 'hard', mustThroughQuietHours: false, softEnabled: true, surveySaysNone: false },
+      receiptDevice: null,
+      now: at(6 * 60_000),
+    });
+    assert.deepEqual(decision, { kind: 'suppress', reason: 'too_late' });
+  } finally {
+    teardown();
+  }
+});
+
+test('F2: a 128-character commitment id still gets its backup, under a bounded identifier', async () => {
+  const teardown = setup();
+  try {
+    const id = 'x'.repeat(128);
+    await world({ commitment: mustCommitment({ id }) });
+    const messaging = fakeMessaging();
+    await tick(messaging, at(0));
+    assert.equal(messaging.sent.length, 1, 'no backup for a long id');
+    const [fcm] = messaging.sent;
+    const identifier = mustRingIdentifier(id);
+    assert.ok(identifier.length <= 64);
+    assert.equal(fcm!.apns.headers['apns-collapse-id'], identifier);
+    assert.equal(fcm!.android.notification.tag, identifier);
+    assert.equal(fcm!.data.tag, identifier);
+  } finally {
+    teardown();
   }
 });

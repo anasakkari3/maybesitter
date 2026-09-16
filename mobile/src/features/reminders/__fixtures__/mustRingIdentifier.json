@@ -1,0 +1,37 @@
+{
+  "rule": "The Must ring identifier: ${id}:strong when it fits 64 characters of [A-Za-z0-9:._-], otherwise h<16 hex>:strong. Read by both sides (#198 review F2).",
+  "cases": [
+    {
+      "commitmentId": "00000000-0000-4000-8000-000000000001",
+      "identifier": "00000000-0000-4000-8000-000000000001:strong"
+    },
+    {
+      "commitmentId": "plan_fixture_0",
+      "identifier": "plan_fixture_0:strong"
+    },
+    {
+      "commitmentId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "identifier": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:strong"
+    },
+    {
+      "commitmentId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "identifier": "h9e75f40facfe704d:strong"
+    },
+    {
+      "commitmentId": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "identifier": "h2f5e97c51f427793:strong"
+    },
+    {
+      "commitmentId": "موعد-الطبيب",
+      "identifier": "hf8af5b5d8f6be347:strong"
+    },
+    {
+      "commitmentId": "has space",
+      "identifier": "hcc68f109213e1027:strong"
+    },
+    {
+      "commitmentId": "-leading-dash",
+      "identifier": "h04e7b8ada881a08b:strong"
+    }
+  ]
+}

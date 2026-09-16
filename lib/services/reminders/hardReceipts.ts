@@ -29,6 +29,7 @@
  * in it is refused rather than partly read.
  */
 import { isInstallationId } from '../../push/deviceRegistry';
+import { mustRingIdentifier } from './mustRingIdentifier';
 import { getStorage, requireUserId, type StorageAdapter } from '../../storage';
 import {
   hardReminderPath,
@@ -90,7 +91,7 @@ export function parseHardReceiptUpload(value: unknown): HardReceiptUpload {
     // The identifier is not free: it is the one the phone holds the Must stage
     // under, and it is what the backup push collapses into. Anything else is
     // not a receipt for this reminder.
-    if (row.notificationId !== `${row.commitmentId}:strong`) {
+    if (row.notificationId !== mustRingIdentifier(row.commitmentId)) {
       fail('notificationId must be the commitment s strong-stage identifier', 'invalid_notification_id');
     }
     if (typeof row.fireAt !== 'string' || Number.isNaN(Date.parse(row.fireAt))) {
@@ -115,32 +116,70 @@ export interface HardReceiptResult {
 }
 
 /**
- * Stores what the phone reported, after bringing the index up to date.
+ * At most one reconcile per account per this long, per instance (#198 review F4).
  *
- * The reconcile first is what lets a commitment written before this feature, or
- * before the account turned Must reminders on, still get a row for the receipt
- * to land on. Every receipt is then decided inside one transaction against the
- * rows it reads, so a job claiming a row concurrently either sees the receipt
- * or commits first and makes this transaction retry against `sent`.
+ * A reconcile lists every commitment and every index row, and a phone uploads
+ * after every sync. The index is kept by the write path, so a reconcile is only
+ * ever needed for a commitment written before this feature or before the
+ * account opted in — rare, and not urgent to the minute. An in-process limit is
+ * enough to stop the load; it is not a correctness boundary.
+ */
+export const RECONCILE_EVERY_MS = 5 * 60_000;
+const lastReconciled = new Map<string, number>();
+
+export function resetReceiptReconcileThrottleForTests(): void {
+  lastReconciled.clear();
+}
+
+export interface RecordHardReceiptsOptions {
+  storage?: StorageAdapter;
+  /** Injectable so a test can count calls. */
+  reconcile?: typeof reconcileHardReminderIndex;
+}
+
+/**
+ * Stores what the phone reported.
+ *
+ * Receipts are matched against the index as it is. Only when one names a
+ * reminder that has no row at all — the backfill case — is the index
+ * reconciled (throttled) and the upload matched again. Each match runs in one
+ * transaction against the rows it reads, so a job claiming a row concurrently
+ * either sees the receipt or commits first and makes this retry against `sent`.
  */
 export async function recordHardReceipts(
   uid: string,
   upload: HardReceiptUpload,
   now: Date,
-  options: { storage?: StorageAdapter } = {},
+  options: RecordHardReceiptsOptions = {},
 ): Promise<HardReceiptResult> {
   requireUserId(uid);
   const storage = options.storage ?? getStorage();
-  await reconcileHardReminderIndex(uid, now, { storage });
+  const first = await matchReceipts(uid, upload, now, storage);
+  if (first.missing === 0) return first.result;
 
+  const last = lastReconciled.get(uid);
+  if (last !== undefined && now.getTime() - last < RECONCILE_EVERY_MS) return first.result;
+  lastReconciled.set(uid, now.getTime());
+  await (options.reconcile ?? reconcileHardReminderIndex)(uid, now, { storage });
+  return (await matchReceipts(uid, upload, now, storage)).result;
+}
+
+async function matchReceipts(
+  uid: string,
+  upload: HardReceiptUpload,
+  now: Date,
+  storage: StorageAdapter,
+): Promise<{ result: HardReceiptResult; missing: number }> {
   return storage.runTransaction(async (tx) => {
     const rows = await Promise.all(
       upload.receipts.map((receipt) => tx.get<HardReminderEntry>(hardReminderPath(uid, receipt.commitmentId))),
     );
     const result: HardReceiptResult = { accepted: 0, ignored: 0 };
+    let missing = 0;
     const written = new Set<string>();
     upload.receipts.forEach((receipt, index) => {
       const row = rows[index];
+      if (!row) missing += 1;
       if (!row || row.status !== 'pending' || row.fireAt !== receipt.fireAt || row.commitmentId !== receipt.commitmentId) {
         result.ignored += 1;
         return;
@@ -166,6 +205,6 @@ export async function recordHardReceipts(
       tx.merge<HardReminderEntry>(path, { localReceipt, updatedAt: now.toISOString() });
       result.accepted += 1;
     });
-    return result;
+    return { result, missing };
   });
 }

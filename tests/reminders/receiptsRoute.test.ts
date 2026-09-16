@@ -15,6 +15,12 @@ import { persistParticipantState } from '../../lib/services/mobile/participantSt
 import { patchCommitment } from '../../lib/services/mobile/commitmentService.ts';
 import { saveReminderSettings } from '../../lib/services/mobile/reminderSettingsService.ts';
 import { hardReminderPath, HARD_LEAD_MS, type HardReminderEntry } from '../../lib/services/reminders/hardReminderIndex.ts';
+import {
+  recordHardReceipts,
+  resetReceiptReconcileThrottleForTests,
+} from '../../lib/services/reminders/hardReceipts.ts';
+import { reconcileHardReminderIndex } from '../../lib/services/reminders/hardReminderIndex.ts';
+import { mustRingIdentifier } from '../../lib/services/reminders/mustRingIdentifier.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
 
 const BASE = 'http://127.0.0.1:4321';
@@ -28,6 +34,7 @@ let auth: FakeAuthControls | null = null;
 
 function setup(): () => void {
   setStorageForTests(createMemoryStorage());
+  resetReceiptReconcileThrottleForTests();
   auth = installFakeAuth();
   return () => {
     auth?.restore();
@@ -166,6 +173,49 @@ test('a body the server cannot read is refused whole, with the reason', async ()
       assert.equal((await json(response)).reason, reason);
     }
     assert.equal((await aliceRow())?.localReceipt, undefined);
+  } finally {
+    teardown();
+  }
+});
+
+test('F4: a receipt upload reconciles only for a missing row, and at most once per five minutes', async () => {
+  const teardown = setup();
+  try {
+    await aliceRings();
+    let calls = 0;
+    const reconcile: typeof reconcileHardReminderIndex = async (...args) => {
+      calls += 1;
+      return reconcileHardReminderIndex(...args);
+    };
+    const upload = { installationId: PHONE, receipts: body().receipts as never };
+    const now = new Date();
+
+    await recordHardReceipts(ALICE, upload, now, { reconcile });
+    assert.equal(calls, 0, 'reconciled although the row was there');
+
+    await getStorage().delete(hardReminderPath(ALICE, 'c1'));
+    assert.equal((await recordHardReceipts(ALICE, upload, now, { reconcile })).accepted, 1);
+    assert.equal(calls, 1);
+
+    await getStorage().delete(hardReminderPath(ALICE, 'c1'));
+    await recordHardReceipts(ALICE, upload, new Date(now.getTime() + 60_000), { reconcile });
+    assert.equal(calls, 1, 'reconciled twice inside five minutes');
+
+    await recordHardReceipts(ALICE, upload, new Date(now.getTime() + 6 * 60_000), { reconcile });
+    assert.equal(calls, 2);
+  } finally {
+    teardown();
+  }
+});
+
+test('F2: the receipt for a long id names the bounded identifier, and nothing else', async () => {
+  const teardown = setup();
+  try {
+    const id = 'y'.repeat(128);
+    const response = await receiptsPost(post({ installationId: PHONE, receipts: [{ commitmentId: id, notificationId: `${id}:strong`, fireAt: FIRE_AT, exact: true }] }));
+    assert.equal((await json(response)).reason, 'invalid_notification_id');
+    const ok = await receiptsPost(post({ installationId: PHONE, receipts: [{ commitmentId: id, notificationId: mustRingIdentifier(id), fireAt: FIRE_AT, exact: true }] }));
+    assert.equal(ok.status, 200);
   } finally {
     teardown();
   }

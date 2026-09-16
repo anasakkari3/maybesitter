@@ -130,7 +130,10 @@ export function isBackupForShownRing(data: unknown): boolean {
  */
 export function isBackupAlreadyShown(data: unknown, presentedIdentifiers: readonly string[]): boolean {
   if (!isBackupForShownRing(data)) return false;
-  const commitmentId = (data as Record<string, unknown>).commitmentId;
-  if (typeof commitmentId !== 'string' || commitmentId === '') return false;
-  return presentedIdentifiers.includes(`${commitmentId}:strong`);
+  // The server sends the ring's own identifier (it is bounded, and may be a
+  // hash of the commitment id — see `mustRingIdentifier`), so it is compared
+  // as sent rather than rebuilt here.
+  const notificationId = (data as Record<string, unknown>).notificationId;
+  if (typeof notificationId !== 'string' || notificationId === '') return false;
+  return presentedIdentifiers.includes(notificationId);
 }

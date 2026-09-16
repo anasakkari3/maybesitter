@@ -55,6 +55,18 @@ import { hardSettingsOfUser, ringsForMust, type HardReminderSettings } from '../
 /** Ten minutes before the start, as #197 rings locally. */
 export const HARD_LEAD_MS = 10 * 60_000;
 
+/**
+ * A reminder more than this far in the past is not indexed (#198 review F3):
+ * the job would never send it, and a row written for it would be born with its
+ * TTL already expired and rewritten on every reconcile.
+ */
+export const HARD_LOOKBACK_MS = 5 * 60_000;
+
+/** Whether a reminder at `fireAt` is already too late to back up, as of `now`. */
+export function isTooLate(fireAt: string, now: number): boolean {
+  return Date.parse(fireAt) < now - HARD_LOOKBACK_MS;
+}
+
 /** How long a row outlives its reminder before the TTL policy removes it. */
 export const HARD_REMINDER_RETENTION_MS = 2 * 24 * 60 * 60 * 1000;
 
@@ -71,7 +83,9 @@ export type HardReminderReason =
   /** The account is deleted, revoked or in quiet mode (`pushAccess`). */
   | 'no_access'
   /** FCM refused the send for a reason that was not a dead token. */
-  | 'send_failed';
+  | 'send_failed'
+  /** The job reached it more than `HARD_LOOKBACK_MS` after `fireAt`. */
+  | 'too_late';
 
 export interface HardReminderReceipt {
   readonly installationId: string;
@@ -139,7 +153,7 @@ export function hardFireAtFor(commitment: Commitment, settings: HardReminderSett
  *
  * The phone's `mustRingsDespitePostpone` (`mobile/src/features/reminders/
  * policy.ts`), line for line, and both are held to the one table in
- * `mobile/src/features/reminders/__fixtures__/postponedHardRing.json`. A ring
+ * `mobile/src/features/reminders/__fixtures__/hardRingParity.json`. A ring
  * before `postponedUntil` is not owed; one at or after it is. Time-free, so a
  * stale postponement is no postponement. Because `hardFireAtFor` is also what
  * the job rechecks at send time, a postpone that lands after the row was
@@ -178,10 +192,15 @@ export function writeHardReminderIndexDiff(
   at: string,
 ): void {
   const settings = hardSettingsOfUser(user);
+  const now = Date.parse(at);
+  const owed = (commitment: Commitment | undefined): string | null => {
+    const fireAt = commitment ? hardFireAtFor(commitment, settings) : null;
+    return fireAt && !isTooLate(fireAt, now) ? fireAt : null;
+  };
   const ids = new Set([...Object.keys(before), ...Object.keys(after)]);
   ids.forEach((id) => {
-    const previous = before[id] ? hardFireAtFor(before[id], settings) : null;
-    const next = after[id] ? hardFireAtFor(after[id], settings) : null;
+    const previous = owed(before[id]);
+    const next = owed(after[id]);
     if (previous === next) return;
     const path = hardReminderPath(uid, after[id]?.id ?? before[id]!.id);
     if (next === null) tx.delete(path);
@@ -220,7 +239,7 @@ export async function reconcileHardReminderIndex(
     const wanted = new Map<string, { commitment: Commitment; fireAt: string }>();
     for (const { data } of commitments) {
       const fireAt = hardFireAtFor(data, settings);
-      if (fireAt) wanted.set(docIdForKey(data.id), { commitment: data, fireAt });
+      if (fireAt && !isTooLate(fireAt, at.getTime())) wanted.set(docIdForKey(data.id), { commitment: data, fireAt });
     }
 
     const result: ReconcileResult = { created: 0, replaced: 0, removed: 0, kept: 0 };

@@ -82,6 +82,8 @@ export const PUSH_DATA_KEYS: readonly string[] = [
   'commitmentId',
   'notificationId',
   'dedupeKey',
+  /** The notification's identity on Android, as expo-notifications reads it (#198). */
+  'tag',
 ];
 
 /**
@@ -143,10 +145,10 @@ const DEDUPE_KEY = /^[A-Za-z0-9][A-Za-z0-9:._-]*$/;
  * used to delete every device the account had (see `DEAD_TOKEN_CODES`).
  *
  * There is a per-value cap and no total cap, and that is deliberate rather than
- * an omission: `PUSH_DATA_KEYS` is a closed list of five, so the whole map is
- * bounded at 5 × 256 bytes plus about 60 bytes of key names — a little over
- * 1.3 KB — and with 512 bytes each of title and body the largest message this
- * guard permits is roughly 2.4 KB against a 4 KB limit. A total cap on top of
+ * an omission: `PUSH_DATA_KEYS` is a closed list of six, so the whole map is
+ * bounded at 6 × 256 bytes plus about 65 bytes of key names — a little over
+ * 1.6 KB — and with 512 bytes each of title and body the largest message this
+ * guard permits is roughly 2.6 KB against a 4 KB limit. A total cap on top of
  * that could never fire, and a guard that cannot fail is the thing this lane
  * has already had to delete twice.
  *

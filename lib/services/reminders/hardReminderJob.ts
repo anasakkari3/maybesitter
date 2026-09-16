@@ -48,18 +48,28 @@ import {
 import { sendToUser, type MessagingClient, type PushMessage, type PushResult } from '../../push/pushService';
 import { getStorage, HARD_REMINDERS, userDoc, type StorageAdapter } from '../../storage';
 import { commitmentDocPath } from '../mobile/participantState';
+import { mustRingIdentifier } from './mustRingIdentifier';
 import { hardSettingsOfUser, ringsForMust, type HardReminderSettings } from '../mobile/reminderSettingsService';
 import {
+  HARD_LOOKBACK_MS,
   hardFireAtFor,
+  isTooLate,
   uidOfHardReminderPath,
   type HardReminderEntry,
   type HardReminderReason,
 } from './hardReminderIndex';
 
-/** The tick is a minute apart, so a reminder due within the next one is sent now. */
-export const HARD_LOOKAHEAD_MS = 60_000;
-/** Rows further back than this are not picked up: a Must reminder that late is noise. */
-export const HARD_LOOKBACK_MS = 5 * 60_000;
+/**
+ * No lookahead: a backup is sent at or after `fireAt`, never before (#198 review
+ * F1). Sent early, it can reach the phone ahead of the local ring and be shown
+ * first — and on Android in the foreground, the pair only collapses if the push
+ * arrives second. A minute-granular tick makes it up to a minute late instead.
+ *
+ * Rows further back than `HARD_LOOKBACK_MS` are not sent: a Must reminder that
+ * late is noise. That is in the query *and* in `decideHardReminder`, so a job
+ * that runs late or a query that returns too much still cannot push a stale one.
+ */
+export { HARD_LOOKBACK_MS } from './hardReminderIndex';
 /** Rule 4. */
 export const INEXACT_GRACE_MS = 3 * 60_000;
 export const HARD_REMINDER_BATCH = 100;
@@ -110,8 +120,8 @@ export function decideHardReminder(input: HardDecisionInput): HardDecision {
   if (current !== entry.fireAt) return { kind: 'skip' };
 
   const fireAt = Date.parse(entry.fireAt);
-  const horizon = now.getTime() + HARD_LOOKAHEAD_MS;
-  if (fireAt > horizon) return { kind: 'wait' };
+  if (fireAt > now.getTime()) return { kind: 'wait' };
+  if (isTooLate(entry.fireAt, now.getTime())) return { kind: 'suppress', reason: 'too_late' };
 
   if (receiptStillSpeaks(entry, input.receiptDevice)) {
     if (entry.localReceipt!.exact) return { kind: 'suppress', reason: 'local_receipt' };
@@ -147,13 +157,16 @@ export function hardReminderMessage(
   locale: DeviceLocale,
 ): PushMessage {
   const copy = HARD_REMINDER_COPY[locale];
-  const notificationId = `${entry.commitmentId}:strong`;
+  const notificationId = mustRingIdentifier(entry.commitmentId);
   return {
     kind: 'hard_reminder',
     uid,
     dedupeKey: hardDedupeKey(entry.commitmentId, entry.fireAt),
     collapseId: notificationId,
-    data: { kind: 'hard_reminder', commitmentId: entry.commitmentId, notificationId },
+    // `tag` too: expo-notifications' Android FCM delegate names the notification
+    // after `data.tag` (else the message id), so without it a foreground backup
+    // would not replace the local ring (#198 review F1).
+    data: { kind: 'hard_reminder', commitmentId: entry.commitmentId, notificationId, tag: notificationId },
     title: copy.title,
     body: copy.body,
     urgency: 'time_sensitive',
@@ -195,7 +208,7 @@ export async function runHardReminderTick(options: HardReminderTickOptions = {})
   const rows = await storage.listGroup<HardReminderEntry>(HARD_REMINDERS, {
     where: [
       ['status', '==', 'pending'],
-      ['fireAt', '<=', new Date(now.getTime() + HARD_LOOKAHEAD_MS).toISOString()],
+      ['fireAt', '<=', now.toISOString()],
       ['fireAt', '>=', new Date(now.getTime() - HARD_LOOKBACK_MS).toISOString()],
     ],
     orderBy: { field: 'fireAt', direction: 'asc' },

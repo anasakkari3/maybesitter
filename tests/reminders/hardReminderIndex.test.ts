@@ -32,7 +32,14 @@ import {
 const USER = 'hardIndexUser';
 const ZONE = 'Asia/Jerusalem';
 /** Every instant in this file is relative to this one; no assertion names a date. */
-const NOW = new Date('2026-09-16T06:00:00.000Z');
+/**
+ * 06:00 UTC tomorrow, from the real clock. Not a literal: the index is written
+ * from `writeDomainDiff`, which stamps the real time, and a reminder more than
+ * five minutes in its past is not indexed at all — so a literal date would make
+ * this file fail on every day after the one it was written.
+ */
+const TODAY = new Date();
+const NOW = new Date(Date.UTC(TODAY.getUTCFullYear(), TODAY.getUTCMonth(), TODAY.getUTCDate() + 1, 6));
 
 function setup(): () => void {
   setStorageForTests(createMemoryStorage());
@@ -227,7 +234,7 @@ test('completing or cancelling before the reminder removes it', async () => {
 /*
  * Postpone (council verdict B, #198): a Must ring before `postponedUntil` is not
  * owed; one at or after it is. The start does not move. The full table is
- * shared with the phone in `postponedHardRing.test.ts`; this proves the write
+ * shared with the phone in `hardRingParity.test.ts`; this proves the write
  * path applies it.
  */
 test('postponing past the ring removes it; postponing to before the ring keeps it', async () => {
@@ -272,6 +279,22 @@ test('one account s commitments never reach another account s index', async () =
     await reconcileHardReminderIndex(other, NOW);
     assert.equal((await getStorage().list(userCol(other, HARD_REMINDERS))).length, 0);
     assert.equal(await rowCount(), 1);
+  } finally {
+    teardown();
+  }
+});
+
+test('F3: a Must commitment whose ring is already more than five minutes past is not indexed', async () => {
+  const teardown = setup();
+  try {
+    await ringing();
+    // Relative to the real clock, which is what the write path stamps.
+    const past = new Date(Date.now() - 60 * 60_000).toISOString();
+    await store(commitment({
+      timeSpec: { kind: 'scheduled_event', dueAt: past, endAt: null, remindAt: null, allDay: false, timezone: ZONE },
+    }));
+    assert.equal(await row(), null);
+    assert.deepEqual((await reconcileHardReminderIndex(USER, new Date())).created, 0);
   } finally {
     teardown();
   }

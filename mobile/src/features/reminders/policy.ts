@@ -18,6 +18,8 @@
  * argument, so the stage matrix is a table test rather than a wait.
  */
 
+import { mustRingIdentifier } from './mustRingIdentifier';
+
 export const REMINDER_STAGES = ['soft', 'followUp', 'strong'] as const;
 export type ReminderStage = (typeof REMINDER_STAGES)[number];
 
@@ -91,7 +93,7 @@ export interface ReminderCommitment {
  *
  * The server applies the same predicate (`mustRingsDespitePostpone` in
  * `lib/services/reminders/hardReminderIndex.ts`) and both are held to one
- * table, `__fixtures__/postponedHardRing.json`.
+ * table, `__fixtures__/hardRingParity.json`.
  */
 export function mustRingsDespitePostpone(fireAt: number, postponedUntil: string | null): boolean {
   if (postponedUntil === null) return true;
@@ -197,6 +199,9 @@ export function planFor(
 
 /** `${commitmentId}:${stage}` — the identifier the OS holds the request under. */
 export function requestIdentifier(commitmentId: string, stage: ReminderStage): string {
+  // The Must ring's identifier is also the backup push's collapse id and tag,
+  // so it is bounded to what those fields accept (#198 review F2).
+  if (stage === 'strong') return mustRingIdentifier(commitmentId);
   return `${commitmentId}:${stage}`;
 }
 

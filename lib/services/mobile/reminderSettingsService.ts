@@ -216,6 +216,14 @@ export interface HardReminderSettings {
   readonly hardEnabled: boolean;
   readonly escalationCeiling: PressureCeiling;
   readonly mustThroughQuietHours: boolean;
+  /**
+   * The reminders master switch (#196), resolved exactly as the settings
+   * response resolves it. Off means the phone schedules nothing at all — the
+   * Must ring included — so the server must not back one up (#198 review B1).
+   */
+  readonly softEnabled: boolean;
+  /** The survey's `none` is a real answer: the phone schedules nothing for it either. */
+  readonly surveySaysNone: boolean;
 }
 
 /**
@@ -236,16 +244,32 @@ export function hardSettingsOfUser(user: unknown): HardReminderSettings {
   const legacy = legacyHardSettings(
     profile && isUserRoutineProfile(profile) ? profile.preferredReminderIntensity : undefined,
   );
+  const intensity = profile && isUserRoutineProfile(profile) ? profile.preferredReminderIntensity : undefined;
   return {
     hardEnabled: hard.hardEnabled ?? legacy.hardEnabled,
     escalationCeiling: hard.escalationCeiling ?? legacy.escalationCeiling,
     mustThroughQuietHours: hard.mustThroughQuietHours ?? false,
+    softEnabled: readStored(record.reminderSettings)?.softEnabled ?? DEFAULT_SOFT_ENABLED,
+    surveySaysNone: intensity === 'none',
   };
 }
 
-/** Whether a Must commitment on this account may ring at all. */
+/**
+ * Whether a Must commitment on this account may ring at all — the phone's
+ * `stagesFor` condition for the strong stage, on the server (#198 review B1).
+ *
+ * All four, because the phone requires all four: the master switch on, a
+ * survey answer other than `none`, the explicit opt-in, and the `hard`
+ * ceiling. The index, its reconcile and the job's send-time recheck all ask
+ * this one function, and the shared table in
+ * `mobile/src/features/reminders/__fixtures__/hardRingParity.json` holds it
+ * to the phone's answer.
+ */
 export function ringsForMust(settings: HardReminderSettings): boolean {
-  return settings.hardEnabled && settings.escalationCeiling === 'hard';
+  return settings.softEnabled
+    && !settings.surveySaysNone
+    && settings.hardEnabled
+    && settings.escalationCeiling === 'hard';
 }
 
 export async function readReminderSettings(
