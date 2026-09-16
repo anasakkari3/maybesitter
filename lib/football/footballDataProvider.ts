@@ -208,19 +208,30 @@ export function createFootballDataProvider(deps: FootballDataProviderDeps = {}):
 
       const timeoutMs = deps.timeoutMs ?? FOOTBALL_DATA_REQUEST_TIMEOUT_MS;
       let response: Response;
+      // Aborts a request the vendor never answers, so one hung club becomes
+      // one recorded failure instead of a sync that outlives its scheduler
+      // deadline. Not `AbortSignal.timeout`: on Node 22 (CI and the container)
+      // its timer does not hold the event loop open, so a process whose only
+      // pending work is this request exits before the abort ever fires — the
+      // sync ends silently instead of recording a timeout. A plain timer does
+      // hold the loop, and is cleared as soon as the request settles.
+      const controller = new AbortController();
+      const timer = setTimeout(
+        () => controller.abort(new DOMException('football-data request timed out', 'TimeoutError')),
+        timeoutMs,
+      );
       try {
         response = await fetchImpl(url, {
           headers: { 'X-Auth-Token': apiKey },
-          // Aborts a request the vendor never answers, so one hung club
-          // becomes one recorded failure instead of a sync that outlives its
-          // scheduler deadline.
-          signal: AbortSignal.timeout(timeoutMs),
+          signal: controller.signal,
         });
       } catch (error) {
         if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
           throw new Error(`football-data request timed out after ${timeoutMs}ms (team ${providerTeamId})`);
         }
         throw error;
+      } finally {
+        clearTimeout(timer);
       }
 
       // A non-2xx rejects rather than resolving to an empty list. An empty
