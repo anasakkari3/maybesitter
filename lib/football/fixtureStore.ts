@@ -141,7 +141,11 @@ export async function listFixturesForTeam(
   const byId = new Map<string, Fixture>();
   for (const row of home) byId.set(row.id, row.data);
   for (const row of away) byId.set(row.id, row.data);
-  return [...byId.values()].sort((a, b) => {
+  // `Array.from`, not `[...byId.values()]`: this repo's `tsconfig.json`
+  // targets `es5` without `downlevelIteration`, and spreading a `Map`
+  // iterator needs one or the other -- see `Array.from(kinds)` in
+  // `lib/recommendation/review/present.ts` for the same pattern elsewhere.
+  return Array.from(byId.values()).sort((a, b) => {
     if (a.kickoffUtc !== b.kickoffUtc) return a.kickoffUtc < b.kickoffUtc ? -1 : 1;
     return a.providerMatchId < b.providerMatchId ? -1 : a.providerMatchId > b.providerMatchId ? 1 : 0;
   });

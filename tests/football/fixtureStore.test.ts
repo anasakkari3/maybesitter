@@ -6,16 +6,27 @@ import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { fixtureDoc } from '../../lib/storage/paths.ts';
 import { upsertFixtures, listFixturesForTeam } from '../../lib/football/fixtureStore.ts';
-import { fixtureContentHash, FIXTURE_CONTRACT_VERSION, FIXTURE_SCHEMA_VERSION } from '../../src/contracts/v1/fixtureContracts.ts';
+import { fixtureContentHash, FIXTURE_CONTRACT_VERSION, FIXTURE_SCHEMA_VERSION, type Fixture, type FixtureCore } from '../../src/contracts/v1/fixtureContracts.ts';
 
-function fixture(id: string, kickoffUtc: string, over: Partial<Record<string, unknown>> = {}) {
-  const core = {
+/**
+ * `over` is `Partial<FixtureCore>`, not `Partial<Record<string, unknown>>`.
+ * The old signature had an index-signature type on the right of the spread
+ * below, and TypeScript widens every property of an object-literal spread
+ * against an index-signature source -- `status: 'scheduled'` stopped being
+ * the literal `'scheduled'` and became plain `string`, wide enough to accept
+ * a typo `tsc` would otherwise have caught. Typing `over` against the real
+ * contract keeps every override checked against `FixtureStatus` too, and
+ * gives this helper a real `Fixture` return type instead of relying on
+ * `fixtureContentHash(core as never)` to paper over what `core` actually is.
+ */
+function fixture(id: string, kickoffUtc: string, over: Partial<FixtureCore> = {}): Fixture {
+  const core: FixtureCore = {
     provider: 'football-data', providerMatchId: id, competition: 'PD',
     homeTeamId: '81', awayTeamId: '86', homeTeamName: 'FC Barcelona',
     awayTeamName: 'Real Madrid CF', kickoffUtc, status: 'scheduled', venue: null,
     ...over,
   };
-  return { ...core, version: FIXTURE_CONTRACT_VERSION, schemaVersion: FIXTURE_SCHEMA_VERSION, contentHash: fixtureContentHash(core as never) };
+  return { ...core, version: FIXTURE_CONTRACT_VERSION, schemaVersion: FIXTURE_SCHEMA_VERSION, contentHash: fixtureContentHash(core) };
 }
 
 test.beforeEach(() => setStorageForTests(createMemoryStorage()));

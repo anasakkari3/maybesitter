@@ -33,20 +33,29 @@ import { upsertFixtures } from '../../lib/football/fixtureStore.ts';
 import { setFollowedClubs } from '../../lib/football/followedClubs.ts';
 import { projectFixturesForUser, dismissFixtureCommitment } from '../../lib/football/projectFixtures.ts';
 import { readParticipantState } from '../../lib/services/mobile/participantState.ts';
-import { fixtureContentHash, FIXTURE_CONTRACT_VERSION, FIXTURE_SCHEMA_VERSION } from '../../src/contracts/v1/fixtureContracts.ts';
+import { fixtureContentHash, FIXTURE_CONTRACT_VERSION, FIXTURE_SCHEMA_VERSION, type Fixture, type FixtureCore } from '../../src/contracts/v1/fixtureContracts.ts';
 
 const NOW = '2026-10-01T09:00:00.000Z';
 
 // Same helper as tests/football/fixtureStore.test.ts, copied rather than
 // imported across test files (see that file for the convention).
-function fixture(id: string, kickoffUtc: string, over: Partial<Record<string, unknown>> = {}) {
-  const core = {
+//
+// `over` is `Partial<FixtureCore>`, not `Partial<Record<string, unknown>>`:
+// spreading an index-signature-typed object over a literal widens every
+// property it could override, including `status`, from the literal
+// `'scheduled'` to plain `string` -- wide enough that a typo like
+// `{ status: 'cancelled ' }` (a stray trailing space) would have compiled.
+// Typing `over` against the real contract keeps every override checked
+// against `FixtureStatus`, and gives this helper a real `Fixture` return
+// type instead of `fixtureContentHash(core as never)` casting past it.
+function fixture(id: string, kickoffUtc: string, over: Partial<FixtureCore> = {}): Fixture {
+  const core: FixtureCore = {
     provider: 'football-data', providerMatchId: id, competition: 'PD',
     homeTeamId: '81', awayTeamId: '86', homeTeamName: 'FC Barcelona',
     awayTeamName: 'Real Madrid CF', kickoffUtc, status: 'scheduled', venue: null,
     ...over,
   };
-  return { ...core, version: FIXTURE_CONTRACT_VERSION, schemaVersion: FIXTURE_SCHEMA_VERSION, contentHash: fixtureContentHash(core as never) };
+  return { ...core, version: FIXTURE_CONTRACT_VERSION, schemaVersion: FIXTURE_SCHEMA_VERSION, contentHash: fixtureContentHash(core) };
 }
 
 // Reads one user's commitments from durable, uid-scoped state -- not the
@@ -123,6 +132,25 @@ test('a dismissed match stays dismissed even when it moves', async () => {
   await upsertFixtures([fixture('1', '2026-10-26T17:00:00.000Z')]);
   const tally = await projectFixturesForUser('u1', NOW);
   assert.deepEqual(tally, { created: 0, updated: 0, cancelled: 0, skipped: 1 });
+});
+
+test('following both sides of a derby gets one commitment, not two', async () => {
+  // The default fixture() helper's homeTeamId/awayTeamId ('81'/'86') are
+  // barcelona/real-madrid respectively (see data/footballClubs.json) -- so
+  // following both clubs means this one match comes back once from each
+  // club's listFixturesForTeam query. The guarantee this test pins is the
+  // same ref-lookup-before-create check that makes projecting the same club
+  // twice a no-op (see the "projecting twice" test above): the second club's
+  // occurrence of this fixture finds the ref the first one just wrote, sees
+  // an unchanged contentHash, and skips -- so this is a real invariant of
+  // `projectOneFixture`, not merely a side effect of `projectFixturesForUser`
+  // merging fixtures across clubs before projecting (which exists to avoid
+  // redundant work, not to hold this guarantee up by itself).
+  await setFollowedClubs('u1', ['barcelona', 'real-madrid'], NOW);
+  await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+  const tally = await projectFixturesForUser('u1', NOW);
+  assert.equal(tally.created, 1, 'one match followed from both sides is still one commitment');
+  assert.equal((await commitments()).length, 1);
 });
 
 test('a user who follows nobody gets nothing', async () => {

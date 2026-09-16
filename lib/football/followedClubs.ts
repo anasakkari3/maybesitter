@@ -83,7 +83,10 @@ export async function setFollowedClubs(
   now: string,
   deps: FollowedClubsDeps = {},
 ): Promise<readonly string[]> {
-  const deduped = [...new Set(clubIds)];
+  // `Array.from`, not `[...new Set(...)]`: `tsconfig.json` targets `es5`
+  // without `downlevelIteration`, so spreading a `Set` needs this form
+  // instead -- see `Array.from` used the same way across `lib/`.
+  const deduped = Array.from(new Set(clubIds));
   for (const clubId of deduped) {
     if (!clubById(clubId)) {
       throw new Error(`unknown club id "${clubId}": not in the curated club list (see lib/football/clubs.ts)`);
@@ -111,5 +114,5 @@ export async function listFollowedClubIdsAcrossUsers(
   for (const row of rows) {
     for (const clubId of row.data.clubIds) ids.add(clubId);
   }
-  return [...ids];
+  return Array.from(ids);
 }

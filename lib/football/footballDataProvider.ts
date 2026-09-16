@@ -155,8 +155,17 @@ export interface FootballDataProviderDeps {
    * `FOOTBALL_DATA_API_KEY` happens to be exported in the ambient shell --
    * true on this machine today, not guaranteed on a developer's machine or
    * in a deploy environment, and not a property of this module at all.
+   *
+   * Typed as the one key this module actually reads, not the full
+   * `NodeJS.ProcessEnv` -- this project's global type augmentation (from
+   * Next.js) makes `NODE_ENV` a required property of `ProcessEnv`, which
+   * would force every test constructing an "explicitly empty environment"
+   * to supply a `NODE_ENV` this module never looks at. `process.env` itself
+   * still satisfies this narrower shape (an index-signature object is
+   * assignable to a type that only asks for one of its keys), so the
+   * production default is unaffected.
    */
-  env?: NodeJS.ProcessEnv;
+  env?: { FOOTBALL_DATA_API_KEY?: string };
 }
 
 /**

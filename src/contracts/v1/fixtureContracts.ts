@@ -73,6 +73,11 @@ export interface FixtureProvider {
  * provider happened to serialise its JSON on a given response.
  */
 export function fixtureContentHash(core: FixtureCore): string {
-  const sorted = Object.keys(core).sort().map((key) => [key, (core as Record<string, unknown>)[key]]);
+  // `Object.entries` rather than `Object.keys(...).map((key) => core[key])`:
+  // `FixtureCore` has no index signature, so indexing it with a plain
+  // `string` key needs a cast -- and `core as Record<string, unknown>` is a
+  // cast TypeScript itself refuses (the two types don't sufficiently
+  // overlap). `Object.entries` reads the same key/value pairs without one.
+  const sorted = Object.entries(core).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   return createHash('sha256').update(JSON.stringify(sorted)).digest('hex');
 }

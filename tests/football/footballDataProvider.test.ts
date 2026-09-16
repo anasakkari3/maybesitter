@@ -2,12 +2,42 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createFootballDataProvider, normalizeMatch } from '../../lib/football/footballDataProvider.ts';
+import type { Fixture } from '../../src/contracts/v1/fixtureContracts.ts';
 
-const PAYLOAD = JSON.parse(readFileSync(new URL('./payloads/barcelona-matches.json', import.meta.url), 'utf8'));
+/**
+ * What this file actually reads out of the fixture payload -- not the vendor's
+ * full match shape (that belongs to `normalizeMatch`, on the far side of the
+ * provider seam; see `fixtureContracts.ts`'s header). Typing `PAYLOAD` at all,
+ * rather than leaving it as the `any` that `JSON.parse` returns, is what lets
+ * every `.map`/`.filter`/`.find` below infer its own callback parameters
+ * instead of each one needing its own explicit annotation.
+ */
+interface RawMatchRow {
+  readonly id: number;
+  readonly _malformed?: unknown;
+}
+interface RawMatchesPayload {
+  readonly matches: readonly RawMatchRow[];
+}
+
+const PAYLOAD = JSON.parse(
+  readFileSync(new URL('./payloads/barcelona-matches.json', import.meta.url), 'utf8'),
+) as RawMatchesPayload;
 
 test('statuses map onto the contract', () => {
-  const byStatus = PAYLOAD.matches.map(normalizeMatch).filter(Boolean).map((f) => f.status);
-  assert.deepEqual([...new Set(byStatus)].sort(), ['cancelled', 'finished', 'postponed', 'scheduled']);
+  // A type predicate, not `.filter(Boolean)`: passing the `Boolean`
+  // constructor narrows nothing -- TypeScript's inferred-predicate support
+  // covers a locally analysable function body, not the built-in `Boolean`
+  // used as a callback -- so `f` stayed `Fixture | null` and `f.status`
+  // below was a possibly-null access. See the same `(x): x is T => ...`
+  // pattern in `lib/priority/priorityFeatures.ts` and elsewhere in `lib/`.
+  const byStatus = PAYLOAD.matches
+    .map(normalizeMatch)
+    .filter((f): f is Fixture => f !== null)
+    .map((f) => f.status);
+  // `Array.from`, not `[...new Set(...)]`: `tsconfig.json` targets `es5`
+  // without `downlevelIteration`, so spreading a `Set` needs this form.
+  assert.deepEqual(Array.from(new Set(byStatus)).sort(), ['cancelled', 'finished', 'postponed', 'scheduled']);
 });
 
 test('malformed matches are skipped, not fatal -- and it is the marked rows that are skipped', () => {
@@ -50,6 +80,10 @@ test('an unrecognised status yields null, never a silently-defaulted "scheduled"
 
 test('kickoff is kept as a UTC instant', () => {
   const fixture = normalizeMatch(PAYLOAD.matches[0]);
+  // `normalizeMatch` returns `Fixture | null` -- `assert.ok` is declared
+  // `asserts value`, so this narrows `fixture` to `Fixture` for the line
+  // below rather than casting past the possibility it is null.
+  assert.ok(fixture, 'the first payload row should normalize');
   assert.match(fixture.kickoffUtc, /Z$/);
 });
 

@@ -317,10 +317,18 @@ export async function projectFixturesForUser(uid: string, now: string): Promise<
   const window = projectionWindow(now);
 
   // Merged across every followed club, keyed by the match's own external id.
-  // A match between two clubs this user follows both sides of (an
-  // "el clasico" they follow both Barcelona and Real Madrid for) would
-  // otherwise come back once from each club's query and be projected twice
-  // under two different commitments for what is, to the user, one evening.
+  // A match between two clubs this user follows both sides of (an "el
+  // clasico" they follow both Barcelona and Real Madrid for) would otherwise
+  // come back once from each club's query. This is *not* what stands between
+  // that and two commitments -- `projectOneFixture`'s own ref lookup already
+  // does: the second occurrence would find the ref the first one just wrote,
+  // see an unchanged `contentHash`, and skip (verified: temporarily
+  // processing each club's fixtures independently, without this merge, still
+  // left `tests/football/projectFixtures.test.ts`'s derby test green). What
+  // this merge buys instead is not re-running `projectOneFixture` -- and the
+  // storage transaction inside it -- a second time for a fixture this run
+  // has already handled, which matters more as a followed list grows past
+  // two clubs that happen to share a fixture.
   const byExternalId = new Map<string, Fixture>();
   for (const clubId of clubIds) {
     const club = clubById(clubId);
@@ -335,8 +343,10 @@ export async function projectFixturesForUser(uid: string, now: string): Promise<
   }
 
   // Sorted so a run's write order is deterministic rather than depending on
-  // followed-club iteration order or `Map` insertion order.
-  const fixtures = [...byExternalId.values()].sort((a, b) => {
+  // followed-club iteration order or `Map` insertion order. `Array.from`,
+  // not `[...byExternalId.values()]`: `tsconfig.json` targets `es5` without
+  // `downlevelIteration`, so spreading a `Map` iterator needs this form.
+  const fixtures = Array.from(byExternalId.values()).sort((a, b) => {
     if (a.kickoffUtc !== b.kickoffUtc) return a.kickoffUtc < b.kickoffUtc ? -1 : 1;
     return a.providerMatchId < b.providerMatchId ? -1 : a.providerMatchId > b.providerMatchId ? 1 : 0;
   });
