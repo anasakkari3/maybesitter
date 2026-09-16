@@ -288,9 +288,12 @@ test('Firestore holds the URL only encrypted, bound to this feed; no response an
     await decide(h, feedId, first!.itemKey, 'accept');
     h.clock.now = new Date(h.clock.now.getTime() + REFRESH_INTERVAL_MS + HOUR);
     await json(await handleIcsRefreshTick(schedulerRequest('Bearer t'), { ...h.deps, env: { ...h.deps.env, ...SCHEDULER_ENV }, verify: async () => SCHEDULER }));
-    // A subscribe that fails, too: the error path is where URLs leak.
-    h.bodies.set('https://moodle.univ.example/other?authtoken=' + SECRET, '<html>');
-    await json(await call(handleCreateFeed, request('POST', '/api/mobile/calendar/ics', { url: 'https://moodle.univ.example/other?authtoken=' + SECRET }), h.deps));
+    // The two subscribe failures, too: an error path is where a URL leaks.
+    const otherUrl = 'https://moodle.univ.example/other?authtoken=' + SECRET;
+    h.bodies.set(otherUrl, '<html>');
+    await json(await call(handleCreateFeed, request('POST', '/api/mobile/calendar/ics', { url: otherUrl }), h.deps));
+    h.failNext = new SafeFetchError('timeout');
+    await json(await call(handleCreateFeed, request('POST', '/api/mobile/calendar/ics', { url: otherUrl }), h.deps));
 
     const tree = await dumpUserTree();
     await json(await call(handleDeleteFeed, request('DELETE', `/api/mobile/calendar/ics/${feedId}`), feedId, h.deps));
@@ -522,6 +525,55 @@ test('auto-accept off: nothing is a commitment until accepted, an accept is idem
     await refresh(h, feedId);
     assert.equal(byTitle(await items(), 'Lab due').state, 'rejected', 'a dismissal came back twice');
     assert.equal((await commitments()).length, 1);
+  });
+});
+
+test('two accepts of the same deadline arriving together make one commitment', async () => {
+  await withWorld(async (h) => {
+    h.bodies.set(FEED_URL, calendar([{ uid: 'essay', title: 'Essay due', dueInHours: 48 }]));
+    const feedId = (await subscribe(h)).body.feed.feedId as string;
+    const essay = byTitle(await items(), 'Essay due');
+
+    // Both requests read the row as pending — the outer check cannot separate
+    // them — so what has to hold is the claim inside the transaction.
+    const [first, second] = await Promise.all([
+      decide(h, feedId, essay.itemKey, 'accept'),
+      decide(h, feedId, essay.itemKey, 'accept'),
+    ]);
+    assert.deepEqual([first.status, second.status], [200, 200]);
+    assert.equal((await commitments()).length, 1, 'one deadline became two commitments');
+    assert.equal(byTitle(await items(), 'Essay due').state, 'accepted');
+  });
+});
+
+test('a refresh that auto-accepts cannot double an accept the user has just made', async () => {
+  await withWorld(async (h) => {
+    h.bodies.set(FEED_URL, calendar([{ uid: 'essay', title: 'Essay due', dueInHours: 48 }]));
+    const feedId = (await subscribe(h, { autoAcceptDeadlines: true })).body.feed.feedId as string;
+    const essay = byTitle(await items(), 'Essay due');
+    assert.equal((await commitments()).length, 1);
+    // The row is already accepted; accepting it again replays rather than
+    // making a second commitment for the same deadline.
+    const again = await decide(h, feedId, essay.itemKey, 'accept');
+    assert.equal(again.body.replayed, true);
+    assert.equal((await commitments()).length, 1);
+    // And a dismissed row cannot be accepted by a later refresh or a stale tap.
+    await decide(h, feedId, essay.itemKey, 'undo');
+    const afterUndo = await decide(h, feedId, essay.itemKey, 'accept');
+    assert.deepEqual([afterUndo.status, afterUndo.body.error], [409, 'invalid_action']);
+    assert.equal((await commitments()).filter((c) => c.status === 'active').length, 0);
+  });
+});
+
+test('an item key is only decidable through the feed that proposed it', async () => {
+  await withWorld(async (h) => {
+    h.bodies.set(FEED_URL, calendar([{ uid: 'essay', title: 'Essay due', dueInHours: 48 }]));
+    const mine = (await subscribe(h)).body.feed.feedId as string;
+    const other = (await subscribe(h)).body.feed.feedId as string;
+    const row = (await items()).find((item) => item.feedId === mine)!;
+    const wrongFeed = await decide(h, other, row.itemKey, 'accept');
+    assert.deepEqual([wrongFeed.status, wrongFeed.body.error], [404, 'item_not_found']);
+    assert.deepEqual(await commitments(), []);
   });
 });
 
@@ -759,6 +811,10 @@ test('the sweep refreshes exactly the feeds that are due, across accounts', asyn
     h.bodies.set(FEED_URL, calendar([{ uid: 'a', title: 'A due', dueInHours: 200 }]));
     const mine = (await subscribe(h)).body.feed.feedId as string;
     h.clock.now = new Date(NOW.getTime() + 3 * HOUR);
+    // A second feed on the *same* account, three hours younger: a sweep that
+    // refreshed every feed of a due account rather than the due feeds would
+    // fetch this one too.
+    const notDue = (await subscribe(h)).body.feed.feedId as string;
     const theirs = (await subscribe(h, {}, OTHER)).body.feed.feedId as string;
     const fetchesBefore = h.fetches.length;
 
@@ -770,9 +826,10 @@ test('the sweep refreshes exactly the feeds that are due, across accounts', asyn
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), { accounts: 1, due: 1, updated: 1, notModified: 0, failed: 0, deferred: 0 });
     assert.equal(h.fetches.length, fetchesBefore + 1);
-    assert.equal((await feeds(USER))[0]!.lastFetchedAt, h.clock.now.toISOString());
+    const refreshed = (await feeds(USER)).filter((feed) => feed.lastFetchedAt === h.clock.now.toISOString());
+    assert.deepEqual(refreshed.map((feed) => feed.feedId), [mine], 'the sweep refreshed a feed that was not due');
     assert.notEqual((await feeds(OTHER))[0]!.lastFetchedAt, h.clock.now.toISOString());
-    assert.ok(mine && theirs);
+    assert.ok(notDue && theirs);
 
     const disabled = await handleIcsRefreshTick(schedulerRequest('Bearer t'), {
       ...h.deps, env: { ...SCHEDULER_ENV }, verify: async () => SCHEDULER,

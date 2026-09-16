@@ -416,8 +416,17 @@ function reminderFor(dueAtMs: number, nowMs: number): string {
   return iso(dayBefore > nowMs ? dayBefore : dueAtMs);
 }
 
-function commitmentCommands(item: Pick<IcsFeedItemDocument, 'title' | 'dueAt'>, now: Date): { commitmentId: string; commands: Command[] } {
-  const commitmentId = randomUUID();
+/**
+ * The commands for one deadline. `commitmentId` and the reminder id are passed
+ * in rather than minted here because this runs inside a transaction that
+ * retries, and a fresh uuid per attempt would make the callback impure.
+ */
+function commitmentCommands(
+  item: Pick<IcsFeedItemDocument, 'title' | 'dueAt'>,
+  now: Date,
+  ids: { commitmentId: string; reminderId: string },
+): { commitmentId: string; commands: Command[] } {
+  const commitmentId = ids.commitmentId;
   const at = now.toISOString();
   const remindAt = reminderFor(Date.parse(item.dueAt), now.getTime());
   return {
@@ -442,7 +451,7 @@ function commitmentCommands(item: Pick<IcsFeedItemDocument, 'title' | 'dueAt'>, 
         type: 'ConfirmCommitment',
         commitmentId,
         now: at,
-        reminders: [{ id: randomUUID(), reminderType: 'due_soon', scheduledFor: remindAt, requiresAction: true }],
+        reminders: [{ id: ids.reminderId, reminderType: 'due_soon', scheduledFor: remindAt, requiresAction: true }],
       },
     ],
   };
@@ -459,21 +468,28 @@ async function acceptItem(
   autoAccepted: boolean,
 ): Promise<{ replayed: boolean }> {
   const path = itemPath(uid, itemKey);
-  const current = await getStorage().get<IcsFeedItemDocument>(path);
-  if (!current) throw new IcsFeedError('item_not_found');
-  const { commitmentId, commands } = commitmentCommands(current, now);
-  return commitCommandsWithClaim<IcsFeedItemDocument>(uid, path, commands, (claim) => {
+  const ids = { commitmentId: randomUUID(), reminderId: randomUUID() };
+  return commitCommandsWithClaim<IcsFeedItemDocument>(uid, path, (claim) => {
     if (!claim) throw new IcsFeedError('item_not_found');
+    // Already accepted: the commitment exists, and this is a replay.
     if (claim.state === 'accepted') return null;
+    // Dismissed, withdrawn, or accepted-then-undone. The row has moved on since
+    // the caller read it, and a feed item that is not pending is not an offer.
     if (claim.state !== 'pending') throw new IcsFeedError('invalid_action');
-    if (claim.dueAt !== current.dueAt || claim.title !== current.title) throw new IcsFeedError('invalid_action');
+    // The title and the time come from the row *this transaction* read. A
+    // refresh that moved the deadline between the caller's read and this write
+    // would otherwise make a commitment for the time the feed no longer says.
+    const { commands } = commitmentCommands(claim, now, ids);
     return {
-      state: 'accepted',
-      commitmentId,
-      autoAccepted,
-      notice: null,
-      proposedDueAt: null,
-      updatedAt: now.toISOString(),
+      commands,
+      patch: {
+        state: 'accepted',
+        commitmentId: ids.commitmentId,
+        autoAccepted,
+        notice: null,
+        proposedDueAt: null,
+        updatedAt: now.toISOString(),
+      },
     };
   });
 }
@@ -916,10 +932,12 @@ export async function decideIcsDeadline(
 
   switch (action) {
     case 'accept': {
-      if (item.state === 'accepted') { replayed = true; break; }
-      if (item.state !== 'pending') throw new IcsFeedError('invalid_action');
       // The same rule every other way of making a commitment follows (#352).
-      if (Date.parse(item.dueAt) < now.getTime()) throw new IcsFeedError('past_due');
+      if (item.state === 'pending' && Date.parse(item.dueAt) < now.getTime()) throw new IcsFeedError('past_due');
+      // Whether this row may still be accepted is decided *inside* the
+      // transaction, by `acceptItem`, and not here. The read above is a moment
+      // old: a dismissal, or another tap, can land between it and the write,
+      // and a check here would answer from a row that had already changed.
       replayed = (await acceptItem(uid, itemKey, now, false)).replayed;
       break;
     }
