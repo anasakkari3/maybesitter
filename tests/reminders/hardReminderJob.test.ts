@@ -495,6 +495,16 @@ test('F1: never sent before fireAt, not even within the minute', async () => {
     assert.deepEqual(messaging.sent, []);
     await tick(messaging, at(0));
     assert.equal(messaging.sent.length, 1);
+    // And the decision says so without the query's help.
+    for (const early of [-30_000, -1]) {
+      assert.deepEqual(decideHardReminder({
+        entry: { commitmentId: 'c1', fireAt: new Date(FIRE_AT).toISOString(), startFingerprint: '', status: 'pending', updatedAt: '', expiresAt: '' },
+        commitment: mustCommitment(),
+        settings: { hardEnabled: true, escalationCeiling: 'hard', mustThroughQuietHours: false, softEnabled: true, surveySaysNone: false },
+        receiptDevice: null,
+        now: at(early),
+      }), { kind: 'wait' });
+    }
   } finally {
     teardown();
   }
