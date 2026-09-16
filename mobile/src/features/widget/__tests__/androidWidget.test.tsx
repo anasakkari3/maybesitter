@@ -8,9 +8,10 @@
  */
 import React from 'react';
 import { describe, expect, it } from '@jest/globals';
-// Not re-exported from the package index; it is the function the library runs
-// on every render, so it is the honest thing to validate against.
-import { buildWidgetTree } from 'react-native-android-widget/lib/commonjs/api/build-widget-tree';
+// Not re-exported from the package index, and only the sources carry types for
+// it. It is the function the library runs on every render — `requestWidgetUpdate`
+// and the headless task both call it — so it is the honest thing to draw against.
+import { buildWidgetTree } from 'react-native-android-widget/src/api/build-widget-tree';
 import { NextStepWidget, ANDROID_WIDGET_NAME } from '../android/NextStepWidget';
 import { createWidgetTaskHandler, renderNextStepWidget } from '../android/widgetTaskHandler';
 import { SNAPSHOT_TTL_MS, buildSnapshot, type WidgetLabels, type WidgetSnapshot } from '../snapshot';

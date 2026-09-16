@@ -184,6 +184,11 @@ describe('buildSnapshot — what is shown, and in what order', () => {
     expect(widgetLinks.commitment('abc')).toBe('maybesitter://commitments/abc');
   });
 
+  it('drops a next step whose id could not survive the deep-link parser', () => {
+    const snapshot = buildSnapshot(input({ today: [], nextStep: { commitmentId: '../../etc', title: 'Pay the rent' } }));
+    expect(snapshot.items).toEqual([]);
+  });
+
   it('drops an item whose id could not survive the deep-link parser rather than writing a broken link', () => {
     const snapshot = buildSnapshot(input({ nextStep: null, today: [commitment({ id: '../etc', priority: level('high') })] }));
     expect(snapshot.items).toEqual([]);
