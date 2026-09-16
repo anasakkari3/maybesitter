@@ -31,6 +31,8 @@ export type ResponseDecision =
     readonly action: OutboxAction;
     readonly notificationId: string;
     readonly postponedUntil?: string;
+    /** The OS's delivery instant, which tells one ring from a re-ring under the same identifier. */
+    readonly deliveredAt?: number;
   }
   | { readonly kind: 'confirmDrop'; readonly commitmentId: string }
   | { readonly kind: 'ignore' };
@@ -52,23 +54,25 @@ export function decideResponse(
   identifier: unknown,
   now: number,
   deferMs: number = DEFAULT_DEFER_MS,
+  deliveredAt?: unknown,
 ): ResponseDecision {
   const commitmentId = commitmentIdOf(data);
   if (!commitmentId) return { kind: 'ignore' };
   const notificationId = typeof identifier === 'string' && identifier !== '' ? identifier : commitmentId;
+  const delivery = typeof deliveredAt === 'number' && Number.isFinite(deliveredAt) ? { deliveredAt } : {};
   switch (actionIdentifier) {
     case ACTION_DONE:
-      return { kind: 'enqueue', commitmentId, action: 'complete', notificationId };
+      return { kind: 'enqueue', commitmentId, action: 'complete', notificationId, ...delivery };
     case ACTION_LATER:
       return {
         kind: 'enqueue', commitmentId, action: 'postpone', notificationId,
-        postponedUntil: new Date(now + deferMs).toISOString(),
+        postponedUntil: new Date(now + deferMs).toISOString(), ...delivery,
       };
     case ACTION_DROP:
       return { kind: 'confirmDrop', commitmentId };
     case DEFAULT_TAP:
       // The body: "I know". Recorded on the server as `reminder_acknowledged`.
-      return { kind: 'enqueue', commitmentId, action: 'aware', notificationId };
+      return { kind: 'enqueue', commitmentId, action: 'aware', notificationId, ...delivery };
     default:
       return { kind: 'ignore' };
   }
@@ -98,6 +102,7 @@ export async function applyTap(
     action: decision.action,
     notificationId: decision.notificationId,
     ...(decision.postponedUntil ? { postponedUntil: decision.postponedUntil } : {}),
+    ...(decision.deliveredAt !== undefined ? { deliveredAt: decision.deliveredAt } : {}),
   }, effects.newId, effects.now());
   if (!fresh) return false;
   if (decision.action !== 'aware') {

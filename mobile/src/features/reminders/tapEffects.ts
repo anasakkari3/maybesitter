@@ -21,7 +21,7 @@ import * as Crypto from 'expo-crypto';
 import { getAuthRepository, setAuthRepository } from '../../api/auth';
 import { createFirebaseAuthRepository } from '../../auth/firebaseAuthRepository';
 import { notificationsModule } from '../../notifications/nativeModules';
-import { flushOutbox } from '../../lib/deviceSettings/actionOutbox';
+import { flushOutbox, UNBOUND_ACCOUNT } from '../../lib/deviceSettings/actionOutbox';
 import { applyTap, decideResponse, type TapEffects } from './notificationResponses';
 import { sendOutboxItem } from './outboxSender';
 
@@ -33,7 +33,10 @@ export function newClientActionId(): string {
 }
 
 export function flushFor(accountId: string): Promise<unknown> {
-  return flushOutbox(accountId, sendOutboxItem, () => Date.now());
+  if (accountId === UNBOUND_ACCOUNT) return Promise.resolve({ sent: 0, dropped: 0, retrying: 0 });
+  // The API client sends with whoever is signed in now; stop if that is not the
+  // account these taps were queued under.
+  return flushOutbox(accountId, sendOutboxItem, () => Date.now(), () => getAuthRepository()?.currentUser()?.uid === accountId);
 }
 
 export function tapEffectsFor(accountId: string): TapEffects {
@@ -65,38 +68,63 @@ function taskManagerModule(): TaskManagerModule | null {
 /** The response as the task hands it over, or null when it is not a response. */
 export function responseOfTaskPayload(
   payload: unknown,
-): { actionIdentifier: unknown; data: unknown; identifier: unknown } | null {
+): { actionIdentifier: unknown; data: unknown; identifier: unknown; deliveredAt: unknown } | null {
   if (!payload || typeof payload !== 'object') return null;
   const raw = payload as { actionIdentifier?: unknown; notification?: unknown };
   if (typeof raw.actionIdentifier !== 'string') return null;
-  const request = (raw.notification as { request?: { identifier?: unknown; content?: { data?: unknown } } } | null)?.request;
-  return { actionIdentifier: raw.actionIdentifier, data: request?.content?.data, identifier: request?.identifier };
+  const notification = raw.notification as { date?: unknown; request?: { identifier?: unknown; content?: { data?: unknown } } } | null;
+  const request = notification?.request;
+  return {
+    actionIdentifier: raw.actionIdentifier, data: request?.content?.data, identifier: request?.identifier,
+    deliveredAt: notification?.date,
+  };
 }
 
 /** The headless half. Exported for tests; the task calls it. */
 export async function handleBackgroundResponse(
   payload: unknown,
-  signedInAccount: () => string | null,
+  signedInAccount: () => Promise<string | null>,
   effectsFor: (accountId: string) => TapEffects = tapEffectsFor,
 ): Promise<boolean> {
   const response = responseOfTaskPayload(payload);
   if (!response) return false;
-  const decision = decideResponse(response.actionIdentifier, response.data, response.identifier, Date.now());
+  const decision = decideResponse(
+    response.actionIdentifier, response.data, response.identifier, Date.now(), undefined, response.deliveredAt,
+  );
   // The drop button and the body open the app; the foreground listener has them.
   if (decision.kind !== 'enqueue' || decision.action === 'aware') return false;
-  const accountId = signedInAccount();
-  if (!accountId) return false;
+  // No session restored yet: the tap is still kept, unbound, and the next
+  // account to mount adopts it (`adoptUnboundTaps`). Nothing is sent meanwhile.
+  const accountId = (await signedInAccount()) ?? UNBOUND_ACCOUNT;
   return applyTap(decision, effectsFor(accountId));
 }
 
-function headlessAccount(): string | null {
+/** How long the headless task waits for Firebase to restore the session. */
+export const HEADLESS_AUTH_WAIT_MS = 5_000;
+
+async function headlessAccount(): Promise<string | null> {
   try {
     let repository = getAuthRepository();
     if (!repository) {
       repository = createFirebaseAuthRepository();
       setAuthRepository(repository);
     }
-    return repository.currentUser()?.uid ?? null;
+    const now = repository.currentUser()?.uid;
+    if (now) return now;
+    const restoring = repository;
+    return await new Promise<string | null>(resolve => {
+      let unsubscribe: (() => void) | undefined;
+      const timer = setTimeout(() => {
+        unsubscribe?.();
+        resolve(null);
+      }, HEADLESS_AUTH_WAIT_MS);
+      unsubscribe = restoring.onChange(user => {
+        if (!user) return;
+        clearTimeout(timer);
+        unsubscribe?.();
+        resolve(user.uid);
+      });
+    });
   } catch {
     return null;
   }

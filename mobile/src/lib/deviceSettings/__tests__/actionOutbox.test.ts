@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   OUTBOX_DEDUPE_MS,
   OUTBOX_MAX_ATTEMPTS,
+  OUTBOX_MAX_AGE_MS,
   backoffMs,
   clearOutbox,
   enqueueTap,
@@ -82,6 +83,17 @@ describe('enqueue', () => {
     expect((await loadOutbox(A)).items).toHaveLength(1);
   });
 
+  it('a re-ring under the same identifier is a new press; one press delivered three ways is queued once', async () => {
+    const ring = { commitmentId: 'cmt_x', action: 'postpone' as const, notificationId: 'cmt_x:strong', postponedUntil: new Date(NOW + 3_600_000).toISOString() };
+    // Listener, cold start and background task all see the same delivery instant.
+    expect(await enqueueTap(A, { ...ring, deliveredAt: NOW }, newId, new Date(NOW))).toBe(true);
+    expect(await enqueueTap(A, { ...ring, deliveredAt: NOW }, newId, new Date(NOW + 1000))).toBe(false);
+    expect(await enqueueTap(A, { ...ring, deliveredAt: NOW }, newId, new Date(NOW + 2000))).toBe(false);
+    // An hour later the same commitment rings again and Later is pressed again.
+    expect(await enqueueTap(A, { ...ring, deliveredAt: NOW + 3_600_000 }, newId, new Date(NOW + 3_600_000))).toBe(true);
+    expect((await loadOutbox(A)).items).toHaveLength(2);
+  });
+
   it('a different button on the same notification is a different tap', async () => {
     await enqueueTap(A, { commitmentId: 'c1', action: 'aware', notificationId: 'c1:soft' }, newId, new Date(NOW));
     await enqueueTap(A, { commitmentId: 'c1', action: 'complete', notificationId: 'c1:soft' }, newId, new Date(NOW));
@@ -144,6 +156,29 @@ describe('flush', () => {
     await flushOutbox(A, server.send, () => NOW + OUTBOX_DEDUPE_MS * 2);
     expect(Array.from(server.applied.keys())).toEqual([kept!.clientActionId]);
     expect(server.events()).toBe(1);
+  });
+
+  it('a tap older than a day is dropped unsent', async () => {
+    await enqueueTap(A, { commitmentId: 'c1', action: 'complete', notificationId: 'c1:soft' }, newId, new Date(NOW));
+    let sends = 0;
+    const tally = await flushOutbox(A, async () => {
+      sends += 1;
+      return 'sent';
+    }, () => NOW + OUTBOX_MAX_AGE_MS + 1);
+    expect(sends).toBe(0);
+    expect(tally.dropped).toBe(1);
+    expect((await loadOutbox(A)).items).toHaveLength(0);
+  });
+
+  it('stops, keeping the items, when the signed-in account is no longer this one', async () => {
+    await enqueueTap(A, { commitmentId: 'c1', action: 'complete', notificationId: 'c1:soft' }, newId, new Date(NOW));
+    let sends = 0;
+    await flushOutbox(A, async () => {
+      sends += 1;
+      return 'sent';
+    }, () => NOW, () => false);
+    expect(sends).toBe(0);
+    expect((await loadOutbox(A)).items).toHaveLength(1);
   });
 
   it('a refusal is dropped, not retried', async () => {

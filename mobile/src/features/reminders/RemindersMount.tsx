@@ -18,7 +18,7 @@ import { useToday, useUpcoming } from '../../api/queries';
 import { useQueryClient } from '@tanstack/react-query';
 import NetInfo from '@react-native-community/netinfo';
 import { registerReminderActions } from '../../notifications/actions';
-import { clearOutbox } from '../../lib/deviceSettings/actionOutbox';
+import { adoptUnboundTaps, clearOutbox } from '../../lib/deviceSettings/actionOutbox';
 import { applyTap, decideResponse, isBodyTap } from './notificationResponses';
 import { flushFor, registerNotificationResponseTask, tapEffectsFor } from './tapEffects';
 import { startOf } from './reminderInputs';
@@ -111,7 +111,10 @@ export function RemindersMount(): null {
   useEffect(() => {
     if (!accountId) return;
     void registerNotificationResponseTask();
-    void flushAndRefresh(accountId).catch(() => undefined);
+    // Taps the headless task kept before a session was restored (#200).
+    void adoptUnboundTaps(accountId)
+      .then(() => flushAndRefresh(accountId))
+      .catch(() => undefined);
     const appState = AppState.addEventListener('change', state => {
       if (state === 'active') void flushAndRefresh(accountId).catch(() => undefined);
     });
@@ -193,11 +196,12 @@ export function RemindersMount(): null {
    */
   const respond = useCallback(async (response: {
     actionIdentifier: string;
-    notification: { request: { identifier: string; content: { data?: unknown } } };
+    notification: { date?: number; request: { identifier: string; content: { data?: unknown } } };
   }) => {
     const { data } = response.notification.request.content;
     const decision = decideResponse(
-      response.actionIdentifier, data, response.notification.request.identifier, Date.now(),
+      response.actionIdentifier, data, response.notification.request.identifier, Date.now(), undefined,
+      response.notification.date,
     );
     if (decision.kind === 'confirmDrop') {
       latest.current.actions.openDetail(decision.commitmentId);

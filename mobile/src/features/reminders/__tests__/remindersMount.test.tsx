@@ -281,7 +281,8 @@ describe('signing out, by every route a session can end', () => {
 function response(data: Record<string, unknown>, actionIdentifier = 'expo.modules.notifications.actions.DEFAULT') {
   return {
     actionIdentifier,
-    notification: { request: { identifier: `${String(data.commitmentId ?? 'plan')}:soft`, content: { data } } },
+    // One delivery: the same instant however many ways the press reaches the app.
+    notification: { date: 1_789_000_000_000, request: { identifier: `${String(data.commitmentId ?? 'plan')}:soft`, content: { data } } },
   } as never;
 }
 

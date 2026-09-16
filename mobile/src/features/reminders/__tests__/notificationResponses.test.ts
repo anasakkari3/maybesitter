@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { applyTap, decideResponse, type TapEffects } from '../notificationResponses';
 import { handleBackgroundResponse, responseOfTaskPayload } from '../tapEffects';
-import { loadOutbox } from '../../../lib/deviceSettings/actionOutbox';
+import { adoptUnboundTaps, loadOutbox, UNBOUND_ACCOUNT } from '../../../lib/deviceSettings/actionOutbox';
 import { DEFAULT_DEFER_MS, registerReminderActions, reminderActions } from '../../../notifications/actions';
 import { AWARENESS_CATEGORY_ID, HARD_CATEGORY_ID } from '../../../notifications/channels';
 import * as notifications from 'expo-notifications';
@@ -147,17 +147,29 @@ describe('the background task', () => {
 
   it('queues Done for the signed-in account', async () => {
     const effects = fakeEffects();
-    expect(await handleBackgroundResponse(payload('done'), () => 'acct', () => effects)).toBe(true);
+    expect(await handleBackgroundResponse(payload('done'), async () => 'acct', () => effects)).toBe(true);
     expect((await loadOutbox('acct')).items.map(item => item.action)).toEqual(['complete']);
     expect(effects.cancelled).toContain('c1:strong');
   });
 
-  it('leaves the drop button and the body to the app, and does nothing signed out', async () => {
+  it('leaves the drop button and the body to the app', async () => {
     const effects = fakeEffects();
-    expect(await handleBackgroundResponse(payload('drop'), () => 'acct', () => effects)).toBe(false);
-    expect(await handleBackgroundResponse(payload(BODY), () => 'acct', () => effects)).toBe(false);
-    expect(await handleBackgroundResponse(payload('done'), () => null, () => effects)).toBe(false);
+    expect(await handleBackgroundResponse(payload('drop'), async () => 'acct', () => effects)).toBe(false);
+    expect(await handleBackgroundResponse(payload(BODY), async () => 'acct', () => effects)).toBe(false);
     expect((await loadOutbox('acct')).items).toHaveLength(0);
+  });
+
+  it('with no session restored the tap is kept unbound, not lost, and the next account adopts it', async () => {
+    const seenAccounts: string[] = [];
+    expect(await handleBackgroundResponse(payload('done'), async () => null, (account) => {
+      seenAccounts.push(account);
+      return { ...fakeEffects(), accountId: account };
+    })).toBe(true);
+    expect(seenAccounts).toEqual([UNBOUND_ACCOUNT]);
+    expect((await loadOutbox(UNBOUND_ACCOUNT)).items.map(item => item.commitmentId)).toEqual(['c1']);
+    expect(await adoptUnboundTaps('acct')).toBe(1);
+    expect((await loadOutbox('acct')).items.map(item => item.action)).toEqual(['complete']);
+    expect((await loadOutbox(UNBOUND_ACCOUNT)).items).toHaveLength(0);
   });
 
   it('ignores a payload that is a received notification, not a response', () => {

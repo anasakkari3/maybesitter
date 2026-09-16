@@ -54,6 +54,18 @@ export interface OutboxState {
 }
 
 export const OUTBOX_DEDUPE_MS = 24 * 60 * 60 * 1000;
+/**
+ * A tap older than this is dropped unsent. A Done from last week must not
+ * complete a commitment somebody has since reopened; after a day the person
+ * has had every chance to act in the app instead.
+ */
+export const OUTBOX_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+/**
+ * Where a tap waits when the app was woken with no signed-in user yet — the
+ * Firebase session restores asynchronously in a headless task. Not a uid (uids
+ * never contain `:`), and adopted by the next account that mounts.
+ */
+export const UNBOUND_ACCOUNT = ':unbound';
 export const OUTBOX_MAX_ATTEMPTS = 8;
 export const OUTBOX_BASE_BACKOFF_MS = 15_000;
 export const OUTBOX_MAX_BACKOFF_MS = 30 * 60 * 1000;
@@ -119,10 +131,20 @@ export function parseOutbox(raw: string | null): OutboxState {
  */
 export function withEnqueued(
   state: OutboxState,
-  tap: { clientActionId: string; commitmentId: string; action: OutboxAction; notificationId: string; postponedUntil?: string },
+  tap: {
+    clientActionId: string; commitmentId: string; action: OutboxAction; notificationId: string;
+    postponedUntil?: string;
+    /** The OS's delivery instant for this notification, so a re-ring under the same identifier is a new press. */
+    deliveredAt?: number;
+  },
   now: number,
 ): OutboxState {
-  const dedupeKey = `${tap.notificationId}|${tap.action}`;
+  // The request identifier is the same every time a commitment re-rings; the
+  // delivery instant is what tells one ring from the next, and it is the same
+  // for one press however many ways it reaches us.
+  const dedupeKey = typeof tap.deliveredAt === 'number' && Number.isFinite(tap.deliveredAt)
+    ? `${tap.notificationId}|${tap.deliveredAt}|${tap.action}`
+    : `${tap.notificationId}|${tap.action}`;
   const seen: Record<string, number> = {};
   for (const [key, at] of Object.entries(state.seen)) if (now - at < OUTBOX_DEDUPE_MS) seen[key] = at;
   if (seen[dedupeKey] !== undefined) return state;
@@ -195,7 +217,7 @@ function serial<T>(work: () => Promise<T>): Promise<T> {
 /** Persists a tap. True when it was new, false for a duplicate or a failed write. */
 export function enqueueTap(
   accountId: string,
-  tap: { commitmentId: string; action: OutboxAction; notificationId: string; postponedUntil?: string },
+  tap: { commitmentId: string; action: OutboxAction; notificationId: string; postponedUntil?: string; deliveredAt?: number },
   newId: () => string,
   now: Date,
 ): Promise<boolean> {
@@ -225,17 +247,29 @@ export function flushOutbox(
   accountId: string,
   send: (item: OutboxItem) => Promise<SendOutcome>,
   now: () => number,
+  /**
+   * Whether the credential `send` will use is still this account's. Checked
+   * before every item: a sign-out or switch mid-flush stops it, and the items
+   * stay for their own account rather than being sent under another's token.
+   */
+  stillThisAccount: () => boolean = () => true,
 ): Promise<{ sent: number; dropped: number; retrying: number }> {
   return serial(async () => {
     let state = await loadOutbox(accountId);
     const tally = { sent: 0, dropped: 0, retrying: 0 };
     for (const item of state.items) {
       if (item.nextAttemptAt > now()) continue;
+      if (!stillThisAccount()) break;
       let outcome: SendOutcome;
-      try {
-        outcome = await send(item);
-      } catch {
-        outcome = 'retry';
+      const age = now() - Date.parse(item.occurredAt);
+      if (!(age <= OUTBOX_MAX_AGE_MS)) {
+        outcome = 'drop';
+      } else {
+        try {
+          outcome = await send(item);
+        } catch {
+          outcome = 'retry';
+        }
       }
       if (outcome === 'sent') tally.sent += 1;
       else if (outcome === 'drop') tally.dropped += 1;
@@ -259,4 +293,30 @@ export async function clearOutbox(accountId: string): Promise<void> {
   } catch {
     // Signing out; an unremovable queue is not a reason to stay signed in.
   }
+}
+
+/**
+ * Moves taps queued with no signed-in user into this account's outbox.
+ *
+ * The press happened on this phone while it was signed in — Firebase just had
+ * not restored the session in the headless task. The risk is a different
+ * account signing in first: its outbox then holds ids that are not in its tree,
+ * which the server answers 404 and the outbox drops. Stale ones (a day) are
+ * dropped by the flush.
+ */
+export function adoptUnboundTaps(accountId: string): Promise<number> {
+  return serial(async () => {
+    const unbound = await loadOutbox(UNBOUND_ACCOUNT);
+    if (unbound.items.length === 0) return 0;
+    const mine = await loadOutbox(accountId);
+    const known = new Set(mine.items.map((item) => item.clientActionId));
+    const items = [...mine.items, ...unbound.items.filter((item) => !known.has(item.clientActionId))];
+    try {
+      await saveOutbox(accountId, { version: 1, items, seen: { ...unbound.seen, ...mine.seen } });
+      await AsyncStorage.removeItem(outboxStorageKey(UNBOUND_ACCOUNT));
+    } catch {
+      return 0;
+    }
+    return unbound.items.length;
+  });
 }
