@@ -9,6 +9,17 @@ const nextConfig = {
   outputFileTracingRoot: __dirname,
   // firebase-admin uses native/dynamic requires that must not be bundled.
   serverExternalPackages: ['firebase-admin'],
+  // The calendar reader's recurrence worker (UC-3.4, #188) is a plain .mjs file
+  // started with `new Worker(path)`, which tracing cannot see. Copy it, the
+  // module it imports and ical.js into the standalone output explicitly.
+  outputFileTracingIncludes: {
+    '/api/**/*': [
+      './lib/calendar/icsExpand.worker.mjs',
+      './lib/calendar/icsExpand.mjs',
+      './node_modules/ical.js/package.json',
+      './node_modules/ical.js/dist/**',
+    ],
+  },
 };
 
 module.exports = nextConfig;

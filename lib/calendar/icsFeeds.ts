@@ -68,9 +68,9 @@ import { ICS_FEED_ITEMS, ICS_FEEDS, USERS, requireUserId, userCol, userDoc, user
 import { newUserDocument, type UserDocument } from '../storage/userDocument';
 import { hostHashOf, normalizeFeedUrl, safeFetch, SafeFetchError, type SafeFetchOptions, type SafeFetchResult } from '../net/safeFetch';
 import { busyBlockId, deleteBusySource, listBusyBlocks, replaceBusyBlocks, type BusyBlock } from './busyBlocks';
+import { classifyIcsBounded, IcsTooComplexError } from './icsClassifyBounded';
 import {
   BUSY_WINDOW_DAYS,
-  classifyIcs,
   cleanTitle,
   DEADLINE_WINDOW_DAYS,
   IcsParseError,
@@ -191,6 +191,7 @@ export type IcsFeedErrorCode =
   | 'refresh_too_soon'
   | 'fetch_failed'
   | 'not_a_calendar'
+  | 'calendar_too_complex'
   | 'invalid_action'
   | 'past_due'
   | 'encryption_unavailable';
@@ -205,6 +206,7 @@ const STATUS: Record<IcsFeedErrorCode, number> = {
   refresh_too_soon: 429,
   fetch_failed: 422,
   not_a_calendar: 422,
+  calendar_too_complex: 422,
   invalid_action: 409,
   past_due: 409,
   encryption_unavailable: 503,
@@ -236,6 +238,8 @@ export interface IcsFeedDeps {
   fetch?: (url: string, options: SafeFetchOptions) => Promise<SafeFetchResult>;
   encryption?: FieldEncryptionOptions;
   log?: (line: string) => void;
+  /** Test seam for `classifyIcsBounded`'s wall clock; production uses its default. */
+  classifyTimeoutMs?: number;
 }
 
 /** Enable flag: off unless the value is exactly `true`. */
@@ -708,9 +712,13 @@ export async function createIcsFeed(uid: string, body: unknown, deps: IcsFeedDep
   const timeZone = await userTimeZone(uid, deps);
   let classification: IcsClassification;
   try {
-    classification = classifyIcs(fetched.body, { now, timeZone });
+    classification = await classifyIcsBounded(fetched.body, { now, timeZone }, { timeoutMs: deps.classifyTimeoutMs });
   } catch (error) {
     if (error instanceof IcsParseError) throw new IcsFeedError('not_a_calendar');
+    if (error instanceof IcsTooComplexError) {
+      log(`[ics] subscribe refused an expensive calendar feed=${feedId} host=${hostHash}`);
+      throw new IcsFeedError('calendar_too_complex');
+    }
     throw error;
   }
 
@@ -841,9 +849,14 @@ export async function refreshIcsFeed(
 
   let classification: IcsClassification;
   try {
-    classification = classifyIcs(fetched.body, { now, timeZone: await userTimeZone(uid, deps) });
+    classification = await classifyIcsBounded(
+      fetched.body,
+      { now, timeZone: await userTimeZone(uid, deps) },
+      { timeoutMs: deps.classifyTimeoutMs },
+    );
   } catch (error) {
     if (error instanceof IcsParseError) return fail('not_a_calendar');
+    if (error instanceof IcsTooComplexError) return fail('too_complex');
     throw error;
   }
 

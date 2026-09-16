@@ -89,6 +89,8 @@ function harness(): Harness {
       now: () => clock.now,
       encryption: { kms, env: { NODE_ENV: 'test', [KMS_KEY_ENV_VAR]: kms.keyName } as NodeJS.ProcessEnv },
       log: (line) => logs.push(line),
+      // Generous: in tests the worker transpiles TypeScript on start-up.
+      classifyTimeoutMs: 15_000,
       fetch: async (url: string, options: SafeFetchOptions): Promise<SafeFetchResult> => {
         fetches.push({ url, options });
         if (h.failNext) {
@@ -348,6 +350,32 @@ test('a page that is not a calendar, a failed fetch, an unknown key and missing 
     assert.equal((await noKms.json()).error, 'encryption_unavailable');
     assert.deepEqual(await feeds(), []);
     assert.deepEqual(await items(), []);
+  });
+});
+
+// A rule ical.js takes seconds to give up on (every 1461 days never lands on a
+// 29 February). Finite on purpose: an unbounded regression makes these tests
+// fail on the status rather than hang the suite; the never-terminating rule is
+// covered in a child process in icsClassifyBounded.test.ts.
+test('a calendar too expensive to read is refused at subscribe and fails a refresh, within the bound', { timeout: 60_000 }, async () => {
+  await withWorld(async (h) => {
+    const hanging = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'BEGIN:VEVENT', 'UID:never', 'SUMMARY:Lecture',
+      'DTSTAMP:20260915T000000Z', 'DTSTART:20261008T000000Z', 'DTEND:20261008T010000Z',
+      'RRULE:FREQ=DAILY;INTERVAL=1461;BYMONTH=2;BYMONTHDAY=29', 'END:VEVENT', 'END:VCALENDAR', ''].join('\r\n');
+    h.bodies.set(FEED_URL, hanging);
+    const refused = await handleCreateFeed(request('POST', '/api/mobile/calendar/ics', { url: FEED_URL }),
+      await uidOf(request('GET', '/')), { ...h.deps, classifyTimeoutMs: 500 });
+    assert.equal(refused.status, 422);
+    assert.equal((await refused.json()).error, 'calendar_too_complex');
+    assert.deepEqual(await feeds(), []);
+
+    h.bodies.set(FEED_URL, calendar([]));
+    const feedId = (await subscribe(h)).body.feed.feedId as string;
+    h.bodies.set(FEED_URL, hanging);
+    const response = await handleRefreshFeed(request('POST', `/r/${feedId}`), await uidOf(request('GET', '/')), feedId,
+      { ...h.deps, classifyTimeoutMs: 500 });
+    assert.equal((await response.json()).outcome, 'failed');
+    assert.equal((await feeds())[0]!.lastErrorCode, 'too_complex');
   });
 });
 

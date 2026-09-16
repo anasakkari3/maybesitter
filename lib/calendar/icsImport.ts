@@ -65,14 +65,14 @@ import { createHash } from 'node:crypto';
 import ICAL from 'ical.js';
 import type { Instant } from '../../src/contracts/v1/planningContracts';
 import { detectPromptInjection } from '../../src/extraction/ollamaExtractor';
+import { expandRecurrences, parseCalendar } from './icsExpand.mjs';
 
 export const DEADLINE_WINDOW_DAYS = 120;
 export const BUSY_WINDOW_DAYS = 28;
 export const MAX_DEADLINES = 100;
 export const MAX_BUSY = 500;
 export const MAX_TITLE_LENGTH = 120;
-export const MAX_STEPS_PER_EVENT = 2_000;
-export const MAX_STEPS_PER_CALENDAR = 20_000;
+export { MAX_STEPS_PER_CALENDAR, MAX_STEPS_PER_EVENT } from './icsExpand.mjs';
 
 const DAY_MS = 86_400_000;
 
@@ -89,6 +89,7 @@ export type SkipReason =
   | 'outside_window'
   | 'over_cap'
   | 'recurrence_limit'
+  | 'unsupported_recurrence'
   | 'timezone_fallback';
 
 export interface DeadlineCandidate {
@@ -121,7 +122,23 @@ export interface ClassifyIcsOptions {
   readonly now: Date;
   /** The user's IANA zone, for floating times, all-day deadlines and unknown TZIDs. */
   readonly timeZone: string;
+  /**
+   * Recurrences already expanded elsewhere — by `classifyIcsBounded`'s worker.
+   * Absent, they are expanded in this thread, which for an untrusted calendar
+   * can fail to terminate; see `icsExpand.mjs`.
+   */
+  readonly expansion?: RecurrenceExpansion;
 }
+
+export interface WallFields {
+  year: number; month: number; day: number; hour: number; minute: number; second: number;
+  isDate: boolean; utc: boolean;
+}
+
+export type RecurrenceExpansion = Record<number, {
+  occurrences: { recurrence: WallFields; start: WallFields; end: WallFields | null; item: number }[];
+  limited: boolean;
+}>;
 
 export class IcsParseError extends Error {
   constructor() {
@@ -325,8 +342,147 @@ function endOfLocalDay(time: InstanceType<typeof ICAL.Time>, userZone: string): 
   return wallToEpoch({ year: time.year, month: time.month, day: time.day, hour: 23, minute: 59, second: 0 }, userZone);
 }
 
-interface Budget {
-  steps: number;
+/* ── Recurrence rules refused before they are expanded ─────────────── */
+
+const SUB_DAILY = new Set(['SECONDLY', 'MINUTELY', 'HOURLY']);
+const MONTH_DAYS = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+function numbers(values: unknown): number[] | null {
+  if (!Array.isArray(values) || values.length === 0) return null;
+  return values.map(Number).filter((n) => Number.isInteger(n));
+}
+
+/** The month (1–12) and day of a BYYEARDAY value in a leap or common year, or null. */
+function yearDayDate(yearDay: number, leap: boolean): { month: number; day: number } | null {
+  const length = leap ? 366 : 365;
+  const ordinal = yearDay > 0 ? yearDay : length + yearDay + 1;
+  if (ordinal < 1 || ordinal > length) return null;
+  let remaining = ordinal;
+  for (let month = 1; month <= 12; month += 1) {
+    const days = month === 2 ? (leap ? 29 : 28) : MONTH_DAYS[month - 1]!;
+    if (remaining <= days) return { month, day: remaining };
+    remaining -= days;
+  }
+  return null;
+}
+
+/**
+ * Why a rule is refused before ical.js sees it, or null.
+ *
+ * ical.js 2.2.1 loops *inside one `next()` call* looking for a date an
+ * impossible rule never produces (`FREQ=DAILY;BYMONTH=2;BYMONTHDAY=30`), so
+ * such a rule has to be caught before it is iterated. Sub-daily frequencies
+ * are refused outright: a university calendar has no use for them, and
+ * `FREQ=SECONDLY;BYMONTH=2` alone costs seconds of CPU per event.
+ *
+ * This is the cheap half. It cannot see every rule that never yields —
+ * `FREQ=DAILY;INTERVAL=7;BYDAY=MO;BYMONTHDAY=1` starting on a Thursday is one —
+ * which is why the feed service only ever calls this inside
+ * `classifyIcsBounded`'s worker, with a wall clock that can stop it.
+ */
+export function refusedRecurrence(rule: unknown): string | null {
+  if (!(rule instanceof ICAL.Recur)) return null;
+  if (SUB_DAILY.has(String(rule.freq))) return 'sub_daily';
+  const parts = rule.parts as Record<string, unknown>;
+  // RFC 5545 §3.3.10 forbids these pairings, and ical.js does not refuse them:
+  // `FREQ=DAILY;BYYEARDAY=-62;BYMONTH=10;BYMONTHDAY=31` names a real date and
+  // still never returns from `next()`.
+  if (numbers(parts.BYYEARDAY) && rule.freq !== 'YEARLY') return 'invalid';
+  if (numbers(parts.BYWEEKNO) && rule.freq !== 'YEARLY') return 'invalid';
+  if (numbers(parts.BYMONTHDAY) && rule.freq === 'WEEKLY') return 'invalid';
+  // Allowed by the RFC, but ical.js 2.2.1 never returns from `next()` for a
+  // negative month day on a daily rule (`FREQ=DAILY;BYMONTHDAY=-1`). The same
+  // day as MONTHLY or YEARLY works and is how calendars actually write it.
+  if (rule.freq === 'DAILY' && (numbers(parts.BYMONTHDAY) ?? []).some((d) => d < 0)) return 'unsupported';
+  const months = numbers(parts.BYMONTH) ?? [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+  if (months.some((m) => m < 1 || m > 12)) return 'impossible';
+  const monthDays = numbers(parts.BYMONTHDAY);
+  const yearDays = numbers(parts.BYYEARDAY);
+
+  const dayFits = (month: number, day: number): boolean => {
+    const length = MONTH_DAYS[month - 1]!;
+    return day > 0 ? day <= length : day < 0 && -day <= length;
+  };
+  if (monthDays && !months.some((m) => monthDays.some((d) => dayFits(m, d)))) return 'impossible';
+
+  if (yearDays) {
+    const fits = yearDays.some((yd) => [true, false].some((leap) => {
+      const date = yearDayDate(yd, leap);
+      if (!date || !months.includes(date.month)) return false;
+      if (!monthDays) return true;
+      const length = date.month === 2 ? (leap ? 29 : 28) : MONTH_DAYS[date.month - 1]!;
+      return monthDays.some((d) => (d > 0 ? d === date.day : length + d + 1 === date.day));
+    }));
+    if (!fits) return 'impossible';
+  }
+  return null;
+}
+
+function rootOrThrow(text: string): Component {
+  let root: Component;
+  try {
+    root = parseCalendar(ICAL, text) as Component;
+  } catch {
+    throw new IcsParseError();
+  }
+  if (root.name !== 'vcalendar') throw new IcsParseError();
+  return root;
+}
+
+function timeOf(fields: WallFields): InstanceType<typeof ICAL.Time> {
+  const data = { year: fields.year, month: fields.month, day: fields.day, hour: fields.hour, minute: fields.minute, second: fields.second, isDate: fields.isDate };
+  return fields.utc ? new ICAL.Time(data, ICAL.Timezone.utcTimezone) : ICAL.Time.fromData(data);
+}
+
+/** True — and counted by the caller — when any RRULE of this event is refused. */
+function refusedRule(master: Component): boolean {
+  return master.getAllProperties('rrule').some((property) => refusedRecurrence(property.getFirstValue()) !== null);
+}
+
+interface MasterIndex {
+  events: Component[];
+  masters: Map<string, { component: Component; index: number }>;
+  overridesByUid: Map<string, Component[]>;
+  /** Indexes of the masters that need expanding and are not refused. */
+  recurring: number[];
+}
+
+function recurringMasters(root: Component, tally: Tally | null): MasterIndex {
+  const events = root.getAllSubcomponents('vevent');
+  const masters = new Map<string, { component: Component; index: number }>();
+  // Grouped once. Filtering every override for every master was quadratic, and
+  // a 2 MiB feed of both took seconds.
+  const overridesByUid = new Map<string, Component[]>();
+  events.forEach((event, index) => {
+    if (event.hasProperty('recurrence-id')) {
+      const key = uidOf(event);
+      const group = overridesByUid.get(key);
+      if (group) group.push(event);
+      else overridesByUid.set(key, [event]);
+    } else {
+      masters.set(uidOf(event), { component: event, index });
+    }
+  });
+  const recurring: number[] = [];
+  for (const { component, index } of Array.from(masters.values())) {
+    if (!component.hasProperty('rrule') && !component.hasProperty('rdate')) continue;
+    if (component.hasProperty('rrule') && refusedRule(component)) {
+      tally?.add('unsupported_recurrence');
+      continue;
+    }
+    recurring.push(index);
+  }
+  return { events, masters, overridesByUid, recurring };
+}
+
+/**
+ * What `classifyIcsBounded` sends to its worker: the indexes to expand and how
+ * far. Parsing is linear and safe on this thread; only expansion is not.
+ */
+export function expansionRequest(text: string, options: Pick<ClassifyIcsOptions, 'now'>): { masters: number[]; horizonMs: number } {
+  const nowMs = options.now.getTime();
+  const { recurring } = recurringMasters(rootOrThrow(text), null);
+  return { masters: recurring, horizonMs: nowMs + Math.max(DEADLINE_WINDOW_DAYS, BUSY_WINDOW_DAYS) * DAY_MS };
 }
 
 export function classifyIcs(text: string, options: ClassifyIcsOptions): IcsClassification {
@@ -336,18 +492,10 @@ export function classifyIcs(text: string, options: ClassifyIcsOptions): IcsClass
   const busyEnd = nowMs + BUSY_WINDOW_DAYS * DAY_MS;
   const tally = new Tally();
 
-  let root: Component;
-  try {
-    const jcal = ICAL.parse(text);
-    root = new ICAL.Component(Array.isArray(jcal[0]) ? jcal[0] : jcal);
-  } catch {
-    throw new IcsParseError();
-  }
-  if (root.name !== 'vcalendar') throw new IcsParseError();
+  const root = rootOrThrow(text);
 
   const deadlines: DeadlineCandidate[] = [];
   const busy: BusyCandidate[] = [];
-  const budget: Budget = { steps: 0 };
 
   /* VTODO */
   for (const todo of root.getAllSubcomponents('vtodo')) {
@@ -369,58 +517,42 @@ export function classifyIcs(text: string, options: ClassifyIcsOptions): IcsClass
     }
   }
 
-  /* VEVENT: masters with their overrides related, then orphan overrides alone */
-  const events = root.getAllSubcomponents('vevent');
-  const masters = new Map<string, Component>();
-  const overrides: Component[] = [];
-  for (const event of events) {
-    if (event.hasProperty('recurrence-id')) overrides.push(event);
-    else masters.set(uidOf(event), event);
-  }
+  /* VEVENT: masters, expanded with their overrides; then orphan overrides alone */
+  const { events, masters, overridesByUid, recurring } = recurringMasters(root, tally);
+  const overrides = Array.from(overridesByUid.values()).flat();
+  const horizonMs = Math.max(deadlineEnd, busyEnd);
+  const expansion: RecurrenceExpansion = options.expansion
+    ?? (expandRecurrences(ICAL, text, { masters: recurring, horizonMs }) as unknown as RecurrenceExpansion);
 
-  for (const [uid, master] of Array.from(masters)) {
+  for (const [uid, { component: master, index }] of Array.from(masters)) {
     try {
-      // The overrides are named explicitly, with strict matching. Left to
-      // itself, `ICAL.Event` relates *every* RECURRENCE-ID in the file to
-      // whichever master it is building, whatever its UID — so one event's
-      // moved instance would silently move another event that happened to
-      // share the same start time.
-      const event = new ICAL.Event(master, {
-        strictExceptions: true,
-        exceptions: master.hasProperty('rrule') ? overrides.filter((override) => uidOf(override) === uid) : [],
-      });
-      if (!event.isRecurring()) {
+      if (master.hasProperty('rrule') && refusedRule(master)) continue;
+      if (!master.hasProperty('rrule') && !master.hasProperty('rdate')) {
         classifyOccurrence(master, uid, null, timeProp(master, 'dtstart'), null);
         continue;
       }
-      const iterator = event.iterator();
-      let steps = 0;
-      for (let next = iterator.next(); next; next = iterator.next()) {
-        steps += 1;
-        budget.steps += 1;
-        if (steps > MAX_STEPS_PER_EVENT || budget.steps > MAX_STEPS_PER_CALENDAR) {
-          tally.add('recurrence_limit');
-          break;
-        }
-        const startResolved = resolveTime(next, tzidOf(master, 'dtstart'), userZone);
-        // Occurrences come in start order; one starting after both windows
-        // closes the loop for this event.
-        if (startResolved.epochMs > Math.max(deadlineEnd, busyEnd)) break;
-        const details = event.getOccurrenceDetails(next);
-        const item = details.item.component;
+      const expanded = expansion[index];
+      if (!expanded) {
+        tally.add('unparseable');
+        continue;
+      }
+      if (expanded.limited) tally.add('recurrence_limit');
+      for (const occurrence of expanded.occurrences) {
+        const startResolved = resolveTime(timeOf(occurrence.recurrence), tzidOf(master, 'dtstart'), userZone);
+        if (startResolved.epochMs > horizonMs) break;
+        const item = events[occurrence.item] ?? master;
         const recurrenceId = new Date(startResolved.epochMs).toISOString();
-        classifyOccurrence(item, uid, recurrenceId, details.startDate, details.endDate);
+        classifyOccurrence(item, uid, recurrenceId, timeOf(occurrence.start), occurrence.end ? timeOf(occurrence.end) : null);
       }
     } catch {
       tally.add('unparseable');
     }
   }
-
   // An override whose master is not in this file (a feed that publishes only
   // the changed instance) is read as a single event of its own.
   for (const override of overrides) {
     const uid = uidOf(override);
-    if (masters.has(uid) && masters.get(uid)!.hasProperty('rrule')) continue;
+    if (masters.get(uid)?.component.hasProperty('rrule')) continue;
     try {
       const recurrence = timeProp(override, 'recurrence-id');
       const recurrenceId = recurrence

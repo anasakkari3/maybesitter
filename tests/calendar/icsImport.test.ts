@@ -23,6 +23,7 @@ import {
   namesDeadline,
   type IcsClassification,
 } from '../../lib/calendar/icsImport.ts';
+import { classifyIcsBounded } from '../../lib/calendar/icsClassifyBounded.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const fixture = (name: string): string => readFileSync(path.join(here, '..', 'fixtures', 'ics', name), 'utf8');
@@ -162,8 +163,8 @@ test('VTODO with DUE is a deadline; done, dateless and all-day are handled; recu
   assert.deepEqual(skipped(result), { completed: 1, no_time: 1 });
 });
 
-test('an unbounded FREQ=SECONDLY rule stops at the expansion limit and is counted', () => {
-  const text = vcalendar(vevent('bomb', 'Tick', '19700101T000000Z', '19700101T000001Z', 'RRULE:FREQ=SECONDLY'));
+test('a daily rule running since 1970 stops at the expansion limit and is counted', () => {
+  const text = vcalendar(vevent('bomb', 'Tick', '19700101T000000Z', '19700101T000100Z', 'RRULE:FREQ=DAILY'));
   const result = classifyIcs(text, { now: NOW, timeZone: ZONE });
   assert.equal(result.busy.length, 0);
   assert.equal(skipped(result).recurrence_limit, 1);
@@ -263,4 +264,53 @@ test('what is not a calendar is refused, and an unknown user zone is read as UTC
   assert.throws(() => classifyIcs('BEGIN:VCARD\r\nEND:VCARD\r\n', { now: NOW, timeZone: ZONE }), IcsParseError);
   const result = classifyIcs(vcalendar(vevent('f', 'Seminar', '20261007T100000', '20261007T110000')), { now: NOW, timeZone: 'Not/AZone' });
   assert.equal(result.busy[0]?.startAt, '2026-10-07T10:00:00.000Z');
+});
+
+/* ── Recurrence rules that never yield (review of #445, B1) ─────────── */
+
+const START_THURSDAY = '20260917T000000Z';
+
+function recurring(rule: string): string {
+  return vcalendar(vevent('r', 'Lecture', START_THURSDAY, '20260917T010000Z', `RRULE:${rule}`));
+}
+
+// Through the bounded reader, on purpose. Each of these rules hangs ical.js
+// 2.2.1 inside one synchronous next() call, which a test timeout cannot
+// interrupt; read in the worker, a regression is a refusal the assertion
+// catches rather than a suite that never finishes.
+const bounded = (rule: string, zone = ZONE) => classifyIcsBounded(recurring(rule), { now: NOW, timeZone: zone }, { timeoutMs: 3_000 });
+
+test('impossible, RFC-forbidden and sub-daily rules are refused before ical.js iterates them', { timeout: 120_000 }, async () => {
+  for (const rule of [
+    'FREQ=DAILY;BYMONTH=2;BYMONTHDAY=30',
+    'FREQ=HOURLY;BYMONTH=2;BYMONTHDAY=30',
+    'FREQ=MINUTELY;BYMONTH=4;BYMONTHDAY=31',
+    'FREQ=SECONDLY;BYYEARDAY=366;BYMONTH=1',
+    'FREQ=SECONDLY;BYMONTH=2',
+    'FREQ=DAILY;BYMONTHDAY=-30;BYMONTH=2',
+    'FREQ=YEARLY;BYYEARDAY=366;BYMONTHDAY=1',
+    'FREQ=YEARLY;BYYEARDAY=60;BYMONTH=7',
+    'FREQ=DAILY;BYYEARDAY=-62;BYMONTH=10;BYMONTHDAY=31',
+    'FREQ=MONTHLY;BYWEEKNO=20',
+    'FREQ=WEEKLY;BYMONTHDAY=1',
+    'FREQ=DAILY;BYMONTHDAY=-1',
+  ]) {
+    const result = await bounded(rule);
+    assert.equal(skipped(result).unsupported_recurrence, 1, rule);
+    assert.equal(result.busy.length, 0, rule);
+  }
+});
+
+test('possible rules near the edge are still expanded', { timeout: 60_000 }, async () => {
+  for (const [rule, expected] of [
+    ['FREQ=DAILY;BYMONTH=10;BYMONTHDAY=31', 1],
+    ['FREQ=MONTHLY;BYMONTHDAY=-1', 1],
+    ['FREQ=YEARLY;BYMONTH=10;BYMONTHDAY=-1', 1],
+    ['FREQ=YEARLY;BYMONTH=10;BYMONTHDAY=31', 1],
+    ['FREQ=WEEKLY;BYDAY=TH', 4],
+  ] as const) {
+    const result = await bounded(rule, 'UTC');
+    assert.equal(skipped(result).unsupported_recurrence, undefined, rule);
+    assert.equal(result.busy.length, expected, rule);
+  }
 });
