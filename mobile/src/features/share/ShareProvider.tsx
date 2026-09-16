@@ -52,15 +52,18 @@ import { useAiConsentGranted, useProposeFromShare } from '../../api/queries';
 import { userFacingMessageKey, type UserFacingKey } from '../../api/ui/userFacingMessage';
 import { shareIntakeEnabled } from '../../config/env';
 import { deleteSharedFiles } from '../../lib/shareFiles';
+import { readSharedFileBytes } from '../../lib/shareBytes';
 import { useCaptureFlow } from '../capture/CaptureProvider';
 import { ShareIntentHost, useNativeShareIntent } from './shareIntentBridge';
 import {
+  MAX_ARCHIVE_BYTES,
   normalizeShareIntent,
   urisOf,
   urisOfIntent,
   type SharedPayload,
   type SharePayloadProblem,
 } from './intake';
+import { readWhatsAppExport, type ExportProblem } from './whatsappExportReader';
 
 /**
  * What the share screen is showing.
@@ -120,6 +123,57 @@ const PROBLEM_KEY: Readonly<Record<SharePayloadProblem, UserFacingKey>> = {
   text_too_long: 'shareTextTooLong',
   unsupported: 'shareUnsupported',
 };
+
+/**
+ * An archive this phone will not upload, as one locale key (UC-3.5, #189).
+ *
+ * A closed record for the same reason as the one above: adding a reason to
+ * `ExportProblem` without giving the user words for it fails `tsc`.
+ *
+ * Both size refusals say `shareTooLarge` rather than naming a zip bomb.
+ * "This archive expands to more than we will read" is true and is not something
+ * the person sharing their chat did, or can act on; the three that mean "this
+ * is not a chat export" say so.
+ */
+const ARCHIVE_PROBLEM_KEY: Readonly<Record<ExportProblem, UserFacingKey>> = {
+  entry_too_large: 'shareTooLarge',
+  ratio_exceeded: 'shareTooLarge',
+  not_an_archive: 'shareUnsupported',
+  no_transcript: 'shareUnsupported',
+  not_text: 'shareUnsupported',
+};
+
+/**
+ * Whether this archive may be uploaded, decided here on the phone.
+ *
+ * ── Why this is not left to the server ───────────────────────────
+ *
+ * The server reads the same archive with the same two limits and does not trust
+ * this answer (`lib/services/share/chatArchive.ts`). But a bomb refused only
+ * there has already crossed the user's mobile data plan, already spent one of
+ * their thirty daily shares, and already been decompressed on a machine we pay
+ * for. #189's criterion puts the refusal on the device, and this is the line it
+ * happens on.
+ *
+ * Returns null when there is nothing to refuse — including for every kind that
+ * is not an archive, and for an archive whose bytes cannot be read at all. That
+ * last one is deliberate: a file the platform will not hand over is not a bomb,
+ * it is a file we know nothing about, and the server will form its own opinion
+ * of the bytes it receives.
+ */
+function archiveRefusal(payload: SharedPayload): UserFacingKey | null {
+  if (payload.kind !== 'chatArchive') return null;
+  const archive = payload.files[0];
+  if (!archive) return null;
+  const bytes = readSharedFileBytes(archive.uri, MAX_ARCHIVE_BYTES);
+  if (bytes === null) return null;
+  const read = readWhatsAppExport(bytes);
+  // The transcript itself is thrown away. It has been read to find out whether
+  // reading it is safe, and the upload still sends the file rather than the
+  // text: the server classifies from the bytes it receives, and a client that
+  // sent its own transcript would be a client the server had to believe.
+  return read.ok ? null : ARCHIVE_PROBLEM_KEY[read.problem];
+}
 
 export interface ShareContextValue {
   state: ShareIntakeState;
@@ -222,6 +276,21 @@ function ShareIntake({ children }: { children: React.ReactNode }) {
     // render: this is the line the bytes would cross on, and a stale closure
     // must not be what decides.
     if (NEEDS_MODEL.has(sending.kind) && aiAsked && !aiGranted) return;
+    // A chat archive is the one thing shared into this app that is a program
+    // rather than data: a few hundred bytes of it can instruct a decompressor
+    // to produce gigabytes. It is read and refused here, before `mutateAsync`
+    // is reached, so a bomb never becomes a request.
+    const refusal = archiveRefusal(sending);
+    if (refusal) {
+      // The copies go now. A refused archive will never be uploaded, so keeping
+      // it on disk for a Retry that cannot succeed is a copy of somebody's chat
+      // kept for nothing — and `held` is cleared so a second press finds
+      // nothing to send.
+      deleteSharedFiles(urisOf(sending));
+      held.current = null;
+      setPhase({ kind: 'failed', messageKey: refusal });
+      return;
+    }
     setPhase({ kind: 'analyzing' });
     try {
       const proposal = await propose.mutateAsync({

@@ -39,6 +39,7 @@ import * as captureEndpoints from '../../../api/endpoints/capture';
 import * as commitmentEndpoints from '../../../api/endpoints/commitments';
 import * as trustEndpoints from '../../../api/endpoints/trust';
 import * as consentEndpoints from '../../../api/endpoints/consents';
+import { lyingBomb, TRANSCRIPT, zip } from '../__fixtures__/zipFixtures';
 
 /* ── The two native modules ───────────────────────────────────────── */
 
@@ -59,6 +60,13 @@ const mockShareIntent: {
 
 /** Every file the OS has copied out for us, by uri. Emptied by `delete()`. */
 const mockFiles = new Set<string>();
+/**
+ * What is actually inside those files, for the cases that read one.
+ *
+ * Only the archive cases need it. A uri with no entry here reads as empty,
+ * which is what an unreadable file looks like to `readSharedFileBytes`.
+ */
+const mockFileBytes = new Map<string, Uint8Array>();
 
 jest.mock('expo-share-intent', () => {
   const R = require('react') as typeof import('react');
@@ -94,7 +102,15 @@ jest.mock('expo-file-system', () => ({
     uri: string;
     constructor(uri: string) { this.uri = uri; }
     get exists(): boolean { return mockFiles.has(this.uri); }
-    delete(): void { mockFiles.delete(this.uri); }
+    get size(): number { return mockFileBytes.get(this.uri)?.byteLength ?? 0; }
+    // SDK 57's synchronous read. A file with no bytes recorded is one the
+    // platform would not hand over, which is a case of its own below.
+    bytesSync(): Uint8Array {
+      const bytes = mockFileBytes.get(this.uri);
+      if (!bytes) throw new Error('the platform would not read that file');
+      return bytes;
+    }
+    delete(): void { mockFiles.delete(this.uri); mockFileBytes.delete(this.uri); }
   },
 }));
 
@@ -152,6 +168,15 @@ function sharedFile(over: Record<string, unknown> = {}) {
   };
 }
 
+/** The one uri every archive case shares. */
+const ARCHIVE_URI = 'file:///tmp/share/chat.zip';
+
+/** An archive share, with the bytes the reader will actually be handed. */
+function archiveIntent(bytes: Uint8Array) {
+  mockFileBytes.set(ARCHIVE_URI, bytes);
+  return { ...mockEmptyIntent, files: [sharedFile({ size: bytes.byteLength })], type: 'file' };
+}
+
 beforeEach(() => {
   onlineManager.setOnline(true);
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
@@ -161,6 +186,7 @@ beforeEach(() => {
   mockShareIntent.emit = null;
   mockShareIntent.resets = 0;
   mockFiles.clear();
+  mockFileBytes.clear();
   originalFlag = process.env.EXPO_PUBLIC_FEATURE_SHARE_INTAKE;
   process.env.EXPO_PUBLIC_FEATURE_SHARE_INTAKE = 'true';
   jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [] } as never);
@@ -385,6 +411,80 @@ describe('what the user is told when it will not work', () => {
     process.env.EXPO_PUBLIC_FEATURE_SHARE_INTAKE = '1';
     await openWithShare({ ...mockEmptyIntent, text: 'a shared thing', type: 'text' });
     expect(screen.getByTestId('share-notice')).toHaveTextContent(en.shareUnavailable);
+  });
+});
+
+/**
+ * The zip-bomb guard, at the only line where it counts (UC-3.5, #189).
+ *
+ * `whatsappExportReader.ts` has its own unit tests and its own mutation matrix.
+ * None of that is worth anything if nothing calls it — which is the failure
+ * this repository keeps finding, and which this lane shipped for one revision:
+ * a correct, tested, unreachable helper while a bomb crossed the network and
+ * was refused by the server.
+ *
+ * So the property asserted here is not "the reader was called". It is *the
+ * archive is refused and `proposeFromShare` is never reached*, which is false
+ * for every version of this code that does not call it, and which a spy on the
+ * reader would not have caught.
+ */
+describe('a chat archive is read before it is uploaded', () => {
+  it('a zip bomb is refused on the device and never becomes a request', async () => {
+    const propose = jest.spyOn(shareEndpoints, 'proposeFromShare');
+    await openWithShare(archiveIntent(lyingBomb()));
+
+    // The preview is reached normally: nothing about this archive looks wrong
+    // until it is read. Every number in its header is inside the limits.
+    await fireEvent.press(screen.getByTestId('share-analyze'));
+    await waitFor(() => expect(screen.queryByTestId('share-problem')).not.toBeNull());
+
+    expect(screen.getByTestId('share-problem')).toHaveTextContent(en.shareTooLarge);
+    // The whole point. Sixteen megabytes of expansion did not cross the
+    // network, and one of the user's thirty daily shares was not spent.
+    expect(propose).not.toHaveBeenCalled();
+    // And the copy is gone: a refused archive will never be uploaded, so
+    // keeping it would be a copy of somebody's chat kept for nothing.
+    expect([...mockFiles]).toEqual([]);
+  });
+
+  it('an ordinary export is not refused, and is uploaded as a file', async () => {
+    const propose = jest.spyOn(shareEndpoints, 'proposeFromShare')
+      .mockResolvedValue(shareProposal() as never);
+    await openWithShare(archiveIntent(zip([{ name: '_chat.txt', data: new TextEncoder().encode(TRANSCRIPT) }])));
+
+    await fireEvent.press(screen.getByTestId('share-analyze'));
+    await waitFor(() => expect(screen.queryByTestId('review-item-i-1')).not.toBeNull());
+
+    expect(propose).toHaveBeenCalledTimes(1);
+    // The file, not the transcript this phone just read out of it. The server
+    // classifies from the bytes it receives; a client that sent its own
+    // transcript would be a client the server had to believe.
+    const sent = propose.mock.calls[0]![0];
+    expect(sent.files).toEqual([{ uri: ARCHIVE_URI, name: 'WhatsApp Chat with Dana.zip', type: 'application/zip' }]);
+  });
+
+  it('a second press does not retry a refused archive', async () => {
+    const propose = jest.spyOn(shareEndpoints, 'proposeFromShare');
+    await openWithShare(archiveIntent(lyingBomb()));
+
+    await fireEvent.press(screen.getByTestId('share-analyze'));
+    await waitFor(() => expect(screen.queryByTestId('share-problem')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('share-analyze'));
+
+    expect(propose).not.toHaveBeenCalled();
+  });
+
+  it('an archive the platform will not read is left for the server to judge', async () => {
+    const propose = jest.spyOn(shareEndpoints, 'proposeFromShare')
+      .mockResolvedValue(shareProposal() as never);
+    // No bytes recorded, so `bytesSync` throws the way a revoked uri does. That
+    // is not a bomb, it is a file we know nothing about — and refusing it here
+    // would refuse every share whose copy the OS moved out from under us.
+    await openWithShare({ ...mockEmptyIntent, files: [sharedFile()], type: 'file' });
+
+    await fireEvent.press(screen.getByTestId('share-analyze'));
+    await waitFor(() => expect(propose).toHaveBeenCalled());
+    expect(propose).toHaveBeenCalledTimes(1);
   });
 });
 
