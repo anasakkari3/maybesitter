@@ -138,12 +138,16 @@ interface StoredReminderSettings {
  * What an account that never saw the #197 controls gets (UC-3.12a, #197 step 1).
  *
  * The Flutter client had no switch for the strong stage: answering the routine
- * survey with `strongReminder` *was* the opt-in
- * (`routine_profile_notifier.dart:95-96` on `archive/flutter-final`). So that
- * answer maps to hard reminders on with a hard ceiling, `followUp` keeps the
- * follow-up it already gets, and everything else — including no profile at
- * all — is the gentlest ceiling with hard reminders off.
- *
+ * survey with `strongReminder` was treated as the opt-in
+ * (`routine_profile_notifier.dart:95-96` on `archive/flutter-final`). That is
+ * not carried over. The same answer is what the React Native onboarding writes
+ * for "Be firm about the important ones", and being firm is not the same
+ * promise as "your phone will ring" — #197's story is a user who *turned on*
+ * hard reminders. So the answer raises the ceiling to `hard` and leaves
+ * `hardEnabled` off: ringing starts only from the explainer's confirm on the
+ * reminders screen. `followUp` keeps the follow-up it already gets, and
+ * everything else — including no profile at all — is the gentlest ceiling.
+
  * Only ever applied to a field that is *absent*. The moment the user touches
  * the new control their answer is stored and this stops being consulted, so a
  * survey answer can never override a choice made on the settings screen.
@@ -152,7 +156,7 @@ export function legacyHardSettings(intensity: unknown): {
   hardEnabled: boolean;
   escalationCeiling: PressureCeiling;
 } {
-  if (intensity === 'strongReminder') return { hardEnabled: true, escalationCeiling: 'hard' };
+  if (intensity === 'strongReminder') return { hardEnabled: false, escalationCeiling: 'hard' };
   if (intensity === 'followUp') return { hardEnabled: false, escalationCeiling: 'followUp' };
   return { hardEnabled: false, escalationCeiling: DEFAULT_PRESSURE_CEILING };
 }

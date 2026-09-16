@@ -179,7 +179,7 @@ describe('the Must-reminder settings the engine is given (#197)', () => {
 
   it('maps an older server s silence through the survey, the way the server does', () => {
     expect(toEngineSettings(legacyShape, 'strongReminder'))
-      .toMatchObject({ hardEnabled: true, escalationCeiling: 'hard', mustThroughQuietHours: false });
+      .toMatchObject({ hardEnabled: false, escalationCeiling: 'hard', mustThroughQuietHours: false });
     expect(toEngineSettings(legacyShape, 'followUp'))
       .toMatchObject({ hardEnabled: false, escalationCeiling: 'followUp', mustThroughQuietHours: false });
     expect(toEngineSettings(legacyShape, 'softAwareness'))

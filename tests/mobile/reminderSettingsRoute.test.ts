@@ -314,7 +314,7 @@ async function hardHalf(): Promise<Record<string, unknown>> {
   };
 }
 
-test('a legacy document written before #197 maps the old strong survey answer to hard reminders on', async () => {
+test('a legacy document written before #197 maps the old strong survey answer to the hard ceiling, not to ringing', async () => {
   const teardown = setup();
   try {
     // Exactly what #196 wrote: three fields, none of them about ringing.
@@ -323,7 +323,8 @@ test('a legacy document written before #197 maps the old strong survey answer to
     });
 
     await surveyWith('strongReminder');
-    assert.deepEqual(await hardHalf(), { hardEnabled: true, escalationCeiling: 'hard', mustThroughQuietHours: false });
+    // "Be firm about the important ones" raises the ceiling and turns nothing on.
+    assert.deepEqual(await hardHalf(), { hardEnabled: false, escalationCeiling: 'hard', mustThroughQuietHours: false });
 
     await surveyWith('followUp');
     assert.deepEqual(await hardHalf(), { hardEnabled: false, escalationCeiling: 'followUp', mustThroughQuietHours: false });

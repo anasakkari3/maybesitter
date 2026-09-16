@@ -79,11 +79,13 @@ export interface ReminderCommitment {
 /**
  * The ceiling and opt-in an account had before #197 gave it controls for them.
  *
- * The Flutter client had no switch for the strong stage: answering the routine
- * survey with `strongReminder` was the opt-in (`routine_profile_notifier.dart:
- * 95-96` on `archive/flutter-final`). #197 step 1 maps that answer to hard
- * reminders on with a hard ceiling; `followUp` keeps exactly the follow-up
- * #196 gave it; anything else is the gentlest ceiling.
+ * The Flutter client treated the survey answer `strongReminder` as the opt-in
+ * (`routine_profile_notifier.dart:95-96` on `archive/flutter-final`). It is not
+ * one here: this app's onboarding writes the same value for "Be firm about the
+ * important ones", which is not "ring my phone". The answer raises the ceiling
+ * to `hard` and leaves the opt-in off, so ringing starts only from the
+ * explainer's confirm. `followUp` keeps exactly the follow-up #196 gave it;
+ * anything else is the gentlest ceiling.
  *
  * The server applies the same mapping (`legacyHardSettings` in
  * `lib/services/mobile/reminderSettingsService.ts`) and sends the result, so
@@ -94,7 +96,7 @@ export function legacyEscalation(intensity: ReminderIntensity): {
   escalationCeiling: EscalationCeiling;
   hardEnabled: boolean;
 } {
-  if (intensity === 'strongReminder') return { escalationCeiling: 'hard', hardEnabled: true };
+  if (intensity === 'strongReminder') return { escalationCeiling: 'hard', hardEnabled: false };
   if (intensity === 'followUp') return { escalationCeiling: 'followUp', hardEnabled: false };
   return { escalationCeiling: 'soft', hardEnabled: false };
 }

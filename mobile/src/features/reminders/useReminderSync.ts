@@ -100,6 +100,17 @@ export function useReminderSync(options: ReminderSyncOptions = {}): { resync: ()
   const settingsData = settings.data?.reminderSettings;
   const intensity: ReminderIntensity = profile.data?.routine?.preferredReminderIntensity ?? 'softAwareness';
   const inFlight = useRef(false);
+  /*
+   * A change that arrived while a sync was running (#197 review, F2).
+   *
+   * The in-flight guard used to drop it: the effect returned early and nothing
+   * ran it again, so a ceiling lowered from "Ring for Must items" to "Gentle
+   * only" in the middle of a sync left the Must rings scheduled until some
+   * unrelated query happened to change. Now the dropped run is remembered, and
+   * the sync that was in flight reruns the effect when it finishes — against
+   * whatever the settings are by then.
+   */
+  const dirty = useRef(false);
 
   useEffect(() => {
     // Signed out: nothing of this account stays pending on the device.
@@ -121,7 +132,10 @@ export function useReminderSync(options: ReminderSyncOptions = {}): { resync: ()
     // Nothing has loaded yet. Syncing against an empty list would cancel every
     // pending reminder on every cold start, one frame before the data arrives.
     if (!settingsData || (todayItems === undefined && upcomingItems === undefined)) return;
-    if (inFlight.current) return;
+    if (inFlight.current) {
+      dirty.current = true;
+      return;
+    }
     inFlight.current = true;
 
     void syncCommitments(
@@ -149,6 +163,10 @@ export function useReminderSync(options: ReminderSyncOptions = {}): { resync: ()
       })
       .finally(() => {
         inFlight.current = false;
+        if (dirty.current) {
+          dirty.current = false;
+          setNudge(value => value + 1);
+        }
       });
   }, [accountId, todayItems, upcomingItems, settingsData, intensity, awareness, gateway, exactAlarms, t]);
 

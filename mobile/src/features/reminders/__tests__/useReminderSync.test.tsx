@@ -286,3 +286,69 @@ describe('Must reminders on the device (#197)', () => {
     expect((await loadHardReceipts(USER.uid)).pending).toEqual([]);
   });
 });
+
+/*
+ * A settings change that lands while a sync is in flight (#197 review, F2).
+ *
+ * The in-flight guard used to return and forget, so lowering the ceiling from
+ * "Ring for Must items" in the middle of a sync left the rings scheduled.
+ * Adapted from the reviewer's probe, which was red on the branch head.
+ */
+describe('a change that lands mid-sync', () => {
+  const MUST_ITEM = {
+    ...commitment,
+    priority: { ...commitment.priority, level: 'high' },
+    timeSpec: { ...commitment.timeSpec, dueAt: FUTURE },
+  };
+  const RINGING = {
+    ...SETTINGS_NO_QUIET,
+    reminderSettings: { ...SETTINGS_NO_QUIET.reminderSettings, escalationCeiling: 'hard', hardEnabled: true },
+  };
+
+  it('is not lost: lowering the ceiling during a sync still cancels the Must ring', async () => {
+    const settingsSpy = jest.spyOn(reminderEndpoints, 'getReminderSettings').mockResolvedValue(RINGING as never);
+    jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [MUST_ITEM] } as never);
+    const pending = new Map<string, number>();
+    let release: (() => void) | null = null;
+    let reads = 0;
+    const gateway: NotificationGateway = {
+      getScheduled: async () => {
+        reads += 1;
+        // The second sync is held open, so the settings change below arrives
+        // while it is in flight.
+        if (reads === 2) await new Promise<void>(resolve => { release = resolve; });
+        return [...pending].map(([identifier, at]) => ({ identifier, at }));
+      },
+      schedule: async request => {
+        pending.set(request.identifier, request.at.getTime());
+      },
+      cancel: async identifier => {
+        pending.delete(identifier);
+      },
+      cancelAll: async () => {
+        pending.clear();
+      },
+    };
+
+    await mount(gateway);
+    await waitFor(() => expect([...pending.keys()]).toContain(`${commitment.id}:strong`));
+
+    jest.spyOn(commitmentEndpoints, 'listUpcoming')
+      .mockResolvedValue({ items: [{ ...MUST_ITEM, id: 'other-id' }] } as never);
+    await act(async () => {
+      await client.invalidateQueries();
+    });
+    await waitFor(() => expect(release).not.toBeNull());
+
+    // The user picks "Gentle only"; the refetch lands mid-sync.
+    settingsSpy.mockResolvedValue(SETTINGS_NO_QUIET as never);
+    await act(async () => {
+      await client.invalidateQueries();
+    });
+    await act(async () => {
+      (release as unknown as () => void)();
+    });
+
+    await waitFor(() => expect([...pending.keys()].filter(id => id.endsWith(':strong'))).toEqual([]));
+  });
+});

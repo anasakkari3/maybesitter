@@ -58,8 +58,8 @@ describe('which stages an account gets', () => {
     expect(stagesFor(settings({ intensity: 'none' }), 'must')).toEqual([]);
     expect(stagesFor(settings({ intensity: 'softAwareness' }), 'must')).toEqual(['soft']);
     expect(stagesFor(settings({ intensity: 'followUp' }), 'must')).toEqual(['soft', 'followUp']);
-    // The old strong answer was Flutter's opt-in, and #197 maps it to one.
-    expect(stagesFor(settings({ intensity: 'strongReminder' }), 'must')).toEqual(['soft', 'followUp', 'strong']);
+    // The strong answer raises the ceiling and is never, on its own, an opt-in.
+    expect(stagesFor(settings({ intensity: 'strongReminder' }), 'must')).toEqual(['soft', 'followUp']);
     expect(stagesFor(settings({ intensity: 'strongReminder' }), 'should')).toEqual(['soft', 'followUp']);
   });
 
@@ -133,8 +133,15 @@ describe('the Must stage', () => {
 });
 
 describe('the survey answer before #197 gave it controls', () => {
-  it('maps the old strong preference to hard reminders on', () => {
-    expect(legacyEscalation('strongReminder')).toEqual({ escalationCeiling: 'hard', hardEnabled: true });
+  it('maps the strong preference to the hard ceiling and leaves ringing off', () => {
+    expect(legacyEscalation('strongReminder')).toEqual({ escalationCeiling: 'hard', hardEnabled: false });
+  });
+
+  it('never rings a Must commitment on a survey answer alone, whatever the answer', () => {
+    for (const intensity of ['none', 'softAwareness', 'followUp', 'strongReminder'] as const) {
+      const stages = planFor(commitment({ priority: 'must' }), settings({ intensity })).map(stage => stage.stage);
+      expect({ intensity, rings: stages.includes('strong') }).toEqual({ intensity, rings: false });
+    }
   });
 
   it('keeps the follow-up for followUp and is the gentlest for anything else', () => {

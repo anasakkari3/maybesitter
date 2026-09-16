@@ -322,7 +322,12 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
             <Txt size={13} color={p.mu} lh={1.5}>{t.notifMustBody}</Txt>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
               {CEILINGS.map(choice => {
-                const selected = choice === 'hard' ? ringing : !ringing && ceiling === choice;
+                // A `hard` ceiling without the opt-in — the survey's "be firm"
+                // answer — schedules exactly what "Gentle + follow-up" does, so
+                // that is the chip that reads as chosen until the user confirms
+                // ringing.
+                const effective = ceiling === 'hard' ? 'followUp' : ceiling;
+                const selected = choice === 'hard' ? ringing : !ringing && effective === choice;
                 return (
                   <Pill
                     key={choice}
