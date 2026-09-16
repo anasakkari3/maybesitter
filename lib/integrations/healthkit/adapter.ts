@@ -121,7 +121,12 @@ export class HealthKitReadinessAdapter {
         windowStart: input.windowStart,
         windowEnd: input.windowEnd,
       });
-      const snapshot = buildHealthKitReadinessSnapshot({ ...input, ...samples });
+      const snapshot = buildHealthKitReadinessSnapshot({
+        ...input,
+        ...(samples.sleep !== undefined ? { sleep: samples.sleep } : {}),
+        ...(samples.heart !== undefined ? { heart: samples.heart } : {}),
+        ...(samples.activity !== undefined ? { activity: samples.activity } : {}),
+      });
       const newestSampleAt = newestObservedAt(samples);
       const state = snapshot.signals.length === 0
         ? 'empty'

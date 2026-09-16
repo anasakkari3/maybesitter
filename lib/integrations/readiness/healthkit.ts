@@ -143,12 +143,16 @@ export function buildHealthKitReadinessSnapshot(input: HealthKitReadinessSnapsho
     band,
     score,
     normalizedSignals: {
-      sleepDurationMinutes: sleepMinutes ?? undefined,
-      sleepStart: input.sleep?.sleepStart ?? undefined,
-      sleepEnd: input.sleep?.sleepEnd ?? undefined,
-      restingHeartRate: input.heart?.restingHeartRate ?? undefined,
-      hrv: input.heart?.hrvMilliseconds ?? undefined,
-      recentActivityLoad: recentActivityLoad ?? undefined,
+      ...(sleepMinutes !== null && sleepMinutes !== undefined ? { sleepDurationMinutes: sleepMinutes } : {}),
+      ...(input.sleep?.sleepStart ? { sleepStart: input.sleep.sleepStart } : {}),
+      ...(input.sleep?.sleepEnd ? { sleepEnd: input.sleep.sleepEnd } : {}),
+      ...(input.heart?.restingHeartRate !== null && input.heart?.restingHeartRate !== undefined
+        ? { restingHeartRate: input.heart.restingHeartRate }
+        : {}),
+      ...(input.heart?.hrvMilliseconds !== null && input.heart?.hrvMilliseconds !== undefined
+        ? { hrv: input.heart.hrvMilliseconds }
+        : {}),
+      ...(recentActivityLoad !== null ? { recentActivityLoad } : {}),
     },
     subjective: null,
     derived: {
