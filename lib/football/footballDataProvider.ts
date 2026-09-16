@@ -139,12 +139,24 @@ export function normalizeMatch(raw: unknown): Fixture | null {
 }
 
 export interface FootballDataProviderDeps {
-  /** Defaults to `process.env.FOOTBALL_DATA_API_KEY`. Injected by tests. */
+  /** Defaults to `env.FOOTBALL_DATA_API_KEY`. Injected by tests. */
   apiKey?: string;
   /** Defaults to the global `fetch`. Injected by tests -- no test in this
    *  suite is allowed to reach the real API (see the module comment on
    *  `tests/football/footballDataProvider.test.ts`). */
   fetchImpl?: typeof fetch;
+  /**
+   * Defaults to `process.env`. Injected the same way `resolveStorageBackend`
+   * (`lib/storage/index.ts`) injects it: a real ambient read for every
+   * production caller, and an explicit object in tests, so "no key" is a
+   * fact about the test's own input rather than a fact about whichever
+   * machine happens to run it. Reading `process.env` directly here would
+   * make the "no api key" test's result depend on whether
+   * `FOOTBALL_DATA_API_KEY` happens to be exported in the ambient shell --
+   * true on this machine today, not guaranteed on a developer's machine or
+   * in a deploy environment, and not a property of this module at all.
+   */
+  env?: NodeJS.ProcessEnv;
 }
 
 /**
@@ -156,6 +168,7 @@ export interface FootballDataProviderDeps {
  */
 export function createFootballDataProvider(deps: FootballDataProviderDeps = {}): FixtureProvider {
   const fetchImpl = deps.fetchImpl ?? fetch;
+  const env = deps.env ?? process.env;
 
   return {
     name: PROVIDER_NAME,
@@ -164,7 +177,7 @@ export function createFootballDataProvider(deps: FootballDataProviderDeps = {}):
       // Named explicitly rather than left to a generic "unauthorized" from the
       // HTTP layer -- whoever reads this message next is a person debugging a
       // missing env var, not the vendor's API.
-      const apiKey = deps.apiKey ?? process.env.FOOTBALL_DATA_API_KEY;
+      const apiKey = deps.apiKey ?? env.FOOTBALL_DATA_API_KEY;
       if (!apiKey) {
         throw new Error(
           'football-data provider has no API key: set FOOTBALL_DATA_API_KEY (or pass apiKey explicitly)',

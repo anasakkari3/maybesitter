@@ -6,7 +6,7 @@
     "permission": "ALLOWED"
   },
   "resultSet": {
-    "count": 5,
+    "count": 6,
     "first": "2026-09-20",
     "last": "2026-11-08",
     "played": 1
@@ -169,6 +169,7 @@
       "referees": []
     },
     {
+      "_malformed": "missing utcDate",
       "id": 419475,
       "status": "SCHEDULED",
       "matchday": 8,
@@ -195,6 +196,45 @@
         "shortName": "Sevilla",
         "tla": "SEV",
         "crest": "https://crests.football-data.org/92.png"
+      },
+      "venue": "Camp Nou",
+      "score": {
+        "winner": null,
+        "duration": "REGULAR",
+        "fullTime": { "home": null, "away": null },
+        "halfTime": { "home": null, "away": null }
+      },
+      "odds": { "msg": "Activate Odds-Package in User-Panel to retrieve odds." },
+      "referees": []
+    },
+    {
+      "_malformed": "missing homeTeam.id",
+      "id": 419476,
+      "utcDate": "2026-11-08T20:00:00Z",
+      "status": "SCHEDULED",
+      "matchday": 9,
+      "stage": "REGULAR_SEASON",
+      "group": null,
+      "lastUpdated": "2026-09-14T10:00:00Z",
+      "competition": {
+        "id": 2014,
+        "name": "Primera Division",
+        "code": "PD",
+        "type": "LEAGUE",
+        "emblem": "https://crests.football-data.org/PD.png"
+      },
+      "homeTeam": {
+        "name": "FC Barcelona",
+        "shortName": "Barcelona",
+        "tla": "FCB",
+        "crest": "https://crests.football-data.org/81.png"
+      },
+      "awayTeam": {
+        "id": 78,
+        "name": "Club Atletico de Madrid",
+        "shortName": "Atletico Madrid",
+        "tla": "ATM",
+        "crest": "https://crests.football-data.org/78.png"
       },
       "venue": "Camp Nou",
       "score": {

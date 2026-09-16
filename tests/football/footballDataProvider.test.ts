@@ -10,11 +10,17 @@ test('statuses map onto the contract', () => {
   assert.deepEqual([...new Set(byStatus)].sort(), ['cancelled', 'finished', 'postponed', 'scheduled']);
 });
 
-test('a malformed match is skipped, not fatal', () => {
-  // One bad row in a response must not cost the user the other nineteen.
+test('malformed matches are skipped, not fatal', () => {
+  // One bad row in a response must not cost the user the rest of them.
+  // Derived from the fixture's own `_malformed` markers rather than a
+  // hardcoded `- 1`, so a third malformed row added later fails loudly here
+  // instead of silently passing a stale count.
+  const malformed = PAYLOAD.matches.filter((match: { _malformed?: unknown }) => match._malformed !== undefined);
+  assert.ok(malformed.length >= 2, 'fixture should exercise more than one skip reason');
+
   const all = PAYLOAD.matches.map(normalizeMatch);
-  assert.ok(all.includes(null));
-  assert.equal(all.filter(Boolean).length, PAYLOAD.matches.length - 1);
+  assert.equal(all.filter((fixture: unknown) => fixture === null).length, malformed.length);
+  assert.equal(all.filter(Boolean).length, PAYLOAD.matches.length - malformed.length);
 });
 
 test('kickoff is kept as a UTC instant', () => {
@@ -23,7 +29,10 @@ test('kickoff is kept as a UTC instant', () => {
 });
 
 test('no api key means the provider says so rather than pretending', async () => {
-  const provider = createFootballDataProvider({ apiKey: undefined });
+  // `env: {}` is an explicit "nothing exported here", not an accident of
+  // whatever the ambient shell happens to have set. Without this, the test's
+  // result would depend on the machine it runs on rather than the code.
+  const provider = createFootballDataProvider({ env: {} });
   await assert.rejects(
     () => provider.listFixtures('81', { fromIso: '2026-09-16', toIso: '2026-11-15' }),
     /FOOTBALL_DATA_API_KEY/,
