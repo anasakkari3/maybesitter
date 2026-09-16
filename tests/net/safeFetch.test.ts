@@ -120,6 +120,11 @@ test('the issue list of URLs is refused before any DNS or socket is touched', as
     ['https://db.internal/cal.ics', 'blocked_host'],
     ['https://app.localhost/cal.ics', 'blocked_host'],
     ['https://intranet/cal.ics', 'blocked_host'],
+    // The fully-qualified spelling of the same names.
+    ['https://metadata.google.internal./computeMetadata/v1/', 'blocked_host'],
+    ['https://localhost./cal.ics', 'blocked_host'],
+    ['https://metadata./computeMetadata/v1/', 'blocked_host'],
+    ['https://printer.local../cal.ics', 'blocked_host'],
     ['https://feed.example:8443/cal.ics', 'blocked_port'],
     ['https://user:pw@feed.example/cal.ics', 'blocked_credentials'],
     ['https://user@feed.example/cal.ics', 'blocked_credentials'],
@@ -147,7 +152,8 @@ test('webcal: is read as https:, and an explicit :443 is accepted', () => {
 });
 
 test('assertPublicAddress allows only global unicast, with IPv4-mapped IPv6 unwrapped first', () => {
-  for (const ok of ['93.184.216.34', '8.8.8.8', '2606:4700:4700::1111']) {
+  // A public IPv4 address written as IPv4-mapped IPv6 is that public address.
+  for (const ok of ['93.184.216.34', '8.8.8.8', '2606:4700:4700::1111', '::ffff:93.184.216.34']) {
     assert.doesNotThrow(() => assertPublicAddress(ok), ok);
   }
   for (const bad of [

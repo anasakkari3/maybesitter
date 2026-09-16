@@ -128,7 +128,11 @@ export function hostHashOf(host: string): string {
 
 /* ── Rule 1: the URL ───────────────────────────────────────────────── */
 
-const BLOCKED_HOSTS = new Set(['localhost', 'metadata', 'metadata.google.internal']);
+/**
+ * Names that only ever mean something inside a network. `localhost` and
+ * `metadata` are single labels and fall to the rule below; the metadata
+ * server's full name falls to `.internal`.
+ */
 const BLOCKED_SUFFIXES = ['.internal', '.local', '.localhost'];
 
 function stripBrackets(hostname: string): string {
@@ -159,13 +163,16 @@ function checkUrl(url: URL): void {
   // `URL` reports the default port as the empty string.
   if (url.port !== '' && url.port !== '443') throw new SafeFetchError('blocked_port');
 
-  const host = stripBrackets(url.hostname).toLowerCase();
+  // A trailing dot is the same name, fully qualified: `metadata.google.internal.`
+  // resolves exactly where the dotless one does, and would otherwise slip past
+  // every suffix below.
+  const host = stripBrackets(url.hostname).toLowerCase().replace(/\.+$/, '');
   if (host === '') throw new SafeFetchError('invalid_url');
   if (ipaddr.isValid(host)) {
     assertPublicAddress(host);
     return;
   }
-  if (BLOCKED_HOSTS.has(host) || BLOCKED_SUFFIXES.some((suffix) => host.endsWith(suffix))) {
+  if (BLOCKED_SUFFIXES.some((suffix) => host.endsWith(suffix))) {
     throw new SafeFetchError('blocked_host');
   }
   // A single label — `intranet`, `metadata` — only ever resolves through a
