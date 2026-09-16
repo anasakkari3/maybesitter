@@ -60,6 +60,10 @@ test('an account that has never chosen gets soft reminders on, an hour ahead', a
     assert.deepEqual(body.reminderSettings, {
       softEnabled: true,
       softLeadMinutes: 60,
+      // #197: nobody rings until they ask to, and the ceiling is the gentlest.
+      hardEnabled: false,
+      escalationCeiling: 'soft',
+      mustThroughQuietHours: false,
       quietHours: null,
       timezone: 'UTC',
       updatedAt: null,
@@ -274,9 +278,151 @@ test('reminderSettings never grows a second copy of quiet hours', async () => {
     const user = await getStorage().get<{ reminderSettings?: Record<string, unknown> }>(userDoc(USER));
     assert.deepEqual(
       Object.keys(user?.reminderSettings ?? {}).sort(),
-      ['softEnabled', 'softLeadMinutes', 'updatedAt'],
+      ['escalationCeiling', 'hardEnabled', 'mustThroughQuietHours', 'softEnabled', 'softLeadMinutes', 'updatedAt'],
       'a second store of quiet hours appeared; the two would disagree on the first edit',
     );
+  } finally {
+    teardown();
+  }
+});
+
+/*
+ * ── Must reminders: the opt-in, the ceiling, and the survey that came first ──
+ * (UC-3.12a, #197)
+ */
+
+async function surveyWith(intensity: 'none' | 'softAwareness' | 'followUp' | 'strongReminder'): Promise<void> {
+  const { saveRoutineProfile } = await import('../../lib/services/mobile/routineProfileService.ts');
+  await saveRoutineProfile(USER, {
+    timezone: 'Asia/Jerusalem',
+    sleepWindow: null,
+    focusWindows: [],
+    fixedCommitmentWindows: [],
+    preferredReminderIntensity: intensity,
+    quietHours: null,
+    surveySkipped: false,
+  }, '2026-09-01T00:00:00.000Z');
+}
+
+async function hardHalf(): Promise<Record<string, unknown>> {
+  const body = await json(await remindersGet(request()));
+  const settings = body.reminderSettings as Record<string, unknown>;
+  return {
+    hardEnabled: settings.hardEnabled,
+    escalationCeiling: settings.escalationCeiling,
+    mustThroughQuietHours: settings.mustThroughQuietHours,
+  };
+}
+
+test('a legacy document written before #197 maps the old strong survey answer to hard reminders on', async () => {
+  const teardown = setup();
+  try {
+    // Exactly what #196 wrote: three fields, none of them about ringing.
+    await getStorage().set(userDoc(USER), {
+      reminderSettings: { softEnabled: true, softLeadMinutes: 30, updatedAt: '2026-09-10T00:00:00.000Z' },
+    });
+
+    await surveyWith('strongReminder');
+    assert.deepEqual(await hardHalf(), { hardEnabled: true, escalationCeiling: 'hard', mustThroughQuietHours: false });
+
+    await surveyWith('followUp');
+    assert.deepEqual(await hardHalf(), { hardEnabled: false, escalationCeiling: 'followUp', mustThroughQuietHours: false });
+
+    for (const intensity of ['softAwareness', 'none'] as const) {
+      await surveyWith(intensity);
+      assert.deepEqual(await hardHalf(), { hardEnabled: false, escalationCeiling: 'soft', mustThroughQuietHours: false });
+    }
+  } finally {
+    teardown();
+  }
+});
+
+test('the settings screen s answer outranks the survey for good, once given', async () => {
+  const teardown = setup();
+  try {
+    await surveyWith('strongReminder');
+    const response = await remindersPut(request({ hardEnabled: false, escalationCeiling: 'followUp' }));
+    assert.equal(response.status, 200);
+    assert.deepEqual(await hardHalf(), { hardEnabled: false, escalationCeiling: 'followUp', mustThroughQuietHours: false });
+
+    // Re-answering the survey afterwards does not turn ringing back on.
+    await surveyWith('strongReminder');
+    assert.deepEqual(await hardHalf(), { hardEnabled: false, escalationCeiling: 'followUp', mustThroughQuietHours: false });
+  } finally {
+    teardown();
+  }
+});
+
+test('any save freezes the answer the account had, so a later survey edit cannot start ringing', async () => {
+  const teardown = setup();
+  try {
+    await surveyWith('softAwareness');
+    // A save that only touches the lead time.
+    await remindersPut(request({ softLeadMinutes: 15 }));
+    await surveyWith('strongReminder');
+    assert.deepEqual(await hardHalf(), { hardEnabled: false, escalationCeiling: 'soft', mustThroughQuietHours: false });
+  } finally {
+    teardown();
+  }
+});
+
+test('turning Must reminders on stores all three, and they round-trip', async () => {
+  const teardown = setup();
+  try {
+    const response = await remindersPut(request({ hardEnabled: true, escalationCeiling: 'hard', mustThroughQuietHours: true }));
+    assert.equal(response.status, 200);
+    const body = await json(response);
+    const settings = body.reminderSettings as Record<string, unknown>;
+    assert.equal(settings.hardEnabled, true);
+    assert.equal(settings.escalationCeiling, 'hard');
+    assert.equal(settings.mustThroughQuietHours, true);
+    assert.deepEqual(await hardHalf(), { hardEnabled: true, escalationCeiling: 'hard', mustThroughQuietHours: true });
+  } finally {
+    teardown();
+  }
+});
+
+test('a wrong type or an unknown ceiling is refused, not coerced', async () => {
+  const teardown = setup();
+  try {
+    for (const [body, reason] of [
+      [{ hardEnabled: 'true' }, 'invalid_hard_enabled'],
+      [{ hardEnabled: 1 }, 'invalid_hard_enabled'],
+      [{ escalationCeiling: 'loud' }, 'invalid_escalation_ceiling'],
+      [{ escalationCeiling: 'HARD' }, 'invalid_escalation_ceiling'],
+      [{ mustThroughQuietHours: 'yes' }, 'invalid_must_through_quiet_hours'],
+    ] as const) {
+      const response = await remindersPut(request(body));
+      assert.equal(response.status, 400, `accepted ${JSON.stringify(body)}`);
+      assert.equal((await json(response)).reason, reason);
+    }
+    // Nothing was written by any of them.
+    assert.deepEqual(await hardHalf(), { hardEnabled: false, escalationCeiling: 'soft', mustThroughQuietHours: false });
+  } finally {
+    teardown();
+  }
+});
+
+test('a stored ceiling that is present but unreadable is the gentlest one, never the survey s louder answer', async () => {
+  const teardown = setup();
+  try {
+    await surveyWith('strongReminder');
+    await getStorage().set(userDoc(USER), {
+      reminderSettings: {
+        softEnabled: true,
+        softLeadMinutes: 60,
+        hardEnabled: 'true',
+        escalationCeiling: 'maximum',
+        mustThroughQuietHours: 'yes',
+        updatedAt: '2026-09-10T00:00:00.000Z',
+      },
+    });
+    const half = await hardHalf();
+    // `hardEnabled: 'true'` is not a boolean, so it reads as absent and the
+    // survey's answer applies — but the ceiling is present, so it is `soft`,
+    // and a Must reminder needs both. Nothing here can ring.
+    assert.equal(half.escalationCeiling, 'soft');
+    assert.equal(half.mustThroughQuietHours, false);
   } finally {
     teardown();
   }

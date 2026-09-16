@@ -36,10 +36,14 @@ import {
   toReminderCommitments,
 } from './reminderInputs';
 import type { ReminderIntensity } from './policy';
+import { recordHardReceipts } from './hardReceiptQueue';
+import { canScheduleExactAlarms } from '../../notifications/exactAlarms';
 
 export interface ReminderSyncOptions {
   /** Tests hand in a fake; the app lets this default to expo-notifications. */
   gateway?: NotificationGateway;
+  /** Tests hand in an answer; the app asks the `exact-alarm` module on every sync. */
+  exactAlarms?: () => boolean;
 }
 
 /**
@@ -58,6 +62,7 @@ export function useReminderSync(options: ReminderSyncOptions = {}): { resync: ()
   const profile = useProfile();
   const [defaultGateway] = useState(createExpoGateway);
   const gateway = options.gateway ?? defaultGateway;
+  const exactAlarms = options.exactAlarms ?? canScheduleExactAlarms;
   const [loaded, setLoaded] = useState<{ uid: string | null; cache: AwarenessCache }>(
     { uid: null, cache: EMPTY_AWARENESS },
   );
@@ -128,12 +133,24 @@ export function useReminderSync(options: ReminderSyncOptions = {}): { resync: ()
         timeZone: quietTimeZone(settingsData),
         awareness,
         copy: { title: t.notifSoftTitle, body: t.notifSoftBody },
+        hardCopy: { title: t.notifHardTitle, body: t.notifHardBody },
+        // Asked on every sync, not once: "Alarms & reminders" can be granted or
+        // revoked from system settings while the app is backgrounded (#197).
+        exactAlarms: exactAlarms(),
       },
       gateway,
-    ).finally(() => {
-      inFlight.current = false;
-    });
-  }, [accountId, todayItems, upcomingItems, settingsData, intensity, awareness, gateway, t]);
+    )
+      // Filed under the account the sync ran for, captured above — not
+      // whichever account is signed in by the time the OS answers.
+      .then(report => recordHardReceipts(accountId, report.hardReceipts, new Date()))
+      .catch(() => {
+        // A failed sync leaves the OS's pending set as it was, and the next
+        // commitment change runs it again. There is nobody to show it to.
+      })
+      .finally(() => {
+        inFlight.current = false;
+      });
+  }, [accountId, todayItems, upcomingItems, settingsData, intensity, awareness, gateway, exactAlarms, t]);
 
   return { resync };
 }

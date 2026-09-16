@@ -8,11 +8,11 @@
  *  - the **soft** stage's lead is the user's, not a constant. #196 puts 60/30/15
  *    on the settings screen, and a policy that ignored the control would make
  *    the control a lie.
- *  - the **strong** stage is not produced here. It is a Must reminder, it wants
- *    a channel at HIGH importance and an exact alarm, and both belong to
- *    UC-3.12a (#197). The stage stays in the enum so the identifiers and the
- *    awareness records this issue writes are the ones that issue will extend,
- *    rather than a second generation of them.
+ *  - the **strong** stage is produced only for a Must commitment, only when the
+ *    user turned hard reminders on, and only when their ceiling is `hard`
+ *    (UC-3.12a, #197). Flutter reached it from the survey answer alone and
+ *    never asked; here all three have to hold at once, and each one is a
+ *    separate test that goes red when it is removed.
  *
  * Pure: no clock, no storage, no SDK. Everything about *when* comes in as an
  * argument, so the stage matrix is a table test rather than a wait.
@@ -23,25 +23,41 @@ export type ReminderStage = (typeof REMINDER_STAGES)[number];
 
 /** The Flutter follow-up lead, unchanged: half an hour before. */
 export const FOLLOW_UP_LEAD_MINUTES = 30;
-/** #197's, recorded here so the ladder is legible; never scheduled by this file. */
+/** The Must reminder: ten minutes before, as #197 specifies. */
 export const STRONG_LEAD_MINUTES = 10;
 
 /** How far ahead the app is willing to hold pending requests (#196 step 8). */
 export const HORIZON_DAYS = 7;
 /**
  * iOS keeps at most 64 pending requests per app and silently discards the rest,
- * so the engine caps well below it and leaves room for UC-3.12a's.
+ * so the engine caps well below it. The Must stage (UC-3.12a, #197) counts
+ * against the same cap and is placed first under it — see `desiredRequests`.
  */
 export const MAX_PENDING_REQUESTS = 50;
 
 export type ReminderIntensity = 'none' | 'softAwareness' | 'followUp' | 'strongReminder';
 
+/** The strongest stage an account agreed to — the #199 ceiling, by the server's name. */
+export type EscalationCeiling = 'soft' | 'followUp' | 'hard';
+
+export type ReminderPriority = 'must' | 'should' | 'nice';
+
 export interface ReminderSettings {
   readonly softEnabled: boolean;
   /** 60, 30 or 15 — whichever the user chose. */
   readonly softLeadMinutes: number;
-  /** From the routine survey. Decides how far up the ladder this account goes. */
+  /**
+   * From the routine survey. Only `none` still decides anything here — it is a
+   * real answer, and it means nothing at all. How far up the ladder an account
+   * goes is `escalationCeiling`'s; see `legacyEscalation` for how the survey
+   * answer becomes a ceiling for an account that never set one.
+   */
   readonly intensity: ReminderIntensity;
+  readonly escalationCeiling: EscalationCeiling;
+  /** The explicit opt-in to ringing. Off unless the user turned it on. */
+  readonly hardEnabled: boolean;
+  /** Whether the strong stage — and no other — may ring inside quiet hours. */
+  readonly mustThroughQuietHours: boolean;
 }
 
 /** What the engine needs about a commitment. Deliberately no title. */
@@ -50,6 +66,30 @@ export interface ReminderCommitment {
   /** The instant it starts, ISO-8601, or null when it has no time. */
   readonly startsAt: string | null;
   readonly status: string;
+  readonly priority: ReminderPriority;
+}
+
+/**
+ * The ceiling and opt-in an account had before #197 gave it controls for them.
+ *
+ * The Flutter client had no switch for the strong stage: answering the routine
+ * survey with `strongReminder` was the opt-in (`routine_profile_notifier.dart:
+ * 95-96` on `archive/flutter-final`). #197 step 1 maps that answer to hard
+ * reminders on with a hard ceiling; `followUp` keeps exactly the follow-up
+ * #196 gave it; anything else is the gentlest ceiling.
+ *
+ * The server applies the same mapping (`legacyHardSettings` in
+ * `lib/services/mobile/reminderSettingsService.ts`) and sends the result, so
+ * this is only consulted when a response predates the fields — an older
+ * server, never a newer choice.
+ */
+export function legacyEscalation(intensity: ReminderIntensity): {
+  escalationCeiling: EscalationCeiling;
+  hardEnabled: boolean;
+} {
+  if (intensity === 'strongReminder') return { escalationCeiling: 'hard', hardEnabled: true };
+  if (intensity === 'followUp') return { escalationCeiling: 'followUp', hardEnabled: false };
+  return { escalationCeiling: 'soft', hardEnabled: false };
 }
 
 export interface PlannedStage {
@@ -60,23 +100,30 @@ export interface PlannedStage {
 }
 
 /**
- * Which stages this account gets, in ascending intensity.
+ * Which stages this account gets for a commitment of this priority, in
+ * ascending intensity.
  *
  * `none` is a real answer: somebody who chose it gets nothing, and the switch
  * on the settings screen is a second, independent way to say the same thing.
+ * The switch also governs the strong stage — it is the reminders switch, and a
+ * Must reminder that rang with it off would make it half a switch.
+ *
+ * The strong stage needs all three of: a Must commitment, the opt-in, and the
+ * `hard` ceiling. The opt-in and the ceiling are set together by the screen,
+ * and required separately here, so a document that holds one without the
+ * other — a hand edit, a half-applied write — stays silent.
  */
-export function stagesFor(settings: ReminderSettings): ReminderStage[] {
+export function stagesFor(settings: ReminderSettings, priority: ReminderPriority): ReminderStage[] {
   if (!settings.softEnabled) return [];
-  switch (settings.intensity) {
-    case 'none':
-      return [];
-    case 'softAwareness':
-      return ['soft'];
-    case 'followUp':
-    case 'strongReminder':
-      // `strong` is #197's; see the header.
-      return ['soft', 'followUp'];
+  if (settings.intensity === 'none') return [];
+  const stages: ReminderStage[] = ['soft'];
+  if (settings.escalationCeiling === 'followUp' || settings.escalationCeiling === 'hard') {
+    stages.push('followUp');
   }
+  if (priority === 'must' && settings.hardEnabled && settings.escalationCeiling === 'hard') {
+    stages.push('strong');
+  }
+  return stages;
 }
 
 export function leadMinutesFor(stage: ReminderStage, settings: ReminderSettings): number {
@@ -103,7 +150,7 @@ export function planFor(
   if (Number.isNaN(startsAt)) return [];
 
   const planned: PlannedStage[] = [];
-  for (const stage of stagesFor(settings)) {
+  for (const stage of stagesFor(settings, commitment.priority)) {
     const leadMinutes = leadMinutesFor(stage, settings);
     if (stage !== 'soft' && leadMinutes >= settings.softLeadMinutes) continue;
     planned.push({ stage, at: startsAt - leadMinutes * 60_000, leadMinutes });

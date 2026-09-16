@@ -12,12 +12,20 @@
  * only when the user turns reminders on.
  */
 import { Platform } from 'react-native';
-import { ANDROID_CHANNELS, AWARENESS_CATEGORY_ID, PLAN_CATEGORY_ID } from './channels';
+import {
+  ANDROID_AUDIO_CONTENT_SONIFICATION,
+  ANDROID_AUDIO_USAGE_ALARM,
+  ANDROID_CHANNELS,
+  AWARENESS_CATEGORY_ID,
+  HARD_CATEGORY_ID,
+  PLAN_CATEGORY_ID,
+} from './channels';
 import { notificationsModule } from './nativeModules';
 
 export interface ChannelNames {
   readonly notifChannelGeneral: string;
   readonly notifChannelAwareness: string;
+  readonly notifChannelHard: string;
 }
 
 let configured = false;
@@ -62,12 +70,25 @@ export async function configureNotifications(names: ChannelNames): Promise<void>
      */
     await Notifications.setNotificationCategoryAsync(AWARENESS_CATEGORY_ID, []);
     await Notifications.setNotificationCategoryAsync(PLAN_CATEGORY_ID, []);
+    // The Must reminder's (#197). #200 adds its buttons under this same id.
+    await Notifications.setNotificationCategoryAsync(HARD_CATEGORY_ID, []);
 
     if (Platform.OS === 'android') {
       for (const channel of ANDROID_CHANNELS) {
         await Notifications.setNotificationChannelAsync(channel.id, {
           name: names[channel.nameKey],
           importance: channel.importance,
+          ...(channel.sound ? { sound: channel.sound } : {}),
+          ...(channel.alarmAudio
+            ? {
+              audioAttributes: {
+                usage: ANDROID_AUDIO_USAGE_ALARM,
+                contentType: ANDROID_AUDIO_CONTENT_SONIFICATION,
+              },
+            }
+            : {}),
+          ...(channel.vibrationPattern ? { vibrationPattern: [...channel.vibrationPattern] } : {}),
+          ...(channel.enableLights ? { enableLights: true } : {}),
         });
       }
     }

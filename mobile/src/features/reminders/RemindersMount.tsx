@@ -11,6 +11,7 @@ import {
 } from '../../notifications/pushRegistration';
 import { routeFromNotification } from '../../notifications/routeFromNotification';
 import { clearAwareness, markAware } from '../../lib/deviceSettings/awarenessStore';
+import { clearHardReceipts } from './hardReceiptQueue';
 import { useToday, useUpcoming } from '../../api/queries';
 import { startOf } from './reminderInputs';
 import { useReminderSync } from './useReminderSync';
@@ -66,6 +67,7 @@ export function RemindersMount(): null {
     void configureNotifications({
       notifChannelGeneral: t.notifChannelGeneral,
       notifChannelAwareness: t.notifChannelAwareness,
+      notifChannelHard: t.notifChannelHard,
     });
   }, [t]);
 
@@ -99,7 +101,12 @@ export function RemindersMount(): null {
   // conditional, because only it needs a credential.
   useEffect(() => onBeforeSignOut(async reason => {
     await deregisterDeviceForPush(createPushRegistrationDeps(), reason === 'user');
-    if (latest.current.accountId) await clearAwareness(latest.current.accountId);
+    if (latest.current.accountId) {
+      await clearAwareness(latest.current.accountId);
+      // Receipts silence the server's backup push (#198). Left behind, they
+      // would speak for a phone that is no longer this account's.
+      await clearHardReceipts(latest.current.accountId);
+    }
   }), []);
 
   const handle = useCallback(async (data: unknown) => {

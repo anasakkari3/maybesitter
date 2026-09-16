@@ -7,9 +7,14 @@
  * into a notification payload, which is the rule the Flutter client kept by
  * convention (`notification_payload.dart:8-13`) and this keeps by type.
  */
-import type { Commitment } from '../../api/schemas/common';
+import { importanceOf, type Commitment } from '../../api/schemas/common';
 import type { ReminderSettingsDto } from '../../api/schemas/reminders';
-import type { ReminderIntensity, ReminderCommitment, ReminderSettings } from './policy';
+import {
+  legacyEscalation,
+  type ReminderIntensity,
+  type ReminderCommitment,
+  type ReminderSettings,
+} from './policy';
 import type { QuietWindow } from './quietHours';
 
 /**
@@ -28,6 +33,10 @@ export function toReminderCommitments(items: readonly Commitment[]): ReminderCom
     id: commitment.id,
     startsAt: startOf(commitment),
     status: commitment.status,
+    // The design's Must / Should / Nice, from the server's priority level — the
+    // same mapping the cards use, so "Must" means one thing on screen and in a
+    // reminder that rings (#197).
+    priority: importanceOf(commitment),
   }));
 }
 
@@ -47,10 +56,17 @@ export function toEngineSettings(
   dto: ReminderSettingsDto,
   intensity: ReminderIntensity,
 ): ReminderSettings {
+  // Field by field: a server that sent the ceiling but not the opt-in is not a
+  // shape anybody wrote, and each half falls back on its own rather than the
+  // presence of one vouching for the other.
+  const legacy = legacyEscalation(intensity);
   return {
     softEnabled: dto.softEnabled,
     softLeadMinutes: dto.softLeadMinutes,
     intensity,
+    escalationCeiling: dto.escalationCeiling ?? legacy.escalationCeiling,
+    hardEnabled: dto.hardEnabled ?? legacy.hardEnabled,
+    mustThroughQuietHours: dto.mustThroughQuietHours ?? false,
   };
 }
 

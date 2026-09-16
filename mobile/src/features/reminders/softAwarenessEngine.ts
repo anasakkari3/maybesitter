@@ -31,7 +31,13 @@
  * (`notification_payload.dart:8-13`) and it is kept.
  */
 import type { NotificationGateway, ScheduleRequest } from '../../notifications/gateway';
-import { AWARENESS_CATEGORY_ID, AWARENESS_CHANNEL_ID } from '../../notifications/channels';
+import {
+  AWARENESS_CATEGORY_ID,
+  AWARENESS_CHANNEL_ID,
+  HARD_CATEGORY_ID,
+  HARD_CHANNEL_ID,
+  HARD_SOUND,
+} from '../../notifications/channels';
 import {
   HORIZON_DAYS,
   MAX_PENDING_REQUESTS,
@@ -42,6 +48,7 @@ import {
   type ReminderSettings,
   type ReminderStage,
 } from './policy';
+import type { HardReceipt } from './hardReceiptQueue';
 import { deferOutOfQuietHours, keepHigherIntensity, type QuietWindow } from './quietHours';
 import { isAware, type AwarenessCache } from '../../lib/deviceSettings/awarenessStore';
 
@@ -58,6 +65,15 @@ export interface SyncInput {
   readonly timeZone: string;
   readonly awareness: AwarenessCache;
   readonly copy: ReminderCopy;
+  /** The Must reminder's sentence — also generic, also from the bundle. */
+  readonly hardCopy: ReminderCopy;
+  /**
+   * Whether the OS will fire a pending request at its instant (UC-3.12a, #197).
+   * Always true on iOS; on Android, whether "Alarms & reminders" is allowed.
+   * Only recorded on the receipt — the request is scheduled either way, and
+   * expo-notifications falls back to an inexact alarm when this is false.
+   */
+  readonly exactAlarms: boolean;
 }
 
 export interface SyncReport {
@@ -68,6 +84,13 @@ export interface SyncReport {
   readonly droppedForQuietHours: string[];
   /** Cut by the pending-request cap, furthest away first. */
   readonly overCap: string[];
+  /**
+   * One receipt per Must stage that is pending on this device after the sync —
+   * newly scheduled or already there (UC-3.12a, #197). Ids and instants only.
+   * UC-3.12b (#198) uploads them so the server knows not to send a backup;
+   * `hardReceiptQueue` is what stops an unchanged one being uploaded twice.
+   */
+  readonly hardReceipts: HardReceipt[];
 }
 
 interface DesiredRequest {
@@ -75,6 +98,13 @@ interface DesiredRequest {
   readonly commitmentId: string;
   readonly stage: ReminderStage;
   readonly at: number;
+  /**
+   * The instant the stage was *planned* for, before quiet hours moved it. For
+   * the Must stage this is start − 10 minutes, which is the key the server
+   * indexes the reminder under (#198) — the receipt names the reminder, not
+   * wherever quiet hours happened to put it.
+   */
+  readonly plannedAt: number;
 }
 
 /**
@@ -101,9 +131,18 @@ export function desiredRequests(input: SyncInput): {
     const startsAt = commitment.startsAt ? Date.parse(commitment.startsAt) : Number.NaN;
     if (Number.isNaN(startsAt) || startsAt > horizon) continue;
 
-    const planned: { stage: ReminderStage; at: number }[] = [];
+    const planned: { stage: ReminderStage; at: number; plannedAt: number }[] = [];
     for (const stage of planFor(commitment, input.settings)) {
-      const outcome = deferOutOfQuietHours(stage.at, input.quietHours, input.timeZone, startsAt);
+      /*
+       * "Let Must reminders through quiet hours" (#197 step 2) applies to the
+       * strong stage and to nothing else. The soft and follow-up stages of the
+       * same Must commitment still wait for the window to end; only the one the
+       * user said may interrupt them does.
+       */
+      const window = stage.stage === 'strong' && input.settings.mustThroughQuietHours
+        ? null
+        : input.quietHours;
+      const outcome = deferOutOfQuietHours(stage.at, window, input.timeZone, startsAt);
       if (outcome.kind === 'dropped') {
         droppedForQuietHours.push(requestIdentifier(commitment.id, stage.stage));
         continue;
@@ -112,7 +151,7 @@ export function desiredRequests(input: SyncInput): {
       // fire it immediately, which is a notification about something the user
       // is already late for — and this product has no "overdue".
       if (outcome.at <= input.now.getTime()) continue;
-      planned.push({ stage: stage.stage, at: outcome.at });
+      planned.push({ stage: stage.stage, at: outcome.at, plannedAt: stage.at });
     }
 
     // Two stages deferred out of one quiet window land on the same instant.
@@ -122,13 +161,26 @@ export function desiredRequests(input: SyncInput): {
         commitmentId: commitment.id,
         stage: entry.stage,
         at: entry.at,
+        plannedAt: entry.plannedAt,
       });
     }
   }
 
-  // Nearest first, so the cap keeps what is about to happen and cuts what is
-  // days away — which the next sync will pick up again as it comes into range.
-  candidates.sort((left, right) => left.at - right.at || left.identifier.localeCompare(right.identifier));
+  /*
+   * Must stages first, then nearest first (#197 step 5).
+   *
+   * Nearest first is so the cap keeps what is about to happen and cuts what is
+   * days away — which the next sync picks up again as it comes into range. The
+   * Must stages go ahead of all of it because they are the reminders the user
+   * said matter, and because a gentle heads-up that is cut costs a heads-up
+   * while a Must reminder that is cut costs the thing itself. There are at most
+   * seven days of them, so they cannot starve the rest in any week a person
+   * actually has.
+   */
+  candidates.sort((left, right) =>
+    (left.stage === 'strong' ? 0 : 1) - (right.stage === 'strong' ? 0 : 1)
+    || left.at - right.at
+    || left.identifier.localeCompare(right.identifier));
   return {
     desired: candidates.slice(0, MAX_PENDING_REQUESTS),
     droppedForQuietHours,
@@ -136,7 +188,32 @@ export function desiredRequests(input: SyncInput): {
   };
 }
 
-function contentFor(request: DesiredRequest, copy: ReminderCopy): ScheduleRequest {
+function contentFor(request: DesiredRequest, input: SyncInput): ScheduleRequest {
+  if (request.stage === 'strong') {
+    /*
+     * The Must reminder (UC-3.12a, #197): its own channel at HIGH importance
+     * with alarm audio on Android, and on iOS the bundled sound at the
+     * Time Sensitive interruption level, which is what lets it through a Focus
+     * the user has allowed the app to break. Not `critical`: that entitlement
+     * is not available to this kind of app and is not requested.
+     */
+    return {
+      identifier: request.identifier,
+      title: input.hardCopy.title,
+      body: input.hardCopy.body,
+      data: {
+        commitmentId: request.commitmentId,
+        stage: request.stage,
+        notificationId: request.identifier,
+      },
+      categoryIdentifier: HARD_CATEGORY_ID,
+      channelId: HARD_CHANNEL_ID,
+      sound: HARD_SOUND,
+      interruptionLevel: 'timeSensitive',
+      at: new Date(request.at),
+    };
+  }
+  const copy = input.copy;
   return {
     identifier: request.identifier,
     title: copy.title,
@@ -191,11 +268,32 @@ export async function syncCommitments(
 
   const scheduled: string[] = [];
   for (const request of desiredById.values()) {
-    await gateway.schedule(contentFor(request, input.copy));
+    await gateway.schedule(contentFor(request, input));
     scheduled.push(request.identifier);
   }
 
-  return { scheduled, cancelled, kept, droppedForQuietHours, overCap };
+  /*
+   * A receipt for every Must stage now pending — including the ones that were
+   * already there. A kept request's receipt is what tells the server about a
+   * permission that changed since it was scheduled (exact alarms granted
+   * later), and the queue drops one that is identical to what was last
+   * uploaded, so re-reporting it costs nothing.
+   *
+   * Only requests this run scheduled or confirmed at the right instant: a
+   * receipt is a claim that the phone *will* ring, and it is what makes the
+   * server stand down.
+   */
+  const pendingNow = new Set([...scheduled, ...kept]);
+  const hardReceipts: HardReceipt[] = desired
+    .filter(request => request.stage === 'strong' && pendingNow.has(request.identifier))
+    .map(request => ({
+      commitmentId: request.commitmentId,
+      notificationId: request.identifier,
+      fireAt: new Date(request.plannedAt).toISOString(),
+      exact: input.exactAlarms,
+    }));
+
+  return { scheduled, cancelled, kept, droppedForQuietHours, overCap, hardReceipts };
 }
 
 /**

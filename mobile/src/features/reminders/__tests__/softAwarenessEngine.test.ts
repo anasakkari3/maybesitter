@@ -2,7 +2,13 @@ import { beforeEach, describe, expect, it } from '@jest/globals';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { withHermesIntl } from '../../../testing/hermesIntl';
 import { wallClockIn } from '../../../lib/time/zoneOffset';
-import { AWARENESS_CATEGORY_ID, AWARENESS_CHANNEL_ID } from '../../../notifications/channels';
+import {
+  AWARENESS_CATEGORY_ID,
+  AWARENESS_CHANNEL_ID,
+  HARD_CATEGORY_ID,
+  HARD_CHANNEL_ID,
+  HARD_SOUND,
+} from '../../../notifications/channels';
 import type { NotificationGateway, ScheduleRequest } from '../../../notifications/gateway';
 import type { ScheduledNotificationRequest } from '../../../notifications/types';
 import {
@@ -11,7 +17,13 @@ import {
   markAware,
   type AwarenessCache,
 } from '../../../lib/deviceSettings/awarenessStore';
-import { HORIZON_DAYS, MAX_PENDING_REQUESTS, type ReminderCommitment } from '../policy';
+import {
+  HORIZON_DAYS,
+  MAX_PENDING_REQUESTS,
+  type ReminderCommitment,
+  type ReminderPriority,
+  type ReminderSettings,
+} from '../policy';
 import { cancelEveryReminder, desiredRequests, syncCommitments, type SyncInput } from '../softAwarenessEngine';
 
 /**
@@ -83,17 +95,35 @@ function input(overrides: Partial<SyncInput> = {}): SyncInput {
   return {
     commitments: [],
     now: NOW,
-    settings: { softEnabled: true, softLeadMinutes: 60, intensity: 'followUp' },
+    settings: settingsWith({ intensity: 'followUp', escalationCeiling: 'followUp' }),
     quietHours: null,
     timeZone: 'Pacific/Chatham',
     awareness: EMPTY_AWARENESS,
     copy: { title: 'A heads-up', body: 'Something is coming up.' },
+    hardCopy: { title: 'A Must item starts in 10 minutes', body: 'Open MaybeSitter to see it.' },
+    exactAlarms: true,
     ...overrides,
   };
 }
 
-function commitment(id: string, minutes: number): ReminderCommitment {
-  return { id, startsAt: minutesFromNow(minutes), status: 'active' };
+function settingsWith(overrides: Partial<ReminderSettings> = {}): ReminderSettings {
+  return {
+    softEnabled: true,
+    softLeadMinutes: 60,
+    intensity: 'softAwareness',
+    escalationCeiling: 'soft',
+    hardEnabled: false,
+    mustThroughQuietHours: false,
+    ...overrides,
+  };
+}
+
+/** "Ring for Must items", as the settings screen stores it. */
+const RING = settingsWith({ escalationCeiling: 'hard', hardEnabled: true });
+
+/** A Should by default: the #196 cases are about stages nobody rang for. */
+function commitment(id: string, minutes: number, priority: ReminderPriority = 'should'): ReminderCommitment {
+  return { id, startsAt: minutesFromNow(minutes), status: 'active', priority };
 }
 
 beforeEach(async () => {
@@ -265,8 +295,8 @@ describe('quiet hours', () => {
 
       const quiet = { start: '22:00', end: '07:00' };
       const deferred = desiredRequests(input({
-        commitments: [{ id: 'c1', startsAt: new Date(morning).toISOString(), status: 'active' }],
-        settings: { softEnabled: true, softLeadMinutes: 60, intensity: 'softAwareness' },
+        commitments: [{ id: 'c1', startsAt: new Date(morning).toISOString(), status: 'active', priority: 'should' }],
+        settings: settingsWith(),
         quietHours: quiet,
         timeZone: zone,
       }));
@@ -275,8 +305,8 @@ describe('quiet hours', () => {
       expect(minutesAt((soft as { at: number }).at)).toBe(7 * 60);
 
       const dropped = desiredRequests(input({
-        commitments: [{ id: 'c2', startsAt: new Date(tooEarly).toISOString(), status: 'active' }],
-        settings: { softEnabled: true, softLeadMinutes: 60, intensity: 'softAwareness' },
+        commitments: [{ id: 'c2', startsAt: new Date(tooEarly).toISOString(), status: 'active', priority: 'should' }],
+        settings: settingsWith(),
         quietHours: quiet,
         timeZone: zone,
       }));
@@ -324,8 +354,156 @@ describe('the kill switch', () => {
     const gateway = fakeGateway();
     await syncCommitments(input({
       commitments: [commitment('c1', 120)],
-      settings: { softEnabled: false, softLeadMinutes: 60, intensity: 'strongReminder' },
+      settings: { ...RING, softEnabled: false, intensity: 'strongReminder' },
     }), gateway);
     expect(gateway.scheduledRequests).toEqual([]);
+  });
+});
+
+/*
+ * ── The Must stage, on the OS and on the receipt (UC-3.12a, #197) ─────────
+ */
+describe('the Must stage', () => {
+  it('goes on the Must channel and category, with the bundled sound, at Time Sensitive', async () => {
+    const gateway = fakeGateway();
+    await syncCommitments(input({ commitments: [commitment('m1', 120, 'must')], settings: RING }), gateway);
+
+    const strong = gateway.scheduledRequests.find(request => request.identifier === 'm1:strong');
+    expect(strong).toBeDefined();
+    expect(strong).toMatchObject({
+      channelId: HARD_CHANNEL_ID,
+      categoryIdentifier: HARD_CATEGORY_ID,
+      sound: HARD_SOUND,
+      interruptionLevel: 'timeSensitive',
+      title: 'A Must item starts in 10 minutes',
+    });
+    expect(strong!.at.getTime()).toBe(NOW.getTime() + 110 * 60_000);
+    // The same id-only payload as every other stage.
+    expect(Object.keys(strong!.data).sort()).toEqual(['commitmentId', 'notificationId', 'stage']);
+  });
+
+  it('leaves the gentle stages of a Must commitment gentle', async () => {
+    const gateway = fakeGateway();
+    await syncCommitments(input({ commitments: [commitment('m1', 120, 'must')], settings: RING }), gateway);
+    for (const request of gateway.scheduledRequests.filter(entry => entry.identifier !== 'm1:strong')) {
+      expect(request.channelId).toBe(AWARENESS_CHANNEL_ID);
+      expect(request.categoryIdentifier).toBe(AWARENESS_CATEGORY_ID);
+      expect(request.sound).toBeUndefined();
+      expect(request.interruptionLevel).toBeUndefined();
+    }
+  });
+
+  it('never rings a Should or a Nice, even at the hard ceiling', async () => {
+    const gateway = fakeGateway();
+    await syncCommitments(input({
+      commitments: [commitment('s1', 120, 'should'), commitment('n1', 120, 'nice')],
+      settings: RING,
+    }), gateway);
+    expect(gateway.scheduledRequests.filter(request => request.identifier.endsWith(':strong'))).toEqual([]);
+    expect(gateway.scheduledRequests.filter(request => request.channelId === HARD_CHANNEL_ID)).toEqual([]);
+  });
+
+  it('is placed first under the pending-request cap', () => {
+    // Sixty Should commitments in the next hours, and one Must days away.
+    const near = Array.from({ length: 60 }, (_, index) =>
+      commitment(`s${String(index).padStart(3, '0')}`, 120 + index));
+    const far = commitment('m-far', 5 * 24 * 60, 'must');
+    const { desired, overCap } = desiredRequests(input({ commitments: [...near, far], settings: RING }));
+
+    expect(desired).toHaveLength(MAX_PENDING_REQUESTS);
+    expect(desired.map(request => request.identifier)).toContain('m-far:strong');
+    expect(overCap).not.toContain('m-far:strong');
+  });
+});
+
+describe('receipts for the server (#197 step 5, uploaded by #198)', () => {
+  it('reports each pending Must stage with its nominal instant and the exact-alarm answer', async () => {
+    const gateway = fakeGateway();
+    const must = commitment('m1', 120, 'must');
+    const report = await syncCommitments(input({
+      commitments: [must, commitment('s1', 120, 'should')],
+      settings: RING,
+      exactAlarms: false,
+    }), gateway);
+
+    expect(report.hardReceipts).toEqual([{
+      commitmentId: 'm1',
+      notificationId: 'm1:strong',
+      fireAt: new Date(Date.parse(must.startsAt as string) - 10 * 60_000).toISOString(),
+      exact: false,
+    }]);
+  });
+
+  it('reports a kept Must stage too, so a changed permission still reaches the server', async () => {
+    const gateway = fakeGateway();
+    const must = commitment('m1', 120, 'must');
+    await syncCommitments(input({ commitments: [must], settings: RING, exactAlarms: false }), gateway);
+    const second = await syncCommitments(input({ commitments: [must], settings: RING, exactAlarms: true }), gateway);
+    expect(second.kept).toContain('m1:strong');
+    expect(second.hardReceipts.map(receipt => [receipt.notificationId, receipt.exact])).toEqual([['m1:strong', true]]);
+  });
+
+  it('makes no receipt for a Must stage that is not pending', async () => {
+    const gateway = fakeGateway();
+    // Inside ten minutes: the stage is already behind us and is not scheduled,
+    // so a receipt would tell the server the phone will ring when it will not.
+    const report = await syncCommitments(input({ commitments: [commitment('m1', 8, 'must')], settings: RING }), gateway);
+    expect(report.hardReceipts).toEqual([]);
+    // Nor for an account that has not opted in.
+    const off = await syncCommitments(input({
+      commitments: [commitment('m2', 120, 'must')],
+      settings: { ...RING, hardEnabled: false },
+    }), fakeGateway());
+    expect(off.hardReceipts).toEqual([]);
+  });
+
+  it('makes no receipt for a Must stage cut by the cap', () => {
+    // The receipt set is built from what was scheduled or kept, not from what
+    // was planned — checked through the pure half, where the cap is visible.
+    const musts = Array.from({ length: MAX_PENDING_REQUESTS + 5 }, (_, index) =>
+      commitment(`m${String(index).padStart(3, '0')}`, 120 + index, 'must'));
+    const { desired, overCap } = desiredRequests(input({ commitments: musts, settings: RING }));
+    expect(desired.every(request => request.identifier.endsWith(':strong'))).toBe(true);
+    expect(overCap.filter(identifier => identifier.endsWith(':strong'))).toHaveLength(5);
+  });
+});
+
+describe('Must reminders and quiet hours', () => {
+  it('lets only the strong stage through when the user allowed it', () => {
+    withHermesIntl(() => {
+      const zone = 'Pacific/Chatham';
+      const minutesAt = (at: number) => {
+        const clock = wallClockIn(new Date(at), zone);
+        return clock.hour * 60 + clock.minute;
+      };
+      // A Must commitment at 06:30 on the zone's clock: every stage — 05:30,
+      // 06:00, 06:20 — is inside 22:00–07:00.
+      let start = NOW.getTime() + 2 * 3_600_000;
+      while (minutesAt(start) !== 6 * 60 + 30) start += 60_000;
+      const must: ReminderCommitment = {
+        id: 'm1', startsAt: new Date(start).toISOString(), status: 'active', priority: 'must',
+      };
+      const quiet = { start: '22:00', end: '07:00' };
+
+      const through = desiredRequests(input({
+        commitments: [must],
+        settings: { ...RING, mustThroughQuietHours: true },
+        quietHours: quiet,
+        timeZone: zone,
+      }));
+      expect(through.desired.map(request => request.identifier)).toEqual(['m1:strong']);
+      expect(through.desired[0]!.at).toBe(start - 10 * 60_000);
+      // The gentle stages still wait — and here waiting past the start drops them.
+      expect(through.droppedForQuietHours.sort()).toEqual(['m1:followUp', 'm1:soft']);
+
+      const held = desiredRequests(input({
+        commitments: [must],
+        settings: { ...RING, mustThroughQuietHours: false },
+        quietHours: quiet,
+        timeZone: zone,
+      }));
+      expect(held.desired).toEqual([]);
+      expect(held.droppedForQuietHours).toContain('m1:strong');
+    });
   });
 });

@@ -52,6 +52,11 @@ import {
 } from '../../../src/contracts/v1/routineContracts';
 import { readRoutineProfile, saveRoutineProfile } from './routineProfileService';
 import { getStorage, requireUserId, userDoc, type StorageAdapter } from '../../storage';
+import {
+  DEFAULT_PRESSURE_CEILING,
+  normalizePressureCeiling,
+  type PressureCeiling,
+} from '../pressureService';
 
 /**
  * Soft reminders are on for a new account.
@@ -70,6 +75,16 @@ export const SOFT_LEAD_MINUTES: readonly number[] = [60, 30, 15];
 export interface ReminderSettings {
   readonly softEnabled: boolean;
   readonly softLeadMinutes: number;
+  /**
+   * Whether a Must commitment may ring (UC-3.12a, #197). Off unless the user
+   * turned it on, or answered the old Flutter survey with the strong option —
+   * see `legacyHardSettings`.
+   */
+  readonly hardEnabled: boolean;
+  /** The strongest stage this account agreed to. The #199 ceiling, as stored. */
+  readonly escalationCeiling: PressureCeiling;
+  /** Whether the Must stage — and only that stage — may ring inside quiet hours. */
+  readonly mustThroughQuietHours: boolean;
   /** Read from the routine profile; never stored under `reminderSettings`. */
   readonly quietHours: RoutineTimeWindow | null;
   /** The zone `quietHours` is wall-clock in. */
@@ -82,6 +97,9 @@ export interface ReminderSettings {
 export interface ReminderSettingsInput {
   readonly softEnabled?: boolean;
   readonly softLeadMinutes?: number;
+  readonly hardEnabled?: boolean;
+  readonly escalationCeiling?: PressureCeiling;
+  readonly mustThroughQuietHours?: boolean;
   /** Present means "set them to this"; `null` means "I have none". */
   readonly quietHours?: RoutineTimeWindow | null;
   /** Required whenever `quietHours` is present: a window with no zone is not a time. */
@@ -99,11 +117,44 @@ function fail(message: string, reason: string): never {
   throw new ReminderSettingsValidationError(message, reason);
 }
 
-/** The half that lives on the user document. Deliberately two fields wide. */
+/**
+ * The half that lives on the user document.
+ *
+ * The three #197 fields are optional *in storage*, because every document
+ * written before #197 lacks them and an absent field has a meaning — "never
+ * chosen", which `legacyHardSettings` answers — that a defaulted `false` would
+ * erase.
+ */
 interface StoredReminderSettings {
   softEnabled: boolean;
   softLeadMinutes: number;
+  hardEnabled?: boolean;
+  escalationCeiling?: PressureCeiling;
+  mustThroughQuietHours?: boolean;
   updatedAt: string;
+}
+
+/**
+ * What an account that never saw the #197 controls gets (UC-3.12a, #197 step 1).
+ *
+ * The Flutter client had no switch for the strong stage: answering the routine
+ * survey with `strongReminder` *was* the opt-in
+ * (`routine_profile_notifier.dart:95-96` on `archive/flutter-final`). So that
+ * answer maps to hard reminders on with a hard ceiling, `followUp` keeps the
+ * follow-up it already gets, and everything else — including no profile at
+ * all — is the gentlest ceiling with hard reminders off.
+ *
+ * Only ever applied to a field that is *absent*. The moment the user touches
+ * the new control their answer is stored and this stops being consulted, so a
+ * survey answer can never override a choice made on the settings screen.
+ */
+export function legacyHardSettings(intensity: unknown): {
+  hardEnabled: boolean;
+  escalationCeiling: PressureCeiling;
+} {
+  if (intensity === 'strongReminder') return { hardEnabled: true, escalationCeiling: 'hard' };
+  if (intensity === 'followUp') return { hardEnabled: false, escalationCeiling: 'followUp' };
+  return { hardEnabled: false, escalationCeiling: DEFAULT_PRESSURE_CEILING };
 }
 
 interface ReminderSettingsBearingUser {
@@ -132,6 +183,29 @@ function readStored(value: unknown): StoredReminderSettings | null {
   };
 }
 
+/**
+ * The #197 fields, read on their own so a record whose soft half is unreadable
+ * does not also forget a choice the user made about ringing.
+ *
+ * `hardEnabled` of the wrong type reads as absent, never as `true`. And a
+ * ceiling that is *present* but off the whitelist is the gentlest one (#199's
+ * `normalizePressureCeiling`), not "absent" — absent falls back to the survey,
+ * which could come out louder than what the document was trying to say.
+ */
+function readStoredHard(value: unknown): Pick<StoredReminderSettings, 'hardEnabled' | 'escalationCeiling' | 'mustThroughQuietHours'> {
+  if (!value || typeof value !== 'object') return {};
+  const raw = value as Record<string, unknown>;
+  return {
+    ...(typeof raw.hardEnabled === 'boolean' ? { hardEnabled: raw.hardEnabled } : {}),
+    ...(raw.escalationCeiling === undefined
+      ? {}
+      : { escalationCeiling: normalizePressureCeiling(raw.escalationCeiling) }),
+    ...(typeof raw.mustThroughQuietHours === 'boolean'
+      ? { mustThroughQuietHours: raw.mustThroughQuietHours }
+      : {}),
+  };
+}
+
 export async function readReminderSettings(
   uid: string,
   options: ReminderSettingsOptions = {},
@@ -140,11 +214,16 @@ export async function readReminderSettings(
   const storage = storageOf(options);
   const user = await storage.get<ReminderSettingsBearingUser>(userDoc(uid));
   const stored = readStored(user?.reminderSettings);
+  const hard = readStoredHard(user?.reminderSettings);
   const profile = await readRoutineProfile(uid, { storage });
+  const legacy = legacyHardSettings(profile?.preferredReminderIntensity);
 
   return Object.freeze({
     softEnabled: stored?.softEnabled ?? DEFAULT_SOFT_ENABLED,
     softLeadMinutes: stored?.softLeadMinutes ?? DEFAULT_SOFT_LEAD_MINUTES,
+    hardEnabled: hard.hardEnabled ?? legacy.hardEnabled,
+    escalationCeiling: hard.escalationCeiling ?? legacy.escalationCeiling,
+    mustThroughQuietHours: hard.mustThroughQuietHours ?? false,
     quietHours: profile?.quietHours ?? null,
     timezone: profile?.timezone
       ?? (typeof user?.timezone === 'string' && user.timezone ? user.timezone : 'UTC'),
@@ -176,9 +255,38 @@ export async function saveReminderSettings(
     fail(`softLeadMinutes must be one of ${SOFT_LEAD_MINUTES.join(', ')}`, 'invalid_lead_minutes');
   }
 
+  if (input.hardEnabled !== undefined && typeof input.hardEnabled !== 'boolean') {
+    fail('hardEnabled must be a boolean', 'invalid_hard_enabled');
+  }
+  if (
+    input.escalationCeiling !== undefined
+    && input.escalationCeiling !== 'soft'
+    && input.escalationCeiling !== 'followUp'
+    && input.escalationCeiling !== 'hard'
+  ) {
+    // Refused rather than normalised: `normalizePressureCeiling` is for a
+    // stored value nobody is present to correct. A client sending a word we do
+    // not know is told so.
+    fail('escalationCeiling must be one of soft, followUp, hard', 'invalid_escalation_ceiling');
+  }
+  if (input.mustThroughQuietHours !== undefined && typeof input.mustThroughQuietHours !== 'boolean') {
+    fail('mustThroughQuietHours must be a boolean', 'invalid_must_through_quiet_hours');
+  }
+
+  /*
+   * All three #197 fields are written on every save, including a save that only
+   * moved the lead time. `current` has already resolved them — the stored
+   * choice, or the survey's legacy answer — so writing them freezes that answer
+   * at the moment the user first used this screen. Leaving them absent would
+   * let a later survey edit silently turn ringing on for somebody who had
+   * already been shown the control and left it alone.
+   */
   const next: StoredReminderSettings = {
     softEnabled: input.softEnabled ?? current.softEnabled,
     softLeadMinutes: input.softLeadMinutes ?? current.softLeadMinutes,
+    hardEnabled: input.hardEnabled ?? current.hardEnabled,
+    escalationCeiling: input.escalationCeiling ?? current.escalationCeiling,
+    mustThroughQuietHours: input.mustThroughQuietHours ?? current.mustThroughQuietHours,
     updatedAt: at,
   };
 

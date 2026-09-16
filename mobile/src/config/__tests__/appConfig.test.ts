@@ -339,6 +339,63 @@ describe('Android hardening', () => {
   });
 });
 
+/**
+ * Must reminders (UC-3.12a, #197): what the config has to carry for a strong
+ * notification to be Time Sensitive on iOS, to have its sound on both
+ * platforms, and to stay inside the permissions Play allows a non-alarm app.
+ */
+describe('Must reminders', () => {
+  it('asks for Time Sensitive notifications on every profile, and never for critical alerts', () => {
+    for (const profile of PROFILES) {
+      const entitlements = configs[profile].ios.entitlements ?? {};
+      expect(entitlements['com.apple.developer.usernotifications.time-sensitive']).toBe(true);
+      expect(entitlements).not.toHaveProperty('com.apple.developer.usernotifications.critical-alerts');
+    }
+  });
+
+  it('bundles the Must sound through the notifications plugin, and the file is under 30 seconds', () => {
+    for (const profile of PROFILES) {
+      const entry = configs[profile].plugins.find(plugin => Array.isArray(plugin) && plugin[0] === 'expo-notifications');
+      expect(entry).toBeDefined();
+      const options = (entry as [string, { sounds?: string[] }])[1];
+      expect(options.sounds).toEqual(['./assets/sounds/maybesitter_hard.wav']);
+    }
+    // iOS replaces a custom sound of 30 seconds or more with the default one.
+    // A PCM WAV's duration is its data size over its byte rate.
+    const wav = readFileSync(join(ROOT, 'assets', 'sounds', 'maybesitter_hard.wav'));
+    expect(wav.toString('ascii', 0, 4)).toBe('RIFF');
+    expect(wav.toString('ascii', 8, 12)).toBe('WAVE');
+    expect(wav.readUInt16LE(20)).toBe(1); // linear PCM
+    const byteRate = wav.readUInt32LE(28);
+    let offset = 12;
+    let dataBytes = 0;
+    while (offset + 8 <= wav.length) {
+      const id = wav.toString('ascii', offset, offset + 4);
+      const size = wav.readUInt32LE(offset + 4);
+      if (id === 'data') {
+        dataBytes = size;
+        break;
+      }
+      offset += 8 + size + (size % 2);
+    }
+    expect(dataBytes).toBeGreaterThan(0);
+    expect(dataBytes / byteRate).toBeLessThan(30);
+    // And it has a recorded license.
+    expect(readFileSync(join(ROOT, 'assets', 'sounds', 'LICENSES.md'), 'utf8')).toContain('maybesitter_hard.wav');
+  });
+
+  it('blocks both alarm-clock permissions, and keeps the one that asks the user', () => {
+    for (const profile of PROFILES) {
+      const blocked = configs[profile].android.blockedPermissions ?? [];
+      expect(blocked).toEqual(expect.arrayContaining([
+        'android.permission.USE_EXACT_ALARM',
+        'android.permission.USE_FULL_SCREEN_INTENT',
+      ]));
+      expect(configs[profile].android.permissions).toContain('android.permission.SCHEDULE_EXACT_ALARM');
+    }
+  });
+});
+
 describe('Firebase and Google', () => {
   it('points both platforms at the committed config files', () => {
     for (const profile of PROFILES) {

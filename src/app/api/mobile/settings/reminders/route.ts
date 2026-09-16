@@ -12,7 +12,8 @@ export const dynamic = 'force-dynamic';
 
 /**
  * Soft reminders: whether they are on, how far ahead, and the quiet hours they
- * obey (UC-3.11, #196).
+ * obey (UC-3.11, #196) — and whether a Must commitment may ring, up to which
+ * ceiling, and whether it may ring inside quiet hours (UC-3.12a, #197).
  *
  * The quiet hours on this response are the account's one copy — they are
  * stored on the routine profile and read from there. See
@@ -51,6 +52,15 @@ export async function PUT(request: Request) {
   const input: ReminderSettingsInput = {
     ...(body.softEnabled === undefined ? {} : { softEnabled: body.softEnabled as boolean }),
     ...(body.softLeadMinutes === undefined ? {} : { softLeadMinutes: body.softLeadMinutes as number }),
+    // The #197 Must-reminder controls. Passed through as sent: the service
+    // validates each one and refuses a wrong type rather than coercing it.
+    ...(body.hardEnabled === undefined ? {} : { hardEnabled: body.hardEnabled as boolean }),
+    ...(body.escalationCeiling === undefined
+      ? {}
+      : { escalationCeiling: body.escalationCeiling as ReminderSettingsInput['escalationCeiling'] }),
+    ...(body.mustThroughQuietHours === undefined
+      ? {}
+      : { mustThroughQuietHours: body.mustThroughQuietHours as boolean }),
     // Present-with-null and absent are different instructions: one clears the
     // window, the other leaves whatever the survey said alone. `in` is the
     // only test that tells them apart.
@@ -100,6 +110,9 @@ function settingsDto(settings: ReminderSettings) {
   return {
     softEnabled: settings.softEnabled,
     softLeadMinutes: settings.softLeadMinutes,
+    hardEnabled: settings.hardEnabled,
+    escalationCeiling: settings.escalationCeiling,
+    mustThroughQuietHours: settings.mustThroughQuietHours,
     quietHours: settings.quietHours
       ? { start: settings.quietHours.start, end: settings.quietHours.end, timezone: settings.timezone }
       : null,

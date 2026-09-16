@@ -27,6 +27,14 @@ export interface ScheduleRequest {
   readonly data: Record<string, string>;
   readonly categoryIdentifier: string;
   readonly channelId: string;
+  /**
+   * A bundled sound by file name (#197). iOS reads it off the content; Android
+   * ignores it from 8.0 on and plays the channel's, which is why the Must
+   * channel carries the same file.
+   */
+  readonly sound?: string;
+  /** iOS only. `timeSensitive` is the most any request here asks for (#197). */
+  readonly interruptionLevel?: 'active' | 'timeSensitive';
   readonly at: Date;
 }
 
@@ -73,6 +81,8 @@ export function createExpoGateway(): NotificationGateway {
           body: request.body,
           data: request.data,
           categoryIdentifier: request.categoryIdentifier,
+          ...(request.sound ? { sound: request.sound } : {}),
+          ...(request.interruptionLevel ? { interruptionLevel: request.interruptionLevel } : {}),
         },
         trigger: {
           type: Notifications.SchedulableTriggerInputTypes.DATE,

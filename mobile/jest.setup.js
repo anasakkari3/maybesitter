@@ -155,7 +155,9 @@ jest.mock('expo-notifications', () => ({
   addNotificationResponseReceivedListener: () => ({ remove: () => {} }),
   getLastNotificationResponseAsync: async () => null,
   SchedulableTriggerInputTypes: { DATE: 'date' },
-  AndroidImportance: { DEFAULT: 3, HIGH: 4 },
+  // expo's own numbering, not Android's: DEFAULT is 5 and HIGH is 6 there, and
+  // the 3 this mock used to carry is expo's MIN (see `channels.ts`).
+  AndroidImportance: { DEFAULT: 5, HIGH: 6 },
 }));
 
 // The keychain is native too. Backed by a plain in-memory map rather than
