@@ -62,12 +62,24 @@ const PURGED: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * `FOOTBALL_FOLLOWS` is classified above, but no store writes it yet — that is
- * Task 7 — so `deletePersonalizationScope` does not sweep it and there is
- * nothing here for a behavioral seed-and-verify test to exercise honestly.
- * The wiring (`clearUserCollection(storage, scopeId, FOOTBALL_FOLLOWS)` in
- * `lib/personalization/deletion.ts`) lands with the store in Task 7, and the
- * behavioral check below should stop excluding it at the same time.
+ * `FOOTBALL_FOLLOWS` is classified `PURGED` above, but no store writes it yet
+ * — that is Task 7 — so `deletePersonalizationScope` has no
+ * `clearUserCollection(storage, scopeId, FOOTBALL_FOLLOWS)` call to run, and
+ * the collection survives the purge today regardless of its classification.
+ *
+ * An earlier version of this test simply skipped `NOT_YET_WIRED` collections
+ * in the behavioral check below, on a comment asking whoever wires the sweep
+ * in Task 7 to remember to remove the entry here too. An exemption nothing
+ * checks is indistinguishable from a hole: the comment can be missed exactly
+ * the way `behaviorFeedback` and `profileProposals` were missed (see the file
+ * header), and the test would stay green forever either way. So instead the
+ * behavioral test below still seeds this collection and asserts the fact that
+ * is true *today* — that it survives, because nothing clears it — with a
+ * failure message that names its own remedy. The day `clearUserCollection`
+ * is added for it, that assertion flips from green to red on its own, and the
+ * failure message says exactly what to do: remove the entry from this set and
+ * let the ordinary `PURGED` branch take over. The escape hatch expires loudly
+ * instead of silently.
  */
 const NOT_YET_WIRED: ReadonlySet<string> = new Set([FOOTBALL_FOLLOWS]);
 
@@ -160,22 +172,16 @@ function seedIdsFor(collection: string, uid: string): readonly string[] {
 }
 
 test('the purge empties every derived collection for the scope and touches nobody else', async () => {
-  // `NOT_YET_WIRED` collections are classified above but have no cascade to
-  // exercise yet — see its own comment. Seeding one and asserting it survives
-  // would prove nothing (a "kept" outcome by accident, not by decision), so
-  // this test skips them until Task 7 wires the sweep.
-  const covered = USER_SCOPED_COLLECTIONS.filter((collection) => !NOT_YET_WIRED.has(collection));
-
   const storage = createMemoryStorage();
   for (const uid of [TARGET, SIBLING]) {
     await storage.set(userDoc(uid), { uid });
-    for (const collection of covered) {
+    for (const collection of USER_SCOPED_COLLECTIONS) {
       for (const id of seedIdsFor(collection, uid)) {
         await storage.set(userSubDoc(uid, collection, id), { uid, collection, scopeId: uid });
       }
     }
   }
-  for (const collection of covered) {
+  for (const collection of USER_SCOPED_COLLECTIONS) {
     assert.equal(
       (await storage.list(`${userDoc(TARGET)}/${collection}`)).length,
       seedIdsFor(collection, TARGET).length,
@@ -191,9 +197,21 @@ test('the purge empties every derived collection for the scope and touches nobod
     runtimeMemory: createStorageRuntimeMemoryStore(undefined, storage),
   });
 
-  for (const collection of covered) {
+  for (const collection of USER_SCOPED_COLLECTIONS) {
     const mine = await storage.list(`${userDoc(TARGET)}/${collection}`);
-    if (PURGED.has(collection)) {
+    if (NOT_YET_WIRED.has(collection)) {
+      // Classified PURGED, but nothing sweeps it yet — see NOT_YET_WIRED's own
+      // comment for why this asserts today's truth rather than skipping the
+      // collection. The moment a real clearUserCollection call is added for
+      // it, this flips to failing, and the message says what to do about it.
+      assert.equal(
+        mine.length,
+        seedIdsFor(collection, TARGET).length,
+        `${collection} is in NOT_YET_WIRED because its sweep is not wired yet — if this `
+          + `assertion just failed, the wiring landed: remove ${collection} from `
+          + 'NOT_YET_WIRED and let the purge branch below cover it',
+      );
+    } else if (PURGED.has(collection)) {
       assert.deepEqual(
         mine.map((row) => row.id),
         [],
