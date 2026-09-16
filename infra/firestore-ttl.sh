@@ -13,6 +13,9 @@
 #                                is idempotent; it holds no uid once done (#149)
 #   hardReminders      2 days  - one Must reminder the server may have to back
 #                                up: ids and instants, no title (#198)
+#   commitmentActionReceipts
+#                     30 days  - which notification taps were applied, so a
+#                                replayed tap is applied once (#200)
 #
 # Retention is enforced by Firestore rather than by a cron job we have to keep
 # alive: each document is written with an `expiresAt` timestamp and the TTL
@@ -58,6 +61,8 @@ COLLECTION_GROUPS=(
   # two days past the reminder it describes; after that it is a record of a
   # notification nobody can act on.
   "hardReminders"
+  # UC-3.14 (#200): a phone's outbox gives up long before 30 days.
+  "commitmentActionReceipts"
 )
 
 usage() {

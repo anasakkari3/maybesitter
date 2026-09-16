@@ -103,7 +103,7 @@ test('pressure, classification and analytics events never become activity', () =
   assert.deepEqual(projectActivity(hostile, TITLES), []);
 });
 
-test('the six kinds with a producer today are projected from their events', () => {
+test('the seven kinds with a producer today are projected from their events', () => {
   const items = projectActivity([
     record({ type: 'draft_created', id: 'e1', at: '2026-09-14T08:00:00.000Z' }),
     record({ type: 'commitment_activated', id: 'e2', at: '2026-09-14T08:01:00.000Z' }),
@@ -116,6 +116,8 @@ test('the six kinds with a producer today are projected from their events', () =
     // Read from the plan ledger (#194) and shaped by planActivity: a day, not
     // a commitment, so no aggregate.
     record({ type: 'plan_accepted', id: 'e6', at: '2026-09-14T08:05:00.000Z', aggregateId: '', payload: { planDate: '2026-09-14' } }),
+    // A tap on a reminder notification (#200).
+    record({ type: 'reminder_acknowledged', id: 'e7', at: '2026-09-14T08:06:00.000Z', payload: { commitmentId: 'c1' } }),
   ], TITLES);
 
   assert.deepEqual(items.map((item) => item.kind), [...PRODUCED_ACTIVITY_KINDS]);
@@ -135,10 +137,9 @@ test('a plan date that is not a calendar date is dropped rather than passed on',
   assert.equal(item!.detail, undefined);
 });
 
-test('the kind with no producer yet is in the contract and reachable', () => {
-  // Nothing in this repository emits `reminder_acknowledged` — #200 will — but
-  // the mapping is here so that issue is additive rather than a reshape. This
-  // test proves the slot exists; it does not claim anything fills it.
+test('a reminder acknowledgement names its commitment from the payload', () => {
+  // `MarkAware` with `source: 'reminder'` produces it (#200);
+  // tests/mobile/commitmentActionsIdempotency.test.ts drives the real route.
   const items = projectActivity([
     record({ type: 'reminder_acknowledged', id: 'e7', aggregateId: 'r-1', payload: { commitmentId: 'c1' } }),
   ], TITLES);

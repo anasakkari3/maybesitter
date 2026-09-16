@@ -17,6 +17,7 @@ operator-only.
 | `users/{uid}/escalationStates/{commitmentId}` | `EscalationState` | `participantState.ts` |
 | `users/{uid}/events/{eventId}` | `DomainEvent & { recordedAt }` — append-only, written only with `create` | `participantState.ts` |
 | `users/{uid}/recommendationActions/{sha256(idempotencyKey)}` | `{ idempotencyKey, fingerprint, response, createdAt }` | `participantState.ts` |
+| `users/{uid}/commitmentActionReceipts/{clientActionId}` | `{ clientActionId, commitmentId, fingerprint, result, createdAt, expiresAt }` — one per notification tap applied, so an outbox replay is applied once (#200); TTL 30 days | `participantState.ts` |
 | `users/{uid}/auditEvents/{sortableId}` | `PilotAuditEvent` | `pilotTrustStore.ts` |
 | `incidents/{incidentId}` | `PilotTrustIncident` — operator-only, outside every user tree | `pilotTrustStore.ts` |
 

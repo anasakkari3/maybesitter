@@ -28,6 +28,14 @@ export const ESCALATION_STATES = 'escalationStates';
 export const EVENTS = 'events';
 export const RECOMMENDATION_ACTIONS = 'recommendationActions';
 /**
+ * One document per notification-button tap the server has applied (UC-3.14,
+ * #200), keyed by the phone's random `clientActionId`. The phone's outbox
+ * replays a tap until it hears back; this is how the second delivery is
+ * recognised. Ids, an action and a timestamp — no titles. `expiresAt` is a TTL
+ * field (30 days, `infra/firestore-ttl.sh`): an outbox gives up long before.
+ */
+export const COMMITMENT_ACTION_RECEIPTS = 'commitmentActionReceipts';
+/**
  * What the user answered to a next step (UC-2.9, #170).
  *
  * Its own collection, not `events`. `events` is the domain log: append-only,
@@ -229,6 +237,7 @@ export const USER_SCOPED_COLLECTIONS = [
   ESCALATION_STATES,
   EVENTS,
   RECOMMENDATION_ACTIONS,
+  COMMITMENT_ACTION_RECEIPTS,
   NEXT_STEP_DECISIONS,
   AUDIT_EVENTS,
   MEMORY,

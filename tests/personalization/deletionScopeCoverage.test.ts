@@ -71,6 +71,9 @@ const KEPT_BECAUSE: Record<string, string> = {
   escalationStates: 'live delivery state for a commitment that still exists',
   events: 'the domain log the user’s content is replayed from',
   recommendationActions: 'what was offered and answered, not a claim about the person',
+  commitmentActionReceipts:
+    'which notification taps were already applied (#200): ids and an action, kept so a replayed tap '
+    + 'is not applied twice; not a claim about the person',
   nextStepDecisions: 'the user’s own answers to a question',
   auditEvents: 'the record that the deletion happened; erasing it erases the receipt',
   consents: 'the user’s own decision, not something derived about them',
