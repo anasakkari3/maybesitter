@@ -1,6 +1,6 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../../lib/auth/mobileAuth';
 import { mobileError } from '../../../../../../../lib/services/mobile/response';
-import { dismissFixtureCommitment } from '../../../../../../../lib/football/projectFixtures';
+import { dismissFixtureCommitment, FixtureNotLinkedError } from '../../../../../../../lib/football/projectFixtures';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,8 +37,15 @@ export async function DELETE(
 
   try {
     await dismissFixtureCommitment(user.uid, commitmentId, now);
-  } catch {
-    return mobileError('no football fixture links this commitment', 404);
+  } catch (error) {
+    // Only "no ref links this commitment" is a 404. Anything else -- storage
+    // down, a domain refusal -- is the server failing, and a 404 would tell
+    // the app the match was never there.
+    if (error instanceof FixtureNotLinkedError) {
+      return mobileError('no football fixture links this commitment', 404);
+    }
+    console.error('[football/dismiss] dismissing a fixture commitment failed', error);
+    return mobileError('could not dismiss this match', 500);
   }
 
   return Response.json({ success: true, id: commitmentId, dismissed: true });

@@ -1173,6 +1173,18 @@ export async function listActiveFixtureCommitments(uid: string): Promise<readonl
 }
 
 /**
+ * No reference in this user's tree links the commitment -- the one failure of
+ * `dismissFixtureCommitment` that means "nothing to dismiss here" (a 404),
+ * as opposed to storage or the domain failing (a 500).
+ */
+export class FixtureNotLinkedError extends Error {
+  constructor(commitmentId: string) {
+    super(`no external task reference links commitment ${commitmentId}`);
+    this.name = 'FixtureNotLinkedError';
+  }
+}
+
+/**
  * A user says "not this match." The ref is marked `detachedAt` forever
  * (never recreated by a later projection run -- see the module header) and
  * the commitment it made, if any, is dropped the same way a cancelled
@@ -1191,7 +1203,7 @@ export async function dismissFixtureCommitment(
   const refs = await listRefs<FixtureExternalTaskRef>(uid);
   const ref = refs.find((candidate) => candidate.linkedCommitmentId === commitmentId);
   if (!ref) {
-    throw new Error(`no external task reference links commitment ${commitmentId}`);
+    throw new FixtureNotLinkedError(commitmentId);
   }
 
   await putRef<FixtureExternalTaskRef>(uid, {

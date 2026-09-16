@@ -31,7 +31,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
-import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
+import { getStorage, resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
 import { upsertFixtures } from '../../lib/football/fixtureStore.ts';
 import { listRefs } from '../../lib/football/externalTaskRefStore.ts';
@@ -305,6 +305,33 @@ test('a match the user deleted through the ordinary delete route stays deleted w
     const state = await readParticipantState(USER);
     const live = Object.values(state.commitments).filter((c) => c.status !== 'dropped');
     assert.deepEqual(live, [], 'nothing the user deleted came back');
+  } finally {
+    teardown();
+  }
+});
+
+// ── Final review M4: every dismiss failure was reported as 404 ──────────
+test('a dismiss that fails for any reason other than "no such fixture" is a 500, not a 404', async () => {
+  const teardown = setup();
+  try {
+    await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+    const body = await json(await PUT(authedRequest('PUT', { clubIds: ['barcelona'] })));
+    const [projected] = body.fixtures as { commitmentId: string }[];
+
+    // Storage goes away between the list read and the write.
+    const real = getStorage();
+    setStorageForTests(new Proxy(real, {
+      get(target, prop, receiver) {
+        if (prop === 'set') return async () => { throw new Error('storage unavailable'); };
+        const value = Reflect.get(target, prop, receiver);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    }));
+    const res = await DELETE(dismissRequest(), dismissParams(projected!.commitmentId));
+    assert.equal(res.status, 500);
+    const payload = await json(res);
+    assert.equal(payload.success, false);
+    assert.equal(typeof payload.error, 'string');
   } finally {
     teardown();
   }
