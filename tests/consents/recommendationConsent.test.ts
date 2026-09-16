@@ -21,6 +21,7 @@ import { resetStorageForTests, setStorageForTests } from '../../lib/storage/inde
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
 import {
   AI_CONSENT_VERSION,
+  PERSONALIZATION_CONSENT_VERSION,
   RECOMMENDATION_CONSENT_CLAIMS_V1,
   RECOMMENDATION_CONSENT_VERSION,
   aiConsentClaimsDigest,
@@ -273,6 +274,9 @@ test('GET /consents answers both questions and keeps #161\'s field', async () =>
     assert.deepEqual(view.currentVersions, {
       aiProcessing: AI_CONSENT_VERSION,
       recommendations: RECOMMENDATION_CONSENT_VERSION,
+      // UC-3.16 (#202)'s question, answered here too so a client reads every
+      // version it may echo back from one call.
+      personalization: PERSONALIZATION_CONSENT_VERSION,
     });
     // A client written against #161's response still finds what it reads.
     assert.equal(view.currentVersion, AI_CONSENT_VERSION);

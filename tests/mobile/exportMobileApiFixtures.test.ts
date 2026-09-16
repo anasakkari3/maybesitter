@@ -41,8 +41,9 @@ import { createStorageFeedbackEventStore } from '../../lib/feedback/feedbackEven
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { getStorage, resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { EVENTS, userDoc, userSubDoc } from '../../lib/storage/paths.ts';
-import { createStoragePersonalizationConsentStore } from '../../lib/personalizationControls/consentStore.ts';
+import { setPersonalizationConsent } from '../../lib/consents/personalizationConsentService.ts';
 import { POST as memorySuggestionPost } from '../../src/app/api/mobile/memory/suggestions/[ruleId]/route.ts';
+import { PUT as personalizationConsentPut } from '../../src/app/api/mobile/consents/personalization/route.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
 import { configureCommandService } from '../../lib/services/commandService.ts';
 import { applyCommand as applyDomainCommand, createEmptyDomainState } from '../../src/domain/stateMachine.ts';
@@ -87,6 +88,7 @@ import {
 } from '../../src/app/api/mobile/memory/[id]/route.ts';
 import {
   AI_CONSENT_VERSION,
+  PERSONALIZATION_CONSENT_VERSION,
   RECOMMENDATION_CONSENT_VERSION,
 } from '../../src/contracts/v1/consentContracts.ts';
 import { GET as planGet } from '../../src/app/api/mobile/plans/[date]/route.ts';
@@ -231,7 +233,11 @@ async function seedFocusHabit(uid: string): Promise<void> {
       id, type: 'commitment_completed', at: at(daysAgo, hour, minute), aggregateId: `c_growth_${index}`, payload: {},
     });
   }
-  await createStoragePersonalizationConsentStore().write(uid, 'enabled', new Date(nowMs - 60_000).toISOString());
+  await setPersonalizationConsent(uid, {
+    state: 'granted',
+    version: PERSONALIZATION_CONSENT_VERSION,
+    at: new Date(nowMs - 60_000),
+  });
 }
 
 function params(id: string): { params: Promise<{ id: string }> } {
@@ -921,6 +927,19 @@ test('exports a fixture for every /api/mobile call the React Native client makes
         headers: { authorization: `Bearer ${tokenFor(USER)}` },
       }),
     ));
+
+    await record('consents.personalizationRecorded', 200, await personalizationConsentPut(
+      request('/api/mobile/consents/personalization', {
+        method: 'PUT',
+        body: { state: 'granted', version: PERSONALIZATION_CONSENT_VERSION, locale: 'ar', platform: 'ios' },
+      }),
+    ));
+    // Answered and withdrawn again, so the fixture set does not leave this
+    // account personalizing while the rest of the run records other routes.
+    await personalizationConsentPut(request('/api/mobile/consents/personalization', {
+      method: 'PUT',
+      body: { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION },
+    }));
 
     // ── memory growth (#202) ───────────────────────────────────────
     // Accounts of their own, so the capture flows above — whose completions

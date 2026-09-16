@@ -16,7 +16,8 @@ import { createFirestoreStorage } from '../../lib/storage/firestoreAdapter.ts';
 import { EVENTS, MEMORY, MEMORY_DISMISSALS, userCol, userDoc, userSubDoc } from '../../lib/storage/paths.ts';
 import type { StorageAdapter } from '../../lib/storage/storageAdapter.ts';
 import { createStorageRuntimeMemoryStore } from '../../lib/runtimeMemory/runtimeMemoryStore.ts';
-import { createStoragePersonalizationConsentStore } from '../../lib/personalizationControls/consentStore.ts';
+import { setPersonalizationConsent } from '../../lib/consents/personalizationConsentService.ts';
+import { PERSONALIZATION_CONSENT_VERSION } from '../../src/contracts/v1/consentContracts.ts';
 import { createStorageFeedbackEventStore } from '../../lib/feedback/feedbackEventStore.ts';
 import {
   decideMemorySuggestion,
@@ -53,7 +54,11 @@ async function seedHabit(storage: StorageAdapter, uid: string): Promise<void> {
   await storage.set(userSubDoc(uid, EVENTS, 'ev_future'), {
     id: 'ev_future', type: 'commitment_completed', at: '2026-09-17T15:00:00.000Z', aggregateId: 'c_future', payload: {},
   });
-  await createStoragePersonalizationConsentStore(storage).write(uid, 'enabled', '2026-09-01T00:00:00.000Z');
+  await setPersonalizationConsent(uid, {
+    state: 'granted',
+    version: PERSONALIZATION_CONSENT_VERSION,
+    at: new Date('2026-09-01T00:00:00.000Z'),
+  }, { storage });
 }
 
 function options(storage: StorageAdapter) {

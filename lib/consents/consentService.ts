@@ -170,12 +170,18 @@ export async function consentViewFor(
 export async function allConsentsView(uid: string, options: ConsentOptions = {}): Promise<{
   aiProcessing: ConsentView;
   recommendations: ConsentView;
+  personalization: ConsentView;
   currentVersions: Record<ConsentKindContract['key'], string>;
 }> {
-  const [aiProcessing, recommendations] = await Promise.all(
+  const [aiProcessing, recommendations, personalization] = await Promise.all(
     CONSENT_KINDS.map((kind) => consentViewFor(kind, uid, options)),
   );
   const currentVersions = {} as Record<ConsentKindContract['key'], string>;
   for (const kind of CONSENT_KINDS) currentVersions[kind.key] = kind.currentVersion;
-  return { aiProcessing: aiProcessing!, recommendations: recommendations!, currentVersions };
+  return {
+    aiProcessing: aiProcessing!,
+    recommendations: recommendations!,
+    personalization: personalization!,
+    currentVersions,
+  };
 }

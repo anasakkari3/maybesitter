@@ -15,7 +15,8 @@ import { userDoc } from '../../lib/storage/paths.ts';
 import { buildDailyPlanInput } from '../../lib/services/dailyPlan/buildDailyPlan.ts';
 import { composeDailyPlan } from '../../lib/services/dailyPlan/dailyPlanService.ts';
 import { createStorageRuntimeMemoryStore } from '../../lib/runtimeMemory/runtimeMemoryStore.ts';
-import { createStoragePersonalizationConsentStore } from '../../lib/personalizationControls/consentStore.ts';
+import { setPersonalizationConsent } from '../../lib/consents/personalizationConsentService.ts';
+import { PERSONALIZATION_CONSENT_VERSION } from '../../src/contracts/v1/consentContracts.ts';
 import { deleteMemory } from '../../lib/services/mobile/memoryService.ts';
 import { keptFocusWindow } from '../../lib/memoryGrowth/suggestionService.ts';
 import type { UserRoutineProfile } from '../../src/contracts/v1/routineContracts.ts';
@@ -46,7 +47,13 @@ async function keepR1(storage: StorageAdapter, fingerprint = 'R1_focus_window:09
 async function account(consent: 'enabled' | 'disabled' | null): Promise<StorageAdapter> {
   const storage = createMemoryStorage();
   await storage.set(userDoc(UID), { uid: UID, timezone: ZONE });
-  if (consent) await createStoragePersonalizationConsentStore(storage).write(UID, consent, NOW);
+  if (consent) {
+    await setPersonalizationConsent(UID, {
+      state: consent === 'enabled' ? 'granted' : 'declined',
+      version: PERSONALIZATION_CONSENT_VERSION,
+      at: new Date(NOW),
+    }, { storage });
+  }
   return storage;
 }
 

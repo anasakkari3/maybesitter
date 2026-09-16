@@ -15,11 +15,15 @@
  *
  * ── Consent ──────────────────────────────────────────────────────
  *
- * Growth is personalization, and it is off unless personalization consent
- * (`lib/personalizationControls/consentStore.ts`) reads `enabled`. That store
- * fails closed: never asked, unreadable or disabled all read as off. Listing,
- * editing and deleting memory are not gated — they are how a person sees and
- * removes what is held, and those must work whatever they have agreed to.
+ * Growth is personalization, and it is off unless the user has answered
+ * "notice patterns in when you finish things" with a yes — which means the
+ * versioned answer on the account *and* the personalization consent store
+ * agreeing, as `personalizationGrowthAllowed` requires (UC-3.16, #202). Both
+ * halves fail closed: never asked, unreadable, answered to older words, or
+ * enabled by the frozen web control centre alone all read as off, and no other
+ * consent implies this one. Listing, editing and deleting memory are not
+ * gated — they are how a person sees and removes what is held, and those must
+ * work whatever they have agreed to.
  *
  * The planner's use of a kept window is gated on the same consent, in
  * `keptFocusWindow`: withdrawing consent stops behaviour-derived memory from
@@ -36,10 +40,8 @@ import type {
   RuntimeMemoryRecord,
   RuntimeMemoryStore,
 } from '../../src/contracts/v1/memoryContracts';
-import {
-  createStoragePersonalizationConsentStore,
-  type PersonalizationConsentStore,
-} from '../personalizationControls/consentStore';
+import { personalizationGrowthAllowed } from '../consents/personalizationConsentService';
+import type { PersonalizationConsentStore } from '../personalizationControls/consentStore';
 import { createStorageRuntimeMemoryStore } from '../runtimeMemory/runtimeMemoryStore';
 import { listEventsInRange } from '../services/mobile/eventLog';
 import { memoryToDto, type MemoryDto } from '../services/mobile/memoryService';
@@ -120,8 +122,10 @@ function memoryOf(options: MemoryGrowthOptions): RuntimeMemoryStore {
 }
 
 async function consentGranted(uid: string, options: MemoryGrowthOptions): Promise<boolean> {
-  const store = options.consent ?? createStoragePersonalizationConsentStore(options.storage);
-  return (await store.read(uid)).state === 'enabled';
+  return personalizationGrowthAllowed(uid, {
+    ...(options.storage ? { storage: options.storage } : {}),
+    ...(options.consent ? { consent: options.consent } : {}),
+  });
 }
 
 function toDto(suggestion: FocusWindowSuggestion): MemorySuggestionDto {

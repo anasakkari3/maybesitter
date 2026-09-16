@@ -14,6 +14,8 @@ import type { StorageAdapter, StorageTransaction } from '../../lib/storage/stora
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
 import { createStorageRuntimeMemoryStore } from '../../lib/runtimeMemory/runtimeMemoryStore.ts';
 import { createStoragePersonalizationConsentStore } from '../../lib/personalizationControls/consentStore.ts';
+import { setPersonalizationConsent } from '../../lib/consents/personalizationConsentService.ts';
+import { PERSONALIZATION_CONSENT_VERSION } from '../../src/contracts/v1/consentContracts.ts';
 import { createStorageFeedbackEventStore } from '../../lib/feedback/feedbackEventStore.ts';
 import {
   DELETE as memoryDeleteAll,
@@ -117,8 +119,13 @@ async function seedMorningHabit(uid: string, hourShift = 0): Promise<void> {
   });
 }
 
+/** Answered the way the phone answers it: the versioned record and the store. */
 async function enableConsent(uid: string): Promise<void> {
-  await createStoragePersonalizationConsentStore().write(uid, 'enabled', new Date(NOW_MS - 60_000).toISOString());
+  await setPersonalizationConsent(uid, {
+    state: 'granted',
+    version: PERSONALIZATION_CONSENT_VERSION,
+    at: new Date(NOW_MS - 60_000),
+  });
 }
 
 /** Wraps an adapter and counts every write it is asked to make. */
