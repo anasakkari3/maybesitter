@@ -156,9 +156,16 @@ export class IcsParseError extends Error {
  */
 const UNSAFE_CHARS = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g;
 
+/**
+ * Zero-width characters, removed rather than turned into spaces: they are
+ * invisible, so `ig\u200bnore all previous instructions` reads as the phrase
+ * it is and slipped past `detectPromptInjection` intact (review of #445, F7).
+ */
+const INVISIBLE_CHARS = /[\u200b-\u200d\u2060\ufeff]/g;
+
 export function cleanTitle(raw: unknown): string {
   if (typeof raw !== 'string') return '';
-  const collapsed = raw.replace(UNSAFE_CHARS, ' ').replace(/\s+/g, ' ').trim();
+  const collapsed = raw.replace(INVISIBLE_CHARS, '').replace(UNSAFE_CHARS, ' ').replace(/\s+/g, ' ').trim();
   const points = Array.from(collapsed);
   return points.length > MAX_TITLE_LENGTH ? points.slice(0, MAX_TITLE_LENGTH).join('').trim() : collapsed;
 }
@@ -647,8 +654,9 @@ function pushDeadline(
   windowEnd: number,
 ): void {
   if (input.dueMs < nowMs || input.dueMs > windowEnd) { tally.add('outside_window'); return; }
-  // The raw SUMMARY is what is checked, before cleaning: a payload hidden
-  // behind a bidi override is still the payload.
+  // Checked raw, and again cleaned: a payload hidden behind a bidi override is
+  // still the payload, and one split by a zero-width character only becomes
+  // readable once that character is gone.
   if (detectPromptInjection(input.rawTitle) !== null) { tally.add('prompt_injection'); return; }
   const title = cleanTitle(input.rawTitle);
   if (title === '' || detectPromptInjection(title) !== null) {

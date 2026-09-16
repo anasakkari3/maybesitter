@@ -111,6 +111,8 @@ test('the issue list of URLs is refused before any DNS or socket is touched', as
     ['https://0.0.0.0/cal.ics', 'blocked_address'],
     ['https://[fd00::1]/cal.ics', 'blocked_address'],
     ['https://[fe80::1]/cal.ics', 'blocked_address'],
+    ['https://[::127.0.0.1]/cal.ics', 'blocked_address'],
+    ['https://[::a9fe:a9fe]/computeMetadata/v1/', 'blocked_address'],
     // The WHATWG parser normalises these to 127.0.0.1, which is the point of
     // parsing with it rather than with a regex.
     ['https://2130706433/cal.ics', 'blocked_address'],
@@ -162,6 +164,8 @@ test('assertPublicAddress allows only global unicast, with IPv4-mapped IPv6 unwr
     '::1', '::', 'fe80::1', 'fc00::1', 'fd12:3456::1', 'ff02::1',
     '::ffff:127.0.0.1', '::ffff:10.0.0.5', '::ffff:169.254.169.254', '::ffff:192.168.1.1',
     '64:ff9b::a00:5', '2002:a00:5::1', 'not-an-ip',
+    // IPv4-compatible IPv6 (::/96): loopback and the metadata server in disguise.
+    '::7f00:1', '::a9fe:a9fe', '::a00:5', '::10.0.0.5', '::127.0.0.1',
   ]) {
     assert.throws(() => assertPublicAddress(bad), SafeFetchError, bad);
   }
@@ -171,7 +175,7 @@ test('assertPublicAddress allows only global unicast, with IPv4-mapped IPv6 unwr
 
 test('a public host that resolves to a private address is refused at the DNS hook, before a socket opens', async () => {
   await withServer(calendarHandler, async (port, seen) => {
-    for (const address of ['192.168.1.1', '169.254.169.254', '127.0.0.1', '::1', '::ffff:10.0.0.5']) {
+    for (const address of ['192.168.1.1', '169.254.169.254', '127.0.0.1', '::1', '::ffff:10.0.0.5', '::7f00:1']) {
       const error = await refusal(safeFetch('https://feed.example/cal.ics', {
         ...testTransport(port, { 'feed.example': [address] }),
       }));
@@ -393,20 +397,31 @@ test('a body exactly at the cap is accepted and one byte over is not', async () 
   });
 });
 
-test('a response that never finishes is abandoned at the time cap', async () => {
+test('a response that never finishes is abandoned at the time cap', { timeout: 30_000 }, async () => {
+  // The servers give up on their own after eight seconds, so a regression that
+  // lost the client's deadline fails instead of hanging the file. The refusal
+  // has to arrive long before that: 150 ms is the cap, 5 s is the ceiling
+  // allowed for a loaded machine, and only the client's own clock gets there.
+  const HANG_MS = 8_000;
+  const timed = async (port: number) => {
+    const started = Date.now();
+    const error = await refusal(safeFetch('https://feed.example/cal.ics', { ...testTransport(port), timeoutMs: 150 }));
+    assert.ok(Date.now() - started < 5_000, 'the refusal came from the server giving up, not from the time cap');
+    return error;
+  };
   await withServer((_req, res) => {
-    // Headers, a first line, and then nothing for as long as the test lives.
+    // Headers, a first line, and then nothing until the server gives up.
     res.writeHead(200, { 'content-type': 'text/calendar' });
     res.write('BEGIN:VCALENDAR\r\n');
+    setTimeout(() => res.destroy(), HANG_MS).unref();
   }, async (port) => {
-    const error = await refusal(safeFetch('https://feed.example/cal.ics', { ...testTransport(port), timeoutMs: 150 }));
-    assert.equal(error.code, 'timeout');
+    assert.equal((await timed(port)).code, 'timeout');
   });
-  await withServer(() => {
+  await withServer((req) => {
     // No headers at all.
+    setTimeout(() => req.socket.destroy(), HANG_MS).unref();
   }, async (port) => {
-    const error = await refusal(safeFetch('https://feed.example/cal.ics', { ...testTransport(port), timeoutMs: 150 }));
-    assert.equal(error.code, 'timeout');
+    assert.equal((await timed(port)).code, 'timeout');
   });
 });
 

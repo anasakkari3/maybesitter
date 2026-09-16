@@ -200,6 +200,13 @@ export function assertPublicAddress(address: string): void {
     throw new SafeFetchError('blocked_address');
   }
   if (parsed.range() !== 'unicast') throw new SafeFetchError('blocked_address');
+  // ipaddr.js calls the deprecated IPv4-compatible block (::/96) unicast, so
+  // `::7f00:1` — 127.0.0.1 — passed. Only global unicast IPv6 (2000::/3) is
+  // allowed; everything else was either named above or has no business being
+  // a calendar server.
+  if (parsed.kind() === 'ipv6' && !parsed.match(ipaddr.IPv6.parse('2000::'), 3)) {
+    throw new SafeFetchError('blocked_address');
+  }
 }
 
 async function defaultResolve(hostname: string): Promise<string[]> {
