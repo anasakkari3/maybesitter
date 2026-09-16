@@ -19,6 +19,14 @@ import {
 } from '../../lib/storage/index.ts';
 import { docIdForKey, requireUserId, userCol, userDoc } from '../../lib/storage/paths.ts';
 import { storageContractSuite } from './storageContractSuite.ts';
+import {
+  MemoryIntegrationConnectionStore,
+  recordConnectionSync,
+} from '../../lib/integrations/connections/connectionRegistry.ts';
+import {
+  NATIVE_READINESS_PRIVACY_POLICY,
+  type NativeReadinessResult,
+} from '../../lib/integrations/readiness/nativeAdapterContracts.ts';
 
 storageContractSuite('memory', async () => ({
   adapter: createMemoryStorage(),
@@ -110,4 +118,90 @@ test('a free-text key becomes a sha256 document id, deterministically', () => {
   assert.equal(docIdForKey(key), id);
   assert.notEqual(docIdForKey(`${key} `), id);
   assert.throws(() => docIdForKey(''), /non-empty string/);
+});
+
+/* ── Integration connections ───────────────────────────────────── */
+
+const CONNECTION_NOW = '2026-09-16T12:00:00.000Z';
+
+function googleConnectionInput(scopeId = 'scope-a') {
+  return {
+    scopeId,
+    identity: {
+      provider: 'google' as const,
+      providerAccountId: 'acct-1',
+      providerSpaceId: null,
+      displayName: 'Work',
+    },
+    state: 'connected' as const,
+    capabilities: ['calendar_busy', 'mail_read'] as const,
+    grantedScopes: ['gmail.readonly', 'calendar.readonly'],
+    credentialRef: { vault: 'kms', keyId: 'cred-1', version: '7' },
+    featureFlag: 'connected_context_google',
+    provenance: { source: 'oauth' as const, connectedBy: 'user' as const, recordedAt: CONNECTION_NOW },
+  };
+}
+
+test('connection records keep references instead of provider credentials', async () => {
+  const store = new MemoryIntegrationConnectionStore();
+  const record = await store.upsert(googleConnectionInput(), CONNECTION_NOW);
+
+  assert.match(record.connectionId, /^int_[a-f0-9]{24}$/);
+  assert.deepEqual(record.capabilities, ['calendar_busy', 'mail_read']);
+  assert.deepEqual(record.grantedScopes, ['calendar.readonly', 'gmail.readonly']);
+  assert.deepEqual(record.credentialRef, { vault: 'kms', keyId: 'cred-1', version: '7' });
+  assert.equal('accessToken' in record, false);
+  assert.equal('refreshToken' in record, false);
+});
+
+test('connection identity is idempotent and scope filtering prevents account leakage', async () => {
+  const store = new MemoryIntegrationConnectionStore();
+  const first = await store.upsert(googleConnectionInput(), CONNECTION_NOW);
+  const second = await store.upsert(
+    { ...googleConnectionInput(), state: 'needs_reauth' },
+    '2026-09-16T13:00:00.000Z',
+  );
+  await store.upsert(googleConnectionInput('scope-b'), CONNECTION_NOW);
+
+  assert.equal(second.connectionId, first.connectionId);
+  assert.equal(second.reauthRequired, true);
+  const visible = await store.list({ scopeId: 'scope-a', provider: 'google', capability: 'mail_read' });
+  assert.equal(visible.length, 1);
+  assert.equal(visible[0]?.scopeId, 'scope-a');
+});
+
+test('sync checkpoints are opaque and update only connected records', async () => {
+  const store = new MemoryIntegrationConnectionStore();
+  const record = await store.upsert(googleConnectionInput(), CONNECTION_NOW);
+  const synced = await recordConnectionSync(
+    store,
+    record.connectionId,
+    { cursor: 'provider-owned-cursor', checkpointAt: '2026-09-16T12:05:00.000Z' },
+    '2026-09-16T12:05:00.000Z',
+  );
+
+  assert.equal(synced?.sync?.cursor, 'provider-owned-cursor');
+  await store.markState(record.connectionId, 'revoked', '2026-09-16T12:06:00.000Z');
+  assert.equal(await recordConnectionSync(store, record.connectionId, { cursor: 'later', checkpointAt: CONNECTION_NOW }, CONNECTION_NOW), null);
+});
+
+test('native readiness adapters share one privacy boundary', () => {
+  const result: NativeReadinessResult = {
+    state: 'empty',
+    authorization: 'authorized',
+    snapshot: null,
+    provenance: {
+      source: 'healthkit',
+      connectionId: null,
+      collectedAt: CONNECTION_NOW,
+      newestSampleAt: null,
+      rawPayloadPersisted: false,
+    },
+    errorCode: null,
+  };
+
+  assert.equal(NATIVE_READINESS_PRIVACY_POLICY.rawPayloadLoggingAllowed, false);
+  assert.equal(NATIVE_READINESS_PRIVACY_POLICY.rawPayloadPersistenceAllowed, false);
+  assert.equal(result.provenance.rawPayloadPersisted, false);
+  assert.equal('rawPayload' in result, false);
 });
