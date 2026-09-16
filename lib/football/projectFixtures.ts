@@ -136,17 +136,28 @@
  * commitment is not resurrected by a later content change'` and its
  * `archived` counterpart.
  *
- * ── Why the commitment title carries no team name ─────────────────────────
- * `homeTeamName` / `awayTeamName` are stored on the `ExternalTaskReference`,
- * not baked into `commitment.title`. `Commitment.title` is a single string
- * with no language of its own; a title fixed at projection time would still
- * be showing a user their Arabic session's team names after they switched the
- * app to Hebrew, because nothing re-projects a fixture just because somebody
- * changed a setting. The UI layer renders the visible title from the ref's
- * team names, in whichever language is active, at read time. This module's
- * `title` is therefore a fixed, language-neutral placeholder that the domain
- * layer requires (a `Commitment` cannot have an empty title) and that no UI
- * layer is expected to show verbatim.
+ * ── The title names the match, in one language chosen at projection time ─
+ * `commitment.title` is what the device calendar, Today/Upcoming and the
+ * collision warning all print, and none of them has a team-name lookup of its
+ * own -- an earlier version wrote a fixed placeholder here on the theory that
+ * the UI would render team names at read time, and no surface ever did, so
+ * every match on every screen read "Football fixture". The title is now
+ * `fixtureTitle(...)` from `clubs.ts`: `"<home> – <away>"`, a curated club
+ * under its localised name, any other team under the provider's name.
+ *
+ * The projection runs server-side (the nightly job, or the follow PUT) with no
+ * per-request locale of its own, so the language is chosen by
+ * `titleLanguageFor`, in this order: a language the caller passes explicitly
+ * (the follow PUT forwards the app's current language), the `locale` on the
+ * user's own `users/{uid}` document, the locale of the device the user most
+ * recently registered for push, and English when none of those exists.
+ *
+ * The chosen title is stored on the ref (`ref.title`), and a title that no
+ * longer matches what this run would write counts as a change exactly like a
+ * moved kickoff: a renamed or corrected team, or a user whose phone now
+ * registers a different language, gets the commitment renamed on the next run
+ * rather than never. A closed (completed/archived) commitment is still never
+ * touched -- see branch 5.
  */
 import { randomUUID } from 'node:crypto';
 import type { Fixture, FixtureStatus, FixtureWindow } from '../../src/contracts/v1/fixtureContracts';
@@ -172,7 +183,8 @@ import { findCollisions, type CollisionWarning } from '../services/timeCollision
 import { getStorage, userDoc, type StorageTransaction } from '../storage';
 import type { UserDocument } from '../storage/userDocument';
 import { getFollowedClubs } from './followedClubs';
-import { clubById } from './clubs';
+import { clubById, fixtureTitle, type ClubLanguage } from './clubs';
+import { listDevices } from '../push/deviceRegistry';
 import { listFixturesForTeam } from './fixtureStore';
 import { getRef, listRefs, putRef, putRefCarryingForwardDetachment, refDocPath } from './externalTaskRefStore';
 
@@ -201,11 +213,24 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const FOOTBALL_FEED_CONNECTION_ID = 'football-fixtures-feed';
 
 /**
- * `Commitment.title` may never be empty (see `stateMachine.ts`'s
- * `assertInvariants`), but this module deliberately puts no team name in it
- * -- see the module header. This is what fills that requirement instead.
+ * The language a projection run titles its commitments in -- see the module
+ * header's "The title names the match" section for the order and why.
  */
-const FIXTURE_TITLE_PLACEHOLDER = 'Football fixture';
+async function titleLanguageFor(uid: string, explicit: ClubLanguage | undefined): Promise<ClubLanguage> {
+  if (explicit) return explicit;
+  const user = await getStorage().get<UserDocument>(userDoc(uid));
+  if (user?.locale === 'ar' || user?.locale === 'he' || user?.locale === 'en') return user.locale;
+  const devices = await listDevices(uid);
+  const latest = devices
+    .slice()
+    .sort((a, b) => (a.lastSeenAt < b.lastSeenAt ? 1 : a.lastSeenAt > b.lastSeenAt ? -1 : 0))[0];
+  return latest?.locale ?? 'en';
+}
+
+export interface ProjectionOptions {
+  /** The app's current language, when the caller has one (the follow PUT does). */
+  readonly language?: ClubLanguage;
+}
 
 /**
  * `cancelled` counts every drop this run made, not literally every fixture
@@ -244,6 +269,12 @@ const NON_HOLDING_STATUSES: ReadonlySet<FixtureStatus> = new Set<FixtureStatus>(
 export interface FixtureExternalTaskRef extends ExternalTaskReference {
   readonly homeTeamName: string;
   readonly awayTeamName: string;
+  /**
+   * The title this projection last wrote on the linked commitment. Optional
+   * because refs written before titles existed carry none -- and a missing
+   * title reads as "different", which is what renames those commitments.
+   */
+  readonly title?: string;
 }
 
 /**
@@ -298,9 +329,9 @@ function fingerprintOf(fixture: Fixture, now: string): ExternalTaskContentFinger
     // this is not doing dedupe work today; it is filled so a future provider
     // sharing this contract has a real value to compare against rather than
     // a hole this one left behind. Deliberately not #417's
-    // `title:`/`due:` keys: a fixture commitment's title is a fixed
-    // placeholder (see the header), so two different matches on one day would
-    // share a title-and-day dedupe hash and read as duplicates of each other.
+    // `title:`/`due:` keys: a title is a display string that changes with the
+    // user's language (see the header), and a dedupe key must not move when
+    // nothing about the match did.
     dedupeHash: fixture.contentHash,
     fingerprintedAt: now,
     dedupeKeys: [taskRefId],
@@ -312,6 +343,7 @@ function buildRef(
   fixture: Fixture,
   commitmentId: string,
   now: string,
+  title: string,
 ): FixtureExternalTaskRef {
   const taskRefId = taskRefIdOf(fixture);
   return {
@@ -347,6 +379,7 @@ function buildRef(
     updatedAt: now,
     homeTeamName: fixture.homeTeamName,
     awayTeamName: fixture.awayTeamName,
+    title,
   };
 }
 
@@ -387,7 +420,7 @@ function applyCommands(
  * need to run it against a domain state they already hold inside their own
  * transaction, not a fresh one `applyParticipantCommands` would load again.
  */
-function createAndConfirmCommands(commitmentId: string, timeSpec: TimeSpec, now: string): Command[] {
+function createAndConfirmCommands(commitmentId: string, title: string, timeSpec: TimeSpec, now: string): Command[] {
   return [
     {
       type: 'CreateDraft',
@@ -395,7 +428,7 @@ function createAndConfirmCommands(commitmentId: string, timeSpec: TimeSpec, now:
       commitment: {
         id: commitmentId,
         kind: 'task',
-        title: FIXTURE_TITLE_PLACEHOLDER,
+        title,
         // Uncategorised on purpose (#415). The catalog is work, family,
         // health, finance, social and errands; a match somebody watches
         // fits none of them honestly -- `social` would be a guess about
@@ -471,6 +504,7 @@ async function createCommitmentForFixtureGuarded(
   uid: string,
   fixture: Fixture,
   timeSpec: TimeSpec,
+  title: string,
   now: string,
 ): Promise<'created' | 'raced'> {
   const taskRefId = taskRefIdOf(fixture);
@@ -478,7 +512,7 @@ async function createCommitmentForFixtureGuarded(
     await getStorage().runTransaction(async (tx) => {
       const { user, before, stats } = await readGuardedInputs(tx, uid, taskRefId);
       const commitmentId = randomUUID();
-      const { state: candidate, events } = applyCommands(before, createAndConfirmCommands(commitmentId, timeSpec, now));
+      const { state: candidate, events } = applyCommands(before, createAndConfirmCommands(commitmentId, title, timeSpec, now));
       writeDomainDiff(tx, uid, before, candidate, events, user, now);
       recordActivityEvents(tx, uid, stats, events);
       // A full `tx.set`, not a merge: this ref is either brand new (no `ref`
@@ -488,7 +522,7 @@ async function createCommitmentForFixtureGuarded(
       // same transaction, that whatever is currently stored is not detached
       // -- so `detachedAt: null` here is not a guess, it is what this
       // transaction just verified.
-      tx.set<FixtureExternalTaskRef>(refDocPath(uid, taskRefId), buildRef(uid, fixture, commitmentId, now));
+      tx.set<FixtureExternalTaskRef>(refDocPath(uid, taskRefId), buildRef(uid, fixture, commitmentId, now, title));
     });
     return 'created';
   } catch (error) {
@@ -520,6 +554,7 @@ async function updateCommitmentForFixtureGuarded(
   fixture: Fixture,
   ref: FixtureExternalTaskRef,
   timeSpec: TimeSpec,
+  title: string,
   now: string,
 ): Promise<UpdateOutcome> {
   const taskRefId = taskRefIdOf(fixture);
@@ -553,7 +588,7 @@ async function updateCommitmentForFixtureGuarded(
       // it".
       try {
         const applied = applyCommands(before, [
-          { type: 'UpdateCommitment', commitmentId: linkedCommitmentId, now, updates: { timeSpec } },
+          { type: 'UpdateCommitment', commitmentId: linkedCommitmentId, now, updates: { title, timeSpec } },
         ]);
         candidate = applied.state;
         events = applied.events;
@@ -568,6 +603,7 @@ async function updateCommitmentForFixtureGuarded(
           fingerprint: fingerprintOf(fixture, now),
           homeTeamName: fixture.homeTeamName,
           awayTeamName: fixture.awayTeamName,
+          title,
           lastSyncedAt: now,
           updatedAt: now,
         });
@@ -588,11 +624,11 @@ async function updateCommitmentForFixtureGuarded(
           // never visible here without its `detachedAt` having already been
           // visible to `readGuardedInputs` first.
           const commitmentId = randomUUID();
-          const applied = applyCommands(candidate, createAndConfirmCommands(commitmentId, timeSpec, now));
+          const applied = applyCommands(candidate, createAndConfirmCommands(commitmentId, title, timeSpec, now));
           candidate = applied.state;
           events = applied.events;
           outcome = 'recreated';
-          writeRef = (t) => t.set<FixtureExternalTaskRef>(refDocPath(uid, taskRefId), buildRef(uid, fixture, commitmentId, now));
+          writeRef = (t) => t.set<FixtureExternalTaskRef>(refDocPath(uid, taskRefId), buildRef(uid, fixture, commitmentId, now, title));
         } else if (linked?.status === 'completed' || linked?.status === 'archived') {
           // The user already dealt with this match. Create nothing, touch
           // nothing -- the product has no business handing it back as new
@@ -638,9 +674,11 @@ async function projectOneFixture(
   uid: string,
   fixture: Fixture,
   now: string,
+  language: ClubLanguage,
   tally: ProjectionTally,
 ): Promise<void> {
   const taskRefId = taskRefIdOf(fixture);
+  const title = fixtureTitle(fixture, language);
   const ref = await getRef<FixtureExternalTaskRef>(uid, taskRefId);
 
   // 1. detachedAt FIRST. A dismissed match whose kickoff later moves (or is
@@ -691,13 +729,14 @@ async function projectOneFixture(
     return;
   }
 
-  // 3. Nothing about the fixture changed since the last sync -- see
+  // 3. Nothing about the fixture changed since the last sync, and the title
+  // this run would write is the one already written -- see
   // fixtureStore.ts's header for why the nightly job rewrites every fixture
   // it fetches whether or not it changed, and why comparing the hash here
   // (rather than trusting "it was written") is what keeps a quiet night
   // quiet for the user too: no reminder gets rescheduled for a match that
   // didn't move.
-  if (ref && ref.fingerprint.contentHash === fixture.contentHash) {
+  if (ref && ref.fingerprint.contentHash === fixture.contentHash && ref.title === title) {
     tally.skipped += 1;
     return;
   }
@@ -708,7 +747,7 @@ async function projectOneFixture(
   // `createCommitmentForFixtureGuarded` re-reads the ref transactionally
   // before deciding anything -- see the module header.
   if (!ref || !ref.linkedCommitmentId) {
-    const outcome = await createCommitmentForFixtureGuarded(uid, fixture, timeSpec, now);
+    const outcome = await createCommitmentForFixtureGuarded(uid, fixture, timeSpec, title, now);
     tally[outcome === 'raced' ? 'skipped' : 'created'] += 1;
     return;
   }
@@ -718,7 +757,7 @@ async function projectOneFixture(
   // re-reads the ref transactionally before deciding anything -- see the
   // module header -- and folds the move-vs-recreate-vs-skip decision
   // `task-8-report.md`'s "Fix round 3" built into that same transaction.
-  const outcome = await updateCommitmentForFixtureGuarded(uid, fixture, ref, timeSpec, now);
+  const outcome = await updateCommitmentForFixtureGuarded(uid, fixture, ref, timeSpec, title, now);
   switch (outcome) {
     case 'updated':
       tally.updated += 1;
@@ -742,13 +781,18 @@ async function projectOneFixture(
  * for this run -- see #413 in the brief for why a server-side test pins its
  * instants explicitly rather than trusting a runtime default.
  */
-export async function projectFixturesForUser(uid: string, now: string): Promise<ProjectionTally> {
+export async function projectFixturesForUser(
+  uid: string,
+  now: string,
+  options: ProjectionOptions = {},
+): Promise<ProjectionTally> {
   const tally: ProjectionTally = { created: 0, updated: 0, cancelled: 0, skipped: 0 };
 
   const clubIds = await getFollowedClubs(uid);
   if (clubIds.length === 0) return tally;
 
   const window = projectionWindow(now);
+  const language = await titleLanguageFor(uid, options.language);
 
   // Merged across every followed club, keyed by the match's own external id.
   // A match between two clubs this user follows both sides of (an "el
@@ -786,7 +830,7 @@ export async function projectFixturesForUser(uid: string, now: string): Promise<
   });
 
   for (const fixture of fixtures) {
-    await projectOneFixture(uid, fixture, now, tally);
+    await projectOneFixture(uid, fixture, now, language, tally);
   }
 
   return tally;

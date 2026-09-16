@@ -1,6 +1,8 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../lib/auth/mobileAuth';
 import { mobileError } from '../../../../../lib/services/mobile/response';
-import { listClubs } from '../../../../../lib/football/clubs';
+import { listClubs, type ClubLanguage } from '../../../../../lib/football/clubs';
+
+const TITLE_LANGUAGES: readonly ClubLanguage[] = ['ar', 'he', 'en'];
 import { getFollowedClubs, setFollowedClubs } from '../../../../../lib/football/followedClubs';
 import { listActiveFixtureCommitments, projectFixturesForUser } from '../../../../../lib/football/projectFixtures';
 
@@ -72,7 +74,7 @@ export async function PUT(request: Request) {
     return mobileAuthErrorResponse(error);
   }
 
-  let body: { clubIds?: unknown };
+  let body: { clubIds?: unknown; locale?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -82,6 +84,13 @@ export async function PUT(request: Request) {
   if (!Array.isArray(body.clubIds) || !body.clubIds.every((id) => typeof id === 'string')) {
     return mobileError('clubIds must be an array of strings');
   }
+  // Optional: the app's current language, used to title the matches this
+  // save projects (see `projectFixtures.ts`'s header). Absent means "use
+  // what the account already says"; anything else is refused, not guessed.
+  if (body.locale !== undefined && !TITLE_LANGUAGES.includes(body.locale as ClubLanguage)) {
+    return mobileError(`locale must be one of ${TITLE_LANGUAGES.join(', ')}`);
+  }
+  const language = body.locale as ClubLanguage | undefined;
 
   const now = new Date().toISOString();
   let followedClubIds: readonly string[];
@@ -95,7 +104,7 @@ export async function PUT(request: Request) {
     return mobileError(error instanceof Error ? error.message : 'could not save followed clubs', 400);
   }
 
-  await projectFixturesForUser(user.uid, now);
+  await projectFixturesForUser(user.uid, now, { language });
   const fixtures = await listActiveFixtureCommitments(user.uid);
   return Response.json({ success: true, clubs: listClubs(), followedClubIds, fixtures });
 }

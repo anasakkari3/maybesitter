@@ -43,7 +43,7 @@ function fixtureCommitment(overrides: Partial<Commitment> = {}): Commitment {
   return {
     id: 'fixture-cmt-1',
     kind: 'task',
-    title: 'Football fixture',
+    title: 'FC Barcelona – Real Madrid CF',
     description: null,
     person: null,
     status: 'active',

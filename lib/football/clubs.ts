@@ -156,3 +156,42 @@ export function listClubs(): readonly Club[] {
 export function clubById(clubId: string): Club | null {
   return CLUBS_BY_ID.get(clubId) ?? null;
 }
+
+const CLUBS_BY_PROVIDER_TEAM_ID: ReadonlyMap<string, Club> = new Map(CLUBS.map((club) => [club.providerTeamId, club]));
+
+/** `null` when the provider's team is not one of the curated clubs -- most opponents are not. */
+export function clubByProviderTeamId(providerTeamId: string): Club | null {
+  return CLUBS_BY_PROVIDER_TEAM_ID.get(providerTeamId) ?? null;
+}
+
+/** The two sides of a match, as a fixture (or a ref copied from one) carries them. */
+export interface FixtureTeams {
+  readonly homeTeamId?: string | null;
+  readonly awayTeamId?: string | null;
+  readonly homeTeamName: string;
+  readonly awayTeamName: string;
+}
+
+function teamName(teamId: string | null | undefined, providerName: string, language: ClubLanguage): string {
+  const club = teamId ? clubByProviderTeamId(teamId) : null;
+  return club ? club.names[language] : providerName;
+}
+
+/**
+ * What a match is called on every surface: `"<home> – <away>"`.
+ *
+ * A curated club is named the way the chosen language names it (the Arabic
+ * and Hebrew names in `footballClubs.json` were checked against sports
+ * coverage in those languages); any other team keeps the provider's own name,
+ * because a transliteration invented here would be a guess. Home first, the
+ * way a fixture list prints it in all three languages.
+ *
+ * Used by the server projection to write `Commitment.title` and by the mobile
+ * settings screen for its own rows, so the two cannot name a match
+ * differently.
+ */
+export function fixtureTitle(teams: FixtureTeams, language: ClubLanguage): string {
+  return `${teamName(teams.homeTeamId, teams.homeTeamName, language)} – ${teamName(teams.awayTeamId, teams.awayTeamName, language)}`;
+}
+
+export type { ClubLanguage };

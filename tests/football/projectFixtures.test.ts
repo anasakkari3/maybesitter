@@ -34,6 +34,7 @@ import { setFollowedClubs } from '../../lib/football/followedClubs.ts';
 import { projectFixturesForUser, dismissFixtureCommitment } from '../../lib/football/projectFixtures.ts';
 import { getRef, putRef, putRefCarryingForwardDetachment } from '../../lib/football/externalTaskRefStore.ts';
 import { applyParticipantCommands, persistParticipantState, readParticipantState } from '../../lib/services/mobile/participantState.ts';
+import { upsertDevice } from '../../lib/push/deviceRegistry.ts';
 import { fixtureContentHash, FIXTURE_CONTRACT_VERSION, FIXTURE_SCHEMA_VERSION, type Fixture, type FixtureCore } from '../../src/contracts/v1/fixtureContracts.ts';
 
 const NOW = '2026-10-01T09:00:00.000Z';
@@ -526,4 +527,56 @@ test('a projected fixture commitment reaches listUpcomingRanked -- the list the 
   // (the orphan computation) uses to decide "still eligible for a calendar
   // entry" -- a fixture commitment must be in it too, not just in `items`.
   assert.ok(upcoming.calendarEligibleIds.has(created.id));
+});
+
+// ── Final review C1: every surface showed "Football fixture" ────────────
+//
+// The device calendar, Today/Upcoming and the collision warning all print
+// `commitment.title`. A title that names no team is a calendar full of
+// identical rows nobody can tell apart, so the projection writes the match
+// itself into the title, in the user's language where the club is curated.
+
+test('a projected match is titled with its two teams, not a placeholder', async () => {
+  await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+  await projectFixturesForUser('u1', NOW);
+  const [c] = await commitments();
+  // No stored language for u1: English, from the curated club list.
+  assert.equal(c.title, 'FC Barcelona – Real Madrid CF');
+});
+
+test('the title uses the curated name in the language the user\'s phone registered', async () => {
+  await upsertDevice('u1', {
+    installationId: '9b2f6a1e-3c4d-4e5f-8a6b-7c8d9e0f1a2b', fcmToken: 'x'.repeat(40), platform: 'ios',
+    appVersion: '1.0.0', locale: 'ar', timezone: 'Asia/Jerusalem', pushPermission: 'granted',
+  }, NOW);
+  await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+  await projectFixturesForUser('u1', NOW);
+  const [c] = await commitments();
+  assert.equal(c.title, 'برشلونة – ريال مدريد');
+});
+
+test('an uncurated opponent keeps the provider name, and a corrected name renames the commitment', async () => {
+  await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z', { awayTeamId: '999', awayTeamName: 'Girona FC' })]);
+  await projectFixturesForUser('u1', NOW);
+  assert.equal((await commitments())[0].title, 'FC Barcelona – Girona FC');
+
+  await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z', { awayTeamId: '999', awayTeamName: 'Girona Futbol Club' })]);
+  const tally = await projectFixturesForUser('u1', NOW);
+  assert.equal(tally.updated, 1);
+  const all = await commitments();
+  assert.equal(all.length, 1);
+  assert.equal(all[0].title, 'FC Barcelona – Girona Futbol Club');
+});
+
+test('a match already projected is renamed when the account\'s language changes, with nothing else moving', async () => {
+  await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+  await projectFixturesForUser('u1', NOW);
+  assert.equal((await commitments())[0].title, 'FC Barcelona – Real Madrid CF');
+  // The fixture's content hash is unchanged -- only the language is new.
+  const tally = await projectFixturesForUser('u1', NOW, { language: 'he' });
+  assert.equal(tally.updated, 1);
+  const all = await commitments();
+  assert.equal(all.length, 1);
+  assert.equal(all[0].title, 'ברצלונה – ריאל מדריד');
+  assert.equal(all[0].timeSpec.dueAt, '2026-10-25T19:00:00.000Z');
 });

@@ -35,7 +35,7 @@ import { resetStorageForTests, setStorageForTests } from '../../lib/storage/inde
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
 import { upsertFixtures } from '../../lib/football/fixtureStore.ts';
 import { listRefs } from '../../lib/football/externalTaskRefStore.ts';
-import { applyParticipantCommand } from '../../lib/services/mobile/participantState.ts';
+import { applyParticipantCommand, readParticipantState } from '../../lib/services/mobile/participantState.ts';
 import {
   fixtureContentHash,
   FIXTURE_CONTRACT_VERSION,
@@ -246,6 +246,30 @@ test('an unknown commitment id is a 404, not a 500', async () => {
   try {
     const res = await DELETE(dismissRequest(), dismissParams('no-such-commitment'));
     assert.equal(res.status, 404);
+  } finally {
+    teardown();
+  }
+});
+
+test('a follow saved from a Hebrew app titles its matches in Hebrew', async () => {
+  const teardown = setup();
+  try {
+    await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+    const response = await PUT(authedRequest('PUT', { clubIds: ['barcelona'], locale: 'he' }));
+    assert.equal(response.status, 200);
+    const state = await readParticipantState(USER);
+    const titles = Object.values(state.commitments).map((c) => c.title);
+    assert.deepEqual(titles, ['ברצלונה – ריאל מדריד']);
+  } finally {
+    teardown();
+  }
+});
+
+test('an unsupported locale on a follow is a 400', async () => {
+  const teardown = setup();
+  try {
+    const response = await PUT(authedRequest('PUT', { clubIds: ['barcelona'], locale: 'fr' }));
+    assert.equal(response.status, 400);
   } finally {
     teardown();
   }
