@@ -32,7 +32,7 @@ import { resetStorageForTests, setStorageForTests } from '../../lib/storage/inde
 import { upsertFixtures } from '../../lib/football/fixtureStore.ts';
 import { setFollowedClubs } from '../../lib/football/followedClubs.ts';
 import { projectFixturesForUser, dismissFixtureCommitment } from '../../lib/football/projectFixtures.ts';
-import { readParticipantState } from '../../lib/services/mobile/participantState.ts';
+import { applyParticipantCommands, persistParticipantState, readParticipantState } from '../../lib/services/mobile/participantState.ts';
 import { fixtureContentHash, FIXTURE_CONTRACT_VERSION, FIXTURE_SCHEMA_VERSION, type Fixture, type FixtureCore } from '../../src/contracts/v1/fixtureContracts.ts';
 
 const NOW = '2026-10-01T09:00:00.000Z';
@@ -221,6 +221,59 @@ test('a postponed match that is later rescheduled creates a new commitment', asy
   assert.equal(active.timeSpec.dueAt, '2026-11-02T20:00:00.000Z');
   const dropped = all.find((c) => c.status === 'dropped');
   assert.ok(dropped, 'the postponed commitment is still on record, still dropped');
+});
+
+test('a completed fixture commitment is not resurrected by a later content change', async () => {
+  // Round 2's fallback caught InvalidStateTransitionError and always
+  // recreated -- but UpdateCommitment's allowed-status list excludes
+  // completed and archived too, not just dropped, and all three throw the
+  // same error. A user who marks a match's commitment done (nothing about
+  // this feature stops them -- Complete is an ordinary domain command) must
+  // not get it handed back as new, active work because the provider
+  // corrected an unrelated detail afterwards and the contentHash moved.
+  await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+  await projectFixturesForUser('u1', NOW);
+  const [created] = await commitments();
+  await applyParticipantCommands('u1', [{ type: 'Complete', commitmentId: created.id, now: NOW }]);
+  assert.equal((await commitments())[0].status, 'completed', 'sanity: the commitment really is completed');
+
+  // Same match, corrected kickoff -- changes the contentHash without going
+  // through cancelled/postponed/finished, which is what forces this fixture
+  // into the update branch (and its catch) rather than the status branch.
+  await upsertFixtures([fixture('1', '2026-10-25T20:00:00.000Z')]);
+  const tally = await projectFixturesForUser('u1', NOW);
+  assert.deepEqual(tally, { created: 0, updated: 0, cancelled: 0, skipped: 1 });
+
+  const all = await commitments();
+  assert.equal(all.length, 1, 'no second commitment was created');
+  assert.equal(all[0].status, 'completed');
+  assert.equal(all[0].timeSpec.dueAt, '2026-10-25T19:00:00.000Z', 'the completed commitment was not touched either');
+});
+
+test('an archived fixture commitment is not resurrected by a later content change', async () => {
+  // `archived` has no producing command in the domain today (grep
+  // src/domain/stateMachine.ts: it is checked in several places but no
+  // transition ever sets it) -- so unlike `completed` above, this simulates
+  // it directly through participantState's own state-writing path rather
+  // than pretending a command exists that doesn't. The point is the same:
+  // this status is excluded from UpdateCommitment's allowed list exactly
+  // like `dropped` and `completed` are, and must get the same "do nothing"
+  // treatment, not "recreate it" or "surface an error".
+  await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+  await projectFixturesForUser('u1', NOW);
+  const [created] = await commitments();
+  const state = await readParticipantState('u1');
+  state.commitments[created.id] = { ...state.commitments[created.id], status: 'archived' };
+  await persistParticipantState('u1', state);
+  assert.equal((await commitments())[0].status, 'archived', 'sanity: the forced state took');
+
+  await upsertFixtures([fixture('1', '2026-10-25T20:00:00.000Z')]);
+  const tally = await projectFixturesForUser('u1', NOW);
+  assert.deepEqual(tally, { created: 0, updated: 0, cancelled: 0, skipped: 1 });
+
+  const all = await commitments();
+  assert.equal(all.length, 1, 'no second commitment was created');
+  assert.equal(all[0].status, 'archived');
 });
 
 test('a dismissed match stays dismissed through postponement and reschedule', async () => {

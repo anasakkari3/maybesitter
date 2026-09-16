@@ -65,6 +65,21 @@
  * `tests/football/projectFixtures.test.ts`'s `'a postponed match that is
  * later rescheduled creates a new commitment'`.
  *
+ * `ensureCommitmentStatus` excludes three statuses from `UpdateCommitment`,
+ * not one, and all three throw the identical `InvalidStateTransitionError`:
+ * `dropped` (the postponement case above), `completed` and `archived`. The
+ * first fix round's catch treated every instance of that error as "recreate
+ * it," which meant a fixture whose commitment the *user* had already
+ * completed -- unrelated to any postponement -- would get a second, active
+ * commitment the moment the provider corrected an unrelated detail (a
+ * kickoff, a venue) and changed the `contentHash`. Branch 5's catch now
+ * reads the linked commitment's actual status before deciding: only
+ * `dropped` creates a replacement; `completed`/`archived` create nothing and
+ * touch nothing; anything else re-throws rather than guessing. See
+ * `tests/football/projectFixtures.test.ts`'s `'a completed fixture
+ * commitment is not resurrected by a later content change'` and its
+ * `archived` counterpart.
+ *
  * ── Why the commitment title carries no team name ─────────────────────────
  * `homeTeamName` / `awayTeamName` are stored on the `ExternalTaskReference`,
  * not baked into `commitment.title`. `Commitment.title` is a single string
@@ -350,22 +365,61 @@ async function projectOneFixture(
   // 5. A ref already links a commitment and the hash changed: the kickoff
   // (or some other core fact) moved. Move the same commitment rather than
   // creating a second one for the same match -- *unless* the commitment the
-  // ref points at is no longer updatable, which happens when a postponement
-  // dropped it (branch 2, above) and the match has now come back with a new
-  // kickoff. The domain layer refuses `UpdateCommitment` on a dropped
-  // commitment on purpose (`stateMachine.ts`'s `ensureCommitmentStatus`); a
-  // dropped commitment is a closed chapter, and what comes back after a
-  // postponement is a fresh one, not a reopening of the old one. See the
-  // module header and `createCommitmentForFixture`.
+  // ref points at is no longer updatable. `UpdateCommitment`'s allowed-status
+  // list (`stateMachine.ts`'s `ensureCommitmentStatus`) excludes three
+  // statuses, not one: `dropped`, `completed` and `archived` all throw the
+  // identical `InvalidStateTransitionError`, and the three mean completely
+  // different things here. `dropped` is the postponement return journey --
+  // branch 2 dropped it, the match is back, a fresh commitment is right (see
+  // the module header and `createCommitmentForFixture`). `completed` means
+  // the user already dealt with this match; `archived` similarly. Neither is
+  // "make a new one" -- the product overruling a user's own completion,
+  // because a kickoff got corrected by a minute after the final whistle,
+  // would be the exact resurrection failure `detachedAt`-first exists to
+  // prevent, arriving through a door that doesn't check *why* the commitment
+  // was unwritable. So the catch below reads the commitment's actual current
+  // status before deciding anything, rather than treating every
+  // `InvalidStateTransitionError` here as "recreate it".
   try {
     await applyParticipantCommands(uid, [
       { type: 'UpdateCommitment', commitmentId: ref.linkedCommitmentId, now, updates: { timeSpec } },
     ]);
   } catch (error) {
     if (!(error instanceof InvalidStateTransitionError)) throw error;
-    await createCommitmentForFixture(uid, fixture, timeSpec, now);
-    tally.created += 1;
-    return;
+
+    const currentState = await readParticipantState(uid);
+    const linked = currentState.commitments[ref.linkedCommitmentId];
+
+    if (linked?.status === 'dropped') {
+      // The return journey: a postponement dropped this commitment earlier
+      // and the match has now come back with a new kickoff. See above.
+      await createCommitmentForFixture(uid, fixture, timeSpec, now);
+      tally.created += 1;
+      return;
+    }
+
+    if (linked?.status === 'completed' || linked?.status === 'archived') {
+      // The user already dealt with this match. Create nothing, touch
+      // nothing -- the product has no business handing it back as new work
+      // because the provider corrected a detail after the fact. Counted as
+      // `skipped`, not `cancelled`/dropped-count: nothing was dropped (the
+      // commitment the user closed stays exactly as they left it) and
+      // nothing was created, which is what every other no-op branch above
+      // means by `skipped`.
+      tally.skipped += 1;
+      return;
+    }
+
+    // An `InvalidStateTransitionError` this branch did not anticipate --
+    // `linked` missing entirely despite the ref naming it, or some future
+    // status `UpdateCommitment` excludes that isn't one of the three above.
+    // Re-throw rather than guess: the lesson of the round that added this
+    // catch is that an uncaught throw takes the whole run down, and the
+    // lesson of *this* round is that a catch which assumes it knows why is
+    // how a run stays up while doing the wrong thing. Absorbing an
+    // unanticipated case into "make a new one" (or into "do nothing") would
+    // be exactly that -- so this does neither, and lets it surface instead.
+    throw error;
   }
   await putRef<FixtureExternalTaskRef>(uid, {
     ...ref,
