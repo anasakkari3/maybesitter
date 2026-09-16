@@ -124,11 +124,37 @@ export function fixedEndFor(commitment: Commitment, start: Instant): Instant {
  */
 export function collisionIntervalOf(
   commitment: Commitment,
-): { readonly dueAt: string; readonly endAt: string | null } | null {
+): CollisionCandidate | null {
   const { kind, dueAt, endAt, allDay } = commitment.timeSpec;
   if (!dueAt || allDay) return null;
   if (kind !== 'scheduled_event' && kind !== 'due_by') return null;
-  return { dueAt, endAt };
+  return { dueAt, endAt, kind };
+}
+
+/**
+ * What `findCollisions` compares: an interval, and whether it is a fixed event.
+ * `kind` left out means a fixed event -- a caller handing over a bare interval
+ * (a projected match) is describing something that happens at that time.
+ */
+export interface CollisionCandidate {
+  readonly dueAt: string;
+  readonly endAt: string | null;
+  readonly kind?: 'scheduled_event' | 'due_by';
+}
+
+/**
+ * A clash needs a fixed event on at least one side.
+ *
+ * Capture writes `due_by` for "at 8pm" and "by 5pm" alike, so the domain
+ * cannot tell an appointment from a deadline. Two deadlines due at the same
+ * hour ("pay the rent by 5pm Friday", "submit the report by 5pm Friday") are
+ * an ordinary Friday, and warning about them would reach every user, football
+ * or not, with a warning the owner never asked for. A `due_by` over a
+ * `scheduled_event` -- dinner at 20:00 during a 19:00 match, which is every
+ * projected match -- still warns, which is the case that was asked for.
+ */
+function eitherIsFixed(a: CollisionCandidate['kind'], b: CollisionCandidate['kind']): boolean {
+  return (a ?? 'scheduled_event') === 'scheduled_event' || (b ?? 'scheduled_event') === 'scheduled_event';
 }
 
 /**
@@ -162,7 +188,7 @@ export function collisionsForCommitment(
  * dismiss without reading.
  */
 export function findCollisions(
-  candidate: { readonly dueAt: string; readonly endAt: string | null },
+  candidate: CollisionCandidate,
   against: readonly Commitment[],
 ): readonly CollisionWarning[] {
   const candidateInterval: TimeInterval = {
@@ -174,7 +200,7 @@ export function findCollisions(
     .filter((commitment) => COLLIDABLE_STATUSES.has(commitment.status))
     .flatMap((commitment): CollisionWarning[] => {
       const timed = collisionIntervalOf(commitment);
-      if (!timed) return [];
+      if (!timed || !eitherIsFixed(candidate.kind, timed.kind)) return [];
       const interval: TimeInterval = { startsAt: timed.dueAt, endsAt: fixedEndFor(commitment, timed.dueAt) };
       if (!intervalsOverlap(candidateInterval, interval)) return [];
       return [{

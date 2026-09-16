@@ -115,3 +115,28 @@ test('moving a commitment onto the match through the edit route returns the warn
   const body = await response.json() as { collisions?: { title: string }[] };
   assert.deepEqual(body.collisions?.map((c) => c.title), ['FC Barcelona – Real Madrid CF']);
 });
+
+// ── Residual R3: two deadlines at the same time are not a clash ─────────
+//
+// Capture cannot tell "at 5pm" from "by 5pm" -- both are `due_by`. Two
+// deadlines due at the same hour are an ordinary Friday, not a double
+// booking, so a warning needs at least one real fixed event on one side.
+test('two captured deadlines at the same time do not warn about each other', async () => {
+  const capture = async (text: string) => {
+    const proposal = await proposeMobileCapture(
+      { text, timezone: 'UTC', referenceTime: '2026-10-29T08:00:00.000Z' },
+      { participantId: USER },
+    );
+    return confirmMobileCapture(
+      { proposalId: proposal.proposalId, itemIds: [proposal.items[0]!.itemId] },
+      { participantId: USER },
+    );
+  };
+  const first = await capture('Pay the rent tomorrow at 5pm');
+  const second = await capture('Submit the report tomorrow at 5pm');
+  assert.equal(first.success && second.success, true);
+  const state = await readParticipantState(USER);
+  const dues = [first, second].map((r) => state.commitments[r.persisted[0]!.commitmentId]!.timeSpec);
+  assert.deepEqual(dues.map((t) => [t.kind, t.dueAt]), [['due_by', '2026-10-30T17:00:00.000Z'], ['due_by', '2026-10-30T17:00:00.000Z']]);
+  assert.deepEqual(second.collisions, []);
+});

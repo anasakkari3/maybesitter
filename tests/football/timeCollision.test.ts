@@ -95,3 +95,14 @@ test('the warning names what was collided with', () => {
   assert.equal(warning.startsAt, '2026-10-25T19:00:00.000Z');
   assert.equal(warning.endsAt, '2026-10-25T21:00:00.000Z');
 });
+
+test('two timed deadlines at the same moment do not collide; a deadline over a fixed event does', () => {
+  const rent = commitmentAt('rent', '2026-10-30T17:00:00.000Z', null);
+  rent.timeSpec = { ...rent.timeSpec, kind: 'due_by' };
+  const report = commitmentAt('report', '2026-10-30T17:00:00.000Z', null);
+  report.timeSpec = { ...report.timeSpec, kind: 'due_by' };
+  assert.deepEqual(collisionsForCommitment(report, [rent, report]), []);
+  const dinner = commitmentAt('dinner', '2026-10-25T20:00:00.000Z', null);
+  dinner.timeSpec = { ...dinner.timeSpec, kind: 'due_by' };
+  assert.deepEqual(collisionsForCommitment(dinner, [dinner, MATCH]).map((w) => w.title), ['match']);
+});
