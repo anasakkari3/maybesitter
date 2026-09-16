@@ -14,6 +14,7 @@ import { PLANNING_SCHEMA_VERSION } from '../../src/contracts/v1/planningContract
 import { RECOMMENDATION_SCHEMA_VERSION } from '../../src/contracts/v1/recommendationContracts.ts';
 import { SAFETY_SCHEMA_VERSION } from '../../src/contracts/v1/safetyContracts.ts';
 import { COACHING_SCHEMA_VERSION } from '../../src/contracts/v1/coachingContracts.ts';
+import { buildHealthConnectReadinessSnapshot } from '../../lib/integrations/readiness/healthConnect.ts';
 import {
   normalizeMicrosoftTask,
   normalizeNotionTask,
@@ -265,6 +266,45 @@ test('provider adapters cannot introduce a private planner or memory store by na
     .map((file) => relative(repoRoot, file));
 
   assert.deepEqual(duplicates, []);
+});
+
+test('Health Connect native readings normalize through the provider-independent readiness contract', () => {
+  const snapshot = buildHealthConnectReadinessSnapshot({
+    scopeId: 'scope-a',
+    computedAt: '2026-09-16T09:00:00Z',
+    windowStart: '2026-09-15T09:00:00Z',
+    windowEnd: '2026-09-16T09:00:00Z',
+    sleep: {
+      observedAt: '2026-09-16T06:30:00Z',
+      sleepStart: '2026-09-15T23:15:00Z',
+      sleepEnd: '2026-09-16T06:15:00Z',
+      totalSleepMinutes: null,
+    },
+    heart: {
+      observedAt: '2026-09-16T06:15:00Z',
+      restingHeartRate: 61,
+      hrvMilliseconds: 40,
+    },
+    steps: {
+      observedAt: '2026-09-15T21:00:00Z',
+      count: 7250,
+    },
+  });
+
+  assert.equal(snapshot.schemaVersion, 'readiness-v1');
+  assert.deepEqual(snapshot.sourceKinds, ['health_connect']);
+  assert.equal(snapshot.score, 0.875);
+  assert.equal(snapshot.band, 'high');
+  assert.equal(snapshot.normalizedSignals.sleepDurationMinutes, 420);
+  assert.equal(snapshot.normalizedSignals.restingHeartRate, 61);
+  assert.equal(snapshot.normalizedSignals.hrv, 40);
+  assert.equal(snapshot.normalizedSignals.recentActivityLoad, 0.725);
+  assert.equal(snapshot.subjective, null);
+  assert.deepEqual(snapshot.missingSourceKinds, []);
+  assert.ok(snapshot.signals.every((signal) => signal.source.kind === 'health_connect'));
+  assert.ok(snapshot.signals.every((signal) => signal.source.provider === undefined));
+  assert.equal(snapshot.signals.some((signal) => signal.metric === 'steps'), true);
+  assert.equal(JSON.stringify(snapshot).includes('HealthConnectPlanner'), false);
 });
 
 test('external task provider payloads normalize to one task reference contract', () => {
