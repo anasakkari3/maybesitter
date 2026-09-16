@@ -75,7 +75,11 @@ test('every mobile route file exists and is enumerated', () => {
   // and `GET|PUT /api/mobile/settings/reminders`, on top of main's thirty-five.
   // The number is a census, not a guarantee: it is here so that adding a route
   // is a decision somebody takes rather than a file that appears.
-  assert.equal(files.length, 38, `found:\n${files.join('\n')}`);
+  // Thirty-nine after #415: `GET|PUT /api/mobile/settings/categories`. It is a
+  // display preference, but it is also what the extraction prompt is built from
+  // — an unauthenticated write would choose which categories somebody else's
+  // captures are sorted into.
+  assert.equal(files.length, 39, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {

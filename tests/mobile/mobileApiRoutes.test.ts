@@ -145,6 +145,8 @@ function uncertainExtraction(overrides: Partial<ExtractionResult> = {}): Extract
     timeEvidence: 'hhmm',
     priority: { level: 'normal', source: 'default', pressureAllowed: false, pressureImplied: false },
     flexibility: 'movable',
+    category: null,
+    categoryConfidence: 0,
     confidence: { overall: 0.5, type: 0.8, action: 0.8, time: 0.8, priority: 0.8 },
     missingFields: [],
     ambiguityFlags: [],

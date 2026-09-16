@@ -90,6 +90,9 @@ export type Screen =
   // Settings → Calendar (UC-3.1, #185). Where confirmed commitments are
   // written, which calendar on this device, and the way to take them back.
   | 'calendarSettings'
+  // Settings → Categories (#415). Which parts of life this account uses, and
+  // whether the lists carry a filter bar.
+  | 'categorySettings'
   | 'about';
 
 export type CapState = 'idle' | 'listening' | 'transcript' | 'typing' | 'processing' | 'nothing';

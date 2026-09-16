@@ -34,6 +34,13 @@ export interface CommitmentPatch extends TimePatch {
   title?: string;
   description?: string | null;
   priority?: 'high' | 'normal' | 'low';
+  /**
+   * Which part of life this belongs to (#415).
+   *
+   * Absent and `null` differ the way they do for the time fields: absent means
+   * the edit did not mention the category, `null` means the user cleared it.
+   */
+  category?: NonNullable<Commitment['category']> | null;
 }
 
 /**

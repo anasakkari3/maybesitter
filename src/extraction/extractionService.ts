@@ -82,6 +82,11 @@ function safeNegativeResult(rawText: string, type: 'unknown' | 'informational_co
     timeEvidence: 'none',
     priority: { level: 'normal', source: 'default', pressureAllowed: false, pressureImplied: false },
     flexibility: 'movable',
+    // This result exists because the text was refused — injection, or a past
+    // event with no action. There is nothing to file and nothing was read
+    // (#415).
+    category: null,
+    categoryConfidence: 0,
     confidence: { overall: 0.99, type: 0.99, action: 0.8, time: 0.9, priority: 0.92 },
     missingFields: ['action'],
     ambiguityFlags: type === 'informational_context' ? ['informational_without_action'] : ['vague_action'],

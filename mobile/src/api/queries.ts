@@ -18,6 +18,8 @@ import {
   type CommitmentPatch,
 } from './endpoints/commitments';
 import { getWeeklySummary, listActivity } from './endpoints/activity';
+import { getCategoryPreferences, putCategoryPreferences } from './endpoints/categories';
+import type { CategoryPreferences } from './schemas/categories';
 import { getNextStep, recordNextStepDecision } from './endpoints/nextStep';
 import { getTrust, updateTrust } from './endpoints/trust';
 import { flagAlphaFeedback, getFeedbackHistory, revokeFeedback } from './endpoints/feedback';
@@ -68,6 +70,7 @@ export const queryKeys = {
   activity: (uid: string) => ['user', uid, 'activity'] as const,
   activitySummary: (uid: string, weekStart: string) => ['user', uid, 'activitySummary', weekStart] as const,
   reminderSettings: (uid: string) => ['user', uid, 'reminderSettings'] as const,
+  categoryPreferences: (uid: string) => ['user', uid, 'categoryPreferences'] as const,
 };
 
 /** The signed-in uid, or the one value that can never collide with one. */
@@ -124,6 +127,25 @@ export function useToday() {
   return useQuery({
     queryKey: queryKeys.today(uid, timezone),
     queryFn: () => listToday({ timezone }),
+    enabled: uid !== 'signed-out',
+  });
+}
+
+/**
+ * Which categories this account uses, and whether its lists are split (#415).
+ *
+ * No `retry` override and no error surface: a screen calls this to decide
+ * whether to draw a filter bar, and a preference that will not load means the
+ * ordinary one-list app rather than an error the user has to dismiss. The
+ * caller reads `data?.categoryPreferences` and falls back to "off", so a
+ * failure and a user who never turned it on look the same — which is correct,
+ * because they *are* the same to the person holding the phone.
+ */
+export function useCategoryPreferences() {
+  const uid = useUid();
+  return useQuery({
+    queryKey: queryKeys.categoryPreferences(uid),
+    queryFn: () => getCategoryPreferences(),
     enabled: uid !== 'signed-out',
   });
 }
@@ -560,6 +582,26 @@ export function useSetCalendarWriteTarget() {
     mutationFn: (writeTarget: CalendarWriteTarget) => putCalendarWriteTarget(writeTarget),
     onSettled: () => {
       void client.invalidateQueries({ queryKey: ['user', uid, 'calendarSettings'] });
+      void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
+    },
+  });
+}
+
+/**
+ * Saving the category preference (#415).
+ *
+ * The lists are invalidated as well as the preference, because turning the
+ * split on changes what Today draws and turning a category off changes which
+ * chips it can draw. Invalidating only the preference would leave a filter bar
+ * offering a category the next capture will no longer produce.
+ */
+export function useSetCategoryPreferences() {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn: (preferences: CategoryPreferences) => putCategoryPreferences(preferences),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.categoryPreferences(uid) });
       void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
     },
   });
