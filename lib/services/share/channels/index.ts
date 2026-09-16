@@ -25,6 +25,7 @@
 import './email';
 import './image';
 import './plainText';
+import './whatsapp';
 
 /**
  * The built-ins, by value.
@@ -35,3 +36,4 @@ import './plainText';
 export { emailPreprocessor } from './email';
 export { imagePreprocessor } from './image';
 export { plainTextPreprocessor } from './plainText';
+export { whatsappPreprocessor } from './whatsapp';
