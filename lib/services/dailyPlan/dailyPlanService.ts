@@ -79,6 +79,7 @@ import { loadDomainState } from '../mobile/participantState';
 import { readRoutineProfile } from '../mobile/routineProfileService';
 import { keptFocusWindow } from '../../memoryGrowth/suggestionService';
 import { schedulePlan } from '../../planning/scheduler';
+import { projectReadinessIntoPlanningConstraints } from '../../planning/scheduler/readiness';
 import { toEpochMs } from '../../planning/shared/time';
 import type { Commitment } from '../../../src/domain/stateMachine';
 import {
@@ -106,6 +107,7 @@ import {
 import { DEFAULT_MOBILE_TIMEZONE } from '../mobile/time';
 import type { MessagingClient } from '../../push/pushService';
 import { planReadyPushSender } from './planReadyPush';
+import { composeCurrentUserState } from '../../userState/userStateService';
 
 /** Accounts examined per tick. The issue's batch size. */
 export const DAILY_PLAN_BATCH = 50;
@@ -340,7 +342,7 @@ export async function composeDailyPlan(
   const horizon = dayHorizon(date, timezone);
   const busyBlocks = await (deps.busyBlocks ?? storedBusyBlocks(storage))(uid, horizon);
 
-  const { constraints, config } = buildDailyPlanInput({
+  const { constraints: baseConstraints, config } = buildDailyPlanInput({
     uid,
     date,
     timezone,
@@ -349,6 +351,22 @@ export async function composeDailyPlan(
     profile,
     focusHint,
   });
+  const userState = await composeCurrentUserState({
+    uid,
+    now: now.toISOString(),
+    busy: busyBlocks.map((block) => ({
+      startsAt: block.startsAt,
+      endsAt: block.endsAt,
+      timezone,
+    })),
+    deadlines: commitments.flatMap((commitment) => {
+      const dueAt = commitment.timeSpec.kind === 'due_by' ? commitment.timeSpec.dueAt : null;
+      return dueAt
+        ? [{ deadlineId: commitment.id, dueAt, kind: 'commitment' as const, sourceRef: null }]
+        : [];
+    }),
+  }, { storage, userDocument: user });
+  const constraints = projectReadinessIntoPlanningConstraints(baseConstraints, userState.projection.readiness);
   const plan = schedulePlan(constraints, config);
 
   const titles = titlesOf(commitments);

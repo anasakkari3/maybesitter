@@ -94,9 +94,9 @@ test('every mobile route file exists and is enumerated', () => {
   // the route somebody's calendar travels over. Its DELETE is "disconnect and
   // remove what you hold", and it must not be reachable by anyone but the
   // account that owns the source.
-  // Forty-nine total: HEAD's forty-seven routes plus football's two routes
+  // Fifty total: origin/main's forty-eight routes plus football's two routes
   // (GET|PUT /api/mobile/football and DELETE /api/mobile/football/fixtures/{commitmentId}).
-  assert.equal(files.length, 49, `found:\n${files.join('\n')}`);
+  assert.equal(files.length, 50, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {
