@@ -754,6 +754,9 @@ export async function dropCommitment(
 
 export type CommitmentActionName = 'complete' | 'postpone' | 'cancel' | 'aware';
 
+/** The notification's Later default (mobile `DEFAULT_DEFER_MS`), applied to a late-arriving tap. */
+export const LATE_TAP_DEFER_MS = 60 * 60 * 1000;
+
 /**
  * One notification-button tap, or one in-app action, applied to a commitment
  * (UC-3.14, #200).
@@ -801,7 +804,7 @@ export async function applyCommitmentAction(
     if (receipt.fingerprint !== fingerprint || receipt.commitmentId !== id) throw new ClientActionIdReusedError();
     replayed = true;
   } else {
-    const command = commandFor(id, action, input.postponedUntil, now);
+    const command = commandFor(id, action, input.postponedUntil, now, true);
     const precondition = input.expectedValidator === undefined
       ? undefined
       : { commitmentId: id, validator: input.expectedValidator };
@@ -824,12 +827,19 @@ function commandFor(
   action: CommitmentActionName,
   postponedUntil: unknown,
   now: Date,
+  fromOutbox = false,
 ): Command & { commitmentId: string } {
   if (action === 'complete') return { type: 'Complete', commitmentId: id, now: now.toISOString() };
   if (action === 'cancel') return { type: 'Drop', commitmentId: id, now: now.toISOString() };
   if (action === 'aware') return { type: 'MarkAware', commitmentId: id, now: now.toISOString(), source: 'reminder' };
-  const parsed = parseIsoInstant(postponedUntil, 'postponedUntil');
-  if (parsed.getTime() <= now.getTime()) throw new Error('postponedUntil must be after now');
+  let parsed = parseIsoInstant(postponedUntil, 'postponedUntil');
+  if (parsed.getTime() <= now.getTime()) {
+    // A Later pressed offline and delivered after its own instant (#200). The
+    // person asked for "later", not for nothing: defer from now by the button's
+    // default rather than refusing a tap the outbox would then drop.
+    if (!fromOutbox) throw new Error('postponedUntil must be after now');
+    parsed = new Date(now.getTime() + LATE_TAP_DEFER_MS);
+  }
   return { type: 'Postpone', commitmentId: id, postponedUntil: parsed.toISOString(), now: now.toISOString() };
 }
 

@@ -22,7 +22,7 @@ import { applyParticipantCommands } from '../../lib/services/mobile/participantS
 import { COMMITMENT_ACTION_RECEIPTS, EVENTS, userCol } from '../../lib/storage/paths.ts';
 import { listEvents } from '../../lib/services/mobile/eventLog.ts';
 import { projectActivity } from '../../lib/services/activity/activityProjection.ts';
-import { applyCommitmentAction } from '../../lib/services/mobile/commitmentService.ts';
+import { applyCommitmentAction, LATE_TAP_DEFER_MS } from '../../lib/services/mobile/commitmentService.ts';
 import { POST as actionPost } from '../../src/app/api/mobile/commitments/[id]/actions/route.ts';
 
 const BASE = 'http://127.0.0.1:4321';
@@ -138,6 +138,41 @@ test('a defer delivered after its own instant has passed replays rather than fai
   }
 });
 
+test('a Later first delivered after its instant defers from now by the default instead of failing', async () => {
+  begin();
+  try {
+    await seed(OWNER, 'c1');
+    const tappedAt = new Date();
+    const arrivedAt = new Date(tappedAt.getTime() + 2 * 3_600_000);
+    const result = await applyCommitmentAction('c1', 'postpone', {
+      postponedUntil: new Date(tappedAt.getTime() + 3_600_000).toISOString(),
+      clientActionId: ID_A, participantId: OWNER, now: arrivedAt,
+    });
+    assert.equal(result.replayed, false);
+    assert.equal(Date.parse(result.commitment.postponedUntil!), arrivedAt.getTime() + LATE_TAP_DEFER_MS);
+    // Without a clientActionId (an in-app postpone) the old refusal stands.
+    await assert.rejects(applyCommitmentAction('c1', 'postpone', {
+      postponedUntil: new Date(tappedAt.getTime() - 1000).toISOString(), participantId: OWNER, now: tappedAt,
+    }), /postponedUntil must be after now/);
+  } finally {
+    end();
+  }
+});
+
+test('a clientActionId reused for the same action on a different commitment is refused', async () => {
+  begin();
+  try {
+    await seed(OWNER, 'c1');
+    await seed(OWNER, 'c2');
+    assert.equal((await post(OWNER, 'c1', { action: 'complete', clientActionId: ID_A })).status, 200);
+    const reused = await post(OWNER, 'c2', { action: 'complete', clientActionId: ID_A });
+    assert.equal(reused.status, 409);
+    assert.equal((await eventsOfType(OWNER, 'commitment_completed')).length, 1);
+  } finally {
+    end();
+  }
+});
+
 test('a different clientActionId is a different tap', async () => {
   begin();
   try {
@@ -211,7 +246,7 @@ test('a malformed clientActionId is refused before anything is written', async (
   begin();
   try {
     await seed(OWNER, 'c1');
-    for (const clientActionId of ['', 'not-a-uuid', 42, '٣f0e8a52-7c1b-4d2e-9a61-0b5c7d9e1f24', `${ID_A}/x`]) {
+    for (const clientActionId of ['', 'not-a-uuid', 42, ID_A.toUpperCase(), '٣f0e8a52-7c1b-4d2e-9a61-0b5c7d9e1f24', `${ID_A}/x`]) {
       const response = await post(OWNER, 'c1', { action: 'complete', clientActionId });
       assert.equal(response.status, 400, `accepted ${String(clientActionId)}`);
     }
