@@ -718,3 +718,34 @@ test('ending does not disturb a match the user dismissed or deleted', async () =
   assert.equal(tally.completed, 0);
   assert.deepEqual((await commitments()).map((c) => c.status), ['dropped', 'dropped']);
 });
+
+// ── Final review M5: a postponement flipped a completed match to dropped ─
+
+for (const status of ['postponed', 'cancelled', 'finished'] as const) {
+  test(`a ${status} status leaves a match the user completed completed`, async () => {
+    await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+    await projectFixturesForUser('u1', NOW);
+    const [created] = await commitments();
+    await applyParticipantCommands('u1', [{ type: 'Complete', commitmentId: created.id, now: NOW }]);
+
+    await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z', { status })]);
+    const tally = await projectFixturesForUser('u1', NOW);
+    assert.equal(tally.cancelled, 0);
+    const [after] = await commitments();
+    assert.equal(after.status, 'completed');
+    assert.equal(after.completedAt, NOW);
+  });
+}
+
+test('a postponed status leaves an archived match archived', async () => {
+  await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+  await projectFixturesForUser('u1', NOW);
+  const [created] = await commitments();
+  const state = await readParticipantState('u1');
+  state.commitments[created.id] = { ...state.commitments[created.id], status: 'archived' };
+  await persistParticipantState('u1', state);
+
+  await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z', { status: 'postponed' })]);
+  await projectFixturesForUser('u1', NOW);
+  assert.equal((await commitments())[0].status, 'archived');
+});

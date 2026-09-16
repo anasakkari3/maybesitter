@@ -847,8 +847,14 @@ async function completeEndedFixtures(uid: string, now: string): Promise<number> 
   return completed;
 }
 
-/** A commitment still holding time, which a fixture that stopped holding time may drop. */
-const DROPPABLE_STATUSES: ReadonlySet<Commitment['status']> = new Set<Commitment['status']>(['active', 'deferred', 'missed', 'completed']);
+/**
+ * A commitment still holding time, which a fixture that stopped holding time
+ * may drop. Not `completed`: the domain's `Drop` accepts one, and a
+ * postponement used to flip a match the user had already marked done to
+ * dropped, rewriting their history (final review M5). A completed or archived
+ * commitment is the user's closed record and the feed never touches it.
+ */
+const DROPPABLE_STATUSES: ReadonlySet<Commitment['status']> = LIVE_STATUSES;
 
 /**
  * One fixture, projected against whatever ref (if any) already exists for
