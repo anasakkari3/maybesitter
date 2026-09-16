@@ -1,16 +1,16 @@
 import { apiRequest, apiRequestTagged, type TaggedResult } from '../client';
-import { commitmentListSchema, commitmentSchema, type Commitment } from '../schemas/common';
+import { commitmentListSchema, commitmentSchema, type Commitment, type CommitmentList } from '../schemas/common';
 import { commitmentActionResultSchema, commitmentDeleteResultSchema } from '../schemas/commitments';
 import type { TimePatch } from '../../features/commitments/timePatch';
 
-export function listToday(input: { timezone: string; referenceTime?: string }): Promise<{ items: Commitment[] }> {
+export function listToday(input: { timezone: string; referenceTime?: string }): Promise<CommitmentList> {
   return apiRequest('GET', '/api/mobile/commitments/today', {
     query: { timezone: input.timezone, referenceTime: input.referenceTime },
     schema: commitmentListSchema,
   });
 }
 
-export function listUpcoming(input: { timezone: string; referenceTime?: string }): Promise<{ items: Commitment[] }> {
+export function listUpcoming(input: { timezone: string; referenceTime?: string }): Promise<CommitmentList> {
   return apiRequest('GET', '/api/mobile/commitments/upcoming', {
     query: { timezone: input.timezone, referenceTime: input.referenceTime },
     schema: commitmentListSchema,

@@ -51,7 +51,11 @@ function timeSpecFromItem(item: LegacyItemInput): TimeSpec {
   return {
     kind: dueAt ? 'due_by' : 'unscheduled',
     dueAt,
+    // The legacy snapshot has one time field and no end, which is exactly what
+    // `endAt: null` says (#185). It is not a thirty-minute block by default.
+    endAt: null,
     remindAt,
+    allDay: false,
     timezone: 'UTC',
   };
 }

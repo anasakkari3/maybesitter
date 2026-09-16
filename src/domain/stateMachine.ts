@@ -33,10 +33,51 @@ export interface Priority {
   pressureLevel: 'none' | 'gentle' | 'firm';
 }
 
+/**
+ * When a commitment happens, in four answers rather than one (#185).
+ *
+ * `dueAt` alone says a commitment names an instant and nothing about how long
+ * it lasts or whether the hour was ever chosen. That was enough while the only
+ * consumer was a reminder, which is a point in time by construction. It is not
+ * enough for a calendar: an event has a start *and* an end, and "Thursday" is
+ * not the same claim as "Thursday at 00:00".
+ *
+ * ── `endAt` ──────────────────────────────────────────────────────
+ *
+ * The instant the commitment stops, or `null` when it names no end. `null` is
+ * not "zero minutes" and it is not "thirty minutes": it is the absence of an
+ * answer, and every consumer decides what to draw for it in its own vocabulary
+ * — `eventDraft.ts` in the app gives an ended-less commitment a default block
+ * because a calendar cannot render a point, and that is a fact about calendars
+ * rather than about this commitment.
+ *
+ * ── `allDay` ─────────────────────────────────────────────────────
+ *
+ * True when the commitment names a *day* and not a time of day. `dueAt` still
+ * carries an instant — local midnight of that day in `timezone` — because one
+ * representation is what keeps this type readable, and because a bare
+ * `YYYY-MM-DD` is exactly the value `optionalInstant` refuses for being a date
+ * that would have to be given a fabricated hour. The flag is what says the hour
+ * in there was never chosen by anybody, so nothing may present it as one.
+ *
+ * ── Why both are required rather than optional ───────────────────
+ *
+ * An optional field is a field a producer can forget, and the failure is
+ * silent: the commitment reads as a point in time, the calendar writes a
+ * thirty-minute block over somebody's day off, and no test can tell that from a
+ * commitment that genuinely is a point. Required means `defaultTimeSpec` fills
+ * them, one function decides the defaults, and `timeSpecSchema` in the app can
+ * *require* them on the wire — so a backend that stops sending one fails the
+ * mobile suite instead of a user's calendar.
+ */
 export interface TimeSpec {
   kind: 'unscheduled' | 'due_by' | 'scheduled_event';
   dueAt: string | null;
+  /** When it ends. `null` means the commitment names no end, not a zero-length one. */
+  endAt: string | null;
   remindAt: string | null;
+  /** The commitment names a day. `dueAt` is that day's local midnight, and nobody chose the hour. */
+  allDay: boolean;
   timezone: string;
 }
 
@@ -265,16 +306,144 @@ function defaultPriority(priority?: Partial<Priority>): Priority {
   };
 }
 
-function defaultTimeSpec(timeSpec?: Partial<TimeSpec>): TimeSpec {
-  if (timeSpec?.dueAt) ensureValidDate(timeSpec.dueAt, 'timeSpec.dueAt');
-  if (timeSpec?.remindAt) ensureValidDate(timeSpec.remindAt, 'timeSpec.remindAt');
-
+/**
+ * The complete time spec, and the three things it refuses to store (#185).
+ *
+ * The defaults are the shape every commitment had before `endAt` and `allDay`
+ * existed: no end, not all-day. So a producer that has nothing to say about
+ * either keeps producing exactly what it produced, and the new fields mean
+ * "nobody said" rather than "somebody said no".
+ *
+ * The refusals are here rather than at a boundary because they are properties
+ * of the value, not of one caller's request. A range that ends before it starts
+ * and a day-long commitment on no day are not states a screen should have to
+ * render, and letting them through would mean every reader of a `TimeSpec`
+ * carries the check instead.
+ */
+/**
+ * The stored shape, completed — and the only place the defaults are written.
+ *
+ * Separate from `defaultTimeSpec` because it has a second caller with a
+ * different need. `defaultTimeSpec` is the *write* path: it refuses what must
+ * never be stored. This is the *read* path, and it is total — it fills the
+ * fields a document written by an older version of this file does not have,
+ * and it judges nothing.
+ *
+ * ── Why the read path fills anything at all ──────────────────────
+ *
+ * `endAt` and `allDay` were added to a store that already had commitments in
+ * it (#185) — the first time this repository has widened a type over live data.
+ * `loadDomainState` hands a raw storage document straight into the state and
+ * `commitmentToMobileDto` copies `timeSpec` through verbatim, so without this a
+ * commitment written last month reaches the phone missing two keys its schema
+ * requires, and because a list is parsed as one value, one such row blanks the
+ * whole screen rather than its own card.
+ *
+ * Filling on read rather than migrating is deliberate. A document is repaired
+ * at the moment it is read, which is the only moment it matters, so one nobody
+ * opens for six months is correct on the day they finally do — and one written
+ * by an older instance during a rolling deploy is correct too, which no
+ * backfill run beforehand could promise. It is idempotent, so the repair costs
+ * a complete record nothing.
+ *
+ * It refuses nothing on purpose. A read that threw would turn one bad document
+ * into a 500 for every list that contains it, which is the same failure this
+ * exists to prevent wearing a different uniform. The invariants still hold
+ * where they can be enforced — on the way in.
+ */
+export function normalizeStoredTimeSpec(timeSpec?: Partial<TimeSpec>): TimeSpec {
   return {
     kind: timeSpec?.kind || 'unscheduled',
     dueAt: timeSpec?.dueAt || null,
+    endAt: timeSpec?.endAt || null,
     remindAt: timeSpec?.remindAt || null,
+    // `=== true` and not `!!`: a stored value that is a string, a number or
+    // anything else a hand-edited document might hold must read as "nobody
+    // said", never as an all-day entry written across somebody's calendar.
+    allDay: timeSpec?.allDay === true,
     timezone: timeSpec?.timezone || 'UTC',
   };
+}
+
+/**
+ * One commitment as it was stored, completed for the fields since added (#185).
+ *
+ * Applied by `loadDomainState` to every document it reads, which is the single
+ * place a stored commitment becomes a domain one. Only `timeSpec` is completed:
+ * it is the only object on `Commitment` this product has ever widened after
+ * data existed. `priority`'s required fields date from the initial commit, so
+ * no stored document has ever been without them — when that stops being true,
+ * this is where the next one goes.
+ */
+export function normalizeStoredCommitment(commitment: Commitment): Commitment {
+  return { ...commitment, timeSpec: normalizeStoredTimeSpec(commitment.timeSpec) };
+}
+
+function defaultTimeSpec(timeSpec?: Partial<TimeSpec>): TimeSpec {
+  if (timeSpec?.dueAt) ensureValidDate(timeSpec.dueAt, 'timeSpec.dueAt');
+  if (timeSpec?.endAt) ensureValidDate(timeSpec.endAt, 'timeSpec.endAt');
+  if (timeSpec?.remindAt) ensureValidDate(timeSpec.remindAt, 'timeSpec.remindAt');
+
+  const normalized = normalizeStoredTimeSpec(timeSpec);
+  const { dueAt, endAt, allDay } = normalized;
+
+  // An end with no start is not a range, it is half of one. Storing it would
+  // leave every consumer to guess what the other half was.
+  if (endAt && !dueAt) throw new ValidationError('timeSpec.endAt requires timeSpec.dueAt');
+  // Strictly after, matching the half-open `[start, end)` convention
+  // `lib/planning/shared/time.ts` fixed for the whole product: a zero-length
+  // range is the empty set, and a calendar draws it as nothing at all.
+  if (endAt && dueAt && Date.parse(endAt) <= Date.parse(dueAt)) {
+    throw new ValidationError('timeSpec.endAt must be after timeSpec.dueAt');
+  }
+  // "All day" is a claim about *which* day. With no day it says nothing, and a
+  // consumer reading the flag alone would write an event onto the epoch.
+  if (allDay && !dueAt) throw new ValidationError('timeSpec.allDay requires timeSpec.dueAt');
+  // And a claim about a *whole* day. `allDay` says the hour in `dueAt` was
+  // never chosen by anybody, which is only true if it is the hour a day begins
+  // at — so an all-day commitment at 15:00 is not a commitment with a stray
+  // hour, it is two statements that contradict each other, and every consumer
+  // downstream has to pick one. `eventDraft.ts` picks the day and the hour
+  // disappears; an end half an hour later disappears the same way, and out of
+  // the content hash with it, so the stored fact and the written event can
+  // differ with nothing able to notice. Refused here rather than silently
+  // rounded, because rounding is how the 15:00 got lost in the first place.
+  if (allDay && dueAt && !isLocalMidnight(dueAt, normalized.timezone)) {
+    throw new ValidationError('timeSpec.allDay requires timeSpec.dueAt at local midnight in timeSpec.timezone');
+  }
+  if (allDay && endAt && !isLocalMidnight(endAt, normalized.timezone)) {
+    throw new ValidationError('timeSpec.allDay requires timeSpec.endAt at local midnight in timeSpec.timezone');
+  }
+
+  return normalized;
+}
+
+/**
+ * Whether `iso` falls exactly at the start of a day in `timeZone` (#185).
+ *
+ * A formatting question, not an offset one: "what time is it there" rather than
+ * "how far from UTC is there", so it needs no zone arithmetic and cannot be a
+ * quarter-hour or a half-hour out in the zones that are. Milliseconds are the
+ * one field `Intl` will not format, so they are read off the instant itself.
+ *
+ * An unusable zone answers `true`. The commitment carries its own `timezone`
+ * and nothing validates it, and refusing an all-day commitment because the zone
+ * string is unrecognised would be answering a question nobody asked with a
+ * refusal nobody can act on.
+ */
+export function isLocalMidnight(iso: string, timeZone: string): boolean {
+  const instant = new Date(iso);
+  if (Number.isNaN(instant.getTime()) || instant.getUTCMilliseconds() !== 0) return false;
+  let parts: Intl.DateTimeFormatPart[];
+  try {
+    parts = new Intl.DateTimeFormat('en-US', {
+      timeZone, hourCycle: 'h23', hour: '2-digit', minute: '2-digit', second: '2-digit',
+    }).formatToParts(instant);
+  } catch {
+    return true;
+  }
+  const at = (type: string) => parts.find((part) => part.type === type)?.value;
+  return at('hour') === '00' && at('minute') === '00' && at('second') === '00';
 }
 
 function ensureValidDate(value: string, field: string): void {

@@ -17,6 +17,13 @@ import { deferred } from '../../../testing/deferred';
 import en from '../../../i18n/locales/en.json';
 
 import * as planEndpoints from '../../../api/endpoints/plans';
+// The screen this renders is also #196's reminders screen since the two lanes
+// merged. Its other two reads are stubbed here so this file drives one feature
+// against a server that answers, rather than against a failed fetch.
+import * as reminderEndpoints from '../../../api/endpoints/reminders';
+import * as profileEndpoints from '../../../api/endpoints/profile';
+import * as permission from '../../../notifications/permission';
+import reminderFixture from '../../../api/__fixtures__/reminders.settingsDefault.json';
 
 /**
  * The morning-plan switch (UC-3.10b, #195 step 5).
@@ -60,6 +67,10 @@ beforeEach(() => {
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   repository = createFakeAuthRepository({ initialUser: USER });
   setAuthRepository(repository);
+  jest.spyOn(reminderEndpoints, 'getReminderSettings').mockResolvedValue(reminderFixture as never);
+  jest.spyOn(reminderEndpoints, 'putReminderSettings').mockResolvedValue(reminderFixture as never);
+  jest.spyOn(profileEndpoints, 'getProfile').mockResolvedValue({ success: true, routine: null } as never);
+  jest.spyOn(permission, 'requestNotificationPermission').mockResolvedValue('granted');
   jest.spyOn(planEndpoints, 'getPlanSettings').mockImplementation((async () => stored) as never);
   jest.spyOn(planEndpoints, 'putPlanSettings').mockImplementation((async (input: { enabled: boolean; deliveryLocalTime?: string }) => {
     stored = {
@@ -238,12 +249,52 @@ describe('the way to the plan itself', () => {
     expect(screen.queryByTestId('plan-open')).not.toBeNull();
   });
 
-  it('still does not spend the notification prompt from a settings screen', async () => {
-    // iOS lets an app ask once. #195 asks that an undetermined permission route
-    // to UC-3.11 (#196)'s flow; that flow does not exist in this app yet, and
-    // asking here — before the user has anything that would ring — spends the
-    // prompt on the version of the question most likely to be denied.
+  it('offers the way to the OS settings, which is where a no can be undone', async () => {
     await settled();
+    expect(screen.queryByTestId('notifications-open-settings')).not.toBeNull();
+  });
+});
+
+describe('the OS prompt, from this switch', () => {
+  it('is asked when the morning plan is turned on, and not on the way to the screen', async () => {
+    // #195 asked for this and could not have it: UC-3.11 (#196) had not landed,
+    // so there was no flow to route an undetermined permission to. There is
+    // now, and the morning plan is a push — a switch that promised "one note
+    // when it's ready" without ever asking would promise a note the phone is
+    // not allowed to show.
+    await settled();
+    // Rendering the screen asks nobody anything. iOS allows one prompt per
+    // install, and spending it on a screen visit is spending it on nothing.
+    expect(permission.requestNotificationPermission).not.toHaveBeenCalled();
+
+    await fireEvent(screen.getByTestId('plan-morning-toggle'), 'valueChange', true);
+
+    await waitFor(() => expect(permission.requestNotificationPermission).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(planEndpoints.putPlanSettings)
+      .toHaveBeenCalledWith({ enabled: true, deliveryLocalTime: '07:30' }));
+  });
+
+  it('is not asked on the way off', async () => {
+    stored = ON;
+    await settled();
+    await fireEvent(screen.getByTestId('plan-morning-toggle'), 'valueChange', false);
+    await waitFor(() => expect(planEndpoints.putPlanSettings)
+      .toHaveBeenCalledWith({ enabled: false, deliveryLocalTime: '07:30' }));
+    expect(permission.requestNotificationPermission).not.toHaveBeenCalled();
+  });
+
+  it('says what the phone is set to when the answer is no, and turns the plan on anyway', async () => {
+    jest.spyOn(permission, 'requestNotificationPermission').mockResolvedValue('denied');
+    await settled();
+
+    await fireEvent(screen.getByTestId('plan-morning-toggle'), 'valueChange', true);
+
+    await waitFor(() => expect(screen.queryByTestId('notifications-denied')).not.toBeNull());
+    // A plan is still built, still on this screen, and still reachable through
+    // `maybesitter://plan/<date>`. What a denial costs is the tap, not the plan
+    // — so the switch stays where the user put it.
+    await waitFor(() => expect(screen.getByTestId('plan-morning-toggle').props.value).toBe(true));
+    expect(screen.queryByText(en.notifDenied)).not.toBeNull();
     expect(screen.queryByTestId('notifications-open-settings')).not.toBeNull();
   });
 });

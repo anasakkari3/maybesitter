@@ -61,6 +61,17 @@ export interface ReleaseConfigInput {
    */
   shareIntake?: string | undefined;
   /**
+   * `EXPO_PUBLIC_FEATURE_CALENDAR_WRITE` (UC-3.1, #185).
+   *
+   * Allowed in every environment — writing commitments to the phone's calendar
+   * is a launch feature — but only ever spelled `true` or `false`. The same
+   * quiet failure as `shareIntake`: a typo reads as off, the calendar
+   * permission is still compiled into the binary so the prompt can still
+   * appear, and every tester who turns the toggle on watches nothing happen
+   * while the build log says the feature was enabled.
+   */
+  calendarWrite?: string | undefined;
+  /**
    * `EXPO_PUBLIC_SHARE_INTENT_DEBUG` (UC-3.0, #183).
    *
    * Turns on `expo-share-intent`'s own logging, which writes the shared payload
@@ -116,6 +127,11 @@ export function releaseConfigProblems(input: ReleaseConfigInput): string[] {
   const shareIntake = (input.shareIntake ?? '').trim();
   if (shareIntake !== '' && shareIntake !== 'true' && shareIntake !== 'false') {
     problems.push(`EXPO_PUBLIC_FEATURE_SHARE_INTAKE must be true or false (got ${shareIntake})`);
+  }
+
+  const calendarWrite = (input.calendarWrite ?? '').trim();
+  if (calendarWrite !== '' && calendarWrite !== 'true' && calendarWrite !== 'false') {
+    problems.push(`EXPO_PUBLIC_FEATURE_CALENDAR_WRITE must be true or false (got ${calendarWrite})`);
   }
 
   // A developer build is allowed to point at a laptop, and to run on fixtures.

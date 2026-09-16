@@ -3,48 +3,186 @@ import { Linking, Platform, ScrollView, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../../state/AppContext';
-import { Btn, Card, Txt } from '../../ui/primitives';
+import { Btn, Card, Pill, Txt } from '../../ui/primitives';
 import { ScreenIn } from '../../ui/motion';
-import { SettingsHeader, SettingsRow } from './SettingsChrome';
-import { ServerToggle } from './ServerToggle';
-import { usePlanSettings, useSavePlanSettings } from '../../api/queries';
+import {
+  usePlanSettings,
+  useProfile,
+  useReminderSettings,
+  useSavePlanSettings,
+  useSaveReminderSettings,
+} from '../../api/queries';
 import { useTimeZone } from '../../i18n/timezone';
 import { dayKey, formatRelativeDay, formatTime } from '../../i18n/format';
 import { fill, ltr } from '../../i18n/strings';
+import { requestNotificationPermission } from '../../notifications/permission';
+import { softRemindersEnabled } from '../../config/env';
+import { quietChoiceFor, quietWindowFor, type QuietChoice } from '../routine/routineProfile';
 import { timeShowing, timeShown } from '../plan/pickerClock';
+import { ServerToggle } from './ServerToggle';
+import { SettingsHeader, SettingsRow } from './SettingsChrome';
 
 /**
- * Reminders (UC-2.R4, #174) and the morning plan (UC-3.10b, #195).
+ * Everything this app may put on somebody's lock screen, in one place:
+ * reminders (UC-2.R4 #174, with the controls from UC-3.11 #196) and the
+ * morning plan (UC-3.10b, #195).
  *
- * Education and a deep link to the OS settings. This screen deliberately does
- * **not** request the notification permission: iOS only lets an app ask once,
- * and spending that prompt from a settings screen — before the user has asked
- * for anything that would ring — is spending it on the version of the question
- * most likely to be denied. `Linking.openSettings()` sends them to the place
- * the answer can always be changed, which is the honest thing to offer.
+ * ── This screen owns the OS prompt, and only here ────────────────
  *
- * #195 asks that turning the morning plan on route an *undetermined* permission
- * to UC-3.11 (#196)'s flow. That flow does not exist in this app yet — there is
- * no `src/notifications` — so the switch here changes the server-side setting
- * and nothing about the OS permission. A plan is still built and still shown on
- * this screen and through `maybesitter://plan/<date>`; what a denied permission
- * costs is the tap-the-notification path, which is #196's to add.
+ * iOS allows one permission prompt per install. It is asked at the moment the
+ * user turns something that rings **on** — the version of the question a
+ * person is most likely to say yes to, because they have just asked for the
+ * thing it is about. Onboarding deliberately does not ask
+ * (`onboardingFlow.test.tsx` asserts it at the source), and nothing asks at
+ * cold start.
+ *
+ * A denial is not an error and is not a rollback. The setting is what the user
+ * wants; the permission is what the phone currently allows. So the switch
+ * stays where they put it, the row says the phone is set to show nothing, and
+ * `Linking.openSettings()` — which this screen has offered since #174 — is the
+ * only place that answer can be changed.
+ *
+ * ── Both switches ask, and that is not two prompts ───────────────
+ *
+ * #195 asked that turning the morning plan on route an *undetermined*
+ * permission to UC-3.11 (#196)'s flow. When #195 was written that flow did not
+ * exist — there was no `src/notifications` — so the switch changed the
+ * server-side setting and nothing about the OS permission. It exists now, and
+ * the morning plan is a **push**: `planMorningBody` promises "one note when
+ * it's ready", the server sends it, and `routeFromNotification` already routes
+ * a `plan_ready` payload to `maybesitter://plan/<date>`. A user who turned the
+ * morning plan on without ever being asked would have been promised a note
+ * their phone was never allowed to show. So `askForPermission` is called from
+ * this switch too, on the way on, exactly as the reminders switch calls it.
+ *
+ * That does not spend a second prompt. `requestNotificationPermission` reads
+ * the current status first and returns it unchanged unless it is
+ * `undetermined`, so whichever of the two switches the user reaches first is
+ * the one that asks, and the other one silently learns the answer. Which is
+ * the routing #195 wanted: one prompt, spent by whichever thing the user
+ * actually asked for.
+ *
+ * The plan itself does not depend on it. A plan is still built, still shown on
+ * this screen, and still reachable through `maybesitter://plan/<date>` and the
+ * "see today's plan" row; what a denied permission costs is the tap-the-
+ * notification path, which is why the denial line is a statement of fact and
+ * not a rollback.
+ *
+ * ── Quiet hours are the routine survey's, on purpose ─────────────
+ *
+ * The same four windows, the same store. See `quietWindowFor` in
+ * `features/routine/routineProfile.ts`.
  */
+const LEAD_MINUTES = [60, 30, 15] as const;
+const QUIET_CHOICES: readonly QuietChoice[] = ['none', 'early', 'standard', 'late'];
+
 export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) {
   const { t, p, lang, actions } = useApp();
   const insets = useSafeAreaInsets();
   const device = useTimeZone();
-  const settings = usePlanSettings();
-  const save = useSavePlanSettings();
+  const settings = useReminderSettings();
+  const profile = useProfile();
+  const save = useSaveReminderSettings();
+  const planSettings = usePlanSettings();
+  const savePlan = useSavePlanSettings();
+  const [permissionDenied, setPermissionDenied] = useState(false);
+  const [failed, setFailed] = useState(false);
   const [picking, setPicking] = useState(false);
 
-  const plan = settings.data ?? null;
+  const current = settings.data?.reminderSettings;
+  const quietChoice = quietChoiceFor(current?.quietHours ?? null) ?? 'none';
+  const killed = !softRemindersEnabled();
+
+  const plan = planSettings.data ?? null;
   const zone = plan?.timezone ?? device;
   const deliveryLocalTime = plan?.deliveryLocalTime ?? null;
 
   const next = plan?.nextRunAt
     ? `${formatRelativeDay(new Date(plan.nextRunAt), { locale: lang, timeZone: zone })} · ${formatTime(new Date(plan.nextRunAt), { locale: lang, timeZone: zone })}`
     : null;
+
+  const leadLabel: Record<number, string> = {
+    60: t.notifLead60,
+    30: t.notifLead30,
+    15: t.notifLead15,
+  };
+  const quietLabel: Record<QuietChoice, string> = {
+    none: t.notifQuietNone,
+    early: t.notifQuietEarly,
+    standard: t.notifQuietStandard,
+    late: t.notifQuietLate,
+  };
+
+  /**
+   * The one prompt, asked on the way *on* and from nowhere else.
+   *
+   * Shared by both switches rather than written twice: two copies of "ask,
+   * then decide what a denial means" is two rules that drift, and the rule is
+   * the same either way — the phone's answer is reported, never acted on.
+   */
+  const askForPermission = async (): Promise<void> => {
+    setPermissionDenied((await requestNotificationPermission()) === 'denied');
+  };
+
+  const setEnabled = async (next_: boolean): Promise<boolean> => {
+    // Asked before the write, and only on the way on. Turning reminders off
+    // needs no permission, and asking then would spend the one prompt on the
+    // question nobody wants answered.
+    if (next_) await askForPermission();
+    try {
+      await save.mutateAsync({ softEnabled: next_ });
+      setFailed(false);
+      return true;
+    } catch {
+      setFailed(true);
+      return false;
+    }
+  };
+
+  const setLead = (minutes: number) => {
+    setFailed(false);
+    save.mutate({ softLeadMinutes: minutes }, { onError: () => setFailed(true) });
+  };
+
+  /*
+   * The zone a quiet window is wall-clock in.
+   *
+   * The routine profile's, when there is one: a user who answered the survey
+   * in Tel Aviv and opened the app in Berlin still means 22:30 Tel Aviv until
+   * they redo the survey, which is the rule `quietTimeZone` states in
+   * `features/reminders/reminderInputs.ts`.
+   *
+   * When there is *no* profile, `GET /api/mobile/settings/reminders` answers
+   * `timezone: "UTC"` — a fallback the server invented because nobody has told
+   * it anything, not an answer anyone gave. Echoing it back was this screen's
+   * bug: the first person to set quiet hours without having done the survey
+   * had "22:30–07:30" stored as UTC, so in Israel the app went quiet from
+   * 01:30 to 10:30 and spoke at 23:00 — on the phone *and* in every server
+   * push, because the write-through makes this the profile's zone too. The
+   * zone somebody setting quiet hours means is the one they are standing in,
+   * which is what `device` holds — `useTimeZone` re-reads it when the app
+   * comes back to the foreground, so a traveller who has not redone the survey
+   * still gets the zone they are in now.
+   *
+   * The window's own zone is the middle fallback for the one frame before the
+   * profile query resolves; in the app it has already resolved, because
+   * `RemindersMount` holds `useProfile` open for the whole session.
+   */
+  const quietTimeZone = (): string =>
+    profile.data?.routine?.timezone ?? current?.quietHours?.timezone ?? device;
+
+  const setQuiet = (choice: QuietChoice) => {
+    setFailed(false);
+    const window = quietWindowFor(choice);
+    save.mutate(
+      {
+        quietHours: window
+          ? { start: window.start, end: window.end, timezone: quietTimeZone() }
+          : null,
+      },
+      { onError: () => setFailed(true) },
+    );
+  };
 
   return (
     <ScreenIn style={{ backgroundColor: p.bg }}>
@@ -53,6 +191,60 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
         <Card pad={18}>
           <Txt size={15} color={p.mu} lh={1.5}>{t.obNotifBody}</Txt>
         </Card>
+
+        {/* The kill switch is a fact about this build, not a control: when it
+            is thrown the section is not there to be argued with, and the
+            engine has already cancelled everything pending. It is the soft
+            reminder engine's switch and nothing else — the morning plan is
+            built and sent by the server, so it stays below either way. */}
+        {killed ? null : (
+          <Card pad={0} testID="gentle-reminders">
+            <ServerToggle
+              title={t.notifGentleOn}
+              body={t.notifGentleBody}
+              value={current?.softEnabled ?? false}
+              disabled={current === undefined}
+              onChange={setEnabled}
+              testID="gentle-reminders-switch"
+            />
+          </Card>
+        )}
+
+        {killed || !current?.softEnabled ? null : (
+          <>
+            <Txt size={13} color={p.mu}>{t.notifLeadTitle}</Txt>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {LEAD_MINUTES.map(minutes => (
+                <Pill
+                  key={minutes}
+                  label={leadLabel[minutes] as string}
+                  kind={current.softLeadMinutes === minutes ? 'accent' : 'outline'}
+                  size={14}
+                  pad={12}
+                  style={{ flex: 1 }}
+                  testID={`reminder-lead-${minutes}`}
+                  onPress={() => setLead(minutes)}
+                />
+              ))}
+            </View>
+
+            <Txt size={13} color={p.mu}>{t.notifQuietTitle}</Txt>
+            <Txt size={13} color={p.mu} lh={1.5}>{t.notifQuietBody}</Txt>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              {QUIET_CHOICES.map(choice => (
+                <Pill
+                  key={choice}
+                  label={quietLabel[choice]}
+                  kind={quietChoice === choice ? 'accent' : 'outline'}
+                  size={14}
+                  pad={12}
+                  testID={`reminder-quiet-${choice}`}
+                  onPress={() => setQuiet(choice)}
+                />
+              ))}
+            </View>
+          </>
+        )}
 
         {/* ── Morning plan (UC-3.10b, #195) ───────────────────────────
             The switch's position is the server's answer, never the tap — the
@@ -68,8 +260,12 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
             // Nothing to write against until the server has answered once.
             disabled={plan === null}
             onChange={async next_ => {
+              // The plan arrives as a push, so the permission is asked here on
+              // the way on for the same reason the reminders switch asks — and
+              // a denial does not stop the write. See the note at the top.
+              if (next_) await askForPermission();
               try {
-                const saved = await save.mutateAsync({
+                const saved = await savePlan.mutateAsync({
                   enabled: next_,
                   // The hour is only sent when the user has one. Omitting it
                   // leaves the stored value alone rather than re-asserting it.
@@ -119,9 +315,16 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
               if (event.type === 'dismissed' || !value) return;
               const chosen = timeShown(value);
               if (chosen === deliveryLocalTime) return;
-              save.mutate({ enabled: plan?.enabled === true, deliveryLocalTime: chosen });
+              savePlan.mutate({ enabled: plan?.enabled === true, deliveryLocalTime: chosen });
             }}
           />
+        ) : null}
+
+        {permissionDenied ? (
+          <Txt size={13} color={p.mu} lh={1.5} testID="notifications-denied">{t.notifDenied}</Txt>
+        ) : null}
+        {failed ? (
+          <Txt size={13} color={p.wm} testID="notifications-save-failed">{t.notifSaveFailed}</Txt>
         ) : null}
 
         <Btn

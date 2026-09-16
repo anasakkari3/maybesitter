@@ -110,6 +110,29 @@ export class InvalidTransitionError extends ConflictError {
 }
 
 /**
+ * 409 from the device-calendar link route (UC-3.1, #185).
+ *
+ * Both reasons mean the same thing to the caller — leave the calendar alone —
+ * and mean different things to a person, which is why they are not collapsed:
+ *
+ * `calendar_link_owned_elsewhere` another installation writes this commitment's
+ *                                 event, so this one must not write a second.
+ * `calendar_link_detached`        the user deleted the event in their Calendar
+ *                                 app, and it is never written again.
+ *
+ * Neither is shown to anybody. There is nothing for the user to do about
+ * either, and a toast saying "another device owns this event" would be the
+ * product explaining its own bookkeeping to somebody who did not ask.
+ */
+export class DeviceCalendarLinkConflictError extends ConflictError {
+  constructor(readonly reason: 'calendar_link_owned_elsewhere' | 'calendar_link_detached') {
+    super(reason === 'calendar_link_detached'
+      ? 'this commitment was removed from the calendar by hand'
+      : 'another installation owns this calendar event');
+  }
+}
+
+/**
  * 429 — a model quota is spent (UC-4.5, #181).
  *
  * Deliberately **not** retryable. It is the one 4xx that will succeed later, and

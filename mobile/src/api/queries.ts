@@ -30,7 +30,10 @@ import { getNextStep, recordNextStepDecision } from './endpoints/nextStep';
 import { getTrust, updateTrust } from './endpoints/trust';
 import { flagAlphaFeedback, getFeedbackHistory, revokeFeedback } from './endpoints/feedback';
 import { recordAnalyticsEvent } from './endpoints/analytics';
+import { putCalendarWriteTarget } from './endpoints/calendar';
+import type { CalendarWriteTarget } from './schemas/calendar';
 import { getConsents, putAiConsent, putRecommendationConsent, type ConsentAnswer } from './endpoints/consents';
+import { getReminderSettings, putReminderSettings, type ReminderSettingsPatch } from './endpoints/reminders';
 import {
   confirmProfileSuggestions,
   describeProfile,
@@ -82,6 +85,7 @@ export const queryKeys = {
    */
   plan: (uid: string, date: string) => ['user', uid, 'plan', date] as const,
   planSettings: (uid: string) => ['user', uid, 'planSettings'] as const,
+  reminderSettings: (uid: string) => ['user', uid, 'reminderSettings'] as const,
 };
 
 /** The signed-in uid, or the one value that can never collide with one. */
@@ -692,6 +696,31 @@ export function useSetRecommendationConsent() {
   });
 }
 
+/**
+ * Sets where this account writes its commitments (UC-3.1, #185).
+ *
+ * No optimistic update, for the same reason the consent switches have none: the
+ * toggle moves when the server says it moved. Showing "on" for the moment
+ * before a failed write would be the app promising to put things in somebody's
+ * calendar and then not doing it, and they would find out by looking at an
+ * empty calendar rather than at a control that snapped back.
+ *
+ * Both keys are invalidated. The commitments carry `deviceCalendarLink`, and
+ * what the reconcile pass does with those links is decided by the value this
+ * mutation just changed.
+ */
+export function useSetCalendarWriteTarget() {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn: (writeTarget: CalendarWriteTarget) => putCalendarWriteTarget(writeTarget),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: ['user', uid, 'calendarSettings'] });
+      void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
+    },
+  });
+}
+
 /** The account's routine profile. `routine: null` means never answered. */
 export function useProfile() {
   const uid = useUid();
@@ -775,6 +804,52 @@ export function useConfirmProfileSuggestions() {
       // The confirmed facts are memory now, so the "what it knows" screen is
       // out of date the moment this returns.
       void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
+    },
+  });
+}
+
+/**
+ * Gentle reminders: the switch, the lead time and the quiet hours (UC-3.11, #196).
+ *
+ * `staleTime: 0`, like the consents query and for a related reason: these
+ * settings decide whether the phone schedules anything at all, and a stale
+ * "on" would have the engine keep scheduling for somebody who turned it off on
+ * another device. The answer is one small document.
+ */
+export function useReminderSettings() {
+  const uid = useUid();
+  return useQuery({
+    queryKey: queryKeys.reminderSettings(uid),
+    queryFn: getReminderSettings,
+    enabled: uid !== 'signed-out',
+    staleTime: 0,
+  });
+}
+
+/**
+ * Saves the three controls.
+ *
+ * No optimistic update: the switch moves when the server says it moved, for
+ * the same reason the consent toggles do not move early. A control that
+ * claimed reminders were on before the save landed would be a promise about
+ * somebody's evening that the app had not yet made.
+ *
+ * Quiet hours saved here are stored on the routine profile, so the profile and
+ * the memory it derives are both out of date the moment this returns.
+ */
+export function useSaveReminderSettings() {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn: (patch: ReminderSettingsPatch) => putReminderSettings(patch),
+    onSettled: (_result, _error, patch) => {
+      void client.invalidateQueries({ queryKey: queryKeys.reminderSettings(uid) });
+      if (patch.quietHours !== undefined) {
+        void client.invalidateQueries({ queryKey: queryKeys.profile(uid) });
+        void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
+        // The next step is gated on the same window.
+        void client.invalidateQueries({ queryKey: ['user', uid, 'nextStep'] });
+      }
     },
   });
 }

@@ -38,7 +38,7 @@ function assertClose(actual: number, expected: number, message: string): void {
 
 function urgencyOf(dueAt: string | null, now: string, dueSoonWindowMs = DAY_MS) {
   return extractPriorityFeatures({
-    commitment: commitmentOf({ timeSpec: { kind: 'due_by', dueAt, remindAt: null, timezone: 'UTC' } }),
+    commitment: commitmentOf({ timeSpec: { kind: 'due_by', dueAt, endAt: null, remindAt: null, allDay: false, timezone: 'UTC' } }),
     reminders: [],
     now,
     dueSoonWindowMs,
@@ -65,7 +65,7 @@ test('boundaries: one millisecond past due flips the item into overdue', () => {
 
 test('boundaries: the exact instant boundary agrees with the live scorer for both reasons', () => {
   const now = '2026-08-18T12:00:00.000Z';
-  const commitment = commitmentOf({ timeSpec: { kind: 'due_by', dueAt: now, remindAt: null, timezone: 'UTC' } });
+  const commitment = commitmentOf({ timeSpec: { kind: 'due_by', dueAt: now, endAt: null, remindAt: null, allDay: false, timezone: 'UTC' } });
 
   const overdue = calculateAgendaUrgencyScore({
     commitment, reminders: [], reason: 'overdue', now: new Date(now), relevantTimes: [now], dueSoonWindowMs: DAY_MS,
@@ -96,7 +96,7 @@ test('offsets: the earliest overdue time is chosen by instant, not by the spelli
   const now = '2026-08-18T13:00:00.000Z';
   const features = extractPriorityFeatures({
     commitment: commitmentOf({
-      timeSpec: { kind: 'due_by', dueAt: '2026-08-18T11:00:00.000Z', remindAt: '2026-08-18T12:00:00+02:00', timezone: 'Europe/Berlin' },
+      timeSpec: { kind: 'due_by', dueAt: '2026-08-18T11:00:00.000Z', endAt: null, remindAt: '2026-08-18T12:00:00+02:00', allDay: false, timezone: 'Europe/Berlin' },
     }),
     reminders: [],
     now,
@@ -116,7 +116,7 @@ test('offsets: the next upcoming time is chosen by instant, not by the spelling 
   const now = '2026-08-18T12:00:00.000Z';
   const features = extractPriorityFeatures({
     commitment: commitmentOf({
-      timeSpec: { kind: 'due_by', dueAt: '2026-08-18T20:00:00.000Z', remindAt: '2026-08-18T22:00:00+05:00', timezone: 'Asia/Karachi' },
+      timeSpec: { kind: 'due_by', dueAt: '2026-08-18T20:00:00.000Z', endAt: null, remindAt: '2026-08-18T22:00:00+05:00', allDay: false, timezone: 'Asia/Karachi' },
     }),
     reminders: [],
     now,
@@ -161,7 +161,7 @@ test('dst: overdue duration counts elapsed instants across a spring-forward tran
   const now = '2026-03-08T09:00:00.000Z';
   const features = extractPriorityFeatures({
     commitment: commitmentOf({
-      timeSpec: { kind: 'due_by', dueAt: '2026-03-08T02:30:00-05:00', remindAt: '2026-03-08T03:00:00-04:00', timezone: 'America/New_York' },
+      timeSpec: { kind: 'due_by', dueAt: '2026-03-08T02:30:00-05:00', endAt: null, remindAt: '2026-03-08T03:00:00-04:00', allDay: false, timezone: 'America/New_York' },
     }),
     reminders: [],
     now,
@@ -210,7 +210,7 @@ test('malformed: a usable time alongside an unparseable one still yields a known
   const now = '2026-08-18T12:00:00.000Z';
   const features = extractPriorityFeatures({
     commitment: commitmentOf({
-      timeSpec: { kind: 'due_by', dueAt: 'ASAP', remindAt: '2026-08-18T10:00:00.000Z', timezone: 'UTC' },
+      timeSpec: { kind: 'due_by', dueAt: 'ASAP', endAt: null, remindAt: '2026-08-18T10:00:00.000Z', allDay: false, timezone: 'UTC' },
     }),
     reminders: [],
     now,
@@ -274,7 +274,7 @@ test('purity: no module under lib/priority reads the system clock', () => {
 
 test('purity: extraction reports the same features regardless of when it runs', () => {
   const commitment = commitmentOf({
-    timeSpec: { kind: 'due_by', dueAt: '2026-08-18T06:00:00.000Z', remindAt: null, timezone: 'UTC' },
+    timeSpec: { kind: 'due_by', dueAt: '2026-08-18T06:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
     currentAckState: 'ignored',
   });
   const reminders = [reminderOf({ id: 'rem_1', status: 'snoozed' })];

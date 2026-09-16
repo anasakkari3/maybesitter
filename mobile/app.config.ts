@@ -19,6 +19,7 @@ const problems = releaseConfigProblems({
   apiMode: process.env.EXPO_PUBLIC_API_MODE,
   googleCalendarDemo: process.env.EXPO_PUBLIC_ENABLE_GOOGLE_CALENDAR_DEMO,
   testCrash: process.env.EXPO_PUBLIC_ENABLE_TEST_CRASH,
+  calendarWrite: process.env.EXPO_PUBLIC_FEATURE_CALENDAR_WRITE,
 });
 if (problems.length > 0) throw new Error(releaseConfigErrorMessage(problems));
 
@@ -187,6 +188,16 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       // English-only and ignores the per-locale strings above (#176 step 4).
       CFBundleLocalizations: ['en', 'ar', 'he'],
       NSAppTransportSecurity: appTransportSecurity(APP_ENV),
+      /*
+       * Remote notifications while the app is not in front (UC-3.0b, #184).
+       *
+       * Without it, a push that arrives to a backgrounded or killed app cannot
+       * wake the code that re-presents it, so the "a test push reaches a killed
+       * app" criterion is unreachable. `aps-environment` is added by the
+       * expo-notifications plugin and flipped to `production` by EAS for store
+       * builds, so it is deliberately not written here.
+       */
+      UIBackgroundModes: ['remote-notification'],
     },
     // Standard HTTPS only, so the app is outside the US export-compliance
     // question App Store Connect asks on every single upload.
@@ -280,24 +291,45 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         collected('NSPrivacyCollectedDataTypeName'),
         collected('NSPrivacyCollectedDataTypeUserID'),
         /*
-         * The FCM registration token — which nothing yet produces.
+         * The FCM registration token, which as of UC-3.0b (#184) this app
+         * really does collect.
          *
-         * `@react-native-firebase/messaging` is not a dependency of this app,
-         * so as of today this declares a collection that does not happen. That
-         * is not the safe direction: an over-declaration is still a false
-         * statement in a store filing, and it makes the label say the app
-         * gathers a device identifier when it does not.
+         * It was declared ahead of the fact (#179 §2), with a note saying so,
+         * because removing it and putting it back would mean re-provisioning
+         * the label. `@react-native-firebase/messaging` is a dependency now,
+         * `src/notifications/pushRegistration.ts` reads the token and
+         * `POST /api/mobile/devices` stores it under the uid — so the entry is
+         * true, and linked to identity, which is what it has always said.
          *
-         * Left in place deliberately rather than removed, because notifications
-         * (S3) will make it true and removing it now means re-provisioning the
-         * label later. #179 §2 records it as the owner's decision; this comment
-         * is here so nobody reads the entry as already true.
+         * The token is deleted when the user signs out
+         * (`DELETE /api/mobile/devices/{installationId}`, then
+         * `deleteToken()`) and with the account-deletion cascade (#149).
          */
         collected('NSPrivacyCollectedDataTypeDeviceID'),
         // Captures, and the commitments made from them.
         collected('NSPrivacyCollectedDataTypeOtherUserContent'),
         // Not linked: no `setUserId`, so a crash cannot be tied to a person.
         collected('NSPrivacyCollectedDataTypeCrashData', { linked: false }),
+        /*
+         * The calendar link (UC-3.1, #185).
+         *
+         * What leaves the device is the id of the calendar the user picked and
+         * the id of the event MaybeSitter itself created, plus a hash of what
+         * it wrote — stored so the app can move or remove *its own* event later
+         * and so a second device does not add a duplicate. No event the user
+         * created is read, no title is uploaded, and nothing about the rest of
+         * their calendar is sent anywhere.
+         *
+         * Apple has no "Calendar" collected-data type; the events themselves
+         * would be `OtherUserContent`, and these are not the events. Two
+         * opaque identifiers for a row this app wrote are `OtherDataTypes`,
+         * which is the entry that exists for exactly this — data that is
+         * collected and fits no other category.
+         *
+         * Linked to identity, because the row is stored under the uid, and
+         * never used for tracking.
+         */
+        collected('NSPrivacyCollectedDataTypeOtherDataTypes'),
         collected('NSPrivacyCollectedDataTypeProductInteraction', {
           purposes: ['NSPrivacyCollectedDataTypePurposeAppFunctionality', 'NSPrivacyCollectedDataTypePurposeAnalytics'],
         }),
@@ -320,6 +352,27 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     ...config.android,
     package: 'com.maybesitter.app',
     googleServicesFile: './firebase/google-services.json',
+    /*
+     * The one alarm permission this app asks for (UC-3.11, #196).
+     *
+     * `POST_NOTIFICATIONS` and `RECEIVE_BOOT_COMPLETED` are **not** here
+     * because expo-notifications declares both in its own
+     * `AndroidManifest.xml` and the merger brings them in; repeating them
+     * would be a second place for them to be right. `SCHEDULE_EXACT_ALARM` it
+     * does not declare, and it is the user-revocable one — the contrast with
+     * `USE_EXACT_ALARM` in `blockedPermissions` below is the whole point.
+     *
+     * Verified rather than assumed: `ExpoSchedulingDelegate.setupAlarm`
+     * (SDK 57) calls `alarmManager.canScheduleExactAlarms()` and falls back to
+     * `setAndAllowWhileIdle` when it is denied, rather than throwing. So a
+     * soft reminder on an Android 14 phone with "Alarms & reminders" revoked
+     * still fires — a few minutes late at worst, which for a heads-up an hour
+     * ahead is not a difference anybody can feel.
+     */
+    permissions: [
+      ...(config.android?.permissions ?? []),
+      'android.permission.SCHEDULE_EXACT_ALARM',
+    ],
     // Nothing on this device is worth restoring: commitments live in
     // Firestore under the uid, and signing in is what brings them back. See
     // plugins/withDataExtractionRules.js for why this alone is not enough.
@@ -402,6 +455,44 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         'Your device turns your speech into text. MaybeSitter never receives the audio.',
       androidSpeechServicePackages: ['com.google.android.googlequicksearchbox', 'com.google.android.as'],
     }],
+    /*
+     * The phone's calendar (UC-3.1, #185).
+     *
+     * ── Full access, and why the app pays for it ─────────────────
+     *
+     * `writeOnlyAccess` is not set, so this writes
+     * `NSCalendarsFullAccessUsageDescription` (iOS 17+) and
+     * `NSCalendarsUsageDescription` (before it), and asks for both
+     * `READ_CALENDAR` and `WRITE_CALENDAR` on Android.
+     *
+     * Write-only is the smaller ask and it cannot do this feature. It can add
+     * an event and can never look one up again, so "reschedule moves the
+     * event", "delete removes it" and "an event the user deleted is never
+     * recreated" are all impossible under it — three of #185's acceptance
+     * criteria. The honest trade is to ask for full access and say in the
+     * prompt exactly what is read back, which is what the string below does.
+     *
+     * ── `remindersPermission: false` ─────────────────────────────
+     *
+     * The plugin writes `NSRemindersUsageDescription` and
+     * `NSRemindersFullAccessUsageDescription` by default, for every app that
+     * installs it. MaybeSitter never touches the Reminders store — nothing in
+     * `src/features/calendar/` calls `createReminder` or `listReminders` — and
+     * a purpose string for a store the app does not open is an unexplained
+     * permission on a store listing and a question at review. `false` removes
+     * the key; verified by reading the generated `Info.plist` after
+     * `expo prebuild`, not by introspecting this file.
+     *
+     * The Arabic and Hebrew of the string below are in
+     * `locales/native/{ar,he}.json`; `appConfig.test.ts` fails if either is
+     * missing.
+     */
+    ['expo-calendar', {
+      calendarPermission:
+        'MaybeSitter adds the commitments you confirm to a calendar you choose, and reads back '
+        + 'only the events it added, so it can move or remove them when you do.',
+      remindersPermission: false,
+    }],
     // The date and time pickers on the capture review sheet (UC-2.4, #164).
     // A config plugin rather than autolinking alone, because the Android side
     // needs its own theme resources merged into the manifest.
@@ -434,6 +525,63 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       backgroundColor: '#F5F7F8',
       dark: { image: './assets/splash-icon.png', backgroundColor: '#101416' }
     }],
+    /*
+     * Local notifications, channels and categories (UC-3.11, #196).
+     *
+     * `defaultChannel` is what anything arriving without a channel lands on,
+     * and it is the same id `mobile/src/notifications/channels.ts` creates and
+     * `lib/push/pushService.ts` sends to — Android *drops* a notification whose
+     * channel does not exist, so the three have to agree and a test checks that
+     * they do.
+     *
+     * `icon` is the monochrome adaptive icon. Android reads only its alpha
+     * channel and tints the silhouette itself, which is exactly what that file
+     * is: a grey mark on transparent. It carries the adaptive icon's safe-zone
+     * padding, so the glyph sits a little small in the status bar — worth a
+     * look on a device, and still better than the white square Android draws
+     * when no icon is given.
+     */
+    ['expo-notifications', {
+      icon: './assets/android-icon-monochrome.png',
+      color: '#1F7A8C',
+      defaultChannel: 'maybesitter_general',
+    }],
+    /*
+     * The keychain entry the installation id lives in (UC-3.0b, #184).
+     *
+     * One value, `installation_id`, written once and never synced — see
+     * `src/lib/installationId.ts` for why it is here rather than in
+     * AsyncStorage, and why it is not a credential.
+     *
+     * Both options are off, and both were found by a test rather than guessed:
+     *
+     * `faceIDPermission: false` because the plugin otherwise writes an English
+     * `NSFaceIDUsageDescription` into the Info.plist. Nothing here calls
+     * `requireAuthentication`, so that string is a permission this app asks
+     * for and never uses — shown untranslated, at the moment somebody decides.
+     * `appConfig.test.ts` ("says every permission in Arabic and Hebrew") went
+     * red on it.
+     *
+     * `configureAndroidBackup: false` because the plugin points
+     * `android:dataExtractionRules` and `android:fullBackupContent` at its own
+     * two files, and `./plugins/withDataExtractionRules` (UC-1.6a, #150)
+     * already points them at rules that exclude every domain from cloud backup
+     * *and* device transfer. Two plugins writing one manifest attribute is a
+     * race decided by plugin order; the stricter rules win it by not being
+     * raced.
+     */
+    ['expo-secure-store', { faceIDPermission: false, configureAndroidBackup: false }],
+    /*
+     * FCM tokens and message receipt (UC-3.0b, #184).
+     *
+     * React Native Firebase owns both; expo-notifications owns local
+     * notifications, channels, categories and tap responses. That split is not
+     * a convention — it is how the two libraries' manifests resolve. Both
+     * declare a service for `com.google.firebase.MESSAGING_EVENT`, and
+     * expo-notifications declares its intent filter at `android:priority="-1"`
+     * while RNFB's is at the default, so the merged manifest picks RNFB.
+     */
+    '@react-native-firebase/messaging',
     './plugins/withDataExtractionRules',
     /*
      * Two corrections to what `expo-share-intent` generates, which is why this

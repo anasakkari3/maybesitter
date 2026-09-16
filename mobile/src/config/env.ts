@@ -52,6 +52,7 @@ export function configProblems(): string[] {
     testCrash: process.env.EXPO_PUBLIC_ENABLE_TEST_CRASH,
     shareIntake: process.env.EXPO_PUBLIC_FEATURE_SHARE_INTAKE,
     shareIntentDebug: process.env.EXPO_PUBLIC_SHARE_INTENT_DEBUG,
+    calendarWrite: process.env.EXPO_PUBLIC_FEATURE_CALENDAR_WRITE,
   });
 }
 
@@ -241,6 +242,32 @@ export function safeCommitmentPatchEnabled(): boolean {
 }
 
 /**
+ * Whether this build may write to the phone's calendar (UC-3.1, #185 step 8).
+ *
+ * **Off by default**, and turned on by `EXPO_PUBLIC_FEATURE_CALENDAR_WRITE=true`.
+ * An enable flag rather than a kill switch, like share intake and for the same
+ * reason: what is gated is not a feature that already works for real users. It
+ * writes into somebody's calendar — a place they share with other people — and
+ * none of its acceptance criteria can be proven without a device with seeded
+ * calendars. The state it must default to is off until QA has a device run.
+ *
+ * ── Why the app and not the route ────────────────────────────────
+ *
+ * There is no route to gate. The write happens on the device, through EventKit
+ * and the Android provider, and the server sees only the link afterwards. So
+ * this is the only lock there is, and it sits in `useDeviceCalendarSync` — the
+ * one place a calendar pass is started — rather than on the settings screen. A
+ * hidden toggle is a fact about one screen; this is a claim the code keeps
+ * however the sync is reached.
+ *
+ * Read like the other enable flags: the literal string `true` and nothing else,
+ * so an empty value or a typo leaves it off.
+ */
+export function calendarWriteEnabled(): boolean {
+  return (process.env.EXPO_PUBLIC_FEATURE_CALENDAR_WRITE ?? '').trim() === 'true';
+}
+
+/**
  * Whether this build accepts a share (UC-3.0, #183 step 10).
  *
  * **Off by default**, and turned on by `EXPO_PUBLIC_FEATURE_SHARE_INTAKE=true`.
@@ -280,4 +307,33 @@ export function shareIntentDebugEnabled(isDevBundle: boolean = __DEV__): boolean
   if (isDevBundle !== true) return false;
   if (!isDevelopment()) return false;
   return (process.env.EXPO_PUBLIC_SHARE_INTENT_DEBUG ?? '').trim() === 'true';
+}
+
+/**
+ * Gentle reminders (UC-3.11, #196).
+ *
+ * On by default, and switched off by `EXPO_PUBLIC_FEATURE_SOFT_REMINDERS=false`
+ * — the same shape as `safeCommitmentPatchEnabled` above, and for the same
+ * reason: a kill switch that has to be *set* to be safe is a kill switch
+ * somebody forgets to set.
+ *
+ * Off does not mean "schedule nothing from now on". It means the app cancels
+ * everything it already has pending, because a reminder scheduled yesterday
+ * fires whether or not today's build would have scheduled it — see
+ * `cancelEveryReminder`.
+ */
+export function softRemindersEnabled(): boolean {
+  return (process.env.EXPO_PUBLIC_FEATURE_SOFT_REMINDERS ?? '').trim() !== 'false';
+}
+
+/**
+ * The version string the device registry stores (UC-3.0b, #184).
+ *
+ * From the running binary when there is one, and from the config otherwise, so
+ * a value is always available under Jest. It is the only thing about the
+ * device this app reports beyond the platform — no model, no OS build.
+ */
+export function appVersion(): string {
+  const native = Constants.expoConfig?.version;
+  return typeof native === 'string' && native.trim() !== '' ? native.trim() : '0.0.0';
 }

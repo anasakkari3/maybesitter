@@ -20,7 +20,7 @@ function commitment(overrides: Partial<Commitment> & { id: string }): Commitment
     person: null,
     status: 'active',
     priority: { level: 'normal', source: 'default', pressureAllowed: false, pressureLevel: 'none' },
-    timeSpec: { kind: 'due_by', dueAt: '2026-09-13T12:00:00.000Z', remindAt: null, timezone: 'UTC' },
+    timeSpec: { kind: 'due_by', dueAt: '2026-09-13T12:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
     currentAckState: 'not_seen',
     postponedUntil: null,
     createdAt: '2026-09-01T09:00:00.000Z',
@@ -79,7 +79,7 @@ describe('a time that has passed', () => {
   it('is flagged, but is not a status', () => {
     // There is no "overdue" in this product. A missed thing is still active.
     const past = toViewModel(commitment({
-      id: 'past', timeSpec: { kind: 'due_by', dueAt: '2026-09-13T08:00:00.000Z', remindAt: null, timezone: 'UTC' },
+      id: 'past', timeSpec: { kind: 'due_by', dueAt: '2026-09-13T08:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
     }), NOW);
     expect(past.isPast).toBe(true);
     expect(past.status).toBe('active');
@@ -88,14 +88,14 @@ describe('a time that has passed', () => {
   it('is never flagged for something already finished', () => {
     const done = toViewModel(commitment({
       id: 'done', status: 'completed',
-      timeSpec: { kind: 'due_by', dueAt: '2026-09-13T08:00:00.000Z', remindAt: null, timezone: 'UTC' },
+      timeSpec: { kind: 'due_by', dueAt: '2026-09-13T08:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
     }), NOW);
     expect(done.isPast).toBe(false);
   });
 
   it('falls back to the reminder when there is no due time', () => {
     const view = toViewModel(commitment({
-      id: 'r', timeSpec: { kind: 'due_by', dueAt: null, remindAt: '2026-09-13T08:00:00.000Z', timezone: 'UTC' },
+      id: 'r', timeSpec: { kind: 'due_by', dueAt: null, endAt: null, remindAt: '2026-09-13T08:00:00.000Z', allDay: false, timezone: 'UTC' },
     }), NOW);
     expect(view.shownAt).toBe('2026-09-13T08:00:00.000Z');
     expect(view.isPast).toBe(true);
@@ -103,7 +103,7 @@ describe('a time that has passed', () => {
 
   it('is never flagged for something with no time at all', () => {
     const view = toViewModel(commitment({
-      id: 'n', timeSpec: { kind: 'unscheduled', dueAt: null, remindAt: null, timezone: 'UTC' },
+      id: 'n', timeSpec: { kind: 'unscheduled', dueAt: null, endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
     }), NOW);
     expect(view.shownAt).toBeNull();
     expect(view.isPast).toBe(false);
@@ -133,16 +133,16 @@ describe('grouping', () => {
 
   it('orders by time when nothing is ranked', () => {
     const groups = groupForToday([
-      commitment({ id: 'late', timeSpec: { kind: 'due_by', dueAt: '2026-09-13T18:00:00.000Z', remindAt: null, timezone: 'UTC' } }),
-      commitment({ id: 'early', timeSpec: { kind: 'due_by', dueAt: '2026-09-13T10:00:00.000Z', remindAt: null, timezone: 'UTC' } }),
+      commitment({ id: 'late', timeSpec: { kind: 'due_by', dueAt: '2026-09-13T18:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' } }),
+      commitment({ id: 'early', timeSpec: { kind: 'due_by', dueAt: '2026-09-13T10:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' } }),
     ], NOW);
     expect(groups.should.map((v) => v.id)).toEqual(['early', 'late']);
   });
 
   it('orders by rank inside a group when every item carries one', () => {
     const groups = groupForToday([
-      commitment({ id: 'second', rank: 1, timeSpec: { kind: 'due_by', dueAt: '2026-09-13T10:00:00.000Z', remindAt: null, timezone: 'UTC' } } as Partial<Commitment> & { id: string }),
-      commitment({ id: 'first', rank: 0, timeSpec: { kind: 'due_by', dueAt: '2026-09-13T18:00:00.000Z', remindAt: null, timezone: 'UTC' } } as Partial<Commitment> & { id: string }),
+      commitment({ id: 'second', rank: 1, timeSpec: { kind: 'due_by', dueAt: '2026-09-13T10:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' } } as Partial<Commitment> & { id: string }),
+      commitment({ id: 'first', rank: 0, timeSpec: { kind: 'due_by', dueAt: '2026-09-13T18:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' } } as Partial<Commitment> & { id: string }),
     ], NOW);
     // Rank wins over time, which is the whole point of ranking.
     expect(groups.should.map((v) => v.id)).toEqual(['first', 'second']);
@@ -162,8 +162,8 @@ describe('grouping', () => {
     // A half-ranked list is a bug somewhere upstream; ordering it by a rank
     // some items lack would put the unranked ones in an arbitrary place.
     const groups = groupForToday([
-      { ...commitment({ id: 'ranked', timeSpec: { kind: 'due_by', dueAt: '2026-09-13T18:00:00.000Z', remindAt: null, timezone: 'UTC' } }), rank: 0 } as Commitment,
-      commitment({ id: 'unranked', timeSpec: { kind: 'due_by', dueAt: '2026-09-13T10:00:00.000Z', remindAt: null, timezone: 'UTC' } }),
+      { ...commitment({ id: 'ranked', timeSpec: { kind: 'due_by', dueAt: '2026-09-13T18:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' } }), rank: 0 } as Commitment,
+      commitment({ id: 'unranked', timeSpec: { kind: 'due_by', dueAt: '2026-09-13T10:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' } }),
     ], NOW);
     expect(groups.should.map((v) => v.id)).toEqual(['unranked', 'ranked']);
   });
