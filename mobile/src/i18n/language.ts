@@ -63,13 +63,26 @@ export function nextLanguagePref(pref: LanguagePref): LanguagePref {
   return LANGUAGE_OPTIONS[(i + 1) % LANGUAGE_OPTIONS.length] ?? 'system';
 }
 
-export async function loadLanguagePref(): Promise<LanguagePref> {
+/**
+ * The stored preference, and whether one was ever stored (#469).
+ *
+ * `'system'` is both the default and a legal explicit choice, so the value on
+ * its own cannot tell a fresh install from someone who picked "System" on
+ * purpose. `chosen` is whether the key held a value the app recognises: the
+ * language screen before sign-in shows exactly when it did not. A store that
+ * cannot be read counts as not chosen, so the worst case is asking once more.
+ */
+export async function loadLanguagePrefState(): Promise<{ pref: LanguagePref; chosen: boolean }> {
   try {
     const stored = await AsyncStorage.getItem(LANGUAGE_STORAGE_KEY);
-    return isLanguagePref(stored) ? stored : 'system';
+    return isLanguagePref(stored) ? { pref: stored, chosen: true } : { pref: 'system', chosen: false };
   } catch {
-    return 'system';
+    return { pref: 'system', chosen: false };
   }
+}
+
+export async function loadLanguagePref(): Promise<LanguagePref> {
+  return (await loadLanguagePrefState()).pref;
 }
 
 export async function saveLanguagePref(pref: LanguagePref): Promise<void> {

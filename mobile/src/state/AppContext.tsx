@@ -5,7 +5,8 @@ import { setLocale, tFor } from '../i18n';
 import { isRtl, scriptFor } from '../i18n/locale';
 import type { Script } from '../theme/fonts';
 import {
-  loadLanguagePref, nextLanguagePref, resolveLanguage, saveLanguagePref, systemLanguageTag, type LanguagePref,
+  loadLanguagePrefState, nextLanguagePref, resolveLanguage, saveLanguagePref, systemLanguageTag,
+  type LanguagePref, type SelectableLocale,
 } from '../i18n/language';
 import { googleCalendarDemoEnabled } from '../config/env';
 import { loadThemePref, saveThemePref } from '../lib/deviceSettings/theme';
@@ -62,6 +63,10 @@ function useAppModel() {
   // to. The device tag is read once: changing the phone's language restarts the
   // app anyway, and re-reading it every render is a native call for nothing.
   const [langPref, setLangPref] = useState<LanguagePref>('system');
+  // Whether a language was ever chosen, null until the store has answered
+  // (#469). `LanguageGate` asks the question while this is false; `'system'`
+  // alone cannot say, because it is also what a fresh install resolves to.
+  const [langChosen, setLangChosen] = useState<boolean | null>(null);
   const systemTag = useMemo(() => systemLanguageTag(), []);
   const lang: Lang = resolveLanguage(langPref, systemTag);
   // Direction and alphabet are two questions, not one. See the fields below.
@@ -81,7 +86,11 @@ function useAppModel() {
   // the app is actually rendering, so `tr` and the screens never disagree.
   useEffect(() => {
     let active = true;
-    void loadLanguagePref().then(pref => { if (active) setLangPref(pref); });
+    void loadLanguagePrefState().then(({ pref, chosen }) => {
+      if (!active) return;
+      setLangPref(pref);
+      setLangChosen(chosen);
+    });
     // The same hydration for the scheme (#155). Both start at 'system', which
     // resolves to what the device already says, so the frame before either
     // read lands is the right answer for anyone who never overrode it — and a
@@ -193,6 +202,9 @@ function useAppModel() {
     // A maybesitter://<screen>?lang=ar link picks a language explicitly, so it
     // stops following the system exactly as tapping the row does.
     setLang: (l: Lang) => applyLangPref(l),
+    // The language screen's Continue (#469). `applyLangPref` writes the key,
+    // which is what makes the choice durable: the next launch finds it stored.
+    chooseLanguage: (locale: SelectableLocale) => { applyLangPref(locale); setLangChosen(true); },
     setThemePref: applyThemePref,
 
     /**
@@ -220,7 +232,7 @@ function useAppModel() {
   };
 
   return {
-    s, t, tr, p, lang, langPref, scheme, themePref, actions,
+    s, t, tr, p, lang, langPref, langChosen, scheme, themePref, actions,
     /**
      * Which way the UI reads. Arabic and Hebrew both go right to left; `Root`
      * is the single place that acts on it (`direction` on the root view).

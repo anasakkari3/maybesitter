@@ -9,6 +9,7 @@ import { ApiProvider } from './src/api/ui/ApiProvider';
 import { AccountDeletionProvider } from './src/features/account/AccountDeletionProvider';
 import { AccountDeletedGate } from './src/features/account/AccountDeletedGate';
 import { OnboardingGate } from './src/features/onboarding/OnboardingGate';
+import { LanguageGate } from './src/features/language/LanguageGate';
 import { AuthProvider } from './src/auth/AuthProvider';
 import { Root } from './src/Root';
 import { fontMap } from './src/theme/fonts';
@@ -61,28 +62,33 @@ function AppTree() {
   return (
     <SafeAreaProvider>
       <AppProvider>
-        {/* Auth sits inside AppProvider so the sign-in screen is themed and
-            localised the same way every other screen is. */}
-        <AuthProvider>
-          {/* Inside AuthProvider: the API layer takes its bearer from the
-              repository, and clears every cached row when the uid changes. */}
-          <ApiProvider>
-            <AccountDeletionProvider>
-              {/* Outside AuthGate on purpose: a successful deletion removes
-                  the Firebase user, so the gate flips to sign-in in the same
-                  frame — and the receipt the user is owed would vanish with
-                  it (UC-1.5 #149). */}
-              <AccountDeletedGate>
-                {/* The sign-in gate, with UC-2.R1 (#171)'s onboarding composed
-                    into the slot it has always had. A signed-in user who has
-                    not been through the consent screen does not reach Root. */}
-                <OnboardingGate>
-                  <Root />
-                </OnboardingGate>
-              </AccountDeletedGate>
-            </AccountDeletionProvider>
-          </ApiProvider>
-        </AuthProvider>
+        {/* A fresh install picks its language before anything else renders
+            (#469). Above AuthProvider on purpose: sign-in is the first screen
+            that has words on it, and they should already be the right ones. */}
+        <LanguageGate>
+          {/* Auth sits inside AppProvider so the sign-in screen is themed and
+              localised the same way every other screen is. */}
+          <AuthProvider>
+            {/* Inside AuthProvider: the API layer takes its bearer from the
+                repository, and clears every cached row when the uid changes. */}
+            <ApiProvider>
+              <AccountDeletionProvider>
+                {/* Outside AuthGate on purpose: a successful deletion removes
+                    the Firebase user, so the gate flips to sign-in in the same
+                    frame — and the receipt the user is owed would vanish with
+                    it (UC-1.5 #149). */}
+                <AccountDeletedGate>
+                  {/* The sign-in gate, with UC-2.R1 (#171)'s onboarding composed
+                      into the slot it has always had. A signed-in user who has
+                      not been through the consent screen does not reach Root. */}
+                  <OnboardingGate>
+                    <Root />
+                  </OnboardingGate>
+                </AccountDeletedGate>
+              </AccountDeletionProvider>
+            </ApiProvider>
+          </AuthProvider>
+        </LanguageGate>
       </AppProvider>
     </SafeAreaProvider>
   );
