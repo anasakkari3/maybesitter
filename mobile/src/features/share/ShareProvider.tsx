@@ -252,6 +252,8 @@ function ShareIntake({ children }: { children: React.ReactNode }) {
   const held = useRef<SharedPayload | null>(null);
   /** The stripped copies this share wrote, which nothing else knows about. */
   const created = useRef<readonly string[]>([]);
+  /** False once this tree has unmounted, for the work that was awaiting when it did (#404). */
+  const mounted = useRef(true);
   const latest = useRef({ go: actions.go, reset, adoptProposal });
   // Kept current in an effect rather than during render, and declared *first*
   // so the effects below — which run in declaration order within one commit —
@@ -265,10 +267,14 @@ function ShareIntake({ children }: { children: React.ReactNode }) {
    * the only way the criterion holds for a user who shares something and then
    * signs out without touching the screen.
    */
-  useEffect(() => () => {
-    deleteSharedFiles([...urisOf(held.current), ...created.current]);
-    created.current = [];
-    held.current = null;
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      deleteSharedFiles([...urisOf(held.current), ...created.current]);
+      created.current = [];
+      held.current = null;
+    };
   }, []);
 
   /**
@@ -341,6 +347,17 @@ function ShareIntake({ children }: { children: React.ReactNode }) {
     let uploading: readonly SharedFile[] = sending.files;
     if (sending.kind === 'images') {
       const stripped = await prepareImages(sending.files, { bytes: sharedImageBytes, codec: sharedImageCodec });
+      // Signed out while the pictures were being prepared: the unmount cleanup
+      // has already run and cannot see these files, and nothing may be uploaded
+      // for a session that has ended.
+      if (!mounted.current) {
+        deleteSharedFiles(stripped.ok ? stripped.prepared.created : stripped.created);
+        return;
+      }
+      // A retry after a failed upload: the first attempt's encodes and stripped
+      // copies are still on disk, and only this ref knew about them.
+      deleteSharedFiles(created.current);
+      created.current = [];
       if (!stripped.ok) {
         deleteSharedFiles(stripped.created);
         setPhase({ kind: 'failed', messageKey: IMAGE_PROBLEM_KEY[stripped.problem] });

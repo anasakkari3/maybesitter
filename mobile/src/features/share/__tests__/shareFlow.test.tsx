@@ -141,8 +141,14 @@ jest.mock('expo-file-system', () => ({
  * doing, and the saved files are on the disk the "nothing left behind" cases
  * inspect.
  */
-const mockManipulator: { saves: { width: number; height: number; compress: number | undefined }[]; picture: { width: number; height: number } } = {
+const mockManipulator: {
+  saves: { width: number; height: number; compress: number | undefined }[];
+  picture: { width: number; height: number };
+  /** When set, an encode waits for it: the window in which the app can unmount. */
+  gate: Promise<void> | null;
+} = {
   saves: [],
+  gate: null,
   picture: { width: 4032, height: 3024 },
 };
 
@@ -161,6 +167,7 @@ jest.mock('expo-image-manipulator', () => {
     height,
     release: () => {},
     saveAsync: async (options: { compress?: number; format?: string }) => {
+      if (mockManipulator.gate) await mockManipulator.gate;
       const png = options.format === 'png';
       const uri = `file:///cache/ImageManipulator/${mockManipulator.saves.length}.${png ? 'png' : 'jpg'}`;
       mockManipulator.saves.push({ width, height, compress: options.compress });
@@ -266,6 +273,7 @@ beforeEach(() => {
   mockFiles.clear();
   mockFileBytes.clear();
   mockManipulator.saves = [];
+  mockManipulator.gate = null;
   originalFlag = process.env.EXPO_PUBLIC_FEATURE_SHARE_INTAKE;
   process.env.EXPO_PUBLIC_FEATURE_SHARE_INTAKE = 'true';
   jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [] } as never);
@@ -732,6 +740,48 @@ describe('a picture is stripped before it is uploaded (UC-3.6, #190)', () => {
     expect(metadataMarkersIn(uploaded!)).toEqual([]);
     // The OS's copy, the encoder's output and the stripped copy: all gone.
     await waitFor(() => expect(screen.queryByTestId('review-item-i-1')).not.toBeNull());
+    expect([...mockFiles]).toEqual([]);
+  });
+
+  it('a retry after a failed upload leaves none of the first attempt’s files behind (#404 review F3)', async () => {
+    const propose = jest.spyOn(shareEndpoints, 'proposeFromShare')
+      .mockRejectedValueOnce(new NetworkError('nope'))
+      .mockResolvedValueOnce(shareProposal() as never);
+    await openWithShare({
+      ...mockEmptyIntent,
+      files: [photograph('poster_ar', 'image/jpeg', 'file:///tmp/share/poster.jpg')],
+      type: 'media',
+    });
+    await fireEvent.press(screen.getByTestId('share-analyze'));
+    await waitFor(() => expect(screen.queryByTestId('share-problem')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('share-analyze'));
+    await waitFor(() => expect(screen.queryByTestId('review-item-i-1')).not.toBeNull());
+
+    expect(propose).toHaveBeenCalledTimes(2);
+    // Two encodes, two stripped copies and the OS's copy: every one is gone.
+    expect(mockManipulator.saves).toHaveLength(2);
+    expect([...mockFiles]).toEqual([]);
+  });
+
+  it('unmounting while a picture is being prepared deletes what it wrote and uploads nothing (#404 review F4)', async () => {
+    const propose = jest.spyOn(shareEndpoints, 'proposeFromShare');
+    let open: () => void = () => {};
+    mockManipulator.gate = new Promise<void>((resolve) => { open = resolve; });
+    await openWithShare({
+      ...mockEmptyIntent,
+      files: [photograph('poster_ar', 'image/jpeg', 'file:///tmp/share/poster.jpg')],
+      type: 'media',
+    });
+    await fireEvent.press(screen.getByTestId('share-analyze'));
+    // Signed out mid-encode.
+    await act(async () => { screen.unmount(); });
+    await act(async () => {
+      open();
+      for (let tick = 0; tick < 20; tick += 1) await Promise.resolve();
+    });
+
+    expect(mockManipulator.saves).toHaveLength(1);
+    expect(propose).not.toHaveBeenCalled();
     expect([...mockFiles]).toEqual([]);
   });
 
