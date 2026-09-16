@@ -174,13 +174,86 @@ test('an all-day entry does not empty the day', async () => {
   }
 });
 
-test('another account\'s busy time does not narrow this one\'s day', async () => {
+/**
+ * The cross-account case, rewritten because the first version proved nothing.
+ *
+ * It wrote blocks for a second account into a fresh store and asserted the
+ * first account's collection was empty — true by construction, since nothing
+ * had ever written there. It never built a plan, so it never reached
+ * `readBusyBlocksForPlanning`, and adversarial review made `allBlocks` return
+ * the caller's rows *plus another account's* with every server suite still
+ * green, including the one named for this property.
+ *
+ * So this builds a real plan for one account while the *other* account is busy
+ * for the whole working day. A leak in either direction empties this plan, and
+ * the assertion is on the plan rather than on a collection listing.
+ */
+test('another account being busy all day does not narrow this one\'s plan', async () => {
   try {
     const storage = createMemoryStorage();
     setStorageForTests(storage);
-    await replaceBusyBlocks('user_busy_plan_2', SOURCE, HORIZON, [busy('lecture', 10, 12)], { storage });
-    const mine = await storage.list(`users/${UID}/busyBlocks`);
-    assert.deepEqual(mine, []);
+    // The neighbour is busy from before the working window until after it.
+    await replaceBusyBlocks('user_busy_plan_2', SOURCE, HORIZON, [
+      busy('all-their-day', 6, 22),
+    ], { storage });
+
+    const deps = { storage, now: () => MORNING };
+    await persistParticipantState(UID, seedState());
+    const user = await storage.get<Record<string, unknown>>(userDoc(UID));
+    await storage.set(userDoc(UID), { ...(user ?? {}), timezone: TZ, locale: 'en' });
+    await savePlanSettings(UID, { enabled: true, deliveryLocalTime: '07:30' }, YESTERDAY_NOON, deps);
+    const claim = await claimDueDelivery(UID, MORNING, deps);
+    assert.ok(claim, 'the account was not claimable');
+    await buildAndStoreDailyPlan(claim, deps);
+    const stored = await readStoredPlan(UID, claim.date, storage);
+
+    assert.ok(stored, 'no plan was stored');
+    assert.equal(
+      stored.plan.scheduled.length,
+      8,
+      "the neighbour's busy day reached this account's planner",
+    );
+  } finally {
+    resetStorageForTests();
+  }
+});
+
+/**
+ * The same shape from the other side: this account is busy, the neighbour is
+ * not, and the neighbour's plan is full.
+ *
+ * Two directions rather than one, because a leak keyed on the wrong uid shows
+ * up in only one of them.
+ */
+test('this account being busy all day does not narrow another one\'s plan', async () => {
+  try {
+    const storage = createMemoryStorage();
+    setStorageForTests(storage);
+    const neighbour = 'user_busy_plan_2';
+    await replaceBusyBlocks(UID, SOURCE, HORIZON, [busy('all-my-day', 6, 22)], { storage });
+
+    const deps = { storage, now: () => MORNING };
+    await persistParticipantState(neighbour, seedState());
+    const user = await storage.get<Record<string, unknown>>(userDoc(neighbour));
+    await storage.set(userDoc(neighbour), { ...(user ?? {}), timezone: TZ, locale: 'en' });
+    await savePlanSettings(neighbour, { enabled: true, deliveryLocalTime: '07:30' }, YESTERDAY_NOON, deps);
+    const claim = await claimDueDelivery(neighbour, MORNING, deps);
+    assert.ok(claim, 'the neighbour was not claimable');
+    await buildAndStoreDailyPlan(claim, deps);
+    const stored = await readStoredPlan(neighbour, claim.date, storage);
+
+    assert.ok(stored, 'no plan was stored');
+    assert.equal(stored.plan.scheduled.length, 8, "this account's busy day reached the neighbour's planner");
+  } finally {
+    resetStorageForTests();
+  }
+});
+
+/** And the control: a busy day really does empty a plan, so 8 means something. */
+test('a busy day of one\'s own does empty the plan, which is what makes the two above sharp', async () => {
+  try {
+    const plan = await planWith([busy('all-my-day', 6, 22)]);
+    assert.equal(plan.scheduled.length, 0);
   } finally {
     resetStorageForTests();
   }

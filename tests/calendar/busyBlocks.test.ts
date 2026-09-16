@@ -226,11 +226,21 @@ test('a replace does not touch another source inside the same window', async () 
   assert.deepEqual(left.map((row) => row.sourceId), [OTHER_SOURCE]);
 });
 
-test('a replace does not touch the same source outside the window', async () => {
+/**
+ * Flipped deliberately after adversarial review of #418.
+ *
+ * This test used to be called "a replace does not touch the same source outside
+ * the window" and asserted `2` here. It was encoding the defect: the device's
+ * window moves a day every night, so a row outside the new window is a row the
+ * window has already left behind, and keeping it is how a month of daily syncs
+ * became twenty-eight rows with twenty-seven of them dead. An upload is a
+ * source's whole state; `busyBlockBounds.test.ts` holds the rest of that rule.
+ */
+test('a replace removes the same source\'s rows even outside the new window', async () => {
   const storage = createMemoryStorage();
   await replaceBusyBlocks(UID, SOURCE, window(0, 60 * 24), [block('a', 600, 660)], { storage });
   await replaceBusyBlocks(UID, SOURCE, window(60 * 24, 60 * 48), [block('b', 60 * 25, 60 * 26)], { storage });
-  assert.equal(await countBlocks(storage, UID), 2);
+  assert.equal(await countBlocks(storage, UID), 1);
 });
 
 test('a block that straddles the start of the window is replaced, not left behind', async () => {

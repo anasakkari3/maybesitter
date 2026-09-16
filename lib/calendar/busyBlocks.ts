@@ -22,16 +22,44 @@
  * enforced at the one boundary data crosses, and it is tested by asserting the
  * *key set* rather than the absence of one key somebody thought of.
  *
- * ── Replace, not append ──────────────────────────────────────────
+ * ── An upload is a source's whole state ──────────────────────────
  *
- * A phone re-sends its whole window: on connect, on manual refresh, when the
- * app comes back to the front, and after UC-3.1 writes an event. So an upload
- * is a statement about a *window*, not a list of new facts, and
- * `replaceBusyBlocks` deletes everything that source had in that window before
- * writing what it now says. Appending would leave a copy per sync — and because
- * `blockId` is derived from the event's start, an *unchanged* event overwrites
- * its own row, so an append-only bug would only show up for somebody who moved
- * a meeting. That is why the test that proves this moves every event.
+ * A phone re-sends its window: on connect, on manual refresh, when the app
+ * comes back to the front, and after UC-3.1 writes an event. So an upload is
+ * not a list of new facts — it is that source saying *this is everything I
+ * have* — and `replaceBusyBlocks` deletes every row of that source which is not
+ * in it, whatever the row's dates.
+ *
+ * Deleting on overlap with the declared window instead, which is what this did
+ * first, is unbounded. The device's window is today's local midnight to +28
+ * days, so it *moves* every night, and a row left behind when the date rolled
+ * over was outside every later window and could never be a deletion candidate
+ * again. One evening event a day left twenty-seven dead rows after twenty-eight
+ * days. It compounds rather than merely wasting space, because `listBusyBlocks`
+ * reads the whole collection and filters in memory — a design whose only
+ * justification is a hard cap per source — and it runs on every daily-plan
+ * composition, so building somebody's morning got slower the longer they had
+ * the feature on.
+ *
+ * The whole-state rule closes three things at once: nothing survives a window
+ * that moved, the per-source total is bounded by the upload cap because after a
+ * sync a source holds exactly what it just sent, and a row dated 2099 — which
+ * no honest future window would overlap — is prunable like any other.
+ *
+ * A source that wanted to sync *incrementally* would need a different function,
+ * and would have to say so. None does: there is one window per source at a
+ * time, and #187 and #188 both restate a whole feed.
+ *
+ * ── The block id is namespaced by its source ─────────────────────
+ *
+ * `blockId` is the document key and it is chosen entirely by the client. The
+ * server cannot re-derive it, because the preimage contains the calendar's own
+ * event id and that by design never leaves the phone — so "two sources cannot
+ * collide" cannot be checked by arithmetic. It is made structural instead: the
+ * path hashes the source in with the id, so a second source presenting the same
+ * id writes a *different document*. Before that, it overwrote the first
+ * source's row and re-filed it under its own name, after which the first
+ * phone's "Disconnect and delete" answered `{deleted: 0}` and left the row.
  *
  * ── All-day is stored, and does not block ────────────────────────
  *
@@ -107,6 +135,20 @@ export class BusyUploadError extends Error {
  */
 export const BUSY_BLOCK_UPLOAD_LIMIT = 1000;
 
+/**
+ * The longest window one upload may declare.
+ *
+ * Blocks have to fall inside the window they are sent with, or a row dated 2099
+ * arrives and nothing ever prunes it. That check is only worth anything if the
+ * window itself is bounded: otherwise a client declares a thousand years and
+ * every block is "inside" it.
+ *
+ * The phone sends twenty-eight days. A year and a bit leaves room for an ICS
+ * feed (UC-3.4, #188) that publishes a whole academic year without making the
+ * bound meaningless.
+ */
+export const MAX_BUSY_WINDOW_DAYS = 400;
+
 /** The complete list of keys a block may carry. Anything else is an incident. */
 export const BUSY_BLOCK_UPLOAD_KEYS = ['blockId', 'startAt', 'endAt', 'allDay'] as const;
 
@@ -166,6 +208,17 @@ export function sourceKindOf(sourceId: unknown): BusySourceKind {
   if (typeof sourceId !== 'string' || sourceId.length > 200) {
     throw new BusyUploadError('sourceId must be a string of at most 200 characters');
   }
+  // Defence in depth, not the path check. `sourcePath` hashes this through
+  // `docIdForKey`, so nothing here can escape a collection whatever it says —
+  // but a newline in an id makes a log line ambiguous and `..` in one is a
+  // sentence somebody wrote on purpose. Both are refused rather than hashed
+  // into something harmless and forgotten about.
+  if (/[\u0000-\u001f\u007f]/.test(sourceId)) {
+    throw new BusyUploadError('sourceId must not contain control characters');
+  }
+  if (sourceId.includes('..')) {
+    throw new BusyUploadError('sourceId must not contain ".."');
+  }
   const kind = BUSY_SOURCE_KINDS.find((candidate) => sourceId.startsWith(`${candidate}:`));
   if (!kind) {
     throw new BusyUploadError(`sourceId must start with one of ${BUSY_SOURCE_KINDS.map((k) => `${k}:`).join(', ')}`);
@@ -191,6 +244,11 @@ export function parseBusyUpload(body: unknown): ParsedBusyUpload {
   if (Date.parse(windowEnd) <= Date.parse(windowStart)) {
     throw new BusyUploadError('windowEnd must be after windowStart');
   }
+  const windowDays = (Date.parse(windowEnd) - Date.parse(windowStart)) / 86_400_000;
+  if (windowDays > MAX_BUSY_WINDOW_DAYS) {
+    throw new BusyUploadError(`a busy window may cover at most ${MAX_BUSY_WINDOW_DAYS} days`);
+  }
+  const window: TimeInterval = { startsAt: windowStart, endsAt: windowEnd };
 
   if (!Array.isArray(body.blocks)) throw new BusyUploadError('blocks must be an array');
   if (body.blocks.length > BUSY_BLOCK_UPLOAD_LIMIT) {
@@ -209,10 +267,27 @@ export function parseBusyUpload(body: unknown): ParsedBusyUpload {
     if (Date.parse(endAt) <= Date.parse(startAt)) {
       throw new BusyUploadError(`block ${index}: endAt must be after startAt`);
     }
+    // Inside the window it was sent with — overlap, not containment, because an
+    // event that began last night and runs into this morning is reported by the
+    // device with its true start and is a legitimate part of today's window.
+    // Without this a one-hour window could carry a block dated 2099, and since
+    // no honest future window would ever hold it, nothing would prune it.
+    if (!overlaps({ startAt, endAt }, window)) {
+      throw new BusyUploadError(`block ${index}: does not fall inside the declared window`);
+    }
     return { blockId: raw.blockId, startAt, endAt, allDay: raw.allDay };
   });
 
-  return { sourceId, sourceKind, platform, window: { startsAt: windowStart, endsAt: windowEnd }, blocks };
+  // One id twice is not a calendar with two events in it; it is a client that
+  // has lost track of what it is sending. Refused rather than deduplicated,
+  // because the count that comes back would otherwise be a number nobody could
+  // reconcile with what they sent.
+  const ids = new Set(blocks.map((block) => block.blockId));
+  if (ids.size !== blocks.length) {
+    throw new BusyUploadError('a busy upload may not carry the same blockId twice');
+  }
+
+  return { sourceId, sourceKind, platform, window, blocks };
 }
 
 /**
@@ -240,8 +315,16 @@ function sourcePath(uid: string, sourceId: string): string {
   return userSubDoc(uid, CALENDAR_SOURCES, docIdForKey(sourceId));
 }
 
-function blockPath(uid: string, blockId: string): string {
-  return userSubDoc(uid, BUSY_BLOCKS, blockId);
+/**
+ * The document one block lives at.
+ *
+ * The source is hashed in with the id rather than the id being used alone. See
+ * the header: the id is the client's to choose and the server cannot re-derive
+ * it, so two sources colliding has to be impossible to express rather than
+ * something detected after one has overwritten the other.
+ */
+function blockPath(uid: string, sourceId: string, blockId: string): string {
+  return userSubDoc(uid, BUSY_BLOCKS, docIdForKey(`${sourceId}\u001f${blockId}`));
 }
 
 function overlaps(block: { startAt: Instant; endAt: Instant }, window: TimeInterval): boolean {
@@ -263,8 +346,11 @@ function byStart(left: BusyBlock, right: BusyBlock): number {
  * Firestore indexes a single field inside one collection automatically and a
  * *pair* only with a composite index, so "this source, and overlapping this
  * window" would be a second piece of deployment configuration to keep in step
- * with the code. The volume this saves nothing on: a thousand blocks per source
- * is the hard cap, and a person has one or two sources.
+ * with the code. The volume this saves nothing on, and that is now a property
+ * rather than a hope: `replaceBusyBlocks` leaves a source holding exactly what
+ * it last sent, so a source's total is bounded by `BUSY_BLOCK_UPLOAD_LIMIT` and
+ * a person has one or two sources. It was *not* bounded when the delete half
+ * worked on window overlap — see the header.
  */
 async function allBlocks(uid: string, deps: BusyBlockDeps): Promise<BusyBlock[]> {
   const rows = await storageOf(deps).list<BusyBlock>(userCol(uid, BUSY_BLOCKS));
@@ -300,19 +386,24 @@ export interface ReplaceBusyBlocksDeps extends BusyBlockDeps {
 }
 
 /**
- * What this source says its window looks like now.
+ * What this source holds now, in full.
  *
- * Every block that source already had *overlapping* the window goes, and the
- * new ones are written. Overlap rather than containment: an event that started
- * last night and runs into the window is reported by the device with its true
- * start, so a rule that only removed rows starting inside the window would
- * leave yesterday's copy of it behind for ever.
+ * Every row of this source that is not in `blocks` is deleted, whatever its
+ * dates, and then `blocks` is written. Not "every row overlapping the window":
+ * the device's window moves a day every night, and a row it left behind was
+ * outside every later window and survived for ever. The header has the numbers.
  *
- * Outside a transaction on purpose. One sync is one device restating its own
- * window; two devices are two sources and never touch each other's rows; and a
- * transaction over a thousand documents would exceed Firestore's limit for one.
- * The worst a crash halfway can do is leave the window part-written, which the
- * next sync — fifteen minutes away at most — restates in full.
+ * `window` is still validated and still recorded — a block must overlap it, and
+ * it is what the Trust Center shows as the span this source covers — but it is
+ * no longer what decides a deletion.
+ *
+ * Outside a transaction on purpose, and that is now safe for a stated reason
+ * rather than an assumed one: the only rows this touches are the ones whose
+ * document path hashes *this* source, so two devices cannot reach each other's
+ * documents even by presenting the same block id. A transaction over a thousand
+ * documents would exceed Firestore's limit for one, and the worst a crash
+ * halfway can do is leave the source part-written, which the next sync —
+ * fifteen minutes away at most — restates in full.
  */
 export async function replaceBusyBlocks(
   uid: string,
@@ -326,16 +417,16 @@ export async function replaceBusyBlocks(
   const keep = new Set(blocks.map((block) => block.blockId));
 
   const stale = (await allBlocks(uid, deps)).filter((block) => (
-    block.sourceId === sourceId && overlaps(block, window) && !keep.has(block.blockId)
+    block.sourceId === sourceId && !keep.has(block.blockId)
   ));
-  for (const block of stale) await storage.delete(blockPath(uid, block.blockId));
+  for (const block of stale) await storage.delete(blockPath(uid, sourceId, block.blockId));
 
   for (const block of blocks) {
     // Rebuilt field by field rather than spread: this is the last place a key
     // the client smuggled past `parseBusyUpload` could reach durable storage,
     // and "only these six" is a property of this literal rather than of every
     // caller's discipline.
-    await storage.set<BusyBlock>(blockPath(uid, block.blockId), {
+    await storage.set<BusyBlock>(blockPath(uid, sourceId, block.blockId), {
       blockId: block.blockId,
       sourceId,
       sourceKind: kind,
@@ -372,7 +463,7 @@ export async function deleteBusySource(
 ): Promise<{ deleted: number }> {
   const storage = storageOf(deps);
   const mine = (await allBlocks(uid, deps)).filter((block) => block.sourceId === sourceId);
-  for (const block of mine) await storage.delete(blockPath(uid, block.blockId));
+  for (const block of mine) await storage.delete(blockPath(uid, sourceId, block.blockId));
   await storage.delete(sourcePath(uid, sourceId));
   return { deleted: mine.length };
 }
