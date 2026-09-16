@@ -7,6 +7,7 @@ import {
   INTELLIGENCE_MODULES,
   MODULE_CONTRACT_VERSION,
 } from '../../src/contracts/v1/moduleContracts.ts';
+import { buildHealthKitReadinessSnapshot } from '../../lib/integrations/readiness/healthkit.ts';
 import { buildWhoopReadinessSnapshot } from '../../lib/integrations/readiness/whoop.ts';
 import {
   WHOOP_OAUTH_SCOPES,
@@ -292,6 +293,45 @@ test('WHOOP readings normalize into the provider-independent readiness contract'
   assert.deepEqual(snapshot.missingSourceKinds, []);
   assert.ok(snapshot.signals.every((signal) => signal.source.provider === 'whoop'));
   assert.equal(snapshot.signals.some((signal) => signal.metric === 'strain'), true);
+});
+
+test('HealthKit native readings normalize without provider-specific planner fields', () => {
+  const snapshot = buildHealthKitReadinessSnapshot({
+    scopeId: 'scope-a',
+    computedAt: '2026-09-16T09:00:00Z',
+    windowStart: '2026-09-15T09:00:00Z',
+    windowEnd: '2026-09-16T09:00:00Z',
+    sleep: {
+      observedAt: '2026-09-16T06:30:00Z',
+      sleepStart: '2026-09-15T22:45:00Z',
+      sleepEnd: '2026-09-16T06:45:00Z',
+      totalSleepMinutes: null,
+    },
+    heart: {
+      observedAt: '2026-09-16T06:45:00Z',
+      restingHeartRate: 56,
+      hrvMilliseconds: 48,
+    },
+    activity: {
+      observedAt: '2026-09-15T21:30:00Z',
+      stepCount: 6500,
+    },
+  });
+
+  assert.equal(snapshot.schemaVersion, READINESS_SCHEMA_VERSION);
+  assert.deepEqual(snapshot.sourceKinds, ['healthkit']);
+  assert.equal(snapshot.score, 1);
+  assert.equal(snapshot.band, 'high');
+  assert.equal(snapshot.normalizedSignals.sleepDurationMinutes, 480);
+  assert.equal(snapshot.normalizedSignals.restingHeartRate, 56);
+  assert.equal(snapshot.normalizedSignals.hrv, 48);
+  assert.equal(snapshot.normalizedSignals.recentActivityLoad, 0.65);
+  assert.equal(snapshot.subjective, null);
+  assert.deepEqual(snapshot.missingSourceKinds, []);
+  assert.ok(snapshot.signals.every((signal) => signal.source.kind === 'healthkit'));
+  assert.ok(snapshot.signals.every((signal) => signal.source.provider === undefined));
+  assert.equal(snapshot.signals.some((signal) => signal.metric === 'steps'), true);
+  assert.equal(JSON.stringify(snapshot).includes('HealthKitPlanner'), false);
 });
 
 test('WHOOP backend prep keeps OAuth, sync, revoke, and provenance provider-boundary safe', () => {
