@@ -310,13 +310,15 @@ describe('a change that lands mid-sync', () => {
     jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [MUST_ITEM] } as never);
     const pending = new Map<string, number>();
     let release: (() => void) | null = null;
-    let reads = 0;
+    let armed = false;
     const gateway: NotificationGateway = {
       getScheduled: async () => {
-        reads += 1;
-        // The second sync is held open, so the settings change below arrives
-        // while it is in flight.
-        if (reads === 2) await new Promise<void>(resolve => { release = resolve; });
+        // The first sync after `armed` is held open, so the settings change
+        // below arrives while it is in flight.
+        if (armed) {
+          armed = false;
+          await new Promise<void>(resolve => { release = resolve; });
+        }
         return [...pending].map(([identifier, at]) => ({ identifier, at }));
       },
       schedule: async request => {
@@ -332,6 +334,9 @@ describe('a change that lands mid-sync', () => {
 
     await mount(gateway);
     await waitFor(() => expect([...pending.keys()]).toContain(`${commitment.id}:strong`));
+    // Let the mount's own syncs settle, so the held one is the one triggered below.
+    await new Promise(resolve => setTimeout(resolve, 50));
+    armed = true;
 
     jest.spyOn(commitmentEndpoints, 'listUpcoming')
       .mockResolvedValue({ items: [{ ...MUST_ITEM, id: 'other-id' }] } as never);
@@ -345,10 +350,16 @@ describe('a change that lands mid-sync', () => {
     await act(async () => {
       await client.invalidateQueries();
     });
+    // Nothing else changes after this point: no refetch, no new commitments.
+    // Only a rerun the hook scheduled for itself can cancel the ring.
+    await new Promise(resolve => setTimeout(resolve, 50));
     await act(async () => {
       (release as unknown as () => void)();
     });
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 150));
+    });
 
-    await waitFor(() => expect([...pending.keys()].filter(id => id.endsWith(':strong'))).toEqual([]));
+    expect([...pending.keys()].filter(id => id.endsWith(':strong'))).toEqual([]);
   });
 });
