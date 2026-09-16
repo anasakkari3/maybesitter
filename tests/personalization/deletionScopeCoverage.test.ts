@@ -81,7 +81,7 @@ const PURGED: ReadonlySet<string> = new Set([
  * let the ordinary `PURGED` branch take over. The escape hatch expires loudly
  * instead of silently.
  */
-const NOT_YET_WIRED: ReadonlySet<string> = new Set([FOOTBALL_FOLLOWS]);
+const NOT_YET_WIRED: ReadonlySet<string> = new Set([]);
 
 /**
  * Kept on purpose, each with the reason it is not a derived profile.

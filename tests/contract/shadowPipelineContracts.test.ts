@@ -486,6 +486,7 @@ function deletionReceipt(): ShadowStudyDeletionReceipt {
       remainingRuntimeMemoryRecordCount: 0,
       remainingBehaviorFeedbackCount: 0,
       remainingProfileProposalCount: 0,
+      remainingFootballFollowsCount: 0,
       remainingPersistedProfileCount: 0,
       emptyStateDigest: DIGEST,
     },

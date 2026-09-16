@@ -843,6 +843,18 @@ export interface PersonalizationDeletionReceipt {
    * so a deletion that skipped them could be undone from the outside.
    */
   readonly remainingProfileProposalCount: number;
+  /**
+   * Which clubs the user follows (football fixtures MVP, Task 7), still held
+   * for the scope after the purge.
+   *
+   * On the receipt for the same reason `remainingBehaviorFeedbackCount` and
+   * `remainingProfileProposalCount` are: it is a derived store the purge now
+   * clears, not the user's own content, and a verifier recounting the receipt
+   * has to be able to catch a row left behind here exactly as it would for
+   * either of those. See `lib/personalization/deletion.ts`'s header for why a
+   * followed club purges alongside them even though the user typed it.
+   */
+  readonly remainingFootballFollowsCount: number;
   readonly remainingPersistedProfileCount: number;
   readonly emptyStateDigest: string;
 }

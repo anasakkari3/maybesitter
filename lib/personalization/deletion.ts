@@ -52,6 +52,29 @@
  * them made "delete everything" reversible from the outside. The thirty-minute
  * TTL bounds the window; it does not make the promise true inside it.
  *
+ * ── The third store this purge gained (football fixtures MVP, Task 7) ────
+ *
+ * `footballFollows` — which clubs a user follows — purges here too now,
+ * alongside `behaviorFeedback` and `profileProposals`. It is worth pausing on
+ * because, unlike those two, a follow is something the user explicitly typed:
+ * they picked "Barcelona" from a list, the same way they type a commitment's
+ * title. That similarity is exactly what makes it tempting to file next to
+ * `commitments` in the *kept* section below, and exactly why it belongs here
+ * instead: the line this module draws is content versus belief, not typed
+ * versus inferred. `memory` already purges `user_stated` facts identically to
+ * `model_inferred` ones — the deletion above does not ask a memory record how
+ * it was produced before removing it, because either way it is something the
+ * product now *believes* about the person, derived from what they did or
+ * said, not a record of what they did. A followed club is the same shape of
+ * fact: it is not the user's own content the way a commitment or a plan is —
+ * nothing is lost from their day if it goes — it is a belief the product
+ * holds about them, and in this app's Arabic and Hebrew markets club
+ * affiliation tracks nationality, religion and politics closely enough that
+ * "the product believes I follow this club" is squarely what "forget me" is
+ * for. `tests/personalization/deletionScopeCoverage.test.ts` carries the
+ * fuller version of this reasoning against the full collection list; this
+ * restates the line it draws rather than arguing it afresh.
+ *
  * ── What is deliberately *not* purged here ───────────────────────
  *
  * `commitments`, `reminders`, `events`, `plans` and `planEvents` are the user's
@@ -106,7 +129,7 @@ import {
 import type { FeedbackEventStore } from '../../src/contracts/v1/feedbackContracts';
 import type { RuntimeMemoryStore } from '../../src/contracts/v1/memoryContracts';
 import { getStorage } from '../storage';
-import { BEHAVIOR_FEEDBACK, PROFILE_PROPOSALS, userCol } from '../storage/paths';
+import { BEHAVIOR_FEEDBACK, FOOTBALL_FOLLOWS, PROFILE_PROPOSALS, userCol } from '../storage/paths';
 import type { StorageAdapter } from '../storage/storageAdapter';
 
 export interface PersonalizationDeletionInput {
@@ -185,6 +208,7 @@ export async function deletePersonalizationScope(
   await input.feedbackEvents.deleteScope(input.scopeId);
   await clearUserCollection(storage, input.scopeId, BEHAVIOR_FEEDBACK);
   await clearUserCollection(storage, input.scopeId, PROFILE_PROPOSALS);
+  await clearUserCollection(storage, input.scopeId, FOOTBALL_FOLLOWS);
   await input.runtimeMemory.deleteScope(input.scopeId);
 
   return {
@@ -196,6 +220,7 @@ export async function deletePersonalizationScope(
     remainingRuntimeMemoryRecordCount: (await input.runtimeMemory.listAll(input.scopeId)).length,
     remainingBehaviorFeedbackCount: (await storage.list(userCol(input.scopeId, BEHAVIOR_FEEDBACK))).length,
     remainingProfileProposalCount: (await storage.list(userCol(input.scopeId, PROFILE_PROPOSALS))).length,
+    remainingFootballFollowsCount: (await storage.list(userCol(input.scopeId, FOOTBALL_FOLLOWS))).length,
     // Structurally zero: nothing persists a profile. See the header.
     remainingPersistedProfileCount: 0,
     emptyStateDigest: emptyStateDigestFor(input.scopeId, input.now, input.windowDays),
