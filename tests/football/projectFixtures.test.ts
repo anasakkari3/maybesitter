@@ -274,6 +274,7 @@ test('an archived fixture commitment is not resurrected by a later content chang
   const all = await commitments();
   assert.equal(all.length, 1, 'no second commitment was created');
   assert.equal(all[0].status, 'archived');
+  assert.equal(all[0].timeSpec.dueAt, '2026-10-25T19:00:00.000Z', 'the archived commitment was not touched either');
 });
 
 test('a dismissed match stays dismissed through postponement and reschedule', async () => {
