@@ -7,6 +7,7 @@ import {
   INTELLIGENCE_MODULES,
   MODULE_CONTRACT_VERSION,
 } from '../../src/contracts/v1/moduleContracts.ts';
+import { buildWhoopReadinessSnapshot } from '../../lib/integrations/readiness/whoop.ts';
 import {
   CONTEXT_PROVIDER_KINDS,
   INTEGRATION_CONNECTION_CONTRACT_VERSION,
@@ -243,6 +244,45 @@ test('readiness snapshot supports normalized sources without diagnosis or planne
   assert.equal(snapshot.subjective?.energy, 3);
   assert.equal(snapshot.signals[0].metric, 'sleep');
   assert.equal(snapshot.signals[1].source.kind, 'subjective');
+});
+
+test('WHOOP readings normalize into the provider-independent readiness contract', () => {
+  const snapshot = buildWhoopReadinessSnapshot({
+    scopeId: 'scope-a',
+    computedAt: '2026-09-16T09:00:00Z',
+    windowStart: '2026-09-15T09:00:00Z',
+    windowEnd: '2026-09-16T09:00:00Z',
+    connectionId: 'conn-whoop',
+    recovery: {
+      observedAt: '2026-09-16T06:30:00Z',
+      recoveryScore: 71,
+      restingHeartRate: 57,
+      hrvMilliseconds: 44,
+    },
+    sleep: {
+      observedAt: '2026-09-16T06:20:00Z',
+      sleepStart: '2026-09-15T22:45:00Z',
+      sleepEnd: '2026-09-16T06:30:00Z',
+      totalSleepMinutes: null,
+    },
+    strain: {
+      observedAt: '2026-09-15T21:00:00Z',
+      strainScore: 10.5,
+    },
+  });
+
+  assert.equal(snapshot.schemaVersion, READINESS_SCHEMA_VERSION);
+  assert.equal(snapshot.sourceKinds[0], 'whoop');
+  assert.equal(snapshot.score, 0.71);
+  assert.equal(snapshot.band, 'high');
+  assert.equal(snapshot.normalizedSignals.sleepDurationMinutes, 465);
+  assert.equal(snapshot.normalizedSignals.restingHeartRate, 57);
+  assert.equal(snapshot.normalizedSignals.hrv, 44);
+  assert.equal(snapshot.normalizedSignals.recentActivityLoad, 0.5);
+  assert.equal(snapshot.subjective, null);
+  assert.deepEqual(snapshot.missingSourceKinds, []);
+  assert.ok(snapshot.signals.every((signal) => signal.source.provider === 'whoop'));
+  assert.equal(snapshot.signals.some((signal) => signal.metric === 'strain'), true);
 });
 
 test('user-state projection stays projection-only and references context at a high level', () => {
