@@ -98,7 +98,21 @@ export function useReminderSync(options: ReminderSyncOptions = {}): { resync: ()
   const todayItems = today.data?.items;
   const upcomingItems = upcoming.data?.items;
   const settingsData = settings.data?.reminderSettings;
-  const intensity: ReminderIntensity = profile.data?.routine?.preferredReminderIntensity ?? 'softAwareness';
+  /*
+   * The user's ceiling (#199), or null while it is not known.
+   *
+   * `routine: null` is an answer — this account never took the survey — and
+   * gets the gentlest stage, which is what the survey itself defaults to. *No
+   * profile yet* is not an answer. It used to fall back to the same
+   * `softAwareness`, so an account that had chosen `none` was handed a reminder
+   * on the first sync of every launch, and kept it for as long as the profile
+   * failed to load. Nothing can be proved to be under a ceiling nobody has read.
+   * A refetch that errors keeps the last profile the query held, which is still
+   * this user's own answer.
+   */
+  const intensity: ReminderIntensity | null = profile.data === undefined
+    ? null
+    : profile.data.routine?.preferredReminderIntensity ?? 'softAwareness';
   const inFlight = useRef(false);
   /*
    * A change that arrived while a sync was running (#197 review, F2).
@@ -139,6 +153,9 @@ export function useReminderSync(options: ReminderSyncOptions = {}): { resync: ()
     // Nothing has loaded yet. Syncing against an empty list would cancel every
     // pending reminder on every cold start, one frame before the data arrives.
     if (!settingsData || (todayItems === undefined && upcomingItems === undefined)) return;
+    // Same for the ceiling: see `intensity` above. Pending requests are left as
+    // they were planned, under the ceiling the profile last had.
+    if (intensity === null) return;
     if (inFlight.current) {
       dirty.current = true;
       return;
