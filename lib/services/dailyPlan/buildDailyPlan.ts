@@ -55,7 +55,16 @@ import type {
   WorkingWindow,
 } from '../../../src/contracts/v1/planningContracts';
 import { instantFromResolution, resolveLocalTime, toEpochMs, weekdayAt } from '../../planning/shared/time';
-import { fixedEndFor } from '../timeCollision';
+import { DEFAULT_FIXED_EVENT_MINUTES, fixedEndFor } from '../timeCollision';
+
+// Re-exported so existing callers (and `tests/dailyPlan/fixedEventDuration.test.ts`)
+// keep importing it from here. The value itself now lives in `../timeCollision`,
+// which is the module that owns "how long does a commitment occupy" -- see that
+// module's doc comment. The dependency between the two files now runs one way
+// only (`buildDailyPlan.ts` -> `timeCollision.ts`), not both: a cycle would mean
+// the two could never again be reasoned about, moved, or lazily loaded
+// independently, which is exactly what the extraction was for.
+export { DEFAULT_FIXED_EVENT_MINUTES };
 
 /** The grid a plan is placed on. Fifteen minutes is the issue's decision. */
 export const PLAN_SLOT_MINUTES = 15;
@@ -68,8 +77,6 @@ export const PLAN_SLOT_MINUTES = 15;
  * is the only invented number in the mapping.
  */
 export const DEFAULT_EFFORT_MINUTES = 30;
-/** A commitment with a fixed start occupies this much of the day. */
-export const DEFAULT_FIXED_EVENT_MINUTES = 30;
 /** Used when the routine profile names no focus window and no sleep window. */
 export const FALLBACK_WINDOW = Object.freeze({ startMinute: 8 * 60, endMinute: 20 * 60 });
 

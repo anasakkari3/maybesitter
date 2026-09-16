@@ -9,34 +9,44 @@
  * told, so `findCollisions` is a pure query a route consults and reports
  * alongside a write it still performs.
  *
- * ── Why `fixedEndFor` lives here now ────────────────────────────────
+ * ── Why `fixedEndFor` and `DEFAULT_FIXED_EVENT_MINUTES` live here now ─
  *
  * Task 1 (`buildDailyPlan.ts`) had its own private answer to "how long does a
  * pinned commitment occupy": its own end time when it names one and that end
- * is strictly after the start, otherwise `DEFAULT_FIXED_EVENT_MINUTES`. This
+ * is strictly after the start, otherwise a default number of minutes. This
  * module needs the exact same answer for exactly the same reason -- a
  * candidate with no stated end still occupies real time and still has to be
  * checked against it -- and a second, textually-identical implementation is
  * how the planner and the device calendar came to disagree with each other in
  * the first place (that disagreement was this branch's first commit). So the
- * rule is written once, here, and `buildDailyPlan.ts` imports it rather than
- * keeping its own copy.
+ * rule, and the number it depends on, are both written once, here, and
+ * `buildDailyPlan.ts` imports them rather than keeping its own copies.
  *
- * `DEFAULT_FIXED_EVENT_MINUTES` still comes *from* `buildDailyPlan.ts`: it is
- * that module's stated invented number (its own doc comment says so), and
- * this module borrows it rather than inventing a second one. The two modules
- * import from each other -- `buildDailyPlan.ts` imports `fixedEndFor` from
- * here, this module imports the constant from there -- which is safe under
- * ES module live bindings because neither side reads the other's export at
- * module-evaluation time, only from inside a function body called after the
- * whole graph has loaded.
+ * The dependency runs one way only: `buildDailyPlan.ts` imports from this
+ * module, never the reverse. An earlier version of this had it borrowing
+ * `DEFAULT_FIXED_EVENT_MINUTES` back from `buildDailyPlan.ts`, which worked
+ * (ES module live bindings make it work, as long as nothing touches the
+ * cycle at module-evaluation time) but was still a cycle -- and a cycle means
+ * these two modules can never again be reasoned about, moved, or lazily
+ * loaded independently, a property that holds only until somebody adds a
+ * top-level use of the wrong export and nothing warns them. `buildDailyPlan.ts`
+ * re-exports the constant for its own existing callers, so this move changed
+ * no import path outside these two files.
  */
 import { intervalsOverlap } from '../planning/shared/time';
 import type { Instant, TimeInterval } from '../../src/contracts/v1/planningContracts';
 import type { Commitment } from '../../src/domain/stateMachine';
-import { DEFAULT_FIXED_EVENT_MINUTES } from './dailyPlan/buildDailyPlan';
 
 const MS_PER_MINUTE = 60_000;
+
+/**
+ * How long a commitment with a fixed start, but no stated end, is assumed to
+ * occupy. Owned here rather than by the planner: this module's subject is
+ * exactly "how long does a commitment occupy", and `buildDailyPlan.ts` is a
+ * consumer of that answer, not its source. `buildDailyPlan.ts` re-exports
+ * this for its own existing callers.
+ */
+export const DEFAULT_FIXED_EVENT_MINUTES = 30;
 
 /**
  * The bare shape of "a warning worth showing": what was collided with, and
