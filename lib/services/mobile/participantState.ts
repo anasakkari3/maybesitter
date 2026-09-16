@@ -31,6 +31,7 @@ import {
   createEmptyDomainState,
   InvalidStateTransitionError,
   MissingEntityError,
+  normalizeStoredCommitment,
   ValidationError,
   type Command,
   type Commitment,
@@ -161,7 +162,11 @@ export async function loadDomainState(reader: StorageReader, uid: string): Promi
     reader.list<EscalationState>(userCol(uid, ESCALATION_STATES)),
   ]);
   const state = createEmptyDomainState();
-  for (const { data } of commitments) state.commitments[data.id] = data;
+  // Completed, not copied (#185). A document written before a field existed is
+  // missing it, and everything downstream — `commitmentToMobileDto` most of all
+  // — passes `timeSpec` through verbatim. This is the one place a stored
+  // commitment becomes a domain one, so it is the one place the repair belongs.
+  for (const { data } of commitments) state.commitments[data.id] = normalizeStoredCommitment(data);
   for (const { data } of reminders) state.reminders[data.id] = data;
   for (const { data } of escalationStates) state.escalationStates[data.commitmentId] = data;
   return state;

@@ -12,9 +12,17 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyCommand, createEmptyDomainState, type Command } from '../../src/domain/stateMachine.ts';
+import {
+  applyCommand,
+  createEmptyDomainState,
+  normalizeStoredTimeSpec,
+  type Command,
+} from '../../src/domain/stateMachine.ts';
 import { patchTimeSpecForTest } from '../../lib/services/mobile/commitmentService.ts';
+import { localDaysBetween, localMidnightOf } from '../../lib/services/mobile/time.ts';
 import type { TimeSpec } from '../../src/domain/stateMachine.ts';
+
+const ZONE = 'Asia/Jerusalem';
 
 const NOW = '2026-09-15T09:00:00.000Z';
 /** The clock the patch cases are judged by, supplied rather than read (#352, #382). */
@@ -173,7 +181,166 @@ test('an edit that names neither the time, the end nor the day leaves the spec a
 });
 
 test('setting the all-day flag alone keeps the day the commitment already had', () => {
-  const patched = patchTimeSpecForTest(current({ endAt: null }), { allDay: true }, CLOCK);
+  // On a commitment whose hour already *is* midnight. Asking for all-day on one
+  // that names 15:00 is a contradiction the domain refuses; see below.
+  const midnight = localMidnightOf('2026-09-20', ZONE);
+  const patched = patchTimeSpecForTest(current({ endAt: null, dueAt: midnight }), { allDay: true }, CLOCK);
   assert.equal(patched?.allDay, true);
-  assert.equal(patched?.dueAt, '2026-09-20T12:00:00.000Z');
+  assert.equal(patched?.dueAt, midnight);
+});
+
+/* ── The midnight invariant, enforced rather than described ───────── */
+
+/**
+ * `allDay` means "`dueAt` is that day's local midnight and nobody chose the
+ * hour". That was written in the type's own doc comment and checked nowhere, so
+ * every shape it forbids was storable: an all-day commitment at 15:00, and an
+ * all-day commitment carrying a thirty-minute range. The second was the worse
+ * one — the mapper draws a day, so the range was invisible on the phone *and*
+ * absent from the content hash, which meant the stored fact and the written
+ * event disagreed with nothing able to notice.
+ */
+test('an all-day commitment whose hour somebody did choose is refused', () => {
+  assert.throws(
+    () => timeSpecOf(draft({ kind: 'due_by', dueAt: '2026-09-20T12:00:00.000Z', allDay: true, timezone: ZONE })),
+    /allDay requires .*midnight/,
+  );
+});
+
+test('an all-day commitment ending at half past something is refused', () => {
+  const midnight = localMidnightOf('2026-09-20', ZONE);
+  assert.throws(
+    () => timeSpecOf(draft({
+      kind: 'due_by',
+      dueAt: midnight,
+      endAt: new Date(Date.parse(midnight) + 30 * 60 * 1000).toISOString(),
+      allDay: true,
+      timezone: ZONE,
+    })),
+    /allDay requires .*midnight/,
+  );
+});
+
+test('an all-day span of whole days is stored as it was given', () => {
+  const spec = timeSpecOf(draft({
+    kind: 'due_by',
+    dueAt: localMidnightOf('2026-09-20', ZONE),
+    endAt: localMidnightOf('2026-09-22', ZONE),
+    allDay: true,
+    timezone: ZONE,
+  }));
+  assert.equal(spec.allDay, true);
+  assert.equal(spec.endAt, localMidnightOf('2026-09-22', ZONE));
+});
+
+test('a stored flag that is not the boolean true is not an all-day commitment', () => {
+  // Not reachable through the domain, which types it — reachable through a
+  // document somebody edited by hand, and the direction of the mistake matters:
+  // a truthy string must not become a day-long entry on a shared calendar.
+  const spec = normalizeStoredTimeSpec({
+    kind: 'due_by', dueAt: '2026-09-20T12:00:00.000Z', allDay: 'yes' as unknown as boolean, timezone: ZONE,
+  });
+  assert.equal(spec.allDay, false);
+});
+
+test('an end that is not a date at all is refused rather than stored', () => {
+  // `Date.parse('nonsense')` is `NaN`, and every comparison against `NaN` is
+  // false — so without this the "after its start" guard below waves it through
+  // and the garbage reaches storage.
+  assert.throws(
+    () => timeSpecOf(draft({ kind: 'due_by', dueAt: '2026-09-20T12:00:00.000Z', endAt: 'next tuesday' })),
+    /endAt must be a valid ISO date/,
+  );
+});
+
+/* ── An hour chosen through the only door that can choose one ─────── */
+
+/**
+ * `optionalInstant` refuses a bare `YYYY-MM-DD` for `dueDate` (#352), so every
+ * due date that reaches here names a time of day. The question is therefore not
+ * whether the client sent a date or a time — it is whether the instant it sent
+ * is still the midnight the flag is a claim about.
+ */
+test('moving an all-day commitment to an hour of the day ends its all-day-ness', () => {
+  const allDay = current({ dueAt: localMidnightOf('2026-09-20', ZONE), endAt: null, allDay: true });
+  const patched = patchTimeSpecForTest(allDay, { dueDate: '2026-09-22T15:30:00.000Z' }, CLOCK);
+  assert.equal(patched?.dueAt, '2026-09-22T15:30:00.000Z');
+  assert.equal(patched?.allDay, false, 'the user chose an hour; the flag says nobody did');
+});
+
+test('moving an all-day commitment to another whole day keeps it all-day', () => {
+  const allDay = current({ dueAt: localMidnightOf('2026-09-20', ZONE), endAt: null, allDay: true });
+  const patched = patchTimeSpecForTest(allDay, { dueDate: localMidnightOf('2026-09-26', ZONE) }, CLOCK);
+  assert.equal(patched?.allDay, true);
+  assert.equal(patched?.dueAt, localMidnightOf('2026-09-26', ZONE));
+});
+
+test('a timed commitment moved to midnight does not become all-day by accident', () => {
+  const patched = patchTimeSpecForTest(current({ endAt: null }), { dueDate: localMidnightOf('2026-09-26', ZONE) }, CLOCK);
+  assert.equal(patched?.allDay, false);
+});
+
+/* ── A span of days is a count of days, not of milliseconds ───────── */
+
+/**
+ * Asia/Jerusalem puts its clocks back on 2026-10-25, so the two days from the
+ * 24th to the 26th are 49 hours and not 48. Carrying the length in
+ * milliseconds moved the end to 23:00 on the 25th — no longer a midnight, so no
+ * longer a day boundary at all — and the entry lost a day.
+ */
+const DST_END_DAY = '2026-10-25';
+
+function localWallClock(iso: string): string {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: ZONE, dateStyle: 'short', timeStyle: 'short', hourCycle: 'h23',
+  }).format(new Date(iso));
+}
+
+test('an all-day span keeps its number of days across a clock change, not its hours', () => {
+  const span = current({
+    dueAt: localMidnightOf('2026-09-20', ZONE),
+    endAt: localMidnightOf('2026-09-22', ZONE),
+    allDay: true,
+  });
+  const moved = patchTimeSpecForTest(span, { dueDate: localMidnightOf('2026-10-24', ZONE) }, CLOCK);
+  assert.equal(moved?.endAt, localMidnightOf('2026-10-26', ZONE), 'two days after the 24th is the 26th');
+  assert.equal(localWallClock(moved!.endAt as string), `26/10/2026, 00:00`);
+  assert.equal(localDaysBetween(moved!.dueAt as string, moved!.endAt as string, ZONE), 2);
+  // And the clocks really did change inside the span, so this is the case and
+  // not a day that happens to be ordinary.
+  assert.notEqual(
+    Date.parse(moved!.endAt as string) - Date.parse(moved!.dueAt as string),
+    Date.parse(span.endAt!) - Date.parse(span.dueAt!),
+    `nothing to test unless ${DST_END_DAY} falls inside the moved span`,
+  );
+});
+
+test('a timed meeting keeps its hours across the same clock change', () => {
+  // The control, and the reason the branch is on `allDay` rather than applied
+  // to everything: a two-hour meeting is two hours on any day of the year.
+  const meeting = current({ dueAt: '2026-09-20T11:00:00.000Z', endAt: '2026-09-20T13:00:00.000Z' });
+  const moved = patchTimeSpecForTest(meeting, { dueDate: '2026-10-26T12:00:00.000Z' }, CLOCK);
+  assert.equal(localWallClock(moved!.dueAt as string), '26/10/2026, 14:00');
+  assert.equal(localWallClock(moved!.endAt as string), '26/10/2026, 16:00');
+});
+
+/* ── The edges of the patch boundary itself ───────────────────────── */
+
+test('an end exactly on the start is refused by the patch, not left to the domain', () => {
+  // `<` rather than `<=` here leaves a zero-length range for `defaultTimeSpec`
+  // to refuse further down with a different message about a different field.
+  // The boundary that was handed the value is the one that should answer.
+  assert.throws(
+    () => patchTimeSpecForTest(current(), { endDate: '2026-09-20T12:00:00.000Z' }, CLOCK),
+    /endDate must be after the due date/,
+  );
+});
+
+test('an end on a record that never had a start is dropped rather than carried', () => {
+  // Not reachable through `defaultTimeSpec`, which refuses to store it. It is
+  // reachable through this function, whose parameter is any `TimeSpec` at all,
+  // and the answer must not be a range assembled out of half a record.
+  const malformed = current({ dueAt: null, endAt: '2026-09-20T14:00:00.000Z' });
+  const patched = patchTimeSpecForTest(malformed, { dueDate: '2026-09-22T09:00:00.000Z' }, CLOCK);
+  assert.equal(patched?.endAt, null);
 });

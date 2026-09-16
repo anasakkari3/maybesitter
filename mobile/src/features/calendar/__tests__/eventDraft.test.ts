@@ -152,6 +152,110 @@ describe('across a clock change', () => {
   });
 });
 
+describe('an all-day span', () => {
+  /**
+   * `endAt` is exclusive, everywhere (#185).
+   *
+   * `defaultTimeSpec` fixes `[start, end)` — "a zero-length range is the empty
+   * set" — which is the same convention `lib/planning/shared/time.ts` settled
+   * for the whole product, and it is also the only convention `endAt` *can*
+   * follow here: the domain refuses an end that is not strictly after its
+   * start, so a one-day all-day commitment cannot say "ends on the day it
+   * starts". Its only legal spelling is the next midnight.
+   *
+   * Reading that as the last *included* day therefore did not add a day to
+   * multi-day spans only. It made the one encoding a one-day commitment is
+   * allowed to have render as two days, while the same fact written with
+   * `endAt: null` rendered as one — two spellings of one day, two different
+   * entries in a calendar other people can see.
+   */
+  function localDay(instant: Date): string {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: CHATHAM, dateStyle: 'short' }).format(instant);
+  }
+
+  /**
+   * The instant local midnight of `day` falls at in Chatham, asked of the zone
+   * rather than written down.
+   *
+   * Chatham is +12:45 for most of the year and +13:45 under daylight saving,
+   * and the first draft of these cases hard-coded the wrong one — the dates
+   * below then named the evening before and the span still counted three days,
+   * so the arithmetic looked right while every boundary was off by one. A
+   * literal offset in a fixture is a second, silent claim about the zone.
+   */
+  function localMidnight(day: string): string {
+    const naive = Date.parse(`${day}T00:00:00.000Z`);
+    const offsetAt = (epochMs: number): number => {
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: CHATHAM, hourCycle: 'h23',
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+      }).formatToParts(new Date(epochMs));
+      const at = (type: string) => Number(parts.find((part) => part.type === type)!.value);
+      return Date.UTC(at('year'), at('month') - 1, at('day'), at('hour'), at('minute'), at('second')) - epochMs;
+    };
+    // Resolved against the offset at the answer rather than at the guess, the
+    // same two steps `startOfLocalDay` takes for the same reason.
+    return new Date(naive - offsetAt(naive - offsetAt(naive))).toISOString();
+  }
+
+  const SEP20 = localMidnight('2026-09-20');
+  const SEP21 = localMidnight('2026-09-21');
+  const SEP23 = localMidnight('2026-09-23');
+
+  function span(dueAt: string, endAt: string | null) {
+    const draft = withHermesIntl(() => draftFor(commitment({ dueAt, endAt, allDay: true }), DEVICE))!;
+    return {
+      from: localDay(draft.startDate),
+      to: localDay(draft.endDate),
+      days: Math.round((draft.endDate.getTime() - draft.startDate.getTime()) / 86_400_000),
+      hash: draft.contentHash,
+    };
+  }
+
+  it('agrees with the zone about which day each instant is', () => {
+    // The fixture checking itself: if `localMidnight` were wrong, every case
+    // below would be about the evening before and would still look plausible.
+    expect(localDay(new Date(SEP20))).toBe('2026-09-20');
+    expect(localDay(new Date(SEP23))).toBe('2026-09-23');
+  });
+
+  it('reads one day written as a range exactly like one day written with no end', () => {
+    const asRange = span(SEP20, SEP21);
+    const asNoEnd = span(SEP20, null);
+    expect(asRange.days).toBe(1);
+    expect(asRange).toEqual(asNoEnd);
+    // Same fact, same entry, therefore the same hash — so switching between the
+    // two spellings never rewrites the event and never notifies a shared
+    // calendar about a change that did not happen.
+    expect(asRange.hash).toBe(asNoEnd.hash);
+  });
+
+  it('covers exactly the days between the start and the exclusive end', () => {
+    // 20th and 21st and 22nd, ending at the 23rd's midnight.
+    const three = span(SEP20, SEP23);
+    expect(three.days).toBe(3);
+    expect(three.from).toBe('2026-09-20');
+    expect(three.to).toBe('2026-09-23');
+  });
+
+  it('is a fact the entry actually carries, so a longer span is a different event', () => {
+    // The mutation this kills: ignoring `endAt` in the all-day branch. Every
+    // all-day case in this file used to pass `endAt: null`, so dropping the
+    // field entirely left the whole suite green.
+    expect(span(SEP20, SEP23).hash).not.toBe(span(SEP20, SEP21).hash);
+  });
+
+  it('never collapses to nothing, whatever the stored end says', () => {
+    // An end inside the first day cannot describe a day. It is not reachable
+    // through the domain, which refuses an all-day end that is not a midnight,
+    // but a calendar entry with no width is invisible on both platforms and is
+    // not a thing to render from a record nobody can explain.
+    const sameDayAfternoon = new Date(Date.parse(SEP20) + 12 * 60 * 60 * 1000).toISOString();
+    expect(span(SEP20, sameDayAfternoon).days).toBe(1);
+  });
+});
+
 describe('the content hash', () => {
   it('is the same for the same entry, so an unchanged event is not rewritten', () => {
     const first = withHermesIntl(() => draftFor(commitment({ dueAt: '2026-06-15T02:00:00.000Z' }), DEVICE));

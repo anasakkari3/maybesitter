@@ -151,14 +151,29 @@ function boundsFor(
     // start and an end for an all-day entry; giving them the same instant twice
     // produces an entry with no day at all.
     const startDate = startOfLocalDay(startInstant, timeZone);
-    const end = timeSpec.endAt === null ? startInstant : new Date(timeSpec.endAt);
-    const lastDay = startOfLocalDay(Number.isNaN(end.getTime()) ? startInstant : end, timeZone);
-    // A one-day entry ends at the *next* midnight, and a multi-day one at the
-    // midnight after its last day: an end equal to the start is a zero-width
-    // interval, which is the empty set. Midday of the following day is used as
-    // the probe so a clock change on that night cannot land it back on the same
-    // day it started.
-    const endDate = startOfLocalDay(new Date(lastDay.getTime() + MS_PER_DAY + MS_PER_DAY / 2), timeZone);
+    // The midnight after the first day. Midday of the following day is the
+    // probe, so a clock change on that night cannot land it back on the day it
+    // started. This is what a commitment naming no end is worth: one day.
+    const nextMidnight = startOfLocalDay(new Date(startDate.getTime() + MS_PER_DAY + MS_PER_DAY / 2), timeZone);
+
+    // `endAt` is **exclusive**, here as everywhere: `defaultTimeSpec` fixes
+    // `[start, end)` and refuses an end that is not strictly after its start,
+    // so the only spelling a one-day commitment has is the next midnight. Read
+    // as the last *included* day it rendered as two — and the same day written
+    // with `endAt: null` rendered as one, which is two entries for one fact in
+    // a calendar other people can see.
+    const end = timeSpec.endAt === null ? null : new Date(timeSpec.endAt);
+    const exclusive = end !== null && !Number.isNaN(end.getTime())
+      ? startOfLocalDay(end, timeZone)
+      : null;
+
+    // A stored end inside the first day describes no day at all. The domain
+    // refuses one — an all-day end has to be a local midnight — so this is the
+    // floor under a record that came from somewhere the domain did not write,
+    // and an invisible entry is the one outcome worth ruling out by hand.
+    const endDate = exclusive !== null && exclusive.getTime() > startDate.getTime()
+      ? exclusive
+      : nextMidnight;
     return { startDate, endDate, allDay: true };
   }
 

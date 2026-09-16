@@ -1,3 +1,4 @@
+import { isLocalMidnight } from '../../../src/domain/stateMachine';
 import type { Command, Commitment, DomainState, Priority, Reminder, TimeSpec } from '../../../src/domain/stateMachine';
 import { rankForMobile, type RankedItem } from '../../priority/mobileRanking';
 import { resolveModuleRuntime } from '../../../src/contracts/v1/runtimeControls';
@@ -11,7 +12,15 @@ import {
   pastTimeMessage,
   reminderLeadNoLongerFitsMessage,
 } from '../commitments/timeRules';
-import { isDateOnly, localDayKey, normalizeTimezone, parseIsoInstant, resolvedCommitmentTime } from './time';
+import {
+  addLocalDays,
+  isDateOnly,
+  localDayKey,
+  localDaysBetween,
+  normalizeTimezone,
+  parseIsoInstant,
+  resolvedCommitmentTime,
+} from './time';
 
 const HIDDEN_LIST_STATUSES = new Set<Commitment['status']>(['dropped', 'archived']);
 
@@ -454,12 +463,16 @@ function patchTimeSpec(current: TimeSpec, input: PatchCommitmentInput, now: Date
     remindAt = current.remindAt;
   }
 
+  // Decided before the end, because an all-day span's length is a count of days
+  // and a meeting's is a count of minutes, and only this says which it is.
+  const allDay = patchedAllDay(current, input, dueAt, hasAllDay);
+
   return {
     kind: dueAt || remindAt ? 'due_by' : 'unscheduled',
     dueAt,
-    endAt: patchedEndAt(current, input, dueAt, hasDueDate, hasEndDate, now),
+    endAt: patchedEndAt(current, input, dueAt, hasEndDate, allDay),
     remindAt,
-    allDay: patchedAllDay(current, input, dueAt, hasAllDay),
+    allDay,
     timezone: current.timezone,
   } as Partial<TimeSpec>;
 }
@@ -503,21 +516,40 @@ function patchedEndAt(
   current: TimeSpec,
   input: PatchCommitmentInput,
   dueAt: string | null,
-  hasDueDate: boolean,
   hasEndDate: boolean,
-  now: Date,
+  allDay: boolean,
 ): string | null {
   if (hasEndDate) {
     if (input.endDate === null) return null;
     if (isDateOnly(input.endDate)) throw new Error('endDate must name a time of day, not only a date');
     const parsed = parseIsoInstant(input.endDate, 'endDate').toISOString();
     if (!dueAt) throw new Error('endDate requires a due date on the commitment');
+    // `<=`, not `<`. An end exactly on its start is a zero-length range, which
+    // is the empty set — and answering it here rather than letting
+    // `defaultTimeSpec` refuse it further down means the message names the
+    // field the request actually sent.
     if (Date.parse(parsed) <= Date.parse(dueAt)) throw new Error('endDate must be after the due date');
     return parsed;
   }
-  // No end to carry, or nothing left to carry it from.
-  if (!current.endAt || !current.dueAt || !dueAt) return dueAt ? current.endAt : null;
-  if (!hasDueDate) return current.endAt;
+
+  // Nothing to carry, or nowhere to carry it to. `!current.dueAt` is the case
+  // `defaultTimeSpec` refuses to store and this function can still be handed:
+  // an end with no start is half a record, and pinning it to a *new* due date
+  // would assemble a range out of two facts that were never about each other —
+  // possibly one that ends before it begins.
+  if (!dueAt || !current.endAt || !current.dueAt) return null;
+
+  if (allDay) {
+    // A span of days is a count of days. Carrying it in milliseconds meant a
+    // two-day block moved across the night a zone puts its clocks back landed
+    // an hour short of midnight — no longer a day boundary at all — and drew
+    // one day fewer than it had.
+    return addLocalDays(dueAt, localDaysBetween(current.dueAt, current.endAt, current.timezone), current.timezone);
+  }
+
+  // A meeting is a number of minutes, on any day of the year. This is the same
+  // arithmetic from the same anchor as the reminder lead above, in the other
+  // direction.
   const length = Date.parse(current.endAt) - Date.parse(current.dueAt);
   return new Date(Date.parse(dueAt) + length).toISOString();
 }
@@ -537,9 +569,20 @@ function patchedAllDay(
   hasAllDay: boolean,
 ): boolean {
   if (!dueAt) return false;
-  if (!hasAllDay) return current.allDay;
-  if (typeof input.allDay !== 'boolean') throw new Error('allDay must be a boolean');
-  return input.allDay;
+  if (hasAllDay) {
+    if (typeof input.allDay !== 'boolean') throw new Error('allDay must be a boolean');
+    return input.allDay;
+  }
+  if (!current.allDay) return false;
+  // The patch did not mention the flag, so the value decides. `optionalInstant`
+  // refuses a bare `YYYY-MM-DD` (#352), so every due date that gets this far
+  // names a time of day — the question is whether it is still the midnight the
+  // flag is a claim *about*. Move an all-day commitment to another day and it
+  // is; set it to half past six and the user has just chosen the hour the flag
+  // says nobody chose, through the only API that can choose one. Keeping the
+  // flag then threw their choice away silently, because the mapper reads
+  // `allDay` first and draws a day.
+  return isLocalMidnight(dueAt, current.timezone);
 }
 
 export const patchTimeSpecForTest = patchTimeSpec;
