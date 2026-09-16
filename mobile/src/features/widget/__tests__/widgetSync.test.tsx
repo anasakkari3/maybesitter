@@ -187,6 +187,41 @@ describe('the widget snapshot in the running app', () => {
     expect(await AsyncStorage.getItem(widgetTitlesKey(USER.uid))).toBeNull();
   });
 
+  it('still takes titles out of shared storage when turned off after Today stopped loading', async () => {
+    await openApp();
+    await settled();
+    await openWidgetSettings();
+    await fireEvent(screen.getByTestId('widget-titles-toggle'), 'valueChange', true);
+    await waitFor(() => expect(lastWrite().items[0].title).toBe(SECRET_NEXT));
+
+    // Offline: every refetch fails from here on.
+    jest.spyOn(commitmentEndpoints, 'listToday').mockRejectedValue(new Error('offline'));
+    jest.spyOn(nextStepEndpoints, 'getNextStep').mockRejectedValue(new Error('offline'));
+    await act(async () => {
+      await client.refetchQueries().catch(() => {});
+    });
+
+    const before = calls.length;
+    await fireEvent(screen.getByTestId('widget-titles-toggle'), 'valueChange', false);
+    await waitFor(() => {
+      const after = calls.slice(before);
+      expect(after.length).toBeGreaterThan(0);
+      for (const call of after) {
+        if (call.op === 'write') {
+          expect(call.json).not.toContain(SECRET_TODAY);
+          expect(call.json).not.toContain(SECRET_NEXT);
+        }
+      }
+    }, { timeout: 1000 });
+  });
+
+  it('clears what an earlier session stored when there is no list to redact it from', async () => {
+    jest.spyOn(commitmentEndpoints, 'listToday').mockRejectedValue(new Error('offline'));
+    await openApp();
+    await waitFor(() => expect(calls.some((call) => call.op === 'clear')).toBe(true));
+    expect(writes()).toHaveLength(0);
+  });
+
   it('previews exactly what the widget will draw', async () => {
     await openApp();
     await settled();

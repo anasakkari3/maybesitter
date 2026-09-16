@@ -11,10 +11,17 @@
  *  - when the app goes to the background, so the snapshot the widget keeps
  *    showing is the freshest one this session had.
  *
- * It writes only once Today has loaded. An empty snapshot written in the frame
- * before the first list arrives would tell the home screen "nothing open", and
- * a failed list is not an empty day either: the old snapshot is left to expire
- * into "stale", which is the honest thing for the widget to say.
+ * It writes from the last Today the cache holds — including one whose refetch
+ * has since failed, which React Query keeps as `data` while `isSuccess` goes
+ * false. An empty snapshot written before the first list arrives would tell the
+ * home screen "nothing open", so with no list at all it writes nothing…
+ *
+ * …with one exception, and it is the privacy one. If titles are **not** allowed
+ * and there is no list to build a redacted snapshot from (an offline cold start,
+ * a first load that failed), the stored snapshot is **cleared**. The snapshot on
+ * disk may have been written with titles in an earlier session or before a
+ * toggle-off, and "nothing to rebuild it from" must never mean "leave the titles
+ * where they are".
  *
  * ── When it clears ───────────────────────────────────────────────
  *
@@ -44,6 +51,8 @@ import { createNativeWidgetBridge, type WidgetBridge } from './widgetBridge';
 /** The user's answer for this account on this phone. `false` until read, and on any doubt. */
 export function useWidgetTitlesAllowed(uid: string | null): {
   allowed: boolean;
+  /** The stored answer for this uid has been read (or set) at least once. */
+  resolved: boolean;
   setAllowed: (next: boolean) => Promise<boolean>;
 } {
   const [state, setState] = useState<{ uid: string | null; allowed: boolean }>({ uid: null, allowed: false });
@@ -66,6 +75,7 @@ export function useWidgetTitlesAllowed(uid: string | null): {
   return {
     // Held under its uid, so another account's yes is never read as this one's.
     allowed: uid !== null && state.uid === uid && state.allowed,
+    resolved: uid !== null && state.uid === uid,
     setAllowed: (next) => (uid ? saveWidgetTitlesAllowed(uid, next) : Promise.resolve(false)),
   };
 }
@@ -76,17 +86,26 @@ export function useWidgetSnapshotSync(options: { bridge?: WidgetBridge; now?: ()
   const timeZone = useTimeZone();
   const today = useToday();
   const nextStep = useNextStep();
-  const { allowed } = useWidgetTitlesAllowed(uid);
+  const { allowed, resolved } = useWidgetTitlesAllowed(uid);
   const [defaultBridge] = useState(createNativeWidgetBridge);
   const bridge = options.bridge ?? defaultBridge;
   const nowRef = useRef(options.now ?? (() => new Date()));
   const [backgrounded, setBackgrounded] = useState(0);
 
-  const todayItems = today.isSuccess ? today.data.items : undefined;
-  const primaryStep = nextStep.isSuccess ? nextStep.data.recommendation.primaryStep ?? null : null;
+  // `data`, not `isSuccess`: a failed refetch keeps the last list, and that list
+  // is exactly what a toggle-off has to be able to redact.
+  const todayItems = today.data?.items;
+  const primaryStep = nextStep.data?.recommendation.primaryStep ?? null;
 
   useEffect(() => {
-    if (!uid || todayItems === undefined) return;
+    if (!uid) return;
+    if (todayItems === undefined) {
+      // See the header: nothing to rebuild from, and titles not allowed, means
+      // whatever is stored goes. Waiting for `resolved` keeps an opted-in
+      // user's widget from blanking on every cold start.
+      if (resolved && !allowed) void bridge.clear();
+      return;
+    }
     const snapshot = buildSnapshot({
       today: todayItems,
       nextStep: primaryStep,
@@ -98,7 +117,7 @@ export function useWidgetSnapshotSync(options: { bridge?: WidgetBridge; now?: ()
       formatTime: (date) => formatTime(date, { locale: lang, timeZone }),
     });
     void bridge.write(JSON.stringify(snapshot));
-  }, [uid, todayItems, primaryStep, allowed, lang, t, timeZone, bridge, backgrounded]);
+  }, [uid, todayItems, primaryStep, allowed, resolved, lang, t, timeZone, bridge, backgrounded]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (next) => {
