@@ -48,6 +48,9 @@ function fixtureCommitment(overrides: Partial<Commitment> = {}): Commitment {
     person: null,
     status: 'active',
     priority: { level: 'normal', source: 'default', pressureAllowed: false, pressureLevel: 'none' },
+    // #415: projectFixtures.ts leaves a match uncategorised; this is that value.
+    category: null,
+    categorySource: 'inferred',
     timeSpec: {
       kind: 'scheduled_event',
       dueAt: kickoffUtc,
