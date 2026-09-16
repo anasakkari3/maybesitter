@@ -162,8 +162,10 @@
  * per-request locale of its own, so the language is chosen by
  * `titleLanguageFor`, in this order: a language the caller passes explicitly
  * (the follow PUT forwards the app's current language), the `locale` on the
- * user's own `users/{uid}` document, the locale of the device the user most
- * recently registered for push, and English when none of those exists.
+ * user's own `users/{uid}` document (which the follow PUT stores, so the
+ * nightly run keeps the language the user chose -- `lib/storage/userLocale.ts`),
+ * the locale of the device the user most recently registered for push, and
+ * English when none of those exists.
  *
  * The chosen title is stored on the ref (`ref.title`), and a title that no
  * longer matches what this run would write counts as a change exactly like a

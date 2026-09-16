@@ -340,3 +340,23 @@ test('a dismiss that fails for any reason other than "no such fixture" is a 500,
     teardown();
   }
 });
+
+// ── Residual R1: the language a follow was saved in was forgotten overnight ─
+test('a follow saved from an Arabic app keeps Arabic titles through the nightly projection, with no device registered', async () => {
+  const teardown = setup();
+  try {
+    await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+    assert.equal((await PUT(authedRequest('PUT', { clubIds: ['barcelona'], locale: 'ar' }))).status, 200);
+
+    // The nightly job's call: no language passed. A corrected kickoff forces
+    // the update path, which rewrites the title.
+    await upsertFixtures([fixture('1', '2026-10-25T20:00:00.000Z')]);
+    await projectFixturesForUser(USER, '2026-10-01T09:00:00.000Z');
+    await projectFixturesForUser(USER, '2026-10-02T09:00:00.000Z');
+
+    const state = await readParticipantState(USER);
+    assert.deepEqual(Object.values(state.commitments).map((c) => c.title), ['برشلونة – ريال مدريد']);
+  } finally {
+    teardown();
+  }
+});

@@ -1,6 +1,7 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../lib/auth/mobileAuth';
 import { mobileError } from '../../../../../lib/services/mobile/response';
 import { listClubs, type ClubLanguage } from '../../../../../lib/football/clubs';
+import { setUserLocale } from '../../../../../lib/storage/userLocale';
 
 const TITLE_LANGUAGES: readonly ClubLanguage[] = ['ar', 'he', 'en'];
 import { getFollowedClubs, setFollowedClubs } from '../../../../../lib/football/followedClubs';
@@ -104,6 +105,9 @@ export async function PUT(request: Request) {
     return mobileError(error instanceof Error ? error.message : 'could not save followed clubs', 400);
   }
 
+  // Remembered, not only used: the nightly projection has no request of its
+  // own and reads the account's locale to keep titling matches in it.
+  if (language) await setUserLocale(user.uid, language, now);
   await projectFixturesForUser(user.uid, now, { language });
   const fixtures = await listActiveFixtureCommitments(user.uid);
   return Response.json({ success: true, clubs: listClubs(), followedClubIds, fixtures });
