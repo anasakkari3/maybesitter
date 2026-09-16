@@ -23,6 +23,7 @@
  * `timeZoneName: 'longOffset'` does not work there (`src/lib/time/zoneOffset.ts`).
  */
 import { instantForWallClock, wallClockIn } from '../../lib/time/zoneOffset';
+import type { ReminderStage } from './policy';
 
 export interface QuietWindow {
   /** `HH:MM` on the user's own clock face. */
@@ -137,17 +138,26 @@ export function deferOutOfQuietHours(
  * as the app being broken. `strong` beats `followUp` beats `soft`: the point of
  * escalating is that the last thing said is the firmest.
  */
-export const STAGE_INTENSITY: Readonly<Record<string, number>> = Object.freeze({
+/**
+ * Keyed by `ReminderStage` rather than by `string`, which is what removes the
+ * `?? 0` that used to sit on each lookup. Keyed loosely, every stage was a
+ * possible miss and the default was a branch no input could reach; keyed by the
+ * union, a stage that is not in this table is a type error at the call site
+ * instead — which is where UC-3.12a (#197) will want to be told.
+ */
+export const STAGE_INTENSITY: Readonly<Record<ReminderStage, number>> = Object.freeze({
   soft: 0,
   followUp: 1,
   strong: 2,
 });
 
-export function keepHigherIntensity<T extends { stage: string; at: number }>(planned: readonly T[]): T[] {
+export function keepHigherIntensity<T extends { stage: ReminderStage; at: number }>(
+  planned: readonly T[],
+): T[] {
   const byInstant = new Map<number, T>();
   for (const entry of planned) {
     const existing = byInstant.get(entry.at);
-    if (!existing || (STAGE_INTENSITY[entry.stage] ?? 0) > (STAGE_INTENSITY[existing.stage] ?? 0)) {
+    if (!existing || STAGE_INTENSITY[entry.stage] > STAGE_INTENSITY[existing.stage]) {
       byInstant.set(entry.at, entry);
     }
   }

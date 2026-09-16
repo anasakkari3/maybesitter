@@ -6,7 +6,7 @@ import { AppProvider } from '../../state/AppContext';
 import { AuthProvider, useAuth } from '../AuthProvider';
 import { createFakeAuthRepository, type FakeAuthRepository } from '../fakeAuthRepository';
 import { onBeforeSignOut, resetBeforeSignOutForTests, runBeforeSignOut } from '../beforeSignOut';
-import type { AuthUser } from '../types';
+import type { AuthUser, SignOutReason } from '../types';
 
 /**
  * The work that only a live session can do, done while there still is one
@@ -37,7 +37,7 @@ function recordingRepository(order: string[]): FakeAuthRepository {
   return repository;
 }
 
-function Harness({ reason }: { reason: 'user' | 'session_expired' | undefined }) {
+function Harness({ reason }: { reason: SignOutReason | undefined }) {
   const { signOut } = useAuth();
   return (
     <Text
@@ -49,7 +49,7 @@ function Harness({ reason }: { reason: 'user' | 'session_expired' | undefined })
   );
 }
 
-async function signOutThrough(order: string[], reason?: 'user' | 'session_expired') {
+async function signOutThrough(order: string[], reason?: SignOutReason) {
   const repository = recordingRepository(order);
   const view = await render(
     <AppProvider>
@@ -78,19 +78,37 @@ describe('before a sign-out', () => {
     expect(order).toEqual(['delete device row', 'repo.signOut']);
   });
 
-  it('does not run it when the session is already gone', async () => {
-    const order: string[] = [];
-    onBeforeSignOut(async () => {
-      order.push('delete device row');
-    });
+  /*
+   * It used to skip every reason but `user`, and that was the defect.
+   *
+   * The reasoning was that `session_expired`, `revoked` and `deleted` all mean
+   * the token is already refused, so the device-row `DELETE` would fail. True,
+   * and it stopped one step short: the *other* half of that task deletes the
+   * FCM token from the handset, which needs no credential — and
+   * `session_expired` is precisely the reason a phone that has sat unused signs
+   * out with, which is precisely the phone about to be handed to somebody else.
+   * Skipping it left the previous account's notifications arriving on the next
+   * person's screen.
+   *
+   * So every reason runs the tasks, and each task is handed the reason and
+   * decides for itself what is still possible.
+   */
+  it.each(['session_expired', 'revoked', 'deleted'] as const)(
+    'runs registered work for %s too, and says which reason it was',
+    async reason => {
+      const order: string[] = [];
+      const seen: SignOutReason[] = [];
+      onBeforeSignOut(async signOutReason => {
+        seen.push(signOutReason);
+        order.push('delete the fcm token');
+      });
 
-    // `session_expired`, `revoked` and `deleted` all mean the token is already
-    // refused, so the DELETE would fail — and the user is being signed out
-    // whether or not it could.
-    await signOutThrough(order, 'session_expired');
+      await signOutThrough(order, reason);
 
-    expect(order).toEqual(['repo.signOut']);
-  });
+      expect(order).toEqual(['delete the fcm token', 'repo.signOut']);
+      expect(seen).toEqual([reason]);
+    },
+  );
 
   it('signs the user out even when the work throws', async () => {
     const order: string[] = [];

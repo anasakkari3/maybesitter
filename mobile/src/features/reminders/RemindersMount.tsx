@@ -92,8 +92,13 @@ export function RemindersMount(): null {
 
   // The device row has to go while the token still works, so this runs before
   // `signOut` rather than after the uid changes. See `beforeSignOut.ts`.
-  useEffect(() => onBeforeSignOut(async () => {
-    await deregisterDeviceForPush(createPushRegistrationDeps());
+  //
+  // Every reason runs it now, not only `user`: the reason a phone left in a
+  // drawer signs out with is `session_expired`, and that is exactly the phone
+  // that is about to be handed to somebody else. Only the *server* call is
+  // conditional, because only it needs a credential.
+  useEffect(() => onBeforeSignOut(async reason => {
+    await deregisterDeviceForPush(createPushRegistrationDeps(), reason === 'user');
     if (latest.current.accountId) await clearAwareness(latest.current.accountId);
   }), []);
 

@@ -7,7 +7,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppProvider } from '../../../state/AppContext';
 import { AuthProvider, useAuth } from '../../../auth/AuthProvider';
 import { createFakeAuthRepository, type FakeAuthRepository } from '../../../auth/fakeAuthRepository';
-import { resetAuthForTests, setAuthRepository } from '../../../api/auth';
+import { resetAuthForTests, setAuthRepository, signOutForbidden } from '../../../api/auth';
 import { resetBeforeSignOutForTests } from '../../../auth/beforeSignOut';
 import { RemindersMount } from '../RemindersMount';
 import * as deviceEndpoints from '../../../api/endpoints/devices';
@@ -54,7 +54,14 @@ let repository: FakeAuthRepository;
 
 function SignOutButton() {
   const { signOut } = useAuth();
-  return <Text testID="sign-out" onPress={() => void signOut({ reason: 'user' })}>out</Text>;
+  return (
+    <>
+      <Text testID="sign-out" onPress={() => void signOut({ reason: 'user' })}>out</Text>
+      <Text testID="sign-out-expired" onPress={() => void signOut({ reason: 'session_expired' })}>
+        expired
+      </Text>
+    </>
+  );
 }
 
 async function mount() {
@@ -91,6 +98,7 @@ beforeEach(() => {
   // has no token yet registers nothing — but it is not the state this test is
   // about.
   jest.spyOn(messaging, 'getToken').mockResolvedValue('a-real-looking-fcm-token-aaaaaaaaaaaaaaaaaaaaaaa' as never);
+  jest.spyOn(messaging, 'deleteToken').mockResolvedValue(undefined as never);
 });
 
 afterEach(async () => {
@@ -132,6 +140,90 @@ describe('what the mount wires', () => {
     // it went while the session could still authorise the DELETE.
     await waitFor(() => expect(deviceEndpoints.forgetDevice).toHaveBeenCalledTimes(1));
     expect(repository.signOutReasons).toEqual(['user']);
+  });
+});
+
+/*
+ * ── The token has to die on *every* sign-out ─────────────────────
+ *
+ * The installation id deliberately survives sign-out, and the FCM token is
+ * issued to the *installation*, not to the account. So a session that ends
+ * without deleting the token leaves `users/alice/devices/{id}` pointing at a
+ * token that is still live on that handset — and when Bob signs in on the same
+ * phone, every push addressed to Alice lands on Bob's screen carrying Alice's
+ * `commitmentId`, and the tap deep-links Bob's app at Alice's commitment.
+ *
+ * Only `reason === 'user'` ran the teardown, which is the one reason that
+ * *cannot* be the abandoned-phone case. `session_expired` — the reason a phone
+ * left in a drawer for a month signs out with — skipped it entirely.
+ *
+ * The fix is local and deliberately not server-side. Deleting the token at FCM
+ * needs no credential, works on every reason, and makes the stale row reap
+ * itself on the next push (`registration-token-not-registered`). Evicting the
+ * token from other uids at registration time would also close it and would
+ * hand every authenticated caller a denial-of-notifications primitive:
+ * `parseDeviceRegistration` validates a token's *shape* and can never validate
+ * that the caller owns it, so Bob could unregister Alice by posting her token.
+ */
+describe('signing out, by every route a session can end', () => {
+  it('deletes the FCM token even when the session expired rather than ended', async () => {
+    const view = await mount();
+    await waitFor(() => expect(deviceEndpoints.registerDevice).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      view.getByTestId('sign-out-expired').props.onPress();
+    });
+
+    // The token is gone from FCM, so Alice's row is unreachable and reaps
+    // itself, and Bob's sign-in mints a fresh token of his own.
+    await waitFor(() => expect(messaging.deleteToken).toHaveBeenCalledTimes(1));
+    // And the server DELETE is not attempted: the credential is already
+    // refused, so the call could only ever 401.
+    expect(deviceEndpoints.forgetDevice).not.toHaveBeenCalled();
+    expect(repository.signOutReasons).toEqual(['session_expired']);
+  });
+
+  it('deletes the token when the account was revoked, which cannot call DELETE at all', async () => {
+    await mount();
+    await waitFor(() => expect(deviceEndpoints.registerDevice).toHaveBeenCalledTimes(1));
+
+    // `signOutForbidden` goes straight to the repository, the way a 403 on any
+    // request does — it never passes through `AuthProvider.signOut`.
+    await act(async () => {
+      await signOutForbidden('revoked');
+    });
+
+    await waitFor(() => expect(messaging.deleteToken).toHaveBeenCalledTimes(1));
+    expect(deviceEndpoints.forgetDevice).not.toHaveBeenCalled();
+  });
+
+  it('deletes the row and then the token when the user pressed sign out', async () => {
+    const view = await mount();
+    await waitFor(() => expect(deviceEndpoints.registerDevice).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      view.getByTestId('sign-out').props.onPress();
+    });
+
+    await waitFor(() => expect(deviceEndpoints.forgetDevice).toHaveBeenCalledTimes(1));
+    expect(messaging.deleteToken).toHaveBeenCalledTimes(1);
+  });
+
+  it('forgets this account s awareness however the session ended', async () => {
+    const view = await mount();
+    await waitFor(() => expect(commitmentEndpoints.listToday).toHaveBeenCalled());
+    await AsyncStorage.setItem(
+      awarenessStorageKey(USER.uid),
+      JSON.stringify({ version: 1, entries: { c1: { at: '2026-09-15T00:00:00.000Z', startFingerprint: 'x' } } }),
+    );
+
+    await act(async () => {
+      view.getByTestId('sign-out-expired').props.onPress();
+    });
+
+    await waitFor(async () => {
+      expect(await AsyncStorage.getItem(awarenessStorageKey(USER.uid))).toBeNull();
+    });
   });
 });
 

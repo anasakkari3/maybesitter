@@ -209,7 +209,22 @@ async function writeQuietHoursThrough(
 ): Promise<void> {
   const storage = storageOf(options);
   const existing = await readRoutineProfile(uid, { storage });
-  const timezone = input.timezone ?? existing?.timezone;
+  /*
+   * The profile's own zone wins once it has one, and the body's is used only
+   * to create the first profile.
+   *
+   * It was the other way round, and that let this endpoint move the *whole*
+   * profile: `timezone` is the zone `sleepWindow` and `focusWindows` are
+   * wall-clock in, so a reminders screen that sent `Europe/Berlin` with a quiet
+   * window silently shifted the sleep hours the routine survey had stored. The
+   * screen normally sends the profile's own zone back, so this only bites when
+   * it has fallen through to the device's — which is exactly the case where the
+   * profile is the better authority.
+   *
+   * Changing the zone of an existing profile is the routine survey's job, which
+   * is where the user can see the other windows it moves.
+   */
+  const timezone = existing?.timezone ?? input.timezone;
   if (!isValidTimezone(timezone)) {
     fail('timezone must be an IANA zone id when quietHours is sent', 'invalid_timezone');
   }

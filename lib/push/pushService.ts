@@ -9,9 +9,11 @@
  * ── The order of the four gates is the contract ──────────────────
  *
  *   1. the payload guard    — throws, before anything is read or written
- *   2. quiet hours          — suppresses, and consumes nothing
- *   3. the dedupe lock      — `create`, which is the idempotency
- *   4. the send             — once per device that may be pushed to
+ *   2. may we interrupt     — suppresses, and consumes nothing
+ *   3. quiet hours          — suppresses, and consumes nothing
+ *   4. is anybody reachable — answers `no_devices`, and consumes nothing
+ *   5. the dedupe lock      — `create`, which is the idempotency
+ *   6. the send             — once per device that may be pushed to
  *
  * Each order is chosen against a specific failure:
  *
@@ -20,22 +22,35 @@
  * has already made a network call. It is also a pure function of its argument,
  * so putting it anywhere else would only make it later.
  *
- * **Quiet hours precede the lock** so a suppressed push does not consume its
- * key. `plan_ready:2026-09-15` suppressed at 06:00 must still be sendable at
- * 08:00; if the lock were taken first, the quiet window would silently cancel
- * the day's plan rather than delay it, and the caller would see `duplicate`
- * for a push that never happened.
+ * **Everything that can suppress precedes the lock**, so a push that did not
+ * happen does not consume its key. `plan_ready:2026-09-15` suppressed at 06:00
+ * must still be sendable at 08:00; if the lock were taken first, the quiet
+ * window would silently cancel the day's plan rather than delay it, and the
+ * caller would see `duplicate` for a push that never happened.
+ *
+ * **The device list is read before the lock too**, for the same reason and
+ * because it used not to be. An account with no reachable device consumed the
+ * key on the way to answering `no_devices`, so a phone that registered five
+ * minutes later got `duplicate` and never saw that morning's plan.
  *
  * **The lock precedes the send**, which is what makes it a lock. A send-then-
  * record would let two workers both send and then both record.
  *
  * ── The lock is taken even if the send then fails ────────────────
  *
- * Deliberately. This is an idempotency lock, not a delivery guarantee: the
- * alternative — release the key when FCM errors — turns every transient FCM
+ * Deliberately, with one carve-out. This is an idempotency lock, not a delivery
+ * guarantee: releasing the key when FCM errors turns every transient FCM
  * failure into permission to send the same notification again, which is the
  * duplicate-push bug this exists to prevent. A caller that genuinely needs a
- * retry mints a new key.
+ * retry after a partial failure mints a new key.
+ *
+ * The carve-out is **nothing was delivered anywhere and every device was
+ * reaped**. A dead token is not a transient failure, it is proof that phone can
+ * never receive this; if that was true of every device then no notification
+ * exists on any handset, so sending again is the first delivery rather than a
+ * second one. Without it, Firebase rotating a token overnight permanently lost
+ * that morning's `plan_ready:<date>` — the key was spent on a push that reached
+ * nobody, and the phone that registered a fresh token got `duplicate`.
  *
  * ── Text never carries a commitment ──────────────────────────────
  *
@@ -48,6 +63,7 @@ import { getAdminApp } from '../firebase/admin';
 import { docIdForKey, getStorage, PUSH_LOG, requireUserId, userSubDoc, type StorageAdapter } from '../storage';
 import { deleteDevice, listPushableDevices, type DeviceRecord } from './deviceRegistry';
 import { isInQuietHours, readQuietHours } from './quietHours';
+import { readPushAccess } from './pushAccess';
 
 export type PushKind = 'plan_ready' | 'hard_reminder';
 
@@ -106,6 +122,35 @@ export const CATEGORY_FOR: Readonly<Record<PushKind, string>> = Object.freeze({
 export const MAX_DEDUPE_KEY_LENGTH = 64;
 const DEDUPE_KEY = /^[A-Za-z0-9][A-Za-z0-9:._-]*$/;
 
+/**
+ * The size caps, in **bytes**, because that is the unit both platforms refuse in.
+ *
+ * APNs rejects an alert payload over 4096 bytes and FCM rejects a `data` map
+ * over 4096. Neither counts characters, and Arabic is three bytes a character —
+ * which is how a caller could build a message FCM refused, and why that refusal
+ * used to delete every device the account had (see `DEAD_TOKEN_CODES`).
+ *
+ * There is a per-value cap and no total cap, and that is deliberate rather than
+ * an omission: `PUSH_DATA_KEYS` is a closed list of five, so the whole map is
+ * bounded at 5 × 256 bytes plus about 60 bytes of key names — a little over
+ * 1.3 KB — and with 512 bytes each of title and body the largest message this
+ * guard permits is roughly 2.4 KB against a 4 KB limit. A total cap on top of
+ * that could never fire, and a guard that cannot fail is the thing this lane
+ * has already had to delete twice.
+ *
+ * 256 bytes per value is generous for what actually goes in one: a uuid is 36,
+ * a `YYYY-MM-DD` is 10, a `${uuid}:soft` notification id is 41.
+ */
+export const MAX_PUSH_TEXT_BYTES = 512;
+export const MAX_PUSH_DATA_VALUE_BYTES = 256;
+
+export const PUSH_URGENCIES: readonly PushMessage['urgency'][] = ['normal', 'time_sensitive'];
+
+/** UTF-8 bytes, which is what APNs and FCM count. */
+function byteLength(value: string): number {
+  return Buffer.byteLength(value, 'utf8');
+}
+
 /** Seven days, as UC-3.0b specifies. The TTL field is `expiresAt`. */
 export const PUSH_LOG_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -126,7 +171,9 @@ export type PushStatus =
   | 'sent'
   | 'duplicate'
   | 'suppressed_quiet_hours'
-  /** Nobody to push to: no device, or every device said no. */
+  /** The account has told us to stop, or to stop for now. See `pushAccess`. */
+  | 'suppressed_no_access'
+  /** Nobody to push to: no device, every device said no, or every token was dead. */
   | 'no_devices';
 
 export interface PushResult {
@@ -194,8 +241,46 @@ export function assertPushData(message: PushMessage): void {
   if (typeof message.title !== 'string' || message.title.trim() === '') {
     throw new PushPayloadError('title must be non-empty', 'invalid_title');
   }
+  if (byteLength(message.title) > MAX_PUSH_TEXT_BYTES) {
+    throw new PushPayloadError(
+      `title must be at most ${MAX_PUSH_TEXT_BYTES} bytes`,
+      'title_too_long',
+    );
+  }
   if (typeof message.body !== 'string' || message.body.trim() === '') {
     throw new PushPayloadError('body must be non-empty', 'invalid_body');
+  }
+  if (byteLength(message.body) > MAX_PUSH_TEXT_BYTES) {
+    throw new PushPayloadError(
+      `body must be at most ${MAX_PUSH_TEXT_BYTES} bytes`,
+      'body_too_long',
+    );
+  }
+  /*
+   * The two fields the gates below read, checked here with the rest.
+   *
+   * `respectQuietHours` decides gate 2, and gate 2 was `if (respect…)` — so a
+   * message that simply *omitted* the field walked past quiet hours with no
+   * error at all, as did `0`, `''` and `null`. Absent must not mean interrupt.
+   * A caller reading a job payload back out of Firestore holds `any`, so this
+   * is a route somebody reaches without trying.
+   *
+   * `urgency` decides the APNs interruption level, and an unrecognised value
+   * was silently downgraded to `active` — which turns a Must reminder into a
+   * notification that does not break through a Focus mode, quietly and with
+   * nothing logged.
+   */
+  if (typeof message.respectQuietHours !== 'boolean') {
+    throw new PushPayloadError(
+      'respectQuietHours must be a boolean; absent would mean interrupt',
+      'invalid_respect_quiet_hours',
+    );
+  }
+  if (!PUSH_URGENCIES.includes(message.urgency)) {
+    throw new PushPayloadError(
+      `urgency must be one of ${PUSH_URGENCIES.join(', ')}`,
+      'invalid_urgency',
+    );
   }
   if (!message.data || typeof message.data !== 'object' || Array.isArray(message.data)) {
     throw new PushPayloadError('data must be an object', 'invalid_data');
@@ -211,6 +296,12 @@ export function assertPushData(message: PushMessage): void {
     // "undefined" on the device, which is worse than a refusal.
     if (typeof value !== 'string') {
       throw new PushPayloadError(`data.${key} must be a string`, 'data_value_not_string');
+    }
+    if (byteLength(value) > MAX_PUSH_DATA_VALUE_BYTES) {
+      throw new PushPayloadError(
+        `data.${key} must be at most ${MAX_PUSH_DATA_VALUE_BYTES} bytes; FCM refuses the message, not the field`,
+        'data_value_too_long',
+      );
     }
   }
 }
@@ -247,11 +338,27 @@ export function resetMessagingForTests(): void {
   cachedMessaging = null;
 }
 
-/** FCM's way of saying this token belongs to an app that is no longer there. */
+/**
+ * FCM's way of saying this token belongs to an app that is no longer there.
+ *
+ * `messaging/invalid-argument` used to be in here and is not any more. FCM
+ * returns it for a malformed **message** as well as for a malformed token, and
+ * this loop reads a code in this set as proof the phone is gone. So one
+ * oversized push deleted *every* device row the account had — the reviewer's
+ * probe: three devices registered, one send with a 5000-character Arabic
+ * `data.commitmentId`, and the answer was
+ * `{ status: 'no_devices', delivered: 0, removed: 3 }`. The account was then
+ * unreachable until it next opened the app, and because the dedupe key had
+ * already been taken the corrected retry answered `duplicate`.
+ *
+ * The two codes left are token-specific by name and cannot be provoked by a
+ * payload. The payload half of that defect is fixed at the other end, by the
+ * size caps in `assertPushData` — a message big enough to be refused by FCM
+ * can no longer be built.
+ */
 const DEAD_TOKEN_CODES = new Set([
   'messaging/registration-token-not-registered',
   'messaging/invalid-registration-token',
-  'messaging/invalid-argument',
 ]);
 
 function errorCodeOf(error: unknown): string | null {
@@ -307,7 +414,14 @@ export async function sendToUser(
 
   const storage = options.storage ?? getStorage();
 
-  // 2. Quiet hours, which suppress without consuming the key.
+  // 2. May we interrupt this person at all. Deleted, revoked, quiet mode — the
+  //    states where they have told us to stop, which outrank a schedule.
+  const access = await readPushAccess(message.uid, { storage });
+  if (!access.allowed) {
+    return { status: 'suppressed_no_access', delivered: 0, removed: 0 };
+  }
+
+  // 3. Quiet hours, which suppress without consuming the key.
   if (message.respectQuietHours) {
     const quietHours = await readQuietHours(message.uid, { storage });
     if (isInQuietHours(quietHours, now)) {
@@ -315,7 +429,12 @@ export async function sendToUser(
     }
   }
 
-  // 3. The lock. `create` inside a transaction, so two workers racing over one
+  // 4. Is anybody reachable. Before the lock, so an account with no device does
+  //    not spend the key on the way to saying so.
+  const devices = await listPushableDevices(message.uid, { storage });
+  if (devices.length === 0) return { status: 'no_devices', delivered: 0, removed: 0 };
+
+  // 5. The lock. `create` inside a transaction, so two workers racing over one
   //    key cannot both win — and a read-then-create outside one could.
   const lockPath = userSubDoc(message.uid, PUSH_LOG, docIdForKey(message.dedupeKey));
   const claimed = await storage.runTransaction(async (tx) => {
@@ -332,10 +451,7 @@ export async function sendToUser(
   });
   if (!claimed) return { status: 'duplicate', delivered: 0, removed: 0 };
 
-  // 4. The send.
-  const devices = await listPushableDevices(message.uid, { storage });
-  if (devices.length === 0) return { status: 'no_devices', delivered: 0, removed: 0 };
-
+  // 6. The send.
   const messaging = options.messaging ?? (await defaultMessaging());
   let delivered = 0;
   let removed = 0;
@@ -359,5 +475,14 @@ export async function sendToUser(
     }
   }
 
-  return { status: delivered > 0 ? 'sent' : 'no_devices', delivered, removed };
+  if (delivered === 0) {
+    // Every device was reaped — that is the only way out of the loop above with
+    // nothing delivered and nothing thrown. No notification exists on any
+    // handset, so the key is released and the next attempt is a first delivery
+    // rather than a duplicate. See the header for why this is the one release.
+    await storage.delete(lockPath);
+    return { status: 'no_devices', delivered, removed };
+  }
+
+  return { status: 'sent', delivered, removed };
 }

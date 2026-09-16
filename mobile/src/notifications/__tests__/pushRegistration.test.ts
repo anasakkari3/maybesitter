@@ -132,7 +132,7 @@ describe('the permission it reports', () => {
 describe('signing out', () => {
   it('deletes the device row before it deletes the token', async () => {
     const recorder = deps();
-    await deregisterDeviceForPush(recorder);
+    await deregisterDeviceForPush(recorder, true);
     // The DELETE needs a valid session, and the token is the thing that would
     // still be pointed at this row if the order were reversed.
     expect(recorder.order).toEqual(['forget', 'deleteToken']);
@@ -141,14 +141,37 @@ describe('signing out', () => {
 
   it('still drops the token when the row could not be deleted', async () => {
     const recorder = deps({ forget: async () => { throw new Error('offline'); } });
-    await deregisterDeviceForPush(recorder);
+    await deregisterDeviceForPush(recorder, true);
     expect(recorder.order).toEqual(['deleteToken']);
   });
 
-  it('does nothing at all in mock mode', async () => {
-    const recorder = deps({ mode: () => 'mock' });
-    await deregisterDeviceForPush(recorder);
-    expect(recorder.order).toEqual([]);
+  /*
+   * The case the whole second argument exists for.
+   *
+   * `session_expired`, `revoked` and `deleted` all mean the credential is
+   * already refused, so the `DELETE` could only 401 or 403 — a revoked account
+   * is refused by `requireMobileUser` by name. But the FCM token is issued to
+   * the *installation*, not to the account, and the installation id outlives a
+   * sign-out on purpose. Leaving the token alive leaves `users/alice/devices/{id}`
+   * pointing at a handset that is about to be Bob's, and every push addressed
+   * to Alice arrives on his screen carrying her `commitmentId`.
+   *
+   * Deleting the token needs no credential, so it happens either way, and the
+   * stale row reaps itself on the next push.
+   */
+  it('deletes the token but not the row when the credential is already refused', async () => {
+    const recorder = deps();
+    await deregisterDeviceForPush(recorder, false);
+    expect(recorder.order).toEqual(['deleteToken']);
+    expect(recorder.forgotten).toEqual([]);
+  });
+
+  it('does nothing at all in mock mode, whichever way the session ended', async () => {
+    for (const credentialIsGood of [true, false]) {
+      const recorder = deps({ mode: () => 'mock' });
+      await deregisterDeviceForPush(recorder, credentialIsGood);
+      expect(recorder.order).toEqual([]);
+    }
   });
 });
 

@@ -178,7 +178,8 @@ export async function upsertDevice(
   at: string,
   options: DeviceRegistryOptions = {},
 ): Promise<DeviceRecord> {
-  requireUserId(uid);
+  // No `requireUserId` here: `devicePath` below runs it, and a second call
+  // could only ever be a guard that cannot fail.
   const record: DeviceRecord = { ...registration, updatedAt: at, lastSeenAt: at };
   await storageOf(options).set(devicePath(uid, registration.installationId), record);
   return record;

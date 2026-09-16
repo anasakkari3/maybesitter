@@ -115,16 +115,45 @@ export async function registerDeviceForPush(
  * there is no token to authorise it with. Then the FCM token is deleted, so
  * the next sign-in gets a fresh one rather than reusing one this account's row
  * used to point at.
+ *
+ * ── The token is deleted on every reason; the row is not ─────────
+ *
+ * `credentialIsGood` is false for `session_expired`, `revoked` and `deleted`,
+ * where the `DELETE` could only ever answer 401 or 403 — a revoked account in
+ * particular is refused by `requireMobileUser`, so that user cannot delete
+ * their own device row at all.
+ *
+ * `deleteToken()` runs regardless, and that is the half that closes the leak.
+ * The installation id deliberately outlives a sign-out and the FCM token
+ * belongs to the *installation*, not to the account, so a session that ended
+ * without killing the token leaves `users/alice/devices/{id}` pointing at a
+ * token that is still live on that handset. Bob signs in on the same phone and
+ * every push addressed to Alice arrives on his screen carrying her
+ * `commitmentId`. Deleting the token needs no credential, works on every
+ * reason, and makes the stale row reap itself the next time anything pushes to
+ * it (`registration-token-not-registered`).
+ *
+ * The server-side version of this fix — evict a token from every other uid
+ * when somebody registers it — is deliberately **not** done.
+ * `parseDeviceRegistration` can validate a token's shape and can never
+ * validate that the caller owns it, so that eviction would hand any
+ * authenticated caller a way to switch off somebody else's notifications by
+ * posting their token.
  */
-export async function deregisterDeviceForPush(deps: PushRegistrationDeps): Promise<void> {
+export async function deregisterDeviceForPush(
+  deps: PushRegistrationDeps,
+  credentialIsGood: boolean,
+): Promise<void> {
   if (deps.mode() === 'mock') return;
-  const id = await deps.installationId();
-  if (id) {
-    try {
-      await deps.forget(id);
-    } catch {
-      // The row is left behind. The account-deletion cascade and FCM's own
-      // `registration-token-not-registered` are what eventually clear it.
+  if (credentialIsGood) {
+    const id = await deps.installationId();
+    if (id) {
+      try {
+        await deps.forget(id);
+      } catch {
+        // The row is left behind. The account-deletion cascade and FCM's own
+        // `registration-token-not-registered` are what eventually clear it.
+      }
     }
   }
   try {

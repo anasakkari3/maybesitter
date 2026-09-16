@@ -100,12 +100,14 @@ export function AuthProvider({ children, repository, isDevBundle = __DEV__ }: Au
   const signOut = useCallback(
     async (options?: { reason?: SignOutReason }) => {
       const reason = options?.reason ?? 'user';
-      // Before the credential goes. Deleting this account's device document
-      // (UC-3.0b, #184) needs a valid token, and after `repo.signOut` there is
-      // none — only for a sign-out the person pressed, because the other three
-      // reasons all mean the token is already refused. Nothing here can keep
-      // them signed in; see `beforeSignOut.ts`.
-      if (reason === 'user') await runBeforeSignOut(reason);
+      // Before the credential goes, and for *every* reason. Deleting this
+      // account's device document (UC-3.0b, #184) needs a valid token and only
+      // happens for a sign-out the person pressed — but deleting the FCM token
+      // on the handset needs none, and it is the half that matters when a
+      // session expires on a phone somebody else is about to sign in on. Each
+      // task decides what it can still do from the reason it is handed.
+      // Nothing here can keep them signed in; see `beforeSignOut.ts`.
+      await runBeforeSignOut(reason);
       await repo.signOut(options);
       // The subscription above normally sets this; setting it here too covers
       // a repository that signs out without emitting.

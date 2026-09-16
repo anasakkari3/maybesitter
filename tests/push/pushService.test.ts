@@ -20,6 +20,8 @@ import { fileURLToPath } from 'node:url';
 import {
   assertPushData,
   MAX_DEDUPE_KEY_LENGTH,
+  MAX_PUSH_DATA_VALUE_BYTES,
+  MAX_PUSH_TEXT_BYTES,
   buildFcmMessage,
   CHANNEL_FOR,
   PushPayloadError,
@@ -31,6 +33,11 @@ import {
 } from '../../lib/push/pushService.ts';
 import { upsertDevice, type DeviceRecord, type PushPermission } from '../../lib/push/deviceRegistry.ts';
 import { saveRoutineProfile } from '../../lib/services/mobile/routineProfileService.ts';
+import {
+  applyPilotTrustAction,
+  createPilotTrustState,
+  type PilotTrustAction,
+} from '../../lib/pilot/closedPilotControls.ts';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { docIdForKey, PUSH_LOG, userCol, userDoc, userSubDoc } from '../../lib/storage/paths.ts';
 import type { StorageAdapter } from '../../lib/storage/storageAdapter.ts';
@@ -108,6 +115,21 @@ async function withDevice(
     timezone: 'Asia/Jerusalem',
     pushPermission,
   }, NOW.toISOString(), { storage });
+}
+
+/**
+ * Writes the trust record the way the product does, on the injected storage.
+ *
+ * `applyTrustAction` reaches `getStorage()` rather than an adapter it was
+ * handed, and the trust record lives on `users/{uid}.trust` — the same document
+ * `readQuietHours` already reads. So the push path reads it through the
+ * adapter it was given, and so does this.
+ */
+async function withTrust(storage: StorageAdapter, ...actions: PilotTrustAction[]): Promise<void> {
+  let state = createPilotTrustState(UID, NOW.toISOString());
+  for (const action of actions) state = applyPilotTrustAction(state, action);
+  const user = await storage.get<Record<string, unknown>>(userDoc(UID)) ?? {};
+  await storage.set(userDoc(UID), { ...user, trust: state });
 }
 
 const ID_A = '11111111-1111-4111-8111-111111111111';
@@ -325,6 +347,325 @@ test('the FCM message collapses on the dedupe key and carries no title in data',
   assert.equal(fcm.android.priority, 'high');
   assert.equal(fcm.apns.headers['apns-priority'], '10');
   for (const key of Object.keys(fcm.data)) assert.ok(PUSH_DATA_KEYS.includes(key), `data carried ${key}`);
+});
+
+/*
+ * ── A message fault is not a dead phone (finding 1) ──────────────
+ *
+ * FCM answers `messaging/invalid-argument` for a malformed *message* as well
+ * as for a malformed token, and this module used to read it as proof the token
+ * was gone. One oversized push therefore deleted every device the account had
+ * — and, because the lock was already taken, the corrected retry answered
+ * `duplicate`. An account could be silently unreachable until it next opened
+ * the app.
+ *
+ * Both halves are tested: the code no longer reaps, and a message big enough
+ * to provoke it cannot be built in the first place.
+ */
+test('messaging/invalid-argument is a message fault: it keeps every device and is not swallowed', async () => {
+  const storage = await seeded();
+  await withDevice(storage, ID_B);
+  const messaging = fakeMessaging();
+  messaging.failNext('messaging/invalid-argument');
+
+  await assert.rejects(
+    () => sendToUser(message(), NOW, { storage, messaging }),
+    (error: unknown) => error instanceof Error && error.message.includes('invalid-argument'),
+  );
+
+  // Two phones in, two phones out. The old behaviour left zero.
+  const remaining = await storage.list<DeviceRecord>(userCol(UID, 'devices'));
+  assert.deepEqual(remaining.map((row) => row.id).sort(), [ID_A, ID_B].sort());
+});
+
+test('an oversized payload is refused before any storage or network call', async () => {
+  const messaging = fakeMessaging();
+
+  // The reviewer's probe, as a test. Arabic is three bytes a character, so a
+  // commitment id of this length is ~15 KB and FCM's `data` limit is 4 KB —
+  // which is how a *message* fault was reachable from a caller at all.
+  const arabic = 'ت'.repeat(5000);
+  await assert.rejects(
+    () => sendToUser(
+      message({ data: { kind: 'plan_ready', commitmentId: arabic } }),
+      NOW,
+      { storage: hostileStorage(), messaging },
+    ),
+    (error: unknown) => error instanceof PushPayloadError && error.reason === 'data_value_too_long',
+  );
+  assert.equal(messaging.sent.length, 0);
+
+  /*
+   * And the arithmetic that says a *total* cap would be dead code, asserted
+   * rather than reasoned about in a comment. `PUSH_DATA_KEYS` is closed at
+   * five, so the largest map this guard admits is five maximum-length values
+   * plus the key names — and the largest whole message is that plus a
+   * maximum title and body, which has to stay under the 4 KB both platforms
+   * refuse at. If a sixth key is ever added, this is what goes red.
+   */
+  const biggest = Object.fromEntries(
+    PUSH_DATA_KEYS.map((key) => [key, 'a'.repeat(MAX_PUSH_DATA_VALUE_BYTES)]),
+  );
+  assertPushData(message({ data: biggest }));
+  const widest = PUSH_DATA_KEYS.reduce((total, key) => total + key.length, 0)
+    + PUSH_DATA_KEYS.length * MAX_PUSH_DATA_VALUE_BYTES
+    + 2 * MAX_PUSH_TEXT_BYTES;
+  assert.ok(widest < 4096, `the widest permitted message is ${widest} bytes, which FCM would refuse`);
+
+  // One byte over the per-value cap is refused, so the cap is a cap.
+  assert.throws(
+    () => assertPushData(message({
+      data: { ...biggest, commitmentId: 'a'.repeat(MAX_PUSH_DATA_VALUE_BYTES + 1) },
+    })),
+    (error: unknown) => error instanceof PushPayloadError && error.reason === 'data_value_too_long',
+  );
+
+  for (const field of ['title', 'body'] as const) {
+    assert.throws(
+      () => assertPushData(message({ [field]: 'ت'.repeat(1000) })),
+      (error: unknown) => error instanceof PushPayloadError && error.reason === `${field}_too_long`,
+      `${field} of 3000 bytes was accepted`,
+    );
+    // Bytes, not characters: 512 Arabic characters is 1536 bytes and is
+    // refused, while 512 ASCII characters is exactly the cap and is not.
+    assert.throws(
+      () => assertPushData(message({ [field]: 'ت'.repeat(MAX_PUSH_TEXT_BYTES) })),
+      (error: unknown) => error instanceof PushPayloadError && error.reason === `${field}_too_long`,
+      `${field} counted characters rather than bytes`,
+    );
+    assertPushData(message({ [field]: 'a'.repeat(MAX_PUSH_TEXT_BYTES) }));
+  }
+
+  // And the ordinary message still passes, so the caps are caps and not a wall.
+  assertPushData(message());
+  assertPushData(message({ title: 'خطتك لليوم جاهزة', body: 'افتح التطبيق لما يناسبك.' }));
+});
+
+test('a data value that is not a string is refused', async () => {
+  const messaging = fakeMessaging();
+  for (const value of [7, null, undefined, {}, [], true]) {
+    await assert.rejects(
+      () => sendToUser(
+        message({ data: { kind: 'plan_ready', commitmentId: value as unknown as string } }),
+        NOW,
+        { storage: hostileStorage(), messaging },
+      ),
+      (error: unknown) => error instanceof PushPayloadError && error.reason === 'data_value_not_string',
+      `data.commitmentId = ${JSON.stringify(value)} was accepted`,
+    );
+  }
+  assert.equal(messaging.sent.length, 0);
+});
+
+/*
+ * ── The push path may not be more permissive than the product (finding 2) ──
+ *
+ * `resolveNextStepAccess` refuses a next-step card for a deleted account, a
+ * revoked one, and one in quiet mode. This module's own header calls itself the
+ * one answer to "may we interrupt this person", and it was giving a weaker
+ * answer than the screen the person can see. Worse for `revoked`:
+ * `requireMobileUser` answers 403 for a revoked account, so that user cannot
+ * call `DELETE /api/mobile/devices/{id}` to stop it themselves.
+ */
+test('a revoked account is not pushed to, and the key is not consumed', async () => {
+  const storage = await seeded();
+  const messaging = fakeMessaging();
+  await withTrust(storage, { type: 'revoke', at: NOW.toISOString() });
+
+  const refused = await sendToUser(message(), NOW, { storage, messaging });
+  assert.equal(refused.status, 'suppressed_no_access');
+  assert.equal(messaging.sent.length, 0);
+  // Not consumed: a revocation that is later lifted must not have eaten the key.
+  assert.equal(await storage.get(userSubDoc(UID, PUSH_LOG, docIdForKey('plan_ready:2026-09-14'))), null);
+});
+
+test('a deleted account and an account in quiet mode are not pushed to', async () => {
+  const actions: PilotTrustAction[] = [
+    { type: 'delete', at: NOW.toISOString() },
+    { type: 'set_quiet_mode', enabled: true, at: NOW.toISOString() },
+  ];
+  for (const action of actions) {
+    const storage = await seeded();
+    const messaging = fakeMessaging();
+    await withTrust(storage, action);
+    const result = await sendToUser(message(), NOW, { storage, messaging });
+    assert.equal(result.status, 'suppressed_no_access', `${action.type} was pushed to`);
+    assert.equal(messaging.sent.length, 0);
+  }
+});
+
+test('a trust record this version cannot read refuses rather than pushes', async () => {
+  // Something wrote it, so it may say stop, and we cannot tell. The failure
+  // direction for "may we interrupt this person" is silence.
+  for (const trust of ['revoked', 7, [], { revokedAt: 5 }, { quietMode: 'yes' }, { deletedAt: {} }]) {
+    const storage = await seeded();
+    const messaging = fakeMessaging();
+    await storage.set(userDoc(UID), { timezone: 'Asia/Jerusalem', trust });
+    const result = await sendToUser(message(), NOW, { storage, messaging });
+    assert.equal(result.status, 'suppressed_no_access', `${JSON.stringify(trust)} was pushed to`);
+  }
+});
+
+test('an account that has never touched a trust control is still pushed to', async () => {
+  // The failure direction that matters: a gate read as "no record means stop"
+  // would silence every push for everybody, and nobody would see an error.
+  const storage = await seeded();
+  const messaging = fakeMessaging();
+  assert.equal((await sendToUser(message(), NOW, { storage, messaging })).status, 'sent');
+});
+
+test('declining recommendations does not stop a reminder about your own commitment', async () => {
+  // Deliberately *not* gated. The launch consent is about suggestions this
+  // product makes; a reminder for a commitment the user entered themselves is
+  // not a suggestion, and the recommendation kill switch is an operator's
+  // decision about that feature rather than about being reachable at all.
+  const storage = await seeded();
+  const messaging = fakeMessaging();
+  await withTrust(storage, { type: 'set_recommendation_consent', granted: false, at: NOW.toISOString() });
+  assert.equal((await sendToUser(message(), NOW, { storage, messaging })).status, 'sent');
+});
+
+/*
+ * ── The two gate fields the guard did not check (finding 3) ──────
+ *
+ * Gate 2 is `if (message.respectQuietHours)`, so a message that simply omits
+ * the field walks past quiet hours — and a caller reading a job payload back
+ * out of Firestore holds `any`. Absent must not mean "interrupt".
+ */
+test('respectQuietHours must be a real boolean, because absent would mean interrupt', async () => {
+  const messaging = fakeMessaging();
+  for (const value of [undefined, null, 0, 1, '', 'true', 'false']) {
+    const bad = { ...message(), respectQuietHours: value as unknown as boolean };
+    await assert.rejects(
+      () => sendToUser(bad, NOW, { storage: hostileStorage(), messaging }),
+      (error: unknown) => error instanceof PushPayloadError && error.reason === 'invalid_respect_quiet_hours',
+      `respectQuietHours = ${JSON.stringify(value)} was accepted`,
+    );
+  }
+  // And the field being missing entirely is the case the probe found.
+  const { respectQuietHours: _omitted, ...withoutField } = message();
+  await assert.rejects(
+    () => sendToUser(withoutField as PushMessage, NOW, { storage: hostileStorage(), messaging }),
+    (error: unknown) => error instanceof PushPayloadError && error.reason === 'invalid_respect_quiet_hours',
+  );
+  assert.equal(messaging.sent.length, 0);
+});
+
+test('an urgency nobody defined is refused rather than quietly downgraded', async () => {
+  for (const urgency of [undefined, null, '', 'urgent', 'critical', 'time-sensitive', 7]) {
+    assert.throws(
+      () => assertPushData(message({ urgency: urgency as unknown as 'normal' })),
+      (error: unknown) => error instanceof PushPayloadError && error.reason === 'invalid_urgency',
+      `urgency = ${JSON.stringify(urgency)} was accepted`,
+    );
+  }
+  for (const urgency of ['normal', 'time_sensitive'] as const) assertPushData(message({ urgency }));
+});
+
+/*
+ * ── The lock is for a push that happened (finding 4) ─────────────
+ *
+ * The header already argues that quiet hours precede the lock so a suppressed
+ * push does not consume its key. These are the same failure through the other
+ * door: a push that reached nobody must not consume it either, or Firebase
+ * rotating a token overnight permanently loses that morning's plan.
+ */
+test('no devices does not consume the key: one registered later still gets it', async () => {
+  const storage = createMemoryStorage();
+  await storage.set(userDoc(UID), { timezone: 'Asia/Jerusalem' });
+  const messaging = fakeMessaging();
+
+  const nobody = await sendToUser(message(), NOW, { storage, messaging });
+  assert.equal(nobody.status, 'no_devices');
+  assert.equal(await storage.get(userSubDoc(UID, PUSH_LOG, docIdForKey('plan_ready:2026-09-14'))), null);
+
+  await withDevice(storage, ID_A);
+  const later = new Date(NOW.getTime() + 5 * 60_000);
+  const arrived = await sendToUser(message(), later, { storage, messaging });
+  assert.equal(arrived.status, 'sent');
+  assert.equal(messaging.sent.length, 1);
+});
+
+test('every device reaped does not consume the key: a fresh token still gets it', async () => {
+  const storage = await seeded();
+  const messaging = fakeMessaging();
+  messaging.failNext('messaging/registration-token-not-registered');
+
+  const reaped = await sendToUser(message(), NOW, { storage, messaging });
+  assert.equal(reaped.status, 'no_devices');
+  assert.equal(reaped.removed, 1);
+  assert.equal(reaped.delivered, 0);
+  // Nothing was delivered anywhere, so re-sending is not a duplicate — it is
+  // the first delivery. This is the overnight token rotation.
+  assert.equal(await storage.get(userSubDoc(UID, PUSH_LOG, docIdForKey('plan_ready:2026-09-14'))), null);
+
+  await withDevice(storage, ID_B);
+  const retried = await sendToUser(message(), NOW, { storage, messaging });
+  assert.equal(retried.status, 'sent');
+  assert.equal(messaging.sent.length, 1);
+});
+
+test('a push that did reach somebody still consumes the key', async () => {
+  // The other side of the same rule: releasing on any zero-delivery outcome
+  // would be one thing, releasing when a phone was reached would be a
+  // duplicate notification.
+  const storage = await seeded();
+  await withDevice(storage, ID_B);
+  const messaging = fakeMessaging();
+  messaging.failNext('messaging/registration-token-not-registered');
+
+  const first = await sendToUser(message(), NOW, { storage, messaging });
+  assert.equal(first.delivered, 1);
+  assert.equal(first.removed, 1);
+  assert.equal((await sendToUser(message(), NOW, { storage, messaging })).status, 'duplicate');
+  assert.equal(messaging.sent.length, 1);
+});
+
+/*
+ * ── A row this version cannot read is not a phone ────────────────
+ *
+ * `isDeviceRecord` filters `listDevices`, and nothing exercised it: making it
+ * answer `true` unconditionally left the suite green. It is the guard that
+ * stops a document written by a future schema — or by hand in the console —
+ * being handed to FCM as a token, which at best wastes a send and at worst
+ * hands `messaging.send` an `undefined` token.
+ *
+ * And when every row is unreadable the answer has to be `no_devices` *without*
+ * consuming the key, for the same reason as a reaped token: nothing was
+ * delivered, so the next attempt is a first delivery.
+ */
+test('a device document this version cannot read is skipped rather than pushed to', async () => {
+  const storage = await seeded();
+  const messaging = fakeMessaging();
+  // A row from a schema that renamed the token, one with a platform nobody
+  // ships, one with a permission that is not a permission, and one that is not
+  // an object at all.
+  await storage.set(userSubDoc(UID, 'devices', ID_B), { installationId: ID_B, token: 'renamed', platform: 'ios', pushPermission: 'granted' });
+  await storage.set(userSubDoc(UID, 'devices', '33333333-3333-4333-8333-333333333333'), { installationId: 'x', fcmToken: 'y', platform: 'web', pushPermission: 'granted' });
+  await storage.set(userSubDoc(UID, 'devices', '44444444-4444-4444-8444-444444444444'), { installationId: 'x', fcmToken: 'y', platform: 'ios', pushPermission: 'maybe' });
+
+  const result = await sendToUser(message(), NOW, { storage, messaging });
+
+  // Only the one real device was written to.
+  assert.equal(result.delivered, 1);
+  assert.equal(messaging.sent.length, 1);
+  assert.equal(messaging.sent[0]!.token, `token-${ID_A.replace(/-/g, '')}`);
+  // And nothing was deleted: an unreadable row is not a dead token, and
+  // reaping it would destroy a document a later version might understand.
+  assert.equal(result.removed, 0);
+  assert.equal((await storage.list(userCol(UID, 'devices'))).length, 4);
+});
+
+test('an account whose every device row is unreadable answers no_devices and keeps its key', async () => {
+  const storage = createMemoryStorage();
+  await storage.set(userDoc(UID), { timezone: 'Asia/Jerusalem' });
+  await storage.set(userSubDoc(UID, 'devices', ID_A), { installationId: ID_A, token: 'renamed' });
+  const messaging = fakeMessaging();
+
+  const result = await sendToUser(message(), NOW, { storage, messaging });
+  assert.equal(result.status, 'no_devices');
+  assert.equal(messaging.sent.length, 0);
+  assert.equal(await storage.get(userSubDoc(UID, PUSH_LOG, docIdForKey('plan_ready:2026-09-14'))), null);
 });
 
 test('every channel a push names is one the app actually creates', () => {

@@ -194,6 +194,74 @@ test('a malformed window is refused rather than half-written', async () => {
   }
 });
 
+/*
+ * ── This endpoint may not move the profile's other windows ───────
+ *
+ * `timezone` on the routine profile is the zone `sleepWindow` and
+ * `focusWindows` are wall-clock in, and the write-through used to take the
+ * body's zone over the profile's. So a reminders screen that sent
+ * `Europe/Berlin` with a quiet window shifted the sleep hours the survey had
+ * stored by an hour, from a screen that shows neither of them.
+ *
+ * The app normally echoes the profile's own zone back, so this bites exactly
+ * when it has fallen through to the handset's — which is the case where the
+ * profile is the better authority, not the worse one. Changing the zone of an
+ * existing profile belongs to the routine survey, where the user can see what
+ * else moves.
+ */
+test('a zone in the body does not move the routine profile s other windows', async () => {
+  const teardown = setup();
+  try {
+    // The survey first: a full profile, answered in Asia/Jerusalem.
+    const { saveRoutineProfile } = await import('../../lib/services/mobile/routineProfileService.ts');
+    await saveRoutineProfile(USER, {
+      timezone: 'Asia/Jerusalem',
+      sleepWindow: { start: '23:00', end: '07:00' },
+      focusWindows: [{ start: '09:00', end: '12:00' }],
+      fixedCommitmentWindows: [],
+      preferredReminderIntensity: 'softAwareness',
+      quietHours: null,
+      surveySkipped: false,
+    }, '2026-09-01T00:00:00.000Z');
+
+    const response = await remindersPut(request({
+      quietHours: { start: '21:30', end: '06:30', timezone: 'Europe/Berlin' },
+    }));
+    assert.equal(response.status, 200);
+
+    const profile = await readRoutineProfile(USER);
+    // The quiet hours are the new ones...
+    assert.deepEqual(profile?.quietHours, { start: '21:30', end: '06:30' });
+    // ...and everything else is exactly as the survey left it.
+    assert.equal(profile?.timezone, 'Asia/Jerusalem', 'the body moved the profile s zone');
+    assert.deepEqual(profile?.sleepWindow, { start: '23:00', end: '07:00' });
+    assert.deepEqual(profile?.focusWindows, [{ start: '09:00', end: '12:00' }]);
+
+    // And the push service reads the window on the profile's clock, not the body's.
+    const quiet = await readQuietHours(USER);
+    assert.equal(quiet.timezone, 'Asia/Jerusalem');
+  } finally {
+    teardown();
+  }
+});
+
+test('the body s zone is still what creates a first profile', async () => {
+  const teardown = setup();
+  try {
+    // Nothing to contradict it, so an account that never answered the survey
+    // gets the zone the phone reported. Without this the write-through could
+    // only ever store UTC for a new account, which is the defect the settings
+    // screen's own zone fix exists to prevent.
+    const response = await remindersPut(request({
+      quietHours: { start: '22:30', end: '07:30', timezone: 'Europe/Berlin' },
+    }));
+    assert.equal(response.status, 200);
+    assert.equal((await readRoutineProfile(USER))?.timezone, 'Europe/Berlin');
+  } finally {
+    teardown();
+  }
+});
+
 test('reminderSettings never grows a second copy of quiet hours', async () => {
   const teardown = setup();
   try {
