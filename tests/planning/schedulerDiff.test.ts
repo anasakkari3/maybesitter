@@ -18,6 +18,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { diffPlans, schedulePlan } from '../../lib/planning/scheduler/index.ts';
+import {
+  TIMEFOLD_SHADOW_POLICY,
+  runTimefoldShadowExperiment,
+} from '../../lib/planning/experiments/timefoldShadow.ts';
 import type {
   FixedEvent,
   PlanItemChange,
@@ -252,6 +256,82 @@ test('sameInputDigest is true exactly when the two plans answered the same reque
     schedulePlan({ ...shape, items: [...shape.items, item('c')] }, config()),
   );
   assert.equal(different.sameInputDigest, false);
+});
+
+test('the Timefold experiment compares a candidate without replacing the canonical planner', async () => {
+  const shape = constraints({ items: [item('a'), item('b', { priority: 4 })] });
+  let solverCalls = 0;
+  const report = await runTimefoldShadowExperiment({
+    constraints: shape,
+    config: config(),
+    availableMinutes: 480,
+    solver: {
+      async solve(input) {
+        solverCalls += 1;
+        const candidate = schedulePlan(input.constraints, input.config);
+        assert.equal(candidate.inputDigest, input.inputDigest);
+        return candidate;
+      },
+    },
+  });
+
+  assert.equal(report.status, 'compared');
+  assert.equal(solverCalls, 1);
+  assert.deepEqual(report.issues, []);
+  assert.equal(report.baseline.placementRate, 1);
+  assert.equal(report.candidate?.placementRate, 1);
+  assert.equal(report.candidateVsBaseline?.sameInputDigest, true);
+  assert.deepEqual(report.candidateVsBaseline?.changes.map((change) => change.kind), [
+    'unchanged',
+    'unchanged',
+  ]);
+  assert.deepEqual(TIMEFOLD_SHADOW_POLICY, {
+    canonicalPlanner: 'schedulePlan',
+    shadowOnly: true,
+    candidateMayPersist: false,
+    candidateMayTriggerActions: false,
+    rawUserContentInReport: false,
+  });
+});
+
+test('the Timefold experiment rejects an invalid candidate instead of scoring it', async () => {
+  const shape = constraints({ items: [item('a'), item('b')] });
+  const report = await runTimefoldShadowExperiment({
+    constraints: shape,
+    config: config(),
+    availableMinutes: 480,
+    solver: {
+      async solve(input) {
+        const candidate = schedulePlan(input.constraints, input.config);
+        return {
+          ...candidate,
+          scheduled: candidate.scheduled.filter((entry) => entry.itemId !== 'b'),
+        };
+      },
+    },
+  });
+
+  assert.equal(report.status, 'candidate_rejected');
+  assert.deepEqual(report.issues, ['item_partition_invalid']);
+  assert.equal(report.candidate, null);
+  assert.equal(report.candidateVsBaseline, null);
+});
+
+test('the Timefold experiment reports a safe code when the solver fails', async () => {
+  const report = await runTimefoldShadowExperiment({
+    constraints: constraints({ items: [item('a')] }),
+    config: config(),
+    availableMinutes: 480,
+    solver: {
+      async solve() {
+        throw new Error('raw remote solver response');
+      },
+    },
+  });
+
+  assert.equal(report.status, 'solver_failed');
+  assert.deepEqual(report.issues, ['solver_failed']);
+  assert.equal(JSON.stringify(report).includes('raw remote solver response'), false);
 });
 
 test('a config change alone is enough to make two plans not a replay of each other', () => {
