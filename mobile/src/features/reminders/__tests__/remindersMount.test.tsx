@@ -433,6 +433,9 @@ describe('the buttons on a reminder (#200)', () => {
       .mockResolvedValue(response(tapData, 'done'));
     const act_ = jest.spyOn(commitmentEndpoints, 'actOnCommitment').mockResolvedValue(actionResult);
     const cancel = jest.spyOn(notifications, 'cancelScheduledNotificationAsync');
+    // Not in the inert module mock: installed for this test only.
+    const clearLast = jest.fn(async () => undefined);
+    (notifications as unknown as Record<string, unknown>).clearLastNotificationResponseAsync = clearLast;
 
     await mount();
     await waitFor(() => expect(box.tap).toBeDefined());
@@ -453,6 +456,9 @@ describe('the buttons on a reminder (#200)', () => {
     for (const stage of ['soft', 'followUp', 'strong']) {
       expect(cancel).toHaveBeenCalledWith(`${commitment.id}:${stage}`);
     }
+    // Handled once; a later launch must not be offered the same press again.
+    expect(clearLast).toHaveBeenCalledTimes(1);
+    delete (notifications as unknown as Record<string, unknown>).clearLastNotificationResponseAsync;
   });
 
   it('Later offline stays queued, and coming back to the app sends it once with the same id', async () => {
