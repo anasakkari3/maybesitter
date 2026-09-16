@@ -280,11 +280,12 @@ describe('an accepted plan (#194)', () => {
    * instant in the device zone it would slide to the 13th west of UTC. Run
    * under Hermes' Intl, because Node's is the one that hides device bugs.
    */
-  it.each([
+  const PLAN_LANGS: ['en' | 'ar' | 'he', string, string][] = [
     ['en', en.activityPlanFor, 'Monday'],
     ['ar', ar.activityPlanFor, 'الاثنين'],
     ['he', he.activityPlanFor, 'שני'],
-  ] as const)('prints the plan day in %s under Hermes Intl', (lang, template, weekday) => {
+  ];
+  it.each(PLAN_LANGS)('prints the plan day in %s under Hermes Intl', (lang, template, weekday) => {
     const line = withHermesIntl(() => planLine('2026-09-14', lang, strings[lang]));
     expect(line).toContain(weekday);
     expect(line).toContain('14');
