@@ -45,13 +45,38 @@ export type IntegrationConnectionState =
 export type IntegrationCapability =
   | 'calendar_busy'
   | 'calendar_free'
+  | 'mail_read'
+  | 'mail_draft'
+  | 'mail_send'
   | 'task_read'
   | 'task_write'
+  | 'note_read'
+  | 'note_write'
   | 'readiness_read'
   | 'focus_session_read'
   | 'meeting_read'
   | 'memory_context_read'
   | 'mcp_tool_context';
+
+export interface IntegrationCredentialReference {
+  /** Logical secure-store implementation; never a token or secret value. */
+  readonly vault: string;
+  /** Opaque key name inside the secure store. */
+  readonly keyId: string;
+  readonly version: string | null;
+}
+
+export interface IntegrationSyncCheckpoint {
+  /** Opaque provider cursor. Consumers must not parse provider cursor formats. */
+  readonly cursor: string | null;
+  readonly checkpointAt: string | null;
+}
+
+export interface IntegrationConnectionProvenance {
+  readonly source: 'oauth' | 'native' | 'api_key' | 'mcp' | 'manual';
+  readonly connectedBy: 'user' | 'system_migration';
+  readonly recordedAt: string;
+}
 
 export interface IntegrationProviderIdentity {
   readonly provider: ContextProviderKind;
@@ -70,6 +95,7 @@ export interface IntegrationConnectionRecord {
   readonly scopeId: string;
   readonly identity: IntegrationProviderIdentity;
   readonly state: IntegrationConnectionState;
+  readonly reauthRequired?: boolean;
   readonly capabilities: readonly IntegrationCapability[];
   /** Provider permission names as granted, stored for audit rather than planning. */
   readonly grantedScopes: readonly string[];
@@ -77,6 +103,11 @@ export interface IntegrationConnectionRecord {
   readonly lastSyncedAt: string | null;
   readonly expiresAt: string | null;
   readonly revokedAt: string | null;
+  /** Reference only. Provider credentials never belong in this record. */
+  readonly credentialRef?: IntegrationCredentialReference | null;
+  readonly sync?: IntegrationSyncCheckpoint;
+  readonly featureFlag?: string | null;
+  readonly provenance?: IntegrationConnectionProvenance | null;
   readonly updatedAt: string;
   readonly errorCode?: string;
 }
@@ -98,6 +129,10 @@ export interface UpsertIntegrationConnectionInput {
   readonly lastSyncedAt?: string | null;
   readonly expiresAt?: string | null;
   readonly revokedAt?: string | null;
+  readonly credentialRef?: IntegrationCredentialReference | null;
+  readonly sync?: IntegrationSyncCheckpoint;
+  readonly featureFlag?: string | null;
+  readonly provenance?: IntegrationConnectionProvenance | null;
   readonly errorCode?: string;
 }
 
