@@ -62,12 +62,26 @@ name: MaybeSitter onboarding
 - tapOn: 'من 22:30'
 - tapOn: 'كمّل'
 
-# ── About you ──────────────────────────────────────────────────────
-# AI was allowed above, so this asks for a description. Skip is visible from
-# the first frame, and taking it must reach the next step with nothing stored.
-- assertVisible: 'بكم سطر: كيف أسبوعك، وشو بدك تخلّص؟'
+# ── Guided setup (#469) ────────────────────────────────────────────
+# AI was allowed above, so the five questions are asked, one per screen. Skip
+# is visible from the first frame of every one. Answer the first with a chip,
+# pass the rest, read the answers, and save nothing on the review.
+- assertVisible:
+    id: 'onboarding-setup'
+- assertVisible: 'شو بياخد أكتر وقتك — شغل، دراسة، ولا شي تاني؟'
 - assertVisible: 'تخطّى هلّق'
-- tapOn: 'تخطّى هلّق'
+- tapOn:
+    id: 'setup-chip-work-1'
+- tapOn: 'التالي'
+- assertVisible: 'كيف بيمشي يومك العادي؟'
+- tapOn: 'التالي'
+- tapOn: 'التالي'
+- tapOn: 'التالي'
+- assertVisible: 'عادات بتحافظ عليها، أو بدك تحافظ عليها؟'
+- tapOn: 'اقرا أجوبتي'
+# The review: nothing is ticked, and saving nothing is a first-class answer.
+- assertVisible: 'في إشي من هدول صح؟'
+- tapOn: 'ما تحفظ إشي'
 
 # ── Notifications, education only ──────────────────────────────────
 - assertVisible: 'تذكيرات، وقت ما بدك ياها'
