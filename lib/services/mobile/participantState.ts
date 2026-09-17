@@ -537,6 +537,13 @@ export async function commitCaptureConfirmation<T>(
   commands: readonly Command[],
   idempotencyKey: string,
   result: T,
+  /**
+   * The commands per item, recorded on the proposal in the same transaction
+   * that writes the commitments (#480). Without it the proposal still holds
+   * the empty command list a clarification item was stored with, and nothing
+   * afterwards can resolve the commitment this confirm just created.
+   */
+  commandsByItemId?: ReadonlyMap<string, readonly Command[]>,
 ): Promise<{ replayed: boolean; result: T }> {
   requireUserId(participantId);
   const at = nowIso();
@@ -564,7 +571,15 @@ export async function commitCaptureConfirmation<T>(
     }
     writeDomainDiff(tx, participantId, before, candidate, events, user, at);
     recordActivityEvents(tx, participantId, stats, events);
-    tx.merge<{ confirmedResult: T; idempotencyKey: string }>(proposalPath, { confirmedResult: result, idempotencyKey });
+    tx.merge<{ confirmedResult: T; idempotencyKey: string; commands?: Record<string, Command[]> }>(proposalPath, {
+      confirmedResult: result,
+      idempotencyKey,
+      // `commands` is the field `proposalStore` serialises the map into; the
+      // whole map is rewritten, so a merge cannot leave half of it stale.
+      ...(commandsByItemId
+        ? { commands: Object.fromEntries(Array.from(commandsByItemId, ([itemId, list]) => [itemId, [...list]])) }
+        : {}),
+    });
     return { replayed: false, result };
   });
 }

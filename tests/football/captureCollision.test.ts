@@ -140,3 +140,41 @@ test('two captured deadlines at the same time do not warn about each other', asy
   assert.deepEqual(dues.map((t) => [t.kind, t.dueAt]), [['due_by', '2026-10-30T17:00:00.000Z'], ['due_by', '2026-10-30T17:00:00.000Z']]);
   assert.deepEqual(second.collisions, []);
 });
+
+/**
+ * The same warning for an item the user built themselves (#480).
+ *
+ * A capture that needs clarification is stored with no commands. When the user
+ * answers the question by hand in review -- a title and a time in the edit
+ * sheet -- the commands are built at confirm time. If the confirm does not
+ * record them, nothing afterwards can find the commitment it just wrote: it is
+ * missing from `persisted`, so Undo cannot remove it and this warning is never
+ * computed for it, while the confirm reports success.
+ */
+test('a commitment completed by hand in review is reported and warned about like any other', async () => {
+  const proposal = await proposeMobileCapture(
+    { text: 'Call the dentist', timezone: 'UTC', referenceTime: '2026-10-24T09:00:00.000Z' },
+    { participantId: USER },
+  );
+  const item = proposal.items.find((candidate) => candidate.needsClarification);
+  assert.ok(item, 'expected an item with no time to need clarification');
+
+  const result = await confirmMobileCapture(
+    {
+      proposalId: proposal.proposalId,
+      itemIds: [item.itemId],
+      edits: [{ itemId: item.itemId, title: 'Call the dentist', resolvedTime: '2026-10-25T20:00:00.000Z' }],
+    },
+    { participantId: USER },
+  );
+  assert.equal(result.success, true);
+
+  assert.equal(result.persisted.length, 1, 'the confirm reported success but named nothing it persisted');
+  const state = await readParticipantState(USER);
+  const captured = state.commitments[result.persisted[0]!.commitmentId];
+  assert.ok(captured, 'persisted named a commitment the user does not have');
+  assert.equal(captured.title, 'Call the dentist');
+
+  assert.equal(result.collisions.length, 1);
+  assert.equal(result.collisions[0]!.title, 'FC Barcelona – Real Madrid CF');
+});

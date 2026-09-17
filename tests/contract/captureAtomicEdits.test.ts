@@ -254,6 +254,34 @@ test('an item that needed clarification can be completed by hand', async () => {
   assert.equal(commitment.priority.source, 'user_explicit');
 });
 
+test('the commands a manual completion committed are recorded on the proposal', async () => {
+  // Everything after the confirm — `persisted`, the collision warning, Undo,
+  // the activation — finds the commitment through the commands the proposal
+  // holds for the item. A clarification item is stored with none, and a manual
+  // completion builds them at confirm time, so a confirm that does not write
+  // them back leaves the commitment it created unreachable (#480).
+  const { contract, dependencies } = await proposeOne('Remind me tomorrow to call the clinic');
+  const item = contract.items[0];
+  const chosen = later(26 * 60 * 60 * 1000).toISOString();
+
+  const result = await confirmCapture({
+    proposalId: contract.proposalId,
+    scopeId: 'a',
+    selectedItemIds: [item.itemId],
+    idempotencyKey: 'k1',
+    edits: [{ itemId: item.itemId, title: 'Call the clinic', resolvedTime: chosen }],
+    now,
+  }, dependencies);
+  assert.equal(result.success, true, `failed with ${result.failureCode}`);
+
+  const stored = await dependencies.store.get(contract.proposalId);
+  const commands = stored?.commandsByItemId.get(item.itemId) ?? [];
+  const draft = commands.find((command) => command.type === 'CreateDraft');
+  assert.ok(draft, 'the proposal records no command for the item the confirm just persisted');
+  const commitment = (await saved(dependencies))[0];
+  assert.equal(draft.commitment.id, commitment.id);
+});
+
 test('a clarification item with only half an answer stays unconfirmable', async () => {
   const { contract, dependencies } = await proposeOne('Remind me tomorrow to call the clinic');
   const item = contract.items[0];
