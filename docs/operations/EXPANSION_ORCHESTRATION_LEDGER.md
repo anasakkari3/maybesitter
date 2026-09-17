@@ -55,6 +55,7 @@ build of the RC SHA. Each must be walked by hand; green CI does not count.
 | #200 | Press Done, Later and Not doing it on a real notification (UAT automation could not drive Notification Center). |
 | #203 | Add the widget through the OS widget gallery (UAT automation could not open the gallery). |
 | Consent burst | Onboarding's concurrent consent writes persist on the Firestore emulator. UAT lost writes on the in-memory adapter only; unconfirmed, and needs JDK 21. |
+| #480 | A clarification item completed by edit (title + time) → confirm → Undo removes it. Found while fixing #474; P2, not yet owned. |
 | Setup (#471) | With AI consent declined, the guided setup still leads somewhere usable. The pre-#469 "Add goals yourself" screen had no input. |
 
 ## Shared-file ownership
@@ -117,7 +118,7 @@ An active conflict in one subsystem is not a program-wide blocker.
 | Post-setup ledger refresh | complete | merged | `7802ba1` | orchestration ledger and privacy/store delta docs | #471 | none | #472 | `check:test-registration`, `git diff --check`, and CI pass | merged | none |
 | Mobile readiness settings | complete | merged | `9edb93b` | provider-independent readiness API client, Settings screen, localized copy, and focused mobile tests | authenticated readiness API; #471 setup flow | none | #473 | mobile typecheck, focused 135-test suite, `check:test-registration`, `git diff --check`, and CI pass | merged | physical device/native readiness verification remains separate |
 | Post-473 ledger refresh | complete | merged | `a38e00d` | orchestration ledger | #473 | none | #476 | CI green | merged | none |
-| Stabilization: clarify skip (#474) | active, priority | `fix/474-clarify-skip-confirmable` | `9edb93b` | `lib/services/captureBoundary/clarifyService.ts` (+ minimal `mobileCaptureService` persistence fix if proven needed), `mobile/src/features/capture/`, `mobile/src/screens/ReviewScreen.tsx`, focused and contract tests | none | none | pending | gate 1 in progress | pending gates 2-3 | RC UAT walk |
+| Stabilization: clarify skip (#474) | active, priority | `fix/474-clarify-skip-confirmable` | `9edb93b` | `lib/services/captureBoundary/clarifyService.ts` (+ minimal `mobileCaptureService` persistence fix if proven needed), `mobile/src/features/capture/`, `mobile/src/screens/ReviewScreen.tsx`, focused and contract tests | none | none | #479 | red-before/green-after with 3 mutation checks; mobile 184 suites / 2477 tests; root 5278 pass; CI green on `44b3d06` | gates 1-3 passed; awaiting owner merge (auto-mode blocks agent merges) | RC UAT walk |
 | Stabilization: Must ring permission (#475) | active, priority | `fix/475-must-ring-permission-state` | `9edb93b` | `NotificationsSettingsScreen.tsx`, focused tests, `notif*` locale block (handoff) | none | locale files shared with #477 (disjoint blocks) | pending | gate 1 in progress | pending gates 2-3 | RC UAT walk; physical-device permission check |
 | Stabilization: plan build on demand (#477) | active, priority | `fix/477-plan-build-on-demand` | `9edb93b` | `lib/services/dailyPlan/`, `src/app/api/mobile/plans/`, `PlanScreen.tsx`, plan API client, focused tests, `plan*` locale block (handoff) | canonical planner | locale files shared with #475 (disjoint blocks) | pending | gate 1 in progress | pending gates 2-3 | RC UAT walk |
 
