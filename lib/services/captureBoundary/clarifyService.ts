@@ -8,6 +8,7 @@ import {
   CLARIFICATION_FREE_TEXT_MAX,
   type CaptureProposalContract,
 } from '../../../src/contracts/v1/captureContracts';
+import { applyEditToCommands } from './applyEdits';
 import { buildClarification } from './clarificationBuilder';
 import type { CaptureProposalStore, StoredCaptureProposal } from './proposalStore';
 
@@ -159,11 +160,18 @@ export async function answerClarification(
 
   let answered: ExtractionResult;
   let answerKind: 'option' | 'free_text';
+  // "No specific time" — the option with no value (#474).
+  let noTime = false;
 
   if (input.optionId) {
     const option = question.options.find((candidate) => candidate.optionId === input.optionId);
     if (!option) throw new ClarifyError('option_not_found');
-    answered = withResolvedTime(result, appliedLocal(result, option.value), options.timezone);
+    noTime = !option.value.localTime && !option.value.localDate;
+    answered = noTime
+      // The user chose no hour, so nothing the extractor guessed about one
+      // survives. The same shape a "No time" edit produces (`applyEdits`).
+      ? { ...result, remindAt: null, dueAt: null } as ExtractionResult
+      : withResolvedTime(result, appliedLocal(result, option.value), options.timezone);
     answerKind = 'option';
   } else {
     const extractor = dependencies.extractor ?? extractWithFallback;
@@ -176,8 +184,26 @@ export async function answerClarification(
     answerKind = 'free_text';
   }
 
+  // A "no specific time" answer settles the item (#474). The builder offers it
+  // because a commitment without an hour is a legitimate thing to want, but the
+  // disposition policy still reads a missing time as unclear — so without this
+  // the item came back flagged, with no command, and could never be confirmed.
+  //
+  // The command is the extractor's draft with the time cleared through
+  // `applyEditToCommands`, the path a "No time" edit at confirm takes, so the
+  // two cannot disagree about what a time-less commitment is. It waits as
+  // `pending_confirmation`, like any other answered item, so the confirm
+  // activates it. A confirm-time edit with a title and no time is still refused:
+  // only this explicit answer settles.
+  const noTimeCommands = noTime
+    ? applyEditToCommands(mapExtractionToCommand(answered, options.now.toISOString()), { resolvedTime: null })
+      .map((command) => (command.type === 'CreateDraft' ? { ...command, draftStatus: 'pending_confirmation' as const } : command))
+    : [];
+
   // One round. Whether it worked or not, this item does not get asked again.
-  const stillUnclear = decideExtractionDisposition(answered) === 'needs_clarification';
+  const stillUnclear = noTime
+    ? noTimeCommands.length === 0
+    : decideExtractionDisposition(answered) === 'needs_clarification';
   const items = [...stored.contract.items];
   items[index] = {
     ...item,
@@ -201,7 +227,10 @@ export async function answerClarification(
   };
 
   const commands = new Map(stored.commandsByItemId);
-  commands.set(input.itemId, stillUnclear ? [] : mapExtractionToCommand(answered, options.now.toISOString()));
+  commands.set(
+    input.itemId,
+    stillUnclear ? [] : noTime ? noTimeCommands : mapExtractionToCommand(answered, options.now.toISOString()),
+  );
   const results = new Map(stored.resultsByItemId);
   results.set(input.itemId, answered);
 

@@ -165,6 +165,8 @@ export type CaptureEvent =
   | { type: 'textChanged'; text: string }
   | { type: 'analyzeStarted' }
   | { type: 'analyzeSucceeded'; proposal: CaptureProposal }
+  /** The server's proposal after one question was answered (#165, #474). */
+  | { type: 'clarified'; proposal: CaptureProposal }
   | { type: 'analyzeFailed'; kind: CaptureFailureKind; messageKey?: UserFacingKey; reason?: string }
   | { type: 'toggleItem'; itemId: string }
   | { type: 'editItem'; itemId: string; edit: CaptureItemEdit }
@@ -298,6 +300,22 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
         errorReason: null,
         messageKey: null,
       };
+
+    case 'clarified': {
+      // Answering one question — including "no specific time" (#474) — changes
+      // one item. It is not a new analysis, so it must not throw away what the
+      // user already chose for the others: their selection and their edits
+      // survive. An item the answer made confirmable joins the selection, the
+      // same way every confirmable item starts selected.
+      if (!state.proposal || event.proposal.proposalId !== state.proposal.proposalId) return state;
+      const before = confirmableItems(state.proposal);
+      const after = confirmableItems(event.proposal);
+      const selected = [
+        ...state.selected.filter((id) => after.includes(id)),
+        ...after.filter((id) => !before.includes(id) && !state.selected.includes(id)),
+      ];
+      return { ...state, status: statusForProposal(event.proposal), proposal: event.proposal, selected };
+    }
 
     case 'analyzeFailed':
       // `text` is deliberately absent from this object. Whatever the person

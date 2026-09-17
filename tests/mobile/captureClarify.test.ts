@@ -263,3 +263,93 @@ test('a proposal older than the TTL is refused by the durable store too', async 
     cleanup();
   }
 });
+
+/**
+ * "No specific time" is an answer, and it settles the item (#474).
+ *
+ * The builder always offers it — a commitment without an hour is a legitimate
+ * thing to want — but answering with it used to leave the extraction unchanged,
+ * so the item came back still flagged, with no command, and could never be
+ * confirmed. The review screen then had nothing to save and no way out.
+ */
+async function answerNoTime() {
+  const { proposal, item } = await proposeAmbiguous();
+  assert.ok(item, 'expected an item needing clarification');
+  const question = item.clarification!;
+  const none = question.options.find((option) => !option.value.localTime && !option.value.localDate);
+  assert.ok(none, `expected a no-time option, got ${question.options.map((option) => option.optionId).join(',')}`);
+  const updated = await clarifyMobileCapture(
+    { proposalId: proposal.proposalId, itemId: item.itemId, questionId: question.questionId, optionId: none.optionId, timezone: ZONE, referenceTime: NOW },
+    { participantId: UID },
+  );
+  return { proposal, item, updated };
+}
+
+test('answering "no specific time" settles the item as a time-less commitment', async () => {
+  const cleanup = setup();
+  try {
+    const { proposal, item, updated } = await answerNoTime();
+    const answered = updated.items.find((candidate) => candidate.itemId === item.itemId)!;
+    assert.equal(answered.needsClarification, false);
+    assert.equal(answered.resolvedTime, null);
+    assert.equal(answered.clarification, null);
+    assert.equal(updated.status, 'proposed');
+
+    const stored = await createStorageCaptureProposalStore().get(proposal.proposalId);
+    const commands = stored?.commandsByItemId.get(item.itemId) ?? [];
+    const draft = commands.find((command) => command.type === 'CreateDraft') as
+      | { draftStatus?: string; commitment: { timeSpec: { kind: string; dueAt: string | null; remindAt: string | null } } }
+      | undefined;
+    assert.ok(draft, 'expected a draft the confirm can persist');
+    assert.equal(draft.commitment.timeSpec.kind, 'unscheduled');
+    assert.equal(draft.commitment.timeSpec.dueAt, null);
+    assert.equal(draft.commitment.timeSpec.remindAt, null);
+    assert.equal(draft.draftStatus, 'pending_confirmation');
+    // No reminder is scheduled for a commitment with no time.
+    assert.ok(!commands.some((command) => command.type === 'ConfirmCommitment'));
+  } finally {
+    cleanup();
+  }
+});
+
+test('an item answered with "no specific time" is persisted and active on confirm', async () => {
+  const cleanup = setup();
+  try {
+    const { proposal, item } = await answerNoTime();
+    const { confirmMobileCapture } = await import('../../lib/services/mobile/mobileCaptureService.ts');
+    const { getParticipantStateSnapshot } = await import('../../lib/services/mobile/participantState.ts');
+    const result = await confirmMobileCapture(
+      { proposalId: proposal.proposalId, itemIds: [item.itemId], idempotencyKey: 'k-none' },
+      { participantId: UID },
+    );
+    assert.equal(result.success, true, `failed with ${result.failureCode}`);
+    assert.equal(result.persisted.length, 1);
+    assert.equal(result.persisted[0]!.itemId, item.itemId);
+    assert.equal(result.persisted[0]!.resolvedTime, null);
+
+    const commitment = (await getParticipantStateSnapshot(UID)).commitments[result.persisted[0]!.commitmentId];
+    assert.ok(commitment, 'expected the commitment in the user\'s own state');
+    assert.equal(commitment.status, 'active');
+    assert.equal(commitment.timeSpec.kind, 'unscheduled');
+  } finally {
+    cleanup();
+  }
+});
+
+test('a timed option still resolves a time after the no-time change', async () => {
+  const cleanup = setup();
+  try {
+    const { proposal, item } = await proposeAmbiguous();
+    assert.ok(item);
+    const question = item.clarification!;
+    const timed = question.options.find((option) => option.value.localTime)!;
+    const updated = await clarifyMobileCapture(
+      { proposalId: proposal.proposalId, itemId: item.itemId, questionId: question.questionId, optionId: timed.optionId, timezone: ZONE, referenceTime: NOW },
+      { participantId: UID },
+    );
+    const answered = updated.items.find((candidate) => candidate.itemId === item.itemId)!;
+    assert.ok(answered.resolvedTime, 'a timed answer must keep its time');
+  } finally {
+    cleanup();
+  }
+});

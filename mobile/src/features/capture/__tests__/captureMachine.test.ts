@@ -155,6 +155,50 @@ describe('the confirm payload', () => {
   });
 });
 
+describe('an answered question (#474)', () => {
+  const asking = () => proposal({
+    items: [
+      { itemId: 'a', title: 'Call the clinic', resolvedTime: '2026-09-15T07:00:00.000Z', needsClarification: false },
+      { itemId: 'b', title: 'Study probability', resolvedTime: null, needsClarification: true },
+      { itemId: 'c', title: 'Pay the bill', resolvedTime: '2026-09-15T16:00:00.000Z', needsClarification: false },
+    ],
+  });
+  // What the server returns after "no specific time": the item is settled, with
+  // no time, and nothing else about the proposal moved.
+  const settled = () => proposal({
+    items: [
+      { itemId: 'a', title: 'Call the clinic', resolvedTime: '2026-09-15T07:00:00.000Z', needsClarification: false },
+      { itemId: 'b', title: 'Study probability', resolvedTime: null, needsClarification: false, clarification: null },
+      { itemId: 'c', title: 'Pay the bill', resolvedTime: '2026-09-15T16:00:00.000Z', needsClarification: false },
+    ],
+  });
+
+  it('makes a time-less answer confirmable and selects it', () => {
+    const state = captureReducer(analyzed(asking()), { type: 'clarified', proposal: settled() });
+    expect(confirmableItems(state.proposal)).toContain('b');
+    expect(state.selected).toContain('b');
+    expect(state.status).toBe('needsConfirmation');
+    expect(confirmPayload(state).itemIds).toContain('b');
+    expect(state.proposal?.items.find((item) => item.itemId === 'b')?.resolvedTime).toBeNull();
+  });
+
+  it('keeps what the user already chose for the other items', () => {
+    const before = [
+      { type: 'toggleItem', itemId: 'c' },
+      { type: 'editItem', itemId: 'a', edit: { title: 'Ring the clinic' } },
+    ] as CaptureEvent[];
+    const state = [...before, { type: 'clarified', proposal: settled() } as CaptureEvent]
+      .reduce(captureReducer, analyzed(asking()));
+    expect([...state.selected].sort()).toEqual(['a', 'b']);
+    expect(confirmPayload(state)).toEqual({ proposalId: 'p1', itemIds: ['a', 'b'], edits: { a: { title: 'Ring the clinic' } } });
+  });
+
+  it('ignores an answer for a different proposal', () => {
+    const state = analyzed(asking());
+    expect(captureReducer(state, { type: 'clarified', proposal: { ...settled(), proposalId: 'other' } })).toBe(state);
+  });
+});
+
 describe('proposal status maps to a flow state', () => {
   const cases: [CaptureProposal['status'], string][] = [
     ['proposed', 'needsConfirmation'],
