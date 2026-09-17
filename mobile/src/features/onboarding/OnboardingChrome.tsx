@@ -23,6 +23,7 @@ export function OnboardingChrome({
   primary,
   secondary,
   footNote,
+  headerAction,
   testID,
 }: {
   step: OnboardingStep;
@@ -31,6 +32,12 @@ export function OnboardingChrome({
   primary: { label: string; onPress?: (() => void) | undefined; disabled?: boolean };
   secondary?: { label: string; onPress: () => void } | undefined;
   footNote?: string | undefined;
+  /**
+   * A quiet way out at the top end of the screen, under the progress line.
+   * Used where the footer is the conversation's own action and a third
+   * equally weighted button would read as a form.
+   */
+  headerAction?: { label: string; onPress: () => void; testID?: string } | undefined;
   testID?: string;
 }) {
   const { p, tr } = useApp();
@@ -58,6 +65,21 @@ export function OnboardingChrome({
             />
           ))}
         </View>
+
+        {headerAction ? (
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', paddingHorizontal: 12, marginTop: -10 }}>
+            <Btn
+              label={headerAction.label}
+              onPress={headerAction.onPress}
+              testID={headerAction.testID}
+              scaleTo={0.97}
+              hitSlop={8}
+              style={{ minHeight: 36, paddingHorizontal: 8, justifyContent: 'center' }}
+            >
+              <Txt size={14} color={p.mu}>{headerAction.label}</Txt>
+            </Btn>
+          </View>
+        ) : null}
 
         <ScrollView
           contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 24, gap: 16 }}

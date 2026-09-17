@@ -63,16 +63,22 @@ name: MaybeSitter onboarding
 - tapOn: 'كمّل'
 
 # ── Guided setup (#469) ────────────────────────────────────────────
-# AI was allowed above, so the five questions are asked, one per screen. Skip
-# is visible from the first frame of every one. Answer the first with a chip,
-# pass the rest, read the answers, and save nothing on the review.
+# AI was allowed above, so the setup opens on the life narrative: an
+# invitation to talk, not a form. "Not now" is at the top end from the first
+# frame. An inspiration prompt is not an answer, so the CTA waits for words.
 - assertVisible:
     id: 'onboarding-setup'
-- assertVisible: 'شو بياخد أكتر وقتك — شغل، دراسة، ولا شي تاني؟'
-- assertVisible: 'تخطّى هلّق'
+- assertVisible: 'خلّيني أتعرف عليك شوي'
+- assertVisible: 'مش هلق'
+- assertNotVisible:
+    id: 'setup-question-of'
 - tapOn:
-    id: 'setup-chip-work-1'
-- tapOn: 'التالي'
+    id: 'setup-life-prompt-1'
+- tapOn:
+    id: 'setup-life-input'
+- inputText: 'بدرس وبشتغل بالليل'
+- hideKeyboard
+- tapOn: 'خلّيك تعرفني أكثر'
 - assertVisible: 'كيف بيمشي يومك العادي؟'
 - tapOn: 'التالي'
 - tapOn: 'التالي'

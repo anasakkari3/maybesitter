@@ -196,8 +196,9 @@ describe('when the user declined AI', () => {
 
 /** Through the five questions with one typed answer, to "Read my answers". */
 async function answerAndRead(text: string) {
-  await fireEvent.changeText(screen.getByTestId('setup-answer-input'), text);
-  for (let i = 0; i < 4; i += 1) await press(en.obSetupNext);
+  await fireEvent.changeText(screen.getByTestId('setup-life-input'), text);
+  await press(en.obSetupLifeCta);
+  for (let i = 0; i < 3; i += 1) await press(en.obSetupNext);
   await waitFor(() => expect(screen.queryByText(en.obSetupHabitsPrompt)).not.toBeNull());
   await press(en.obSetupRead);
 }
@@ -215,7 +216,7 @@ describe('when the user allowed AI', () => {
     // Labelled with the question, trimmed, and exactly what was typed — no
     // padding, nothing the user cannot see on screen.
     expect(describeProfile.mock.calls[0]![0])
-      .toBe(`${en.obSetupWorkLabel}: Two kids, work Sunday to Thursday, and I want to swim again`);
+      .toBe(`${en.obSetupLifeLabel}: Two kids, work Sunday to Thursday, and I want to swim again`);
 
     // Settle on the checklist the suggestions produce, so the tree is not torn
     // down mid-mutation.
@@ -224,13 +225,11 @@ describe('when the user allowed AI', () => {
 
   it('will not send an empty description', async () => {
     await reachAboutYou('allow');
-    // Whitespace is not an answer, so the last question offers to finish
-    // rather than to read.
-    await fireEvent.changeText(screen.getByTestId('setup-answer-input'), '   ');
-    for (let i = 0; i < 4; i += 1) await press(en.obSetupNext);
-    await waitFor(() => expect(screen.queryByText(en.obSetupHabitsPrompt)).not.toBeNull());
-    expect(screen.queryByText(en.obSetupRead)).toBeNull();
-    await press(en.obSetupFinish);
+    // Whitespace is not an answer: the first screen's CTA stays shut, and
+    // "Not now" ends the step without reading anything.
+    await fireEvent.changeText(screen.getByTestId('setup-life-input'), '   ');
+    expect(screen.getByLabelText(en.obSetupLifeCta).props.accessibilityState).toMatchObject({ disabled: true });
+    await press(en.obSetupLifeSkip);
     await waitFor(() => expect(screen.queryByTestId('onboarding-notifications')).not.toBeNull());
     expect(describeProfile).not.toHaveBeenCalled();
   });

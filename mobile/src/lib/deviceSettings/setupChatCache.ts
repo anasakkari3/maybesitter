@@ -17,7 +17,12 @@ import {
   type SetupAnswers,
 } from '../../features/onboarding/setupChat';
 
-export const SETUP_CACHE_VERSION = 1;
+/**
+ * 2 since the first question became the life narrative (`life`, was `work`).
+ * A version-1 draft reads as absent rather than restoring a work answer into a
+ * question that no longer asks it.
+ */
+export const SETUP_CACHE_VERSION = 2;
 
 export interface SetupChatCache {
   version: number;
