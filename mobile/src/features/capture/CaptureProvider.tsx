@@ -205,7 +205,9 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
       });
       // The whole proposal, so `needsClarification`, the title and the time all
       // move together. Patching one field here is how the three drift apart.
-      dispatch({ type: 'analyzeSucceeded', proposal: updated });
+      // `clarified`, not `analyzeSucceeded`: the other items keep their
+      // selection and edits (#474).
+      dispatch({ type: 'clarified', proposal: updated });
       return true;
     } catch {
       // The proposal is untouched. The screen keeps the question rather than

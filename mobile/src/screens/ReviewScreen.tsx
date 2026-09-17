@@ -72,6 +72,15 @@ export function ReviewScreen() {
   ));
   const asking = waiting[0];
 
+  const answer = (itemId: string, value: { optionId?: string; freeText?: string }) => {
+    setAnswering(true);
+    void flow.clarify(itemId, value).then(() => {
+      // A failure leaves the question up. Clearing it would look like the
+      // answer landed.
+      setAnswering(false);
+    });
+  };
+
   return (
     <ScreenIn style={{ backgroundColor: p.bg }}>
       <FlowHeader pill={t.back} onPill={() => flow.backToComposer()} title={t.reviewTitle} />
@@ -88,16 +97,24 @@ export function ReviewScreen() {
               position={items.filter((item) => item.needsClarification).length - waiting.length + 1}
               total={items.filter((item) => item.needsClarification).length}
               busy={answering}
-              onAnswer={(answer) => {
-                setAnswering(true);
-                void flow.clarify(asking.itemId, answer).then((ok) => {
-                  setAnswering(false);
-                  // A failure leaves the question up. Skipping it silently
-                  // would look like the answer landed.
-                  if (!ok) setSkipped((current) => current);
-                });
+              onAnswer={(value) => answer(asking.itemId, value)}
+              onSkip={() => {
+                // "Leave it without a time" is an answer (#474). When the
+                // server offers "no specific time" — the option with no value —
+                // it is sent as that answer, so the item is settled as a
+                // time-less commitment and can be saved. Hiding the question
+                // locally left the item flagged, unselectable and unsavable.
+                const noTime = asking.clarification?.options.find(
+                  (option) => !option.value.localTime && !option.value.localDate,
+                );
+                if (noTime) {
+                  answer(asking.itemId, { optionId: noTime.optionId });
+                  return;
+                }
+                // A question with no time-less answer (which day, am or pm,
+                // what to do) is only dismissed; #164's edit sheet fixes it.
+                setSkipped((current) => [...current, asking.itemId]);
               }}
-              onSkip={() => setSkipped((current) => [...current, asking.itemId])}
             />
           </View>
         ) : null}

@@ -109,7 +109,9 @@ export function ClarifySheet({
         </View>
       ) : null}
 
-      {/* Skipping is an answer too. The item stays, flagged, and #164's edit
+      {/* Skipping is an answer too. Where the question offers "no specific
+          time", the review screen sends that answer and the item is saved
+          without one (#474); otherwise the item stays flagged and #164's edit
           sheet can still fix it — a question nobody wants to answer must not
           be a wall. */}
       <Pill testID="clarify-skip" label={t.skipNoTime} onPress={onSkip} kind="ghost" size={13} weight={400} pad={6} />

@@ -498,6 +498,8 @@ describe('the one question (#165)', () => {
         options: [
           { optionId: 'o-morning', labelKey: 'morning', labelParams: {}, value: { localTime: '09:00' } },
           { optionId: 'o-evening', labelKey: 'evening', labelParams: {}, value: { localTime: '19:00' } },
+          // The server always offers this one for `ask_time` (#474).
+          { optionId: 'none', labelKey: 'noTime', labelParams: {}, value: {} },
         ],
         allowFreeText: true,
       },
@@ -555,10 +557,59 @@ describe('the one question (#165)', () => {
     await waitFor(() => expect(screen.queryByTestId('clarify-sheet')).not.toBeNull());
   });
 
-  it('skipping leaves the item flagged rather than walling the user in', async () => {
+  // The UAT dead end (#474): "Leave it without a time" hid the question and
+  // left the item unconfirmable, so the only way out was Cancel all.
+  const settledNoTime = () => proposal({
+    items: [{ itemId: 'i-1', title: 'Call Dana', resolvedTime: null, needsClarification: false, clarification: null }],
+  });
+
+  it('leaving it without a time answers the question, and the item can be saved', async () => {
+    const clarify = jest.spyOn(captureEndpoints, 'clarifyCapture').mockResolvedValue(settledNoTime() as never);
+    const confirm = jest.spyOn(captureEndpoints, 'confirmCapture').mockResolvedValue(confirmation({
+      persisted: [{ itemId: 'i-1', commitmentId: 'c-1', title: 'Call Dana', resolvedTime: null }],
+    }) as never);
     await reachTheQuestion();
     await fireEvent.press(screen.getByTestId('clarify-skip'));
+    await waitFor(() => expect(clarify).toHaveBeenCalled());
+    expect(clarify.mock.calls[0]![0]).toMatchObject({ itemId: 'i-1', questionId: 'q-1', optionId: 'none' });
+
     await waitFor(() => expect(screen.queryByTestId('clarify-sheet')).toBeNull());
+    expect(screen.queryByTestId('review-needs-question-i-1')).toBeNull();
+    expect(screen.getByTestId('review-when-i-1').props.children).toBe(en.noTimeYet);
+    expect(screen.getByTestId('review-confirm').props.accessibilityState.disabled).toBe(false);
+
+    await fireEvent.press(screen.getByTestId('review-confirm'));
+    await waitFor(() => expect(confirm).toHaveBeenCalled());
+    const sent = confirm.mock.calls[0]![0] as { proposalId: string; itemIds: string[]; edits?: unknown[] };
+    expect(sent.itemIds).toEqual(['i-1']);
+    // Nothing to edit: the server already holds the time-less answer.
+    expect(sent.edits ?? []).toEqual([]);
+  });
+
+  it('keeps the question up when leaving it without a time fails', async () => {
+    jest.spyOn(captureEndpoints, 'clarifyCapture').mockRejectedValue(new NetworkError('offline'));
+    await reachTheQuestion();
+    await fireEvent.press(screen.getByTestId('clarify-skip'));
+    await waitFor(() => expect(screen.queryByTestId('clarify-sheet')).not.toBeNull());
+    expect(screen.queryByTestId('review-needs-question-i-1')).not.toBeNull();
+  });
+
+  it('a question with no time-less answer is still dismissed without a request', async () => {
+    const day = asking();
+    const question = (day.items[0] as unknown as { clarification: { questionKey: string; options: unknown[]; params: Record<string, string> } }).clarification;
+    question.questionKey = 'ask_day';
+    question.params = { title: 'Call Dana', time: '19:00' };
+    question.options = [{ optionId: 'tomorrow', labelKey: 'tomorrow', labelParams: {}, value: { localDate: '2099-01-01', localTime: '19:00' } }];
+    const clarify = jest.spyOn(captureEndpoints, 'clarifyCapture');
+    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(day as never);
+    await openApp();
+    await enterCapture();
+    await fireEvent.changeText(screen.getByTestId('capture-input'), 'remind me to call Dana at 7');
+    await fireEvent.press(screen.getByTestId('capture-analyze'));
+    await waitFor(() => expect(screen.queryByTestId('clarify-sheet')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('clarify-skip'));
+    await waitFor(() => expect(screen.queryByTestId('clarify-sheet')).toBeNull());
+    expect(clarify).not.toHaveBeenCalled();
     expect(screen.queryByTestId('review-needs-question-i-1')).not.toBeNull();
   });
 
