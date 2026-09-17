@@ -1,0 +1,26 @@
+{
+  "readiness": {
+    "version": 1,
+    "schemaVersion": "readiness-v1",
+    "scopeId": "fixture-user",
+    "computedAt": "2026-09-17T06:30:00.000Z",
+    "windowStart": "2026-09-16T06:30:00.000Z",
+    "windowEnd": "2026-09-17T06:30:00.000Z",
+    "band": "steady",
+    "score": 0.64,
+    "normalizedSignals": {},
+    "subjective": {
+      "energy": 4,
+      "observedAt": "2026-09-17T06:25:00.000Z"
+    },
+    "derived": {
+      "readinessBand": "steady",
+      "confidence": 0.8
+    },
+    "signals": [],
+    "sourceKinds": ["subjective"],
+    "missingSourceKinds": ["healthkit", "health_connect", "whoop"]
+  },
+  "selectedSource": "current_subjective",
+  "freshness": "fresh"
+}

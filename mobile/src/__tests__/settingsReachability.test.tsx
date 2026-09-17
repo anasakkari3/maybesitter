@@ -28,6 +28,7 @@ import * as trustEndpoints from '../api/endpoints/trust';
 import * as categoryEndpoints from '../api/endpoints/categories';
 import * as calendarEndpoints from '../api/endpoints/calendar';
 import * as feedEndpoints from '../api/endpoints/icsFeeds';
+import * as readinessEndpoints from '../api/endpoints/readiness';
 import { deviceCalendar } from '../features/calendar/deviceCalendar';
 import { resetWidgetSettingsForTests } from '../lib/deviceSettings/widget';
 import nextStepFixture from '../api/__fixtures__/nextStep.recommendation.json';
@@ -66,6 +67,26 @@ beforeEach(async () => {
     .mockResolvedValue({ success: true, categoryPreferences: { enabled: [], grouping: false } } as never);
   jest.spyOn(calendarEndpoints, 'getCalendarSettings')
     .mockResolvedValue({ success: true, calendarSettings: { writeTarget: 'off', updatedAt: null } } as never);
+  jest.spyOn(readinessEndpoints, 'getReadiness').mockResolvedValue({
+    readiness: {
+      version: 1,
+      schemaVersion: 'readiness-v1',
+      scopeId: USER.uid,
+      computedAt: '2026-09-17T06:30:00.000Z',
+      windowStart: '2026-09-16T06:30:00.000Z',
+      windowEnd: '2026-09-17T06:30:00.000Z',
+      band: 'steady',
+      score: 0.64,
+      normalizedSignals: {},
+      subjective: { energy: 4, observedAt: '2026-09-17T06:25:00.000Z' },
+      derived: { readinessBand: 'steady', confidence: 0.8 },
+      signals: [],
+      sourceKinds: ['subjective'],
+      missingSourceKinds: ['healthkit', 'health_connect', 'whoop'],
+    },
+    selectedSource: 'current_subjective',
+    freshness: 'fresh',
+  } as never);
   jest.spyOn(deviceCalendar, 'getAccess').mockResolvedValue('undetermined' as never);
   jest.spyOn(deviceCalendar, 'listWritableCalendars').mockResolvedValue([]);
   jest.spyOn(feedEndpoints, 'listIcsFeeds').mockResolvedValue({ success: true, feeds: [], deadlines: [] } as never);
@@ -117,6 +138,14 @@ describe('from Settings, on the merged Root', () => {
     await fireEvent.press(screen.getByTestId('calendar-feeds-entry'));
     await waitFor(() => expect(screen.queryByTestId('ics-url-input')).not.toBeNull());
     expect(screen.queryByText(en.icsFeedsTitle)).not.toBeNull();
+  });
+
+  it('reaches the readiness settings screen', async () => {
+    await openApp();
+    await openSettings();
+    await fireEvent.press(screen.getByTestId('settings-readiness'));
+    await waitFor(() => expect(screen.queryByTestId('readiness-band')).not.toBeNull());
+    expect(screen.queryByText(en.readinessTitle)).not.toBeNull();
   });
 
   it('has no calendar links row when the build flag is off, and the widget row is still there', async () => {
