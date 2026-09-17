@@ -30,8 +30,12 @@ export function LanguageStep({ onContinue }: { onContinue: () => void }) {
   const insets = useSafeAreaInsets();
 
   const choose = (locale: SelectableLocale) => actions.setLang(locale);
+  // `setLang` persists the key, which is what makes the choice durable: the
+  // next launch finds it stored and the gate does not ask again. Continue
+  // writes the language currently shown, so a device whose system language
+  // was preselected and never tapped still ends up with an explicit choice.
   const cont = () => {
-    actions.chooseLanguage(lang);
+    actions.setLang(lang);
     onContinue();
   };
 
