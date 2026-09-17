@@ -1,79 +1,118 @@
 # Expansion orchestration ledger
 
-Program start: 2026-09-16
-Base main: `01b4b939a9cc`
+Updated: 2026-09-17
+Current integration base: `c3e2bbd02c410c7355167ed2ef602ba143b71fe2`
 
-This ledger tracks the provider-expansion program while existing S3/S4 work is
-still active. It is intentionally operational: it assigns ownership, records
-collisions, and names the lanes that may proceed without owner credentials.
+This is the live ownership and dependency ledger for the expansion program.
+Git and current GitHub state remain authoritative; Graphify is refreshed
+incrementally after material changes and is used as the navigation index.
 
 ## Shared-file ownership
 
-The integration lane exclusively owns edits to these shared hotspots:
+The integration lane exclusively owns edits to shared hotspots:
 
 | Surface | Integration owner action |
 | --- | --- |
-| `package.json`, `package-lock.json`, `mobile/package.json`, `mobile/package-lock.json` | Queue and reconcile dependency/script changes after active share PRs land. |
-| Shared env/config and central feature flags | Add provider flags only after the contract lane names them and collisions are rechecked. |
-| Firestore indexes, rules, and storage path registry | Accept only explicit schema additions with deletion/export semantics. |
-| Contract barrels and broad re-export files | Add exports only after each contract PR is reviewed and deduped. |
-| Locale files | Batch mobile copy additions after mobile ownership clears. |
-| Privacy, store, and legal declarations | Update from feature deltas, not speculative provider plans. |
+| Root and mobile package manifests and lockfiles | Reconcile feature dependencies only after active package owners clear. |
+| Shared env/config and central feature flags | Add provider flags and native declarations after their narrow contracts land. |
+| Firestore indexes, rules, and storage path registry | Add schemas only with deletion, export, and least-privilege review. |
+| Contract barrels and broad re-export files | Export stable contracts after duplicate-architecture checks. |
+| Shared locale files | Batch user-facing copy after active mobile owners clear. |
+| Privacy, store, and legal declarations | Derive declarations from implemented behavior and verified permissions. |
 
-Implementation lanes may add narrow files and narrow tests in their worktrees.
-They should not edit the shared surfaces above directly unless the integration
-lane hands off a specific patch.
+Feature lanes own narrow additive modules and focused tests. They do not edit
+these shared surfaces unless the integration lane explicitly hands off a file.
 
 ## Active collisions
 
-| Collision | Owner | Effect |
+| Collision | Current owner | Program effect |
 | --- | --- | --- |
-| Share channel implementation | PR #402, PR #403 | Foundation lanes must not edit `lib/services/share/**` except future integration review. |
-| Mobile share flow | PR #402, PR #403 | No edits to `mobile/src/features/share/**` or share fixtures. |
-| Notifications, reminders, device registry | PR #405 | No edits to push/reminder/device registration, mobile notification setup, reminder settings, or related API fixtures. |
-| Mobile plan screen and locale copy | PR #408 | No edits to `mobile/src/features/plan/**`, `mobile/src/screens/PlanScreen.tsx`, plan API fixtures, loop analytics, or shared mobile locale files. |
-| Device calendar and commitment linking | PR #412 | No edits to device-calendar sync/linking, calendar settings, commitment mobile routes, `lib/storage/paths.ts`, mobile app config, mobile package files, or mobile locale files. |
-| Root package manifest | PR #402, PR #403, PR #412, dependabot PRs | Foundation lanes must not register tests or dependencies in `package.json`. |
-| Mobile package manifest and lockfile | PR #402, PR #405, PR #412, dependabot PRs | No native/provider package setup yet. |
-| Mobile locale files | PR #405, PR #408, PR #412 | Integration lane batches copy changes after mobile feature lanes land. |
-| Storage path registry | PR #405, PR #412 | Foundation lanes avoid `lib/storage/paths.ts`; new storage names queue through integration. |
-| GitHub Actions dependency updates | Dependabot PR #372, #373 | Integration lane defers workflow changes. |
+| ICS mobile flow, app config, Root, API aggregation, settings, and locales | merged in PR #460 | Former ownership blocker is clear; follow-up native/config work must still rescan exact overlaps before editing shared mobile files. |
+| Mobile package manifests and lockfile | Dependabot #229, #363, #365, #367, #368, #370 | #363 and #367 were recreated on current main but still produce an invalid lock missing `typescript@5.9.3`; #229, #365, #368, and #370 have reproducible mobile failures and are not merge candidates. |
+| Root package manifests and lockfile | Dependabot #228, #358-#362 | Dependency-free domains proceed; integration classifies dependency PRs before adding a solver package. |
+| Deployment workflow | Dependabot #372-#373 | No expansion lane edits `.github/workflows/deploy.yml`. |
+| Football fixtures workspace | local `feat/football-fixtures` lane | The occupied main checkout contains unresolved integration changes across shared package, mobile, storage, and contract files. Integration uses a clean detached worktree and does not alter that workspace. |
 
-An active collision in one subsystem does not block unrelated foundation lanes.
+An active conflict in one subsystem is not a program-wide blocker.
 
 ## Lane ledger
 
-| Lane | Status | Branch | Base SHA | Owned files | Upstream dependencies | Active collisions | PR | Test status |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Integration | running | `program/integration-lane` | `01b4b939a9cc` | `docs/operations/EXPANSION_ORCHESTRATION_LEDGER.md` | none | package/lockfile/mobile config/storage path collisions reserved here | [#406](https://github.com/anasakkari3/maybesitter/pull/406) | CI pass |
-| Context foundations | PR open | `program/foundation-context` | `01b4b939a9cc` | `src/contracts/v1/integrationConnectionContracts.ts`, `src/contracts/v1/readinessContracts.ts`, `src/contracts/v1/userStateProjectionContracts.ts`, `src/contracts/v1/externalTaskContracts.ts`, `tests/contract/runtimeControls.test.ts` | none | avoids package registration, mobile, share, calendar, storage paths | [#407](https://github.com/anasakkari3/maybesitter/pull/407) | local focused/typecheck pass; GitHub CI pass |
-| Action policy foundations | PR open | `program/foundation-actions` | `01b4b939a9cc` | `src/contracts/v1/actionPolicyContracts.ts`, `tests/safety/policyContract.test.ts` | none | avoids provider implementations and shared package manifests | [#409](https://github.com/anasakkari3/maybesitter/pull/409) | local focused/typecheck pass; GitHub CI pass |
-| Cost attribution foundations | PR open | `program/foundation-costs` | `01b4b939a9cc` | `src/contracts/v1/costAttributionContracts.ts`, `tests/llm/usageGuard.test.ts` | existing usage guard concepts | must not create a second usage store | [#410](https://github.com/anasakkari3/maybesitter/pull/410) | local focused/typecheck pass; GitHub CI pass |
-| Architecture boundary tests | PR open | `program/foundation-boundary-tests` | `01b4b939a9cc` | `tests/contract/intelligenceModuleBoundaries.test.ts` | context/action/cost contracts are adjacent but not imported | avoids package registration and provider implementation files | [#411](https://github.com/anasakkari3/maybesitter/pull/411) | local focused/typecheck pass; GitHub CI pass |
+| Lane | Status | Branch | Base SHA | Owned files | Upstream dependencies | Active collisions | PR | CI / test status | Merge status | External blockers |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Integration | active | `program/integration-ledger-live` | `c3e2bbd` | this ledger; later shared config/package/privacy changes | all landed contracts | Dependabot shared package files and the local football workspace | #455 | documentation-only validation pending this refresh | open | Apple/Google console/device verification later |
+| Foundations | complete | merged stack | through `e624f9a` | connection, readiness, UserState, task, policy, cost, architecture, provider runtime contracts | none | none | #406-#436 | merged CI green | merged | none |
+| Gmail provider | complete | merged | `81aa70d` | Gmail adapter; prompt boundary tests | provider runtime | none | #437 | focused 11 pass; CI green | merged | OAuth app credentials for live verification |
+| Microsoft Graph provider | complete | merged | `3cba437` | Graph adapter; busy-block tests | provider runtime | none | #438 | focused 31 pass; CI green | merged | Microsoft app credentials for live verification |
+| Todoist + Notion providers | complete | merged | `006b2e8` | task provider adapters; integration tests | provider runtime; canonical external task | none | #439 | focused 10 pass; CI green | merged | provider credentials for live verification |
+| RescueTime context | complete | merged | `ec1be12` | aggregate context adapter; UserState projection tests | provider runtime; UserState projection | none | #440 | focused 34 pass; typecheck, registration, and CI pass | merged | provider credentials for live verification |
+| Meeting intelligence | complete | merged | `f1822f4` | meeting proposal boundary; proposal tests | provider runtime; canonical commitment proposal | none | #441 | focused 61 pass; CI green | merged | meeting-provider credentials for live verification |
+| Cross-provider identity | complete | merged | `3525ed0` | provider-independent identity decisions and adversarial integration cases | Gmail, Microsoft Graph, canonical external task | none | #459 | focused integration suite 25 pass; typecheck, registration, and CI pass | merged | none |
+| Travel planning | complete | merged | `3208ac8` | travel constraint projection; planner tests | canonical planner | none | #442 | focused 28 pass; typecheck, registration, and CI pass | merged | live travel estimate provider not selected |
+| HealthKit native bridge | complete | merged | `5b0e049` | local Expo module, iOS bridge, narrow adapters/tests | canonical readiness | none | #456 | root 18 pass; mobile 167 suites / 2281 tests pass; typechecks, prebuild, pods, module and simulator app builds pass | merged | physical iOS permission/read verification |
+| Health Connect native bridge | complete | merged | `98ed28c` | local Expo module, Android bridge/manifest, narrow adapters/tests | canonical readiness | mobile package edits remain owned by Dependabot | #457 | focused mobile 3 pass; mobile typecheck and CI pass; prior prebuild and Kotlin target compile pass | merged | Android device permission verification; Play declaration |
+| UserState production runtime | complete | merged | `00734c7` | projection service, canonical daily-plan integration, authenticated readiness API, focused tests | readiness contracts; canonical planner | none | #461 | 41 focused auth/mobile/planner tests pass; typecheck, registration, and CI pass | merged | none |
+| Action Gateway runtime | complete | merged | `d5e96a6` | canonical action execution and audit runtime | Action Policy | none | #450 | focused 42 pass; typecheck, registration, and CI pass | merged | provider executors require credentials |
+| MCP capability gateway | complete | merged | `eb2db9a` | MCP capability adapter; policy/red-team tests | #450 merged | none | #451 | focused 60 pass; typecheck, registration, and CI pass | merged | operator mappings and live MCP credentials |
+| Controlled email actions | complete | merged | `59aa6bc` | review-bound draft/send flow; safety tests | #450 merged; Gmail/Graph executors | none | #454 | focused 71 pass; typecheck, registration, and CI pass | merged | live provider credentials |
+| LLM observability runtime | complete | merged | `6b9c069` | canonical LLM log attribution and focused tests | cost attribution; existing usage guard | none | #462 | focused 23 pass; typecheck, registration, and CI pass | merged | none |
+| Timefold shadow experiment | complete | merged | `c6387ff` | dependency-free planner experiment and metrics | canonical planner | solver dependency addition requires Dependabot reconciliation | #453 | focused 16 pass; typecheck, registration, and CI pass | merged | none for dependency-free boundary |
+| RevenueCat entitlement domain | complete | merged | `46cac97` | entitlement projection and tests | entitlement foundation | SDK wiring still collides with Dependabot mobile package owners; no SDK wiring in this lane | #452 | focused 18 pass; typecheck, registration, and CI pass | merged | store products, RevenueCat credentials, device restore verification |
+| Provider OAuth lifecycle | complete | merged | `b911807` | provider OAuth state, PKCE, vault handoff, disconnect boundary, focused tests | connection registry; provider runtime | none | #464 | focused 23 pass; typecheck, registration, and CI pass | merged | live OAuth app credentials |
+| Privacy and store declaration delta | complete | merged | `826eafd` | expansion privacy/store documentation only | merged provider and health behavior | none | #463 | `check:test-registration`, `git diff --check`, and CI pass | merged | console submission, credentials, and device evidence remain owner actions |
+| Native readiness app declarations | complete | merged | `c3e2bbd` | HealthKit app entitlement, health privacy manifest entry, localized native prompt, config tests | HealthKit bridge; privacy/store delta | none | #470 | mobile app config 42 pass; mobile typecheck and CI pass | merged | physical iOS permission/read verification |
 
-## Blocked lanes
+## Automatically unblocked
 
-| Lane | Blocker | Resume condition |
+- #448 cleared the reminder action ownership that previously blocked native
+  health module work. HealthKit and Health Connect native bridges are now
+  merged as isolated local Expo modules in #456 and #457.
+- #436 landed the canonical provider runtime. Provider PRs #437-#441 now target
+  `main` directly and no longer duplicate the runtime contract in their diffs.
+- #445 landed ICS ingestion and released the root package, calendar, and storage
+  ownership boundary. All active program branches were rebased and retested on
+  `d828b65`.
+- Action, travel, Timefold, entitlement, MCP, and controlled-email lanes have
+  advanced without waiting for unrelated package collisions.
+- #440 landed the aggregate RescueTime context adapter on `ec1be12`; meeting
+  intelligence followed in #441, the home widget in #449, HealthKit in #456,
+  Health Connect in #457, and cross-provider identity in #459.
+- #449 removed the former widget ownership collision. #460 is now the only
+  active owner of app config, Root, ICS API aggregation, Calendar settings, and
+  shared locale files; its owner has been asked to rebase onto current main.
+- #461 landed production UserState composition and canonical readiness-to-plan
+  projection on `00734c7`; explicit fresh user energy outranks wearable state.
+- #442 landed travel preparation and departure constraints on `3208ac8`
+  without introducing a second planner or assuming stale location context.
+- #450 landed the canonical action gateway runtime on `d5e96a6`; MCP and
+  controlled-email lanes were retargeted from the stack to `main`.
+- #465 landed the Android native build fix on `d8210fc` and removed the former
+  #458 blocker. #460 remains open and dirty against current main, so ICS/mobile
+  ownership is still active.
+- #466 landed the mobile Android manifest-merge regression guard on `5806584`;
+  safe open lanes were rebased again because it touched mobile package/script
+  surfaces.
+- #460 landed the university-calendar mobile flow on `f6cc121`; shared
+  mobile/config ownership from that lane is no longer active.
+- #451, #454, and #462 landed on `eb2db9a`, `59aa6bc`, and `6b9c069`.
+  Remaining open program lanes were rebased and exact-overlap rescanned on the
+  new main.
+- #452, #453, #464, #463, and #470 landed on `46cac97`, `c6387ff`,
+  `b911807`, `826eafd`, and `c3e2bbd`. HealthKit app declarations are no
+  longer blocked by the former #460 ownership boundary.
+
+## Current blocked integration work
+
+| Work | Blocking condition | Automatic resume condition |
 | --- | --- | --- |
-| HealthKit native setup | native capability and privacy/store surfaces | owner/device capability decisions and mobile ownership clearance |
-| Health Connect native setup | native dependencies and Android config | mobile dependency ownership clearance |
-| RevenueCat setup | native packages, store products, owner console work | owner store products and dependency queue clearance |
-| Share provider extensions | active share PR ownership | PR #402/#403 merged or explicitly handed off |
-| Device calendar/provider wiring | active device-calendar PR ownership | PR #412 merged or explicitly handed off |
-| Provider OAuth implementations | external app credentials and connection UI ownership | foundation contracts merged, credentials available, UI ownership clear |
+| Health Connect shared Android/app declarations | mobile package PRs still own package/lockfile surfaces | Reconcile declarations without package edits where possible; package wiring waits for current mobile owners. |
+| Mobile readiness UX and locale copy | no active #460 owner, but shared UI/locales require exact overlap rescan | Start from refreshed main in an isolated lane if no new mobile owner appears. |
+| RevenueCat SDK/native wiring | mobile Dependabot owns package/lockfile surfaces; store products need owner | Reconcile packages, then prebuild and device-test. |
+| Timefold solver dependency | root Dependabot PRs own package surfaces | Classify and reconcile dependency PRs after the benchmark boundary merges. |
+| Live OAuth/provider verification | external app credentials | Run contract-approved smoke tests when credentials are supplied. |
 
 ## Merge discipline
 
-Each lane repeats:
-
-1. Fetch `origin/main`.
-2. Refresh Graphify incrementally.
-3. Recheck open PRs/issues.
-4. Confirm file ownership.
-5. Commit only lane-owned files.
-6. Run focused tests.
-7. Recheck overlap before PR.
-8. Open PR only when the branch is still additive and conflict-free.
-
-Provider-specific implementations must consume these foundations rather than
-redeclaring private connection, readiness, task, cost, or action-policy models.
+Before every merge: fetch `origin/main`, refresh Graphify incrementally when
+main changed, rebase, rerun relevant tests, and verify that no merged PR
+supersedes the lane. After every material main update, rescan collisions and
+rebase affected open lanes. Keep `graphify-out/` uncommitted.
