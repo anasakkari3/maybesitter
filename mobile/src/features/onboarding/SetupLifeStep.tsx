@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { TextInput, View } from 'react-native';
+import { ScrollView, TextInput, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { type Strings } from '../../i18n/strings';
 import { Btn, Card, Txt } from '../../ui/primitives';
@@ -66,6 +66,7 @@ export function SetupLifeStep({
   const copy = t as unknown as Record<keyof Strings, string>;
   const promptKeys = SETUP_QUESTIONS[0]!.chipKeys;
   const input = useRef<TextInput>(null);
+  const promptRow = useRef<ScrollView>(null);
   const [activePrompt, setActivePrompt] = useState<keyof Strings | null>(null);
 
   // The same language rule as the capture composer: the one the user last
@@ -118,7 +119,18 @@ export function SetupLifeStep({
         <Txt size={14} lh={1.5} color={p.mu}>{t.obSetupLifeHelper}</Txt>
       </View>
 
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+      {/* One row that scrolls, not four that wrap: wrapped, the English prompts
+          took four lines and pushed the composer below the fold. In Arabic and
+          Hebrew the row reads from the right, so it opens scrolled to its end. */}
+      <ScrollView
+        ref={promptRow}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={{ marginHorizontal: -20, flexGrow: 0 }}
+        contentContainerStyle={{ paddingHorizontal: 20, gap: 8 }}
+        onContentSizeChange={() => { if (rtl) promptRow.current?.scrollToEnd({ animated: false }); }}
+        testID="setup-life-prompts"
+      >
         {promptKeys.map((key, n) => {
           const active = activePrompt === key;
           return (
@@ -144,7 +156,7 @@ export function SetupLifeStep({
             </Btn>
           );
         })}
-      </View>
+      </ScrollView>
 
       <Card pad={16} style={{ gap: 12 }} testID="setup-life-composer">
         <VoiceButton
