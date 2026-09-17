@@ -47,6 +47,7 @@ import nextStepRecommendation from './__fixtures__/nextStep.recommendation.json'
 import planToday from './__fixtures__/plan.today.json';
 import planAccepted from './__fixtures__/plan.accepted.json';
 import planRegenerated from './__fixtures__/plan.regenerated.json';
+import planBuilt from './__fixtures__/plan.built.json';
 import planSettingsSaved from './__fixtures__/plan.settingsSaved.json';
 import consentsAnswered from './__fixtures__/consents.answered.json';
 import consentsAiRecorded from './__fixtures__/consents.aiRecorded.json';
@@ -110,6 +111,7 @@ const ROUTES: [string, RegExp, MockResponse][] = [
   ['GET', /^\/api\/mobile\/plans\/[^/]+$/, { status: 200, body: planToday }],
   ['POST', /^\/api\/mobile\/plans\/[^/]+\/actions$/, { status: 200, body: planAccepted }],
   ['POST', /^\/api\/mobile\/plans\/[^/]+\/regenerate$/, { status: 200, body: planRegenerated }],
+  ['POST', /^\/api\/mobile\/plans\/[^/]+\/build$/, { status: 200, body: planBuilt }],
   ['GET', /^\/api\/mobile\/settings\/plan$/, { status: 200, body: planSettingsSaved }],
   ['PUT', /^\/api\/mobile\/settings\/plan$/, { status: 200, body: planSettingsSaved }],
 
