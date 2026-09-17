@@ -29,6 +29,14 @@ interface IntrospectedConfig {
     config?: { usesNonExemptEncryption?: boolean };
     entitlements?: Record<string, unknown>;
     infoPlist?: Record<string, unknown>;
+    privacyManifests?: {
+      NSPrivacyCollectedDataTypes?: Array<{
+        NSPrivacyCollectedDataType: string;
+        NSPrivacyCollectedDataTypeLinked: boolean;
+        NSPrivacyCollectedDataTypeTracking: boolean;
+        NSPrivacyCollectedDataTypePurposes: string[];
+      }>;
+    };
     supportsTablet?: boolean;
   };
   android: {
@@ -248,6 +256,32 @@ describe('iOS hardening', () => {
       expect((configs[profile].ios as { usesAppleSignIn?: boolean }).usesAppleSignIn).toBe(true);
       expect(configs[profile].ios.entitlements?.['com.apple.developer.applesignin']).toEqual(['Default']);
     }
+  });
+
+  it('declares read-only HealthKit access for normalized readiness', () => {
+    for (const profile of PROFILES) {
+      const plist = configs[profile].ios.infoPlist ?? {};
+      const entitlements = configs[profile].ios.entitlements ?? {};
+      const purpose = String(plist.NSHealthShareUsageDescription ?? '');
+
+      expect(entitlements['com.apple.developer.healthkit']).toBe(true);
+      expect(entitlements).not.toHaveProperty('com.apple.developer.healthkit.access');
+      expect(purpose).toContain('MaybeSitter');
+      expect(purpose).toContain('readiness band');
+      expect(purpose).toContain('instead of raw Health data');
+    }
+  });
+
+  it('declares normalized health readiness as app functionality data only', () => {
+    const collected = configs.production.ios.privacyManifests?.NSPrivacyCollectedDataTypes ?? [];
+    const health = collected.find(entry => entry.NSPrivacyCollectedDataType === 'NSPrivacyCollectedDataTypeHealth');
+
+    expect(health).toEqual({
+      NSPrivacyCollectedDataType: 'NSPrivacyCollectedDataTypeHealth',
+      NSPrivacyCollectedDataTypeLinked: true,
+      NSPrivacyCollectedDataTypeTracking: false,
+      NSPrivacyCollectedDataTypePurposes: ['NSPrivacyCollectedDataTypePurposeAppFunctionality'],
+    });
   });
 });
 
