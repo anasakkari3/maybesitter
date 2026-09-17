@@ -13,7 +13,7 @@
  * The routes are invoked in-process, as `planActions.test.ts` does, on the
  * memory adapter the rest of the dailyPlan suite uses.
  */
-import test from 'node:test';
+import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
@@ -23,6 +23,7 @@ import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../sup
 import { persistParticipantState } from '../../lib/services/mobile/participantState.ts';
 import { applyCommand as applyDomainCommand, createEmptyDomainState } from '../../src/domain/stateMachine.ts';
 import {
+  PlanDateOutOfRangeError,
   buildDailyPlanOnDemand,
   runDailyPlanTick,
   savePlanSettings,
@@ -75,10 +76,10 @@ function seedState() {
 }
 
 /** An account with commitments and no plan. Delivery is off unless asked. */
-async function seed(storage: StorageAdapter, uid: string, options: { delivery?: boolean } = {}): Promise<void> {
+async function seed(storage: StorageAdapter, uid: string, options: { delivery?: boolean; timezone?: string } = {}): Promise<void> {
   await persistParticipantState(uid, seedState());
   const user = await storage.get<Record<string, unknown>>(userDoc(uid));
-  await storage.set(userDoc(uid), { ...(user ?? {}), timezone: TZ, locale: 'en' });
+  await storage.set(userDoc(uid), { ...(user ?? {}), timezone: options.timezone ?? TZ, locale: 'en' });
   if (options.delivery) {
     await savePlanSettings(uid, { enabled: true, deliveryLocalTime: '07:30' }, new Date('2026-09-14T12:00:00.000Z'), { storage });
   }
@@ -100,7 +101,13 @@ interface Harness {
   auth: FakeAuthControls;
 }
 
-async function withHarness(fn: (harness: Harness) => Promise<void>): Promise<void> {
+/**
+ * The route reads the real clock, so the route tests pin it to `MORNING`:
+ * the build window is "today or tomorrow in the account zone", and a suite
+ * that depended on the day it was run would not be a suite.
+ */
+async function withHarness(fn: (harness: Harness) => Promise<void>, now: Date = MORNING): Promise<void> {
+  mock.timers.enable({ apis: ['Date'], now: now.getTime() });
   const storage = createMemoryStorage();
   setStorageForTests(storage);
   const auth = installFakeAuth();
@@ -109,6 +116,7 @@ async function withHarness(fn: (harness: Harness) => Promise<void>): Promise<voi
   } finally {
     auth.restore();
     resetStorageForTests();
+    mock.timers.reset();
   }
 }
 
@@ -313,4 +321,97 @@ test(`after a build, regenerate works and ${MAX_PLAN_REBUILDS_PER_DAY} rebuilds 
     assert.equal(rebuilt.status, 200);
     assert.equal((await rebuilt.json() as { plan: { generation: number } }).plan.generation, MAX_PLAN_GENERATIONS_PER_DAY);
   });
+});
+
+/* ── The window: a creating build is today or tomorrow, in the account's zone ── */
+
+async function refusedWithoutWriting(storage: StorageAdapter, uid: string, date: string, now: Date): Promise<void> {
+  const busy = countingBusy();
+  await assert.rejects(
+    buildDailyPlanOnDemand(uid, date, { storage, push: recorder().push, busyBlocks: busy.reader, now: () => now }),
+    (error: unknown) => error instanceof PlanDateOutOfRangeError,
+    `${date} was built`,
+  );
+  assert.equal(busy.calls(), 0, `${date}: a plan was composed (and a model call could be spent) for a refused date`);
+  assert.equal(await readStoredPlan(uid, date, storage), null, `${date}: a plan document was written`);
+  assert.deepEqual(await listPlanEvents(uid, storage), [], `${date}: a ledger entry was written`);
+}
+
+test('a build for yesterday, the day after tomorrow, or a far date composes nothing and stores nothing', async () => {
+  await withHarness(async ({ storage }) => {
+    await seed(storage, USER);
+    for (const date of ['2026-09-14', '2026-09-17', '2026-09-30', '0001-01-01', '1999-12-31', '9999-12-31']) {
+      await refusedWithoutWriting(storage, USER, date, MORNING);
+    }
+  });
+});
+
+test('POST build answers 400 date_out_of_range outside today and tomorrow, and writes nothing', async () => {
+  await withHarness(async ({ storage }) => {
+    await seed(storage, USER);
+    for (const date of ['2026-09-14', '2026-09-17', '1999-12-31', '9999-12-31']) {
+      const response = await buildPost(request(`/api/mobile/plans/${date}/build`, { body: {} }), params(date));
+      assert.equal(response.status, 400, `${date} was accepted`);
+      const body = await response.json() as { success: boolean; reason: string };
+      assert.equal(body.success, false);
+      assert.equal(body.reason, 'date_out_of_range');
+      assert.equal(await readStoredPlan(USER, date, storage), null);
+    }
+    assert.deepEqual(await listPlanEvents(USER, storage), []);
+  });
+});
+
+test('POST build for tomorrow creates it', async () => {
+  await withHarness(async ({ storage }) => {
+    await seed(storage, USER);
+    const response = await buildPost(request('/api/mobile/plans/2026-09-16/build', { body: {} }), params('2026-09-16'));
+    assert.equal(response.status, 200);
+    assert.equal((await response.json() as { plan: { date: string; generation: number } }).plan.generation, 1);
+    assert.ok(await readStoredPlan(USER, '2026-09-16', storage));
+  });
+});
+
+test('a plan already stored for a date outside the window is returned, not refused', async () => {
+  let yesterday: unknown;
+  // Built the day it was today…
+  await withHarness(async ({ storage }) => {
+    await seed(storage, USER);
+    yesterday = await (await buildPost(request(`/api/mobile/plans/${DATE}/build`, { body: {} }), params(DATE))).json();
+    // …and asked for again two days later, in the same store.
+    mock.timers.setTime(Date.parse('2026-09-17T06:00:00.000Z'));
+    const busy = countingBusy();
+    const direct = await buildDailyPlanOnDemand(USER, DATE, {
+      storage, busyBlocks: busy.reader, now: () => new Date('2026-09-17T06:00:00.000Z'),
+    });
+    assert.equal(direct.created, false);
+    assert.equal(busy.calls(), 0);
+    const again = await buildPost(request(`/api/mobile/plans/${DATE}/build`, { body: {} }), params(DATE));
+    assert.equal(again.status, 200);
+    assert.deepEqual(await again.json(), yesterday);
+    assert.equal((await listPlanEvents(USER, storage)).length, 1);
+  });
+});
+
+test('the window is the account\'s day, not UTC\'s: west of UTC', async () => {
+  // 02:00 UTC on the 16th is 19:00 on the 15th in Los Angeles.
+  const now = new Date('2026-09-16T02:00:00.000Z');
+  await withHarness(async ({ storage }) => {
+    await seed(storage, USER, { timezone: 'America/Los_Angeles' });
+    await refusedWithoutWriting(storage, USER, '2026-09-17', now); // UTC's tomorrow, the account's day after
+    const today = await buildPost(request('/api/mobile/plans/2026-09-15/build', { body: {} }), params('2026-09-15'));
+    assert.equal(today.status, 200, 'the account\'s today was refused because UTC had moved on');
+    const tomorrow = await buildPost(request('/api/mobile/plans/2026-09-16/build', { body: {} }), params('2026-09-16'));
+    assert.equal(tomorrow.status, 200);
+  }, now);
+});
+
+test('the window is the account\'s day, not UTC\'s: east of UTC', async () => {
+  // 22:30 UTC on the 15th is 01:30 on the 16th in Jerusalem.
+  const now = new Date('2026-09-15T22:30:00.000Z');
+  await withHarness(async ({ storage }) => {
+    await seed(storage, USER);
+    await refusedWithoutWriting(storage, USER, '2026-09-15', now); // UTC's today, the account's yesterday
+    const tomorrow = await buildPost(request('/api/mobile/plans/2026-09-17/build', { body: {} }), params('2026-09-17'));
+    assert.equal(tomorrow.status, 200, 'the account\'s tomorrow was refused because UTC had not got there');
+  }, now);
 });

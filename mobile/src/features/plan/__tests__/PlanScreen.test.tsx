@@ -10,7 +10,7 @@ import { createFakeAuthRepository } from '../../../auth/fakeAuthRepository';
 import { resetAuthForTests, setAuthRepository } from '../../../api/auth';
 import type { AuthUser } from '../../../auth/types';
 import { PlanScreen } from '../../../screens/PlanScreen';
-import { PlanEditRefusedError, NetworkError, QuotaExceededError } from '../../../api/errors';
+import { PlanEditRefusedError, NetworkError, QuotaExceededError, ValidationError } from '../../../api/errors';
 import type { DailyPlan, PlanSettings } from '../../../api/schemas/plan';
 import { LANGUAGE_STORAGE_KEY } from '../../../i18n/language';
 import { withHermesIntl } from '../../../testing/hermesIntl';
@@ -581,6 +581,18 @@ describe('when there is no plan for the day', () => {
     await fireEvent.press(screen.getByTestId('plan-build'));
     await waitFor(() => expect(planEndpoints.buildPlan).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.queryByTestId('plan-why')).not.toBeNull());
+  });
+
+  it('says a date it may not build for in plain words, never as the reason code', async () => {
+    // A deep link can carry any date; the server builds only the account's
+    // today or tomorrow and answers 400 `date_out_of_range` otherwise.
+    jest.spyOn(planEndpoints, 'buildPlan')
+      .mockRejectedValue(new ValidationError('a plan can only be built for today or tomorrow', 'date_out_of_range') as never);
+    await empty();
+    await fireEvent.press(screen.getByTestId('plan-build'));
+    await waitFor(() => expect(screen.queryByTestId('plan-build-error')).not.toBeNull());
+    expect(screen.queryByText(en.errorsValidation)).not.toBeNull();
+    expect(screen.queryByText(/date_out_of_range|today or tomorrow/)).toBeNull();
   });
 
   it('offers no build with no signal, and says why', async () => {

@@ -2,7 +2,11 @@ import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../..
 import { mobileError } from '../../../../../../../lib/services/mobile/response';
 import { isPlanDate } from '../../../../../../../lib/services/dailyPlan/planSettings';
 import { planToDto } from '../../../../../../../lib/services/dailyPlan/planDto';
-import { buildDailyPlanOnDemand, titlesOf } from '../../../../../../../lib/services/dailyPlan/dailyPlanService';
+import {
+  PlanDateOutOfRangeError,
+  buildDailyPlanOnDemand,
+  titlesOf,
+} from '../../../../../../../lib/services/dailyPlan/dailyPlanService';
 import { loadDomainState } from '../../../../../../../lib/services/mobile/participantState';
 import { getStorage } from '../../../../../../../lib/storage';
 
@@ -27,7 +31,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ dat
   const { date } = await params;
   if (!isPlanDate(date)) return mobileError('date must be YYYY-MM-DD');
 
-  const { stored } = await buildDailyPlanOnDemand(user.uid, date);
+  let stored;
+  try {
+    ({ stored } = await buildDailyPlanOnDemand(user.uid, date));
+  } catch (error) {
+    if (error instanceof PlanDateOutOfRangeError) {
+      return Response.json({ success: false, error: error.message, reason: error.reason }, { status: 400 });
+    }
+    throw error;
+  }
   const state = await loadDomainState(getStorage(), user.uid);
   return Response.json({ success: true, plan: planToDto(stored, titlesOf(Object.values(state.commitments))) });
 }

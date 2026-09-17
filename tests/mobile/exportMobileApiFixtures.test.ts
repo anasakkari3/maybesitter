@@ -28,7 +28,7 @@
  *
  * Nothing here changes backend behaviour. It only reads it.
  */
-import test from 'node:test';
+import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 import nodeModule from 'node:module';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -1138,11 +1138,18 @@ test('exports a fixture for every /api/mobile call the React Native client makes
 
     // #477: the plan screen building a day the morning job has not reached.
     // Same envelope as GET, generation 1, recorded from the real handler on the
-    // date the 404 above was recorded for.
-    await record('plan.built', 200, await planBuildPost(
-      request('/api/mobile/plans/2026-08-10/build', { body: {} }),
-      dateParams('2026-08-10'),
-    ));
+    // date the 404 above was recorded for. A creating build is only allowed for
+    // the account's today or tomorrow, so the handler's clock is pinned to the
+    // reference morning, whose tomorrow that date is.
+    mock.timers.enable({ apis: ['Date'], now: Date.parse(REFERENCE_TIME) });
+    try {
+      await record('plan.built', 200, await planBuildPost(
+        request('/api/mobile/plans/2026-08-10/build', { body: {} }),
+        dateParams('2026-08-10'),
+      ));
+    } finally {
+      mock.timers.reset();
+    }
 
     // ── reminders and devices (#196, #184) ─────────────────────────
     // The quiet hours on this response come from the routine profile, which is

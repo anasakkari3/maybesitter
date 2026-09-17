@@ -434,6 +434,27 @@ async function storeFirstPlan(
 }
 
 /**
+ * A user-requested build for a date outside today and tomorrow (#477).
+ *
+ * `MAX_PLAN_GENERATIONS_PER_DAY` is a cap per *date*, so a creating build that
+ * took any date would let one account walk the calendar and spend a model call
+ * and a stored document on each day of it.
+ */
+export class PlanDateOutOfRangeError extends Error {
+  readonly reason = 'date_out_of_range' as const;
+  constructor(readonly date: string) {
+    super('a plan can only be built for today or tomorrow');
+    this.name = 'PlanDateOutOfRangeError';
+  }
+}
+
+/** The calendar date after a `YYYY-MM-DD`. Civil arithmetic, no zone. */
+function nextCivilDate(date: string): string {
+  const [year, month, day] = date.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day + 1)).toISOString().slice(0, 10);
+}
+
+/**
  * Builds a plan because the user asked for one on the plan screen (#477).
  *
  * The morning build without the push: they are looking at the screen the push
@@ -451,7 +472,17 @@ export async function buildDailyPlanOnDemand(
   date: string,
   deps: DailyPlanDeps = {},
 ): Promise<DailyPlanBuild> {
+  // A stored plan is returned whatever its date: reading it costs nothing.
+  const existing = await readStoredPlan(uid, date, storageOf(deps));
+  if (existing) return { uid, date, created: false, pushed: false, stored: existing };
+
+  // Creating one is refused outside the account's today and tomorrow, before
+  // anything is composed. Here and not in the route, so no caller skips it;
+  // the morning tick does not come through here and is dated by its claim.
   const settings = await readPlanSettings(uid, deps);
+  const today = localDateOf((deps.now ?? (() => new Date()))().toISOString(), settings.timezone);
+  if (date !== today && date !== nextCivilDate(today)) throw new PlanDateOutOfRangeError(date);
+
   const { created, stored } = await storeFirstPlan(uid, date, settings, deps);
   return { uid, date, created, pushed: false, stored };
 }
