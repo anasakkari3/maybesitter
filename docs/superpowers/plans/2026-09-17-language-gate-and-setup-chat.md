@@ -152,5 +152,5 @@ export function SetupChatStep(props: {
 
 - [ ] `cd mobile && npx tsc --noEmit && npx expo lint --no-cache && npx jest` (full mobile suite).
 - [ ] Root: `npm test` (the explicit file list) or at least the analytics contract suites.
-- [ ] `graphify . --update` from the repo root; refresh the Obsidian export if configured.
+- [ ] `graphify update .` locally so the graph reflects the new modules. Do not commit `graphify-out/`: `docs/operations/EXPANSION_ORCHESTRATION_LEDGER.md` requires it to stay uncommitted.
 - [ ] Open the PR against `main` referencing #469, with the council verdict summary.
