@@ -22,6 +22,7 @@ import { getCategoryPreferences, putCategoryPreferences } from './endpoints/cate
 import type { CategoryPreferences } from './schemas/categories';
 import {
   actOnPlan,
+  buildPlan,
   getPlan,
   getPlanSettings,
   putPlanSettings,
@@ -595,6 +596,22 @@ export function usePlanEdit(date: string) {
       // nothing was written and there is nothing to put back.
       if (context) client.setQueryData(queryKeys.plan(uid, date), context.previous);
     },
+    onSuccess: plan => adoptPlan(client, uid, date, plan),
+  });
+}
+
+/**
+ * "Build today's plan" (#477).
+ *
+ * The answer is written into the plan query, so the empty state is replaced by
+ * the plan in place. Not optimistic, and not retried, for the reasons "New
+ * plan" gives below; the server is idempotent, so a manual retry is safe.
+ */
+export function useBuildPlan(date: string) {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn: (_: void) => buildPlan(date),
     onSuccess: plan => adoptPlan(client, uid, date, plan),
   });
 }

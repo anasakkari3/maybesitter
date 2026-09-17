@@ -82,6 +82,7 @@ beforeEach(async () => {
   jest.spyOn(planEndpoints, 'getPlanSettings').mockResolvedValue(SETTINGS_ON as never);
   jest.spyOn(planEndpoints, 'actOnPlan').mockResolvedValue(planWith({ status: 'accepted' }) as never);
   jest.spyOn(planEndpoints, 'regeneratePlan').mockResolvedValue(planWith({ generation: 2 }) as never);
+  jest.spyOn(planEndpoints, 'buildPlan').mockResolvedValue(planWith({ generation: 1 }) as never);
   // The screen reads analytics consent before it reports anything (#195 step
   // 7). Declined by default, so every case above this line exercises the
   // screen without a metrics call in it — and so that the consent read is a
@@ -510,26 +511,90 @@ describe('with no signal', () => {
 });
 
 describe('when there is no plan for the day', () => {
-  it('says so instead of showing an error with a Retry that cannot help', async () => {
+  const SETTINGS_OFF: PlanSettings = { ...SETTINGS_ON, enabled: false, nextRunAt: null };
+
+  beforeEach(() => {
     jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue(null as never);
+  });
+
+  /** The empty state, once the settings answer has landed too. */
+  async function empty() {
     await show();
     await waitFor(() => expect(screen.queryByTestId('plan-empty')).not.toBeNull());
+    await waitFor(() => expect(planEndpoints.getPlanSettings).toHaveBeenCalled());
+  }
+
+  it('says so instead of showing an error with a Retry that cannot help', async () => {
+    await empty();
     expect(screen.queryByTestId('query-error')).toBeNull();
   });
 
-  it('offers to turn the morning plan on only when it is actually off', async () => {
-    jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue(null as never);
-    jest.spyOn(planEndpoints, 'getPlanSettings')
-      .mockResolvedValue({ ...SETTINGS_ON, enabled: false, nextRunAt: null } as never);
-    await show();
-    await waitFor(() => expect(screen.queryByTestId('plan-enable-morning')).not.toBeNull());
+  it('offers to build today’s plan, and does not tell somebody to turn on what they already have on', async () => {
+    await empty();
+    await waitFor(() => expect(screen.queryByText(en.planEmptyBodyReady)).not.toBeNull());
+    expect(screen.queryByTestId('plan-build')).not.toBeNull();
+    expect(screen.queryByText(en.planEmptyBuildCta)).not.toBeNull();
+    expect(screen.queryByText(en.planEmptyBody)).toBeNull();
+    expect(screen.queryByTestId('plan-enable-morning')).toBeNull();
   });
 
-  it('does not tell somebody to turn on something they already have on', async () => {
-    jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue(null as never);
+  it('with the morning plan off, offers the build and still the way to turn it on', async () => {
+    jest.spyOn(planEndpoints, 'getPlanSettings').mockResolvedValue(SETTINGS_OFF as never);
+    await empty();
+    await waitFor(() => expect(screen.queryByTestId('plan-enable-morning')).not.toBeNull());
+    expect(screen.queryByTestId('plan-build')).not.toBeNull();
+    expect(screen.queryByText(en.planEmptyBody)).not.toBeNull();
+    expect(screen.queryByText(en.planEmptyBodyReady)).toBeNull();
+  });
+
+  it('sends one build, however many times it is tapped', async () => {
+    const answer = deferred<DailyPlan>();
+    jest.spyOn(planEndpoints, 'buildPlan').mockReturnValue(answer.promise as never);
+    await empty();
+    const button = screen.getByTestId('plan-build');
+    await act(async () => {
+      void fireEvent.press(button);
+      void fireEvent.press(button);
+      void fireEvent.press(button);
+    });
+    await waitFor(() => expect(planEndpoints.buildPlan).toHaveBeenCalled());
+    expect(planEndpoints.buildPlan).toHaveBeenCalledTimes(1);
+    await act(async () => { answer.resolve(planWith()); });
+  });
+
+  it('builds, and shows the plan that came back in place', async () => {
+    await empty();
+    await fireEvent.press(screen.getByTestId('plan-build'));
+    await waitFor(() => expect(planEndpoints.buildPlan).toHaveBeenCalledWith(DATE));
+    await waitFor(() => expect(screen.queryByTestId('plan-why')).not.toBeNull());
+    expect(screen.queryByTestId('plan-empty')).toBeNull();
+    // Generation 1: all four of the day's rebuilds are still there.
+    expect(screen.getByTestId('plan-regenerate-left').props.children).toContain('4');
+  });
+
+  it('says what went wrong in words, and can be tried again', async () => {
+    jest.spyOn(planEndpoints, 'buildPlan').mockRejectedValueOnce(new NetworkError('no signal') as never);
+    await empty();
+    await fireEvent.press(screen.getByTestId('plan-build'));
+    await waitFor(() => expect(screen.queryByTestId('plan-build-error')).not.toBeNull());
+    expect(screen.queryByText(en.errorsNetwork)).not.toBeNull();
+    await fireEvent.press(screen.getByTestId('plan-build'));
+    await waitFor(() => expect(planEndpoints.buildPlan).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByTestId('plan-why')).not.toBeNull());
+  });
+
+  it('offers no build with no signal, and says why', async () => {
+    await empty();
+    await act(async () => { onlineManager.setOnline(false); });
+    await waitFor(() => expect(screen.queryByTestId('plan-build')).toBeNull());
+    expect(screen.queryByText(en.planOfflineCold)).not.toBeNull();
+  });
+
+  it('offers no build on a cold start with no signal', async () => {
+    await act(async () => { onlineManager.setOnline(false); });
     await show();
-    await waitFor(() => expect(screen.queryByTestId('plan-empty')).not.toBeNull());
-    expect(screen.queryByTestId('plan-enable-morning')).toBeNull();
+    await waitFor(() => expect(screen.queryByTestId('plan-offline-cold')).not.toBeNull());
+    expect(screen.queryByTestId('plan-build')).toBeNull();
   });
 
   it('shows a real failure as one, with a retry', async () => {
@@ -537,6 +602,15 @@ describe('when there is no plan for the day', () => {
     await show();
     await waitFor(() => expect(screen.queryByTestId('query-error')).not.toBeNull());
     expect(screen.queryByText(en.errorsNetwork)).not.toBeNull();
+    expect(screen.queryByTestId('plan-build')).toBeNull();
+  });
+
+  it('says it in Arabic too, without telling anyone to switch on what is on', async () => {
+    await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'ar');
+    await empty();
+    await waitFor(() => expect(screen.queryByText(ar.planEmptyBuildCta)).not.toBeNull());
+    expect(screen.queryByText(ar.planEmptyBodyReady)).not.toBeNull();
+    expect(screen.queryByText(ar.planEmptyBody)).toBeNull();
   });
 });
 

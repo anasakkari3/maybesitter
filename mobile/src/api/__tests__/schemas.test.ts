@@ -141,6 +141,7 @@ const CASES: Array<[string, z.ZodType]> = [
   ['plan.today', planResponseSchema],
   ['plan.accepted', planResponseSchema],
   ['plan.regenerated', planResponseSchema],
+  ['plan.built', planResponseSchema],
   ['plan.notFound', errorBodySchema],
   ['plan.editRejected', planEditRejectedSchema],
   ['plan.settingsDefault', planSettingsResponseSchema],

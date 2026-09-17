@@ -10,6 +10,7 @@ import { QueryBoundary } from '../api/ui/QueryBoundary';
 import { useIsOnline } from '../api/ui/OfflineBanner';
 import {
   useAnalyticsConsent,
+  useBuildPlan,
   usePlan,
   usePlanAction,
   usePlanEdit,
@@ -73,7 +74,7 @@ import {
  * (#157). Nothing is written to storage on either path.
  */
 export function PlanScreen({ date, onBack }: { date: string; onBack: () => void }) {
-  const { t, p, actions } = useApp();
+  const { t, p } = useApp();
   const insets = useSafeAreaInsets();
   const online = useIsOnline();
   const query = usePlan(date);
@@ -103,25 +104,72 @@ export function PlanScreen({ date, onBack }: { date: string; onBack: () => void 
         {plan ? (
           <LoadedPlan plan={plan} date={date} readOnly={!online} />
         ) : (
-          <Card pad={18} style={{ gap: 12 }}>
-            <Txt size={17} weight={600} testID="plan-empty">{t.planEmptyTitle}</Txt>
-            <Txt size={14} color={p.mu} lh={1.5}>{t.planEmptyBody}</Txt>
-            {/* Only when the server says delivery is off. Offering "turn it on"
-                to somebody who already has it on would be telling them the
-                wrong thing about their own settings. */}
-            {settings.data?.enabled === false ? (
-              <Pill
-                label={t.planEmptyEnableCta}
-                kind="outline"
-                size={14}
-                testID="plan-enable-morning"
-                onPress={() => actions.go('notificationsSettings')}
-              />
-            ) : null}
-          </Card>
+          <EmptyPlan date={date} online={online} deliveryOn={settings.data?.enabled} />
         )}
       </QueryBoundary>
     </PlanFrame>
+  );
+}
+
+/**
+ * No plan for the day yet (#477).
+ *
+ * The morning job used to be the only thing that could build one, so this was
+ * a dead end for anybody whose morning had not run. The build here is the same
+ * server build without the push, and it is idempotent, so the worst a stale
+ * screen can do is get back the plan that already exists.
+ *
+ * The body tells the truth about the setting: with delivery off it offers the
+ * build *and* the way to turn delivery on; otherwise — on, or not answered yet —
+ * it says nothing about a switch the user may already have flipped.
+ *
+ * With no signal there is nothing to build with, so it says so and offers
+ * nothing. `LoadedPlan` replaces this in place when the answer lands, because
+ * `useBuildPlan` writes it into the plan query this screen is reading.
+ */
+function EmptyPlan({ date, online, deliveryOn }: { date: string; online: boolean; deliveryOn: boolean | undefined }) {
+  const { t, p, actions } = useApp();
+  const build = useBuildPlan(date);
+  const building = useOneAtATime();
+  const deliveryOff = deliveryOn === false;
+
+  return (
+    <Card pad={18} style={{ gap: 12 }}>
+      <Txt size={17} weight={600} testID="plan-empty">{t.planEmptyTitle}</Txt>
+      {online ? (
+        <>
+          <Txt size={14} color={p.mu} lh={1.5}>{deliveryOff ? t.planEmptyBody : t.planEmptyBodyReady}</Txt>
+          <Pill
+            label={t.planEmptyBuildCta}
+            size={15}
+            testID="plan-build"
+            disabled={build.isPending}
+            onPress={() => {
+              // One tap, one request: see `oneAtATime.ts`.
+              if (!building.enter()) return;
+              build.mutate(undefined, { onSettled: building.leave });
+            }}
+          />
+          {build.error ? (
+            <Txt size={13} color={p.wm} testID="plan-build-error">{userFacingMessage(build.error, t)}</Txt>
+          ) : null}
+          {/* Only when the server says delivery is off. Offering "turn it on"
+              to somebody who already has it on would be telling them the
+              wrong thing about their own settings. */}
+          {deliveryOff ? (
+            <Pill
+              label={t.planEmptyEnableCta}
+              kind="outline"
+              size={14}
+              testID="plan-enable-morning"
+              onPress={() => actions.go('notificationsSettings')}
+            />
+          ) : null}
+        </>
+      ) : (
+        <Txt size={14} color={p.mu} lh={1.5} testID="plan-empty-offline">{t.planOfflineCold}</Txt>
+      )}
+    </Card>
   );
 }
 

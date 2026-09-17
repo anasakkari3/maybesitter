@@ -5,6 +5,7 @@ import { resetAuthForTests, setAuthRepository } from '../auth';
 import { createFakeAuthRepository } from '../../auth/fakeAuthRepository';
 import {
   actOnPlan,
+  buildPlan,
   getPlan,
   getPlanSettings,
   putPlanSettings,
@@ -167,6 +168,26 @@ describe('rebuilding a plan', () => {
     // right shape here: a limit that clears tomorrow, never retried.
     serve({ success: false, error: 'a plan can be rebuilt 4 times a day', reason: 'limit_reached' }, 429);
     await expect(regeneratePlan('2026-08-09')).rejects.toBeInstanceOf(QuotaExceededError);
+  });
+});
+
+describe('building a plan the morning has not reached (#477)', () => {
+  it('posts to the build route and reads the first generation back', async () => {
+    serve(fixture('plan.built'));
+    const plan = await buildPlan('2026-08-10');
+    expect(requests[0]).toMatchObject({
+      url: 'http://localhost:3000/api/mobile/plans/2026-08-10/build',
+      method: 'POST',
+    });
+    expect(requests).toHaveLength(1);
+    expect(plan.date).toBe('2026-08-10');
+    expect(plan.generation).toBe(1);
+  });
+
+  it('refuses to build a request for a date that is not one', async () => {
+    serve(fixture('plan.built'));
+    await expect(buildPlan('../settings')).rejects.toBeInstanceOf(ValidationError);
+    expect(requests).toHaveLength(0);
   });
 });
 

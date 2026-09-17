@@ -96,7 +96,9 @@ test('every mobile route file exists and is enumerated', () => {
   // account that owns the source.
   // Fifty total: origin/main's forty-eight routes plus football's two routes
   // (GET|PUT /api/mobile/football and DELETE /api/mobile/football/fixtures/{commitmentId}).
-  assert.equal(files.length, 50, `found:\n${files.join('\n')}`);
+  // Fifty-one after #477: `POST /api/mobile/plans/{date}/build`, which writes a
+  // plan into the caller's own account and so must know whose account it is.
+  assert.equal(files.length, 51, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {

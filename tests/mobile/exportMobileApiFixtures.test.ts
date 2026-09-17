@@ -94,6 +94,7 @@ import {
 import { GET as planGet } from '../../src/app/api/mobile/plans/[date]/route.ts';
 import { POST as planActionPost } from '../../src/app/api/mobile/plans/[date]/actions/route.ts';
 import { POST as planRegeneratePost } from '../../src/app/api/mobile/plans/[date]/regenerate/route.ts';
+import { POST as planBuildPost } from '../../src/app/api/mobile/plans/[date]/build/route.ts';
 import { GET as planSettingsGet, PUT as planSettingsPut } from '../../src/app/api/mobile/settings/plan/route.ts';
 import { GET as calendarSettingsGet, PUT as calendarSettingsPut } from '../../src/app/api/mobile/settings/calendar/route.ts';
 import {
@@ -1132,6 +1133,14 @@ test('exports a fixture for every /api/mobile call the React Native client makes
 
     await record('plan.notFound', 404, await planGet(
       request('/api/mobile/plans/2026-08-10'),
+      dateParams('2026-08-10'),
+    ));
+
+    // #477: the plan screen building a day the morning job has not reached.
+    // Same envelope as GET, generation 1, recorded from the real handler on the
+    // date the 404 above was recorded for.
+    await record('plan.built', 200, await planBuildPost(
+      request('/api/mobile/plans/2026-08-10/build', { body: {} }),
       dateParams('2026-08-10'),
     ));
 

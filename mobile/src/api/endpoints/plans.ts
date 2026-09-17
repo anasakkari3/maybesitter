@@ -93,6 +93,22 @@ export async function regeneratePlan(date: string): Promise<DailyPlan> {
   return response.plan;
 }
 
+/**
+ * Builds that date's plan now, when the morning job has not (#477).
+ *
+ * The server runs the morning build without its push and answers the same
+ * envelope as `getPlan`. It is idempotent: a date that already has a plan
+ * answers that plan, generation and all, so a retry after a lost response
+ * cannot spend a second generation.
+ */
+export async function buildPlan(date: string): Promise<DailyPlan> {
+  const response = await apiRequest('POST', planPath(date, '/build'), {
+    body: {},
+    schema: planResponseSchema,
+  });
+  return response.plan;
+}
+
 export async function getPlanSettings(): Promise<PlanSettings> {
   const response = await apiRequest('GET', '/api/mobile/settings/plan', {
     schema: planSettingsResponseSchema,

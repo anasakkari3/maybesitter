@@ -94,6 +94,7 @@ import {
   NO_EDITS,
   appendPlanEvent,
   createIfAbsent,
+  readStoredPlan,
   type StoredDailyPlan,
 } from './planStore';
 import {
@@ -395,6 +396,67 @@ export async function composeDailyPlan(
 }
 
 /**
+ * The one way a day's first plan comes into existence (#194, #477).
+ *
+ * Both callers go through here — the morning tick and the user's own "Build
+ * today's plan" — so they cannot drift into two generation paths. It composes
+ * generation 1, writes it with `createIfAbsent`, and records `plan_proposed`
+ * only when this call is the one that wrote it. What it does not do is notify;
+ * that is the caller's decision, taken on `created`.
+ *
+ * A plan that is already stored is returned before anything is composed: a
+ * repeated build must spend nothing, and composing is where a model call would
+ * be spent. The read is an optimisation, not the lock — two builds that both
+ * miss it still meet in `createIfAbsent`'s transaction, and only one writes.
+ */
+async function storeFirstPlan(
+  uid: string,
+  date: string,
+  settings: Pick<PlanSettings, 'timezone'>,
+  deps: DailyPlanDeps,
+): Promise<{ created: boolean; stored: StoredDailyPlan }> {
+  const storage = storageOf(deps);
+  const existing = await readStoredPlan(uid, date, storage);
+  if (existing) return { created: false, stored: existing };
+
+  const document = await composeDailyPlan(uid, date, settings, 1, deps);
+  const { created, stored } = await createIfAbsent(uid, document, storage);
+  if (!created) return { created: false, stored };
+
+  await appendPlanEvent(uid, {
+    type: 'plan_proposed',
+    date: stored.date,
+    at: stored.generatedAt,
+    generation: stored.generation,
+    inputDigest: stored.inputDigest,
+  }, storage);
+  return { created: true, stored };
+}
+
+/**
+ * Builds a plan because the user asked for one on the plan screen (#477).
+ *
+ * The morning build without the push: they are looking at the screen the push
+ * would have opened. Everything else is the tick's — the zone is the account's
+ * as `readPlanSettings` reads it (the same `planSettingsOf` the claim uses),
+ * the plan is generation 1 and so counts toward `MAX_PLAN_GENERATIONS_PER_DAY`,
+ * and a date that already has a plan gets that plan back untouched.
+ *
+ * It does not claim the delivery and does not touch `planSettings`. A tick that
+ * later claims this morning meets the stored document in `createIfAbsent`,
+ * reports `created: false`, and so sends nothing.
+ */
+export async function buildDailyPlanOnDemand(
+  uid: string,
+  date: string,
+  deps: DailyPlanDeps = {},
+): Promise<DailyPlanBuild> {
+  const settings = await readPlanSettings(uid, deps);
+  const { created, stored } = await storeFirstPlan(uid, date, settings, deps);
+  return { uid, date, created, pushed: false, stored };
+}
+
+/**
  * Builds and stores this account's plan, and notifies once if it was new.
  *
  * The push is inside the `created` branch and nowhere else. That single
@@ -406,20 +468,11 @@ export async function buildAndStoreDailyPlan(
   deps: DailyPlanDeps = {},
 ): Promise<DailyPlanBuild> {
   const storage = storageOf(deps);
-  const document = await composeDailyPlan(claim.uid, claim.date, claim.settings, 1, deps);
-  const { created, stored } = await createIfAbsent(claim.uid, document, storage);
+  const { created, stored } = await storeFirstPlan(claim.uid, claim.date, claim.settings, deps);
 
   if (!created) {
     return { uid: claim.uid, date: claim.date, created: false, pushed: false, stored };
   }
-
-  await appendPlanEvent(claim.uid, {
-    type: 'plan_proposed',
-    date: stored.date,
-    at: stored.generatedAt,
-    generation: stored.generation,
-    inputDigest: stored.inputDigest,
-  }, storage);
 
   const sender = deps.push ?? planReadyPushSender({
     storage,

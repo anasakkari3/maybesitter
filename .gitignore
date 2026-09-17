@@ -8,6 +8,9 @@ out/
 # Production build / cache artifacts
 dist/
 build/
+# Not an artifact: `POST /api/mobile/plans/{date}/build` (#477) lives in a
+# route directory named `build`, and without this it would never be committed.
+!src/app/api/mobile/plans/\[date\]/build/
 *.tsbuildinfo
 
 # Local Maybesitter runtime data
