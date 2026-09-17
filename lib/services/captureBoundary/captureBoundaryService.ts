@@ -40,6 +40,13 @@ export type CaptureConfirmationCommitter = (input: {
   proposalId: string;
   idempotencyKey: string;
   commands: readonly Command[];
+  /**
+   * The commands this confirm committed, per item — what the proposal must
+   * hold afterwards so the commitment can still be found (#480). Written in
+   * the same transaction as the result, because a confirm that recorded one
+   * without the other is the split this exists to prevent.
+   */
+  commandsByItemId: ReadonlyMap<string, readonly Command[]>;
   result: CaptureConfirmationResultContract;
 }) => Promise<{ replayed: boolean; result: CaptureConfirmationResultContract }>;
 
@@ -475,9 +482,24 @@ export async function confirmCapture(
   };
 
   if (Array.from(selected).some((id) => !knownItemIds.has(id))) return failure('invalid_selection');
+  /**
+   * What this confirm is about to commit, kept per item and recorded with it.
+   *
+   * A clarification item is stored with no commands and gets them here, at
+   * confirm time. Everything downstream — `persisted`, the collision warning,
+   * Undo, the activation — looks the commitment up through the commands the
+   * proposal holds for the item, so without this write-back the confirm
+   * reports success and leaves behind a commitment nothing can name (#480).
+   * Edited commands are recorded as edited, for the same reason: the proposal
+   * should say what was written, not what was proposed.
+   */
+  const committedByItemId = new Map(stored.commandsByItemId);
+  for (const item of stored.contract.items) {
+    if (selected.has(item.itemId)) committedByItemId.set(item.itemId, commandsFor(item.itemId));
+  }
   const commands = stored.contract.items
     .filter((item) => selected.has(item.itemId))
-    .flatMap((item) => commandsFor(item.itemId));
+    .flatMap((item) => committedByItemId.get(item.itemId) ?? []);
   if (commands.length === 0) return failure('invalid_selection');
   const result: CaptureConfirmationResultContract = {
     version: CAPTURE_CONTRACT_VERSION,
@@ -496,6 +518,7 @@ export async function confirmCapture(
         proposalId: input.proposalId,
         idempotencyKey: input.idempotencyKey,
         commands,
+        commandsByItemId: committedByItemId,
         result,
       });
       return committed.replayed ? { ...committed.result, replayed: true } : committed.result;
@@ -515,6 +538,11 @@ export async function confirmCapture(
   // The Map-backed store persisted this by mutation. A durable store does
   // not, and without the write-back a replayed confirm would find no recorded
   // result and persist the commitments a second time.
-  await dependencies.store.put({ ...stored, confirmedResult: result, idempotencyKey: input.idempotencyKey });
+  await dependencies.store.put({
+    ...stored,
+    commandsByItemId: committedByItemId,
+    confirmedResult: result,
+    idempotencyKey: input.idempotencyKey,
+  });
   return result;
 }

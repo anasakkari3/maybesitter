@@ -185,13 +185,14 @@ function engineLabel(): { llmEngine?: 'gemini' | 'ollama' } {
 function committerFor(context: MobileBackendContext = {}): CaptureConfirmationCommitter | undefined {
   const participantId = context.participantId;
   if (!participantId) return undefined;
-  return async ({ scopeId, proposalId, idempotencyKey, commands, result }) =>
+  return async ({ scopeId, proposalId, idempotencyKey, commands, commandsByItemId, result }) =>
     commitCaptureConfirmation(
       participantId,
       captureProposalPath(scopeId, proposalId),
       commands,
       idempotencyKey,
       result,
+      commandsByItemId,
     );
 }
 
