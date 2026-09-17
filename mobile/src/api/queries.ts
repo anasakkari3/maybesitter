@@ -44,6 +44,7 @@ import {
   type ConsentAnswer,
 } from './endpoints/consents';
 import { getReminderSettings, putReminderSettings, type ReminderSettingsPatch } from './endpoints/reminders';
+import { getReadiness, putSubjectiveEnergy } from './endpoints/readiness';
 import {
   confirmProfileSuggestions,
   describeProfile,
@@ -109,6 +110,7 @@ export const queryKeys = {
   plan: (uid: string, date: string) => ['user', uid, 'plan', date] as const,
   planSettings: (uid: string) => ['user', uid, 'planSettings'] as const,
   reminderSettings: (uid: string) => ['user', uid, 'reminderSettings'] as const,
+  readiness: (uid: string) => ['user', uid, 'readiness'] as const,
   categoryPreferences: (uid: string) => ['user', uid, 'categoryPreferences'] as const,
   /** Subscribed calendar feeds and the deadlines they propose (UC-3.4, #188). Never a URL. */
   icsFeeds: (uid: string) => ['user', uid, 'icsFeeds'] as const,
@@ -646,6 +648,29 @@ export function useSavePlanSettings() {
     onSuccess: settings => client.setQueryData(queryKeys.planSettings(uid), settings),
     onSettled: () => {
       void client.invalidateQueries({ queryKey: queryKeys.planSettings(uid) });
+    },
+  });
+}
+
+export function useReadiness() {
+  const uid = useUid();
+  return useQuery({
+    queryKey: queryKeys.readiness(uid),
+    queryFn: getReadiness,
+    enabled: uid !== 'signed-out',
+    staleTime: 0,
+  });
+}
+
+export function useSaveSubjectiveEnergy() {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn: (input: { energy: 1 | 2 | 3 | 4 | 5; observedAt: string }) => putSubjectiveEnergy(input),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.readiness(uid) });
+      void client.invalidateQueries({ queryKey: ['user', uid, 'plan'] });
+      void client.invalidateQueries({ queryKey: ['user', uid, 'nextStep'] });
     },
   });
 }

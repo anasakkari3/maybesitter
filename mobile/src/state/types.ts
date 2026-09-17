@@ -86,6 +86,7 @@ export type Screen =
   // in it is a design decision, not an implementation detail of this feature.
   | 'activity'
   | 'routineSettings'
+  | 'readinessSettings'
   | 'notificationsSettings'
   // Settings → Calendar (UC-3.1, #185). Where confirmed commitments are
   // written, which calendar on this device, and the way to take them back.

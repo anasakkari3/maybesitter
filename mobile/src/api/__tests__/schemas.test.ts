@@ -48,6 +48,7 @@ import {
   deviceCalendarLinkResponseSchema,
 } from '../schemas/calendar';
 import { reminderSettingsResponseSchema, hardReceiptsResponseSchema } from '../schemas/reminders';
+import { readinessResponseSchema, readinessSavedSchema } from '../schemas/readiness';
 import { deviceForgottenSchema, deviceRegisteredSchema } from '../schemas/devices';
 import {
   icsDeadlineDecidedSchema,
@@ -171,6 +172,8 @@ const CASES: Array<[string, z.ZodType]> = [
   ['reminders.settingsDefault', reminderSettingsResponseSchema],
   ['reminders.settingsSaved', reminderSettingsResponseSchema],
   ['reminders.receiptsRecorded', hardReceiptsResponseSchema],
+  ['readiness.current', readinessResponseSchema],
+  ['readiness.saved', readinessSavedSchema],
   ['devices.registered', deviceRegisteredSchema],
   ['devices.forgotten', deviceForgottenSchema],
   // Subscribed calendar feeds (UC-3.4, #188). The schemas are strict: a

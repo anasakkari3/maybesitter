@@ -10,6 +10,7 @@ import { getTrust, updateTrust } from '../endpoints/trust';
 import { flagAlphaFeedback, getFeedbackHistory, revokeFeedback } from '../endpoints/feedback';
 import { recordAnalyticsEvent } from '../endpoints/analytics';
 import { getWeeklySummary, listActivity } from '../endpoints/activity';
+import { getReadiness, putSubjectiveEnergy } from '../endpoints/readiness';
 import { buildTimePatch } from '../../features/commitments/timePatch';
 import { nextStepResponseSchema } from '../schemas/nextStep';
 
@@ -259,5 +260,25 @@ describe('activity (#201)', () => {
     const summary = await getWeeklySummary('2026-08-09');
     expect(summary.completedCount).toBe(0);
     expect(summary.moments.length).toBeGreaterThan(0);
+  });
+});
+
+describe('readiness', () => {
+  it('reads the provider-independent readiness projection', async () => {
+    serve(fixture('readiness.current'));
+    const current = await getReadiness();
+    expect(requests[0]!.url).toBe('http://localhost:3000/api/mobile/readiness');
+    expect(current.selectedSource).toBe('current_subjective');
+    expect(current.readiness?.sourceKinds).toEqual(['subjective']);
+  });
+
+  it('saves subjective energy without sending native health payloads', async () => {
+    serve(fixture('readiness.saved'));
+    await putSubjectiveEnergy({ energy: 4, observedAt: '2026-09-17T06:25:00.000Z' });
+    expect(requests[0]).toMatchObject({
+      url: 'http://localhost:3000/api/mobile/readiness',
+      method: 'PUT',
+      body: { energy: 4, observedAt: '2026-09-17T06:25:00.000Z' },
+    });
   });
 });

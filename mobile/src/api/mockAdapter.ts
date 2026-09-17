@@ -58,6 +58,8 @@ import memoryList from './__fixtures__/memory.list.json';
 import memorySuggestionKept from './__fixtures__/memory.suggestionKept.json';
 import profileOne from './__fixtures__/profile.one.json';
 import profileSaved from './__fixtures__/profile.saved.json';
+import readinessCurrent from './__fixtures__/readiness.current.json';
+import readinessSaved from './__fixtures__/readiness.saved.json';
 import trustState from './__fixtures__/trust.state.json';
 import trustUpdated from './__fixtures__/trust.updated.json';
 
@@ -126,6 +128,8 @@ const ROUTES: [string, RegExp, MockResponse][] = [
 
   ['GET', /^\/api\/mobile\/profile$/, { status: 200, body: profileOne }],
   ['PUT', /^\/api\/mobile\/profile\/routine$/, { status: 200, body: profileSaved }],
+  ['GET', /^\/api\/mobile\/readiness$/, { status: 200, body: readinessCurrent }],
+  ['PUT', /^\/api\/mobile\/readiness$/, { status: 200, body: readinessSaved }],
   ['GET', /^\/api\/mobile\/memory$/, { status: 200, body: memoryList }],
   ['POST', /^\/api\/mobile\/memory$/, { status: 201, body: memoryCreated }],
   ['PATCH', /^\/api\/mobile\/memory\/[^/]+$/, { status: 200, body: memoryCreated }],
