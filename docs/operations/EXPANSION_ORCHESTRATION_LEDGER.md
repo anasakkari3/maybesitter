@@ -1,7 +1,7 @@
 # Expansion orchestration ledger
 
 Updated: 2026-09-17
-Current integration base: `c3e2bbd02c410c7355167ed2ef602ba143b71fe2`
+Current integration base: `cff61ba282106e65694a71783c6047def7735162`
 
 This is the live ownership and dependency ledger for the expansion program.
 Git and current GitHub state remain authoritative; Graphify is refreshed
@@ -28,6 +28,7 @@ these shared surfaces unless the integration lane explicitly hands off a file.
 | Collision | Current owner | Program effect |
 | --- | --- | --- |
 | ICS mobile flow, app config, Root, API aggregation, settings, and locales | merged in PR #460 | Former ownership blocker is clear; follow-up native/config work must still rescan exact overlaps before editing shared mobile files. |
+| Language gate and guided setup chat | merged in PR #471 | Former setup/onboarding ownership blocker is clear; mobile readiness UX follow-up must not duplicate the landed language-first setup flow. |
 | Mobile package manifests and lockfile | Dependabot #229, #363, #365, #367, #368, #370 | #363 and #367 were recreated on current main but still produce an invalid lock missing `typescript@5.9.3`; #229, #365, #368, and #370 have reproducible mobile failures and are not merge candidates. |
 | Root package manifests and lockfile | Dependabot #228, #358-#362 | Dependency-free domains proceed; integration classifies dependency PRs before adding a solver package. |
 | Deployment workflow | Dependabot #372-#373 | No expansion lane edits `.github/workflows/deploy.yml`. |
@@ -39,7 +40,7 @@ An active conflict in one subsystem is not a program-wide blocker.
 
 | Lane | Status | Branch | Base SHA | Owned files | Upstream dependencies | Active collisions | PR | CI / test status | Merge status | External blockers |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Integration | active | `program/integration-ledger-live` | `c3e2bbd` | this ledger; later shared config/package/privacy changes | all landed contracts | Dependabot shared package files and the local football workspace | #455 | documentation-only validation pending this refresh | open | Apple/Google console/device verification later |
+| Integration | active | `program/post-471-doc-refresh` | `cff61ba` | this ledger; privacy/store delta docs; later shared config/package changes | all landed contracts | Dependabot shared package files, deployment workflow PRs, and the local football workspace | pending | documentation-only validation pending this refresh | active | Apple/Google console/device verification later |
 | Foundations | complete | merged stack | through `e624f9a` | connection, readiness, UserState, task, policy, cost, architecture, provider runtime contracts | none | none | #406-#436 | merged CI green | merged | none |
 | Gmail provider | complete | merged | `81aa70d` | Gmail adapter; prompt boundary tests | provider runtime | none | #437 | focused 11 pass; CI green | merged | OAuth app credentials for live verification |
 | Microsoft Graph provider | complete | merged | `3cba437` | Graph adapter; busy-block tests | provider runtime | none | #438 | focused 31 pass; CI green | merged | Microsoft app credentials for live verification |
@@ -60,6 +61,7 @@ An active conflict in one subsystem is not a program-wide blocker.
 | Provider OAuth lifecycle | complete | merged | `b911807` | provider OAuth state, PKCE, vault handoff, disconnect boundary, focused tests | connection registry; provider runtime | none | #464 | focused 23 pass; typecheck, registration, and CI pass | merged | live OAuth app credentials |
 | Privacy and store declaration delta | complete | merged | `826eafd` | expansion privacy/store documentation only | merged provider and health behavior | none | #463 | `check:test-registration`, `git diff --check`, and CI pass | merged | console submission, credentials, and device evidence remain owner actions |
 | Native readiness app declarations | complete | merged | `c3e2bbd` | HealthKit app entitlement, health privacy manifest entry, localized native prompt, config tests | HealthKit bridge; privacy/store delta | none | #470 | mobile app config 42 pass; mobile typecheck and CI pass | merged | physical iOS permission/read verification |
+| Language-first setup chat | complete | merged | `cff61ba` | setup/chat routing, onboarding copy, Graphify corpus refresh | existing mobile setup surfaces | none | #471 | GitHub CI green before merge | merged | none |
 
 ## Automatically unblocked
 
@@ -99,13 +101,16 @@ An active conflict in one subsystem is not a program-wide blocker.
 - #452, #453, #464, #463, and #470 landed on `46cac97`, `c6387ff`,
   `b911807`, `826eafd`, and `c3e2bbd`. HealthKit app declarations are no
   longer blocked by the former #460 ownership boundary.
+- #471 landed on `cff61ba`; the language-first setup/chat flow is now on main.
+  Mobile readiness UX work can continue only after an exact overlap scan against
+  the landed setup surfaces.
 
 ## Current blocked integration work
 
 | Work | Blocking condition | Automatic resume condition |
 | --- | --- | --- |
 | Health Connect shared Android/app declarations | mobile package PRs still own package/lockfile surfaces | Reconcile declarations without package edits where possible; package wiring waits for current mobile owners. |
-| Mobile readiness UX and locale copy | no active #460 owner, but shared UI/locales require exact overlap rescan | Start from refreshed main in an isolated lane if no new mobile owner appears. |
+| Mobile readiness UX and locale copy | no active #460/#471 owner, but shared setup UI/locales require exact overlap rescan | Start from refreshed main in an isolated lane only for non-duplicative readiness UI surfaces. |
 | RevenueCat SDK/native wiring | mobile Dependabot owns package/lockfile surfaces; store products need owner | Reconcile packages, then prebuild and device-test. |
 | Timefold solver dependency | root Dependabot PRs own package surfaces | Classify and reconcile dependency PRs after the benchmark boundary merges. |
 | Live OAuth/provider verification | external app credentials | Run contract-approved smoke tests when credentials are supplied. |
