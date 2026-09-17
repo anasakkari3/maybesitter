@@ -21,7 +21,7 @@ const ACCOUNT = 'account-under-test';
 
 const CACHE: SetupChatCache = {
   version: SETUP_CACHE_VERSION,
-  answers: { ...EMPTY_SETUP_ANSWERS, work: 'nursing student', day: 'late starts' },
+  answers: { ...EMPTY_SETUP_ANSWERS, life: 'I study nursing and work evenings', day: 'late starts' },
   index: 2,
   updatedAt: '2026-09-17T09:00:00.000Z',
 };
@@ -49,6 +49,17 @@ describe('the cache round-trips', () => {
 });
 
 describe('a blob this version does not understand', () => {
+  it('drops a version-1 draft from before the life narrative', async () => {
+    await AsyncStorage.setItem(setupChatStorageKey(ACCOUNT), JSON.stringify({
+      version: 1,
+      answers: { work: 'nursing student', day: '', places: '', done: '', habits: '' },
+      index: 1,
+      updatedAt: '2026-09-17T09:00:00.000Z',
+    }));
+    expect(SETUP_CACHE_VERSION).toBe(2);
+    expect(await loadSetupChatCache(ACCOUNT)).toBeNull();
+  });
+
   async function stored(value: unknown): Promise<SetupChatCache | null> {
     await AsyncStorage.setItem(setupChatStorageKey(ACCOUNT), typeof value === 'string' ? value : JSON.stringify(value));
     return loadSetupChatCache(ACCOUNT);
@@ -58,7 +69,7 @@ describe('a blob this version does not understand', () => {
     expect(await stored('not json')).toBeNull();
     expect(await stored([1, 2])).toBeNull();
     expect(await stored({ version: SETUP_CACHE_VERSION })).toBeNull();
-    expect(await stored({ ...CACHE, version: 2 })).toBeNull();
+    expect(await stored({ ...CACHE, version: SETUP_CACHE_VERSION + 1 })).toBeNull();
   });
 
   it('reads as absent when the index points past the questions', async () => {
@@ -69,8 +80,8 @@ describe('a blob this version does not understand', () => {
   });
 
   it('drops a non-string answer instead of restoring it', async () => {
-    const loaded = await stored({ ...CACHE, answers: { ...CACHE.answers, work: 42 } });
-    expect(loaded?.answers.work).toBe('');
+    const loaded = await stored({ ...CACHE, answers: { ...CACHE.answers, life: 42 } });
+    expect(loaded?.answers.life).toBe('');
     expect(loaded?.answers.day).toBe('late starts');
   });
 });

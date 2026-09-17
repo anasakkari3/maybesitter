@@ -23,6 +23,7 @@ export function OnboardingChrome({
   primary,
   secondary,
   footNote,
+  headerAction,
   testID,
 }: {
   step: OnboardingStep;
@@ -31,9 +32,15 @@ export function OnboardingChrome({
   primary: { label: string; onPress?: (() => void) | undefined; disabled?: boolean };
   secondary?: { label: string; onPress: () => void } | undefined;
   footNote?: string | undefined;
+  /**
+   * A quiet way out at the top end of the screen, under the progress line.
+   * Used where the footer is the conversation's own action and a third
+   * equally weighted button would read as a form.
+   */
+  headerAction?: { label: string; onPress: () => void; testID?: string } | undefined;
   testID?: string;
 }) {
-  const { p, tr } = useApp();
+  const { p, tr, script } = useApp();
   const insets = useSafeAreaInsets();
   const index = ONBOARDING_STEPS.indexOf(step);
 
@@ -59,11 +66,29 @@ export function OnboardingChrome({
           ))}
         </View>
 
+        {headerAction ? (
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', paddingHorizontal: 12, marginTop: -10 }}>
+            <Btn
+              label={headerAction.label}
+              onPress={headerAction.onPress}
+              testID={headerAction.testID}
+              scaleTo={0.97}
+              hitSlop={8}
+              style={{ minHeight: 36, paddingHorizontal: 8, justifyContent: 'center' }}
+            >
+              <Txt size={14} color={p.mu}>{headerAction.label}</Txt>
+            </Btn>
+          </View>
+        ) : null}
+
         <ScrollView
           contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 24, gap: 16 }}
           keyboardShouldPersistTaps="handled"
         >
-          <Txt size={28} weight={600} lh={1.3}>{title}</Txt>
+          {/* Tight only for Latin. Arabic and Hebrew keep their script's own line
+              height: a 1.3 box clipped the shadda and the hamza off Arabic
+              headings on device. */}
+          <Txt size={28} weight={600} {...(script === 'latin' ? { lh: 1.3 } : {})}>{title}</Txt>
           {children}
         </ScrollView>
 

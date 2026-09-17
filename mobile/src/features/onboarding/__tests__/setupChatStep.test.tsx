@@ -67,67 +67,74 @@ async function press(label: string) {
 }
 
 describe('the first question', () => {
-  it('asks about work, says which question it is, and introduces the chat', async () => {
+  // Its own screen now; its contract is in setupLifeStep.test.tsx. Here only
+  // that the step hands it over and the short-question furniture is gone.
+  it('is the life narrative, not a short question', async () => {
     await renderStep();
-    expect(screen.queryByText(en.obSetupWorkPrompt)).not.toBeNull();
-    expect(screen.getByTestId('setup-question-of').props.children).toBe('Question 1 of 5');
-    expect(screen.queryByText(en.obSetupIntro)).not.toBeNull();
+    expect(screen.queryByText(en.obSetupLifeTitle)).not.toBeNull();
+    expect(screen.queryByTestId('setup-life-input')).not.toBeNull();
+    expect(screen.queryByTestId('setup-question-of')).toBeNull();
+    expect(screen.queryByTestId('setup-answer-count')).toBeNull();
   });
+});
 
-  it('drops the intro on later questions', async () => {
+describe('a later question', () => {
+  it('says which question it is', async () => {
     await renderStep({ index: 1 });
     expect(screen.queryByText(en.obSetupDayPrompt)).not.toBeNull();
     expect(screen.getByTestId('setup-question-of').props.children).toBe('Question 2 of 5');
-    expect(screen.queryByText(en.obSetupIntro)).toBeNull();
-  });
-
-  it('sends Back to the previous onboarding step', async () => {
-    const { onBack, onIndexChange } = await renderStep();
-    await press(en.obBack);
-    expect(onBack).toHaveBeenCalledTimes(1);
-    expect(onIndexChange).not.toHaveBeenCalled();
   });
 });
 
 describe('answering', () => {
   it('fills the field with the chip that was tapped', async () => {
-    const { onChange } = await renderStep();
-    await fireEvent.press(screen.getByTestId('setup-chip-work-2'));
+    const { onChange } = await renderStep({ index: 1 });
+    await fireEvent.press(screen.getByTestId('setup-chip-day-2'));
     expect(onChange).toHaveBeenCalledTimes(1);
     // The updater form, so two quick taps cannot lose one another.
     const next = onChange.mock.calls[0]![0](EMPTY_SETUP_ANSWERS);
-    expect(next).toEqual({ ...EMPTY_SETUP_ANSWERS, work: en.obSetupWorkChip2 });
+    expect(next).toEqual({ ...EMPTY_SETUP_ANSWERS, day: en.obSetupDayChip2 });
   });
 
   it('shows the chip as selected once the field holds its text', async () => {
-    await renderStep({ answers: { ...EMPTY_SETUP_ANSWERS, work: en.obSetupWorkChip2 } });
+    await renderStep({ index: 1, answers: { ...EMPTY_SETUP_ANSWERS, day: en.obSetupDayChip2 } });
     // The chip whose text is in the field is filled; the others are outlined.
     const background = (testID: string) =>
       (StyleSheet.flatten(screen.getByTestId(testID).props.style) as { backgroundColor?: string }).backgroundColor;
-    expect(background('setup-chip-work-2')).not.toBe('transparent');
-    expect(background('setup-chip-work-1')).toBe('transparent');
-    expect(screen.getByTestId('setup-answer-input').props.value).toBe(en.obSetupWorkChip2);
+    expect(background('setup-chip-day-2')).not.toBe('transparent');
+    expect(background('setup-chip-day-1')).toBe('transparent');
+    expect(screen.getByTestId('setup-answer-input').props.value).toBe(en.obSetupDayChip2);
   });
 
   it('takes typing too, clamped to the answer cap, and counts it', async () => {
-    const { onChange } = await renderStep();
+    const { onChange } = await renderStep({ index: 1 });
     await fireEvent.changeText(screen.getByTestId('setup-answer-input'), 'I teach');
     const next = onChange.mock.calls[0]![0](EMPTY_SETUP_ANSWERS);
-    expect(next.work).toBe('I teach');
+    expect(next.day).toBe('I teach');
     expect(screen.getByTestId('setup-answer-input').props.maxLength).toBe(150);
   });
 
   it('shows how much of the cap is used', async () => {
-    await renderStep({ answers: { ...EMPTY_SETUP_ANSWERS, work: 'I teach' } });
+    await renderStep({ index: 1, answers: { ...EMPTY_SETUP_ANSWERS, day: 'I teach' } });
     expect(screen.getByTestId('setup-answer-count').props.children).toBe('7 / 150');
+  });
+
+  it('shows the smaller cap when a long narrative has used the budget', async () => {
+    const answers: SetupAnswers = {
+      life: 'l'.repeat(600), day: 'd'.repeat(150), places: 'p'.repeat(150), done: '', habits: '',
+    };
+    await renderStep({ index: 3, answers });
+    const cap = screen.getByTestId('setup-answer-input').props.maxLength as number;
+    expect(cap).toBeLessThan(150);
+    expect(screen.getByTestId('setup-answer-count').props.children).toBe(`0 / ${cap}`);
   });
 });
 
 describe('moving between questions', () => {
   it('Next moves to the following question', async () => {
-    const { onIndexChange, onRead } = await renderStep();
+    const { onIndexChange, onRead } = await renderStep({ index: 1 });
     await press(en.obSetupNext);
-    expect(onIndexChange).toHaveBeenCalledWith(1);
+    expect(onIndexChange).toHaveBeenCalledWith(2);
     expect(onRead).not.toHaveBeenCalled();
   });
 

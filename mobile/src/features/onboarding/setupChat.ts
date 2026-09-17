@@ -12,86 +12,169 @@
  *
  * ── Why the caps are here and not on the screen ──────────────────
  *
- * The server rejects a description over `MAX_DESCRIPTION_LENGTH`. Five answers
- * of `MAX_ANSWER_LENGTH` plus the longest labels in any locale must fit under
- * it, so the user can never reach the last question and be told the text is
- * too long. A test composes that worst case in every locale; if a label grows
- * past what fits, that test — not a 400 on a real phone — is what fails.
+ * The server rejects a description over `MAX_DESCRIPTION_LENGTH`. The first
+ * question is a life narrative with its own larger cap; the four short ones
+ * share whatever budget it leaves, so the composed text always fits and the
+ * user is never told at the last screen that it is too long. `answerCap` is
+ * what the field enforces and `composeDescription` applies the same rule, so
+ * nothing the user can see is cut invisibly.
+ *
+ * ── The first question is a narrative, not a field ───────────────
+ *
+ * A chip like "I'm a student" reads as the answer, and a one-field answer is
+ * a survey, not somebody being understood. The first screen asks for a broad
+ * description of somebody's life and lets the model find the structure in
+ * it. Its chips are prompts to talk about, never answers, and nothing in this
+ * module writes a prompt into `SetupAnswers`.
  */
 import { type Strings } from '../../i18n/strings';
 import { MAX_DESCRIPTION_LENGTH } from './aboutYou';
 
-export type SetupQuestionId = 'work' | 'day' | 'places' | 'done' | 'habits';
+export type SetupQuestionId = 'life' | 'day' | 'places' | 'done' | 'habits';
 
 export interface SetupQuestion {
   id: SetupQuestionId;
-  /** The short heading, and the prefix of the composed line. */
+  /**
+   * `narrative` is the open life description on the first screen; `short` is
+   * one of the four concrete questions after it.
+   */
+  kind: 'narrative' | 'short';
+  /** The prefix of the composed line. */
   labelKey: keyof Strings;
-  /** The question as asked on screen. */
+  /** The heading on screen. */
   promptKey: keyof Strings;
-  /** Starter sentences; tapping one replaces the field with its copy. */
+  /**
+   * On a short question: starter sentences that replace the field. On the
+   * narrative: inspiration prompts that never touch the field.
+   */
   chipKeys: readonly (keyof Strings)[];
 }
 
 /** In the order the screen walks them. */
 export const SETUP_QUESTIONS: readonly SetupQuestion[] = [
   {
-    id: 'work',
-    labelKey: 'obSetupWorkLabel',
-    promptKey: 'obSetupWorkPrompt',
-    chipKeys: ['obSetupWorkChip1', 'obSetupWorkChip2', 'obSetupWorkChip3', 'obSetupWorkChip4', 'obSetupWorkChip5'],
+    id: 'life',
+    kind: 'narrative',
+    labelKey: 'obSetupLifeLabel',
+    promptKey: 'obSetupLifeTitle',
+    chipKeys: ['obSetupLifePrompt1', 'obSetupLifePrompt2', 'obSetupLifePrompt3', 'obSetupLifePrompt4'],
   },
   {
     id: 'day',
+    kind: 'short',
     labelKey: 'obSetupDayLabel',
     promptKey: 'obSetupDayPrompt',
     chipKeys: ['obSetupDayChip1', 'obSetupDayChip2', 'obSetupDayChip3', 'obSetupDayChip4'],
   },
   {
     id: 'places',
+    kind: 'short',
     labelKey: 'obSetupPlacesLabel',
     promptKey: 'obSetupPlacesPrompt',
     chipKeys: ['obSetupPlacesChip1', 'obSetupPlacesChip2', 'obSetupPlacesChip3', 'obSetupPlacesChip4', 'obSetupPlacesChip5'],
   },
   {
     id: 'done',
+    kind: 'short',
     labelKey: 'obSetupDoneLabel',
     promptKey: 'obSetupDonePrompt',
     chipKeys: ['obSetupDoneChip1', 'obSetupDoneChip2', 'obSetupDoneChip3', 'obSetupDoneChip4', 'obSetupDoneChip5'],
   },
   {
     id: 'habits',
+    kind: 'short',
     labelKey: 'obSetupHabitsLabel',
     promptKey: 'obSetupHabitsPrompt',
     chipKeys: ['obSetupHabitsChip1', 'obSetupHabitsChip2', 'obSetupHabitsChip3', 'obSetupHabitsChip4', 'obSetupHabitsChip5'],
   },
 ];
 
-/**
- * Per answer, in code points.
- *
- * 5 × 150 = 750, which leaves 250 for five labels and four newlines in the
- * widest locale — see the worst-case test in `setupChat.test.ts`.
- */
+/** A short question's cap, in code points, while the budget allows it. */
 export const MAX_ANSWER_LENGTH = 150;
+
+/**
+ * The life narrative's cap, in code points.
+ *
+ * Four times a short answer, and still well under the server's 1,000 with its
+ * label: the narrative is never cut to make room for the questions after it.
+ */
+export const MAX_LIFE_ANSWER_LENGTH = 600;
+
+/** Below this a narrative is a stray tap on the keyboard, not an answer. */
+const MIN_MEANINGFUL_LENGTH = 2;
 
 export type SetupAnswers = Record<SetupQuestionId, string>;
 
-export const EMPTY_SETUP_ANSWERS: SetupAnswers = { work: '', day: '', places: '', done: '', habits: '' };
+export const EMPTY_SETUP_ANSWERS: SetupAnswers = { life: '', day: '', places: '', done: '', habits: '' };
 
 /** How many questions got a real answer — whitespace is not one. */
 export function answeredCount(answers: SetupAnswers): number {
   return SETUP_QUESTIONS.filter((question) => answers[question.id].trim() !== '').length;
 }
 
+/** Enough typed to be worth reading: the first screen's CTA waits for this. */
+export function hasMeaningfulAnswer(text: string): boolean {
+  return Array.from(text.trim()).length >= MIN_MEANINGFUL_LENGTH;
+}
+
 /**
- * Trimmed and cut to `MAX_ANSWER_LENGTH` code points.
+ * Trimmed and cut to `cap` code points.
  *
  * Code points rather than UTF-16 units: `slice` on the string would split an
  * emoji or a surrogate pair in two and send the server a lone half.
  */
-export function clampAnswer(text: string): string {
-  return Array.from(text.trim()).slice(0, MAX_ANSWER_LENGTH).join('');
+export function clampAnswer(text: string, cap: number = MAX_ANSWER_LENGTH): string {
+  return Array.from(text.trim()).slice(0, Math.max(0, cap)).join('');
+}
+
+function codePoints(text: string): number {
+  return Array.from(text).length;
+}
+
+function questionFor(id: SetupQuestionId): SetupQuestion {
+  return SETUP_QUESTIONS.find((question) => question.id === id)!;
+}
+
+/**
+ * The answers exactly as they will be sent, each clamped in question order:
+ * the narrative to its own cap, a short answer to whatever budget is left.
+ */
+function composedAnswers(answers: SetupAnswers, t: Strings): { question: SetupQuestion; answer: string }[] {
+  const out: { question: SetupQuestion; answer: string }[] = [];
+  let used = 0;
+  for (const question of SETUP_QUESTIONS) {
+    const raw = answers[question.id].trim();
+    if (raw === '') continue;
+    const overhead = codePoints(String(t[question.labelKey])) + 2 + (out.length > 0 ? 1 : 0);
+    const cap = question.kind === 'narrative'
+      ? MAX_LIFE_ANSWER_LENGTH
+      : Math.min(MAX_ANSWER_LENGTH, MAX_DESCRIPTION_LENGTH - used - overhead);
+    const answer = clampAnswer(raw, cap);
+    if (answer === '') continue;
+    out.push({ question, answer });
+    used += overhead + codePoints(answer);
+  }
+  return out;
+}
+
+/**
+ * How many code points the field for `id` may hold right now.
+ *
+ * The narrative always gets `MAX_LIFE_ANSWER_LENGTH`. A short question gets
+ * `MAX_ANSWER_LENGTH` until the other answers leave less than that of the
+ * server's budget, and then exactly what is left — so the field, the counter
+ * and the composed text all agree, and nothing is cut after the user sees it.
+ */
+export function answerCap(answers: SetupAnswers, id: SetupQuestionId, t: Strings): number {
+  const question = questionFor(id);
+  if (question.kind === 'narrative') return MAX_LIFE_ANSWER_LENGTH;
+  const others = composedAnswers({ ...answers, [id]: '' }, t);
+  const used = others.reduce(
+    (sum, { question: q, answer }, i) => sum + codePoints(String(t[q.labelKey])) + 2 + (i > 0 ? 1 : 0) + codePoints(answer),
+    0,
+  );
+  const overhead = codePoints(String(t[question.labelKey])) + 2 + (others.length > 0 ? 1 : 0);
+  return Math.max(0, Math.min(MAX_ANSWER_LENGTH, MAX_DESCRIPTION_LENGTH - used - overhead));
 }
 
 /**
@@ -100,17 +183,13 @@ export function clampAnswer(text: string): string {
  *
  * Every answer is clamped again here, so a value that reached this function
  * by a path other than the field (a restored cache, say) cannot push the
- * whole past the server cap. The final cut is belt and braces: the test
- * proves it never triggers with the current labels.
+ * whole past the server cap. The final cut is belt and braces.
  */
 export function composeDescription(answers: SetupAnswers, t: Strings): string {
-  const lines: string[] = [];
-  for (const question of SETUP_QUESTIONS) {
-    const answer = clampAnswer(answers[question.id]);
-    if (answer === '') continue;
-    lines.push(`${t[question.labelKey]}: ${answer}`);
-  }
-  return lines.join('\n').slice(0, MAX_DESCRIPTION_LENGTH);
+  return composedAnswers(answers, t)
+    .map(({ question, answer }) => `${t[question.labelKey]}: ${answer}`)
+    .join('\n')
+    .slice(0, MAX_DESCRIPTION_LENGTH);
 }
 
 /** The index after `index`, or null on the last question (or off the end). */

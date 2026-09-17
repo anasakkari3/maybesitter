@@ -4,9 +4,11 @@ import { useApp } from '../../state/AppContext';
 import { fill, type Strings } from '../../i18n/strings';
 import { Btn, Card, Txt } from '../../ui/primitives';
 import { OnboardingChrome } from './OnboardingChrome';
+import { SetupLifeStep } from './SetupLifeStep';
+import type { SpeechCaptureService } from '../capture/voice/SpeechCaptureService';
 import {
-  MAX_ANSWER_LENGTH,
   SETUP_QUESTIONS,
+  answerCap,
   answeredCount,
   clampAnswer,
   nextQuestionIndex,
@@ -48,6 +50,7 @@ export function SetupChatStep({
   onBack,
   reading = false,
   failed = false,
+  speech,
 }: {
   answers: SetupAnswers;
   index: number;
@@ -62,6 +65,8 @@ export function SetupChatStep({
   onBack: () => void;
   reading?: boolean;
   failed?: boolean;
+  /** The first question's recogniser; injected in tests. */
+  speech?: SpeechCaptureService | undefined;
 }) {
   const { t, p, rtl } = useApp();
   // The question keys are plain sentences; the same view RoutineStep takes of
@@ -73,6 +78,27 @@ export function SetupChatStep({
   const next = nextQuestionIndex(index);
   const previous = previousQuestionIndex(index);
   const answered = answeredCount(answers);
+
+  // The first question is the life narrative, a screen of its own (#469
+  // follow-up). Questions 2–5 keep the layout below.
+  if (question.kind === 'narrative') {
+    return (
+      <SetupLifeStep
+        answer={answer}
+        onAnswer={(text) => onChange((current) => ({ ...current, [question.id]: text }))}
+        onContinue={() => { if (next !== null) onIndexChange(next); }}
+        onSkip={onSkip}
+        onBack={onBack}
+        reading={reading}
+        failed={failed}
+        speech={speech}
+      />
+    );
+  }
+
+  // What the server's budget still allows here, after the narrative and the
+  // other answers — normally the full short cap.
+  const cap = answerCap(answers, question.id, t);
 
   const setAnswer = (text: string) =>
     onChange((current) => ({ ...current, [question.id]: text }));
@@ -98,7 +124,6 @@ export function SetupChatStep({
       <Txt size={13} color={p.mu} testID="setup-question-of">
         {fill(t.obSetupQuestionOf, { current: index + 1, total: SETUP_QUESTIONS.length })}
       </Txt>
-      {index === 0 ? <Txt size={15} color={p.mu} lh={1.5}>{t.obSetupIntro}</Txt> : null}
 
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
         {question.chipKeys.map((key, n) => {
@@ -111,7 +136,7 @@ export function SetupChatStep({
               label={label}
               accessibilityRole="button"
               scaleTo={0.98}
-              onPress={() => setAnswer(clampAnswer(label))}
+              onPress={() => setAnswer(clampAnswer(label, cap))}
               style={{
                 minHeight: 40,
                 justifyContent: 'center',
@@ -137,7 +162,7 @@ export function SetupChatStep({
           onChangeText={setAnswer}
           placeholder={t.obSetupPlaceholder}
           placeholderTextColor={p.mu}
-          maxLength={MAX_ANSWER_LENGTH}
+          maxLength={cap}
           multiline
           editable={!reading}
           style={{
@@ -151,7 +176,7 @@ export function SetupChatStep({
       </Card>
       <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
         <Txt size={12} color={p.mu} latin testID="setup-answer-count">
-          {`${Array.from(answer).length} / ${MAX_ANSWER_LENGTH}`}
+          {`${Array.from(answer).length} / ${cap}`}
         </Txt>
       </View>
 

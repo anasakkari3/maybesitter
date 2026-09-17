@@ -35,10 +35,22 @@ import {
 export function VoiceButton({
   service = noopSpeechCaptureService,
   autoFocus = false,
+  variant = 'round',
+  label,
+  testID = 'voice-button',
   onPartial,
   onFinal,
 }: {
   service?: SpeechCaptureService;
+  /**
+   * `round` is the composer's mic. `pill` is a labelled, full-width primary
+   * action for a screen where speaking is the main way to answer — the first
+   * onboarding question. Same recogniser, same rules; only the shape differs.
+   */
+  variant?: 'round' | 'pill';
+  /** The pill's words while idle. Listening always reads "Stop and check". */
+  label?: string;
+  testID?: string;
   /** `input=voice` arrived on the link, so start listening without a tap. */
   autoFocus?: boolean;
   onPartial(transcript: string): void;
@@ -81,11 +93,39 @@ export function VoiceButton({
 
   const listening = status === 'listening';
 
+  if (variant === 'pill') {
+    const words = listening ? t.stopReview : (label ?? t.tapToTalk);
+    return (
+      <View style={{ gap: 10, alignItems: 'stretch' }}>
+        <Btn
+          testID={testID}
+          label={words}
+          onPress={() => (listening ? void service.stop() : begin())}
+          scaleTo={0.98}
+          style={{
+            minHeight: 54,
+            borderRadius: 999,
+            paddingHorizontal: 20,
+            backgroundColor: p.ac,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 10,
+          }}
+        >
+          <MicIcon size={20} color={p.onAccent} />
+          <Txt size={16} weight={600} color={p.onAccent}>{words}</Txt>
+        </Btn>
+        {listening ? <View style={{ alignItems: 'center' }}><Waveform color={p.ac} /></View> : null}
+      </View>
+    );
+  }
+
   return (
     <View style={{ alignItems: 'center', gap: 8 }}>
       {listening ? <Waveform color={p.ac} /> : null}
       <Btn
-        testID="voice-button"
+        testID={testID}
         label={listening ? t.stopReview : t.tapToTalk}
         onPress={() => (listening ? void service.stop() : begin())}
         style={{

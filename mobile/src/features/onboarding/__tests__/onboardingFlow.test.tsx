@@ -442,19 +442,24 @@ describe('the guided setup', () => {
     return view;
   }
 
-  it('asks the first question, and sends the composed answers to describe', async () => {
+  it('asks about their life first, and sends the composed answers to describe', async () => {
     await reachSetup('allow', false);
-    expect(screen.queryByText(en.obSetupWorkPrompt)).not.toBeNull();
+    expect(screen.queryByText(en.obSetupLifeTitle)).not.toBeNull();
     expect(screen.queryByTestId('onboarding-about-manual')).toBeNull();
 
-    await pressTestId('setup-chip-work-1');
-    for (let i = 0; i < 4; i += 1) await press(en.obSetupNext);
+    // A prompt is not an answer: tapping one changes nothing that is sent.
+    await pressTestId('setup-life-prompt-1');
+    const story = "I'm a nursing student.\nI work three evenings and I'm trying to get back to swimming.";
+    await fireEvent.changeText(screen.getByTestId('setup-life-input'), story);
+    await press(en.obSetupLifeCta);
+    for (let i = 0; i < 3; i += 1) await press(en.obSetupNext);
     await waitFor(() => expect(screen.queryByText(en.obSetupHabitsPrompt)).not.toBeNull());
     expect(describeProfile).not.toHaveBeenCalled();
 
     await press(en.obSetupRead);
     await waitFor(() => expect(describeProfile).toHaveBeenCalledTimes(1));
-    expect(describeProfile.mock.calls[0]![0]).toContain(`${en.obSetupWorkLabel}: ${en.obSetupWorkChip1}`);
+    expect(describeProfile.mock.calls[0]![0]).toBe(`${en.obSetupLifeLabel}: ${story}`);
+    expect(describeProfile.mock.calls[0]![0]).not.toContain(en.obSetupLifePrompt1);
     await waitFor(() => expect(screen.queryByTestId('onboarding-about-review')).not.toBeNull());
   });
 
@@ -477,8 +482,9 @@ describe('the guided setup', () => {
     });
 
     const view = await reachSetup('allow', false);
-    await pressTestId('setup-chip-work-3');
-    await press(en.obSetupNext);
+    const story = 'Two kids, a night shift, and a thesis due in March.\nI keep forgetting the dentist.';
+    await fireEvent.changeText(screen.getByTestId('setup-life-input'), story);
+    await press(en.obSetupLifeCta);
     await waitFor(() => expect(screen.queryByText(en.obSetupDayPrompt)).not.toBeNull());
     // Per account, on this device — the draft is not the phone's (#148).
     await waitFor(() => expect(AsyncStorage.getItem(setupChatStorageKey(USER.uid))).resolves.not.toBeNull());
@@ -488,13 +494,13 @@ describe('the guided setup', () => {
     await mountApp();
     await waitFor(() => expect(screen.queryByText(en.obSetupDayPrompt)).not.toBeNull());
     await press(en.obBack);
-    await waitFor(() => expect(screen.getByTestId('setup-answer-input').props.value).toBe(en.obSetupWorkChip3));
+    await waitFor(() => expect(screen.getByTestId('setup-life-input').props.value).toBe(story));
   });
 
   it('shows the manual card with AI declined, and never calls describe', async () => {
     await reachSetup('decline', true);
     expect(screen.queryByTestId('onboarding-about-manual')).not.toBeNull();
-    expect(screen.queryByTestId('setup-answer-input')).toBeNull();
+    expect(screen.queryByTestId('setup-life-input')).toBeNull();
     await press(en.obContinue);
     await waitFor(() => expect(screen.queryByTestId('onboarding-notifications')).not.toBeNull());
     expect(describeProfile).not.toHaveBeenCalled();
@@ -504,7 +510,7 @@ describe('the guided setup', () => {
 
   it('reports how many were answered when analytics was granted', async () => {
     await reachSetup('allow', true);
-    await pressTestId('setup-chip-work-1');
+    await fireEvent.changeText(screen.getByTestId('setup-life-input'), 'I study and work nights');
     await pressTestId('setup-skip');
     await waitFor(() => expect(screen.queryByTestId('onboarding-notifications')).not.toBeNull());
     expect(recordAnalyticsEvent).toHaveBeenCalledWith('onboarding_setup_answered', { answeredCount: 1 });
@@ -512,10 +518,19 @@ describe('the guided setup', () => {
     await waitFor(() => expect(AsyncStorage.getItem(setupChatStorageKey(USER.uid))).resolves.toBeNull());
   });
 
+  it('does not count a tapped inspiration prompt as an answer', async () => {
+    await reachSetup('allow', true);
+    await pressTestId('setup-life-prompt-1');
+    await pressTestId('setup-life-prompt-3');
+    await pressTestId('setup-skip');
+    await waitFor(() => expect(screen.queryByTestId('onboarding-notifications')).not.toBeNull());
+    expect(recordAnalyticsEvent).toHaveBeenCalledWith('onboarding_setup_answered', { answeredCount: 0 });
+    expect(describeProfile).not.toHaveBeenCalled();
+  });
+
   it('reports nothing without analytics consent', async () => {
     await reachSetup('allow', false);
-    for (let i = 0; i < 4; i += 1) await press(en.obSetupNext);
-    await press(en.obSetupFinish);
+    await pressTestId('setup-skip');
     await waitFor(() => expect(screen.queryByTestId('onboarding-notifications')).not.toBeNull());
     expect(recordAnalyticsEvent).not.toHaveBeenCalledWith('onboarding_setup_answered', expect.anything());
     expect(describeProfile).not.toHaveBeenCalled();
@@ -523,8 +538,9 @@ describe('the guided setup', () => {
 
   it('saves nothing from the review without a tick', async () => {
     await reachSetup('allow', false);
-    await pressTestId('setup-chip-work-1');
-    for (let i = 0; i < 4; i += 1) await press(en.obSetupNext);
+    await fireEvent.changeText(screen.getByTestId('setup-life-input'), 'Nursing student, night shifts, a thesis in March');
+    await press(en.obSetupLifeCta);
+    for (let i = 0; i < 3; i += 1) await press(en.obSetupNext);
     await press(en.obSetupRead);
     await waitFor(() => expect(screen.queryByTestId('onboarding-about-review')).not.toBeNull());
     await press(en.obAboutSaveNone);
