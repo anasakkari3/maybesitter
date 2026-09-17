@@ -11,7 +11,7 @@
  */
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { AppProvider } from '../../../state/AppContext';
@@ -26,7 +26,7 @@ import * as permission from '../../../notifications/permission';
 import settingsFixture from '../../../api/__fixtures__/reminders.settingsSaved.json';
 import * as profileEndpoints from '../../../api/endpoints/profile';
 import * as exactAlarms from '../../../notifications/exactAlarms';
-import { Platform } from 'react-native';
+import { AppState, Linking, Platform, type AppStateStatus } from 'react-native';
 
 // Hoisted above the imports by babel-plugin-jest-hoist, so `i18n/timezone`
 // sees it when it reaches for `getCalendars`. The phone is in Berlin; every
@@ -78,6 +78,7 @@ beforeEach(() => {
   jest.spyOn(reminderEndpoints, 'putReminderSettings').mockResolvedValue(settings() as never);
   jest.spyOn(profileEndpoints, 'getProfile').mockResolvedValue(ROUTINE_PROFILE as never);
   jest.spyOn(permission, 'requestNotificationPermission').mockResolvedValue('granted');
+  jest.spyOn(permission, 'getNotificationPermission').mockResolvedValue('granted');
 });
 
 afterEach(async () => {
@@ -90,6 +91,20 @@ afterEach(async () => {
   resetAuthForTests();
   jest.restoreAllMocks();
 });
+
+/**
+ * Takes the tree down in the middle of a test.
+ *
+ * RNTL v14's `cleanup` is async: it walks its queue of unmounts, each inside
+ * `act`. Left un-awaited, the next `render` joins that queue while it is still
+ * being walked and is unmounted with the old tree, so `screen` answers from a
+ * dead renderer. The screen's own permission read on mount (#475) added enough
+ * async work to make that race lose regularly.
+ */
+async function remount() {
+  await cleanup();
+  await new Promise(resolve => setTimeout(resolve, 0));
+}
 
 async function show() {
   return render(
@@ -313,8 +328,7 @@ describe('Must reminders', () => {
     await show();
     await readyCeiling('soft');
     expect(screen.queryByTestId('must-through-quiet-switch')).toBeNull();
-    cleanup();
-    await new Promise(resolve => setTimeout(resolve, 0));
+    await remount();
 
     jest.spyOn(reminderEndpoints, 'getReminderSettings')
       .mockResolvedValue(settings({ hardEnabled: true, escalationCeiling: 'hard' }) as never);
@@ -354,8 +368,7 @@ describe('Must reminders', () => {
     await readyCeiling('hard');
     await waitFor(() => expect(asked).toHaveBeenCalled());
     expect(screen.queryByTestId('must-exact-denied')).toBeNull();
-    cleanup();
-    await new Promise(resolve => setTimeout(resolve, 0));
+    await remount();
 
     asked.mockReturnValue(false);
     jest.spyOn(reminderEndpoints, 'getReminderSettings')
@@ -372,6 +385,104 @@ describe('Must reminders', () => {
     await show();
     await waitFor(() => expect(screen.queryByTestId('gentle-reminders-switch')).not.toBeNull());
     expect(screen.queryByTestId('must-reminders')).toBeNull();
+  });
+});
+
+/*
+ * #475: "Ring for Must items" looked exactly the same after iOS said no as
+ * after it said yes. The preference stays what the person chose; what the
+ * phone allows is shown at the control, read on mount and on every return to
+ * the foreground.
+ */
+describe('Must ringing when the phone will not ring (#475)', () => {
+  function captureAppState() {
+    const listeners: ((state: AppStateStatus) => void)[] = [];
+    jest.spyOn(AppState, 'addEventListener').mockImplementation(((_type: string, listener: (state: AppStateStatus) => void) => {
+      listeners.push(listener);
+      return { remove: () => {} };
+    }) as never);
+    return (state: AppStateStatus) => { for (const listener of listeners) listener(state); };
+  }
+
+  const ringingSaved = () => settings({ hardEnabled: true, escalationCeiling: 'hard' });
+
+  it('warns at the Must control when the prompt answers no, and keeps the saved choice', async () => {
+    jest.spyOn(permission, 'getNotificationPermission').mockResolvedValue('undetermined');
+    jest.spyOn(permission, 'requestNotificationPermission').mockResolvedValue('denied');
+    const put = jest.spyOn(reminderEndpoints, 'putReminderSettings').mockResolvedValue(ringingSaved() as never);
+    // The save invalidates and refetches: the server answers with what was stored.
+    jest.spyOn(reminderEndpoints, 'getReminderSettings').mockImplementation(async () =>
+      (put.mock.calls.length > 0 ? ringingSaved() : settings()) as never);
+    const open = jest.spyOn(Linking, 'openSettings').mockResolvedValue(undefined as never);
+    await show();
+
+    await waitFor(() => expect(screen.queryByTestId('must-ceiling-hard')).not.toBeNull());
+    fireEvent.press(screen.getByTestId('must-ceiling-hard'));
+    await waitFor(() => expect(screen.queryByTestId('must-hard-confirm')).not.toBeNull());
+    fireEvent.press(screen.getByTestId('must-hard-confirm'));
+
+    await waitFor(() => expect(screen.queryByTestId('must-ring-denied')).not.toBeNull());
+    expect(screen.queryByText(en.notifMustRingDenied)).not.toBeNull();
+    // At the control: inside the Must card, not at the bottom of the screen.
+    expect(within(screen.getByTestId('must-reminders')).queryByTestId('must-ring-denied')).not.toBeNull();
+    // (f) The choice is not rolled back.
+    expect(put).toHaveBeenCalledWith({ escalationCeiling: 'hard', hardEnabled: true });
+    expect(put).not.toHaveBeenCalledWith(expect.objectContaining({ hardEnabled: false }));
+    // One warning for one condition.
+    expect(screen.queryByTestId('notifications-denied')).toBeNull();
+
+    fireEvent.press(within(screen.getByTestId('must-reminders')).getByTestId('must-ring-open-settings'));
+    expect(open).toHaveBeenCalledTimes(1);
+  });
+
+  it('warns on opening the screen when ringing is saved and the phone already said no, without asking', async () => {
+    jest.spyOn(permission, 'getNotificationPermission').mockResolvedValue('denied');
+    jest.spyOn(reminderEndpoints, 'getReminderSettings').mockResolvedValue(ringingSaved() as never);
+    await show();
+
+    await waitFor(() => expect(screen.queryByTestId('must-ring-denied')).not.toBeNull());
+    expect(screen.queryByTestId('must-ring-open-settings')).not.toBeNull();
+    expect(permission.requestNotificationPermission).not.toHaveBeenCalled();
+    expect(reminderEndpoints.putReminderSettings).not.toHaveBeenCalled();
+  });
+
+  it('shows no warning when the phone allows notifications', async () => {
+    const read = jest.spyOn(permission, 'getNotificationPermission').mockResolvedValue('granted');
+    jest.spyOn(reminderEndpoints, 'getReminderSettings').mockResolvedValue(ringingSaved() as never);
+    await show();
+
+    await waitFor(() => expect(screen.queryByTestId('must-through-quiet-switch')).not.toBeNull());
+    await waitFor(() => expect(read).toHaveBeenCalled());
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(screen.queryByTestId('must-ring-denied')).toBeNull();
+    expect(screen.queryByTestId('must-ring-provisional')).toBeNull();
+    expect(screen.queryByTestId('must-ring-open-settings')).toBeNull();
+  });
+
+  it('says quiet delivery cannot ring when the permission is provisional', async () => {
+    jest.spyOn(permission, 'getNotificationPermission').mockResolvedValue('provisional');
+    jest.spyOn(reminderEndpoints, 'getReminderSettings').mockResolvedValue(ringingSaved() as never);
+    await show();
+
+    await waitFor(() => expect(screen.queryByTestId('must-ring-provisional')).not.toBeNull());
+    expect(screen.queryByText(en.notifMustRingProvisional)).not.toBeNull();
+    expect(screen.queryByTestId('must-ring-denied')).toBeNull();
+    expect(screen.queryByTestId('must-ring-open-settings')).not.toBeNull();
+  });
+
+  it('clears the warning when the app comes back after the user allowed notifications', async () => {
+    const fire = captureAppState();
+    const read = jest.spyOn(permission, 'getNotificationPermission').mockResolvedValue('denied');
+    jest.spyOn(reminderEndpoints, 'getReminderSettings').mockResolvedValue(ringingSaved() as never);
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('must-ring-denied')).not.toBeNull());
+
+    read.mockResolvedValue('granted');
+    await act(async () => { fire('active'); });
+
+    await waitFor(() => expect(screen.queryByTestId('must-ring-denied')).toBeNull());
+    expect(screen.queryByTestId('must-ring-open-settings')).toBeNull();
+    expect(permission.requestNotificationPermission).not.toHaveBeenCalled();
   });
 });
 
