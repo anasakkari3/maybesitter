@@ -121,7 +121,9 @@ export function SetupLifeStep({
 
       {/* One row that scrolls, not four that wrap: wrapped, the English prompts
           took four lines and pushed the composer below the fold. In Arabic and
-          Hebrew the row reads from the right, so it opens scrolled to its end. */}
+          Hebrew the row reads from the right: a horizontal ScrollView lays out
+          left to right even under an RTL root, so the prompts are reversed and
+          the row opens scrolled to its end, putting prompt 1 at the right. */}
       <ScrollView
         ref={promptRow}
         horizontal
@@ -131,7 +133,8 @@ export function SetupLifeStep({
         onContentSizeChange={() => { if (rtl) promptRow.current?.scrollToEnd({ animated: false }); }}
         testID="setup-life-prompts"
       >
-        {promptKeys.map((key, n) => {
+        {(rtl ? [...promptKeys].reverse() : promptKeys).map((key) => {
+          const n = promptKeys.indexOf(key);
           const active = activePrompt === key;
           return (
             <Btn

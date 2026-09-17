@@ -149,6 +149,22 @@ describe('it reads as a conversation, in every language', () => {
     expect(alignOf('setup-life-body')).toBe(align);
   });
 
+  it.each([
+    ['ar', ar, 1.6],
+    ['he', he, 1.5],
+    ['en', en, 1.3],
+  ] as ['en' | 'ar' | 'he', typeof en, number][])(
+    '%s: the heading has room for marks above the letters',
+    async (lang, copy, multiple) => {
+      // On the simulator the Arabic heading lost its shadda and the hamza on
+      // «أتعرف»: a 1.3 line box clips Naskh's marks. Arabic and Hebrew keep
+      // their script's own line height; only Latin is set tighter.
+      await renderFirst({ lang });
+      const style = StyleSheet.flatten(screen.getByText(copy.obSetupLifeTitle).props.style);
+      expect(style?.lineHeight).toBe(Math.round(28 * multiple));
+    },
+  );
+
   it('has none of the survey furniture', async () => {
     await renderFirst({ lang: 'ar' });
     expect(screen.queryByTestId('setup-question-of')).toBeNull();
@@ -157,6 +173,20 @@ describe('it reads as a conversation, in every language', () => {
     expect(screen.queryByText(ar.obSetupNext)).toBeNull();
     // No demographic answer chips from the questions after it.
     expect(screen.queryByText(ar.obSetupDayChip1)).toBeNull();
+  });
+
+  it.each([
+    ['en', ['1', '2', '3', '4']],
+    ['ar', ['4', '3', '2', '1']],
+    ['he', ['4', '3', '2', '1']],
+  ] as ['en' | 'ar' | 'he', string[]][])('%s: the first prompt is the first one read', async (lang, order) => {
+    // The row scrolls horizontally, and a horizontal ScrollView lays its
+    // children out left to right even under an RTL root. In Arabic and Hebrew
+    // the row opens scrolled to its end, so the children are reversed there to
+    // put prompt 1 at the right edge, where reading starts.
+    await renderFirst({ lang });
+    const ids = screen.getAllByTestId(/^setup-life-prompt-\d$/).map((node) => String(node.props.testID).slice(-1));
+    expect(ids).toEqual(order);
   });
 
   it('offers at most four inspiration prompts', async () => {

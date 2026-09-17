@@ -40,7 +40,7 @@ export function OnboardingChrome({
   headerAction?: { label: string; onPress: () => void; testID?: string } | undefined;
   testID?: string;
 }) {
-  const { p, tr } = useApp();
+  const { p, tr, script } = useApp();
   const insets = useSafeAreaInsets();
   const index = ONBOARDING_STEPS.indexOf(step);
 
@@ -85,7 +85,10 @@ export function OnboardingChrome({
           contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 24, gap: 16 }}
           keyboardShouldPersistTaps="handled"
         >
-          <Txt size={28} weight={600} lh={1.3}>{title}</Txt>
+          {/* Tight only for Latin. Arabic and Hebrew keep their script's own line
+              height: a 1.3 box clipped the shadda and the hamza off Arabic
+              headings on device. */}
+          <Txt size={28} weight={600} {...(script === 'latin' ? { lh: 1.3 } : {})}>{title}</Txt>
           {children}
         </ScrollView>
 
