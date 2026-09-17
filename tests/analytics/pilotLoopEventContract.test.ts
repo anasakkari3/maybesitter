@@ -23,6 +23,9 @@ const MOBILE_EMITTED_EVENTS = [
   // device knows: the server stores a status, but "opened it" and "moved
   // something and was refused" leave no trace in domain state.
   'plan_opened', 'plan_accepted', 'plan_edited', 'plan_regenerated', 'plan_dismissed',
+  // UC-3.17 (#469). How many of the five setup questions were answered — a
+  // count, never the answers.
+  'onboarding_setup_answered',
 ] as const;
 
 test('every event the mobile app emits is a known analytics event', () => {
@@ -199,5 +202,31 @@ test('the route refuses a plan event that tried to carry somebody\u2019s morning
       }));
       assert.equal(verdict.valid, false, `${eventName} accepted ${Object.keys(smuggled)[0]}`);
     }
+  }
+});
+
+/**
+ * The guided setup chat (UC-3.17, #469) reports one thing: how many of its
+ * five questions got an answer. The answers themselves are profile text and
+ * go through `POST /api/mobile/profile/describe`, never through analytics.
+ */
+test('the route accepts onboarding_setup_answered with a count and nothing else', () => {
+  for (const answeredCount of [0, 3, 5]) {
+    const verdict = validateAnalyticsEvent(analyticsEnvelope('onboarding_setup_answered', { answeredCount }));
+    assert.deepEqual(verdict, { valid: true, errors: [] }, `answeredCount=${answeredCount}: ${verdict.errors.join('; ')}`);
+  }
+});
+
+test('the route refuses onboarding_setup_answered that is not a count of 0-5', () => {
+  for (const properties of [
+    { answeredCount: 'three' },
+    { answeredCount: 6 },
+    { answeredCount: -1 },
+    { answeredCount: 2.5 },
+    { answeredCount: 3, work: 'nurse at the city hospital' },
+    { answeredCount: 3, answers: 'x' },
+  ]) {
+    const verdict = validateAnalyticsEvent(analyticsEnvelope('onboarding_setup_answered', properties));
+    assert.equal(verdict.valid, false, `accepted ${JSON.stringify(properties)}`);
   }
 });

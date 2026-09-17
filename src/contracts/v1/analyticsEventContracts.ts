@@ -43,6 +43,11 @@ export const ANALYTICS_EVENT_NAMES = [
   // altogether rather than allowlisted: "which commitments are in your morning"
   // is the shape of the thing this product does not collect.
   'plan_opened', 'plan_accepted', 'plan_edited', 'plan_regenerated', 'plan_dismissed',
+  // Additive UC-3.17 (#469). How many of the five setup questions were
+  // answered — a count, never the answers. What somebody typed about their
+  // work, their day or their habits is profile text and travels through the
+  // describe/review flow, which needs confirmation; analytics gets a number.
+  'onboarding_setup_answered',
 ] as const;
 
 export type AnalyticsEventName = typeof ANALYTICS_EVENT_NAMES[number];

@@ -32,6 +32,7 @@ import { createFakeAuthRepository } from '../../../auth/fakeAuthRepository';
 import type { AuthUser } from '../../../auth/types';
 import { OnboardingGate } from '../OnboardingGate';
 import { ONBOARDING_STORAGE_KEY } from '../../../lib/deviceSettings/onboardingProgress';
+import { setupChatStorageKey } from '../../../lib/deviceSettings/setupChatCache';
 import en from '../../../i18n/locales/en.json';
 
 import * as consentEndpoints from '../../../api/endpoints/consents';
@@ -65,6 +66,8 @@ let getConsents: jest.SpiedFunction<typeof consentEndpoints.getConsents>;
 let putAiConsent: jest.SpiedFunction<typeof consentEndpoints.putAiConsent>;
 let putRecommendationConsent: jest.SpiedFunction<typeof consentEndpoints.putRecommendationConsent>;
 let updateTrust: jest.SpiedFunction<typeof trustEndpoints.updateTrust>;
+let recordAnalyticsEvent: jest.SpiedFunction<typeof analyticsEndpoints.recordAnalyticsEvent>;
+let describeProfile: jest.SpiedFunction<typeof profileEndpoints.describeProfile>;
 
 beforeEach(async () => {
   await AsyncStorage.clear();
@@ -81,7 +84,20 @@ beforeEach(async () => {
     .mockResolvedValue({ success: true, recommendations: { state: 'declined', version: 'rec-consent-v1', changedAt: 'x' } } as never);
   updateTrust = jest.spyOn(trustEndpoints, 'updateTrust').mockResolvedValue({} as never);
   jest.spyOn(profileEndpoints, 'putRoutine').mockResolvedValue({} as never);
-  jest.spyOn(analyticsEndpoints, 'recordAnalyticsEvent').mockResolvedValue({} as never);
+  recordAnalyticsEvent = jest.spyOn(analyticsEndpoints, 'recordAnalyticsEvent').mockResolvedValue({} as never);
+  describeProfile = jest.spyOn(profileEndpoints, 'describeProfile').mockResolvedValue({
+    success: true,
+    proposalId: 'pp-1',
+    suggestions: [{
+      kind: 'goal' as const, category: 'fitness_habit' as const, content: 'Swim twice a week',
+      targetDate: null, confidence: 0.8,
+    }],
+    createdAt: '2026-09-13T09:00:00.000Z',
+    promptVersion: 'v1',
+    model: 'gemini-2.5-flash',
+  } as never);
+  jest.spyOn(profileEndpoints, 'confirmProfileSuggestions')
+    .mockResolvedValue({ success: true, saved: 0, kinds: {} } as never);
 });
 
 afterEach(async () => {
@@ -100,8 +116,9 @@ afterEach(async () => {
   await AsyncStorage.clear();
 });
 
-async function renderApp() {
-  const view = await render(
+/** Mounts the gate without waiting: the step it lands on is the caller's claim. */
+async function mountApp() {
+  return render(
     <SafeAreaProvider initialMetrics={METRICS}>
       <AppProvider>
         <AuthProvider repository={repository} isDevBundle={false}>
@@ -114,6 +131,10 @@ async function renderApp() {
       </AppProvider>
     </SafeAreaProvider>,
   );
+}
+
+async function renderApp() {
+  const view = await mountApp();
   await waitFor(() => expect(screen.queryByText(en.obWelcomeTitle)).not.toBeNull());
   return view;
 }
@@ -386,6 +407,129 @@ describe('when the consent versions cannot be fetched', () => {
 
     release?.();
     await waitFor(() => expect(screen.queryByText(en.obConsentChecking)).toBeNull());
+  });
+});
+
+/**
+ * The guided setup, driven through the flow (UC-3.17, #469).
+ *
+ * The screen's own contract is in `setupChatStep.test.tsx`. What is proved
+ * here is what leaves the phone and when: the composed text reaches
+ * `describeProfile` only after "Read my answers", never with AI declined; the
+ * draft survives a remount through the per-account cache; and the count
+ * event fires only with analytics consent — and carries a count, not words.
+ */
+describe('the guided setup', () => {
+  /**
+   * Sign-in to the "about" step, answering the two consent questions the way
+   * the caller says. Pressed, not stubbed, so the branch below is the one a
+   * person reaches.
+   */
+  async function reachSetup(ai: 'allow' | 'decline', analytics: boolean) {
+    const view = await renderApp();
+    await press(en.obContinue);
+    await waitFor(() => expect(screen.queryByText(en.obConsentTitle)).not.toBeNull());
+    await waitFor(() => expect(getConsents).toHaveBeenCalled());
+    await press(ai === 'allow' ? en.obAiAllow : en.obAiDecline);
+    if (analytics) {
+      await fireEvent(screen.getByLabelText(en.obAnalyticsTitle), 'valueChange', true);
+      await waitFor(() => expect(screen.getByLabelText(en.obAnalyticsTitle).props.value).toBe(true));
+    }
+    await press(en.obContinue);
+    await waitFor(() => expect(screen.queryByTestId('onboarding-routine')).not.toBeNull());
+    await press(en.obSkip);
+    await waitFor(() => expect(screen.queryByTestId('onboarding-progress-about')).not.toBeNull());
+    return view;
+  }
+
+  it('asks the first question, and sends the composed answers to describe', async () => {
+    await reachSetup('allow', false);
+    expect(screen.queryByText(en.obSetupWorkPrompt)).not.toBeNull();
+    expect(screen.queryByTestId('onboarding-about-manual')).toBeNull();
+
+    await pressTestId('setup-chip-work-1');
+    for (let i = 0; i < 4; i += 1) await press(en.obSetupNext);
+    await waitFor(() => expect(screen.queryByText(en.obSetupHabitsPrompt)).not.toBeNull());
+    expect(describeProfile).not.toHaveBeenCalled();
+
+    await press(en.obSetupRead);
+    await waitFor(() => expect(describeProfile).toHaveBeenCalledTimes(1));
+    expect(describeProfile.mock.calls[0]![0]).toContain(`${en.obSetupWorkLabel}: ${en.obSetupWorkChip1}`);
+    await waitFor(() => expect(screen.queryByTestId('onboarding-about-review')).not.toBeNull());
+  });
+
+  it('restores the draft and the question after a remount', async () => {
+    // The server as it behaves: once the AI answer is written, the next GET
+    // reports it, which is what a remount seeds the AI choice from.
+    let aiRecorded = false;
+    getConsents.mockImplementation(async () => (aiRecorded
+      ? {
+        ...CONSENTS,
+        aiProcessing: {
+          state: 'granted' as const, version: 'ai-consent-v1',
+          changedAt: '2026-09-17T09:00:00.000Z', asked: true,
+        },
+      }
+      : CONSENTS));
+    putAiConsent.mockImplementation(async () => {
+      aiRecorded = true;
+      return { success: true, aiProcessing: { state: 'granted', version: 'ai-consent-v1', changedAt: 'x' } } as never;
+    });
+
+    const view = await reachSetup('allow', false);
+    await pressTestId('setup-chip-work-3');
+    await press(en.obSetupNext);
+    await waitFor(() => expect(screen.queryByText(en.obSetupDayPrompt)).not.toBeNull());
+    // Per account, on this device — the draft is not the phone's (#148).
+    await waitFor(() => expect(AsyncStorage.getItem(setupChatStorageKey(USER.uid))).resolves.not.toBeNull());
+
+    await view.unmount();
+    // Resumes on the about step, so there is no welcome screen to wait for.
+    await mountApp();
+    await waitFor(() => expect(screen.queryByText(en.obSetupDayPrompt)).not.toBeNull());
+    await press(en.obBack);
+    await waitFor(() => expect(screen.getByTestId('setup-answer-input').props.value).toBe(en.obSetupWorkChip3));
+  });
+
+  it('shows the manual card with AI declined, and never calls describe', async () => {
+    await reachSetup('decline', true);
+    expect(screen.queryByTestId('onboarding-about-manual')).not.toBeNull();
+    expect(screen.queryByTestId('setup-answer-input')).toBeNull();
+    await press(en.obContinue);
+    await waitFor(() => expect(screen.queryByTestId('onboarding-notifications')).not.toBeNull());
+    expect(describeProfile).not.toHaveBeenCalled();
+    // The count is still reported — zero — because this run granted analytics.
+    expect(recordAnalyticsEvent).toHaveBeenCalledWith('onboarding_setup_answered', { answeredCount: 0 });
+  });
+
+  it('reports how many were answered when analytics was granted', async () => {
+    await reachSetup('allow', true);
+    await pressTestId('setup-chip-work-1');
+    await pressTestId('setup-skip');
+    await waitFor(() => expect(screen.queryByTestId('onboarding-notifications')).not.toBeNull());
+    expect(recordAnalyticsEvent).toHaveBeenCalledWith('onboarding_setup_answered', { answeredCount: 1 });
+    // The draft is gone with the step: the next sign-in starts clean.
+    await waitFor(() => expect(AsyncStorage.getItem(setupChatStorageKey(USER.uid))).resolves.toBeNull());
+  });
+
+  it('reports nothing without analytics consent', async () => {
+    await reachSetup('allow', false);
+    for (let i = 0; i < 4; i += 1) await press(en.obSetupNext);
+    await press(en.obSetupFinish);
+    await waitFor(() => expect(screen.queryByTestId('onboarding-notifications')).not.toBeNull());
+    expect(recordAnalyticsEvent).not.toHaveBeenCalledWith('onboarding_setup_answered', expect.anything());
+    expect(describeProfile).not.toHaveBeenCalled();
+  });
+
+  it('saves nothing from the review without a tick', async () => {
+    await reachSetup('allow', false);
+    await pressTestId('setup-chip-work-1');
+    for (let i = 0; i < 4; i += 1) await press(en.obSetupNext);
+    await press(en.obSetupRead);
+    await waitFor(() => expect(screen.queryByTestId('onboarding-about-review')).not.toBeNull());
+    await press(en.obAboutSaveNone);
+    await waitFor(() => expect(profileEndpoints.confirmProfileSuggestions).toHaveBeenCalledWith('pp-1', []));
+    await waitFor(() => expect(screen.queryByTestId('onboarding-notifications')).not.toBeNull());
   });
 });
 

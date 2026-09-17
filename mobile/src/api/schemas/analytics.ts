@@ -52,6 +52,9 @@ export const CLIENT_REPORTABLE_EVENTS = [
   'plan_edited',
   'plan_regenerated',
   'plan_dismissed',
+  // UC-3.17 (#469). How many of the five setup questions were answered — a
+  // count, never the answers.
+  'onboarding_setup_answered',
 ] as const;
 
 export type ClientReportableEvent = (typeof CLIENT_REPORTABLE_EVENTS)[number];

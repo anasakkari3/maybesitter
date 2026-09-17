@@ -8,6 +8,15 @@ name: MaybeSitter sign-in gate
 - launchApp:
     clearState: true
 
+# ── Language, first (#469) ────────────────────────────────────────
+# A fresh install asks for its language before anything else. 'العربية' is
+# named in itself, so the tap reads the same whatever language the device is in.
+- assertVisible:
+    id: 'language-step'
+- tapOn: 'العربية'
+- tapOn:
+    id: 'language-continue'
+
 # Arabic is the default language, so the sign-in screen reads «أهلاً فيك».
 - assertVisible: 'أهلاً فيك بـMaybeSitter'
 - assertVisible: 'تابع بالإيميل'

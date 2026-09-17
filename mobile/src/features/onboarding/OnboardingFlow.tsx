@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { useAuth } from '../../auth/AuthProvider';
@@ -14,12 +14,20 @@ import {
 } from '../../api/queries';
 import { toRoutinePayload, type RoutineAnswers } from '../routine/routineProfile';
 import { EMPTY_CACHE, loadRoutineCache, saveRoutineCache } from '../../lib/deviceSettings/routineCache';
+import {
+  SETUP_CACHE_VERSION,
+  clearSetupChatCache,
+  loadSetupChatCache,
+  saveSetupChatCache,
+} from '../../lib/deviceSettings/setupChatCache';
 import { WelcomeStep } from './WelcomeStep';
 import { ConsentStep, type ConsentChoices } from './ConsentStep';
 import { RoutineStep } from './RoutineStep';
 import { NotificationsStep } from './NotificationsStep';
 import { AboutYouStep } from './AboutYouStep';
 import { AboutYouReviewStep } from './AboutYouReviewStep';
+import { SetupChatStep } from './SetupChatStep';
+import { EMPTY_SETUP_ANSWERS, answeredCount, composeDescription, type SetupAnswers } from './setupChat';
 import type { ProfileSuggestion } from '../../api/schemas/profile';
 import { NotFoundError } from '../../api/errors';
 import { useConfirmProfileSuggestions, useDescribeProfile } from '../../api/queries';
@@ -64,7 +72,7 @@ export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
   // The survey answers are the account's, not the device's (#148): every read
   // and write of the local copy names whose it is.
   const accountId = useAuth().user?.uid ?? null;
-  const { p } = useApp();
+  const { p, t } = useApp();
   const timezone = useTimeZone();
   const consents = useConsents();
   const setAi = useSetAiConsent();
@@ -94,21 +102,48 @@ export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
   const describe = useDescribeProfile();
   const confirmSuggestions = useConfirmProfileSuggestions();
 
-  // Resume where the last run stopped, and re-open the survey on whatever this
-  // device already has cached.
+  // The guided setup's draft (UC-3.17, #469): five answers and the question
+  // the user is on. A draft and nothing more — it reaches the account only
+  // through the review step, and is cleared when the step ends either way.
+  const [setup, setSetup] = useState<{ answers: SetupAnswers; index: number }>({
+    answers: EMPTY_SETUP_ANSWERS,
+    index: 0,
+  });
+  // Flipped once the stored draft has been read, so the write-through below
+  // cannot overwrite a real draft with the empty one it starts from.
+  const setupLoaded = useRef(false);
+
+  // Resume where the last run stopped, and re-open the survey and the setup
+  // draft on whatever this device already has cached.
   useEffect(() => {
     let live = true;
     void (async () => {
-      const [progress, cache] = await Promise.all([
+      const [progress, cache, setupCache] = await Promise.all([
         loadOnboardingProgress(),
         accountId ? loadRoutineCache(accountId) : Promise.resolve(null),
+        accountId ? loadSetupChatCache(accountId) : Promise.resolve(null),
       ]);
       if (!live) return;
       setStep(progress);
       if (cache) setAnswers(cache.answers);
+      setupLoaded.current = true;
+      if (setupCache) setSetup({ answers: setupCache.answers, index: setupCache.index });
     })();
     return () => { live = false; };
   }, [accountId]);
+
+  // Every change to the draft is written through, fire-and-forget:
+  // backgrounding the app mid-chat must not start it over, and a write that
+  // did not land costs a draft, not the screen.
+  useEffect(() => {
+    if (!accountId || !setupLoaded.current) return;
+    void saveSetupChatCache(accountId, {
+      version: SETUP_CACHE_VERSION,
+      answers: setup.answers,
+      index: setup.index,
+      updatedAt: new Date().toISOString(),
+    });
+  }, [accountId, setup]);
 
   // A second device runs onboarding again, but must not re-ask a question this
   // account has already answered. The server's copy seeds the controls.
@@ -217,6 +252,24 @@ export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
     }
   }, [describe]);
 
+  /**
+   * The about step is over — saved, saved nothing, skipped, or the manual
+   * card's Continue. The draft goes, and the one event this step reports is
+   * a count, sent only when this run granted analytics. The manual path
+   * reports zero whatever a restored draft holds: the questions were never
+   * asked on this run.
+   */
+  const finishSetup = useCallback(async (reason: 'manual' | 'skipped' | 'saved') => {
+    if (accountId) await clearSetupChatCache(accountId);
+    if (choices.analytics) {
+      recordAnalytics.mutate({
+        eventName: 'onboarding_setup_answered',
+        properties: { answeredCount: reason === 'manual' ? 0 : answeredCount(setup.answers) },
+      });
+    }
+    await advance('about');
+  }, [accountId, advance, choices.analytics, recordAnalytics, setup.answers]);
+
   const saveSuggestions = useCallback(async (proposalId: string, accepted: AcceptedSuggestion[]) => {
     // An empty list is a real answer — "none of these are right" — and is sent
     // rather than skipped, so the proposal is cleaned up server-side too.
@@ -240,8 +293,8 @@ export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
       }
     }
     setProposal(null);
-    await advance('about');
-  }, [advance, confirmSuggestions]);
+    await finishSetup('saved');
+  }, [confirmSuggestions, finishSetup]);
 
   if (step === null || step === 'done') {
     // Held on the plain background while the stored step is read, for the same
@@ -294,18 +347,28 @@ export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
         />
       );
     }
+    if (choices.ai !== 'granted') {
+      // With AI off there is nothing to read, so the step just ends. Anything
+      // the user wants remembered goes in by hand from the memory screen,
+      // which stores it without a model.
+      return (
+        <AboutYouStep
+          onManual={() => void finishSetup('manual')}
+          onBack={() => goBack('about')}
+        />
+      );
+    }
     return (
-      <AboutYouStep
-        aiGranted={choices.ai === 'granted'}
+      <SetupChatStep
+        answers={setup.answers}
+        index={setup.index}
+        onChange={(update) => setSetup(previous => ({ ...previous, answers: update(previous.answers) }))}
+        onIndexChange={(index) => setSetup(previous => ({ ...previous, index }))}
+        onRead={() => void readDescription(composeDescription(setup.answers, t))}
+        onSkip={() => void finishSetup('skipped')}
+        onBack={() => goBack('about')}
         reading={describe.isPending}
         failed={describeFailed}
-        onDescribe={(text) => void readDescription(text)}
-        // With AI off there is nothing to read, so the step just ends. Anything
-        // the user wants remembered goes in by hand from the memory screen,
-        // which stores it without a model.
-        onManual={() => void advance('about')}
-        onSkip={() => void advance('about')}
-        onBack={() => goBack('about')}
       />
     );
   }

@@ -47,6 +47,11 @@ export const CLIENT_REPORTABLE_EVENTS = [
   // in domain state. None of them feeds activation or retention, which stay
   // derived on the server so a client cannot forge funnel progress.
   'plan_opened', 'plan_accepted', 'plan_edited', 'plan_regenerated', 'plan_dismissed',
+  // UC-3.17 (#469). How many of the five setup questions were answered — a
+  // count, never the answers. Only the device knows: an unanswered question
+  // leaves nothing behind on the server, and the answers that do reach it
+  // arrive as one description through the profile route, not as five fields.
+  'onboarding_setup_answered',
 ] as const;
 
 export type ClientReportableEvent = typeof CLIENT_REPORTABLE_EVENTS[number];
