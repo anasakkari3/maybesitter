@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { AppState, Linking, Platform, ScrollView, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -15,7 +15,11 @@ import {
 import { useTimeZone } from '../../i18n/timezone';
 import { dayKey, formatRelativeDay, formatTime } from '../../i18n/format';
 import { fill, ltr } from '../../i18n/strings';
-import { requestNotificationPermission } from '../../notifications/permission';
+import {
+  getNotificationPermission,
+  requestNotificationPermission,
+  type NotificationPermission,
+} from '../../notifications/permission';
 import { softRemindersEnabled } from '../../config/env';
 import { quietChoiceFor, quietWindowFor, type QuietChoice } from '../routine/routineProfile';
 import { timeShowing, timeShown } from '../plan/pickerClock';
@@ -43,7 +47,9 @@ import { SettingsHeader, SettingsRow } from './SettingsChrome';
  * wants; the permission is what the phone currently allows. So the switch
  * stays where they put it, the row says the phone is set to show nothing, and
  * `Linking.openSettings()` — which this screen has offered since #174 — is the
- * only place that answer can be changed.
+ * only place that answer can be changed. The answer is read on mount and on
+ * every return to the foreground (#475), and when ringing is chosen but the
+ * phone cannot ring, the Must control says so itself.
  *
  * ── Both switches ask, and that is not two prompts ───────────────
  *
@@ -89,7 +95,11 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
   const save = useSaveReminderSettings();
   const planSettings = usePlanSettings();
   const savePlan = useSavePlanSettings();
-  const [permissionDenied, setPermissionDenied] = useState(false);
+  // What the phone allows, as last read. `null` until the first read lands.
+  const [osPermission, setOsPermission] = useState<NotificationPermission | null>(null);
+  // Every read and every ask takes a number; only the newest may write, so a
+  // mount read that resolves after the prompt cannot overwrite its answer.
+  const permissionRead = useRef(0);
   const [failed, setFailed] = useState(false);
   const [picking, setPicking] = useState(false);
   const [explainingHard, setExplainingHard] = useState(false);
@@ -103,6 +113,18 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
     return () => subscription.remove();
   }, []);
 
+  /*
+   * #475: the phone's answer is read on mount and on every return to the
+   * foreground, not only when this session fired the prompt. Someone who said
+   * no last week, or who has just allowed notifications in phone settings,
+   * sees what the phone allows now.
+   */
+  useEffect(() => {
+    const read = ++permissionRead.current;
+    void getNotificationPermission().then(status => {
+      if (read === permissionRead.current) setOsPermission(status);
+    });
+  }, [foregrounded]);
   const current = settings.data?.reminderSettings;
   const quietChoice = quietChoiceFor(current?.quietHours ?? null) ?? 'none';
   /*
@@ -120,6 +142,21 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
   // native call; only Android can ever answer no.
   const exactDenied = ringing && Platform.OS === 'android' && foregrounded >= 0 && !canScheduleExactAlarms();
   const killed = !softRemindersEnabled();
+  /*
+   * Ringing is chosen but the phone will not ring (#475). The saved choice is
+   * left alone, so allowing notifications later simply works; the Must
+   * control says what is in the way. `provisional` is not `denied`, but it
+   * delivers quietly to Notification Centre, which cannot ring either.
+   */
+  const mustSectionShown = !killed && current?.softEnabled === true;
+  const ringBlocked =
+    mustSectionShown && ringing && (osPermission === 'denied' || osPermission === 'provisional')
+      ? osPermission
+      : null;
+  // The general line at the bottom, for every other denied case. When the
+  // Must warning is up it already says notifications are off, so the same
+  // fact is not stated twice on one screen.
+  const permissionDenied = osPermission === 'denied' && ringBlocked === null;
 
   const plan = planSettings.data ?? null;
   const zone = plan?.timezone ?? device;
@@ -154,7 +191,9 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
    * the same either way — the phone's answer is reported, never acted on.
    */
   const askForPermission = async (): Promise<void> => {
-    setPermissionDenied((await requestNotificationPermission()) === 'denied');
+    const read = ++permissionRead.current;
+    const status = await requestNotificationPermission();
+    if (read === permissionRead.current) setOsPermission(status);
   };
 
   const setEnabled = async (next_: boolean): Promise<boolean> => {
@@ -332,7 +371,9 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
                   <Pill
                     key={choice}
                     label={ceilingLabel[choice]}
-                    kind={selected ? 'accent' : 'outline'}
+                    // Chosen but blocked by the phone (#475) must not look
+                    // like chosen and working: warm, not the accent.
+                    kind={selected ? (choice === 'hard' && ringBlocked ? 'warm' : 'accent') : 'outline'}
                     size={14}
                     pad={12}
                     testID={`must-ceiling-${choice}`}
@@ -366,6 +407,22 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
                     onPress={() => setExplainingHard(false)}
                   />
                 </View>
+              </View>
+            ) : null}
+
+            {ringBlocked ? (
+              <View style={{ gap: 8 }} testID="must-ring-blocked">
+                <Txt size={13} color={p.wm} lh={1.5} testID={`must-ring-${ringBlocked}`}>
+                  {ringBlocked === 'denied' ? t.notifMustRingDenied : t.notifMustRingProvisional}
+                </Txt>
+                <Pill
+                  label={t.notifOpenSettings}
+                  kind="outline"
+                  size={14}
+                  pad={12}
+                  testID="must-ring-open-settings"
+                  onPress={() => void Linking.openSettings()}
+                />
               </View>
             ) : null}
 

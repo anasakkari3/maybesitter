@@ -429,6 +429,8 @@
   "notifMustQuietBody": "Only the ring 10 minutes before a Must item. Everything else still waits for quiet hours to end.",
   "notifExactDenied": "Android may deliver Must reminders a few minutes late. Allow “Alarms & reminders” for exact timing.",
   "notifExactOpen": "Allow Alarms & reminders",
+  "notifMustRingDenied": "Must items cannot ring because notifications are off for MaybeSitter. You can turn them on in phone settings.",
+  "notifMustRingProvisional": "Must items cannot ring because this phone only lets MaybeSitter deliver quietly. Allow alerts and sounds in phone settings.",
   "feedbackHistoryTitle": "What it learned from you",
   "feedbackHistoryEmpty": "Nothing yet. Once you accept, move or drop a suggestion, it shows here.",
   "feedbackHistoryUnavailable": "Can't reach this right now. Nothing was changed.",
