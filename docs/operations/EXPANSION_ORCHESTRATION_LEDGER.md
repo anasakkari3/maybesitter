@@ -84,7 +84,6 @@ these shared surfaces unless the integration lane explicitly hands off a file.
 | Root package manifests and lockfile | Dependabot #228, #358-#362 | Dependency-free domains proceed; integration classifies dependency PRs before adding a solver package. |
 | Deployment workflow | Dependabot #372-#373 | No expansion lane edits `.github/workflows/deploy.yml`. |
 | Football fixtures workspace | local `feat/football-fixtures` lane | The occupied main checkout contains unresolved integration changes across shared package, mobile, storage, and contract files. Integration uses a clean detached worktree and does not alter that workspace. |
-
 | Mobile locale files (`notif*`, `plan*` blocks) | #475 and #477 stabilization lanes by handoff | Other lanes adding copy wait for these to merge or keep to a disjoint key block. |
 
 An active conflict in one subsystem is not a program-wide blocker.
