@@ -1,7 +1,7 @@
 # Expansion orchestration ledger
 
 Updated: 2026-09-17
-Current integration base: `6b9c0698d1789519ea86a2c883383f6ac88a0759`
+Current integration base: `c3e2bbd02c410c7355167ed2ef602ba143b71fe2`
 
 This is the live ownership and dependency ledger for the expansion program.
 Git and current GitHub state remain authoritative; Graphify is refreshed
@@ -39,7 +39,7 @@ An active conflict in one subsystem is not a program-wide blocker.
 
 | Lane | Status | Branch | Base SHA | Owned files | Upstream dependencies | Active collisions | PR | CI / test status | Merge status | External blockers |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Integration | active | `program/integration-ledger-live` | `6b9c069` | this ledger; later shared config/package/privacy changes | all landed contracts | Dependabot shared package files and the local football workspace | #455 | documentation-only validation pending this refresh | open | Apple/Google store declarations later |
+| Integration | active | `program/integration-ledger-live` | `c3e2bbd` | this ledger; later shared config/package/privacy changes | all landed contracts | Dependabot shared package files and the local football workspace | #455 | documentation-only validation pending this refresh | open | Apple/Google console/device verification later |
 | Foundations | complete | merged stack | through `e624f9a` | connection, readiness, UserState, task, policy, cost, architecture, provider runtime contracts | none | none | #406-#436 | merged CI green | merged | none |
 | Gmail provider | complete | merged | `81aa70d` | Gmail adapter; prompt boundary tests | provider runtime | none | #437 | focused 11 pass; CI green | merged | OAuth app credentials for live verification |
 | Microsoft Graph provider | complete | merged | `3cba437` | Graph adapter; busy-block tests | provider runtime | none | #438 | focused 31 pass; CI green | merged | Microsoft app credentials for live verification |
@@ -48,17 +48,18 @@ An active conflict in one subsystem is not a program-wide blocker.
 | Meeting intelligence | complete | merged | `f1822f4` | meeting proposal boundary; proposal tests | provider runtime; canonical commitment proposal | none | #441 | focused 61 pass; CI green | merged | meeting-provider credentials for live verification |
 | Cross-provider identity | complete | merged | `3525ed0` | provider-independent identity decisions and adversarial integration cases | Gmail, Microsoft Graph, canonical external task | none | #459 | focused integration suite 25 pass; typecheck, registration, and CI pass | merged | none |
 | Travel planning | complete | merged | `3208ac8` | travel constraint projection; planner tests | canonical planner | none | #442 | focused 28 pass; typecheck, registration, and CI pass | merged | live travel estimate provider not selected |
-| HealthKit native bridge | complete | merged | `5b0e049` | local Expo module, iOS bridge, narrow adapters/tests | canonical readiness | app declaration remains owned by #460 | #456 | root 18 pass; mobile 167 suites / 2281 tests pass; typechecks, prebuild, pods, module and simulator app builds pass | merged | physical iOS permission/read verification; Apple declarations |
-| Health Connect native bridge | complete | merged | `98ed28c` | local Expo module, Android bridge/manifest, narrow adapters/tests | canonical readiness | app declaration and package remain owned by #460/Dependabot | #457 | focused mobile 3 pass; mobile typecheck and CI pass; prior prebuild and Kotlin target compile pass | merged | Android device permission verification; Play declaration |
+| HealthKit native bridge | complete | merged | `5b0e049` | local Expo module, iOS bridge, narrow adapters/tests | canonical readiness | none | #456 | root 18 pass; mobile 167 suites / 2281 tests pass; typechecks, prebuild, pods, module and simulator app builds pass | merged | physical iOS permission/read verification |
+| Health Connect native bridge | complete | merged | `98ed28c` | local Expo module, Android bridge/manifest, narrow adapters/tests | canonical readiness | mobile package edits remain owned by Dependabot | #457 | focused mobile 3 pass; mobile typecheck and CI pass; prior prebuild and Kotlin target compile pass | merged | Android device permission verification; Play declaration |
 | UserState production runtime | complete | merged | `00734c7` | projection service, canonical daily-plan integration, authenticated readiness API, focused tests | readiness contracts; canonical planner | none | #461 | 41 focused auth/mobile/planner tests pass; typecheck, registration, and CI pass | merged | none |
 | Action Gateway runtime | complete | merged | `d5e96a6` | canonical action execution and audit runtime | Action Policy | none | #450 | focused 42 pass; typecheck, registration, and CI pass | merged | provider executors require credentials |
 | MCP capability gateway | complete | merged | `eb2db9a` | MCP capability adapter; policy/red-team tests | #450 merged | none | #451 | focused 60 pass; typecheck, registration, and CI pass | merged | operator mappings and live MCP credentials |
 | Controlled email actions | complete | merged | `59aa6bc` | review-bound draft/send flow; safety tests | #450 merged; Gmail/Graph executors | none | #454 | focused 71 pass; typecheck, registration, and CI pass | merged | live provider credentials |
 | LLM observability runtime | complete | merged | `6b9c069` | canonical LLM log attribution and focused tests | cost attribution; existing usage guard | none | #462 | focused 23 pass; typecheck, registration, and CI pass | merged | none |
-| Timefold shadow experiment | CI running | `program/timefold-shadow-experiment` | `6b9c069` | dependency-free planner experiment and metrics | canonical planner | solver dependency addition requires Dependabot reconciliation | #453 | focused 16 pass; typecheck and registration pass after #462 rebase; exact overlap clear | open | none for dependency-free boundary |
-| RevenueCat entitlement domain | CI running | `program/revenuecat-entitlement-domain` | `6b9c069` | entitlement projection and tests | entitlement foundation | SDK wiring still collides with Dependabot mobile package owners; no SDK wiring in this lane | #452 | focused 18 pass; typecheck and registration pass after #462 rebase; exact overlap clear | open | store products, RevenueCat credentials, device restore verification |
-| Provider OAuth lifecycle | CI running | `program/provider-oauth-lifecycle` | `6b9c069` | provider OAuth state, PKCE, vault handoff, disconnect boundary, focused tests | connection registry; provider runtime | none | #464 | focused 23 pass; typecheck and registration pass after #462 rebase; exact overlap clear | open | live OAuth app credentials |
-| Privacy and store declaration delta | CI running | `program/privacy-store-delta` | `6b9c069` | expansion privacy/store documentation only | merged provider and health behavior | none | #463 | `check:test-registration` and `git diff --check` pass after #462 rebase; exact overlap clear | open | console submission, credentials, and device evidence remain owner actions |
+| Timefold shadow experiment | complete | merged | `c6387ff` | dependency-free planner experiment and metrics | canonical planner | solver dependency addition requires Dependabot reconciliation | #453 | focused 16 pass; typecheck, registration, and CI pass | merged | none for dependency-free boundary |
+| RevenueCat entitlement domain | complete | merged | `46cac97` | entitlement projection and tests | entitlement foundation | SDK wiring still collides with Dependabot mobile package owners; no SDK wiring in this lane | #452 | focused 18 pass; typecheck, registration, and CI pass | merged | store products, RevenueCat credentials, device restore verification |
+| Provider OAuth lifecycle | complete | merged | `b911807` | provider OAuth state, PKCE, vault handoff, disconnect boundary, focused tests | connection registry; provider runtime | none | #464 | focused 23 pass; typecheck, registration, and CI pass | merged | live OAuth app credentials |
+| Privacy and store declaration delta | complete | merged | `826eafd` | expansion privacy/store documentation only | merged provider and health behavior | none | #463 | `check:test-registration`, `git diff --check`, and CI pass | merged | console submission, credentials, and device evidence remain owner actions |
+| Native readiness app declarations | complete | merged | `c3e2bbd` | HealthKit app entitlement, health privacy manifest entry, localized native prompt, config tests | HealthKit bridge; privacy/store delta | none | #470 | mobile app config 42 pass; mobile typecheck and CI pass | merged | physical iOS permission/read verification |
 
 ## Automatically unblocked
 
@@ -95,12 +96,14 @@ An active conflict in one subsystem is not a program-wide blocker.
 - #451, #454, and #462 landed on `eb2db9a`, `59aa6bc`, and `6b9c069`.
   Remaining open program lanes were rebased and exact-overlap rescanned on the
   new main.
+- #452, #453, #464, #463, and #470 landed on `46cac97`, `c6387ff`,
+  `b911807`, `826eafd`, and `c3e2bbd`. HealthKit app declarations are no
+  longer blocked by the former #460 ownership boundary.
 
 ## Current blocked integration work
 
 | Work | Blocking condition | Automatic resume condition |
 | --- | --- | --- |
-| HealthKit app entitlement and usage description | shared mobile config now needs a fresh post-#460 integration pass | Refresh main/Graphify and add through integration lane if exact overlap remains clear. |
 | Health Connect shared Android/app declarations | mobile package PRs still own package/lockfile surfaces | Reconcile declarations without package edits where possible; package wiring waits for current mobile owners. |
 | Mobile readiness UX and locale copy | no active #460 owner, but shared UI/locales require exact overlap rescan | Start from refreshed main in an isolated lane if no new mobile owner appears. |
 | RevenueCat SDK/native wiring | mobile Dependabot owns package/lockfile surfaces; store products need owner | Reconcile packages, then prebuild and device-test. |
