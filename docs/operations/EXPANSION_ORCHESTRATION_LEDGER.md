@@ -1,11 +1,61 @@
 # Expansion orchestration ledger
 
 Updated: 2026-09-17
-Current integration base: `9edb93badf0f62004e6fa941b1d26ac5808a763c`
+Current integration base: `a38e00d0` (`origin/main` after #476)
 
 This is the live ownership and dependency ledger for the expansion program.
 Git and current GitHub state remain authoritative; Graphify is refreshed
 incrementally after material changes and is used as the navigation index.
+
+## Priority stabilization: real-user UAT findings
+
+A real-user UAT ran on 2026-09-17. It used the iOS Simulator with real Firebase
+Auth and a real local backend, on frozen `6b9c069`, before #469/#471. Capture →
+review → commit → act → history worked, account isolation passed, and Arabic and
+Hebrew RTL passed. It also found three defects in the core loop. Each was
+re-verified in source on `9edb93b`, after #471 and #473.
+
+**Integration priority:** core-loop correctness outranks new provider or
+expansion work. While any lane below is open, the integration lane merges it
+before any new provider lane. A provider PR that collides with these files
+waits.
+
+| Issue | Severity | Defect on current main | Fix contract |
+| --- | --- | --- | --- |
+| #474 | P1 | "Leave it without a time" leaves `needsClarification` set, so the item can never be confirmed and the capture is lost. | The server's clarify `none` ("no specific time") answer settles the item as a confirmable `unscheduled` draft, reusing `applyEdits`' null-time path. "Leave it without a time" sends that answer. The contract rule that a confirm-time edit with half an answer stays unconfirmable is unchanged. |
+| #475 | P1 | After iOS permission is denied, "Ring for Must items" still shows as on and nothing warns the user. | The saved preference is kept. The OS permission is read on mount and on every return to the foreground. A warning at the Must control offers Open phone settings. `provisional` is handled too. |
+| #477 | P1 | A daily plan exists only after the server morning job. The plan screen offers no build action and tells users to turn on delivery that is already on. | On-demand build through the canonical `composeDailyPlan` + `createIfAbsent` path shared with the morning tick. It is idempotent, counts as generation 1, sends no push, and adds no second planner. |
+
+**Shared-surface handoff:** the integration lane hands the #475 and #477 lanes
+their own locale blocks in `mobile/src/i18n/locales/{en,ar,he}.json`: `notif*`
+keys to #475 and `plan*` keys to #477. Neither lane edits any other shared
+surface. On rebase, a locale conflict is resolved by keeping both sides' keys.
+
+**Merge gates (all three required, in order):**
+1. **Lane:** a failing test first, shown red on unmodified code. Then the fix,
+   plus a mutation check proving the test fails for its own defect. Focused
+   tests, both typechecks, `expo lint --no-cache` and `check:test-registration`
+   must pass.
+2. **Integration:** fetch and rebase onto the latest `origin/main`, then rescan
+   for exact overlaps with merged work. The full mobile Jest suite must pass,
+   plus the full root `npm test` for backend changes. A red is never waived.
+3. **PR:** GitHub CI green on the rebased head. The integration lane reviews the
+   diff against the fix contract before merging.
+
+## Release-candidate cross-feature UAT
+
+These items go to the final release-candidate UAT on a device or simulator
+build of the RC SHA. Each must be walked by hand; green CI does not count.
+
+| Item | What the RC UAT must show |
+| --- | --- |
+| #474 | Capture "Study probability for two hours this week" → Leave it without a time → Confirm → the item is on Today with no time. In a two-item proposal, skip one and answer the other. |
+| #475 | Enable Ring for Must items → Don't Allow → a warning appears at the control → Open phone settings → allow → return → the warning is gone. Relaunch while denied → the warning is still shown. |
+| #477 | Fresh account with delivery off, then with delivery on → Build today's plan → a plan renders → reopen → same plan → Regenerate works. Double-tap builds one plan. |
+| #200 | Press Done, Later and Not doing it on a real notification (UAT automation could not drive Notification Center). |
+| #203 | Add the widget through the OS widget gallery (UAT automation could not open the gallery). |
+| Consent burst | Onboarding's concurrent consent writes persist on the Firestore emulator. UAT lost writes on the in-memory adapter only; unconfirmed, and needs JDK 21. |
+| Setup (#471) | With AI consent declined, the guided setup still leads somewhere usable. The pre-#469 "Add goals yourself" screen had no input. |
 
 ## Shared-file ownership
 
@@ -34,13 +84,15 @@ these shared surfaces unless the integration lane explicitly hands off a file.
 | Deployment workflow | Dependabot #372-#373 | No expansion lane edits `.github/workflows/deploy.yml`. |
 | Football fixtures workspace | local `feat/football-fixtures` lane | The occupied main checkout contains unresolved integration changes across shared package, mobile, storage, and contract files. Integration uses a clean detached worktree and does not alter that workspace. |
 
+| Mobile locale files (`notif*`, `plan*` blocks) | #475 and #477 stabilization lanes by handoff | Other lanes adding copy wait for these to merge or keep to a disjoint key block. |
+
 An active conflict in one subsystem is not a program-wide blocker.
 
 ## Lane ledger
 
 | Lane | Status | Branch | Base SHA | Owned files | Upstream dependencies | Active collisions | PR | CI / test status | Merge status | External blockers |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Integration | active | `program/post-473-ledger-refresh` | `9edb93b` | this ledger; later shared config/package changes | all landed contracts | Dependabot shared package files, deployment workflow PRs, and the local football workspace | pending | documentation-only validation pending this refresh | active | Apple/Google console/device verification later |
+| Integration | active | `program/uat-stabilization-ledger` | `a38e00d` | this ledger; later shared config/package changes | all landed contracts | Dependabot shared package files, deployment workflow PRs, and the local football workspace | pending | documentation-only validation pending this refresh | active | Apple/Google console/device verification later |
 | Foundations | complete | merged stack | through `e624f9a` | connection, readiness, UserState, task, policy, cost, architecture, provider runtime contracts | none | none | #406-#436 | merged CI green | merged | none |
 | Gmail provider | complete | merged | `81aa70d` | Gmail adapter; prompt boundary tests | provider runtime | none | #437 | focused 11 pass; CI green | merged | OAuth app credentials for live verification |
 | Microsoft Graph provider | complete | merged | `3cba437` | Graph adapter; busy-block tests | provider runtime | none | #438 | focused 31 pass; CI green | merged | Microsoft app credentials for live verification |
@@ -64,6 +116,10 @@ An active conflict in one subsystem is not a program-wide blocker.
 | Language-first setup chat | complete | merged | `cff61ba` | setup/chat routing, onboarding copy, Graphify corpus refresh | existing mobile setup surfaces | none | #471 | GitHub CI green before merge | merged | none |
 | Post-setup ledger refresh | complete | merged | `7802ba1` | orchestration ledger and privacy/store delta docs | #471 | none | #472 | `check:test-registration`, `git diff --check`, and CI pass | merged | none |
 | Mobile readiness settings | complete | merged | `9edb93b` | provider-independent readiness API client, Settings screen, localized copy, and focused mobile tests | authenticated readiness API; #471 setup flow | none | #473 | mobile typecheck, focused 135-test suite, `check:test-registration`, `git diff --check`, and CI pass | merged | physical device/native readiness verification remains separate |
+| Post-473 ledger refresh | complete | merged | `a38e00d` | orchestration ledger | #473 | none | #476 | CI green | merged | none |
+| Stabilization: clarify skip (#474) | active, priority | `fix/474-clarify-skip-confirmable` | `9edb93b` | `lib/services/captureBoundary/clarifyService.ts` (+ minimal `mobileCaptureService` persistence fix if proven needed), `mobile/src/features/capture/`, `mobile/src/screens/ReviewScreen.tsx`, focused and contract tests | none | none | pending | gate 1 in progress | pending gates 2-3 | RC UAT walk |
+| Stabilization: Must ring permission (#475) | active, priority | `fix/475-must-ring-permission-state` | `9edb93b` | `NotificationsSettingsScreen.tsx`, focused tests, `notif*` locale block (handoff) | none | locale files shared with #477 (disjoint blocks) | pending | gate 1 in progress | pending gates 2-3 | RC UAT walk; physical-device permission check |
+| Stabilization: plan build on demand (#477) | active, priority | `fix/477-plan-build-on-demand` | `9edb93b` | `lib/services/dailyPlan/`, `src/app/api/mobile/plans/`, `PlanScreen.tsx`, plan API client, focused tests, `plan*` locale block (handoff) | canonical planner | locale files shared with #475 (disjoint blocks) | pending | gate 1 in progress | pending gates 2-3 | RC UAT walk |
 
 ## Automatically unblocked
 
