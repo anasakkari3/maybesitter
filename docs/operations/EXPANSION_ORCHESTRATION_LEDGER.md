@@ -1,8 +1,8 @@
 # Expansion orchestration ledger
 
 Updated: 2026-09-18
-Current integration base: `2490cd71` (`origin/main` after #484)
-Release-candidate SHA for UAT: `2490cd71`
+Current integration base: `c60d896` (`origin/main` after #485)
+Release-candidate SHA for UAT: `c60d896`
 
 This is the live ownership and dependency ledger for the expansion program.
 Git and current GitHub state remain authoritative; Graphify is refreshed
@@ -24,6 +24,7 @@ follow-up, as a single dependency-ordered integration train on 2026-09-17/18:
 | #477 | #482 | `5962505` | On-demand build for the account's today/tomorrow. It adds **no second planner**: `storeFirstPlan` was extracted as the single first-plan generation path and the morning tick was refactored onto it, so the two callers cannot drift. Idempotent through `createIfAbsent`'s transaction; sends no push. |
 | #475 | #483 | `335b452` | The saved preference is never written, so allowing notifications later just works. OS permission is read on mount and on every foreground return, race-guarded by a monotonic counter. `provisional` is handled distinctly from `denied`. The blocked Must choice renders warm, not accent. |
 | #469 follow-up | #484 | `2490cd7` | The first setup question is a broad conversational life narrative. |
+| #480 | #485 | `c60d896` | The commands a manual completion commits are written back onto the proposal, in the same transaction as the commitments, so `persisted`, the collision warning, Undo and activation can all resolve the commitment the confirm created. |
 
 **Integration evidence.** Each PR passed a three-stage gate. Gate 3 was run by
 the integration lane against the then-current main, and every merge was
@@ -65,11 +66,10 @@ being fixed — #479 changed the clarify path but not the edit path #480 describ
 These items go to the final release-candidate UAT on a device or simulator
 build of the RC SHA. Each must be walked by hand; green CI does not count.
 
-**RC candidate SHA: `2490cd71677a86d54c03c64e3f3fb0ffd48b7253`** (`origin/main`
-after #484). This is the build the S3/UAT lane should test. The integration lane
-ran no simulator or device verification for the train above — that is the UAT
-lane's, and concurrent sessions sharing the bundle id have contaminated
-simulator results before.
+**RC candidate SHA: `c60d896`** (`origin/main` after #485). This is the build
+the S3/UAT lane should test. The integration lane ran no simulator or device
+verification for the train above — that is the UAT lane's, and concurrent
+sessions sharing the bundle id have contaminated simulator results before.
 
 | Item | What the RC UAT must show |
 | --- | --- |
@@ -79,7 +79,7 @@ simulator results before.
 | #200 | Press Done, Later and Not doing it on a real notification (UAT automation could not drive Notification Center). |
 | #203 | Add the widget through the OS widget gallery (UAT automation could not open the gallery). |
 | Consent burst | Onboarding's concurrent consent writes persist on the Firestore emulator. UAT lost writes on the in-memory adapter only; unconfirmed, and needs JDK 21. |
-| #480 | A clarification item completed by edit (title + time) → confirm → Undo removes it, and the collision warning covers it. Found while fixing #474; P2, owned by the S3/UAT lane, unreproduced on a device. |
+| #480 | A clarification item completed by edit (title + time) → confirm → Undo removes it, and the collision warning covers it. Fixed in #485; never reproduced on a device, so the RC walk is what confirms it. |
 | #484 | The first setup screen reads as a conversation in ar, he and en, RTL included, and leads somewhere usable with AI consent declined. |
 | Setup (#471) | With AI consent declined, the guided setup still leads somewhere usable. The pre-#469 "Add goals yourself" screen had no input. |
 
@@ -147,7 +147,8 @@ An active conflict in one subsystem is not a program-wide blocker.
 | Stabilization: plan build on demand (#477) | complete | merged | `9929900` (rebased) | `lib/services/dailyPlan/`, `src/app/api/mobile/plans/[date]/build/`, `PlanScreen.tsx`, plan API client, focused tests, `plan*` locale block | canonical planner | locale files, reconciled by integration | #482 | mutation checks on idempotency, push and date window; root 5297/5297; mobile 184 / 2487; fresh CI 9/9 on the rebased head | merged `5962505` | RC UAT walk |
 | Stabilization: Must ring permission (#475) | complete | merged | `5962505` (rebased) | `NotificationsSettingsScreen.tsx`, focused tests, `notif*` locale block | none | locale files, reconciled by integration | #483 | red-before/green-after with 4 mutation checks; mobile 184 / 2492; fresh CI 9/9 on the rebased head | merged `335b452` | RC UAT walk; physical-device permission check |
 | First setup screen (#469 follow-up) | complete | merged | `335b452` (merge-tree verified) | `mobile/src/features/onboarding/`, `setupChatCache`, `VoiceButton.tsx`, `.maestro/onboarding.yaml`, `obSetupLife*` locale block | #471 setup flow | locale files, reconciled by integration | #484 | mobile 185 suites / 2523 tests via CI's own `--runInBand`; root 5297/5297; `tsc` and `expo lint --no-cache` clean; merge result proven byte-identical to the verified tree | merged `2490cd7` | RC UAT walk in ar/he/en |
-| Integration | active | `program/post-stabilization-ledger` | `2490cd7` | this ledger; later shared config/package changes | all landed contracts | Dependabot shared package files, deployment workflow PRs, and the local football workspace | this PR | documentation-only | active | Apple/Google console/device verification later |
+| Stabilization: manual completion persisted (#480) | complete | merged | `9929900` (merge-tree verified) | `captureBoundaryService.ts`, `mobileCaptureService.ts`, `participantState.ts`, contract and football collision tests | #479 | none | #485 | test proven red on unfixed main with the defect's own assertion; root 5299/5299; typecheck clean; `mobile/` byte-identical to main so its CI job carries over; CI 9/9 green on the PR head | merged `c60d896` | device walk of Undo and the collision warning |
+| Integration | active | `program/post-stabilization-ledger` | `c60d896` | this ledger; later shared config/package changes | all landed contracts | Dependabot shared package files, deployment workflow PRs, and the local football workspace | this PR | documentation-only | active | Apple/Google console/device verification later |
 
 ## Automatically unblocked
 
@@ -193,8 +194,8 @@ An active conflict in one subsystem is not a program-wide blocker.
 - #472 and #473 landed on `7802ba1` and `9edb93b`. The post-setup ledger is
   refreshed, and Settings now has a provider-independent readiness surface for
   subjective energy check-ins without native package or permission wiring.
-- #479, #482, #483 and #484 landed on `9929900`, `5962505`, `335b452` and
-  `2490cd7`. All three core-loop UAT defects are fixed, so **the stabilization
+- #479, #482, #483, #484 and #485 landed on `9929900`, `5962505`, `335b452`,
+  `2490cd7` and `c60d896`. All three core-loop UAT defects are fixed, so **the stabilization
   hold on provider and expansion lanes is released**: core-loop correctness no
   longer outranks expansion work, and the shared mobile locale files have no
   active owner. The next lane to touch them rescans exact overlaps first.
