@@ -24,7 +24,8 @@ import { MAX_LIFE_ANSWER_LENGTH, SETUP_QUESTIONS, hasMeaningfulAnswer } from './
  *
  * ── The prompts never answer ─────────────────────────────────────
  *
- * The four prompts are for somebody who does not know where to start. Tapping
+ * The four prompts are for somebody who does not know where to start, so they
+ * sit above the composer where they are seen before the typing starts. Tapping
  * one focuses the composer and offers that prompt as its placeholder. It never
  * writes into the answer — so it cannot count as answered, cannot be sent to
  * the model, and cannot overwrite what the user already wrote.
@@ -117,6 +118,34 @@ export function SetupLifeStep({
         <Txt size={14} lh={1.5} color={p.mu}>{t.obSetupLifeHelper}</Txt>
       </View>
 
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+        {promptKeys.map((key, n) => {
+          const active = activePrompt === key;
+          return (
+            <Btn
+              key={key}
+              testID={`setup-life-prompt-${n + 1}`}
+              label={copy[key]}
+              scaleTo={0.98}
+              onPress={() => {
+                setActivePrompt(key);
+                input.current?.focus();
+              }}
+              style={{
+                minHeight: 36,
+                justifyContent: 'center',
+                paddingHorizontal: 14,
+                paddingVertical: 7,
+                borderRadius: 999,
+                backgroundColor: active ? p.acs : p.sf2,
+              }}
+            >
+              <Txt size={14} color={active ? p.ac : p.mu}>{copy[key]}</Txt>
+            </Btn>
+          );
+        })}
+      </View>
+
       <Card pad={16} style={{ gap: 12 }} testID="setup-life-composer">
         <VoiceButton
           variant="pill"
@@ -158,33 +187,6 @@ export function SetupLifeStep({
         />
       </Card>
 
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-        {promptKeys.map((key, n) => {
-          const active = activePrompt === key;
-          return (
-            <Btn
-              key={key}
-              testID={`setup-life-prompt-${n + 1}`}
-              label={copy[key]}
-              scaleTo={0.98}
-              onPress={() => {
-                setActivePrompt(key);
-                input.current?.focus();
-              }}
-              style={{
-                minHeight: 36,
-                justifyContent: 'center',
-                paddingHorizontal: 14,
-                paddingVertical: 7,
-                borderRadius: 999,
-                backgroundColor: active ? p.acs : p.sf2,
-              }}
-            >
-              <Txt size={14} color={active ? p.ac : p.mu}>{copy[key]}</Txt>
-            </Btn>
-          );
-        })}
-      </View>
     </OnboardingChrome>
   );
 }
