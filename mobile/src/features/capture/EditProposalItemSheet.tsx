@@ -81,7 +81,14 @@ export function EditProposalItemSheet({
     }
     setPastTime(false);
     const next: CaptureItemEdit = {};
-    if (trimmed !== item.title) next.title = trimmed;
+    // A flagged item is completed by hand only when the edit carries both a
+    // title and a time -- that is `completedByHand` here and `commandsFor` on
+    // the server, and neither reads the proposal's own title. So for a flagged
+    // item the title goes even when it was left alone; otherwise adding the one
+    // missing time left the item as unselectable as before (#498, after #492).
+    // An untouched title on an unflagged item is still not sent: it would ask
+    // the server to validate a change nobody made.
+    if (item.needsClarification || trimmed !== item.title) next.title = trimmed;
     if (priority !== (item.priority ?? 'normal')) next.priority = priority;
     // The empty string is the "No time" answer, and is sent. An unchanged value
     // is not sent at all.
