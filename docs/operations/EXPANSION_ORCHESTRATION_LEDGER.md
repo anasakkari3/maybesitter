@@ -83,6 +83,50 @@ sessions sharing the bundle id have contaminated simulator results before.
 | #484 | The first setup screen reads as a conversation in ar, he and en, RTL included, and leads somewhere usable with AI consent declined. |
 | Setup (#471) | With AI consent declined, the guided setup still leads somewhere usable. The pre-#469 "Add goals yourself" screen had no input. |
 
+## Provider integration status — corrected classification
+
+A single "complete / merged" status on a provider lane was misleading, and this
+records why. Tracing the production call paths on `9b08eeb` found that **every
+provider adapter on main is a normalizer**: it turns an already-fetched payload
+into a provider-independent model and performs no HTTP.
+
+The transports are declared as ports — `GmailApiPort`, `MeetingTranscriptPort`,
+`ProviderOAuthClient`, `ProviderCredentialVault`, `ProviderOAuthStateStore` —
+and **the only implementations of any of them were test doubles**. Also verified
+absent: any provider SDK in the dependency tree, and any provider OAuth callback
+route. The only provider URLs in `lib/` are OAuth *scope strings*, not
+endpoints; `google-auth-library` is there solely to verify Cloud Scheduler OIDC
+tokens. The Google Calendar screen (#152) is a development-only mobile demo
+whose token dies with the screen and never reaches the backend.
+
+So "files exist on main" never meant "the integration works". No lane below may
+be reported as implemented without naming which of these it has.
+
+| Provider | Domain contract | Normalizer | Production auth | Production transport | Product flow wired | Tested offline | Verified live |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Gmail | yes | yes | **Phase A, draft** | no | no | yes | **no** |
+| Microsoft Graph | yes | yes | Phase A applies | no | no | yes | **no** |
+| Todoist | yes | yes | Phase A applies | no | no | yes | **no** |
+| Notion | yes | yes | Phase A applies | no | no | yes | **no** |
+| RescueTime | yes | yes | Phase A applies | no | no | yes | **no** |
+| WHOOP | yes | **no** (token lifecycle and sync planning only) | Phase A applies | no | no | partial | **no** |
+| Meeting intelligence | yes | yes | Phase A applies | no | no | yes | **no** |
+| RevenueCat | yes | yes (entitlement projection) | n/a | n/a | no | yes | **no — store/native lane** |
+
+Blocked-by, stated per lane rather than collapsed:
+
+- **All seven context providers:** BLOCKED BY OWNER CREDENTIAL for live
+  verification, and until Phase B lands, BLOCKED BY MISSING PRODUCTION
+  TRANSPORT — which is not an owner blocker but work.
+- **RevenueCat:** BLOCKED BY STORE/CONSOLE. StoreKit and Play Billing
+  verification cannot be replaced by a server-side HTTP read.
+- **HealthKit / Health Connect:** BLOCKED BY PHYSICAL DEVICE. Device-native
+  lanes, outside any HTTP harness by construction.
+
+A provider becomes VERIFIED LIVE only after a credential-backed probe runs
+successfully through #490 against the production transport. Never on the
+strength of mocks.
+
 ## Shared-file ownership
 
 The integration lane exclusively owns edits to shared hotspots:

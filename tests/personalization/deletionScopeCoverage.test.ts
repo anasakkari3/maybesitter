@@ -162,6 +162,24 @@ const KEPT_BECAUSE: Record<string, string> = {
     + 'would rebuild it anyway. It goes with the commitment (a completed one deletes its row), '
     + 'with account deletion, and with the `expiresAt` TTL two days past the reminder.',
   stats: 'the user’s own record of what they did — the counters behind the weekly Moments. #201 made a Moment survive deleting the commitment that earned it, on the ground that a fact about something that happened must not unhappen; this button forgets what was inferred about the person, not what the person achieved.',
+  providerConnections:
+    'a grant the user made to a third party, the same kind of explicit act as `consents`. This button '
+    + 'forgets what MaybeSitter inferred about someone, and disconnecting their Google account is not an '
+    + 'inference — it is an action they took and can only undo themselves. Silently revoking it would '
+    + 'answer "forget what you learned about me" by breaking a connection they still expect to work. It '
+    + 'holds no belief about the person: an identity, a state, granted scopes and a pointer to the '
+    + 'credential. It goes on account deletion, where `deleteTree` covers it.',
+  providerCredentials:
+    'the encrypted token behind a `providerConnections` row, and it has to live and die with that row. '
+    + 'Purging it alone would leave a connection that reports itself connected and cannot fetch anything, '
+    + 'which is a worse state than either connected or disconnected. It is a bearer secret, never a claim '
+    + 'about the person. Disconnecting removes it through the vault, and account deletion removes it with '
+    + 'the tree.',
+  providerOAuthStates:
+    'an authorization in flight, between the redirect and the callback, holding a PKCE verifier and living '
+    + 'for minutes. It is machinery rather than anything learned about the user, and it is consumed by the '
+    + 'callback or expires on its own. Purging it would abort a connection the user started seconds '
+    + 'earlier, for no privacy gain that waiting out the expiry does not already give.',
   externalTaskRefs:
     'a pointer beside a commitment, same as deviceCalendarLinks: which external fixture a commitment came '
     + 'from and whether the user dismissed it. Commitments survive this purge, so the ref that keeps a '
