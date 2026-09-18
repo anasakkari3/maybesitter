@@ -209,6 +209,64 @@ describe('the confirm payload', () => {
     expect(answered.selected).toContain('c');
   });
 
+  /**
+   * The status the server actually sends while a question is unanswered
+   * (#492 again). `proposal()` defaults to `proposed`, which is what a
+   * proposal looks like only *after* the question is answered — so the whole
+   * point of the manual-completion path was never exercised by the fixture,
+   * and the aggregate-status guard swallowed it on a device.
+   */
+  it('carries a hand-completed item while the proposal still needs clarification', () => {
+    const asking = analyzed(proposal({
+      status: 'needs_clarification',
+      items: [
+        { itemId: 'b', title: 'Call the pharmacy', resolvedTime: null, needsClarification: true },
+      ],
+    }));
+    const completed = captureReducer(asking, {
+      type: 'editItem',
+      itemId: 'b',
+      edit: { title: 'Collect the prescription', localDateTime: '2026-09-15T19:00' },
+    });
+    const selected = captureReducer(completed, { type: 'toggleItem', itemId: 'b' });
+
+    expect(selected.selected).toContain('b');
+    expect(confirmPayload(selected).itemIds).toEqual(['b']);
+  });
+
+  it('confirms nothing else on a proposal that still needs clarification', () => {
+    // Only the hand-completed item becomes confirmable. An item that simply
+    // happens not to need a question waits for the asking to finish, exactly
+    // as it did before — this is not a licence to confirm around the question.
+    const asking = analyzed(proposal({
+      status: 'needs_clarification',
+      items: [
+        { itemId: 'a', title: 'Call the clinic', resolvedTime: '2026-09-15T07:00:00.000Z', needsClarification: false },
+        { itemId: 'b', title: 'Call the pharmacy', resolvedTime: null, needsClarification: true },
+      ],
+    }));
+
+    expect(asking.selected).toEqual([]);
+    expect(captureReducer(asking, { type: 'toggleItem', itemId: 'a' }).selected).toEqual([]);
+  });
+
+  it('still refuses a half-completed item while the proposal needs clarification', () => {
+    const asking = analyzed(proposal({
+      status: 'needs_clarification',
+      items: [{ itemId: 'b', title: 'Call the pharmacy', resolvedTime: null, needsClarification: true }],
+    }));
+    const titleOnly = captureReducer(asking, { type: 'editItem', itemId: 'b', edit: { title: 'Collect the prescription' } });
+    expect(captureReducer(titleOnly, { type: 'toggleItem', itemId: 'b' }).selected).not.toContain('b');
+
+    const timeOnly = captureReducer(asking, { type: 'editItem', itemId: 'b', edit: { localDateTime: '2026-09-15T19:00' } });
+    expect(captureReducer(timeOnly, { type: 'toggleItem', itemId: 'b' }).selected).not.toContain('b');
+  });
+
+  it('confirms nothing on a proposal that created no commitment', () => {
+    const none = analyzed(proposal({ status: 'no_commitment', items: [] }));
+    expect(confirmableItems(none.proposal, none.edits)).toEqual([]);
+  });
+
   it('drops edits for items the user chose not to save', () => {
     // Asking the server to validate a change to something not being saved is a
     // way to fail a confirm for a reason the user cannot see.

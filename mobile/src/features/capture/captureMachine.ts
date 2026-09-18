@@ -252,14 +252,31 @@ function completedByHand(edit: CaptureItemEdit | undefined): boolean {
  * the client disagree with the server: the item stayed unselectable, the
  * fallback was unreachable from the app, and the only way out of the screen
  * was Cancel all (#492). One rule, and it is the server's.
+ *
+ * ── The aggregate status is not the item's status ────────────────
+ *
+ * A proposal with an unanswered question is `needs_clarification`, not
+ * `proposed` — `proposed` is what it becomes *after* the question is answered.
+ * Reading the aggregate status first therefore threw the hand-completed item
+ * away before the per-item rule could see it, which is how the first fix for
+ * #492 still failed on a device while its tests passed: the fixture they used
+ * was `proposed`, the one status in which the path cannot occur.
+ *
+ * So the aggregate status decides only what it is entitled to decide. A
+ * proposal that created nothing (`no_commitment`) or was refused (`rejected`)
+ * has nothing to confirm whatever the edits say. While a question is still
+ * being asked, the item the user answered by hand is confirmable and the rest
+ * of the proposal waits, exactly as it did before.
  */
 export function confirmableItems(
   proposal: CaptureProposal | null,
   edits: Record<string, CaptureItemEdit> = {},
 ): string[] {
-  if (!proposal || proposal.status !== 'proposed') return [];
+  if (!proposal) return [];
+  if (proposal.status !== 'proposed' && proposal.status !== 'needs_clarification') return [];
+  const asked = proposal.status === 'proposed';
   return proposal.items
-    .filter((item) => !item.needsClarification || completedByHand(edits[item.itemId]))
+    .filter((item) => completedByHand(edits[item.itemId]) || (asked && !item.needsClarification))
     .map((item) => item.itemId);
 }
 
