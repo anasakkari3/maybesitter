@@ -128,6 +128,87 @@ describe('the confirm payload', () => {
     expect(confirmPayload(forced).itemIds).toEqual(['a']);
   });
 
+  /**
+   * The fallback the product offers for a question nobody wants to answer
+   * (#492): fill the item in by hand in the edit sheet. The server accepts
+   * exactly this — `commandsFor()` builds the commands from a title and a
+   * resolved time — so the client has to let it be selected, or the path
+   * cannot be reached from the app at all.
+   */
+  it('carries a flagged item the user completed by hand with a title and a time', () => {
+    const flagged = analyzed(proposal({
+      items: [
+        { itemId: 'a', title: 'Call the clinic', resolvedTime: '2026-09-15T07:00:00.000Z', needsClarification: false },
+        { itemId: 'b', title: 'Pay the bill', resolvedTime: null, needsClarification: true },
+      ],
+    }));
+
+    const completed = captureReducer(flagged, {
+      type: 'editItem',
+      itemId: 'b',
+      edit: { title: 'Pay the electricity bill', localDateTime: '2026-09-15T19:00' },
+    });
+    const selected = captureReducer(completed, { type: 'toggleItem', itemId: 'b' });
+
+    expect(selected.selected).toContain('b');
+    expect(confirmPayload(selected).itemIds).toEqual(['a', 'b']);
+    expect(confirmPayload(selected).edits.b).toMatchObject({
+      title: 'Pay the electricity bill',
+      localDateTime: '2026-09-15T19:00',
+    });
+  });
+
+  it('still refuses a flagged item with only half an answer', () => {
+    const flagged = analyzed(proposal({
+      items: [
+        { itemId: 'a', title: 'Call the clinic', resolvedTime: '2026-09-15T07:00:00.000Z', needsClarification: false },
+        { itemId: 'b', title: 'Pay the bill', resolvedTime: null, needsClarification: true },
+      ],
+    }));
+
+    // A title and no time is not an answer: there is nothing to remind anyone
+    // about, and the server refuses it too (`captureAtomicEdits.test.ts`).
+    const titleOnly = captureReducer(flagged, { type: 'editItem', itemId: 'b', edit: { title: 'Pay the electricity bill' } });
+    expect(captureReducer(titleOnly, { type: 'toggleItem', itemId: 'b' }).selected).not.toContain('b');
+
+    // And a time with no title is not one either.
+    const timeOnly = captureReducer(flagged, { type: 'editItem', itemId: 'b', edit: { localDateTime: '2026-09-15T19:00' } });
+    expect(captureReducer(timeOnly, { type: 'toggleItem', itemId: 'b' }).selected).not.toContain('b');
+  });
+
+  it('keeps a hand-completed item selected when another item\'s question is answered', () => {
+    // The clarified proposal is a whole new proposal object, and the selection
+    // is rebuilt from what is confirmable in it. A hand-completed item is only
+    // confirmable together with its edit, so the edits have to be read there
+    // too or answering one question silently deselects another item (#492).
+    const twoFlagged = analyzed(proposal({
+      items: [
+        { itemId: 'b', title: 'Pay the bill', resolvedTime: null, needsClarification: true },
+        { itemId: 'c', title: 'Study probability', resolvedTime: null, needsClarification: true },
+      ],
+    }));
+    const completed = captureReducer(twoFlagged, {
+      type: 'editItem',
+      itemId: 'b',
+      edit: { title: 'Pay the electricity bill', localDateTime: '2026-09-15T19:00' },
+    });
+    const selected = captureReducer(completed, { type: 'toggleItem', itemId: 'b' });
+    expect(selected.selected).toContain('b');
+
+    const answered = captureReducer(selected, {
+      type: 'clarified',
+      proposal: proposal({
+        items: [
+          { itemId: 'b', title: 'Pay the bill', resolvedTime: null, needsClarification: true },
+          { itemId: 'c', title: 'Study probability', resolvedTime: '2026-09-15T18:00:00.000Z', needsClarification: false },
+        ],
+      }),
+    });
+
+    expect(answered.selected).toContain('b');
+    expect(answered.selected).toContain('c');
+  });
+
   it('drops edits for items the user chose not to save', () => {
     // Asking the server to validate a change to something not being saved is a
     // way to fail a confirm for a reason the user cannot see.
