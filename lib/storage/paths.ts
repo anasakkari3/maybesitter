@@ -284,7 +284,39 @@ export const STATS = 'stats';
  * `jobs` is deliberately absent: it is a top-level operational collection, not
  * something inside a user's tree (see lib/scheduler/storageSchedulerStore).
  */
+/**
+ * A provider connection, one document per connection (#187, UC-3.3).
+ *
+ * Inside the user tree because a connection is one person's grant to one
+ * provider, and it goes when the account goes. It holds no secret: the token
+ * itself lives in `providerCredentials`, and this record only carries the
+ * reference to it.
+ */
+export const PROVIDER_CONNECTIONS = 'providerConnections';
+
+/**
+ * The encrypted OAuth token set for a connection (#187, UC-3.3).
+ *
+ * Its own collection rather than a field on the connection so that a read of
+ * the connection — which the UI and sync planning both do — never loads the
+ * ciphertext at all. Deleting this one document revokes the grant locally
+ * while leaving the connection record to say it was revoked.
+ */
+export const PROVIDER_CREDENTIALS = 'providerCredentials';
+
+/**
+ * An in-flight OAuth authorization, between the redirect and the callback.
+ *
+ * Holds the PKCE verifier, so it is a secret with a lifetime of minutes. It is
+ * single-use: the callback consumes the document in a transaction, which is
+ * what makes a replayed `state` fail rather than succeed twice.
+ */
+export const PROVIDER_OAUTH_STATES = 'providerOAuthStates';
+
 export const USER_SCOPED_COLLECTIONS = [
+  PROVIDER_CONNECTIONS,
+  PROVIDER_CREDENTIALS,
+  PROVIDER_OAUTH_STATES,
   COMMITMENTS,
   REMINDERS,
   ESCALATION_STATES,
