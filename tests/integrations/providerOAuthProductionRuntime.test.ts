@@ -33,7 +33,7 @@ import {
   type ProviderOAuthState,
 } from '../../lib/integrations/providers/providerOAuthLifecycle.ts';
 import type { ProviderOAuthTokenSet } from '../../lib/integrations/providers/providerRuntime.ts';
-import { PROVIDER_CREDENTIALS, userSubDoc } from '../../lib/storage/paths.ts';
+import { PROVIDER_CREDENTIALS, PROVIDER_OAUTH_STATES, userSubDoc } from '../../lib/storage/paths.ts';
 
 const KEY = 'projects/p/locations/l/keyRings/r/cryptoKeys/user-secrets';
 const UID_A = 'userA';
@@ -73,7 +73,7 @@ function client(over: Partial<ProviderOAuthClient> = {}): ProviderOAuthClient {
 }
 
 async function connect(uid = UID_A, storage = createMemoryStorage(), options = crypto()) {
-  const stateStore = new StoredProviderOAuthStateStore(uid, storage);
+  const stateStore = new StoredProviderOAuthStateStore(uid, storage, options);
   const vault = new EncryptedProviderCredentialVault(uid, storage, options);
   const connections = new StoredIntegrationConnectionStore(uid, storage);
   const begun = await beginProviderOAuth(stateStore, {
@@ -154,7 +154,7 @@ test('a vault refuses to store a token for a different account', async () => {
 test('a replayed state is rejected: the second callback fails', async () => {
   const storage = createMemoryStorage();
   const options = crypto();
-  const stateStore = new StoredProviderOAuthStateStore(UID_A, storage);
+  const stateStore = new StoredProviderOAuthStateStore(UID_A, storage, options);
   const vault = new EncryptedProviderCredentialVault(UID_A, storage, options);
   const connections = new StoredIntegrationConnectionStore(UID_A, storage);
   const begun = await beginProviderOAuth(stateStore, {
@@ -182,7 +182,7 @@ test('an unknown state is rejected', async () => {
 
 test('an expired state is rejected and is still spent', async () => {
   const storage = createMemoryStorage();
-  const stateStore = new StoredProviderOAuthStateStore(UID_A, storage);
+  const stateStore = new StoredProviderOAuthStateStore(UID_A, storage, crypto());
   const state: ProviderOAuthState = {
     state: 'st-1',
     scopeId: UID_A,
@@ -201,7 +201,10 @@ test('an expired state is rejected and is still spent', async () => {
 
 test("a state minted for another account cannot be spent by this one", async () => {
   const storage = createMemoryStorage();
-  const asA = new StoredProviderOAuthStateStore(UID_A, storage);
+  // One KMS for both stores, so a failure below is the AAD refusing and not
+  // two different keys failing to agree.
+  const shared = crypto();
+  const asA = new StoredProviderOAuthStateStore(UID_A, storage, shared);
   await asA.create({
     state: 'st-x',
     scopeId: UID_A,
@@ -213,7 +216,7 @@ test("a state minted for another account cannot be spent by this one", async () 
     createdAt: NOW,
     expiresAt: '2026-09-18T09:10:00.000Z',
   });
-  const asB = new StoredProviderOAuthStateStore(UID_B, storage);
+  const asB = new StoredProviderOAuthStateStore(UID_B, storage, shared);
   assert.equal(await asB.consume('st-x', NOW), null);
 });
 
@@ -380,7 +383,7 @@ test('a provider error carries no secret', async () => {
 
 test('reconnecting replaces the grant instead of orphaning one', async () => {
   const { storage, connections, record, options } = await connect();
-  const stateStore = new StoredProviderOAuthStateStore(UID_A, storage);
+  const stateStore = new StoredProviderOAuthStateStore(UID_A, storage, options);
   const vault = new EncryptedProviderCredentialVault(UID_A, storage, options);
   const begun = await beginProviderOAuth(stateStore, {
     scopeId: UID_A,
@@ -411,4 +414,173 @@ test('listing is scoped to the account and refuses another scope', async () => {
   const mine = await connections.list({ scopeId: UID_A });
   assert.equal(mine.length, 1);
   assert.equal(mine[0].scopeId, UID_A);
+});
+
+/*
+ * The persisted OAuth-state representation (security review of #491).
+ *
+ * An earlier version of the store wrote the whole `ProviderOAuthState`, raw
+ * `state` and PKCE verifier included, while its own comment claimed the state
+ * was not stored. Anyone able to read the document could have completed the
+ * authorization. These tests are what would have caught it.
+ */
+
+const RAW_STATE = 'RAW-STATE-VALUE-0123456789';
+const RAW_VERIFIER = 'RAW-PKCE-VERIFIER-abcdefghij';
+
+function inFlight(over: Partial<ProviderOAuthState> = {}): ProviderOAuthState {
+  return {
+    state: RAW_STATE,
+    scopeId: UID_A,
+    provider: 'google',
+    capabilities: ['mail_read'],
+    requestedScopes: ['https://www.googleapis.com/auth/gmail.readonly'],
+    redirectUri: 'https://maybesitter.app/oauth/callback',
+    codeVerifier: RAW_VERIFIER,
+    createdAt: NOW,
+    expiresAt: '2026-09-18T09:10:00.000Z',
+    ...over,
+  };
+}
+
+async function storedStateDocs(storage: ReturnType<typeof createMemoryStorage>, uid = UID_A) {
+  return storage.list<unknown>(`users/${uid}/${PROVIDER_OAUTH_STATES}`);
+}
+
+test('the persisted state document contains no raw state', async () => {
+  const storage = createMemoryStorage();
+  const store = new StoredProviderOAuthStateStore(UID_A, storage, crypto());
+  await store.create(inFlight());
+  const serialized = JSON.stringify(await storedStateDocs(storage));
+  assert.ok(!serialized.includes(RAW_STATE), 'the raw OAuth state is persisted in plaintext');
+});
+
+test('the persisted state document contains no PKCE verifier', async () => {
+  const storage = createMemoryStorage();
+  const store = new StoredProviderOAuthStateStore(UID_A, storage, crypto());
+  await store.create(inFlight());
+  const serialized = JSON.stringify(await storedStateDocs(storage));
+  assert.ok(!serialized.includes(RAW_VERIFIER), 'the PKCE verifier is persisted in plaintext');
+});
+
+test('the document still describes the authorization, so it is auditable', async () => {
+  const storage = createMemoryStorage();
+  const store = new StoredProviderOAuthStateStore(UID_A, storage, crypto());
+  await store.create(inFlight());
+  const serialized = JSON.stringify(await storedStateDocs(storage));
+  // Not secrets: which provider, which scopes, where it returns to.
+  assert.match(serialized, /google/);
+  assert.match(serialized, /gmail\.readonly/);
+  assert.match(serialized, /oauth\/callback/);
+});
+
+test('a legitimate consume returns the original verifier', async () => {
+  const storage = createMemoryStorage();
+  const store = new StoredProviderOAuthStateStore(UID_A, storage, crypto());
+  await store.create(inFlight());
+  const consumed = await store.consume(RAW_STATE, NOW);
+  assert.equal(consumed?.codeVerifier, RAW_VERIFIER, 'the callback must get the verifier back');
+  assert.equal(consumed?.state, RAW_STATE, 'the raw state is reconstructed from the callback');
+  assert.equal(consumed?.redirectUri, 'https://maybesitter.app/oauth/callback');
+});
+
+test("another account cannot decrypt a copied state document", async () => {
+  const storage = createMemoryStorage();
+  const shared = crypto();
+  const asA = new StoredProviderOAuthStateStore(UID_A, storage, shared);
+  await asA.create(inFlight());
+  // Move the ciphertext into B's tree under the same document id.
+  const docs = await storedStateDocs(storage);
+  await storage.set(`users/${UID_B}/${PROVIDER_OAUTH_STATES}/${docs[0]!.id}`, docs[0]!.data);
+  const asB = new StoredProviderOAuthStateStore(UID_B, storage, shared);
+  // Same KMS, same key, same document. Only the AAD's uid differs.
+  assert.equal(await asB.consume(RAW_STATE, NOW), null, "B decrypted A's verifier");
+});
+
+test('the AAD alone stops another account, with scopeId rewritten too', async () => {
+  /*
+   * The previous test is satisfied by the plaintext `scopeId` check, which
+   * returns null before decryption is ever attempted — so on its own it does
+   * not prove the AAD does anything. A mutation that removed the uid from the
+   * AAD left it passing.
+   *
+   * `scopeId` is a plaintext field, so an attacker who can write the document
+   * can rewrite it. This does exactly that: same KMS, same key, document in
+   * B's tree, `scopeId` claiming to be B. Now the only thing left between B
+   * and A's verifier is the AAD.
+   */
+  const storage = createMemoryStorage();
+  const shared = crypto();
+  const asA = new StoredProviderOAuthStateStore(UID_A, storage, shared);
+  await asA.create(inFlight());
+  const docs = await storedStateDocs(storage);
+  const doc = docs[0]!.data as Record<string, unknown>;
+  await storage.set(`users/${UID_B}/${PROVIDER_OAUTH_STATES}/${docs[0]!.id}`, {
+    ...doc,
+    scopeId: UID_B,
+  });
+  const asB = new StoredProviderOAuthStateStore(UID_B, storage, shared);
+  assert.equal(
+    await asB.consume(RAW_STATE, NOW),
+    null,
+    "B decrypted A's verifier: the AAD is not binding the uid",
+  );
+});
+
+test('a replayed state is still rejected after the hardening', async () => {
+  const storage = createMemoryStorage();
+  const store = new StoredProviderOAuthStateStore(UID_A, storage, crypto());
+  await store.create(inFlight());
+  assert.ok(await store.consume(RAW_STATE, NOW), 'the first consume must succeed');
+  assert.equal(await store.consume(RAW_STATE, NOW), null, 'the second must not');
+});
+
+test('an expired state is still spent after the hardening', async () => {
+  const storage = createMemoryStorage();
+  const store = new StoredProviderOAuthStateStore(UID_A, storage, crypto());
+  await store.create(inFlight({ expiresAt: '2026-09-18T08:10:00.000Z' }));
+  assert.equal(await store.consume(RAW_STATE, NOW), null, 'expired must not be returned');
+  assert.equal(await storedStateDocs(storage).then((d) => d.length), 0, 'expired must still be deleted');
+});
+
+test('corrupted ciphertext fails closed and does not restore the state', async () => {
+  const storage = createMemoryStorage();
+  const store = new StoredProviderOAuthStateStore(UID_A, storage, crypto());
+  await store.create(inFlight());
+  const docs = await storedStateDocs(storage);
+  const doc = docs[0]!.data as { verifier: { ciphertext: string } };
+  // Flip the ciphertext. AES-GCM authenticates, so this must not decrypt.
+  await storage.set(`users/${UID_A}/${PROVIDER_OAUTH_STATES}/${docs[0]!.id}`, {
+    ...doc,
+    verifier: { ...doc.verifier, ciphertext: Buffer.from('tampered-value').toString('base64') },
+  });
+  assert.equal(await store.consume(RAW_STATE, NOW), null, 'a tampered verifier must fail closed');
+  // Spent anyway: a failed decrypt must not leave a retryable state behind.
+  assert.equal(await storedStateDocs(storage).then((d) => d.length), 0, 'a failed decrypt must still spend the state');
+  assert.equal(await store.consume(RAW_STATE, NOW), null, 'and must not become reusable');
+});
+
+test('a failed decrypt surfaces no state, verifier or ciphertext', async () => {
+  const storage = createMemoryStorage();
+  const store = new StoredProviderOAuthStateStore(UID_A, storage, crypto());
+  await store.create(inFlight());
+  const docs = await storedStateDocs(storage);
+  const doc = docs[0]!.data as { verifier: { ciphertext: string } };
+  const cipher = doc.verifier.ciphertext;
+  await storage.set(`users/${UID_A}/${PROVIDER_OAUTH_STATES}/${docs[0]!.id}`, {
+    ...doc,
+    verifier: { ...doc.verifier, ciphertext: Buffer.from('tampered').toString('base64') },
+  });
+  const outcome = await store.consume(RAW_STATE, NOW).catch((error: unknown) => error);
+  const text = `${String(outcome)} ${JSON.stringify(outcome ?? null)}`;
+  assert.ok(!text.includes(RAW_VERIFIER), 'the verifier leaked');
+  assert.ok(!text.includes(cipher), 'the ciphertext leaked');
+});
+
+test('create refuses an authorization with no state or no verifier', async () => {
+  const storage = createMemoryStorage();
+  const store = new StoredProviderOAuthStateStore(UID_A, storage, crypto());
+  await assert.rejects(() => store.create(inFlight({ state: '' })));
+  await assert.rejects(() => store.create(inFlight({ codeVerifier: '' })));
+  assert.equal(await storedStateDocs(storage).then((d) => d.length), 0, 'nothing must be written');
 });
