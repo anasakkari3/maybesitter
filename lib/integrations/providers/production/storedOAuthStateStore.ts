@@ -34,8 +34,23 @@ export class StoredProviderOAuthStateStore implements ProviderOAuthStateStore {
   ) {}
 
   private path(state: string): string {
-    // The state value is opaque and caller-influenced, so it is hashed into a
-    // document id rather than used as a path segment.
+    /*
+     * The state is hashed into the document id, never stored as one.
+     *
+     * Two reasons. It is opaque and caller-influenced, so it has no business
+     * being a path segment; and it is a bearer value — anyone holding it can
+     * complete this authorization — so the stored id is a hash of it, and a
+     * leaked index of document names does not hand out usable states.
+     *
+     * CodeQL reads the SHA-256 here as `js/insufficient-password-hash`. That
+     * rule is about passwords, which are low-entropy and need a slow KDF.
+     * `beginProviderOAuth` mints this value as `base64url(randomBytes(32))` —
+     * 256 uniformly random bits — so there is nothing to brute force and a
+     * slow KDF would buy latency and no security. An HMAC would add key
+     * management for the same zero gain at this entropy. The alert is
+     * dismissed with this reasoning rather than the code being reshaped to
+     * please the heuristic.
+     */
     return userSubDoc(this.uid, PROVIDER_OAUTH_STATES, docIdForKey(state));
   }
 
