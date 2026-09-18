@@ -253,11 +253,29 @@ function completedByHand(edit: CaptureItemEdit | undefined): boolean {
  * fallback was unreachable from the app, and the only way out of the screen
  * was Cancel all (#492). One rule, and it is the server's.
  */
+/**
+ * The proposal statuses whose items can be judged one by one.
+ *
+ * Exactly the two the server's confirm accepts (`captureBoundaryService.ts`,
+ * "proposed or needs_clarification"). The server sends `needs_clarification`
+ * whenever *every* item needs a question, so a single flagged item always
+ * arrives with it — #492's own repro. Gating the per-item rule on `proposed`
+ * alone meant a hand-completed item in that proposal was never evaluated, and
+ * the client refused what the server was ready to confirm (#492, reopened).
+ *
+ * `no_commitment` and `rejected` are terminal: there is nothing to confirm in
+ * them however the items were edited.
+ */
+const ACTIONABLE_PROPOSAL_STATUSES: ReadonlySet<CaptureProposal['status']> = new Set([
+  'proposed',
+  'needs_clarification',
+]);
+
 export function confirmableItems(
   proposal: CaptureProposal | null,
   edits: Record<string, CaptureItemEdit> = {},
 ): string[] {
-  if (!proposal || proposal.status !== 'proposed') return [];
+  if (!proposal || !ACTIONABLE_PROPOSAL_STATUSES.has(proposal.status)) return [];
   return proposal.items
     .filter((item) => !item.needsClarification || completedByHand(edits[item.itemId]))
     .map((item) => item.itemId);
