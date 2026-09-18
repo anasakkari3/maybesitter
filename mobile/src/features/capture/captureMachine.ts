@@ -221,16 +221,64 @@ export function initialCaptureState(
 }
 
 /**
+ * Whether the user has answered a flagged item's question themselves (#492).
+ *
+ * The mirror of the server's rule in `commandsFor()`: a title *and* a time,
+ * both supplied by hand, make a clarification item into a commitment. Half an
+ * answer does not — a title with no time has nothing to remind anyone about,
+ * and the server refuses it either way (`captureAtomicEdits.test.ts`, "a
+ * clarification item with only half an answer stays unconfirmable").
+ *
+ * The empty `localDateTime` is the "No time" switch, which is the absence of a
+ * time rather than one, so it does not complete anything.
+ */
+function completedByHand(edit: CaptureItemEdit | undefined): boolean {
+  return Boolean(edit?.title?.trim()) && Boolean(edit?.localDateTime?.trim());
+}
+
+/**
  * Which items a user can actually confirm.
  *
  * An item needing clarification is not one of them: it has no resolved time, so
  * confirming it would persist a commitment with nothing to remind anyone about.
  * It becomes selectable once #165's question is answered or #164's manual edit
  * supplies the missing piece.
+ *
+ * ── Why the edits are read here ──────────────────────────────────
+ *
+ * "Fill it in yourself in the edit sheet" is what the product offers for a
+ * question the user does not want to answer, and the server accepts exactly
+ * that at confirm time. Judging confirmability from the proposal alone made
+ * the client disagree with the server: the item stayed unselectable, the
+ * fallback was unreachable from the app, and the only way out of the screen
+ * was Cancel all (#492). One rule, and it is the server's.
  */
-export function confirmableItems(proposal: CaptureProposal | null): string[] {
-  if (!proposal || proposal.status !== 'proposed') return [];
-  return proposal.items.filter((item) => !item.needsClarification).map((item) => item.itemId);
+/**
+ * The proposal statuses whose items can be judged one by one.
+ *
+ * Exactly the two the server's confirm accepts (`captureBoundaryService.ts`,
+ * "proposed or needs_clarification"). The server sends `needs_clarification`
+ * whenever *every* item needs a question, so a single flagged item always
+ * arrives with it — #492's own repro. Gating the per-item rule on `proposed`
+ * alone meant a hand-completed item in that proposal was never evaluated, and
+ * the client refused what the server was ready to confirm (#492, reopened).
+ *
+ * `no_commitment` and `rejected` are terminal: there is nothing to confirm in
+ * them however the items were edited.
+ */
+const ACTIONABLE_PROPOSAL_STATUSES: ReadonlySet<CaptureProposal['status']> = new Set([
+  'proposed',
+  'needs_clarification',
+]);
+
+export function confirmableItems(
+  proposal: CaptureProposal | null,
+  edits: Record<string, CaptureItemEdit> = {},
+): string[] {
+  if (!proposal || !ACTIONABLE_PROPOSAL_STATUSES.has(proposal.status)) return [];
+  return proposal.items
+    .filter((item) => !item.needsClarification || completedByHand(edits[item.itemId]))
+    .map((item) => item.itemId);
 }
 
 /** What the confirm request carries. Only the selection, and only its edits. */
@@ -239,7 +287,7 @@ export function confirmPayload(state: CaptureState): {
   itemIds: string[];
   edits: Record<string, CaptureItemEdit>;
 } {
-  const itemIds = state.selected.filter((id) => confirmableItems(state.proposal).includes(id));
+  const itemIds = state.selected.filter((id) => confirmableItems(state.proposal, state.edits).includes(id));
   // Edits for items that are not being confirmed are dropped rather than sent.
   // Sending them would ask the server to validate a change to something the
   // user chose not to save.
@@ -308,8 +356,8 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
       // survive. An item the answer made confirmable joins the selection, the
       // same way every confirmable item starts selected.
       if (!state.proposal || event.proposal.proposalId !== state.proposal.proposalId) return state;
-      const before = confirmableItems(state.proposal);
-      const after = confirmableItems(event.proposal);
+      const before = confirmableItems(state.proposal, state.edits);
+      const after = confirmableItems(event.proposal, state.edits);
       const selected = [
         ...state.selected.filter((id) => after.includes(id)),
         ...after.filter((id) => !before.includes(id) && !state.selected.includes(id)),
@@ -335,7 +383,7 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
       };
 
     case 'toggleItem': {
-      if (!confirmableItems(state.proposal).includes(event.itemId)) return state;
+      if (!confirmableItems(state.proposal, state.edits).includes(event.itemId)) return state;
       const selected = state.selected.includes(event.itemId)
         ? state.selected.filter((id) => id !== event.itemId)
         : [...state.selected, event.itemId];

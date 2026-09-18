@@ -78,6 +78,20 @@ export interface ProviderOAuthClient {
   }): Promise<ProviderOAuthTokenSet>;
   loadIdentity(tokenSet: ProviderOAuthTokenSet): Promise<IntegrationProviderIdentity>;
   revoke(tokenSet: ProviderOAuthTokenSet): Promise<void>;
+  /**
+   * Exchanges a refresh token for a fresh access token.
+   *
+   * Optional because `providerTokenState` already reports `expired` for a
+   * grant with no refresh token, and a provider that never issues one has
+   * nothing to implement. A client that omits it can still connect, read
+   * until the access token expires, and disconnect.
+   *
+   * Providers commonly return no new refresh token on a refresh, meaning
+   * "keep the one you have". Returning `refreshToken: null` is read that way
+   * by `refreshProviderAccessToken`, which is why it must never be read as
+   * "the grant lost its refresh token".
+   */
+  refreshAccessToken?(tokenSet: ProviderOAuthTokenSet): Promise<ProviderOAuthTokenSet>;
 }
 
 export interface BeginProviderOAuthInput {

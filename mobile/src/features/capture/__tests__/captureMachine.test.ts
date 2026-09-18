@@ -22,6 +22,7 @@ import {
   MAX_CAPTURE_LENGTH,
   MAX_TITLE_LENGTH,
   type CaptureEvent,
+  type CaptureItemEdit,
   type CaptureState,
 } from '../captureMachine';
 import type { CaptureProposal, CaptureConfirmation } from '../../../api/schemas/capture';
@@ -126,6 +127,87 @@ describe('the confirm payload', () => {
     // And it cannot be selected by asking.
     const forced = captureReducer(state, { type: 'toggleItem', itemId: 'b' });
     expect(confirmPayload(forced).itemIds).toEqual(['a']);
+  });
+
+  /**
+   * The fallback the product offers for a question nobody wants to answer
+   * (#492): fill the item in by hand in the edit sheet. The server accepts
+   * exactly this — `commandsFor()` builds the commands from a title and a
+   * resolved time — so the client has to let it be selected, or the path
+   * cannot be reached from the app at all.
+   */
+  it('carries a flagged item the user completed by hand with a title and a time', () => {
+    const flagged = analyzed(proposal({
+      items: [
+        { itemId: 'a', title: 'Call the clinic', resolvedTime: '2026-09-15T07:00:00.000Z', needsClarification: false },
+        { itemId: 'b', title: 'Pay the bill', resolvedTime: null, needsClarification: true },
+      ],
+    }));
+
+    const completed = captureReducer(flagged, {
+      type: 'editItem',
+      itemId: 'b',
+      edit: { title: 'Pay the electricity bill', localDateTime: '2026-09-15T19:00' },
+    });
+    const selected = captureReducer(completed, { type: 'toggleItem', itemId: 'b' });
+
+    expect(selected.selected).toContain('b');
+    expect(confirmPayload(selected).itemIds).toEqual(['a', 'b']);
+    expect(confirmPayload(selected).edits.b).toMatchObject({
+      title: 'Pay the electricity bill',
+      localDateTime: '2026-09-15T19:00',
+    });
+  });
+
+  it('still refuses a flagged item with only half an answer', () => {
+    const flagged = analyzed(proposal({
+      items: [
+        { itemId: 'a', title: 'Call the clinic', resolvedTime: '2026-09-15T07:00:00.000Z', needsClarification: false },
+        { itemId: 'b', title: 'Pay the bill', resolvedTime: null, needsClarification: true },
+      ],
+    }));
+
+    // A title and no time is not an answer: there is nothing to remind anyone
+    // about, and the server refuses it too (`captureAtomicEdits.test.ts`).
+    const titleOnly = captureReducer(flagged, { type: 'editItem', itemId: 'b', edit: { title: 'Pay the electricity bill' } });
+    expect(captureReducer(titleOnly, { type: 'toggleItem', itemId: 'b' }).selected).not.toContain('b');
+
+    // And a time with no title is not one either.
+    const timeOnly = captureReducer(flagged, { type: 'editItem', itemId: 'b', edit: { localDateTime: '2026-09-15T19:00' } });
+    expect(captureReducer(timeOnly, { type: 'toggleItem', itemId: 'b' }).selected).not.toContain('b');
+  });
+
+  it('keeps a hand-completed item selected when another item\'s question is answered', () => {
+    // The clarified proposal is a whole new proposal object, and the selection
+    // is rebuilt from what is confirmable in it. A hand-completed item is only
+    // confirmable together with its edit, so the edits have to be read there
+    // too or answering one question silently deselects another item (#492).
+    const twoFlagged = analyzed(proposal({
+      items: [
+        { itemId: 'b', title: 'Pay the bill', resolvedTime: null, needsClarification: true },
+        { itemId: 'c', title: 'Study probability', resolvedTime: null, needsClarification: true },
+      ],
+    }));
+    const completed = captureReducer(twoFlagged, {
+      type: 'editItem',
+      itemId: 'b',
+      edit: { title: 'Pay the electricity bill', localDateTime: '2026-09-15T19:00' },
+    });
+    const selected = captureReducer(completed, { type: 'toggleItem', itemId: 'b' });
+    expect(selected.selected).toContain('b');
+
+    const answered = captureReducer(selected, {
+      type: 'clarified',
+      proposal: proposal({
+        items: [
+          { itemId: 'b', title: 'Pay the bill', resolvedTime: null, needsClarification: true },
+          { itemId: 'c', title: 'Study probability', resolvedTime: '2026-09-15T18:00:00.000Z', needsClarification: false },
+        ],
+      }),
+    });
+
+    expect(answered.selected).toContain('b');
+    expect(answered.selected).toContain('c');
   });
 
   it('drops edits for items the user chose not to save', () => {
@@ -340,5 +422,127 @@ describe('undo', () => {
     );
     expect(savedSomething.undoable).toBe(true);
     expect(captureReducer(savedSomething, { type: 'undoWindowClosed' }).undoable).toBe(false);
+  });
+});
+
+/**
+ * Proposal-level eligibility, as the server actually emits it (#492, reopened).
+ *
+ * #493 taught the per-item rule to count an item completed by hand, but left a
+ * proposal-level guard in front of it that only let `proposed` through. The
+ * server emits `needs_clarification` whenever *every* item needs a question
+ * (`captureBoundaryService.ts`, `items.every(...)`), so a single flagged item —
+ * #492's own repro — never reached the per-item rule at all. The server's
+ * confirm accepts both statuses; the client has to agree.
+ *
+ * The tests above built proposals with the `proposal()` helper, which defaults
+ * to `status: 'proposed'` even when every item is flagged — a state the server
+ * never produces. That is why they were green while the app was broken. Every
+ * proposal below uses the status the server would emit for its items.
+ */
+describe('a proposal the server sent as needs_clarification (#492)', () => {
+  const single = () => proposal({
+    status: 'needs_clarification',
+    items: [{ itemId: 'p', title: 'Call the pharmacy', resolvedTime: null, needsClarification: true }],
+  });
+  const edit = (state: CaptureState, e: CaptureItemEdit) =>
+    captureReducer(state, { type: 'editItem', itemId: 'p', edit: e });
+  const toggle = (state: CaptureState) => captureReducer(state, { type: 'toggleItem', itemId: 'p' });
+
+  it('1. lets a single flagged item completed with a title and a time be selected and confirmed', () => {
+    const done = toggle(edit(analyzed(single()), { title: 'Call the pharmacy', localDateTime: '2026-09-15T16:11' }));
+    expect(done.selected).toContain('p');
+    expect(confirmPayload(done).itemIds).toEqual(['p']);
+    expect(confirmPayload(done).edits.p).toMatchObject({ title: 'Call the pharmacy', localDateTime: '2026-09-15T16:11' });
+  });
+
+  it('2. still refuses a title with no time', () => {
+    const titleOnly = toggle(edit(analyzed(single()), { title: 'Call the pharmacy' }));
+    expect(titleOnly.selected).not.toContain('p');
+    expect(confirmPayload(titleOnly).itemIds).toEqual([]);
+  });
+
+  it('3. still refuses a time with no title', () => {
+    const timeOnly = toggle(edit(analyzed(single()), { localDateTime: '2026-09-15T16:11' }));
+    expect(timeOnly.selected).not.toContain('p');
+    expect(confirmPayload(timeOnly).itemIds).toEqual([]);
+  });
+
+  it('4. treats the edit sheet\'s "No time" as no answer, not as the clarify answer', () => {
+    // The empty string is the "No time" switch. Even with a title it completes
+    // nothing — the explicit clarify answer (#474) is a different path and is
+    // tested separately below.
+    const noTime = toggle(edit(analyzed(single()), { title: 'Call the pharmacy', localDateTime: '' }));
+    expect(noTime.selected).not.toContain('p');
+    expect(confirmPayload(noTime).itemIds).toEqual([]);
+  });
+
+  it('5. keeps a hand-completed flagged item confirmable when the proposal is proposed', () => {
+    // One item fine, one flagged: the server emits `proposed`.
+    const mixed = analyzed(proposal({
+      status: 'proposed',
+      items: [
+        { itemId: 'a', title: 'Call the clinic', resolvedTime: '2026-09-15T07:00:00.000Z', needsClarification: false },
+        { itemId: 'p', title: 'Call the pharmacy', resolvedTime: null, needsClarification: true },
+      ],
+    }));
+    const done = toggle(edit(mixed, { title: 'Call the pharmacy', localDateTime: '2026-09-15T16:11' }));
+    expect(confirmPayload(done).itemIds).toEqual(['a', 'p']);
+  });
+
+  it('6. keeps a hand-completed item selected when another question is answered', () => {
+    // Both flagged, so the server emits `needs_clarification` — the realistic
+    // version of the multi-item case above.
+    const both = analyzed(proposal({
+      status: 'needs_clarification',
+      items: [
+        { itemId: 'p', title: 'Call the pharmacy', resolvedTime: null, needsClarification: true },
+        { itemId: 'c', title: 'Study probability', resolvedTime: null, needsClarification: true },
+      ],
+    }));
+    const selected = toggle(edit(both, { title: 'Call the pharmacy', localDateTime: '2026-09-15T16:11' }));
+    expect(selected.selected).toContain('p');
+
+    // Answering c settles it; now one item is fine, so the server sends `proposed`.
+    const answered = captureReducer(selected, {
+      type: 'clarified',
+      proposal: proposal({
+        status: 'proposed',
+        items: [
+          { itemId: 'p', title: 'Call the pharmacy', resolvedTime: null, needsClarification: true },
+          { itemId: 'c', title: 'Study probability', resolvedTime: null, needsClarification: false, clarification: null },
+        ],
+      }),
+    });
+    expect(answered.selected).toContain('p');
+    expect(answered.selected).toContain('c');
+    expect(confirmPayload(answered).itemIds.sort()).toEqual(['c', 'p']);
+  });
+
+  it.each(['no_commitment', 'rejected'] as const)(
+    '7. confirms nothing on a %s proposal, whatever the edits say',
+    (status) => {
+      const terminal = proposal({
+        status,
+        items: [{ itemId: 'p', title: 'Call the pharmacy', resolvedTime: null, needsClarification: true }],
+      });
+      expect(confirmableItems(terminal, { p: { title: 'Call the pharmacy', localDateTime: '2026-09-15T16:11' } })).toEqual([]);
+      expect(confirmableItems(terminal)).toEqual([]);
+    },
+  );
+
+  it('8. leaves the #474 "Leave it without a time" answer working exactly as before', () => {
+    // The clarify `none` answer settles the item server-side: it comes back
+    // unflagged with no time, and the proposal is `proposed`.
+    const settled = captureReducer(analyzed(single()), {
+      type: 'clarified',
+      proposal: proposal({
+        status: 'proposed',
+        items: [{ itemId: 'p', title: 'Call the pharmacy', resolvedTime: null, needsClarification: false, clarification: null }],
+      }),
+    });
+    expect(settled.selected).toContain('p');
+    expect(confirmPayload(settled).itemIds).toEqual(['p']);
+    expect(settled.proposal?.items[0]?.resolvedTime).toBeNull();
   });
 });
