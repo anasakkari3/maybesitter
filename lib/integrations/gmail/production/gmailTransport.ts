@@ -410,10 +410,12 @@ export function createGmailTransport(deps: GmailTransportDeps): GmailTransport {
         ) {
           reauthed = true;
           await deps.reauth();
-          // No delay and no attempt consumed: the condition has already been
-          // corrected, so waiting would only slow down a request that is now
-          // expected to succeed.
-          attempt -= 1;
+          // No delay: the condition has already been corrected, so waiting
+          // would only slow down a request now expected to succeed. The
+          // attempt counter is deliberately *not* rewound — an earlier draft
+          // decremented it, and a mutation that broke the `reauthed` latch
+          // then looped forever instead of failing. One guard should not be
+          // the only thing between this and an unbounded retry.
           continue;
         }
 
@@ -678,7 +680,6 @@ export function createGmailTransport(deps: GmailTransportDeps): GmailTransport {
  */
 export function toGmailProviderError(error: unknown): unknown {
   if (error instanceof GmailProviderError) return error;
-  if (isProviderTransportFailure(error)) return error;
 
   if (error instanceof GmailWireError) {
     return new GmailProviderError(error.message, null, false, true);
@@ -700,6 +701,14 @@ export function toGmailProviderError(error: unknown): unknown {
     return new GmailProviderError(error.message, error.httpStatus, staleCursor, false);
   }
 
+  // Everything else passes through untouched, and a timeout or a reset socket
+  // is the case that matters: `runGmailIncrementalSync` recognises it by shape
+  // via `isProviderTransportFailure` and classifies it `transport_failure`
+  // (retryable, connection stays `connected`). Wrapping it here would erase
+  // the shape the detector reads and put us back where #517 started. An
+  // earlier draft had an explicit early return for this, which was dead code:
+  // a transport error is neither a wire nor an HTTP error, so it already
+  // reached this line.
   return error;
 }
 

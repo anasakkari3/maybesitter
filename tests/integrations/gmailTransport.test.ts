@@ -380,6 +380,34 @@ test('a 404 from messages.get is a deleted message, skipped, not a stale cursor'
   assert.equal(result.items[0]?.externalId, MSG_ID_2);
 });
 
+test('a 5xx from messages.get is surfaced, not swallowed like a deleted message', async () => {
+  // The deleted-message skip must be narrow. A mutation that widened it to
+  // every HTTP error survived the suite once: a page would then come back
+  // looking complete while quietly dropping mail the provider had simply
+  // failed to return, and the cursor would advance past it.
+  const { result } = await sync({
+    history: ok(HISTORY_LIST_PAGE_1.body),
+    messagesGet: (id) =>
+      id === MSG_ID_1 ? { status: 500, body: ERROR_500_BACKEND.body } : messageFor(id),
+  });
+
+  assert.equal(result.failure?.kind, 'provider_unavailable');
+  assert.equal(result.failure?.retryable, true);
+  assert.notEqual(result.state, 'complete');
+  assert.equal(result.nextHistoryId, HISTORY_CURSOR_FRESH, 'the cursor must not advance past dropped mail');
+});
+
+test('a 403 from messages.get is surfaced too', async () => {
+  const { result } = await sync({
+    history: ok(HISTORY_LIST_PAGE_1.body),
+    messagesGet: (id) =>
+      id === MSG_ID_1 ? { status: 403, body: ERROR_403_INSUFFICIENT_SCOPE.body } : messageFor(id),
+  });
+
+  assert.equal(result.failure?.kind, 'permission_lost');
+  assert.notEqual(result.state, 'complete');
+});
+
 test('a 401 with no way to re-authenticate is authentication_revoked', async () => {
   const { result, calls } = await sync({
     history: { status: 401, body: ERROR_401_INVALID_CREDENTIALS.body },
