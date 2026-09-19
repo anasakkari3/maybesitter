@@ -99,6 +99,42 @@ export const CLARIFICATION_MAX_ROUNDS = 1;
 export const CLARIFICATION_FREE_TEXT_MAX = 200;
 
 /**
+ * The longest capture the **server** will read, in characters (#508).
+ *
+ * Two thousand, which is deliberately the same number as `MAX_CAPTURE_LENGTH`
+ * in mobile/src/features/capture/captureMachine.ts. The client's copy is a UX
+ * affordance — it keeps the composer's counter honest — and this one is the
+ * boundary. Anybody holding a token can skip the first; only this one is
+ * enforcement. They are the same number so that no capture the app accepts is
+ * ever refused by the server, which would be a failure the user cannot explain.
+ *
+ * **Characters, not bytes.** `String.length` counts UTF-16 code units, which is
+ * what the composer counts and what the parsers actually scan. A byte-based cap
+ * would give Arabic and Hebrew roughly half the allowance — two UTF-8 bytes per
+ * character against English's one — and Arabic is this app's default language,
+ * so that is most of the users silently getting a stricter limit than the one
+ * the product promises, and every ASCII test would still pass. An astral emoji
+ * costs two code units under this rule; that is a far smaller effect and it is
+ * the unit the client already uses.
+ *
+ * **Why the number has to be this low.** Two quadratic parsers sit behind this
+ * boundary and both are reached by an ordinary authenticated capture. Measured
+ * here, worst case per request on the one thread that serves everybody:
+ *
+ *                  splitInput      ruleBasedExtractor:386
+ *     2,000 chars       2.8ms                      3.9ms
+ *    20,000 chars     167.9ms                    294.8ms
+ *   100,000 chars    3555.9ms                   7233.6ms
+ *
+ * So 20,000 — the figure `MAX_INPUT_CHARACTERS` and `MAX_SHARE_TEXT_CHARACTERS`
+ * use for a model prompt and for an imported chat export — is not a safe
+ * boundary for a *typed* capture: it still leaves nearly half a second of
+ * blocked event loop reachable per request. 2,000 bounds both parsers to single
+ * digit milliseconds, and is what the product already contracts for a capture.
+ */
+export const CAPTURE_INPUT_MAX_CHARACTERS = 2_000;
+
+/**
  * One change a user made in review, before anything was saved (UC-2.4, #164).
  *
  * Only three fields, and deliberately: title, time and priority are what the

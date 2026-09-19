@@ -8,6 +8,7 @@ import type { ExtractionContext, ExtractionResult } from '../../../src/extractio
 import { resolveModuleRuntime, type AuditEventEnvelope, createAuditEvent, type RuntimeControlSnapshot } from '../../../src/contracts/v1/runtimeControls';
 import {
   CAPTURE_CONTRACT_VERSION,
+  CAPTURE_INPUT_MAX_CHARACTERS,
   CAPTURE_PROPOSAL_TTL_MS,
   type CaptureConfirmationResultContract,
   type CaptureItemEditContract,
@@ -78,6 +79,24 @@ const INJECTION = /(?:ignore|disregard|override).{0,40}(?:instruction|system|pol
  * based extractor reads just as well, and the cost is per call.
  */
 const MAX_MODEL_SEGMENTS = 5;
+
+/**
+ * The capture is longer than the server will read (#508).
+ *
+ * Refused, never truncated. Truncating would drop the end of somebody's
+ * sentence and then answer as though it had read the whole thing — and the end
+ * of a capture is where the time usually is.
+ *
+ * `maxCharacters` is on the error because the route puts it in the 413 body,
+ * which is the shape `mobile/src/api/client.ts` already parses into
+ * `InputTooLargeError`.
+ */
+export class CaptureInputTooLargeError extends Error {
+  constructor(readonly maxCharacters: number = CAPTURE_INPUT_MAX_CHARACTERS) {
+    super(`a capture may be at most ${maxCharacters} characters`);
+    this.name = 'CaptureInputTooLargeError';
+  }
+}
 
 /**
  * One capture, split into the commitments it actually names.
@@ -185,6 +204,19 @@ function auditEvent(outcome: 'succeeded' | 'rejected' | 'failed' | 'fell_back', 
 
 export async function proposeCapture(rawInput: unknown, options: ProposeCaptureOptions, dependencies: CaptureBoundaryDependencies): Promise<CaptureProposalContract> {
   const raw = typeof rawInput === 'string' ? rawInput.trim() : '';
+  /*
+   * The server's length boundary, and the only one (#508).
+   *
+   * Here rather than in a route because this is the lowest point every way in
+   * shares: the typed capture reaches it through `proposeMobileCapture`, and so
+   * does a share (lib/services/share/shareIntakeService.ts:398). A route-level
+   * check would be one more thing the next route has to remember.
+   *
+   * First statement in the function, before `readCategoryPreferences` reads
+   * storage, before `splitInput` runs its regexes, and before a single segment
+   * is offered to the extractor or to a model.
+   */
+  if (raw.length > CAPTURE_INPUT_MAX_CHARACTERS) throw new CaptureInputTooLargeError();
   const requestedEngine = options.requestedEngine ?? 'model';
   const runtime = resolveModuleRuntime('capture', dependencies.controls);
   const forceRules = requestedEngine === 'rules' || runtime.mode === 'rules_only';

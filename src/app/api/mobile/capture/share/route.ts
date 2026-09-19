@@ -41,6 +41,7 @@ import {
   shareTraceSessionId,
   type ShareIntakeRawFile,
 } from '../../../../../../lib/services/share/shareIntakeService';
+import { CaptureInputTooLargeError } from '../../../../../../lib/services/captureBoundary/captureBoundaryService';
 import { ShareInputError } from '../../../../../../lib/services/share/shareTypes';
 
 // `nodejs`, not edge: the service reads `Uint8Array`s with Node's `Buffer` on
@@ -182,6 +183,20 @@ export async function POST(request: Request) {
     if (result.status === 'rejected') return mobileError('Capture rejected');
     return Response.json(result);
   } catch (error) {
+    /*
+     * Share is the second door onto `proposeCapture`, so it inherits that
+     * boundary's length cap (#508) — and answers for it in share's own
+     * vocabulary rather than letting a capture-layer error fall through to a
+     * generic failure. Same status and same reason code as
+     * `ShareInputError(413, 'text_too_long')` below, which is the refusal this
+     * route already gives for text it will not read.
+     */
+    if (error instanceof CaptureInputTooLargeError) {
+      return Response.json(
+        { success: false, error: error.message, reason: 'text_too_long', maxCharacters: error.maxCharacters },
+        { status: 413 },
+      );
+    }
     if (error instanceof ShareInputError) {
       return Response.json(
         { success: false, error: error.message, reason: error.reason },

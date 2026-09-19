@@ -1,5 +1,6 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../lib/auth/mobileAuth';
 import { proposeMobileCapture } from '../../../../../lib/services/mobile/mobileCaptureService';
+import { CaptureInputTooLargeError } from '../../../../../lib/services/captureBoundary/captureBoundaryService';
 import { mobileError } from '../../../../../lib/services/mobile/response';
 import { recordTraceStage, resolveTraceSessionId, stage } from '../../../../../lib/alphaTrace/traceRecorder';
 
@@ -47,6 +48,25 @@ export async function POST(request: Request) {
     }
     return Response.json(proposal);
   } catch (error) {
+    /*
+     * 413 with `maxCharacters`, which is the shape the phone already reads:
+     * `mobile/src/api/client.ts:248` turns any 413 into `InputTooLargeError`
+     * and `userFacingMessage.ts:118` renders that as `aiInputTooLong`, which
+     * exists in en, ar and he. The reason code is `text_too_long`, the one the
+     * share route already mints for the same refusal
+     * (lib/services/share/shareIntakeService.ts:354), so the two doors onto
+     * this boundary answer with one vocabulary.
+     *
+     * This mapping is why the error is typed. The catch below returns a bare
+     * 400 with no `reason` at all, so a plain `throw new Error` here would be
+     * indistinguishable from any other capture failure (#508).
+     */
+    if (error instanceof CaptureInputTooLargeError) {
+      return Response.json(
+        { success: false, error: error.message, reason: 'text_too_long', maxCharacters: error.maxCharacters },
+        { status: 413 },
+      );
+    }
     return mobileError(error instanceof Error ? error.message : 'Capture failed');
   }
 }
