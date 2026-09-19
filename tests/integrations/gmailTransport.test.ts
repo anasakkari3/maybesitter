@@ -31,6 +31,7 @@ import {
   GMAIL_PHASE_B_SCOPES,
   GMAIL_TRANSPORT_POLICY,
   GmailHttpError,
+  GmailWireError,
   type GmailTransportDeps,
 } from '../../lib/integrations/gmail/production/gmailTransport.ts';
 import {
@@ -977,12 +978,28 @@ test('no token and no provider content escapes any failure path', async () => {
 });
 
 test('an error message names the endpoint and the status, never the URL or the body', async () => {
-  const error = new GmailHttpError(403, 'history.list');
-  assert.equal(error.message, 'gmail history.list responded 403');
-  assert.equal(error.message.includes('gmail.googleapis.com'), false);
-  assert.equal(error.message.includes('http'), false);
-  // Fully determined by the code, in the manner of `SafeFetchError`.
-  assert.equal(new GmailHttpError(403, 'history.list').message, error.message);
+  // Asserted as an exact allowed shape rather than by hunting for forbidden
+  // substrings. A deny-list over a message is the weaker test — it only ever
+  // catches the leak somebody already thought of — and a host substring check
+  // is the very pattern CodeQL flags as incomplete URL sanitization.
+  const ALLOWED = /^gmail (profile\.get|history\.list|messages\.list|messages\.get) responded \d{3}$/;
+
+  for (const endpoint of ['profile.get', 'history.list', 'messages.list', 'messages.get'] as const) {
+    for (const status of [401, 403, 404, 429, 500, 502]) {
+      const error = new GmailHttpError(status, endpoint);
+      assert.match(error.message, ALLOWED);
+      // Fully determined by the code, in the manner of `SafeFetchError`: the
+      // same inputs give byte-identical output, so nothing situational — a
+      // URL, a host, a body — can have reached it.
+      assert.equal(new GmailHttpError(status, endpoint).message, error.message);
+    }
+  }
+
+  assert.equal(new GmailHttpError(403, 'history.list').message, 'gmail history.list responded 403');
+
+  // The wire error names the field that was wrong and never its value.
+  const wire = new GmailWireError('history.list', 'string historyId');
+  assert.equal(wire.message, 'gmail history.list response has no readable string historyId');
 });
 
 test('a logged request URL carries no token', async () => {
