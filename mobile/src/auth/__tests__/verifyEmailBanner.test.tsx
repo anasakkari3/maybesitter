@@ -47,6 +47,14 @@ describe('email verification banner', () => {
     expect(screen.getByText(en.authVerifyBanner)).toBeTruthy();
   });
 
+  it('clears the status bar with the safe-area top inset', async () => {
+    await renderBanner(createFakeAuthRepository({ initialUser: UNVERIFIED }));
+    // The banner renders above every screen at the root, so the inset is its
+    // own container's padding, not a screen's (#495).
+    const banner = screen.getByText(en.authVerifyBanner).parent;
+    expect(banner?.props.style).toMatchObject({ paddingTop: METRICS.insets.top + 12 });
+  });
+
   it('stays out of the way once the address is verified', async () => {
     await renderBanner(createFakeAuthRepository({ initialUser: { ...UNVERIFIED, emailVerified: true } }));
     expect(screen.queryByText(en.authVerifyBanner)).toBeNull();
