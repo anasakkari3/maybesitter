@@ -15,8 +15,6 @@ import { CaptureFlow } from './features/capture/CaptureFlow';
 import { CaptureProvider } from './features/capture/CaptureProvider';
 import { ShareProvider } from './features/share/ShareProvider';
 import { ShareScreen } from './screens/ShareScreen';
-import { CloseoutScreen } from './screens/CloseoutScreen';
-import { FirstMoveScreen } from './screens/FirstMoveScreen';
 import { SheetHost } from './screens/Sheets';
 import { TabBar } from './screens/TabBar';
 import { CalendarDemoScreen } from './screens/CalendarDemoScreen';
@@ -189,8 +187,6 @@ export function Root() {
               to be wrong. */}
           {s.screen === 'capture' && <CaptureFlow key="capture" />}
           {s.screen === 'share' && <ShareScreen key="share" />}
-          {s.screen === 'closeout' && <CloseoutScreen key="closeout" />}
-          {s.screen === 'firstmove' && <FirstMoveScreen key="firstmove" />}
           {__DEV__ && s.screen === 'gallery' && <Gallery key="gallery" />}
           {/* Two independent gates: the flag, and the release guard that refuses
               to configure a staging or production build which sets it (#152). */}

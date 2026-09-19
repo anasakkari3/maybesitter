@@ -47,8 +47,6 @@ export type Proposal = {
 
 export type Part = { text: string; c: number };
 
-export type YesterdayItem = { id: string; title: Localized; res: null | 'done' | 'later' };
-
 export type Screen =
   | 'today'
   | 'calendar'
@@ -64,8 +62,6 @@ export type Screen =
   // twice. A successful analyze leaves here for `capture`, which is where the
   // ordinary review and confirm live.
   | 'share'
-  | 'closeout'
-  | 'firstmove'
   // Development only: the design gallery (src/design/Gallery.tsx).
   | 'gallery'
   // Development only, and additionally behind an env flag: the Google Calendar
