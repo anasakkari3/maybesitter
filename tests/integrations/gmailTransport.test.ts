@@ -772,7 +772,7 @@ test('a Phase B connection requests the read scope and nothing else', async () =
   // also knows about compose and send, and a catalogue entry is not a
   // guarantee about what reaches Google's consent screen.
   assert.deepEqual([...GMAIL_PHASE_B_SCOPES], ['https://www.googleapis.com/auth/gmail.readonly']);
-  assert.equal(GMAIL_PHASE_B_SCOPES.includes(GMAIL_SCOPES.compose), false);
+  assert.equal(GMAIL_PHASE_B_SCOPES.includes(GMAIL_SCOPES.draft), false);
   assert.equal(GMAIL_PHASE_B_SCOPES.includes(GMAIL_SCOPES.send), false);
   assert.equal(GMAIL_PHASE_B_SCOPES.some((scope) => scope === 'https://mail.google.com/'), false);
 });
@@ -963,9 +963,9 @@ test('a logged request URL carries no token', async () => {
     assert.equal(call.url.toString().includes(TOKEN), false);
     // `pageToken` is a legitimate, opaque query parameter, so this checks for
     // the credential itself rather than for the substring "token".
-    for (const [, value] of call.url.searchParams) {
+    call.url.searchParams.forEach((value) => {
       assert.notEqual(value, TOKEN, 'no credential in a query parameter');
-    }
+    });
     // The token travels in the header, which is where it belongs.
     assert.equal(call.authorization, `Bearer ${TOKEN}`);
   }
