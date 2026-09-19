@@ -420,6 +420,102 @@ test('the template says nothing about leftovers when there are none', () => {
   assert.deepEqual(explanationRejections(templateExplanation(clean), clean), []);
 });
 
+/* ── The count agrees with its noun, in every locale (#494) ──────── */
+
+/**
+ * The template used to interpolate the bare count into a hard-coded plural —
+ * "I placed 1 things" — in all three languages, and Arabic needs more than
+ * singular/plural (a dual at 2, the plural of paucity for 3-10, the singular
+ * again from 11). Each row is the *exact* sentence the template must produce,
+ * and each is also run through the validator: a grammatically correct sentence
+ * that fails its own guard would fall back to nothing.
+ */
+function countFacts(locale: UserLocale, placed: number, left: number): ExplanationFacts {
+  const span = placed > 0;
+  return {
+    locale,
+    allowedTimes: span ? ['09:00', '11:30'] : [],
+    titles: [],
+    scheduledCount: placed,
+    unscheduledCount: left,
+    firstStart: span ? '09:00' : null,
+    lastEnd: span ? '11:30' : null,
+  };
+}
+
+const PLURALS: ReadonlyArray<readonly [string, UserLocale, number, number, string]> = [
+  ['en: one placed', 'en', 1, 0, 'I placed 1 thing between 09:00 and 11:30.'],
+  ['en: two placed', 'en', 2, 0, 'I placed 2 things between 09:00 and 11:30.'],
+  ['en: eleven placed', 'en', 11, 0, 'I placed 11 things between 09:00 and 11:30.'],
+  [
+    'en: one left over, singular verb',
+    'en', 3, 1,
+    'I placed 3 things between 09:00 and 11:30. 1 did not fit today and stays on your list.',
+  ],
+  [
+    'en: three left over, plural verb',
+    'en', 1, 3,
+    'I placed 1 thing between 09:00 and 11:30. 3 did not fit today and stay on your list.',
+  ],
+  ['he: one placed', 'he', 1, 0, 'שיבצתי דבר אחד בין 09:00 ל-11:30.'],
+  ['he: two placed', 'he', 2, 0, 'שיבצתי שני דברים בין 09:00 ל-11:30.'],
+  ['he: three placed', 'he', 3, 0, 'שיבצתי 3 דברים בין 09:00 ל-11:30.'],
+  ['he: eleven placed', 'he', 11, 0, 'שיבצתי 11 דברים בין 09:00 ל-11:30.'],
+  [
+    'he: one left over, singular verb',
+    'he', 2, 1,
+    'שיבצתי שני דברים בין 09:00 ל-11:30. דבר אחד לא נכנס היום ונשאר ברשימה שלך.',
+  ],
+  [
+    'he: two left over, plural verb',
+    'he', 1, 2,
+    'שיבצתי דבר אחד בין 09:00 ל-11:30. שני דברים לא נכנסו היום ונשארים ברשימה שלך.',
+  ],
+  [
+    'he: eleven left over',
+    'he', 1, 11,
+    'שיבצתי דבר אחד בין 09:00 ל-11:30. 11 דברים לא נכנסו היום ונשארים ברשימה שלך.',
+  ],
+  ['ar: one placed', 'ar', 1, 0, 'حطيت إشي واحد بين 09:00 و11:30.'],
+  ['ar: two placed, the dual', 'ar', 2, 0, 'حطيت إشيين بين 09:00 و11:30.'],
+  ['ar: three placed, plural of paucity', 'ar', 3, 0, 'حطيت 3 إشيا بين 09:00 و11:30.'],
+  ['ar: eleven placed, singular again', 'ar', 11, 0, 'حطيت 11 إشي بين 09:00 و11:30.'],
+  [
+    'ar: one left over, singular verb',
+    'ar', 2, 1,
+    'حطيت إشيين بين 09:00 و11:30. إشي واحد ما لحق اليوم وضل عندك بالقائمة.',
+  ],
+  [
+    'ar: two left over, the dual with a plural verb',
+    'ar', 1, 2,
+    'حطيت إشي واحد بين 09:00 و11:30. إشيين ما لحقوا اليوم وضلوا عندك بالقائمة.',
+  ],
+  [
+    'ar: eleven left over',
+    'ar', 1, 11,
+    'حطيت إشي واحد بين 09:00 و11:30. 11 إشي ما لحقوا اليوم وضلوا عندك بالقائمة.',
+  ],
+];
+
+for (const [label, locale, placed, left, expected] of PLURALS) {
+  test(`the template inflects its count — ${label}`, () => {
+    const derived = countFacts(locale, placed, left);
+    assert.equal(templateExplanation(derived), expected);
+    assert.deepEqual(
+      explanationRejections(expected, derived),
+      [],
+      `the inflected ${locale} template does not pass the validator that guards the model: ${expected}`,
+    );
+  });
+}
+
+test('nothing placed and nothing left still says so, in every locale', () => {
+  for (const locale of ['ar', 'he', 'en'] as const) {
+    const derived = countFacts(locale, 0, 0);
+    assert.deepEqual(explanationRejections(templateExplanation(derived), derived), []);
+  }
+});
+
 test('a real Arabic title quoted back verbatim is accepted, hamza and all', () => {
   // The text is folded before the title check reads it, so `«أسأل إمي»` becomes
   // `اسال امي`. Unless the title is folded the same way, a model that quotes

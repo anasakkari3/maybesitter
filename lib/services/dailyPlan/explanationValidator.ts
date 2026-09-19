@@ -490,19 +490,37 @@ export function templateExplanation(facts: ExplanationFacts): string {
   const span = firstStart !== null && lastEnd !== null;
 
   if (locale === 'ar') {
+    // Arabic counts agree with the noun: singular at 1, dual at 2, the plural
+    // of paucity for 3-10, and the singular again from 11 up.
+    const things = (count: number): string =>
+      count === 1 ? 'إشي واحد' : count === 2 ? 'إشيين' : count <= 10 ? `${count} إشيا` : `${count} إشي`;
     const head = span
-      ? `حطيت ${placed} إشيا بين ${firstStart} و${lastEnd}.`
+      ? `حطيت ${things(placed)} بين ${firstStart} و${lastEnd}.`
       : `ما في إشي بيزبط بأوقاتك اليوم.`;
-    return left === 0 ? head : `${head} ${left} ما لحقوا اليوم وضلوا عندك بالقائمة.`;
+    if (left === 0) return head;
+    return left === 1
+      ? `${head} إشي واحد ما لحق اليوم وضل عندك بالقائمة.`
+      : `${head} ${things(left)} ما لحقوا اليوم وضلوا عندك بالقائمة.`;
   }
   if (locale === 'he') {
+    // דבר is masculine: "דבר אחד … נכנס/נשאר" at 1, "שני דברים" at 2, and the
+    // digit with the plural from 3 up.
+    const things = (count: number): string =>
+      count === 1 ? 'דבר אחד' : count === 2 ? 'שני דברים' : `${count} דברים`;
     const head = span
-      ? `שיבצתי ${placed} דברים בין ${firstStart} ל-${lastEnd}.`
+      ? `שיבצתי ${things(placed)} בין ${firstStart} ל-${lastEnd}.`
       : `שום דבר לא נכנס לחלונות של היום.`;
-    return left === 0 ? head : `${head} ${left} לא נכנסו היום ונשארים ברשימה שלך.`;
+    if (left === 0) return head;
+    return left === 1
+      ? `${head} דבר אחד לא נכנס היום ונשאר ברשימה שלך.`
+      : `${head} ${things(left)} לא נכנסו היום ונשארים ברשימה שלך.`;
   }
+  const things = (count: number): string => (count === 1 ? '1 thing' : `${count} things`);
   const head = span
-    ? `I placed ${placed} things between ${firstStart} and ${lastEnd}.`
+    ? `I placed ${things(placed)} between ${firstStart} and ${lastEnd}.`
     : `Nothing fits inside today's windows.`;
-  return left === 0 ? head : `${head} ${left} did not fit today and stay on your list.`;
+  if (left === 0) return head;
+  return left === 1
+    ? `${head} 1 did not fit today and stays on your list.`
+    : `${head} ${left} did not fit today and stay on your list.`;
 }
