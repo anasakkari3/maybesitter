@@ -272,6 +272,22 @@ export function ringsForMust(settings: HardReminderSettings): boolean {
     && settings.escalationCeiling === 'hard';
 }
 
+/**
+ * The ceiling alone, for a caller that caps pressure and needs nothing else
+ * (#446). One read of the user document, resolved exactly as the settings
+ * response resolves it — the stored choice, else the survey's legacy answer,
+ * else the gentlest — so the pressure path and the settings screen can never
+ * disagree about what the account agreed to.
+ */
+export async function readEscalationCeiling(
+  uid: string,
+  options: ReminderSettingsOptions = {},
+): Promise<PressureCeiling> {
+  requireUserId(uid);
+  const user = await storageOf(options).get<ReminderSettingsBearingUser>(userDoc(uid));
+  return hardSettingsOfUser(user).escalationCeiling;
+}
+
 export async function readReminderSettings(
   uid: string,
   options: ReminderSettingsOptions = {},
