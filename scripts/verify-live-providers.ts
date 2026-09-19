@@ -28,6 +28,7 @@
 import {
   liveVerificationEnabled,
   probesAreClean,
+  probeReport,
   runProviderProbes,
   type ProbeResult,
   type ProviderReadPort,
@@ -36,16 +37,8 @@ import {
   PROVIDERS_WITHOUT_LIVE_PROBES,
   PROVIDER_PROBES,
 } from '../lib/verification/providerProbeCatalog.ts';
+import { createGmailTransport } from '../lib/integrations/gmail/production/gmailTransport.ts';
 import type { ContextProviderKind } from '../src/contracts/v1/integrationConnectionContracts.ts';
-
-/**
- * The transports available to this run.
- *
- * Empty on purpose. Nothing here fabricates a provider client, because a
- * client written for verification would not be the client production uses,
- * and then a green run would mean nothing.
- */
-const ports = new Map<ContextProviderKind, ProviderReadPort>();
 
 function line(result: ProbeResult): string {
   const parts = [
@@ -63,6 +56,20 @@ function line(result: ProbeResult): string {
 
 async function main(): Promise<void> {
   const enabled = liveVerificationEnabled();
+  const asJson = process.argv.includes('--json');
+
+  if (asJson) {
+    const results = await runProviderProbes(PROVIDER_PROBES, { ports });
+    // Only the document goes to stdout, so the output is parseable without
+    // stripping a banner off the front of it.
+    console.log(JSON.stringify(probeReport(results, enabled), null, 2));
+    // Unchanged on purpose: the exit code still means "clean", and skips still
+    // count as clean. The distinction now lives in `outcome`, where a reader
+    // can act on it, rather than being redefined underneath existing callers.
+    process.exitCode = probesAreClean(results) ? 0 : 1;
+    return;
+  }
+
   console.log(`live provider verification: ${enabled ? 'enabled' : 'disabled (opt-in flag not set)'}`);
   console.log('');
 
