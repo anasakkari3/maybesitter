@@ -101,5 +101,9 @@
       }
     }
   ],
-  "suggestions": []
+  "suggestions": [],
+  "adaptive": {
+    "classification": null,
+    "effect": null
+  }
 }

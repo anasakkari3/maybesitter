@@ -15,5 +15,9 @@
         "lookbackDays": 28
       }
     }
-  ]
+  ],
+  "adaptive": {
+    "classification": null,
+    "effect": null
+  }
 }

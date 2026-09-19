@@ -140,10 +140,33 @@ export const memorySuggestionSchema = z.object({
   }),
 });
 
+/**
+ * How reminders adapt to this account (UC-3.16, #202 step 1's `adaptive`).
+ *
+ * A token and the effect's two halves, never a sentence — the same split
+ * `sourceLabel` makes: the server owns the classification (it takes the
+ * behaviour counters to compute), the words are this app's in three languages.
+ * `effect.maxPressureLevel` is the post-UC-3.13 (#199) cap: a group can lower
+ * how hard the product pushes, never raise it.
+ *
+ * `classification: null` is the neutral unset state: an account with no
+ * recorded behaviour has no group, and the screen says so rather than showing
+ * a label derived from defaults.
+ */
+export const memoryAdaptiveSchema = z.object({
+  classification: z.enum(['avoidant', 'inconsistent', 'disciplined']).nullable(),
+  effect: z.object({
+    maxPressureLevel: z.enum(['low', 'medium', 'high']),
+    suggestionStyle: z.enum(['direct', 'supportive', 'minimal']),
+  }).nullable(),
+});
+
 export const memoryListSchema = z.object({
   items: z.array(memoryItemSchema),
   /** Defaulted, so a server without the growth half still parses. */
   suggestions: z.array(memorySuggestionSchema).default([]),
+  /** Defaulted, so a server without the adaptive field still parses. */
+  adaptive: memoryAdaptiveSchema.nullable().default(null),
 });
 
 export const memorySuggestionKeptSchema = z.object({
@@ -174,6 +197,7 @@ export type MemoryProvenance = z.infer<typeof memoryProvenanceSchema>;
 export type MemorySourceLabel = z.infer<typeof memorySourceLabelSchema>;
 export type MemoryEvidence = z.infer<typeof memoryEvidenceSchema>;
 export type MemorySuggestion = z.infer<typeof memorySuggestionSchema>;
+export type MemoryAdaptive = z.infer<typeof memoryAdaptiveSchema>;
 
 /**
  * A suggestion drawn from a self-description (UC-2.7b, #168).
