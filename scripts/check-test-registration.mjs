@@ -24,6 +24,11 @@ export const SCRIPT_ONLY = {
   // on an idle machine (#380).
   'tests/perf/decompositionValidatorBounds.perf.test.ts': 'test:perf',
   'tests/perf/evidenceGraphBounds.perf.test.ts': 'test:perf',
+  // Wall-clock bound on the capture connector split at the enforced maximum
+  // capture length. The segments it produces are pinned by
+  // tests/security/captureInputLimit.test.ts in `npm test`; only the timing
+  // lives here, for the reason above (#508).
+  'tests/perf/captureSplitBounds.perf.test.ts': 'test:perf',
 };
 
 export function registrationProblems(root = process.cwd()) {
