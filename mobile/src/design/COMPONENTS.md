@@ -24,8 +24,8 @@ advance.
 |---|---|---|---|---|
 | `Txt` | `src/ui/primitives.tsx` | every state | Picks Noto Naskh vs Outfit by language; `latin` forces Outfit for digits in tight boxes; sets `writingDirection` | done |
 | `Btn` | `src/ui/primitives.tsx` | every state | Press scale 0.95; start-aligned column content uses `alignItems: 'flex-start'`, never `textAlign` | done |
-| `Pill` | `src/ui/primitives.tsx` | today, details, review, closeout, firstmove | Six kinds (accent/soft/outline/warm/ink/ghost); min height 48 | done |
-| `Card` | `src/ui/primitives.tsx` | today, calendar, details, firstmove | Radius `card`; shadow only in light scheme | done |
+| `Pill` | `src/ui/primitives.tsx` | today, details, review | Six kinds (accent/soft/outline/warm/ink/ghost); min height 48 | done |
+| `Card` | `src/ui/primitives.tsx` | today, calendar, details | Radius `card`; shadow only in light scheme | done |
 | `HeaderPill` | `src/ui/primitives.tsx` | details, capture, review | Back/cancel affordance; mirrors with the row | done |
 | `ImpBadge` | `src/ui/primitives.tsx` | today, review, details | must = sand, should = teal container, nice = neutral | done |
 | Icons | `src/ui/icons.tsx` | tab bar, capture, today | Inline SVG; directional glyphs must mirror when added | done |

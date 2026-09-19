@@ -26,8 +26,10 @@ The design is not a set of artboards; it is one state machine. The states are:
 
 with the sheet states `clarify`, `readings`, `rearrange` and `toast`.
 
-`mobile/src/state/types.ts` mirrors these names, and `maybesitter://<state>`
-deep links open any of them directly (`mobile/src/links.ts`).
+`mobile/src/state/types.ts` mirrors these names — except `closeout` and
+`firstmove`, which the app cut as unreachable (#486) — and
+`maybesitter://<state>` deep links open any of them directly
+(`mobile/src/links.ts`).
 
 ## Where the tokens live
 

@@ -10,8 +10,8 @@ import {
 import { googleCalendarDemoEnabled } from '../config/env';
 import { loadThemePref, saveThemePref } from '../lib/deviceSettings/theme';
 import { palettes, type Palette, type Scheme } from '../theme/tokens';
-import { seedCommitments, seedYesterday, TODAY } from './seed';
-import type { Commitment, Screen, Sheet, Status, ThemePref, YesterdayItem } from './types';
+import { seedCommitments, TODAY } from './seed';
+import type { Commitment, Screen, Sheet, Status, ThemePref } from './types';
 import type { CaptureInputMode, CaptureSource } from '../features/capture/captureMachine';
 
 export type AppState = {
@@ -32,7 +32,6 @@ export type AppState = {
   sheet: Sheet;
   toast: string;
   nextDismissed: boolean;
-  fmMode: 'sessions' | 'twomin';
   /**
    * Which day of the week strip is open, as an offset from today (0 = today).
    *
@@ -45,15 +44,14 @@ export type AppState = {
   /** The `YYYY-MM-DD` the plan screen is showing, or null when it is closed. */
   planDate: string | null;
   commitments: Commitment[];
-  yesterday: YesterdayItem[];
 };
 
 const initial: AppState = {
   screen: 'today', prev: 'today',
   captureSource: 'tab', captureInput: 'text',
   sheet: null, toast: '',
-  nextDismissed: false, fmMode: 'sessions', selDay: 0, detailId: null, planDate: null,
-  commitments: seedCommitments, yesterday: seedYesterday,
+  nextDismissed: false, selDay: 0, detailId: null, planDate: null,
+  commitments: seedCommitments,
 };
 
 function useAppModel() {
@@ -91,10 +89,6 @@ function useAppModel() {
   }, []);
   useEffect(() => { void setLocale(lang); }, [lang]);
 
-  const sRef = useRef(s);
-  sRef.current = s;
-  const tRef = useRef(t);
-  tRef.current = t;
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
   const later = (fn: () => void, ms: number) => { timers.current.push(setTimeout(fn, ms)); };
@@ -135,7 +129,7 @@ function useAppModel() {
   const actions = {
     resetForNewUser,
     go: (screen: Screen) => set(st => ({ prev: st.screen, screen, sheet: null })),
-    back: () => set(st => ({ screen: st.prev === 'details' || st.prev === 'firstmove' ? 'today' : st.prev, sheet: null })),
+    back: () => set(st => ({ screen: st.prev === 'details' ? 'today' : st.prev, sheet: null })),
     openDetail: (id: string) => set(st => ({ detailId: id, prev: st.screen, screen: 'details' })),
     /**
      * Today's plan, for one named date (UC-3.10b, #195).
@@ -177,14 +171,6 @@ function useAppModel() {
     setStatus: (id: string, status: Status, toast: string) =>
       set(st => ({ commitments: st.commitments.map(c => (c.id === id ? { ...c, status } : c)), sheet: 'toast', toast })),
 
-    // close-out
-    markYesterday: (id: string, res: 'done' | 'later') => set(st => ({ yesterday: st.yesterday.map(q => (q.id === id ? { ...q, res } : q)) })),
-    finishCloseout: () => { if (sRef.current.yesterday.every(q => q.res != null)) actions.go('today'); },
-
-    // first move
-    setFmMode: (fmMode: 'sessions' | 'twomin') => set({ fmMode }),
-    fmAccept: () => set({ nextDismissed: true, screen: 'today', sheet: 'toast', toast: tRef.current.toastFm }),
-
     // preferences
     // The language picker: System → English → العربية → עברית → System.
     cycleLanguage: () => applyLangPref(nextLanguagePref(langPref)),
@@ -206,7 +192,7 @@ function useAppModel() {
         // Additionally behind an env flag the release guard refuses to let a
         // staging or production build set at all (UC-1.8 #152).
         case 'calendarDemo': if (googleCalendarDemoEnabled()) set({ screen: 'calendarDemo', sheet: null }); return;
-        case 'today': case 'calendar': case 'settings': case 'closeout': case 'firstmove':
+        case 'today': case 'calendar': case 'settings':
           set({ screen: name, sheet: null }); return;
         // Capture has one entry now. The gallery's old `typing`, `listening`,
         // `processing`, `nothing`, `review`, `clarify`, `readings` and `saved`

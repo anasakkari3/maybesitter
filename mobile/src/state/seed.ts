@@ -1,4 +1,4 @@
-import type { Commitment, YesterdayItem } from './types';
+import type { Commitment } from './types';
 
 // Sample week from the design. Day indexes count from Sunday 6 Sept, so
 // 4 = Thursday 10 Sept (today). Replace with /api/mobile/commitments/*.
@@ -12,11 +12,6 @@ export const seedCommitments: Commitment[] = [
   { id: 'c5', title: { ar: 'محاضرة التسويق', en: 'Marketing lecture' }, day: 5, h: 11, m: 0, dur: 90, imp: 'should', status: 'active' },
   { id: 'c6', title: { ar: 'أدرس للامتحان', en: 'Study for the exam' }, day: 6, h: 17, m: 0, dur: 120, imp: 'must', status: 'active' },
   { id: 'c7', title: { ar: 'غداء مع العيلة', en: 'Lunch with the family' }, day: 6, h: 13, m: 0, dur: 90, imp: 'nice', status: 'active' },
-];
-
-export const seedYesterday: YesterdayItem[] = [
-  { id: 'y1', title: { ar: 'ألغي اشتراك الجيم', en: 'Cancel the gym subscription' }, res: null },
-  { id: 'y2', title: { ar: 'أرسل السيرة لشركة رواد', en: 'Send my CV to Rawad Co.' }, res: null },
 ];
 
 // Busy blocks from the phone calendar: times only, never titles.
