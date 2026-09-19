@@ -98,3 +98,86 @@ state, including uncommitted font work at the time of the switch, is on the tag
 `archive/flutter-final`; its original separate-repository history is on
 `backup/flutter-canonical-d0c865c`. Dated plans, specs and reviews under
 `docs/` that mention Flutter are historical records of that period.
+
+---
+
+## Mandatory implementation skill routing
+
+For every implementation, debugging, review, regression-fix, or integration
+lane, determine the affected surface BEFORE editing code and invoke the
+applicable installed Skills.
+
+### React / Next.js
+
+Use `vercel-react-best-practices` when modifying or reviewing React/Next.js
+rendering, components, client/server boundaries, data fetching,
+performance-sensitive frontend code, or other relevant React/Next.js behavior.
+Do not blindly apply web-specific recommendations to unrelated backend code.
+
+### User-facing UI
+
+Use `design-design-system` and `design-accessibility-review` whenever modifying
+or creating a user-visible screen, component, interaction, form, state,
+navigation surface, or visual pattern. For React Native / Expo work, adapt
+generic/web recommendations to the actual mobile platform; never introduce
+web-only APIs into React Native.
+
+Before merging a meaningful user-facing UI change, also use
+`design-design-critique` as a final review pass after the feature works — not
+as a replacement for functional testing.
+
+### Product copy / localization
+
+Use `design-ux-copy` whenever changing buttons, CTAs, errors, warnings,
+onboarding text, empty states, settings descriptions, notification copy,
+explanatory text, or user-visible Arabic, Hebrew, or English strings. Preserve
+MaybeSitter's existing product voice and localization contracts; do not rewrite
+unrelated copy merely because the skill suggests alternatives.
+
+### CI / GitHub Actions
+
+Use `github-actions-sparen` ONLY when modifying, debugging, or reviewing
+`.github/workflows/**`, GitHub Actions behavior, or CI execution structure. Do
+not optimize CI merely because an implementation lane exists.
+
+### Figma / explicit design handoff
+
+Use `figma-to-code` and `design-design-handoff` ONLY when an actual
+Figma/design artifact or explicit visual handoff is part of the task.
+
+### Skills that must not auto-pollute implementation
+
+Do NOT automatically invoke marketing, SEO, sales, brand,
+document-generation, presentation, spreadsheet, Notion, website-builder, or
+other unrelated Skills during normal engineering work, nor Claude/Anthropic
+operational Skills merely because they are installed. They remain available
+when a task genuinely requires them.
+
+### Precedence
+
+Skills are advisory implementation aids. They NEVER override, in descending
+order of authority:
+
+1. security/privacy/account-isolation requirements;
+2. repository AGENTS.md contracts;
+3. current source-code architecture and invariants;
+4. GitHub issue acceptance criteria;
+5. current tests and API contracts;
+6. explicit orchestration ownership/dependency constraints.
+
+If a Skill recommendation conflicts with the repository architecture, ignore
+that recommendation and follow the repository. Never perform unrelated
+refactoring just because a Skill identifies an improvement.
+
+### Sub-agents
+
+The orchestrator is responsible for Skill routing. Whenever a lane is
+delegated to a sub-agent, state explicitly which of the above Skills apply to
+its task; never assume a sub-agent remembered a Skill from another lane.
+
+- Backend-only domain/service change: usually no UI Skill.
+- Next.js/React change: `vercel-react-best-practices`.
+- React Native screen: `design-design-system` + `design-accessibility-review`,
+  plus `design-ux-copy` if strings change, plus `design-design-critique`
+  before final merge review.
+- CI change: `github-actions-sparen`.
