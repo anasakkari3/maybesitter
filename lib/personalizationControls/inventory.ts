@@ -46,12 +46,13 @@
  * its inputs, what it does and does not change, and a note that it is a label —
  * which is the minimum a system owes someone it has categorised.
  *
- * What this screen must not do is promise a control that does not exist. It
- * used to say a reminder's strength "is set only by you", which was not true of
- * anything shipped: the ceiling setting arrives with UC-3.11 (#196)/UC-3.12a
- * (#197), nothing reads `reminderSettings.escalationCeiling` from storage yet,
- * and every request therefore runs at the default gentlest ceiling. So the copy
- * says that instead, and `ceilingNote` will change when the setting lands.
+ * What this screen must not do is misstate the control that exists. It used to
+ * say a reminder's strength "is set only by you" before any ceiling control
+ * had shipped, and then — while nothing read the stored value — that the
+ * gentlest strength is simply what everyone gets. Neither is true now: the
+ * reminders settings screen holds the ceiling control (UC-3.11 #196/UC-3.12a
+ * #197), and the server's pressure path reads what it stores (#446). So
+ * `ceilingNote` says that instead.
  *
  * It is shown **regardless of personalization consent**, and that is deliberate:
  * consent governs this module's derivation, and turning it off does not turn off
@@ -283,7 +284,7 @@ export interface InventoryAdaptiveView {
     readonly maxPressureLevel: AdaptivePressureLevel;
     readonly suggestionStyle: AdaptiveSuggestionStyle;
   };
-  /** What is true of the ceiling *today*, not what #196/#197 will make true. */
+  /** What is true of the ceiling as shipped: the control exists, and where it lives. */
   readonly ceilingNote: string;
   readonly visibilityNote: string;
 }
@@ -362,9 +363,9 @@ function adaptiveView(port: PersonalizationControlsPort): InventoryAdaptiveView 
     }),
     effect: { maxPressureLevel: behavior.maxPressureLevel, suggestionStyle: behavior.suggestionStyle },
     ceilingNote:
-      'Every reminder is currently held at the gentlest strength there is. That is not a setting you have ' +
-      'chosen — there is no control for it yet, and until there is, the gentlest strength is what everyone ' +
-      'gets.',
+      'There is a strongest a reminder may ever get, and it is your setting — the reminders screen holds ' +
+      'it. Until you raise it there, every reminder stays at the gentlest strength, and nothing the ' +
+      'product reads from your activity can push past it.',
     visibilityNote:
       'This classification is a label the product applies to you. It is shown here so you can see it and ' +
       'disagree with it; it is set from behaviour rather than from anything you asked for. Avoiding or ' +

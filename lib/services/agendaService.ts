@@ -37,9 +37,10 @@ export interface AgendaOptions {
   pressureScopeId?: string;
   /**
    * The user's own reminder ceiling — `users/{uid}.reminderSettings
-   * .escalationCeiling`, which UC-3.11 (#196)/UC-3.12a (#197) will write and
-   * which nothing reads from storage yet. Absent means the gentlest ceiling,
-   * so the default is the safe one rather than the unlimited one (#199).
+   * .escalationCeiling`, written by the reminders settings screen (UC-3.11
+   * #196/UC-3.12a #197) and read from storage through `readEscalationCeiling`
+   * (#446). Absent means the gentlest ceiling, so the default is the safe one
+   * rather than the unlimited one (#199).
    */
   escalationCeiling?: PressureCeiling;
 }

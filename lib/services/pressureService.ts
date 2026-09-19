@@ -39,8 +39,9 @@ export type PressureIntensity = 'low' | 'medium' | 'high';
 /**
  * The strongest reminder the user has agreed to receive — the setting written
  * by UC-3.11 (#196)/UC-3.12a (#197) as `users/{uid}.reminderSettings
- * .escalationCeiling`. Until those exist the caller supplies nothing and the
- * default applies, which is the gentlest value, not the absent one.
+ * .escalationCeiling`, and read from storage through `readEscalationCeiling`
+ * (#446). A caller with no account to read supplies nothing and the default
+ * applies, which is the gentlest value, not the absent one.
  */
 export type PressureCeiling = 'soft' | 'followUp' | 'hard';
 
@@ -366,14 +367,15 @@ async function adaptiveBehaviorFor(candidate: PressureCandidate, state: DomainSt
  *
  * `getPressureCandidateForAgenda` has exactly two callers:
  * `src/app/api/agenda/route.ts` — the frozen legacy web surface — and
- * `src/scheduler/scheduler.ts`. **No `/api/mobile/**` route reaches it**, so
- * this is a domain safety constraint the React Native client does not yet run
- * behind, not a user-visible change on the product client. The matching RN
- * invariant needs UC-3.11 (#196)/UC-3.12a (#197) and is still open on #199.
- * Neither caller passes a `ceiling` yet, because nothing reads
- * `reminderSettings.escalationCeiling` from storage until those land; every
- * request therefore runs at `DEFAULT_PRESSURE_CEILING`, which is why the
- * default being the gentlest value and not the absent one is load-bearing.
+ * `src/scheduler/scheduler.ts`. **No `/api/mobile/**` route reaches it**; the
+ * React Native client enforces the ceiling locally (#444).
+ *
+ * The agenda route passes the ceiling the account stored, read through
+ * `readEscalationCeiling` — the same resolution the settings response uses
+ * (#446). The scheduler hook evaluates the process-local, accountless legacy
+ * state, so there is no stored ceiling to read for it and the default
+ * applies — which is why the default being the gentlest value and not the
+ * absent one is load-bearing.
  */
 const CEILING_INTENSITY: Readonly<Record<PressureCeiling, PressureIntensity>> = Object.freeze({
   soft: 'low',
@@ -388,13 +390,13 @@ const INTENSITY_RANK: Readonly<Record<PressureIntensity, number>> = Object.freez
 });
 
 /**
- * Exported so the ceiling can be validated at the boundary that reads it.
- * UC-3.11 (#196)/UC-3.12a (#197) will hand this a Firestore string, where a
- * value written by an older build, a hand edit or a failed migration is
- * ordinary — and `PressureCeiling` is a compile-time type, which is no
- * protection at all against a document. Anything not on the whitelist is the
- * gentlest ceiling, because the failure mode of guessing wrong here is pushing
- * a person harder than they agreed to.
+ * Exported so the ceiling can be validated at the boundary that reads it. The
+ * stored setting arrives as a Firestore string, where a value written by an
+ * older build, a hand edit or a failed migration is ordinary — and
+ * `PressureCeiling` is a compile-time type, which is no protection at all
+ * against a document. Anything not on the whitelist is the gentlest ceiling,
+ * because the failure mode of guessing wrong here is pushing a person harder
+ * than they agreed to.
  */
 export function normalizePressureCeiling(value: unknown): PressureCeiling {
   return value === 'soft' || value === 'followUp' || value === 'hard' ? value : DEFAULT_PRESSURE_CEILING;

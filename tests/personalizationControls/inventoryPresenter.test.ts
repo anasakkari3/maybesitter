@@ -300,12 +300,14 @@ test('the #107 classification is surfaced with its inputs in plain language', as
   assert.equal(view.adaptive.effect.suggestionStyle, 'supportive');
   assert.match(view.adaptive.visibilityNote, /classification|label/i);
 
-  // The screen may not promise a control that does not exist. The ceiling
-  // setting arrives with UC-3.11 (#196)/UC-3.12a (#197); nothing reads
-  // `reminderSettings.escalationCeiling` from storage today, so the copy has to
-  // say that the gentlest strength is simply what everyone gets — not that the
-  // user chose it (#199).
-  assert.match(view.adaptive.ceilingNote, /no control for it yet|not a setting you have chosen/i);
+  // The screen must describe the control that now exists: the ceiling is set
+  // on the reminders screen (UC-3.11 #196/UC-3.12a #197) and the server's
+  // pressure path reads it (#446), so the copy points there and says the
+  // gentlest strength holds until the user raises it — never that there is no
+  // control, and never that behaviour moves it (#199).
+  assert.match(view.adaptive.ceilingNote, /reminders screen/i);
+  assert.match(view.adaptive.ceilingNote, /gentlest strength/i);
+  assert.doesNotMatch(view.adaptive.ceilingNote, /no control for it yet/i);
   assert.doesNotMatch(view.adaptive.explanation, /set only by you|you set/i);
   assert.doesNotMatch(view.adaptive.ceilingNote, /you (?:chose|set|picked) it/i);
 });
