@@ -149,6 +149,22 @@ function canonicalStatusFor(code: GoogleOAuthErrorCode, responseStatus: number):
   return responseStatus;
 }
 
+/**
+ * The grant Google returned reaches a different mailbox than the one this
+ * account is already connected to.
+ *
+ * Its own type rather than a borrowed `invalid_grant`: Google did not refuse
+ * anything here, we did, and the user needs to be told they signed in as the
+ * wrong person — not that their grant expired. It carries no address, because
+ * naming the *other* account in an error would disclose it.
+ */
+export class GoogleAccountMismatchError extends Error {
+  constructor() {
+    super('google account does not match the connected mailbox');
+    this.name = 'GoogleAccountMismatchError';
+  }
+}
+
 export interface GoogleOAuthClientDeps {
   readonly clientId: string;
   /** Read from the injected environment by the caller. Never a literal, never from a request. */
@@ -346,13 +362,16 @@ export function createGoogleOAuthClient(deps: GoogleOAuthClientDeps): ProviderOA
       }).getProfile();
 
       const account = normalizeGoogleAccount(profile.emailAddress);
-      if (!account) throw new GoogleOAuthError('invalid_grant', 400, 401);
+      // The transport already rejects a profile with no address, so this is
+      // belt and braces — but it fails closed, which is the direction that
+      // matters: an empty address must never compare equal to anything.
+      if (!account) throw new GoogleAccountMismatchError();
 
       // Refused *before* `completeProviderOAuth` reaches the vault or the
       // connection store, which is what makes a mismatch store nothing.
       if (deps.requireAccountId !== undefined
         && normalizeGoogleAccount(deps.requireAccountId) !== account) {
-        throw new GoogleOAuthError('invalid_grant', 400, 401);
+        throw new GoogleAccountMismatchError();
       }
 
       return Object.freeze({
