@@ -8,6 +8,7 @@ import {
   memorySuggestionDecisionSchema,
   profileResponseSchema,
   routineSavedSchema,
+  type MemoryAdaptive,
   type MemoryItem,
   type MemorySuggestion,
   type ProfileResponse,
@@ -39,7 +40,7 @@ export function putRoutine(profile: RoutineProfilePayload) {
   });
 }
 
-export function listMemory(): Promise<{ items: MemoryItem[]; suggestions: MemorySuggestion[] }> {
+export function listMemory(): Promise<{ items: MemoryItem[]; suggestions: MemorySuggestion[]; adaptive: MemoryAdaptive | null }> {
   return apiRequest('GET', '/api/mobile/memory', { schema: memoryListSchema });
 }
 

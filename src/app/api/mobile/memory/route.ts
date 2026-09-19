@@ -1,10 +1,12 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../lib/auth/mobileAuth';
 import {
+  MEMORY_ADAPTIVE_UNSET,
   MemoryDeletionIncompleteError,
   MemoryValidationError,
   createManualMemory,
   deleteAllMemory,
   listMemory,
+  readMemoryAdaptive,
 } from '../../../../../lib/services/mobile/memoryService';
 import { listMemorySuggestions } from '../../../../../lib/memoryGrowth/suggestionService';
 import { moduleDisabledResponse } from '../../../../../lib/services/mobile/moduleGate';
@@ -14,11 +16,19 @@ export const dynamic = 'force-dynamic';
 
 /**
  * Everything MaybeSitter currently believes about this account, newest first,
- * and what it could suggest it noticed (UC-3.16, #202).
+ * what it could suggest it noticed, and how reminders adapt to it (UC-3.16,
+ * #202).
  *
  * `suggestions` is computed on this read and written nowhere. It is empty
  * without personalization consent. A failure to compute it never costs the
  * list: seeing and removing what is held must work even when growth cannot.
+ *
+ * `adaptive` is read the same way — computed on this read, written nowhere —
+ * from the account's own behaviour counters. It is shown regardless of
+ * personalization consent, on the web inventory's reasoning: consent does not
+ * unwrite a classifier that shipped before the consent existed. An account
+ * with no behaviour to read gets the neutral unset state, and a failure to
+ * read it gets the same, never an error that costs the list.
  */
 export async function GET(request: Request) {
   let user;
@@ -40,7 +50,13 @@ export async function GET(request: Request) {
     } catch (error) {
       console.error('memory suggestions could not be computed', error instanceof Error ? error.message : error);
     }
-    return Response.json({ items, suggestions });
+    let adaptive: Awaited<ReturnType<typeof readMemoryAdaptive>> = MEMORY_ADAPTIVE_UNSET;
+    try {
+      adaptive = await readMemoryAdaptive(user.uid);
+    } catch (error) {
+      console.error('adaptive classification could not be read', error instanceof Error ? error.message : error);
+    }
+    return Response.json({ items, suggestions, adaptive });
   } catch (error) {
     return mobileError(error instanceof Error ? error.message : 'could not read memory', 500);
   }

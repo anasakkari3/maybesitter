@@ -70,6 +70,17 @@ import { deletePersonalizationScope } from '../../personalization/deletion';
 import { createPilotAuditEvent } from '../../pilot/closedPilotControls';
 import { appendAudit } from '../../pilot/pilotTrustStore';
 import { createStorageRuntimeMemoryStore } from '../../runtimeMemory/runtimeMemoryStore';
+import {
+  getAdaptiveBehavior,
+  type AdaptivePressureLevel,
+  type AdaptiveSuggestionStyle,
+  type AdaptiveUserType,
+} from '../adaptiveService';
+import {
+  StorageBehaviorFeedbackStore,
+  getBehaviorFeedbackSignals,
+  type BehaviorFeedbackStore,
+} from '../behaviorFeedbackService';
 import { getStorage, requireUserId, type StorageAdapter } from '../../storage';
 import { recordDismissal } from '../../memoryGrowth/dismissals';
 import { R1_FOCUS_WINDOW, parseFocusWindowFingerprint, type LocalWindow } from '../../memoryGrowth/rules';
@@ -131,6 +142,8 @@ export interface MemoryServiceOptions {
   memory?: RuntimeMemoryStore;
   /** The behaviour log the profile is derived from; only delete-all reads it. */
   feedback?: FeedbackEventStore;
+  /** The legacy counters the adaptive classifier reads; only the adaptive view reads it. */
+  behaviorFeedback?: BehaviorFeedbackStore;
 }
 
 function storeOf(options: MemoryServiceOptions): RuntimeMemoryStore {
@@ -139,6 +152,12 @@ function storeOf(options: MemoryServiceOptions): RuntimeMemoryStore {
 
 function feedbackOf(options: MemoryServiceOptions): FeedbackEventStore {
   return options.feedback ?? createStorageFeedbackEventStore(options.storage);
+}
+
+function behaviorFeedbackOf(options: MemoryServiceOptions): BehaviorFeedbackStore {
+  // The adapter this call was handed, not the process default — the same
+  // discipline delete-all argues for below.
+  return options.behaviorFeedback ?? new StorageBehaviorFeedbackStore(options.storage);
 }
 
 /**
@@ -354,6 +373,82 @@ function compareByCodePoint(left: string, right: string): number {
   if (left < right) return -1;
   if (left > right) return 1;
   return 0;
+}
+
+/**
+ * How reminders adapt to this account, as the phone renders it (UC-3.16, #202
+ * step 1's `adaptive` field).
+ *
+ * ── Tokens, not sentences ────────────────────────────────────────
+ *
+ * Same split as `sourceLabel`: the server owns the *classification*, which
+ * takes the behaviour counters to compute, and the phone owns the words, which
+ * exist in three languages. A server that shipped English prose here would be
+ * deciding what an Arabic screen says. So the classification crosses as the
+ * enum the classifier produces and the post-UC-3.13 (#199) effect — a cap the
+ * pressure path takes a minimum against, never a level it reaches for — as the
+ * two values it consists of; the "it never makes reminders stronger" sentence
+ * is copy, and copy lives in the app's locales.
+ *
+ * ── Where the classification comes from ──────────────────────────
+ *
+ * The same place the shipped classifier reads: the per-user behaviour counters
+ * (`users/{uid}/behaviorFeedback`, UC-1.0c (#142)) through
+ * `getBehaviorFeedbackSignals` and `getAdaptiveBehavior`, the exact functions
+ * the pressure path uses. The web control centre's inventory
+ * (`lib/personalizationControls/inventory.ts`) has no per-user signal source —
+ * its route wires `readAdaptiveSignals: () => ({})` — so its adaptive view is
+ * the unclassified default for everyone. This route has the real one and uses
+ * it, rather than building a parallel classifier.
+ *
+ * ── Unset is an answer, not an error ─────────────────────────────
+ *
+ * An account with no recorded behaviour classifies as `disciplined` on the
+ * normalized defaults — a label about a person derived from nothing. A counter
+ * document that has never been written reports `updatedAt: null`, and that is
+ * the honest answer the screen gets instead: no group yet, worded as such.
+ * `effect` is null with it, because the guarantee is about what a *group* may
+ * change and there is no group. Shown regardless of personalization consent,
+ * on the inventory's own reasoning: consent governs derivation in the
+ * personalization module, and turning it off does not unwrite a classifier
+ * that shipped before the consent existed — hiding the label would make the
+ * screen lie in the case the user is most likely to be looking.
+ *
+ * Reads, never writes: this is part of the GET, and the no-writes-on-read
+ * property the route's tests pin covers it.
+ */
+export interface MemoryAdaptiveDto {
+  /** The group the shipped classifier reads from this account's behaviour, or null before any exists. */
+  classification: AdaptiveUserType | null;
+  /** What the group is allowed to change. Null with `classification`. */
+  effect: {
+    /** The most pressure this group permits — it can lower, never raise. */
+    maxPressureLevel: AdaptivePressureLevel;
+    suggestionStyle: AdaptiveSuggestionStyle;
+  } | null;
+}
+
+export const MEMORY_ADAPTIVE_UNSET: MemoryAdaptiveDto = Object.freeze({
+  classification: null,
+  effect: null,
+});
+
+export async function readMemoryAdaptive(
+  uid: string,
+  options: MemoryServiceOptions = {},
+): Promise<MemoryAdaptiveDto> {
+  requireUserId(uid);
+  const store = behaviorFeedbackOf(options);
+  const record = await store.get(uid);
+  if (record.updatedAt === null) return MEMORY_ADAPTIVE_UNSET;
+  const behavior = getAdaptiveBehavior(await getBehaviorFeedbackSignals({ userId: uid, feedbackStore: store }));
+  return {
+    classification: behavior.userType,
+    effect: {
+      maxPressureLevel: behavior.maxPressureLevel,
+      suggestionStyle: behavior.suggestionStyle,
+    },
+  };
 }
 
 export interface CreateManualMemoryInput {

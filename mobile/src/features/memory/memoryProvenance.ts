@@ -24,7 +24,7 @@
  * the user is owed. So the two are worded apart, on the TTL, not on `source`:
  * the boundary that matters is how long it is kept, whoever said it.
  */
-import type { MemoryItem, MemorySourceLabel } from '../../api/schemas/profile';
+import type { MemoryAdaptive, MemoryItem, MemorySourceLabel } from '../../api/schemas/profile';
 
 /** The i18n key for each label the server can send. */
 export const SOURCE_LABEL_STRING: Record<MemorySourceLabel, string> = {
@@ -76,6 +76,17 @@ export const CONFIDENCE_STRING: Record<ConfidenceBand, string> = {
   certain: 'memorySureCertain',
   fairly_sure: 'memorySureFairly',
   not_sure_yet: 'memorySureNot',
+};
+
+/**
+ * The i18n key for each adaptive classification the server can send
+ * (UC-3.16, #202). Mapping only — the classification itself is computed once,
+ * on the server, from the account's own behaviour counters.
+ */
+export const ADAPTIVE_CLASS_STRING: Record<NonNullable<MemoryAdaptive['classification']>, string> = {
+  avoidant: 'memoryAdaptiveClassAvoidant',
+  inconsistent: 'memoryAdaptiveClassInconsistent',
+  disciplined: 'memoryAdaptiveClassDisciplined',
 };
 
 /**

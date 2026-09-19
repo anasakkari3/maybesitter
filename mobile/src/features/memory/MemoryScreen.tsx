@@ -15,10 +15,11 @@ import {
   useMemorySuggestion,
   usePatchMemory,
 } from '../../api/queries';
-import type { MemoryItem, MemorySuggestion } from '../../api/schemas/profile';
+import type { MemoryAdaptive, MemoryItem, MemorySuggestion } from '../../api/schemas/profile';
 import { SettingsHeader } from '../settings/SettingsChrome';
 import { memorySentence } from './memoryDisplay';
 import {
+  ADAPTIVE_CLASS_STRING,
   CONFIDENCE_STRING,
   GROUP_STRING,
   MEMORY_GROUP_ORDER,
@@ -148,6 +149,7 @@ export function MemoryScreen({ onBack }: { onBack: () => void }) {
   // honest "nothing here".
   const items = (memory.data?.items ?? []).filter(item => item.id !== undoable);
   const suggestions = memory.data?.suggestions ?? [];
+  const adaptive = memory.data?.adaptive ?? null;
   const suggestionLanguage: 'ar' | 'he' | 'en' = lang === 'ar' || lang === 'he' ? lang : 'en';
 
   const groups = MEMORY_GROUP_ORDER
@@ -208,6 +210,10 @@ export function MemoryScreen({ onBack }: { onBack: () => void }) {
           />
         ))}
 
+        {/* Read-only on purpose (#202): the group is set from behaviour, and
+            the one thing this card offers is the truth about what it changes. */}
+        {adaptive ? <AdaptiveCard adaptive={adaptive} strings={strings} /> : null}
+
         {items.length > 0 ? (
           <Card pad={18} style={{ gap: 10 }}>
             {confirmAll ? (
@@ -239,6 +245,39 @@ export function MemoryScreen({ onBack }: { onBack: () => void }) {
         ) : null}
       </ScrollView>
     </ScreenIn>
+  );
+}
+
+/**
+ * "How reminders adapt to you" (UC-3.16, #202): the group the shipped
+ * classifier reads from the account's behaviour, and the post-UC-3.13 (#199)
+ * guarantee about what the group may change — it can make a suggested step
+ * smaller and a reminder gentler, never stronger.
+ *
+ * No controls: the group is set from behaviour rather than from anything the
+ * user asked for, so the honest panel is one that can be read and disagreed
+ * with, not one that pretends to be a setting. When there is no behaviour to
+ * read a group from, the card says that instead of showing a label the
+ * defaults produced.
+ */
+function AdaptiveCard({ adaptive, strings }: { adaptive: MemoryAdaptive; strings: Record<string, string> }) {
+  const { p } = useApp();
+  return (
+    <Card pad={18} style={{ gap: 8 }} testID="memory-adaptive">
+      <Txt size={13} weight={600} color={p.mu}>{strings.memoryAdaptiveTitle}</Txt>
+      {adaptive.classification !== null ? (
+        // Row-wrapped so the pill hugs its label instead of stretching.
+        <View style={{ flexDirection: 'row' }}>
+          <Chip
+            label={strings[ADAPTIVE_CLASS_STRING[adaptive.classification]] ?? ''}
+            testID="memory-adaptive-classification"
+          />
+        </View>
+      ) : (
+        <Txt size={13} color={p.mu} lh={1.5} testID="memory-adaptive-unset">{strings.memoryAdaptiveUnset}</Txt>
+      )}
+      <Txt size={13} color={p.mu} lh={1.5} testID="memory-adaptive-effect">{strings.memoryAdaptiveEffect}</Txt>
+    </Card>
   );
 }
 

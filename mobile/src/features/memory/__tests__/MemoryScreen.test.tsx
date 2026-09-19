@@ -22,7 +22,7 @@ import { AuthProvider } from '../../../auth/AuthProvider';
 import { createFakeAuthRepository } from '../../../auth/fakeAuthRepository';
 import { resetAuthForTests, setAuthRepository } from '../../../api/auth';
 import type { AuthUser } from '../../../auth/types';
-import type { MemoryItem, MemorySuggestion } from '../../../api/schemas/profile';
+import type { MemoryAdaptive, MemoryItem, MemorySuggestion } from '../../../api/schemas/profile';
 import { MemoryScreen, UNDO_WINDOW_MS } from '../MemoryScreen';
 import en from '../../../i18n/locales/en.json';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -102,8 +102,8 @@ const SUGGESTION: MemorySuggestion = {
 let client: QueryClient;
 let repository: ReturnType<typeof createFakeAuthRepository>;
 
-function listing(items: MemoryItem[], suggestions: MemorySuggestion[] = []) {
-  jest.spyOn(profileEndpoints, 'listMemory').mockResolvedValue({ items, suggestions } as never);
+function listing(items: MemoryItem[], suggestions: MemorySuggestion[] = [], adaptive: MemoryAdaptive | null = null) {
+  jest.spyOn(profileEndpoints, 'listMemory').mockResolvedValue({ items, suggestions, adaptive } as never);
 }
 
 beforeEach(() => {
@@ -400,5 +400,41 @@ describe('suggestions (#202)', () => {
     await waitFor(() => expect(screen.queryByTestId('memory-why-mem_told')).not.toBeNull());
     await act(async () => { fireEvent.press(screen.getByTestId('memory-why-mem_told')); });
     expect(screen.queryByTestId('memory-evidence-mem_told-plan')).toBeNull();
+  });
+});
+
+describe('how reminders adapt (#202)', () => {
+  const AVOIDANT: MemoryAdaptive = {
+    classification: 'avoidant',
+    effect: { maxPressureLevel: 'low', suggestionStyle: 'supportive' },
+  };
+
+  it('shows the group the server read and what it may change, with nothing to press', async () => {
+    listing([item()], [], AVOIDANT);
+    await show(<MemoryScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('memory-adaptive')).not.toBeNull());
+
+    expect(screen.getByTestId('memory-adaptive-classification').props.children).toBe(en.memoryAdaptiveClassAvoidant);
+    expect(screen.getByTestId('memory-adaptive-effect').props.children).toBe(en.memoryAdaptiveEffect);
+    // Read-only: the group is set from behaviour, so there is no control to offer.
+    expect(screen.queryByTestId('memory-adaptive-edit')).toBeNull();
+  });
+
+  it('says there is nothing to read a group from yet, instead of showing a default label', async () => {
+    listing([item()], [], { classification: null, effect: null });
+    await show(<MemoryScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('memory-adaptive')).not.toBeNull());
+
+    expect(screen.getByTestId('memory-adaptive-unset').props.children).toBe(en.memoryAdaptiveUnset);
+    expect(screen.queryByTestId('memory-adaptive-classification')).toBeNull();
+    // The guarantee is about what a group may change; it is true with no group too.
+    expect(screen.getByTestId('memory-adaptive-effect').props.children).toBe(en.memoryAdaptiveEffect);
+  });
+
+  it('renders no section for a server that does not send the field', async () => {
+    listing([item()]);
+    await show(<MemoryScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('memory-group-told')).not.toBeNull());
+    expect(screen.queryByTestId('memory-adaptive')).toBeNull();
   });
 });

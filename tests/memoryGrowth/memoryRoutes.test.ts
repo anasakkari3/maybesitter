@@ -27,6 +27,7 @@ import { EVENTS, MEMORY, MEMORY_DISMISSALS, userCol, userDoc, userSubDoc } from 
 import { KEPT_SUGGESTION_CONTENT } from '../../lib/memoryGrowth/templates.ts';
 import { GROWTH_EVENT_READ_LIMIT } from '../../lib/memoryGrowth/suggestionService.ts';
 import { deleteAllMemory } from '../../lib/services/mobile/memoryService.ts';
+import { recordBehaviorFeedback } from '../../lib/services/behaviorFeedbackService.ts';
 import { listAuditEvents } from '../../lib/pilot/pilotTrustStore.ts';
 
 const baseUrl = 'http://127.0.0.1:4321';
@@ -594,6 +595,92 @@ test('delete-all purges dismissals from the storage it was handed, not the proce
       feedback: createStorageFeedbackEventStore(injected),
     });
     assert.equal((await injected.list(userCol(OWNER, MEMORY_DISMISSALS))).length, 0);
+  } finally {
+    end();
+  }
+});
+
+// ── How reminders adapt: the `adaptive` field ───────────────────
+//
+// The classification the screen shows is the shipped classifier's own answer
+// over the account's own behaviour counters — the same input, the same
+// function. An account with nothing recorded gets the neutral unset state,
+// not a label derived from defaults.
+
+/** Three ignores and a delay is the counter fixture the classifier reads as avoidant. */
+async function seedAvoidantCounters(uid: string): Promise<void> {
+  for (const event of ['suggestion_ignored', 'suggestion_ignored', 'suggestion_ignored', 'action_delayed'] as const) {
+    await recordBehaviorFeedback(event, { userId: uid, now: new Date(NOW_MS) });
+  }
+}
+
+test('an account with no recorded behaviour gets the unset state, not a label from nothing', async () => {
+  begin();
+  try {
+    const body = await json(await memoryGet(request(OWNER, '/api/mobile/memory')));
+    assert.deepEqual(body.adaptive, { classification: null, effect: null });
+  } finally {
+    end();
+  }
+});
+
+test('the classification is read from the account’s own counters, with the #199 effect', async () => {
+  begin();
+  try {
+    await seedAvoidantCounters(OWNER);
+    const body = await json(await memoryGet(request(OWNER, '/api/mobile/memory')));
+    assert.deepEqual(body.adaptive, {
+      classification: 'avoidant',
+      effect: { maxPressureLevel: 'low', suggestionStyle: 'supportive' },
+    });
+
+    // Another account's behaviour does not move it, and a fresh account stays unset.
+    const stranger = await json(await memoryGet(request(STRANGER, '/api/mobile/memory')));
+    assert.deepEqual(stranger.adaptive, { classification: null, effect: null });
+  } finally {
+    end();
+  }
+});
+
+test('reading the adaptive view writes nothing', async () => {
+  const { storage, writes } = countingWrites(createMemoryStorage());
+  begin(storage);
+  try {
+    await seedAvoidantCounters(OWNER);
+    await warmUpAuth(OWNER);
+    const before = writes();
+    const first = await json(await memoryGet(request(OWNER, '/api/mobile/memory')));
+    assert.equal(
+      first.adaptive.classification,
+      'avoidant',
+      'no classification was read, so a zero write count would prove nothing',
+    );
+    await memoryGet(request(OWNER, '/api/mobile/memory'));
+    assert.equal(writes() - before, 0);
+  } finally {
+    end();
+  }
+});
+
+test('a counters store that fails costs the adaptive field, never the list', async () => {
+  begin();
+  try {
+    const storage = getStorage();
+    const real = storage.get.bind(storage);
+    (storage as { get: unknown }).get = async (path: string) => {
+      if (path.includes('/behaviorFeedback/')) throw new Error('store unavailable');
+      return real(path);
+    };
+    let body: Record<string, any>;
+    try {
+      const response = await memoryGet(request(OWNER, '/api/mobile/memory'));
+      assert.equal(response.status, 200);
+      body = await json(response);
+    } finally {
+      (storage as { get: unknown }).get = real;
+    }
+    assert.deepEqual(body.adaptive, { classification: null, effect: null });
+    assert.ok(Array.isArray(body.items));
   } finally {
     end();
   }

@@ -962,6 +962,9 @@ function useMemoryMutation<TInput>(mutationFn: (input: TInput) => Promise<unknow
       void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
       // A routine fact edited by hand changes the profile the screen shows.
       void client.invalidateQueries({ queryKey: queryKeys.profile(uid) });
+      // And the trust screen, whose "what it knows" counts include memory —
+      // the same reason Keep/Dismiss invalidate it (UC-3.16, #202).
+      void client.invalidateQueries({ queryKey: queryKeys.trust(uid) });
     },
   });
 }
