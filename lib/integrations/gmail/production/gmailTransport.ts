@@ -180,6 +180,21 @@ export interface GmailTransportDeps {
    * across accounts.
    */
   readonly accessToken: () => Promise<string>;
+  /**
+   * Forces a token refresh and returns the new bearer, for the one case a
+   * proactive check cannot cover.
+   *
+   * `providerTokenState` decides refreshes from the expiry the grant *claims*.
+   * Google documents no access-token lifetime (CONTRACT.md §9.10) and a token
+   * can also be invalidated early — a password change is the ordinary case
+   * (§8.4) — so a 401 can arrive while the stored metadata still says
+   * `active`. D10 prescribes exactly one reaction: refresh, then retry once.
+   *
+   * Optional. A transport built without it simply reports the 401, which is
+   * what the live-verification harness wants: it is handed a bare token and
+   * has no grant to refresh.
+   */
+  readonly reauth?: () => Promise<string>;
   /** Defaults to the global `fetch`. Injected by every test in this suite. */
   readonly fetchImpl?: typeof fetch;
   /** Injected the way `footballDataProvider` injects it, and for the same reason. */
@@ -371,18 +386,37 @@ export function createGmailTransport(deps: GmailTransportDeps): GmailTransport {
   /**
    * One HTTP GET with the documented retry policy.
    *
-   * Retries 429, 5xx and a call that never completed; never retries 401, 403,
-   * 404 or a contract violation, because none of those get better by being
-   * asked again. A 401 is a re-auth, not a backoff — the token provider is
-   * what fixes it, and it is consulted afresh on every attempt.
+   * Retries 429, 5xx and a call that never completed; never retries 403, 404
+   * or a contract violation, because none of those get better by being asked
+   * again. A 401 is the exception that is not a backoff case: D10 says refresh
+   * the token and retry **once**, so it is handled separately and does not
+   * consume the backoff budget. A second 401 after a fresh token means the
+   * grant is genuinely gone, and it is reported rather than retried.
    */
   async function get(endpoint: GmailEndpoint, url: URL, startedAt: number): Promise<unknown> {
     let lastError: unknown;
+    let reauthed = false;
     for (let attempt = 1; attempt <= maxRetries + 1; attempt += 1) {
       try {
         return await getOnce(endpoint, url);
       } catch (error) {
         lastError = error;
+
+        if (
+          error instanceof GmailHttpError &&
+          error.httpStatus === 401 &&
+          deps.reauth !== undefined &&
+          !reauthed
+        ) {
+          reauthed = true;
+          await deps.reauth();
+          // No delay and no attempt consumed: the condition has already been
+          // corrected, so waiting would only slow down a request that is now
+          // expected to succeed.
+          attempt -= 1;
+          continue;
+        }
+
         const retryableHttp = error instanceof GmailHttpError && isRetryableStatus(error.httpStatus);
         // A timeout or a reset socket is the textbook retryable failure, and
         // since #517 it has a truthful home in the taxonomy too.

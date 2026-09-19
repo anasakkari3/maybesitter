@@ -338,34 +338,6 @@ export function probeReport(results: readonly ProbeResult[], enabled: boolean): 
   return { enabled, summary, outcome, results: annotated };
 }
 
-/**
- * The transports available to this run.
- *
- * Nothing here fabricates a provider client, because a client written for
- * verification would not be the client production uses, and then a green run
- * would mean nothing. Gmail is registered because Phase B built the *production*
- * transport and this is the same object wearing a second face — see
- * `asReadPort` in `lib/integrations/gmail/production/gmailTransport.ts`.
- *
- * It still cannot run without a credential. `MAYBESITTER_LIVE_GOOGLE_ACCESS_TOKEN`
- * is checked by the probe before the port is reached, so with no token this
- * reports SKIPPED_MISSING_CREDENTIALS rather than PASS.
- */
-function buildPorts(env: NodeJS.ProcessEnv): Map<ContextProviderKind, ProviderReadPort> {
-  const map = new Map<ContextProviderKind, ProviderReadPort>();
-  const googleToken = env.MAYBESITTER_LIVE_GOOGLE_ACCESS_TOKEN;
-  if (typeof googleToken === 'string' && googleToken.trim() !== '') {
-    // A verification run is given a token directly rather than a vault: this
-    // harness has no uid, so there is no account whose vault it could open.
-    // Production builds the same transport over
-    // `createProviderAccessTokenProvider` instead.
-    map.set('google', createGmailTransport({ accessToken: async () => googleToken }).asReadPort());
-  }
-  return map;
-}
-
-const ports = buildPorts(process.env);
-
 export function probesAreClean(results: readonly ProbeResult[]): boolean {
   return results.every(
     (entry) =>
