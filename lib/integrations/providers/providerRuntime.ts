@@ -66,6 +66,7 @@ export type ProviderFailureKind =
   | 'duplicate'
   | 'malformed_response'
   | 'provider_unavailable'
+  | 'transport_failure'
   | 'unknown';
 
 export interface ProviderFailure {
@@ -80,6 +81,8 @@ export interface ProviderFailureInput {
   readonly staleCursor?: boolean;
   readonly duplicate?: boolean;
   readonly malformedResponse?: boolean;
+  /** The request never completed: a timeout, a refused or reset socket, DNS. */
+  readonly transportFailure?: boolean;
 }
 
 export interface ProviderDisconnectRequest {
@@ -148,8 +151,55 @@ export function planProviderSync(
   };
 }
 
+/**
+ * Error codes that mean the request never completed. Node's own socket and DNS
+ * errors, and undici's — which is what `fetch` throws under the hood.
+ */
+const TRANSPORT_FAILURE_CODES: ReadonlySet<string> = new Set([
+  'ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'ECONNABORTED', 'EPIPE',
+  'EHOSTUNREACH', 'EHOSTDOWN', 'ENETUNREACH', 'ENETDOWN', 'ENETRESET',
+  'ENOTFOUND', 'EAI_AGAIN', 'EPROTO', 'ECANCELED',
+  'ERR_SOCKET_CONNECTION_TIMEOUT',
+  'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT',
+  'UND_ERR_SOCKET', 'UND_ERR_CLOSED', 'UND_ERR_DESTROYED', 'UND_ERR_ABORTED',
+]);
+
+/** Error names that mean the same thing without carrying a code. */
+const TRANSPORT_FAILURE_NAMES: ReadonlySet<string> = new Set([
+  'AbortError', 'TimeoutError', 'ConnectTimeoutError', 'HeadersTimeoutError',
+  'BodyTimeoutError', 'SocketError',
+]);
+
+/**
+ * Whether a thrown value means the call never completed.
+ *
+ * Deliberately narrow. Anything unrecognised is left to classify as `unknown`
+ * rather than being assumed retryable, because a bug in our own code is not a
+ * network blip and must not be retried forever. Only the shape of the error is
+ * read — never its message — so nothing here can carry a URL, a host, a
+ * request body or a token into a classification.
+ */
+export function isProviderTransportFailure(error: unknown, depth = 0): boolean {
+  if (depth > 4 || typeof error !== 'object' || error === null) return false;
+  const candidate = error as { name?: unknown; code?: unknown; cause?: unknown };
+  if (typeof candidate.code === 'string') {
+    // `SafeFetchError` uses the same field for its own fixed reason codes.
+    if (candidate.code === 'timeout' || candidate.code === 'network') return true;
+    if (TRANSPORT_FAILURE_CODES.has(candidate.code)) return true;
+  }
+  if (typeof candidate.name === 'string' && TRANSPORT_FAILURE_NAMES.has(candidate.name)) return true;
+  // `fetch` reports a bare `TypeError: fetch failed` and nests the real reason.
+  return isProviderTransportFailure(candidate.cause, depth + 1);
+}
+
 export function classifyProviderFailure(input: ProviderFailureInput): ProviderFailure {
+  // A payload we received and could not parse is stronger evidence than the
+  // absence of one, so it is checked first and is never softened into a retry.
   if (input.malformedResponse) return failure('malformed_response', false, 'error');
+  // Nothing about a call that did not complete says the grant is bad or that
+  // the user must act, so the connection stays `connected` — the same
+  // reasoning that keeps a rate-limited connection usable below.
+  if (input.transportFailure) return failure('transport_failure', true, 'connected');
   if (input.staleCursor || input.httpStatus === 410) return failure('stale_cursor', false, 'connected');
   if (input.duplicate || input.httpStatus === 409) return failure('duplicate', false, 'connected');
   if (input.httpStatus === 401) return failure('authentication_revoked', false, 'needs_reauth');

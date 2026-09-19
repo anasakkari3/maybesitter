@@ -6,6 +6,7 @@ import type {
 import {
   buildProviderDisconnectRequest,
   classifyProviderFailure,
+  isProviderTransportFailure,
   planProviderSync,
   type ProviderDisconnectRequest,
   type ProviderFailure,
@@ -207,10 +208,16 @@ export async function runGmailIncrementalSync(
     });
   } catch (error) {
     const providerError = error instanceof GmailProviderError ? error : null;
+    // A throw that is not a `GmailProviderError` is not evidence of a bad
+    // payload — a timeout or a reset socket is not a response at all. Declaring
+    // it `malformedResponse` accused the provider of breaking its contract and
+    // made the textbook retryable failure non-retryable. Classify what it is:
+    // a transport failure if it looks like one, otherwise `unknown`.
     const failure = classifyProviderFailure({
       httpStatus: providerError?.status,
       staleCursor: providerError?.staleCursor,
-      malformedResponse: providerError?.malformedResponse ?? providerError === null,
+      malformedResponse: providerError?.malformedResponse ?? false,
+      transportFailure: providerError === null && isProviderTransportFailure(error),
     });
     const state = failure.kind === 'stale_cursor' && byKey.size === 0
       ? 'cursor_reset_required'
