@@ -214,7 +214,22 @@ export interface GmailTransportDeps {
   readonly monotonicMs?: () => number;
 }
 
+/** What `users.getProfile` gives us that Phase B uses. */
+export interface GmailProfile {
+  /** The account the token reaches. Not an OIDC assertion — see `loadIdentity`. */
+  readonly emailAddress: string;
+  readonly historyId: string;
+}
+
 export interface GmailTransport extends GmailApiPort {
+  /**
+   * The mailbox's own account address and history position.
+   *
+   * Exposed so the OAuth client can confirm *which account* a fresh grant
+   * reaches without building a second Gmail client: same HTTP path, same
+   * retries, same bounds, same redaction.
+   */
+  getProfile(): Promise<GmailProfile>;
   /**
    * The same object, wearing the face the live-verification harness expects.
    *
@@ -450,7 +465,22 @@ export function createGmailTransport(deps: GmailTransportDeps): GmailTransport {
     return built;
   }
 
-  /** `users.getProfile` — 1 quota unit, and the documented cursor baseline. */
+  /**
+   * `users.getProfile` — 1 quota unit, the documented cursor baseline, and the
+   * only field in any Gmail response that names the account the token belongs
+   * to (CONTRACT.md §2).
+   */
+  async function getProfile(): Promise<GmailProfile> {
+    const startedAt = monotonicMs();
+    const body = await get('profile.get', url('/users/me/profile'), startedAt);
+    if (!isRecord(body)) throw new GmailWireError('profile.get', 'object body');
+    if (!nonEmptyString(body.historyId)) throw new GmailWireError('profile.get', 'string historyId');
+    // Fails closed. A missing address must never be read as "matches", which
+    // is the way round this check is most often written wrong.
+    if (!nonEmptyString(body.emailAddress)) throw new GmailWireError('profile.get', 'string emailAddress');
+    return Object.freeze({ emailAddress: body.emailAddress, historyId: body.historyId });
+  }
+
   async function getProfileHistoryId(startedAt: number): Promise<string> {
     const body = await get('profile.get', url('/users/me/profile'), startedAt);
     if (!isRecord(body)) throw new GmailWireError('profile.get', 'object body');
@@ -643,6 +673,7 @@ export function createGmailTransport(deps: GmailTransportDeps): GmailTransport {
 
   return {
     listHistory,
+    getProfile,
 
     asReadPort(): ProviderReadPort {
       return {
