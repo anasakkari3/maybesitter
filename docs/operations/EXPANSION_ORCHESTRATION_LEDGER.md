@@ -104,7 +104,7 @@ be reported as implemented without naming which of these it has.
 
 | Provider | Domain contract | Normalizer | Production auth | Production transport | Product flow wired | Tested offline | Verified live |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Gmail | yes | yes | **Phase A, draft** | no | no | yes | **no** |
+| Gmail | yes | yes | token seam only, no OAuth callback | **yes — read only (Phase B)** | no | yes | **no** |
 | Microsoft Graph | yes | yes | Phase A applies | no | no | yes | **no** |
 | Todoist | yes | yes | Phase A applies | no | no | yes | **no** |
 | Notion | yes | yes | Phase A applies | no | no | yes | **no** |
@@ -115,9 +115,19 @@ be reported as implemented without naming which of these it has.
 
 Blocked-by, stated per lane rather than collapsed:
 
-- **All seven context providers:** BLOCKED BY OWNER CREDENTIAL for live
-  verification, and until Phase B lands, BLOCKED BY MISSING PRODUCTION
-  TRANSPORT — which is not an owner blocker but work.
+- **Gmail:** BLOCKED BY OWNER CREDENTIAL only. Phase B landed the production
+  read transport (`lib/integrations/gmail/production/gmailTransport.ts`) and
+  registered it with the live-verification harness, so the probe now reports
+  SKIPPED_MISSING_CREDENTIALS rather than SKIPPED_UNSUPPORTED_LIVE_PROBE the
+  moment a token exists. Two things it still does **not** have: an OAuth
+  callback route and code exchange, so a real user cannot connect an account —
+  the transport is driven by an access token a caller supplies — and any
+  contact with Gmail whatsoever. Everything proven about it is proven against
+  fixtures transcribed from Google's documentation. The restricted-scope and
+  CASA decision is open as #516.
+- **The other six context providers:** BLOCKED BY OWNER CREDENTIAL for live
+  verification, and BLOCKED BY MISSING PRODUCTION TRANSPORT until their own
+  Phase B lands — which is not an owner blocker but work.
 - **RevenueCat:** BLOCKED BY STORE/CONSOLE. StoreKit and Play Billing
   verification cannot be replaced by a server-side HTTP read.
 - **HealthKit / Health Connect:** BLOCKED BY PHYSICAL DEVICE. Device-native

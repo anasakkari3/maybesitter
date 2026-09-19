@@ -28,6 +28,7 @@
 import {
   liveVerificationEnabled,
   probesAreClean,
+  probeReport,
   runProviderProbes,
   type ProbeResult,
   type ProviderReadPort,
@@ -36,16 +37,36 @@ import {
   PROVIDERS_WITHOUT_LIVE_PROBES,
   PROVIDER_PROBES,
 } from '../lib/verification/providerProbeCatalog.ts';
+import { createGmailTransport } from '../lib/integrations/gmail/production/gmailTransport.ts';
 import type { ContextProviderKind } from '../src/contracts/v1/integrationConnectionContracts.ts';
 
 /**
  * The transports available to this run.
  *
- * Empty on purpose. Nothing here fabricates a provider client, because a
- * client written for verification would not be the client production uses,
- * and then a green run would mean nothing.
+ * Nothing here fabricates a provider client, because a client written for
+ * verification would not be the client production uses, and then a green run
+ * would mean nothing. Gmail is registered because Phase B built the *production*
+ * transport and this is the same object wearing a second face — see
+ * `asReadPort` in `lib/integrations/gmail/production/gmailTransport.ts`.
+ *
+ * It still cannot run without a credential. `MAYBESITTER_LIVE_GOOGLE_ACCESS_TOKEN`
+ * is checked by the probe before the port is reached, so with no token this
+ * reports SKIPPED_MISSING_CREDENTIALS rather than PASS.
  */
-const ports = new Map<ContextProviderKind, ProviderReadPort>();
+function buildPorts(env: NodeJS.ProcessEnv): Map<ContextProviderKind, ProviderReadPort> {
+  const map = new Map<ContextProviderKind, ProviderReadPort>();
+  const googleToken = env.MAYBESITTER_LIVE_GOOGLE_ACCESS_TOKEN;
+  if (typeof googleToken === 'string' && googleToken.trim() !== '') {
+    // A verification run is given a token directly rather than a vault: this
+    // harness has no uid, so there is no account whose vault it could open.
+    // Production builds the same transport over
+    // `createProviderAccessTokenProvider` instead.
+    map.set('google', createGmailTransport({ accessToken: async () => googleToken }).asReadPort());
+  }
+  return map;
+}
+
+const ports = buildPorts(process.env);
 
 function line(result: ProbeResult): string {
   const parts = [
@@ -63,6 +84,20 @@ function line(result: ProbeResult): string {
 
 async function main(): Promise<void> {
   const enabled = liveVerificationEnabled();
+  const asJson = process.argv.includes('--json');
+
+  if (asJson) {
+    const results = await runProviderProbes(PROVIDER_PROBES, { ports });
+    // Only the document goes to stdout, so the output is parseable without
+    // stripping a banner off the front of it.
+    console.log(JSON.stringify(probeReport(results, enabled), null, 2));
+    // Unchanged on purpose: the exit code still means "clean", and skips still
+    // count as clean. The distinction now lives in `outcome`, where a reader
+    // can act on it, rather than being redefined underneath existing callers.
+    process.exitCode = probesAreClean(results) ? 0 : 1;
+    return;
+  }
+
   console.log(`live provider verification: ${enabled ? 'enabled' : 'disabled (opt-in flag not set)'}`);
   console.log('');
 

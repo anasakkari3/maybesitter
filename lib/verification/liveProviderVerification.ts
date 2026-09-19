@@ -292,6 +292,52 @@ export async function runProviderProbes(
 }
 
 /** True when nothing needs an operator's attention. Skips are not failures. */
+/**
+ * PASS / BLOCKED / FAIL, which is the distinction the exit code cannot make.
+ *
+ * `probesAreClean` treats both SKIPPED statuses as clean, so a fully blocked
+ * run exits 0 exactly like a passing one — correct for a pipeline without
+ * credentials, and useless for telling the two apart. Rather than redefine what
+ * clean means, this names the outcome explicitly so a machine can read it.
+ */
+export type ProbeOutcome = 'pass' | 'blocked' | 'failed';
+
+export function probeOutcome(result: ProbeResult): ProbeOutcome {
+  if (result.status === 'PASS') return 'pass';
+  if (
+    result.status === 'SKIPPED_MISSING_CREDENTIALS' ||
+    result.status === 'SKIPPED_UNSUPPORTED_LIVE_PROBE'
+  ) {
+    return 'blocked';
+  }
+  return 'failed';
+}
+
+/**
+ * The machine-readable run.
+ *
+ * `ProbeResult` is content-free by construction — every field is a category
+ * this repository produced or a count — so the whole array is safe to emit.
+ */
+export function probeReport(results: readonly ProbeResult[], enabled: boolean): {
+  readonly enabled: boolean;
+  readonly summary: Record<ProbeOutcome | 'total', number>;
+  readonly outcome: ProbeOutcome;
+  readonly results: readonly (ProbeResult & { readonly outcome: ProbeOutcome })[];
+} {
+  const annotated = results.map((entry) => ({ ...entry, outcome: probeOutcome(entry) }));
+  const summary = {
+    total: annotated.length,
+    pass: annotated.filter((entry) => entry.outcome === 'pass').length,
+    blocked: annotated.filter((entry) => entry.outcome === 'blocked').length,
+    failed: annotated.filter((entry) => entry.outcome === 'failed').length,
+  };
+  // Worst wins: one failure makes the run failed, and a run with no failures
+  // but no passes is blocked, never a pass.
+  const outcome: ProbeOutcome = summary.failed > 0 ? 'failed' : summary.pass > 0 ? 'pass' : 'blocked';
+  return { enabled, summary, outcome, results: annotated };
+}
+
 export function probesAreClean(results: readonly ProbeResult[]): boolean {
   return results.every(
     (entry) =>
