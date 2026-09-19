@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { AppState, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { useAuth } from './AuthProvider';
 import { fill } from '../i18n/strings';
@@ -23,6 +24,10 @@ export const RESEND_COOLDOWN_SECONDS = 60;
 export function VerifyEmailBanner() {
   const { t, p } = useApp();
   const { user, reloadUser, repository } = useAuth();
+  // Rendered once at the root, above every screen (#495): the screens add
+  // `insets.top` to their own content, so clearing the status bar is the
+  // banner's own job — without it the banner is drawn under the clock.
+  const insets = useSafeAreaInsets();
   const [cooldown, setCooldown] = useState(0);
   const [sent, setSent] = useState(false);
 
@@ -61,7 +66,8 @@ export function VerifyEmailBanner() {
     <View
       style={{
         backgroundColor: p.wms,
-        paddingVertical: 12,
+        paddingTop: insets.top + 12,
+        paddingBottom: 12,
         paddingHorizontal: 16,
         flexDirection: 'row',
         alignItems: 'center',
