@@ -7,8 +7,17 @@ import {
 } from '../../src/contracts/v1/analyticsEventContracts';
 import { RATING_SCALE, isRating } from '../../src/contracts/v1/experimentContracts';
 
+const SEED_KIND_VALUES = new Set(['consideration', 'waiting_for', 'idea', 'possible_goal']);
+const PROMOTED_TO_VALUES = new Set(['commitment', 'goal']);
+
 const EVENT_PROPERTIES: Record<AnalyticsEventName, readonly string[]> = {
   capture_submitted: ['inputLength', 'locale'],
+  // #519. A count of what was offered, never what was offered.
+  seed_proposed: ['proposedCount'],
+  seed_confirmed: ['seedKind'],
+  seed_snoozed: ['seedKind', 'hasRevisitAt'],
+  seed_promoted: ['seedKind', 'promotedToKind'],
+  seed_dismissed: ['seedKind'],
   commitment_detected: ['commitmentId', 'detectionSource'],
   commitment_confirmed: ['commitmentId'],
   commitment_edited: ['commitmentId', 'changedFieldCount'],
@@ -157,6 +166,19 @@ export function validateAnalyticsEvent(value: unknown): AnalyticsValidationResul
       if (key === 'targetRoute' && (typeof property !== 'string' || !TARGET_ROUTES.has(property))) errors.push(`targetRoute is not canonical: ${String(property)}`);
       if (key === 'source' && (typeof property !== 'string' || !SOURCE_VALUES.has(property))) errors.push(`source is not canonical: ${String(property)}`);
       if (RATING_KEYS.includes(key) && !isRating(property)) errors.push(`rating must be an integer ${RATING_SCALE.minimum}-${RATING_SCALE.maximum}: ${key}`);
+      // Closed sets, checked rather than trusted: a `seedKind` that is really
+      // a fragment of somebody's sentence is exactly the leak these events are
+      // shaped to make impossible, and a string field with no value check is
+      // how that stops being true later (#519).
+      if (key === 'seedKind' && (typeof property !== 'string' || !SEED_KIND_VALUES.has(property))) {
+        errors.push(`seedKind is not a known seed kind: ${String(property)}`);
+      }
+      if (key === 'promotedToKind' && (typeof property !== 'string' || !PROMOTED_TO_VALUES.has(property))) {
+        errors.push(`promotedToKind is not commitment or goal: ${String(property)}`);
+      }
+      if (key === 'proposedCount' && !(Number.isInteger(property) && (property as number) >= 0)) {
+        errors.push(`proposedCount must be a non-negative integer: ${String(property)}`);
+      }
       if (key === 'answeredCount' && !(Number.isInteger(property) && (property as number) >= 0 && (property as number) <= SETUP_QUESTION_COUNT)) {
         errors.push(`answeredCount must be an integer 0-${SETUP_QUESTION_COUNT}: ${String(property)}`);
       }

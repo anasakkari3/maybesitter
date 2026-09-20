@@ -87,7 +87,7 @@ describe('a flagged item completed with only a time (#498)', () => {
     await fireEvent.press(screen.getByTestId('edit-item-save'));
     const sent = onChange.mock.calls[0]![0];
 
-    const proposal: CaptureProposal = { version: 'v1', proposalId: 'p1', status: 'needs_clarification', items: [FLAGGED] };
+    const proposal: CaptureProposal = { version: 'v1', proposalId: 'p1', status: 'needs_clarification', items: [FLAGGED], seeds: [] };
     const events: CaptureEvent[] = [
       { type: 'textChanged', text: 'call the pharmacy' },
       { type: 'analyzeStarted' },

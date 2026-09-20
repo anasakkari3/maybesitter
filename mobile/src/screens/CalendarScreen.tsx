@@ -157,6 +157,25 @@ export function CalendarScreen() {
               </View>
             ) : null}
           </View>
+
+          {/*
+            The way into "Considering / Waiting" (#519).
+            
+            Below the week rather than inside it, and deliberately: nothing in
+            that list is on a day. A seed drawn as a bar on Thursday would be
+            the product putting somebody's maybe into their week, which is the
+            one thing this feature exists not to do.
+          */}
+          <Btn
+            testID="calendar-seeds-entry"
+            label={t.seedsOpen}
+            onPress={() => actions.go('seeds')}
+            scaleTo={0.98}
+            style={[{ backgroundColor: p.sf, borderRadius: 18, paddingVertical: 14, paddingHorizontal: 16, alignItems: 'flex-start', gap: 4 }, cardShadow(p)]}
+          >
+            <Txt size={15}>{t.seedsOpen}</Txt>
+            <Txt size={12} color={p.mu}>{t.seedsNotCommitment}</Txt>
+          </Btn>
         </QueryBoundary>
       </ScrollView>
     </ScreenIn>

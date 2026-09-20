@@ -51,6 +51,11 @@ export function CaptureFlow() {
   switch (state.status) {
     case 'needsConfirmation':
     case 'needsClarification':
+    // A capture that named only a maybe (#519). Review, because that is where
+    // the person is asked what to keep — and it is the same screen, so a
+    // capture that named both a commitment and a maybe does not split across
+    // two.
+    case 'unresolvedIntent':
     case 'confirming':
     case 'confirmFailed':
       return <ReviewScreen />;

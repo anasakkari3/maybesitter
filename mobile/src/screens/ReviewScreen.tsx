@@ -14,6 +14,7 @@ import { Btn, FlowHeader, ImpBadge, Pill, Txt } from '../ui/primitives';
 import { CheckIcon } from '../ui/icons';
 import { ScreenIn } from '../ui/motion';
 import { instantForLocalDateTime } from '../features/capture/localInstant';
+import { SeedProposalSection } from '../features/seeds/SeedProposalSection';
 import { BusyConflictChip } from '../features/calendar/BusyConflictChip';
 import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
 import { busyAt } from '../features/calendar/conflicts';
@@ -54,6 +55,7 @@ export function ReviewScreen() {
   // the network would appear after the user had already pressed Confirm.
   const busyBlocks = useBusyBlocks();
   const items = state.proposal?.items ?? [];
+  const seeds = state.proposal?.seeds ?? [];
   const selectedCount = state.selected.length;
   const busy = state.status === 'confirming';
 
@@ -138,6 +140,14 @@ export function ReviewScreen() {
           />
         ))}
 
+        {/* What the capture read as unresolved intent (#519). Its own section
+            rather than more cards in the list above, because these are not
+            items the confirm can carry: Keep is a separate call, and nothing
+            here is selected, counted or written by the Confirm button. */}
+        {state.proposal && seeds.length > 0 ? (
+          <SeedProposalSection proposalId={state.proposal.proposalId} seeds={seeds} />
+        ) : null}
+
         {/* Held, and applied atomically at confirm (#164). Nothing is written
             while this is open. */}
         {editingItemId ? (
@@ -153,15 +163,28 @@ export function ReviewScreen() {
       </ScrollView>
 
       <View style={{ paddingTop: 12, paddingHorizontal: 20, paddingBottom: insets.bottom + 16, gap: 8, backgroundColor: p.bg, borderTopWidth: 1, borderTopColor: p.ln }}>
-        {selectedCount === 0 ? (
-          <Txt size={12} color={p.mu} align="center" testID="review-none-selected">{t.reviewNothingSelected}</Txt>
-        ) : null}
-        <Pill
-          testID="review-confirm"
-          label={tr('confirmN', { n: selectedCount })}
-          onPress={() => void flow.confirm()}
-          disabled={selectedCount === 0 || busy}
-        />
+        {/*
+          A capture that named only a maybe has nothing to confirm (#519).
+
+          Showing "Confirm 0", disabled, above "nothing selected" would read as
+          a dead end the person has to work out for themselves — and the thing
+          they came here to decide is already above, in its own section with
+          its own Keep. So the confirm bar simply is not drawn, and the only
+          button is the way out.
+        */}
+        {items.length === 0 ? null : (
+          <>
+            {selectedCount === 0 ? (
+              <Txt size={12} color={p.mu} align="center" testID="review-none-selected">{t.reviewNothingSelected}</Txt>
+            ) : null}
+            <Pill
+              testID="review-confirm"
+              label={tr('confirmN', { n: selectedCount })}
+              onPress={() => void flow.confirm()}
+              disabled={selectedCount === 0 || busy}
+            />
+          </>
+        )}
         <Pill
           testID="review-cancel"
           label={t.cancelAll}

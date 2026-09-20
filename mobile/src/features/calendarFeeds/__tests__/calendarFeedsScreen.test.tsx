@@ -48,6 +48,31 @@ const FEED_URL = `https://moodle.example/calendar/export_execute.php?userid=7&au
 const FLAG = 'EXPO_PUBLIC_FEATURE_ICS_FEEDS';
 const HOUR = 3_600_000;
 
+/**
+ * The caches hold no copy of the link once the call has settled.
+ *
+ * `waitFor`, not a bare `expect`, and the difference is not cosmetic. The
+ * promise is "the URL does not outlive the call", and `useCreateIcsFeed`
+ * keeps it with `gcTime: 0` plus the screen's `create.reset()` — which drops
+ * the observer synchronously but leaves TanStack to remove the mutation from
+ * the cache on a zero-delay timer. Asserting immediately after the error text
+ * appears therefore races that timer, and which side wins depends on how warm
+ * the module registry is: this file passed when Jest happened to schedule it
+ * fifth in the run and failed when it scheduled it first, on unchanged code.
+ *
+ * Polling asserts the property the screen actually promises — the copy is
+ * gone, not "was already gone within one tick" — and a URL that genuinely
+ * lingered would still fail here, on the timeout.
+ */
+async function expectCachesForget(): Promise<void> {
+  await waitFor(() => {
+    expect(JSON.stringify({
+      queries: client.getQueryCache().getAll().map(query => query.state),
+      mutations: client.getMutationCache().getAll().map(mutation => mutation.state),
+    })).not.toContain(SECRET);
+  });
+}
+
 const FEED: IcsFeed = { ...(listFixture.feeds[0] as IcsFeed), feedId: 'feed-1', label: 'CS101' };
 function deadline(overrides: Partial<IcsDeadline>): IcsDeadline {
   return {
@@ -172,11 +197,7 @@ describe('pasting a link', () => {
     // Gone from the field, the screen, both caches and the console.
     expect(screen.getByTestId('ics-url-input').props.value).toBe('');
     expect(JSON.stringify(screen.toJSON())).not.toContain(SECRET);
-    const cached = JSON.stringify({
-      queries: client.getQueryCache().getAll().map(query => query.state),
-      mutations: client.getMutationCache().getAll().map(mutation => mutation.state),
-    });
-    expect(cached).not.toContain(SECRET);
+    await expectCachesForget();
     expect(JSON.stringify(consoleCalls)).not.toContain(SECRET);
     // The auto-accept switch for the next link starts off again.
     expect(screen.getByTestId('ics-auto-accept-new').props.value).toBe(false);
@@ -200,7 +221,7 @@ describe('pasting a link', () => {
     await waitFor(() => expect(screen.queryByTestId('ics-subscribe-error')).not.toBeNull());
     expect(text('ics-subscribe-error')).toBe(bundle.icsFeedsErrInvalidUrl);
     expect(screen.getByTestId('ics-url-input').props.value).toContain(SECRET);
-    expect(JSON.stringify(client.getMutationCache().getAll().map(m => m.state))).not.toContain(SECRET);
+    await expectCachesForget();
     expect(JSON.stringify(consoleCalls)).not.toContain(SECRET);
   });
 });

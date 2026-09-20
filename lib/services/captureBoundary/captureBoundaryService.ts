@@ -15,6 +15,8 @@ import {
   type CaptureProposalContract,
   type NoCommitmentReason,
 } from '../../../src/contracts/v1/captureContracts';
+import { detectUnresolvedIntent } from '../../../src/extraction/unresolvedIntent';
+import type { CaptureSeedProposalContract } from '../../../src/contracts/v1/intentContracts';
 import { applyEditToCommands, InvalidEditError, validateEdit } from './applyEdits';
 import { buildClarification } from './clarificationBuilder';
 import { isPastCommitmentTime } from '../commitments/timeRules';
@@ -239,6 +241,15 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   // came from, rather than by patching its contract (#165).
   const resultsByItemId = new Map<string, ExtractionResult>();
   const items: CaptureProposalContract['items'] = [];
+  /**
+   * What the user may merely be considering or waiting on (#519).
+   *
+   * Nothing here is persisted by this call, and nothing here holds a command:
+   * a seed proposal is a segment and a kind, and it becomes a stored Seed only
+   * when the user picks it in Review and the app posts it to
+   * `/api/mobile/seeds`.
+   */
+  const seeds: CaptureSeedProposalContract[] = [];
   let executedEngine: CaptureProposalContract['provenance']['executedEngine'] = 'rule-based';
   let fallbackUsed = forceRules;
   let rejected = !raw;
@@ -256,6 +267,28 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
     // rather than being dropped: the user still gets their commitments, they
     // are just read without the model.
     const rulesOnly = forceRules || index >= MAX_MODEL_SEGMENTS;
+    /*
+     * Unresolved intent is read before the extractor, not after it (#519).
+     *
+     * After would be the tidier place — "whatever produced no commitment, look
+     * at again" — and it is where three of the issue's six example sentences
+     * would in fact land. The other three do not. «אולי אני אגיש מועמדות» and
+     * "I'm waiting for the doctor to reply" are read by the rule-based
+     * extractor as tasks whose time is missing, so they arrive as items
+     * *needing clarification*: the product would answer somebody's "maybe" by
+     * asking them what time their maybe is. That is the failure this issue
+     * exists to remove, and it happens upstream of any no-commitment branch.
+     *
+     * The narrowing that makes this safe is in `detectUnresolvedIntent`: an
+     * explicit scheduling verb anywhere in the segment means it is a request
+     * and the detector declines, so «ممكن تذكرني بكرة الساعة ٩؟» stays the
+     * reminder it obviously is.
+     */
+    const intent = detectUnresolvedIntent(segment);
+    if (intent) {
+      seeds.push({ seedItemId: randomUUID(), kind: intent.kind, summary: segment });
+      continue;
+    }
     try {
       const extracted = await extractor(segment, context, {
         llmProvider: rulesOnly ? async () => { throw new Error('rules-only runtime'); } : dependencies.llmProvider,
@@ -335,7 +368,11 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   const status: CaptureProposalContract['status'] = rejected
     ? 'rejected'
     : items.length === 0
-      ? 'no_commitment'
+      // A capture that named only things the user is turning over is not
+      // "nothing" — there is something to offer, and only they can say whether
+      // it is worth keeping (#519). With no seeds either, it is the ordinary
+      // no-commitment answer and the reason code goes with it.
+      ? (seeds.length > 0 ? 'unresolved_intent' : 'no_commitment')
       : items.every((item) => item.needsClarification)
         ? 'needs_clarification'
         : 'proposed';
@@ -347,6 +384,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
     // unsafe, and a reason code there would invite the client to explain it.
     ...(status === 'no_commitment' ? { noCommitmentReason: noCommitmentReason ?? 'low_confidence' } : {}),
     items,
+    seeds,
     provenance: { requestedEngine, executedEngine, fallbackUsed },
   };
   await dependencies.store.put({

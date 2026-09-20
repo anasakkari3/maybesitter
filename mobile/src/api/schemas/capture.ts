@@ -5,7 +5,18 @@ import { isoDateTime } from './common';
 export const captureProposalSchema = z.object({
   version: z.string(),
   proposalId: z.string(),
-  status: z.enum(['proposed', 'needs_clarification', 'no_commitment', 'rejected']),
+  status: z.enum([
+    'proposed',
+    'needs_clarification',
+    'no_commitment',
+    'rejected',
+    /**
+     * The capture named something the person is considering or waiting on, and
+     * no commitment at all (#519). Not `no_commitment`: there *is* something
+     * to offer, and only they can say whether it is worth keeping.
+     */
+    'unresolved_intent',
+  ]),
   /**
    * Why nothing was created, on a `no_commitment` proposal (UC-2.6, #166).
    *
@@ -63,6 +74,23 @@ export const captureProposalSchema = z.object({
         .optional(),
     }),
   ),
+  /**
+   * What the capture may have named as unresolved intent (#519).
+   *
+   * `.default([])` rather than required: a backend that predates this field
+   * must still parse here, and an app that reads the absence as an empty list
+   * behaves exactly as it did before — it offers nothing. Nothing in here is
+   * saved until the person taps Keep, which posts to `/api/mobile/seeds`; the
+   * summary the server stores is read back out of its own proposal, so what is
+   * kept is the sentence they typed and not one this client sent.
+   */
+  seeds: z
+    .array(z.object({
+      seedItemId: z.string(),
+      kind: z.enum(['consideration', 'waiting_for', 'idea', 'possible_goal']),
+      summary: z.string(),
+    }))
+    .default([]),
   provenance: z
     .object({
       requestedEngine: z.enum(['model', 'rules']),
@@ -78,6 +106,7 @@ export const captureProposalSchema = z.object({
 
 export type CaptureProposal = z.infer<typeof captureProposalSchema>;
 export type CaptureProposalItem = CaptureProposal['items'][number];
+export type CaptureSeedProposal = CaptureProposal['seeds'][number];
 
 /**
  * What a newly-persisted commitment landed on top of (#football-fixtures

@@ -30,6 +30,8 @@ const proposal: CaptureProposal = {
       priorityEstimated: false,
     },
   ],
+  // Always an array on the client (#519); the schema defaults it.
+  seeds: [],
 };
 
 const BERLIN = 'Europe/Berlin';

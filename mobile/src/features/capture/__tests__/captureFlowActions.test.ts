@@ -27,6 +27,9 @@ function proposal(over: Partial<CaptureProposal> = {}): CaptureProposal {
       { itemId: 'a', title: 'Call the clinic', resolvedTime: '2026-09-15T07:00:00.000Z', needsClarification: false },
       { itemId: 'b', title: 'Pay the bill', resolvedTime: '2026-09-15T16:00:00.000Z', needsClarification: false },
     ],
+    // Always an array on the client (#519): the schema defaults it, so no
+    // screen has to guard a proposal that names no unresolved intent.
+    seeds: [],
     ...over,
   };
 }

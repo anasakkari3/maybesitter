@@ -22,6 +22,7 @@ import { DeleteAccountScreen } from './screens/DeleteAccountScreen';
 import { TrustScreen } from './features/settings/TrustScreen';
 import { KnowsScreen } from './features/settings/KnowsScreen';
 import { MemoryScreen } from './features/memory/MemoryScreen';
+import { SeedsScreen } from './features/seeds/SeedsScreen';
 import { FeedbackHistoryScreen } from './features/settings/FeedbackHistoryScreen';
 import { ActivityScreen } from './features/activity/ActivityScreen';
 import { RoutineSettingsScreen } from './features/settings/RoutineSettingsScreen';
@@ -174,6 +175,10 @@ export function Root() {
             <WidgetSettingsScreen key="widgetSettings" onBack={() => latest.current.go('settings')} />
           )}
           {s.screen === 'about' && <AboutScreen key="about" onBack={() => latest.current.go('settings')} />}
+          {/* Considering / Waiting (#519). Reached from the week ahead, and
+              back to it — not to Settings, which is not where it was opened
+              from. */}
+          {s.screen === 'seeds' && <SeedsScreen key="seeds" onBack={() => latest.current.go('calendar')} />}
           {s.screen === 'details' && <DetailsScreen key="details" />}
           {/* Today's plan (UC-3.10b, #195). Keyed by its date so a second link
               for another day remounts rather than re-using the first day's

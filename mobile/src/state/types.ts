@@ -100,6 +100,11 @@ export type Screen =
   // whether the lists carry a filter bar.
   | 'categorySettings'
   | 'about'
+  // Calendar → Considering / Waiting (#519). Things the person has not decided
+  // on: no time, no importance, nothing on the day. Reached from the week
+  // ahead, because that is where somebody goes to look at what is coming and
+  // notice what they have not decided yet.
+  | 'seeds'
   // Today's plan (UC-3.10b, #195). Reached from the morning notification's
   // deep link and from Settings, and carrying its own date in `planDate`
   // rather than deriving one: the link names the day the plan is for, and a

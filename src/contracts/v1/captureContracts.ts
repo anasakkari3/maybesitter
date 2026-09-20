@@ -1,4 +1,5 @@
 import { MODULE_CONTRACT_VERSION } from './moduleContracts';
+import type { CaptureSeedProposalContract } from './intentContracts';
 
 export const CAPTURE_CONTRACT_VERSION = MODULE_CONTRACT_VERSION;
 
@@ -6,7 +7,25 @@ export type CaptureProposalStatus =
   | 'proposed'
   | 'needs_clarification'
   | 'no_commitment'
-  | 'rejected';
+  | 'rejected'
+  /**
+   * The capture named something the user is considering or waiting on, and no
+   * commitment at all (#519).
+   *
+   * Its own status rather than a `no_commitment` with a list hanging off it,
+   * because the two ask the client for different things. `no_commitment` means
+   * "nothing to do here" and the app shows one neutral line; this means "there
+   * is something here, and only you can say whether it is worth keeping" — the
+   * review screen has to offer it. A client that has never heard of this
+   * status shows its unknown-status fallback, which creates nothing, and that
+   * is the correct behaviour for an older app: a seed nobody was offered is a
+   * seed nobody has.
+   *
+   * A capture that produced both a commitment and a seed is `proposed`, not
+   * this: the commitment is the thing needing confirmation, and `seeds` rides
+   * along beside it.
+   */
+  | 'unresolved_intent';
 
 export interface CaptureProposalItemContract {
   itemId: string;
@@ -198,6 +217,22 @@ export interface CaptureProposalContract {
   /** Set only when `status` is `no_commitment`. */
   noCommitmentReason?: NoCommitmentReason;
   items: CaptureProposalItemContract[];
+  /**
+   * What the user may be considering or waiting on (#519).
+   *
+   * Always present, never optional, and empty for every capture that names
+   * none — the same rule `collisions` follows on the confirmation. A field
+   * that is sometimes missing is one every client has to guard, and an added
+   * field that is sometimes absent is indistinguishable from one an older
+   * server never sent.
+   *
+   * Nothing here is persisted. A seed exists only once the user picks it in
+   * Review and the app posts it to `/api/mobile/seeds`, which reads the
+   * summary back out of *this* stored proposal rather than from the request —
+   * so what is kept is the sentence the person typed, not a sentence a client
+   * sent back.
+   */
+  seeds: CaptureSeedProposalContract[];
   provenance: {
     requestedEngine: 'model' | 'rules';
     executedEngine: 'gemini' | 'ollama' | 'rule-based';
