@@ -55,6 +55,16 @@ export {
 } from './digest';
 export { diffPlans } from './diff';
 export {
+  applyEditsToBlocks,
+  blockForSource,
+  reconcileScheduleBlocks,
+  sameBlockInterval,
+  ScheduleBlockIntegrityError,
+  type ReconcileScheduleBlocksArgs,
+  type ScheduleBlockEdits,
+  type ScheduleBlockSources,
+} from './blocks';
+export {
   DEFAULT_READINESS_PLANNING_POLICY,
   projectReadinessIntoPlanningConstraints,
   readinessPlanningBufferAfterMinutes,

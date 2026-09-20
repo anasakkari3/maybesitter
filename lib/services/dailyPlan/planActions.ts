@@ -34,7 +34,7 @@ import type { Plan, PlannedItem, TimeInterval } from '../../../src/contracts/v1/
 import { getStorage, type StorageAdapter } from '../../storage';
 import { readActivityStats, recordActivityEvents } from '../activity/activityStats';
 import { earliestLedgerAcceptance, planEventAsRecord } from '../activity/planActivity';
-import { schedulePlan } from '../../planning/scheduler';
+import { applyEditsToBlocks, schedulePlan } from '../../planning/scheduler';
 import {
   appendPlanEvent,
   mutateStoredPlan,
@@ -255,7 +255,13 @@ export async function editPlan(
   const outcome = await mutateStoredPlan<null>(uid, date, (current) => {
     try {
       const edits = validateEdit(current, edit);
-      return { next: { ...current, status: 'edited', edits, updatedAt: at }, result: null };
+      // The blocks move in the same commit as the edit record (#521): a move
+      // writes the new interval onto the block — the plan layer's own state —
+      // and never onto the commitment, which is the issue's "a manual move
+      // never writes a time onto the source" criterion. A document from before
+      // blocks existed has none to update; the next regeneration rebuilds them.
+      const blocks = applyEditsToBlocks(current.blocks ?? [], current.plan.scheduled, edits, current.generation);
+      return { next: { ...current, status: 'edited', edits, blocks, updatedAt: at }, result: null };
     } catch (error) {
       // Recorded rather than thrown: throwing out of a transaction body would
       // be retried by the adapter, and a deterministic refusal does not become
@@ -302,7 +308,14 @@ export async function regeneratePlan(
   if (!current) return { ok: false, reason: 'not_found' };
   if (current.generation >= MAX_PLAN_GENERATIONS_PER_DAY) return { ok: false, reason: 'limit_reached' };
 
-  const rebuilt = await composeDailyPlan(uid, date, { timezone: current.timezone }, current.generation + 1, deps);
+  const rebuilt = await composeDailyPlan(uid, date, { timezone: current.timezone }, current.generation + 1, deps, {
+    previousGeneration: current.generation,
+    previousInputDigest: current.inputDigest,
+    // `?? []` for documents written before blocks existed (#521): the new
+    // generation's blocks are derived from the new plan either way, and only
+    // the provenance carry-forward has nothing to read.
+    previousBlocks: current.blocks ?? [],
+  });
   const stored = await replaceStoredPlan(uid, rebuilt, current.generation, deps.storage);
   if (!stored) return { ok: false, reason: 'raced' };
 

@@ -78,12 +78,14 @@ import type { UserLocale } from '../../storage/userDocument';
 import { loadDomainState } from '../mobile/participantState';
 import { readRoutineProfile } from '../mobile/routineProfileService';
 import { keptFocusWindow } from '../../memoryGrowth/suggestionService';
-import { schedulePlan } from '../../planning/scheduler';
+import { reconcileScheduleBlocks, schedulePlan } from '../../planning/scheduler';
 import { projectReadinessIntoPlanningConstraints } from '../../planning/scheduler/readiness';
 import { toEpochMs } from '../../planning/shared/time';
+import type { ScheduleBlock } from '../../../src/contracts/v1/scheduleBlockContracts';
 import type { Commitment } from '../../../src/domain/stateMachine';
 import {
   buildDailyPlanInput,
+  dailyPlanScheduleSources,
   dayHorizon,
   type BusyBlockReader,
 } from './buildDailyPlan';
@@ -312,6 +314,21 @@ export function titlesOf(commitments: readonly Commitment[]): Map<string, string
 }
 
 /**
+ * What a regeneration carries forward from the plan it replaces (#521).
+ *
+ * The blocks are the reconciler's provenance input (a block the new plan does
+ * not place keeps the record of who last placed it — see `blocks.ts`,
+ * property 4); the generation and digest become the new document's `replaces`
+ * link. Identity itself is *not* carried: block ids are derived from the
+ * occurrence, so the new build arrives at them on its own.
+ */
+export interface PlanGenerationAncestryInput {
+  readonly previousGeneration: number;
+  readonly previousInputDigest: string;
+  readonly previousBlocks: readonly ScheduleBlock[];
+}
+
+/**
  * Builds the plan document for one account and one local date.
  *
  * Pure of decisions about *whether* it should run: the caller has claimed, or
@@ -323,6 +340,7 @@ export async function composeDailyPlan(
   settings: Pick<PlanSettings, 'timezone'>,
   generation: number,
   deps: DailyPlanDeps = {},
+  ancestry?: PlanGenerationAncestryInput,
 ): Promise<StoredDailyPlan> {
   const storage = storageOf(deps);
   const now = (deps.now ?? (() => new Date()))();
@@ -369,6 +387,17 @@ export async function composeDailyPlan(
   }, { storage, userDocument: user });
   const constraints = projectReadinessIntoPlanningConstraints(baseConstraints, userState.projection.readiness);
   const plan = schedulePlan(constraints, config);
+  // One block per occurrence the planner was asked about, placements applied
+  // back. Throws `ScheduleBlockIntegrityError` — and the build fails — if the
+  // plan and the request ever disagree about what exists, which is a planner
+  // bug and must not be persisted as if it were a plan (#521).
+  const blocks = reconcileScheduleBlocks({
+    constraints,
+    plan,
+    generation,
+    sources: dailyPlanScheduleSources(constraints),
+    previous: ancestry?.previousBlocks ?? null,
+  });
 
   const titles = titlesOf(commitments);
   const facts = explanationFactsFrom(plan, titles, timezone, locale);
@@ -383,6 +412,10 @@ export async function composeDailyPlan(
     locale,
     status: 'proposed',
     plan,
+    blocks,
+    replaces: ancestry
+      ? { generation: ancestry.previousGeneration, inputDigest: ancestry.previousInputDigest }
+      : null,
     constraints,
     config,
     explanation,
