@@ -40,6 +40,7 @@ import { listFollowedUserIds } from '../football/followedClubs';
 import { projectFixturesForUser } from '../football/projectFixtures';
 import { syncFollowedClubs, type SyncReport } from '../football/syncFixtures';
 import type { FixtureProvider } from '../../src/contracts/v1/fixtureContracts';
+import { runWatcherSweep, type WatcherSweepTotals } from '../watchers/watcherEngine';
 
 /** `runDueJobs` claims this many per round; a full round means more may be due. */
 export const TICK_BATCH = 25;
@@ -330,6 +331,7 @@ export interface InternalJobsDeps {
   dailyPlan?: () => Promise<DailyPlanTickTotals>;
   hardReminders?: () => Promise<HardReminderTickTotals>;
   footballSync?: () => Promise<FootballSyncJobReport>;
+  watcherSweep?: () => Promise<WatcherSweepTotals>;
 }
 
 function authOptions(deps: InternalJobsDeps): { env?: NodeJS.ProcessEnv; verify?: OidcVerify } {
@@ -432,5 +434,33 @@ export async function handleFootballSyncRequest(request: HeaderBearing, deps: In
   } catch (error) {
     console.error('[internal/jobs/football-sync] sync failed', error);
     return Response.json({ error: 'football_sync_failed' }, { status: 500 });
+  }
+}
+
+/**
+ * `POST /api/internal/jobs/watchers` (#525).
+ *
+ * The watcher sweep is its own cron for the same reason the daily plan and the
+ * hard reminders are: a 5xx here must make Cloud Scheduler retry *this* sweep,
+ * and nothing else. Folding it into `/jobs/run` would mean one account's
+ * unreadable watcher made every user's due reminders run a second time.
+ *
+ * A retry is safe to the extent that it has to be: the sweep's firings are
+ * keyed by `(watcherId, signalId)` and created transactionally, so an
+ * overlapping or retried run re-observes the same state, finds the event
+ * already there, and records a duplicate instead of a second effect. It does
+ * not reuse `runDueJobs` because a watcher is not a queued job — there is no
+ * due time to claim, only current state to compare against a baseline, and
+ * enqueuing one job per watcher per minute would be a queue that is always
+ * full and never informative.
+ */
+export async function handleWatcherSweepRequest(request: HeaderBearing, deps: InternalJobsDeps = {}): Promise<Response> {
+  const auth = await authorizeSchedulerRequest(request, authOptions(deps));
+  if (!auth.ok) return schedulerAuthErrorResponse(auth);
+  try {
+    return Response.json(await (deps.watcherSweep ?? (() => runWatcherSweep()))());
+  } catch (error) {
+    console.error('[internal/jobs/watchers] sweep failed', error);
+    return Response.json({ error: 'watcher_sweep_failed' }, { status: 500 });
   }
 }

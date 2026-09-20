@@ -98,7 +98,14 @@ test('every mobile route file exists and is enumerated', () => {
   // (GET|PUT /api/mobile/football and DELETE /api/mobile/football/fixtures/{commitmentId}).
   // Fifty-one after #477: `POST /api/mobile/plans/{date}/build`, which writes a
   // plan into the caller's own account and so must know whose account it is.
-  assert.equal(files.length, 51, `found:\n${files.join('\n')}`);
+  // Fifty-five after #525: the four `/api/mobile/watchers` routes. Two of them
+  // are the reason the census matters here. `GET /watchers/{id}/history` is a
+  // read of what somebody's watchers have observed about them — a timeline of
+  // when their recovery dropped or their match moved — and an unauthenticated
+  // caller reaching it would learn that from ids alone. `POST
+  // /watchers/{id}/pause` is the control that stops a watcher acting at all,
+  // so its guard is what keeps one account from silencing another's.
+  assert.equal(files.length, 55, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {

@@ -107,6 +107,17 @@ upsert_job "daily-plan-tick-${SUFFIX}" "* * * * *" "/api/internal/jobs/daily-pla
 upsert_job "hard-reminders-tick-${SUFFIX}" "* * * * *" "/api/internal/jobs/hard-reminders" "Etc/UTC" \
   "Send MaybeSitter Must-reminder backups (${TARGET})"
 
+# The watcher sweep (#525). Every minute, and its own job for the reason the
+# two ticks above are their own: a 5xx here must retry this sweep and nothing
+# else. One run is a bounded collection-group read over `watchers`
+# (WATCHER_SWEEP_BATCH) and reports `remaining` when more exist, which the next
+# minute takes -- so the call stays well inside the 60s attempt deadline
+# without a separate time budget. A retried or overlapping run cannot double
+# an effect: firings are keyed by (watcherId, signalId) and created
+# transactionally (see lib/watchers/watcherEngine.ts).
+upsert_job "watcher-sweep-${SUFFIX}" "* * * * *" "/api/internal/jobs/watchers" "Etc/UTC" \
+  "Evaluate MaybeSitter watchers (${TARGET})"
+
 # External calendar feeds (UC-3.4, #188). Every 30 minutes; each feed is
 # refreshed every six hours (backing off to 48 after failures), so a run only
 # fetches the feeds whose `nextFetchAt` has arrived, at most 100. A separate job

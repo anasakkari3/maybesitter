@@ -180,6 +180,31 @@ const KEPT_BECAUSE: Record<string, string> = {
     + 'for minutes. It is machinery rather than anything learned about the user, and it is consumed by the '
     + 'callback or expires on its own. Purging it would abort a connection the user started seconds '
     + 'earlier, for no privacy gain that waiting out the expiry does not already give.',
+  watchers:
+    'a watcher the user set up by saying "watch this for me" (#525) — a provider, a connection, a '
+    + 'normalized signal kind, an opaque subject and one of four effects. It is a standing instruction '
+    + 'they gave, the same kind of explicit act as `consents` or `icsFeeds`, not something inferred '
+    + 'about them; purging it here would answer "forget what you worked out about me" by silently '
+    + 'switching off the monitoring they asked for. The Delete button beside it is how one is removed, '
+    + 'and account deletion takes the whole tree.',
+  watcherEvents:
+    'one row per watcher firing: ids, an instant, a reason code, the policy decision and a provenance '
+    + 'pointer, with no title and no provider payload — the contract has no field that could carry one. '
+    + 'It is the record of what the product already told this account, and it is also the idempotency '
+    + 'lock keyed on (watcherId, signalId): clearing it would let every still-current observation fire a '
+    + 'second time, so answering "forget me" with a repeat notification.',
+  watcherProposals:
+    'what a `propose_commitment` watcher offered and the user has not answered yet — the same standing '
+    + 'as `captureProposals`, which is kept for the same reason. It holds a signal kind, an opaque '
+    + 'subject and a reason code, never a claim about the person.',
+  watcherNotifications:
+    'a queued, content-free notification intent a `notify` watcher produced, awaiting the surface that '
+    + 'renders it (#527). It names a watcher, a signal kind and a reason code and nothing else; purging '
+    + 'it would drop a notification the user asked for rather than forget anything about them.',
+  planningStateChanges:
+    'the entry of the common state-change pipeline: a source, an entity id, two digests and an instant. '
+    + 'It says something changed that a plan may care about, never what the product concluded about the '
+    + 'person, and it is consumed and aged out by the replanning lane rather than by this button.',
   externalTaskRefs:
     'a pointer beside a commitment, same as deviceCalendarLinks: which external fixture a commitment came '
     + 'from and whether the user dismissed it. Commitments survive this purge, so the ref that keeps a '

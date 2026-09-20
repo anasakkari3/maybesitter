@@ -313,6 +313,50 @@ export const PROVIDER_CREDENTIALS = 'providerCredentials';
  */
 export const PROVIDER_OAUTH_STATES = 'providerOAuthStates';
 
+/**
+ * A watcher's definition plus its runtime baseline, one document per watcher
+ * (#525). `users/{uid}/watchers/{watcherId}`.
+ *
+ * Inside the user tree because a watcher is one person's configuration — what
+ * to watch, on which connection, with which effect — and goes with the
+ * account. It holds no provider payload: a source is a provider name, a
+ * connection id, a signal kind and an opaque `subjectRef`, and the runtime
+ * baselines are digests and normalized numbers.
+ */
+export const WATCHERS = 'watchers';
+
+/**
+ * One document per watcher firing, append-only (#525).
+ *
+ * The history `GET /api/mobile/watchers/{id}/history` serves, and the firing
+ * idempotency lock in one: the document id is `docIdForKey` of
+ * `(watcherId, signalId)`, so the same signal delivered twice — overlapping
+ * ticks, a retried sweep — can only be recorded, and therefore fired, once.
+ * Content-free: ids, digests, reason codes and instants, never a title.
+ */
+export const WATCHER_EVENTS = 'watcherEvents';
+
+/**
+ * What a `propose_commitment` watcher produced: a proposal, never canonical
+ * work (#525). One document per firing, keyed by a proposal id derived from
+ * the firing's event id, so a duplicate firing proposes nothing twice.
+ */
+export const WATCHER_PROPOSALS = 'watcherProposals';
+
+/**
+ * What a `notify` watcher produced: a queued, content-free notification intent
+ * (#525), one per firing. The monitoring surface (#527) renders and delivers
+ * these; the engine deliberately does not invent per-provider copy.
+ */
+export const WATCHER_NOTIFICATIONS = 'watcherNotifications';
+
+/**
+ * The entry of the common state-change pipeline (#525 emitting; #523
+ * consuming). A `replan_if_impacted` firing appends one `PlanningStateChange`
+ * here; the impact evaluator reads them. No watcher touches a plan directly.
+ */
+export const PLANNING_STATE_CHANGES = 'planningStateChanges';
+
 export const USER_SCOPED_COLLECTIONS = [
   PROVIDER_CONNECTIONS,
   PROVIDER_CREDENTIALS,
@@ -354,6 +398,11 @@ export const USER_SCOPED_COLLECTIONS = [
   DEVICES,
   PUSH_LOG,
   HARD_REMINDERS,
+  WATCHERS,
+  WATCHER_EVENTS,
+  WATCHER_PROPOSALS,
+  WATCHER_NOTIFICATIONS,
+  PLANNING_STATE_CHANGES,
 ] as const;
 
 /** Operator-only, outside every user tree. */

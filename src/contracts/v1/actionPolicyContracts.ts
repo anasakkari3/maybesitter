@@ -37,6 +37,8 @@ export type CapabilityId =
   | 'read_mcp_context'
   | 'create_local_reminder'
   | 'update_local_plan'
+  | 'create_local_proposal'
+  | 'update_local_context'
   | 'create_calendar_event'
   | 'create_external_task'
   | 'update_external_task'
@@ -155,6 +157,28 @@ export const ACTION_CAPABILITY_POLICIES: readonly ActionCapabilityPolicy[] = Obj
   },
   {
     capability: 'update_local_plan',
+    subject: 'plan',
+    tier: 'low_risk_local_write',
+    confirmation: 'settings_allowed',
+    providerExecutionAllowed: true,
+    modelMaySelectRawProviderTool: false,
+    auditRequired: true,
+  },
+  {
+    // Watcher effects (#525): a proposal is only ever a proposal, and a
+    // context update only refreshes watcher-held baselines. Both are local,
+    // low-risk writes — the rows exist so a watcher firing is a policy
+    // decision, not an assumption.
+    capability: 'create_local_proposal',
+    subject: 'task',
+    tier: 'low_risk_local_write',
+    confirmation: 'settings_allowed',
+    providerExecutionAllowed: true,
+    modelMaySelectRawProviderTool: false,
+    auditRequired: true,
+  },
+  {
+    capability: 'update_local_context',
     subject: 'plan',
     tier: 'low_risk_local_write',
     confirmation: 'settings_allowed',
