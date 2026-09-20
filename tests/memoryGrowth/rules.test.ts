@@ -13,10 +13,16 @@ import { fileURLToPath } from 'node:url';
 import {
   R1_FOCUS_WINDOW,
   R1_LOOKBACK_DAYS,
+  R2_DEFER_DEFAULT,
+  R2_LOOKBACK_DAYS,
+  deferDefaultFingerprint,
   focusWindowFingerprint,
+  parseDeferDefaultFingerprint,
   parseFocusWindowFingerprint,
+  suggestDeferDefault,
   suggestFocusWindow,
   type CompletionObservation,
+  type DeferObservation,
 } from '../../lib/memoryGrowth/rules.ts';
 
 const NOW = '2026-09-16T18:00:00.000Z';
@@ -166,6 +172,151 @@ test('the fingerprint round-trips and refuses anything it did not write', () => 
   }
 });
 
+// ── R2: the usual defer duration (UC-3.14, #532) ────────────────
+
+/** A defer `daysAgo` days back that pushed the thing `durationMinutes` later. */
+function deferAt(id: string, daysAgo: number, durationMinutes: number): DeferObservation {
+  const at = new Date(Date.parse(NOW) - daysAgo * 86_400_000);
+  return {
+    id,
+    at: at.toISOString(),
+    postponedUntil: new Date(at.getTime() + durationMinutes * 60_000).toISOString(),
+  };
+}
+
+/** Six defers: four of an hour, two of three hours. */
+function sixDefersFourAtOneHour(): DeferObservation[] {
+  return [
+    deferAt('d01', 1, 60),
+    deferAt('d02', 2, 60),
+    deferAt('d03', 3, 180),
+    deferAt('d04', 4, 60),
+    deferAt('d05', 5, 180),
+    deferAt('d06', 6, 60),
+  ];
+}
+
+test('four of the last six defers at one hour yield the R2 suggestion', () => {
+  const suggestion = suggestDeferDefault(sixDefersFourAtOneHour(), NOW);
+  assert.ok(suggestion, 'the fixture must produce a suggestion');
+  assert.equal(suggestion.ruleId, R2_DEFER_DEFAULT);
+  assert.equal(suggestion.fingerprint, 'R2_defer_default:60m');
+  assert.equal(suggestion.deferMinutes, 60);
+  assert.equal(suggestion.matchingCount, 4);
+  assert.equal(suggestion.totalCount, 6);
+  assert.equal(suggestion.confidence, 0.67);
+  assert.equal(suggestion.lookbackDays, R2_LOOKBACK_DAYS);
+  assert.deepEqual(suggestion.evidenceIds, ['d06', 'd04', 'd02', 'd01']);
+});
+
+test('three of the last six defers at one duration yield nothing', () => {
+  // The threshold is four: three of six is exactly below it.
+  const three = [
+    deferAt('d01', 1, 60),
+    deferAt('d02', 2, 60),
+    deferAt('d03', 3, 180),
+    deferAt('d04', 4, 60),
+    deferAt('d05', 5, 240),
+    deferAt('d06', 6, 300),
+  ];
+  assert.equal(suggestDeferDefault(three, NOW), null);
+});
+
+test('fewer than six defers yield nothing, however uniform they are', () => {
+  const five = sixDefersFourAtOneHour().slice(0, 5);
+  assert.equal(suggestDeferDefault(five, NOW), null);
+  const fiveUniform = [1, 2, 3, 4, 5].map((day) => deferAt(`u${day}`, day, 60));
+  assert.equal(suggestDeferDefault(fiveUniform, NOW), null);
+});
+
+test('durations are bucketed to the half-hour: 45–74 minutes count as one hour', () => {
+  const within = [45, 50, 65, 74].map((minutes, index) => deferAt(`b${index}`, index + 1, minutes));
+  const others = [deferAt('x1', 8, 600), deferAt('x2', 9, 700)];
+  const suggestion = suggestDeferDefault([...within, ...others], NOW);
+  assert.ok(suggestion);
+  assert.equal(suggestion.fingerprint, 'R2_defer_default:60m');
+  assert.equal(suggestion.matchingCount, 4);
+  // The boundaries themselves: 44 minutes is the half hour, 75 is ninety minutes.
+  const fortyFour = [44, 20, 25, 30].map((minutes, index) => deferAt(`c${index}`, index + 1, minutes));
+  assert.equal(suggestDeferDefault([...fortyFour, ...others], NOW)?.fingerprint, 'R2_defer_default:30m');
+  const seventyFive = [75, 80, 89, 100].map((minutes, index) => deferAt(`e${index}`, index + 1, minutes));
+  assert.equal(suggestDeferDefault([...seventyFive, ...others], NOW)?.fingerprint, 'R2_defer_default:90m');
+  // And a defer of almost nothing rounds into the half hour rather than
+  // claiming a duration of zero.
+  const tenMinutes = [10, 5, 12, 1].map((minutes, index) => deferAt(`f${index}`, index + 1, minutes));
+  assert.equal(suggestDeferDefault([...tenMinutes, ...others], NOW)?.fingerprint, 'R2_defer_default:30m');
+});
+
+test('only the newest six defers are counted', () => {
+  const newest = sixDefersFourAtOneHour();
+  // A seventh, oldest defer of a whole day changes nothing: it is out of the six.
+  const withOddOldest = [deferAt('d00', 9, 1440), ...newest];
+  assert.equal(suggestDeferDefault(withOddOldest, NOW)?.fingerprint, 'R2_defer_default:60m');
+  // But when the newest six hold only three of a kind, an older run of the
+  // same duration does not rescue the pattern.
+  const patternInThePast = [
+    deferAt('n1', 1, 180),
+    deferAt('n2', 2, 240),
+    deferAt('n3', 3, 300),
+    deferAt('n4', 4, 60),
+    deferAt('n5', 5, 60),
+    deferAt('n6', 6, 60),
+    deferAt('n7', 7, 60),
+  ];
+  assert.equal(suggestDeferDefault(patternInThePast, NOW), null);
+});
+
+test('only the lookback counts, and a defer in the future is not an observation', () => {
+  const recent = sixDefersFourAtOneHour().slice(0, 5);
+  const tooOld = deferAt('old', R2_LOOKBACK_DAYS + 1, 60);
+  assert.equal(suggestDeferDefault([...recent, tooOld], NOW), null);
+  const inFuture = {
+    id: 'future',
+    at: new Date(Date.parse(NOW) + 86_400_000).toISOString(),
+    postponedUntil: new Date(Date.parse(NOW) + 2 * 86_400_000).toISOString(),
+  };
+  assert.equal(suggestDeferDefault([...recent, inFuture], NOW), null);
+});
+
+test('a defer with nothing to push to, or pushed backwards, is not counted', () => {
+  const recent = sixDefersFourAtOneHour().slice(0, 5);
+  const broken = { id: 'broken', at: new Date(Date.parse(NOW) - 86_400_000).toISOString(), postponedUntil: 'not-a-date' };
+  const backwards = deferAt('backwards', 2, -60);
+  assert.equal(suggestDeferDefault([...recent, broken], NOW), null);
+  assert.equal(suggestDeferDefault([...recent, backwards], NOW), null);
+});
+
+test('the fingerprint is the duration, so the same habit re-keys and a changed one re-suggests', () => {
+  const again = [deferAt('g1', 3, 62), deferAt('g2', 5, 58), deferAt('g3', 8, 60), deferAt('g4', 12, 47),
+    deferAt('x1', 1, 400), deferAt('x2', 2, 500)];
+  // Different days, different ids, the same hour: the claim is the same claim.
+  assert.equal(suggestDeferDefault(again, NOW)?.fingerprint, suggestDeferDefault(sixDefersFourAtOneHour(), NOW)?.fingerprint);
+  const threeHours = [1, 2, 3, 4].map((day) => deferAt(`t${day}`, day, 180));
+  const moved = suggestDeferDefault([...threeHours, deferAt('y1', 5, 60), deferAt('y2', 6, 90)], NOW);
+  assert.equal(moved?.fingerprint, 'R2_defer_default:180m');
+  assert.notEqual(moved?.fingerprint, deferDefaultFingerprint(60));
+});
+
+test('the same defers give the same answer whatever order they arrive in', () => {
+  const events = sixDefersFourAtOneHour();
+  const forward = suggestDeferDefault(events, NOW);
+  const backward = suggestDeferDefault([...events].reverse(), NOW);
+  assert.deepEqual(backward, forward);
+});
+
+test('the R2 fingerprint round-trips and refuses anything it did not write', () => {
+  assert.equal(deferDefaultFingerprint(60), 'R2_defer_default:60m');
+  assert.equal(parseDeferDefaultFingerprint('R2_defer_default:60m'), 60);
+  assert.equal(parseDeferDefaultFingerprint('R2_defer_default:90m'), 90);
+  for (const bad of [
+    '', 'R2_defer_default:60', 'R2_defer_default:60M', 'R2_defer_default:0m', 'R2_defer_default:-60m',
+    'R2_defer_default:45m', 'R2_defer_default:06m', 'R1_focus_window:09:00-12:00', 'R2_defer_default:6٠m',
+    null, 42, 60,
+  ]) {
+    assert.equal(parseDeferDefaultFingerprint(bad), null, `accepted ${String(bad)}`);
+  }
+});
+
 // ── Boundaries ───────────────────────────────────────────────────
 
 function sourcesUnder(directory: string): string[] {
@@ -197,17 +348,63 @@ test('the rules read no ambient clock and no random source', () => {
 
 test('the kept sentence passes the same §13, shame and coercion lexicons as the plan, in every language', async () => {
   const { EXPLANATION_LEXICONS } = await import('../../lib/services/dailyPlan/explanationValidator.ts');
-  const { KEPT_SUGGESTION_CONTENT, KEPT_SUGGESTION_LANGUAGES, keptFocusWindowContent } = await import('../../lib/memoryGrowth/templates.ts');
+  const {
+    KEPT_DEFER_CONTENT,
+    KEPT_SUGGESTION_CONTENT,
+    KEPT_SUGGESTION_LANGUAGES,
+    keptDeferDefaultContent,
+    keptFocusWindowContent,
+  } = await import('../../lib/memoryGrowth/templates.ts');
   assert.deepEqual([...KEPT_SUGGESTION_LANGUAGES].sort(), ['ar', 'en', 'he']);
   for (const language of KEPT_SUGGESTION_LANGUAGES) {
-    const sentence = keptFocusWindowContent({ start: '09:00', end: '12:00' }, language);
-    assert.ok(sentence.includes('09:00') && sentence.includes('12:00'), `${language}: the window is not in the sentence`);
-    assert.doesNotMatch(sentence, /\{|\}/, `${language}: a placeholder survived`);
-    const lexicon = EXPLANATION_LEXICONS[language];
-    for (const [name, patterns] of Object.entries(lexicon)) {
-      for (const pattern of patterns as readonly RegExp[]) {
-        assert.doesNotMatch(sentence, pattern, `${language}: ${name} lexicon matched ${KEPT_SUGGESTION_CONTENT[language]}`);
+    const sentences = [
+      keptFocusWindowContent({ start: '09:00', end: '12:00' }, language),
+      // The buckets a rule can produce, at every age the wording changes.
+      ...[30, 60, 90, 120, 150, 180, 210, 1440].map((minutes) => keptDeferDefaultContent(minutes, language)),
+    ];
+    for (const sentence of sentences) {
+      assert.doesNotMatch(sentence, /\{|\}/, `${language}: a placeholder survived in ${sentence}`);
+      const lexicon = EXPLANATION_LEXICONS[language];
+      for (const [name, patterns] of Object.entries(lexicon)) {
+        for (const pattern of patterns as readonly RegExp[]) {
+          assert.doesNotMatch(sentence, pattern, `${language}: ${name} lexicon matched ${sentence}`);
+        }
       }
     }
+    assert.ok(
+      keptFocusWindowContent({ start: '09:00', end: '12:00' }, language).includes('09:00'),
+      `${language}: the window is not in the sentence`,
+    );
+    assert.ok(
+      keptDeferDefaultContent(60, language).trim() !== KEPT_DEFER_CONTENT[language],
+      `${language}: the duration is not in the sentence`,
+    );
+    assert.notEqual(KEPT_DEFER_CONTENT[language], KEPT_SUGGESTION_CONTENT[language]);
   }
+});
+
+test('a duration reads as a person would say it, in every language', async () => {
+  const { deferDurationText } = await import('../../lib/memoryGrowth/templates.ts');
+  assert.equal(deferDurationText(30, 'en'), '30 minutes');
+  assert.equal(deferDurationText(60, 'en'), '1 hour');
+  assert.equal(deferDurationText(90, 'en'), '1.5 hours');
+  assert.equal(deferDurationText(120, 'en'), '2 hours');
+  assert.equal(deferDurationText(150, 'en'), '2.5 hours');
+  assert.equal(deferDurationText(180, 'en'), '3 hours');
+  assert.equal(deferDurationText(210, 'en'), '3.5 hours');
+  assert.equal(deferDurationText(60, 'ar'), 'ساعة');
+  assert.equal(deferDurationText(90, 'ar'), 'ساعة ونص');
+  assert.equal(deferDurationText(120, 'ar'), 'ساعتين');
+  assert.equal(deferDurationText(150, 'ar'), 'ساعتين ونص');
+  assert.equal(deferDurationText(180, 'ar'), '3 ساعات');
+  assert.equal(deferDurationText(30, 'ar'), 'نص ساعة');
+  assert.equal(deferDurationText(60, 'he'), 'שעה');
+  assert.equal(deferDurationText(90, 'he'), 'שעה וחצי');
+  assert.equal(deferDurationText(120, 'he'), 'שעתיים');
+  assert.equal(deferDurationText(180, 'he'), '3 שעות');
+  assert.equal(deferDurationText(30, 'he'), 'חצי שעה');
+  // A duration no bucket ever produced falls back to bare minutes.
+  assert.equal(deferDurationText(45, 'en'), '45 minutes');
+  assert.equal(deferDurationText(45, 'ar'), '45 دقيقة');
+  assert.equal(deferDurationText(45, 'he'), '45 דקות');
 });

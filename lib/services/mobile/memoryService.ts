@@ -83,7 +83,13 @@ import {
 } from '../behaviorFeedbackService';
 import { getStorage, requireUserId, type StorageAdapter } from '../../storage';
 import { recordDismissal } from '../../memoryGrowth/dismissals';
-import { R1_FOCUS_WINDOW, parseFocusWindowFingerprint, type LocalWindow } from '../../memoryGrowth/rules';
+import {
+  R1_FOCUS_WINDOW,
+  R2_DEFER_DEFAULT,
+  parseDeferDefaultFingerprint,
+  parseFocusWindowFingerprint,
+  type LocalWindow,
+} from '../../memoryGrowth/rules';
 
 /** The kinds a person may file something under by hand. */
 export const MANUAL_MEMORY_KINDS: readonly RuntimeMemoryKind[] = ['fact', 'preference', 'goal'];
@@ -233,26 +239,27 @@ export interface MemoryEvidenceDto {
   observationCount: number;
   /**
    * The pattern a rule read off the user's behaviour, when this record is one
-   * they kept unedited (UC-3.16, #202). Null for everything else — including a
-   * kept suggestion the user has since rewritten, because their sentence is no
-   * longer the rule's window.
+   * they kept unedited (UC-3.16, #202; R2 in #532). Null for everything else —
+   * including a kept suggestion the user has since rewritten, because their
+   * sentence is no longer the rule's claim.
    *
    * Sent as a structure rather than left in `provenance.originRef`, so the
-   * phone can say "between 09:00 and 12:00" and that the planner uses it
-   * without parsing a server-side key format.
+   * phone can say "between 09:00 and 12:00" and the planner can read a kept
+   * window without parsing a server-side key format.
    */
   pattern: MemoryPatternDto | null;
 }
 
-export interface MemoryPatternDto {
-  ruleId: typeof R1_FOCUS_WINDOW;
-  window: LocalWindow;
-}
+export type MemoryPatternDto =
+  | { ruleId: typeof R1_FOCUS_WINDOW; window: LocalWindow }
+  | { ruleId: typeof R2_DEFER_DEFAULT; deferMinutes: number };
 
 function patternOf(record: RuntimeMemoryRecord): MemoryPatternDto | null {
   if (record.source !== 'deterministic_rule' || record.provenance?.origin !== 'behaviour_rule') return null;
   const window = parseFocusWindowFingerprint(record.provenance.originRef);
-  return window ? { ruleId: R1_FOCUS_WINDOW, window } : null;
+  if (window) return { ruleId: R1_FOCUS_WINDOW, window };
+  const deferMinutes = parseDeferDefaultFingerprint(record.provenance.originRef);
+  return deferMinutes ? { ruleId: R2_DEFER_DEFAULT, deferMinutes } : null;
 }
 
 /** What the phone receives. Deliberately not the stored record. */

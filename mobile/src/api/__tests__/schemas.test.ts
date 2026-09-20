@@ -126,6 +126,8 @@ const CASES: Array<[string, z.ZodType]> = [
   ['memory.suggestionKept', memorySuggestionKeptSchema],
   ['memory.suggestionDismissed', memorySuggestionDismissedSchema],
   ['memory.suggestionStale', errorBodySchema],
+  ['memory.withDeferSuggestion', memoryListSchema],
+  ['memory.deferSuggestionKept', memorySuggestionKeptSchema],
   ['nextStep.recommendation', nextStepResponseSchema],
   ['nextStep.decision', nextStepDecisionResponseSchema],
   ['trust.state', trustResponseSchema],

@@ -19,6 +19,7 @@ import {
   ORIGIN_STRING,
   SOURCE_LABEL_STRING,
   confidenceBand,
+  durationText,
   evidenceLines,
   groupOf,
   keptIndefinitely,
@@ -176,5 +177,78 @@ describe('the "Why?" lines', () => {
   it('omits the origin line for a record that has no provenance', () => {
     const lines = evidenceLines(item({ evidence: { ...item().evidence, origin: null } }), copy);
     expect(lines.some(line => line.key === 'origin')).toBe(false);
+  });
+});
+
+describe('a "Later" duration in words (UC-3.14, #532)', () => {
+  // The buckets R2 can produce, at every length the wording changes. Pinned
+  // rather than derived: the dual forms are the whole reason this is not a
+  // single `{count} hours` template.
+  it.each([
+    [30, en.memoryDurationHalfHour, ar.memoryDurationHalfHour, he.memoryDurationHalfHour],
+    [60, en.memoryDurationHour, ar.memoryDurationHour, he.memoryDurationHour],
+    [90, en.memoryDurationHourAndHalf, ar.memoryDurationHourAndHalf, he.memoryDurationHourAndHalf],
+    [120, en.memoryDurationTwoHours, ar.memoryDurationTwoHours, he.memoryDurationTwoHours],
+    [150, en.memoryDurationTwoHoursAndHalf, ar.memoryDurationTwoHoursAndHalf, he.memoryDurationTwoHoursAndHalf],
+  ])('words %s minutes from its own string in every language', (minutes, english, arabic, hebrew) => {
+    expect(durationText(minutes as number, LOCALES.en!)).toBe(english);
+    expect(durationText(minutes as number, LOCALES.ar!)).toBe(arabic);
+    expect(durationText(minutes as number, LOCALES.he!)).toBe(hebrew);
+  });
+
+  it('counts past two hours, with and without the half', () => {
+    expect(durationText(180, LOCALES.en!)).toBe('3 hours');
+    expect(durationText(210, LOCALES.en!)).toBe('3.5 hours');
+    expect(durationText(1440, LOCALES.en!)).toBe('24 hours');
+    for (const bundle of Object.values(LOCALES)) {
+      for (const minutes of [180, 210, 1440]) {
+        expect(durationText(minutes, bundle)).toContain(String(Math.floor(minutes / 60)));
+      }
+    }
+  });
+
+  it('falls back to bare minutes for a length no bucket ever produced', () => {
+    expect(durationText(45, LOCALES.en!)).toBe('45 minutes');
+    expect(durationText(45, LOCALES.ar!)).toContain('45');
+    expect(durationText(45, LOCALES.he!)).toContain('45');
+  });
+
+  it('never leaves a placeholder or an empty string, in any language', () => {
+    for (const bundle of Object.values(LOCALES)) {
+      for (const minutes of [30, 45, 60, 90, 120, 150, 180, 210, 1440]) {
+        const text = durationText(minutes, bundle);
+        expect(text.trim()).not.toBe('');
+        expect(text).not.toMatch(/\{|\}/);
+      }
+    }
+  });
+});
+
+describe('a kept R2 pattern (#532)', () => {
+  const deferred = item({
+    source: 'deterministic_rule',
+    sourceLabel: 'noticed_from_confirmed',
+    provenance: { origin: 'behaviour_rule', originRef: 'R2_defer_default:60m', confirmedByUserAt: RECORDED },
+    evidence: {
+      origin: 'behaviour_rule',
+      observedAt: RECORDED,
+      recordedAt: RECORDED,
+      confirmedAt: RECORDED,
+      edited: false,
+      observationCount: 4,
+      pattern: { ruleId: 'R2_defer_default', deferMinutes: 60 },
+    },
+  });
+
+  it('reads the duration into the pattern line, not a window', () => {
+    const lines = evidenceLines(deferred, copy);
+    const pattern = lines.find(line => line.key === 'pattern')?.text ?? '';
+    expect(pattern).toContain(en.memoryDurationHour);
+    expect(pattern).not.toMatch(/\{|\}/);
+  });
+
+  it('does not claim the plan uses it, because nothing does', () => {
+    const lines = evidenceLines(deferred, copy);
+    expect(lines.find(line => line.key === 'plan')?.text).toBe(en.memoryWhyDeferNoPlanUse);
   });
 });

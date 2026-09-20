@@ -51,13 +51,23 @@ import { isMemoryGrowthRuleId, readDismissedFingerprint, recordDismissal } from 
 import {
   R1_FOCUS_WINDOW,
   R1_LOOKBACK_DAYS,
+  R2_DEFER_DEFAULT,
+  R2_LOOKBACK_DAYS,
   parseFocusWindowFingerprint,
+  suggestDeferDefault,
   suggestFocusWindow,
   type CompletionObservation,
+  type DeferDefaultSuggestion,
+  type DeferObservation,
   type FocusWindowSuggestion,
   type LocalWindow,
 } from './rules';
-import { KEPT_SUGGESTION_LANGUAGES, keptFocusWindowContent, type KeptSuggestionLanguage } from './templates';
+import {
+  KEPT_SUGGESTION_LANGUAGES,
+  keptDeferDefaultContent,
+  keptFocusWindowContent,
+  type KeptSuggestionLanguage,
+} from './templates';
 
 /**
  * How many events one read may scan for R1.
@@ -70,14 +80,31 @@ export const GROWTH_EVENT_READ_LIMIT = 2_000;
 
 const MS_PER_DAY = 86_400_000;
 
-/** What the phone receives. The evidence ids stay on the server. */
-export interface MemorySuggestionDto {
-  ruleId: typeof R1_FOCUS_WINDOW;
-  fingerprint: string;
-  window: LocalWindow;
-  confidence: number;
-  evidence: { matchingCount: number; totalCount: number; lookbackDays: number };
+/** A suggestion from any growth rule. The two kinds share the contract and differ in what they claim. */
+export type RuleSuggestion = FocusWindowSuggestion | DeferDefaultSuggestion;
+
+interface SuggestionEvidenceDto {
+  matchingCount: number;
+  totalCount: number;
+  lookbackDays: number;
 }
+
+/** What the phone receives. The evidence ids stay on the server. */
+export type MemorySuggestionDto =
+  | {
+    ruleId: typeof R1_FOCUS_WINDOW;
+    fingerprint: string;
+    window: LocalWindow;
+    confidence: number;
+    evidence: SuggestionEvidenceDto;
+  }
+  | {
+    ruleId: typeof R2_DEFER_DEFAULT;
+    fingerprint: string;
+    deferMinutes: number;
+    confidence: number;
+    evidence: SuggestionEvidenceDto;
+  };
 
 export interface MemoryGrowthOptions {
   storage?: StorageAdapter;
@@ -128,17 +155,27 @@ async function consentGranted(uid: string, options: MemoryGrowthOptions): Promis
   });
 }
 
-function toDto(suggestion: FocusWindowSuggestion): MemorySuggestionDto {
+function toDto(suggestion: RuleSuggestion): MemorySuggestionDto {
+  const evidence = {
+    matchingCount: suggestion.matchingCount,
+    totalCount: suggestion.totalCount,
+    lookbackDays: suggestion.lookbackDays,
+  };
+  if (suggestion.ruleId === R2_DEFER_DEFAULT) {
+    return {
+      ruleId: suggestion.ruleId,
+      fingerprint: suggestion.fingerprint,
+      deferMinutes: suggestion.deferMinutes,
+      confidence: suggestion.confidence,
+      evidence,
+    };
+  }
   return {
     ruleId: suggestion.ruleId,
     fingerprint: suggestion.fingerprint,
     window: { start: suggestion.window.start, end: suggestion.window.end },
     confidence: suggestion.confidence,
-    evidence: {
-      matchingCount: suggestion.matchingCount,
-      totalCount: suggestion.totalCount,
-      lookbackDays: suggestion.lookbackDays,
-    },
+    evidence,
   };
 }
 
@@ -147,22 +184,34 @@ async function computeRuleSuggestions(
   uid: string,
   now: string,
   storage: StorageAdapter,
-): Promise<FocusWindowSuggestion[]> {
+): Promise<RuleSuggestion[]> {
   const user = await storage.get<{ timezone?: unknown }>(userDoc(uid));
   const timezone = normalizeTimezone(user?.timezone);
-  const from = new Date(Date.parse(now) - R1_LOOKBACK_DAYS * MS_PER_DAY).toISOString();
+  const from = new Date(Date.parse(now) - Math.max(R1_LOOKBACK_DAYS, R2_LOOKBACK_DAYS) * MS_PER_DAY).toISOString();
   const events = await listEventsInRange(uid, from, now, GROWTH_EVENT_READ_LIMIT, storage);
   if (events.length >= GROWTH_EVENT_READ_LIMIT) return [];
 
   const completions: CompletionObservation[] = [];
+  const defers: DeferObservation[] = [];
   events.forEach((event) => {
-    if (event.type !== 'commitment_completed') return;
-    if (typeof event.aggregateId !== 'string' || event.aggregateId === '') return;
-    completions.push({ id: event.id, at: event.at, commitmentId: event.aggregateId });
+    if (event.type === 'commitment_completed') {
+      if (typeof event.aggregateId !== 'string' || event.aggregateId === '') return;
+      completions.push({ id: event.id, at: event.at, commitmentId: event.aggregateId });
+      return;
+    }
+    if (event.type === 'commitment_postponed') {
+      const postponedUntil = event.payload?.postponedUntil;
+      if (typeof postponedUntil !== 'string') return;
+      defers.push({ id: event.id, at: event.at, postponedUntil });
+    }
   });
 
+  const suggestions: RuleSuggestion[] = [];
   const r1 = suggestFocusWindow(completions, timezone, now);
-  return r1 ? [r1] : [];
+  if (r1) suggestions.push(r1);
+  const r2 = suggestDeferDefault(defers, now);
+  if (r2) suggestions.push(r2);
+  return suggestions;
 }
 
 /** Suggestions still worth offering: consented, not dismissed, not already held. */
@@ -170,7 +219,7 @@ async function openSuggestions(
   uid: string,
   now: string,
   options: MemoryGrowthOptions,
-): Promise<FocusWindowSuggestion[]> {
+): Promise<RuleSuggestion[]> {
   const storage = storageOf(options);
   const candidates = await computeRuleSuggestions(uid, now, storage);
   if (candidates.length === 0) return [];
@@ -182,7 +231,7 @@ async function openSuggestions(
     }
   });
 
-  const open: FocusWindowSuggestion[] = [];
+  const open: RuleSuggestion[] = [];
   for (let index = 0; index < candidates.length; index += 1) {
     const candidate = candidates[index]!;
     if (held.has(candidate.fingerprint)) continue;
@@ -253,7 +302,9 @@ export async function decideMemorySuggestion(
   const record = {
     scopeId: uid,
     kind: 'preference' as const,
-    content: keptFocusWindowContent(current.window, language!),
+    content: current.ruleId === R2_DEFER_DEFAULT
+      ? keptDeferDefaultContent(current.deferMinutes, language!)
+      : keptFocusWindowContent(current.window, language!),
     language: language! as MemoryLanguage,
     source: 'deterministic_rule' as const,
     confidence: current.confidence,
@@ -263,9 +314,9 @@ export async function decideMemorySuggestion(
     provenance: { origin: 'behaviour_rule' as const, originRef: current.fingerprint, confirmedByUserAt: now },
   };
 
-  // One kept window per rule. A new window the user keeps replaces the one they
-  // kept before, as a supersession, so the planner never has two to choose from
-  // and the earlier claim stays in the chain a delete removes.
+  // One kept suggestion per rule. A new one the user keeps replaces the one
+  // they kept before, as a supersession, so nothing ever has two to choose
+  // from and the earlier claim stays in the chain a delete removes.
   const previous = (await activeRuleRecords(store, uid, now))
     .filter((existing) => existing.provenance?.originRef?.split(':')[0] === ruleId);
   const saved = previous.length > 0

@@ -24,7 +24,7 @@ import {
 import { DELETE as memoryDelete, PATCH as memoryPatch } from '../../src/app/api/mobile/memory/[id]/route.ts';
 import { POST as suggestionPost } from '../../src/app/api/mobile/memory/suggestions/[ruleId]/route.ts';
 import { EVENTS, MEMORY, MEMORY_DISMISSALS, userCol, userDoc, userSubDoc } from '../../lib/storage/paths.ts';
-import { KEPT_SUGGESTION_CONTENT } from '../../lib/memoryGrowth/templates.ts';
+import { KEPT_DEFER_CONTENT, KEPT_SUGGESTION_CONTENT } from '../../lib/memoryGrowth/templates.ts';
 import { GROWTH_EVENT_READ_LIMIT } from '../../lib/memoryGrowth/suggestionService.ts';
 import { deleteAllMemory } from '../../lib/services/mobile/memoryService.ts';
 import { recordBehaviorFeedback } from '../../lib/services/behaviorFeedbackService.ts';
@@ -169,17 +169,52 @@ async function suggestionsFor(uid: string): Promise<Array<Record<string, any>>> 
 }
 
 async function keep(uid: string, fingerprint: string, language = 'en'): Promise<Response> {
-  return suggestionPost(
-    request(uid, '/api/mobile/memory/suggestions/R1_focus_window', { body: { decision: 'keep', fingerprint, language } }),
-    ruleParams('R1_focus_window'),
-  );
+  return keepRule(uid, 'R1_focus_window', fingerprint, language);
 }
 
 async function dismiss(uid: string, fingerprint: string): Promise<Response> {
+  return dismissRule(uid, 'R1_focus_window', fingerprint);
+}
+
+async function keepRule(uid: string, ruleId: string, fingerprint: string, language = 'en'): Promise<Response> {
   return suggestionPost(
-    request(uid, '/api/mobile/memory/suggestions/R1_focus_window', { body: { decision: 'dismiss', fingerprint } }),
-    ruleParams('R1_focus_window'),
+    request(uid, `/api/mobile/memory/suggestions/${ruleId}`, { body: { decision: 'keep', fingerprint, language } }),
+    ruleParams(ruleId),
   );
+}
+
+async function dismissRule(uid: string, ruleId: string, fingerprint: string): Promise<Response> {
+  return suggestionPost(
+    request(uid, `/api/mobile/memory/suggestions/${ruleId}`, { body: { decision: 'dismiss', fingerprint } }),
+    ruleParams(ruleId),
+  );
+}
+
+/**
+ * Six "Later" events: four of them by `minutes` (default one hour), two by
+ * three hours — the fixture R2 fires on (UC-3.14, #532). Unlike the morning
+ * habit's clock times, a duration needs no zone: both ends are instants.
+ */
+async function seedDeferHabit(uid: string, minutes = 60): Promise<void> {
+  await getStorage().set(userDoc(uid), { uid, timezone: ZONE });
+  const dominantDays = [1, 2, 4, 6];
+  const otherDays = [3, 5];
+  const seed = async (id: string, daysAgo: number, durationMinutes: number) => {
+    const at = localInstant(daysAgo, 14, 0);
+    await getStorage().set(userSubDoc(uid, EVENTS, id), {
+      id,
+      type: 'commitment_postponed',
+      at,
+      aggregateId: `c_${id}`,
+      payload: { postponedUntil: new Date(Date.parse(at) + durationMinutes * 60_000).toISOString() },
+    });
+  };
+  for (let index = 0; index < dominantDays.length; index += 1) {
+    await seed(`ev_d${index}`, dominantDays[index]!, minutes);
+  }
+  for (let index = 0; index < otherDays.length; index += 1) {
+    await seed(`ev_o${index}`, otherDays[index]!, 180);
+  }
 }
 
 // ── Suggested on read, never saved by reading ────────────────────
@@ -363,8 +398,8 @@ test('a malformed decision is refused, an unknown rule is a 404, and nobody unau
     const badLanguage = await keep(OWNER, 'R1_focus_window:09:00-12:00', 'fr');
     assert.equal(badLanguage.status, 400);
     const unknownRule = await suggestionPost(
-      request(OWNER, '/api/mobile/memory/suggestions/R2_defer_default', { body: { decision: 'dismiss', fingerprint: 'x' } }),
-      ruleParams('R2_defer_default'),
+      request(OWNER, '/api/mobile/memory/suggestions/R3_plan_open_time', { body: { decision: 'dismiss', fingerprint: 'x' } }),
+      ruleParams('R3_plan_open_time'),
     );
     assert.equal(unknownRule.status, 404);
     const anonymous = await suggestionPost(
@@ -414,6 +449,127 @@ test('one account’s dismissal does not silence another’s suggestion', async 
     await dismiss(STRANGER, 'R1_focus_window:09:00-12:00');
     assert.equal((await suggestionsFor(OWNER)).length, 1);
     assert.deepEqual(await suggestionsFor(STRANGER), []);
+  } finally {
+    end();
+  }
+});
+
+// ── R2: the usual defer duration, through the same routes (UC-3.14, #532) ──
+
+test('six defers with four of one hour yield the R2 suggestion, and reading it writes nothing', async () => {
+  const { storage, writes } = countingWrites(createMemoryStorage());
+  begin(storage);
+  try {
+    await seedDeferHabit(OWNER);
+    await warmUpAuth(OWNER);
+    await enableConsent(OWNER);
+    const before = writes();
+    const suggestions = await suggestionsFor(OWNER);
+    assert.equal(suggestions.length, 1, 'no R2 suggestion was computed, so a zero write count would prove nothing');
+    assert.deepEqual(suggestions[0], {
+      ruleId: 'R2_defer_default',
+      fingerprint: 'R2_defer_default:60m',
+      deferMinutes: 60,
+      confidence: 0.67,
+      evidence: { matchingCount: 4, totalCount: 6, lookbackDays: 28 },
+    });
+    await suggestionsFor(OWNER);
+    // A fingerprint the server would not suggest is refused, still without a write.
+    const stale = await keepRule(OWNER, 'R2_defer_default', 'R2_defer_default:180m');
+    assert.equal(stale.status, 409);
+    assert.equal((await json(stale)).reason, 'memory_suggestion_stale');
+    assert.equal(writes() - before, 0);
+    assert.equal((await createStorageRuntimeMemoryStore().listAll(OWNER)).length, 0);
+  } finally {
+    end();
+  }
+});
+
+test('the two rules can both have something to say on one read', async () => {
+  begin();
+  try {
+    await seedMorningHabit(OWNER);
+    await seedDeferHabit(OWNER);
+    await enableConsent(OWNER);
+    const suggestions = await suggestionsFor(OWNER);
+    assert.deepEqual(suggestions.map((suggestion) => suggestion.ruleId), ['R1_focus_window', 'R2_defer_default']);
+  } finally {
+    end();
+  }
+});
+
+test('Keep stores the R2 sentence from the rule, and it lists with the defer pattern instead of being suggested', async () => {
+  begin();
+  try {
+    await seedDeferHabit(OWNER);
+    await enableConsent(OWNER);
+    const response = await keepRule(OWNER, 'R2_defer_default', 'R2_defer_default:60m', 'ar');
+    assert.equal(response.status, 201);
+    const kept = (await json(response)).memory;
+    assert.equal(kept.source, 'deterministic_rule');
+    assert.equal(kept.sourceLabel, 'noticed_from_confirmed');
+    assert.equal(kept.language, 'ar');
+    assert.equal(kept.content, KEPT_DEFER_CONTENT.ar.replace('{duration}', 'ساعة'));
+    assert.equal(kept.confidence, 0.67);
+    assert.equal(kept.evidence.origin, 'behaviour_rule');
+    assert.equal(kept.evidence.observationCount, 4);
+    assert.deepEqual(kept.evidence.pattern, { ruleId: 'R2_defer_default', deferMinutes: 60 });
+
+    // From the store, not the response.
+    const stored = await createStorageRuntimeMemoryStore().get(kept.id);
+    assert.ok(stored);
+    assert.equal(stored.scopeId, OWNER);
+    assert.equal(stored.exportPolicy, 'personal_never_export');
+    assert.equal(stored.provenance?.originRef, 'R2_defer_default:60m');
+    assert.equal(stored.evidenceIds.length, 4);
+    assert.ok(stored.evidenceIds.every((id) => id.startsWith('ev_d')), 'a three-hour defer was filed as evidence');
+
+    const body = await json(await memoryGet(request(OWNER, '/api/mobile/memory')));
+    assert.deepEqual(body.items.map((item: { id: string }) => item.id), [kept.id]);
+    assert.deepEqual(body.suggestions, []);
+  } finally {
+    end();
+  }
+});
+
+test('dismissing R2 stops the same duration reappearing, and a changed duration still can', async () => {
+  begin();
+  try {
+    await seedDeferHabit(OWNER);
+    await enableConsent(OWNER);
+    const response = await dismissRule(OWNER, 'R2_defer_default', 'R2_defer_default:60m');
+    assert.equal(response.status, 200);
+    assert.deepEqual(await suggestionsFor(OWNER), []);
+    assert.deepEqual(await suggestionsFor(OWNER), [], 'a dismissal that wore off on the second read');
+    assert.equal((await createStorageRuntimeMemoryStore().listAll(OWNER)).length, 0, 'a dismissal wrote a memory');
+
+    // The habit moves to three hours: a different claim, so it may be suggested.
+    await getStorage().deleteTree(userDoc(OWNER));
+    await seedDeferHabit(OWNER, 180);
+    await enableConsent(OWNER);
+    await dismissRule(OWNER, 'R2_defer_default', 'R2_defer_default:60m');
+    const moved = await suggestionsFor(OWNER);
+    assert.equal(moved.length, 1);
+    assert.equal(moved[0]!.fingerprint, 'R2_defer_default:180m');
+    assert.equal(moved[0]!.deferMinutes, 180);
+    assert.equal(moved[0]!.confidence, 1);
+  } finally {
+    end();
+  }
+});
+
+test('with personalization consent off there is no R2 suggestion, and its Keep is refused', async () => {
+  begin();
+  try {
+    await seedDeferHabit(OWNER);
+    assert.deepEqual(await suggestionsFor(OWNER), []);
+    const refused = await keepRule(OWNER, 'R2_defer_default', 'R2_defer_default:60m');
+    assert.equal(refused.status, 403);
+    assert.equal((await json(refused)).reason, 'personalization_consent_required');
+    const refusedDismiss = await dismissRule(OWNER, 'R2_defer_default', 'R2_defer_default:60m');
+    assert.equal(refusedDismiss.status, 403);
+    assert.equal((await getStorage().list(userCol(OWNER, MEMORY_DISMISSALS))).length, 0);
+    assert.equal((await createStorageRuntimeMemoryStore().listAll(OWNER)).length, 0);
   } finally {
     end();
   }

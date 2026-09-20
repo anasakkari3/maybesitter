@@ -1,0 +1,33 @@
+{
+  "success": true,
+  "decision": "keep",
+  "memory": {
+    "id": "mem_00000000-0000-4000-8000-000000000001",
+    "kind": "preference",
+    "content": "When you push something later, it’s usually by 1 hour.",
+    "language": "en",
+    "source": "deterministic_rule",
+    "sourceLabel": "noticed_from_confirmed",
+    "confidence": 0.67,
+    "createdAt": "2026-08-09T09:00:00.000Z",
+    "observedAt": "2026-08-09T09:00:00.000Z",
+    "staleAfter": "2026-08-09T09:00:00.000Z",
+    "provenance": {
+      "origin": "behaviour_rule",
+      "originRef": "R2_defer_default:60m",
+      "confirmedByUserAt": "2026-08-09T09:00:00.000Z"
+    },
+    "evidence": {
+      "origin": "behaviour_rule",
+      "observedAt": "2026-08-09T09:00:00.000Z",
+      "recordedAt": "2026-08-09T09:00:00.000Z",
+      "confirmedAt": "2026-08-09T09:00:00.000Z",
+      "edited": false,
+      "observationCount": 4,
+      "pattern": {
+        "ruleId": "R2_defer_default",
+        "deferMinutes": 60
+      }
+    }
+  }
+}

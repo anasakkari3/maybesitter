@@ -28,3 +28,51 @@ export const KEPT_SUGGESTION_CONTENT: Readonly<Record<KeptSuggestionLanguage, st
 export function keptFocusWindowContent(window: LocalWindow, language: KeptSuggestionLanguage): string {
   return KEPT_SUGGESTION_CONTENT[language].replace('{start}', window.start).replace('{end}', window.end);
 }
+
+/**
+ * R2's kept sentence (UC-3.14, #532). `{duration}` is filled by
+ * `deferDurationText`, not by anything the request sends, for the same reason
+ * the whole sentence is fixed here.
+ */
+export const KEPT_DEFER_CONTENT: Readonly<Record<KeptSuggestionLanguage, string>> = Object.freeze({
+  en: 'When you push something later, it’s usually by {duration}.',
+  ar: 'لمّا بتأجّل إشي لبعدين، غالباً بتأجّله {duration}.',
+  he: 'כשאתה דוחה משהו לאחר כך, הדחייה היא בדרך כלל של {duration}.',
+});
+
+export function keptDeferDefaultContent(deferMinutes: number, language: KeptSuggestionLanguage): string {
+  return KEPT_DEFER_CONTENT[language].replace('{duration}', deferDurationText(deferMinutes, language));
+}
+
+/**
+ * A duration as a person says it, in the kept sentence's own language.
+ *
+ * The buckets a rule can produce are half-hour multiples, so the forms below
+ * cover exactly those: under an hour there is only the half hour, and past
+ * two hours the count takes over. Anything else — a duration this version
+ * never bucketed — falls back to bare minutes rather than a sentence nobody
+ * worded.
+ */
+export function deferDurationText(minutes: number, language: KeptSuggestionLanguage): string {
+  if (minutes === 30) {
+    return { en: '30 minutes', ar: 'نص ساعة', he: 'חצי שעה' }[language];
+  }
+  if (minutes < 60 || minutes % 30 !== 0) {
+    return { en: `${minutes} minutes`, ar: `${minutes} دقيقة`, he: `${minutes} דקות` }[language];
+  }
+  const whole = Math.floor(minutes / 60);
+  const half = minutes % 60 === 30;
+  if (language === 'en') {
+    if (whole === 1) return half ? '1.5 hours' : '1 hour';
+    if (whole === 2) return half ? '2.5 hours' : '2 hours';
+    return `${whole}${half ? '.5' : ''} hours`;
+  }
+  if (language === 'ar') {
+    if (whole === 1) return half ? 'ساعة ونص' : 'ساعة';
+    if (whole === 2) return half ? 'ساعتين ونص' : 'ساعتين';
+    return `${whole} ساعات${half ? ' ونص' : ''}`;
+  }
+  if (whole === 1) return half ? 'שעה וחצי' : 'שעה';
+  if (whole === 2) return half ? 'שעתיים וחצי' : 'שעתיים';
+  return `${whole} שעות${half ? ' וחצי' : ''}`;
+}

@@ -99,6 +99,35 @@ const SUGGESTION: MemorySuggestion = {
   evidence: { matchingCount: 7, totalCount: 10, lookbackDays: 28 },
 };
 
+/** R2's claim (UC-3.14, #532): minutes on the wire, words on the phone. */
+const DEFER_SUGGESTION: MemorySuggestion = {
+  ruleId: 'R2_defer_default',
+  fingerprint: 'R2_defer_default:60m',
+  deferMinutes: 60,
+  confidence: 0.67,
+  evidence: { matchingCount: 4, totalCount: 6, lookbackDays: 28 },
+};
+
+const DEFER_NOTICED = item({
+  id: 'mem_defer',
+  kind: 'preference',
+  content: 'When you push something later, it’s usually by 1 hour.',
+  source: 'deterministic_rule',
+  sourceLabel: 'noticed_from_confirmed',
+  confidence: 0.67,
+  staleAfter: NINETY_DAYS,
+  provenance: { origin: 'behaviour_rule', originRef: 'R2_defer_default:60m', confirmedByUserAt: RECORDED },
+  evidence: {
+    origin: 'behaviour_rule',
+    observedAt: RECORDED,
+    recordedAt: RECORDED,
+    confirmedAt: RECORDED,
+    edited: false,
+    observationCount: 4,
+    pattern: { ruleId: 'R2_defer_default', deferMinutes: 60 },
+  },
+});
+
 let client: QueryClient;
 let repository: ReturnType<typeof createFakeAuthRepository>;
 
@@ -393,6 +422,45 @@ describe('suggestions (#202)', () => {
     const pattern = screen.getByTestId('memory-evidence-mem_noticed-pattern').props.children as string;
     expect(pattern).toContain('09:00');
     expect(screen.getByTestId('memory-evidence-mem_noticed-origin').props.children).toContain(en.memoryOriginRule);
+  });
+
+  it('words R2 as a duration, sends its own ruleId back, and still shows no share', async () => {
+    listing([], [DEFER_SUGGESTION]);
+    await show(<MemoryScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('memory-suggestion-R2_defer_default:60m')).not.toBeNull());
+
+    // "1 hour", not "60": the server sends minutes and the phone owns the words.
+    const sentence = screen.getByTestId('memory-suggestion-R2_defer_default:60m').props.children as string;
+    expect(sentence).toContain(en.memoryDurationHour);
+    expect(sentence).not.toContain('60');
+    expect(sentence).not.toMatch(/\{|\}/);
+    const evidence = screen.getByTestId('memory-suggestion-evidence-R2_defer_default:60m').props.children as string;
+    expect(evidence).toContain('6');
+    expect(evidence).toContain('4');
+    expect(`${sentence} ${evidence}`).not.toMatch(/0\.67|67\s*%/);
+
+    await act(async () => { fireEvent.press(screen.getByTestId('memory-suggestion-keep-R2_defer_default:60m')); });
+    await waitFor(() => expect(profileEndpoints.keepMemorySuggestion).toHaveBeenCalled());
+    const [sent] = (profileEndpoints.keepMemorySuggestion as jest.Mock).mock.calls[0] as [MemorySuggestion, string];
+    // The route is keyed on the ruleId, so R2 keeping under R1's id would be a 409.
+    expect(sent.ruleId).toBe('R2_defer_default');
+    expect(sent.fingerprint).toBe('R2_defer_default:60m');
+  });
+
+  it('a kept R2 pattern says what it was read from, and that the plan does not use it', async () => {
+    listing([DEFER_NOTICED]);
+    await show(<MemoryScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('memory-why-mem_defer')).not.toBeNull());
+    await act(async () => { fireEvent.press(screen.getByTestId('memory-why-mem_defer')); });
+
+    const pattern = screen.getByTestId('memory-evidence-mem_defer-pattern').props.children as string;
+    expect(pattern).toContain(en.memoryDurationHour);
+    expect(pattern).not.toMatch(/\{|\}/);
+    // R1's window shapes the next plan and says so; nothing reads a kept
+    // defer duration, and the line has to say that rather than borrow R1's.
+    const plan = screen.getByTestId('memory-evidence-mem_defer-plan').props.children as string;
+    expect(plan).toContain(en.memoryWhyDeferNoPlanUse);
+    expect(plan).not.toContain(en.memoryWhyPlanUse);
   });
 
   it('a fact the user typed says nothing about the plan', async () => {
