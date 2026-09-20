@@ -31,6 +31,7 @@ import { getStorage, type StorageAdapter } from '../../storage';
 import { sortableDocId, userCol, userSubDoc } from '../../storage/paths';
 import { PLANS, PLAN_EVENTS } from '../../storage/paths';
 import type { Plan, PlanningConfig, PlanningConstraints } from '../../../src/contracts/v1/planningContracts';
+import type { ScheduleBlock } from '../../../src/contracts/v1/scheduleBlockContracts';
 import type { UserLocale } from '../../storage/userDocument';
 import { randomUUID } from 'node:crypto';
 
@@ -59,6 +60,19 @@ export interface PlanEdits {
 
 export const NO_EDITS: PlanEdits = Object.freeze({ moves: [], removals: [] });
 
+/**
+ * The document one plan generation replaced (#521).
+ *
+ * The ledger already records each generation's digest as it happens; this is
+ * the link that lets a reader walk the chain *backwards* from the document
+ * itself — "which plan is this one a regeneration of" — without scanning
+ * events. Both fields are a number and a hash: no user text.
+ */
+export interface PlanGenerationAncestry {
+  readonly generation: number;
+  readonly inputDigest: string;
+}
+
 export interface StoredDailyPlan {
   readonly date: string;
   readonly timezone: string;
@@ -66,6 +80,17 @@ export interface StoredDailyPlan {
   readonly status: DailyPlanStatus;
   /** The scheduler's output, verbatim. Never rewritten — see the header. */
   readonly plan: Plan;
+  /**
+   * The schedule blocks of this generation (#521): one per occurrence the
+   * planner was asked about, each carrying the stable identity the issue's
+   * contract defines. Rebuilt on regeneration, updated in place on an edit —
+   * in the same transaction as the `edits` record it mirrors, so the document
+   * never shows a move in one and not the other. Carries no titles; the
+   * commitment owns its words (`planDto` joins them at read time).
+   */
+  readonly blocks: readonly ScheduleBlock[];
+  /** Null on the first build of the day; the replaced generation otherwise. */
+  readonly replaces: PlanGenerationAncestry | null;
   /**
    * The request that produced it, kept so that an edit can be re-validated
    * against *the same* constraints rather than against whatever the

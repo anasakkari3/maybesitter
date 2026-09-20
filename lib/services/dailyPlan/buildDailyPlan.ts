@@ -54,6 +54,7 @@ import type {
   Weekday,
   WorkingWindow,
 } from '../../../src/contracts/v1/planningContracts';
+import type { ScheduleBlockSources } from '../../planning/scheduler/blocks';
 import { instantFromResolution, resolveLocalTime, toEpochMs, weekdayAt } from '../../planning/shared/time';
 import { DEFAULT_FIXED_EVENT_MINUTES, fixedEndFor } from '../timeCollision';
 
@@ -398,5 +399,31 @@ export function buildDailyPlanInput(args: DailyPlanInputArgs): DailyPlanInput {
       items,
     },
     config: DAILY_PLAN_CONFIG,
+  };
+}
+
+/**
+ * The occurrence behind every solver entity this adapter builds (#521).
+ *
+ * This is the adapter's half of the block projection, and it is the one place
+ * the claim is allowed to live: `buildDailyPlanInput` mints each `itemId` from
+ * a commitment id and each sourced `FixedEvent` from a pinned commitment, so
+ * the schedule source of both is `{ kind: 'commitment', id }`. Busy blocks are
+ * deliberately absent — a calendar obstacle is nobody's work and gets no block
+ * (see `blocks.ts`, property 3).
+ *
+ * Derived from the constraints rather than returned beside them so the answer
+ * is the same whether the caller built the request here or read it back out of
+ * a stored plan — which is exactly what a replay or an edit does.
+ */
+export function dailyPlanScheduleSources(constraints: PlanningConstraints): ScheduleBlockSources {
+  return {
+    items: new Map(constraints.items.map((item) => [
+      item.itemId,
+      { kind: 'commitment' as const, id: item.itemId },
+    ])),
+    fixedEvents: new Map(constraints.fixedEvents.flatMap((event) => event.sourceCommitmentId === null
+      ? []
+      : [[event.eventId, { kind: 'commitment' as const, id: event.sourceCommitmentId }] as const])),
   };
 }
