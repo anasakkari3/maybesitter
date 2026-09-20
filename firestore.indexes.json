@@ -55,6 +55,20 @@
           "order": "ASCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "watcherEvents",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "watcherId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "firedAt",
+          "order": "DESCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": [
