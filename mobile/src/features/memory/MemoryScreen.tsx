@@ -25,6 +25,7 @@ import {
   MEMORY_GROUP_ORDER,
   SOURCE_LABEL_STRING,
   confidenceBand,
+  durationText,
   evidenceLines,
   fill,
   groupOf,
@@ -303,17 +304,26 @@ function SuggestionsCard({
           style={{ paddingHorizontal: 18, paddingVertical: 14, gap: 8, borderTopWidth: 1, borderTopColor: p.ln }}
         >
           <Txt size={15} lh={1.5} testID={`memory-suggestion-${suggestion.fingerprint}`}>
-            {isolate(fill(strings.memorySuggestionFocusWindow ?? '', {
-              start: suggestion.window.start,
-              end: suggestion.window.end,
-            }))}
+            {isolate(suggestion.ruleId === 'R2_defer_default'
+              ? fill(strings.memorySuggestionDeferDefault ?? '', {
+                duration: durationText(suggestion.deferMinutes, strings),
+              })
+              : fill(strings.memorySuggestionFocusWindow ?? '', {
+                start: suggestion.window.start,
+                end: suggestion.window.end,
+              }))}
           </Txt>
           <Txt size={13} color={p.mu} lh={1.5} testID={`memory-suggestion-evidence-${suggestion.fingerprint}`}>
-            {isolate(fill(strings.memorySuggestionEvidence ?? '', {
-              days: String(suggestion.evidence.lookbackDays),
-              total: String(suggestion.evidence.totalCount),
-              matching: String(suggestion.evidence.matchingCount),
-            }))}
+            {isolate(suggestion.ruleId === 'R2_defer_default'
+              ? fill(strings.memorySuggestionDeferEvidence ?? '', {
+                total: String(suggestion.evidence.totalCount),
+                matching: String(suggestion.evidence.matchingCount),
+              })
+              : fill(strings.memorySuggestionEvidence ?? '', {
+                days: String(suggestion.evidence.lookbackDays),
+                total: String(suggestion.evidence.totalCount),
+                matching: String(suggestion.evidence.matchingCount),
+              }))}
           </Txt>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
             <Action

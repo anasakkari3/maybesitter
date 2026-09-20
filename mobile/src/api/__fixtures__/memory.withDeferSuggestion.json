@@ -1,0 +1,20 @@
+{
+  "items": [],
+  "suggestions": [
+    {
+      "ruleId": "R2_defer_default",
+      "fingerprint": "R2_defer_default:60m",
+      "deferMinutes": 60,
+      "confidence": 0.67,
+      "evidence": {
+        "matchingCount": 4,
+        "totalCount": 6,
+        "lookbackDays": 28
+      }
+    }
+  ],
+  "adaptive": {
+    "classification": null,
+    "effect": null
+  }
+}

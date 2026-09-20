@@ -251,6 +251,33 @@ async function seedFocusHabit(uid: string): Promise<void> {
   });
 }
 
+/**
+ * Six "Later"s, four of them an hour long — the shape R2 reads (UC-3.14,
+ * #532). A defer's length is the gap between two instants, so unlike the focus
+ * habit above this needs no wall clock and no zone.
+ */
+async function seedDeferHabit(uid: string): Promise<void> {
+  const nowMs = Date.now();
+  await getStorage().set(userDoc(uid), { uid, timezone: 'Asia/Jerusalem' });
+  const durations = [60, 60, 180, 60, 180, 60];
+  for (let index = 0; index < durations.length; index += 1) {
+    const at = new Date(nowMs - (index + 1) * 86_400_000);
+    const id = `ev_defer_${index}`;
+    await getStorage().set(userSubDoc(uid, EVENTS, id), {
+      id,
+      type: 'commitment_postponed',
+      at: at.toISOString(),
+      aggregateId: `c_defer_${index}`,
+      payload: { postponedUntil: new Date(at.getTime() + durations[index]! * 60_000).toISOString() },
+    });
+  }
+  await setPersonalizationConsent(uid, {
+    state: 'granted',
+    version: PERSONALIZATION_CONSENT_VERSION,
+    at: new Date(nowMs - 60_000),
+  });
+}
+
 function params(id: string): { params: Promise<{ id: string }> } {
   return { params: Promise.resolve({ id }) };
 }
@@ -1047,6 +1074,22 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     ));
     await record('memory.suggestionDismissed', 200, await suggestionRequest(
       growthDismisser, { decision: 'dismiss', fingerprint },
+    ));
+
+    // R2 (#532), on an account that has only ever pushed things later, so the
+    // recorded response carries the defer suggestion and nothing else.
+    const growthDeferrer = uidFor('FixtureGrowthDefer');
+    await seedDeferHabit(growthDeferrer);
+    const withDeferSuggestion = await record('memory.withDeferSuggestion', 200, await memoryGet(
+      request('/api/mobile/memory', { uid: growthDeferrer }),
+    ));
+    const deferFingerprint = (withDeferSuggestion.suggestions as Array<{ fingerprint: string }>)[0]!.fingerprint;
+    await record('memory.deferSuggestionKept', 201, await memorySuggestionPost(
+      request('/api/mobile/memory/suggestions/R2_defer_default', {
+        uid: growthDeferrer,
+        body: { decision: 'keep', fingerprint: deferFingerprint, language: 'en' },
+      }),
+      { params: Promise.resolve({ ruleId: 'R2_defer_default' }) },
     ));
 
     // ── the daily plan (#194), rendered by UC-3.10b (#195) ─────────

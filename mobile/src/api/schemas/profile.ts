@@ -89,6 +89,26 @@ export const memorySourceLabelSchema = z.enum([
  * and it is 0 for everything written today, which the screen says plainly
  * rather than implying data that does not exist.
  */
+/**
+ * What one growth rule read off the user's behaviour (UC-3.16, #202; R2 in
+ * #532). A token and the claim's own shape, never a sentence: R1 carries a
+ * local window, R2 the length of a "Later" in minutes, and the words are this
+ * app's in three languages.
+ *
+ * Discriminated on `ruleId`, so a rule this version does not know fails the
+ * parse for that field alone rather than being read as R1's shape.
+ */
+export const memoryPatternSchema = z.discriminatedUnion('ruleId', [
+  z.object({
+    ruleId: z.literal('R1_focus_window'),
+    window: z.object({ start: z.string(), end: z.string() }),
+  }),
+  z.object({
+    ruleId: z.literal('R2_defer_default'),
+    deferMinutes: z.number(),
+  }),
+]);
+
 export const memoryEvidenceSchema = z.object({
   origin: memoryOriginSchema.nullable(),
   observedAt: isoDateTime,
@@ -97,14 +117,11 @@ export const memoryEvidenceSchema = z.object({
   edited: z.boolean(),
   observationCount: z.number(),
   /**
-   * The window a rule read off the user's behaviour, on a suggestion they kept
-   * unedited. Null for everything else. Defaulted for a server older than
+   * The pattern a rule read off the user's behaviour, on a suggestion they
+   * kept unedited. Null for everything else. Defaulted for a server older than
    * #202's growth half, which does not send it.
    */
-  pattern: z.object({
-    ruleId: z.literal('R1_focus_window'),
-    window: z.object({ start: z.string(), end: z.string() }),
-  }).nullable().default(null),
+  pattern: memoryPatternSchema.nullable().default(null),
 });
 
 export const memoryItemSchema = z.object({
@@ -123,22 +140,34 @@ export const memoryItemSchema = z.object({
   evidence: memoryEvidenceSchema,
 });
 
+const suggestionEvidenceSchema = z.object({
+  matchingCount: z.number(),
+  totalCount: z.number(),
+  lookbackDays: z.number(),
+});
+
 /**
  * Something MaybeSitter could say it noticed, computed on the read and stored
- * nowhere until the user keeps it (UC-3.16, #202). A token and a window, not a
- * sentence: the words are this app's, in three languages.
+ * nowhere until the user keeps it (UC-3.16, #202; R2 in #532). A token and the
+ * claim's own shape, not a sentence: the words are this app's, in three
+ * languages.
  */
-export const memorySuggestionSchema = z.object({
-  ruleId: z.literal('R1_focus_window'),
-  fingerprint: z.string(),
-  window: z.object({ start: z.string(), end: z.string() }),
-  confidence: z.number(),
-  evidence: z.object({
-    matchingCount: z.number(),
-    totalCount: z.number(),
-    lookbackDays: z.number(),
+export const memorySuggestionSchema = z.discriminatedUnion('ruleId', [
+  z.object({
+    ruleId: z.literal('R1_focus_window'),
+    fingerprint: z.string(),
+    window: z.object({ start: z.string(), end: z.string() }),
+    confidence: z.number(),
+    evidence: suggestionEvidenceSchema,
   }),
-});
+  z.object({
+    ruleId: z.literal('R2_defer_default'),
+    fingerprint: z.string(),
+    deferMinutes: z.number(),
+    confidence: z.number(),
+    evidence: suggestionEvidenceSchema,
+  }),
+]);
 
 /**
  * How reminders adapt to this account (UC-3.16, #202 step 1's `adaptive`).
@@ -197,6 +226,7 @@ export type MemoryProvenance = z.infer<typeof memoryProvenanceSchema>;
 export type MemorySourceLabel = z.infer<typeof memorySourceLabelSchema>;
 export type MemoryEvidence = z.infer<typeof memoryEvidenceSchema>;
 export type MemorySuggestion = z.infer<typeof memorySuggestionSchema>;
+export type MemoryPattern = z.infer<typeof memoryPatternSchema>;
 export type MemoryAdaptive = z.infer<typeof memoryAdaptiveSchema>;
 
 /**

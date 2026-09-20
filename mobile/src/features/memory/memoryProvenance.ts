@@ -128,6 +128,29 @@ export function fill(template: string, values: Record<string, string>): string {
 }
 
 /**
+ * How long a "Later" is, as a person says it (UC-3.14, #532).
+ *
+ * The server sends minutes, not words — the same split every other growth
+ * claim makes, and the reason the sentence around this one is a template. The
+ * buckets R2 can produce are half-hour multiples, so the strings below cover
+ * exactly those: under an hour there is only the half hour, and past two hours
+ * the count takes over, because Arabic and Hebrew both have a dual form for
+ * two that no `{count}` template can produce. A duration this version never
+ * bucketed falls back to bare minutes rather than a phrase nobody worded.
+ */
+export function durationText(minutes: number, strings: Record<string, string>): string {
+  if (minutes === 30) return strings.memoryDurationHalfHour ?? '';
+  if (minutes < 60 || minutes % 30 !== 0) {
+    return fill(strings.memoryDurationMinutes ?? '', { count: String(minutes) });
+  }
+  const hours = Math.floor(minutes / 60);
+  const half = minutes % 60 === 30;
+  if (hours === 1) return (half ? strings.memoryDurationHourAndHalf : strings.memoryDurationHour) ?? '';
+  if (hours === 2) return (half ? strings.memoryDurationTwoHoursAndHalf : strings.memoryDurationTwoHours) ?? '';
+  return fill((half ? strings.memoryDurationHoursAndHalf : strings.memoryDurationHours) ?? '', { count: String(hours) });
+}
+
+/**
  * The "Why?" answer for one fact, as lines.
  *
  * Only lines that say something are produced. A `confirmedAt` equal to the
@@ -172,14 +195,21 @@ export function evidenceLines(item: MemoryItem, copy: EvidenceCopy): EvidenceLin
 
   // A kept suggestion says what it was read from and what it does. The second
   // line is the one #202 insists on: a fact that changes the plan has to say
-  // so next to the Delete that stops it.
+  // so next to the Delete that stops it — and a fact that changes nothing has
+  // to say that too, rather than leaving the reader to assume either way.
   const pattern = item.evidence.pattern;
-  if (pattern) {
+  if (pattern?.ruleId === 'R1_focus_window') {
     lines.push({
       key: 'pattern',
       text: fill(strings.memoryWhyPattern ?? '', { start: pattern.window.start, end: pattern.window.end }),
     });
     lines.push({ key: 'plan', text: strings.memoryWhyPlanUse ?? '' });
+  } else if (pattern?.ruleId === 'R2_defer_default') {
+    lines.push({
+      key: 'pattern',
+      text: fill(strings.memoryWhyPatternDefer ?? '', { duration: durationText(pattern.deferMinutes, strings) }),
+    });
+    lines.push({ key: 'plan', text: strings.memoryWhyDeferNoPlanUse ?? '' });
   }
 
   lines.push({
