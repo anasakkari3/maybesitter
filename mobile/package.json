@@ -43,7 +43,7 @@
     "fflate": "0.8.3",
     "i18next": "^26.4.2",
     "i18next-icu": "^2.4.4",
-    "intl-messageformat": "^11.2.14",
+    "intl-messageformat": "^12.1.0",
     "react": "19.2.3",
     "react-i18next": "^17.0.13",
     "react-native": "0.86.3",
