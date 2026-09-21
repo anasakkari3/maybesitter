@@ -154,7 +154,7 @@ describe('what the plan says', () => {
 
   it('explains an unplaced item in words, never as a code', async () => {
     jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue(planWith({
-      unscheduled: [{ itemId: 'u1', title: 'Book the train', reasonCode: 'FIXED_EVENT_CONFLICT' }],
+      unscheduled: [{ itemId: 'u1', title: 'Book the train', reasonCode: 'FIXED_EVENT_CONFLICT', blockId: 'block:commitment:u1' }],
     }) as never);
     await loaded();
     expect(screen.queryByTestId('plan-kept-u1')).not.toBeNull();
@@ -164,7 +164,7 @@ describe('what the plan says', () => {
 
   it('says nothing that reads as an accusation, anywhere on the rendered screen', async () => {
     jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue(planWith({
-      unscheduled: [{ itemId: 'u1', title: 'Book the train', reasonCode: 'NO_FEASIBLE_SLOT' }],
+      unscheduled: [{ itemId: 'u1', title: 'Book the train', reasonCode: 'NO_FEASIBLE_SLOT', blockId: 'block:commitment:u1' }],
     }) as never);
     await loaded();
     const rendered = JSON.stringify(screen.toJSON());
@@ -648,7 +648,7 @@ describe('the clock on screen is the plan’s, not the phone’s', () => {
     jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue(planWith({
       timezone: 'Pacific/Kiritimati',
       scheduled: [{
-        itemId: 'k1', title: 'Write the summary',
+        itemId: 'k1', title: 'Write the summary', blockId: 'block:commitment:k1',
         startsAt: '2026-08-09T09:00:00.000Z', endsAt: '2026-08-09T09:00:00.000Z',
       }],
     }) as never);

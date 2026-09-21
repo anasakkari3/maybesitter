@@ -38,6 +38,18 @@
     ],
     "unscheduled": [],
     "edited": false,
-    "protections": []
+    "protections": [
+      {
+        "blockId": "block:commitment:plan_fixture_0",
+        "itemId": "plan_fixture_0",
+        "ownership": "protected_flexible",
+        "origin": "user",
+        "preferredInterval": {
+          "startsAt": "2026-08-09T09:00:00.000Z",
+          "endsAt": "2026-08-09T09:00:00.000Z"
+        },
+        "maxShiftMinutes": 30
+      }
+    ]
   }
 }

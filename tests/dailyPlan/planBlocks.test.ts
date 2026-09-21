@@ -262,11 +262,11 @@ test('a move through the actions route lands on the block and never on the sourc
     }), params(DATE));
     assert.equal(response.status, 200);
     const body = await response.json() as { plan: Record<string, unknown> };
-    // The mobile contract is unchanged: the DTO answers exactly what it
-    // answered before blocks existed, so no fixture or client schema moves.
+    // The DTO now includes the block protection list (#522), but otherwise
+    // answers what it answered before blocks existed.
     assert.deepEqual(
       Object.keys(body.plan).sort(),
-      ['acceptedAt', 'date', 'edited', 'explanation', 'generatedAt', 'generation', 'inputDigest', 'scheduled', 'status', 'timezone', 'unscheduled'].sort(),
+      ['acceptedAt', 'date', 'edited', 'explanation', 'generatedAt', 'generation', 'inputDigest', 'protections', 'scheduled', 'status', 'timezone', 'unscheduled'].sort(),
     );
 
     const after = await readStoredPlan(USER, DATE);
