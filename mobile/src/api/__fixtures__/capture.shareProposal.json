@@ -39,6 +39,7 @@
     "metrics": {
       "textFiles": 0,
       "textSegments": 1
-    }
+    },
+    "document": null
   }
 }

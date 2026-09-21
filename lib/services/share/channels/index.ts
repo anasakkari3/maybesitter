@@ -9,7 +9,7 @@
  *
  *   import './whatsapp';
  *   import './image';
- *   import './pdf';
+ *   import './document';
  *   import './email';
  *
  * Importing for the side effect is deliberate. A channel registers itself in
@@ -22,6 +22,7 @@
  * `shareRegistry.ts` and never by import order. If moving a line here changes
  * behaviour, the registry has a bug.
  */
+import './document';
 import './email';
 import './image';
 import './plainText';
@@ -33,6 +34,7 @@ import './whatsapp';
  * A test that empties the registry to assert resolution order puts these back
  * rather than re-importing this module, which an ESM cache would make a no-op.
  */
+export { documentPreprocessor } from './document';
 export { emailPreprocessor } from './email';
 export { imagePreprocessor } from './image';
 export { plainTextPreprocessor } from './plainText';

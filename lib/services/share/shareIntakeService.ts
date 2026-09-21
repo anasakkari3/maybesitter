@@ -39,6 +39,8 @@ import {
   MAX_EVIDENCE_CHARACTERS,
   SHARE_SEGMENT_SEPARATOR,
   ShareInputError,
+  type ShareDocumentFacts,
+  type ShareDocumentSummary,
   type ShareEvidence,
   type ShareIntakeFile,
   type ShareLimits,
@@ -168,6 +170,14 @@ export interface ShareEnvelope {
   readonly evidenceDropped: boolean;
   /** Whatever the channel counted. Numbers only; also merged into the trace. */
   readonly metrics: Readonly<Record<string, number>>;
+  /**
+   * What a document channel read about the document itself (UC-3.7, #191).
+   *
+   * Null for every share that is not a document. Never traced and never
+   * stored — it is in the same class as `evidence[].excerpt`, and travels to
+   * the phone that shared the file so the review header can name the course.
+   */
+  readonly document: ShareDocumentSummary | null;
 }
 
 /** Where one proposed item was read from. */
@@ -177,6 +187,11 @@ export interface ShareItemEvidence {
   readonly sourceIndex: number | null;
   /** At most `MAX_EVIDENCE_CHARACTERS`, enforced here and not by the channel. */
   readonly excerpt: string;
+  /**
+   * The kind, page, confidence and rule-resolved date of one item out of a
+   * document (UC-3.7, #191). Absent for every other channel.
+   */
+  readonly document?: ShareDocumentFacts;
 }
 
 /**
@@ -433,6 +448,7 @@ export async function proposeFromShare(
         suggestedNextAction: suggestNextAction(proposal),
         ...evidenceFor(proposal, text, prepared.evidence),
         metrics: prepared.metrics ?? {},
+        document: prepared.document ?? null,
       },
     };
   } finally {
@@ -506,6 +522,9 @@ function evidenceFor(
       itemId: item.itemId,
       sourceIndex: declared[index]!.sourceIndex,
       excerpt: declared[index]!.excerpt.slice(0, MAX_EVIDENCE_CHARACTERS),
+      // Carried only when the channel offered it, so an envelope for a
+      // screenshot has no key named for a syllabus.
+      ...(declared[index]!.document ? { document: declared[index]!.document as ShareDocumentFacts } : {}),
     })),
     evidenceDropped: false,
   };
