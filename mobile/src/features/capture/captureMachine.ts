@@ -49,6 +49,16 @@ export type CaptureStatus =
   | 'needsClarification'
   /** The message named no commitment. Nothing was created (#166). */
   | 'noCommitment'
+  /**
+   * The message named something the person is considering or waiting on, and
+   * no commitment (#519).
+   *
+   * Its own status rather than `noCommitment`, because the two owe the person
+   * different things. `noCommitment` shows one neutral line and is finished;
+   * this one has something to offer, and Review has to offer it — with nothing
+   * saved unless they tap Keep.
+   */
+  | 'unresolvedIntent'
   /** The request is one the product does not do. */
   | 'unsupportedRequest'
   /** The server refused the input itself. */
@@ -313,6 +323,8 @@ function statusForProposal(proposal: CaptureProposal): CaptureStatus {
       return 'needsClarification';
     case 'no_commitment':
       return 'noCommitment';
+    case 'unresolved_intent':
+      return 'unresolvedIntent';
     case 'rejected':
       return 'unsupportedRequest';
     default:

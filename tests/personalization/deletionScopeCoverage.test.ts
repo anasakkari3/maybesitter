@@ -86,6 +86,13 @@ const KEPT: ReadonlyMap<string, string> = new Map(
 /** The reasons, spelled out. Every key here must be in `KEPT`. */
 const KEPT_BECAUSE: Record<string, string> = {
   commitments: 'the user’s own content',
+  intentSeeds:
+    'the user’s own words about something they have not decided to do (#519) — a sentence they '
+    + 'picked in Review, a kind from a closed set of four, and a status they chose. Nothing here '
+    + 'is derived: no confidence, no maturity score, nothing a model or a background job can '
+    + 'write. "Forget what you inferred about me" must not silently delete the maybes somebody '
+    + 'deliberately kept, any more than it deletes their commitments; the way to remove one is '
+    + 'the Dismiss beside it, and account deletion takes the whole tree.',
   reminders: 'scheduling for the user’s own content',
   escalationStates: 'live delivery state for a commitment that still exists',
   events: 'the domain log the user’s content is replayed from',

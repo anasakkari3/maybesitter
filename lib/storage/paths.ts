@@ -357,11 +357,29 @@ export const WATCHER_NOTIFICATIONS = 'watcherNotifications';
  */
 export const PLANNING_STATE_CHANGES = 'planningStateChanges';
 
+/**
+ * Things the user is considering or waiting on (#519).
+ *
+ * `users/{uid}/intentSeeds/{seedId}`. Its own collection rather than a status
+ * on `commitments`, because a Seed is deliberately not one: nothing ranks it,
+ * nothing plans it, and nothing reminds about it. Putting it in the commitment
+ * tree would mean every reader of that tree had to remember to exclude it, and
+ * the first one that forgot would put somebody's "maybe" into their morning.
+ *
+ * And not `memory` either: a memory record is a claim about the person, which
+ * a maybe is not.
+ *
+ * The document id is derived from the confirm's idempotency key
+ * (`docIdForKey`), so a double-tapped "Keep" writes one seed rather than two.
+ */
+export const INTENT_SEEDS = 'intentSeeds';
+
 export const USER_SCOPED_COLLECTIONS = [
   PROVIDER_CONNECTIONS,
   PROVIDER_CREDENTIALS,
   PROVIDER_OAUTH_STATES,
   COMMITMENTS,
+  INTENT_SEEDS,
   REMINDERS,
   ESCALATION_STATES,
   EVENTS,

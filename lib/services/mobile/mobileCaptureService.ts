@@ -3,7 +3,11 @@ import type {
   CaptureItemEditContract,
 } from '../../../src/contracts/v1/captureContracts';
 import { createHash } from 'crypto';
-import { analyticsContextFrom, type AnalyticsContext } from '../../analytics/analyticsContext';
+import {
+  analyticsContextFrom,
+  emitAnalyticsEvent,
+  type AnalyticsContext,
+} from '../../analytics/analyticsContext';
 import { appendAnalyticsEvent } from '../../analytics/eventStore';
 import {
   recordCaptureConfirmed,
@@ -346,6 +350,17 @@ export async function proposeMobileCapture(input: MobileCaptureInput, context: M
   // the extractor threw on is not counted as one that happened.
   await recordCaptureFunnelEvent(context.participantId, (analytics) =>
     recordCaptureSubmitted(analytics, { inputLength: text.length }));
+
+  // What the capture offered as unresolved intent (#519). A count, and only a
+  // count: a proposal is not yet anybody's seed, and what somebody may be
+  // considering is the last thing that belongs in telemetry. Recorded through
+  // the same swallow-and-log path as the line above, for the same reason —
+  // a capture that worked must not be reported as failed because a metrics
+  // write fell over.
+  if (proposal.seeds.length > 0) {
+    await recordCaptureFunnelEvent(context.participantId, (analytics) =>
+      emitAnalyticsEvent(analytics, 'seed_proposed', { proposedCount: proposal.seeds.length }));
+  }
 
   return proposal;
 }

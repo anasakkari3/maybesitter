@@ -7,5 +7,6 @@ export * from './priorityContracts';
 export * from './calibrationContracts';
 export * from './decompositionContracts';
 export * from './captureContracts';
+export * from './intentContracts';
 export * from './nextStepContracts';
 export * from './analyticsEventContracts';

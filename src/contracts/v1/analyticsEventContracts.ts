@@ -48,6 +48,18 @@ export const ANALYTICS_EVENT_NAMES = [
   // work, their day or their habits is profile text and travels through the
   // describe/review flow, which needs confirmation; analytics gets a number.
   'onboarding_setup_answered',
+  // Additive #519: the Seed lifecycle. Content-free by construction — a kind
+  // from a closed set of four, a boolean, and which of two things a promotion
+  // produced. The `summary` is the user's own sentence about something they
+  // have not decided to do, which is the last thing that belongs in telemetry,
+  // and `seedId`/`promotedTo` are left out altogether rather than allowlisted
+  // for the reason the plan events leave item ids out: "which maybes does this
+  // person have" is the shape of the thing this product does not collect.
+  //
+  // `seed_proposed` is counted on the server when a capture offers one, which
+  // is why it carries a count rather than a kind: a proposal is not yet
+  // anybody's seed.
+  'seed_proposed', 'seed_confirmed', 'seed_snoozed', 'seed_promoted', 'seed_dismissed',
 ] as const;
 
 export type AnalyticsEventName = typeof ANALYTICS_EVENT_NAMES[number];

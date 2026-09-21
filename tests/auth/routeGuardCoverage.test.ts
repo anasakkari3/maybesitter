@@ -105,7 +105,12 @@ test('every mobile route file exists and is enumerated', () => {
   // caller reaching it would learn that from ids alone. `POST
   // /watchers/{id}/pause` is the control that stops a watcher acting at all,
   // so its guard is what keeps one account from silencing another's.
-  assert.equal(files.length, 55, `found:\n${files.join('\n')}`);
+  // Fifty-eight after #519: the three Seed routes — `GET|POST /api/mobile/seeds`,
+  // `PATCH|DELETE /api/mobile/seeds/{id}` and `POST /api/mobile/seeds/{id}/promote`.
+  // A seed is a sentence somebody wrote about something they have not decided
+  // to do, and the promote route is a door from one of those onto a real
+  // commitment in somebody's account; all three must know whose account.
+  assert.equal(files.length, 58, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {

@@ -45,6 +45,14 @@ import {
   type ConsentAnswer,
 } from './endpoints/consents';
 import { getReminderSettings, putReminderSettings, type ReminderSettingsPatch } from './endpoints/reminders';
+import {
+  deleteSeed,
+  keepProposedSeed,
+  listSeeds,
+  patchSeed,
+  promoteSeed,
+} from './endpoints/seeds';
+import type { SeedStatus } from './schemas/seeds';
 import { getReadiness, putSubjectiveEnergy } from './endpoints/readiness';
 import {
   confirmProfileSuggestions,
@@ -115,6 +123,8 @@ export const queryKeys = {
   categoryPreferences: (uid: string) => ['user', uid, 'categoryPreferences'] as const,
   /** Subscribed calendar feeds and the deadlines they propose (UC-3.4, #188). Never a URL. */
   icsFeeds: (uid: string) => ['user', uid, 'icsFeeds'] as const,
+  /** Things the person is considering or waiting on (#519). */
+  seeds: (uid: string) => ['user', uid, 'seeds'] as const,
 };
 
 /** The signed-in uid, or the one value that can never collide with one. */
@@ -1167,4 +1177,70 @@ export function useDecideIcsDeadline() {
       void client.invalidateQueries({ queryKey: queryKeys.activity(uid) });
     },
   });
+}
+
+
+/**
+ * The "Considering / Waiting" list (#519).
+ *
+ * Not keyed by timezone, unlike Today and Upcoming: a seed names no time, so
+ * there is no local day for it to be grouped into. That is not an oversight —
+ * it is the same fact as "a seed does not enter the Daily Plan", showing up in
+ * the cache key.
+ */
+export function useSeeds() {
+  const uid = useUid();
+  return useQuery({
+    queryKey: queryKeys.seeds(uid),
+    queryFn: listSeeds,
+    enabled: uid !== 'signed-out',
+  });
+}
+
+/**
+ * Every seed mutation invalidates the same three things, and the third is the
+ * one that is easy to forget: promoting a seed writes a commitment or a goal,
+ * so Today, Upcoming and the memory list are all now out of date. A screen
+ * that showed the seed as promoted while Today still had nothing on it would
+ * be the app disagreeing with itself about what just happened.
+ */
+function useSeedMutation<TInput, TResult>(mutationFn: (input: TInput) => Promise<TResult>) {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn,
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.seeds(uid) });
+      void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
+      void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
+    },
+  });
+}
+
+/**
+ * Keeps a seed the person picked in Review.
+ *
+ * Unlike the capture confirm, this one *is* safe to retry: the server derives
+ * the document id from the request, so a second POST replays the first seed
+ * rather than writing a twin. #157's "confirm is never retried" rule is about
+ * writing somebody's commitments without them present, which this is not.
+ */
+export function useKeepSeed() {
+  return useSeedMutation((input: { proposalId: string; seedItemId: string }) => keepProposedSeed(input));
+}
+
+export function usePatchSeed() {
+  return useSeedMutation((input: { id: string; status?: SeedStatus; revisitAt?: string | null; summary?: string }) => {
+    const { id, ...patch } = input;
+    return patchSeed(id, patch);
+  });
+}
+
+export function usePromoteSeed() {
+  return useSeedMutation((input: { id: string; target: 'commitment' | 'goal' }) =>
+    promoteSeed(input.id, input.target));
+}
+
+export function useDeleteSeed() {
+  return useSeedMutation((id: string) => deleteSeed(id));
 }
