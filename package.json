@@ -50,7 +50,7 @@
   },
   "dependencies": {
     "@google-cloud/kms": "^6.1.0",
-    "@google/genai": "^2.22.0",
+    "@google/genai": "^2.23.0",
     "firebase-admin": "^14.4.0",
     "google-auth-library": "^10.9.1",
     "ical.js": "^2.2.1",
