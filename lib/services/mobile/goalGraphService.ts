@@ -32,16 +32,20 @@
 import type {
   GoalConfirmationResult,
   GoalExecutionGraph,
+  GoalGraphProgress,
   GoalLinkEntityKind,
   GoalNodeSelection,
+  GoalProgressPeriod,
 } from '../../../src/contracts/v1/goalGraphContracts';
 import { applyLinksToGraph, confirmGoalGraphNodes } from '../../goalGraph/confirmGoalGraph';
+import { deriveGoalGraphProgress } from '../../goalGraph/deriveProgress';
 import {
   createStorageGoalNodeLinkStore,
   goalNodeLinkIdFor,
   type GoalNodeLinkStore,
 } from '../../goalGraph/linkStore';
-import type { HabitServices } from '../habits/habitService';
+import { createHabitServices, type HabitServices } from '../habits/habitService';
+import { loadDomainState } from './participantState';
 import {
   GoalGraphGenerationError,
   generateGoalExecutionGraph,
@@ -105,6 +109,76 @@ export async function readGoalExecutionGraph(
   }
   const links = options.links ?? createStorageGoalNodeLinkStore(options.storage);
   return applyLinksToGraph(graph, await links.list(uid, goal.id));
+}
+
+/**
+ * The graph and what the canonical entities say about it, in one read.
+ *
+ * `GET /api/mobile/goals/{goalId}/execution` is the only caller. The two
+ * halves are deliberately separate functions — the graph is a projection of
+ * the goal's own sentence, progress is a count of Commitments and Habit
+ * occurrences — and this composes them without either learning about the
+ * other: `deriveGoalGraphProgress` is handed the goal id the ownership check
+ * already resolved, not the graph.
+ *
+ * That ordering is also the account-isolation guarantee. `readGoalExecutionGraph`
+ * throws `MemoryNotFoundError` for an id outside the caller's tree before
+ * anything derives anything, so progress is never counted for a goal the
+ * caller cannot read.
+ *
+ * Both halves are built over the *same* storage adapter. Forwarding
+ * `options.storage` is not a tidiness point: the graph half honours the seam
+ * through `readGoalExecutionGraph`, so a caller that passed an adapter and was
+ * ignored here would get its graph from that adapter and its progress from the
+ * process-global one — every link missing, `confirmedCount: 0`, and no error
+ * anywhere to say the two halves were reading different accounts.
+ *
+ * Reading writes nothing, on either half.
+ */
+export interface GoalExecutionState {
+  readonly graph: GoalExecutionGraph;
+  readonly progress: GoalExecutionProgress;
+}
+
+/**
+ * Progress, plus the window it was counted over — `null` when nobody scoped one.
+ *
+ * The field exists because its absence was a lie a client could not detect. A
+ * habit node read without a period reports `completedOccurrences: 0`, which is
+ * byte-identical to the answer for somebody who has done nothing this week; a
+ * goal screen opening on the cheap unscoped read would render "0 of 3" at a
+ * user who had been to the gym three times. Echoing the period lets that
+ * screen say "not scoped" instead, and it does so without making the period
+ * required — a required period would push a clock and a timezone onto a route
+ * that deliberately has neither.
+ */
+export interface GoalExecutionProgress extends GoalGraphProgress {
+  readonly period: GoalProgressPeriod | null;
+}
+
+export async function readGoalExecutionState(
+  uid: string,
+  goalId: string,
+  at: string,
+  options: GoalGraphServiceOptions & { readonly period?: GoalProgressPeriod } = {},
+): Promise<GoalExecutionState> {
+  const graph = await readGoalExecutionGraph(uid, goalId, at, options);
+  const storage = options.storage;
+  const progress = await deriveGoalGraphProgress({
+    scopeId: uid,
+    // The graph's own id rather than the request's: `readOwnedMemory` resolved
+    // it, so this is the record that was actually read.
+    goalMemoryId: graph.goalMemoryId,
+    ...(options.period ? { period: options.period } : {}),
+    derivedAt: at,
+  }, {
+    links: options.links ?? createStorageGoalNodeLinkStore(storage),
+    habits: options.habits ?? createHabitServices(storage),
+    // `getParticipantStateSnapshot`, the default, reads the process-global
+    // adapter and takes no seam of its own, so the adapter is bound here.
+    ...(storage ? { readDomainState: (scopeId: string) => loadDomainState(storage, scopeId) } : {}),
+  });
+  return { graph, progress: { ...progress, period: options.period ?? null } };
 }
 
 /** The first reading of a goal. `generation` defaults to the first. */

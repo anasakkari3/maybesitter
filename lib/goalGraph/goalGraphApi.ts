@@ -11,9 +11,11 @@
  * quietly dropped would be a node the user ticked and no commitment created,
  * with a 200 saying it worked.
  */
+import { toCivilDays } from '../habits/civilDate';
 import {
   GOAL_GRAPH_FIRST_GENERATION,
   type GoalNodeSelection,
+  type GoalProgressPeriod,
 } from '../../src/contracts/v1/goalGraphContracts';
 
 /**
@@ -153,4 +155,72 @@ export function parseNodePatch(value: unknown): GoalNodePatch {
     throw new GoalGraphRequestError('action must be "unlink"', 'invalid_action');
   }
   return Object.freeze({ action: 'unlink' as const });
+}
+
+/**
+ * The generation a client names in a query string rather than a body.
+ *
+ * `GET .../execution` carries its reading as `?generation=2`, so the value
+ * arrives as text. It is converted here and then handed to the same
+ * `parseGeneration` the body routes use, rather than range-checked a second
+ * way: two readings of the same rule is how the GET and the POST end up
+ * disagreeing about which generations exist.
+ *
+ * `Number('')` is 0 and `Number('x')` is NaN, and both are refused below as
+ * `invalid_generation` — neither is silently treated as "the first".
+ */
+export function parseGenerationQuery(value: string | null, field = 'generation'): number {
+  if (value === null) return GOAL_GRAPH_FIRST_GENERATION;
+  return parseGeneration(Number(value), field);
+}
+
+/**
+ * A civil date, checked the way the occurrences it will be compared against
+ * are.
+ *
+ * `toCivilDays` is the habits module's own parser: pattern *and* round-trip,
+ * so 2026-02-30 is refused rather than rolled over to March 2nd. A shape-only
+ * regex here would have been the bug this function exists to prevent — the
+ * period bounds are compared against `occurrence.localDate`, so an impossible
+ * date does not fail, it silently shifts the window, and
+ * `?fromLocalDate=2026-13-01&toLocalDate=2026-13-31` answers 200 with zero
+ * occurrences achieved. That number is indistinguishable from a real one.
+ *
+ * Reusing the habits parser rather than writing a second date check is also
+ * what stops the window and the dates inside it disagreeing about which days
+ * exist.
+ */
+function civilDaysOrRefuse(value: string, field: string): number {
+  try {
+    return toCivilDays(value);
+  } catch {
+    throw new GoalGraphRequestError(`${field} is not a real YYYY-MM-DD date`, 'invalid_period');
+  }
+}
+
+/**
+ * The window "this period" means for habit occurrences, if the caller says.
+ *
+ * Supplied, never guessed — the rule `deriveProgress` states and the reason it
+ * has no clock: the server does not know the user's zone, and a window it
+ * invented would make two reads of an unchanged account disagree across
+ * midnight. Absent is a legitimate answer and means "do not scope", which
+ * counts zero occurrences achieved rather than all of them; the answer says so
+ * in `progress.period`, so a client renders "not scoped" rather than "0 of 3".
+ *
+ * Half a period is a client bug, not a default. Answering it with an open
+ * window would report a number for a question the caller did not finish
+ * asking, and that number would look exactly like a real one.
+ */
+export function parsePeriod(from: string | null, to: string | null): GoalProgressPeriod | undefined {
+  if (from === null && to === null) return undefined;
+  if (from === null || to === null) {
+    throw new GoalGraphRequestError('a period needs both fromLocalDate and toLocalDate', 'invalid_period');
+  }
+  const fromDays = civilDaysOrRefuse(from, 'fromLocalDate');
+  const toDays = civilDaysOrRefuse(to, 'toLocalDate');
+  if (fromDays > toDays) {
+    throw new GoalGraphRequestError('fromLocalDate must not be after toLocalDate', 'invalid_period');
+  }
+  return Object.freeze({ fromLocalDate: from, toLocalDate: to });
 }
