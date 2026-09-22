@@ -65,6 +65,18 @@ export {
   type ScheduleBlockSources,
 } from './blocks';
 export {
+  PROTECTED_OWNERSHIP,
+  compareProtectionRetention,
+  isProtected,
+  projectBlockProtectionIntoPlanningConstraints,
+  protectedShiftMinutes,
+  protectedStartBoundsMs,
+  protectionAfterMove,
+  protectionOf,
+  retainedStartMs,
+  withinMaxShift,
+} from './protection';
+export {
   DEFAULT_READINESS_PLANNING_POLICY,
   projectReadinessIntoPlanningConstraints,
   readinessPlanningBufferAfterMinutes,

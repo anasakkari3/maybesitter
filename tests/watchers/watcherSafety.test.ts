@@ -216,12 +216,26 @@ test('no watcher module can reach the planner, the domain state machine or a com
     '../../src/contracts/v1/watcherContracts',
     '../../src/contracts/v1/actionPolicyContracts',
     '../../src/contracts/v1/integrationConnectionContracts',
+    // #527's read projection. A contracts module like the four around it:
+    // closed vocabularies, interfaces and two type guards, importing nothing
+    // but `moduleContracts`. It is on this list because the list is the fact
+    // rather than the promise — a projection that later reached for a planner
+    // type would have to come back here to do it.
+    '../../src/contracts/v1/backgroundMonitorContracts',
     '../../src/contracts/v1/fixtureContracts',
     '../storage',
     '../storage/paths',
     '../userState/userStateService',
     './watcherStore',
     './signals',
+    './monitoringSettings',
+    // A peer in the audited set, not a way out of it: `backgroundMonitors` is
+    // itself one of the files this loop checks, so importing it reaches
+    // nothing this list does not already allow. The attribution projection
+    // takes `monitorIdForWatcher` from it rather than re-deriving `mon_` +
+    // the id, because two spellings of one identifier is how a Trust screen
+    // and a Trust audit come to disagree about which monitor they mean.
+    './backgroundMonitors',
   ];
 
   for (const { file, text } of watcherSources()) {

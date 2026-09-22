@@ -75,17 +75,8 @@ import { BUSY_BLOCKS, CALENDAR_SOURCES, docIdForKey, userCol, userSubDoc } from 
 
 export { BUSY_BLOCKS, CALENDAR_SOURCES };
 
-/**
- * Where a busy block came from. #187 adds `google`, #188 adds `ics`, #191 adds
- * `manual`.
- *
- * `manual` is UC-3.7's lecture times: weekly slots a shared syllabus named,
- * which the user said yes to. They are not a device calendar's entries, not a
- * Google calendar's and not a subscribed feed's, so calling them any of those
- * three would put a row under a source the user could go and disconnect and
- * find empty. It is busy time somebody accepted by hand, and it is named so.
- */
-export const BUSY_SOURCE_KINDS = ['device', 'google', 'ics', 'manual'] as const;
+/** Where a busy block came from. #187 adds `google`, #188 adds `ics`. */
+export const BUSY_SOURCE_KINDS = ['device', 'google', 'ics'] as const;
 export type BusySourceKind = (typeof BUSY_SOURCE_KINDS)[number];
 
 /**

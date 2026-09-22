@@ -113,7 +113,8 @@ export type PlanEventType =
   | 'plan_accepted'
   | 'plan_edited'
   | 'plan_dismissed'
-  | 'plan_regenerated';
+  | 'plan_regenerated'
+  | 'plan_protected';
 
 export interface PlanEvent {
   readonly id: string;

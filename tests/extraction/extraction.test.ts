@@ -329,3 +329,42 @@ test('extraction: a spoken hour is kept out of the title, like a digit is', () =
 
   assert.equal(result.title, 'أراجع إحصاء');
 });
+
+test('extraction: spoken Hebrew hour words resolve like digits', () => {
+  // Speech-to-text returns «בשעה תשע», never «בשעה 9». If only digits
+  // parse, every voice capture loses its time (#512).
+  const spoken = extract('תזכיר לי לחזור על החומר בשעה תשע בבוקר', context);
+  const digits = extract('תזכיר לי לחזור על החומר בשעה 9 בבוקר', context);
+
+  assert.equal(spoken.remindAt, digits.remindAt);
+  assert.equal(new Date(spoken.remindAt || '').getUTCHours(), 9);
+});
+
+test('extraction: a spoken Hebrew evening hour takes the PM branch', () => {
+  const result = extract('תזכיר לי להגיש את הדוח בשעה שלוש בצהריים', context);
+
+  assert.equal(new Date(result.remindAt || '').getUTCHours(), 15);
+});
+
+test('extraction: a spoken Hebrew hour is kept out of the title, like a digit is', () => {
+  const result = extract('תזכיר לי לחזור על החומר מחר בשעה תשע בבוקר', context);
+
+  assert.equal(result.title, 'לחזור על החומר');
+});
+
+test('extraction: short Hebrew capture with time auto-confirms instead of asking clarification', () => {
+  const result = extract('תזכיר לי לחזור על החומר בשעה תשע בבוקר', context);
+  const disposition = decideExtractionDisposition(result);
+
+  assert.equal(disposition, 'auto_confirm');
+});
+
+test('extraction: Hebrew weekday phrase resolves to expected day and cleans title', () => {
+  const result = extract('תזכיר לי לחזור על החומר ביום ראשון בשעה תשע בבוקר', context);
+
+  assert.equal(result.title, 'לחזור על החומר');
+  assert.equal(new Date(result.remindAt || '').getUTCDay(), 0, 'resolves to Sunday');
+  assert.equal(new Date(result.remindAt || '').getUTCHours(), 9);
+});
+
+

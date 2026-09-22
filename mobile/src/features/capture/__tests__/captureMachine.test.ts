@@ -18,6 +18,7 @@ import {
   confirmPayload,
   confirmableItems,
   hasUnsavedText,
+  wantsDiscardConfirmation,
   initialCaptureState,
   MAX_CAPTURE_LENGTH,
   MAX_TITLE_LENGTH,
@@ -151,14 +152,33 @@ describe('the confirm payload', () => {
       itemId: 'b',
       edit: { title: 'Pay the electricity bill', localDateTime: '2026-09-15T19:00' },
     });
-    const selected = captureReducer(completed, { type: 'toggleItem', itemId: 'b' });
 
-    expect(selected.selected).toContain('b');
-    expect(confirmPayload(selected).itemIds).toEqual(['a', 'b']);
-    expect(confirmPayload(selected).edits.b).toMatchObject({
+    expect(completed.selected).toContain('b');
+    expect(confirmPayload(completed).itemIds).toEqual(['a', 'b']);
+    expect(confirmPayload(completed).edits.b).toMatchObject({
       title: 'Pay the electricity bill',
       localDateTime: '2026-09-15T19:00',
     });
+  });
+
+  it('auto-selects a flagged item once completed by hand with a title and a time (#503)', () => {
+    const flagged = analyzed(proposal({
+      items: [
+        { itemId: 'a', title: 'Call the clinic', resolvedTime: '2026-09-15T07:00:00.000Z', needsClarification: false },
+        { itemId: 'b', title: 'Pay the bill', resolvedTime: null, needsClarification: true },
+      ],
+    }));
+    expect(flagged.selected).toEqual(['a']);
+
+    const completed = captureReducer(flagged, {
+      type: 'editItem',
+      itemId: 'b',
+      edit: { title: 'Pay the electricity bill', localDateTime: '2026-09-15T19:00' },
+    });
+
+    // #503: Completed by hand is now confirmable, so it joins selected immediately without manual toggle.
+    expect(completed.selected).toEqual(['a', 'b']);
+    expect(confirmPayload(completed).itemIds).toEqual(['a', 'b']);
   });
 
   it('still refuses a flagged item with only half an answer', () => {
@@ -195,10 +215,9 @@ describe('the confirm payload', () => {
       itemId: 'b',
       edit: { title: 'Pay the electricity bill', localDateTime: '2026-09-15T19:00' },
     });
-    const selected = captureReducer(completed, { type: 'toggleItem', itemId: 'b' });
-    expect(selected.selected).toContain('b');
+    expect(completed.selected).toContain('b');
 
-    const answered = captureReducer(selected, {
+    const answered = captureReducer(completed, {
       type: 'clarified',
       proposal: proposal({
         items: [
@@ -386,6 +405,32 @@ describe('discard confirmation', () => {
     // Once saved there is nothing to discard.
     const saved = captureReducer(captureReducer(analyzed(), { type: 'confirmStarted' }), { type: 'confirmSucceeded', confirmation: confirmation() });
     expect(hasUnsavedText(saved)).toBe(false);
+
+    // Composer states via wantsDiscardConfirmation:
+    expect(wantsDiscardConfirmation(initialCaptureState())).toBe(false);
+    expect(wantsDiscardConfirmation(captureReducer(initialCaptureState(), { type: 'textChanged', text: '   ' }))).toBe(false);
+    expect(wantsDiscardConfirmation(captureReducer(initialCaptureState(), { type: 'textChanged', text: 'buy milk' }))).toBe(true);
+    expect(wantsDiscardConfirmation(saved)).toBe(false);
+
+    // Review states: fresh proposal with untouched default selections needs no confirmation
+    const fresh = analyzed();
+    expect(wantsDiscardConfirmation(fresh)).toBe(false);
+
+    // Deselecting an item is worth losing
+    const deselected = captureReducer(fresh, { type: 'toggleItem', itemId: 'b' });
+    expect(wantsDiscardConfirmation(deselected)).toBe(true);
+
+    // Reselecting restores default selections, so no confirmation is needed
+    const reselected = captureReducer(deselected, { type: 'toggleItem', itemId: 'b' });
+    expect(wantsDiscardConfirmation(reselected)).toBe(false);
+
+    // Hand-editing an item is worth losing
+    const edited = captureReducer(fresh, { type: 'editItem', itemId: 'a', edit: { title: 'Call the clinic urgently' } });
+    expect(wantsDiscardConfirmation(edited)).toBe(true);
+
+    // Clearing the edit restores default state
+    const cleared = captureReducer(edited, { type: 'clearEdit', itemId: 'a' });
+    expect(wantsDiscardConfirmation(cleared)).toBe(false);
   });
 });
 
@@ -452,7 +497,7 @@ describe('a proposal the server sent as needs_clarification (#492)', () => {
   const toggle = (state: CaptureState) => captureReducer(state, { type: 'toggleItem', itemId: 'p' });
 
   it('1. lets a single flagged item completed with a title and a time be selected and confirmed', () => {
-    const done = toggle(edit(analyzed(single()), { title: 'Call the pharmacy', localDateTime: '2026-09-15T16:11' }));
+    const done = edit(analyzed(single()), { title: 'Call the pharmacy', localDateTime: '2026-09-15T16:11' });
     expect(done.selected).toContain('p');
     expect(confirmPayload(done).itemIds).toEqual(['p']);
     expect(confirmPayload(done).edits.p).toMatchObject({ title: 'Call the pharmacy', localDateTime: '2026-09-15T16:11' });
@@ -488,7 +533,7 @@ describe('a proposal the server sent as needs_clarification (#492)', () => {
         { itemId: 'p', title: 'Call the pharmacy', resolvedTime: null, needsClarification: true },
       ],
     }));
-    const done = toggle(edit(mixed, { title: 'Call the pharmacy', localDateTime: '2026-09-15T16:11' }));
+    const done = edit(mixed, { title: 'Call the pharmacy', localDateTime: '2026-09-15T16:11' });
     expect(confirmPayload(done).itemIds).toEqual(['a', 'p']);
   });
 
@@ -502,7 +547,7 @@ describe('a proposal the server sent as needs_clarification (#492)', () => {
         { itemId: 'c', title: 'Study probability', resolvedTime: null, needsClarification: true },
       ],
     }));
-    const selected = toggle(edit(both, { title: 'Call the pharmacy', localDateTime: '2026-09-15T16:11' }));
+    const selected = edit(both, { title: 'Call the pharmacy', localDateTime: '2026-09-15T16:11' });
     expect(selected.selected).toContain('p');
 
     // Answering c settles it; now one item is fine, so the server sends `proposed`.

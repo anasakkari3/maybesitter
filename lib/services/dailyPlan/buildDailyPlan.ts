@@ -55,7 +55,7 @@ import type {
   WorkingWindow,
 } from '../../../src/contracts/v1/planningContracts';
 import type { ScheduleBlockSources } from '../../planning/scheduler/blocks';
-import { instantFromResolution, resolveLocalTime, toEpochMs, weekdayAt } from '../../planning/shared/time';
+import { instantFromResolution, resolveLocalTime, toEpochMs, toInstant, weekdayAt } from '../../planning/shared/time';
 import { DEFAULT_FIXED_EVENT_MINUTES, fixedEndFor } from '../timeCollision';
 
 // Re-exported so existing callers (and `tests/dailyPlan/fixedEventDuration.test.ts`)
@@ -125,6 +125,19 @@ export interface DailyPlanInputArgs {
    * focus window of its own — see `workingWindowsFor`.
    */
   readonly focusHint?: { readonly start: string; readonly end: string } | null;
+  /**
+   * When this plan is being built, as the caller's clock reads it (#500).
+   *
+   * Required, and not optional with a null default, deliberately. The defect
+   * this closes is precisely a caller that never said what time it was: a plan
+   * built at 13:44 placed all of today's work at 09:00–10:30, over before it
+   * appeared. An optional field would have let the same omission compile.
+   *
+   * It is an argument rather than a reading because this module is pure — see
+   * the file's opening note — and the stable-digest property depends on that.
+   * Two builds with the same `builtAt` produce the same request.
+   */
+  readonly builtAt: Instant;
 }
 
 export interface DailyPlanInput {
@@ -323,6 +336,41 @@ export function deadlineFor(
 }
 
 /**
+ * The first instant work may be placed at, given when the plan is being built
+ * (#500).
+ *
+ * `null` — no lower bound beyond the working window — whenever the clock sits
+ * outside the day being planned. That covers the two ordinary cases and is not
+ * merely a guard: the 06:00 morning job must still fill the window from 09:00,
+ * and tomorrow's plan, built this afternoon, is not constrained by today's
+ * clock. A day already over is left alone too, so regenerating one still
+ * produces the plan it had rather than an empty one.
+ *
+ * Inside the day it is "now", rounded **up** to the plan grid. Up, because the
+ * slot containing this instant has already started and offering it would be
+ * offering the past again, one slot smaller. Quantised, because an unrounded
+ * bound puts a millisecond reading into the request and therefore into
+ * `inputDigest`: two taps of "build today's plan" a few seconds apart would
+ * then be two different plans over a difference nobody can perceive.
+ *
+ * Note this bounds the *items*, not the working window. A narrowed window
+ * would also move the day's fixed events and report the wrong reason when
+ * nothing fits; bounding the items leaves `DEADLINE_BEFORE_EARLIEST_START`
+ * and `EFFORT_EXCEEDS_ITEM_WINDOW` to say what actually happened.
+ */
+export function earliestPlaceableStart(
+  builtAt: Instant,
+  dayStartsAt: Instant,
+  dayEndsAt: Instant,
+): Instant | null {
+  const builtMs = toEpochMs(builtAt);
+  const dayStartMs = toEpochMs(dayStartsAt);
+  if (builtMs <= dayStartMs || builtMs >= toEpochMs(dayEndsAt)) return null;
+  const slotMs = PLAN_SLOT_MINUTES * 60_000;
+  return toInstant(dayStartMs + Math.ceil((builtMs - dayStartMs) / slotMs) * slotMs);
+}
+
+/**
  * The absolute span of one local day.
  *
  * Exported because the busy-block reader has to be asked for a window before
@@ -338,6 +386,7 @@ export function buildDailyPlanInput(args: DailyPlanInputArgs): DailyPlanInput {
   const weekday = weekdayAt(toEpochMs(startsAt), args.timezone) as Weekday;
 
   const plannable = args.commitments.filter(isPlannable);
+  const earliestStartAt = earliestPlaceableStart(args.builtAt, startsAt, endsAt);
 
   const fromBusy: FixedEvent[] = args.busyBlocks.map((block) => ({
     eventId: `busy:${block.blockId}`,
@@ -374,7 +423,10 @@ export function buildDailyPlanInput(args: DailyPlanInputArgs): DailyPlanInput {
       itemId: commitment.id,
       title: commitment.title,
       effort: { kind: 'known', minutes: DEFAULT_EFFORT_MINUTES },
-      earliestStartAt: null,
+      // Not before the plan is being built (#500). Null outside the day, so
+      // the morning job and tomorrow's plan are untouched — see
+      // `earliestPlaceableStart`.
+      earliestStartAt,
       // The commitment's own deadline when it has one and it is not behind the
       // horizon; the end of today when it is. See `deadlineFor`.
       deadlineAt: deadlineFor(commitment, startsAt, endsAt),

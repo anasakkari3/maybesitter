@@ -91,6 +91,42 @@ export function normalizeSpokenArabicHours(value: string): string {
 }
 
 /**
+ * Spoken Hebrew hours (#512). Speech-to-text hands us «בשעה תשע», never «בשעה 9».
+ * Longest-first so «אחת עשרה» is not eaten by «אחת».
+ */
+export const HEBREW_SPOKEN_HOURS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/(?:ה)?(?:אחת|אחד)\s*[-־]?\s*עשר(?:ה)?/g, '11'],
+  [/(?:ה)?(?:שתים|שתיים|שנים|שניים)\s*[-־]?\s*עשר(?:ה)?/g, '12'],
+  [/(?:ה)?(?:אחת|אחד|ראשונה)/g, '1'],
+  [/(?:ה)?(?:שתים|שתיים|שנים|שניים|שנייה|שניה)/g, '2'],
+  [/(?:ה)?(?:שלוש|שלש|שלושה|שלשה|שלישית)/g, '3'],
+  [/(?:ה)?(?:ארבע|ארבעה|רביעית)/g, '4'],
+  [/(?:ה)?(?:חמש|חמישה|חמישית)/g, '5'],
+  [/(?:ה)?(?:שש|שישה|ששה|שישית)/g, '6'],
+  [/(?:ה)?(?:שבע|שבעה|שביעית)/g, '7'],
+  [/(?:ה)?(?:שמונה|שמינית)/g, '8'],
+  [/(?:ה)?(?:תשע|תשעה|תשיעית)/g, '9'],
+  [/(?:ה)?(?:עשר|עשרה|עשירית)/g, '10'],
+];
+
+export function normalizeSpokenHebrewHours(value: string): string {
+  // Only rewrite where a clock is actually being named, so «שלוש משימות»
+  // (three tasks) keeps its word and only «בשעה שלוש» or «שעה שלוש» becomes a number.
+  return value.replace(
+    /((?:בשעה|שעה|בסביבות(?:\s+ה?שעה)?|סביב(?:\s+ה?שעה)?|לקראת(?:\s+ה?שעה)?|עד(?:\s+ה?שעה)?)\s*)([^\s,.،]+(?:\s+[-־]?\s*עשר(?:ה)?)?)/g,
+    (match, lead: string, word: string) => {
+      for (const [pattern, digit] of HEBREW_SPOKEN_HOURS) {
+        pattern.lastIndex = 0;
+        if (new RegExp(`^(?:${pattern.source})$`).test(word)) {
+          return `${lead}${digit}`;
+        }
+      }
+      return match;
+    }
+  );
+}
+
+/**
  * What a single clock time looks like. `stripTiming` removes these from a
  * title and `countTimeExpressions` counts them; both read this one list, so
  * the two cannot drift apart. Stored as sources: every caller builds a fresh
@@ -102,6 +138,8 @@ export const CLOCK_PATTERN_SOURCES: readonly string[] = [
   /\b\d{1,2}:\d{2}(?=$|[\s,.،])/.source,
   /(?:الساعة|الساعه|عند|على)?\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\s*(?:صباحا|صباحاً|الصبح|ص|مساء|مساءً|المسا|المساء|بالليل|م)(?=$|[\s,.،])/.source,
   /(?:الساعة|الساعه|عند|على)\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?(?=$|[\s,.،])/.source,
+  /(?:בשעה|שעה|בסביבות(?:\s+ה?שעה)?|סביב(?:\s+ה?שעה)?|לקראת(?:\s+ה?שעה)?|עד(?:\s+ה?שעה)?|[בס]-?)?\s*[0-9]{1,2}(?::[0-9]{2})?\s*(?:בבוקר|בוקר|בצהריים|צהריים|אחרי הצהריים|אחה"צ|בערב|ערב|בלילה|לילה)(?=$|[\s,.،])/.source,
+  /(?:בשעה|שעה|בסביבות(?:\s+ה?שעה)?|סביב(?:\s+ה?שעה)?|לקראת(?:\s+ה?שעה)?|עד(?:\s+ה?שעה)?|[בס]-)\s*[0-9]{1,2}(?::[0-9]{2})?(?=$|[\s,.،])/.source,
 ];
 
 /**
@@ -112,6 +150,7 @@ export const CLOCK_PATTERN_SOURCES: readonly string[] = [
 export const RANGE_PATTERN_SOURCES: readonly string[] = [
   /\bfrom\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s+(?:to|until|till|-)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b/.source,
   /(?<![؀-ۿ])من\s*(?:الساعة|الساعه)?\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\s*(?:إلى|الى|حتى|لـ?)\s*(?:ال|ل)?(?:ساعة|ساعه)?\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?/.source,
+  /(?:מ|משעה|בין)\s*[0-9]{1,2}(?::[0-9]{2})?\s*(?:עד|עד שעה|ל|ל-|עד ל-)\s*(?:שעה\s*)?[0-9]{1,2}(?::[0-9]{2})?/.source,
 ];
 
 /** A 24-hour clock: `14:00`. Unambiguous by construction. */
@@ -143,7 +182,7 @@ const CLOCK_MARKER = new RegExp(
     /\b(?:at|by|around)\s*\d{1,2}(?::\d{2})?(?=$|[\s,.،])/.source,
     /\b\d{1,2}\s*o'?clock\b/.source,
     /(?:الساعة|الساعه|عند|على)\s*[0-9]{1,2}(?::[0-9]{2})?(?=$|[\s,.،])/.source,
-    /בשעה\s*[0-9]{1,2}(?::[0-9]{2})?/.source,
+    /(?:בשעה|שעה|בסביבות(?:\s+ה?שעה)?|סביב(?:\s+ה?שעה)?|לקראת(?:\s+ה?שעה)?|עד(?:\s+ה?שעה)?|[בס]-)\s*[0-9]{1,2}(?::[0-9]{2})?(?=$|[\s,.،])/.source,
   ].join('|'),
   'i',
 );
@@ -172,7 +211,7 @@ const DAY_TOKEN = new RegExp(
  */
 export function timeOfDayEvidence(rawText: string): TimeEvidence {
   if (typeof rawText !== 'string' || !rawText.trim()) return 'none';
-  const text = normalizeSpokenArabicHours(normalizeArabicDigits(rawText));
+  const text = normalizeSpokenHebrewHours(normalizeSpokenArabicHours(normalizeArabicDigits(rawText)));
   if (HHMM.test(text)) return 'hhmm';
   if (AMPM.test(text)) return 'ampm';
   if (DAYPART.test(text)) return 'daypart';

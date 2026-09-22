@@ -269,6 +269,23 @@ export interface CaptureConfirmationResultContract {
    * them and others as the extractor guessed, with no way to tell which.
    */
   failureCode?: 'proposal_not_found' | 'proposal_rejected' | 'invalid_selection' | 'persistence_failed' | 'invalid_edit';
+  /**
+   * Why the write failed, when `failureCode` is `persistence_failed` (#419).
+   *
+   * `persistence_failed` is one code for every way a durable write can go
+   * wrong, and the two it most often means need opposite responses: a database
+   * under load that lost a race, and a genuine durability regression. Told
+   * apart only by re-running, which is what made the emulator idempotency test
+   * unreadable — a contended run and a broken one printed the same line.
+   *
+   * A short name — `ABORTED`, `UNAVAILABLE`, `PERMISSION_DENIED`,
+   * `contention after 5 attempts` — and never the underlying message, which
+   * quotes document paths and so carries uids. The full error is logged where
+   * operators can read it. Nothing branches on this: it is for the human
+   * reading the failure, and a caller that wants to retry should look at
+   * `failureCode`.
+   */
+  failureCause?: string;
 }
 
 export const CAPTURE_PERSISTENCE_POLICY = Object.freeze({

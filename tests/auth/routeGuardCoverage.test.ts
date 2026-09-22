@@ -110,7 +110,43 @@ test('every mobile route file exists and is enumerated', () => {
   // A seed is a sentence somebody wrote about something they have not decided
   // to do, and the promote route is a door from one of those onto a real
   // commitment in somebody's account; all three must know whose account.
-  assert.equal(files.length, 58, `found:\n${files.join('\n')}`);
+  // Fifty-nine after #527: `GET /api/mobile/trust/background-activity`. It is
+  // a read of everything this app is watching for one person — which
+  // providers, on what subjects, when it last looked — which is a profile of
+  // somebody's life assembled in one response, and the most valuable thing on
+  // this list to reach without a token.
+  // Sixty after #527: `GET|PATCH /api/mobile/settings/monitoring`. It reads
+  // and writes the global background monitoring pause control, which silences
+  // effects across all watchers for the account.
+  // Sixty-four after #520: the four `/api/mobile/habits` routes — `GET|POST
+  // /habits`, `PATCH|DELETE /habits/{id}`, and `POST /habits/{id}/occurrences/
+  // {occurrenceId}/complete` and `.../skip`. The two occurrence routes are the
+  // reason the census matters here: each takes a decision about one dated piece
+  // of somebody's week, and an unauthenticated caller reaching either would be
+  // able to mark another person's habits done — which is both a write to their
+  // record and, from the 404-vs-200 difference alone, a read of which habit and
+  // occurrence ids are real.
+  // Sixty-five after #526: `POST /api/mobile/goals/{goalId}/execution/generate`.
+  // It writes nothing, which is what makes the guard the whole of its
+  // protection: the goal id is a memory id, and an unauthenticated caller who
+  // could reach this would learn from the 404-vs-200 difference whether a
+  // given id names a real goal — and, on a 200, read that goal's own sentence
+  // back out of the graph's titles.
+  // Sixty-eight after #526 slice 3: the three remaining execution routes —
+  // `POST .../execution/confirm`, `PATCH .../execution/nodes/{nodeId}` and
+  // `POST .../execution/regenerate`. The confirm is the one that matters most
+  // on this list: it is the only route in the goal feature that writes
+  // anything canonical, so an unauthenticated caller reaching it could put
+  // commitments and habits into somebody else's week. The PATCH is a write
+  // too, and its 404-vs-200 difference tells a stranger which nodes of a goal
+  // somebody has acted on.
+  // Sixty-nine after #527's attribution slice: `GET /api/mobile/trust/
+  // background-activity/attribution`. It answers "which monitor decided this,
+  // on what evidence, and under whose permission" over every background action
+  // one account has had taken for it — the causal history of somebody's
+  // autonomous work in one response, and a read that must know whose it is
+  // before it returns a row.
+  assert.equal(files.length, 69, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {

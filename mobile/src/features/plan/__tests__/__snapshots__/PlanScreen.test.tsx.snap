@@ -213,7 +213,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                 ]
               }
             >
-              ⁨I placed 3 things between 09:00 and 10:30.⁩
+              ⁨I placed 3 things between 11:00 and 12:30.⁩
             </Text>
           </View>
           <Text
@@ -330,7 +330,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                   }
                   testID="plan-item-time-plan_fixture_0"
                 >
-                  12:00
+                  11:00–12:00
                 </Text>
                 <Text
                   style={

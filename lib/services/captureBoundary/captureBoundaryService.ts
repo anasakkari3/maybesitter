@@ -25,6 +25,7 @@ import { readCategoryPreferences } from '../categories/categoryPreferences';
 import type { Command } from '../../../src/domain/stateMachine';
 import type { CapturePersistenceAdapter } from './persistenceAdapter';
 import type { CaptureProposalStore, StoredCaptureProposal } from './proposalStore';
+import { storageFailureCause } from '../../storage/storageAdapter';
 
 /**
  * Persists a confirmation's commands and records its result on the proposal in
@@ -124,6 +125,7 @@ function splitInput(raw: string): string[] {
     .replace(/،+/g, '|')
     .split('|')
     .map((part) => part.trim())
+    .map((part) => part.replace(/^[\s,;،]+|[\s,;،]+$/g, '').replace(/^(?:and\b|ثم\b|ו)\s*/i, '').trim())
     .filter(Boolean);
   return segments.length > 0 ? segments : [raw];
 }
@@ -468,12 +470,16 @@ export async function confirmCapture(
   dependencies: CaptureBoundaryDependencies,
 ): Promise<CaptureConfirmationResultContract> {
   const stored = await dependencies.store.get(input.proposalId);
-  const failure = (failureCode: CaptureConfirmationResultContract['failureCode']): CaptureConfirmationResultContract => ({
+  const failure = (
+    failureCode: CaptureConfirmationResultContract['failureCode'],
+    cause?: unknown,
+  ): CaptureConfirmationResultContract => ({
     version: CAPTURE_CONTRACT_VERSION,
     success: false,
     replayed: false,
     persistedItemIds: [],
     failureCode,
+    ...(cause === undefined ? {} : { failureCause: storageFailureCause(cause) }),
   });
   if (!stored || stored.scopeId !== input.scopeId) return failure('proposal_not_found');
   if (stored.confirmedResult) {
@@ -592,8 +598,11 @@ export async function confirmCapture(
         result,
       });
       return committed.replayed ? { ...committed.result, replayed: true } : committed.result;
-    } catch {
-      return failure('persistence_failed');
+    } catch (error) {
+      // The message goes to the operator log, where paths and uids are already
+      // permitted; only the cause's name travels on the contract (#419).
+      console.error('[capture/confirm] the confirmation transaction failed', error);
+      return failure('persistence_failed', error);
     }
   }
 
@@ -602,8 +611,9 @@ export async function confirmCapture(
   // acceptable only because this path serves one process and no real account.
   try {
     await dependencies.persistence.persistAtomically(commands);
-  } catch {
-    return failure('persistence_failed');
+  } catch (error) {
+    console.error('[capture/confirm] the in-process persist failed', error);
+    return failure('persistence_failed', error);
   }
   // The Map-backed store persisted this by mutation. A durable store does
   // not, and without the write-back a replayed confirm would find no recorded

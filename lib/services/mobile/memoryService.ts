@@ -493,6 +493,25 @@ export async function createManualMemory(
  * the sentence is theirs. It also stops an edited model guess from keeping the
  * lower confidence that would let a later guess outrank it.
  */
+/**
+ * One record, or a refusal shaped like "no such record".
+ *
+ * The single definition of "is this memory yours", exported so that a reader
+ * outside this file — #526's goal execution graph, which is rooted in a goal
+ * memory id somebody passed in a URL — checks ownership with the same two
+ * lines the edit and delete paths use rather than with its own. An ownership
+ * check that exists twice is an ownership check that will eventually exist in
+ * one weaker version, and the weaker one will be on the newer route.
+ */
+export async function readOwnedMemory(
+  uid: string,
+  id: string,
+  options: MemoryServiceOptions = {},
+): Promise<RuntimeMemoryRecord> {
+  requireUserId(uid);
+  return requireOwnedRecord(storeOf(options), uid, id);
+}
+
 export async function patchMemory(
   uid: string,
   id: string,

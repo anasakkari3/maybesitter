@@ -60,6 +60,7 @@ import {
   type ScheduleBlock,
   type ScheduleBlockSource,
 } from '../../../src/contracts/v1/scheduleBlockContracts';
+import { protectionAfterMove, protectionOf } from './protection';
 import { compareByCodePoint } from '../shared/compare';
 import { intervalMinutes, isPositiveInterval, toEpochMs } from '../shared/time';
 
@@ -122,6 +123,14 @@ function blockForItem(
     currentInterval: null,
     lastPlacedBy: 'planner',
     lastPlanGeneration: generation,
+    // Read off the item rather than carried over from `previous` (#522). The
+    // item is what the solver was actually given, so the block records the
+    // protection the plan was produced under — not the one the stored document
+    // happened to hold, which may be a generation behind an adapter that stated
+    // its own. The two agree by construction: the item's protection is
+    // projected from the previous block by
+    // `projectBlockProtectionIntoPlanningConstraints`.
+    protection: protectionOf(item),
   };
 }
 
@@ -146,6 +155,11 @@ function blockForFixedEvent(
     currentInterval: event.interval,
     lastPlacedBy: 'planner',
     lastPlanGeneration: generation,
+    // Null, always. A fixed block's position belongs to its source, and
+    // `ownershipOf` reads it as `fixed` whatever a protection said — recording
+    // one here would describe an objective about a placement the solver is
+    // never asked to make.
+    protection: null,
   };
 }
 
@@ -319,11 +333,21 @@ export function applyEditsToBlocks(
     }
     const move = moved.get(block.source.id);
     if (move !== undefined) {
+      const interval = { startsAt: move.startsAt, endsAt: move.endsAt };
       return {
         ...block,
-        currentInterval: { startsAt: move.startsAt, endsAt: move.endsAt },
+        currentInterval: interval,
         lastPlacedBy: 'user' as const,
         lastPlanGeneration: generation,
+        // #522: "if the user manually moves a protected block, the successful
+        // move becomes the new preferred placement". The edit reaching this
+        // function *is* the successful one — `validateEdit` refuses the rest
+        // and a refused edit rewrites nothing at all — so the new preference is
+        // recorded here, in the same commit as the move it describes, rather
+        // than in a later pass that could run against a different document. An
+        // unprotected block is returned with its `protection` untouched: moving
+        // something is not a declaration that it should never move again.
+        protection: protectionAfterMove(block.protection, interval),
       };
     }
     return { ...block, currentInterval: original, lastPlacedBy: 'planner' as const, lastPlanGeneration: generation };

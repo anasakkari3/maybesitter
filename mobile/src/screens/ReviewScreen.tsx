@@ -18,7 +18,7 @@ import { SeedProposalSection } from '../features/seeds/SeedProposalSection';
 import { BusyConflictChip } from '../features/calendar/BusyConflictChip';
 import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
 import { busyAt } from '../features/calendar/conflicts';
-import type { CaptureItemEdit } from '../features/capture/captureMachine';
+import { confirmableItems, wantsDiscardConfirmation, type CaptureItemEdit } from '../features/capture/captureMachine';
 import type { CaptureProposalItem } from '../api/schemas/capture';
 import type { DeviceBusyBlock } from '../features/calendar/busyBlocks';
 
@@ -47,6 +47,7 @@ export function ReviewScreen() {
   const insets = useSafeAreaInsets();
   const flow = useCaptureFlow();
   const { state } = flow;
+  const [confirmingDiscard, setConfirmingDiscard] = useState(false);
   const [answering, setAnswering] = useState(false);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [skipped, setSkipped] = useState<string[]>([]);
@@ -59,16 +60,34 @@ export function ReviewScreen() {
   const selectedCount = state.selected.length;
   const busy = state.status === 'confirming';
 
+  const leave = () => {
+    flow.close();
+    setConfirmingDiscard(false);
+    actions.closeCapture();
+  };
+
+  const requestCancel = () => {
+    if (wantsDiscardConfirmation(state)) {
+      setConfirmingDiscard(true);
+    } else {
+      leave();
+    }
+  };
+
+  const confirmable = confirmableItems(state.proposal, state.edits);
+
   /**
    * The items still waiting on their one question (UC-2.5, #165).
    *
    * Asked one at a time. A question this build has no words for is not counted:
    * the item keeps its flag and #164's edit sheet is the way to fix it, which
    * can express anything a fixed question cannot.
+   *
+   * An item completed by hand / confirmable is skipped in the clarify queue (#503).
    */
-  const waiting = items.filter((item) => (
-    item.needsClarification
-    && item.clarification
+  const unclarified = items.filter((item) => item.needsClarification && !confirmable.includes(item.itemId));
+  const waiting = unclarified.filter((item) => (
+    item.clarification
     && !skipped.includes(item.itemId)
     && questionText(item.clarification.questionKey, item.clarification.params, strings) !== null
   ));
@@ -83,118 +102,160 @@ export function ReviewScreen() {
     });
   };
 
+  const handleEditChange = (itemId: string, next: CaptureItemEdit) => {
+    const item = items.find((candidate) => candidate.itemId === itemId);
+    const noTimeOption = item?.needsClarification
+      ? item.clarification?.options.find((opt) => !opt.value.localTime && !opt.value.localDate)
+      : undefined;
+
+    if (noTimeOption && next.localDateTime === '') {
+      // "No time" from the edit sheet routes through the clarify none answer
+      // (one rule, the server's — #474, #505), settling the item as a time-less commitment.
+      void answer(itemId, { optionId: noTimeOption.optionId });
+
+      const otherEdits: CaptureItemEdit = {};
+      if (next.title !== undefined && next.title !== item?.title) {
+        otherEdits.title = next.title;
+      }
+      if (next.priority !== undefined && next.priority !== (item?.priority ?? 'normal')) {
+        otherEdits.priority = next.priority;
+      }
+      if (Object.keys(otherEdits).length > 0) {
+        flow.editItem(itemId, otherEdits);
+      }
+    } else {
+      flow.editItem(itemId, next);
+    }
+  };
+
   return (
     <ScreenIn style={{ backgroundColor: p.bg }}>
-      <FlowHeader pill={t.back} onPill={() => flow.backToComposer()} title={t.reviewTitle} />
-      <ScrollView
-        keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ paddingTop: 18, paddingHorizontal: 20, paddingBottom: 20, gap: 14 }}
-      >
-        <Txt size={12} color={p.mu} style={{ paddingHorizontal: 4 }} testID="review-note">{t.suggestionNote}</Txt>
+      <FlowHeader
+        pill={t.back}
+        onPill={confirmingDiscard ? () => setConfirmingDiscard(false) : () => flow.backToComposer()}
+        title={t.reviewTitle}
+      />
+      {confirmingDiscard ? (
+        <View style={{ flex: 1, justifyContent: 'center', paddingHorizontal: 20, gap: 14 }} testID="capture-discard">
+          <Txt size={22} weight={600}>{t.captureDiscardTitle}</Txt>
+          <Txt size={15} color={p.mu} lh={1.5}>{t.captureDiscardBody}</Txt>
+          <Pill testID="capture-discard-keep" label={t.captureKeepEditing} onPress={() => setConfirmingDiscard(false)} />
+          <Pill testID="capture-discard-confirm" label={t.captureDiscardConfirm} onPress={leave} kind="warm" />
+        </View>
+      ) : (
+        <>
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{ paddingTop: 18, paddingHorizontal: 20, paddingBottom: 20, gap: 14 }}
+          >
+            <Txt size={12} color={p.mu} style={{ paddingHorizontal: 4 }} testID="review-note">{t.suggestionNote}</Txt>
 
-        {asking ? (
-          <View style={{ backgroundColor: p.sf, borderRadius: 24, padding: 18 }}>
-            <ClarifySheet
-              item={asking}
-              position={items.filter((item) => item.needsClarification).length - waiting.length + 1}
-              total={items.filter((item) => item.needsClarification).length}
-              busy={answering}
-              onAnswer={(value) => answer(asking.itemId, value)}
-              onSkip={() => {
-                // "Leave it without a time" is an answer (#474). When the
-                // server offers "no specific time" — the option with no value —
-                // it is sent as that answer, so the item is settled as a
-                // time-less commitment and can be saved. Hiding the question
-                // locally left the item flagged, unselectable and unsavable.
-                const noTime = asking.clarification?.options.find(
-                  (option) => !option.value.localTime && !option.value.localDate,
-                );
-                if (noTime) {
-                  answer(asking.itemId, { optionId: noTime.optionId });
-                  return;
-                }
-                // A question with no time-less answer (which day, am or pm,
-                // what to do) is only dismissed; #164's edit sheet fixes it.
-                setSkipped((current) => [...current, asking.itemId]);
-              }}
-            />
-          </View>
-        ) : null}
-
-        {state.status === 'confirmFailed' ? (
-          <View style={{ backgroundColor: p.wms, borderRadius: 18, padding: 14 }} testID="review-confirm-failed">
-            <Txt size={14} color={p.wm}>{t.errorsGeneric}</Txt>
-          </View>
-        ) : null}
-
-        {items.map((item) => (
-          <ItemCard
-            key={item.itemId}
-            item={item}
-            edit={state.edits[item.itemId]}
-            selected={state.selected.includes(item.itemId)}
-            onToggle={() => flow.toggleItem(item.itemId)}
-            onEdit={() => setEditingItemId(item.itemId)}
-            lang={lang}
-            busy={busyBlocks}
-          />
-        ))}
-
-        {/* What the capture read as unresolved intent (#519). Its own section
-            rather than more cards in the list above, because these are not
-            items the confirm can carry: Keep is a separate call, and nothing
-            here is selected, counted or written by the Confirm button. */}
-        {state.proposal && seeds.length > 0 ? (
-          <SeedProposalSection proposalId={state.proposal.proposalId} seeds={seeds} />
-        ) : null}
-
-        {/* Held, and applied atomically at confirm (#164). Nothing is written
-            while this is open. */}
-        {editingItemId ? (
-          <View style={{ backgroundColor: p.sf, borderRadius: 24, padding: 18 }}>
-            <EditProposalItemSheet
-              item={items.find((item) => item.itemId === editingItemId)!}
-              edit={state.edits[editingItemId]}
-              onChange={(next) => flow.editItem(editingItemId, next)}
-              onClose={() => setEditingItemId(null)}
-            />
-          </View>
-        ) : null}
-      </ScrollView>
-
-      <View style={{ paddingTop: 12, paddingHorizontal: 20, paddingBottom: insets.bottom + 16, gap: 8, backgroundColor: p.bg, borderTopWidth: 1, borderTopColor: p.ln }}>
-        {/*
-          A capture that named only a maybe has nothing to confirm (#519).
-
-          Showing "Confirm 0", disabled, above "nothing selected" would read as
-          a dead end the person has to work out for themselves — and the thing
-          they came here to decide is already above, in its own section with
-          its own Keep. So the confirm bar simply is not drawn, and the only
-          button is the way out.
-        */}
-        {items.length === 0 ? null : (
-          <>
-            {selectedCount === 0 ? (
-              <Txt size={12} color={p.mu} align="center" testID="review-none-selected">{t.reviewNothingSelected}</Txt>
+            {asking ? (
+              <View style={{ backgroundColor: p.sf, borderRadius: 24, padding: 18 }}>
+                <ClarifySheet
+                  item={asking}
+                  position={unclarified.length - waiting.length + 1}
+                  total={unclarified.length}
+                  busy={answering}
+                  onAnswer={(value) => answer(asking.itemId, value)}
+                  onSkip={() => {
+                    // "Leave it without a time" is an answer (#474). When the
+                    // server offers "no specific time" — the option with no value —
+                    // it is sent as that answer, so the item is settled as a
+                    // time-less commitment and can be saved. Hiding the question
+                    // locally left the item flagged, unselectable and unsavable.
+                    const noTime = asking.clarification?.options.find(
+                      (option) => !option.value.localTime && !option.value.localDate,
+                    );
+                    if (noTime) {
+                      answer(asking.itemId, { optionId: noTime.optionId });
+                      return;
+                    }
+                    // A question with no time-less answer (which day, am or pm,
+                    // what to do) is only dismissed; #164's edit sheet fixes it.
+                    setSkipped((current) => [...current, asking.itemId]);
+                  }}
+                />
+              </View>
             ) : null}
+
+            {state.status === 'confirmFailed' ? (
+              <View style={{ backgroundColor: p.wms, borderRadius: 18, padding: 14 }} testID="review-confirm-failed">
+                <Txt size={14} color={p.wm}>{t.errorsGeneric}</Txt>
+              </View>
+            ) : null}
+
+            {items.map((item) => (
+              <ItemCard
+                key={item.itemId}
+                item={item}
+                edit={state.edits[item.itemId]}
+                selected={state.selected.includes(item.itemId)}
+                needsQuestion={item.needsClarification && !confirmable.includes(item.itemId)}
+                onToggle={() => flow.toggleItem(item.itemId)}
+                onEdit={() => setEditingItemId(item.itemId)}
+                lang={lang}
+                busy={busyBlocks}
+              />
+            ))}
+
+            {/* What the capture read as unresolved intent (#519). Its own section
+                rather than more cards in the list above, because these are not
+                items the confirm can carry: Keep is a separate call, and nothing
+                here is selected, counted or written by the Confirm button. */}
+            {state.proposal && seeds.length > 0 ? (
+              <SeedProposalSection proposalId={state.proposal.proposalId} seeds={seeds} />
+            ) : null}
+
+            {/* Held, and applied atomically at confirm (#164). Nothing is written
+                while this is open. */}
+            {editingItemId ? (
+              <View style={{ backgroundColor: p.sf, borderRadius: 24, padding: 18 }}>
+                <EditProposalItemSheet
+                  item={items.find((item) => item.itemId === editingItemId)!}
+                  edit={state.edits[editingItemId]}
+                  onChange={(next) => handleEditChange(editingItemId, next)}
+                  onClose={() => setEditingItemId(null)}
+                />
+              </View>
+            ) : null}
+          </ScrollView>
+
+          <View style={{ paddingTop: 12, paddingHorizontal: 20, paddingBottom: insets.bottom + 16, gap: 8, backgroundColor: p.bg, borderTopWidth: 1, borderTopColor: p.ln }}>
+            {/*
+              A capture that named only a maybe has nothing to confirm (#519).
+
+              Showing "Confirm 0", disabled, above "nothing selected" would read as
+              a dead end the person has to work out for themselves — and the thing
+              they came here to decide is already above, in its own section with
+              its own Keep. So the confirm bar simply is not drawn, and the only
+              button is the way out.
+            */}
+            {items.length === 0 ? null : (
+              <>
+                {selectedCount === 0 ? (
+                  <Txt size={12} color={p.mu} align="center" testID="review-none-selected">{t.reviewNothingSelected}</Txt>
+                ) : null}
+                <Pill
+                  testID="review-confirm"
+                  label={tr('confirmN', { n: selectedCount })}
+                  onPress={() => void flow.confirm()}
+                  disabled={selectedCount === 0 || busy}
+                />
+              </>
+            )}
             <Pill
-              testID="review-confirm"
-              label={tr('confirmN', { n: selectedCount })}
-              onPress={() => void flow.confirm()}
-              disabled={selectedCount === 0 || busy}
+              testID="review-cancel"
+              label={t.cancelAll}
+              onPress={requestCancel}
+              kind="ghost"
+              size={14}
+              weight={400}
+              pad={10}
             />
-          </>
-        )}
-        <Pill
-          testID="review-cancel"
-          label={t.cancelAll}
-          onPress={() => { flow.close(); actions.closeCapture(); }}
-          kind="ghost"
-          size={14}
-          weight={400}
-          pad={10}
-        />
-      </View>
+          </View>
+        </>
+      )}
     </ScreenIn>
   );
 }
@@ -202,11 +263,12 @@ export function ReviewScreen() {
 const PRIORITY_IMP = { high: 'must', normal: 'should', low: 'nice' } as const;
 
 function ItemCard({
-  item, edit, selected, onToggle, onEdit, lang, busy,
+  item, edit, selected, needsQuestion, onToggle, onEdit, lang, busy,
 }: {
   item: CaptureProposalItem;
   edit: CaptureItemEdit | undefined;
   selected: boolean;
+  needsQuestion: boolean;
   onToggle: () => void;
   onEdit: () => void;
   lang: Lang;
@@ -275,7 +337,9 @@ function ItemCard({
         {item.priorityEstimated && edit?.priority === undefined ? (
           <Txt size={12} color={p.mu} testID={`review-estimated-${item.itemId}`}>{t.reviewEstimated}</Txt>
         ) : null}
-        {item.needsClarification ? (
+        {/* The "Needs one question" chip is hidden once the item is
+            confirmable / completed by hand (#503). */}
+        {needsQuestion ? (
           <View style={{ backgroundColor: p.wms, borderRadius: 999, paddingVertical: 6, paddingHorizontal: 10 }}>
             <Txt size={12} color={p.wm} testID={`review-needs-question-${item.itemId}`}>{t.reviewNeedsQuestion}</Txt>
           </View>

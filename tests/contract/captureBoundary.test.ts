@@ -154,6 +154,63 @@ test('multi-item ordering and confirmation ordering are preserved', async () => 
   assert.deepEqual(confirmation.persistedItemIds, proposal.items.map((item) => item.itemId));
 });
 
+test('captured commitment persists the timezone the request sent (#501)', async () => {
+  const dependencies = harness();
+  const proposal = await proposeCapture('Call the doctor at noon', { now, timezone: 'Asia/Jerusalem', scopeId: 'a' }, {
+    ...dependencies,
+    extractor: async () => ({
+      result: extracted({ localTimeSpec: { date: '2026-08-17', time: '12:00', timezone: 'Asia/Jerusalem' } }),
+      engine: 'ollama' as const,
+      fallbackReason: null,
+    }),
+  });
+  assert.equal(proposal.status, 'proposed');
+  const confirmation = await confirmCapture(
+    { proposalId: proposal.proposalId, scopeId: 'a', selectedItemIds: [proposal.items[0].itemId], idempotencyKey: 'tz-1', now },
+    dependencies,
+  );
+  assert.equal(confirmation.success, true);
+  const state = await dependencies.persistence.snapshot();
+  const commitment = Object.values(state.commitments)[0];
+  assert.equal(commitment.timeSpec.timezone, 'Asia/Jerusalem');
+});
+
+test('captured commitment still persists UTC for a plain UTC request (#501)', async () => {
+  const dependencies = harness();
+  const proposal = await proposeCapture('Call the doctor at noon', { now, timezone: 'UTC', scopeId: 'a' }, {
+    ...dependencies,
+    extractor: async () => ({ result: extracted(), engine: 'ollama', fallbackReason: null }),
+  });
+  assert.equal(proposal.status, 'proposed');
+  const confirmation = await confirmCapture(
+    { proposalId: proposal.proposalId, scopeId: 'a', selectedItemIds: [proposal.items[0].itemId], idempotencyKey: 'tz-2', now },
+    dependencies,
+  );
+  assert.equal(confirmation.success, true);
+  const state = await dependencies.persistence.snapshot();
+  const commitment = Object.values(state.commitments)[0];
+  assert.equal(commitment.timeSpec.timezone, 'UTC');
+});
+
+test('split segments drop the punctuation and conjunction they were cut on (#502)', async () => {
+  let index = 0;
+  const dependencies = harness();
+  const extractor = async (rawText: string) => ({
+    result: extracted({ title: rawText, action: rawText, rawText, dueAt: `2026-08-17T1${index++}:00:00.000Z`, remindAt: null }),
+    engine: 'ollama' as const,
+    fallbackReason: null,
+  });
+
+  const en = await proposeCapture('Call the pharmacy, then water the plants', { now, timezone: 'UTC', scopeId: 'a' }, { ...dependencies, extractor });
+  assert.deepEqual(en.items.map((item) => item.title), ['Call the pharmacy', 'water the plants']);
+
+  const ar = await proposeCapture('اتصل بالصيدلية, ثم اسقي النباتات', { now, timezone: 'UTC', scopeId: 'a' }, { ...dependencies, extractor });
+  assert.deepEqual(ar.items.map((item) => item.title), ['اتصل بالصيدلية', 'اسقي النباتات']);
+
+  const he = await proposeCapture('להתקשר לבית המרקחת, ואז לשתות את הצמחים', { now, timezone: 'UTC', scopeId: 'a' }, { ...dependencies, extractor });
+  assert.deepEqual(he.items.map((item) => item.title), ['להתקשר לבית המרקחת', 'לשתות את הצמחים']);
+});
+
 test('audit events exclude raw sensitive text by allowlist', async () => {
   const events: unknown[] = [];
   const dependencies = harness();

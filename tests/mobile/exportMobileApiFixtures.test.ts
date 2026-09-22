@@ -30,7 +30,7 @@
  */
 import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
-import nodeModule from 'node:module';
+import { registerHooks } from 'node:module';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -424,20 +424,6 @@ type StubGlobals = typeof globalThis & {
   __maybesitterVertexClientOptions?: { location?: string };
 };
 
-/**
- * `module.registerHooks`, typed here because `@types/node` is still on 20 while
- * this repository runs on Node 24. Declaring the two hooks it uses is a smaller
- * change than bumping the types of every file for one test, and it is checked:
- * the call below is the real one, so a signature that stopped matching fails at
- * runtime rather than silently.
- */
-interface SyncModuleHooks {
-  resolve(specifier: string, context: unknown, nextResolve: (specifier: string, context: unknown) => unknown): unknown;
-  load(url: string, context: unknown, nextLoad: (url: string, context: unknown) => unknown): unknown;
-}
-const registerHooks = (nodeModule as unknown as {
-  registerHooks(hooks: SyncModuleHooks): { deregister(): void };
-}).registerHooks;
 
 /** Redirects `@google/genai`, and only that specifier, to the stub above. */
 function installVertexStub(generate: VertexStub): () => void {
@@ -1173,6 +1159,43 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       request(`/api/mobile/plans/${PLAN_DATE}/regenerate`, { body: {} }),
       dateParams(PLAN_DATE),
     ));
+
+    /*
+     * A plan carrying an actual protection (#522).
+     *
+     * Recorded last on this date, so nothing above it shifts. Without it every
+     * plan fixture answers `protections: []` and the client's
+     * `blockProtectionSchema` — five fields, two of them nullable — is never
+     * once parsed against something a real handler produced. That is the
+     * defect #493 shipped: a schema checked only against the empty case is a
+     * schema nobody has checked.
+     *
+     * The block id comes off the scheduled row rather than being derived here,
+     * which is also the assertion that the row carries one at all: a client
+     * with no `blockId` cannot make this call, and deriving the id in this
+     * test would hide exactly that.
+     */
+    const protectable = (plan.plan as { scheduled: Array<{ blockId: string | null }> }).scheduled[0];
+    assert.ok(
+      protectable?.blockId,
+      'a scheduled row carries no blockId, so the protect action is unreachable from the client',
+    );
+    const protectedPlan = await record('plan.protected', 200, await planActionPost(
+      request(`/api/mobile/plans/${PLAN_DATE}/actions`, {
+        body: {
+          action: 'protect',
+          blockId: protectable.blockId,
+          ownership: 'protected_flexible',
+          maxShiftMinutes: 30,
+        },
+      }),
+      dateParams(PLAN_DATE),
+    ));
+    assert.equal(
+      ((protectedPlan.plan as { protections: unknown[] }).protections).length,
+      1,
+      'the protected fixture carries no protection, so the schema it exists to pin is never exercised',
+    );
 
     await record('plan.notFound', 404, await planGet(
       request('/api/mobile/plans/2026-08-10'),
