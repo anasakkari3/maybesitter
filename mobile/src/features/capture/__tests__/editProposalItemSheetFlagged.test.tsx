@@ -119,3 +119,16 @@ describe('an item that was never flagged', () => {
     expect(sent.localDateTime).toEqual(expect.any(String));
   });
 });
+
+describe('a flagged item saved with No time (#505)', () => {
+  it('emits an edit with localDateTime as empty string so review can route it to clarify', async () => {
+    const onChange = await renderSheet(FLAGGED);
+    await fireEvent.press(screen.getByTestId('edit-item-save'));
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    const sent = onChange.mock.calls[0]![0];
+    expect(sent.title).toBe('Call the pharmacy');
+    expect(sent.localDateTime).toBe('');
+  });
+});
+

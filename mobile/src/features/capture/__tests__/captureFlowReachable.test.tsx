@@ -586,6 +586,67 @@ describe('the one question (#165)', () => {
     expect(sent.edits ?? []).toEqual([]);
   });
 
+  it('saving a flagged item with No time from the edit sheet answers the question and confirms it (#505)', async () => {
+    const clarify = jest.spyOn(captureEndpoints, 'clarifyCapture').mockResolvedValue(settledNoTime() as never);
+    const confirm = jest.spyOn(captureEndpoints, 'confirmCapture').mockResolvedValue(confirmation({
+      persisted: [{ itemId: 'i-1', commitmentId: 'c-1', title: 'Call Dana', resolvedTime: null }],
+    }) as never);
+    await reachTheQuestion();
+
+    // Open edit sheet for flagged item i-1
+    await fireEvent.press(screen.getByTestId('review-edit-i-1'));
+    await waitFor(() => expect(screen.queryByTestId('edit-item-save')).not.toBeNull());
+
+    // Switch is already on "No time" by default for a flagged item with no time
+    expect(screen.getByTestId('edit-item-no-time').props.value).toBe(true);
+
+    // Press save without giving it a time
+    await fireEvent.press(screen.getByTestId('edit-item-save'));
+
+    // Should route through the clarify none answer
+    await waitFor(() => expect(clarify).toHaveBeenCalled());
+    expect(clarify.mock.calls[0]![0]).toMatchObject({ itemId: 'i-1', questionId: 'q-1', optionId: 'none' });
+
+    // Item is now settled without a time: question is gone and item is confirmable
+    await waitFor(() => expect(screen.queryByTestId('edit-item-sheet')).toBeNull());
+    expect(screen.queryByTestId('review-needs-question-i-1')).toBeNull();
+    expect(screen.getByTestId('review-when-i-1').props.children).toBe(en.noTimeYet);
+    expect(screen.getByTestId('review-confirm').props.accessibilityState.disabled).toBe(false);
+
+    await fireEvent.press(screen.getByTestId('review-confirm'));
+    await waitFor(() => expect(confirm).toHaveBeenCalled());
+    const sent = confirm.mock.calls[0]![0] as { proposalId: string; itemIds: string[]; edits?: unknown[] };
+    expect(sent.itemIds).toEqual(['i-1']);
+    expect(sent.edits ?? []).toEqual([]);
+  });
+
+  it('saving a flagged item with No time and an edited title sends the title edit beside the none answer (#505)', async () => {
+    const clarify = jest.spyOn(captureEndpoints, 'clarifyCapture').mockResolvedValue(settledNoTime() as never);
+    const confirm = jest.spyOn(captureEndpoints, 'confirmCapture').mockResolvedValue(confirmation({
+      persisted: [{ itemId: 'i-1', commitmentId: 'c-1', title: 'Call Dana about the results', resolvedTime: null }],
+    }) as never);
+    await reachTheQuestion();
+
+    await fireEvent.press(screen.getByTestId('review-edit-i-1'));
+    await waitFor(() => expect(screen.queryByTestId('edit-item-save')).not.toBeNull());
+    await fireEvent.changeText(screen.getByTestId('edit-item-title'), 'Call Dana about the results');
+    await fireEvent.press(screen.getByTestId('edit-item-save'));
+
+    await waitFor(() => expect(clarify).toHaveBeenCalled());
+    expect(clarify.mock.calls[0]![0]).toMatchObject({ itemId: 'i-1', questionId: 'q-1', optionId: 'none' });
+
+    await waitFor(() => expect(screen.queryByTestId('edit-item-sheet')).toBeNull());
+    expect(screen.queryByTestId('review-needs-question-i-1')).toBeNull();
+    expect(screen.getByTestId('review-confirm').props.accessibilityState.disabled).toBe(false);
+
+    await fireEvent.press(screen.getByTestId('review-confirm'));
+    await waitFor(() => expect(confirm).toHaveBeenCalled());
+    const sent = confirm.mock.calls[0]![0] as { proposalId: string; itemIds: string[]; edits?: { itemId: string; title?: string }[] };
+    expect(sent.itemIds).toEqual(['i-1']);
+    expect(sent.edits).toEqual([{ itemId: 'i-1', title: 'Call Dana about the results' }]);
+  });
+
+
   it('keeps the question up when leaving it without a time fails', async () => {
     jest.spyOn(captureEndpoints, 'clarifyCapture').mockRejectedValue(new NetworkError('offline'));
     await reachTheQuestion();

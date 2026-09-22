@@ -102,6 +102,32 @@ export function ReviewScreen() {
     });
   };
 
+  const handleEditChange = (itemId: string, next: CaptureItemEdit) => {
+    const item = items.find((candidate) => candidate.itemId === itemId);
+    const noTimeOption = item?.needsClarification
+      ? item.clarification?.options.find((opt) => !opt.value.localTime && !opt.value.localDate)
+      : undefined;
+
+    if (noTimeOption && next.localDateTime === '') {
+      // "No time" from the edit sheet routes through the clarify none answer
+      // (one rule, the server's — #474, #505), settling the item as a time-less commitment.
+      void answer(itemId, { optionId: noTimeOption.optionId });
+
+      const otherEdits: CaptureItemEdit = {};
+      if (next.title !== undefined && next.title !== item?.title) {
+        otherEdits.title = next.title;
+      }
+      if (next.priority !== undefined && next.priority !== (item?.priority ?? 'normal')) {
+        otherEdits.priority = next.priority;
+      }
+      if (Object.keys(otherEdits).length > 0) {
+        flow.editItem(itemId, otherEdits);
+      }
+    } else {
+      flow.editItem(itemId, next);
+    }
+  };
+
   return (
     <ScreenIn style={{ backgroundColor: p.bg }}>
       <FlowHeader
@@ -188,7 +214,7 @@ export function ReviewScreen() {
                 <EditProposalItemSheet
                   item={items.find((item) => item.itemId === editingItemId)!}
                   edit={state.edits[editingItemId]}
-                  onChange={(next) => flow.editItem(editingItemId, next)}
+                  onChange={(next) => handleEditChange(editingItemId, next)}
                   onClose={() => setEditingItemId(null)}
                 />
               </View>
