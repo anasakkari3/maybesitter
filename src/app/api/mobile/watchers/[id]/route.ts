@@ -9,6 +9,11 @@ import {
   watcherValidationResponse,
 } from '../../../../../../lib/watchers/watcherApi';
 import { createWatcherStore } from '../../../../../../lib/watchers/watcherStore';
+import {
+  assertPackWatcherMayBeEnabled,
+  forgetPackWatcher,
+  PackWatcherLockedError,
+} from '../../../../../../lib/packs/packWatcherGuard';
 
 export const dynamic = 'force-dynamic';
 
@@ -45,13 +50,23 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     const watcherId = parseWatcherId(id);
     const patch = parseWatcherPatch(body);
     const now = new Date().toISOString();
-    const updated = await createWatcherStore(user.uid).update(
+    const store = createWatcherStore(user.uid);
+    if (patch.enabled === true) {
+      // A pack's watchers are switched on by enabling the pack, never one at a
+      // time from here: otherwise a lapsed subscriber could resume premium
+      // behaviour by hand and the entitlement record would never know (#528).
+      const current = await store.get(watcherId);
+      if (!current) return mobileError('no such watcher', 404);
+      await assertPackWatcherMayBeEnabled(user.uid, current);
+    }
+    const updated = await store.update(
       watcherId,
       (current) => applyWatcherPatch(current, patch, now),
     );
     if (!updated) return mobileError('no such watcher', 404);
     return Response.json({ success: true, watcher: presentWatcher(updated) });
   } catch (error) {
+    if (error instanceof PackWatcherLockedError) return mobileError(error.message, 409);
     if (error instanceof WatcherValidationError) return watcherValidationResponse(error);
     console.error('[watchers] patching a watcher failed', error);
     return mobileError('could not update the watcher', 500);
@@ -80,6 +95,10 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
     const watcherId = parseWatcherId(id);
     const existed = await createWatcherStore(user.uid).remove(watcherId);
     if (!existed) return mobileError('no such watcher', 404);
+    // A pack's record must not keep claiming a watcher that is gone (#528):
+    // a dangling id is swallowed silently by every later enable and disable,
+    // so the record would quietly claim more than it owns.
+    await forgetPackWatcher(user.uid, watcherId, new Date().toISOString());
     return Response.json({ success: true, watcherId, deleted: true });
   } catch (error) {
     if (error instanceof WatcherValidationError) return watcherValidationResponse(error);

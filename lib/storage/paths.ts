@@ -358,6 +358,19 @@ export const WATCHER_NOTIFICATIONS = 'watcherNotifications';
 export const PLANNING_STATE_CHANGES = 'planningStateChanges';
 
 /**
+ * Which vertical packs an account has switched on, one document per pack
+ * (#528). `users/{uid}/packInstallations/{packId}`.
+ *
+ * Inside the user tree because it is one person's choice about one pack —
+ * enabled or not, why, and the watchers that pack's templates produced. It
+ * holds no provider payload and no derived claim: a pack id, a state, a
+ * reason code, watcher ids and two instants. It is the only place the link
+ * from a watcher back to *which* pack made it exists, which is what lets
+ * disabling football leave athlete's watchers running.
+ */
+export const PACK_INSTALLATIONS = 'packInstallations';
+
+/**
  * Things the user is considering or waiting on (#519).
  *
  * `users/{uid}/intentSeeds/{seedId}`. Its own collection rather than a status
@@ -486,6 +499,7 @@ export const USER_SCOPED_COLLECTIONS = [
   WATCHER_PROPOSALS,
   WATCHER_NOTIFICATIONS,
   PLANNING_STATE_CHANGES,
+  PACK_INSTALLATIONS,
 ] as const;
 
 /** Operator-only, outside every user tree. */

@@ -35,8 +35,17 @@ const ALLOWED_IMPORTS = [
   // The shared doors a pack's configuration passes through.
   '../watchers/watcherStore',
   '../integrations/revenuecat/entitlements',
+  // Persistence, for the one thing a pack owns per account: whether it is on,
+  // and which watchers its templates produced (#528 rollout). The shared
+  // adapter and the shared path builder — a pack gets no store of its own,
+  // which is the same rule that denies it an OAuth store or a scheduler.
+  '../storage',
+  '../storage/paths',
   './packEntitlement',
   './instantiate',
+  './catalog',
+  './packLifecycle',
+  './packWatcherGuard',
 ] as const;
 
 /**
@@ -63,6 +72,9 @@ test('lib/packs exists and contains the pack runtime helpers, so the guards belo
   const files = packSources().map((entry) => entry.file);
   assert.ok(files.includes('packEntitlement.ts'), `lib/packs lost packEntitlement.ts (found: ${files.join(', ')})`);
   assert.ok(files.includes('instantiate.ts'), `lib/packs lost instantiate.ts`);
+  assert.ok(files.includes('packLifecycle.ts'), `lib/packs lost packLifecycle.ts`);
+  assert.ok(files.includes('catalog.ts'), `lib/packs lost catalog.ts`);
+  assert.ok(files.includes('packWatcherGuard.ts'), `lib/packs lost packWatcherGuard.ts`);
 });
 
 test('no pack module imports outside the allowed list', () => {
@@ -82,6 +94,78 @@ test('no pack module reaches anything the issue forbids, by name', () => {
       for (const { pattern, rule } of FORBIDDEN_IMPORTS) {
         assert.ok(!pattern.test(match[1]!), `lib/packs/${file} imports '${match[1]}': ${rule}`);
       }
+    }
+  }
+});
+
+/**
+ * The storage imports, narrowed to identifiers.
+ *
+ * A pack needs the shared adapter and the shared path builder — it may not
+ * have a store of its own, which is the same rule that denies it an OAuth
+ * store. But `../storage` exports `getStorage()` and `../storage/paths`
+ * exports `COMMITMENTS`, `PROVIDER_CREDENTIALS` and `PROVIDER_OAUTH_STATES`,
+ * so allowing the two *specifiers* wholesale would let a pack module write the
+ * canonical commitments collection and the OAuth credential store without
+ * tripping a single `FORBIDDEN_IMPORTS` pattern — those patterns match import
+ * specifiers, and `userSubDoc(uid, PROVIDER_CREDENTIALS, id)` names no module
+ * at all. `packsWriteCommitmentsDirectly` and `packsOwnOAuthStore` are exactly
+ * the two flags this file exists to enforce, so the rule is restated at the
+ * level where it is actually true: which *names* a pack may pull out of
+ * storage.
+ */
+const ALLOWED_STORAGE_BINDINGS: Readonly<Record<string, readonly string[]>> = {
+  '../storage': ['getStorage', 'StorageAdapter'],
+  // `PACK_INSTALLATIONS` and nothing else: the one collection a pack owns.
+  '../storage/paths': ['PACK_INSTALLATIONS', 'userCol', 'userSubDoc'],
+};
+
+/** Named bindings of one import statement, with `type` markers and aliases stripped. */
+function bindingsOf(clause: string): string[] {
+  return clause
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0)
+    .map((entry) => entry.replace(/^type\s+/, '').split(/\s+as\s+/)[0]!.trim());
+}
+
+test('a pack module pulls only its own names out of shared storage', () => {
+  let checked = 0;
+  for (const { file, text } of packSources()) {
+    for (const match of Array.from(text.matchAll(/import\s+(?:type\s+)?\{([^}]*)\}\s+from\s+'([^']+)'/g))) {
+      const allowed = ALLOWED_STORAGE_BINDINGS[match[2]!];
+      if (!allowed) continue;
+      for (const binding of bindingsOf(match[1]!)) {
+        checked += 1;
+        assert.ok(
+          allowed.includes(binding),
+          `lib/packs/${file} imports '${binding}' from '${match[2]}': a pack may reach only `
+            + `${allowed.join(', ')} there — every other collection and helper belongs to somebody else`,
+        );
+      }
+    }
+  }
+  assert.ok(checked > 0, 'no pack module imports from storage at all; this check would be vacuous');
+});
+
+test('no pack module names a collection it does not own', () => {
+  // The other half of the same rule, for a name that arrives some way the
+  // import check above cannot see (a re-export, a string literal, a namespace
+  // import). A pack writes `packInstallations` and reads `watchers` through
+  // the store; nothing else in a user's tree is its business to name.
+  const FORBIDDEN_COLLECTIONS = [
+    'COMMITMENTS', 'PROVIDER_CREDENTIALS', 'PROVIDER_OAUTH_STATES', 'PROVIDER_CONNECTIONS',
+    'EVENTS', 'PLANS', 'MEMORY', 'CONSENTS', 'WATCHER_PROPOSALS', 'WATCHER_NOTIFICATIONS',
+    "'commitments'", "'providerCredentials'", "'providerOAuthStates'", "'providerConnections'",
+  ];
+  for (const { file, text } of packSources()) {
+    const code = text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    for (const name of FORBIDDEN_COLLECTIONS) {
+      assert.ok(
+        !new RegExp(`(^|[^A-Za-z_])${name.replace(/'/g, "'")}([^A-Za-z_]|$)`).test(code),
+        `lib/packs/${file} names ${name}: a pack owns packInstallations and reaches watchers `
+          + 'through the store; every other collection belongs to somebody else',
+      );
     }
   }
 });
