@@ -1,213 +1,137 @@
 /**
- * ⚠️ PLACEHOLDER — habit persistence, stood up by the adapter lane (#520).
+ * Where a Habit lives (#520).
  *
- * **Process memory. Nothing here survives a restart, and nothing here is
- * deleted with an account.** Both of those are why `MAYBESITTER_FEATURE_HABITS`
- * exists and defaults to off: the routes this store backs are real, guarded and
- * tested, and they must not be reachable by a real user until the domain lane's
- * store replaces this one.
+ * `users/{uid}/habits/{habitId}`, one document per habit, in the owner's own
+ * tree — so account deletion takes it with `deleteTree` and an id from another
+ * account cannot resolve at all.
  *
- * The brief for this lane was explicit that it should not invent the real
- * store, so this is the smallest thing the routes can be written and proved
- * against. What is *not* a placeholder is the shape: `HabitStore` is the port
- * the routes are written to, and the reconciliation is `setHabitStoreFactory`
- * pointing at the domain lane's implementation. The routes below never
- * construct a store directly for that reason.
+ * ── The rule is stored; the occurrences are not ─────────────────
  *
- * ── What this deliberately does not do ───────────────────────────
+ * This store holds `HabitDefinition` and nothing else. Occurrences are
+ * materialized from the definition over a bounded horizon (`materialize.ts`)
+ * and belong wherever the lane that schedules them puts them; keeping them out
+ * of here is what makes "a Habit never becomes an infinite set of Commitments"
+ * true of the storage layer as well as of the domain — there is no collection
+ * that could grow without a horizon, because there is no collection.
  *
- * It does not touch `lib/storage`. A user-scoped Firestore collection is not
- * two lines of paths: it has to be added to `USER_SCOPED_COLLECTIONS`, covered
- * by `deleteTree(users/{uid})`, and proved by `tests/storage/deletionCoverage.
- * test.ts` — and a habit is a statement about somebody's life, so a collection
- * that account deletion does not know about is the wrong kind of mistake to
- * leave for a later lane to notice. The domain lane owns that registration
- * along with the store.
+ * ── Create cannot bypass the confirmation ───────────────────────
  *
- * ── Scope is the account, here as everywhere ─────────────────────
- *
- * Every method takes the uid and every record is filed under it, so one
- * account's habits are unreadable from another's and a habit id belonging to
- * somebody else is a 404 — the same answer as an id that never existed,
- * because this store cannot tell the two apart and must not be able to.
+ * `create` takes a `HabitDefinitionInput`, whose `confirmation` is not
+ * optional, and re-validates it here rather than trusting the route. That is
+ * deliberate duplication: a service check and a store check are not the same
+ * check, and the one that has to hold when a second route is added next sprint
+ * is this one.
  */
 import { randomUUID } from 'node:crypto';
-import type {
-  HabitDefinition,
-  HabitOccurrence,
-  HabitOccurrenceOutcome,
-} from './habitTypes';
+import {
+  HabitValidationError,
+  applyHabitPatch,
+  buildHabitDefinition,
+  isHabitDefinition,
+  parseHabitDefinitionInput,
+  type HabitDefinition,
+  type HabitDefinitionInput,
+  type HabitPatchInput,
+  type HabitStore,
+} from '../../src/contracts/v1/habitContracts';
+import {
+  HABITS,
+  getStorage,
+  requireUserId,
+  userCol,
+  userSubDoc,
+  type StorageAdapter,
+} from '../storage';
 
-/** The fields a client may state when creating a habit. Never `habitId`, never `scopeId`. */
-export interface NewHabitInput {
-  readonly title: string;
-  readonly cadence: HabitDefinition['cadence'];
-  readonly durationMinutes: number;
-  readonly preferredWindows: HabitDefinition['preferredWindows'];
-  readonly minimumOccurrences: number;
-  readonly maximumOccurrences: number;
-  readonly flexibility: HabitDefinition['flexibility'];
-  readonly recoveryPolicy: HabitDefinition['recoveryPolicy'];
-  readonly status: HabitDefinition['status'];
-  readonly source: HabitDefinition['source'];
+/** The document, which is the habit exactly. Nothing is stored beside it. */
+type StoredHabit = HabitDefinition;
+
+function habitPath(scopeId: string, habitId: string): string {
+  return userSubDoc(requireUserId(scopeId), HABITS, habitId);
 }
 
-export type HabitPatch = Partial<Omit<NewHabitInput, 'source'>>;
-
 /**
- * Why an occurrence transition was refused.
- *
- * `conflict` is the one that matters: an occurrence that is already in a
- * *different* terminal state is not re-decided by a second tap. Re-applying the
- * *same* outcome is not a conflict and not an error — the phone that retried a
- * request it never saw the answer to must get the answer, not a 409.
+ * Newest first, decided here rather than left to the adapter — the two
+ * adapters disagree about the natural order of a collection read. The
+ * tie-break is the habit id rather than anything random, so two habits created
+ * in the same millisecond come back in the same order on every read instead of
+ * reordering under the user's finger.
  */
-export type OccurrenceTransition =
-  | { readonly kind: 'applied'; readonly occurrence: HabitOccurrence }
-  | { readonly kind: 'unchanged'; readonly occurrence: HabitOccurrence }
-  | { readonly kind: 'not_found' }
-  | { readonly kind: 'conflict'; readonly occurrence: HabitOccurrence };
+function byNewest(a: HabitDefinition, b: HabitDefinition): number {
+  const created = Date.parse(b.createdAt) - Date.parse(a.createdAt);
+  if (created !== 0 && !Number.isNaN(created)) return created;
+  return a.habitId < b.habitId ? -1 : a.habitId > b.habitId ? 1 : 0;
+}
 
-/**
- * The port the routes are written to.
- *
- * The domain lane's store implements this, or this interface moves to sit on
- * top of it. Either way the routes do not change.
- */
-export interface HabitStore {
-  list(uid: string): Promise<readonly HabitDefinition[]>;
-  create(uid: string, input: NewHabitInput, now: string): Promise<HabitDefinition>;
-  update(uid: string, habitId: string, patch: HabitPatch, now: string): Promise<HabitDefinition | null>;
-  remove(uid: string, habitId: string): Promise<boolean>;
-  listOccurrences(uid: string, habitId: string): Promise<readonly HabitOccurrence[]>;
-  /** Only the domain lane's materializer writes occurrences; this is the dev seam. */
-  putOccurrence(uid: string, occurrence: HabitOccurrence): Promise<void>;
-  transitionOccurrence(
-    uid: string,
+export class StorageHabitStore implements HabitStore {
+  constructor(private readonly injected?: StorageAdapter) {}
+
+  /** Resolved per call so a test may swap the adapter after construction. */
+  private get storage(): StorageAdapter {
+    return this.injected ?? getStorage();
+  }
+
+  async create(input: HabitDefinitionInput, now: string): Promise<HabitDefinition> {
+    // Re-validated, not trusted. See the header.
+    const validated = parseHabitDefinitionInput(input);
+    const habit = buildHabitDefinition(randomUUID(), validated, now);
+    await this.storage.set<StoredHabit>(habitPath(habit.scopeId, habit.habitId), habit);
+    return habit;
+  }
+
+  async get(scopeId: string, habitId: string): Promise<HabitDefinition | null> {
+    const stored = await this.storage.get<StoredHabit>(habitPath(scopeId, habitId));
+    // A hand-edited or half-migrated document reads as absent rather than as a
+    // habit with a cadence nothing validated — which would go on to materialize
+    // occurrences from whatever is in the field.
+    return stored && isHabitDefinition(stored) ? stored : null;
+  }
+
+  async list(scopeId: string): Promise<readonly HabitDefinition[]> {
+    const rows = await this.storage.list<StoredHabit>(userCol(requireUserId(scopeId), HABITS));
+    return rows.map((row) => row.data).filter(isHabitDefinition).sort(byNewest);
+  }
+
+  async patch(
+    scopeId: string,
     habitId: string,
-    occurrenceId: string,
-    outcome: HabitOccurrenceOutcome,
-  ): Promise<OccurrenceTransition>;
-}
-
-interface AccountHabits {
-  readonly definitions: Map<string, HabitDefinition>;
-  readonly occurrences: Map<string, HabitOccurrence>;
-}
-
-/** ⚠️ PLACEHOLDER. Process memory, keyed by uid. */
-export class InMemoryHabitStore implements HabitStore {
-  private readonly accounts = new Map<string, AccountHabits>();
-
-  private account(uid: string): AccountHabits {
-    const existing = this.accounts.get(uid);
-    if (existing) return existing;
-    const created: AccountHabits = { definitions: new Map(), occurrences: new Map() };
-    this.accounts.set(uid, created);
-    return created;
+    patch: HabitPatchInput,
+    now: string,
+  ): Promise<HabitDefinition | null> {
+    const path = habitPath(scopeId, habitId);
+    return this.storage.runTransaction(async (tx) => {
+      const existing = await tx.get<StoredHabit>(path);
+      if (!existing || !isHabitDefinition(existing)) return null;
+      // Throws rather than returning null when the patch is incoherent — "not
+      // found" and "minimumOccurrences above the ceiling" are different answers
+      // and a route that conflated them would return 404 for a typo.
+      const updated = applyHabitPatch(existing, patch, now);
+      tx.set<StoredHabit>(path, updated);
+      return updated;
+    });
   }
 
-  async list(uid: string): Promise<readonly HabitDefinition[]> {
-    // Sorted by id, so two reads of an unchanged account answer identically —
-    // the rule `retrievalOrdering` had to be taught the hard way elsewhere in
-    // this repo, where a random uuid reordered a list on every read.
-    return Array.from(this.account(uid).definitions.values()).sort((left, right) =>
-      left.habitId < right.habitId ? -1 : left.habitId > right.habitId ? 1 : 0);
+  async remove(scopeId: string, habitId: string): Promise<boolean> {
+    const path = habitPath(scopeId, habitId);
+    return this.storage.runTransaction(async (tx) => {
+      const existing = await tx.get<StoredHabit>(path);
+      if (!existing) return false;
+      tx.delete(path);
+      return true;
+    });
   }
 
-  async create(uid: string, input: NewHabitInput, now: string): Promise<HabitDefinition> {
-    const habitId = `hbt_${randomUUID()}`;
-    const definition: HabitDefinition = {
-      habitId,
-      // From the verified uid, never from the body. See the header.
-      scopeId: uid,
-      ...input,
-      createdAt: now,
-      updatedAt: now,
-    };
-    this.account(uid).definitions.set(habitId, definition);
-    return definition;
-  }
-
-  async update(uid: string, habitId: string, patch: HabitPatch, now: string): Promise<HabitDefinition | null> {
-    const account = this.account(uid);
-    const current = account.definitions.get(habitId);
-    if (current === undefined) return null;
-    const updated: HabitDefinition = { ...current, ...patch, updatedAt: now };
-    account.definitions.set(habitId, updated);
-    return updated;
-  }
-
-  async remove(uid: string, habitId: string): Promise<boolean> {
-    const account = this.account(uid);
-    if (!account.definitions.delete(habitId)) return false;
-    // A habit's occurrences go with it. An orphaned occurrence has no title,
-    // no flexibility and no window, and the adapter would drop it every day
-    // for ever without anybody being told why.
-    for (const [occurrenceId, occurrence] of Array.from(account.occurrences.entries())) {
-      if (occurrence.habitId === habitId) account.occurrences.delete(occurrenceId);
+  async deleteScope(scopeId: string): Promise<number> {
+    const rows = await this.storage.list<StoredHabit>(userCol(requireUserId(scopeId), HABITS));
+    for (const row of rows) {
+      await this.storage.delete(`${userCol(requireUserId(scopeId), HABITS)}/${row.id}`);
     }
-    return true;
-  }
-
-  async listOccurrences(uid: string, habitId: string): Promise<readonly HabitOccurrence[]> {
-    return Array.from(this.account(uid).occurrences.values())
-      .filter((occurrence) => occurrence.habitId === habitId)
-      .sort((left, right) => (left.occurrenceId < right.occurrenceId ? -1 : 1));
-  }
-
-  async putOccurrence(uid: string, occurrence: HabitOccurrence): Promise<void> {
-    this.account(uid).occurrences.set(occurrence.occurrenceId, occurrence);
-  }
-
-  async transitionOccurrence(
-    uid: string,
-    habitId: string,
-    occurrenceId: string,
-    outcome: HabitOccurrenceOutcome,
-  ): Promise<OccurrenceTransition> {
-    const account = this.account(uid);
-    const current = account.occurrences.get(occurrenceId);
-    // The habit id in the path has to be the occurrence's own. Without this an
-    // occurrence could be completed through *any* habit the caller owns, and
-    // the two ids in the URL would stop meaning what they say.
-    if (current === undefined || current.habitId !== habitId) return { kind: 'not_found' };
-    if (current.state === outcome) return { kind: 'unchanged', occurrence: current };
-    // `recovered` is the domain lane's, and a decision already taken is not
-    // re-taken by a later tap: skipping something you already finished is a
-    // conflict, not an edit.
-    if (!['pending', 'scheduled'].includes(current.state)) return { kind: 'conflict', occurrence: current };
-    const updated: HabitOccurrence = { ...current, state: outcome };
-    account.occurrences.set(occurrenceId, updated);
-    return { kind: 'applied', occurrence: updated };
+    return rows.length;
   }
 }
 
-let store: HabitStore | null = null;
-
-/** The one place a route gets a store. Replaced wholesale by the domain lane. */
-export function getHabitStore(): HabitStore {
-  if (store === null) store = new InMemoryHabitStore();
-  return store;
+export function createStorageHabitStore(adapter?: StorageAdapter): HabitStore {
+  return new StorageHabitStore(adapter);
 }
 
-/** Installs the real store. Also how a test gets a clean one. */
-export function setHabitStoreForTests(replacement: HabitStore | null): void {
-  store = replacement;
-}
-
-/**
- * Whether the habits API is on in this build.
- *
- * Off by default, and read at call time rather than at import time so a test
- * can set it. This is a local gate and deliberately *not* an
- * `IntelligenceModuleName` flag: habits are not an intelligence module, and
- * widening that frozen union to get a boolean would change a contract two other
- * tracks pin.
- *
- * The gate exists because of what backs these routes today — see the header of
- * this file. It comes out when the durable store lands.
- */
-export function habitsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.MAYBESITTER_FEATURE_HABITS === 'true';
-}
+export { HabitValidationError };

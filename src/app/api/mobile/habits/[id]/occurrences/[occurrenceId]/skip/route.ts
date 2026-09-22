@@ -1,5 +1,5 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../../../../lib/auth/mobileAuth';
-import { applyOccurrenceOutcome } from '../../../../../../../../../lib/habits/occurrenceOutcome';
+import { respondToOccurrenceOutcome } from '../../../../../../../../../lib/services/habits/occurrenceOutcome';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,8 +12,12 @@ export const dynamic = 'force-dynamic';
  * wants `PATCH /api/mobile/habits/{id}` with `status: 'paused'`.
  *
  * Whether a skipped occurrence is made up later is `recoveryPolicy`'s answer,
- * and the domain lane's to act on — this route records the skip and nothing
- * more. That is why it cannot produce `recovered`.
+ * and `recoverSkippedOccurrence` gives it: a skip under `recover_within_period`
+ * may come back with a `recovery.replacement` — another date this week, inside
+ * the habit's own `maximumOccurrences` — and under `skip` it comes back with
+ * the reason there is none. This route still cannot produce `recovered`
+ * itself; that state is what the *skipped* row becomes once the domain has
+ * minted a replacement for it.
  */
 export async function POST(
   request: Request,
@@ -25,5 +29,5 @@ export async function POST(
   } catch (error) {
     return mobileAuthErrorResponse(error);
   }
-  return applyOccurrenceOutcome(user.uid, await context.params, 'skipped');
+  return respondToOccurrenceOutcome(user.uid, await context.params, 'skipped');
 }
