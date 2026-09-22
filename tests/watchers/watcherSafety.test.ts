@@ -229,6 +229,13 @@ test('no watcher module can reach the planner, the domain state machine or a com
     './watcherStore',
     './signals',
     './monitoringSettings',
+    // A peer in the audited set, not a way out of it: `backgroundMonitors` is
+    // itself one of the files this loop checks, so importing it reaches
+    // nothing this list does not already allow. The attribution projection
+    // takes `monitorIdForWatcher` from it rather than re-deriving `mon_` +
+    // the id, because two spellings of one identifier is how a Trust screen
+    // and a Trust audit come to disagree about which monitor they mean.
+    './backgroundMonitors',
   ];
 
   for (const { file, text } of watcherSources()) {
