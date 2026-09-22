@@ -20,7 +20,18 @@ import { join } from 'node:path';
 import { createMemoryStorage, type MemoryStorageAdapter } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
-import { GET as backgroundActivity } from '../../src/app/api/mobile/trust/background-activity/route.ts';
+import {
+  GET as backgroundActivity,
+  PATCH as backgroundActivityPatch,
+} from '../../src/app/api/mobile/trust/background-activity/route.ts';
+import {
+  GET as monitoringSettingsGet,
+  PATCH as monitoringSettingsPatch,
+} from '../../src/app/api/mobile/settings/monitoring/route.ts';
+import {
+  readMonitoringSettings,
+  saveMonitoringSettings,
+} from '../../lib/watchers/monitoringSettings.ts';
 import { createWatcherStore, type StoredWatcher } from '../../lib/watchers/watcherStore.ts';
 import {
   WATCHER_SWEEP_INTERVAL_MINUTES,
@@ -57,6 +68,28 @@ function request(uid?: string): Request {
   const headers = new Headers();
   if (uid) headers.set('authorization', `Bearer ${tokenFor(uid)}`);
   return new Request(`${BASE}/api/mobile/trust/background-activity`, { headers });
+}
+
+function patchRequest(uid?: string, body?: unknown): Request {
+  const headers = new Headers();
+  if (uid) headers.set('authorization', `Bearer ${tokenFor(uid)}`);
+  headers.set('content-type', 'application/json');
+  return new Request(`${BASE}/api/mobile/trust/background-activity`, {
+    method: 'PATCH',
+    headers,
+    body: body !== undefined ? (typeof body === 'string' ? body : JSON.stringify(body)) : undefined,
+  });
+}
+
+function settingsRequest(uid?: string, method = 'GET', body?: unknown): Request {
+  const headers = new Headers();
+  if (uid) headers.set('authorization', `Bearer ${tokenFor(uid)}`);
+  if (body !== undefined) headers.set('content-type', 'application/json');
+  return new Request(`${BASE}/api/mobile/settings/monitoring`, {
+    method,
+    headers,
+    body: body !== undefined ? (typeof body === 'string' ? body : JSON.stringify(body)) : undefined,
+  });
 }
 
 /**
@@ -270,6 +303,7 @@ test('an account watching nothing gets an empty list, not an error and not a nul
     assert.deepEqual(await response.json(), {
       success: true,
       schemaVersion: 'background-monitor-v1',
+      paused: false,
       monitors: [],
     });
   } finally {
@@ -416,4 +450,178 @@ test('the status function reads disabled, then the connection, then the observer
   // over active, because nothing else can report it.
   const unobserved = { ...base, runtime: { status: 'blocked', blockedReason: 'signal_unavailable' } as never };
   assert.equal(backgroundMonitorStatusOf(unobserved, connection(ALICE, 'cnx_whoop_1', 'connected')), 'error');
+});
+
+/* ── Account-level monitoring pause controls (#527) ──────────────── */
+
+test('listBackgroundActivity exposes the global paused state', async () => {
+  begin();
+  try {
+    await setConnection(ALICE, 'cnx_whoop_1', 'connected');
+    await addWatcher(ALICE);
+
+    // Default: not paused
+    const initial = await listBackgroundActivity(ALICE, NOW, { storage });
+    assert.equal(initial.paused, false);
+
+    // Set paused to true
+    await saveMonitoringSettings(ALICE, true, NOW, { storage });
+    const pausedView = await listBackgroundActivity(ALICE, NOW, { storage });
+    assert.equal(pausedView.paused, true);
+    // Monitors still exist and can be listed
+    assert.equal(pausedView.monitors.length, 1);
+
+    // Unpause
+    await saveMonitoringSettings(ALICE, false, NOW, { storage });
+    const resumedView = await listBackgroundActivity(ALICE, NOW, { storage });
+    assert.equal(resumedView.paused, false);
+  } finally {
+    end();
+  }
+});
+
+test('PATCH /api/mobile/trust/background-activity pauses and resumes global monitoring', async () => {
+  begin();
+  try {
+    await setConnection(ALICE, 'cnx_whoop_1', 'connected');
+    await addWatcher(ALICE);
+
+    // Unauthenticated request fails
+    const unauth = await backgroundActivityPatch(patchRequest(undefined, { paused: true }));
+    assert.equal(unauth.status, 401);
+
+    // Invalid body formats fail
+    const badJson = await backgroundActivityPatch(
+      new Request(`${BASE}/api/mobile/trust/background-activity`, {
+        method: 'PATCH',
+        headers: { authorization: `Bearer ${tokenFor(ALICE)}`, 'content-type': 'application/json' },
+        body: 'invalid-json',
+      }),
+    );
+    assert.equal(badJson.status, 400);
+
+    const nonObject = await backgroundActivityPatch(patchRequest(ALICE, 'string-body'));
+    assert.equal(nonObject.status, 400);
+
+    const unknownKey = await backgroundActivityPatch(patchRequest(ALICE, { paused: true, hack: 'payload' }));
+    assert.equal(unknownKey.status, 400);
+
+    const nonBoolean = await backgroundActivityPatch(patchRequest(ALICE, { paused: 'yes' }));
+    assert.equal(nonBoolean.status, 400);
+
+    // Valid pause PATCH
+    const pauseRes = await backgroundActivityPatch(patchRequest(ALICE, { paused: true }));
+    assert.equal(pauseRes.status, 200);
+    const pauseBody = await pauseRes.json() as { success: boolean; paused: boolean; monitors: unknown[] };
+    assert.equal(pauseBody.success, true);
+    assert.equal(pauseBody.paused, true);
+    assert.equal(pauseBody.monitors.length, 1);
+
+    // Verified via GET
+    const getRes = await backgroundActivity(request(ALICE));
+    const getBody = await getRes.json() as { success: boolean; paused: boolean };
+    assert.equal(getBody.paused, true);
+
+    // Resume via PATCH
+    const resumeRes = await backgroundActivityPatch(patchRequest(ALICE, { paused: false }));
+    assert.equal(resumeRes.status, 200);
+    const resumeBody = await resumeRes.json() as { success: boolean; paused: boolean };
+    assert.equal(resumeBody.paused, false);
+  } finally {
+    end();
+  }
+});
+
+test('GET and PATCH /api/mobile/settings/monitoring manage account monitoring settings', async () => {
+  begin();
+  try {
+    // Unauthenticated fails
+    const unauthGet = await monitoringSettingsGet(settingsRequest(undefined, 'GET'));
+    assert.equal(unauthGet.status, 401);
+    const unauthPatch = await monitoringSettingsPatch(settingsRequest(undefined, 'PATCH', { paused: true }));
+    assert.equal(unauthPatch.status, 401);
+
+    // Initial state: not paused
+    const initialRes = await monitoringSettingsGet(settingsRequest(ALICE, 'GET'));
+    assert.equal(initialRes.status, 200);
+    const initialBody = await initialRes.json() as {
+      success: boolean;
+      monitoringSettings: { paused: boolean; updatedAt: string | null };
+      paused: boolean;
+    };
+    assert.equal(initialBody.success, true);
+    assert.equal(initialBody.paused, false);
+    assert.equal(initialBody.monitoringSettings.paused, false);
+    assert.equal(initialBody.monitoringSettings.updatedAt, null);
+
+    // PATCH invalid body
+    const badBody = await monitoringSettingsPatch(settingsRequest(ALICE, 'PATCH', { unknown: 123 }));
+    assert.equal(badBody.status, 400);
+
+    // PATCH pause: true
+    const pauseRes = await monitoringSettingsPatch(settingsRequest(ALICE, 'PATCH', { paused: true }));
+    assert.equal(pauseRes.status, 200);
+    const pauseBody = await pauseRes.json() as {
+      success: boolean;
+      monitoringSettings: { paused: boolean; updatedAt: string | null };
+      paused: boolean;
+    };
+    assert.equal(pauseBody.success, true);
+    assert.equal(pauseBody.paused, true);
+    assert.equal(pauseBody.monitoringSettings.paused, true);
+    assert.ok(pauseBody.monitoringSettings.updatedAt !== null);
+
+    // Read back via GET
+    const readBack = await monitoringSettingsGet(settingsRequest(ALICE, 'GET'));
+    const readBody = await readBack.json() as {
+      success: boolean;
+      monitoringSettings: { paused: boolean; updatedAt: string | null };
+      paused: boolean;
+    };
+    assert.equal(readBody.paused, true);
+
+    // PATCH pause: false
+    const unpauseRes = await monitoringSettingsPatch(settingsRequest(ALICE, 'PATCH', { paused: false }));
+    assert.equal(unpauseRes.status, 200);
+    const unpauseBody = await unpauseRes.json() as {
+      success: boolean;
+      monitoringSettings: { paused: boolean; updatedAt: string | null };
+      paused: boolean;
+    };
+    assert.equal(unpauseBody.paused, false);
+    assert.equal(unpauseBody.monitoringSettings.paused, false);
+  } finally {
+    end();
+  }
+});
+
+test('no provider secrets leak in background activity PATCH or monitoring settings responses', async () => {
+  begin();
+  try {
+    await setConnection(ALICE, 'cnx_whoop_1', 'connected');
+    await addWatcher(ALICE, { source: { provider: 'whoop', connectionId: 'cnx_whoop_1', signalKind: 'readiness', subjectRef: 'self' } });
+
+    // PATCH background-activity response
+    const patchRes = await backgroundActivityPatch(patchRequest(ALICE, { paused: true }));
+    const patchText = await patchRes.text();
+    assert.equal(patchRes.status, 200);
+
+    // GET settings response
+    const settingsGetRes = await monitoringSettingsGet(settingsRequest(ALICE, 'GET'));
+    const settingsGetText = await settingsGetRes.text();
+    assert.equal(settingsGetRes.status, 200);
+
+    // PATCH settings response
+    const settingsPatchRes = await monitoringSettingsPatch(settingsRequest(ALICE, 'PATCH', { paused: false }));
+    const settingsPatchText = await settingsPatchRes.text();
+    assert.equal(settingsPatchRes.status, 200);
+
+    for (const [name, secret] of Object.entries(SECRETS)) {
+      assert.equal(patchText.includes(secret), false, `background-activity PATCH leaked ${name}`);
+      assert.equal(settingsGetText.includes(secret), false, `settings GET leaked ${name}`);
+      assert.equal(settingsPatchText.includes(secret), false, `settings PATCH leaked ${name}`);
+    }
+  } finally {
+    end();
+  }
 });

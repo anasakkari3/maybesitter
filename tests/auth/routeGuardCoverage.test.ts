@@ -115,7 +115,10 @@ test('every mobile route file exists and is enumerated', () => {
   // providers, on what subjects, when it last looked — which is a profile of
   // somebody's life assembled in one response, and the most valuable thing on
   // this list to reach without a token.
-  assert.equal(files.length, 59, `found:\n${files.join('\n')}`);
+  // Sixty after #527: `GET|PATCH /api/mobile/settings/monitoring`. It reads
+  // and writes the global background monitoring pause control, which silences
+  // effects across all watchers for the account.
+  assert.equal(files.length, 60, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {
