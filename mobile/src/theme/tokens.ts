@@ -27,14 +27,32 @@ export interface ColorRoles {
   surface: string;
   surfaceAlt: string;
   surfaceBar: string;
+  /** `--sfBarSolid`: the bar where a blur is unavailable (Android, reduce-transparency). */
+  surfaceBarSolid: string;
   textPrimary: string;
   textMuted: string;
   border: string;
+  /** `--lnStrong`: an unchecked circle, a divider that has to carry weight. */
+  borderStrong: string;
   brand: string;
   brandContainer: string;
+  /** `--acd`: the pressed and hovered accent. */
+  brandPressed: string;
   onBrand: string;
+  /** `--acOnInk`: the accent where it sits on an inverted surface. */
+  brandOnInk: string;
+  /** `--ul`: underlines, which are not the border colour. */
+  underline: string;
   must: string;
   mustContainer: string;
+  /** `--dis` / `--disTx`: a button that cannot be pressed yet, and its label. */
+  disabled: string;
+  onDisabled: string;
+  /** `--prop`: the dashed edge that marks a card as a proposal, not a saved thing. */
+  proposal: string;
+  /** `--ink` / `--onInk`: an inverted surface and what is legible on it. */
+  ink: string;
+  onInk: string;
   hatch: string;
   overlay: string;
 }
@@ -44,15 +62,25 @@ export const color: Record<Scheme, ColorRoles> = {
     background: '#F5F7F8',
     surface: '#FFFFFF',
     surfaceAlt: '#EDF0F2',
-    surfaceBar: 'rgba(255,255,255,0.86)',
+    surfaceBar: 'rgba(255,255,255,0.88)',
+    surfaceBarSolid: '#FFFFFF',
     textPrimary: '#14181B',
     textMuted: '#5F6B70',
     border: 'rgba(20,24,27,0.08)',
+    borderStrong: 'rgba(20,24,27,0.22)',
     brand: '#1F7A8C',
     brandContainer: '#DFEFF3',
+    brandPressed: '#14586A',
     onBrand: '#FFFFFF',
+    brandOnInk: '#9EDCE9',
+    underline: 'rgba(31,122,140,0.40)',
     must: '#8A6A2E',
     mustContainer: '#F3ECDD',
+    disabled: '#E4E8EA',
+    onDisabled: '#4F5A5F',
+    proposal: 'rgba(31,122,140,0.50)',
+    ink: '#14181B',
+    onInk: '#F5F7F8',
     hatch: 'rgba(20,24,27,0.10)',
     overlay: 'rgba(10,14,16,0.45)',
   },
@@ -60,21 +88,33 @@ export const color: Record<Scheme, ColorRoles> = {
     background: '#101416',
     surface: '#1A2023',
     surfaceAlt: '#242B2F',
-    surfaceBar: 'rgba(26,32,35,0.88)',
+    surfaceBar: 'rgba(26,32,35,0.90)',
+    surfaceBarSolid: '#1A2023',
     textPrimary: '#ECEFF1',
     textMuted: '#9AA6AB',
     border: 'rgba(236,239,241,0.10)',
+    borderStrong: 'rgba(236,239,241,0.28)',
     brand: '#6FC3D6',
     brandContainer: 'rgba(111,195,214,0.16)',
+    brandPressed: '#8ED3E3',
     // Round 1 put white here. White on #6FC3D6 measures 2.01:1, far below the
     // 4.5:1 minimum; dark ink on the same accent measures 9.22:1, so the app
     // deviated. Round 2 specifies this value itself (`--onac:#101416`), so the
     // deviation is closed — see "deviationsResolved" in tokens.source.json.
     onBrand: '#101416',
+    brandOnInk: '#6FC3D6',
+    underline: 'rgba(142,211,227,0.45)',
     must: '#D9B06B',
     mustContainer: 'rgba(217,176,107,0.16)',
+    disabled: '#2A3236',
+    onDisabled: '#B4BEC3',
+    proposal: 'rgba(111,195,214,0.55)',
+    ink: '#ECEFF1',
+    onInk: '#101416',
     hatch: 'rgba(255,255,255,0.08)',
-    overlay: 'rgba(10,14,16,0.45)',
+    // Round 2 deepens the dark scrim and takes the blue out of it:
+    // rgba(10,14,16,.45) became rgba(0,0,0,.55).
+    overlay: 'rgba(0,0,0,0.55)',
   },
 };
 
@@ -83,6 +123,11 @@ export type Palette = {
   tx: string; mu: string; ln: string;
   ac: string; acs: string; wm: string; wms: string;
   hatch: string; scrim: string; onAccent: string;
+  // Round 2. Same short names the export uses, so a screen that migrates
+  // reads the same token name in both places.
+  sfBarSolid: string; lnStrong: string; acd: string; acOnInk: string;
+  ul: string; dis: string; disTx: string; prop: string;
+  ink: string; onInk: string;
   shadow: boolean;
 };
 
@@ -94,6 +139,9 @@ function paletteFor(scheme: Scheme, shadow: boolean): Palette {
     tx: c.textPrimary, mu: c.textMuted, ln: c.border,
     ac: c.brand, acs: c.brandContainer, wm: c.must, wms: c.mustContainer,
     hatch: c.hatch, scrim: c.overlay, onAccent: c.onBrand,
+    sfBarSolid: c.surfaceBarSolid, lnStrong: c.borderStrong, acd: c.brandPressed,
+    acOnInk: c.brandOnInk, ul: c.underline, dis: c.disabled, disTx: c.onDisabled,
+    prop: c.proposal, ink: c.ink, onInk: c.onInk,
     shadow,
   };
 }
@@ -114,10 +162,23 @@ export const radius = {
   sheetHandle: 18, pill: 16, row: 14, small: 12, tiny: 9, hairline: 2,
 } as const;
 
-/** Font sizes in the export, named by where they appear. */
+/**
+ * Round 1's font sizes, named by where they appear. The shipped screens are
+ * written against these, so they stay until each screen migrates.
+ */
 export const typeScale = {
   display: 34, title1: 28, title2: 26, section: 22, cardTitle: 19,
   bodyLarge: 16, body: 15, bodySmall: 14, label: 13, caption: 12, micro: 11,
+} as const;
+
+/**
+ * Round 2's ramp: eleven steps narrowed to nine. It drops 26 / 22 / 19 / 16
+ * and adds 20 / 17. Every size is multiplied by the reader's text scale — see
+ * src/theme/textScale.ts.
+ */
+export const typeScaleR2 = {
+  display: 34, title: 28, h2: 20, card: 17, body: 15,
+  body2: 14, label: 13, caption: 12, meta: 11,
 } as const;
 
 export const lineHeight = { arabic: 1.6, latin: 1.4, tight: 1.15, heading: 1.3 } as const;
@@ -138,6 +199,20 @@ export function cardShadow(p: Palette) {
   return p.shadow
     ? { shadowColor: '#14181B', shadowOpacity: 0.06, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 2 }
     : {};
+}
+
+/**
+ * `--shBar`: the floating bar's shadow, which is heavier than a card's and is
+ * the one shadow the dark scheme keeps.
+ */
+export function barShadow(p: Palette) {
+  return {
+    shadowColor: '#000000',
+    shadowOpacity: p.shadow ? 0.12 : 0.4,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 8,
+  };
 }
 
 export function accentGlow(p: Palette, strength = 0.28) {

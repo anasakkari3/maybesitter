@@ -30,6 +30,57 @@ describe('design tokens are tied to the export', () => {
     }
   });
 
+  // Round 2 declares its colours as custom properties, so every role can be
+  // checked against the export rather than transcribed by eye. Three values
+  // were missed exactly that way when this round was imported: the bar alpha
+  // in both schemes, and the dark scrim.
+  it('match the export on every colour role, in both schemes', () => {
+    const declared = (anchor: string): Record<string, string> => {
+      const html = read(join('design', 'R2App.dc.html'));
+      const found = new RegExp(`['"\`](${anchor}[^'"\`]*)['"\`]`).exec(html);
+      if (!found?.[1]) throw new Error(`the export no longer declares ${anchor}`);
+      return Object.fromEntries(
+        found[1]
+          .split(';')
+          .filter((pair) => pair.includes(':'))
+          .map((pair) => {
+            const at = pair.indexOf(':');
+            return [pair.slice(0, at).trim(), pair.slice(at + 1).trim()];
+          }),
+      );
+    };
+    // `rgba(26,32,35,.9)` and `rgba(26,32,35,0.90)` are the same colour.
+    const canon = (value: string) => {
+      const rgba = /^rgba?\(([^)]*)\)$/.exec(value.replace(/\s/g, ''));
+      if (!rgba?.[1]) return value.toUpperCase();
+      return `rgba(${rgba[1].split(',').map(Number).join(',')})`;
+    };
+    const roles: Record<keyof ColorRoles, string> = {
+      background: '--bg', surface: '--sf', surfaceAlt: '--sf2', surfaceBar: '--sfBar',
+      surfaceBarSolid: '--sfBarSolid', textPrimary: '--tx', textMuted: '--mu',
+      border: '--ln', borderStrong: '--lnStrong', brand: '--ac', brandContainer: '--acs',
+      brandPressed: '--acd', onBrand: '--onac', brandOnInk: '--acOnInk', underline: '--ul',
+      must: '--wm', mustContainer: '--wms', disabled: '--dis', onDisabled: '--disTx',
+      proposal: '--prop', ink: '--ink', onInk: '--onInk', overlay: '--scrim',
+      // `--hatch` is a repeating-linear-gradient in the export; React Native
+      // has no gradient, so the app carries the stripe colour out of it and
+      // draws the hatch itself. Compared below, not here.
+      hatch: '',
+    };
+    const anchors: Record<Scheme, string> = { light: '--bg:#F5F7F8', dark: '--bg:#101416' };
+    for (const scheme of ['light', 'dark'] as Scheme[]) {
+      const exported = declared(anchors[scheme]);
+      for (const [role, variable] of Object.entries(roles)) {
+        if (!variable) continue;
+        expect(`${scheme}.${role}=${canon(color[scheme][role as keyof ColorRoles])}`).toBe(
+          `${scheme}.${role}=${canon(exported[variable] ?? 'missing')}`,
+        );
+      }
+      const stripe = /rgba?\([^)]*\)/.exec(exported['--hatch'] ?? '')?.[0] ?? 'missing';
+      expect(`${scheme}.hatch=${canon(color[scheme].hatch)}`).toBe(`${scheme}.hatch=${canon(stripe)}`);
+    }
+  });
+
   it('use the values recorded in tokens.source.json', () => {
     expect(color.light.brand).toBe(source.palette.teal);
     expect(color.dark.brand).toBe(source.palette.tealDark);

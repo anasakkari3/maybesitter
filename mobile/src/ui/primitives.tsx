@@ -6,6 +6,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { family, LINE_HEIGHT, type Weight } from '../theme/fonts';
+import { MAX_TEXT_SCALE, useTextScale } from '../theme/textScale';
 import { cardShadow, type Palette } from '../theme/tokens';
 import { impColors, impLabel } from '../state/derive';
 import type { Imp } from '../state/types';
@@ -30,22 +31,30 @@ export function Txt({
   testID?: string;
 }) {
   const { rtl, script, p } = useApp();
+  const textScale = useTextScale();
   // `latin` is the AGENTS.md escape hatch: a digit or a Latin-only label in a
   // tight box, set in Outfit whatever the UI language is. Everything else is
   // set in the script of the language — which for Hebrew is a different face
   // from Arabic's, not a different direction.
   const runScript = latin ? 'latin' : script;
   const textAlign = align === 'center' ? 'center' : (align === 'start') === rtl ? 'right' : 'left';
+  // React Native scales `fontSize` for us but leaves `lineHeight` alone, so a
+  // fixed line box clips its own text the moment the reader enlarges it —
+  // worst in Arabic, whose face asks for 1.6 and whose glyphs are tall. The
+  // line box is therefore computed at the size the text will actually render
+  // at: the OS scale, held at the design's ceiling by maxFontSizeMultiplier.
+  const rendered = size * textScale;
   return (
     <Text
       numberOfLines={lines}
       selectable={selectable}
       testID={testID}
+      maxFontSizeMultiplier={MAX_TEXT_SCALE}
       style={[
         {
           fontFamily: family(weight, runScript),
           fontSize: size,
-          lineHeight: Math.round(size * (lh ?? LINE_HEIGHT[runScript])),
+          lineHeight: Math.round(rendered * (lh ?? LINE_HEIGHT[runScript])),
           color: color ?? p.tx,
           textAlign,
           writingDirection: rtl ? 'rtl' : 'ltr',

@@ -72,8 +72,14 @@ custom-property string per scheme (26 colour roles), a nine-step type ramp
 (`--f-display` … `--f-meta`, each `calc(Npx * var(--ts))`) and per-platform
 safe areas. `mobile/scripts/extract-design-tokens.mjs` reads them out.
 
-Every Round-1 colour survives Round 2 unchanged. Two things the app had to do
-on its own, the export now does itself:
+Round 2 restyles exactly three colours — the bar's alpha in both schemes
+(.86 → .88 light, .88 → .90 dark) and the dark scrim, which becomes a deeper
+neutral black (`rgba(10,14,16,.45)` → `rgba(0,0,0,.55)`). Every other colour
+carries over unchanged. `tokens.test.ts` now checks all twenty-three roles
+against this export in both schemes, so this is machine-checked rather than
+read off by eye.
+
+Two things the app had to do on its own, the export now does itself:
 
 - **dark on-accent** is `#101416`, the accessible value the app deviated to.
   There are no deviations left.

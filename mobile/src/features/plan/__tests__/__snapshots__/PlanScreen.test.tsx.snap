@@ -96,6 +96,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
             }
           >
             <Text
+              maxFontSizeMultiplier={1.45}
               style={
                 [
                   {
@@ -114,6 +115,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
             </Text>
           </View>
           <Text
+            maxFontSizeMultiplier={1.45}
             style={
               [
                 {
@@ -139,6 +141,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
           }
         >
           <Text
+            maxFontSizeMultiplier={1.45}
             style={
               [
                 {
@@ -182,6 +185,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
             testID="plan-why"
           >
             <Text
+              maxFontSizeMultiplier={1.45}
               style={
                 [
                   {
@@ -199,6 +203,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
               ليش هيك رتّبناها
             </Text>
             <Text
+              maxFontSizeMultiplier={1.45}
               style={
                 [
                   {
@@ -217,6 +222,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
             </Text>
           </View>
           <Text
+            maxFontSizeMultiplier={1.45}
             style={
               [
                 {
@@ -315,6 +321,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                 testID="plan-open-plan_fixture_0"
               >
                 <Text
+                  maxFontSizeMultiplier={1.45}
                   style={
                     [
                       {
@@ -333,6 +340,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                   12:00
                 </Text>
                 <Text
+                  maxFontSizeMultiplier={1.45}
                   style={
                     [
                       {
@@ -424,6 +432,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                 testID="plan-open-plan_fixture_1"
               >
                 <Text
+                  maxFontSizeMultiplier={1.45}
                   style={
                     [
                       {
@@ -442,6 +451,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                   12:00
                 </Text>
                 <Text
+                  maxFontSizeMultiplier={1.45}
                   style={
                     [
                       {
@@ -533,6 +543,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                 testID="plan-open-plan_fixture_2"
               >
                 <Text
+                  maxFontSizeMultiplier={1.45}
                   style={
                     [
                       {
@@ -551,6 +562,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                   12:00
                 </Text>
                 <Text
+                  maxFontSizeMultiplier={1.45}
                   style={
                     [
                       {
@@ -632,6 +644,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
               testID="plan-accept"
             >
               <Text
+                maxFontSizeMultiplier={1.45}
                 style={
                   [
                     {
@@ -712,6 +725,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                 testID="plan-regenerate"
               >
                 <Text
+                  maxFontSizeMultiplier={1.45}
                   style={
                     [
                       {
@@ -784,6 +798,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                 testID="plan-dismiss"
               >
                 <Text
+                  maxFontSizeMultiplier={1.45}
                   style={
                     [
                       {
@@ -803,6 +818,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
               </View>
             </View>
             <Text
+              maxFontSizeMultiplier={1.45}
               style={
                 [
                   {

@@ -72,10 +72,20 @@ which live outside that union.
 
 ## 3. Tokens
 
-**Every Round-1 colour survives Round 2 byte for byte.** The retheme is
-additive, not a break. Round 2's real change is that the values are
+**Round 2 restyles three colours and carries the rest over unchanged.** The
+retheme is very nearly additive. Round 2's other change is that the values are
 *declared* — Round 1 had no `:root` and no custom properties, so
 `tokens.source.json` had to be built by counting literals.
+
+| Token | Round 1 | Round 2 |
+|---|---|---|
+| `color.light.surfaceBar` | `rgba(255,255,255,.86)` | `rgba(255,255,255,.88)` |
+| `color.dark.surfaceBar` | `rgba(26,32,35,.88)` | `rgba(26,32,35,.90)` |
+| `color.dark.overlay` | `rgba(10,14,16,.45)` | `rgba(0,0,0,.55)` — deeper, and the blue taken out |
+
+All three were missed on the first read of this export and caught by the test
+described below, which compares every role against the export rather than
+trusting a transcription.
 
 Two things the app had already done on its own, the export now does itself:
 
@@ -143,11 +153,17 @@ Ordered so each step is independently shippable and independently verifiable.
    declared custom properties instead of counting literals, deviation closed.
    `mobile/src/design/__tests__/tokens.test.ts` green, and each of its three
    guards proven to fail when broken.
-2. **Additive tokens** — add the ten new roles and the Round-2 ramp to
-   `theme/tokens.ts` alongside the legacy names. No screen changes, so no
-   screen tests move.
-3. **`--ts` text scaling** — wire the multiplier and the `xl` tab-bar
-   behaviour. Standalone, and it fixes a live accessibility defect.
+2. **Additive tokens** — *done.* The ten new roles and the Round-2 ramp
+   (`typeScaleR2`) sit in `theme/tokens.ts` alongside the legacy names, with
+   `Palette` carrying the export's own short names so a migrating screen reads
+   the same token in both places. No screen changed. Three colours Round 2
+   actually restyles were adopted, and `tokens.test.ts` now checks all
+   twenty-three roles against the export in both schemes rather than trusting
+   a transcription — which is how those three were found.
+3. **`--ts` text scaling** — *done.* `src/theme/textScale.ts` holds the ramp;
+   `Txt` caps the platform at 1.45× and computes its line box from the size
+   the text actually renders at; the tab bar goes icons-only at the `xl` step
+   and keeps every accessible name. See §6.
 4. **The shell** — `Root.tsx` from `switch` to three tabs with stacks, capture
    as a centre button. This is the one step that touches every screen's entry
    point; the unbuilt screens keep their current UI and simply become stack
@@ -159,4 +175,56 @@ Ordered so each step is independently shippable and independently verifiable.
    fine, they are leaf screens and the shell hides the seam — or Round 3
    covers them.
 
-Nothing in `mobile/src` has been changed yet beyond step 1.
+`Root.tsx` (step 4) has not been touched.
+
+---
+
+## 6. What steps 2 and 3 actually changed
+
+### The defect step 3 fixes
+
+`Txt` set a fixed `fontSize` and left React Native's `allowFontScaling` at its
+default of **true**. Nothing in the app read the font scale, so:
+
+- the OS enlarged every label without a ceiling, while the floating tab bar
+  kept a 56-pt capture button and 8-pt padding, and the row broke; and
+- `lineHeight` is *not* scaled by React Native, so every enlarged string was
+  drawn into its original line box. That clips worst in Arabic, whose face
+  asks for 1.6 and whose glyphs are tall — the app's primary language.
+
+There was no icons-only path to repair: it did not exist. Step 3 adds one.
+
+### Where this deliberately departs from the export
+
+The export's `textSize` is a three-option picker, so its scale is exactly one
+of `1 / 1.2 / 1.45`. Snapping a real reader to the nearest step would *shrink*
+text for anyone between two of them — someone at 1.35× would be served 1.2×.
+The app therefore keeps the platform's continuous scaling and takes two things
+from Round 2 instead:
+
+- `MAX_TEXT_SCALE` (1.45) as the ceiling, applied with `maxFontSizeMultiplier`,
+  which is what keeps the geometry inside the design's bounds; and
+- `textStepFor`, the discrete step, for layout decisions — thresholds at the
+  midpoints, 1.1 and 1.325.
+
+A reader at 1.35× gets text at 1.35× **and** the `xl` layout.
+
+### Dropping a label is not dropping a name
+
+At `xl` the four painted labels come off, exactly as the export specifies
+(`tabLabels = textSize === 'xl'`). Every button keeps its `accessibilityLabel`,
+so VoiceOver and TalkBack announce the same four tabs at every size, and a test
+asserts the set is identical at 1× and at 1.45×.
+
+**One consequence to know about:** a device flow that finds a tab by its
+visible text will not find it for a reader at 1.325× or above. Maestro flows
+and any future UI automation should match `testID` or the accessible name, not
+the painted label.
+
+### A test-environment lie, now fixed
+
+React Native's own Dimensions mock reports `fontScale: 2`. That never mattered
+while nothing read it; the moment step 3 landed, every test silently rendered
+the largest layout and eighteen of them failed. `jest.setup.js` now reports 1,
+so a test about anything else sees an ordinary phone, and the tests that *are*
+about text size mock the module themselves.
