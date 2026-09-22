@@ -34,7 +34,7 @@ import {
   userCol,
   userDoc,
 } from '../../lib/storage/paths.ts';
-import { getHabitStore, setHabitStoreForTests } from '../../lib/habits/habitStore.ts';
+import { createStorageHabitStore } from '../../lib/habits/habitStore.ts';
 import {
   resetStorageForTests,
   setStorageForTests,
@@ -99,8 +99,6 @@ test('generating a graph leaves every collection in the account exactly as it wa
 test('generate writes no Commitment and no Habit, named collection by collection', async (t) => {
   t.after(resetStorageForTests);
   const { storage, goal } = await installedGoal();
-  // A clean habit store, so "empty afterwards" is a fact about this run.
-  setHabitStoreForTests(null);
 
   await generateGoalExecutionGraph({ goal, generatedAt: NOW });
 
@@ -114,12 +112,11 @@ test('generate writes no Commitment and no Habit, named collection by collection
       `generate wrote into ${collection}`,
     );
   }
-  // Habits do not live on the storage adapter in this build — the API lane's
-  // store is in-process (`InMemoryHabitStore`), so a habit written by
-  // generation would be invisible to the tree comparison above. Asked of the
-  // store itself for exactly that reason.
-  assert.deepEqual(await getHabitStore().list(OWNER), []);
-  setHabitStoreForTests(null);
+  // Habits now live on the same storage adapter as everything else (#520's
+  // reconciliation), so the whole-tree comparison above already covers them —
+  // asked of the store directly too, so a reader sees the criterion named
+  // rather than only inferred from the tree diff.
+  assert.deepEqual(await createStorageHabitStore(storage).list(OWNER), []);
 });
 
 test('the service path writes nothing either, including the goal it just read', async (t) => {
