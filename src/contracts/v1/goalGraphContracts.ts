@@ -304,3 +304,160 @@ export const GOAL_GRAPH_GENERATION_POLICY = Object.freeze({
   /** A graph node never reaches `schedulePlan`; only materialized work does. */
   reachesScheduler: false,
 } as const);
+
+/* ── Confirmation and progress (#526, slice 2) ──────────────────── */
+
+/**
+ * What one confirmed node became.
+ *
+ * The whole of what slice 2 persists. Not the graph — the nodes and edges are
+ * still recomputed from the goal's sentence every time, because a proposal
+ * nobody accepted is worth nothing the next morning. What is worth keeping is
+ * the decision: this user, on this node, said yes, and this is the id of the
+ * thing that answer created.
+ *
+ * `entityId` is the Commitment id or the Habit id, and there is deliberately
+ * no copy of the entity beside it — no title, no status, no due date. Progress
+ * is read from the canonical entity through this pointer, which is what makes
+ * "linked Commitment completion changes derived progress automatically" true
+ * by construction instead of by a sync job.
+ *
+ * `state` exists because creating the canonical entity is not atomic with
+ * claiming the link. `pending` is the window between the two; see
+ * `confirmGoalGraphNodes`, which is the only writer of either value.
+ */
+export interface GoalNodeLink {
+  readonly schemaVersion: typeof GOAL_GRAPH_LINK_SCHEMA_VERSION;
+  readonly linkId: string;
+  readonly scopeId: string;
+  readonly goalMemoryId: string;
+  /** The `nodeId` in the graph this link answers for. */
+  readonly nodeId: string;
+  readonly entityKind: GoalLinkEntityKind;
+  /** Null only while `state` is `pending`. */
+  readonly entityId: string | null;
+  readonly state: 'pending' | 'linked';
+  readonly confirmedByUserAt: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export const GOAL_GRAPH_LINK_SCHEMA_VERSION = 1 as const;
+
+export type GoalLinkEntityKind = 'commitment' | 'habit';
+
+/**
+ * The node kinds a user may turn into canonical work.
+ *
+ * A `checkpoint` is not among them, and that is a rule rather than an
+ * oversight: the checkpoint *is* the goal, so materializing it would create a
+ * commitment that duplicates the goal record and a second place for the same
+ * sentence to be edited. The linked kinds are excluded because a node that is
+ * already a link has nothing left to create.
+ */
+export const CONFIRMABLE_GOAL_NODE_KINDS: readonly GoalNodeKind[] = Object.freeze([
+  'milestone_proposal',
+  'decomposition_step_proposal',
+]);
+
+/**
+ * One node the user picked, and what they picked it to be.
+ *
+ * `as: 'habit'` carries the habit's own fields rather than defaulting them,
+ * and that is #520's invariant restated here: a habit is a standing claim on
+ * somebody's week, so the cadence and the duration must be things the person
+ * stated. Defaulting them from a goal sentence would be the product deciding
+ * how often somebody goes to the gym.
+ */
+export type GoalNodeSelection =
+  | { readonly nodeId: string; readonly as: 'commitment' }
+  | {
+    readonly nodeId: string;
+    readonly as: 'habit';
+    /** Validated by the habits API's own `parseNewHabit`; never trusted raw. */
+    readonly habit: Record<string, unknown>;
+  };
+
+/** Why one selected node produced nothing. */
+export type GoalConfirmationRefusalCode =
+  | 'unknown_node'
+  | 'node_not_confirmable'
+  | 'habit_input_invalid';
+
+export interface GoalConfirmationRefusal {
+  readonly nodeId: string;
+  readonly code: GoalConfirmationRefusalCode;
+  readonly detail: string;
+}
+
+export interface GoalConfirmationResult {
+  /**
+   * The graph with every linked node replaced in place. The `nodeId` is
+   * unchanged, so every edge that pointed at the proposal still points at the
+   * link — and the title is gone, because after confirmation the title lives
+   * on the Commitment and a second copy would be the one that went stale.
+   */
+  readonly graph: GoalExecutionGraph;
+  /** Links this call created. Empty on a replay. */
+  readonly created: readonly GoalNodeLink[];
+  /** Links that already existed, handed back rather than created again. */
+  readonly replayed: readonly GoalNodeLink[];
+  readonly refused: readonly GoalConfirmationRefusal[];
+}
+
+/**
+ * Progress, derived and never stored.
+ *
+ * #526's rule is "do not let the model set 73% complete", and the shape here
+ * is the structural half of that: there is no percentage field, no score, and
+ * nothing a writer could put a number into. Every value below is counted from
+ * the canonical entities the links point at, at the moment of the read, by a
+ * function that performs no write at all.
+ *
+ * Counts rather than a fraction because the issue's own examples are counts —
+ * "3 of 5", "2 of 3 commitments", "occurrences achieved this period" — and
+ * because a single number is the field a model would eventually be asked to
+ * fill in.
+ */
+export interface GoalGraphProgress {
+  readonly scopeId: string;
+  readonly goalMemoryId: string;
+  /** How many nodes the user has confirmed into canonical work. */
+  readonly confirmedCount: number;
+  /** How many of those the canonical entity says are done. */
+  readonly completedCount: number;
+  readonly nodes: readonly GoalNodeProgress[];
+  /** The caller's instant. Nothing here reads a clock. */
+  readonly derivedAt: string;
+}
+
+/**
+ * `missing` is a real state, not an error: a user may delete a Commitment that
+ * a goal node points at, and #526 says unlinking must not destroy canonical
+ * work — the converse is that destroying canonical work must not corrupt the
+ * graph. A missing entity counts as not completed and says so.
+ */
+export type GoalNodeProgress =
+  | {
+    readonly nodeId: string;
+    readonly entityKind: 'commitment';
+    readonly entityId: string;
+    readonly status: string | 'missing';
+    readonly completed: boolean;
+  }
+  | {
+    readonly nodeId: string;
+    readonly entityKind: 'habit';
+    readonly entityId: string;
+    /** Occurrences marked completed inside the period the caller asked about. */
+    readonly completedOccurrences: number;
+    /** The habit's own `minimumOccurrences`, or 0 when the habit is gone. */
+    readonly targetOccurrences: number;
+    readonly completed: boolean;
+  };
+
+/** The window "this period" means, as civil dates. Supplied, never guessed. */
+export interface GoalProgressPeriod {
+  readonly fromLocalDate: string;
+  readonly toLocalDate: string;
+}

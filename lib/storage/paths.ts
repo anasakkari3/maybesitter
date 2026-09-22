@@ -374,12 +374,36 @@ export const PLANNING_STATE_CHANGES = 'planningStateChanges';
  */
 export const INTENT_SEEDS = 'intentSeeds';
 
+/**
+ * What a user confirmed out of a goal's execution graph (#526).
+ *
+ * `users/{uid}/goalGraphLinks/{linkId}`, one document per confirmed node,
+ * holding which node of which goal produced which Commitment or Habit — and
+ * nothing else. It is not the graph: the nodes, the edges and the proposals
+ * are still recomputed from the goal's own sentence on every request, because
+ * a proposal nobody accepted is not worth keeping. What is worth keeping is
+ * the decision.
+ *
+ * The document id is `docIdForKey` of the goal and node ids, which is what
+ * makes confirming twice write one link rather than two — the same mechanism
+ * `intentSeeds` uses, and for the same reason: a double tap must not produce a
+ * second commitment in somebody's week.
+ *
+ * Deleting a link removes the link. It does not remove the Commitment or the
+ * Habit it names, which live in their own collections and are the user's own
+ * work; #526 says unlinking may not destroy canonical work unless the user
+ * asks for that separately, and keeping the two in different documents is how
+ * that is true rather than remembered.
+ */
+export const GOAL_GRAPH_LINKS = 'goalGraphLinks';
+
 export const USER_SCOPED_COLLECTIONS = [
   PROVIDER_CONNECTIONS,
   PROVIDER_CREDENTIALS,
   PROVIDER_OAUTH_STATES,
   COMMITMENTS,
   INTENT_SEEDS,
+  GOAL_GRAPH_LINKS,
   REMINDERS,
   ESCALATION_STATES,
   EVENTS,
