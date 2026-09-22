@@ -118,7 +118,15 @@ test('every mobile route file exists and is enumerated', () => {
   // Sixty after #527: `GET|PATCH /api/mobile/settings/monitoring`. It reads
   // and writes the global background monitoring pause control, which silences
   // effects across all watchers for the account.
-  assert.equal(files.length, 60, `found:\n${files.join('\n')}`);
+  // Sixty-four after #520: the four `/api/mobile/habits` routes — `GET|POST
+  // /habits`, `PATCH|DELETE /habits/{id}`, and `POST /habits/{id}/occurrences/
+  // {occurrenceId}/complete` and `.../skip`. The two occurrence routes are the
+  // reason the census matters here: each takes a decision about one dated piece
+  // of somebody's week, and an unauthenticated caller reaching either would be
+  // able to mark another person's habits done — which is both a write to their
+  // record and, from the 404-vs-200 difference alone, a read of which habit and
+  // occurrence ids are real.
+  assert.equal(files.length, 64, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {
