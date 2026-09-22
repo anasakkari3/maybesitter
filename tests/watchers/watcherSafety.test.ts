@@ -228,6 +228,7 @@ test('no watcher module can reach the planner, the domain state machine or a com
     '../userState/userStateService',
     './watcherStore',
     './signals',
+    './monitoringSettings',
   ];
 
   for (const { file, text } of watcherSources()) {

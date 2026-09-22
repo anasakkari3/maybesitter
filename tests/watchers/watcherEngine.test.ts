@@ -48,6 +48,7 @@ import {
   type WatcherSourceRef,
 } from '../../src/contracts/v1/watcherContracts.ts';
 import { createWatcherStore, type NewWatcherInput, type StoredWatcher } from '../../lib/watchers/watcherStore.ts';
+import { saveMonitoringSettings } from '../../lib/watchers/monitoringSettings.ts';
 import { runWatcherSweep, type WatcherSweepTotals } from '../../lib/watchers/watcherEngine.ts';
 import {
   createWatcherSignalRegistry,
@@ -480,6 +481,111 @@ test('a disabled watcher performs zero effects, including when it is disabled mi
     assert.equal(raced.fired, 0, 'a pause that landed mid-sweep still cost an effect');
     assert.equal((await events(ALICE)).length, 1, 'a second event was written after the watcher was disabled');
     assert.equal((await docsIn(ALICE, WATCHER_NOTIFICATIONS)).length, 1);
+  } finally {
+    end();
+  }
+});
+
+test('account-level background monitoring pause suppresses effects without suppressing observation, resumes without replay, and composes with per-watcher pause', async () => {
+  begin();
+  try {
+    await storage.set(userDoc(ALICE), { uid: ALICE, createdAt: T0.toISOString() });
+    const flightSource: WatcherSourceRef = { provider: 'aviation', connectionId: null, signalKind: FLIGHT_SIGNAL_KIND, subjectRef: 'flt_global_pause_test' };
+    flightVendorState.set(flightSource.subjectRef, {
+      estimated_out: '2026-09-20T14:10:00.000Z', dep_delayed: 0, raw_vendor_body: '{}',
+    });
+
+    const watcher = await add(ALICE, {
+      enabled: true, source: flightSource, condition: { kind: 'digest_changed' }, effect: 'notify', createdBy: 'user',
+    });
+
+    // Prime the watcher at T0
+    await sweep(T0);
+    const primed = (await createWatcherStore(ALICE, storage).get(watcher.definition.watcherId))!;
+    assert.equal(primed.runtime.status, 'active');
+    assert.equal(primed.runtime.fireCount, 0);
+
+    // Pause monitoring globally for Alice's account
+    await saveMonitoringSettings(ALICE, true, T0.toISOString(), { storage });
+
+    // Flight delays by 90 minutes
+    flightVendorState.set(flightSource.subjectRef, {
+      estimated_out: '2026-09-20T15:40:00.000Z', dep_delayed: 90, raw_vendor_body: '{}',
+    });
+
+    // Run sweep while globally paused
+    const pausedSweep = await sweep(T1);
+
+    // Verification 1: Suppression of effects without suppressing observation
+    assert.equal(pausedSweep.fired, 0, 'no effect fired while globally paused');
+    assert.equal(pausedSweep.paused, 1, 'sweep reported watcher as paused');
+    assert.equal(pausedSweep.evaluated, 1, 'observation ran and condition was evaluated');
+    assert.deepEqual(await events(ALICE), [], 'no fire event was written while globally paused');
+    assert.deepEqual(await docsIn(ALICE, WATCHER_NOTIFICATIONS), [], 'no notification was created while globally paused');
+
+    // Watcher runtime state was updated by observation and baseline was absorbed:
+    const afterPaused = (await createWatcherStore(ALICE, storage).get(watcher.definition.watcherId))!;
+    assert.equal(afterPaused.runtime.status, 'active', 'watcher definition is still active');
+    assert.equal(afterPaused.runtime.lastObservedAt, T1.toISOString(), 'observation ran and recorded lastObservedAt');
+    assert.ok(afterPaused.runtime.lastDigest !== null, 'baseline digest was absorbed');
+    assert.equal(afterPaused.runtime.fireCount, 0, 'fireCount was not incremented');
+    assert.equal(afterPaused.runtime.lastFiredAt, null, 'lastFiredAt was not set');
+
+    // Verification 2: Resuming / Unpausing without replay
+    // Re-running sweep with same state while still paused does nothing
+    const secondPausedSweep = await sweep(T2);
+    assert.equal(secondPausedSweep.fired, 0);
+
+    // Unpause monitoring
+    await saveMonitoringSettings(ALICE, false, T2.toISOString(), { storage });
+
+    // Sweep at T3 without new state change: should NOT replay what happened while paused!
+    const unpausedNoChangeSweep = await sweep(T3);
+    assert.equal(unpausedNoChangeSweep.fired, 0, 'unpausing does not replay state absorbed while paused');
+    assert.deepEqual(await events(ALICE), []);
+    assert.deepEqual(await docsIn(ALICE, WATCHER_NOTIFICATIONS), []);
+
+    // New change arrives after unpausing: flight delays to 180 min
+    flightVendorState.set(flightSource.subjectRef, {
+      estimated_out: '2026-09-20T17:10:00.000Z', dep_delayed: 180, raw_vendor_body: '{}',
+    });
+    const unpausedNewChangeSweep = await sweep(new Date('2026-09-20T09:04:00.000Z'));
+    assert.equal(unpausedNewChangeSweep.fired, 1, 'new change after unpausing fires normally');
+    assert.equal((await events(ALICE)).length, 1);
+    assert.equal((await docsIn(ALICE, WATCHER_NOTIFICATIONS)).length, 1);
+
+    // Verification 3: Mid-sweep race (monitoring paused between observer evaluation and transaction commit)
+    flightVendorState.set(flightSource.subjectRef, {
+      estimated_out: '2026-09-20T19:10:00.000Z', dep_delayed: 300, raw_vendor_body: '{}',
+    });
+    storage.setBeforeCommitHookForTests(async ({ attempt }) => {
+      if (attempt !== 1) return;
+      const user = (await storage.get<Record<string, unknown>>(userDoc(ALICE))) ?? { uid: ALICE };
+      await storage.set(userDoc(ALICE), {
+        ...user,
+        monitoringSettings: { paused: true, updatedAt: new Date().toISOString() },
+        monitoringPaused: true,
+      });
+    });
+    const raced = await sweep(new Date('2026-09-20T09:05:00.000Z'));
+    storage.setBeforeCommitHookForTests(null);
+    assert.equal(raced.fired, 0, 'a global pause that landed mid-sweep costs zero effects');
+    assert.equal((await events(ALICE)).length, 1, 'no new event was written');
+
+    // Verification 4: Composition with per-watcher pause
+    // Add Bob with enabled: false (per-watcher disabled), while Alice is still globally paused
+    await storage.set(userDoc(BOB), { uid: BOB, createdAt: T0.toISOString() });
+    const bobWatcher = await add(BOB, {
+      enabled: false, source: flightSource, condition: { kind: 'digest_changed' }, effect: 'notify', createdBy: 'user',
+    });
+    // Flight delays again so Alice's watcher condition triggers while globally paused
+    flightVendorState.set(flightSource.subjectRef, {
+      estimated_out: '2026-09-20T21:10:00.000Z', dep_delayed: 400, raw_vendor_body: '{}',
+    });
+    const compSweep = await sweep(new Date('2026-09-20T09:06:00.000Z'));
+    assert.equal(compSweep.fired, 0);
+    // Both Alice (globally paused on firing) and Bob (per-watcher disabled) counted as paused
+    assert.equal(compSweep.paused, 2);
   } finally {
     end();
   }
