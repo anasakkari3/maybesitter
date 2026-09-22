@@ -374,12 +374,29 @@ export const PLANNING_STATE_CHANGES = 'planningStateChanges';
  */
 export const INTENT_SEEDS = 'intentSeeds';
 
+/**
+ * Recurring demand on future time the user confirmed (#520).
+ *
+ * `users/{uid}/habits/{habitId}`, holding the rule only — "gym three times a
+ * week" — and never the dates it implies. Occurrences are materialized over a
+ * bounded horizon on demand, so there is no collection here that a long-lived
+ * habit could grow without limit, which is the storage half of "a Habit never
+ * becomes an infinite set of Commitments".
+ *
+ * Not `commitments`: a commitment is one thing at one time that the user
+ * entered; a habit is a standing claim on the week that something else has to
+ * find room for. And not the routine profile, which describes the person and
+ * asks for nothing.
+ */
+export const HABITS = 'habits';
+
 export const USER_SCOPED_COLLECTIONS = [
   PROVIDER_CONNECTIONS,
   PROVIDER_CREDENTIALS,
   PROVIDER_OAUTH_STATES,
   COMMITMENTS,
   INTENT_SEEDS,
+  HABITS,
   REMINDERS,
   ESCALATION_STATES,
   EVENTS,

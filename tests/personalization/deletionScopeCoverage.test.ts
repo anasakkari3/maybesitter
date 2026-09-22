@@ -93,6 +93,13 @@ const KEPT_BECAUSE: Record<string, string> = {
     + 'write. "Forget what you inferred about me" must not silently delete the maybes somebody '
     + 'deliberately kept, any more than it deletes their commitments; the way to remove one is '
     + 'the Dismiss beside it, and account deletion takes the whole tree.',
+  habits:
+    'a rule the user confirmed about their own week (#520) — "gym three times a week", with the '
+    + 'cadence and the duration they accepted by hand. It is their own content in the same sense a '
+    + 'commitment is, not a belief the product formed about them: nothing here is derived, there is '
+    + 'no confidence and no score, and it exists at all only because somebody pressed a confirm. '
+    + '"Forget what you inferred about me" must not empty somebody’s week; pausing or deleting one '
+    + 'is the control beside it, and account deletion takes the whole tree.',
   reminders: 'scheduling for the user’s own content',
   escalationStates: 'live delivery state for a commitment that still exists',
   events: 'the domain log the user’s content is replayed from',
