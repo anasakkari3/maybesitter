@@ -100,6 +100,15 @@ const KEPT_BECAUSE: Record<string, string> = {
     + 'no confidence and no score, and it exists at all only because somebody pressed a confirm. '
     + '"Forget what you inferred about me" must not empty somebody’s week; pausing or deleting one '
     + 'is the control beside it, and account deletion takes the whole tree.',
+  habitOccurrences:
+    'the dates a kept `habits` rule has been materialized onto, and what the person answered about '
+    + 'each one (#520). Kept for the reason the rule is, twice over: the pending rows are that same '
+    + 'confirmed rule expressed as a week, so purging them would empty somebody’s calendar while '
+    + 'leaving the habit that claims to fill it; and the `completed` and `skipped` rows are the '
+    + 'person’s own answers about their own days, which is the `stats` ruling exactly — this button '
+    + 'forgets what was inferred about someone, never what they did. Nothing here is derived: there '
+    + 'is no score, no streak and no confidence, only a date, a state and a duration. Deleting the '
+    + 'habit takes its dates with it, and account deletion takes the whole tree.',
   reminders: 'scheduling for the user’s own content',
   escalationStates: 'live delivery state for a commitment that still exists',
   events: 'the domain log the user’s content is replayed from',

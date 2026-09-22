@@ -390,6 +390,29 @@ export const INTENT_SEEDS = 'intentSeeds';
  */
 export const HABITS = 'habits';
 
+/**
+ * The dates a habit's rule has actually been materialized onto (#520).
+ *
+ * `users/{uid}/habitOccurrences/{occurrenceId}`, where the document id *is*
+ * `materialize.ts`'s deterministic `{habitId}.{localDate}.{ordinal}`. That is
+ * the whole reason this collection can exist without contradicting the note on
+ * `HABITS` above: re-running materialization addresses the rows it already
+ * wrote instead of appending beside them, so the collection is a function of
+ * the habit and the horizon rather than of how many times the job has run.
+ *
+ * It is a collection rather than an array on the habit for two reasons the
+ * domain lane's own design forces. A row carries state the *person* set —
+ * `completed`, `skipped` — so it must survive an edit to the rule that
+ * produced it, which a regenerated array cannot promise. And the planner reads
+ * a date range across every habit at once, which is a collection query and not
+ * a fan-out over habit documents.
+ *
+ * Bounded by `HABIT_HORIZON_MAX_DAYS` on the way in and pruned by
+ * `withdrawn` on the way out; `deleteHabitOccurrences` takes the rest when the
+ * habit goes.
+ */
+export const HABIT_OCCURRENCES = 'habitOccurrences';
+
 export const USER_SCOPED_COLLECTIONS = [
   PROVIDER_CONNECTIONS,
   PROVIDER_CREDENTIALS,
@@ -397,6 +420,7 @@ export const USER_SCOPED_COLLECTIONS = [
   COMMITMENTS,
   INTENT_SEEDS,
   HABITS,
+  HABIT_OCCURRENCES,
   REMINDERS,
   ESCALATION_STATES,
   EVENTS,
