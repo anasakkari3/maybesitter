@@ -6,6 +6,7 @@ import { dayKey, formatDate, formatRelativeDay, formatTime } from '../i18n/forma
 import { ltr, type Lang } from '../i18n/strings';
 import { useCategoryPreferences, useCommitmentAction, useNextStep, usePlan, useToday, useUpcoming } from '../api/queries';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
+import { ForbiddenError } from '../api/errors';
 import { groupForToday, toViewModel, type CommitmentView, type TodayGroups } from '../features/commitments/model';
 import { CategoryBar } from '../features/commitments/CategoryBar';
 import { categoryChipsFor, filterByCategory, type CategoryChip } from '../features/commitments/categoryFilter';
@@ -104,10 +105,13 @@ export function TodayScreen() {
       silenced: next.data?.exposure?.allowed === false,
       isPending: next.isPending,
       isError: next.isError,
+      // A 403 is the route answering, not failing: recommendations are off
+      // until the account turns them on, and every account starts that way.
+      unavailable: next.error instanceof ForbiddenError,
     },
     plan: { plan: plan.data, isPending: plan.isPending, isError: plan.isError },
     upcoming: upcomingViews,
-  }), [groups, next.data, next.isPending, next.isError, plan.data, plan.isPending, plan.isError, upcomingViews]);
+  }), [groups, next.data, next.isPending, next.isError, next.error, plan.data, plan.isPending, plan.isError, upcomingViews]);
 
   const byId = useMemo(() => {
     const all = [...groups.must, ...groups.should, ...groups.nice, ...groups.finished];

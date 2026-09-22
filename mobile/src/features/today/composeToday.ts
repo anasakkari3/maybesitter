@@ -68,6 +68,17 @@ export interface NextStepInput {
   silenced: boolean;
   isPending: boolean;
   isError: boolean;
+  /**
+   * The route *refused* rather than failed — a 403, whose `reason` is
+   * `consent_required`, `feature_disabled` or `quiet_mode`.
+   *
+   * That is an answer: there is no recommendation for this account, as
+   * definitely as `state: 'empty'`. It is separated from `isError` because
+   * recommendations are off by default, so treating the refusal as "we do not
+   * know yet" stopped Today ever calling a day empty again (found on device
+   * against the real backend, 2026-09-22).
+   */
+  unavailable?: boolean;
 }
 
 export interface PlanInput {
@@ -160,7 +171,10 @@ export function composeToday(input: {
   // Pending or failed is *not* an answer. Saying «empty» while a source is
   // still talking is the false empty state itself, and on failure the empty
   // branch would hide the very row that reports it.
-  const stillAsking = next.isPending || next.isError || plan.isPending || plan.isError;
+  const stillAsking = next.isPending
+    || (next.isError && !next.unavailable)
+    || plan.isPending
+    || plan.isError;
 
   return {
     primary,

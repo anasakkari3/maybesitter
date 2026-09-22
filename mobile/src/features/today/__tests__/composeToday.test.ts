@@ -159,3 +159,42 @@ describe('the day is empty only when every source has answered with nothing', ()
     }
   });
 });
+
+/**
+ * F5's own regression, found by running the app against the real backend
+ * (2026-09-22).
+ *
+ * `/recommendations/next-step` answers **403 `consent_required`** for anybody
+ * who has not turned recommendations on — which is every account by default.
+ * The app maps that to `isError`, and treating an error as "we do not know
+ * yet" meant Today could never call a day empty again: a signed-in user with
+ * nothing on their day got a bare «ما في إشي» count line instead of the empty
+ * state. Jest could not see it; the first real account did, immediately.
+ *
+ * A 403 is an answer. It says there is no recommendation for this account, as
+ * definitely as `state: 'empty'` does. Only *not having answered* — still in
+ * flight, or a failure that might not have happened — may hold the empty
+ * state back.
+ */
+describe('a refusal is an answer, a failure is not', () => {
+  const empty = groups({});
+
+  it('is still empty when the recommendation route refuses by policy', () => {
+    const m = composeToday({ groups: empty, next: next({ isError: true, unavailable: true }), plan: plan(), upcoming: [] });
+    expect(m.primary).toEqual({ kind: 'none' });
+    expect(m.isEmpty).toBe(true);
+  });
+
+  it('is not empty when the recommendation route actually failed', () => {
+    expect(composeToday({ groups: empty, next: next({ isError: true }), plan: plan(), upcoming: [] }).isEmpty).toBe(false);
+  });
+
+  it('still holds back while the refusal has not arrived yet', () => {
+    expect(composeToday({ groups: empty, next: next({ isPending: true, unavailable: true }), plan: plan(), upcoming: [] }).isEmpty).toBe(false);
+  });
+
+  it('a refusal does not change what is drawn: there is still no card to show', () => {
+    const m = composeToday({ groups: groups({ must: [item('a', 'must')] }), next: next({ isError: true, unavailable: true }), plan: plan(), upcoming: [] });
+    expect(m.primary).toMatchObject({ kind: 'fallback', item: { id: 'a' } });
+  });
+});
