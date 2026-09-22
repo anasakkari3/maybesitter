@@ -146,7 +146,16 @@ test('every mobile route file exists and is enumerated', () => {
   // one account has had taken for it — the causal history of somebody's
   // autonomous work in one response, and a read that must know whose it is
   // before it returns a row.
-  assert.equal(files.length, 69, `found:\n${files.join('\n')}`);
+  // Seventy after #526's read slice: `GET /api/mobile/goals/{goalId}/
+  // execution`. It is the route a goal screen opens with, and it answers with
+  // both the goal's own sentence, split into titled steps, and a count of
+  // which of the Commitments and Habits behind it are done — somebody's
+  // ambition and how far they have got with it, in one response. It writes
+  // nothing, which is exactly what makes the guard the whole of its
+  // protection: an unauthenticated caller reaching it would read that, and
+  // would learn from the 404-vs-200 difference alone whether a given memory
+  // id names a real goal.
+  assert.equal(files.length, 70, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {
