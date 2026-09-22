@@ -35,6 +35,9 @@ import { DeviceCalendarSyncHost } from './features/calendar/useDeviceCalendarSyn
 import { BusyCalendarHost } from './features/calendar/useBusyCalendar';
 import { CalendarFeedsScreen } from './features/calendarFeeds/CalendarFeedsScreen';
 import { AboutScreen } from './features/settings/AboutScreen';
+import { LangAppearanceScreen } from './features/settings/LangAppearanceScreen';
+import { AccountScreen } from './features/settings/AccountScreen';
+import { SourcesScreen } from './features/settings/SourcesScreen';
 import { WidgetSettingsScreen } from './features/widget/WidgetSettingsScreen';
 import { WidgetSnapshotHost } from './features/widget/useWidgetSnapshotSync';
 import { googleCalendarDemoEnabled, icsFeedsEnabled } from './config/env';
@@ -190,6 +193,9 @@ export function Root() {
             <WidgetSettingsScreen key="widgetSettings" onBack={() => latest.current.back()} />
           )}
           {s.screen === 'about' && <AboutScreen key="about" onBack={() => latest.current.back()} />}
+          {s.screen === 'langAppearance' && <LangAppearanceScreen key="langAppearance" onBack={() => latest.current.back()} />}
+          {s.screen === 'account' && <AccountScreen key="account" onBack={() => latest.current.back()} />}
+          {s.screen === 'sources' && <SourcesScreen key="sources" onBack={() => latest.current.back()} />}
           {s.screen === 'details' && <DetailsScreen key="details" />}
           {/* Today's plan (UC-3.10b, #195). Keyed by its date so a second link
               for another day remounts rather than re-using the first day's

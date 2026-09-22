@@ -58,7 +58,7 @@ export function AboutScreen({ onBack }: { onBack: () => void }) {
 
   return (
     <ScreenIn style={{ backgroundColor: p.bg }}>
-      <ScrollView contentContainerStyle={{ paddingTop: insets.top + 8, paddingHorizontal: 20, paddingBottom: 60, gap: 14 }}>
+      <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 60, gap: 14 }}>
         <SettingsHeader title={t.settingsAbout} onBack={onBack} />
         <Card pad={18} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
           <Txt size={15}>{t.aboutVersion}</Txt>

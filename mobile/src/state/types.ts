@@ -99,6 +99,12 @@ export type Screen =
   // Settings → Categories (#415). Which parts of life this account uses, and
   // whether the lists carry a filter bar.
   | 'categorySettings'
+  // Round 2 (Phase I): language and appearance as pickers rather than rows
+  // that cycle; the account as its own screen; and a "sources" hub for the
+  // things that can put commitments into a day on their own.
+  | 'langAppearance'
+  | 'account'
+  | 'sources'
   | 'about'
   // Today's plan (UC-3.10b, #195). Reached from the morning notification's
   // deep link and from Settings, and carrying its own date in `planDate`

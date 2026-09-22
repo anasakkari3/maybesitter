@@ -99,7 +99,7 @@ export function CategorySettingsScreen({ onBack }: { onBack: () => void }) {
   return (
     <ScreenIn style={{ backgroundColor: p.bg }}>
       <ScrollView
-        contentContainerStyle={{ paddingTop: insets.top + 8, paddingHorizontal: 20, paddingBottom: 130, gap: 14 }}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 130, gap: 14 }}
       >
         <SettingsHeader title={t.catSettingsTitle} onBack={onBack} />
         <Txt size={14} color={p.mu} lh={1.5}>{t.catSettingsBody}</Txt>

@@ -57,7 +57,7 @@ export function CalendarFeedsScreen({ onBack }: { onBack: () => void }) {
     <ScreenIn style={{ backgroundColor: p.bg }}>
       <ScrollView
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ paddingTop: insets.top + 8, paddingHorizontal: 20, paddingBottom: 60, gap: 14 }}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 60, gap: 14 }}
       >
         <SettingsHeader title={t.icsFeedsTitle} onBack={onBack} />
         {enabled ? <FeedsBody rtl={rtl} /> : (

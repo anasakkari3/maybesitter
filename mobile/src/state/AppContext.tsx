@@ -217,6 +217,8 @@ function useAppModel() {
     // A maybesitter://<screen>?lang=ar link picks a language explicitly, so it
     // stops following the system exactly as tapping the row does.
     setLang: (l: Lang) => applyLangPref(l),
+    /** The picker's answer, including "system" (Round 2). */
+    setLangPref: (pref: LanguagePref) => applyLangPref(pref),
     setThemePref: applyThemePref,
 
     /**

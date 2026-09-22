@@ -9,7 +9,7 @@ import { fill } from '../../i18n/strings';
 import { useTimeZone } from '../../i18n/timezone';
 import { Card, Txt } from '../../ui/primitives';
 import { ScreenIn } from '../../ui/motion';
-import { SettingsHeader } from '../settings/SettingsChrome';
+import { SettingsHeader, SettingsRow } from '../settings/SettingsChrome';
 import { useActivity, useWeeklySummary } from '../../api/queries';
 import { knownActivityKind, type ActivityItem } from '../../api/schemas/activity';
 import type { Strings } from '../../i18n/strings';
@@ -101,7 +101,7 @@ export function planLine(planDate: string, locale: Locale, t: Strings): string {
 }
 
 export function ActivityScreen({ onBack }: { onBack: () => void }) {
-  const { t, p, lang } = useApp();
+  const { t, p, lang, actions } = useApp();
   const insets = useSafeAreaInsets();
   const timeZone = useTimeZone();
   const history = useActivity();
@@ -143,7 +143,14 @@ export function ActivityScreen({ onBack }: { onBack: () => void }) {
         testID="activity-list"
         sections={sections}
         keyExtractor={item => item.id}
-        contentContainerStyle={{ paddingTop: insets.top + 8, paddingHorizontal: 20, paddingBottom: 60, gap: 14 }}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 60, gap: 14 }}
+        // What it learned from the person's answers lives under their activity
+        // (Round 2): one history, not two rows on the settings root.
+        ListFooterComponent={(
+          <Card pad={0} style={{ paddingHorizontal: 16, marginTop: 6 }}>
+            <SettingsRow first label={t.feedbackHistoryTitle} onPress={() => actions.go('feedbackHistory')} testID="activity-feedback-history" />
+          </Card>
+        )}
         refreshControl={(
           <RefreshControl
             refreshing={history.isRefetching && !history.isFetchingNextPage}

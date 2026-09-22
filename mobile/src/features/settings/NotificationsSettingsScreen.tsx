@@ -290,7 +290,7 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
 
   return (
     <ScreenIn style={{ backgroundColor: p.bg }}>
-      <ScrollView contentContainerStyle={{ paddingTop: insets.top + 8, paddingHorizontal: 20, paddingBottom: 60, gap: 14 }}>
+      <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 60, gap: 14 }}>
         <SettingsHeader title={t.notifTitle} onBack={onBack} />
         <Card pad={18}>
           <Txt size={15} color={p.mu} lh={1.5}>{t.obNotifBody}</Txt>

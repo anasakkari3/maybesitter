@@ -58,7 +58,7 @@ const TASKS: ReadonlySet<Screen> = new Set<Screen>(['capture', 'share', 'deleteA
 const SETTINGS_LEAVES: ReadonlySet<Screen> = new Set<Screen>([
   'trust', 'knows', 'memory', 'feedbackHistory', 'activity', 'routineSettings', 'readinessSettings',
   'notificationsSettings', 'calendarSettings', 'calendarFeeds', 'footballSettings', 'categorySettings',
-  'widgetSettings', 'about',
+  'widgetSettings', 'about', 'langAppearance', 'account', 'sources',
 ]);
 
 export const initialNav: Nav = { tab: 'today', stacks: { today: [], calendar: [], settings: [] }, task: null };

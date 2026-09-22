@@ -39,7 +39,7 @@ export function KnowsScreen({ onBack, onMemory }: { onBack: () => void; onMemory
 
   return (
     <ScreenIn style={{ backgroundColor: p.bg }}>
-      <ScrollView contentContainerStyle={{ paddingTop: insets.top + 8, paddingHorizontal: 20, paddingBottom: 60, gap: 14 }}>
+      <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 60, gap: 14 }}>
         <SettingsHeader title={t.knowsTitle} onBack={onBack} />
 
         {knows ? (
