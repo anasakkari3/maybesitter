@@ -74,16 +74,16 @@ import type {
   PlacementProtection,
   PlanningItem,
   TimeInterval,
-} from '../../src/contracts/v1/planningContracts';
-import type { ScheduleBlockSource } from '../../src/contracts/v1/scheduleBlockContracts';
-import { dayHorizon } from '../services/dailyPlan/buildDailyPlan';
-import { toEpochMs, toInstant } from '../planning/shared/time';
-import {
-  isOpenOccurrence,
-  type HabitDefinition,
-  type HabitOccurrence,
-  type TimeWindow,
-} from './habitTypes';
+} from '../../../src/contracts/v1/planningContracts';
+import type { ScheduleBlockSource } from '../../../src/contracts/v1/scheduleBlockContracts';
+import type {
+  HabitDefinition,
+  HabitOccurrence,
+  HabitTimeWindow,
+} from '../../../src/contracts/v1/habitContracts';
+import { dayHorizon } from '../dailyPlan/buildDailyPlan';
+import { toEpochMs, toInstant } from '../../planning/shared/time';
+import { isOpenOccurrence } from './habitOccurrenceStore';
 
 /**
  * The priority a habit occurrence carries into the plan.
@@ -149,8 +149,21 @@ export interface HabitPlanningRequest {
   readonly preferredWindows: ReadonlyMap<string, readonly TimeInterval[]>;
 }
 
+/** `HH:MM` as minutes from local midnight, or null when it is not `HH:MM`. */
+function minuteOfDay(value: string): number | null {
+  const match = /^([01][0-9]|2[0-3]):([0-5][0-9])$/.exec(value);
+  return match ? Number(match[1]) * 60 + Number(match[2]) : null;
+}
+
 /**
- * A wall-clock preferred window as an absolute interval on one local day.
+ * A habit's wall-clock preferred window as an absolute interval on one local day.
+ *
+ * `HabitTimeWindow` is the routine profile's `RoutineTimeWindow` — `HH:MM`
+ * strings in the user's own zone — which is what the domain lane chose so that
+ * a focus window the person already told the survey about can be handed
+ * straight across. The conversion to an instant is this module's, because the
+ * contract's header is explicit that a civil date or a clock face becomes an
+ * interval only in the adapter.
  *
  * Built off the day's own start instant rather than by re-resolving a local
  * time, so a window is measured from the same midnight the horizon is — on a
@@ -159,15 +172,19 @@ export interface HabitPlanningRequest {
  * of step with the plan it is a preference inside.
  *
  * Null for a window that is not a well-formed range, which is `INVALID_INTERVAL`'s
- * rule applied one level up: a zero-length or backwards preference states no
- * position, and a preference that states no position must not become one.
+ * rule applied one level up: a preference that states no position must not
+ * become one. A window whose `end` is not after its `start` **wraps midnight**
+ * per `RoutineTimeWindow`'s own reading, and a wrapping window is not a
+ * position inside *this* day either, so it is null here too rather than being
+ * silently clipped to the evening half.
  */
 export function materializePreferredWindow(
-  window: TimeWindow,
+  window: HabitTimeWindow,
   dayStartsAt: Instant,
 ): TimeInterval | null {
-  const { startMinute, endMinute } = window;
-  if (!Number.isFinite(startMinute) || !Number.isFinite(endMinute)) return null;
+  const startMinute = minuteOfDay(window.start);
+  const endMinute = minuteOfDay(window.end);
+  if (startMinute === null || endMinute === null) return null;
   if (endMinute <= startMinute) return null;
   const dayStartMs = toEpochMs(dayStartsAt);
   return {
@@ -186,7 +203,7 @@ export function materializePreferredWindow(
  * a copy: the caller's definition is not this function's to reorder.
  */
 export function preferredPlacementWindow(
-  windows: readonly TimeWindow[],
+  windows: readonly HabitTimeWindow[],
   dayStartsAt: Instant,
 ): TimeInterval | null {
   const materialized = windows
