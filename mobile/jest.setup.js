@@ -1,3 +1,9 @@
+// The zone is pinned in `jest.globalSetup.js`, deliberately not here (#413).
+// `setupFiles` runs inside a worker that has already started, so assigning
+// `TZ` at this point sets the variable without the runtime ever picking it up:
+// `process.env.TZ` reads 'UTC' and `getTimezoneOffset()` still returns the
+// host's. That was measured here before the pin moved. See that file.
+
 // `react-native-gesture-handler` needs its own Jest setup before any component
 // of its own can render: without it `GestureHandlerRootView` throws on
 // `RNGestureHandlerModule.install`. Nothing could assert the app mounts a

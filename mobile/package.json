@@ -97,7 +97,8 @@
     },
     "setupFiles": [
       "<rootDir>/jest.setup.js"
-    ]
+    ],
+    "globalSetup": "<rootDir>/jest.globalSetup.js"
   },
   "engines": {
     "node": ">=22.5.0"
