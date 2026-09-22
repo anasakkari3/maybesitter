@@ -87,7 +87,7 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
   return (
     <ScreenIn style={{ backgroundColor: p.bg }}>
       <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 60, gap: 14 }}>
-        <SettingsHeader title={t.trustTitle} onBack={onBack} />
+        <SettingsHeader title={t.sTrust} onBack={onBack} />
         <Txt size={14} color={p.mu} lh={1.5}>{t.trustLede}</Txt>
 
         <Card pad={0} style={{ overflow: 'hidden' }}>

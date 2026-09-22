@@ -40,7 +40,7 @@ export function KnowsScreen({ onBack, onMemory }: { onBack: () => void; onMemory
   return (
     <ScreenIn style={{ backgroundColor: p.bg }}>
       <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 60, gap: 14 }}>
-        <SettingsHeader title={t.knowsTitle} onBack={onBack} />
+        <SettingsHeader title={t.settingsKnows} onBack={onBack} />
 
         {knows ? (
           <Card pad={18} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
