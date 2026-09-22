@@ -91,8 +91,9 @@ export function EditProposalItemSheet({
     if (item.needsClarification || trimmed !== item.title) next.title = trimmed;
     if (priority !== (item.priority ?? 'normal')) next.priority = priority;
     // The empty string is the "No time" answer, and is sent. An unchanged value
-    // is not sent at all.
-    if (local !== originalLocal) next.localDateTime = local;
+    // is not sent at all. For a flagged item with no time, the explicit "No time"
+    // is sent so review knows the user confirmed the absence of a time (#505).
+    if (local !== originalLocal || (item.needsClarification && local === '')) next.localDateTime = local;
     onChange(next);
     onClose();
   }, [instant, item, local, onChange, onClose, originalLocal, priority, trimmed]);
