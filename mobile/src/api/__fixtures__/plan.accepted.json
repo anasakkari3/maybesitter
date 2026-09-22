@@ -18,22 +18,26 @@
         "itemId": "plan_fixture_0",
         "title": "Write the summary",
         "startsAt": "2026-08-09T08:00:00.000Z",
-        "endsAt": "2026-08-09T09:00:00.000Z"
+        "endsAt": "2026-08-09T09:00:00.000Z",
+        "blockId": "block:commitment:plan_fixture_0"
       },
       {
         "itemId": "plan_fixture_1",
         "title": "Call the bank",
         "startsAt": "2026-08-09T09:00:00.000Z",
-        "endsAt": "2026-08-09T09:00:00.000Z"
+        "endsAt": "2026-08-09T09:00:00.000Z",
+        "blockId": "block:commitment:plan_fixture_1"
       },
       {
         "itemId": "plan_fixture_2",
         "title": "Book the train",
         "startsAt": "2026-08-09T09:00:00.000Z",
-        "endsAt": "2026-08-09T09:00:00.000Z"
+        "endsAt": "2026-08-09T09:00:00.000Z",
+        "blockId": "block:commitment:plan_fixture_2"
       }
     ],
     "unscheduled": [],
-    "edited": false
+    "edited": false,
+    "protections": []
   }
 }

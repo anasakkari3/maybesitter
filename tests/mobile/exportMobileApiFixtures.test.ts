@@ -1174,6 +1174,43 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       dateParams(PLAN_DATE),
     ));
 
+    /*
+     * A plan carrying an actual protection (#522).
+     *
+     * Recorded last on this date, so nothing above it shifts. Without it every
+     * plan fixture answers `protections: []` and the client's
+     * `blockProtectionSchema` — five fields, two of them nullable — is never
+     * once parsed against something a real handler produced. That is the
+     * defect #493 shipped: a schema checked only against the empty case is a
+     * schema nobody has checked.
+     *
+     * The block id comes off the scheduled row rather than being derived here,
+     * which is also the assertion that the row carries one at all: a client
+     * with no `blockId` cannot make this call, and deriving the id in this
+     * test would hide exactly that.
+     */
+    const protectable = (plan.plan as { scheduled: Array<{ blockId: string | null }> }).scheduled[0];
+    assert.ok(
+      protectable?.blockId,
+      'a scheduled row carries no blockId, so the protect action is unreachable from the client',
+    );
+    const protectedPlan = await record('plan.protected', 200, await planActionPost(
+      request(`/api/mobile/plans/${PLAN_DATE}/actions`, {
+        body: {
+          action: 'protect',
+          blockId: protectable.blockId,
+          ownership: 'protected_flexible',
+          maxShiftMinutes: 30,
+        },
+      }),
+      dateParams(PLAN_DATE),
+    ));
+    assert.equal(
+      ((protectedPlan.plan as { protections: unknown[] }).protections).length,
+      1,
+      'the protected fixture carries no protection, so the schema it exists to pin is never exercised',
+    );
+
     await record('plan.notFound', 404, await planGet(
       request('/api/mobile/plans/2026-08-10'),
       dateParams('2026-08-10'),

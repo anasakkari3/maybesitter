@@ -41,6 +41,16 @@
  * the one run in which nothing could possibly have moved — and counting a
  * widened buffer would make every buffer edit read as a rescheduling.
  *
+ * ── Protection is measured, never inferred ──────────────────────────
+ *
+ * The four `protected*` figures (#522) read `PlanningItem.protection` and
+ * nothing else. In particular they never read `priority`: "a Must task is not
+ * automatically protected" is a statement this module could quietly contradict
+ * by treating a high-priority item as one, and the whole point of reporting a
+ * protected count separately from a placement rate is that the two answer
+ * different questions. They are zero for a caller that does not pass `items`,
+ * which is every caller that existed before this track.
+ *
  * ── Nothing is clamped ──────────────────────────────────────────────
  *
  * A utilization above 1 means the plan reserved more time than the constraints
@@ -56,6 +66,7 @@ import {
   STATIC_INFEASIBILITY_CODES,
   type Plan,
   type PlanQualityMetrics,
+  type PlanningItem,
   type PlanningReasonCode,
 } from '../../../src/contracts/v1/planningContracts';
 import { minutesBetween, intervalMinutes } from '../shared/time';
@@ -84,6 +95,66 @@ export interface PlanQualityInput {
    * constraints the plan was produced from.
    */
   readonly availableMinutes: number;
+  /**
+   * The items the plan answers, for the four protection figures (#522).
+   *
+   * Optional, and absent means "this caller is not measuring protection": the
+   * four figures come back as zero, which is the truth about a request with no
+   * protected items and the only honest reading of a request we were not shown.
+   * Taking the items rather than a pre-extracted list of protections keeps this
+   * module's rule intact — a plan is data here, never a call — while leaving
+   * the caller nothing to derive, and therefore nothing to derive wrongly.
+   *
+   * Only `itemId` and `protection` are read. Nothing here looks at `priority`,
+   * and that is the point: protection and priority are different questions, so
+   * a `Nice` protected block counts in `protectedCount` and a `Must`
+   * unprotected one does not.
+   */
+  readonly items?: readonly PlanningItem[] | null;
+}
+
+/** The four protection figures. See `PlanQualityMetrics` for each one's rule. */
+function protectionMetrics(
+  items: readonly PlanningItem[],
+  starts: ReadonlyMap<string, string>,
+): Pick<
+  PlanQualityMetrics,
+  'protectedCount' | 'protectedRetainedCount' | 'protectedReleasedCount' | 'protectedShiftMinutes'
+> {
+  let protectedCount = 0;
+  let protectedRetainedCount = 0;
+  let protectedReleasedCount = 0;
+  let protectedShiftMinutes = 0;
+
+  for (const item of items) {
+    const protection = item.protection ?? null;
+    if (protection === null || protection.ownership !== 'protected_flexible') continue;
+    protectedCount += 1;
+
+    const preferred = protection.preferredInterval;
+    // Protected, but with nothing yet to keep — a standing policy on an
+    // occurrence that has never been placed. It is neither retained nor
+    // released, which is why those two do not partition `protectedCount`.
+    if (preferred === null) continue;
+
+    const placedStart = starts.get(item.itemId);
+    if (placedStart === undefined) {
+      // Unscheduled. A release, and *not* a shift: it did not move a distance,
+      // it is not there at all, and adding a number for it would put a figure
+      // with no meaning into the one metric this track is tuned against.
+      protectedReleasedCount += 1;
+      continue;
+    }
+    const shift = Math.abs(minutesBetween(preferred.startsAt, placedStart));
+    if (shift === 0) {
+      protectedRetainedCount += 1;
+    } else {
+      protectedReleasedCount += 1;
+      protectedShiftMinutes += shift;
+    }
+  }
+
+  return { protectedCount, protectedRetainedCount, protectedReleasedCount, protectedShiftMinutes };
 }
 
 function fail(message: string): never {
@@ -171,5 +242,6 @@ export function computePlanQualityMetrics(input: PlanQualityInput): PlanQualityM
     churnMinutes,
     unscheduledByReason: Object.freeze(unscheduledByReason),
     utilization: availableMinutes === 0 ? 0 : reservedMinutes / availableMinutes,
+    ...protectionMetrics(input.items ?? [], starts),
   });
 }

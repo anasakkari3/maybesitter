@@ -30,11 +30,18 @@ import {
   normalizeWorkingWindows,
 } from '../../planning/constraints';
 import { intervalsOverlap, toEpochMs } from '../../planning/shared/time';
-import type { Plan, PlannedItem, TimeInterval } from '../../../src/contracts/v1/planningContracts';
+import type {
+  PlacementProtection,
+  Plan,
+  PlannedItem,
+  ProtectionOrigin,
+  TimeInterval,
+} from '../../../src/contracts/v1/planningContracts';
+import { ownershipOf, type ScheduleBlock } from '../../../src/contracts/v1/scheduleBlockContracts';
 import { getStorage, type StorageAdapter } from '../../storage';
 import { readActivityStats, recordActivityEvents } from '../activity/activityStats';
 import { earliestLedgerAcceptance, planEventAsRecord } from '../activity/planActivity';
-import { applyEditsToBlocks, schedulePlan } from '../../planning/scheduler';
+import { applyEditsToBlocks, protectionOf, schedulePlan } from '../../planning/scheduler';
 import {
   appendPlanEvent,
   mutateStoredPlan,
@@ -278,6 +285,231 @@ export async function editPlan(
     type: 'plan_edited', date, at, generation: outcome.stored.generation, inputDigest: outcome.stored.inputDigest,
   }, options.storage);
   return outcome.stored;
+}
+
+/* ── Block protection (#522) ─────────────────────────────── */
+
+export type PlanProtectionReason =
+  | 'unknown_block'
+  | 'invalid_ownership'
+  | 'invalid_origin'
+  | 'invalid_max_shift'
+  | 'invalid_interval'
+  | 'fixed_block';
+
+export class PlanProtectionRejected extends Error {
+  constructor(readonly reason: PlanProtectionReason, readonly blockId: string | null, message: string) {
+    super(message);
+    this.name = 'PlanProtectionRejected';
+  }
+}
+
+/**
+ * What a client may say about a block's protection.
+ *
+ * `ownership` is deliberately only the two values a *person* may choose.
+ * `fixed` is not among them: a fixed block's position belongs to the
+ * commitment that pinned it, and letting this mutation declare one would be
+ * the plan layer editing an obligation on the user's behalf — the thing
+ * `PLANNING_PERSISTENCE_POLICY.originalCommitmentRemainsCanonical` forbids.
+ * Sending `flexible` releases a protection, which is the only way back.
+ */
+export interface BlockProtectionRequest {
+  readonly blockId: string;
+  readonly ownership: 'flexible' | 'protected_flexible';
+  readonly origin: ProtectionOrigin;
+  readonly maxShiftMinutes: number | null;
+  /** Defaults to where the block sits now — "keep it here" is the usual ask. */
+  readonly preferredInterval: TimeInterval | null;
+}
+
+const PROTECTION_ORIGINS: readonly ProtectionOrigin[] = ['user', 'habit_policy', 'goal_policy'];
+
+/** Parses the client's protection payload. Throws on anything else. */
+export function parseProtection(body: unknown): BlockProtectionRequest {
+  const payload = (body ?? {}) as Record<string, unknown>;
+  const blockId = payload.blockId;
+  if (typeof blockId !== 'string' || blockId === '') {
+    throw new PlanProtectionRejected('unknown_block', null, 'a protection must name a blockId');
+  }
+  const ownership = payload.ownership;
+  if (ownership !== 'flexible' && ownership !== 'protected_flexible') {
+    throw new PlanProtectionRejected(
+      'invalid_ownership',
+      blockId,
+      'ownership must be "protected_flexible" or "flexible"',
+    );
+  }
+  // Defaulted rather than required: a person protecting their own gym block is
+  // the overwhelmingly common case, and a client that had to name the origin
+  // would eventually name the wrong one.
+  const origin = payload.origin === undefined ? 'user' : payload.origin;
+  if (typeof origin !== 'string' || !(PROTECTION_ORIGINS as readonly string[]).includes(origin)) {
+    throw new PlanProtectionRejected('invalid_origin', blockId, `unknown protection origin: ${String(origin)}`);
+  }
+
+  const raw = payload.maxShiftMinutes;
+  if (raw !== undefined && raw !== null && (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 0)) {
+    // Refused at the boundary rather than carried inward. The solver treats an
+    // unusable bound as a window admitting nothing (`PROTECTED_SHIFT_EXCEEDED`),
+    // which is the right answer for a bound that reached it — but a client
+    // sending `-30` has made a mistake, and answering it with an unschedulable
+    // item tomorrow morning is not telling them.
+    throw new PlanProtectionRejected(
+      'invalid_max_shift',
+      blockId,
+      'maxShiftMinutes must be a non-negative number of minutes, or null',
+    );
+  }
+  const maxShiftMinutes = raw === undefined || raw === null ? null : raw;
+
+  let preferredInterval: TimeInterval | null = null;
+  const interval = payload.preferredInterval;
+  if (interval !== undefined && interval !== null) {
+    const candidate = interval as { startsAt?: unknown; endsAt?: unknown };
+    const startsAt = requireProtectionInstant(candidate.startsAt, blockId);
+    const endsAt = requireProtectionInstant(candidate.endsAt, blockId);
+    if (toEpochMs(endsAt) <= toEpochMs(startsAt)) {
+      throw new PlanProtectionRejected('invalid_interval', blockId, 'a preferred interval must end after it starts');
+    }
+    preferredInterval = { startsAt, endsAt };
+  }
+
+  return { blockId, ownership, origin: origin as ProtectionOrigin, maxShiftMinutes, preferredInterval };
+}
+
+function requireProtectionInstant(value: unknown, blockId: string): string {
+  if (typeof value !== 'string' || !ISO.test(value) || !Number.isFinite(Date.parse(value))) {
+    throw new PlanProtectionRejected('invalid_interval', blockId, `${JSON.stringify(value)} is not an ISO instant`);
+  }
+  return new Date(value).toISOString();
+}
+
+/** Two protections that say the same thing. Used to keep the write idempotent. */
+export function sameProtection(
+  left: PlacementProtection | null | undefined,
+  right: PlacementProtection | null | undefined,
+): boolean {
+  const a = left ?? null;
+  const b = right ?? null;
+  if (a === null || b === null) return a === b;
+  const sameInterval = a.preferredInterval === null || b.preferredInterval === null
+    ? a.preferredInterval === b.preferredInterval
+    : toEpochMs(a.preferredInterval.startsAt) === toEpochMs(b.preferredInterval.startsAt)
+      && toEpochMs(a.preferredInterval.endsAt) === toEpochMs(b.preferredInterval.endsAt);
+  return a.ownership === b.ownership
+    && a.origin === b.origin
+    && a.maxShiftMinutes === b.maxShiftMinutes
+    && sameInterval;
+}
+
+/**
+ * The protection a request produces for one block.
+ *
+ * `flexible` erases the protection rather than storing one that says "not
+ * protected": absence is how every block that was never protected reads, and a
+ * second spelling of the same state is a second thing every reader has to know
+ * about.
+ */
+function protectionFor(block: ScheduleBlock, request: BlockProtectionRequest): PlacementProtection | null {
+  if (request.ownership === 'flexible') return null;
+  return {
+    ownership: 'protected_flexible',
+    origin: request.origin,
+    // Where it sits now, unless the caller named an interval. An unplaced block
+    // yields null, which the contract allows: it is protected in principle and
+    // has nothing to retain until the planner gives it a first placement.
+    preferredInterval: request.preferredInterval ?? block.currentInterval,
+    maxShiftMinutes: request.maxShiftMinutes,
+  };
+}
+
+export interface BlockProtectionOutcome {
+  readonly stored: StoredDailyPlan;
+  /** False when the block already said exactly this. See `setBlockProtection`. */
+  readonly changed: boolean;
+}
+
+/**
+ * Declares (or releases) the protection on one schedule block.
+ *
+ * This is #522's mutation, and it lives on the **existing** Plan boundary on
+ * purpose: a protection is a fact about a block, a block is part of the stored
+ * plan document, and a standalone planner service would be a second owner of
+ * one document with no transaction between them. `mutateStoredPlan` gives it
+ * the same read-modify-write the edit path uses, so a protection and a
+ * concurrent move cannot interleave into a document that shows one and not the
+ * other.
+ *
+ * It changes **no placement**. The plan the user is looking at stays exactly
+ * where it is; what changes is how the next regeneration treats that hour
+ * (`projectBlockProtectionIntoPlanningConstraints`). Moving something is
+ * `editPlan`'s job, and a mutation that did both would make "protect this"
+ * silently reschedule the day.
+ *
+ * **Idempotent by content.** A repeated request that asks for the protection
+ * the block already carries rewrites the document with identical bytes — same
+ * `updatedAt`, same everything — and appends no second ledger entry. Two
+ * phones tapping "keep this here" produce one record, not two.
+ */
+export async function setBlockProtection(
+  uid: string,
+  date: string,
+  request: BlockProtectionRequest,
+  options: PlanActionOptions = {},
+): Promise<BlockProtectionOutcome | null> {
+  const at = clockOf(options).toISOString();
+  let rejection: PlanProtectionRejected | null = null;
+
+  const outcome = await mutateStoredPlan<boolean>(uid, date, (current) => {
+    // `?? []` for a document written before blocks existed (#521): it has no
+    // block to name, which is `unknown_block` and not a crash.
+    const blocks = current.blocks ?? [];
+    const block = blocks.find((candidate) => candidate.blockId === request.blockId);
+    if (block === undefined) {
+      rejection = new PlanProtectionRejected(
+        'unknown_block',
+        request.blockId,
+        `${request.blockId} is not a block of this plan`,
+      );
+      return null;
+    }
+    if (ownershipOf(block) === 'fixed') {
+      rejection = new PlanProtectionRejected(
+        'fixed_block',
+        request.blockId,
+        'a pinned event already owns its time; protection describes a placement the planner makes',
+      );
+      return null;
+    }
+
+    const next = protectionFor(block, request);
+    if (sameProtection(protectionOf(block), next)) {
+      // Unchanged, and reported as such. Returning the document as it stands
+      // keeps the transaction a read-modify-write while writing nothing new,
+      // and the caller skips the ledger entry.
+      return { next: current, result: false };
+    }
+    return {
+      next: {
+        ...current,
+        blocks: blocks.map((candidate) => (candidate.blockId === request.blockId
+          ? { ...candidate, protection: next }
+          : candidate)),
+        updatedAt: at,
+      },
+      result: true,
+    };
+  }, options.storage);
+
+  if (rejection) throw rejection;
+  if (!outcome) return null;
+  if (!outcome.result) return { stored: outcome.stored, changed: false };
+
+  await appendPlanEvent(uid, {
+    type: 'plan_protected', date, at, generation: outcome.stored.generation, inputDigest: outcome.stored.inputDigest,
+  }, options.storage);
+  return { stored: outcome.stored, changed: true };
 }
 
 export type RegenerateOutcome =

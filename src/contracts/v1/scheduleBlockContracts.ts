@@ -93,7 +93,20 @@
  */
 
 import { MODULE_CONTRACT_VERSION } from './moduleContracts';
-import type { Instant, TimeInterval } from './planningContracts';
+import type {
+  Instant,
+  PlacementProtection,
+  TimeInterval,
+  TimeOwnership,
+} from './planningContracts';
+
+/**
+ * Re-exported so a block-facing caller names protection from the module that
+ * owns blocks. The types themselves live in `planningContracts` because the
+ * *solver* reads them — a `PlanningItem` carries one — and a contract the
+ * scheduler must import cannot sit downstream of the block layer.
+ */
+export type { PlacementProtection, ProtectionOrigin, TimeOwnership } from './planningContracts';
 
 export const SCHEDULE_BLOCK_CONTRACT_VERSION = MODULE_CONTRACT_VERSION;
 export const SCHEDULE_BLOCK_SCHEMA_VERSION = 'schedule-block-v1' as const;
@@ -126,7 +139,20 @@ export interface ScheduleBlockSource {
   readonly id: string;
 }
 
-/** `fixed`: the source pinned the time, the solver is bypassed. See the header. */
+/**
+ * `fixed`: the source pinned the time, the solver is bypassed. See the header.
+ *
+ * Two values, still. `TimeOwnership` (#522) has three, and the third
+ * — `protected_flexible` — is a *refinement* of `flexible`, not a fourth kind
+ * of block: a protected block is one the solver is asked to place, under an
+ * objective and possibly a bound. So mobility keeps answering the question it
+ * was written for ("is the solver asked where this goes?"), `protection`
+ * answers "and whose decision is the answer", and `ownershipOf` below is the
+ * one place the two are combined. Widening this union instead would have made
+ * every existing `mobility !== 'flexible'` read — there are several, including
+ * the one in `applyEditsToBlocks` that decides what a user may drag — silently
+ * exclude exactly the blocks this track is about.
+ */
 export type ScheduleBlockMobility = 'fixed' | 'flexible';
 
 /** Who placed the block where it currently sits. */
@@ -174,6 +200,35 @@ export interface ScheduleBlock {
   readonly currentInterval: TimeInterval | null;
   readonly lastPlacedBy: ScheduleBlockPlacedBy;
   readonly lastPlanGeneration: number;
+  /**
+   * Whose decision this block's position is (#522).
+   *
+   * Null for ordinary flexible work and for fixed blocks, which is every block
+   * a plan built before this field existed — a stored document without it
+   * reads as unprotected, which is what it was. The field is optional in the
+   * type for that reason and for that reason only: every producer in this
+   * repository writes it explicitly, and a reader treats `undefined` and
+   * `null` alike (`ownershipOf`).
+   *
+   * `mobility` and `lastPlacedBy` are what a protection is usually derived
+   * from — a block the *user* last placed is the canonical thing to protect —
+   * but neither implies one. Protection is declared, never inferred: inferring
+   * it from `lastPlacedBy: 'user'` would pin every block anyone had ever
+   * dragged, for ever, with no way to say otherwise.
+   */
+  readonly protection?: PlacementProtection | null;
+}
+
+/**
+ * The block's ownership, as the single value #522's contract names.
+ *
+ * `fixed` wins over anything the protection says: a block the source pinned is
+ * not a placement the planner may reconsider, whatever a policy attached to it
+ * later. Otherwise the protection speaks, and its absence means `flexible`.
+ */
+export function ownershipOf(block: Pick<ScheduleBlock, 'mobility' | 'protection'>): TimeOwnership {
+  if (block.mobility === 'fixed') return 'fixed';
+  return block.protection?.ownership === 'protected_flexible' ? 'protected_flexible' : 'flexible';
 }
 
 /**

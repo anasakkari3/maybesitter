@@ -521,6 +521,37 @@ test('HORIZON_EXHAUSTED: the horizon ended before this item could take its turn'
   );
 });
 
+test('PROTECTED_SHIFT_EXCEEDED: a bound the day cannot honour is reported, not exceeded (#522)', () => {
+  // The protected hour is 09:00, the bound is thirty minutes either side, and a
+  // meeting has taken 08:30–10:30. There is plenty of room at 11:00 — which is
+  // exactly what must not happen: an appointment whose owner said it may slip by
+  // half an hour is not served by a planner that slips it by two and reports
+  // success. The item is reported instead, with the code that names the thing
+  // they can act on.
+  const plan = schedulePlan(
+    constraints({
+      fixedEvents: [fixedEvent('m-1', '2026-08-17T08:30:00.000Z', '2026-08-17T10:30:00.000Z')],
+      items: [item('gym', {
+        protection: {
+          ownership: 'protected_flexible',
+          origin: 'user',
+          preferredInterval: { startsAt: '2026-08-17T09:00:00.000Z', endsAt: '2026-08-17T10:00:00.000Z' },
+          maxShiftMinutes: 30,
+        },
+      })],
+    }),
+    config(),
+  );
+
+  assert.deepEqual(plan.scheduled.map((entry) => entry.itemId), []);
+  assert.equal(reasonFor(plan, 'gym'), 'PROTECTED_SHIFT_EXCEEDED');
+  // "Explicit unscheduled reasoning, not a silent drop": the detail has to say
+  // the bound is what closed the day, or the user is told their day is full
+  // when what is full is one hour either side of one block.
+  const entry = plan.unscheduled.find((row) => row.itemId === 'gym');
+  assert.match(entry!.reason.detail, /maximum shift/);
+});
+
 /* ── Constraint-level findings ──────────────────────────────────── */
 
 test('INVALID_INTERVAL is reported for the horizon, a window, and a fixed event alike', () => {

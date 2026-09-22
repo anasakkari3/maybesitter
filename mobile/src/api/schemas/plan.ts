@@ -25,6 +25,12 @@ export const planItemSchema = z.object({
   title: z.string().nullable(),
   startsAt: isoDateTime,
   endsAt: isoDateTime,
+  /**
+   * The block this row is (#521, #522), or null on a plan built before blocks
+   * existed. It is what the protect action names, so a row without one cannot
+   * be protected — which is the honest rendering of an old document.
+   */
+  blockId: z.string().nullable(),
 });
 
 /**
@@ -42,6 +48,8 @@ export const unplacedItemSchema = z.object({
   itemId: z.string(),
   title: z.string().nullable(),
   reasonCode: z.string(),
+  /** Same as `planItemSchema.blockId`: an unplaced item still has a block. */
+  blockId: z.string().nullable(),
 });
 
 /**
@@ -55,6 +63,39 @@ export const planExplanationSchema = z.object({
   locale: z.enum(['ar', 'he', 'en']),
   source: z.enum(['model', 'template']),
 });
+
+/**
+ * One block whose position is the user's (or a policy's) decision (#522).
+ *
+ * `ownership` is a literal rather than the contract's three-value union: a
+ * released protection is *absent* from this list, and a `fixed` block is not a
+ * protection at all, so `protected_flexible` is the only value that can
+ * appear. A wider union here would be the client declaring it can render two
+ * states the server never sends.
+ *
+ * `origin` is the enum the contract names and not `z.string()`, for the reason
+ * `executedEngine` is: a bare string accepts an unknown value silently, which
+ * is the same shape of defect as a test that cannot go red. The three are what
+ * `ProtectionOrigin` declares, and a fourth arriving should fail here rather
+ * than render as a blank label.
+ *
+ * `maxShiftMinutes` is a bound in minutes or null for "no explicit bound" —
+ * never zero standing in for absence, which is a different statement ("do not
+ * move this at all").
+ */
+export const blockProtectionSchema = z.object({
+  blockId: z.string(),
+  itemId: z.string(),
+  ownership: z.literal('protected_flexible'),
+  origin: z.enum(['user', 'habit_policy', 'goal_policy']),
+  preferredInterval: z.object({
+    startsAt: isoDateTime,
+    endsAt: isoDateTime,
+  }).nullable(),
+  maxShiftMinutes: z.number().nullable(),
+});
+
+export type BlockProtection = z.infer<typeof blockProtectionSchema>;
 
 export const dailyPlanSchema = z.object({
   /** The local day the plan is for, `YYYY-MM-DD` — never an instant. */
@@ -72,6 +113,8 @@ export const dailyPlanSchema = z.object({
   unscheduled: z.array(unplacedItemSchema),
   /** True once the user has moved or removed something. */
   edited: z.boolean(),
+  /** Blocks whose position is the user's (or a policy's) decision (#522). */
+  protections: z.array(blockProtectionSchema),
 });
 
 export type DailyPlan = z.infer<typeof dailyPlanSchema>;
