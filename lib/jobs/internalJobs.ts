@@ -41,6 +41,7 @@ import { projectFixturesForUser } from '../football/projectFixtures';
 import { syncFollowedClubs, type SyncReport } from '../football/syncFixtures';
 import type { FixtureProvider } from '../../src/contracts/v1/fixtureContracts';
 import { runWatcherSweep, type WatcherSweepTotals } from '../watchers/watcherEngine';
+import { runContinuousReplanTick, type ContinuousReplanTickTotals } from '../services/dailyPlan/continuousReplanService';
 
 /** `runDueJobs` claims this many per round; a full round means more may be due. */
 export const TICK_BATCH = 25;
@@ -332,6 +333,7 @@ export interface InternalJobsDeps {
   hardReminders?: () => Promise<HardReminderTickTotals>;
   footballSync?: () => Promise<FootballSyncJobReport>;
   watcherSweep?: () => Promise<WatcherSweepTotals>;
+  continuousReplan?: () => Promise<ContinuousReplanTickTotals>;
 }
 
 function authOptions(deps: InternalJobsDeps): { env?: NodeJS.ProcessEnv; verify?: OidcVerify } {
@@ -464,3 +466,22 @@ export async function handleWatcherSweepRequest(request: HeaderBearing, deps: In
     return Response.json({ error: 'watcher_sweep_failed' }, { status: 500 });
   }
 }
+
+/**
+ * `POST /api/internal/jobs/replan` (#523).
+ *
+ * Runs continuous replanning across accounts with pending planning state changes.
+ */
+export async function handleContinuousReplanRequest(request: HeaderBearing, deps: InternalJobsDeps = {}): Promise<Response> {
+  const auth = await authorizeSchedulerRequest(request, authOptions(deps));
+  if (!auth.ok) return schedulerAuthErrorResponse(auth);
+  try {
+    return Response.json(await (deps.continuousReplan ?? (() => runContinuousReplanTick()))());
+  } catch (error) {
+    console.error('[internal/jobs/replan] sweep failed', error);
+    return Response.json({ error: 'continuous_replan_failed' }, { status: 500 });
+  }
+}
+
+export type { ContinuousReplanTickTotals };
+

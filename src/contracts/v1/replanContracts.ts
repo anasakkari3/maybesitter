@@ -45,7 +45,8 @@
  */
 
 import { MODULE_CONTRACT_VERSION } from './moduleContracts';
-import type { PlannedItem, PlanningHorizon, TimeInterval } from './planningContracts';
+import type { Plan, PlanDiff, PlannedItem, PlanningHorizon, TimeInterval } from './planningContracts';
+import type { UserPlanStatus } from './userStateProjectionContracts';
 import type { PlanningStateChange } from './watcherContracts';
 
 export const REPLAN_CONTRACT_VERSION = MODULE_CONTRACT_VERSION;
@@ -240,3 +241,127 @@ export const REPLAN_EVALUATOR_POLICY = Object.freeze({
   /** Every instant arrives as input; `occurredAt` values are compared, never read off a clock. */
   ambientClockAllowed: false,
 });
+
+/* ── Continuous replanning pipeline & user control (#523, slice 2) ─ */
+
+/**
+ * How the user controls replan applications.
+ *
+ *  - `automatic_time_only`: Default. Time-only shifts within acceptable churn
+ *    threshold are applied automatically; additions, dropped items, or excessive
+ *    churn require explicit confirmation (staged as a proposal).
+ *  - `always_require_confirmation`: Every replan requires user confirmation;
+ *    staged as a proposal and never auto-applied.
+ *  - `silent_auto`: Applies replans autonomously regardless of churn magnitude,
+ *    as long as constraints are feasible.
+ */
+export const USER_CONTROL_MODES = Object.freeze([
+  'automatic_time_only',
+  'always_require_confirmation',
+  'silent_auto',
+] as const);
+
+export type UserControlMode = (typeof USER_CONTROL_MODES)[number];
+
+/** What the policy layer decides should happen to a solved replan. */
+export const REPLAN_POLICY_ACTIONS = Object.freeze([
+  /** The new plan is applied directly to the active plan. */
+  'auto_apply',
+  /** Staged as a proposal for the user to review. */
+  'propose_for_review',
+  /** The diff contains no meaningful changes; discarded as a no-op. */
+  'discard',
+] as const);
+
+export type ReplanPolicyAction = (typeof REPLAN_POLICY_ACTIONS)[number];
+
+/** Machine-readable reason code for why the policy made its decision. */
+export const REPLAN_POLICY_REASONS = Object.freeze([
+  'no_changes',
+  'time_shift_within_threshold',
+  'contains_removals',
+  'contains_additions',
+  'churn_exceeded_threshold',
+  'user_requires_confirmation',
+  'plan_stale_only',
+  'infeasible_plan',
+] as const);
+
+export type ReplanPolicyReason = (typeof REPLAN_POLICY_REASONS)[number];
+
+export interface ReplanPolicyConfig {
+  readonly userControlMode: UserControlMode;
+  /** Maximum churn in minutes allowed for automatic time-only replans. Default: 60 minutes. */
+  readonly maxAutoChurnMinutes?: number;
+  /** Whether a PLAN_STALE decision triggers a replan or only flags the plan. Default: false. */
+  readonly replanOnStale?: boolean;
+}
+
+export interface ReplanPolicyDecision {
+  readonly action: ReplanPolicyAction;
+  readonly reason: ReplanPolicyReason;
+  readonly userControlMode: UserControlMode;
+  readonly diff: PlanDiff;
+}
+
+/* ── Deduped replan queue ────────────────────────────────────────── */
+
+export const REPLAN_REQUEST_STATUSES = Object.freeze([
+  'enqueued',
+  'in_progress',
+  'completed',
+  'failed',
+  'superseded',
+] as const);
+
+export type ReplanRequestStatus = (typeof REPLAN_REQUEST_STATUSES)[number];
+
+export const REPLAN_TRIGGERS = Object.freeze([
+  'event_impact',
+  'watcher',
+  'manual',
+  'stale_refresh',
+] as const);
+
+export type ReplanTrigger = (typeof REPLAN_TRIGGERS)[number];
+
+export interface ReplanRequest {
+  readonly requestId: string;
+  readonly scopeId: string;
+  readonly date: string;
+  readonly trigger: ReplanTrigger;
+  readonly causeChangeIds: readonly string[];
+  readonly enqueuedAt: string;
+  readonly priority: 'immediate' | 'background';
+  readonly status: ReplanRequestStatus;
+  readonly baseGeneration?: number;
+}
+
+export interface ReplanQueueEntry {
+  readonly request: ReplanRequest;
+  readonly deduplicatedCount: number;
+}
+
+/* ── Continuous replanning pipeline result ───────────────────────── */
+
+export interface ContinuousReplanPipelineResult {
+  readonly scopeId: string;
+  readonly date: string;
+  readonly impact: PlanImpact;
+  readonly enqueued: boolean;
+  readonly queueEntry: ReplanQueueEntry | null;
+  readonly basePlan: Plan | null;
+  readonly newPlan: Plan | null;
+  readonly diff: PlanDiff | null;
+  readonly policyDecision: ReplanPolicyDecision | null;
+  readonly planStatus: UserPlanStatus;
+}
+
+export const CONTINUOUS_REPLAN_POLICY = Object.freeze({
+  defaultUserControlMode: 'automatic_time_only' as UserControlMode,
+  defaultMaxAutoChurnMinutes: 60,
+  mutatesCommitments: false,
+  providerSpecificBranchesAllowed: false,
+  replanOnStaleDefault: false,
+});
+
