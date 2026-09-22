@@ -102,3 +102,60 @@ describe('later', () => {
     expect(m.later.map((c) => c.id)).toEqual(['u2', 'u3', 'u4']);
   });
 });
+
+/**
+ * F5 — the false empty state (Round 2 runtime verification, 2026-09-22).
+ *
+ * `isEmpty` used to be a predicate over the commitment list alone, so Today
+ * drew «يومك فاضي» over a plan that had placed three things and over a
+ * recommendation the server had just made. The screen's empty branch renders
+ * *neither* the plan row nor the primary card, so both simply vanished.
+ *
+ * The contract is one sentence: the day is empty only when every source has
+ * answered and none of them has anything to show.
+ */
+describe('the day is empty only when every source has answered with nothing', () => {
+  const empty = groups({});
+
+  it('is not empty when the plan placed something, even with no commitments on the list', () => {
+    for (const status of ['proposed', 'accepted'] as const) {
+      const m = composeToday({ groups: empty, next: next(), plan: plan({ plan: aPlan(status, 3) }), upcoming: [] });
+      expect(m.plan).toMatchObject({ placed: 3 });
+      expect(m.isEmpty).toBe(false);
+    }
+  });
+
+  it('is not empty when the server recommended a step for something off the day', () => {
+    const m = composeToday({ groups: empty, next: next({ recommendation: rec('elsewhere') }), plan: plan(), upcoming: [] });
+    expect(m.primary).toMatchObject({ kind: 'next' });
+    expect(m.isEmpty).toBe(false);
+  });
+
+  it('is not empty when the user asked for quiet: the quiet card is the content', () => {
+    const m = composeToday({ groups: empty, next: next({ silenced: true }), plan: plan(), upcoming: [] });
+    expect(m.primary).toEqual({ kind: 'quiet' });
+    expect(m.isEmpty).toBe(false);
+  });
+
+  it('is not empty when there is nothing today but something later', () => {
+    const m = composeToday({ groups: empty, next: next(), plan: plan(), upcoming: [item('u1')] });
+    expect(m.later.map((c) => c.id)).toEqual(['u1']);
+    expect(m.isEmpty).toBe(false);
+  });
+
+  it('does not claim the day is empty while a source is still answering', () => {
+    expect(composeToday({ groups: empty, next: next(), plan: plan({ isPending: true }), upcoming: [] }).isEmpty).toBe(false);
+    expect(composeToday({ groups: empty, next: next({ isPending: true }), plan: plan(), upcoming: [] }).isEmpty).toBe(false);
+  });
+
+  it('does not claim the day is empty when a source failed — the empty branch would hide the failure', () => {
+    expect(composeToday({ groups: empty, next: next(), plan: plan({ isError: true, plan: null }), upcoming: [] }).isEmpty).toBe(false);
+    expect(composeToday({ groups: empty, next: next({ isError: true }), plan: plan(), upcoming: [] }).isEmpty).toBe(false);
+  });
+
+  it('is still empty when the answers are all genuinely nothing', () => {
+    for (const p of [plan(), plan({ plan: null }), plan({ plan: aPlan('dismissed', 0) }), plan({ plan: aPlan('proposed', 0) })]) {
+      expect(composeToday({ groups: empty, next: next(), plan: p, upcoming: [] }).isEmpty).toBe(true);
+    }
+  });
+});

@@ -1,6 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { RefreshControl, ScrollView, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { RefreshControl, View } from 'react-native';
 import { useApp } from '../state/AppContext';
 import { useTimeZone } from '../i18n/timezone';
 import { CIVIL_ZONE, civilDate, dayKey, formatDate, formatRelativeDay, formatTime } from '../i18n/format';
@@ -9,13 +8,13 @@ import { useToday, useTrust, useUpcoming } from '../api/queries';
 import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
 import type { DeviceBusyBlock } from '../features/calendar/busyBlocks';
 import { ScreenHeader, Notice, EmptyState } from '../ui/chrome';
+import { Screen, ScreenScroll } from '../ui/screen';
 import { SettingsIcon } from '../ui/icons';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
 import { groupUpcoming, toViewModel, type CommitmentView } from '../features/commitments/model';
 import { rowAccessibilityLabel } from '../features/commitments/accessibility';
 import { STRIP_DAYS, weekStripKeys } from '../features/commitments/weekStrip';
 import { Btn, Card, Txt } from '../ui/primitives';
-import { ScreenIn } from '../ui/motion';
 import { cardShadow } from '../theme/tokens';
 
 /**
@@ -50,7 +49,6 @@ import { cardShadow } from '../theme/tokens';
  */
 export function CalendarScreen() {
   const { s, t, p, lang, actions } = useApp();
-  const insets = useSafeAreaInsets();
   const timezone = useTimeZone();
   const today = useToday();
   const upcoming = useUpcoming();
@@ -109,9 +107,10 @@ export function CalendarScreen() {
     formatDate(civilDate(keys[STRIP_DAYS - 1]!), 'short', { locale: lang, timeZone: CIVIL_ZONE })}`;
 
   return (
-    <ScreenIn style={{ backgroundColor: p.bg }}>
-      <ScrollView
-        contentContainerStyle={{ paddingTop: insets.top + 8, paddingHorizontal: 16, paddingBottom: 130, gap: 14 }}
+    <Screen>
+      <ScreenScroll
+        bottom={130}
+        topGap={8}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={p.ac} />}
       >
         <ScreenHeader
@@ -205,8 +204,8 @@ export function CalendarScreen() {
             ) : null}
           </View>
         </QueryBoundary>
-      </ScrollView>
-    </ScreenIn>
+      </ScreenScroll>
+    </Screen>
   );
 }
 

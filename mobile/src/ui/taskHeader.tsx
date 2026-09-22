@@ -2,6 +2,7 @@ import React from 'react';
 import { View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
+import { useLayoutMode, type LayoutMode } from '../theme/textScale';
 import { Btn, Txt } from './primitives';
 
 /**
@@ -10,7 +11,26 @@ import { Btn, Txt } from './primitives';
  * flow's name in the middle in the muted colour, and an optional end slot for
  * one small status such as «الذكاء: مطفي». The end slot keeps its width when
  * empty so the title stays centred.
+ *
+ * ── Why it stops being a row ─────────────────────────────────────
+ *
+ * Three things on one line is a shape that only works while the line is wide
+ * enough for three things. At the accessibility text sizes it is not: the
+ * pill cannot shrink (it is a control with its own padding) and the end slot
+ * holds 64 pt open, so the only flexible child — the name — was squeezed to
+ * about a glyph, and Arabic wrapped character by character into a vertical
+ * column of letters. Found on device at AX5 (F3, 2026-09-22).
+ *
+ * So past the first accessibility size the header stacks and each part gets
+ * the whole width. This is the same rule the tab bar follows and it comes
+ * from the same place — `useLayoutMode`, not a number invented here.
  */
+
+/** A row while three things fit on a line; stacked once they cannot. */
+export function taskHeaderStacks(mode: LayoutMode): boolean {
+  return mode === 'xl';
+}
+
 export function TaskHeader({ pill, onPill, title, end, pillTestID }: {
   pill: string;
   onPill: () => void;
@@ -20,13 +40,30 @@ export function TaskHeader({ pill, onPill, title, end, pillTestID }: {
 }) {
   const { p } = useApp();
   const insets = useSafeAreaInsets();
+  const stacked = taskHeaderStacks(useLayoutMode());
   return (
-    <View style={{ paddingTop: insets.top + 8, paddingHorizontal: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+    <View
+      testID="task-header"
+      style={{
+        paddingTop: insets.top + 8,
+        paddingHorizontal: 16,
+        flexDirection: stacked ? 'column' : 'row',
+        justifyContent: 'space-between',
+        alignItems: stacked ? 'flex-start' : 'center',
+        gap: 10,
+      }}
+    >
       <Btn label={pill} onPress={onPill} testID={pillTestID} style={{ minHeight: 40, backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln, borderRadius: 999, paddingVertical: 8, paddingHorizontal: 16, justifyContent: 'center' }}>
         <Txt size={13} weight={600}>{pill}</Txt>
       </Btn>
-      <Txt size={13} color={p.mu} style={{ flexShrink: 1 }}>{title}</Txt>
-      <View style={{ minWidth: 64, alignItems: 'flex-end' }}>{end ?? null}</View>
+      {/* Stacked, the name is on its own line: nothing may shrink it. In a
+          row it is the only child that can give width back. */}
+      <Txt size={13} color={p.mu} style={stacked ? undefined : { flexShrink: 1 }}>{title}</Txt>
+      {stacked
+        // No reserve: an absent status must not hold a line open, and the
+        // title is no longer being centred between two ends.
+        ? (end ?? null)
+        : <View testID="task-header-end-reserve" style={{ minWidth: 64, alignItems: 'flex-end' }}>{end ?? null}</View>}
     </View>
   );
 }

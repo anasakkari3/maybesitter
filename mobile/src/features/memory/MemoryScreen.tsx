@@ -1,12 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ScrollView, TextInput, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { TextInput, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { isolate } from '../../i18n/bidi';
 import { formatDate } from '../../i18n/format';
 import { useTimeZone } from '../../i18n/timezone';
 import { Btn, Card, Txt } from '../../ui/primitives';
-import { ScreenIn } from '../../ui/motion';
+import { Screen, ScreenScroll } from '../../ui/screen';
 import { userFacingMessage } from '../../api/ui/userFacingMessage';
 import {
   useDeleteAllMemory,
@@ -85,7 +84,6 @@ export const UNDO_WINDOW_MS = 5_000;
 
 export function MemoryScreen({ onBack }: { onBack: () => void }) {
   const { t, p, rtl, lang } = useApp();
-  const insets = useSafeAreaInsets();
   const timeZone = useTimeZone();
 
   const memory = useMemory();
@@ -160,9 +158,8 @@ export function MemoryScreen({ onBack }: { onBack: () => void }) {
   const failure = [patch.error, remove.error, removeAll.error, decide.error].find(error => error != null);
 
   return (
-    <ScreenIn style={{ backgroundColor: p.bg }}>
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 60, gap: 14 }}>
-        <SettingsHeader title={t.memoryScreenTitle} onBack={onBack} />
+    <Screen pinned={<SettingsHeader title={t.memoryScreenTitle} onBack={onBack} />}>
+      <ScreenScroll>
 
         {failure ? (
           <Txt size={14} color={p.wm} testID="memory-screen-error">{userFacingMessage(failure, t)}</Txt>
@@ -239,8 +236,8 @@ export function MemoryScreen({ onBack }: { onBack: () => void }) {
             )}
           </Card>
         ) : null}
-      </ScrollView>
-    </ScreenIn>
+      </ScreenScroll>
+    </Screen>
   );
 }
 

@@ -1,6 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { RefreshControl, ScrollView, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { RefreshControl, View } from 'react-native';
 import { useApp } from '../state/AppContext';
 import { useTimeZone } from '../i18n/timezone';
 import { dayKey, formatDate, formatRelativeDay, formatTime } from '../i18n/format';
@@ -24,7 +23,7 @@ import { composeToday, type Primary } from '../features/today/composeToday';
 import { Btn, Card, Txt } from '../ui/primitives';
 import { EmptyState, ScreenHeader, SectionLabel, Tag, TextLink } from '../ui/chrome';
 import { CheckIcon, Glow } from '../ui/icons';
-import { ScreenIn } from '../ui/motion';
+import { Screen, ScreenScroll } from '../ui/screen';
 
 /**
  * Today (UC-2.R3 #173, ordering from UC-2.8 #169; Round 2, Phase C).
@@ -58,7 +57,6 @@ import { ScreenIn } from '../ui/motion';
  */
 export function TodayScreen() {
   const { t, tr, p, lang, actions } = useApp();
-  const insets = useSafeAreaInsets();
   const timezone = useTimeZone();
   const today = useToday();
   const next = useNextStep();
@@ -125,12 +123,16 @@ export function TodayScreen() {
   };
 
   return (
-    <ScreenIn style={{ backgroundColor: p.bg }}>
-      <View pointerEvents="none" style={{ position: 'absolute', top: -120, end: -80 }}>
-        <Glow color={p.acs} />
-      </View>
-      <ScrollView
-        contentContainerStyle={{ paddingTop: insets.top + 8, paddingHorizontal: 16, paddingBottom: 130, gap: 14 }}
+    <Screen
+      decoration={(
+        <View pointerEvents="none" style={{ position: 'absolute', top: -120, end: -80 }}>
+          <Glow color={p.acs} />
+        </View>
+      )}
+    >
+      <ScreenScroll
+        bottom={130}
+        topGap={8}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={p.ac} />}
       >
         <ScreenHeader
@@ -190,8 +192,8 @@ export function TodayScreen() {
             </>
           )}
         </QueryBoundary>
-      </ScrollView>
-    </ScreenIn>
+      </ScreenScroll>
+    </Screen>
   );
 }
 

@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
-import { ScrollView, View } from 'react-native';
+import { View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { useAuth } from '../../auth/AuthProvider';
 import { fill } from '../../i18n/strings';
 import { Card, Pill, Txt } from '../../ui/primitives';
+import { Screen, ScreenScroll } from '../../ui/screen';
 import { Dialog } from '../../ui/dialog';
-import { ScreenIn } from '../../ui/motion';
 import { SettingsHeader, SettingsRow } from './SettingsChrome';
 import { LegalLinks } from '../legal/LegalLinks';
 
@@ -24,9 +24,28 @@ export function AccountScreen({ onBack }: { onBack: () => void }) {
   const { user, signOut } = useAuth();
   const [confirmSignOut, setConfirmSignOut] = useState(false);
   return (
-    <ScreenIn style={{ backgroundColor: p.bg }}>
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 60, gap: 16 }}>
-        <SettingsHeader title={t.accountTitle} onBack={onBack} />
+    <Screen
+      pinned={<SettingsHeader title={t.accountTitle} onBack={onBack} />}
+      overlay={(
+        <>
+        {confirmSignOut ? (
+          <Dialog
+            testID="sign-out-dialog"
+            title={t.authSignOutConfirm}
+            body={t.authSignOutBody}
+            confirmLabel={t.authSignOut}
+            cancelLabel={t.cancel}
+            tone="ink"
+            onConfirm={() => { setConfirmSignOut(false); void signOut({ reason: 'user' }); }}
+            onCancel={() => setConfirmSignOut(false)}
+            confirmTestID="sign-out-confirm"
+            cancelTestID="sign-out-cancel"
+          />
+        ) : null}
+        </>
+      )}
+    >
+      <ScreenScroll gap={16}>
         {user ? (
           <Card pad={18} style={{ gap: 14 }}>
             <Txt size={14} color={p.mu} testID="account-identity">
@@ -46,21 +65,7 @@ export function AccountScreen({ onBack }: { onBack: () => void }) {
           </Card>
         ) : null}
         <View />
-      </ScrollView>
-      {confirmSignOut ? (
-        <Dialog
-          testID="sign-out-dialog"
-          title={t.authSignOutConfirm}
-          body={t.authSignOutBody}
-          confirmLabel={t.authSignOut}
-          cancelLabel={t.cancel}
-          tone="ink"
-          onConfirm={() => { setConfirmSignOut(false); void signOut({ reason: 'user' }); }}
-          onCancel={() => setConfirmSignOut(false)}
-          confirmTestID="sign-out-confirm"
-          cancelTestID="sign-out-cancel"
-        />
-      ) : null}
-    </ScreenIn>
+      </ScreenScroll>
+    </Screen>
   );
 }

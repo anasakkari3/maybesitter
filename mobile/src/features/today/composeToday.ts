@@ -51,7 +51,14 @@ export interface TodayModel {
   openTotal: number;
   plan: PlanRow;
   later: CommitmentView[];
-  /** Nothing open and nothing finished: a genuinely empty day. */
+  /**
+   * Every source has answered and none of them has anything to show.
+   *
+   * Not a predicate over the commitment list: the screen's empty branch draws
+   * neither the primary card nor the plan row, so a list-only `isEmpty` put
+   * «the day is empty» over a plan that had placed three things and swallowed
+   * a plan that had failed to load (F5, found on device 2026-09-22).
+   */
   isEmpty: boolean;
 }
 
@@ -140,6 +147,21 @@ export function composeToday(input: {
     .filter((c) => c.status === 'active' && !todayIds.has(c.id) && c.id !== primaryId)
     .slice(0, laterLimit);
 
+  // ── is the day empty? ──
+  // One rule: the day is empty only when every source has answered and none
+  // of them has anything to show.
+  //
+  // `primary.kind === 'none'` is already the list's whole answer — it is the
+  // one kind that draws nothing, and it is reached only when the day has no
+  // open item, nothing finished (that is `allDone`), no recommendation to
+  // show and no request for quiet. So the list is not re-tested here; a
+  // second, redundant clause would be a line no mutation could kill.
+  const planShowsWork = (planRow.kind === 'proposed' || planRow.kind === 'accepted') && planRow.placed > 0;
+  // Pending or failed is *not* an answer. Saying «empty» while a source is
+  // still talking is the false empty state itself, and on failure the empty
+  // branch would hide the very row that reports it.
+  const stillAsking = next.isPending || next.isError || plan.isPending || plan.isError;
+
   return {
     primary,
     groups: rest,
@@ -147,6 +169,6 @@ export function composeToday(input: {
     openTotal: open.length,
     plan: planRow,
     later,
-    isEmpty: open.length === 0 && groups.finished.length === 0,
+    isEmpty: primary.kind === 'none' && !planShowsWork && later.length === 0 && !stillAsking,
   };
 }

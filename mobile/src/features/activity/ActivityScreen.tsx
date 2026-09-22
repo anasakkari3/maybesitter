@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo } from 'react';
 import { RefreshControl, SectionList, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../../state/AppContext';
 import { isolateAuto } from '../../i18n/bidi';
 import { CIVIL_ZONE, civilDate, dayKey, formatDate, formatRelativeDay, formatTime } from '../../i18n/format';
@@ -8,7 +7,7 @@ import type { Locale } from '../../i18n/locale';
 import { fill } from '../../i18n/strings';
 import { useTimeZone } from '../../i18n/timezone';
 import { Card, Txt } from '../../ui/primitives';
-import { ScreenIn } from '../../ui/motion';
+import { Screen } from '../../ui/screen';
 import { SettingsHeader, SettingsRow } from '../settings/SettingsChrome';
 import { useActivity, useWeeklySummary } from '../../api/queries';
 import { knownActivityKind, type ActivityItem } from '../../api/schemas/activity';
@@ -102,7 +101,6 @@ export function planLine(planDate: string, locale: Locale, t: Strings): string {
 
 export function ActivityScreen({ onBack }: { onBack: () => void }) {
   const { t, p, lang, actions } = useApp();
-  const insets = useSafeAreaInsets();
   const timeZone = useTimeZone();
   const history = useActivity();
   const summary = useWeeklySummary();
@@ -138,12 +136,12 @@ export function ActivityScreen({ onBack }: { onBack: () => void }) {
   }, [items.length, hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   return (
-    <ScreenIn style={{ backgroundColor: p.bg }}>
+    <Screen pinned={<SettingsHeader title={t.activityTitle} onBack={onBack} />}>
       <SectionList
         testID="activity-list"
         sections={sections}
         keyExtractor={item => item.id}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 60, gap: 14 }}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 14, paddingBottom: 60, gap: 14 }}
         // What it learned from the person's answers lives under their activity
         // (Round 2): one history, not two rows on the settings root.
         ListFooterComponent={(
@@ -163,7 +161,6 @@ export function ActivityScreen({ onBack }: { onBack: () => void }) {
         }}
         ListHeaderComponent={(
           <View style={{ gap: 14 }}>
-            <SettingsHeader title={t.activityTitle} onBack={onBack} />
             {unreachable ? (
               <Card pad={18}>
                 <Txt size={14} color={p.mu} lh={1.5} testID="activity-unavailable">{t.activityUnavailable}</Txt>
@@ -218,7 +215,7 @@ export function ActivityScreen({ onBack }: { onBack: () => void }) {
         )}
         renderItem={({ item }) => <ActivityRow item={item} timeZone={timeZone} />}
       />
-    </ScreenIn>
+    </Screen>
   );
 }
 

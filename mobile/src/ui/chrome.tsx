@@ -1,6 +1,5 @@
 import React from 'react';
 import { View, type StyleProp, type ViewStyle } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { Shimmer } from './motion';
 import { Btn, Txt } from './primitives';
@@ -52,6 +51,12 @@ export function ScreenHeader({ eyebrow, title, end, eyebrowTestID }: {
  * The way back is a word, not a chevron: «رجوع» reads in every language and
  * announces itself. It sits at the start edge, above the title, so the title
  * can be as long as it needs to be.
+ *
+ * It does **not** clear the Dynamic Island. It used to — `paddingTop:
+ * insets.top + 8` — from inside the scroller it was usually rendered in,
+ * which moved the first thing down and let everything after it scroll up
+ * under the island (F2). `Screen` owns the inset now, and pins this header
+ * outside the scroller so it cannot leave (F1). See `ui/screen.tsx`.
  */
 export function BackHeader({ title, onBack, end, backLabel }: {
   title: string;
@@ -60,10 +65,9 @@ export function BackHeader({ title, onBack, end, backLabel }: {
   backLabel?: string | undefined;
 }) {
   const { t, p } = useApp();
-  const insets = useSafeAreaInsets();
   const label = backLabel ?? t.back;
   return (
-    <View style={{ paddingTop: insets.top + 8, gap: 10 }}>
+    <View testID="back-header" style={{ gap: 10 }}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <Btn label={label} onPress={onBack} scaleTo={0.97} testID="header-back" style={{ alignSelf: 'flex-start', paddingVertical: 6, paddingHorizontal: 2, minHeight: 44, justifyContent: 'center' }}>
           <Txt size={14} weight={600} color={p.acd}>{label}</Txt>

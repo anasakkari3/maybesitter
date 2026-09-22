@@ -1,11 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Platform, ScrollView, View } from 'react-native';
+import { Platform, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { Btn, Card, Pill, Txt } from '../ui/primitives';
-import { ScreenIn } from '../ui/motion';
 import { BackHeader, EmptyState, SectionLabel, Skeleton, Tag, TextLink } from '../ui/chrome';
+import { Screen, ScreenScroll } from '../ui/screen';
 import { ProcessingDots } from '../ui/motion';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
 import { useIsOnline } from '../api/ui/OfflineBanner';
@@ -76,7 +75,6 @@ import {
  */
 export function PlanScreen({ date, onBack }: { date: string; onBack: () => void }) {
   const { t, p } = useApp();
-  const insets = useSafeAreaInsets();
   const online = useIsOnline();
   const query = usePlan(date);
   const settings = usePlanSettings();
@@ -91,7 +89,7 @@ export function PlanScreen({ date, onBack }: { date: string; onBack: () => void 
   // a train.
   if (!online && !answered) {
     return (
-      <PlanFrame title={t.planTitle} onBack={onBack} insets={insets}>
+      <PlanFrame title={t.planTitle} onBack={onBack}>
         <Card pad={18}>
           <Txt size={15} color={p.mu} lh={1.5} testID="plan-offline-cold">{t.planOfflineCold}</Txt>
         </Card>
@@ -100,7 +98,7 @@ export function PlanScreen({ date, onBack }: { date: string; onBack: () => void 
   }
 
   return (
-    <PlanFrame title={t.planTitle} onBack={onBack} insets={insets}>
+    <PlanFrame title={t.planTitle} onBack={onBack}>
       <QueryBoundary isPending={query.isPending} error={query.error} onRetry={() => void query.refetch()}>
         {plan ? (
           <LoadedPlan plan={plan} date={date} readOnly={!online} />
@@ -191,20 +189,12 @@ function PlanFrame({
 }: {
   title: string;
   onBack: () => void;
-  insets?: { top: number };
   children: React.ReactNode;
 }) {
-  const { p } = useApp();
   return (
-    <ScreenIn style={{ backgroundColor: p.bg }}>
-      <ScrollView
-        testID="plan-screen"
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 60, gap: 14 }}
-      >
-        <BackHeader title={title} onBack={onBack} />
-        {children}
-      </ScrollView>
-    </ScreenIn>
+    <Screen pinned={<BackHeader title={title} onBack={onBack} />}>
+      <ScreenScroll testID="plan-screen">{children}</ScreenScroll>
+    </Screen>
   );
 }
 

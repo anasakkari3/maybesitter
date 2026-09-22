@@ -1,9 +1,9 @@
 import React from 'react';
-import { ScrollView, View } from 'react-native';
+import { View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { icsFeedsEnabled } from '../../config/env';
 import { Card, Txt } from '../../ui/primitives';
-import { ScreenIn } from '../../ui/motion';
+import { Screen, ScreenScroll } from '../../ui/screen';
 import { SettingsHeader, SettingsRow } from './SettingsChrome';
 
 /**
@@ -17,9 +17,8 @@ import { SettingsHeader, SettingsRow } from './SettingsChrome';
 export function SourcesScreen({ onBack }: { onBack: () => void }) {
   const { t, p, actions } = useApp();
   return (
-    <ScreenIn style={{ backgroundColor: p.bg }}>
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 60, gap: 16 }}>
-        <SettingsHeader title={t.sourcesTitle} onBack={onBack} />
+    <Screen pinned={<SettingsHeader title={t.sourcesTitle} onBack={onBack} />}>
+      <ScreenScroll gap={16}>
         <Txt size={14} color={p.mu} lh={1.5}>{t.sourcesBody}</Txt>
         <Card pad={0} style={{ paddingHorizontal: 16 }}>
           {icsFeedsEnabled() ? (
@@ -28,7 +27,7 @@ export function SourcesScreen({ onBack }: { onBack: () => void }) {
           <SettingsRow first={!icsFeedsEnabled()} label={t.footballTitle} onPress={() => actions.go('footballSettings')} testID="settings-football" />
         </Card>
         <View />
-      </ScrollView>
-    </ScreenIn>
+      </ScreenScroll>
+    </Screen>
   );
 }

@@ -1,9 +1,8 @@
 import React, { useState } from 'react';
-import { ScrollView, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { Btn, Card, Txt } from '../../ui/primitives';
-import { ScreenIn } from '../../ui/motion';
+import { Screen, ScreenScroll } from '../../ui/screen';
 import {
   useConsents,
   useSetAiConsent,
@@ -57,7 +56,6 @@ import { Platform } from 'react-native';
  */
 export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: () => void }) {
   const { t, p, lang, actions } = useApp();
-  const insets = useSafeAreaInsets();
   const consents = useConsents();
   const trust = useTrust();
   const setAi = useSetAiConsent();
@@ -85,9 +83,31 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
   };
 
   return (
-    <ScreenIn style={{ backgroundColor: p.bg }}>
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 60, gap: 14 }}>
-        <SettingsHeader title={t.sTrust} onBack={onBack} />
+    <Screen
+      pinned={<SettingsHeader title={t.sTrust} onBack={onBack} />}
+      overlay={(
+        <>
+        {/* The one shape for "are you sure" (Round 2). Stopping is hard to take
+            back, so it asks in the middle of the screen, over the thing it is
+            about. */}
+        {confirmRevoke ? (
+          <Dialog
+            testID="trust-revoke-dialog"
+            title={t.trustRevokeConfirm}
+            body={t.trustRevokeBody}
+            confirmLabel={t.trustRevoke}
+            cancelLabel={t.cancel}
+            tone="ink"
+            onConfirm={() => { setConfirmRevoke(false); void trustAction.mutateAsync({ type: 'revoke' }).catch(() => undefined); }}
+            onCancel={() => setConfirmRevoke(false)}
+            confirmTestID="trust-revoke-confirm"
+            cancelTestID="trust-revoke-cancel"
+          />
+        ) : null}
+        </>
+      )}
+    >
+      <ScreenScroll>
         <Txt size={14} color={p.mu} lh={1.5}>{t.trustLede}</Txt>
 
         <Card pad={0} style={{ overflow: 'hidden' }}>
@@ -196,24 +216,7 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
           <Txt size={15}>{t.trustExport}</Txt>
           <Txt size={13} color={p.mu} lh={1.5} testID="trust-export-unavailable">{t.trustExportBody}</Txt>
         </Card>
-      </ScrollView>
-      {/* The one shape for "are you sure" (Round 2). Stopping is hard to take
-          back, so it asks in the middle of the screen, over the thing it is
-          about. */}
-      {confirmRevoke ? (
-        <Dialog
-          testID="trust-revoke-dialog"
-          title={t.trustRevokeConfirm}
-          body={t.trustRevokeBody}
-          confirmLabel={t.trustRevoke}
-          cancelLabel={t.cancel}
-          tone="ink"
-          onConfirm={() => { setConfirmRevoke(false); void trustAction.mutateAsync({ type: 'revoke' }).catch(() => undefined); }}
-          onCancel={() => setConfirmRevoke(false)}
-          confirmTestID="trust-revoke-confirm"
-          cancelTestID="trust-revoke-cancel"
-        />
-      ) : null}
-    </ScreenIn>
+      </ScreenScroll>
+    </Screen>
   );
 }

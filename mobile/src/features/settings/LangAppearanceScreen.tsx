@@ -1,11 +1,11 @@
 import React from 'react';
-import { ScrollView, View } from 'react-native';
+import { View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { LANGUAGE_ENDONYM, LANGUAGE_OPTIONS, type LanguagePref } from '../../i18n/language';
 import type { ThemePref } from '../../state/types';
 import { Btn, Card, Txt } from '../../ui/primitives';
+import { Screen, ScreenScroll } from '../../ui/screen';
 import { SectionLabel } from '../../ui/chrome';
-import { ScreenIn } from '../../ui/motion';
 import { SettingsHeader } from './SettingsChrome';
 import { CheckIcon } from '../../ui/icons';
 
@@ -24,9 +24,8 @@ export function LangAppearanceScreen({ onBack }: { onBack: () => void }) {
     { value: 'system', label: t.vSystem }, { value: 'light', label: t.vLight }, { value: 'dark', label: t.vDark },
   ];
   return (
-    <ScreenIn style={{ backgroundColor: p.bg }}>
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 60, gap: 16 }}>
-        <SettingsHeader title={t.langAppearanceTitle} onBack={onBack} />
+    <Screen pinned={<SettingsHeader title={t.langAppearanceTitle} onBack={onBack} />}>
+      <ScreenScroll gap={16}>
         <View style={{ gap: 6 }}>
           <SectionLabel>{t.langAppearanceLanguage}</SectionLabel>
           <Card pad={0} style={{ paddingHorizontal: 16 }} testID="lang-picker">
@@ -43,8 +42,8 @@ export function LangAppearanceScreen({ onBack }: { onBack: () => void }) {
             ))}
           </Card>
         </View>
-      </ScrollView>
-    </ScreenIn>
+      </ScreenScroll>
+    </Screen>
   );
 }
 

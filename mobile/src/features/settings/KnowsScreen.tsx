@@ -1,9 +1,8 @@
 import React from 'react';
-import { ScrollView, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { Card, Txt } from '../../ui/primitives';
-import { ScreenIn } from '../../ui/motion';
+import { Screen, ScreenScroll } from '../../ui/screen';
 import { useTrust } from '../../api/queries';
 import { SettingsHeader } from './SettingsChrome';
 import { MemorySection } from '../memory/MemorySection';
@@ -25,7 +24,6 @@ import { MemorySection } from '../memory/MemorySection';
  */
 export function KnowsScreen({ onBack, onMemory }: { onBack: () => void; onMemory?: (() => void) | undefined }) {
   const { t, p } = useApp();
-  const insets = useSafeAreaInsets();
   const trust = useTrust();
   const knows = trust.data?.whatKnows;
 
@@ -38,9 +36,8 @@ export function KnowsScreen({ onBack, onMemory }: { onBack: () => void; onMemory
     : [];
 
   return (
-    <ScreenIn style={{ backgroundColor: p.bg }}>
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 60, gap: 14 }}>
-        <SettingsHeader title={t.settingsKnows} onBack={onBack} />
+    <Screen pinned={<SettingsHeader title={t.settingsKnows} onBack={onBack} />}>
+      <ScreenScroll>
 
         {knows ? (
           <Card pad={18} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -70,7 +67,7 @@ export function KnowsScreen({ onBack, onMemory }: { onBack: () => void; onMemory
             ))}
           </Card>
         ) : null}
-      </ScrollView>
-    </ScreenIn>
+      </ScreenScroll>
+    </Screen>
   );
 }

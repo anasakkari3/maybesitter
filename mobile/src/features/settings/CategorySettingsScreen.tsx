@@ -28,11 +28,10 @@
  * user just said.
  */
 import React from 'react';
-import { ActivityIndicator, ScrollView, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ActivityIndicator, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { Card, Txt } from '../../ui/primitives';
-import { ScreenIn } from '../../ui/motion';
+import { Screen, ScreenScroll } from '../../ui/screen';
 import { SettingsHeader } from './SettingsChrome';
 import { ServerToggle } from './ServerToggle';
 import { useCategoryPreferences, useSetCategoryPreferences } from '../../api/queries';
@@ -60,7 +59,6 @@ const LABEL: Record<Category, string> = {
 
 export function CategorySettingsScreen({ onBack }: { onBack: () => void }) {
   const { t, p } = useApp();
-  const insets = useSafeAreaInsets();
   const preferences = useCategoryPreferences();
   const save = useSetCategoryPreferences();
   const strings = t as unknown as Record<string, string>;
@@ -97,11 +95,8 @@ export function CategorySettingsScreen({ onBack }: { onBack: () => void }) {
   };
 
   return (
-    <ScreenIn style={{ backgroundColor: p.bg }}>
-      <ScrollView
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 130, gap: 14 }}
-      >
-        <SettingsHeader title={t.settingsParts} onBack={onBack} />
+    <Screen pinned={<SettingsHeader title={t.settingsParts} onBack={onBack} />}>
+      <ScreenScroll bottom={130}>
         <Txt size={14} color={p.mu} lh={1.5}>{t.catSettingsBody}</Txt>
 
         {current === undefined ? (
@@ -140,7 +135,7 @@ export function CategorySettingsScreen({ onBack }: { onBack: () => void }) {
             ) : null}
           </>
         )}
-      </ScrollView>
-    </ScreenIn>
+      </ScreenScroll>
+    </Screen>
   );
 }

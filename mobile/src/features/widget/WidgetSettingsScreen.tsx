@@ -11,8 +11,7 @@
  * answer lives on the phone — see `lib/deviceSettings/widget.ts` for why.
  */
 import React from 'react';
-import { ScrollView, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { useAuth } from '../../auth/AuthProvider';
 import { useNextStep, useToday } from '../../api/queries';
@@ -20,7 +19,7 @@ import { formatTime } from '../../i18n/format';
 import { ltr } from '../../i18n/strings';
 import { useTimeZone } from '../../i18n/timezone';
 import { Card, Txt } from '../../ui/primitives';
-import { ScreenIn } from '../../ui/motion';
+import { Screen, ScreenScroll } from '../../ui/screen';
 import { SettingsHeader } from '../settings/SettingsChrome';
 import { ServerToggle } from '../settings/ServerToggle';
 import { buildSnapshot, displayStateOf } from './snapshot';
@@ -29,7 +28,6 @@ import { useWidgetTitlesAllowed } from './useWidgetSnapshotSync';
 
 export function WidgetSettingsScreen({ onBack }: { onBack: () => void }) {
   const { t, p, lang } = useApp();
-  const insets = useSafeAreaInsets();
   const uid = useAuth().user?.uid ?? null;
   const { allowed, setAllowed } = useWidgetTitlesAllowed(uid);
   const timeZone = useTimeZone();
@@ -52,9 +50,8 @@ export function WidgetSettingsScreen({ onBack }: { onBack: () => void }) {
   const state = displayStateOf(preview, now);
 
   return (
-    <ScreenIn style={{ backgroundColor: p.bg }}>
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 60, gap: 14 }}>
-        <SettingsHeader title={t.settingsWidget} onBack={onBack} />
+    <Screen pinned={<SettingsHeader title={t.settingsWidget} onBack={onBack} />}>
+      <ScreenScroll>
         <Card pad={0}>
           <ServerToggle
             testID="widget-titles-toggle"
@@ -95,7 +92,7 @@ export function WidgetSettingsScreen({ onBack }: { onBack: () => void }) {
             <Txt size={15} color={p.mu}>{state === 'empty' ? t.widgetEmpty : t.widgetStale}</Txt>
           )}
         </Card>
-      </ScrollView>
-    </ScreenIn>
+      </ScreenScroll>
+    </Screen>
   );
 }

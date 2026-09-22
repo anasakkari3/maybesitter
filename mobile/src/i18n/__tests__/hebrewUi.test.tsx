@@ -51,6 +51,8 @@ import * as captureEndpoints from '../../api/endpoints/capture';
 import * as commitmentEndpoints from '../../api/endpoints/commitments';
 import * as analyticsEndpoints from '../../api/endpoints/analytics';
 import * as trustEndpoints from '../../api/endpoints/trust';
+import * as nextStepEndpoints from '../../api/endpoints/nextStep';
+import * as planEndpoints from '../../api/endpoints/plans';
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -70,6 +72,16 @@ beforeEach(() => {
   setAuthRepository(repository);
   jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [] } as never);
   jest.spyOn(commitmentEndpoints, 'listUpcoming').mockResolvedValue({ items: [] } as never);
+  // An empty day is not an unanswered one. `nextStepReviewService` returns
+  // `state: 'empty'` with a null step, and `getPlan` returns `null` when the
+  // date has no plan — so both sources *answer*. Leaving them unmocked let
+  // them fail instead, and Today may not call a day empty on a source it
+  // never heard from (F5).
+  jest.spyOn(nextStepEndpoints, 'getNextStep').mockResolvedValue({
+    success: true, participantId: USER.uid,
+    recommendation: { version: 'v1', proposalId: 'next-step-empty', state: 'empty', locale: 'en', primaryStep: null, explanation: null },
+  } as never);
+  jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue(null as never);
   jest.spyOn(trustEndpoints, 'getTrust')
     .mockResolvedValue({ success: true, participantId: USER.uid, trust: { analyticsConsent: false } } as never);
   jest.spyOn(analyticsEndpoints, 'recordAnalyticsEvent')

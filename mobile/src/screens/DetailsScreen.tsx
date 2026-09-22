@@ -1,5 +1,5 @@
 import React from 'react';
-import { ScrollView, View } from 'react-native';
+import { View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { useTimeZone } from '../i18n/timezone';
@@ -18,7 +18,7 @@ import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
 import { busyAt } from '../features/calendar/conflicts';
 import { Btn, Card, Pill, Txt } from '../ui/primitives';
 import { EmptyState, SectionLabel, Tag } from '../ui/chrome';
-import { ScreenIn } from '../ui/motion';
+import { Screen, ScreenScroll } from '../ui/screen';
 
 /**
  * One commitment, from the account (UC-2.R3 #173; Round 2, Phase E).
@@ -90,8 +90,8 @@ export function DetailsScreen() {
   const category = query.data?.category ?? null;
 
   return (
-    <ScreenIn style={{ backgroundColor: p.bg }}>
-      <ScrollView contentContainerStyle={{ flexGrow: 1, paddingTop: insets.top + 8, paddingHorizontal: 16, paddingBottom: 20, gap: 16 }}>
+    <Screen
+      pinned={(
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
           <Btn label={t.back} onPress={actions.back} testID="header-back" style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln, alignItems: 'center', justifyContent: 'center' }}>
             <Txt size={16} weight={600} style={{ transform: [{ scaleX: -1 }] }} latin>›</Txt>
@@ -102,6 +102,9 @@ export function DetailsScreen() {
             </Btn>
           ) : null}
         </View>
+      )}
+    >
+      <ScreenScroll grow bottom={20} gap={16} topGap={14}>
 
         {gone ? (
           <EmptyState testID="details-gone" title={t.detailsNotFoundTitle} body={t.detailsNotFoundBody} top={60} />
@@ -160,7 +163,7 @@ export function DetailsScreen() {
             ) : null}
           </QueryBoundary>
         )}
-      </ScrollView>
+      </ScreenScroll>
 
       {view && !gone ? (
         <View style={{ paddingTop: 12, paddingHorizontal: 16, paddingBottom: insets.bottom + 8, gap: 8, borderTopWidth: 1, borderTopColor: p.ln, backgroundColor: p.bg }}>
@@ -178,7 +181,7 @@ export function DetailsScreen() {
           )}
         </View>
       ) : null}
-    </ScreenIn>
+    </Screen>
   );
 }
 

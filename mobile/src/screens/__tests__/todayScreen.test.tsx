@@ -28,6 +28,8 @@ import ar from '../../i18n/locales/ar.json';
 import he from '../../i18n/locales/he.json';
 
 import * as commitmentEndpoints from '../../api/endpoints/commitments';
+import * as nextStepEndpoints from '../../api/endpoints/nextStep';
+import * as planEndpoints from '../../api/endpoints/plans';
 import * as language from '../../i18n/language';
 
 const METRICS: Metrics = {
@@ -76,6 +78,16 @@ beforeEach(() => {
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   repository = createFakeAuthRepository({ initialUser: USER });
   setAuthRepository(repository);
+  // An empty day is not an unanswered one. `nextStepReviewService` returns
+  // `state: 'empty'` with a null step, and `getPlan` returns `null` when the
+  // date has no plan — so both sources *answer*. Left unmocked they failed
+  // instead, and Today may not call a day empty on a source it never heard
+  // from (F5). A case that wants a recommendation or a plan overrides these.
+  jest.spyOn(nextStepEndpoints, 'getNextStep').mockResolvedValue({
+    success: true, participantId: USER.uid,
+    recommendation: { version: 'v1', proposalId: 'next-step-empty', state: 'empty', locale: 'en', primaryStep: null, explanation: null },
+  } as never);
+  jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue(null as never);
 });
 
 afterEach(() => {

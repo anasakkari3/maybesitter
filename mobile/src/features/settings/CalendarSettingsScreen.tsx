@@ -1,9 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Linking, ScrollView, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ActivityIndicator, Linking, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { Btn, Card, Txt } from '../../ui/primitives';
-import { ScreenIn } from '../../ui/motion';
+import { Screen, ScreenScroll } from '../../ui/screen';
 import { SettingsHeader, SettingsRow } from './SettingsChrome';
 import { ServerToggle } from './ServerToggle';
 import { useSetCalendarWriteTarget, useToday, useUpcoming } from '../../api/queries';
@@ -65,7 +64,6 @@ import { fill } from '../../i18n/strings';
  */
 export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void; onFeeds?: () => void }) {
   const { t, p } = useApp();
-  const insets = useSafeAreaInsets();
   const settings = useCalendarSettings();
   const setTarget = useSetCalendarWriteTarget();
   const today = useToday();
@@ -162,9 +160,8 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
   const denied = access === 'denied';
 
   return (
-    <ScreenIn style={{ backgroundColor: p.bg }}>
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 60, gap: 14 }}>
-        <SettingsHeader title={t.calendarWriteTitle} onBack={onBack} />
+    <Screen pinned={<SettingsHeader title={t.calendarWriteTitle} onBack={onBack} />}>
+      <ScreenScroll>
 
         <Card pad={0} style={{ overflow: 'hidden' }}>
           <ServerToggle
@@ -298,7 +295,7 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
             <Txt size={13} color={p.mu} testID="calendar-removed-count">{t.calendarRemoveDone}</Txt>
           )}
         </Card>
-      </ScrollView>
-    </ScreenIn>
+      </ScreenScroll>
+    </Screen>
   );
 }

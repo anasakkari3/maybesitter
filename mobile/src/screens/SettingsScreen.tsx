@@ -1,6 +1,5 @@
 import React from 'react';
-import { ScrollView, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { View } from 'react-native';
 import { useApp } from '../state/AppContext';
 import { useAuth } from '../auth/AuthProvider';
 import { useMemory, usePlanSettings, useTrust } from '../api/queries';
@@ -8,8 +7,8 @@ import { LANGUAGE_ENDONYM } from '../i18n/language';
 import { fill, ltr } from '../i18n/strings';
 import { icsFeedsEnabled } from '../config/env';
 import { Card, Txt } from '../ui/primitives';
-import { ScreenIn } from '../ui/motion';
 import { ScreenHeader, SectionLabel } from '../ui/chrome';
+import { Screen, ScreenScroll } from '../ui/screen';
 import { SettingsRow } from '../features/settings/SettingsChrome';
 
 /**
@@ -31,7 +30,6 @@ import { SettingsRow } from '../features/settings/SettingsChrome';
 export function SettingsScreen() {
   const { t, tr, p, langPref, themePref, actions } = useApp();
   const { user } = useAuth();
-  const insets = useSafeAreaInsets();
   const trust = useTrust();
   const memory = useMemory();
   const planSettings = usePlanSettings();
@@ -45,8 +43,8 @@ export function SettingsScreen() {
   const memoryCount = memory.data?.items.length;
 
   return (
-    <ScreenIn style={{ backgroundColor: p.bg }}>
-      <ScrollView contentContainerStyle={{ paddingTop: insets.top + 8, paddingHorizontal: 16, paddingBottom: 130, gap: 18 }}>
+    <Screen>
+      <ScreenScroll bottom={130} gap={18} topGap={8}>
         <ScreenHeader title={t.settingsTitle} />
 
         <Group title={t.settingsGroupYou}>
@@ -86,8 +84,8 @@ export function SettingsScreen() {
         <View style={{ paddingHorizontal: 12 }}>
           {user?.email ? <Txt size={12} color={p.mu} align="center">{fill(t.authSignedInAs, { email: user.email })}</Txt> : null}
         </View>
-      </ScrollView>
-    </ScreenIn>
+      </ScreenScroll>
+    </Screen>
   );
 }
 
