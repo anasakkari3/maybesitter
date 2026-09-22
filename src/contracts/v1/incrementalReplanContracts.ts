@@ -3,12 +3,12 @@
  *
  * The issue's pipeline is: identify directly affected blocks → expand through
  * hard dependency edges → freeze the rest → re-solve only the impacted set →
- * validate → diff → escalate deterministically. This file contracts the
- * artifact that pipeline produces — the `IncrementalPlanPatch` — and this
- * slice implements steps 1–2 (the impact closure). Steps 3–8 (freezing,
- * re-solving, validation, diffing, escalation, the stale-generation guard)
- * are the deliberate follow-up; the type names them but no code here performs
- * them.
+ * validate → diff → widen the neighborhood deterministically on infeasibility →
+ * escalate to a full replan only when widening is exhausted. This file
+ * contracts the artifact that pipeline produces — the `IncrementalPlanPatch`.
+ * The stale-generation guard the fields below enable lives at the apply
+ * boundary (`lib/services/dailyPlan/incrementalPlanApply.ts`), not in the
+ * contract.
  *
  * ── Nothing here is a second diff ──────────────────────────────────
  *
@@ -31,9 +31,10 @@
  *
  * `baseGeneration` + the base input digest are the apply-time guard the issue
  * contracts: a patch applies only while the stored plan is still the
- * generation it was computed from. The guard itself lives in the follow-up's
- * apply path (beside `replaceStoredPlan`'s generation check); the fields exist
- * now so the patch computed today is checkable tomorrow.
+ * generation it was computed from. The guard itself lives in the apply path
+ * (`replaceStoredPlanIfBaseMatches`, driven by `applyIncrementalPlanPatch`);
+ * the fields exist so the patch computed today is checkable at the
+ * persistence boundary tomorrow.
  */
 
 import { MODULE_CONTRACT_VERSION } from './moduleContracts';

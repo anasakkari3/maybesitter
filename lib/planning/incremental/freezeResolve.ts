@@ -1,13 +1,14 @@
 /**
- * Freeze, re-solve, validate, diff (#524, slice 2): steps 3–6.
+ * Freeze, re-solve, validate, diff — and escalate (#524, slices 2–3).
  *
  * Slice 1 answered *which* blocks a patch may touch. This answers what happens
  * next: the untouchable ones are pinned where they sit, the canonical solver is
  * asked to place only the rest, the two halves are joined back into one
  * complete plan, and that plan is compared with the base through the canonical
- * `PlanDiff`. Steps 7 and 8 — widening the neighborhood before giving up, and
- * the fallback taxonomy that would go with it — are deliberately absent; see
- * "What this slice does not do" below.
+ * `PlanDiff`. Slice 3 added steps 7–8: when the first impacted set has no
+ * feasible patch, the neighborhood is widened deterministically (see
+ * `neighborhoodExpansion.ts`) and re-solved, one ring at a time, and only the
+ * exhaustion of that ladder escalates to a full canonical replan.
  *
  * Pure, like everything else under `lib/planning/`: no clock, no randomness, no
  * persistence. Every instant, id and generation number arrives as an argument,
@@ -53,22 +54,15 @@
  * worth running. `tests/planning/incrementalFreezeResolve.test.ts` breaks
  * exactly that leak and watches this fail.
  *
- * ── What this slice does not do ────────────────────────────────────
+ * ── What this module does not do ───────────────────────────────────
  *
- *  - **Step 7, the smart expansion.** When the impacted set alone cannot be
- *    placed, the issue says to widen the neighborhood and try again before
- *    escalating. This slice does not: it goes straight to `full_fallback`. The
- *    blunt escalation is correct but pessimistic — it regenerates a whole day
- *    where a slightly wider patch would have done — and `expanded_incremental`
- *    is consequently a mode this module never returns.
- *  - **Step 8's reason taxonomy.** `FALLBACK_REASONS` below is the two cases
- *    this pipeline can actually distinguish today, not a vocabulary for the
- *    escalation ladder that does not exist yet.
  *  - **The stale-generation guard.** `baseGeneration` and `resultGeneration`
  *    are recorded faithfully, and nothing here checks them against a stored
  *    plan: this module computes a patch, it does not apply one. The guard
- *    belongs beside `replaceStoredPlan`, with the input-digest check the issue
- *    pairs it with.
+ *    lives beside the persistence boundary — `replaceStoredPlanIfBaseMatches`
+ *    in `planStore.ts`, driven by `applyIncrementalPlanPatch` in
+ *    `lib/services/dailyPlan/incrementalPlanApply.ts` — with the input-digest
+ *    check the issue pairs it with.
  */
 
 import {
@@ -93,6 +87,11 @@ import { validateConstraints } from '../constraints/validator';
 import { compareByCodePoint } from '../shared/compare';
 import { toEpochMs } from '../shared/time';
 import type { ImpactClosure } from './impactClosure';
+import {
+  computeCapacityRing,
+  computeConflictSet,
+  flexibleItemIdOf,
+} from './neighborhoodExpansion';
 
 export class IncrementalReplanError extends Error {
   constructor(message: string) {
@@ -104,24 +103,34 @@ export class IncrementalReplanError extends Error {
 /**
  * Why a patch escalated past `incremental`.
  *
- * Two codes, because two are what this pipeline can tell apart. The issue's
- * step 7 would add at least one more — "the widened set was still infeasible" —
- * and it is deliberately absent rather than declared-and-unreachable: a code no
- * code path emits is a taxonomy that reads as complete and is not.
+ * Three codes, because three are what the escalation ladder can tell apart.
+ * A code no code path emits is a taxonomy that reads as complete and is not,
+ * so nothing else is declared: each code below names a state this pipeline
+ * genuinely reaches, and the tests name the fixture that reaches it.
  */
 export const FALLBACK_REASONS = Object.freeze({
   /**
    * The frozen blocks plus the changed constraints do not form a request the
-   * planner can answer at all — most often a new blocking event landing on top
-   * of a block the closure did not impact, which is a statement that the user
-   * is in two places at once.
+   * planner can answer at all, and no frozen block is implicated in the
+   * contradiction — most often two of the request's *own* events overlapping.
+   * When a frozen block is implicated, step 7 unfreezes it instead; this code
+   * is what remains when that set is empty.
    */
   frozenConstraintsInvalid: 'FROZEN_CONSTRAINTS_INVALID',
   /**
-   * The impacted set could not be placed in the room the frozen blocks left.
-   * The blunt escalation: step 7 would widen the neighborhood here instead.
+   * The impacted set could not be placed in the room the frozen blocks left,
+   * and the neighborhood had nothing to widen into — no frozen block touches
+   * the impacted frontier. Widening was impossible, not merely unsuccessful.
    */
   impactedSetInfeasible: 'IMPACTED_SET_INFEASIBLE',
+  /**
+   * Step 7 ran: the neighborhood was widened at least once, the widened set
+   * still could not be placed, and the ring had finally come back empty.
+   * The distinction from `IMPACTED_SET_INFEASIBLE` is the audit trail — "we
+   * tried to keep this local and the locality ran out", not "there was never
+   * anything local to try".
+   */
+  expandedSetInfeasible: 'EXPANDED_SET_INFEASIBLE',
 } as const);
 
 export type FallbackReason = (typeof FALLBACK_REASONS)[keyof typeof FALLBACK_REASONS];
@@ -171,11 +180,7 @@ export interface FreezeResolveResult {
 }
 
 /** The item id a block stands for, or null for a block with no item behind it. */
-function itemIdOf(block: ScheduleBlock): string | null {
-  // `blocks.ts`: the v1 adapter's `itemId` *is* the source id, and only a
-  // flexible block is something the solver was asked to place.
-  return block.mobility === 'flexible' ? block.source.id : null;
-}
+const itemIdOf = flexibleItemIdOf;
 
 function sameInterval(
   left: { startsAt: string; endsAt: string },
@@ -403,12 +408,29 @@ function buildPatch(
 }
 
 /**
- * Steps 3–6, in order, with the blunt escalation in place of steps 7–8.
+ * One freeze/re-solve/validate pass over one partition.
  *
- * Freeze the unaffected, re-solve the impacted, assemble the complete plan,
- * validate it, diff it against the base. Every exit is a patch: there is no
- * path through this function that returns a plan without saying how it was
- * produced and what it changed.
+ * The outcome is a three-way discrimination, because the escalation ladder
+ * treats each shape differently: a solved attempt returns a plan, an invalid
+ * request widens by the conflict set (or falls back when it is empty), and a
+ * regressed one widens by the capacity ring (or falls back when it is empty).
+ */
+type SolveAttempt =
+  | { readonly kind: 'solved'; readonly plan: Plan; readonly validation: readonly PlanningReason[] }
+  | { readonly kind: 'invalid'; readonly validation: readonly PlanningReason[] }
+  | { readonly kind: 'regressed'; readonly validation: readonly PlanningReason[] };
+
+/**
+ * Steps 3–8, in order: freeze the unaffected, re-solve the impacted, assemble,
+ * validate, diff — widening the neighborhood on each infeasibility (step 7)
+ * and escalating to a full canonical replan only when widening is exhausted
+ * (step 8).
+ *
+ * Every exit is a patch: there is no path through this function that returns a
+ * plan without saying how it was produced and what it changed. The mode tells
+ * the three exits apart — `incremental` when the first closure solved,
+ * `expanded_incremental` when a widened one did, `full_fallback` when nothing
+ * short of a regeneration could.
  */
 export function planIncrementalPatch(input: FreezeResolveInput): FreezeResolveResult {
   const { basePlan, baseBlocks, closure, nextConstraints, config } = input;
@@ -419,80 +441,130 @@ export function planIncrementalPatch(input: FreezeResolveInput): FreezeResolveRe
   }
   const basePlacements = new Map(basePlan.scheduled.map((entry) => [entry.itemId, entry] as const));
 
-  const impactedItemIds = new Set<string>();
-  for (const blockId of closure.impactedBlockIds) {
-    const block = blockById.get(blockId);
-    if (block === undefined) {
-      throw new IncrementalReplanError(`impacted block '${blockId}' is not a block of this plan`);
+  for (const blockId of [...closure.impactedBlockIds, ...closure.frozenBlockIds]) {
+    if (!blockById.has(blockId)) {
+      throw new IncrementalReplanError(`block '${blockId}' is not a block of this plan`);
     }
-    const itemId = itemIdOf(block);
-    if (itemId !== null) impactedItemIds.add(itemId);
   }
 
-  // ── Step 3: freeze ──
-  const frozenEvents = freezeBlocksAsFixedEvents(closure.frozenBlockIds, blockById, basePlacements);
-  const frozenItemIds = new Set(
-    closure.frozenBlockIds
-      .map((blockId) => itemIdOf(blockById.get(blockId) as ScheduleBlock))
-      .filter((itemId): itemId is string => itemId !== null),
-  );
+  const attemptSolve = (impactedBlockIds: readonly string[], frozenBlockIds: readonly string[]): SolveAttempt => {
+    const impactedItemIds = new Set<string>();
+    for (const blockId of impactedBlockIds) {
+      const itemId = itemIdOf(blockById.get(blockId) as ScheduleBlock);
+      if (itemId !== null) impactedItemIds.add(itemId);
+    }
 
-  // ── Step 4: re-solve, and only the impacted items ──
-  //
-  // The withheld items are the mechanism. A frozen item is not in `items`, so
-  // there is no question for the solver to answer about it and no answer it
-  // could give.
-  const narrowed: PlanningConstraints = {
-    ...nextConstraints,
-    fixedEvents: [...nextConstraints.fixedEvents, ...frozenEvents],
-    items: nextConstraints.items.filter((item) => impactedItemIds.has(item.itemId)),
-  };
-
-  // ── Step 5: validate ──
-  //
-  // The repo's existing static validator, over the request that was actually
-  // solved — not a second validator written here. A finding at this level means
-  // the frozen set and the change cannot coexist, which no amount of re-solving
-  // the impacted items will fix.
-  const validation = validateConstraints(narrowed, config);
-  if (validation.length > 0) {
-    return fullFallback(input, FALLBACK_REASONS.frozenConstraintsInvalid, validation);
-  }
-
-  const resolved = schedulePlan(narrowed, config);
-  const merged = mergeResolvedWithFrozen(basePlan, resolved, nextConstraints, config);
-
-  // The invariant, asserted against the assembled plan. See `frozenPlacementDrift`.
-  const drifted = frozenPlacementDrift(basePlan, merged, frozenItemIds);
-  if (drifted.length > 0) {
-    throw new IncrementalReplanError(
-      `frozen blocks moved, which the freeze exists to prevent: ${drifted.join(', ')}`,
+    // ── Step 3: freeze ──
+    const frozenEvents = freezeBlocksAsFixedEvents(frozenBlockIds, blockById, basePlacements);
+    const frozenItemIds = new Set(
+      frozenBlockIds
+        .map((blockId) => itemIdOf(blockById.get(blockId) as ScheduleBlock))
+        .filter((itemId): itemId is string => itemId !== null),
     );
-  }
 
-  // Infeasible *for the impacted set alone*: an item that had a place in the
-  // base plan no longer has one. An item that was already unplaced and still is
-  // has not regressed — the patch did not take anything away from the user, and
-  // escalating to a full regeneration over it would churn the whole day to
-  // change nothing.
-  const regressed = Array.from(impactedItemIds)
-    .filter((itemId) => basePlacements.has(itemId)
-      && !merged.scheduled.some((entry) => entry.itemId === itemId))
-    .sort(compareByCodePoint);
-  if (regressed.length > 0) {
-    return fullFallback(input, FALLBACK_REASONS.impactedSetInfeasible, validation);
-  }
+    // ── Step 4: re-solve, and only the impacted items ──
+    //
+    // The withheld items are the mechanism. A frozen item is not in `items`,
+    // so there is no question for the solver to answer about it and no answer
+    // it could give.
+    const narrowed: PlanningConstraints = {
+      ...nextConstraints,
+      fixedEvents: [...nextConstraints.fixedEvents, ...frozenEvents],
+      items: nextConstraints.items.filter((item) => impactedItemIds.has(item.itemId)),
+    };
 
-  // ── Step 6: the canonical diff ──
-  return {
-    plan: merged,
-    validation,
-    patch: buildPatch(input, {
-      impactedBlockIds: closure.impactedBlockIds,
-      frozenBlockIds: closure.frozenBlockIds,
-      diff: diffPlans(basePlan, merged),
-      mode: 'incremental',
-      fallbackReason: null,
-    }),
+    // ── Step 5: validate ──
+    //
+    // The repo's existing static validator, over the request that was actually
+    // solved — not a second validator written here. A finding at this level
+    // means the frozen set and the change cannot coexist as written; step 7's
+    // conflict set is the attempt to fix exactly that before giving up.
+    const validation = validateConstraints(narrowed, config);
+    if (validation.length > 0) {
+      return { kind: 'invalid', validation };
+    }
+
+    const resolved = schedulePlan(narrowed, config);
+    const merged = mergeResolvedWithFrozen(basePlan, resolved, nextConstraints, config);
+
+    // The invariant, asserted against the assembled plan. See `frozenPlacementDrift`.
+    const drifted = frozenPlacementDrift(basePlan, merged, frozenItemIds);
+    if (drifted.length > 0) {
+      throw new IncrementalReplanError(
+        `frozen blocks moved, which the freeze exists to prevent: ${drifted.join(', ')}`,
+      );
+    }
+
+    // Infeasible *for the impacted set alone*: an item that had a place in the
+    // base plan no longer has one. An item that was already unplaced and still
+    // is has not regressed — the patch did not take anything away from the
+    // user, and widening the neighborhood over it would churn blocks to change
+    // nothing.
+    const regressed = Array.from(impactedItemIds)
+      .some((itemId) => basePlacements.has(itemId)
+        && !merged.scheduled.some((entry) => entry.itemId === itemId));
+    if (regressed) {
+      return { kind: 'regressed', validation };
+    }
+
+    return { kind: 'solved', plan: merged, validation };
   };
+
+  // ── Steps 7–8: the escalation ladder ──
+  //
+  // Each round either solves, widens, or ends the ladder. Widening always
+  // adds at least one block, so the loop is bounded by the block count; the
+  // guard against running past it is cheap insurance against a future
+  // candidate rule that could select a block already impacted.
+  let impactedBlockIds: readonly string[] = closure.impactedBlockIds;
+  let frozenBlockIds: readonly string[] = closure.frozenBlockIds;
+  let widened = false;
+  for (let round = 0; round <= baseBlocks.length; round += 1) {
+    const attempt = attemptSolve(impactedBlockIds, frozenBlockIds);
+
+    if (attempt.kind === 'solved') {
+      // ── Step 6: the canonical diff ──
+      return {
+        plan: attempt.plan,
+        validation: attempt.validation,
+        patch: buildPatch(input, {
+          impactedBlockIds,
+          frozenBlockIds,
+          diff: diffPlans(basePlan, attempt.plan),
+          mode: widened ? 'expanded_incremental' : 'incremental',
+          fallbackReason: null,
+        }),
+      };
+    }
+
+    // Step 7: widen, deterministically, by the candidate set that matches the
+    // failure shape. An empty set is the exhaustion signal for this branch of
+    // the ladder.
+    const candidates = attempt.kind === 'invalid'
+      ? computeConflictSet(
+        { impactedBlockIds, frozenBlockIds, blockById, basePlacements },
+        nextConstraints.fixedEvents,
+      )
+      : computeCapacityRing({ impactedBlockIds, frozenBlockIds, blockById, basePlacements });
+
+    if (candidates.length === 0) {
+      // Step 8: full canonical replan, with the reason that names the rung
+      // the ladder actually stopped at.
+      const reason = attempt.kind === 'invalid'
+        ? FALLBACK_REASONS.frozenConstraintsInvalid
+        : widened ? FALLBACK_REASONS.expandedSetInfeasible : FALLBACK_REASONS.impactedSetInfeasible;
+      return fullFallback(input, reason, attempt.validation);
+    }
+
+    const grown = new Set([...impactedBlockIds, ...candidates]);
+    impactedBlockIds = Array.from(grown).sort(compareByCodePoint);
+    frozenBlockIds = frozenBlockIds
+      .filter((blockId) => !grown.has(blockId))
+      .sort(compareByCodePoint);
+    widened = true;
+  }
+
+  // Unreachable: each round widens by at least one block and there are
+  // `baseBlocks.length` blocks, so the loop solves or falls back first.
+  throw new IncrementalReplanError('neighborhood expansion outgrew the plan, which cannot happen');
 }

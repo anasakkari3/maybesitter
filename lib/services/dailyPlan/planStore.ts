@@ -234,6 +234,40 @@ export async function replaceStoredPlan(
 }
 
 /**
+ * Replaces a plan with one built from a specific base, if that base is still
+ * the stored plan — generation *and* input digest (#524's stale-patch guard).
+ *
+ * `replaceStoredPlan` checks the generation alone, which is the right guard
+ * for a full regeneration: its inputs were re-read after the generation was
+ * observed. An incremental patch is a stronger claim — it was computed
+ * against a particular plan state, and a document that carries the expected
+ * generation but a different digest is not that state (an edit layered new
+ * constraints under the same number, or a writer rewrote the document
+ * without bumping). Applying there would overwrite a plan the patch never
+ * saw, so the digest is checked inside the same transaction as the
+ * generation, at the persistence boundary and not before it.
+ *
+ * Returns null on any mismatch; the caller recomputes from the newest state
+ * rather than retrying the same patch.
+ */
+export async function replaceStoredPlanIfBaseMatches(
+  uid: string,
+  document: StoredDailyPlan,
+  expectedBase: PlanGenerationAncestry,
+  storage?: StorageAdapter,
+): Promise<StoredDailyPlan | null> {
+  const path = planPath(uid, document.date);
+  return storageOf(storage).runTransaction(async (tx) => {
+    const current = await tx.get<StoredDailyPlan>(path);
+    if (!current
+      || current.generation !== expectedBase.generation
+      || current.inputDigest !== expectedBase.inputDigest) return null;
+    tx.set<StoredDailyPlan>(path, document);
+    return document;
+  });
+}
+
+/**
  * Appends to the plan ledger.
  *
  * Its own collection, and deliberately not `events`. `events` is the domain

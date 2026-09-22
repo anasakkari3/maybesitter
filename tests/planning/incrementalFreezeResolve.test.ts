@@ -466,9 +466,11 @@ test('the patch records the generations, the causes and the partition it used', 
 
 /* ── "Incremental infeasibility escalates deterministically" ───────── */
 
-test('an impacted set with nowhere to go falls back, with a reason', () => {
-  // A full window of work, then one item grows far beyond the room its
-  // frozen neighbours left. The impacted set alone cannot be placed.
+test('an impacted set with nowhere to go widens first, then falls back exhausted', () => {
+  // A full window of work, then one item grows far beyond what the day can
+  // hold at all. Step 7 widens: `b` abuts `c`'s placement, then `a` abuts
+  // `b`'s — and even the fully widened set cannot place 18 hours of work in a
+  // 12-hour window. Only then does the ladder escalate.
   const base = basePlanFor(constraints({
     items: [item('a', 240), item('b', 240), item('c', 180)],
   }));
@@ -478,7 +480,7 @@ test('an impacted set with nowhere to go falls back, with a reason', () => {
   const { patch, plan } = replan(base, next, { changedBlockIds: [blockIdOf('c')] });
 
   assert.equal(patch.mode, 'full_fallback');
-  assert.equal(patch.fallbackReason, FALLBACK_REASONS.impactedSetInfeasible);
+  assert.equal(patch.fallbackReason, FALLBACK_REASONS.expandedSetInfeasible);
   // The contract's reading of a fallback: nothing was frozen, so the solver was
   // asked about everything.
   assert.deepEqual(patch.frozenBlockIds, []);
@@ -502,11 +504,12 @@ test('a fallback is deterministic: the same infeasible input escalates the same 
   assert.deepEqual(first.plan, second.plan);
 });
 
-test('a frozen block a new event lands on makes the request invalid, and falls back', () => {
+test('a frozen block a new event lands on is unfrozen and re-placed, not fallen back', () => {
   // The closure was computed without being told about the meeting, so a morning
   // block stays frozen under it. Freezing it enters a blocking event that
-  // overlaps the meeting — the request now says the user is in two places at
-  // once, which no amount of re-solving the impacted set can fix.
+  // overlaps the meeting — but step 7's conflict set names exactly that block,
+  // unfreezes it, and the widened solve places it legally. No full-day
+  // regeneration over a conflict one block wide.
   const base = basePlanFor(constraints({ items: [item('a', 60), item('b', 60)] }));
   const placed = placementOf(base.plan, 'a')!;
   const meeting = busyEvent('clash', placed.interval.startsAt, placed.interval.endsAt);
@@ -514,6 +517,31 @@ test('a frozen block a new event lands on makes the request invalid, and falls b
 
   // Deliberately *not* passing `changedFixedEvents`, so the closure never sees
   // the collision and leaves `a` frozen.
+  const { patch, plan, validation } = replan(base, next, { changedBlockIds: [blockIdOf('b')] });
+
+  assert.equal(patch.mode, 'expanded_incremental');
+  assert.equal(patch.fallbackReason, null);
+  assert.deepEqual(patch.impactedBlockIds, [blockIdOf('a'), blockIdOf('b')].sort());
+  assert.deepEqual(validation, []);
+  // Both items are placed, and neither sits on the meeting.
+  for (const itemId of ['a', 'b']) {
+    const now = placementOf(plan, itemId);
+    assert.ok(now, `${itemId} was dropped rather than re-placed`);
+    const overlaps = Date.parse(now.interval.startsAt) < Date.parse(meeting.interval.endsAt)
+      && Date.parse(meeting.interval.startsAt) < Date.parse(now.interval.endsAt);
+    assert.equal(overlaps, false, `${itemId} was re-placed on top of the meeting`);
+  }
+});
+
+test('a request invalid on its own terms falls back, with a reason', () => {
+  // Two of the request's *own* meetings overlap each other. No frozen block is
+  // implicated — the conflict set is empty — so there is nothing step 7 can
+  // unfreeze, and the ladder escalates directly.
+  const base = basePlanFor(constraints({ items: [item('a', 60), item('b', 60)] }));
+  const first = busyEvent('meeting-1', '2026-08-17T18:00:00.000Z', '2026-08-17T19:00:00.000Z');
+  const second = busyEvent('meeting-2', '2026-08-17T18:30:00.000Z', '2026-08-17T19:30:00.000Z');
+  const next = { ...base.request, fixedEvents: [first, second] };
+
   const { patch, validation } = replan(base, next, { changedBlockIds: [blockIdOf('b')] });
 
   assert.equal(patch.mode, 'full_fallback');
