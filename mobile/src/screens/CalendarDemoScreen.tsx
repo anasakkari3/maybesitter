@@ -6,7 +6,8 @@ import { requestAdditionalScopes, revokeGoogleAccess } from '../auth/googleSignI
 import { CALENDAR_SCOPES } from '../features/calendarDemo/scopes';
 import { fetchBusy, insertDemoEvent, listCalendars, type CalendarSummary } from '../features/calendarDemo/calendarApi';
 import { findOverlaps, mergeBusy, type BusyInterval } from '../features/calendarDemo/overlap';
-import { Card, FlowHeader, Pill, Txt } from '../ui/primitives';
+import { Card, Pill, Txt } from '../ui/primitives';
+import { TaskHeader } from '../ui/taskHeader';
 
 /**
  * The Google OAuth verification demo (UC-1.8 #152). Development only.
@@ -133,7 +134,7 @@ export function CalendarDemoScreen({ onBack }: { onBack: () => void }) {
 
   return (
     <View style={{ flex: 1, backgroundColor: p.bg }}>
-      <FlowHeader pill="Back" onPill={onBack} title="Calendar demo (dev only)" />
+      <TaskHeader pill="Back" onPill={onBack} title="Calendar demo (dev only)" />
       <ScrollView contentContainerStyle={{ padding: 20, gap: 14 }}>
         <Txt size={20} weight={600}>Google Calendar verification demo</Txt>
         <Card pad={14} style={{ gap: 6 }}>

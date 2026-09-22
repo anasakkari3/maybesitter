@@ -26,6 +26,7 @@ import { useShareIntake } from '../features/share/ShareProvider';
 import type { SharedFile } from '../features/share/intake';
 import { fill, ltr } from '../i18n/strings';
 import { Card, Pill, Txt } from '../ui/primitives';
+import { TaskHeader } from '../ui/taskHeader';
 
 /** How much of a shared text is worth showing before Analyze. */
 const PREVIEW_CHARACTERS = 600;
@@ -66,10 +67,10 @@ export function ShareScreen() {
   if (state.status === 'unavailable') {
     return (
       <View testID="share-screen" style={{ flex: 1, backgroundColor: p.bg }}>
-        <ScrollView contentContainerStyle={{ padding: 24, gap: 18, flexGrow: 1, justifyContent: 'center' }}>
-          <Txt size={26} weight={600}>{t.shareTitle}</Txt>
-          <Txt size={15} color={p.mu} testID="share-notice">{t.shareUnavailable}</Txt>
-          <Pill label={t.back} kind="soft" onPress={() => actions.go('today')} testID="share-back" />
+        <TaskHeader pill={t.back} onPill={() => actions.go('today')} title={t.shareTitle} pillTestID="share-back" />
+        <ScrollView contentContainerStyle={{ padding: 16, gap: 18, flexGrow: 1, justifyContent: 'center' }}>
+          <Txt size={20} weight={600}>{t.shareTitle}</Txt>
+          <Txt size={15} color={p.mu} lh={1.5} testID="share-notice">{t.shareUnavailable}</Txt>
         </ScrollView>
       </View>
     );
@@ -79,9 +80,9 @@ export function ShareScreen() {
 
   return (
     <View testID="share-screen" style={{ flex: 1, backgroundColor: p.bg }}>
-      <ScrollView contentContainerStyle={{ padding: 24, gap: 18, flexGrow: 1 }}>
-        <Txt size={26} weight={600}>{t.shareTitle}</Txt>
-        <Txt size={15} color={p.mu}>{t.shareNothingSentYet}</Txt>
+      <TaskHeader pill={t.back} onPill={() => actions.go('today')} title={t.shareTitle} pillTestID="share-back" />
+      <ScrollView contentContainerStyle={{ padding: 16, gap: 14, flexGrow: 1 }}>
+        <Txt size={15} color={p.mu} lh={1.5}>{t.shareNothingSentYet}</Txt>
 
         {payload?.text ? (
           <Card pad={18}>

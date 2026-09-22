@@ -42,7 +42,6 @@ import { WidgetSettingsScreen } from './features/widget/WidgetSettingsScreen';
 import { WidgetSnapshotHost } from './features/widget/useWidgetSnapshotSync';
 import { googleCalendarDemoEnabled, icsFeedsEnabled } from './config/env';
 import { RemindersMount } from './features/reminders/RemindersMount';
-import { Gallery } from './design/Gallery';
 
 export function Root() {
   const { s, p, rtl, scheme, actions } = useApp();
@@ -209,7 +208,6 @@ export function Root() {
               to be wrong. */}
           {s.screen === 'capture' && <CaptureFlow key="capture" />}
           {s.screen === 'share' && <ShareScreen key="share" />}
-          {__DEV__ && s.screen === 'gallery' && <Gallery key="gallery" />}
           {/* Two independent gates: the flag, and the release guard that refuses
               to configure a staging or production build which sets it (#152). */}
           {googleCalendarDemoEnabled() && s.screen === 'calendarDemo' && (

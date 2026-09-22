@@ -62,8 +62,6 @@ export type Screen =
   // twice. A successful analyze leaves here for `capture`, which is where the
   // ordinary review and confirm live.
   | 'share'
-  // Development only: the design gallery (src/design/Gallery.tsx).
-  | 'gallery'
   // Development only, and additionally behind an env flag: the Google Calendar
   // verification demo (src/screens/CalendarDemoScreen.tsx, UC-1.8 #152).
   | 'calendarDemo'

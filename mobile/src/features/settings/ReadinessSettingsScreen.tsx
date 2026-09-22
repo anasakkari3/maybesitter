@@ -51,7 +51,7 @@ export function ReadinessSettingsScreen({ onBack }: { onBack: () => void }) {
   return (
     <ScreenIn style={{ backgroundColor: p.bg }}>
       <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 80, gap: 14 }}>
-        <SettingsHeader title={t.readinessTitle} onBack={onBack} />
+        <SettingsHeader title={t.settingsEnergy} onBack={onBack} />
         <Card pad={18} style={{ gap: 14 }}>
           <View style={{ gap: 6 }}>
             <Txt size={15} weight={600}>{t.readinessEnergyTitle}</Txt>

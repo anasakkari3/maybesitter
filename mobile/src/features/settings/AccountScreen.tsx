@@ -37,12 +37,14 @@ export function AccountScreen({ onBack }: { onBack: () => void }) {
         ) : null}
         {/* Only rendered once a legal site is configured (UC-4.2 #177). */}
         <LegalLinks />
-        <Card pad={0} style={{ paddingHorizontal: 16 }}>
-          {/* Destructive, but not shouting: warm rather than a red the design
-              does not have, and last so it is never the thing a thumb lands on
-              by accident (UC-1.5 #149). */}
-          <SettingsRow first label={t.accountDelete} tone="warn" onPress={() => actions.go('deleteAccount')} testID="account-delete" />
-        </Card>
+        {user ? (
+          <Card pad={0} style={{ paddingHorizontal: 16 }}>
+            {/* Destructive, but not shouting: warm rather than a red the design
+                does not have, and last so it is never the thing a thumb lands
+                on by accident (UC-1.5 #149). */}
+            <SettingsRow first label={t.accountDelete} tone="warn" onPress={() => actions.go('deleteAccount')} testID="account-delete" />
+          </Card>
+        ) : null}
         <View />
       </ScrollView>
       {confirmSignOut ? (

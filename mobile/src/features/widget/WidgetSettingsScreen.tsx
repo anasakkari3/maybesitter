@@ -54,7 +54,7 @@ export function WidgetSettingsScreen({ onBack }: { onBack: () => void }) {
   return (
     <ScreenIn style={{ backgroundColor: p.bg }}>
       <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 60, gap: 14 }}>
-        <SettingsHeader title={t.widgetSettingsTitle} onBack={onBack} />
+        <SettingsHeader title={t.settingsWidget} onBack={onBack} />
         <Card pad={0}>
           <ServerToggle
             testID="widget-titles-toggle"

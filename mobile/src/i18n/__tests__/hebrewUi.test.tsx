@@ -168,23 +168,24 @@ describe('a Hebrew phone gets a Hebrew app', () => {
   });
 });
 
-describe('the language row offers it', () => {
-  it('cycles Arabic → עברית and turns the app Hebrew as it goes', async () => {
+describe('the language picker offers it', () => {
+  it('Arabic → עברית through the picker, and the app turns Hebrew as it goes', async () => {
     await openAppIn('ar');
     await fireEvent.press(screen.getByRole('button', { name: ar.tabSettings }));
-    await waitFor(() => expect(screen.queryByText(ar.sLanguage)).not.toBeNull());
-
-    // System → English → العربية → עברית → System. From Arabic, one tap.
-    await fireEvent.press(screen.getByRole('button', { name: ar.sLanguage }));
-
-    await waitFor(() => expect(screen.queryByText(he.sLanguage)).not.toBeNull());
-    // The row names the language in itself, so this is the picker's own label.
+    // Round 2: language and appearance are a picker screen, not a row that
+    // cycles. The row's label names both.
+    await waitFor(() => expect(screen.queryByTestId('settings-language')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('settings-language'));
+    await waitFor(() => expect(screen.queryByTestId('lang-option-he')).not.toBeNull());
+    // The option names the language in itself, so this is the picker's own label.
     expect(screen.queryByText('עברית')).not.toBeNull();
-    // And the screen around it changed language, not just the one row.
-    expect(screen.queryByText(ar.settingsTitle)).toBeNull();
-    // getAllBy: «הגדרות» is both the screen title and the tab label, and that
-    // both changed is the point — the row did not translate itself alone.
-    expect(screen.getAllByText(he.settingsTitle).length).toBeGreaterThan(1);
+    await fireEvent.press(screen.getByTestId('lang-option-he'));
+
+    // The screen around it changed language, not just the one row.
+    await waitFor(() => expect(screen.queryByText(he.langAppearanceTitle)).not.toBeNull());
+    expect(screen.queryByText(ar.langAppearanceTitle)).toBeNull();
+    // And the chrome outside the picker changed with it: the back label.
+    expect(screen.queryByText(he.settingsBack)).not.toBeNull();
   });
 });
 

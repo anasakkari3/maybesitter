@@ -3,13 +3,10 @@ import {
   Animated, Pressable, Text, View,
   type GestureResponderEvent, type NativeSyntheticEvent, type StyleProp, type TextLayoutEventData, type TextStyle, type ViewStyle,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { family, LINE_HEIGHT, type Weight } from '../theme/fonts';
 import { useTextScale } from '../theme/textScale';
 import { cardShadow, type Palette } from '../theme/tokens';
-import { impColors, impLabel } from '../state/derive';
-import type { Imp } from '../state/types';
 
 type Align = 'start' | 'center' | 'end';
 
@@ -190,41 +187,9 @@ export function Pill({
   );
 }
 
-/** Small outlined pill used for Back / Cancel in screen headers. */
-export function HeaderPill({ label, onPress }: { label: string; onPress: () => void }) {
-  const { p } = useApp();
-  return (
-    <Btn onPress={onPress} label={label} style={{ backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln, borderRadius: 999, paddingVertical: 8, paddingHorizontal: 14, minHeight: 36, justifyContent: 'center' }}>
-      <Txt size={13}>{label}</Txt>
-    </Btn>
-  );
-}
-
 export function Card({ children, style, pad = 18, testID }: { children: React.ReactNode; style?: StyleProp<ViewStyle>; pad?: number; testID?: string | undefined }) {
   const { p } = useApp();
   return <View testID={testID} style={[{ backgroundColor: p.sf, borderRadius: 24, padding: pad }, cardShadow(p), style]}>{children}</View>;
-}
-
-export function ImpBadge({ imp, style }: { imp: Imp; style?: StyleProp<ViewStyle> }) {
-  const { p, t } = useApp();
-  const c = impColors(imp, p);
-  return (
-    <View style={[{ backgroundColor: c.bg, borderRadius: 999, paddingVertical: 4, paddingHorizontal: 10, alignSelf: 'flex-start' }, style]}>
-      <Txt size={12} weight={600} color={c.fg}>{impLabel(imp, t)}</Txt>
-    </View>
-  );
-}
-
-/** Top bar for flow screens: a pill on the start side, a muted title on the end side. */
-export function FlowHeader({ pill, onPill, title }: { pill: string; onPill: () => void; title: string }) {
-  const { p } = useApp();
-  const insets = useSafeAreaInsets();
-  return (
-    <View style={{ paddingTop: insets.top + 8, paddingHorizontal: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-      <HeaderPill label={pill} onPress={onPill} />
-      <Txt size={13} color={p.mu}>{title}</Txt>
-    </View>
-  );
 }
 
 export function Divider({ p }: { p: Palette }) {

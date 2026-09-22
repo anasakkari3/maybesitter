@@ -45,9 +45,9 @@ export type Nav = {
  * Screens that own the whole display while they are open. Back closes them;
  * the tab underneath is untouched. `capture` is the flow, `share` is what
  * another app handed over, `deleteAccount` is a one-way door with its own
- * receipt, and the two development screens are outside the product.
+ * receipt, and the development calendar demo is outside the product.
  */
-const TASKS: ReadonlySet<Screen> = new Set<Screen>(['capture', 'share', 'deleteAccount', 'gallery', 'calendarDemo']);
+const TASKS: ReadonlySet<Screen> = new Set<Screen>(['capture', 'share', 'deleteAccount', 'calendarDemo']);
 
 /**
  * Where a pushed screen lives. Settings leaves belong to the settings tab

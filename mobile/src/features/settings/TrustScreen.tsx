@@ -16,6 +16,8 @@ import { apiLocale } from '../../i18n/locale';
 import { openLegal, privacyPolicyUrl } from '../../config/legalLinks';
 import { ServerToggle } from './ServerToggle';
 import { SettingsHeader, SettingsRow } from './SettingsChrome';
+import { Dialog } from '../../ui/dialog';
+import { TextLink } from '../../ui/chrome';
 import { Platform } from 'react-native';
 
 /**
@@ -54,7 +56,7 @@ import { Platform } from 'react-native';
  * thing. A grep test asserts no screen here sends `{type:'delete'}`.
  */
 export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: () => void }) {
-  const { t, p, lang } = useApp();
+  const { t, p, lang, actions } = useApp();
   const insets = useSafeAreaInsets();
   const consents = useConsents();
   const trust = useTrust();
@@ -151,6 +153,11 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
             disabled={state === undefined}
             onChange={next => record(trustAction.mutateAsync({ type: 'set_calendar_consent', granted: next }))}
           />
+          {/* The switch records consent; connecting the calendar is done in
+              Calendar settings, which is one tap from here (Round 2). */}
+          <View style={{ paddingHorizontal: 18, paddingBottom: 12 }}>
+            <TextLink label={t.calendarWriteTitle} onPress={() => actions.go('calendarSettings')} testID="trust-calendar-settings" size={13} />
+          </View>
         </Card>
 
         <Card pad={0} style={{ overflow: 'hidden' }}>
@@ -170,32 +177,12 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
           <Txt size={13} color={p.mu} lh={1.5}>{t.trustRevokeBody}</Txt>
           {state?.revokedAt ? (
             <Txt size={13} color={p.mu} testID="trust-revoked">{t.trustRevoked}</Txt>
-          ) : confirmRevoke ? (
-            <View style={{ flexDirection: 'row', gap: 10 }}>
-              <Btn
-                label={t.trustRevokeConfirm}
-                onPress={() => {
-                  setConfirmRevoke(false);
-                  void trustAction.mutateAsync({ type: 'revoke' }).catch(() => undefined);
-                }}
-                style={{ flex: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 12, backgroundColor: p.wms }}
-              >
-                <Txt size={14} weight={600} color={p.wm}>{t.trustRevokeConfirm}</Txt>
-              </Btn>
-              <Btn
-                label={t.cancel}
-                onPress={() => setConfirmRevoke(false)}
-                style={{ flex: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 12, borderWidth: 1, borderColor: p.ln }}
-              >
-                <Txt size={14}>{t.cancel}</Txt>
-              </Btn>
-            </View>
           ) : (
             <Btn
               label={t.trustRevoke}
               testID="trust-revoke"
               onPress={() => setConfirmRevoke(true)}
-              style={{ minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 12, borderWidth: 1, borderColor: p.ln }}
+              style={{ minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 999, borderWidth: 1, borderColor: p.ln }}
             >
               <Txt size={14} color={p.wm}>{t.trustRevoke}</Txt>
             </Btn>
@@ -210,6 +197,23 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
           <Txt size={13} color={p.mu} lh={1.5} testID="trust-export-unavailable">{t.trustExportBody}</Txt>
         </Card>
       </ScrollView>
+      {/* The one shape for "are you sure" (Round 2). Stopping is hard to take
+          back, so it asks in the middle of the screen, over the thing it is
+          about. */}
+      {confirmRevoke ? (
+        <Dialog
+          testID="trust-revoke-dialog"
+          title={t.trustRevokeConfirm}
+          body={t.trustRevokeBody}
+          confirmLabel={t.trustRevoke}
+          cancelLabel={t.cancel}
+          tone="ink"
+          onConfirm={() => { setConfirmRevoke(false); void trustAction.mutateAsync({ type: 'revoke' }).catch(() => undefined); }}
+          onCancel={() => setConfirmRevoke(false)}
+          confirmTestID="trust-revoke-confirm"
+          cancelTestID="trust-revoke-cancel"
+        />
+      ) : null}
     </ScreenIn>
   );
 }

@@ -5,13 +5,12 @@ import { setLocale, tFor } from '../i18n';
 import { isRtl, scriptFor } from '../i18n/locale';
 import type { Script } from '../theme/fonts';
 import {
-  loadLanguagePref, nextLanguagePref, resolveLanguage, saveLanguagePref, systemLanguageTag, type LanguagePref,
+  loadLanguagePref, resolveLanguage, saveLanguagePref, systemLanguageTag, type LanguagePref,
 } from '../i18n/language';
 import { googleCalendarDemoEnabled } from '../config/env';
 import { loadThemePref, saveThemePref } from '../lib/deviceSettings/theme';
 import { palettes, type Palette, type Scheme } from '../theme/tokens';
-import { seedCommitments, TODAY } from './seed';
-import type { Commitment, Screen, Sheet, Status, ThemePref, Toast } from './types';
+import type { Screen, Sheet, ThemePref, Toast } from './types';
 import * as nav from './navigation';
 import type { CaptureInputMode, CaptureSource } from '../features/capture/captureMachine';
 
@@ -40,7 +39,6 @@ export type AppState = {
   captureInput: CaptureInputMode;
   sheet: Sheet;
   toast: Toast | null;
-  nextDismissed: boolean;
   /**
    * Which day of the week strip is open, as an offset from today (0 = today).
    *
@@ -53,7 +51,6 @@ export type AppState = {
   detailId: string | null;
   /** Derived from `nav`: the `YYYY-MM-DD` the plan screen is showing, or null when it is closed. */
   planDate: string | null;
-  commitments: Commitment[];
 };
 
 /** Recompute the three derived fields from the history. Every nav change goes through here. */
@@ -66,8 +63,7 @@ const initial: AppState = {
   nav: nav.initialNav, screen: 'today', showTabs: true,
   captureSource: 'tab', captureInput: 'text',
   sheet: null, toast: null,
-  nextDismissed: false, selDay: 0, detailId: null, planDate: null,
-  commitments: seedCommitments,
+  selDay: 0, detailId: null, planDate: null,
 };
 
 function useAppModel() {
@@ -170,11 +166,7 @@ function useAppModel() {
     arriveAtPlan: (date: string) => move(n => nav.arrive(n, { name: 'plan', planDate: date })),
     /** A tab or task named by a link. */
     arriveAt: (screen: Screen) => move(n => nav.arrive(n, { name: screen })),
-    toggle: (id: string) => set(st => ({
-      commitments: st.commitments.map(c => (c.id === id ? { ...c, status: c.status === 'done' ? 'active' : 'done' } : c)),
-    })),
     setSelDay: (d: number) => set({ selDay: d }),
-    dismissNext: () => set({ nextDismissed: true }),
 
     /**
      * Enter the capture flow (UC-2.R2, #172).
@@ -205,13 +197,8 @@ function useAppModel() {
     toast: (message: string, undo?: () => void) => set({ toast: { id: Date.now(), text: message, undo } }),
     dismissToast: (id: number) => set(st => (st.toast?.id === id ? { toast: null } : null)),
 
-    // details
-    setStatus: (id: string, status: Status, toast: string) =>
-      set(st => ({ commitments: st.commitments.map(c => (c.id === id ? { ...c, status } : c)), toast: { id: Date.now(), text: toast } })),
-
     // preferences
-    // The language picker: System → English → العربية → עברית → System.
-    cycleLanguage: () => applyLangPref(nextLanguagePref(langPref)),
+    /** Kept for the theme-persistence test and any link that wants the next scheme. */
     cycleTheme: () =>
       applyThemePref(themePref === 'system' ? 'light' : themePref === 'light' ? 'dark' : 'system'),
     // A maybesitter://<screen>?lang=ar link picks a language explicitly, so it
@@ -227,8 +214,6 @@ function useAppModel() {
      */
     jump: (name: string) => {
       switch (name) {
-        // Development only, so a release build cannot reach the gallery.
-        case 'gallery': if (__DEV__) move(n => nav.arrive(n, { name: 'gallery' })); return;
         // Additionally behind an env flag the release guard refuses to let a
         // staging or production build set at all (UC-1.8 #152).
         case 'calendarDemo': if (googleCalendarDemoEnabled()) move(n => nav.arrive(n, { name: 'calendarDemo' })); return;

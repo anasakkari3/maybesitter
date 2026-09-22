@@ -7,18 +7,16 @@ writing any code. This app targets Expo SDK 57, React Native 0.86, React 19.2.
 
 ## Design source of truth
 
-`design/` is the only design reference. It now holds **Round 2**
+`design/` is the only design reference. It holds **Round 2**
 (`https://claude.ai/design/p/7f9b0a08-61c9-4326-90c0-ea5b2523fdb7`,
-`R2App.dc.html`).
-
-The shipped screens still render **Round 1**. Round 2 redesigns the spine —
-three tabs with their own stacks, tasks, sheets and dialogs — and leaves the
-sixteen settings sub-screens, onboarding, auth and deletion unbuilt, so it does
-not replace the app. Migrating a screen means moving it to Round 2; until a
-screen is migrated, Round 1 is what it is meant to look like. The plan and the
-screen-by-screen delta are in `docs/design/round-1-to-round-2.md`.
-
-Rules below hold in both rounds unless the delta doc says otherwise.
+`R2App.dc.html`), and the app now runs on it: three tabs with their own
+stacks, tasks, sheets and dialogs (`src/state/navigation.ts`), one screen
+grammar (`src/ui/chrome.tsx`), and the reconciled Today
+(`src/features/today/composeToday.ts`). Where Round 2 drew no screen — the
+settings leaves, onboarding, auth, deletion — the app's own screens were
+brought onto Round 2's chrome and names. Where the app deliberately differs
+from the export, the screen header says so; the delta and the feature matrix
+are in `docs/design/`.
 
 Rules the design fixes, which code must keep:
 
@@ -45,14 +43,14 @@ Rules the design fixes, which code must keep:
 
 ```
 App.tsx              fonts + providers + the sign-in gate
-src/Root.tsx         screen switch, tab bar, sheet host (signed-in only)
+src/Root.tsx         screen switch, tab bar, toast host, sheet host (signed-in only)
 src/auth/            AuthProvider/useAuth, AuthGate, the repositories, dev override
-src/state/           AppContext (state + actions), seed data, types, derive helpers
-src/services/        mockCapture (stand-in for POST /api/mobile/capture)
-src/screens/         one file per design screen, Sheets.tsx, TabBar.tsx
-src/ui/              primitives (Txt, Btn, Pill, Card…), icons (SVG), motion
-src/i18n/strings.ts  all copy, ar + en
-src/theme/           tokens (light/dark palettes), fonts
+src/state/           AppContext (state + actions), navigation (history), types
+src/screens/         the spine: Today, Calendar, Settings, Details, Plan, Capture/Review/Saved, Share, Sheets, TabBar
+src/features/        one directory per product area: today (composeToday), nextStep, plan, commitments, capture, share, calendar, settings, memory, activity, onboarding, account…
+src/ui/              primitives, chrome (the screen grammar), taskHeader, dialog, toast, icons, motion
+src/i18n/            all copy, ar + en + he, and the format/bidi helpers
+src/theme/           tokens (light/dark roles + palettes), textScale, fonts
 src/config/          env + the release config guard shared with app.config.ts
 firebase/            the committed Firebase app config for both platforms
 ```
@@ -85,9 +83,8 @@ Rules that hold here:
 ## Backend
 
 The app talks to `/api/mobile/**` in the repository root through `src/api/`
-(UC-1.R4 #157). The screens still render the design's sample week
-(`src/state/seed.ts`) and the mock capture service; moving them onto these
-hooks is UC-2.R1–2.R4 (#171–#174).
+(UC-1.R4 #157). Every screen reads the account through these hooks; the
+Round-1 seed week and the mock capture service are gone.
 
 Fields the design needs that the backend does not return yet: duration / end
 time, items with no time and yesterday's items, sentence-span → card mapping,

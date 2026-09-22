@@ -4,6 +4,13 @@ Every component the app renders today, where it comes from in the design, and
 what it must keep. New components are added when a screen needs them, not in
 advance.
 
+> Round 2 (2026-09-22): the screen grammar lives in `src/ui/chrome.tsx`
+> (`ScreenHeader`, `BackHeader`, `SectionLabel`, `Tag`, `TextLink`,
+> `EmptyState`, `Skeleton`, `Notice`), with `TaskHeader`, `Dialog` and
+> `ToastHost` beside it. `HeaderPill`, `FlowHeader` and `ImpBadge` from Round
+> 1 are gone; their uses are `BackHeader`/`TaskHeader` and `Tag`. Entries
+> below that name them describe Round 1 and are kept as history.
+
 ## The contract every component must satisfy
 
 1. Colours, radii, spacing, type sizes and durations come from
