@@ -1,7 +1,7 @@
 {
-  "$comment": "Extracted from design/MaybeSitter.dc.html. The export has no :root block and no CSS custom properties: every value is an inline literal, so these were read out of the markup and counted by frequency. Regenerate with mobile/scripts/extract-design-tokens.mjs after any re-export, and update sourceManifestSha.",
-  "sourceProject": "d96ab124-0531-4fef-9e0b-084677ee8911",
-  "sourceManifestSha": "034e47f2f23f848ebb9097138c5e4b4e6dbae321614b6623087a66644a075ca6",
+  "$comment": "Tied to design/EXPORT_MANIFEST.json. Round 1 had no :root block and no CSS custom properties, so these values were counted out of the markup. Round 2 declares them: renderVals() emits one custom-property string per scheme, a type ramp scaled by --ts, and per-platform safe areas, so they are now read, not inferred. Regenerate with mobile/scripts/extract-design-tokens.mjs after any re-export, and update sourceManifestSha.",
+  "sourceProject": "7f9b0a08-61c9-4326-90c0-ea5b2523fdb7",
+  "sourceManifestSha": "ace141c2ebf93a4a89f0341631a9a36813b846dfc928806c983382740e9b888e",
   "palette": {
     "ink": "#14181B",
     "inkDark": "#101416",
@@ -21,7 +21,13 @@
     "sand": "#8A6A2E",
     "sandDark": "#D9B06B",
     "sandSoft": "#F3ECDD",
-    "slate": "#3C464B"
+    "slate": "#3C464B",
+    "accentHover": "#8ED3E3",
+    "accentOnInkLight": "#9EDCE9",
+    "disabledLight": "#E4E8EA",
+    "disabledTextLight": "#4F5A5F",
+    "disabledDark": "#2A3236",
+    "disabledTextDark": "#B4BEC3"
   },
   "alpha": {
     "lineLight": "rgba(20,24,27,0.08)",
@@ -34,7 +40,15 @@
     "scrim": "rgba(10,14,16,0.45)",
     "accentSoftDark": "rgba(111,195,214,0.16)",
     "sandSoftDark": "rgba(217,176,107,0.16)",
-    "accentGlow": "rgba(31,122,140,0.30)"
+    "accentGlow": "rgba(31,122,140,0.30)",
+    "lineStrongLight": "rgba(20,24,27,0.22)",
+    "lineStrongDark": "rgba(236,239,241,0.28)",
+    "underlineLight": "rgba(31,122,140,0.40)",
+    "underlineDark": "rgba(142,211,227,0.45)",
+    "proposalLight": "rgba(31,122,140,0.50)",
+    "proposalDark": "rgba(111,195,214,0.55)",
+    "barDarkR2": "rgba(26,32,35,0.90)",
+    "scrimDark": "rgba(0,0,0,0.55)"
   },
   "radius": {
     "pill": 999,
@@ -50,6 +64,94 @@
   },
   "typeScale": {
     "display": 34,
+    "title": 28,
+    "h2": 20,
+    "card": 17,
+    "body": 15,
+    "body2": 14,
+    "label": 13,
+    "caption": 12,
+    "meta": 11,
+    "$comment": "Round 2. Every size is calc(N px * var(--ts)); see textScale."
+  },
+  "weights": {
+    "regular": 400,
+    "medium": 500,
+    "semibold": 600,
+    "bold": 700
+  },
+  "lineHeight": {
+    "arabic": 1.6,
+    "latin": 1.4,
+    "tight": 1.15,
+    "heading": 1.3
+  },
+  "space": [
+    2,
+    4,
+    6,
+    8,
+    10,
+    12,
+    14,
+    16,
+    18,
+    20,
+    24,
+    28,
+    36,
+    40
+  ],
+  "motion": {
+    "screenIn": {
+      "duration": 340,
+      "easing": "cubic-bezier(0.2, 0.8, 0.2, 1)"
+    },
+    "sheetUp": {
+      "duration": 380,
+      "easing": "cubic-bezier(0.2, 0.8, 0.2, 1)"
+    },
+    "pop": {
+      "duration": 500,
+      "easing": "cubic-bezier(0.2, 0.8, 0.2, 1)"
+    },
+    "press": {
+      "duration": 160,
+      "easing": "cubic-bezier(0.2, 0.8, 0.2, 1)",
+      "scale": 0.95
+    },
+    "shimmer": {
+      "duration": 1600,
+      "easing": "ease-in-out"
+    },
+    "ring": {
+      "duration": 2400,
+      "easing": "ease-out"
+    }
+  },
+  "fonts": {
+    "latin": "Outfit",
+    "arabic": "Noto Naskh Arabic",
+    "hebrew": "Noto Sans Hebrew",
+    "weightsLoaded": [
+      400,
+      500,
+      600,
+      700
+    ],
+    "$comment": "Round 1 loaded only Outfit and Noto Naskh Arabic, neither carrying a Hebrew glyph, which is what kept `he` out of the picker. Noto Sans Hebrew was added by the app in UC-2.R5; Round 2 now loads all three itself."
+  },
+  "deviations": [],
+  "round": 2,
+  "entry": "R2App.dc.html",
+  "shadow": {
+    "light": "0 1px 2px rgba(20,24,27,.04), 0 6px 20px rgba(20,24,27,.05)",
+    "dark": "none",
+    "barLight": "0 10px 30px rgba(20,24,27,.12)",
+    "barDark": "0 10px 30px rgba(0,0,0,.4)"
+  },
+  "typeScaleLegacy": {
+    "display": 34,
     "title1": 28,
     "title2": 26,
     "section": 22,
@@ -59,32 +161,37 @@
     "bodySmall": 14,
     "label": 13,
     "caption": 12,
-    "micro": 11
+    "micro": 11,
+    "$comment": "The Round-1 ramp the nine shipped screens are written against. Kept until those screens move to the Round-2 ramp; tokens.ts still exports it."
   },
-  "weights": { "regular": 400, "medium": 500, "semibold": 600, "bold": 700 },
-  "lineHeight": { "arabic": 1.6, "latin": 1.4, "tight": 1.15, "heading": 1.3 },
-  "space": [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 24, 28, 36, 40],
-  "motion": {
-    "screenIn": { "duration": 340, "easing": "cubic-bezier(0.2, 0.8, 0.2, 1)" },
-    "sheetUp": { "duration": 380, "easing": "cubic-bezier(0.2, 0.8, 0.2, 1)" },
-    "pop": { "duration": 500, "easing": "cubic-bezier(0.2, 0.8, 0.2, 1)" },
-    "press": { "duration": 160, "easing": "cubic-bezier(0.2, 0.8, 0.2, 1)", "scale": 0.95 },
-    "shimmer": { "duration": 1600, "easing": "ease-in-out" },
-    "ring": { "duration": 2400, "easing": "ease-out" }
+  "textScale": {
+    "default": 1,
+    "large": 1.2,
+    "xl": 1.45,
+    "$comment": "New in Round 2: one multiplier over the whole ramp. At xl the tab bar drops its labels and shows icons only."
   },
-  "fonts": {
-    "latin": "Outfit",
-    "arabic": "Noto Naskh Arabic",
-    "hebrew": "Noto Sans Hebrew",
-    "weightsLoaded": [400, 500, 600, 700],
-    "$comment": "The round-1 export loads the first two families from Google Fonts and neither carries a Hebrew glyph, which is what kept `he` out of the picker. Noto Sans Hebrew was added in UC-2.R5 at the same four weights; it is the one face here the export did not name."
+  "safeArea": {
+    "ios": {
+      "top": 58,
+      "bottom": 34
+    },
+    "android": {
+      "top": 14,
+      "bottom": 10
+    },
+    "bare": {
+      "top": 22,
+      "bottom": 16
+    }
   },
-  "deviations": [
+  "deviationsResolved": [
     {
       "token": "color.dark.onAccent",
       "export": "#FFFFFF",
       "used": "#101416",
-      "why": "White on the dark-scheme accent #6FC3D6 measures 2.01:1, below the 4.5:1 minimum. Dark ink on the same accent measures 9.22:1. Every other pair in the export already passes."
+      "why": "White on the dark-scheme accent #6FC3D6 measures 2.01:1, below the 4.5:1 minimum. Dark ink on the same accent measures 9.22:1. Every other pair in the export already passes.",
+      "resolvedIn": "round 2",
+      "note": "Round 2 specifies --onac:#101416 on the dark accent — the value the app already used. The export and the app agree, so this is no longer a deviation."
     }
   ]
 }

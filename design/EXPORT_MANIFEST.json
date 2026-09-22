@@ -1,22 +1,40 @@
 {
-  "sourceProject": "d96ab124-0531-4fef-9e0b-084677ee8911",
-  "exportedAt": "2026-09-11T12:43:00Z",
+  "sourceProject": "7f9b0a08-61c9-4326-90c0-ea5b2523fdb7",
+  "sourceProjectName": "MaybeSitter Round-2 mobile design",
+  "round": 2,
+  "entry": "R2App.dc.html",
+  "exportedAt": "2026-09-22T14:20:00Z",
   "exportedBy": "DesignSync (read-only) via Claude Code",
   "files": [
     {
-      "path": "MaybeSitter.dc.html",
-      "sha256": "e8bbae268a99da556dc63f12d2257426fa2e7093d9cc5d5530fbc2fd2376e063",
-      "bytes": 96353
+      "path": "R2App.dc.html",
+      "sha256": "3e5c2500a25725db8d013dd0c27698d45d57de6106e4f98003cff07cb10e52aa",
+      "bytes": 146883
     },
     {
-      "path": "github.md",
-      "sha256": "2118cc761c592bc24e4061d510525035ee350fee95dd04d12992c462963ba2cb",
-      "bytes": 1118
+      "path": "android-frame.jsx",
+      "sha256": "cbf1bf9e56aa62bd2bd592cb76391524b21b938e49d98ead5c70a64358fb3335",
+      "bytes": 10316
     },
     {
       "path": "ios-frame.jsx",
       "sha256": "24642b887be3d26ab5d1ff445ad98c363cffd33746c539a117da570ac7b6eb54",
       "bytes": 16507
+    },
+    {
+      "path": "r2-frame.jsx",
+      "sha256": "eef27a2232da785731b6572e03b52ba69117147a7345bdb733020ae3668cb238",
+      "bytes": 610
+    },
+    {
+      "path": "r2-seed.js",
+      "sha256": "8b75f1f6ad8a66ab3ec7a7f019c3daea5fb06a328eef49f96195286fd7dc6bb8",
+      "bytes": 9922
+    },
+    {
+      "path": "r2-strings.js",
+      "sha256": "ff6382553609f8487f2bdef3081738a7f456dc050e874a257ddc9946c70be65a",
+      "bytes": 116707
     },
     {
       "path": "support.js",

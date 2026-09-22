@@ -8,9 +8,17 @@
 //     (bg, sf, tx, ac…) as aliases of the same strings, so the verified design
 //     implementation did not have to be rewritten to gain semantic names.
 //
-// Round-1 identity: neutral greys, one deep-teal accent for actions and
-// "done", one warm sand for "must". Nothing is red anywhere — there is no
-// danger role, because the product has no failure state to paint.
+// Identity, unchanged from Round 1 to Round 2: neutral greys, one deep-teal
+// accent for actions and "done", one warm sand for "must". Nothing is red
+// anywhere — there is no danger role, because the product has no failure state
+// to paint.
+//
+// Round 2 declares these as CSS custom properties rather than inline literals,
+// and every colour below survived that round byte for byte. What it adds and
+// this file does not carry yet: lnStrong, acd, ul, acOnInk, dis/disTx, prop,
+// ink/onInk, the two shadow roles, a nine-step type ramp and a --ts text-size
+// multiplier. Those land with the screens that use them — see
+// docs/design/round-1-to-round-2.md.
 
 export type Scheme = 'light' | 'dark';
 
@@ -58,10 +66,10 @@ export const color: Record<Scheme, ColorRoles> = {
     border: 'rgba(236,239,241,0.10)',
     brand: '#6FC3D6',
     brandContainer: 'rgba(111,195,214,0.16)',
-    // The export puts white here. White on #6FC3D6 measures 2.01:1, far below
-    // the 4.5:1 minimum; dark ink on the same accent measures 9.22:1. This is
-    // the one deliberate deviation from the export, recorded in
-    // src/design/tokens.source.json under "deviations".
+    // Round 1 put white here. White on #6FC3D6 measures 2.01:1, far below the
+    // 4.5:1 minimum; dark ink on the same accent measures 9.22:1, so the app
+    // deviated. Round 2 specifies this value itself (`--onac:#101416`), so the
+    // deviation is closed — see "deviationsResolved" in tokens.source.json.
     onBrand: '#101416',
     must: '#D9B06B',
     mustContainer: 'rgba(217,176,107,0.16)',

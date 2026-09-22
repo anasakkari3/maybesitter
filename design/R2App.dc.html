@@ -1,0 +1,1218 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Noto+Sans+Hebrew:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:transparent;color:#14181B;font-family:Outfit,'Noto Naskh Arabic','Noto Sans Hebrew',system-ui,sans-serif}
+a{color:#14586A}a:hover{color:#1F7A8C}
+*{box-sizing:border-box}
+textarea,input,button{font:inherit;color:inherit}
+button{transition:transform .16s cubic-bezier(.2,.8,.2,1),background-color .2s,color .2s,box-shadow .2s}
+button:active{transform:scale(.96)}
+@keyframes ms-in{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+@keyframes ms-push{from{opacity:0;transform:translateX(calc(24px * var(--mirror,1)))}to{opacity:1;transform:none}}
+@keyframes ms-up{from{transform:translateY(60px);opacity:0}to{transform:none;opacity:1}}
+@keyframes ms-fade{from{opacity:0}to{opacity:1}}
+@keyframes ms-pop{0%{transform:scale(.6)}60%{transform:scale(1.12)}100%{transform:scale(1)}}
+@keyframes ms-shimmer{0%{opacity:.5}50%{opacity:1}100%{opacity:.5}}
+@keyframes ms-ring{0%{transform:scale(1);opacity:.5}100%{transform:scale(1.9);opacity:0}}
+@keyframes ms-bar{0%,100%{transform:scaleY(.3)}50%{transform:scaleY(1)}}
+@keyframes ms-toast{from{transform:translateY(20px);opacity:0}to{transform:none;opacity:1}}
+@media (prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+</style>
+</helmet>
+<x-import component-from-global-scope="R2Frame" from="./ios-frame.jsx ./android-frame.jsx ./r2-frame.jsx" platform="{{ platform }}" dark="{{ isDark }}" keyboard="{{ kbVisible }}" height="{{ frameHeight }}" hint-size="402px,874px">
+<div dir="{{ dir }}" style="{{ rootStyle }}">
+
+<!-- ═══════════ TODAY ═══════════ -->
+<sc-if value="{{ isToday }}" hint-placeholder-val="{{ true }}">
+<div data-screen-label="Today" style="position:absolute;inset:0;display:flex;flex-direction:column;background:var(--bg);color:var(--tx)">
+  <div style="position:absolute;top:-120px;inset-inline-end:-80px;width:320px;height:320px;border-radius:50%;background:radial-gradient(circle,var(--acs) 0%,transparent 70%);pointer-events:none"></div>
+  <div style="position:relative;flex:1;overflow:auto;padding:var(--safeTop) 16px 124px;display:flex;flex-direction:column;gap:14px">
+    <sc-if value="{{ banner }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;align-items:center;gap:10px;background:var(--sf2);color:var(--mu);border-radius:14px;padding:10px 14px;font-size:var(--f-label);line-height:1.45"><span style="{{ bannerDotStyle }}"></span><span style="flex:1">{{ bannerText }}</span><sc-if value="{{ bannerCta }}"><button onClick="{{ bannerAction }}" style="background:none;border:0;padding:4px 6px;color:var(--acd);font-weight:600;font-size:var(--f-label);cursor:pointer;text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--ul)">{{ bannerCta }}</button></sc-if></div>
+    </sc-if>
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:12px;padding:4px 4px 0">
+      <div>
+        <div style="font-size:var(--f-label);color:var(--mu)">{{ dateToday }}</div>
+        <div style="font-size:var(--f-title);font-weight:600;line-height:1.2">{{ t.todayTitle }}</div>
+      </div>
+      <sc-if value="{{ syncPill }}" hint-placeholder-val="{{ false }}"><div style="display:flex;align-items:center;gap:6px;font-size:var(--f-cap);color:var(--mu);background:var(--sf);border:1px solid var(--ln);border-radius:999px;padding:6px 12px;white-space:nowrap"><span style="width:7px;height:7px;border-radius:50%;background:var(--ac);animation:ms-shimmer 1.2s ease-in-out infinite"></span>{{ syncPill }}</div></sc-if>
+    </div>
+
+    <sc-if value="{{ isLoading }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;flex-direction:column;gap:12px" aria-label="{{ t.loading }}">
+        <div style="height:190px;border-radius:24px;background:var(--sf2);animation:ms-shimmer 1.6s ease-in-out infinite"></div>
+        <div style="height:64px;border-radius:20px;background:var(--sf2);animation:ms-shimmer 1.6s ease-in-out infinite .2s"></div>
+        <div style="height:140px;border-radius:24px;background:var(--sf2);animation:ms-shimmer 1.6s ease-in-out infinite .4s"></div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isError }}" hint-placeholder-val="{{ false }}">
+      <div style="background:var(--sf);border-radius:24px;padding:22px 18px;box-shadow:var(--sh);display:flex;flex-direction:column;gap:10px;align-items:flex-start">
+        <div style="font-size:var(--f-card);font-weight:600">{{ t.errServer }}</div>
+        <div style="font-size:var(--f-body2);color:var(--mu);line-height:1.5">{{ t.crashBody }}</div>
+        <button onClick="{{ retry }}" style="min-height:44px;background:var(--sf2);color:var(--tx);border:0;border-radius:999px;padding:10px 18px;font-size:var(--f-body2);font-weight:600;cursor:pointer">{{ t.retry }}</button>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isEmptyDay }}" hint-placeholder-val="{{ false }}">
+      <div style="margin-top:70px;display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center;padding:0 24px">
+        <div style="width:56px;height:56px;border-radius:50%;background:var(--acs)"></div>
+        <div style="font-size:var(--f-h2);font-weight:600">{{ t.emptyTitle }}</div>
+        <div style="font-size:var(--f-body2);color:var(--mu);line-height:1.6;max-width:30ch">{{ t.emptyBody }}</div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ showDay }}" hint-placeholder-val="{{ true }}">
+      <!-- PRIMARY · what matters now -->
+      <sc-if value="{{ quietMode }}" hint-placeholder-val="{{ false }}">
+        <div style="background:var(--sf);border-radius:24px;padding:18px;box-shadow:var(--sh);display:flex;flex-direction:column;gap:8px">
+          <div style="font-size:var(--f-label);color:var(--mu);font-weight:600">{{ t.nextLabel }}</div>
+          <div style="font-size:var(--f-body);line-height:1.5">{{ t.quietModeOn }}</div>
+          <button onClick="{{ goTrust }}" style="align-self:flex-start;background:none;border:0;padding:6px 0;color:var(--acd);font-size:var(--f-body2);font-weight:600;cursor:pointer;text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--ul)">{{ t.sTrust }}</button>
+        </div>
+      </sc-if>
+      <sc-if value="{{ allDone }}" hint-placeholder-val="{{ false }}">
+        <div style="background:var(--sf);border-radius:24px;padding:26px 18px;box-shadow:var(--sh);display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center">
+          <div style="width:48px;height:48px;border-radius:50%;background:var(--ac);display:flex;align-items:center;justify-content:center;animation:ms-pop .5s cubic-bezier(.2,.8,.2,1) both"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--onac)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="5,12.5 10,17.5 19,7"/></svg></div>
+          <div style="font-size:var(--f-h2);font-weight:600">{{ t.allDone }}</div>
+          <div style="font-size:var(--f-body2);color:var(--mu)">{{ t.allDoneBody }}</div>
+        </div>
+      </sc-if>
+      <sc-if value="{{ showNext }}" hint-placeholder-val="{{ true }}">
+        <div style="{{ nextCardStyle }}">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+            <div style="font-size:var(--f-label);color:var(--mu);font-weight:600">{{ t.nextLabel }}</div>
+            <div style="{{ nextTagStyle }}">{{ nextTag }}</div>
+          </div>
+          <button onClick="{{ next.open }}" style="text-align:start;background:none;border:0;padding:0;cursor:pointer;color:var(--tx);display:flex;flex-direction:column;gap:4px;font-family:inherit">
+            <span style="font-size:var(--f-h2);font-weight:600;line-height:1.35">{{ next.title }}</span>
+            <span style="font-size:var(--f-body2);color:var(--mu);display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span style="direction:ltr;unicode-bidi:isolate">{{ next.time }}</span><span>·</span><span style="{{ next.impStyle }}">{{ next.impLabel }}</span></span>
+          </button>
+          <div style="display:flex;flex-wrap:wrap;gap:6px">
+            <sc-for list="{{ next.evidence }}" as="e" hint-placeholder-count="2"><span style="font-size:var(--f-cap);color:var(--mu);background:var(--sf2);border-radius:999px;padding:5px 10px">{{ e }}</span></sc-for>
+          </div>
+          <button onClick="{{ toggleWhy }}" style="align-self:flex-start;background:none;border:0;padding:2px 0;color:var(--acd);font-size:var(--f-body2);font-weight:600;cursor:pointer;text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--ul)">{{ t.whyThis }}</button>
+          <sc-if value="{{ whyOpen }}" hint-placeholder-val="{{ false }}">
+            <div style="font-size:var(--f-body2);color:var(--mu);line-height:1.6;background:var(--bg);border-radius:14px;padding:10px 12px;animation:ms-fade .2s both">{{ t.noSensitive }} <button onClick="{{ goKnows }}" style="background:none;border:0;padding:0;color:var(--acd);font-size:var(--f-body2);font-weight:600;cursor:pointer;text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--ul);font-family:inherit">{{ t.sKnows }}</button></div>
+          </sc-if>
+          <sc-if value="{{ nextIdle }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;gap:8px;margin-top:2px">
+              <button onClick="{{ nextStart }}" style="flex:1;min-height:48px;background:var(--ac);color:var(--onac);border:0;border-radius:999px;padding:12px 16px;font-size:var(--f-body);font-weight:600;cursor:pointer">{{ t.startIt }}</button>
+              <button onClick="{{ nextDefer }}" style="flex:1;min-height:48px;background:var(--sf2);color:var(--tx);border:0;border-radius:999px;padding:12px 16px;font-size:var(--f-body);font-weight:500;cursor:pointer">{{ t.notNow }}</button>
+              <button onClick="{{ nextMore }}" aria-label="{{ t.more }}" style="width:48px;min-height:48px;background:var(--sf2);color:var(--tx);border:0;border-radius:999px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="6" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="18" cy="12" r="2"/></svg></button>
+            </div>
+          </sc-if>
+          <sc-if value="{{ nextStarted }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;gap:8px;margin-top:2px;align-items:center">
+              <button onClick="{{ nextFinish }}" style="flex:1;min-height:48px;background:var(--ac);color:var(--onac);border:0;border-radius:999px;padding:12px 16px;font-size:var(--f-body);font-weight:600;cursor:pointer">{{ t.finishedIt }}</button>
+              <span style="flex:1;font-size:var(--f-cap);color:var(--mu);line-height:1.4">{{ t.nextStarted }}</span>
+            </div>
+          </sc-if>
+        </div>
+      </sc-if>
+
+      <!-- SECONDARY · the rest of today -->
+      <button onClick="{{ goPlan }}" style="{{ planRowStyle }}">
+        <span style="{{ planRowIconStyle }}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h10M4 12h16M4 17h7"/></svg></span>
+        <span style="flex:1;display:flex;flex-direction:column;gap:1px;text-align:start"><span style="font-size:var(--f-body);font-weight:600">{{ planRowTitle }}</span><span style="font-size:var(--f-cap);color:var(--mu)">{{ planRowSub }}</span></span>
+        <span style="font-size:var(--f-label);color:var(--acd);font-weight:600;white-space:nowrap">{{ planRowCta }}</span>
+      </button>
+      <sc-if value="{{ hasRest }}" hint-placeholder-val="{{ true }}">
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <div style="font-size:var(--f-label);color:var(--mu);font-weight:600;padding:2px 4px">{{ t.restTitle }}</div>
+          <div style="background:var(--sf);border-radius:24px;box-shadow:var(--sh);padding:4px 16px">
+            <sc-for list="{{ rest }}" as="c" hint-placeholder-count="2">
+              <div style="{{ c.rowStyle }}">
+                <button onClick="{{ c.toggle }}" aria-label="{{ t.done }}" style="{{ c.circleStyle }}"><sc-if value="{{ c.done }}"><svg width="12" height="12" viewBox="0 0 12 12"><polyline points="2,6.5 5,9 10,3" fill="none" stroke="var(--onac)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></sc-if></button>
+                <button onClick="{{ c.open }}" style="flex:1;min-width:0;text-align:start;background:none;border:0;padding:0;cursor:pointer;min-height:44px;display:flex;flex-direction:column;justify-content:center;gap:2px;font-family:inherit;color:var(--tx)">
+                  <span style="{{ c.titleStyle }}">{{ c.title }}</span>
+                  <span style="font-size:var(--f-cap);color:var(--mu);display:flex;gap:6px;align-items:center"><span style="direction:ltr;unicode-bidi:isolate">{{ c.time }}</span><sc-if value="{{ c.showImp }}"><span>·</span><span style="{{ c.impStyle }}">{{ c.impLabel }}</span></sc-if><sc-if value="{{ c.fixed }}"><span>·</span><span>{{ c.fixedLabel }}</span></sc-if></span>
+                </button>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--mu)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="transform:scaleX(var(--mirror));flex:none"><polyline points="9,6 15,12 9,18"/></svg>
+              </div>
+            </sc-for>
+            <sc-if value="{{ doneCount }}" hint-placeholder-val="{{ false }}"><button onClick="{{ toggleDoneList }}" style="width:100%;text-align:start;background:none;border:0;border-top:1px solid var(--ln);padding:12px 0;font-size:var(--f-label);color:var(--mu);cursor:pointer;font-family:inherit;display:flex;justify-content:space-between"><span>{{ doneLabel }}</span><span>{{ doneToggleLabel }}</span></button></sc-if>
+            <sc-if value="{{ showDoneList }}" hint-placeholder-val="{{ false }}">
+              <sc-for list="{{ doneItems }}" as="c" hint-placeholder-count="1">
+                <div style="{{ c.rowStyle }}">
+                  <button onClick="{{ c.toggle }}" aria-label="{{ t.done }}" style="{{ c.circleStyle }}"><svg width="12" height="12" viewBox="0 0 12 12"><polyline points="2,6.5 5,9 10,3" fill="none" stroke="var(--onac)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+                  <button onClick="{{ c.open }}" style="flex:1;min-width:0;text-align:start;background:none;border:0;padding:0;cursor:pointer;min-height:44px;display:flex;flex-direction:column;justify-content:center;gap:2px;font-family:inherit;color:var(--tx)"><span style="{{ c.titleStyle }}">{{ c.title }}</span><span style="font-size:var(--f-cap);color:var(--mu);direction:ltr;unicode-bidi:isolate">{{ c.time }}</span></button>
+                </div>
+              </sc-for>
+            </sc-if>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- TERTIARY · later -->
+      <sc-if value="{{ hasLater }}" hint-placeholder-val="{{ true }}">
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <div style="font-size:var(--f-label);color:var(--mu);font-weight:600;padding:2px 4px">{{ t.laterTitle }}</div>
+          <div style="background:var(--sf);border-radius:24px;box-shadow:var(--sh);padding:4px 16px">
+            <sc-for list="{{ later }}" as="c" hint-placeholder-count="2">
+              <button onClick="{{ c.open }}" style="{{ c.rowBtnStyle }}">
+                <span style="{{ c.dotStyle }}"></span>
+                <span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;text-align:start"><span style="font-size:var(--f-body)">{{ c.title }}</span><span style="font-size:var(--f-cap);color:var(--mu)">{{ c.when }}</span></span>
+                <sc-if value="{{ c.showImp }}"><span style="{{ c.impStyle }}">{{ c.impLabel }}</span></sc-if>
+              </button>
+            </sc-for>
+            <sc-if value="{{ sharedPending }}" hint-placeholder-val="{{ true }}">
+              <button onClick="{{ openSharePending }}" style="width:100%;display:flex;align-items:center;gap:12px;background:none;border:0;border-top:1px solid var(--ln);padding:12px 0;cursor:pointer;font-family:inherit;color:var(--tx);min-height:48px">
+                <span style="width:28px;height:28px;border-radius:50%;border:1.5px dashed var(--prop);display:flex;align-items:center;justify-content:center;flex:none;color:var(--ac)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span>
+                <span style="flex:1;text-align:start;font-size:var(--f-body2)">{{ sharedPendingText }}</span>
+                <span style="font-size:var(--f-label);color:var(--acd);font-weight:600">{{ t.planRowOpen }}</span>
+              </button>
+            </sc-if>
+          </div>
+        </div>
+      </sc-if>
+    </sc-if>
+  </div>
+</div>
+</sc-if>
+
+<!-- ═══════════ PLAN (proposal / confirmation) ═══════════ -->
+<sc-if value="{{ isPlan }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Daily plan" style="position:absolute;inset:0;display:flex;flex-direction:column;background:var(--bg);color:var(--tx);animation:ms-push .28s cubic-bezier(.2,.8,.2,1) both">
+  <div style="flex:1;overflow:auto;padding:var(--safeTop) 16px 20px;display:flex;flex-direction:column;gap:14px">
+    <div style="display:flex;align-items:center;gap:10px">
+      <button onClick="{{ back }}" aria-label="{{ t.back }}" style="width:40px;height:40px;border-radius:50%;background:var(--sf);border:1px solid var(--ln);display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--tx);padding:0;flex:none"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="transform:scaleX(var(--mirror))"><polyline points="15,5 8,12 15,19"/></svg></button>
+      <span style="font-size:var(--f-label);color:var(--mu)">{{ t.tabToday }}</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:10px;padding:0 4px">
+      <div><div style="font-size:var(--f-label);color:var(--mu)">{{ dateToday }}</div><div style="font-size:var(--f-title);font-weight:600;line-height:1.2">{{ t.planTitle }}</div></div>
+      <div style="{{ planStatusStyle }}">{{ planStatusLabel }}</div>
+    </div>
+    <sc-if value="{{ planOfflineNote }}" hint-placeholder-val="{{ false }}"><div style="background:var(--sf2);color:var(--mu);border-radius:14px;padding:10px 14px;font-size:var(--f-label);line-height:1.5">{{ t.planOfflineReadOnly }}</div></sc-if>
+
+    <sc-if value="{{ planGenerating }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:14px;padding:40px 20px 10px;text-align:center">
+        {{ processingDots }}
+        <div style="font-size:var(--f-card);font-weight:600">{{ t.planGenerating }}</div>
+        <div style="font-size:var(--f-body2);color:var(--mu)">{{ t.planGeneratingSub }}</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px"><div style="height:64px;border-radius:20px;background:var(--sf2);animation:ms-shimmer 1.6s ease-in-out infinite"></div><div style="height:64px;border-radius:20px;background:var(--sf2);animation:ms-shimmer 1.6s ease-in-out infinite .2s"></div><div style="height:64px;border-radius:20px;background:var(--sf2);animation:ms-shimmer 1.6s ease-in-out infinite .4s"></div></div>
+    </sc-if>
+
+    <sc-if value="{{ planEmpty }}" hint-placeholder-val="{{ false }}">
+      <div style="margin-top:40px;display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center;padding:0 20px">
+        <div style="width:56px;height:56px;border-radius:50%;background:var(--acs)"></div>
+        <div style="font-size:var(--f-h2);font-weight:600">{{ t.planEmptyTitle }}</div>
+        <div style="font-size:var(--f-body2);color:var(--mu);line-height:1.6;max-width:32ch">{{ t.planEmptyBody }}</div>
+        <button onClick="{{ planBuild }}" style="margin-top:6px;min-height:48px;background:var(--ac);color:var(--onac);border:0;border-radius:999px;padding:12px 22px;font-size:var(--f-body);font-weight:600;cursor:pointer">{{ t.planEmptyBuild }}</button>
+        <button onClick="{{ goMorning }}" style="background:none;border:0;padding:8px;color:var(--acd);font-size:var(--f-body2);font-weight:600;cursor:pointer;text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--ul)">{{ t.planEmptyEnable }}</button>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ planHasItems }}" hint-placeholder-val="{{ true }}">
+      <sc-if value="{{ planIsProposal }}" hint-placeholder-val="{{ true }}"><div style="font-size:var(--f-label);color:var(--mu);padding:0 4px">{{ t.proposalNote }}</div></sc-if>
+      <div style="{{ planListStyle }}">
+        <sc-for list="{{ planItems }}" as="p" hint-placeholder-count="4">
+          <button onClick="{{ p.tap }}" style="{{ p.rowStyle }}">
+            <span style="width:48px;flex:none;font-size:var(--f-label);font-weight:600;direction:ltr;unicode-bidi:isolate;text-align:start;color:var(--tx)">{{ p.time }}</span>
+            <span style="{{ p.barStyle }}"></span>
+            <span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;text-align:start">
+              <span style="{{ p.titleStyle }}">{{ p.title }}</span>
+              <span style="font-size:var(--f-cap);color:var(--mu);display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span style="direction:ltr;unicode-bidi:isolate">{{ p.range }}</span><sc-if value="{{ p.showImp }}"><span>·</span><span style="{{ p.impStyle }}">{{ p.impLabel }}</span></sc-if><span>·</span><span style="{{ p.moveStyle }}">{{ p.moveLabel }}</span></span>
+              <sc-if value="{{ p.conflict }}"><span style="font-size:var(--f-cap);color:var(--wm);background:var(--wms);border-radius:999px;padding:3px 9px;align-self:flex-start">{{ p.conflict }}</span></sc-if>
+            </span>
+            <sc-if value="{{ p.movable }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--mu)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 4v16M8 8l4-4 4 4M8 16l4 4 4-4"/></svg></sc-if>
+            <sc-if value="{{ p.fixed }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--mu)" stroke-width="2" stroke-linecap="round" style="flex:none"><rect x="5" y="11" width="14" height="10" rx="2.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></sc-if>
+          </button>
+        </sc-for>
+      </div>
+      <sc-if value="{{ planKept }}" hint-placeholder-val="{{ true }}">
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <div style="font-size:var(--f-label);color:var(--mu);font-weight:600;padding:2px 4px">{{ t.planKeptTitle }}</div>
+          <div style="background:var(--sf);border-radius:20px;box-shadow:var(--sh);padding:4px 16px">
+            <sc-for list="{{ planKeptItems }}" as="k" hint-placeholder-count="2">
+              <button onClick="{{ k.open }}" style="{{ k.rowStyle }}"><span style="flex:1;display:flex;flex-direction:column;gap:2px;text-align:start"><span style="font-size:var(--f-body)">{{ k.title }}</span><span style="font-size:var(--f-cap);color:var(--mu)">{{ k.reason }}</span></span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--mu)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="transform:scaleX(var(--mirror));flex:none"><polyline points="9,6 15,12 9,18"/></svg></button>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+      <div style="background:var(--sf);border-radius:20px;box-shadow:var(--sh);overflow:hidden">
+        <button onClick="{{ togglePlanWhy }}" style="width:100%;display:flex;justify-content:space-between;align-items:center;gap:10px;background:none;border:0;padding:14px 16px;cursor:pointer;font-family:inherit;color:var(--tx);min-height:48px"><span style="font-size:var(--f-body);font-weight:600">{{ t.planWhyTitle }}</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--mu)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="{{ planWhyChevStyle }}"><polyline points="6,9 12,15 18,9"/></svg></button>
+        <sc-if value="{{ planWhyOpen }}" hint-placeholder-val="{{ true }}">
+          <div style="padding:0 16px 14px;display:flex;flex-direction:column;gap:8px;animation:ms-fade .2s both">
+            <sc-for list="{{ planWhy }}" as="w" hint-placeholder-count="3"><div style="display:flex;gap:10px;font-size:var(--f-body2);color:var(--mu);line-height:1.55"><span style="width:6px;height:6px;border-radius:50%;background:var(--ac);flex:none;margin-top:.55em"></span><span>{{ w }}</span></div></sc-for>
+            <sc-if value="{{ planIsProposal }}"><div style="font-size:var(--f-cap);color:var(--mu);line-height:1.5;border-top:1px solid var(--ln);padding-top:8px">{{ t.planWhatHappens }}</div></sc-if>
+          </div>
+        </sc-if>
+      </div>
+    </sc-if>
+  </div>
+  <sc-if value="{{ planFooter }}" hint-placeholder-val="{{ true }}">
+    <div style="padding:12px 16px calc(var(--safeBottom) + 8px);display:flex;flex-direction:column;gap:6px;background:var(--bg);border-top:1px solid var(--ln)">
+      <sc-if value="{{ planIsProposal }}" hint-placeholder-val="{{ true }}">
+        <button onClick="{{ planAccept }}" style="min-height:52px;background:var(--ac);color:var(--onac);border:0;border-radius:999px;padding:14px;font-size:var(--f-card);font-weight:600;cursor:pointer">{{ t.planAccept }}</button>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <button onClick="{{ planRegen }}" style="{{ planRegenStyle }}">{{ planRegenLabel }}</button>
+          <button onClick="{{ planDismiss }}" style="background:none;border:0;padding:10px 12px;color:var(--mu);font-size:var(--f-body2);cursor:pointer;min-height:44px">{{ t.planDismiss }}</button>
+        </div>
+      </sc-if>
+      <sc-if value="{{ planIsAccepted }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:44px"><span style="font-size:var(--f-body2);color:var(--mu)">{{ planAcceptedAt }}</span><button onClick="{{ planReopen }}" style="background:none;border:0;padding:8px 12px;color:var(--acd);font-size:var(--f-body2);font-weight:600;cursor:pointer;text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--ul);min-height:44px">{{ t.change }}</button></div>
+      </sc-if>
+    </div>
+  </sc-if>
+</div>
+</sc-if>
+
+<!-- ═══════════ DETAILS ═══════════ -->
+<sc-if value="{{ isDetails }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Commitment details" style="position:absolute;inset:0;display:flex;flex-direction:column;background:var(--bg);color:var(--tx);animation:ms-push .28s cubic-bezier(.2,.8,.2,1) both">
+  <div style="flex:1;overflow:auto;padding:var(--safeTop) 16px 20px;display:flex;flex-direction:column;gap:16px">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+      <button onClick="{{ back }}" aria-label="{{ t.back }}" style="width:40px;height:40px;border-radius:50%;background:var(--sf);border:1px solid var(--ln);display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--tx);padding:0"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="transform:scaleX(var(--mirror))"><polyline points="15,5 8,12 15,19"/></svg></button>
+      <sc-if value="{{ detail.canEdit }}" hint-placeholder-val="{{ true }}"><button onClick="{{ detailEdit }}" style="min-height:40px;background:var(--sf);border:1px solid var(--ln);border-radius:999px;padding:8px 16px;font-size:var(--f-label);font-weight:600;cursor:pointer;color:var(--tx)">{{ t.editBtn }}</button></sc-if>
+    </div>
+    <sc-if value="{{ detail.missing }}" hint-placeholder-val="{{ false }}">
+      <div style="margin-top:60px;display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center;padding:0 20px"><div style="width:56px;height:56px;border-radius:50%;background:var(--sf2)"></div><div style="font-size:var(--f-h2);font-weight:600">{{ t.notFoundTitle }}</div><div style="font-size:var(--f-body2);color:var(--mu)">{{ t.notFoundBody }}</div></div>
+    </sc-if>
+    <sc-if value="{{ detail.ok }}" hint-placeholder-val="{{ true }}">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <sc-if value="{{ detail.showImp }}"><span style="{{ detail.impStyle }}">{{ detail.impLabel }}</span></sc-if>
+        <span style="font-size:var(--f-cap);font-weight:600;border-radius:999px;padding:5px 10px;background:var(--sf2);color:var(--mu)">{{ detail.statusLabel }}</span>
+        <sc-if value="{{ detail.catLabel }}"><span style="font-size:var(--f-cap);border-radius:999px;padding:5px 10px;border:1px solid var(--ln);color:var(--mu)">{{ detail.catLabel }}</span></sc-if>
+      </div>
+      <div style="font-size:var(--f-title);font-weight:600;line-height:1.3;padding:0 2px">{{ detail.title }}</div>
+      <div style="background:var(--sf);border-radius:24px;box-shadow:var(--sh);padding:4px 18px">
+        <div style="display:flex;justify-content:space-between;gap:12px;padding:13px 0;border-bottom:1px solid var(--ln);font-size:var(--f-body)"><span style="color:var(--mu)">{{ t.dayLabel }}</span><span>{{ detail.dayLabel }}</span></div>
+        <div style="display:flex;justify-content:space-between;gap:12px;padding:13px 0;border-bottom:1px solid var(--ln);font-size:var(--f-body)"><span style="color:var(--mu)">{{ t.timeLabel }}</span><span style="direction:ltr;unicode-bidi:isolate">{{ detail.timeLabel }}</span></div>
+        <div style="display:flex;justify-content:space-between;gap:12px;padding:13px 0;font-size:var(--f-body)"><span style="color:var(--mu)">{{ t.source }}</span><span style="text-align:end;color:var(--tx)">{{ detail.sourceLabel }}</span></div>
+      </div>
+      <sc-if value="{{ detail.conflict }}" hint-placeholder-val="{{ false }}"><div style="display:flex;gap:10px;align-items:center;background:var(--wms);color:var(--wm);border-radius:16px;padding:12px 14px;font-size:var(--f-label);line-height:1.45"><span style="width:8px;height:8px;border-radius:50%;background:var(--wm);flex:none"></span>{{ detail.conflict }}</div></sc-if>
+      <sc-if value="{{ detail.historyItems }}" hint-placeholder-val="{{ true }}">
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <div style="font-size:var(--f-label);color:var(--mu);font-weight:600;padding:2px 4px">{{ t.history }}</div>
+          <div style="background:var(--sf);border-radius:20px;box-shadow:var(--sh);padding:4px 16px">
+            <sc-for list="{{ detail.historyItems }}" as="h" hint-placeholder-count="2"><div style="display:flex;justify-content:space-between;gap:10px;padding:11px 0;border-top:1px solid var(--ln);font-size:var(--f-body2)"><span>{{ h.label }}</span><span style="color:var(--mu);direction:ltr;unicode-bidi:isolate">{{ h.when }}</span></div></sc-for>
+          </div>
+        </div>
+      </sc-if>
+    </sc-if>
+  </div>
+  <sc-if value="{{ detail.ok }}" hint-placeholder-val="{{ true }}">
+    <div style="padding:12px 16px calc(var(--safeBottom) + 8px);display:grid;grid-template-columns:1fr 1fr;gap:8px;border-top:1px solid var(--ln);background:var(--bg)">
+      <sc-if value="{{ detail.open }}" hint-placeholder-val="{{ true }}">
+        <button onClick="{{ detailDone }}" style="min-height:52px;background:var(--ac);color:var(--onac);border:0;border-radius:20px;padding:14px 12px;font-size:var(--f-body);font-weight:600;cursor:pointer">{{ t.done }}</button>
+        <button onClick="{{ detailPostpone }}" style="min-height:52px;background:var(--sf);color:var(--tx);border:1px solid var(--ln);border-radius:20px;padding:14px 12px;font-size:var(--f-body);font-weight:600;cursor:pointer">{{ t.postponeBtn }}</button>
+        <button onClick="{{ detailDrop }}" style="grid-column:1/-1;min-height:48px;background:var(--wms);color:var(--wm);border:0;border-radius:20px;padding:12px;font-size:var(--f-body);font-weight:600;cursor:pointer">{{ t.dropBtn }}</button>
+      </sc-if>
+      <sc-if value="{{ detail.closed }}" hint-placeholder-val="{{ false }}">
+        <button onClick="{{ detailReopen }}" style="min-height:52px;background:var(--sf2);color:var(--tx);border:0;border-radius:20px;padding:14px 12px;font-size:var(--f-body);font-weight:600;cursor:pointer">{{ t.notYet }}</button>
+        <button onClick="{{ detailDelete }}" style="min-height:52px;background:var(--sf);color:var(--tx);border:1px solid var(--ln);border-radius:20px;padding:14px 12px;font-size:var(--f-body);font-weight:600;cursor:pointer">{{ t.deleteBtn }}</button>
+      </sc-if>
+    </div>
+  </sc-if>
+</div>
+</sc-if>
+
+<!-- ═══════════ CAPTURE (full-screen task) ═══════════ -->
+<sc-if value="{{ isCapture }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Capture" style="position:absolute;inset:0;z-index:30;display:flex;flex-direction:column;background:var(--bg);color:var(--tx);animation:ms-up .32s cubic-bezier(.2,.8,.2,1) both">
+  <div style="padding:var(--safeTop) 16px 0;display:flex;justify-content:space-between;align-items:center;gap:10px">
+    <button onClick="{{ capClose }}" style="min-height:40px;background:var(--sf);border:1px solid var(--ln);border-radius:999px;padding:8px 16px;font-size:var(--f-label);font-weight:600;cursor:pointer;color:var(--tx)">{{ t.cancel }}</button>
+    <span style="font-size:var(--f-label);color:var(--mu)">{{ t.captureTitle }}</span>
+    <span style="{{ capAiPillStyle }}">{{ capAiPill }}</span>
+  </div>
+  <div style="flex:1;display:flex;flex-direction:column;padding:16px 16px calc(var(--safeBottom) + 8px);gap:14px;overflow:auto">
+    <sc-if value="{{ capIdle }}" hint-placeholder-val="{{ true }}">
+      <div style="position:relative;display:flex;flex-direction:column">
+        <textarea value="{{ capInput }}" onChange="{{ onCapInput }}" placeholder="{{ t.capturePlaceholder }}" rows="5" aria-label="{{ t.captureTitle }}" style="width:100%;min-height:150px;background:var(--sf);border:1.5px solid transparent;border-radius:24px;padding:18px 18px 34px;font-size:var(--f-h2);line-height:1.5;resize:none;outline:none;box-shadow:var(--sh);color:var(--tx)" style-focus="border-color:var(--ac)"></textarea>
+        <span style="position:absolute;bottom:12px;inset-inline-end:18px;font-size:var(--f-meta);color:var(--mu);direction:ltr">{{ capCounter }}</span>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button onClick="{{ capSpeak }}" style="flex:1;min-height:48px;display:flex;align-items:center;justify-content:center;gap:8px;background:var(--sf);border:1px solid var(--lnStrong);border-radius:999px;padding:10px 14px;font-size:var(--f-body2);font-weight:600;cursor:pointer;color:var(--acd)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>{{ t.speak }}</button>
+        <button onClick="{{ capPaste }}" style="flex:1;min-height:48px;display:flex;align-items:center;justify-content:center;gap:8px;background:var(--sf);border:1px solid var(--lnStrong);border-radius:999px;padding:10px 14px;font-size:var(--f-body2);font-weight:600;cursor:pointer;color:var(--acd)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="5" width="12" height="16" rx="2.5"/><path d="M9 5.5V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1.5M9 11h6M9 15h4"/></svg>{{ t.paste }}</button>
+        <button onClick="{{ capLangToggle }}" aria-label="{{ t.language }}" style="min-height:48px;background:var(--sf2);border:0;border-radius:999px;padding:10px 14px;font-size:var(--f-label);cursor:pointer;color:var(--tx);flex:none">{{ capLangLabel }}</button>
+      </div>
+      <div style="font-size:var(--f-cap);color:var(--mu);padding:0 4px">{{ t.shareHint }}</div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:auto">
+        <div style="font-size:var(--f-cap);color:var(--mu);padding:0 4px">{{ t.tryOne }}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          <sc-for list="{{ capExamples }}" as="e" hint-placeholder-count="5"><button onClick="{{ e.use }}" style="background:none;border:1px dashed var(--lnStrong);border-radius:999px;padding:8px 12px;font-size:var(--f-cap);cursor:pointer;color:var(--mu);min-height:36px;font-style:italic">{{ e.text }}</button></sc-for>
+        </div>
+      </div>
+      <div style="font-size:var(--f-cap);color:var(--mu);text-align:center;line-height:1.5">{{ t.privacyText }}</div>
+      <button onClick="{{ capAnalyze }}" aria-disabled="{{ capEmpty }}" style="{{ analyzeStyle }}">{{ t.analyze }}</button>
+    </sc-if>
+
+    <sc-if value="{{ capListening }}" hint-placeholder-val="{{ false }}">
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;text-align:center">
+        <div style="font-size:var(--f-label);color:var(--acd);font-weight:600;letter-spacing:.06em">{{ t.listening }}</div>
+        {{ waveform }}
+        <div style="font-size:var(--f-h2);line-height:1.5;min-height:66px;max-width:24ch;color:var(--tx)">{{ liveTranscript }}</div>
+      </div>
+      <div style="font-size:var(--f-cap);color:var(--mu);text-align:center;line-height:1.5">{{ t.privacyVoice }}</div>
+      <button onClick="{{ capStop }}" style="min-height:52px;background:var(--ink);color:var(--onInk);border:0;border-radius:999px;padding:14px;font-size:var(--f-body);font-weight:600;cursor:pointer">{{ t.stopReview }}</button>
+    </sc-if>
+
+    <sc-if value="{{ capTranscript }}" hint-placeholder-val="{{ false }}">
+      <div style="font-size:var(--f-label);color:var(--mu);padding:0 4px">{{ t.checkTranscript }}</div>
+      <textarea value="{{ capInput }}" onChange="{{ onCapInput }}" rows="5" style="width:100%;min-height:150px;background:var(--sf);border:1.5px solid transparent;border-radius:24px;padding:18px;font-size:var(--f-h2);line-height:1.5;resize:none;outline:none;box-shadow:var(--sh);color:var(--tx)" style-focus="border-color:var(--ac)"></textarea>
+      <button onClick="{{ capSpeak }}" style="align-self:flex-start;min-height:44px;background:var(--sf2);color:var(--tx);border:0;border-radius:999px;padding:10px 16px;font-size:var(--f-label);cursor:pointer">{{ t.sayAgain }}</button>
+      <div style="margin-top:auto;font-size:var(--f-cap);color:var(--mu);text-align:center;line-height:1.5">{{ t.privacyVoice }}</div>
+      <button onClick="{{ capAnalyze }}" style="{{ analyzeStyle }}">{{ t.analyze }}</button>
+    </sc-if>
+
+    <sc-if value="{{ capProcessing }}" hint-placeholder-val="{{ false }}">
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;text-align:center">
+        {{ processingDots }}
+        <div style="font-size:var(--f-card);font-weight:600">{{ t.understanding }}</div>
+        <div style="font-size:var(--f-body2);color:var(--mu);max-width:28ch;line-height:1.6">{{ capInput }}</div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ capNothing }}" hint-placeholder-val="{{ false }}">
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;padding:0 12px">
+        <div style="width:56px;height:56px;border-radius:50%;background:var(--sf2)"></div>
+        <div style="font-size:var(--f-h2);font-weight:600">{{ t.nothingTitle }}</div>
+        <div style="font-size:var(--f-body2);color:var(--mu);line-height:1.6;max-width:30ch">{{ capNothingBody }}</div>
+        <div style="font-size:var(--f-body2);color:var(--tx);background:var(--sf);border-radius:16px;padding:10px 14px;box-shadow:var(--sh)">“{{ capInput }}”</div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button onClick="{{ capClose }}" style="flex:1;min-height:48px;background:var(--sf2);color:var(--tx);border:0;border-radius:999px;padding:12px;font-size:var(--f-body);font-weight:500;cursor:pointer">{{ t.close }}</button>
+        <button onClick="{{ capRephrase }}" style="flex:1;min-height:48px;background:var(--ac);color:var(--onac);border:0;border-radius:999px;padding:12px;font-size:var(--f-body);font-weight:600;cursor:pointer">{{ t.rephrase }}</button>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ capFailed }}" hint-placeholder-val="{{ false }}">
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;padding:0 12px">
+        <div style="width:56px;height:56px;border-radius:50%;background:var(--sf2)"></div>
+        <div style="font-size:var(--f-h2);font-weight:600">{{ t.failedTitle }}</div>
+        <div style="font-size:var(--f-body2);color:var(--mu);line-height:1.6;max-width:30ch">{{ t.aiBusy }}</div>
+      </div>
+      <button onClick="{{ capRephrase }}" style="min-height:48px;background:var(--sf2);color:var(--tx);border:0;border-radius:999px;padding:12px;font-size:var(--f-body);font-weight:600;cursor:pointer">{{ t.retry }}</button>
+    </sc-if>
+  </div>
+</div>
+</sc-if>
+
+<!-- ═══════════ SHARE INTAKE (full-screen task) ═══════════ -->
+<sc-if value="{{ isShare }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Share intake" style="position:absolute;inset:0;z-index:30;display:flex;flex-direction:column;background:var(--bg);color:var(--tx);animation:ms-up .32s cubic-bezier(.2,.8,.2,1) both">
+  <div style="padding:var(--safeTop) 16px 0;display:flex;justify-content:space-between;align-items:center;gap:10px">
+    <button onClick="{{ shareDiscard }}" style="min-height:40px;background:var(--sf);border:1px solid var(--ln);border-radius:999px;padding:8px 16px;font-size:var(--f-label);font-weight:600;cursor:pointer;color:var(--tx)">{{ t.shareDiscard }}</button>
+    <span style="font-size:var(--f-label);color:var(--mu)">{{ t.shareTitle }}</span>
+    <span style="width:64px"></span>
+  </div>
+  <div style="flex:1;display:flex;flex-direction:column;padding:16px 16px calc(var(--safeBottom) + 8px);gap:14px;overflow:auto">
+    <div style="background:var(--sf);border-radius:24px;padding:18px;box-shadow:var(--sh);display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;align-items:center;gap:12px">
+        <span style="width:44px;height:44px;border-radius:14px;background:var(--sf2);display:flex;align-items:center;justify-content:center;font-size:var(--f-meta);font-weight:700;color:var(--mu);letter-spacing:.04em;flex:none;direction:ltr">{{ shareKindLabel }}</span>
+        <span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px"><span style="font-size:var(--f-body);font-weight:600;direction:ltr;unicode-bidi:isolate;text-align:start;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ shareName }}</span><span style="font-size:var(--f-cap);color:var(--mu)">{{ shareMeta }}</span></span>
+        <span style="font-size:var(--f-cap);color:var(--wm);background:var(--wms);border-radius:999px;padding:3px 9px;white-space:nowrap">{{ t.shareUntrusted }}</span>
+      </div>
+      <sc-if value="{{ shareIsText }}" hint-placeholder-val="{{ false }}"><div style="font-size:var(--f-body2);line-height:1.6;color:var(--tx);background:var(--bg);border-radius:14px;padding:10px 12px;max-height:120px;overflow:hidden">{{ shareTextBody }}</div></sc-if>
+      <div style="font-size:var(--f-cap);color:var(--mu);line-height:1.5">{{ t.untrusted }}</div>
+    </div>
+    <sc-if value="{{ sharePreview }}" hint-placeholder-val="{{ true }}">
+      <div style="margin-top:auto;font-size:var(--f-cap);color:var(--mu);text-align:center;line-height:1.5">{{ t.shareProcessingNote }}</div>
+      <button onClick="{{ shareRead }}" style="min-height:52px;background:var(--ac);color:var(--onac);border:0;border-radius:999px;padding:14px;font-size:var(--f-card);font-weight:600;cursor:pointer">{{ t.shareRead }}</button>
+    </sc-if>
+    <sc-if value="{{ shareReading }}" hint-placeholder-val="{{ false }}">
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;text-align:center">{{ processingDots }}<div style="font-size:var(--f-card);font-weight:600">{{ t.shareAnalyzing }}</div></div>
+    </sc-if>
+    <sc-if value="{{ shareProblem }}" hint-placeholder-val="{{ false }}">
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;padding:0 12px">
+        <div style="width:56px;height:56px;border-radius:50%;background:var(--sf2)"></div>
+        <div style="font-size:var(--f-h2);font-weight:600">{{ shareProblemTitle }}</div>
+        <div style="font-size:var(--f-body2);color:var(--mu);line-height:1.6;max-width:30ch">{{ shareProblemBody }}</div>
+        <sc-if value="{{ shareNeedsAi }}"><button onClick="{{ goTrust }}" style="background:none;border:0;padding:8px;color:var(--acd);font-size:var(--f-body2);font-weight:600;cursor:pointer;text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--ul)">{{ t.shareTurnOnAi }}</button></sc-if>
+      </div>
+      <button onClick="{{ shareDiscard }}" style="min-height:48px;background:var(--sf2);color:var(--tx);border:0;border-radius:999px;padding:12px;font-size:var(--f-body);font-weight:600;cursor:pointer">{{ t.close }}</button>
+    </sc-if>
+  </div>
+</div>
+</sc-if>
+
+<!-- ═══════════ REVIEW (proposal · shared by capture + share) ═══════════ -->
+<sc-if value="{{ isReview }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Review proposals" style="position:absolute;inset:0;z-index:31;display:flex;flex-direction:column;background:var(--bg);color:var(--tx);animation:ms-push .28s cubic-bezier(.2,.8,.2,1) both">
+  <div style="padding:var(--safeTop) 16px 0;display:flex;justify-content:space-between;align-items:center;gap:10px">
+    <button onClick="{{ reviewBack }}" style="min-height:40px;background:var(--sf);border:1px solid var(--ln);border-radius:999px;padding:8px 16px;font-size:var(--f-label);font-weight:600;cursor:pointer;color:var(--tx)">{{ t.back }}</button>
+    <span style="font-size:var(--f-label);color:var(--mu)">{{ t.reviewTitle }}</span>
+    <span style="width:64px"></span>
+  </div>
+  <div style="flex:1;overflow:auto;padding:16px 16px 20px;display:flex;flex-direction:column;gap:12px">
+    <sc-if value="{{ reviewHasSentence }}" hint-placeholder-val="{{ true }}">
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <div style="font-size:var(--f-cap);color:var(--mu);padding:0 4px">{{ t.weHeard }}</div>
+        <div style="font-size:var(--f-card);line-height:1.8;background:var(--sf);border-radius:20px;padding:14px 16px;box-shadow:var(--sh)"><sc-for list="{{ reviewParts }}" as="p" hint-placeholder-count="2"><span style="{{ p.style }}">{{ p.text }}</span></sc-for></div>
+      </div>
+    </sc-if>
+    <sc-if value="{{ reviewFromShare }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;align-items:center;gap:10px;background:var(--sf);border-radius:16px;padding:10px 14px;box-shadow:var(--sh);font-size:var(--f-label)"><span style="width:8px;height:8px;border-radius:50%;background:var(--wm);flex:none"></span><span style="flex:1;color:var(--mu)">{{ reviewSourceLabel }}</span><span style="font-size:var(--f-cap);color:var(--wm)">{{ t.shareUntrusted }}</span></div>
+    </sc-if>
+    <div style="display:flex;align-items:center;gap:8px;padding:0 4px;font-size:var(--f-label);color:var(--mu)"><span style="width:10px;height:10px;border-radius:50%;border:1.5px dashed var(--prop);flex:none"></span>{{ t.proposalNote }}</div>
+    <sc-for list="{{ reviewProposals }}" as="p" hint-placeholder-count="2">
+      <div data-screen-label="Proposal card" style="{{ p.cardStyle }}">
+        <div style="display:flex;align-items:flex-start;gap:12px">
+          <button onClick="{{ p.toggle }}" role="checkbox" aria-checked="{{ p.on }}" aria-label="{{ p.selLabel }}" style="{{ p.checkStyle }}"><sc-if value="{{ p.on }}"><svg width="14" height="14" viewBox="0 0 12 12"><polyline points="2,6.5 5,9 10,3" fill="none" stroke="var(--onac)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></sc-if></button>
+          <button onClick="{{ p.edit }}" style="flex:1;min-width:0;text-align:start;background:none;border:0;padding:0;cursor:pointer;color:var(--tx);font-family:inherit;display:flex;flex-direction:column;gap:6px">
+            <span style="{{ p.titleStyle }}">{{ p.title }}</span>
+            <span style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+              <span style="font-size:var(--f-cap);background:var(--sf2);border-radius:999px;padding:4px 10px;color:var(--tx)">{{ p.dayLabel }}</span>
+              <span style="{{ p.timeChipStyle }}"><span style="direction:ltr;unicode-bidi:isolate">{{ p.timeLabel }}</span></span>
+              <sc-if value="{{ p.showImp }}"><span style="{{ p.impStyle }}">{{ p.impLabel }}</span></sc-if>
+              <sc-if value="{{ p.estimated }}"><span style="font-size:var(--f-meta);color:var(--mu);border:1px dashed var(--lnStrong);border-radius:999px;padding:2px 8px">{{ t.weGuessed }}</span></sc-if>
+            </span>
+          </button>
+          <button onClick="{{ p.edit }}" aria-label="{{ t.edit }}" style="min-height:36px;background:none;border:0;padding:6px 8px;color:var(--acd);font-size:var(--f-label);font-weight:600;cursor:pointer;text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--ul);flex:none">{{ t.change }}</button>
+        </div>
+        <sc-if value="{{ p.conflict }}"><div style="font-size:var(--f-cap);color:var(--wm);background:var(--wms);border-radius:12px;padding:6px 10px">{{ p.conflict }}</div></sc-if>
+      </div>
+    </sc-for>
+    <sc-if value="{{ reviewReadings }}" hint-placeholder-val="{{ false }}">
+      <button onClick="{{ openReadings }}" style="text-align:start;display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--wms);color:var(--wm);border:0;border-radius:18px;padding:12px 16px;font-size:var(--f-body2);font-weight:600;cursor:pointer;min-height:48px"><span>{{ t.readingsBanner }}</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="transform:scaleX(var(--mirror));flex:none"><polyline points="9,6 15,12 9,18"/></svg></button>
+    </sc-if>
+    <sc-if value="{{ reviewNoneSelected }}" hint-placeholder-val="{{ false }}"><div style="font-size:var(--f-cap);color:var(--mu);text-align:center">{{ t.nothingSelected }}</div></sc-if>
+  </div>
+  <div style="padding:12px 16px calc(var(--safeBottom) + 8px);display:flex;flex-direction:column;gap:4px;background:var(--bg);border-top:1px solid var(--ln)">
+    <button onClick="{{ reviewConfirm }}" aria-disabled="{{ reviewNoneSelected }}" style="{{ confirmStyle }}">{{ confirmLabel }}</button>
+    <button onClick="{{ capClose }}" style="background:none;color:var(--mu);border:0;padding:10px;font-size:var(--f-body2);cursor:pointer;min-height:44px">{{ t.cancelAll }}</button>
+  </div>
+</div>
+</sc-if>
+
+<!-- ═══════════ SAVED (confirmation) ═══════════ -->
+<sc-if value="{{ isSaved }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Saved" style="position:absolute;inset:0;z-index:32;display:flex;flex-direction:column;background:var(--bg);color:var(--tx);animation:ms-in .3s cubic-bezier(.2,.8,.2,1) both;padding:var(--safeTop) 16px calc(var(--safeBottom) + 8px)">
+  <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;text-align:center">
+    <div style="width:72px;height:72px;border-radius:50%;background:var(--ac);display:flex;align-items:center;justify-content:center;animation:ms-pop .5s cubic-bezier(.2,.8,.2,1) both;box-shadow:0 12px 34px rgba(31,122,140,.3)"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="var(--onac)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="5,12.5 10,17.5 19,7"/></svg></div>
+    <div style="font-size:var(--f-h2);font-weight:600;line-height:1.3">{{ savedTitle }}</div>
+    <div style="width:100%;display:flex;flex-direction:column;gap:8px;margin-top:4px">
+      <sc-for list="{{ savedItems }}" as="c" hint-placeholder-count="2">
+        <div style="background:var(--sf);border-radius:18px;padding:14px 16px;box-shadow:var(--sh);display:flex;justify-content:space-between;gap:10px;text-align:start;align-items:center"><span style="font-size:var(--f-body)">{{ c.title }}</span><span style="font-size:var(--f-cap);color:var(--mu);white-space:nowrap;display:flex;gap:6px;align-items:center"><span style="font-size:var(--f-meta);font-weight:600;color:var(--acd);background:var(--acs);border-radius:999px;padding:2px 8px">{{ t.confirmedTag }}</span>{{ c.dayLabel }} · <span style="direction:ltr;unicode-bidi:isolate">{{ c.timeLabel }}</span></span></div>
+      </sc-for>
+    </div>
+    <sc-if value="{{ savedCollision }}" hint-placeholder-val="{{ false }}"><div style="font-size:var(--f-cap);color:var(--wm);background:var(--wms);border-radius:14px;padding:8px 12px;line-height:1.5">{{ savedCollision }}</div></sc-if>
+    <sc-if value="{{ savedUndoVisible }}" hint-placeholder-val="{{ true }}">
+      <button onClick="{{ savedUndo }}" style-hover="background:var(--acs);color:var(--acd)" style="min-height:44px;background:var(--sf2);color:var(--tx);border:0;border-radius:999px;padding:10px 18px;font-size:var(--f-body2);cursor:pointer;display:flex;align-items:center;gap:10px">{{ t.undo }}<span style="position:relative;width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;font-size:var(--f-meta);font-weight:600;direction:ltr"><svg width="26" height="26" viewBox="0 0 26 26" style="position:absolute;inset:0;transform:rotate(-90deg)"><circle cx="13" cy="13" r="11" fill="none" stroke="var(--ln)" stroke-width="2.5"/><circle cx="13" cy="13" r="11" fill="none" stroke="var(--ac)" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="69.1" style="{{ undoRingStyle }}"/></svg>{{ undoLeft }}</span></button>
+    </sc-if>
+  </div>
+  <div style="display:flex;gap:10px">
+    <button onClick="{{ savedViewDay }}" style="flex:1;min-height:52px;background:var(--sf);color:var(--tx);border:1px solid var(--ln);border-radius:999px;padding:14px;font-size:var(--f-body);font-weight:500;cursor:pointer">{{ savedViewLabel }}</button>
+    <button onClick="{{ savedOk }}" style="flex:1;min-height:52px;background:var(--ac);color:var(--onac);border:0;border-radius:999px;padding:14px;font-size:var(--f-body);font-weight:600;cursor:pointer">{{ t.ok }}</button>
+  </div>
+</div>
+</sc-if>
+
+<!-- ═══════════ CALENDAR (tab) ═══════════ -->
+<sc-if value="{{ isCalendar }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Calendar" style="position:absolute;inset:0;display:flex;flex-direction:column;background:var(--bg);color:var(--tx)">
+  <div style="flex:1;overflow:auto;padding:var(--safeTop) 16px 124px;display:flex;flex-direction:column;gap:14px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:10px;padding:4px 4px 0">
+      <div><div style="font-size:var(--f-label);color:var(--mu)">{{ calRange }}</div><div style="font-size:var(--f-title);font-weight:600;line-height:1.2">{{ t.calendarTitle }}</div></div>
+      <button onClick="{{ goCalSettings }}" aria-label="{{ t.calSettingsBtn }}" style="width:40px;height:40px;border-radius:50%;background:var(--sf);border:1px solid var(--ln);display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--mu);padding:0"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/><circle cx="9" cy="7" r="2" fill="var(--sf)"/><circle cx="15" cy="12" r="2" fill="var(--sf)"/><circle cx="10" cy="17" r="2" fill="var(--sf)"/></svg></button>
+    </div>
+    <sc-if value="{{ calNotConnected }}" hint-placeholder-val="{{ false }}"><div style="display:flex;align-items:center;gap:10px;background:var(--sf2);color:var(--mu);border-radius:14px;padding:10px 14px;font-size:var(--f-label)"><span style="flex:1">{{ t.calNotConnected }}</span><button onClick="{{ goCalSettings }}" style="background:none;border:0;padding:4px 6px;color:var(--acd);font-weight:600;font-size:var(--f-label);cursor:pointer;text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--ul)">{{ t.calConnectCta }}</button></div></sc-if>
+    <div style="background:var(--sf);border-radius:24px;padding:12px 8px;box-shadow:var(--sh)">
+      <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px">
+        <sc-for list="{{ weekDays }}" as="d" hint-placeholder-count="7">
+          <button onClick="{{ d.select }}" aria-pressed="{{ d.sel }}" style="{{ d.style }}"><span style="font-size:var(--f-meta);color:var(--mu)">{{ d.name }}</span><span style="{{ d.numStyle }}">{{ d.num }}</span><span style="display:flex;flex-direction:column;gap:3px;width:100%;margin-top:6px;min-height:18px"><sc-for list="{{ d.bars }}" as="b" hint-placeholder-count="2"><span style="{{ b.style }}"></span></sc-for></span></button>
+        </sc-for>
+      </div>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;padding:4px 4px 0"><div style="font-size:var(--f-card);font-weight:600">{{ calSelTitle }}</div><div style="font-size:var(--f-cap);color:var(--mu)">{{ calSelLoad }}</div></div>
+    <sc-if value="{{ calSelEmpty }}" hint-placeholder-val="{{ false }}"><div style="padding:18px;text-align:center;font-size:var(--f-body2);color:var(--mu);background:var(--sf);border-radius:18px;box-shadow:var(--sh)">{{ t.dayFree }}</div></sc-if>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <sc-for list="{{ calSelItems }}" as="c" hint-placeholder-count="2">
+        <sc-if value="{{ c.busy }}"><div style="display:flex;align-items:center;gap:12px;border-radius:18px;padding:12px 16px;background:var(--hatch);border:1px dashed var(--lnStrong)"><span style="flex:1;font-size:var(--f-body2);color:var(--mu)">{{ t.busy }}</span><span style="font-size:var(--f-cap);color:var(--mu);direction:ltr;unicode-bidi:isolate">{{ c.range }}</span></div></sc-if>
+        <sc-if value="{{ c.isCommit }}"><button onClick="{{ c.open }}" style-hover="transform:translateY(-1px)" style="text-align:start;background:var(--sf);border:0;border-radius:18px;padding:13px 16px;box-shadow:var(--sh);cursor:pointer;color:var(--tx);display:flex;align-items:center;gap:12px;min-height:56px;font-family:inherit"><span style="{{ c.dotStyle }}"></span><span style="flex:1;display:flex;flex-direction:column;gap:2px"><span style="{{ c.titleStyle }}">{{ c.title }}</span><sc-if value="{{ c.conflict }}"><span style="font-size:var(--f-cap);color:var(--wm)">{{ c.conflict }}</span></sc-if></span><span style="font-size:var(--f-cap);color:var(--mu);direction:ltr;unicode-bidi:isolate">{{ c.range }}</span></button></sc-if>
+      </sc-for>
+    </div>
+  </div>
+</div>
+</sc-if>
+
+<!-- ═══════════ SETTINGS (tab root · 4 groups) ═══════════ -->
+<sc-if value="{{ isSettings }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Settings" style="position:absolute;inset:0;display:flex;flex-direction:column;background:var(--bg);color:var(--tx)">
+  <div style="flex:1;overflow:auto;padding:var(--safeTop) 16px 124px;display:flex;flex-direction:column;gap:18px">
+    <div style="font-size:var(--f-title);font-weight:600;line-height:1.2;padding:4px 4px 0">{{ t.settingsTitle }}</div>
+    <sc-for list="{{ settingsGroups }}" as="g" hint-placeholder-count="4">
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <div style="font-size:var(--f-label);color:var(--mu);font-weight:600;padding:0 4px">{{ g.title }}</div>
+        <div style="background:var(--sf);border-radius:24px;box-shadow:var(--sh);padding:0 16px">
+          <sc-for list="{{ g.rows }}" as="r" hint-placeholder-count="3">
+            <button onClick="{{ r.go }}" style="{{ r.style }}"><span style="flex:1;display:flex;flex-direction:column;gap:1px;text-align:start"><span style="font-size:var(--f-body)">{{ r.label }}</span><sc-if value="{{ r.sub }}"><span style="font-size:var(--f-cap);color:var(--mu)">{{ r.sub }}</span></sc-if></span><sc-if value="{{ r.value }}"><span style="font-size:var(--f-label);color:var(--mu)">{{ r.value }}</span></sc-if><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--mu)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="transform:scaleX(var(--mirror));flex:none"><polyline points="9,6 15,12 9,18"/></svg></button>
+          </sc-for>
+        </div>
+      </div>
+    </sc-for>
+    <div style="font-size:var(--f-cap);color:var(--mu);text-align:center;padding:0 12px">{{ signedInLabel }}</div>
+  </div>
+</div>
+</sc-if>
+
+<!-- ═══════════ SETTINGS-DETAIL (generic section-header shell; content per screen lands in the next build pass) ═══════════ -->
+<sc-if value="{{ isSubStub }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Settings detail" style="position:absolute;inset:0;display:flex;flex-direction:column;background:var(--bg);color:var(--tx);animation:ms-push .28s cubic-bezier(.2,.8,.2,1) both">
+  <div style="flex:1;overflow:auto;padding:var(--safeTop) 16px 24px;display:flex;flex-direction:column;gap:14px">
+    <div style="display:flex;align-items:center;gap:10px"><button onClick="{{ back }}" aria-label="{{ t.back }}" style="width:40px;height:40px;border-radius:50%;background:var(--sf);border:1px solid var(--ln);display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--tx);padding:0;flex:none"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="transform:scaleX(var(--mirror))"><polyline points="15,5 8,12 15,19"/></svg></button><span style="font-size:var(--f-label);color:var(--mu)">{{ stubParent }}</span></div>
+    <div style="font-size:var(--f-title);font-weight:600;line-height:1.2;padding:0 4px">{{ stubTitle }}</div>
+    <div style="margin-top:40px;display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center;padding:0 20px"><div style="width:56px;height:56px;border-radius:50%;background:var(--sf2)"></div><div style="font-size:var(--f-h2);font-weight:600">{{ t.noDataTitle }}</div></div>
+  </div>
+</div>
+</sc-if>
+
+<!-- @more -->
+
+<!-- ═══════════ TAB BAR ═══════════ -->
+<sc-if value="{{ showTabs }}" hint-placeholder-val="{{ true }}">
+<div role="tablist" style="{{ tabBarStyle }}">
+  <button role="tab" aria-selected="{{ tabTodayOn }}" aria-label="{{ t.tabToday }}" onClick="{{ goToday }}" style="{{ tabTodayStyle }}"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2.2" fill="currentColor" stroke="none"/></svg><sc-if value="{{ tabLabels }}"><span style="font-size:var(--f-meta)">{{ t.tabToday }}</span></sc-if></button>
+  <button role="tab" aria-selected="{{ tabCalOn }}" aria-label="{{ t.tabCalendar }}" onClick="{{ goCalendar }}" style="{{ tabCalStyle }}"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3.5" y="3.5" width="7" height="7" rx="2"/><rect x="13.5" y="3.5" width="7" height="7" rx="2"/><rect x="3.5" y="13.5" width="7" height="7" rx="2"/><rect x="13.5" y="13.5" width="7" height="7" rx="2"/></svg><sc-if value="{{ tabLabels }}"><span style="font-size:var(--f-meta)">{{ t.tabCalendar }}</span></sc-if></button>
+  <button aria-label="{{ t.tabCapture }}" onClick="{{ goCapture }}" style-hover="transform:scale(1.04)" style="{{ captureBtnStyle }}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg><sc-if value="{{ tabLabels }}"><span style="font-size:var(--f-body);font-weight:600">{{ t.tabCapture }}</span></sc-if></button>
+  <button role="tab" aria-selected="{{ tabSetOn }}" aria-label="{{ t.tabSettings }}" onClick="{{ goSettings }}" style="{{ tabSetStyle }}"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/><circle cx="9" cy="7" r="2" fill="var(--sfBarSolid)"/><circle cx="15" cy="12" r="2" fill="var(--sfBarSolid)"/><circle cx="10" cy="17" r="2" fill="var(--sfBarSolid)"/></svg><sc-if value="{{ tabLabels }}"><span style="font-size:var(--f-meta)">{{ t.tabSettings }}</span></sc-if></button>
+</div>
+</sc-if>
+
+<!-- ═══════════ SHEET LAYER ═══════════ -->
+<sc-if value="{{ sheetOpen }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;inset:0;z-index:40;display:flex;flex-direction:column;justify-content:flex-end">
+  <div onClick="{{ closeSheet }}" style="position:absolute;inset:0;background:var(--scrim);animation:ms-fade .22s ease both"></div>
+  <div role="dialog" style="position:relative;background:var(--sf);color:var(--tx);border-radius:36px 36px 0 0;padding:12px 20px calc(var(--safeBottom) + 16px);display:flex;flex-direction:column;gap:14px;box-shadow:0 -10px 40px rgba(0,0,0,.18);animation:ms-up .34s cubic-bezier(.2,.8,.2,1) both;max-height:88%;overflow:auto">
+    <div style="width:40px;height:5px;border-radius:3px;background:var(--ln);margin:0 auto 2px"></div>
+
+    <sc-if value="{{ shPostpone }}" hint-placeholder-val="{{ false }}">
+      <div data-screen-label="Postpone sheet" style="display:flex;flex-direction:column;gap:12px">
+        <div style="font-size:var(--f-h2);font-weight:600;line-height:1.35">{{ t.postponeTitle }}</div>
+        <div style="font-size:var(--f-body2);color:var(--mu);line-height:1.5">{{ t.postponeBody }}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <sc-for list="{{ postponeOptions }}" as="o" hint-placeholder-count="4"><button onClick="{{ o.pick }}" style-hover="background:var(--acs);color:var(--acd)" style="text-align:start;background:var(--sf2);border:0;border-radius:18px;padding:14px;cursor:pointer;color:var(--tx);display:flex;flex-direction:column;gap:3px;min-height:72px"><span style="font-size:var(--f-body);font-weight:600">{{ o.label }}</span><span style="font-size:var(--f-cap);color:var(--mu);direction:ltr;unicode-bidi:isolate;text-align:start">{{ o.hint }}</span></button></sc-for>
+        </div>
+        <button onClick="{{ postponeCustom }}" style="background:none;border:1px solid var(--ln);border-radius:999px;padding:12px;font-size:var(--f-body2);cursor:pointer;color:var(--tx);min-height:48px">{{ t.postponeCustom }}</button>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ shDefer }}" hint-placeholder-val="{{ false }}">
+      <div data-screen-label="Defer sheet" style="display:flex;flex-direction:column;gap:12px">
+        <div style="font-size:var(--f-h2);font-weight:600;line-height:1.35">{{ t.deferTitle }}</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+          <sc-for list="{{ deferOptions }}" as="o" hint-placeholder-count="3"><button onClick="{{ o.pick }}" style-hover="background:var(--acs);color:var(--acd)" style="text-align:start;background:var(--sf2);border:0;border-radius:18px;padding:14px;cursor:pointer;color:var(--tx);display:flex;flex-direction:column;gap:3px;min-height:72px"><span style="font-size:var(--f-body);font-weight:600">{{ o.label }}</span><span style="font-size:var(--f-cap);color:var(--mu);direction:ltr;unicode-bidi:isolate;text-align:start">{{ o.hint }}</span></button></sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ shMore }}" hint-placeholder-val="{{ false }}">
+      <div data-screen-label="Next step more sheet" style="display:flex;flex-direction:column;gap:4px">
+        <div style="font-size:var(--f-label);color:var(--mu);padding:0 4px 8px">{{ next.title }}</div>
+        <sc-for list="{{ moreOptions }}" as="o" hint-placeholder-count="4"><button onClick="{{ o.pick }}" style="{{ o.style }}"><span style="flex:1;text-align:start;font-size:var(--f-body);font-weight:500">{{ o.label }}</span><span style="font-size:var(--f-cap);color:var(--mu)">{{ o.hint }}</span></button></sc-for>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ shEdit }}" hint-placeholder-val="{{ false }}">
+      <div data-screen-label="Edit sheet" style="display:flex;flex-direction:column;gap:14px">
+        <div style="font-size:var(--f-h2);font-weight:600;line-height:1.35">{{ editSheetTitle }}</div>
+        <label style="display:flex;flex-direction:column;gap:6px"><span style="font-size:var(--f-label);color:var(--mu)">{{ t.fieldTitle }}</span><input type="text" value="{{ editTitle }}" onChange="{{ onEditTitle }}" style="min-height:48px;background:var(--sf2);border:1.5px solid transparent;border-radius:16px;padding:12px 14px;font-size:var(--f-body);outline:none;color:var(--tx);width:100%" style-focus="border-color:var(--ac);background:var(--sf)"></label>
+        <sc-if value="{{ editShowWhen }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;flex-direction:column;gap:6px"><span style="font-size:var(--f-label);color:var(--mu)">{{ t.fieldWhen }}</span>
+            <div style="display:flex;flex-wrap:wrap;gap:8px"><sc-for list="{{ editWhenChips }}" as="ch" hint-placeholder-count="4"><button onClick="{{ ch.pick }}" style="{{ ch.style }}"><span style="direction:ltr;unicode-bidi:isolate">{{ ch.label }}</span></button></sc-for></div>
+          </div>
+        </sc-if>
+        <sc-if value="{{ editShowPriority }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;flex-direction:column;gap:6px"><span style="font-size:var(--f-label);color:var(--mu)">{{ t.fieldPriority }}</span>
+            <div role="radiogroup" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;background:var(--sf2);border-radius:999px;padding:4px"><sc-for list="{{ editImpChips }}" as="ch" hint-placeholder-count="3"><button role="radio" aria-checked="{{ ch.on }}" onClick="{{ ch.pick }}" style="{{ ch.style }}">{{ ch.label }}</button></sc-for></div>
+          </div>
+        </sc-if>
+        <div style="display:flex;gap:8px">
+          <button onClick="{{ closeSheet }}" style="flex:1;min-height:48px;background:var(--sf2);color:var(--tx);border:0;border-radius:999px;padding:12px;font-size:var(--f-body);font-weight:500;cursor:pointer">{{ t.editItemCancel }}</button>
+          <button onClick="{{ editSave }}" style="{{ editSaveStyle }}">{{ t.editItemSave }}</button>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ shPlanMove }}" hint-placeholder-val="{{ false }}">
+      <div data-screen-label="Move plan item sheet" style="display:flex;flex-direction:column;gap:12px">
+        <div style="font-size:var(--f-label);color:var(--mu)">{{ moveItemTitle }}</div>
+        <div style="font-size:var(--f-h2);font-weight:600;line-height:1.35">{{ t.planMoveTitle }}</div>
+        <sc-if value="{{ moveError }}" hint-placeholder-val="{{ false }}"><div style="background:var(--wms);color:var(--wm);border-radius:14px;padding:10px 14px;font-size:var(--f-label);line-height:1.45">{{ moveError }}</div></sc-if>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+          <sc-for list="{{ moveSlots }}" as="s" hint-placeholder-count="8"><button onClick="{{ s.pick }}" aria-disabled="{{ s.busy }}" style="{{ s.style }}"><span style="direction:ltr;unicode-bidi:isolate">{{ s.label }}</span><sc-if value="{{ s.busy }}"><span style="font-size:var(--f-meta);opacity:.8">{{ t.busy }}</span></sc-if></button></sc-for>
+        </div>
+        <div style="font-size:var(--f-cap);color:var(--mu)">{{ t.proposalNote }}</div>
+        <button onClick="{{ planTakeOff }}" style="background:none;border:1px solid var(--ln);border-radius:999px;padding:12px;font-size:var(--f-body2);cursor:pointer;color:var(--tx);min-height:48px">{{ t.planTakeOff }}</button>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ shFlag }}" hint-placeholder-val="{{ false }}">
+      <div data-screen-label="Flag sheet" style="display:flex;flex-direction:column;gap:12px">
+        <div style="font-size:var(--f-h2);font-weight:600;line-height:1.35">{{ t.flagTitle }}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px"><sc-for list="{{ flagChips }}" as="ch" hint-placeholder-count="5"><button onClick="{{ ch.pick }}" aria-pressed="{{ ch.on }}" style="{{ ch.style }}">{{ ch.label }}</button></sc-for></div>
+        <input type="text" placeholder="{{ t.flagNote }}" style="min-height:48px;background:var(--sf2);border:1.5px solid transparent;border-radius:16px;padding:12px 14px;font-size:var(--f-body2);outline:none;color:var(--tx)" style-focus="border-color:var(--ac);background:var(--sf)">
+        <button onClick="{{ flagSend }}" style="{{ flagSendStyle }}">{{ t.flagSend }}</button>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ shClarify }}" hint-placeholder-val="{{ false }}">
+      <div data-screen-label="Clarification sheet" style="display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;justify-content:space-between;font-size:var(--f-cap);color:var(--mu)"><span>{{ t.oneQuestion }}</span><span style="direction:ltr;unicode-bidi:isolate">{{ clarifyPos }}</span></div>
+        <div style="font-size:var(--f-label);color:var(--mu)">{{ clarifyItem }}</div>
+        <div style="font-size:var(--f-h2);font-weight:600;line-height:1.35">{{ clarifyQuestion }}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          <sc-for list="{{ clarifyChips }}" as="ch" hint-placeholder-count="3"><button onClick="{{ ch.pick }}" style-hover="background:var(--ac);color:var(--onac)" style="min-height:48px;background:var(--acs);color:var(--acd);border:0;border-radius:999px;padding:12px 18px;font-size:var(--f-body);font-weight:600;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:0"><span>{{ ch.label }}</span><span style="font-size:var(--f-meta);font-weight:500;direction:ltr">{{ ch.hint }}</span></button></sc-for>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input type="text" placeholder="{{ t.clarifyOwnWords }}" style="flex:1;min-height:48px;background:var(--sf2);border:1.5px solid transparent;border-radius:999px;padding:12px 16px;font-size:var(--f-body2);outline:none;color:var(--tx)" style-focus="border-color:var(--ac);background:var(--sf)">
+          <button aria-label="{{ t.speak }}" style="width:48px;height:48px;border-radius:50%;background:var(--sf2);border:0;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--acd);flex:none"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg></button>
+        </div>
+        <button onClick="{{ clarifySkip }}" style="background:none;border:0;color:var(--mu);font-size:var(--f-label);cursor:pointer;padding:8px;min-height:44px">{{ t.clarifyNoTime }}</button>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ shReadings }}" hint-placeholder-val="{{ false }}">
+      <div data-screen-label="Two readings sheet" style="display:flex;flex-direction:column;gap:14px">
+        <div style="font-size:var(--f-h2);font-weight:600;line-height:1.35">{{ t.readingsTitle }}</div>
+        <div style="font-size:var(--f-body2);color:var(--mu)">{{ t.readingsBody }}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <sc-for list="{{ readings }}" as="r" hint-placeholder-count="2"><button onClick="{{ r.pick }}" style-hover="border-color:var(--ac);background:var(--acs)" style="text-align:start;background:var(--sf2);border:2px solid transparent;border-radius:20px;padding:16px;cursor:pointer;color:var(--tx);display:flex;flex-direction:column;gap:6px;min-height:104px"><span style="font-size:var(--f-body);font-weight:600;line-height:1.4">{{ r.title }}</span><span style="font-size:var(--f-cap);color:var(--mu)">{{ r.when }}</span></button></sc-for>
+        </div>
+        <div style="font-size:var(--f-cap);color:var(--mu);line-height:1.6;background:var(--bg);border-radius:14px;padding:10px 12px">{{ t.readingsPrivacy }}</div>
+      </div>
+    </sc-if>
+
+    <!-- @sheets -->
+  </div>
+</div>
+</sc-if>
+
+<!-- ═══════════ DIALOG ═══════════ -->
+<sc-if value="{{ dialogOpen }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;padding:24px">
+  <div onClick="{{ closeDialog }}" style="position:absolute;inset:0;background:var(--scrim);animation:ms-fade .2s ease both"></div>
+  <div role="alertdialog" data-screen-label="Dialog" style="position:relative;width:100%;background:var(--sf);color:var(--tx);border-radius:28px;padding:22px 20px 16px;display:flex;flex-direction:column;gap:10px;box-shadow:0 20px 60px rgba(0,0,0,.25);animation:ms-in .24s cubic-bezier(.2,.8,.2,1) both">
+    <div style="font-size:var(--f-h2);font-weight:600;line-height:1.35">{{ dialog.title }}</div>
+    <div style="font-size:var(--f-body2);color:var(--mu);line-height:1.55">{{ dialog.body }}</div>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button onClick="{{ closeDialog }}" style="flex:1;min-height:48px;background:var(--sf2);color:var(--tx);border:0;border-radius:999px;padding:12px;font-size:var(--f-body);font-weight:500;cursor:pointer">{{ dialog.cancelLabel }}</button>
+      <button onClick="{{ dialogConfirm }}" style="{{ dialog.confirmStyle }}">{{ dialog.confirmLabel }}</button>
+    </div>
+  </div>
+</div>
+</sc-if>
+
+<!-- ═══════════ TOAST (undo) ═══════════ -->
+<sc-if value="{{ toastOpen }}" hint-placeholder-val="{{ false }}">
+<div role="status" style="{{ toastStyle }}">
+  <span style="flex:1;font-size:var(--f-body2);line-height:1.4">{{ toast.text }}</span>
+  <sc-if value="{{ toast.undo }}"><button onClick="{{ toastUndo }}" style="background:none;border:0;padding:8px 10px;color:var(--acOnInk);font-size:var(--f-body2);font-weight:700;cursor:pointer;min-height:44px;display:flex;align-items:center;gap:8px">{{ t.undo }}<span style="position:relative;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-size:var(--f-meta);direction:ltr"><svg width="22" height="22" viewBox="0 0 26 26" style="position:absolute;inset:0;transform:rotate(-90deg)"><circle cx="13" cy="13" r="11" fill="none" stroke="rgba(255,255,255,.25)" stroke-width="2.5"/><circle cx="13" cy="13" r="11" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="69.1" style="{{ undoRingStyle }}"/></svg>{{ undoLeft }}</span></button></sc-if>
+</div>
+</sc-if>
+
+</div>
+</x-import>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;lang&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;ar&quot;,&quot;en&quot;,&quot;he&quot;],&quot;default&quot;:&quot;ar&quot;,&quot;tsType&quot;:&quot;'ar'|'en'|'he'&quot;,&quot;section&quot;:&quot;Language &amp; theme&quot;},&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;light&quot;,&quot;dark&quot;],&quot;default&quot;:&quot;light&quot;,&quot;tsType&quot;:&quot;'light'|'dark'&quot;,&quot;section&quot;:&quot;Language &amp; theme&quot;},&quot;textSize&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;default&quot;,&quot;large&quot;,&quot;xl&quot;],&quot;default&quot;:&quot;default&quot;,&quot;tsType&quot;:&quot;'default'|'large'|'xl'&quot;,&quot;section&quot;:&quot;Accessibility&quot;},&quot;platform&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;ios&quot;,&quot;android&quot;,&quot;bare&quot;],&quot;default&quot;:&quot;ios&quot;,&quot;tsType&quot;:&quot;'ios'|'android'|'bare'&quot;,&quot;section&quot;:&quot;Frame&quot;},&quot;route&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;today&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Navigation&quot;},&quot;scenario&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;normal&quot;,&quot;empty&quot;,&quot;allDone&quot;,&quot;loading&quot;,&quot;partial&quot;,&quot;offline&quot;,&quot;error&quot;,&quot;sync&quot;,&quot;syncError&quot;,&quot;quiet&quot;,&quot;planAccepted&quot;,&quot;planEmpty&quot;,&quot;planGenerating&quot;,&quot;planDismissed&quot;,&quot;nextStarted&quot;,&quot;calDisconnected&quot;,&quot;reauth&quot;,&quot;revoked&quot;,&quot;notifBlocked&quot;,&quot;notifProvisional&quot;],&quot;default&quot;:&quot;normal&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Scenario&quot;},&quot;height&quot;:{&quot;editor&quot;:null,&quot;default&quot;:874,&quot;tsType&quot;:&quot;number&quot;}}">
+class Component extends DCLogic {
+  state = {
+    ready: false, tab: 'today', stacks: { today: [], calendar: [], settings: [] },
+    task: null, sheet: null, dialog: null, toast: null, undoLeft: 5,
+    whyOpen: false, planWhyOpen: true, showDoneList: false, planStatus: 'proposal', planItems: null, planKept: null, regenLeft: 2,
+    nextState: 'idle', nextCid: null, dismissedNext: [], commitments: null, busy: null,
+    editDraft: null, moveError: null, flagPicked: null, morningOn: true, quietMode: false,
+    calRead: true, calWrite: false, google: 'connected', gentle: true, lead: 30, quiet: 'quietStd', ceiling: 'ceilFollow', mustQuiet: false, widgetTitles: false, energy: 3,
+    routine: { sleep: 'rSleepStd', focus: 'rFocusWorkday', fixed: 'rFixedAfternoon', rem: 'rRemFollow', quiet: 'rQuietEarly' }, cats: { work: true, family: true, health: true, finance: true, social: true, errands: false, study: true }, catSplit: false,
+    memory: null, memUndo: null, consents: { ai: true, rec: true, an: false }, clubs: null, feeds: null, revoked: false, deleted: false, langPick: null, ob: {},
+  };
+  timers = [];
+  later(fn, ms) { const id = setTimeout(fn, ms); this.timers.push(id); return id; }
+  componentWillUnmount() { this.timers.forEach(clearTimeout); }
+  componentDidMount() {
+    Promise.all([import('./r2-strings.js'), import('./r2-seed.js')]).then(([s, d]) => {
+      this.STR = s.STR; this.D = d;
+      this.setState({ ready: true, commitments: d.COMMITMENTS.map(c => ({ ...c })), busy: d.BUSY, planItems: d.PLAN.items.map(p => ({ ...p })), planKept: d.PLAN.kept.map(k => ({ ...k })), memory: d.MEMORY.map(m => ({ ...m })), clubs: d.CLUBS.map(c => ({ ...c })), feeds: d.FEEDS.map(f => ({ ...f })), nextCid: d.NEXT.cid, ...this.routeState(this.props.route) });
+    });
+  }
+  componentDidUpdate(prev) { if (prev.route !== this.props.route || prev.scenario !== this.props.scenario) this.setState(this.routeState(this.props.route)); }
+
+  // ── props ──
+  get lang() { return this.state.langPick || this.props.lang || 'ar'; }
+  get t() { return (this.STR || {})[this.lang] || {}; }
+  get dark() { return this.props.theme === 'dark'; }
+  get scenario() { return this.props.scenario || 'normal'; }
+  get platform() { return this.props.platform || 'ios'; }
+  get textScale() { return this.props.textSize === 'xl' ? 1.45 : this.props.textSize === 'large' ? 1.2 : 1; }
+
+  // ── routing ──
+  routeState(route) {
+    const r = (route || 'today').split('/').filter(Boolean);
+    const st = { tab: 'today', stacks: { today: [], calendar: [], settings: [] }, task: null, sheet: null, dialog: null, toast: null, whyOpen: false, showDoneList: false, nextState: 'idle', deleted: false, langPick: null };
+    const tasks = { capture: 'idle', share: 'preview', onboarding: 'lang', auth: 'welcome', deleteAccount: 'explain', deleted: 'done', permission: 'edu', notif: 'card', gallery: 'all' };
+    const parse = seg => { const [name, param] = seg.split(':'); return { name, param }; };
+    const first = parse(r[0] || 'today');
+    if (tasks[first.name]) {
+      st.task = { name: first.name, step: first.param || tasks[first.name], input: '', proposals: [], parts: [], kind: null, selected: {} };
+      if (first.name === 'auth') st.task = { name: 'onboarding', step: first.param || 'welcome' };
+      if (first.name === 'deleted') st.task = { name: 'deleteAccount', step: 'done' };
+      if (first.name === 'gallery') st.task = { name: 'gallery', step: first.param || 'all' };
+    } else {
+      st.tab = ['today', 'calendar', 'settings'].includes(first.name) ? first.name : 'today';
+      const rest = ['today', 'calendar', 'settings'].includes(first.name) ? r.slice(1) : r;
+      rest.forEach(seg => {
+        if (seg[0] === '@') st.sheet = { name: seg.slice(1) };
+        else if (seg[0] === '!') st.dialog = this.dialogFor(seg.slice(1));
+        else { const p = parse(seg); if (tasks[p.name]) st.task = { name: p.name, step: p.param || tasks[p.name], input: '', proposals: [], parts: [], kind: null, selected: {} }; else st.stacks[st.tab].push(p); }
+      });
+    }
+    const sc = this.props.scenario || 'normal';
+    if (sc === 'planAccepted') st.planStatus = 'accepted'; else if (sc === 'planEmpty') st.planStatus = 'empty'; else if (sc === 'planGenerating') st.planStatus = 'generating'; else if (sc === 'planDismissed') st.planStatus = 'dismissed'; else st.planStatus = 'proposal';
+    if (sc === 'nextStarted') st.nextState = 'started';
+    if (sc === 'quiet') st.quietMode = true; else st.quietMode = false;
+    if (sc === 'calDisconnected') { st.calRead = false; st.google = 'off'; } else if (sc === 'reauth') { st.calRead = true; st.google = 'reauth'; } else { st.calRead = true; st.google = 'connected'; }
+    if (sc === 'revoked') st.revoked = true; else st.revoked = false;
+    if (sc === 'notifBlocked') st.permNotif = 'denied'; else if (sc === 'notifProvisional') st.permNotif = 'provisional'; else st.permNotif = 'allowed';
+    if (sc === 'xlEdit') st.sheet = { name: 'edit' };
+    return st;
+  }
+  get current() { const s = this.state; const st = s.stacks[s.tab]; return st.length ? st[st.length - 1] : { name: s.tab }; }
+  push(name, param) { this.setState(s => { const stacks = { ...s.stacks, [s.tab]: [...s.stacks[s.tab], { name, param }] }; return { stacks, sheet: null, whyOpen: false }; }); }
+  pop() { this.setState(s => { const st = s.stacks[s.tab]; if (!st.length) return null; return { stacks: { ...s.stacks, [s.tab]: st.slice(0, -1) }, sheet: null }; }); }
+  back = () => { const s = this.state; if (s.sheet) return this.setState({ sheet: null }); this.pop(); };
+  goTab(tab) { this.setState(s => ({ tab, stacks: { ...s.stacks, [tab]: s.tab === tab ? [] : s.stacks[tab] }, sheet: null })); }
+  openTask(name, step, extra) { this.setState({ task: { name, step, input: '', proposals: [], parts: [], kind: null, selected: {}, ...(extra || {}) }, sheet: null }); }
+  closeTask() { this.setState({ task: null, sheet: null }); }
+  openSheet(name, extra) { this.setState({ sheet: { name, ...(extra || {}) }, moveError: null }); }
+  closeSheet = () => this.setState({ sheet: null, editDraft: null });
+  closeDialog = () => this.setState({ dialog: null });
+  dialogFor(kind) { return { kind }; }
+  showToast(text, undo) { const t = { text, undo: undo || null, id: Date.now() }; this.setState({ toast: t, undoLeft: 5 }); for (let i = 1; i <= 5; i++) this.later(() => this.setState(s => s.toast && s.toast.id === t.id ? (i === 5 ? { toast: null } : { undoLeft: 5 - i }) : null), i * 1000); }
+  toastUndo = () => { const u = this.state.toast && this.state.toast.undo; this.setState({ toast: null }); if (u) u(); };
+
+  // ── helpers ──
+  tr(key, params) { let s = this.t[key] || key; if (params) Object.keys(params).forEach(k => { s = s.split('{' + k + '}').join(params[k]); }); return s; }
+  fmt(h, m) { return h == null ? this.t.noTime : `${String(h).padStart(2, '0')}:${String(m || 0).padStart(2, '0')}`; }
+  addMin(h, m, d) { const tot = h * 60 + m + d; return this.fmt(Math.floor(tot / 60) % 24, tot % 60); }
+  title(c) { return c && c.title ? (c.title[this.lang] || c.title.ar) : ''; }
+  dateOf(off) { const N = this.D.NOW; const d = new Date(N.y, N.mo, N.d + off); return d; }
+  dayLabel(off) { const t = this.t; if (off === 0) return t.today; if (off === 1) return t.tomorrow; if (off === -1) return t.yesterday; const d = this.dateOf(off); return `${t.days[d.getDay()]}، ${d.getDate()} ${t.months[d.getMonth()]}`.replace('،', this.lang === 'en' ? ',' : (this.lang === 'he' ? ',' : '،')); }
+  shortDay(off) { const d = this.dateOf(off); return `${d.getDate()} ${this.t.months[d.getMonth()]}`; }
+  things(n) { const f = this.t.things || {}; const s = n === 1 ? f.one : n === 2 ? f.two : n <= 10 ? f.few : f.many; return (s || '{n}').replace('{n}', n); }
+  impLabel(i) { return this.t[i] || i; }
+  impStyle(i) { return i === 'must' ? 'font-size:var(--f-cap);font-weight:600;border-radius:999px;padding:3px 9px;background:var(--wms);color:var(--wm)' : i === 'should' ? 'font-size:var(--f-cap);border-radius:999px;padding:2px 9px;border:1px solid var(--ln);color:var(--mu)' : 'font-size:var(--f-cap);color:var(--mu)'; }
+  catLabel(c) { const map = { work: 'catWork', family: 'catFamily', health: 'catHealth', finance: 'catFinance', social: 'catSocial', errands: 'catErrands', study: 'catStudy' }; return c && this.state.cats[c] ? this.t[map[c]] : ''; }
+  conflictFor(c) { if (!c || c.h == null || !this.state.calRead) return null; const b = (this.state.busy || []).find(b => b.day === c.day && b.h * 60 + b.m < c.h * 60 + c.m + (c.dur || 30) && c.h * 60 + c.m < b.h * 60 + b.m + b.dur); return b ? this.tr('calConflict', { range: `${this.fmt(b.h, b.m)}–${this.addMin(b.h, b.m, b.dur)}` }) : null; }
+  byId(id) { return (this.state.commitments || []).find(c => c.id === id); }
+  updateC(id, patch) { this.setState(s => ({ commitments: s.commitments.map(c => c.id === id ? { ...c, ...patch } : c) })); }
+  openDetail = id => () => this.push('details', id);
+  dots() { return React.createElement('div', { style: { display: 'flex', gap: 8 } }, [0, 1, 2].map(i => React.createElement('span', { key: i, style: { width: 10, height: 10, borderRadius: '50%', background: 'var(--ac)', animation: `ms-shimmer 1.2s ease-in-out ${i * 0.2}s infinite` } }))); }
+
+  // ── row decoration (shared) ──
+  row(c, opts) {
+    const t = this.t, done = c.status === 'done';
+    return {
+      title: this.title(c), done, time: c.h == null ? t.noTime : this.fmt(c.h, c.m), open: this.openDetail(c.id), toggle: () => this.toggleDone(c.id),
+      impLabel: this.impLabel(c.imp), impStyle: this.impStyle(c.imp), showImp: c.imp !== 'nice', fixed: !!c.fixed, fixedLabel: c.src === 'routine' ? t.fromRoutine : t.fromCalendar,
+      rowStyle: 'display:flex;align-items:center;gap:12px;padding:8px 0;border-top:1px solid var(--ln);min-height:56px',
+      rowBtnStyle: 'width:100%;display:flex;align-items:center;gap:12px;padding:10px 0;border:0;border-top:1px solid var(--ln);background:none;cursor:pointer;color:var(--tx);font-family:inherit;min-height:56px',
+      circleStyle: `width:28px;height:28px;border-radius:50%;border:2px solid ${done ? 'var(--ac)' : 'var(--lnStrong)'};background:${done ? 'var(--ac)' : 'transparent'};cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;flex:none`,
+      titleStyle: `font-size:var(--f-body);color:var(--tx);${done ? 'text-decoration:line-through;opacity:.6' : ''}`,
+      dotStyle: `width:8px;height:8px;border-radius:50%;background:${c.imp === 'must' ? 'var(--wm)' : c.imp === 'should' ? 'var(--ac)' : 'var(--lnStrong)'};flex:none`,
+      when: (opts && opts.when) || this.dayLabel(c.day) + (c.h != null ? ' · ' + this.fmt(c.h, c.m) : ''),
+    };
+  }
+  toggleDone(id) { const c = this.byId(id); if (!c) return; const was = c.status; const now = was === 'done' ? 'active' : 'done'; this.updateC(id, { status: now }); if (now === 'done') this.showToast(this.t.toastDone, () => this.updateC(id, { status: was })); }
+
+  // ── today / next step actions ──
+  retry = () => this.setState({ retried: true });
+  toggleWhy = () => this.setState(s => ({ whyOpen: !s.whyOpen }));
+  toggleDoneList = () => this.setState(s => ({ showDoneList: !s.showDoneList }));
+  nextStart = () => { this.setState({ nextState: 'started' }); };
+  nextFinish = () => { const id = this.state.nextCid; this.updateC(id, { status: 'done' }); this.setState({ nextState: 'idle', nextCid: this.D.NEXT.alt }); this.showToast(this.t.toastDone, () => { this.updateC(id, { status: 'active' }); this.setState({ nextCid: id }); }); };
+  nextDefer = () => this.openSheet('defer');
+  nextMore = () => this.openSheet('more');
+  goPlan = () => this.push('plan');
+  goTrust = () => { this.setState(s => ({ tab: 'settings', stacks: { ...s.stacks, settings: [{ name: 'trust' }] } })); };
+  goKnows = () => { this.setState(s => ({ tab: 'settings', stacks: { ...s.stacks, settings: [{ name: 'trust' }, { name: 'knows' }] }, sheet: null })); };
+  goMorning = () => { this.setState(s => ({ tab: 'settings', stacks: { ...s.stacks, settings: [{ name: 'morning' }] } })); };
+  openSharePending = () => this.openTask('share', 'review', { proposals: this.D.SHARE.proposals.map(p => ({ ...p, title: this.title(p) })), selected: { s1: true, s2: true }, shareKind: 'pdf' });
+  bannerAction = () => { if (this.state.google === 'reauth') this.setState(s => ({ tab: 'settings', stacks: { ...s.stacks, settings: [{ name: 'calendarSettings' }] } })); };
+
+  // ── details actions ──
+  detailEdit = () => { const c = this.byId(this.current.param); if (!c) return; this.setState({ editDraft: { id: c.id, title: this.title(c), h: c.h, m: c.m, imp: c.imp, kind: 'commitment' }, sheet: { name: 'edit' } }); };
+  detailDone = () => { const id = this.current.param; this.updateC(id, { status: 'done' }); this.pop(); this.showToast(this.t.toastDone, () => this.updateC(id, { status: 'active' })); };
+  detailReopen = () => { const id = this.current.param; this.updateC(id, { status: 'active' }); this.showToast(this.t.toastSaved); };
+  detailPostpone = () => this.openSheet('postpone');
+  detailDrop = () => this.setState({ dialog: { kind: 'drop' } });
+  detailDelete = () => this.setState({ dialog: { kind: 'delete' } });
+  dialogConfirm = () => { const d = this.state.dialog; if (!d) return; this.setState({ dialog: null }); const id = this.current.param;
+    if (d.kind === 'drop') { this.updateC(id, { status: 'dropped' }); this.pop(); this.showToast(this.t.toastDropped, () => this.updateC(id, { status: 'active' })); }
+    else if (d.kind === 'delete') { const c = this.byId(id); this.setState(s => ({ commitments: s.commitments.filter(x => x.id !== id) })); this.pop(); this.showToast(this.t.toastDeleted, () => this.setState(s => ({ commitments: [...s.commitments, c] }))); }
+    else if (d.onConfirm) d.onConfirm(); };
+  postponeCustom = () => this.setState({ sheet: { name: 'edit' }, editDraft: { id: this.current.param, title: this.title(this.byId(this.current.param)), h: null, m: 0, imp: (this.byId(this.current.param) || {}).imp, kind: 'commitment', whenOnly: true } });
+  onEditTitle = e => { const v = e.target.value; this.setState(s => ({ editDraft: { ...s.editDraft, title: v } })); };
+  editSave = () => { const d = this.state.editDraft; if (!d || !d.title.trim()) return;
+    if (d.kind === 'commitment') { const c = this.byId(d.id); const prev = { title: c.title, h: c.h, m: c.m, imp: c.imp }; this.updateC(d.id, { title: { ar: d.title, en: d.title, he: d.title }, h: d.h, m: d.m, imp: d.imp }); this.setState({ sheet: null, editDraft: null }); this.showToast(this.t.toastSaved, () => this.updateC(d.id, prev)); }
+    else if (d.kind === 'next') { this.updateC(d.id, { title: { ar: d.title, en: d.title, he: d.title } }); this.setState({ sheet: null, editDraft: null, nextState: 'started' }); }
+    else if (d.kind === 'proposal') { this.setState(s => ({ task: { ...s.task, proposals: s.task.proposals.map(p => p.id === d.id ? { ...p, title: d.title, h: d.h, m: d.m, imp: d.imp, needsTime: false } : p) }, sheet: null, editDraft: null })); }
+    else if (d.kind === 'memory') { this.setState(s => ({ memory: s.memory.map(m => m.id === d.id ? { ...m, text: { ar: d.title, en: d.title, he: d.title }, src: 'srcYou' } : m), sheet: null, editDraft: null })); this.showToast(this.t.toastSaved); }
+    else if (d.kind === 'memoryAdd') { const m = { id: 'm' + Date.now(), text: { ar: d.title, en: d.title, he: d.title }, group: 'told', src: 'srcYou', sure: 'sureCertain', recorded: { ar: 'اليوم', en: 'today', he: 'היום' }, uses: [], kept: 'keptUntilChanged' }; this.setState(s => ({ memory: [m, ...s.memory], sheet: null, editDraft: null })); this.showToast(this.t.toastSaved); } };
+  planTap = i => () => { const p = this.state.planItems[i]; if (this.state.planStatus === 'accepted') return this.push('details', p.cid); if (!p.movable) { this.setState({ moveError: this.t.planEditFixed }); this.openSheet('planMove', { idx: i }); this.setState({ moveError: this.t.planEditFixed }); return; } this.openSheet('planMove', { idx: i }); };
+  planMoveTo = (i, h, m) => () => { const p = this.state.planItems[i]; const c = this.byId(p.cid); const dur = c.dur || 30; const busy = (this.state.busy || []).find(b => b.day === 0 && b.h * 60 + b.m < h * 60 + m + dur && h * 60 + m < b.h * 60 + b.m + b.dur); if (busy) return this.setState({ moveError: this.t.planEditBusy }); const other = this.state.planItems.find((q, j) => j !== i && q.h != null && q.h * 60 + q.m < h * 60 + m + dur && h * 60 + m < q.h * 60 + q.m + ((this.byId(q.cid) || {}).dur || 30)); if (other) return this.setState({ moveError: this.t.planEditOverlaps }); if (h >= 21 || h < 7) return this.setState({ moveError: this.t.planEditOutsideHours }); const prev = { h: p.h, m: p.m }; this.setState(s => ({ planItems: s.planItems.map((q, j) => j === i ? { ...q, h, m } : q).sort((a, b) => a.h * 60 + a.m - (b.h * 60 + b.m)), sheet: null, moveError: null })); this.showToast(this.tr('toastMoved', { when: this.fmt(h, m) }), () => this.setState(s => ({ planItems: s.planItems.map(q => q.cid === p.cid ? { ...q, ...prev } : q).sort((a, b) => a.h * 60 + a.m - (b.h * 60 + b.m)) }))); };
+  planTakeOff = () => { const i = this.state.sheet.idx; const p = this.state.planItems[i]; this.setState(s => ({ planItems: s.planItems.filter((q, j) => j !== i), planKept: [...s.planKept, { cid: p.cid, reason: 'planReasonKept' }], sheet: null })); this.showToast(this.t.planRemovedItem || this.t.toastSaved, () => this.setState(s => ({ planItems: [...s.planItems, p].sort((a, b) => a.h * 60 + a.m - (b.h * 60 + b.m)), planKept: s.planKept.filter(k => k.cid !== p.cid) }))); };
+  planAccept = () => { this.setState({ planStatus: 'accepted', planAcceptedAt: this.fmt(this.D.NOW.h, this.D.NOW.mi) }); this.showToast(this.t.planAcceptedToast); };
+  planDismiss = () => { this.setState({ planStatus: 'dismissed' }); this.pop(); this.showToast(this.t.planStatusDismissed, () => this.setState({ planStatus: 'proposal' })); };
+  planRegen = () => { if (this.state.regenLeft <= 0) return; this.setState(s => ({ planStatus: 'generating', regenLeft: s.regenLeft - 1 })); this.later(() => this.setState(s => ({ planStatus: 'proposal', planItems: s.planItems.map(p => p.cid === 'c5' ? { ...p, h: 16, m: 50 } : p).sort((a, b) => a.h * 60 + a.m - (b.h * 60 + b.m)) })), 1600); };
+  planReopen = () => this.setState({ planStatus: 'proposal' });
+  planBuild = () => { this.setState({ planStatus: 'generating' }); this.later(() => this.setState({ planStatus: 'proposal' }), 1600); };
+  togglePlanWhy = () => this.setState(s => ({ planWhyOpen: !s.planWhyOpen }));
+  flagSend = () => { if (!this.state.flagPicked) return; this.setState({ sheet: null, flagPicked: null }); this.showToast(this.t.flagSent); };
+
+  // ── capture / review / saved / share ──
+  setTask(patch) { this.setState(s => ({ task: { ...s.task, ...(typeof patch === 'function' ? patch(s.task) : patch) } })); }
+  capExamplesList() { const t = this.t; return [{ key: 'doctor', text: t.exDoctor }, { key: 'report', text: t.exReport }, { key: 'sami', text: t.exSami }, { key: 'study', text: t.exStudy }, { key: 'hi', text: t.exHi }]; }
+  detectKind(input) { const ex = this.capExamplesList().find(e => e.text.trim() === input.trim()); if (ex) return ex.key; const lo = input.toLowerCase(); if (/دكتور|doctor|רופא/.test(lo)) return 'doctor'; if (/تقرير|report|דוח/.test(lo)) return 'report'; if (/سامي|sami|סמי/.test(lo)) return 'sami'; if (/امتحان|exam|study|أدرس|מבחן/.test(lo)) return 'study'; if (/كيفك|how are you|hello|مرحبا|מה נשמע|שלום/.test(lo)) return 'hi'; if (/إيجار|rent|שכר דירה/.test(lo)) return 'rent'; return 'generic'; }
+  buildProposals(kind, input) {
+    const t = this.t, lang = this.lang;
+    const P = (id, title, day, h, imp, extra) => ({ id, title, day, h, m: 0, imp, ...(extra || {}) });
+    switch (kind) {
+      case 'doctor': { const parts = lang === 'ar' ? [['بكرا الساعة 9 دكتور', 0], [' وبعدين ', -1], ['شغل', 1]] : lang === 'he' ? [['מחר ב-9 רופא', 0], [' ואחר כך ', -1], ['עבודה', 1]] : [['Doctor at 9 tomorrow', 0], [', then ', -1], ['work', 1]]; return { parts: parts.map(([text, c]) => ({ text, c })), proposals: [P('p1', t.pDoctor, 1, 9, 'must', { c: 0, dur: 60 }), P('p2', t.pWork, 1, 11, 'should', { c: 1, estimated: true })] }; }
+      case 'report': return { parts: [{ text: input, c: 0 }], proposals: [P('p1', t.pReport, 1, null, 'must', { c: 0, needsTime: true })] };
+      case 'sami': return { parts: [{ text: input, c: 0 }], proposals: [P('p1', t.pSami, 2, 16, 'should', { c: 0, ambiguous: true, estimated: true })] };
+      case 'study': return { parts: [{ text: input, c: 0 }], proposals: [P('p1', t.pStudy, 4, 17, 'must', { c: 0, dur: 120 })] };
+      case 'rent': return { parts: [{ text: input, c: 0 }], proposals: [P('p1', this.title(this.D.SHARE.proposals[0]), 6, 9, 'must', { c: 0 })] };
+      default: return { parts: [{ text: input, c: 0 }], proposals: [P('p1', input.length > 40 ? input.slice(0, 38) + '…' : input, 1, 10, 'should', { c: 0, estimated: true })] };
+    }
+  }
+  onCapInput = e => { const v = e.target.value.slice(0, 2000); this.setTask({ input: v }); };
+  capUseExample = key => () => { const ex = this.capExamplesList().find(e => e.key === key); this.setTask({ input: ex.text, exampleKey: key }); };
+  capSpeak = () => { const key = (this.state.task && this.state.task.exampleKey) || 'doctor'; const text = this.capExamplesList().find(e => e.key === key).text; this.setTask({ step: 'listening', input: text, liveWords: 0, exampleKey: key }); const n = text.split(' ').length; for (let i = 1; i <= n; i++) this.later(() => this.setState(s => s.task && s.task.step === 'listening' ? { task: { ...s.task, liveWords: i } } : null), 300 + i * 320); this.later(() => this.setState(s => s.task && s.task.step === 'listening' ? { task: { ...s.task, step: 'transcript' } } : null), 800 + n * 320); };
+  capStop = () => this.setTask({ step: 'transcript' });
+  capPaste = () => this.setState({ dialog: { kind: 'clip', title: this.t.clipTitle, body: this.t.clipBody + ' ' + this.t.clipReplaces, confirmLabel: this.t.clipUse, primary: true, cancelLabel: this.t.clipKeep, onConfirm: () => this.setTask({ input: this.t.clipSample, exampleKey: 'rent' }) } });
+  capLangToggle = () => this.setTask(tk => ({ speechLang: tk.speechLang === 'en' ? 'ar' : tk.speechLang === 'ar' ? 'he' : 'en' }));
+  capAnalyze = () => { const tk = this.state.task; if (!tk || !tk.input.trim()) return; this.setTask({ step: 'processing' }); this.later(() => { const kind = this.detectKind(tk.input); if (kind === 'hi') return this.setTask({ step: 'nothing', kind }); const { parts, proposals } = this.buildProposals(kind, tk.input); const sel = {}; proposals.forEach(p => sel[p.id] = true); const needs = proposals.find(p => p.needsTime), amb = proposals.find(p => p.ambiguous); this.setState(s => ({ task: { ...s.task, step: 'review', kind, parts, proposals, selected: sel }, sheet: needs ? { name: 'clarify' } : amb ? { name: 'readings' } : null })); }, 1400); };
+  capClose = () => { const tk = this.state.task; if (tk && tk.input && tk.input.trim() && tk.step === 'idle') return this.setState({ dialog: { kind: 'discard', onConfirm: () => this.closeTask() } }); this.closeTask(); };
+  capRephrase = () => this.setTask({ step: 'idle' });
+  reviewBack = () => { const tk = this.state.task; if (tk.name === 'share') return this.setTask({ step: 'preview' }); this.setTask({ step: 'idle' }); };
+  toggleSel = id => () => this.setTask(tk => ({ selected: { ...tk.selected, [id]: !tk.selected[id] } }));
+  editProposal = id => () => { const p = this.state.task.proposals.find(q => q.id === id); this.setState({ editDraft: { id, title: p.title, h: p.h, m: p.m, imp: p.imp, kind: 'proposal' }, sheet: { name: 'edit' } }); };
+  openReadings = () => this.openSheet('readings');
+  clarifyPick = (h) => () => this.setState(s => ({ task: { ...s.task, proposals: s.task.proposals.map(p => p.needsTime ? { ...p, h, m: 0, needsTime: false } : p) }, sheet: null }));
+  clarifySkip = () => this.setState(s => ({ task: { ...s.task, proposals: s.task.proposals.map(p => p.needsTime ? { ...p, needsTime: false, h: null } : p) }, sheet: null }));
+  readingPick = day => () => this.setState(s => ({ task: { ...s.task, proposals: s.task.proposals.map(p => p.ambiguous ? { ...p, day, ambiguous: false } : p) }, sheet: null }));
+  reviewConfirm = () => { const tk = this.state.task; const chosen = tk.proposals.filter(p => tk.selected[p.id]); if (!chosen.length) return; const src = tk.name === 'share' ? 'share' : 'capture'; const newC = chosen.map((p, i) => ({ id: 'n' + Date.now() + i, title: { ar: p.title, en: p.title, he: p.title }, day: p.day, h: p.h, m: p.m || 0, dur: p.dur || 30, imp: p.imp, status: 'active', cat: p.cat || 'none', src, srcName: tk.name === 'share' ? (tk.shareKind === 'link' ? this.D.SHARE_LINK.name : this.D.SHARE.name) : undefined, srcDate: { ar: 'اليوم', en: 'today', he: 'היום' } })); this.setState(s => ({ commitments: [...s.commitments, ...newC], task: { ...s.task, step: 'saved', savedIds: newC.map(c => c.id) }, sharePending: tk.name === 'share' ? false : s.sharePending, undoLeft: 5 })); for (let i = 1; i <= 5; i++) this.later(() => this.setState(s => s.task && s.task.step === 'saved' ? { undoLeft: 5 - i } : null), i * 1000); };
+  savedUndo = () => this.setState(s => ({ commitments: s.commitments.filter(c => !s.task.savedIds.includes(c.id)), task: { ...s.task, step: 'review', savedIds: [] }, sharePending: s.task.name === 'share' ? true : s.sharePending }));
+  savedOk = () => this.closeTask();
+  savedViewDay = () => { const tk = this.state.task; const d = (tk.proposals.find(p => tk.selected[p.id]) || {}).day || 0; this.setState(s => ({ task: null, tab: d === 0 ? 'today' : 'calendar', calSel: d, stacks: { ...s.stacks, calendar: [] } })); };
+  shareRead = () => { this.setTask({ step: 'reading' }); this.later(() => { const tk = this.state.task; if (!tk) return; const src = tk.shareKind === 'link' ? this.D.SHARE_LINK : this.D.SHARE; const proposals = src.proposals.map(p => ({ ...p, title: this.title(p), c: 0 })); const sel = {}; proposals.forEach(p => sel[p.id] = true); this.setTask({ step: 'review', proposals, selected: sel, parts: [] }); }, 1500); };
+  shareDiscard = () => this.closeTask();
+
+  captureVals(v) {
+    const s = this.state, t = this.t, tk = s.task, o = {};
+    if (!tk || !['capture', 'share'].includes(tk.name)) return o;
+    const step = tk.step;
+    o.isReview = step === 'review'; o.isSaved = step === 'saved';
+    o.capClose = this.capClose; o.goTrust = this.goTrust;
+    if (tk.name === 'capture') {
+      o.isCapture = !o.isReview && !o.isSaved;
+      o.capIdle = step === 'idle'; o.capListening = step === 'listening'; o.capTranscript = step === 'transcript'; o.capProcessing = step === 'processing'; o.capNothing = step === 'nothing'; o.capFailed = step === 'failed';
+      o.kbVisible = step === 'idle' && this.props.keyboard !== false && this.platform !== 'bare' && this.props.keyboard === true;
+      o.capInput = tk.input || ''; o.onCapInput = this.onCapInput; o.capCounter = this.tr('counter', { n: (tk.input || '').length }); o.capEmpty = !(tk.input || '').trim();
+      o.capSpeak = this.capSpeak; o.capStop = this.capStop; o.capPaste = this.capPaste; o.capAnalyze = this.capAnalyze; o.capRephrase = this.capRephrase; o.capLangToggle = this.capLangToggle;
+      o.capLangLabel = { ar: 'عربي', en: 'EN', he: 'עברית' }[tk.speechLang || this.lang];
+      o.capExamples = this.capExamplesList().map(e => ({ text: e.text, use: this.capUseExample(e.key) }));
+      o.analyzeStyle = `min-height:52px;border:0;border-radius:999px;padding:14px;font-size:var(--f-card);font-weight:600;${o.capEmpty ? 'background:var(--dis);color:var(--disTx);cursor:default' : 'background:var(--ac);color:var(--onac);cursor:pointer'}`;
+      o.capAiPill = s.consents.ai ? '' : t.aiOff; o.capAiPillStyle = `min-width:64px;text-align:end;font-size:var(--f-cap);color:var(--mu);${s.consents.ai ? '' : 'background:var(--sf2);border-radius:999px;padding:5px 10px'}`;
+      o.liveTranscript = (tk.input || '').split(' ').slice(0, tk.liveWords || 0).join(' ');
+      o.waveform = React.createElement('div', { style: { display: 'flex', gap: 5, alignItems: 'center', height: 48 } }, [0, 1, 2, 3, 4, 5, 6, 7, 8].map(i => React.createElement('span', { key: i, style: { width: 5, height: 14 + (i % 3) * 12 + (i % 2) * 6, borderRadius: 3, background: 'var(--ac)', animation: `ms-bar 1s ease-in-out ${i * 0.09}s infinite`, transformOrigin: 'center' } })));
+      o.capNothingBody = { hi: t.nothingGreeting }[tk.kind] || t.nothingInfo;
+    }
+    if (tk.name === 'share') {
+      o.isShare = !o.isReview && !o.isSaved;
+      const src = tk.shareKind === 'link' ? this.D.SHARE_LINK : tk.shareKind === 'text' ? { kind: 'text', name: t.clipSample, app: 'WhatsApp', size: null } : this.D.SHARE;
+      o.shareKindLabel = src.kind === 'pdf' ? 'PDF' : src.kind === 'link' ? 'URL' : 'TXT'; o.shareName = src.name; o.shareMeta = `${this.tr('shareFrom', { app: src.app })}${src.size ? ' · ' + this.tr('shareSize', { n: src.size }) : ''}`;
+      o.shareIsText = src.kind === 'text'; o.shareTextBody = t.clipSample;
+      o.sharePreview = step === 'preview'; o.shareReading = step === 'reading';
+      const problem = { unsupported: [t.shareUnsupported, ''], tooLarge: [t.shareTooLarge, ''], needsAi: [t.shareNeedsAi, ''], nothing: [t.shareNothing, ''] }[step];
+      o.shareProblem = !!problem; o.shareProblemTitle = step === 'nothing' ? t.nothingTitle : t.failedTitle; o.shareProblemBody = problem ? problem[0] : ''; o.shareNeedsAi = step === 'needsAi';
+      o.shareRead = this.shareRead; o.shareDiscard = this.shareDiscard;
+    }
+    if (o.isReview) {
+      const colors = ['var(--ac)', 'var(--wm)'];
+      o.reviewBack = this.reviewBack; o.reviewFromShare = tk.name === 'share'; o.reviewHasSentence = tk.name === 'capture' && (tk.parts || []).length > 0;
+      o.reviewSourceLabel = tk.shareKind === 'link' ? t.sourceLink + ' · ' + this.D.SHARE_LINK.name : this.tr('sourceFile', { name: this.D.SHARE.name });
+      o.reviewParts = (tk.parts || []).map(p => ({ text: p.text, style: p.c < 0 ? 'color:var(--mu)' : `border-bottom:3px solid ${colors[p.c]};padding-bottom:1px` }));
+      const n = tk.proposals.filter(p => tk.selected[p.id]).length;
+      o.reviewProposals = tk.proposals.map(p => { const on = !!tk.selected[p.id]; const c = { day: p.day, h: p.h, m: p.m, dur: p.dur || 30 }; return { ...p, on, toggle: this.toggleSel(p.id), edit: this.editProposal(p.id), dayLabel: this.dayLabel(p.day), timeLabel: p.needsTime ? t.needsQuestion : (p.h == null ? t.noTime : this.fmt(p.h, p.m)), impLabel: this.impLabel(p.imp), impStyle: this.impStyle(p.imp), showImp: p.imp !== 'nice', selLabel: on ? t.selected : t.notSelected, conflict: this.conflictFor(c),
+        checkStyle: `width:28px;height:28px;border-radius:9px;border:2px solid ${on ? 'var(--ac)' : 'var(--lnStrong)'};background:${on ? 'var(--ac)' : 'transparent'};cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;flex:none;margin-top:2px`,
+        titleStyle: `font-size:var(--f-card);font-weight:600;line-height:1.4;${on ? '' : 'opacity:.55'}`,
+        timeChipStyle: `font-size:var(--f-cap);border-radius:999px;padding:4px 10px;${p.needsTime ? 'background:var(--wms);color:var(--wm);font-weight:600' : 'background:var(--sf2);color:var(--tx)'}`,
+        cardStyle: `background:var(--sf);border-radius:24px;padding:16px 18px;display:flex;flex-direction:column;gap:10px;border:1.5px dashed var(--prop);border-inline-start:4px solid ${colors[p.c] || 'var(--ac)'};${on ? '' : 'opacity:.75'}` }; });
+      o.reviewReadings = tk.proposals.some(p => p.ambiguous); o.openReadings = this.openReadings;
+      o.reviewNoneSelected = n === 0; o.reviewConfirm = this.reviewConfirm;
+      o.confirmLabel = n === 0 ? t.confirmNone : n === 1 ? t.confirmOne : n === 2 ? t.confirmTwo : this.tr('confirmFew', { n });
+      o.confirmStyle = `min-height:52px;border:0;border-radius:999px;padding:14px;font-size:var(--f-card);font-weight:600;${n === 0 ? 'background:var(--dis);color:var(--disTx);cursor:default' : 'background:var(--ac);color:var(--onac);cursor:pointer'}`;
+    }
+    if (o.isSaved) {
+      const items = (s.commitments || []).filter(c => (tk.savedIds || []).includes(c.id));
+      const d = items[0] ? items[0].day : 0; const sameDay = items.every(c => c.day === d);
+      o.savedTitle = sameDay ? this.tr('savedOne', { d: this.dayLabel(d) }) : t.savedMany;
+      o.savedItems = items.map(c => ({ title: this.title(c), dayLabel: this.dayLabel(c.day), timeLabel: c.h == null ? t.noTime : this.fmt(c.h, c.m) }));
+      const col = items.map(c => this.conflictFor(c)).find(Boolean); o.savedCollision = col ? this.tr('collision', { when: col.replace(/^[^\d]*/, '') }) : null;
+      o.savedUndoVisible = s.undoLeft > 0; o.savedUndo = this.savedUndo; o.savedOk = this.savedOk; o.savedViewDay = this.savedViewDay; o.savedViewLabel = this.tr('viewDay', { d: this.dayLabel(d) });
+    }
+    return o;
+  }
+  sheetVals2(v) {
+    const s = this.state, t = this.t, o = {}, sh = s.sheet, tk = s.task;
+    if (!sh) return o;
+    if (sh.name === 'clarify' && tk) { const p = tk.proposals.find(q => q.needsTime) || tk.proposals[0]; o.clarifyItem = p ? p.title : ''; o.clarifyQuestion = t.clarifyTime; o.clarifyPos = this.tr('clarifyPos', { n: 1, total: 1 }); o.clarifyChips = [[t.clarifyMorning, 9, '09:00'], [t.clarifyAfternoon, 15, '15:00'], [t.clarifyEvening, 19, '19:00']].map(([label, h, hint]) => ({ label, hint, pick: this.clarifyPick(h) })); o.clarifySkip = this.clarifySkip; }
+    if (sh.name === 'readings') o.readings = [{ title: t.thisThu, when: t.thisThuWhen, pick: this.readingPick(2) }, { title: t.nextThu, when: t.nextThuWhen, pick: this.readingPick(9) }];
+    return o;
+  }
+  moreVals(v) { return { ...this.captureVals(v), ...this.sheetVals2(v), ...(this.calendarVals ? this.calendarVals(v) : {}), ...(this.settingsVals ? this.settingsVals(v) : {}), ...(this.trustVals ? this.trustVals(v) : {}), ...(this.obVals ? this.obVals(v) : {}) }; }
+
+  // ── calendar + settings root ──
+  goCalSettings = () => { this.setState(s => ({ tab: 'settings', stacks: { ...s.stacks, settings: [{ name: 'calendarSettings' }] } })); };
+  calendarVals(v) {
+    const s = this.state, t = this.t, o = {};
+    if (!v.isCalendar) return o;
+    const sel = s.calSel == null ? 0 : s.calSel;
+    o.calRange = this.tr('weekRange', { a: this.shortDay(0), b: this.shortDay(6) }); o.goCalSettings = this.goCalSettings; o.calNotConnected = !s.calRead;
+    o.weekDays = [0, 1, 2, 3, 4, 5, 6].map(off => { const d = this.dateOf(off); const items = s.commitments.filter(c => c.day === off && c.status !== 'dropped'); const busy = s.calRead ? s.busy.filter(b => b.day === off).length : 0; const on = sel === off;
+      return { name: t.daysShort[d.getDay()], num: d.getDate(), sel: on, select: () => this.setState({ calSel: off }), style: `display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 2px 10px;border-radius:16px;border:0;cursor:pointer;background:${on ? 'var(--sf2)' : 'transparent'};min-height:84px;font-family:inherit`, numStyle: `font-size:var(--f-body);font-weight:600;width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:Outfit,system-ui;${off === 0 ? 'background:var(--ac);color:var(--onac)' : 'color:var(--tx)'}`,
+        bars: [...items.slice(0, 3).map(c => ({ style: `height:4px;border-radius:2px;background:${c.imp === 'must' ? 'var(--wm)' : 'var(--ac)'};opacity:${c.status === 'done' ? .4 : .9}` })), ...(busy ? [{ style: 'height:4px;border-radius:2px;background:var(--hatch);border:1px solid var(--ln)' }] : [])] }; });
+    const items = s.commitments.filter(c => c.day === sel && c.status !== 'dropped').map(c => ({ isCommit: true, key: c.id, start: c.h == null ? 9999 : c.h * 60 + c.m, title: this.title(c), open: this.openDetail(c.id), range: c.h == null ? t.noTime : `${this.fmt(c.h, c.m)}–${this.addMin(c.h, c.m, c.dur || 30)}`, conflict: this.conflictFor(c), dotStyle: `width:10px;height:10px;border-radius:50%;background:${c.imp === 'must' ? 'var(--wm)' : c.imp === 'should' ? 'var(--ac)' : 'var(--lnStrong)'};flex:none`, titleStyle: `font-size:var(--f-body);${c.status === 'done' ? 'text-decoration:line-through;opacity:.6' : ''}` }));
+    const busy = s.calRead ? s.busy.filter(b => b.day === sel).map(b => ({ busy: true, start: b.h * 60 + b.m, range: `${this.fmt(b.h, b.m)}–${this.addMin(b.h, b.m, b.dur)}` })) : [];
+    o.calSelItems = [...items, ...busy].sort((a, b) => a.start - b.start); o.calSelEmpty = o.calSelItems.length === 0;
+    o.calSelTitle = this.dayLabel(sel); o.calSelLoad = items.length === 0 ? t.loadLight : items.length < 3 ? t.loadNormal : t.loadFull;
+    return o;
+  }
+  settingsVals(v) {
+    const s = this.state, t = this.t, o = {};
+    const cur = this.current, scr = s.task ? null : cur.name;
+    const known = ['today', 'calendar', 'settings', 'plan', 'details'];
+    o.isSubStub = !!scr && !known.includes(scr) && !this.hasScreen(scr);
+    if (o.isSubStub) { o.stubTitle = this.screenTitle(scr); o.stubParent = t.tabSettings; }
+    if (!v.isSettings) return o;
+    const row = (name, label, sub, value) => ({ label, sub, value, go: () => this.push(name), style: 'width:100%;display:flex;align-items:center;gap:12px;background:none;border:0;border-top:1px solid var(--ln);padding:13px 0;cursor:pointer;color:var(--tx);font-family:inherit;min-height:56px' });
+    const memN = (s.memory || []).filter(m => m.group !== 'suggested').length;
+    o.settingsGroups = [
+      { title: t.grpYou, rows: [row('routine', t.sRoutine, t.sRoutineSub), row('energy', t.sEnergy, t.sEnergySub), row('categories', t.sCategories, t.sCategoriesSub), row('langAppearance', t.sLangAppearance, null, `${t.langName} · ${this.dark ? t.vDark : t.vSystem}`)] },
+      { title: t.grpConnections, rows: [row('calendarSettings', t.sCalendar, s.calRead ? t.sCalendarSubOn : t.sCalendarSubOff), row('sources', t.sSources, t.sSourcesSub)] },
+      { title: t.grpReminders, rows: [row('reminders', t.sReminders, t.sRemindersSub), row('morning', t.sMorning, s.morningOn ? this.tr('sMorningSub', { t: '07:00' }) : t.morningOff), row('widget', t.sWidget, t.sWidgetSub)] },
+      { title: t.grpTrust, rows: [row('knows', t.sKnows, this.tr('sKnowsSub', { n: memN })), row('trust', t.sTrust), row('activity', t.sActivity), row('account', t.sAccount), row('about', t.sAbout)] },
+    ];
+    o.settingsGroups.forEach(g => { g.rows[0].style = g.rows[0].style.replace('border-top:1px solid var(--ln);', ''); });
+    o.signedInLabel = this.tr('signedInAs', { email: this.D.PERSONA.email });
+    return o;
+  }
+  hasScreen(name) { return (this.builtScreens || []).includes(name); }
+  screenTitle(name) { const t = this.t; return { calendarSettings: t.calSetTitle, feeds: t.feedsTitle, routine: t.routineTitle, energy: t.energyTitle, categories: t.catTitle, langAppearance: t.sLangAppearance, sources: t.sourcesTitle, reminders: t.notifTitle, morning: t.morningTitle, widget: t.widgetTitle, trust: t.trustTitle, knows: t.knowsTitle, memory: t.memFactDetail, activity: t.activityTitle, account: t.accountTitle, about: t.aboutTitle }[name] || name; }
+
+  // @more-js
+
+  renderVals() {
+    const s = this.state, t = this.t, lang = this.lang, dark = this.dark, rtl = lang !== 'en';
+    const vars = dark
+      ? '--bg:#101416;--sf:#1A2023;--sf2:#242B2F;--sfBar:rgba(26,32,35,.9);--sfBarSolid:#1A2023;--tx:#ECEFF1;--mu:#9AA6AB;--ln:rgba(236,239,241,.1);--lnStrong:rgba(236,239,241,.28);--ac:#6FC3D6;--acs:rgba(111,195,214,.16);--acd:#8ED3E3;--ul:rgba(142,211,227,.45);--onac:#101416;--acOnInk:#6FC3D6;--wm:#D9B06B;--wms:rgba(217,176,107,.16);--dis:#2A3236;--disTx:#B4BEC3;--prop:rgba(111,195,214,.55);--ink:#ECEFF1;--onInk:#101416;--hatch:repeating-linear-gradient(135deg,rgba(255,255,255,.08) 0 4px,transparent 4px 9px);--sh:none;--shBar:0 10px 30px rgba(0,0,0,.4);--scrim:rgba(0,0,0,.55)'
+      : '--bg:#F5F7F8;--sf:#FFFFFF;--sf2:#EDF0F2;--sfBar:rgba(255,255,255,.88);--sfBarSolid:#FFFFFF;--tx:#14181B;--mu:#5F6B70;--ln:rgba(20,24,27,.08);--lnStrong:rgba(20,24,27,.22);--ac:#1F7A8C;--acs:#DFEFF3;--acd:#14586A;--ul:rgba(31,122,140,.4);--onac:#FFFFFF;--acOnInk:#9EDCE9;--wm:#8A6A2E;--wms:#F3ECDD;--dis:#E4E8EA;--disTx:#4F5A5F;--prop:rgba(31,122,140,.5);--ink:#14181B;--onInk:#F5F7F8;--hatch:repeating-linear-gradient(135deg,rgba(20,24,27,.1) 0 4px,transparent 4px 9px);--sh:0 1px 2px rgba(20,24,27,.04),0 6px 20px rgba(20,24,27,.05);--shBar:0 10px 30px rgba(20,24,27,.12);--scrim:rgba(10,14,16,.45)';
+    const ts = this.textScale;
+    const type = `--ts:${ts};--f-display:calc(34px*var(--ts));--f-title:calc(28px*var(--ts));--f-h2:calc(20px*var(--ts));--f-card:calc(17px*var(--ts));--f-body:calc(15px*var(--ts));--f-body2:calc(14px*var(--ts));--f-label:calc(13px*var(--ts));--f-cap:calc(12px*var(--ts));--f-meta:calc(11px*var(--ts))`;
+    const safe = this.platform === 'ios' ? '--safeTop:58px;--safeBottom:34px' : this.platform === 'android' ? '--safeTop:14px;--safeBottom:10px' : '--safeTop:22px;--safeBottom:16px';
+    const rootStyle = `position:relative;width:100%;height:100%;overflow:hidden;font-family:${t.font || 'Outfit,system-ui,sans-serif'};line-height:${t.lh || 1.5};background:var(--bg);color:var(--tx);--mirror:${rtl ? -1 : 1};${vars};${type};${safe}`;
+    const v = { dir: t.dir || 'rtl', rootStyle, isDark: dark, platform: this.platform, frameHeight: this.props.height ? Number(this.props.height) : 874, t, kbVisible: false, back: this.back, closeSheet: this.closeSheet, closeDialog: this.closeDialog, dialogConfirm: this.dialogConfirm, toastUndo: this.toastUndo, processingDots: this.dots() };
+    if (!s.ready) return v;
+    const cur = this.current, task = s.task;
+    const scr = task ? null : cur.name;
+    v.isToday = scr === 'today'; v.isPlan = scr === 'plan'; v.isDetails = scr === 'details'; v.isCalendar = scr === 'calendar'; v.isSettings = scr === 'settings';
+    ['calendarSettings', 'feeds', 'routine', 'energy', 'categories', 'langAppearance', 'sources', 'reminders', 'morning', 'widget', 'trust', 'knows', 'memory', 'activity', 'account', 'about'].forEach(n => { v['is' + n[0].toUpperCase() + n.slice(1)] = scr === n; });
+    v.showTabs = !task && s.stacks[s.tab].length === 0;
+    v.dateToday = this.dayLabel(0) !== t.today ? this.dayLabel(0) : `${t.days[this.dateOf(0).getDay()]}${lang === 'en' ? ',' : '،'} ${this.shortDay(0)}`;
+
+    // tab bar
+    const iconsOnly = this.props.textSize === 'xl';
+    v.tabLabels = !iconsOnly;
+    v.tabBarStyle = `position:absolute;left:14px;right:14px;bottom:calc(var(--safeBottom) - 8px);z-index:20;background:var(--sfBar);backdrop-filter:blur(20px);border:1px solid var(--ln);border-radius:999px;padding:8px;display:flex;align-items:center;justify-content:space-between;box-shadow:var(--shBar)`;
+    const tab = on => `flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;background:none;border:0;padding:6px 4px;min-height:48px;min-width:48px;cursor:pointer;color:${on ? 'var(--ac)' : 'var(--mu)'};font-weight:${on ? 600 : 500};font-family:inherit;border-radius:999px`;
+    v.tabTodayOn = s.tab === 'today'; v.tabCalOn = s.tab === 'calendar'; v.tabSetOn = s.tab === 'settings';
+    v.tabTodayStyle = tab(v.tabTodayOn); v.tabCalStyle = tab(v.tabCalOn); v.tabSetStyle = tab(v.tabSetOn);
+    v.captureBtnStyle = `background:var(--ac);color:var(--onac);border:0;border-radius:999px;height:56px;min-width:56px;padding:0 ${iconsOnly ? '18px' : '20px'};display:flex;align-items:center;gap:8px;cursor:pointer;box-shadow:0 8px 24px rgba(31,122,140,.3);flex:none`;
+    v.goToday = () => this.goTab('today'); v.goCalendar = () => this.goTab('calendar'); v.goSettings = () => this.goTab('settings'); v.goCapture = () => this.openTask('capture', 'idle');
+
+    // shared: toast / dialog
+    v.toastOpen = !!s.toast; v.toast = s.toast || {}; v.undoLeft = s.undoLeft; v.undoRingStyle = `stroke-dashoffset:${69.1 * (1 - s.undoLeft / 5)};transition:stroke-dashoffset 1s linear`;
+    v.toastStyle = `position:absolute;left:16px;right:16px;bottom:${v.showTabs ? 'calc(var(--safeBottom) + 74px)' : 'calc(var(--safeBottom) + 12px)'};z-index:60;background:var(--ink);color:var(--onInk);border-radius:18px;padding:10px 16px;display:flex;align-items:center;gap:8px;box-shadow:0 12px 30px rgba(0,0,0,.25);animation:ms-toast .3s cubic-bezier(.2,.8,.2,1) both`;
+    v.dialogOpen = !!s.dialog; v.dialog = s.dialog ? this.dialogVals(s.dialog) : {};
+    v.sheetOpen = !!s.sheet; const sh = s.sheet ? s.sheet.name : null;
+    ['postpone', 'defer', 'more', 'edit', 'planMove', 'flag', 'clarify', 'readings', 'calPick', 'reauth', 'memoryWhy', 'hardExplain'].forEach(n => { v['sh' + n[0].toUpperCase() + n.slice(1)] = sh === n; });
+
+    // banners / scenario
+    const sc = this.scenario;
+    v.isLoading = sc === 'loading' && !s.retried; v.isError = sc === 'error' && !s.retried; v.quietMode = s.quietMode;
+    const bannerKind = sc === 'offline' ? 'offline' : sc === 'syncError' ? 'syncError' : s.google === 'reauth' ? 'reauth' : null;
+    v.banner = !!bannerKind && !v.isLoading; v.bannerText = bannerKind === 'offline' ? t.offline : bannerKind === 'syncError' ? t.syncError : t.reauthBanner; v.bannerCta = bannerKind === 'reauth' ? t.reauthBannerCta : (bannerKind === 'syncError' ? t.retry : null); v.bannerAction = bannerKind === 'syncError' ? this.retry : this.bannerAction;
+    v.bannerDotStyle = `width:8px;height:8px;border-radius:50%;background:${bannerKind === 'reauth' ? 'var(--wm)' : 'var(--mu)'};flex:none`;
+    v.syncPill = sc === 'sync' ? t.syncing : (sc === 'partial' ? t.partialLoading : null);
+
+    if (v.isToday) Object.assign(v, this.todayVals());
+    if (v.isPlan) Object.assign(v, this.planVals());
+    if (v.isDetails) Object.assign(v, this.detailVals());
+    if (s.sheet) Object.assign(v, this.sheetVals());
+    if (this.moreVals) Object.assign(v, this.moreVals(v));
+    return v;
+  }
+
+  dialogVals(d) {
+    const t = this.t; const destructive = 'flex:1;min-height:48px;background:var(--ink);color:var(--onInk);border:0;border-radius:999px;padding:12px;font-size:var(--f-body);font-weight:600;cursor:pointer';
+    const primary = destructive.replace('var(--ink)', 'var(--ac)').replace('var(--onInk)', 'var(--onac)');
+    const map = {
+      drop: { title: t.confirmDropTitle, body: t.confirmDropBody, confirmLabel: t.dropBtn, confirmStyle: destructive.replace('var(--ink)', 'var(--wm)').replace('var(--onInk)', '#fff') },
+      delete: { title: t.confirmDeleteTitle, body: t.confirmDeleteBody, confirmLabel: t.del, confirmStyle: destructive },
+      signOut: { title: t.signOutConfirm, body: t.signOutBody, confirmLabel: t.signOut, confirmStyle: destructive },
+      deleteAccount: { title: t.delConfirmTitle, body: t.delConfirmBody, confirmLabel: t.delConfirmProceed, confirmStyle: destructive },
+      disconnect: { title: t.calDisconnectConfirm, body: t.calDisconnectBody, confirmLabel: t.calDisconnectAction, confirmStyle: destructive },
+      revoke: { title: t.trustRevokeConfirm, body: t.trustRevokeBody, confirmLabel: t.trustRevoke, confirmStyle: destructive },
+      memDelete: { title: t.memDeleteConfirm, body: t.memDeleteAllAlso, confirmLabel: t.del, confirmStyle: destructive },
+      memDeleteAll: { title: t.memDeleteAllConfirm, body: t.memDeleteAllAlso, confirmLabel: t.memDeleteAll, confirmStyle: destructive },
+      hard: { title: t.hardTitle, body: t.hardBody, confirmLabel: t.hardConfirm, confirmStyle: primary, cancelLabel: t.notNow },
+      discard: { title: t.discardTitle, body: t.discardBody, confirmLabel: t.discardConfirm, confirmStyle: destructive, cancelLabel: t.keepEditing },
+      feedRemove: { title: t.feedsRemove + '?', body: t.feedsPrivacy, confirmLabel: t.feedsRemove, confirmStyle: destructive },
+    };
+    const m = map[d.kind] || { title: d.title, body: d.body, confirmLabel: d.confirmLabel || t.ok, confirmStyle: d.primary ? primary : destructive };
+    return { ...m, cancelLabel: m.cancelLabel || t.cancel };
+  }
+
+  todayVals() {
+    const s = this.state, t = this.t, sc = this.scenario, v = {};
+    const todayC = s.commitments.filter(c => c.day === 0 && c.status !== 'dropped' && c.status !== 'postponed');
+    const open = todayC.filter(c => c.status === 'active');
+    v.isEmptyDay = sc === 'empty'; v.allDone = sc === 'allDone' || (todayC.length > 0 && open.length === 0 && sc !== 'empty');
+    v.showDay = !v.isLoading && !v.isEmptyDay && !(sc === 'loading' && !s.retried) && !(sc === 'error' && !s.retried);
+    const nextC = this.byId(s.nextCid) || open[0];
+    v.showNext = !!nextC && !v.allDone && !s.quietMode && nextC.status === 'active';
+    if (nextC) {
+      const ev = this.D.NEXT.cid === nextC.id ? this.D.NEXT.evidence : ['evDue7', 'evUsual'];
+      v.next = { title: this.title(nextC), time: nextC.h == null ? t.noTime : this.fmt(nextC.h, nextC.m), impLabel: this.impLabel(nextC.imp), impStyle: this.impStyle(nextC.imp), evidence: ev.map(k => k === 'evEffort' ? this.tr(k, { n: nextC.dur }) : t[k]), open: this.openDetail(nextC.id) };
+    } else v.next = { evidence: [] };
+    const started = s.nextState === 'started';
+    v.nextIdle = !started; v.nextStarted = started; v.whyOpen = s.whyOpen;
+    v.nextTag = started ? t.startedTag : t.proposalShort;
+    v.nextTagStyle = started ? 'font-size:var(--f-cap);font-weight:600;color:var(--acd);background:var(--acs);border-radius:999px;padding:4px 10px' : 'font-size:var(--f-cap);color:var(--mu);border:1px dashed var(--prop);border-radius:999px;padding:3px 10px';
+    v.nextCardStyle = `background:var(--sf);border-radius:24px;padding:18px;display:flex;flex-direction:column;gap:10px;${started ? 'box-shadow:var(--sh);border:1.5px solid var(--acs)' : 'border:1.5px dashed var(--prop)'}`;
+    // plan row
+    const placed = (s.planItems || []).length;
+    const ps = s.planStatus;
+    v.planRowTitle = ps === 'accepted' ? t.planRowAccepted : ps === 'proposal' || ps === 'generating' ? t.planRowProposal : t.planRowNone;
+    v.planRowSub = ps === 'accepted' ? this.tr('planRowAcceptedSub', { n: placed }) : ps === 'proposal' ? t.planRowProposalSub : ps === 'generating' ? t.planGenerating : t.planEmptyBody.split(/[،,.]/)[0];
+    v.planRowCta = ps === 'accepted' ? t.planRowOpen : ps === 'proposal' ? t.planRowOpen : t.planRowMake;
+    v.planRowStyle = `width:100%;display:flex;align-items:center;gap:12px;background:var(--sf);border-radius:20px;padding:12px 14px;cursor:pointer;color:var(--tx);font-family:inherit;min-height:56px;text-align:start;${ps === 'proposal' ? 'border:1.5px dashed var(--prop);box-shadow:none' : 'border:0;box-shadow:var(--sh)'}`;
+    v.planRowIconStyle = `width:36px;height:36px;border-radius:12px;display:flex;align-items:center;justify-content:center;flex:none;${ps === 'accepted' ? 'background:var(--acs);color:var(--acd)' : 'background:var(--sf2);color:var(--mu)'}`;
+    // rest of today: items after now with a time (excluding the next one), from the plan if accepted else commitments
+    const nowMin = this.D.NOW.h * 60 + this.D.NOW.mi;
+    const timed = todayC.filter(c => c.h != null && (!nextC || c.id !== nextC.id) && c.status === 'active' && c.h * 60 + c.m >= nowMin - 30).sort((a, b) => a.h * 60 + a.m - (b.h * 60 + b.m));
+    v.rest = timed.map(c => this.row(c)); v.hasRest = timed.length > 0 || todayC.some(c => c.status === 'done');
+    const doneItems = todayC.filter(c => c.status === 'done');
+    v.doneCount = doneItems.length; v.doneLabel = `${t.stDone} · ${this.things(doneItems.length)}`; v.doneToggleLabel = s.showDoneList ? t.close : t.seeAll; v.showDoneList = s.showDoneList; v.doneItems = doneItems.map(c => this.row(c));
+    // later
+    const later = s.commitments.filter(c => ((c.day === 0 && c.h == null) || c.day === 1 || (c.status === 'postponed' && c.movedTo === 1)) && c.status !== 'dropped' && c.status !== 'done' && (!nextC || c.id !== nextC.id)).map(c => this.row(c, { when: c.day === 0 ? t.unscheduledTitle : (c.status === 'postponed' ? `${t.stPostponed} · ${t.tomorrow}` : this.dayLabel(1)) }));
+    v.later = later; v.sharedPending = s.sharePending !== false; v.hasLater = later.length > 0 || v.sharedPending;
+    v.sharedPendingText = t.sharedPendingOne; v.openSharePending = this.openSharePending;
+    v.goPlan = this.goPlan; v.goTrust = this.goTrust; v.goKnows = this.goKnows; v.toggleWhy = this.toggleWhy; v.toggleDoneList = this.toggleDoneList; v.nextStart = this.nextStart; v.nextFinish = this.nextFinish; v.nextDefer = this.nextDefer; v.nextMore = this.nextMore; v.retry = this.retry;
+    return v;
+  }
+
+  planVals() {
+    const s = this.state, t = this.t, v = {}, ps = s.planStatus, sc = this.scenario;
+    v.planGenerating = ps === 'generating'; v.planEmpty = ps === 'empty' || ps === 'dismissed'; v.planHasItems = ps === 'proposal' || ps === 'accepted';
+    v.planIsProposal = ps === 'proposal'; v.planIsAccepted = ps === 'accepted'; v.planFooter = v.planHasItems && sc !== 'offline';
+    v.planOfflineNote = sc === 'offline';
+    v.planStatusLabel = ps === 'accepted' ? t.planStatusAccepted : ps === 'dismissed' ? t.planStatusDismissed : ps === 'generating' ? t.planGenerating : ps === 'empty' ? t.planRowNone : t.planStatusProposal;
+    v.planStatusStyle = ps === 'accepted' ? 'font-size:var(--f-cap);font-weight:600;color:var(--acd);background:var(--acs);border-radius:999px;padding:5px 11px;white-space:nowrap;display:flex;align-items:center;gap:6px' : 'font-size:var(--f-cap);color:var(--mu);border:1px dashed var(--prop);border-radius:999px;padding:4px 11px;white-space:nowrap';
+    v.planListStyle = `background:var(--sf);border-radius:24px;padding:6px 16px;${ps === 'proposal' ? 'border:1.5px dashed var(--prop)' : 'box-shadow:var(--sh)'}`;
+    const items = (s.planItems || []).map(p => ({ ...p, c: this.byId(p.cid) })).filter(p => p.c);
+    v.planItems = items.map((p, i) => { const c = p.c, done = c.status === 'done', conflict = this.conflictFor({ ...c, h: p.h, m: p.m }); return {
+      time: this.fmt(p.h, p.m), range: `${this.fmt(p.h, p.m)}–${this.addMin(p.h, p.m, c.dur || 30)}`, title: this.title(c), impLabel: this.impLabel(c.imp), impStyle: this.impStyle(c.imp), showImp: c.imp !== 'nice',
+      movable: p.movable && !done, fixed: !p.movable, moveLabel: p.movable ? t.movableTag : (p.from === 'routine' ? t.fromRoutine : t.fromCalendar), moveStyle: p.movable ? 'color:var(--mu)' : 'color:var(--acd);font-weight:600', conflict,
+      tap: this.planTap(i), titleStyle: `font-size:var(--f-body);font-weight:500;${done ? 'text-decoration:line-through;opacity:.6' : ''}`,
+      barStyle: `width:3px;align-self:stretch;border-radius:2px;background:${done ? 'var(--lnStrong)' : c.imp === 'must' ? 'var(--wm)' : 'var(--ac)'};flex:none`,
+      rowStyle: 'width:100%;display:flex;align-items:center;gap:12px;padding:12px 0;border:0;border-top:1px solid var(--ln);background:none;cursor:pointer;color:var(--tx);font-family:inherit;min-height:60px;text-align:start' }; });
+    v.planKept = (s.planKept || []).length > 0; v.planKeptItems = (s.planKept || []).map(k => ({ title: this.title(this.byId(k.cid)), reason: t[k.reason], open: this.openDetail(k.cid), rowStyle: 'width:100%;display:flex;align-items:center;gap:12px;padding:10px 0;border:0;border-top:1px solid var(--ln);background:none;cursor:pointer;color:var(--tx);font-family:inherit;min-height:52px' }));
+    v.planWhy = this.D.PLAN.why.map(w => w.code === 'whyDue' ? this.tr('whyDue', { item: this.title(this.byId(w.cid)), t: w.t }) : w.code === 'whyEnergy' ? this.tr('whyEnergy', { level: t[w.level], when: t[w.when] }) : w.code === 'whyFixed' ? this.tr('whyFixed', { items: w.items[this.lang] }) : this.tr(w.code, w));
+    v.planWhyOpen = s.planWhyOpen; v.planWhyChevStyle = `transform:rotate(${s.planWhyOpen ? 180 : 0}deg);transition:transform .2s;flex:none`;
+    v.planRegenLabel = s.regenLeft > 0 ? `${t.planRegenerate} · ${this.tr('planRegenLeft', { n: s.regenLeft })}` : t.planRegenNone;
+    v.planRegenStyle = s.regenLeft > 0 ? 'background:none;border:0;padding:10px 12px;color:var(--acd);font-size:var(--f-body2);font-weight:600;cursor:pointer;text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--ul);min-height:44px;text-align:start' : 'background:none;border:0;padding:10px 12px;color:var(--disTx);font-size:var(--f-cap);cursor:default;min-height:44px;text-align:start;max-width:60%';
+    v.planAcceptedAt = this.tr('planAcceptedAt', { t: s.planAcceptedAt || '07:40' });
+    Object.assign(v, { planAccept: this.planAccept, planDismiss: this.planDismiss, planRegen: this.planRegen, planReopen: this.planReopen, planBuild: this.planBuild, togglePlanWhy: this.togglePlanWhy, goMorning: this.goMorning });
+    return v;
+  }
+
+  detailVals() {
+    const s = this.state, t = this.t, c = this.byId(this.current.param);
+    if (!c) return { detail: { missing: true, ok: false, canEdit: false } };
+    const open = c.status === 'active' || c.status === 'postponed';
+    const src = c.src === 'routine' ? t.fromRoutine : c.src === 'share' ? this.tr('sourceFile', { name: c.srcName }) : this.tr('sourceCapture', { date: c.srcDate ? c.srcDate[this.lang] : this.dayLabel(-1) });
+    const hist = (this.D.ACTIVITY || []).filter(a => a.cid === c.id).map(a => ({ label: t[a.kind], when: `${this.dayLabel(a.day)} · ${a.when}` }));
+    return { detail: { ok: true, missing: false, canEdit: open, open, closed: !open, title: this.title(c), impLabel: this.impLabel(c.imp), impStyle: this.impStyle(c.imp), showImp: c.imp !== 'nice', statusLabel: t['st' + c.status[0].toUpperCase() + c.status.slice(1)] || c.status, catLabel: this.catLabel(c.cat), dayLabel: this.dayLabel(c.day), timeLabel: c.h == null ? t.noTime : `${this.fmt(c.h, c.m)}${c.dur ? '–' + this.addMin(c.h, c.m, c.dur) : ''}`, sourceLabel: src, conflict: this.conflictFor(c), historyItems: hist.length ? hist : null },
+      detailEdit: this.detailEdit, detailDone: this.detailDone, detailPostpone: this.detailPostpone, detailDrop: this.detailDrop, detailDelete: this.detailDelete, detailReopen: this.detailReopen };
+  }
+
+  sheetVals() {
+    const s = this.state, t = this.t, v = {}, sh = s.sheet;
+    const chip = on => `min-height:44px;border-radius:999px;padding:9px 14px;font-size:var(--f-body2);cursor:pointer;font-family:inherit;${on ? 'background:var(--acs);color:var(--acd);border:1.5px solid var(--ac);font-weight:600' : 'background:var(--sf2);color:var(--tx);border:1.5px solid transparent'}`;
+    if (sh.name === 'postpone') {
+      const id = this.current.param; const c = this.byId(id);
+      const pick = (label, day, h, m) => () => { const prev = { day: c.day, h: c.h, m: c.m, status: c.status }; this.updateC(id, { day, h, m, status: day === 0 ? 'active' : 'postponed', movedTo: day }); this.setState({ sheet: null }); this.pop(); this.showToast(this.tr('toastPostponed', { when: label }), () => this.updateC(id, prev)); };
+      const N = this.D.NOW;
+      v.postponeOptions = [
+        { label: t.postponeOneHour, hint: `${t.today} · ${this.fmt(N.h + 1, N.mi)}`, pick: pick(this.fmt(N.h + 1, N.mi), 0, N.h + 1, N.mi) },
+        { label: t.postponeThreeHours, hint: `${t.today} · ${this.fmt(N.h + 3, N.mi)}`, pick: pick(this.fmt(N.h + 3, N.mi), 0, N.h + 3, N.mi) },
+        { label: t.postponeTomorrow, hint: `${t.tomorrow} · 09:00`, pick: pick(t.tomorrow, 1, 9, 0) },
+        { label: t.postponeNextWeek, hint: this.dayLabel(7), pick: pick(this.dayLabel(7), 7, 10, 0) },
+      ];
+      v.postponeCustom = this.postponeCustom;
+    }
+    if (sh.name === 'defer') {
+      const N = this.D.NOW; const pick = (label) => () => { this.setState({ sheet: null, nextCid: this.D.NEXT.alt }); this.showToast(this.tr('nextDeferred', { when: label }), () => this.setState({ nextCid: this.D.NEXT.cid })); };
+      v.deferOptions = [{ label: t.deferHour, hint: `${t.today} · ${this.fmt(N.h + 1, N.mi)}`, pick: pick(this.fmt(N.h + 1, N.mi)) }, { label: t.deferEvening, hint: `${t.today} · 18:00`, pick: pick(t.deferEvening) }, { label: t.deferTomorrow, hint: `${t.tomorrow} · 09:00`, pick: pick(t.deferTomorrow) }];
+    }
+    if (sh.name === 'more') {
+      const c = this.byId(s.nextCid); v.next = { title: this.title(c) };
+      const st = 'width:100%;display:flex;align-items:center;gap:10px;background:none;border:0;border-top:1px solid var(--ln);padding:14px 4px;cursor:pointer;color:var(--tx);font-family:inherit;min-height:52px';
+      v.moreOptions = [
+        { label: t.changeStep, hint: '', style: st, pick: () => this.setState({ sheet: { name: 'edit' }, editDraft: { id: c.id, title: this.title(c), h: c.h, m: c.m, imp: c.imp, kind: 'next' } }) },
+        { label: t.notThis, hint: t.nextDismissed, style: st, pick: () => { this.setState({ sheet: null, nextCid: this.D.NEXT.alt, dismissedNext: [...s.dismissedNext, c.id] }); this.showToast(t.nextDismissed, () => this.setState({ nextCid: c.id })); } },
+        { label: t.finishedIt, hint: '', style: st, pick: () => { this.setState({ sheet: null }); this.nextFinish(); } },
+        { label: t.flagOpen, hint: '', style: st, pick: () => this.setState({ sheet: { name: 'flag' }, flagPicked: null }) },
+      ];
+    }
+    if (sh.name === 'edit') {
+      const d = s.editDraft || { title: '', h: null, m: 0, imp: 'should', kind: 'commitment' };
+      v.editSheetTitle = d.kind === 'next' ? t.editStepTitle : d.kind === 'proposal' ? t.editItemTitle : d.kind === 'memory' || d.kind === 'memoryAdd' ? (d.kind === 'memoryAdd' ? t.memAdd : t.memEditTitle) : t.editTitle;
+      v.editTitle = d.title; v.onEditTitle = this.onEditTitle; v.editSave = this.editSave;
+      v.editShowWhen = d.kind !== 'next' && d.kind !== 'memory' && d.kind !== 'memoryAdd'; v.editShowPriority = d.kind === 'commitment' || d.kind === 'proposal';
+      if (d.whenOnly) v.editShowPriority = false;
+      const times = [[null, 0, t.editItemNoTime], [9, 0, '09:00'], [13, 0, '13:00'], [16, 0, '16:00'], [18, 0, '18:00'], [20, 0, '20:00']];
+      v.editWhenChips = times.map(([h, m, label]) => ({ label, style: chip(d.h === h), pick: () => this.setState(st => ({ editDraft: { ...st.editDraft, h, m } })) }));
+      v.editImpChips = ['must', 'should', 'nice'].map(i => ({ label: t[i], on: d.imp === i, pick: () => this.setState(st => ({ editDraft: { ...st.editDraft, imp: i } })), style: `min-height:40px;border-radius:999px;border:0;font-size:var(--f-body2);cursor:pointer;font-family:inherit;${d.imp === i ? 'background:var(--sf);color:var(--tx);font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.08)' : 'background:transparent;color:var(--mu)'}` }));
+      v.editSaveStyle = `flex:1;min-height:48px;border:0;border-radius:999px;padding:12px;font-size:var(--f-body);font-weight:600;${d.title.trim() ? 'background:var(--ac);color:var(--onac);cursor:pointer' : 'background:var(--dis);color:var(--disTx);cursor:default'}`;
+    }
+    if (sh.name === 'planMove') {
+      const p = s.planItems[sh.idx]; const c = p ? this.byId(p.cid) : null; v.moveItemTitle = c ? this.title(c) : ''; v.moveError = s.moveError;
+      const slots = []; for (let h = 9; h <= 20; h++) slots.push(h);
+      v.moveSlots = slots.map(h => { const busy = (s.busy || []).some(b => b.day === 0 && b.h <= h && h < b.h + Math.ceil(b.dur / 60)); const on = p && p.h === h; return { label: `${String(h).padStart(2, '0')}:00`, busy, pick: busy ? () => this.setState({ moveError: t.planEditBusy }) : this.planMoveTo(sh.idx, h, 0), style: `min-height:48px;border-radius:14px;font-size:var(--f-label);font-family:inherit;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;${busy ? 'background:var(--hatch);border:1px dashed var(--lnStrong);color:var(--mu);cursor:default' : on ? 'background:var(--acs);border:1.5px solid var(--ac);color:var(--acd);font-weight:600;cursor:pointer' : 'background:var(--sf2);border:1.5px solid transparent;color:var(--tx);cursor:pointer'}` }; });
+      v.planTakeOff = this.planTakeOff;
+    }
+    if (sh.name === 'flag') {
+      v.flagChips = ['flagWrong', 'flagMisunderstood', 'flagNotUseful', 'flagInvasive', 'flagTech'].map(k => ({ label: t[k], on: s.flagPicked === k, style: chip(s.flagPicked === k), pick: () => this.setState({ flagPicked: k }) }));
+      v.flagSend = this.flagSend; v.flagSendStyle = `min-height:48px;border:0;border-radius:999px;padding:12px;font-size:var(--f-body);font-weight:600;${s.flagPicked ? 'background:var(--ac);color:var(--onac);cursor:pointer' : 'background:var(--dis);color:var(--disTx);cursor:default'}`;
+    }
+    return v;
+  }
+}
+</script>
+</body>
+</html>

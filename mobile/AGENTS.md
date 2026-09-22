@@ -7,9 +7,18 @@ writing any code. This app targets Expo SDK 57, React Native 0.86, React 19.2.
 
 ## Design source of truth
 
-Every screen follows the Claude Design project
-`https://claude.ai/design/p/d96ab124-0531-4fef-9e0b-084677ee8911`
-(`MaybeSitter.dc.html`, round 1). Nothing else is a design reference.
+`design/` is the only design reference. It now holds **Round 2**
+(`https://claude.ai/design/p/7f9b0a08-61c9-4326-90c0-ea5b2523fdb7`,
+`R2App.dc.html`).
+
+The shipped screens still render **Round 1**. Round 2 redesigns the spine —
+three tabs with their own stacks, tasks, sheets and dialogs — and leaves the
+sixteen settings sub-screens, onboarding, auth and deletion unbuilt, so it does
+not replace the app. Migrating a screen means moving it to Round 2; until a
+screen is migrated, Round 1 is what it is meant to look like. The plan and the
+screen-by-screen delta are in `docs/design/round-1-to-round-2.md`.
+
+Rules below hold in both rounds unless the delta doc says otherwise.
 
 Rules the design fixes, which code must keep:
 

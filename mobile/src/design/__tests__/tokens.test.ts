@@ -42,10 +42,19 @@ describe('design tokens are tied to the export', () => {
     expect(motion.screenIn).toBe(source.motion.screenIn.duration);
   });
 
-  it('record the one deviation from the export, and only that one', () => {
-    expect(source.deviations).toHaveLength(1);
-    expect(source.deviations[0]?.token).toBe('color.dark.onAccent');
-    expect(color.dark.onBrand).toBe(source.deviations[0]?.used);
+  // Round 1 put white on the dark accent, which fails contrast, so the app
+  // deviated. Round 2 specifies the accessible value itself, so there is
+  // nothing left to deviate from — and the app must now match the export
+  // exactly rather than carry a private exception.
+  it('deviate from the export nowhere', () => {
+    expect(source.deviations).toHaveLength(0);
+  });
+
+  it('use the dark on-accent value the export now specifies', () => {
+    const resolved = source.deviationsResolved[0];
+    expect(resolved?.token).toBe('color.dark.onAccent');
+    expect(color.dark.onBrand).toBe(resolved?.used);
+    expect(color.dark.onBrand).toBe('#101416');
   });
 });
 
