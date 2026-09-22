@@ -18,7 +18,7 @@ import { SeedProposalSection } from '../features/seeds/SeedProposalSection';
 import { BusyConflictChip } from '../features/calendar/BusyConflictChip';
 import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
 import { busyAt } from '../features/calendar/conflicts';
-import type { CaptureItemEdit } from '../features/capture/captureMachine';
+import { confirmableItems, type CaptureItemEdit } from '../features/capture/captureMachine';
 import type { CaptureProposalItem } from '../api/schemas/capture';
 import type { DeviceBusyBlock } from '../features/calendar/busyBlocks';
 
@@ -59,16 +59,20 @@ export function ReviewScreen() {
   const selectedCount = state.selected.length;
   const busy = state.status === 'confirming';
 
+  const confirmable = confirmableItems(state.proposal, state.edits);
+
   /**
    * The items still waiting on their one question (UC-2.5, #165).
    *
    * Asked one at a time. A question this build has no words for is not counted:
    * the item keeps its flag and #164's edit sheet is the way to fix it, which
    * can express anything a fixed question cannot.
+   *
+   * An item completed by hand / confirmable is skipped in the clarify queue (#503).
    */
-  const waiting = items.filter((item) => (
-    item.needsClarification
-    && item.clarification
+  const unclarified = items.filter((item) => item.needsClarification && !confirmable.includes(item.itemId));
+  const waiting = unclarified.filter((item) => (
+    item.clarification
     && !skipped.includes(item.itemId)
     && questionText(item.clarification.questionKey, item.clarification.params, strings) !== null
   ));
@@ -96,8 +100,8 @@ export function ReviewScreen() {
           <View style={{ backgroundColor: p.sf, borderRadius: 24, padding: 18 }}>
             <ClarifySheet
               item={asking}
-              position={items.filter((item) => item.needsClarification).length - waiting.length + 1}
-              total={items.filter((item) => item.needsClarification).length}
+              position={unclarified.length - waiting.length + 1}
+              total={unclarified.length}
               busy={answering}
               onAnswer={(value) => answer(asking.itemId, value)}
               onSkip={() => {
@@ -133,6 +137,7 @@ export function ReviewScreen() {
             item={item}
             edit={state.edits[item.itemId]}
             selected={state.selected.includes(item.itemId)}
+            needsQuestion={item.needsClarification && !confirmable.includes(item.itemId)}
             onToggle={() => flow.toggleItem(item.itemId)}
             onEdit={() => setEditingItemId(item.itemId)}
             lang={lang}
@@ -202,11 +207,12 @@ export function ReviewScreen() {
 const PRIORITY_IMP = { high: 'must', normal: 'should', low: 'nice' } as const;
 
 function ItemCard({
-  item, edit, selected, onToggle, onEdit, lang, busy,
+  item, edit, selected, needsQuestion, onToggle, onEdit, lang, busy,
 }: {
   item: CaptureProposalItem;
   edit: CaptureItemEdit | undefined;
   selected: boolean;
+  needsQuestion: boolean;
   onToggle: () => void;
   onEdit: () => void;
   lang: Lang;
@@ -275,7 +281,9 @@ function ItemCard({
         {item.priorityEstimated && edit?.priority === undefined ? (
           <Txt size={12} color={p.mu} testID={`review-estimated-${item.itemId}`}>{t.reviewEstimated}</Txt>
         ) : null}
-        {item.needsClarification ? (
+        {/* The "Needs one question" chip is hidden once the item is
+            confirmable / completed by hand (#503). */}
+        {needsQuestion ? (
           <View style={{ backgroundColor: p.wms, borderRadius: 999, paddingVertical: 6, paddingHorizontal: 10 }}>
             <Txt size={12} color={p.wm} testID={`review-needs-question-${item.itemId}`}>{t.reviewNeedsQuestion}</Txt>
           </View>
