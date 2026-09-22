@@ -115,6 +115,8 @@ export interface BackgroundMonitorView {
 
 export interface BackgroundActivityView {
   readonly schemaVersion: typeof BACKGROUND_MONITOR_SCHEMA_VERSION;
+  /** Whether background monitoring is globally paused for this account. */
+  readonly paused: boolean;
   readonly monitors: readonly BackgroundMonitorView[];
 }
 
