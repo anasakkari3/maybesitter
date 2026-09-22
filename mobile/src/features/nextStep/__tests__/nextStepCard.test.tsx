@@ -157,8 +157,12 @@ describe('the why', () => {
 });
 
 describe('only the answers the server offered', () => {
-  it('shows all five when all five are available', async () => {
+  it('shows all five when all five are available — accept and defer up front, the rest behind More', async () => {
     await show();
+    expect(screen.queryByTestId('next-step-accept')).not.toBeNull();
+    expect(screen.queryByTestId('next-step-defer')).not.toBeNull();
+    for (const action of ['edit', 'dismiss', 'done']) expect(screen.queryByTestId(`next-step-${action}`)).toBeNull();
+    await fireEvent.press(screen.getByTestId('next-step-more'));
     for (const action of ['accept', 'edit', 'defer', 'dismiss', 'done']) {
       expect(screen.queryByTestId(`next-step-${action}`)).not.toBeNull();
     }
@@ -167,6 +171,7 @@ describe('only the answers the server offered', () => {
   it('shows only the subset, and does not grey out the rest', async () => {
     await show(response({ availableActions: ['accept', 'dismiss'] }));
     expect(screen.queryByTestId('next-step-accept')).not.toBeNull();
+    await fireEvent.press(screen.getByTestId('next-step-more'));
     expect(screen.queryByTestId('next-step-dismiss')).not.toBeNull();
     // Absent, not disabled: `decideNextStep` refuses an action outside the
     // list, so a rendered one could only ever fail.
@@ -206,6 +211,7 @@ describe('one tap is one decision', () => {
   it('sends the edited title with an edit, and only after the user confirms it', async () => {
     const decide = mockDecision();
     await show();
+    await fireEvent.press(screen.getByTestId('next-step-more'));
     await fireEvent.press(screen.getByTestId('next-step-edit'));
     await waitFor(() => expect(screen.queryByTestId('next-step-edit-input')).not.toBeNull());
     // Opening the editor is not a decision.
@@ -221,6 +227,7 @@ describe('one tap is one decision', () => {
 
   it('cannot send an empty edit', async () => {
     await show();
+    await fireEvent.press(screen.getByTestId('next-step-more'));
     await fireEvent.press(screen.getByTestId('next-step-edit'));
     await waitFor(() => expect(screen.queryByTestId('next-step-edit-input')).not.toBeNull());
     await fireEvent.changeText(screen.getByTestId('next-step-edit-input'), '   ');

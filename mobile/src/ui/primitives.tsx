@@ -17,18 +17,18 @@ export function Txt({
   children, size = 15, weight = 400, color, align = 'start', style, lines, lh, latin, selectable, testID, onTextLayout,
 }: {
   children: React.ReactNode;
-  size?: number;
-  weight?: Weight;
-  color?: string;
-  align?: Align;
-  style?: StyleProp<TextStyle>;
-  lines?: number;
-  lh?: number;
+  size?: number | undefined;
+  weight?: Weight | undefined;
+  color?: string | undefined;
+  align?: Align | undefined;
+  style?: StyleProp<TextStyle> | undefined;
+  lines?: number | undefined;
+  lh?: number | undefined;
   /** Set digits and Latin-only labels in Outfit even inside Arabic or Hebrew UI. */
-  latin?: boolean;
+  latin?: boolean | undefined;
   /** For an opaque id the user may need to read out or paste (#149). */
-  selectable?: boolean;
-  testID?: string;
+  selectable?: boolean | undefined;
+  testID?: string | undefined;
   /** For chrome that has to know whether this label still fits its slot (TabBar). */
   onTextLayout?: ((e: NativeSyntheticEvent<TextLayoutEventData>) => void) | undefined;
 }) {

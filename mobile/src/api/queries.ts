@@ -155,6 +155,11 @@ export function forgetValidators(): void {
 function invalidateCommitments(client: QueryClient, uid: string, id?: string): void {
   void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
   void client.invalidateQueries({ queryKey: ['user', uid, 'nextStep'] });
+  // The day's plan places these same commitments (Round 2, Phase C). A thing
+  // finished on Today was still a scheduled plan item until the plan happened
+  // to refetch, and Today's plan row counted it. One truth: a commitment that
+  // moves moves the plan too.
+  void client.invalidateQueries({ queryKey: ['user', uid, 'plan'] });
   if (id) void client.invalidateQueries({ queryKey: queryKeys.commitment(uid, id) });
   // Anything that moves a commitment is, by definition, something that just
   // happened — so the history and the week's counts are both out of date
@@ -545,6 +550,10 @@ export function usePlan(date: string) {
 function adoptPlan(client: QueryClient, uid: string, date: string, plan: DailyPlan): void {
   client.setQueryData(queryKeys.plan(uid, date), plan);
   void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
+  // The next step is derived from the same commitments the plan just moved
+  // (Round 2, Phase C): accepting or editing a plan could leave the card
+  // suggesting a thing the plan had just placed elsewhere.
+  void client.invalidateQueries({ queryKey: ['user', uid, 'nextStep'] });
   void client.invalidateQueries({ queryKey: queryKeys.activity(uid) });
   // An accepted plan is a day with a plan, and the first one a Moment
   // (#201) — both live in the week's summary, which is its own key.

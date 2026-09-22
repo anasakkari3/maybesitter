@@ -1,0 +1,104 @@
+/**
+ * Today's one answer (Round 2, Phase C).
+ *
+ * The screen used to draw three independent server results, each free to
+ * name a different thing to do. These cases pin the reconciliation.
+ */
+import { describe, expect, it } from '@jest/globals';
+import { composeToday, type NextStepInput, type PlanInput } from '../composeToday';
+import type { CommitmentView, TodayGroups } from '../../commitments/model';
+import type { NextStepRecommendation } from '../../../api/schemas/nextStep';
+import type { DailyPlan } from '../../../api/schemas/plan';
+
+const item = (id: string, importance: CommitmentView['importance'] = 'should', status: CommitmentView['status'] = 'active'): CommitmentView => ({
+  id, title: id, importance, status, shownAt: null, isPast: false, importanceIsStated: true, rank: undefined, reasonCodes: [],
+});
+const groups = (g: Partial<TodayGroups>): TodayGroups => ({ must: [], should: [], nice: [], finished: [], ...g });
+const rec = (commitmentId: string, state = 'ready'): NextStepRecommendation => ({
+  version: '1', proposalId: 'p1', state, locale: 'ar',
+  primaryStep: state === 'ready' ? { commitmentId, title: commitmentId } : null,
+  explanation: null, availableActions: ['accept'],
+});
+const next = (over: Partial<NextStepInput> = {}): NextStepInput => ({ recommendation: undefined, silenced: false, isPending: false, isError: false, ...over });
+const plan = (over: Partial<PlanInput> = {}): PlanInput => ({ plan: undefined, isPending: false, isError: false, ...over });
+const aPlan = (status: DailyPlan['status'], placed = 2): DailyPlan => ({
+  date: '2026-09-22', timezone: 'Asia/Amman', status, generation: 1, inputDigest: 'x', generatedAt: '2026-09-22T04:00:00.000Z',
+  acceptedAt: null, explanation: { text: '', locale: 'ar', source: 'template' },
+  scheduled: Array.from({ length: placed }, (_, i) => ({ itemId: `i${i}`, title: null, startsAt: '2026-09-22T09:00:00.000Z', endsAt: '2026-09-22T10:00:00.000Z' })),
+  unscheduled: [], edited: false,
+});
+
+describe('exactly one primary', () => {
+  it('the recommendation wins, and its item leaves the list', () => {
+    const m = composeToday({ groups: groups({ must: [item('a', 'must')], should: [item('b')] }), next: next({ recommendation: rec('b') }), plan: plan(), upcoming: [] });
+    expect(m.primary).toMatchObject({ kind: 'next', item: { id: 'b' } });
+    expect(m.groups.should).toHaveLength(0);
+    expect(m.groups.must.map((c) => c.id)).toEqual(['a']);
+    expect(m.openTotal).toBe(2);
+    expect(m.openInGroups).toBe(1);
+  });
+
+  it('a recommendation for something not on the day is still the primary, and the list is whole', () => {
+    const m = composeToday({ groups: groups({ must: [item('a', 'must')] }), next: next({ recommendation: rec('elsewhere') }), plan: plan(), upcoming: [] });
+    expect(m.primary).toMatchObject({ kind: 'next', item: null });
+    expect(m.groups.must).toHaveLength(1);
+  });
+
+  it("falls back to the list's own top item when there is no recommendation", () => {
+    for (const n of [next(), next({ isError: true }), next({ isPending: true }), next({ recommendation: rec('x', 'empty') }), next({ recommendation: rec('x', 'insufficient_evidence') })]) {
+      const m = composeToday({ groups: groups({ should: [item('b')], must: [item('a', 'must')] }), next: n, plan: plan(), upcoming: [] });
+      expect(m.primary).toMatchObject({ kind: 'fallback', item: { id: 'a' } });
+      expect(m.groups.must).toHaveLength(0);
+      expect(m.groups.should.map((c) => c.id)).toEqual(['b']);
+    }
+  });
+
+  it('never lifts the fallback across the groups: the top Must beats an earlier Nice', () => {
+    const m = composeToday({ groups: groups({ nice: [item('n', 'nice')], must: [item('m', 'must')] }), next: next(), plan: plan(), upcoming: [] });
+    expect(m.primary).toMatchObject({ kind: 'fallback', item: { id: 'm' } });
+  });
+
+  it('is "all done" once every open thing is resolved, whatever the route recommends', () => {
+    const m = composeToday({ groups: groups({ finished: [item('a', 'must', 'done')] }), next: next({ recommendation: rec('tomorrow') }), plan: plan(), upcoming: [] });
+    expect(m.primary).toEqual({ kind: 'allDone' });
+    expect(m.isEmpty).toBe(false);
+  });
+
+  it('is quiet when the user asked for quiet, even with open items and a recommendation', () => {
+    const m = composeToday({ groups: groups({ must: [item('a', 'must')] }), next: next({ recommendation: rec('a'), silenced: true }), plan: plan(), upcoming: [] });
+    expect(m.primary).toEqual({ kind: 'quiet' });
+    expect(m.groups.must).toHaveLength(1);
+  });
+
+  it('is nothing on a genuinely empty day', () => {
+    const m = composeToday({ groups: groups({}), next: next(), plan: plan(), upcoming: [] });
+    expect(m.primary).toEqual({ kind: 'none' });
+    expect(m.isEmpty).toBe(true);
+  });
+});
+
+describe('the plan row is honest', () => {
+  it('says it is loading, failed, absent, proposed, accepted or dismissed — never nothing', () => {
+    const g = groups({});
+    expect(composeToday({ groups: g, next: next(), plan: plan({ isPending: true }), upcoming: [] }).plan).toEqual({ kind: 'loading' });
+    expect(composeToday({ groups: g, next: next(), plan: plan({ isError: true, plan: null }), upcoming: [] }).plan).toEqual({ kind: 'error' });
+    expect(composeToday({ groups: g, next: next(), plan: plan({ plan: null }), upcoming: [] }).plan).toEqual({ kind: 'none' });
+    expect(composeToday({ groups: g, next: next(), plan: plan({ plan: aPlan('proposed', 3) }), upcoming: [] }).plan).toEqual({ kind: 'proposed', placed: 3 });
+    expect(composeToday({ groups: g, next: next(), plan: plan({ plan: aPlan('edited', 1) }), upcoming: [] }).plan).toEqual({ kind: 'proposed', placed: 1 });
+    expect(composeToday({ groups: g, next: next(), plan: plan({ plan: aPlan('accepted', 2) }), upcoming: [] }).plan).toEqual({ kind: 'accepted', placed: 2 });
+    expect(composeToday({ groups: g, next: next(), plan: plan({ plan: aPlan('dismissed') }), upcoming: [] }).plan).toEqual({ kind: 'dismissed' });
+  });
+
+  it('a refetch keeps the last plan rather than flashing a skeleton', () => {
+    const m = composeToday({ groups: groups({}), next: next(), plan: plan({ isPending: true, plan: aPlan('accepted') }), upcoming: [] });
+    expect(m.plan).toEqual({ kind: 'accepted', placed: 2 });
+  });
+});
+
+describe('later', () => {
+  it('shows the coming days without repeating the day or the primary, at most three', () => {
+    const upcoming = [item('a'), item('u1'), item('u2', 'nice'), item('u3'), item('u4'), item('done', 'should', 'done')];
+    const m = composeToday({ groups: groups({ must: [item('a', 'must')] }), next: next({ recommendation: rec('u1') }), plan: plan(), upcoming });
+    expect(m.later.map((c) => c.id)).toEqual(['u2', 'u3', 'u4']);
+  });
+});
