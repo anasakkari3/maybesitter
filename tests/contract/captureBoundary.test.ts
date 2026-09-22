@@ -154,6 +154,25 @@ test('multi-item ordering and confirmation ordering are preserved', async () => 
   assert.deepEqual(confirmation.persistedItemIds, proposal.items.map((item) => item.itemId));
 });
 
+test('split segments drop the punctuation and conjunction they were cut on (#502)', async () => {
+  let index = 0;
+  const dependencies = harness();
+  const extractor = async (rawText: string) => ({
+    result: extracted({ title: rawText, action: rawText, rawText, dueAt: `2026-08-17T1${index++}:00:00.000Z`, remindAt: null }),
+    engine: 'ollama' as const,
+    fallbackReason: null,
+  });
+
+  const en = await proposeCapture('Call the pharmacy, then water the plants', { now, timezone: 'UTC', scopeId: 'a' }, { ...dependencies, extractor });
+  assert.deepEqual(en.items.map((item) => item.title), ['Call the pharmacy', 'water the plants']);
+
+  const ar = await proposeCapture('اتصل بالصيدلية, ثم اسقي النباتات', { now, timezone: 'UTC', scopeId: 'a' }, { ...dependencies, extractor });
+  assert.deepEqual(ar.items.map((item) => item.title), ['اتصل بالصيدلية', 'اسقي النباتات']);
+
+  const he = await proposeCapture('להתקשר לבית המרקחת, ואז לשתות את הצמחים', { now, timezone: 'UTC', scopeId: 'a' }, { ...dependencies, extractor });
+  assert.deepEqual(he.items.map((item) => item.title), ['להתקשר לבית המרקחת', 'לשתות את הצמחים']);
+});
+
 test('audit events exclude raw sensitive text by allowlist', async () => {
   const events: unknown[] = [];
   const dependencies = harness();
