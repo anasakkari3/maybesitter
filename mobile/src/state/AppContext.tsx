@@ -12,11 +12,20 @@ import { loadThemePref, saveThemePref } from '../lib/deviceSettings/theme';
 import { palettes, type Palette, type Scheme } from '../theme/tokens';
 import { seedCommitments, TODAY } from './seed';
 import type { Commitment, Screen, Sheet, Status, ThemePref } from './types';
+import * as nav from './navigation';
 import type { CaptureInputMode, CaptureSource } from '../features/capture/captureMachine';
 
 export type AppState = {
+  /**
+   * The navigation history (Round 2, Phase B): a tab, a stack per tab, and
+   * an optional task over it. See src/state/navigation.ts. `screen`,
+   * `detailId` and `planDate` below are *derived* from it after every
+   * change, so the screens keep reading the fields they always read.
+   */
+  nav: nav.Nav;
   screen: Screen;
-  prev: Screen;
+  /** Whether the tab bar is showing: no task open and the current tab at its root. */
+  showTabs: boolean;
   /**
    * Capture holds none of its state here any more (UC-2.R2, #172).
    *
@@ -40,14 +49,21 @@ export type AppState = {
    * on what day it is.
    */
   selDay: number;
+  /** Derived from `nav`: the commitment the top entry was opened for. */
   detailId: string | null;
-  /** The `YYYY-MM-DD` the plan screen is showing, or null when it is closed. */
+  /** Derived from `nav`: the `YYYY-MM-DD` the plan screen is showing, or null when it is closed. */
   planDate: string | null;
   commitments: Commitment[];
 };
 
+/** Recompute the three derived fields from the history. Every nav change goes through here. */
+function withNav(st: AppState, next: nav.Nav): AppState {
+  const d = nav.derive(next);
+  return { ...st, nav: next, screen: d.screen, detailId: d.detailId, planDate: d.planDate, showTabs: d.showTabs };
+}
+
 const initial: AppState = {
-  screen: 'today', prev: 'today',
+  nav: nav.initialNav, screen: 'today', showTabs: true,
   captureSource: 'tab', captureInput: 'text',
   sheet: null, toast: '',
   nextDismissed: false, selDay: 0, detailId: null, planDate: null,
@@ -97,6 +113,9 @@ function useAppModel() {
       const next = typeof patch === 'function' ? patch(st) : patch;
       return next ? { ...st, ...next } : st;
     });
+  /** Apply a pure navigation step and re-derive what is on screen. Sheets close on every move. */
+  const move = (step: (n: nav.Nav) => nav.Nav, extra?: Partial<AppState>) =>
+    setS(st => ({ ...withNav(st, step(st.nav)), sheet: null, ...(extra ?? {}) }));
   const holdAt = useRef(0);
 
   const applyLangPref = (pref: LanguagePref) => {
@@ -128,9 +147,14 @@ function useAppModel() {
 
   const actions = {
     resetForNewUser,
-    go: (screen: Screen) => set(st => ({ prev: st.screen, screen, sheet: null })),
-    back: () => set(st => ({ screen: st.prev === 'details' ? 'today' : st.prev, sheet: null })),
-    openDetail: (id: string) => set(st => ({ detailId: id, prev: st.screen, screen: 'details' })),
+    /** A tab switches, a task opens, anything else is pushed onto the current tab. */
+    go: (screen: Screen) => move(n => nav.go(n, screen)),
+    /** One step back through the history. At a tab root this is a no-op; `canGoBack` says so. */
+    back: () => move(nav.back),
+    canGoBack: () => nav.canGoBack(s.nav),
+    openDetail: (id: string) => move(n => nav.push(n, { name: 'details', detailId: id })),
+    /** A commitment opened from outside — a notification or a link — with Today underneath. */
+    arriveAtDetail: (id: string) => move(n => nav.arrive(n, { name: 'details', detailId: id })),
     /**
      * Today's plan, for one named date (UC-3.10b, #195).
      *
@@ -138,7 +162,14 @@ function useAppModel() {
      * `maybesitter://plan/<date>` link, which `src/links.ts` has already
      * checked is a plain `YYYY-MM-DD`.
      */
-    openPlan: (date: string) => set(st => ({ planDate: date, prev: st.screen, screen: 'plan', sheet: null })),
+    openPlan: (date: string) => move(n => nav.push(n, { name: 'plan', planDate: date })),
+    /**
+     * The plan opened from the morning notification or a link: the plan, with
+     * Today underneath and nothing else, so back is Today (UC-3.10b, #195).
+     */
+    arriveAtPlan: (date: string) => move(n => nav.arrive(n, { name: 'plan', planDate: date })),
+    /** A tab or task named by a link. */
+    arriveAt: (screen: Screen) => move(n => nav.arrive(n, { name: screen })),
     toggle: (id: string) => set(st => ({
       commitments: st.commitments.map(c => (c.id === id ? { ...c, status: c.status === 'done' ? 'active' : 'done' } : c)),
     })),
@@ -154,12 +185,14 @@ function useAppModel() {
      * here.
      */
     goCapture: (source: CaptureSource = 'tab', inputMode: CaptureInputMode = 'text') =>
-      set(st => ({ prev: st.screen, screen: 'capture', captureSource: source, captureInput: inputMode, sheet: null })),
-    closeCapture: () => set({ sheet: null, screen: 'today' }),
+      move(n => nav.openTask(n, { name: 'capture' }), { captureSource: source, captureInput: inputMode }),
+    /** Leave the flow. The tab underneath is exactly as it was. */
+    closeCapture: () => move(nav.closeTask),
 
     // sheets
     closeSheet: () => set({ sheet: null }),
-    closeSheetHome: () => set({ sheet: null, screen: 'today' }),
+    /** Close the sheet and return to Today's root — the calm landing after a write. */
+    closeSheetHome: () => move(n => nav.switchTab(n, 'today')),
     openPostpone: () => set({ sheet: 'postpone' }),
     openEdit: () => set({ sheet: 'edit' }),
     openConfirmDrop: () => set({ sheet: 'confirmDrop' }),
@@ -188,19 +221,19 @@ function useAppModel() {
     jump: (name: string) => {
       switch (name) {
         // Development only, so a release build cannot reach the gallery.
-        case 'gallery': if (__DEV__) set({ screen: 'gallery', sheet: null }); return;
+        case 'gallery': if (__DEV__) move(n => nav.arrive(n, { name: 'gallery' })); return;
         // Additionally behind an env flag the release guard refuses to let a
         // staging or production build set at all (UC-1.8 #152).
-        case 'calendarDemo': if (googleCalendarDemoEnabled()) set({ screen: 'calendarDemo', sheet: null }); return;
+        case 'calendarDemo': if (googleCalendarDemoEnabled()) move(n => nav.arrive(n, { name: 'calendarDemo' })); return;
         case 'today': case 'calendar': case 'settings':
-          set({ screen: name, sheet: null }); return;
+          move(n => nav.arrive(n, { name })); return;
         // Capture has one entry now. The gallery's old `typing`, `listening`,
         // `processing`, `nothing`, `review`, `clarify`, `readings` and `saved`
         // jumps each forced a mock sub-state directly; those states are the
         // reducer's and are reached by using the flow (UC-2.R2, #172).
-        case 'capture': set({ screen: 'capture', captureSource: 'tab', captureInput: 'text', sheet: null }); return;
-        case 'details': set({ detailId: 'c3', prev: 'today', screen: 'details', sheet: null }); return;
-        case 'postpone': set({ detailId: 'c3', prev: 'today', screen: 'details', sheet: 'postpone' }); return;
+        case 'capture': move(n => nav.arrive(n, { name: 'capture' }), { captureSource: 'tab', captureInput: 'text' }); return;
+        case 'details': move(n => nav.arrive(n, { name: 'details', detailId: 'c3' })); return;
+        case 'postpone': move(n => nav.arrive(n, { name: 'details', detailId: 'c3' }), { sheet: 'postpone' }); return;
       }
     },
   };

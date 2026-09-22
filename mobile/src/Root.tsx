@@ -1,5 +1,5 @@
-import React, { useRef } from 'react';
-import { View } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { BackHandler, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useApp } from './state/AppContext';
 import { useAuth } from './auth/AuthProvider';
@@ -40,8 +40,6 @@ import { googleCalendarDemoEnabled, icsFeedsEnabled } from './config/env';
 import { RemindersMount } from './features/reminders/RemindersMount';
 import { Gallery } from './design/Gallery';
 
-const tabScreens = ['today', 'calendar', 'settings'];
-
 export function Root() {
   const { s, p, rtl, scheme, actions } = useApp();
   const { takePendingLink } = useAuth();
@@ -52,18 +50,34 @@ export function Root() {
   useLinks(
     {
       jump: name => latest.current.jump(name),
-      openCommitment: id => latest.current.openDetail(id),
+      // A link is an arrival, not a push: the thing it names opens with its
+      // natural way back underneath (Today), whatever was open before.
+      openCommitment: id => latest.current.arriveAtDetail(id),
       // UC-3.10b (#195). The morning "your plan is ready" notification opens
       // maybesitter://plan/<date>, and the date it carries is the one shown.
-      openPlan: date => latest.current.openPlan(date),
+      openPlan: date => latest.current.arriveAtPlan(date),
       // The next step lives on Today's card; there is no screen of its own.
-      openNextStep: () => latest.current.go('today'),
+      openNextStep: () => latest.current.arriveAt('today'),
       openCapture: (source, input) => latest.current.goCapture(source, input),
       setLang: l => latest.current.setLang(l),
       setThemePref: v => latest.current.setThemePref(v),
     },
     () => pending.current(),
   );
+  /**
+   * Android's hardware and gesture back walks the same history as every
+   * on-screen back button (Round 2, Phase B). At a tab root there is nothing
+   * to walk, so the event is left to the platform, which leaves the app — the
+   * one place a user should ever exit is the place they came in.
+   */
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (!latest.current.canGoBack()) return false;
+      latest.current.back();
+      return true;
+    });
+    return () => sub.remove();
+  }, []);
   return (
     /*
      * `CaptureProvider` is mounted here, not in `App.tsx` (UC-2.R2, #172).
@@ -117,63 +131,64 @@ export function Root() {
           {s.screen === 'calendar' && <CalendarScreen key="calendar" />}
           {s.screen === 'settings' && <SettingsScreen key="settings" />}
           {s.screen === 'deleteAccount' && (
-            <DeleteAccountScreen key="deleteAccount" onBack={() => latest.current.go('settings')} />
+            <DeleteAccountScreen key="deleteAccount" onBack={() => latest.current.back()} />
           )}
-          {/* Settings sub-screens (UC-2.R4 #174). Each takes the way back rather
-              than reading history: `back()` returns to `prev`, which is Settings
-              for all of these, and Trust for the one reached from it. */}
+          {/* Settings sub-screens (UC-2.R4 #174). Each one's back is the
+              history's back (Round 2, Phase B): a leaf reached from Settings
+              returns to Settings, Memory reached through Trust → Knows returns
+              through them, and none of them names a destination. */}
           {s.screen === 'trust' && (
             <TrustScreen
               key="trust"
-              onBack={() => latest.current.go('settings')}
+              onBack={() => latest.current.back()}
               onKnows={() => latest.current.go('knows')}
             />
           )}
           {s.screen === 'knows' && (
             <KnowsScreen
               key="knows"
-              onBack={() => latest.current.go('trust')}
+              onBack={() => latest.current.back()}
               onMemory={() => latest.current.go('memory')}
             />
           )}
-          {s.screen === 'memory' && <MemoryScreen key="memory" onBack={() => latest.current.go('knows')} />}
+          {s.screen === 'memory' && <MemoryScreen key="memory" onBack={() => latest.current.back()} />}
           {s.screen === 'feedbackHistory' && (
-            <FeedbackHistoryScreen key="feedbackHistory" onBack={() => latest.current.go('settings')} />
+            <FeedbackHistoryScreen key="feedbackHistory" onBack={() => latest.current.back()} />
           )}
           {s.screen === 'activity' && (
-            <ActivityScreen key="activity" onBack={() => latest.current.go('settings')} />
+            <ActivityScreen key="activity" onBack={() => latest.current.back()} />
           )}
           {s.screen === 'routineSettings' && (
-            <RoutineSettingsScreen key="routineSettings" onBack={() => latest.current.go('settings')} />
+            <RoutineSettingsScreen key="routineSettings" onBack={() => latest.current.back()} />
           )}
           {s.screen === 'readinessSettings' && (
-            <ReadinessSettingsScreen key="readinessSettings" onBack={() => latest.current.go('settings')} />
+            <ReadinessSettingsScreen key="readinessSettings" onBack={() => latest.current.back()} />
           )}
           {s.screen === 'notificationsSettings' && (
-            <NotificationsSettingsScreen key="notificationsSettings" onBack={() => latest.current.go('settings')} />
+            <NotificationsSettingsScreen key="notificationsSettings" onBack={() => latest.current.back()} />
           )}
           {s.screen === 'calendarSettings' && (
             <CalendarSettingsScreen
               key="calendarSettings"
-              onBack={() => latest.current.go('settings')}
+              onBack={() => latest.current.back()}
               onFeeds={() => latest.current.go('calendarFeeds')}
             />
           )}
           {/* Behind the build flag here as well as inside the screen, so a
               build without the feature cannot reach it by a stale screen name. */}
           {icsFeedsEnabled() && s.screen === 'calendarFeeds' && (
-            <CalendarFeedsScreen key="calendarFeeds" onBack={() => latest.current.go('calendarSettings')} />
+            <CalendarFeedsScreen key="calendarFeeds" onBack={() => latest.current.back()} />
           )}
           {s.screen === 'footballSettings' && (
-            <FootballSettingsScreen key="footballSettings" onBack={() => latest.current.go('settings')} />
+            <FootballSettingsScreen key="footballSettings" onBack={() => latest.current.back()} />
           )}
           {s.screen === 'categorySettings' && (
-            <CategorySettingsScreen key="categorySettings" onBack={() => latest.current.go('settings')} />
+            <CategorySettingsScreen key="categorySettings" onBack={() => latest.current.back()} />
           )}
           {s.screen === 'widgetSettings' && (
-            <WidgetSettingsScreen key="widgetSettings" onBack={() => latest.current.go('settings')} />
+            <WidgetSettingsScreen key="widgetSettings" onBack={() => latest.current.back()} />
           )}
-          {s.screen === 'about' && <AboutScreen key="about" onBack={() => latest.current.go('settings')} />}
+          {s.screen === 'about' && <AboutScreen key="about" onBack={() => latest.current.back()} />}
           {s.screen === 'details' && <DetailsScreen key="details" />}
           {/* Today's plan (UC-3.10b, #195). Keyed by its date so a second link
               for another day remounts rather than re-using the first day's
@@ -191,9 +206,9 @@ export function Root() {
           {/* Two independent gates: the flag, and the release guard that refuses
               to configure a staging or production build which sets it (#152). */}
           {googleCalendarDemoEnabled() && s.screen === 'calendarDemo' && (
-            <CalendarDemoScreen key="calendarDemo" onBack={() => latest.current.go('settings')} />
+            <CalendarDemoScreen key="calendarDemo" onBack={() => latest.current.back()} />
           )}
-          {tabScreens.includes(s.screen) && <TabBar />}
+          {s.showTabs && <TabBar />}
           <SheetHost key={s.sheet ?? 'none'} />
         </View>
       </ShareProvider>
