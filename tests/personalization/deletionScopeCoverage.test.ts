@@ -93,6 +93,13 @@ const KEPT_BECAUSE: Record<string, string> = {
     + 'write. "Forget what you inferred about me" must not silently delete the maybes somebody '
     + 'deliberately kept, any more than it deletes their commitments; the way to remove one is '
     + 'the Dismiss beside it, and account deletion takes the whole tree.',
+  goalGraphLinks:
+    'which proposal out of a goal\u2019s execution graph the user accepted, and what it became (#526) \u2014 '
+    + 'a goal memory id, a node id and the id of the Commitment or Habit it produced. Nothing here is '
+    + 'derived and nothing is a claim about the person: it is the record of a decision they made by '
+    + 'pressing confirm, the same standing as the commitment on the other end of it. "Forget what you '
+    + 'inferred about me" must not quietly detach somebody\u2019s goal from the work they chose to do '
+    + 'for it; unlinking is the control beside the node, and account deletion takes the whole tree.',
   habits:
     'a rule the user confirmed about their own week (#520) — "gym three times a week", with the '
     + 'cadence and the duration they accepted by hand. It is their own content in the same sense a '

@@ -20,17 +20,68 @@ export function goalGraphIdFor(scopeId: string, goalMemoryId: string, generation
   return docIdForKey(`goal-graph:${scopeId}:${goalMemoryId}:${generation}`);
 }
 
+/**
+ * A node's identity, without the generation it happened to be minted in.
+ *
+ * This is the part that means "the second step of this goal" rather than "the
+ * second step of this goal, as read on Tuesday". Regeneration mints new node
+ * ids — `g2.step.s1` where there was `g1.step.s1` — and two things have to
+ * survive that: the link a user already confirmed must still attach to the
+ * node it belongs to, and confirming that node again must not create a second
+ * Commitment for it.
+ *
+ * Both are `GoalNodeLink.nodeKey`, which is this. Keying the link on the raw
+ * node id instead makes the graph's own acceptance criterion — "regeneration
+ * preserves already confirmed canonical links" — false, and quietly puts a
+ * second gym session in somebody's week the first time they press regenerate
+ * and then confirm.
+ *
+ * A key is stable only while the *step* is. The rules detector numbers steps
+ * positionally (`s1`, `s2`), so an edited goal sentence can move `s1` onto a
+ * different clause — and then the link should not carry over, which is what
+ * editing the goal means. That is a property of the decomposition, not
+ * something this module can paper over.
+ */
+export type GoalNodeKey = string;
+
 /** The single sink node: the goal itself, reached. */
+export const CHECKPOINT_NODE_KEY: GoalNodeKey = 'checkpoint.goal';
+
+export function stepNodeKeyFor(stepId: string): GoalNodeKey {
+  return `step.${stepId}`;
+}
+
+export function milestoneNodeKeyFor(milestoneKey: string): GoalNodeKey {
+  return `milestone.${milestoneKey}`;
+}
+
+/** `g{generation}.{key}`. The one place a generation enters a node id. */
+export function nodeIdFor(generation: number, nodeKey: GoalNodeKey): string {
+  return `g${generation}.${nodeKey}`;
+}
+
+/**
+ * The inverse of `nodeIdFor`.
+ *
+ * A node id this module did not mint has no generation prefix to strip, and is
+ * its own key — so an id from somewhere else is carried through rather than
+ * silently truncated into a key that collides with a real one.
+ */
+export function goalNodeKeyOf(nodeId: string): GoalNodeKey {
+  const match = /^g\d+\.(.+)$/.exec(nodeId);
+  return match ? match[1] : nodeId;
+}
+
 export function checkpointNodeIdFor(generation: number): string {
-  return `g${generation}.checkpoint.goal`;
+  return nodeIdFor(generation, CHECKPOINT_NODE_KEY);
 }
 
 export function stepNodeIdFor(generation: number, stepId: string): string {
-  return `g${generation}.step.${stepId}`;
+  return nodeIdFor(generation, stepNodeKeyFor(stepId));
 }
 
 export function milestoneNodeIdFor(generation: number, milestoneKey: string): string {
-  return `g${generation}.milestone.${milestoneKey}`;
+  return nodeIdFor(generation, milestoneNodeKeyFor(milestoneKey));
 }
 
 /**
