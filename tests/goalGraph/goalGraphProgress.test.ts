@@ -29,6 +29,7 @@ import { generateGoalExecutionGraph } from '../../lib/goalGraph/generateGoalGrap
 import { confirmGoalGraphNodes } from '../../lib/goalGraph/confirmGoalGraph.ts';
 import { deriveGoalGraphProgress } from '../../lib/goalGraph/deriveProgress.ts';
 import { createStorageGoalNodeLinkStore } from '../../lib/goalGraph/linkStore.ts';
+import { goalNodeKeyOf } from '../../lib/goalGraph/ids.ts';
 import type { GoalExecutionGraph } from '../../src/contracts/v1/goalGraphContracts.ts';
 import { NOW, OWNER, seedGoal } from './goalGraphSupport.ts';
 
@@ -112,7 +113,7 @@ test('completing a linked commitment moves progress, with nothing rewritten', as
 
   // The user ticks one off, through the ordinary domain command — not through
   // anything this feature owns.
-  const done = created.find((link) => link.nodeId === first)!;
+  const done = created.find((link) => link.nodeKey === goalNodeKeyOf(first))!;
   await applyParticipantCommand(OWNER, {
     type: 'Complete',
     commitmentId: done.entityId!,
@@ -122,7 +123,7 @@ test('completing a linked commitment moves progress, with nothing rewritten', as
   const after = await progressOf(graph);
   assert.equal(after.completedCount, 1);
   assert.equal(after.confirmedCount, 2);
-  const node = after.nodes.find((entry) => entry.nodeId === first);
+  const node = after.nodes.find((entry) => entry.nodeKey === goalNodeKeyOf(first));
   assert.equal(node?.entityKind, 'commitment');
   assert.equal(node?.entityKind === 'commitment' && node.status, 'completed');
   assert.equal(node?.completed, true);
@@ -165,23 +166,23 @@ test('a dropped commitment is not progress, and a deleted one is not an error', 
   // Giving up on something is not the same as finishing it.
   await applyParticipantCommand(OWNER, {
     type: 'Drop',
-    commitmentId: created.find((link) => link.nodeId === first)!.entityId!,
+    commitmentId: created.find((link) => link.nodeKey === goalNodeKeyOf(first))!.entityId!,
     now: DERIVED_AT,
   });
   const dropped = await progressOf(graph);
   assert.equal(dropped.completedCount, 0);
   assert.equal(
-    dropped.nodes.find((node) => node.nodeId === first)?.entityKind === 'commitment'
-      && (dropped.nodes.find((node) => node.nodeId === first) as { status: string }).status,
+    dropped.nodes.find((node) => node.nodeKey === goalNodeKeyOf(first))?.entityKind === 'commitment'
+      && (dropped.nodes.find((node) => node.nodeKey === goalNodeKeyOf(first)) as { status: string }).status,
     'dropped',
   );
 
   // And the destructive action the user may take separately: the commitment is
   // gone, the link survives, and the goal screen still renders.
-  const orphanedId = created.find((link) => link.nodeId === second)!.entityId!;
+  const orphanedId = created.find((link) => link.nodeKey === goalNodeKeyOf(second))!.entityId!;
   await getStorage().delete(`${userCol(OWNER, 'commitments')}/${orphanedId}`);
   const missing = await progressOf(graph);
-  const node = missing.nodes.find((entry) => entry.nodeId === second);
+  const node = missing.nodes.find((entry) => entry.nodeKey === goalNodeKeyOf(second));
   assert.equal(node?.entityKind === 'commitment' && node.status, 'missing');
   assert.equal(node?.completed, false);
   assert.equal(missing.confirmedCount, 2);

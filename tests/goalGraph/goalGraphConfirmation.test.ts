@@ -24,6 +24,7 @@ import { getParticipantStateSnapshot } from '../../lib/services/mobile/participa
 import { generateGoalExecutionGraph } from '../../lib/goalGraph/generateGoalGraph.ts';
 import { confirmGoalGraphNodes } from '../../lib/goalGraph/confirmGoalGraph.ts';
 import { createStorageGoalNodeLinkStore, goalNodeLinkIdFor } from '../../lib/goalGraph/linkStore.ts';
+import { goalNodeKeyOf } from '../../lib/goalGraph/ids.ts';
 import { validateGoalExecutionGraph } from '../../lib/goalGraph/validateGoalGraph.ts';
 import type { GoalExecutionGraph } from '../../src/contracts/v1/goalGraphContracts.ts';
 import { NOW, OWNER, seedGoal } from './goalGraphSupport.ts';
@@ -74,7 +75,8 @@ test('confirming one node creates one commitment, and the graph links it', async
   assert.deepEqual(result.refused, []);
 
   const link = result.created[0];
-  assert.equal(link.nodeId, first);
+  assert.equal(link.nodeKey, goalNodeKeyOf(first));
+  assert.equal(link.confirmedFromGeneration, graph.generation);
   assert.equal(link.entityKind, 'commitment');
   assert.equal(link.state, 'linked');
   assert.equal(link.goalMemoryId, goalId);
@@ -122,7 +124,7 @@ test('an unselected node creates nothing at all', async (t) => {
   // Exactly one commitment and exactly one link, for a graph of three nodes.
   assert.equal((await commitmentIds()).length, 1);
   const links = await createStorageGoalNodeLinkStore().list(OWNER, graph.goalMemoryId);
-  assert.deepEqual(links.map((link) => link.nodeId), [first]);
+  assert.deepEqual(links.map((link) => link.nodeKey), [goalNodeKeyOf(first)]);
   assert.deepEqual(await createHabitServices().habits.list(OWNER), []);
 });
 
@@ -221,6 +223,9 @@ test('the checkpoint and an unknown id are refused rather than created', async (
     [checkpoint!.nodeId, 'node_not_confirmable'],
     ['g1.step.nowhere', 'unknown_node'],
   ]);
+  // A refusal names both, because the id is what the client sent and the key
+  // is what a link would have been filed under.
+  assert.deepEqual(result.refused.map((entry) => entry.nodeKey), ['checkpoint.goal', 'step.nowhere']);
   assert.deepEqual(await commitmentIds(), []);
   assert.deepEqual(
     await createStorageGoalNodeLinkStore().list(OWNER, graph.goalMemoryId),
@@ -287,12 +292,13 @@ test('the link collection holds the decision and no copy of the commitment', asy
   assert.equal(rows.length, 1);
   assert.deepEqual(Object.keys(rows[0].data).sort(), [
     'confirmedByUserAt',
+    'confirmedFromGeneration',
     'createdAt',
     'entityId',
     'entityKind',
     'goalMemoryId',
     'linkId',
-    'nodeId',
+    'nodeKey',
     'schemaVersion',
     'scopeId',
     'state',

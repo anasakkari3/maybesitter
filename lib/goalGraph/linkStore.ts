@@ -3,7 +3,7 @@
  *
  * ── The id is derived, which is what makes "Confirm" safe to press twice ──
  *
- * `linkId` is `docIdForKey(goalMemoryId:nodeId)`, so two confirmations of one
+ * `linkId` is `docIdForKey(goalMemoryId:nodeKey)`, so two confirmations of one
  * node address the *same document*, and `claim` is a transaction that reads
  * before it writes: the second one finds the first link and hands it back with
  * `replayed: true`. There is no window in which two links exist, because there
@@ -11,6 +11,12 @@
  * `intentSeedStore` uses for a double-tapped "Keep", and here it is load
  * bearing for the same reason it is there — a duplicate is not a wasted row,
  * it is a second gym session in somebody's week.
+ *
+ * The key is the *node key*, not the node id — `step.s1` rather than
+ * `g1.step.s1`. Regeneration mints a new id for the same step, so keying on
+ * the id would make a regenerate-then-confirm create a second Commitment for
+ * work the user already has, and would detach every link they had confirmed.
+ * See `goalNodeKeyOf`.
  *
  * ── Two phases, because creation is not atomic with the claim ───
  *
@@ -35,6 +41,7 @@ import {
   type GoalLinkEntityKind,
   type GoalNodeLink,
 } from '../../src/contracts/v1/goalGraphContracts';
+import { goalNodeKeyOf } from './ids';
 import {
   GOAL_GRAPH_LINKS,
   docIdForKey,
@@ -48,8 +55,16 @@ import {
 /** The document, which is the link exactly. Nothing is stored beside it. */
 type StoredLink = GoalNodeLink;
 
-export function goalNodeLinkIdFor(goalMemoryId: string, nodeId: string): string {
-  return docIdForKey(`goal-node-link:${goalMemoryId}:${nodeId}`);
+/**
+ * Accepts either a node key or a full node id, and normalises.
+ *
+ * Taking both is deliberate: every caller that has a node has its *id*, and a
+ * helper that silently accepted an id and hashed the generation into the key
+ * is precisely the bug this function exists to prevent. Normalising here means
+ * there is one answer however the caller holds it.
+ */
+export function goalNodeLinkIdFor(goalMemoryId: string, nodeKeyOrId: string): string {
+  return docIdForKey(`goal-node-link:${goalMemoryId}:${goalNodeKeyOf(nodeKeyOrId)}`);
 }
 
 function linkPath(scopeId: string, linkId: string): string {
@@ -59,7 +74,10 @@ function linkPath(scopeId: string, linkId: string): string {
 export interface ClaimGoalNodeLinkInput {
   readonly scopeId: string;
   readonly goalMemoryId: string;
+  /** The node the user confirmed. Either the key or the full id. */
   readonly nodeId: string;
+  /** The generation they were looking at. Provenance only. */
+  readonly generation: number;
   readonly entityKind: GoalLinkEntityKind;
   /** The instant the user pressed confirm, passed in rather than read here. */
   readonly confirmedByUserAt: string;
@@ -84,15 +102,15 @@ export interface GoalNodeLinkStore {
 }
 
 /**
- * Ascending by node id, decided here rather than left to the adapter.
+ * Ascending by node key, decided here rather than left to the adapter.
  *
  * The two adapters disagree about the natural order of a collection read, and
- * the node id is the one key that is stable across generations of the same
- * graph — ordering by `createdAt` would reshuffle two links confirmed in the
- * same millisecond on every read.
+ * the node key is the one identity that is stable across generations of the
+ * same graph — ordering by `createdAt` would reshuffle two links confirmed in
+ * the same millisecond on every read.
  */
-function byNodeId(a: GoalNodeLink, b: GoalNodeLink): number {
-  return a.nodeId < b.nodeId ? -1 : a.nodeId > b.nodeId ? 1 : 0;
+function byNodeKey(a: GoalNodeLink, b: GoalNodeLink): number {
+  return a.nodeKey < b.nodeKey ? -1 : a.nodeKey > b.nodeKey ? 1 : 0;
 }
 
 export class StorageGoalNodeLinkStore implements GoalNodeLinkStore {
@@ -107,14 +125,16 @@ export class StorageGoalNodeLinkStore implements GoalNodeLinkStore {
     input: ClaimGoalNodeLinkInput,
     now: string,
   ): Promise<{ link: GoalNodeLink; replayed: boolean }> {
-    const linkId = goalNodeLinkIdFor(input.goalMemoryId, input.nodeId);
+    const nodeKey = goalNodeKeyOf(input.nodeId);
+    const linkId = goalNodeLinkIdFor(input.goalMemoryId, nodeKey);
     const path = linkPath(input.scopeId, linkId);
     const link: GoalNodeLink = {
       schemaVersion: GOAL_GRAPH_LINK_SCHEMA_VERSION,
       linkId,
       scopeId: input.scopeId,
       goalMemoryId: input.goalMemoryId,
-      nodeId: input.nodeId,
+      nodeKey,
+      confirmedFromGeneration: input.generation,
       entityKind: input.entityKind,
       // Null until the entity exists. A link that named an id before anything
       // was created would point at nothing, and progress would read it.
@@ -159,7 +179,7 @@ export class StorageGoalNodeLinkStore implements GoalNodeLinkStore {
     return rows
       .map((row) => row.data)
       .filter((link) => link.goalMemoryId === goalMemoryId)
-      .sort(byNodeId);
+      .sort(byNodeKey);
   }
 
   async get(scopeId: string, linkId: string): Promise<GoalNodeLink | null> {

@@ -319,3 +319,39 @@ test('progress has no field a number could be written into', () => {
     assert.equal(derive.includes(forbidden), false, `deriveProgress calls ${forbidden}`);
   }
 });
+
+test('a node id round-trips to a key that drops the generation and nothing else', async () => {
+  const { checkpointNodeIdFor, goalNodeKeyOf, milestoneNodeIdFor, nodeIdFor, stepNodeIdFor } =
+    await import('../../lib/goalGraph/ids.ts');
+
+  // Every id this feature mints must give back the same key at every
+  // generation. That is what carries a confirmed link across a regenerate and
+  // what stops the same step being confirmed twice into two commitments.
+  for (const [atOne, atTwo] of [
+    [checkpointNodeIdFor(1), checkpointNodeIdFor(2)],
+    [stepNodeIdFor(1, 's1'), stepNodeIdFor(2, 's1')],
+    [milestoneNodeIdFor(1, 'm1'), milestoneNodeIdFor(2, 'm1')],
+    [nodeIdFor(1, 'step.s9'), nodeIdFor(999, 'step.s9')],
+  ]) {
+    assert.notEqual(atOne, atTwo, 'two generations minted the same node id');
+    assert.equal(goalNodeKeyOf(atOne), goalNodeKeyOf(atTwo));
+  }
+  assert.equal(goalNodeKeyOf(stepNodeIdFor(7, 's2')), 'step.s2');
+  // Different steps stay different, or one link would answer for two nodes.
+  assert.notEqual(goalNodeKeyOf(stepNodeIdFor(1, 's1')), goalNodeKeyOf(stepNodeIdFor(1, 's2')));
+  // An id from somewhere else has no prefix to strip and is its own key,
+  // rather than being truncated into one that could collide with a real node.
+  assert.equal(goalNodeKeyOf('step.s1'), 'step.s1');
+  assert.equal(goalNodeKeyOf('something-else'), 'something-else');
+});
+
+test('the link store keys on the node key, whichever form the caller holds', async () => {
+  const { goalNodeLinkIdFor } = await import('../../lib/goalGraph/linkStore.ts');
+  const { stepNodeIdFor } = await import('../../lib/goalGraph/ids.ts');
+
+  const atOne = goalNodeLinkIdFor('goal-1', stepNodeIdFor(1, 's1'));
+  assert.equal(goalNodeLinkIdFor('goal-1', stepNodeIdFor(2, 's1')), atOne);
+  assert.equal(goalNodeLinkIdFor('goal-1', 'step.s1'), atOne);
+  // Still scoped to the goal: two goals' first steps are two different links.
+  assert.notEqual(goalNodeLinkIdFor('goal-2', 'step.s1'), atOne);
+});

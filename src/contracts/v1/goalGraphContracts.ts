@@ -331,8 +331,18 @@ export interface GoalNodeLink {
   readonly linkId: string;
   readonly scopeId: string;
   readonly goalMemoryId: string;
-  /** The `nodeId` in the graph this link answers for. */
-  readonly nodeId: string;
+  /**
+   * Which node this link answers for, without the generation it was confirmed
+   * at — `step.s1`, not `g1.step.s1`. See `goalNodeKeyOf`.
+   *
+   * Regeneration mints new node ids for the same steps, so a link keyed on the
+   * raw id would detach from its node the first time a user pressed
+   * regenerate, and confirming that node again would create a second
+   * Commitment for work they already have.
+   */
+  readonly nodeKey: string;
+  /** The generation the user was looking at. Provenance, never a key. */
+  readonly confirmedFromGeneration: number;
   readonly entityKind: GoalLinkEntityKind;
   /** Null only while `state` is `pending`. */
   readonly entityId: string | null;
@@ -386,6 +396,7 @@ export type GoalConfirmationRefusalCode =
 
 export interface GoalConfirmationRefusal {
   readonly nodeId: string;
+  readonly nodeKey: string;
   readonly code: GoalConfirmationRefusalCode;
   readonly detail: string;
 }
@@ -439,14 +450,14 @@ export interface GoalGraphProgress {
  */
 export type GoalNodeProgress =
   | {
-    readonly nodeId: string;
+    readonly nodeKey: string;
     readonly entityKind: 'commitment';
     readonly entityId: string;
     readonly status: string | 'missing';
     readonly completed: boolean;
   }
   | {
-    readonly nodeId: string;
+    readonly nodeKey: string;
     readonly entityKind: 'habit';
     readonly entityId: string;
     /** Occurrences marked completed inside the period the caller asked about. */

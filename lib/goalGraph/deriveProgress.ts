@@ -88,7 +88,7 @@ export async function deriveGoalGraphProgress(
     if (link.entityKind === 'commitment') {
       const commitment = state?.commitments[link.entityId];
       nodes.push({
-        nodeId: link.nodeId,
+        nodeKey: link.nodeKey,
         entityKind: 'commitment',
         entityId: link.entityId,
         // `missing` rather than an error: a user may delete a commitment a
@@ -102,7 +102,7 @@ export async function deriveGoalGraphProgress(
     nodes.push(await habitProgress(habits, request, link));
   }
 
-  nodes.sort((left, right) => (left.nodeId < right.nodeId ? -1 : left.nodeId > right.nodeId ? 1 : 0));
+  nodes.sort((left, right) => (left.nodeKey < right.nodeKey ? -1 : left.nodeKey > right.nodeKey ? 1 : 0));
   return Object.freeze({
     scopeId: request.scopeId,
     goalMemoryId: request.goalMemoryId,
@@ -139,7 +139,7 @@ async function habitProgress(
     && occurrence.localDate <= period.toLocalDate).length;
   const targetOccurrences = definition?.minimumOccurrences ?? 0;
   return {
-    nodeId: link.nodeId,
+    nodeKey: link.nodeKey,
     entityKind: 'habit',
     entityId: link.entityId,
     completedOccurrences,

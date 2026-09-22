@@ -68,6 +68,7 @@ import {
   goalNodeLinkIdFor,
   type GoalNodeLinkStore,
 } from './linkStore';
+import { goalNodeKeyOf } from './ids';
 
 export class GoalConfirmationError extends Error {
   constructor(message: string) {
@@ -153,7 +154,6 @@ export async function confirmGoalGraphNodes(
   const created: GoalNodeLink[] = [];
   const replayed: GoalNodeLink[] = [];
   const refused: GoalConfirmationRefusal[] = [];
-  const linkByNodeId = new Map<string, GoalNodeLink>();
 
   // Deduplicated, because one request naming a node twice is the same double
   // press as two requests — and the claim below would answer the second one
@@ -163,14 +163,36 @@ export async function confirmGoalGraphNodes(
     if (seen.has(selection.nodeId)) continue;
     seen.add(selection.nodeId);
 
+    // Asked before anything else, including before the node's kind is
+    // examined. A graph handed out by the read path already has confirmed
+    // nodes replaced by `linked_commitment` and `linked_habit`, which are not
+    // confirmable kinds — so checking the kind first would answer a retried
+    // request with `node_not_confirmable` instead of the decision it is
+    // retrying. A client resending after a dropped connection must get the
+    // first answer back, not a refusal that reads like it did something wrong.
+    const alreadyLinked = await links.get(
+      graph.scopeId,
+      goalNodeLinkIdFor(graph.goalMemoryId, selection.nodeId),
+    );
+    if (alreadyLinked && alreadyLinked.state === 'linked') {
+      replayed.push(alreadyLinked);
+      continue;
+    }
+
     const node = byId.get(selection.nodeId);
     if (!node) {
-      refused.push({ nodeId: selection.nodeId, code: 'unknown_node', detail: 'no such node in this graph' });
+      refused.push({
+        nodeId: selection.nodeId,
+        nodeKey: goalNodeKeyOf(selection.nodeId),
+        code: 'unknown_node',
+        detail: 'no such node in this graph',
+      });
       continue;
     }
     if (!CONFIRMABLE_GOAL_NODE_KINDS.includes(node.kind)) {
       refused.push({
         nodeId: selection.nodeId,
+        nodeKey: goalNodeKeyOf(selection.nodeId),
         code: 'node_not_confirmable',
         detail: `a ${node.kind} is not something to create`,
       });
@@ -178,7 +200,12 @@ export async function confirmGoalGraphNodes(
     }
     const title = titleOf(node);
     if (title === null) {
-      refused.push({ nodeId: selection.nodeId, code: 'node_not_confirmable', detail: 'node has no title' });
+      refused.push({
+        nodeId: selection.nodeId,
+        nodeKey: goalNodeKeyOf(selection.nodeId),
+        code: 'node_not_confirmable',
+        detail: 'node has no title',
+      });
       continue;
     }
 
@@ -206,6 +233,7 @@ export async function confirmGoalGraphNodes(
       } catch (error) {
         refused.push({
           nodeId: selection.nodeId,
+          nodeKey: goalNodeKeyOf(selection.nodeId),
           code: 'habit_input_invalid',
           detail: error instanceof HabitValidationError ? error.message : 'invalid habit',
         });
@@ -217,6 +245,7 @@ export async function confirmGoalGraphNodes(
       scopeId: graph.scopeId,
       goalMemoryId: graph.goalMemoryId,
       nodeId: node.nodeId,
+      generation: graph.generation,
       entityKind: selection.as,
       confirmedByUserAt: confirmedAt,
     }, confirmedAt);
@@ -224,7 +253,6 @@ export async function confirmGoalGraphNodes(
     if (claim.replayed && claim.link.state === 'linked') {
       // Already done. The answer is the link that happened, not a second one.
       replayed.push(claim.link);
-      linkByNodeId.set(node.nodeId, claim.link);
       continue;
     }
     // Either a fresh claim, or a `pending` one a previous attempt abandoned
@@ -249,7 +277,6 @@ export async function confirmGoalGraphNodes(
     const settled = await links.settle(graph.scopeId, linkId, entityId, confirmedAt);
     if (!settled) throw new GoalConfirmationError(`link ${linkId} vanished while creating ${entityId}`);
     (claim.replayed ? replayed : created).push(settled);
-    linkByNodeId.set(node.nodeId, settled);
   }
 
   return Object.freeze({
@@ -288,20 +315,27 @@ async function createCommitment(scopeId: string, title: string, at: string): Pro
  * on the Commitment, where the user can edit it and have the edit mean
  * something.
  *
- * Exported because the follow-up slice needs exactly this to carry confirmed
- * links across a regeneration, and a second implementation of it there would
- * be a second answer to "what does a confirmed graph look like".
+ * Matching is by node key rather than node id, which is what carries confirmed
+ * links across a regeneration: generation 2 mints `g2.step.s1` where the user
+ * confirmed `g1.step.s1`, and both are the key `step.s1`.
+ *
+ * Exported because the read path applies it to every graph it hands out, and a
+ * second implementation would be a second answer to "what does a confirmed
+ * graph look like".
  */
 export function applyLinksToGraph(
   graph: GoalExecutionGraph,
   links: readonly GoalNodeLink[],
 ): GoalExecutionGraph {
-  const byNodeId = new Map(links.filter((link) => link.state === 'linked').map((link) => [link.nodeId, link]));
-  if (byNodeId.size === 0) return graph;
+  const byNodeKey = new Map(links.filter((link) => link.state === 'linked').map((link) => [link.nodeKey, link]));
+  if (byNodeKey.size === 0) return graph;
   return Object.freeze({
     ...graph,
     nodes: Object.freeze(graph.nodes.map((node): GoalNode => {
-      const link = byNodeId.get(node.nodeId);
+      // Matched on the key, so a graph regenerated at generation 2 still finds
+      // the link a user confirmed against generation 1 — which is #526's
+      // "regeneration preserves already confirmed canonical links".
+      const link = byNodeKey.get(goalNodeKeyOf(node.nodeId));
       if (!link || link.entityId === null) return node;
       return link.entityKind === 'habit'
         ? { nodeId: node.nodeId, kind: 'linked_habit', status: 'confirmed', habitId: link.entityId }
