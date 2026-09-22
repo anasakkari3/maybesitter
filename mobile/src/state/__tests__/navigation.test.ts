@@ -124,6 +124,15 @@ describe('arriving from a notification or a link', () => {
     expect(derive(back(n))).toMatchObject({ screen: 'today', showTabs: true });
   });
 
+  it('an arrival replaces what Today already had open — back is Today, not the earlier Details', () => {
+    // The case a weak test lets through: Today's own stack is non-empty when
+    // the notification lands. Back from the plan must still be Today.
+    const before = push(push(initialNav, { name: 'details', detailId: 'old' }), { name: 'plan', planDate: '2026-09-21' });
+    const n = arrive(before, { name: 'plan', planDate: '2026-09-22' });
+    expect(n.stacks.today).toHaveLength(1);
+    expect(derive(back(n))).toMatchObject({ screen: 'today', showTabs: true });
+  });
+
   it('a commitment link opens Details with Today underneath', () => {
     const n = arrive(initialNav, { name: 'details', detailId: 'c9' });
     expect(derive(n)).toMatchObject({ screen: 'details', detailId: 'c9' });
