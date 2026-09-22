@@ -25,13 +25,13 @@
  * passes its `causeChangeIds` to `attributionsForArtifacts` and gets back the
  * monitors, conditions and policy decisions behind the replan.
  *
- * What is *not* yet closed is the last hop in the other direction: a stored
- * plan generation does not record the change ids it was built from
- * (`StoredDailyPlan` has `generation`, `replaces` and `inputDigest`, and no
- * causes), so "given only a plan, which monitor caused it" cannot be answered
- * without the patch. That is a write to the plan record and belongs to the
- * lane that persists patches, not to a read projection — see the report note
- * rather than a null field invented here to look complete.
+ * The last hop in the other direction is closed too, and closed on the write
+ * side where it belongs: an automatic replan records its `causeChangeIds` on
+ * the plan document it stores, and `lib/services/dailyPlan/planCause.ts` reads
+ * them back and calls `attributionsForArtifacts` below. So "given only a plan,
+ * which monitor caused it" is now answerable without the patch. Nothing here
+ * changed for it: this file still writes nothing, and the plan-side hop is a
+ * caller of this projection rather than a second copy of it.
  *
  * ── Orphans ───────────────────────────────────────────────────────
  *

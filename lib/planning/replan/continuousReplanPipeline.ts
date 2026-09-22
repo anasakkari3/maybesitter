@@ -78,6 +78,15 @@ export function executeContinuousReplanPipeline(
   const coalesced = coalescePlanningStateChanges(changes);
 
   let primaryImpact: PlanImpact;
+  /**
+   * Each coalesced group's own verdict, kept beside the group it judged.
+   *
+   * The pipeline has always computed these and thrown all but one away. They
+   * are retained now because `impactingChangeIds` is derived from them, and
+   * deriving it anywhere else would mean evaluating the same changes a second
+   * time — two answers to one question, free to drift.
+   */
+  let groupImpacts: readonly { readonly changeIds: readonly string[]; readonly impact: PlanImpact }[] = [];
   if (coalesced.length === 0) {
     primaryImpact = Object.freeze({
       changeId: 'none',
@@ -86,13 +95,15 @@ export function executeContinuousReplanPipeline(
       reason: 'digests_unchanged',
     });
   } else {
-    const impacts = coalesced.map((group) =>
-      evaluateStateChangeImpact({
+    groupImpacts = coalesced.map((group) => ({
+      changeIds: group.changeIds,
+      impact: evaluateStateChangeImpact({
         change: group.representative,
         plan: planView,
         entity: entityFacts,
       }),
-    );
+    }));
+    const impacts = groupImpacts.map((entry) => entry.impact);
 
     const overallDecision = combineImpactDecisions(impacts);
     // Select the representative impact matching the overall decision (highest severity)
@@ -107,6 +118,7 @@ export function executeContinuousReplanPipeline(
       impact: primaryImpact,
       enqueued: false,
       queueEntry: null,
+      impactingChangeIds: Object.freeze([]),
       basePlan,
       newPlan: null,
       diff: null,
@@ -124,6 +136,7 @@ export function executeContinuousReplanPipeline(
       impact: primaryImpact,
       enqueued: false,
       queueEntry: null,
+      impactingChangeIds: Object.freeze([]),
       basePlan,
       newPlan: null,
       diff: null,
@@ -134,6 +147,24 @@ export function executeContinuousReplanPipeline(
 
   // Step 3: Deduped enqueue
   const allChangeIds = Array.from(new Set(changes.map((c) => c.changeId))).sort(compareByCodePoint);
+
+  /**
+   * The subset that actually earned the replan, for attribution (#527, AC 2).
+   *
+   * `allChangeIds` above is the whole batch and stays that way: it is what the
+   * request subsumes, and the queue, the planner closure and the dedupe all
+   * keep reading exactly what they read before. This narrower set is derived
+   * beside it and used by nothing in this pipeline.
+   */
+  const impactingChangeIds = Object.freeze(
+    Array.from(
+      new Set(
+        groupImpacts
+          .filter((entry) => entry.impact.decision === primaryImpact.decision)
+          .flatMap((entry) => entry.changeIds),
+      ),
+    ).sort(compareByCodePoint),
+  );
 
   const request: ReplanRequest = {
     requestId: input.requestId ?? `replan-${date}-${scopeId}`,
@@ -181,6 +212,7 @@ export function executeContinuousReplanPipeline(
     impact: primaryImpact,
     enqueued: true,
     queueEntry: entry,
+    impactingChangeIds,
     basePlan,
     newPlan,
     diff,

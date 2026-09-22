@@ -106,6 +106,24 @@ export interface StoredDailyPlan {
   readonly inputDigest: string;
   readonly acceptedAt: string | null;
   readonly updatedAt: string;
+  /**
+   * The state changes this generation was built from (#527, AC 2).
+   *
+   * Optional, and absent on every plan written before this field existed and
+   * on every plan a person asked for: a morning build and a manual rebuild
+   * have no monitor behind them, and an empty list would be a claim rather
+   * than a silence. Present only when an automatic replan wrote the
+   * generation, where it carries the pipeline result's `impactingChangeIds` —
+   * the changes whose *own* impact required the replan, which is narrower than
+   * the batch the replan request subsumes. A change that arrived in the same
+   * sweep and was evaluated `NO_EFFECT` is not a cause of this plan and is
+   * deliberately not recorded as one. Those are the ids
+   * `attributionsForArtifacts` joins to the firings, which is how a plan read
+   * back from storage can name the monitor that caused it. Ids and
+   * nothing else: no monitor label, no provider text, and no second copy of
+   * the chain that could drift from the firings it describes.
+   */
+  readonly causeChangeIds?: readonly string[];
 }
 
 export type PlanEventType =
@@ -124,6 +142,13 @@ export interface PlanEvent {
   readonly generation: number;
   /** The plan's digest, which is a hash and carries no user text. */
   readonly inputDigest: string;
+  /**
+   * On a `plan_regenerated` written by an automatic replan: the change ids
+   * that caused it (#527, AC 2). Absent everywhere else — a manual rebuild,
+   * an acceptance, an edit — for the reason `StoredDailyPlan.causeChangeIds`
+   * is absent there. Opaque ids, like the digest beside them.
+   */
+  readonly causeChangeIds?: readonly string[];
 }
 
 function storageOf(storage?: StorageAdapter): StorageAdapter {

@@ -350,6 +350,24 @@ export interface ContinuousReplanPipelineResult {
   readonly impact: PlanImpact;
   readonly enqueued: boolean;
   readonly queueEntry: ReplanQueueEntry | null;
+  /**
+   * The change ids whose *own* impact required this replan (#527, AC 2).
+   *
+   * `queueEntry.request.causeChangeIds` is every id in the batch, because the
+   * queue's job is to record what one replan request subsumes — two watchers
+   * firing in one sweep are one request whatever each of them did. That is the
+   * right answer for a queue and the wrong answer for attribution: a stored
+   * plan that named a monitor whose change was evaluated `NO_EFFECT` would
+   * tell the user a monitor moved their day when it did not.
+   *
+   * So this is the narrower set: the members of every coalesced group whose
+   * impact decision equals the decision that got past the branch — all of the
+   * group's ids, not just its representative, because a burst's members are
+   * one underlying event and each carries its own firing. Empty whenever no
+   * replan ran. Additive and derived; it changes nothing the queue, the
+   * planner closure or the policy layer sees.
+   */
+  readonly impactingChangeIds: readonly string[];
   readonly basePlan: Plan | null;
   readonly newPlan: Plan | null;
   readonly diff: PlanDiff | null;
