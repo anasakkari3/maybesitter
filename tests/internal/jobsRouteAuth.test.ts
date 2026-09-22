@@ -17,10 +17,12 @@ import type { StorageAdapter } from '../../lib/storage/storageAdapter.ts';
 import { AUDIENCE_ENV_VAR, SCHEDULER_SA_ENV_VAR, type OidcPayload } from '../../lib/auth/schedulerOidc.ts';
 import {
   TICK_BATCH,
+  handleContinuousReplanRequest,
   handleJobsRunRequest,
   handleMaintenanceRequest,
   runJobsTick,
   runMaintenance,
+  type ContinuousReplanTickTotals,
   type TickTotals,
 } from '../../lib/jobs/internalJobs.ts';
 import { createStorageSchedulerStore } from '../../lib/scheduler/storageSchedulerStore.ts';
@@ -111,6 +113,50 @@ test('maintenance: the same guard, and a refusal sweeps nothing', async () => {
   }));
   assert.equal(response.status, 401);
   assert.equal(swept, false);
+});
+
+test('continuous replan: auth guard refuses unauthenticated request and runs no sweep', async () => {
+  let ran = false;
+  const emptyTotals: ContinuousReplanTickTotals = {
+    examined: 0,
+    replanRequired: 0,
+    autoApplied: 0,
+    proposed: 0,
+    stale: 0,
+    noEffect: 0,
+    failed: 0,
+  };
+  const response = await quiet(() => handleContinuousReplanRequest(bearer(null), {
+    env: ENV,
+    verify: async () => SCHEDULER,
+    continuousReplan: async () => {
+      ran = true;
+      return emptyTotals;
+    },
+  }));
+  assert.equal(response.status, 401);
+  assert.equal(ran, false);
+
+  const appliedTotals: ContinuousReplanTickTotals = {
+    examined: 1,
+    replanRequired: 1,
+    autoApplied: 1,
+    proposed: 0,
+    stale: 0,
+    noEffect: 0,
+    failed: 0,
+  };
+  const okResponse = await handleContinuousReplanRequest(bearer('Bearer scheduler-token'), {
+    env: ENV,
+    verify: async () => SCHEDULER,
+    continuousReplan: async () => {
+      ran = true;
+      return appliedTotals;
+    },
+  });
+  assert.equal(okResponse.status, 200);
+  assert.equal(ran, true);
+  assert.deepEqual(await okResponse.json(), appliedTotals);
 });
 
 /* ── The real wiring ─────────────────────────────────────────────── */
