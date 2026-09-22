@@ -1,29 +1,42 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import { mobileError } from '../../../../../../lib/services/mobile/response';
+import { parseHabitPatchInput } from '../../../../../../src/contracts/v1/habitContracts';
 import {
   HabitValidationError,
+  checkHabitPatchBody,
   habitValidationResponse,
   parseHabitId,
-  parseHabitPatch,
   presentHabit,
-} from '../../../../../../lib/habits/habitApi';
-import { getHabitStore, habitsEnabled } from '../../../../../../lib/habits/habitStore';
+  presentOccurrence,
+} from '../../../../../../lib/services/habits/habitApi';
+import {
+  createHabitServices,
+  patchHabitWithOccurrences,
+  removeHabitWithOccurrences,
+  todayLocalDateFor,
+} from '../../../../../../lib/services/habits/habitService';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * Retunes a habit (#520).
+ * Retunes a habit, and brings its dates in line with the new rule (#520).
  *
- * `source` is refused rather than applied — see `PATCH_KEYS` — because a habit
- * that came from a confirmed goal came from one for ever, and a client that
- * could restate it could relabel its own guesses as something the user agreed
- * to.
+ * ── The patch cannot rewrite the receipt ─────────────────────────
  *
- * Everything else is editable, including `status`: pausing a habit is a patch
- * rather than a route of its own, because there is nothing else pausing has to
- * do. The adapter reads `status` on every build (`buildHabitPlanningRequest`
- * drops a paused habit's occurrences), so a pause takes effect on the next
- * plan without any occurrence being rewritten.
+ * `source` and `confirmation` are not patchable keys. Editing a habit is not
+ * re-confirming it, and a patch that could restate where the habit came from
+ * would let a client relabel its own guesses as something the user agreed to —
+ * which is the provenance #520's confirmation invariant exists to protect.
+ * `parseHabitPatchInput` enforces the same thing one layer down.
+ *
+ * ── Every patch re-materializes, including a pause ───────────────
+ *
+ * A cadence edited from five days a week to three withdraws the untouched
+ * `pending` rows the rule no longer asks for and keeps every date the person
+ * actually touched — and `status: 'paused'` is the same operation with no
+ * demand dates at all. That is "pausing removes future demand without deleting
+ * history", and it is the domain lane's merge rule rather than a second one
+ * written here: see `resyncHabitOccurrences`.
  *
  * A habit id belonging to another account answers 404 — the same answer as an
  * id that never existed, and for the same reason it is the same answer: the
@@ -37,7 +50,6 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   } catch (error) {
     return mobileAuthErrorResponse(error);
   }
-  if (!habitsEnabled()) return mobileError('habits are not enabled in this build', 503);
 
   let body: unknown;
   try {
@@ -49,19 +61,22 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   const { id } = await context.params;
   try {
     const habitId = parseHabitId(id);
-    const store = getHabitStore();
-    // Read before validating: the occurrence bounds are a *pair*, and a patch
-    // that moves only the minimum has to be checked against the maximum this
-    // habit already holds. Validated in isolation, two individually legal
-    // edits leave a habit that can never be materialized.
-    const habits = await store.list(user.uid);
-    const current = habits.find((habit) => habit.habitId === habitId);
-    if (current === undefined) return mobileError('no such habit', 404);
-
-    const patch = parseHabitPatch(body, current);
-    const updated = await store.update(user.uid, habitId, patch, new Date().toISOString());
+    const patch = parseHabitPatchInput(checkHabitPatchBody(body));
+    const now = new Date();
+    const updated = await patchHabitWithOccurrences(
+      createHabitServices(),
+      user.uid,
+      habitId,
+      patch,
+      now.toISOString(),
+      todayLocalDateFor(now, new URL(request.url).searchParams.get('timezone') ?? undefined),
+    );
     if (updated === null) return mobileError('no such habit', 404);
-    return Response.json({ success: true, habit: presentHabit(updated) });
+    return Response.json({
+      success: true,
+      habit: presentHabit(updated.habit),
+      occurrences: updated.materialization.occurrences.map(presentOccurrence),
+    });
   } catch (error) {
     if (error instanceof HabitValidationError) return habitValidationResponse(error);
     console.error('[habits] patching a habit failed', error);
@@ -70,19 +85,18 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
 }
 
 /**
- * Stops keeping this habit, for good.
+ * Stops keeping this habit, for good, and takes its dates with it.
  *
- * The habit's occurrences go with it, which is the opposite of the ruling the
- * watchers DELETE takes about its firing history, and for a reason rather than
- * an inconsistency: a watcher's history is a record of what this account was
- * *already told*, and deleting the configuration is not a claim those
- * notifications never happened. An open habit occurrence is not a record of
- * anything — it is dated work waiting to be planned — and one left behind with
- * no definition has no title, no duration and no flexibility, so the adapter
- * would drop it every morning for ever without anybody being told why.
+ * Both, because an occurrence that outlives its rule has a title nowhere, a
+ * duration policy nowhere and no flexibility — the adapter would drop it every
+ * morning for ever without anybody being told why. That is the opposite of the
+ * ruling the watchers DELETE takes about its firing history, and for a reason
+ * rather than an inconsistency: a watcher's history is a record of what this
+ * account was *already told*, while an open habit occurrence is dated work
+ * still waiting to be planned.
  *
- * A user who means "stop for now" wants `status: 'paused'`, which is a PATCH
- * and keeps everything.
+ * A user who means "stop for now" wants `PATCH` with `status: 'paused'`, which
+ * keeps every date they have already answered about.
  */
 export async function DELETE(request: Request, context: { params: Promise<{ id: string }> }) {
   let user;
@@ -91,12 +105,11 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
   } catch (error) {
     return mobileAuthErrorResponse(error);
   }
-  if (!habitsEnabled()) return mobileError('habits are not enabled in this build', 503);
 
   const { id } = await context.params;
   try {
     const habitId = parseHabitId(id);
-    const existed = await getHabitStore().remove(user.uid, habitId);
+    const existed = await removeHabitWithOccurrences(createHabitServices(), user.uid, habitId);
     if (!existed) return mobileError('no such habit', 404);
     return Response.json({ success: true, habitId, deleted: true });
   } catch (error) {
