@@ -279,7 +279,7 @@ test('confirmation creates entities through the existing boundaries, and no othe
   // The two seams this repo already has. Naming them here means a third way to
   // create a commitment — a direct `storage.set` into the collection, a new
   // gateway — is a failing test rather than a review someone has to catch.
-  for (const required of ['applyParticipantCommands', 'ConfirmCommitment', 'parseNewHabit', 'habits.create']) {
+  for (const required of ['applyParticipantCommands', 'ConfirmCommitment', 'parseHabitDefinitionInput', 'createHabitWithOccurrences']) {
     assert.ok(code.includes(required), `confirmation no longer goes through ${required}`);
   }
   for (const forbidden of ['commitmentDocPath', 'writeDomainDiff', 'deterministicStateGateway', 'tx.set']) {

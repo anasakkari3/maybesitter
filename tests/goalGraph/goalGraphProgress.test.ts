@@ -20,7 +20,7 @@ import {
   setStorageForTests,
 } from '../../lib/storage/index.ts';
 import { USER_SCOPED_COLLECTIONS, userCol, userDoc } from '../../lib/storage/paths.ts';
-import { getHabitStore, setHabitStoreForTests } from '../../lib/habits/habitStore.ts';
+import { createHabitServices } from '../../lib/services/habits/habitService.ts';
 import {
   applyParticipantCommand,
   getParticipantStateSnapshot,
@@ -41,12 +41,13 @@ const GYM = {
   durationMinutes: 60,
   minimumOccurrences: 3,
   maximumOccurrences: 3,
+  flexibility: 'flexible' as const,
+  recoveryPolicy: 'skip' as const,
 };
 
 async function generatedGraph(): Promise<GoalExecutionGraph> {
   const { storage, goal } = await seedGoal();
   setStorageForTests(storage);
-  setHabitStoreForTests(null);
   const { graph } = await generateGoalExecutionGraph({ goal, generatedAt: NOW });
   return graph;
 }
@@ -81,7 +82,7 @@ async function snapshot(): Promise<string[]> {
 }
 
 test('a goal with nothing confirmed has nothing to report', async (t) => {
-  t.after(() => { resetStorageForTests(); setHabitStoreForTests(null); });
+  t.after(resetStorageForTests);
   const graph = await generatedGraph();
   const progress = await progressOf(graph);
 
@@ -95,7 +96,7 @@ test('a goal with nothing confirmed has nothing to report', async (t) => {
 });
 
 test('completing a linked commitment moves progress, with nothing rewritten', async (t) => {
-  t.after(() => { resetStorageForTests(); setHabitStoreForTests(null); });
+  t.after(resetStorageForTests);
   const graph = await generatedGraph();
   const [first, second] = stepNodeIds(graph);
   const { created } = await confirmGoalGraphNodes({
@@ -131,7 +132,7 @@ test('completing a linked commitment moves progress, with nothing rewritten', as
 });
 
 test('deriving progress writes nothing anywhere in the account', async (t) => {
-  t.after(() => { resetStorageForTests(); setHabitStoreForTests(null); });
+  t.after(resetStorageForTests);
   const graph = await generatedGraph();
   const [first] = stepNodeIds(graph);
   await confirmGoalGraphNodes({
@@ -152,7 +153,7 @@ test('deriving progress writes nothing anywhere in the account', async (t) => {
 });
 
 test('a dropped commitment is not progress, and a deleted one is not an error', async (t) => {
-  t.after(() => { resetStorageForTests(); setHabitStoreForTests(null); });
+  t.after(resetStorageForTests);
   const graph = await generatedGraph();
   const [first, second] = stepNodeIds(graph);
   const { created } = await confirmGoalGraphNodes({
@@ -187,7 +188,7 @@ test('a dropped commitment is not progress, and a deleted one is not an error', 
 });
 
 test('a habit reports occurrences achieved inside the period, and only those', async (t) => {
-  t.after(() => { resetStorageForTests(); setHabitStoreForTests(null); });
+  t.after(resetStorageForTests);
   const graph = await generatedGraph();
   const [first] = stepNodeIds(graph);
   const { created } = await confirmGoalGraphNodes({
@@ -196,7 +197,7 @@ test('a habit reports occurrences achieved inside the period, and only those', a
     confirmedAt: CONFIRMED_AT,
   });
   const habitId = created[0].entityId!;
-  const store = getHabitStore();
+  const store = createHabitServices().occurrences;
 
   // Three this week, one last week. The habit is met at three.
   const dates: [string, 'completed' | 'pending'][] = [
@@ -205,15 +206,15 @@ test('a habit reports occurrences achieved inside the period, and only those', a
     ['2026-09-23', 'completed'],
     ['2026-09-26', 'pending'],
   ];
-  for (const [localDate, state] of dates) {
-    await store.putOccurrence(OWNER, {
-      occurrenceId: `${habitId}.${localDate}.0`,
-      habitId,
-      localDate,
-      state,
-      durationMinutes: 60,
-    });
-  }
+  await store.putMany(OWNER, dates.map(([localDate, state]) => ({
+    occurrenceId: `${habitId}.${localDate}.0`,
+    habitId,
+    localDate,
+    ordinal: 0,
+    recoveredFromOccurrenceId: null,
+    state,
+    durationMinutes: 60,
+  })));
 
   const partway = await progressOf(graph);
   const node = partway.nodes[0];
@@ -224,7 +225,7 @@ test('a habit reports occurrences achieved inside the period, and only those', a
   assert.equal(partway.completedCount, 0);
 
   // The third one this week meets the habit's own minimum.
-  await store.transitionOccurrence(OWNER, habitId, `${habitId}.2026-09-26.0`, 'completed');
+  await store.transition(OWNER, habitId, `${habitId}.2026-09-26.0`, 'completed');
   const met = await progressOf(graph);
   assert.equal(met.nodes[0].entityKind === 'habit' && met.nodes[0].completedOccurrences, 3);
   assert.equal(met.nodes[0].completed, true);
@@ -232,7 +233,7 @@ test('a habit reports occurrences achieved inside the period, and only those', a
 });
 
 test('a deleted habit reports a target of zero and is not called achieved', async (t) => {
-  t.after(() => { resetStorageForTests(); setHabitStoreForTests(null); });
+  t.after(resetStorageForTests);
   const graph = await generatedGraph();
   const [first] = stepNodeIds(graph);
   const { created } = await confirmGoalGraphNodes({
@@ -241,7 +242,7 @@ test('a deleted habit reports a target of zero and is not called achieved', asyn
     confirmedAt: CONFIRMED_AT,
   });
 
-  assert.equal(await getHabitStore().remove(OWNER, created[0].entityId!), true);
+  assert.equal(await createHabitServices().habits.remove(OWNER, created[0].entityId!), true);
   const progress = await progressOf(graph);
   const node = progress.nodes[0];
 
@@ -252,7 +253,7 @@ test('a deleted habit reports a target of zero and is not called achieved', asyn
 });
 
 test('a period nobody scoped counts nothing rather than everything', async (t) => {
-  t.after(() => { resetStorageForTests(); setHabitStoreForTests(null); });
+  t.after(resetStorageForTests);
   const graph = await generatedGraph();
   const [first] = stepNodeIds(graph);
   const { created } = await confirmGoalGraphNodes({
@@ -261,15 +262,15 @@ test('a period nobody scoped counts nothing rather than everything', async (t) =
     confirmedAt: CONFIRMED_AT,
   });
   const habitId = created[0].entityId!;
-  for (const localDate of ['2026-09-21', '2026-09-23', '2026-09-25']) {
-    await getHabitStore().putOccurrence(OWNER, {
-      occurrenceId: `${habitId}.${localDate}.0`,
-      habitId,
-      localDate,
-      state: 'completed',
-      durationMinutes: 60,
-    });
-  }
+  await createHabitServices().occurrences.putMany(OWNER, ['2026-09-21', '2026-09-23', '2026-09-25'].map((localDate) => ({
+    occurrenceId: `${habitId}.${localDate}.0`,
+    habitId,
+    localDate,
+    ordinal: 0,
+    recoveredFromOccurrenceId: null,
+    state: 'completed' as const,
+    durationMinutes: 60,
+  })));
 
   const unscoped = await deriveGoalGraphProgress({
     scopeId: OWNER,
@@ -281,7 +282,7 @@ test('a period nobody scoped counts nothing rather than everything', async (t) =
 });
 
 test('progress is blind to commitments the goal never linked', async (t) => {
-  t.after(() => { resetStorageForTests(); setHabitStoreForTests(null); });
+  t.after(resetStorageForTests);
   const graph = await generatedGraph();
   const [first] = stepNodeIds(graph);
   await confirmGoalGraphNodes({

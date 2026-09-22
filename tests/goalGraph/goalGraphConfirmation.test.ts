@@ -19,7 +19,7 @@ import {
   setStorageForTests,
 } from '../../lib/storage/index.ts';
 import { COMMITMENTS, GOAL_GRAPH_LINKS, userCol } from '../../lib/storage/paths.ts';
-import { getHabitStore, setHabitStoreForTests } from '../../lib/habits/habitStore.ts';
+import { createHabitServices } from '../../lib/services/habits/habitService.ts';
 import { getParticipantStateSnapshot } from '../../lib/services/mobile/participantState.ts';
 import { generateGoalExecutionGraph } from '../../lib/goalGraph/generateGoalGraph.ts';
 import { confirmGoalGraphNodes } from '../../lib/goalGraph/confirmGoalGraph.ts';
@@ -36,12 +36,13 @@ const GYM = {
   durationMinutes: 60,
   minimumOccurrences: 3,
   maximumOccurrences: 3,
+  flexibility: 'flexible' as const,
+  recoveryPolicy: 'skip' as const,
 };
 
 async function generatedGraph(): Promise<{ graph: GoalExecutionGraph; goalId: string }> {
   const { storage, goal } = await seedGoal();
   setStorageForTests(storage);
-  setHabitStoreForTests(null);
   const { graph } = await generateGoalExecutionGraph({ goal, generatedAt: NOW });
   return { graph, goalId: goal.id };
 }
@@ -58,7 +59,7 @@ async function commitmentIds(): Promise<string[]> {
 }
 
 test('confirming one node creates one commitment, and the graph links it', async (t) => {
-  t.after(() => { resetStorageForTests(); setHabitStoreForTests(null); });
+  t.after(resetStorageForTests);
   const { graph, goalId } = await generatedGraph();
   const [first, second] = stepNodeIds(graph);
 
@@ -108,7 +109,7 @@ test('confirming one node creates one commitment, and the graph links it', async
 });
 
 test('an unselected node creates nothing at all', async (t) => {
-  t.after(() => { resetStorageForTests(); setHabitStoreForTests(null); });
+  t.after(resetStorageForTests);
   const { graph } = await generatedGraph();
   const [first] = stepNodeIds(graph);
 
@@ -122,11 +123,11 @@ test('an unselected node creates nothing at all', async (t) => {
   assert.equal((await commitmentIds()).length, 1);
   const links = await createStorageGoalNodeLinkStore().list(OWNER, graph.goalMemoryId);
   assert.deepEqual(links.map((link) => link.nodeId), [first]);
-  assert.deepEqual(await getHabitStore().list(OWNER), []);
+  assert.deepEqual(await createHabitServices().habits.list(OWNER), []);
 });
 
 test('confirming the same node twice creates one commitment', async (t) => {
-  t.after(() => { resetStorageForTests(); setHabitStoreForTests(null); });
+  t.after(resetStorageForTests);
   const { graph } = await generatedGraph();
   const [first] = stepNodeIds(graph);
   const selections = [{ nodeId: first, as: 'commitment' as const }];
@@ -146,7 +147,7 @@ test('confirming the same node twice creates one commitment', async (t) => {
 });
 
 test('one request naming a node twice is the same double press', async (t) => {
-  t.after(() => { resetStorageForTests(); setHabitStoreForTests(null); });
+  t.after(resetStorageForTests);
   const { graph } = await generatedGraph();
   const [first] = stepNodeIds(graph);
 
@@ -162,7 +163,7 @@ test('one request naming a node twice is the same double press', async (t) => {
 });
 
 test('a node confirmed as a habit goes through the habits API’s own validator', async (t) => {
-  t.after(() => { resetStorageForTests(); setHabitStoreForTests(null); });
+  t.after(resetStorageForTests);
   const { graph } = await generatedGraph();
   const [first, second] = stepNodeIds(graph);
 
@@ -173,7 +174,7 @@ test('a node confirmed as a habit goes through the habits API’s own validator'
   });
 
   assert.equal(result.created.length, 1);
-  const habits = await getHabitStore().list(OWNER);
+  const habits = await createHabitServices().habits.list(OWNER);
   assert.equal(habits.length, 1);
   assert.equal(habits[0].habitId, result.created[0].entityId);
   assert.equal(habits[0].title, 'Launch the side project: build the landing page');
@@ -193,7 +194,7 @@ test('a node confirmed as a habit goes through the habits API’s own validator'
   });
   assert.deepEqual(refused.created, []);
   assert.deepEqual(refused.refused.map((entry) => entry.code), ['habit_input_invalid']);
-  assert.equal((await getHabitStore().list(OWNER)).length, 1);
+  assert.equal((await createHabitServices().habits.list(OWNER)).length, 1);
   assert.equal(
     await createStorageGoalNodeLinkStore().get(OWNER, goalNodeLinkIdFor(graph.goalMemoryId, second)),
     null,
@@ -202,7 +203,7 @@ test('a node confirmed as a habit goes through the habits API’s own validator'
 });
 
 test('the checkpoint and an unknown id are refused rather than created', async (t) => {
-  t.after(() => { resetStorageForTests(); setHabitStoreForTests(null); });
+  t.after(resetStorageForTests);
   const { graph } = await generatedGraph();
   const checkpoint = graph.nodes.find((node) => node.kind === 'checkpoint');
 
@@ -228,7 +229,7 @@ test('the checkpoint and an unknown id are refused rather than created', async (
 });
 
 test('confirming two nodes creates exactly those two, and nothing for the third', async (t) => {
-  t.after(() => { resetStorageForTests(); setHabitStoreForTests(null); });
+  t.after(resetStorageForTests);
   const { graph } = await generatedGraph();
   const [first, second] = stepNodeIds(graph);
 
@@ -240,7 +241,7 @@ test('confirming two nodes creates exactly those two, and nothing for the third'
 
   assert.equal(result.created.length, 2);
   assert.equal((await commitmentIds()).length, 1);
-  assert.equal((await getHabitStore().list(OWNER)).length, 1);
+  assert.equal((await createHabitServices().habits.list(OWNER)).length, 1);
   assert.deepEqual(
     result.graph.nodes.map((node) => node.kind).sort(),
     ['checkpoint', 'linked_commitment', 'linked_habit'],
@@ -248,7 +249,7 @@ test('confirming two nodes creates exactly those two, and nothing for the third'
 });
 
 test('unlinking removes the link and leaves the commitment in the account', async (t) => {
-  t.after(() => { resetStorageForTests(); setHabitStoreForTests(null); });
+  t.after(resetStorageForTests);
   const { graph } = await generatedGraph();
   const [first] = stepNodeIds(graph);
   const links = createStorageGoalNodeLinkStore();
@@ -273,7 +274,7 @@ test('unlinking removes the link and leaves the commitment in the account', asyn
 });
 
 test('the link collection holds the decision and no copy of the commitment', async (t) => {
-  t.after(() => { resetStorageForTests(); setHabitStoreForTests(null); });
+  t.after(resetStorageForTests);
   const { graph } = await generatedGraph();
   const [first] = stepNodeIds(graph);
   await confirmGoalGraphNodes({

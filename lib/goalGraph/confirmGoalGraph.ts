@@ -13,9 +13,10 @@
  *    confirmed sentence into a commitment, and the sequence the capture
  *    confirm uses. There is no third way to create one and this module does
  *    not add one.
- *  - a Habit through `getHabitStore().create`, after `parseNewHabit` — the
- *    habits API's own validator, so a habit born from a goal is held to
- *    exactly the bounds a habit typed by hand is.
+ *  - a Habit through `createHabitWithOccurrences`, after
+ *    `parseHabitDefinitionInput` — the real habit contract's own validator
+ *    (#520), so a habit born from a goal is held to exactly the bounds a habit
+ *    typed by hand is, and is materialized into real dates the same way.
  *
  * Nothing here reaches `schedulePlan`. A graph node never becomes planning
  * demand; the Commitment and the Habit occurrences it produces do, through the
@@ -55,8 +56,13 @@ import {
   applyParticipantCommand,
   applyParticipantCommands,
 } from '../services/mobile/participantState';
-import { HabitValidationError, parseNewHabit } from '../habits/habitApi';
-import { getHabitStore, type HabitStore } from '../habits/habitStore';
+import { HabitValidationError, parseHabitDefinitionInput } from '../../src/contracts/v1/habitContracts';
+import {
+  createHabitServices,
+  createHabitWithOccurrences,
+  todayLocalDateFor,
+  type HabitServices,
+} from '../services/habits/habitService';
 import {
   createStorageGoalNodeLinkStore,
   goalNodeLinkIdFor,
@@ -79,7 +85,7 @@ export interface ConfirmGoalGraphRequest {
 
 export interface ConfirmGoalGraphDependencies {
   readonly links?: GoalNodeLinkStore;
-  readonly habits?: HabitStore;
+  readonly habits?: HabitServices;
 }
 
 /**
@@ -141,7 +147,7 @@ export async function confirmGoalGraphNodes(
     throw new GoalConfirmationError('confirmedAt must be an ISO-8601 instant');
   }
   const links = dependencies.links ?? createStorageGoalNodeLinkStore();
-  const habits = dependencies.habits ?? getHabitStore();
+  const habits = dependencies.habits ?? createHabitServices();
   const byId = new Map(graph.nodes.map((node) => [node.nodeId, node]));
 
   const created: GoalNodeLink[] = [];
@@ -178,16 +184,24 @@ export async function confirmGoalGraphNodes(
 
     // The habit input is validated *before* the claim, so a rejected body
     // leaves no `pending` link behind for the next confirm to resume.
-    let habitInput: ReturnType<typeof parseNewHabit> | null = null;
+    let habitInput: ReturnType<typeof parseHabitDefinitionInput> | null = null;
     if (selection.as === 'habit') {
       try {
-        habitInput = parseNewHabit({
+        habitInput = parseHabitDefinitionInput({
           title,
           ...selection.habit,
-          // Not the caller's to state. A habit that reached the store claiming
-          // `user_created` would be indistinguishable, a week later, from one
-          // somebody typed — and this one came out of a goal.
+          // Not the caller's to state — see the header, and #520's own rule
+          // that only the verified identity may set the scope.
+          scopeId: graph.scopeId,
+          // Not the caller's to state either. A habit that reached the store
+          // claiming `user_created` would be indistinguishable, a week later,
+          // from one somebody typed — and this one came out of a goal.
           source: 'goal_confirmed',
+          confirmation: {
+            confirmedByUserAt: confirmedAt,
+            sourceRef: graph.goalMemoryId,
+            acceptedSuggestedValues: true,
+          },
         });
       } catch (error) {
         refused.push({
@@ -219,7 +233,12 @@ export async function confirmGoalGraphNodes(
     let entityId: string;
     try {
       entityId = selection.as === 'habit'
-        ? (await habits.create(graph.scopeId, habitInput!, confirmedAt)).habitId
+        ? (await createHabitWithOccurrences(
+          habits,
+          habitInput!,
+          confirmedAt,
+          todayLocalDateFor(confirmedAt),
+        )).habit.habitId
         : await createCommitment(graph.scopeId, title, confirmedAt);
     } catch (error) {
       // The claim goes, so the button works again. A node stuck `pending` with

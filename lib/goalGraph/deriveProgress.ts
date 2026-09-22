@@ -34,7 +34,7 @@ import type {
 } from '../../src/contracts/v1/goalGraphContracts';
 import type { DomainState } from '../../src/domain/stateMachine';
 import { getParticipantStateSnapshot } from '../services/mobile/participantState';
-import { getHabitStore, type HabitStore } from '../habits/habitStore';
+import { createHabitServices, type HabitServices } from '../services/habits/habitService';
 import { createStorageGoalNodeLinkStore, type GoalNodeLinkStore } from './linkStore';
 
 /**
@@ -58,7 +58,7 @@ export interface DeriveGoalProgressRequest {
 
 export interface DeriveGoalProgressDependencies {
   readonly links?: GoalNodeLinkStore;
-  readonly habits?: HabitStore;
+  readonly habits?: HabitServices;
   /** The domain state reader, injected so a test need not stub the adapter. */
   readonly readDomainState?: (scopeId: string) => Promise<DomainState>;
 }
@@ -68,7 +68,7 @@ export async function deriveGoalGraphProgress(
   dependencies: DeriveGoalProgressDependencies = {},
 ): Promise<GoalGraphProgress> {
   const links = dependencies.links ?? createStorageGoalNodeLinkStore();
-  const habits = dependencies.habits ?? getHabitStore();
+  const habits = dependencies.habits ?? createHabitServices();
   const readState = dependencies.readDomainState ?? getParticipantStateSnapshot;
 
   const all = await links.list(request.scopeId, request.goalMemoryId);
@@ -122,15 +122,15 @@ export async function deriveGoalGraphProgress(
  * would otherwise read as "achieved", which is the one wrong answer.
  */
 async function habitProgress(
-  habits: HabitStore,
+  habits: HabitServices,
   request: DeriveGoalProgressRequest,
   link: GoalNodeLink & { entityId: string },
 ): Promise<GoalNodeProgress> {
-  const definition = (await habits.list(request.scopeId))
+  const definition = (await habits.habits.list(request.scopeId))
     .find((habit) => habit.habitId === link.entityId);
   const occurrences = definition === undefined
     ? []
-    : await habits.listOccurrences(request.scopeId, link.entityId);
+    : await habits.occurrences.listForHabit(request.scopeId, link.entityId);
   const period = request.period;
   const completedOccurrences = occurrences.filter((occurrence) =>
     occurrence.state === 'completed'
