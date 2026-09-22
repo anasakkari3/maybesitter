@@ -115,6 +115,7 @@ export async function processStateChangesForUser(
       },
       enqueued: false,
       queueEntry: null,
+      impactingChangeIds: [],
       basePlan: storedPlan?.plan ?? null,
       newPlan: null,
       diff: null,
@@ -189,6 +190,24 @@ export async function processStateChangesForUser(
   // 6. Act on policy decision
   if (pipelineResult.policyDecision?.action === 'auto_apply' && storedPlan && pipelineResult.newPlan) {
     const nextGeneration = storedPlan.generation + 1;
+    /**
+     * Which changes caused this generation (#527, AC 2).
+     *
+     * `pipelineResult.impactingChangeIds`, not
+     * `queueEntry.request.causeChangeIds`. The two differ, and the difference
+     * is the whole point: the request's list is every change in the batch —
+     * `new Set(changes.map(...))`, no narrowing by impact — because a request
+     * records what one replan subsumes. Two watchers firing in one sweep are
+     * one request even when only one of them touched the plan, so storing that
+     * list would make the Trust surface name a monitor that did nothing.
+     * `impactingChangeIds` is the members of the groups whose own impact
+     * matched the decision that ran the planner.
+     *
+     * Assigned unconditionally below: the document is built with
+     * `...storedPlan`, so an omitted assignment would let this generation
+     * inherit the previous generation's reason.
+     */
+    const causeChangeIds = pipelineResult.impactingChangeIds;
     const updatedPlan: StoredDailyPlan = {
       ...storedPlan,
       generation: nextGeneration,
@@ -206,6 +225,7 @@ export async function processStateChangesForUser(
       }),
       status: 'accepted',
       updatedAt: nowIso,
+      causeChangeIds,
     };
 
     const replaced = await replaceStoredPlan(uid, updatedPlan, storedPlan.generation, storage);
@@ -219,6 +239,7 @@ export async function processStateChangesForUser(
           at: nowIso,
           generation: updatedPlan.generation,
           inputDigest: updatedPlan.inputDigest,
+          causeChangeIds,
         },
         storage,
       );
