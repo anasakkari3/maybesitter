@@ -78,7 +78,7 @@ export function ReadinessSettingsScreen({ onBack }: { onBack: () => void }) {
                     borderColor: active ? p.ac : p.ln,
                   }}
                 >
-                  <Txt size={15} weight={600} color={active ? '#FFFFFF' : p.tx} latin>{energy}</Txt>
+                  <Txt size={15} weight={600} color={active ? p.onAccent : p.tx} latin>{energy}</Txt>
                 </Btn>
               );
             })}

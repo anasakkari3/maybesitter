@@ -99,14 +99,14 @@ export function OnboardingChrome({
             disabled={primary.disabled}
             onPress={primary.disabled ? undefined : primary.onPress}
             style={{
-              backgroundColor: primary.disabled ? p.ln : p.ac,
+              backgroundColor: primary.disabled ? p.dis : p.ac,
               borderRadius: 16,
               minHeight: 52,
               alignItems: 'center',
               justifyContent: 'center',
             }}
           >
-            <Txt size={16} weight={600} color={primary.disabled ? p.mu : '#FFFFFF'}>{primary.label}</Txt>
+            <Txt size={16} weight={600} color={primary.disabled ? p.disTx : p.onAccent}>{primary.label}</Txt>
           </Btn>
           {secondary ? (
             <Btn

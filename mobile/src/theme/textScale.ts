@@ -1,73 +1,69 @@
 import { useWindowDimensions } from 'react-native';
 
 /**
- * The reader's text size, as Round 2 models it.
+ * Text size and layout mode — two different things.
  *
- * Round 1 had no answer here at all: `Txt` set a fixed `fontSize` and left
- * React Native's `allowFontScaling` at its default of true, so the OS scaled
- * every label without a ceiling and without any layout accommodating it. At
- * the accessibility sizes the floating tab bar's labels grew past the pill
- * that holds them — the bar has a fixed 56-pt capture button and 8-pt padding
- * — and the row broke. Nothing in the app read the font scale, so nothing
- * could react to it.
+ * Round 1 had no answer here at all: `Txt` set a fixed `fontSize`, left
+ * React Native's `allowFontScaling` at its default of true, and computed a
+ * fixed `lineHeight` from the unscaled size. So the OS enlarged every glyph
+ * without any layout accommodating it, every string was drawn into a line box
+ * sized for 1×, and the floating tab bar's labels grew until the pill broke.
  *
- * Round 2 names three steps and multiplies its whole type ramp by them:
+ * Round 2 names three steps — default 1 · large 1.2 · xl 1.45 — and
+ * multiplies its whole ramp by one of them, because a prototype's text size is
+ * a picker. A phone's is not. So the app separates:
  *
- *   default 1 · large 1.2 · xl 1.45
+ *   TEXT SCALE   the reader's actual font scale, continuous, never capped.
+ *                Someone at 2.0× reads at 2.0×. `Txt` uses this only to size
+ *                its line box, because React Native scales `fontSize` itself
+ *                and leaves `lineHeight` alone.
  *
- * and at `xl` the tab bar shows icons only.
+ *   LAYOUT MODE  which of the design's three structures the chrome renders
+ *                in. It saturates at `xl`: past that, the text keeps growing
+ *                and the structure holds.
  *
- * ── How this differs from the export, on purpose ─────────────────
+ * ── Where the mode boundaries come from ──────────────────────────
  *
- * The export is a prototype: `textSize` is a picker with three options, so its
- * scale is exactly one of three numbers. Snapping a real reader to the nearest
- * step would *shrink* text for anyone whose chosen size falls between two of
- * them — someone at 1.35× would be served 1.2×. So the app keeps the platform's
- * own continuous scaling and takes two things from Round 2 instead:
+ * Not from the midpoints of the design's numbers. They follow the platform's
+ * own content-size categories, because those are the steps a reader actually
+ * moves through in Settings and the sizes we can verify against:
  *
- *   - `MAX_TEXT_SCALE`, the ceiling. Text scales with the OS up to 1.45× and
- *     stops, which is what keeps the geometry inside the design's bounds.
- *   - `textStepFor`, the discrete step, for layout decisions like the tab
- *     bar's. Thresholds sit at the midpoints between the ramp's values.
+ *   iOS  Large 1.00 · xLarge 1.12 · xxLarge 1.24 · xxxLarge 1.35
+ *        AX1 1.64 · AX2 1.94 · AX3 2.35 · AX4 2.76 · AX5 3.12
  *
- * So a reader at 1.35× gets text at 1.35× and the `xl` layout.
+ * `large` begins at xxLarge (1.24): the first size at which 15-pt body copy
+ * crosses 18 pt and two-column rows start to want one column. `xl` begins at
+ * the first accessibility size, AX1 (1.64): the point at which iOS itself
+ * switches its tab bars and navigation bars to their large-content forms.
+ *
+ * Whether a *particular* label still fits is a different question, answered
+ * by measuring — see `TabBar`. The mode is the structural default; the
+ * measurement is the truth.
  */
-export const TEXT_SCALE = { default: 1, large: 1.2, xl: 1.45 } as const;
+export type LayoutMode = 'normal' | 'large' | 'xl';
 
-export type TextStep = keyof typeof TEXT_SCALE;
+/** Platform content-size boundaries the layout modes follow. */
+export const LAYOUT_MODE_FROM = { large: 1.24, xl: 1.64 } as const;
 
-/** The ceiling. Text never scales past the largest step the design lays out. */
-export const MAX_TEXT_SCALE = TEXT_SCALE.xl;
-
-/** Midpoints between the ramp's three values. */
-const LARGE_FROM = (TEXT_SCALE.default + TEXT_SCALE.large) / 2; // 1.1
-const XL_FROM = (TEXT_SCALE.large + TEXT_SCALE.xl) / 2; // 1.325
-
-/**
- * Which of the design's three layouts a font scale belongs to.
- *
- * A non-finite or absent scale — some hosts do not report one — reads as
- * `default` rather than throwing the layout into its most degraded form.
- */
-export function textStepFor(fontScale: number | undefined): TextStep {
-  if (!fontScale || !Number.isFinite(fontScale)) return 'default';
-  if (fontScale >= XL_FROM) return 'xl';
-  if (fontScale >= LARGE_FROM) return 'large';
-  return 'default';
+/** A missing or nonsense reading is an ordinary phone, not a broken one. */
+export function textScaleOf(fontScale: number | undefined): number {
+  if (fontScale === undefined || !Number.isFinite(fontScale) || fontScale <= 0) return 1;
+  return fontScale;
 }
 
-/** What a `fontSize` actually renders at: the OS scale, held at the ceiling. */
-export function effectiveTextScale(fontScale: number | undefined): number {
-  if (!fontScale || !Number.isFinite(fontScale) || fontScale < 1) return 1;
-  return Math.min(fontScale, MAX_TEXT_SCALE);
+export function layoutModeFor(fontScale: number | undefined): LayoutMode {
+  const scale = textScaleOf(fontScale);
+  if (scale >= LAYOUT_MODE_FROM.xl) return 'xl';
+  if (scale >= LAYOUT_MODE_FROM.large) return 'large';
+  return 'normal';
 }
 
-/** The reader's step, live — it changes without the app restarting. */
-export function useTextStep(): TextStep {
-  return textStepFor(useWindowDimensions().fontScale);
-}
-
-/** The reader's effective scale, live. */
+/** The reader's font scale, live, uncapped. */
 export function useTextScale(): number {
-  return effectiveTextScale(useWindowDimensions().fontScale);
+  return textScaleOf(useWindowDimensions().fontScale);
+}
+
+/** The structure the chrome should render in, live. */
+export function useLayoutMode(): LayoutMode {
+  return layoutModeFor(useWindowDimensions().fontScale);
 }

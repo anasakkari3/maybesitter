@@ -1,66 +1,49 @@
 /**
- * The text-size ramp (Round 2 `--ts`).
+ * Text size versus layout mode (Round 2 `--ts`, corrected).
  *
- * Two claims worth a test:
- *
- *  1. Text never renders past the ceiling the design lays out. Without one,
- *     the OS scales labels without limit and the tab bar's pill breaks.
- *  2. A reader between two steps is never served *less* text than they asked
- *     for. The export snaps to one of three numbers; the app does not, and
- *     that difference is the whole reason `effectiveTextScale` is separate
- *     from `textStepFor`.
+ * The one thing this ramp must never do is serve a reader less text than they
+ * asked for. Text scale is the OS number, continuous and uncapped. Layout mode
+ * is a separate, discrete answer to "which structure", and it saturates at
+ * `xl` while the text keeps growing.
  */
 import { describe, expect, it } from '@jest/globals';
-import { MAX_TEXT_SCALE, TEXT_SCALE, effectiveTextScale, textStepFor } from '../textScale';
+import { LAYOUT_MODE_FROM, layoutModeFor, textScaleOf } from '../textScale';
 
-describe('textStepFor', () => {
-  it('picks the step at each of the ramp values', () => {
-    expect(textStepFor(TEXT_SCALE.default)).toBe('default');
-    expect(textStepFor(TEXT_SCALE.large)).toBe('large');
-    expect(textStepFor(TEXT_SCALE.xl)).toBe('xl');
+describe('textScaleOf never caps and never rounds', () => {
+  it('passes every real reading through untouched', () => {
+    for (const s of [0.82, 1, 1.12, 1.35, 1.45, 1.64, 2.0, 2.35, 3.12]) expect(textScaleOf(s)).toBe(s);
   });
 
-  it('switches at the midpoint between steps, not at the step itself', () => {
-    // 1.1 is the midpoint of 1 and 1.2; 1.325 the midpoint of 1.2 and 1.45.
-    expect(textStepFor(1.09)).toBe('default');
-    expect(textStepFor(1.1)).toBe('large');
-    expect(textStepFor(1.32)).toBe('large');
-    expect(textStepFor(1.325)).toBe('xl');
-  });
-
-  it('stays at xl above the ramp', () => {
-    // iOS accessibility sizes reach past 3x. There is no step beyond xl, and
-    // the layout for it must not fall back to a smaller one.
-    expect(textStepFor(2)).toBe('xl');
-    expect(textStepFor(3.1)).toBe('xl');
-  });
-
-  it('reads a missing or nonsense scale as default, not as the most degraded layout', () => {
-    expect(textStepFor(undefined)).toBe('default');
-    expect(textStepFor(NaN)).toBe('default');
-    // Infinity is nonsense, not "very large": it is treated like a missing
-    // reading rather than trusted into the most degraded layout.
-    expect(textStepFor(Infinity)).toBe('default');
-    expect(effectiveTextScale(Infinity)).toBe(1);
+  it('reads a missing or nonsense value as an ordinary phone', () => {
+    expect(textScaleOf(undefined)).toBe(1);
+    expect(textScaleOf(NaN)).toBe(1);
+    expect(textScaleOf(Infinity)).toBe(1);
+    expect(textScaleOf(0)).toBe(1);
+    expect(textScaleOf(-1)).toBe(1);
   });
 });
 
-describe('effectiveTextScale', () => {
-  it('holds at the ceiling', () => {
-    expect(effectiveTextScale(3.1)).toBe(MAX_TEXT_SCALE);
-    expect(effectiveTextScale(1.45)).toBe(1.45);
+describe('layoutModeFor follows the platform content-size categories', () => {
+  it('is normal through xLarge (1.12)', () => {
+    expect(layoutModeFor(1)).toBe('normal');
+    expect(layoutModeFor(1.12)).toBe('normal');
+    expect(layoutModeFor(1.2)).toBe('normal');
   });
 
-  it('does not round a reader down to the nearest step', () => {
-    // The export would serve 1.2 here. Serving someone less text than they
-    // asked for is the one thing this ramp must not do.
-    expect(effectiveTextScale(1.35)).toBe(1.35);
-    expect(effectiveTextScale(1.05)).toBe(1.05);
+  it('is large from xxLarge (1.24) up to the accessibility sizes', () => {
+    expect(layoutModeFor(LAYOUT_MODE_FROM.large)).toBe('large');
+    expect(layoutModeFor(1.35)).toBe('large');
+    expect(layoutModeFor(1.45)).toBe('large');
   });
 
-  it('never shrinks text below 1', () => {
-    expect(effectiveTextScale(0.8)).toBe(1);
-    expect(effectiveTextScale(undefined)).toBe(1);
-    expect(effectiveTextScale(NaN)).toBe(1);
+  it('is xl from AX1 (1.64) and saturates there', () => {
+    expect(layoutModeFor(LAYOUT_MODE_FROM.xl)).toBe('xl');
+    expect(layoutModeFor(2.0)).toBe('xl');
+    expect(layoutModeFor(3.12)).toBe('xl');
+  });
+
+  it('does not degrade the structure on a missing reading', () => {
+    expect(layoutModeFor(undefined)).toBe('normal');
+    expect(layoutModeFor(NaN)).toBe('normal');
   });
 });

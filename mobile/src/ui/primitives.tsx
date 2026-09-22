@@ -1,12 +1,12 @@
 import React, { useRef } from 'react';
 import {
   Animated, Pressable, Text, View,
-  type GestureResponderEvent, type StyleProp, type TextStyle, type ViewStyle,
+  type GestureResponderEvent, type NativeSyntheticEvent, type StyleProp, type TextLayoutEventData, type TextStyle, type ViewStyle,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { family, LINE_HEIGHT, type Weight } from '../theme/fonts';
-import { MAX_TEXT_SCALE, useTextScale } from '../theme/textScale';
+import { useTextScale } from '../theme/textScale';
 import { cardShadow, type Palette } from '../theme/tokens';
 import { impColors, impLabel } from '../state/derive';
 import type { Imp } from '../state/types';
@@ -14,7 +14,7 @@ import type { Imp } from '../state/types';
 type Align = 'start' | 'center' | 'end';
 
 export function Txt({
-  children, size = 15, weight = 400, color, align = 'start', style, lines, lh, latin, selectable, testID,
+  children, size = 15, weight = 400, color, align = 'start', style, lines, lh, latin, selectable, testID, onTextLayout,
 }: {
   children: React.ReactNode;
   size?: number;
@@ -29,6 +29,8 @@ export function Txt({
   /** For an opaque id the user may need to read out or paste (#149). */
   selectable?: boolean;
   testID?: string;
+  /** For chrome that has to know whether this label still fits its slot (TabBar). */
+  onTextLayout?: ((e: NativeSyntheticEvent<TextLayoutEventData>) => void) | undefined;
 }) {
   const { rtl, script, p } = useApp();
   const textScale = useTextScale();
@@ -42,14 +44,15 @@ export function Txt({
   // fixed line box clips its own text the moment the reader enlarges it —
   // worst in Arabic, whose face asks for 1.6 and whose glyphs are tall. The
   // line box is therefore computed at the size the text will actually render
-  // at: the OS scale, held at the design's ceiling by maxFontSizeMultiplier.
+  // at. There is no ceiling: a reader at 2× reads at 2×, and it is the chrome
+  // around the text that adapts (src/theme/textScale.ts).
   const rendered = size * textScale;
   return (
     <Text
       numberOfLines={lines}
       selectable={selectable}
       testID={testID}
-      maxFontSizeMultiplier={MAX_TEXT_SCALE}
+      onTextLayout={onTextLayout}
       style={[
         {
           fontFamily: family(weight, runScript),
@@ -161,7 +164,11 @@ export function Pill({
     ink: { bg: p.tx, fg: p.bg },
     ghost: { bg: 'transparent', fg: p.mu },
   };
-  const l = look[kind];
+  // A control that cannot be pressed yet is drawn in the disabled roles —
+  // `dis` / `disTx`, which Round 2 names and which measure ≥ 4.5:1 in both
+  // schemes — rather than by fading the whole control to 40 % opacity, which
+  // took the label with it and left the reason for the fade unreadable.
+  const l = disabled ? { bg: p.dis, fg: p.disTx, border: kind === 'outline' ? p.ln : undefined } : look[kind];
   return (
     <Btn
       onPress={disabled ? undefined : onPress}
@@ -172,7 +179,7 @@ export function Pill({
         {
           backgroundColor: l.bg, borderRadius: radius, paddingVertical: pad, paddingHorizontal: 18,
           alignItems: 'center', justifyContent: 'center', minHeight: 48,
-          borderWidth: l.border ? 1 : 0, borderColor: l.border, opacity: disabled ? 0.4 : 1,
+          borderWidth: l.border ? 1 : 0, borderColor: l.border,
         },
         style,
       ]}
