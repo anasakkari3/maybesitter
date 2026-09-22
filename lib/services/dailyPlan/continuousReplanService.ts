@@ -31,8 +31,11 @@ import {
   appendPlanEvent,
   readStoredPlan,
   replaceStoredPlan,
+  storePlanProposal,
   type StoredDailyPlan,
+  type StoredPlanProposal,
 } from './planStore';
+import { randomUUID } from 'node:crypto';
 import { DEFAULT_DELIVERY_LOCAL_TIME, DEFAULT_PLAN_ENABLED, localDateOf, planSettingsOf } from './planSettings';
 import { DEFAULT_MOBILE_TIMEZONE } from '../mobile/time';
 import { buildDailyPlanInput, dailyPlanScheduleSources } from './buildDailyPlan';
@@ -66,10 +69,83 @@ export interface ContinuousReplanUserReport {
   readonly pipelineResult: ContinuousReplanPipelineResult;
   readonly planStored: boolean;
   readonly userState: CurrentUserState | null;
+  /**
+   * Why nothing was planned, when nothing was (#523, AC 9).
+   *
+   * `null` on every run that reached the pipeline. The sweep counts this
+   * rather than reading the setting a second time of its own: one decision,
+   * made in one place, reported outward — a second read in
+   * `runContinuousReplanTick` would be a copy of the gate that a mutation
+   * could leave disagreeing with the original.
+   */
+  readonly skipped: 'continuous_replan_disabled' | null;
 }
+
+/**
+ * How often `runContinuousReplanTick` is scheduled to run, in minutes.
+ *
+ * Declared beside the sweep it describes and asserted against the crontab in
+ * `infra/scheduler.sh`, the way `WATCHER_SWEEP_INTERVAL_MINUTES` is: the
+ * cadence is a fact about production that otherwise lives only in a shell
+ * script nobody edits together with this file.
+ *
+ * Five minutes, not one. Two reasons, and the second is the load-bearing one:
+ *
+ *  - `REPLAN_BURST_WINDOW_MS` is 60 seconds. A sweep that fires every minute
+ *    would keep meeting bursts whose window has not closed yet and replan on
+ *    the first notification of a provider refresh, then again on the rest —
+ *    which is the coalescing the pipeline exists to do, undone by its own
+ *    cadence.
+ *  - A run is a full scan of `users` followed by a per-account read of
+ *    `planningStateChanges`, so its cost is the size of the user base, not the
+ *    size of the work. Unlike `daily-plan-tick`, it has no indexed "who is
+ *    due" query to make the empty minute free.
+ *
+ * Nothing here is time-critical in the way a reminder is: the output is a
+ * patch offered for review, or a shift of minutes inside a churn budget.
+ */
+export const CONTINUOUS_REPLAN_SWEEP_INTERVAL_MINUTES = 5;
 
 function storageOf(storage?: StorageAdapter): StorageAdapter {
   return storage ?? getStorage();
+}
+
+/**
+ * Drops the change rows this run consumed.
+ *
+ * Called on the disabled path too, and that is deliberate.
+ * `planningStateChanges` is a work queue, not a ledger. Leaving rows behind
+ * for an account that has switched replanning off does two things, and each
+ * would be reason enough on its own: the collection grows for as long as the
+ * switch stays off, and the moment the user switches back on becomes a replan
+ * over every stale change accumulated since. Reading a change and deciding
+ * not to act on it is still having read it.
+ *
+ * Draining costs the Trust surface nothing. `attributionsForArtifacts`
+ * resolves a plan's `causeChangeIds` against `watcherEvents.effectRef`, not
+ * against these rows, so a change id stored on a plan still names its monitor
+ * after the row is gone — and the orphan count is unaffected in the other
+ * direction too, since `watcherEngine` writes a firing and its change in one
+ * transaction with `ref: changeId`, which means a watcher-sourced change row
+ * is claimed the instant it exists and could never have been counted as an
+ * orphan whether it is kept or dropped.
+ */
+async function acknowledgeChanges(
+  uid: string,
+  storage: StorageAdapter,
+  changeDocPaths: readonly string[],
+  supplied: readonly PlanningStateChange[] | undefined,
+): Promise<void> {
+  if (changeDocPaths.length > 0) {
+    for (const docPath of changeDocPaths) {
+      await storage.delete(docPath);
+    }
+    return;
+  }
+  if (!supplied) return;
+  for (const change of supplied) {
+    await storage.delete(userSubDoc(uid, PLANNING_STATE_CHANGES, docIdForKey(change.changeId)));
+  }
 }
 
 /**
@@ -130,6 +206,62 @@ export async function processStateChangesForUser(
       pipelineResult: emptyResult,
       planStored: false,
       userState: null,
+      skipped: null,
+    };
+  }
+
+  /**
+   * The gate (#523, AC 9), and the only place it is read.
+   *
+   * Placed after the changes and the plan are known and before anything
+   * expensive: no domain load, no busy-block read, no planner call, no policy
+   * decision. `=== false` rather than `!settings.continuousReplanEnabled`
+   * because `planSettingsOf` has already turned every absent, malformed or
+   * legacy value into a boolean — so an `undefined` arriving here would mean
+   * someone bypassed that function, and failing *open* is the safe direction
+   * for a switch whose off position silences a shipped feature.
+   *
+   * Independence from provider sync is by construction: nothing below reads a
+   * connection record, and nothing above writes one. A connected calendar
+   * still syncs and still writes the `PlanningStateChange` rows this function
+   * is looking at — which is exactly why they are drained anyway.
+   */
+  if (settings.continuousReplanEnabled === false) {
+    await acknowledgeChanges(uid, storage, changeDocPaths, options.changes);
+    return {
+      uid,
+      date,
+      changesProcessed: rawChanges.length,
+      pipelineResult: {
+        scopeId: uid,
+        date,
+        impact: {
+          /**
+           * `'none'`, always — never `rawChanges[0]`.
+           *
+           * The pair `(changeId, reason)` is an audit record, and naming
+           * whichever change the store happened to list first would assert
+           * that *that* change was the one judged. Nothing here judged any of
+           * them; the sentinel the empty-batch path already uses is the
+           * honest answer, and it does not move when the list order does.
+           */
+          changeId: 'none',
+          scopeId: uid,
+          decision: 'NO_EFFECT',
+          reason: 'continuous_replan_disabled',
+        },
+        enqueued: false,
+        queueEntry: null,
+        impactingChangeIds: [],
+        basePlan: storedPlan?.plan ?? null,
+        newPlan: null,
+        diff: null,
+        policyDecision: null,
+        planStatus: storedPlan ? 'accepted' : 'none',
+      },
+      planStored: false,
+      userState: null,
+      skipped: 'continuous_replan_disabled',
     };
   }
 
@@ -226,6 +358,13 @@ export async function processStateChangesForUser(
       status: 'accepted',
       updatedAt: nowIso,
       causeChangeIds,
+      /**
+       * Assigned, not omitted, for the reason `causeChangeIds` is: the
+       * document is built with `...storedPlan`, so leaving the key out would
+       * carry a patch of the *previous* generation into this one, where its
+       * diff and its `baseGeneration` describe a plan that no longer exists.
+       */
+      proposal: null,
     };
 
     const replaced = await replaceStoredPlan(uid, updatedPlan, storedPlan.generation, storage);
@@ -245,29 +384,53 @@ export async function processStateChangesForUser(
       );
     }
   } else if (pipelineResult.policyDecision?.action === 'propose_for_review' && storedPlan) {
-    await appendPlanEvent(
-      uid,
-      {
-        type: 'plan_proposed',
-        date,
-        at: nowIso,
-        generation: storedPlan.generation,
-        inputDigest: storedPlan.inputDigest,
-      },
-      storage,
-    );
+    /**
+     * The default mode's actual output (#523, "detect automatically → propose
+     * a schedule patch").
+     *
+     * The ledger entry alone was not a proposal: it recorded that one had been
+     * made, carrying the *old* generation and digest, while the solved plan
+     * and the diff went out of scope with the function. Nothing could review
+     * a patch that was never written down. So the patch is stored first, on
+     * the generation it patches, and the event is appended only when that
+     * write won its compare-and-set — an event announcing a proposal that a
+     * concurrent rebuild refused would be the same lie in the other direction.
+     */
+    const proposal: StoredPlanProposal | null = pipelineResult.newPlan && pipelineResult.policyDecision.diff
+      ? {
+        proposalId: randomUUID(),
+        proposedAt: nowIso,
+        baseGeneration: storedPlan.generation,
+        baseInputDigest: storedPlan.inputDigest,
+        plan: pipelineResult.newPlan,
+        diff: pipelineResult.policyDecision.diff,
+        reason: pipelineResult.policyDecision.reason,
+        userControlMode: pipelineResult.policyDecision.userControlMode,
+        // Narrowed exactly as the auto-apply branch narrows it: the batch's
+        // other changes did not cause this offer.
+        causeChangeIds: pipelineResult.impactingChangeIds,
+      }
+      : null;
+
+    const stored = proposal ? await storePlanProposal(uid, date, proposal, storage) : null;
+    if (stored) {
+      await appendPlanEvent(
+        uid,
+        {
+          type: 'plan_proposed',
+          date,
+          at: nowIso,
+          generation: storedPlan.generation,
+          inputDigest: storedPlan.inputDigest,
+          causeChangeIds: proposal!.causeChangeIds,
+        },
+        storage,
+      );
+    }
   }
 
   // 7. Acknowledge/delete processed planning state changes
-  if (changeDocPaths.length > 0) {
-    for (const docPath of changeDocPaths) {
-      await storage.delete(docPath);
-    }
-  } else if (options.changes) {
-    for (const change of options.changes) {
-      await storage.delete(userSubDoc(uid, PLANNING_STATE_CHANGES, docIdForKey(change.changeId)));
-    }
-  }
+  await acknowledgeChanges(uid, storage, changeDocPaths, options.changes);
 
   // 8. Compose updated UserStateProjection
   const userState = await composeCurrentUserState(
@@ -296,6 +459,7 @@ export async function processStateChangesForUser(
     pipelineResult,
     planStored,
     userState,
+    skipped: null,
   };
 }
 
@@ -307,6 +471,8 @@ export interface ContinuousReplanTickTotals {
   stale: number;
   noEffect: number;
   failed: number;
+  /** Accounts whose pending changes were drained without a replan (#523, AC 9). */
+  skipped: number;
 }
 
 export interface ContinuousReplanTickOptions {
@@ -332,6 +498,7 @@ export async function runContinuousReplanTick(
     stale: 0,
     noEffect: 0,
     failed: 0,
+    skipped: 0,
   };
 
   // Find users who have planningStateChanges
@@ -348,6 +515,14 @@ export async function runContinuousReplanTick(
         now,
         changes: pendingChanges.map((r) => r.data),
       });
+
+      // The sweep does not re-read the setting; it reports the decision the
+      // one gate made. See `ContinuousReplanUserReport.skipped`.
+      if (report.skipped !== null) {
+        totals.skipped += 1;
+        if (options.limit && totals.examined >= options.limit) break;
+        continue;
+      }
 
       if (report.pipelineResult.impact.decision === 'REPLAN_REQUIRED') {
         totals.replanRequired += 1;

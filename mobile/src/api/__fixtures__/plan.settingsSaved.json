@@ -4,6 +4,7 @@
     "enabled": true,
     "deliveryLocalTime": "07:30",
     "timezone": "Asia/Jerusalem",
-    "nextRunAt": "2026-08-09T09:00:00.000Z"
+    "nextRunAt": "2026-08-09T09:00:00.000Z",
+    "continuousReplanEnabled": true
   }
 }

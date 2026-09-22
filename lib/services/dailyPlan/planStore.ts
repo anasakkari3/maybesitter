@@ -30,7 +30,8 @@
 import { getStorage, type StorageAdapter } from '../../storage';
 import { sortableDocId, userCol, userSubDoc } from '../../storage/paths';
 import { PLANS, PLAN_EVENTS } from '../../storage/paths';
-import type { Plan, PlanningConfig, PlanningConstraints } from '../../../src/contracts/v1/planningContracts';
+import type { Plan, PlanDiff, PlanningConfig, PlanningConstraints } from '../../../src/contracts/v1/planningContracts';
+import type { ReplanPolicyReason, UserControlMode } from '../../../src/contracts/v1/replanContracts';
 import type { ScheduleBlock } from '../../../src/contracts/v1/scheduleBlockContracts';
 import type { UserLocale } from '../../storage/userDocument';
 import { randomUUID } from 'node:crypto';
@@ -124,6 +125,81 @@ export interface StoredDailyPlan {
    * the chain that could drift from the firings it describes.
    */
   readonly causeChangeIds?: readonly string[];
+  /**
+   * The patch continuous replanning proposed against *this* generation (#523).
+   *
+   * `null` rather than absent once anything has written it, and written
+   * explicitly by every path that replaces the document: an omitted key on a
+   * `{ ...storedPlan }` rebuild would let generation N+1 inherit a patch of
+   * generation N, which is the same inheritance bug `causeChangeIds` is
+   * assigned unconditionally to avoid.
+   */
+  readonly proposal?: StoredPlanProposal | null;
+}
+
+/**
+ * A schedule patch continuous replanning proposed but did not apply (#523).
+ *
+ * ── Why this is a field on the plan and not its own collection ────
+ *
+ * A proposal is not an independent record; it is a *patch of one generation*.
+ * `diff` and `plan` only mean anything relative to the exact `(generation,
+ * inputDigest)` pair they were solved against, and the failure mode of storing
+ * them apart is a proposal that outlives the plan it patches — a user shown
+ * "move this to 14:00" for a day that was already rebuilt twice since.
+ *
+ * Keeping it in `users/{uid}/plans/{date}` makes that impossible rather than
+ * merely unlikely: the proposal is written in the same transaction that reads
+ * the generation (`storePlanProposal` refuses a stale base), it is replaced or
+ * cleared by whatever rewrites the plan next, and it is deleted when the plan
+ * is. A sibling collection would have needed all three re-established by hand,
+ * plus an entry in `USER_SCOPED_COLLECTIONS` and one in the deletion coverage
+ * list — three new ways for a proposal to be orphaned, to survive account
+ * deletion, or to be checked by nothing.
+ *
+ * It does not change `status`. The plan in force is still the accepted plan:
+ * the patch is an offer beside it, not a state it has entered.
+ *
+ * ── A constraint on whoever builds the reader ────────────────────
+ *
+ * `storePlanProposal` pins a patch to `generation` alone, and `generation` is
+ * not the only thing that moves a plan: `acceptPlan`, `dismissPlan`,
+ * `editPlan` and `setBlockProtection` all rewrite the document with
+ * `{ ...current, … }` without incrementing it and without clearing this
+ * field. A patch solved against generation 3 therefore survives an edit or a
+ * dismissal and still satisfies the compare-and-set.
+ *
+ * That is harmless today only because nothing reads this field yet — the
+ * writer, the type and the tests are its entire world. It stops being
+ * harmless on the first read. Whoever adds that reader must close it one of
+ * three ways: bump the generation on an edit, clear `proposal` in those four
+ * mutators, or compare `baseInputDigest` against the plan's own at read time.
+ * It is recorded here rather than fixed here because fixing it means
+ * rewriting four mutators that nothing currently exercises against this
+ * field, which is a change with no test that could fail for it.
+ */
+export interface StoredPlanProposal {
+  readonly proposalId: string;
+  readonly proposedAt: string;
+  /** The generation this is a patch *of*; a stale base is refused, not merged. */
+  readonly baseGeneration: number;
+  readonly baseInputDigest: string;
+  /** The solved plan this patch would install, verbatim from the planner. */
+  readonly plan: Plan;
+  /** The existing diff contract, not a second one (#523's `PlanDiff` step). */
+  readonly diff: PlanDiff;
+  readonly reason: ReplanPolicyReason;
+  readonly userControlMode: UserControlMode;
+  /**
+   * The changes whose own impact produced this patch (#527, AC 2).
+   *
+   * A proposal carries its causes for the reason a generation does: the user
+   * is being asked to accept a change to their day, and "because your calendar
+   * moved" is the difference between an offer and an unexplained one. Narrowed
+   * exactly as `StoredDailyPlan.causeChangeIds` is — the impacting ids, never
+   * the whole batch the replan request subsumed.
+   */
+  readonly causeChangeIds: readonly string[];
 }
 
 export type PlanEventType =
@@ -143,10 +219,13 @@ export interface PlanEvent {
   /** The plan's digest, which is a hash and carries no user text. */
   readonly inputDigest: string;
   /**
-   * On a `plan_regenerated` written by an automatic replan: the change ids
-   * that caused it (#527, AC 2). Absent everywhere else — a manual rebuild,
-   * an acceptance, an edit — for the reason `StoredDailyPlan.causeChangeIds`
-   * is absent there. Opaque ids, like the digest beside them.
+   * On a `plan_regenerated` or a `plan_proposed` written by an automatic
+   * replan: the change ids that caused it (#527, AC 2; #523). Absent
+   * everywhere else — a manual rebuild, an acceptance, an edit — for the
+   * reason `StoredDailyPlan.causeChangeIds` is absent there. A proposal
+   * records them for the same reason a generation does: it is an offer to
+   * change the user's day, and the ledger should say what prompted it.
+   * Opaque ids, like the digest beside them.
    */
   readonly causeChangeIds?: readonly string[];
 }
@@ -265,6 +344,35 @@ export async function replaceStoredPlanIfBaseMatches(
     tx.set<StoredDailyPlan>(path, document);
     return document;
   });
+}
+
+/**
+ * Records a proposed patch against the generation it was solved for.
+ *
+ * Returns null when that generation is no longer current — the plan was
+ * rebuilt, edited or replaced while the planner was running — because a patch
+ * of a plan that no longer exists is not a weaker proposal, it is a wrong one.
+ * That is the compare-and-set `replaceStoredPlan` uses, applied to a write
+ * that does not replace the plan itself.
+ */
+export async function storePlanProposal(
+  uid: string,
+  date: string,
+  proposal: StoredPlanProposal,
+  storage?: StorageAdapter,
+): Promise<StoredDailyPlan | null> {
+  const outcome = await mutateStoredPlan<null>(
+    uid,
+    date,
+    (current) => {
+      if (current.generation !== proposal.baseGeneration) return null;
+      // `status` is deliberately untouched: the accepted plan is still the
+      // plan in force, and a proposal beside it has not been accepted.
+      return { next: { ...current, proposal, updatedAt: proposal.proposedAt }, result: null };
+    },
+    storage,
+  );
+  return outcome?.stored ?? null;
 }
 
 /**

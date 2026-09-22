@@ -1,6 +1,6 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import { mobileError } from '../../../../../../lib/services/mobile/response';
-import { PlanSettingsValidationError } from '../../../../../../lib/services/dailyPlan/planSettings';
+import { PlanSettingsValidationError, type PlanSettings } from '../../../../../../lib/services/dailyPlan/planSettings';
 import { readPlanSettings, savePlanSettings } from '../../../../../../lib/services/dailyPlan/dailyPlanService';
 
 export const dynamic = 'force-dynamic';
@@ -32,7 +32,7 @@ export async function PUT(request: Request) {
     return mobileAuthErrorResponse(error);
   }
 
-  let body: { enabled?: unknown; deliveryLocalTime?: unknown };
+  let body: { enabled?: unknown; deliveryLocalTime?: unknown; continuousReplanEnabled?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -43,6 +43,11 @@ export async function PUT(request: Request) {
   if (body.deliveryLocalTime !== undefined && typeof body.deliveryLocalTime !== 'string') {
     return mobileError('deliveryLocalTime must be a string');
   }
+  // #523, AC 9. An API field, not a screen: the switch the client renders is
+  // the mobile lane's, and this is the contract it saves through.
+  if (body.continuousReplanEnabled !== undefined && typeof body.continuousReplanEnabled !== 'boolean') {
+    return mobileError('continuousReplanEnabled must be a boolean');
+  }
 
   try {
     const settings = await savePlanSettings(
@@ -50,6 +55,9 @@ export async function PUT(request: Request) {
       {
         enabled: body.enabled,
         ...(body.deliveryLocalTime === undefined ? {} : { deliveryLocalTime: body.deliveryLocalTime }),
+        ...(body.continuousReplanEnabled === undefined
+          ? {}
+          : { continuousReplanEnabled: body.continuousReplanEnabled }),
       },
       new Date(),
     );
@@ -63,11 +71,25 @@ export async function PUT(request: Request) {
 }
 
 /** `nextRunAt` is optional on the record and always present on the wire, as null. */
-function settingsDto(settings: { enabled: boolean; deliveryLocalTime: string; timezone: string; nextRunAt?: string }) {
+function settingsDto(settings: PlanSettings) {
   return {
     enabled: settings.enabled,
     deliveryLocalTime: settings.deliveryLocalTime,
     timezone: settings.timezone,
     nextRunAt: settings.nextRunAt ?? null,
+    /**
+     * `!== false`, not `=== true`, and not `?? DEFAULT_…` either.
+     *
+     * `planSettingsOf` is the one place the default is applied, so no second
+     * fallback belongs here — but the narrowing this needs is not free of a
+     * choice: `=== true` is itself a default, of *false*, and it is the
+     * opposite of the one the gate makes. `processStateChangesForUser` treats
+     * anything that is not literally `false` as enabled, so an `undefined`
+     * that somehow reached either side would have shown the user a switch in
+     * the OFF position while the backend went on replanning — the worst
+     * possible reading of a control. `!== false` is the same test the gate
+     * makes, written the same way round.
+     */
+    continuousReplanEnabled: settings.continuousReplanEnabled !== false,
   };
 }
