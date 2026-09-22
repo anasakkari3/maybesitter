@@ -30,7 +30,7 @@
  */
 import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
-import nodeModule from 'node:module';
+import { registerHooks } from 'node:module';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -424,20 +424,6 @@ type StubGlobals = typeof globalThis & {
   __maybesitterVertexClientOptions?: { location?: string };
 };
 
-/**
- * `module.registerHooks`, typed here because `@types/node` is still on 20 while
- * this repository runs on Node 24. Declaring the two hooks it uses is a smaller
- * change than bumping the types of every file for one test, and it is checked:
- * the call below is the real one, so a signature that stopped matching fails at
- * runtime rather than silently.
- */
-interface SyncModuleHooks {
-  resolve(specifier: string, context: unknown, nextResolve: (specifier: string, context: unknown) => unknown): unknown;
-  load(url: string, context: unknown, nextLoad: (url: string, context: unknown) => unknown): unknown;
-}
-const registerHooks = (nodeModule as unknown as {
-  registerHooks(hooks: SyncModuleHooks): { deregister(): void };
-}).registerHooks;
 
 /** Redirects `@google/genai`, and only that specifier, to the stub above. */
 function installVertexStub(generate: VertexStub): () => void {
