@@ -62,6 +62,9 @@ const ARGS = {
   timezone: TZ,
   profile: PROFILE,
   busyBlocks: [],
+  // Local midnight of the day being planned: a clock that bounds nothing, so
+  // these tests stay about event duration and not about #500's lower bound.
+  builtAt: '2026-09-18T21:00:00.000Z',
 };
 
 test('an end time is the length of the blocking event', () => {

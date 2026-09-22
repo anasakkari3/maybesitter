@@ -281,8 +281,17 @@ describe('moving an item the plan will not allow', () => {
     // sits at 12:00, so this lands on 15:00. A fixture moved late enough to
     // roll over would break the "exactly three hours" case below rather than
     // quietly change what this means.
-    const [hour, minute] = String(screen.getByTestId(`plan-item-time-${ITEM.itemId}`).props.children)
-      .split(':').map(Number) as [number, number];
+    // The row shows a range ("11:00–12:00") when the placement has a length
+    // and a single time when it does not — the component says so itself. This
+    // reads the *start*, which is the face the wheel is opened on either way.
+    // Splitting the whole label on ":" read the range's minutes as NaN, left
+    // the wheel on an invalid date, and disabled the button the case is about:
+    // the test failed with "actOnPlan was never called", which is not a thing
+    // a reader would connect to a fixture that gained a duration.
+    const label = String(screen.getByTestId(`plan-item-time-${ITEM.itemId}`).props.children);
+    const shown = /(\d{1,2}):(\d{2})/.exec(label);
+    if (!shown) throw new Error(`the row shows no time to turn the wheel from: ${label}`);
+    const [hour, minute] = [Number(shown[1]), Number(shown[2])];
     const [year, month, day] = DATE.split('-').map(Number) as [number, number, number];
     const face = new Date();
     face.setFullYear(year, month - 1, day);

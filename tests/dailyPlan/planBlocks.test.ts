@@ -19,7 +19,7 @@
  *
  * The routes are invoked in-process, the way `planActions.test.ts` does.
  */
-import test from 'node:test';
+import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
@@ -200,7 +200,23 @@ test('regenerating over unchanged commitments keeps every block id and interval,
     const first = await readStoredPlan(USER, DATE);
     assert.ok(first);
 
-    const response = await regeneratePost(request(`/api/mobile/plans/${DATE}/regenerate`, { method: 'POST' }), params(DATE));
+    /*
+     * Regenerated at the same instant the first plan was built at.
+     *
+     * The route reads the real clock, which is long after this date and would
+     * be a *different* input: a plan gained a lower bound at "now" (#500), so
+     * the 09:00-local build is bounded and a replay from outside the day is
+     * not, and the two would differ by an hour through no fault of the block
+     * machinery this test is about. "A no-op replan has zero churn" holds when
+     * nothing has changed, and the clock is one of the things that can change.
+     */
+    mock.timers.enable({ apis: ['Date'], now: MORNING.getTime() });
+    let response: Response;
+    try {
+      response = await regeneratePost(request(`/api/mobile/plans/${DATE}/regenerate`, { method: 'POST' }), params(DATE));
+    } finally {
+      mock.timers.reset();
+    }
     assert.equal(response.status, 200);
     const regenerated = await readStoredPlan(USER, DATE);
     assert.ok(regenerated);

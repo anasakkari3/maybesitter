@@ -369,6 +369,10 @@ export async function composeDailyPlan(
     busyBlocks,
     profile,
     focusHint,
+    // The clock this build is happening on (#500). Without it the mapping
+    // filled the working window from its start, so a plan built at 13:44
+    // scheduled the whole day at 09:00 and was over before it was shown.
+    builtAt: now.toISOString(),
   });
   const userState = await composeCurrentUserState({
     uid,

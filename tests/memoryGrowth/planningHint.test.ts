@@ -67,7 +67,9 @@ async function planWindows(storage: StorageAdapter): Promise<number[][]> {
 }
 
 test('the adapter uses a focus hint only when the routine names no focus window', () => {
-  const base = { uid: UID, date: DATE, timezone: ZONE, commitments: [], busyBlocks: [] };
+  // `NOW` is the instant the composed plan above is built at, reused here so
+  // the direct calls and the service agree about when "now" is (#500).
+  const base = { uid: UID, date: DATE, timezone: ZONE, commitments: [], busyBlocks: [], builtAt: NOW };
   const hinted = buildDailyPlanInput({ ...base, profile: null, focusHint: { start: '09:00', end: '12:00' } });
   assert.deepEqual(windowsOf(hinted.constraints), [[540, 720]]);
 
