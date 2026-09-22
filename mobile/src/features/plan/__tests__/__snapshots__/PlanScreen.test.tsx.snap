@@ -97,11 +97,12 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
               onStartShouldSetResponder={[Function]}
               style={
                 {
+                  "alignItems": "center",
                   "alignSelf": "flex-start",
-                  "justifyContent": "center",
+                  "flexDirection": "row",
+                  "gap": 6,
                   "minHeight": 44,
-                  "paddingHorizontal": 2,
-                  "paddingVertical": 6,
+                  "paddingHorizontal": 4,
                   "transform": [
                     {
                       "scale": 1,
@@ -111,18 +112,79 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
               }
               testID="header-back"
             >
+              <RNSVGSvgView
+                accessible={false}
+                align="xMidYMid"
+                bbHeight={18}
+                bbWidth={18}
+                focusable={false}
+                height={18}
+                meetOrSlice={0}
+                minX={0}
+                minY={0}
+                style={
+                  [
+                    {
+                      "backgroundColor": "transparent",
+                      "borderWidth": 0,
+                    },
+                    {
+                      "flex": 0,
+                      "height": 18,
+                      "width": 18,
+                    },
+                  ]
+                }
+                vbHeight={24}
+                vbWidth={24}
+                width={18}
+              >
+                <RNSVGGroup
+                  fill={
+                    {
+                      "payload": 4278190080,
+                      "type": 0,
+                    }
+                  }
+                >
+                  <RNSVGPath
+                    d="M9 5 16 12 9 19"
+                    fill={null}
+                    propList={
+                      [
+                        "fill",
+                        "stroke",
+                        "strokeWidth",
+                        "strokeLinecap",
+                        "strokeLinejoin",
+                      ]
+                    }
+                    stroke={
+                      {
+                        "payload": 4284443504,
+                        "type": 0,
+                      }
+                    }
+                    strokeLinecap={1}
+                    strokeLinejoin={1}
+                    strokeWidth={1.8}
+                  />
+                </RNSVGGroup>
+              </RNSVGSvgView>
               <Text
                 style={
                   [
                     {
-                      "color": "#14586A",
+                      "color": "#14181B",
                       "fontFamily": "NotoNaskhArabic_600SemiBold",
-                      "fontSize": 14,
-                      "lineHeight": 22,
-                      "textAlign": "right",
+                      "fontSize": 15,
+                      "lineHeight": 24,
+                      "textAlign": "left",
                       "writingDirection": "rtl",
                     },
-                    undefined,
+                    {
+                      "flexShrink": 1,
+                    },
                   ]
                 }
               >
@@ -130,23 +192,32 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
               </Text>
             </View>
           </View>
-          <Text
+          <View
             style={
-              [
-                {
-                  "color": "#14181B",
-                  "fontFamily": "NotoNaskhArabic_600SemiBold",
-                  "fontSize": 26,
-                  "lineHeight": 34,
-                  "textAlign": "right",
-                  "writingDirection": "rtl",
-                },
-                undefined,
-              ]
+              {
+                "alignItems": "flex-start",
+              }
             }
           >
-            خطة اليوم
-          </Text>
+            <Text
+              accessibilityRole="header"
+              style={
+                [
+                  {
+                    "color": "#14181B",
+                    "fontFamily": "NotoNaskhArabic_600SemiBold",
+                    "fontSize": 28,
+                    "lineHeight": 45,
+                    "textAlign": "left",
+                    "writingDirection": "rtl",
+                  },
+                  undefined,
+                ]
+              }
+            >
+              خطة اليوم
+            </Text>
+          </View>
         </View>
       </View>
       <RCTScrollView
@@ -187,7 +258,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                       "fontFamily": "NotoNaskhArabic_400Regular",
                       "fontSize": 15,
                       "lineHeight": 24,
-                      "textAlign": "right",
+                      "textAlign": "left",
                       "writingDirection": "rtl",
                     },
                     undefined,
@@ -203,10 +274,10 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                     "alignSelf": "flex-start",
                     "backgroundColor": "transparent",
                     "borderColor": "rgba(31,122,140,0.50)",
-                    "borderRadius": 999,
+                    "borderRadius": 8,
                     "borderStyle": "dashed",
                     "borderWidth": 1,
-                    "paddingHorizontal": 10,
+                    "paddingHorizontal": 8,
                     "paddingVertical": 3,
                   }
                 }
@@ -219,7 +290,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                         "fontFamily": "NotoNaskhArabic_400Regular",
                         "fontSize": 12,
                         "lineHeight": 19,
-                        "textAlign": "right",
+                        "textAlign": "left",
                         "writingDirection": "rtl",
                       },
                       undefined,
@@ -239,7 +310,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                     "fontFamily": "NotoNaskhArabic_400Regular",
                     "fontSize": 13,
                     "lineHeight": 21,
-                    "textAlign": "right",
+                    "textAlign": "left",
                     "writingDirection": "rtl",
                   },
                   {
@@ -259,11 +330,13 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                     "fontFamily": "NotoNaskhArabic_600SemiBold",
                     "fontSize": 13,
                     "lineHeight": 21,
-                    "textAlign": "right",
+                    "textAlign": "left",
                     "writingDirection": "rtl",
                   },
                   {
+                    "paddingBottom": 2,
                     "paddingHorizontal": 4,
+                    "paddingTop": 6,
                   },
                 ]
               }
@@ -282,19 +355,12 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                   [
                     {
                       "backgroundColor": "#FFFFFF",
+                      "borderColor": "rgba(20,24,27,0.08)",
                       "borderRadius": 24,
+                      "borderWidth": 1,
                       "padding": 0,
                     },
-                    {
-                      "elevation": 2,
-                      "shadowColor": "#14181B",
-                      "shadowOffset": {
-                        "height": 6,
-                        "width": 0,
-                      },
-                      "shadowOpacity": 0.06,
-                      "shadowRadius": 14,
-                    },
+                    undefined,
                     {
                       "overflow": "hidden",
                     },
@@ -340,8 +406,8 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                       "flexDirection": "row",
                       "gap": 12,
                       "minHeight": 56,
-                      "paddingHorizontal": 16,
-                      "paddingVertical": 12,
+                      "paddingHorizontal": 18,
+                      "paddingVertical": 16,
                       "transform": [
                         {
                           "scale": 1,
@@ -359,11 +425,11 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                           "fontFamily": "Outfit_600SemiBold",
                           "fontSize": 13,
                           "lineHeight": 18,
-                          "textAlign": "right",
+                          "textAlign": "left",
                           "writingDirection": "rtl",
                         },
                         {
-                          "width": 48,
+                          "minWidth": 48,
                         },
                       ]
                     }
@@ -375,10 +441,10 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                     style={
                       {
                         "alignSelf": "stretch",
-                        "backgroundColor": "#1F7A8C",
+                        "backgroundColor": "rgba(20,24,27,0.22)",
                         "borderRadius": 2,
                         "minHeight": 28,
-                        "width": 3,
+                        "width": 2,
                       }
                     }
                   />
@@ -386,7 +452,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                     style={
                       {
                         "flex": 1,
-                        "gap": 3,
+                        "gap": 4,
                       }
                     }
                   >
@@ -398,7 +464,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                             "fontFamily": "NotoNaskhArabic_400Regular",
                             "fontSize": 15,
                             "lineHeight": 24,
-                            "textAlign": "right",
+                            "textAlign": "left",
                             "writingDirection": "rtl",
                           },
                           undefined,
@@ -425,7 +491,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                               "fontFamily": "Outfit_400Regular",
                               "fontSize": 12,
                               "lineHeight": 17,
-                              "textAlign": "right",
+                              "textAlign": "left",
                               "writingDirection": "rtl",
                             },
                             undefined,
@@ -442,7 +508,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                               "fontFamily": "NotoNaskhArabic_400Regular",
                               "fontSize": 12,
                               "lineHeight": 19,
-                              "textAlign": "right",
+                              "textAlign": "left",
                               "writingDirection": "rtl",
                             },
                             undefined,
@@ -455,11 +521,11 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                         style={
                           [
                             {
-                              "color": "#14586A",
+                              "color": "#5F6B70",
                               "fontFamily": "NotoNaskhArabic_400Regular",
                               "fontSize": 12,
                               "lineHeight": 19,
-                              "textAlign": "right",
+                              "textAlign": "left",
                               "writingDirection": "rtl",
                             },
                             undefined,
@@ -477,19 +543,12 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                   [
                     {
                       "backgroundColor": "#FFFFFF",
+                      "borderColor": "rgba(20,24,27,0.08)",
                       "borderRadius": 24,
+                      "borderWidth": 1,
                       "padding": 0,
                     },
-                    {
-                      "elevation": 2,
-                      "shadowColor": "#14181B",
-                      "shadowOffset": {
-                        "height": 6,
-                        "width": 0,
-                      },
-                      "shadowOpacity": 0.06,
-                      "shadowRadius": 14,
-                    },
+                    undefined,
                     {
                       "overflow": "hidden",
                     },
@@ -535,8 +594,8 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                       "flexDirection": "row",
                       "gap": 12,
                       "minHeight": 56,
-                      "paddingHorizontal": 16,
-                      "paddingVertical": 12,
+                      "paddingHorizontal": 18,
+                      "paddingVertical": 16,
                       "transform": [
                         {
                           "scale": 1,
@@ -554,11 +613,11 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                           "fontFamily": "Outfit_600SemiBold",
                           "fontSize": 13,
                           "lineHeight": 18,
-                          "textAlign": "right",
+                          "textAlign": "left",
                           "writingDirection": "rtl",
                         },
                         {
-                          "width": 48,
+                          "minWidth": 48,
                         },
                       ]
                     }
@@ -570,10 +629,10 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                     style={
                       {
                         "alignSelf": "stretch",
-                        "backgroundColor": "#1F7A8C",
+                        "backgroundColor": "rgba(20,24,27,0.22)",
                         "borderRadius": 2,
                         "minHeight": 28,
-                        "width": 3,
+                        "width": 2,
                       }
                     }
                   />
@@ -581,7 +640,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                     style={
                       {
                         "flex": 1,
-                        "gap": 3,
+                        "gap": 4,
                       }
                     }
                   >
@@ -593,7 +652,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                             "fontFamily": "NotoNaskhArabic_400Regular",
                             "fontSize": 15,
                             "lineHeight": 24,
-                            "textAlign": "right",
+                            "textAlign": "left",
                             "writingDirection": "rtl",
                           },
                           undefined,
@@ -620,7 +679,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                               "fontFamily": "Outfit_400Regular",
                               "fontSize": 12,
                               "lineHeight": 17,
-                              "textAlign": "right",
+                              "textAlign": "left",
                               "writingDirection": "rtl",
                             },
                             undefined,
@@ -637,7 +696,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                               "fontFamily": "NotoNaskhArabic_400Regular",
                               "fontSize": 12,
                               "lineHeight": 19,
-                              "textAlign": "right",
+                              "textAlign": "left",
                               "writingDirection": "rtl",
                             },
                             undefined,
@@ -650,11 +709,11 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                         style={
                           [
                             {
-                              "color": "#14586A",
+                              "color": "#5F6B70",
                               "fontFamily": "NotoNaskhArabic_400Regular",
                               "fontSize": 12,
                               "lineHeight": 19,
-                              "textAlign": "right",
+                              "textAlign": "left",
                               "writingDirection": "rtl",
                             },
                             undefined,
@@ -672,19 +731,12 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                   [
                     {
                       "backgroundColor": "#FFFFFF",
+                      "borderColor": "rgba(20,24,27,0.08)",
                       "borderRadius": 24,
+                      "borderWidth": 1,
                       "padding": 0,
                     },
-                    {
-                      "elevation": 2,
-                      "shadowColor": "#14181B",
-                      "shadowOffset": {
-                        "height": 6,
-                        "width": 0,
-                      },
-                      "shadowOpacity": 0.06,
-                      "shadowRadius": 14,
-                    },
+                    undefined,
                     {
                       "overflow": "hidden",
                     },
@@ -730,8 +782,8 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                       "flexDirection": "row",
                       "gap": 12,
                       "minHeight": 56,
-                      "paddingHorizontal": 16,
-                      "paddingVertical": 12,
+                      "paddingHorizontal": 18,
+                      "paddingVertical": 16,
                       "transform": [
                         {
                           "scale": 1,
@@ -749,11 +801,11 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                           "fontFamily": "Outfit_600SemiBold",
                           "fontSize": 13,
                           "lineHeight": 18,
-                          "textAlign": "right",
+                          "textAlign": "left",
                           "writingDirection": "rtl",
                         },
                         {
-                          "width": 48,
+                          "minWidth": 48,
                         },
                       ]
                     }
@@ -765,10 +817,10 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                     style={
                       {
                         "alignSelf": "stretch",
-                        "backgroundColor": "#1F7A8C",
+                        "backgroundColor": "rgba(20,24,27,0.22)",
                         "borderRadius": 2,
                         "minHeight": 28,
-                        "width": 3,
+                        "width": 2,
                       }
                     }
                   />
@@ -776,7 +828,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                     style={
                       {
                         "flex": 1,
-                        "gap": 3,
+                        "gap": 4,
                       }
                     }
                   >
@@ -788,7 +840,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                             "fontFamily": "NotoNaskhArabic_400Regular",
                             "fontSize": 15,
                             "lineHeight": 24,
-                            "textAlign": "right",
+                            "textAlign": "left",
                             "writingDirection": "rtl",
                           },
                           undefined,
@@ -815,7 +867,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                               "fontFamily": "Outfit_400Regular",
                               "fontSize": 12,
                               "lineHeight": 17,
-                              "textAlign": "right",
+                              "textAlign": "left",
                               "writingDirection": "rtl",
                             },
                             undefined,
@@ -832,7 +884,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                               "fontFamily": "NotoNaskhArabic_400Regular",
                               "fontSize": 12,
                               "lineHeight": 19,
-                              "textAlign": "right",
+                              "textAlign": "left",
                               "writingDirection": "rtl",
                             },
                             undefined,
@@ -845,11 +897,11 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                         style={
                           [
                             {
-                              "color": "#14586A",
+                              "color": "#5F6B70",
                               "fontFamily": "NotoNaskhArabic_400Regular",
                               "fontSize": 12,
                               "lineHeight": 19,
-                              "textAlign": "right",
+                              "textAlign": "left",
                               "writingDirection": "rtl",
                             },
                             undefined,
@@ -868,19 +920,12 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                 [
                   {
                     "backgroundColor": "#FFFFFF",
+                    "borderColor": "rgba(20,24,27,0.08)",
                     "borderRadius": 24,
+                    "borderWidth": 1,
                     "padding": 0,
                   },
-                  {
-                    "elevation": 2,
-                    "shadowColor": "#14181B",
-                    "shadowOffset": {
-                      "height": 6,
-                      "width": 0,
-                    },
-                    "shadowOpacity": 0.06,
-                    "shadowRadius": 14,
-                  },
+                  undefined,
                   {
                     "overflow": "hidden",
                   },
@@ -896,7 +941,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                     "busy": undefined,
                     "checked": undefined,
                     "disabled": undefined,
-                    "expanded": undefined,
+                    "expanded": true,
                     "selected": undefined,
                   }
                 }
@@ -945,7 +990,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                         "fontFamily": "NotoNaskhArabic_600SemiBold",
                         "fontSize": 15,
                         "lineHeight": 24,
-                        "textAlign": "right",
+                        "textAlign": "left",
                         "writingDirection": "rtl",
                       },
                       undefined,
@@ -962,7 +1007,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                         "fontFamily": "NotoNaskhArabic_400Regular",
                         "fontSize": 13,
                         "lineHeight": 21,
-                        "textAlign": "right",
+                        "textAlign": "left",
                         "writingDirection": "rtl",
                       },
                       undefined,
@@ -1008,7 +1053,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                           "fontFamily": "NotoNaskhArabic_400Regular",
                           "fontSize": 14,
                           "lineHeight": 22,
-                          "textAlign": "right",
+                          "textAlign": "left",
                           "writingDirection": "rtl",
                         },
                         {
@@ -1028,8 +1073,8 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                         "color": "#5F6B70",
                         "fontFamily": "NotoNaskhArabic_400Regular",
                         "fontSize": 12,
-                        "lineHeight": 18,
-                        "textAlign": "right",
+                        "lineHeight": 19,
+                        "textAlign": "left",
                         "writingDirection": "rtl",
                       },
                       {
@@ -1131,146 +1176,160 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                 }
               >
                 <View
-                  accessibilityLabel="خطة جديدة"
-                  accessibilityRole="button"
-                  accessibilityState={
-                    {
-                      "busy": undefined,
-                      "checked": undefined,
-                      "disabled": false,
-                      "expanded": undefined,
-                      "selected": undefined,
-                    }
-                  }
-                  accessibilityValue={
-                    {
-                      "max": undefined,
-                      "min": undefined,
-                      "now": undefined,
-                      "text": undefined,
-                    }
-                  }
-                  accessible={true}
-                  collapsable={false}
-                  focusable={true}
-                  onBlur={[Function]}
-                  onClick={[Function]}
-                  onFocus={[Function]}
-                  onResponderGrant={[Function]}
-                  onResponderMove={[Function]}
-                  onResponderRelease={[Function]}
-                  onResponderTerminate={[Function]}
-                  onResponderTerminationRequest={[Function]}
-                  onStartShouldSetResponder={[Function]}
                   style={
                     {
-                      "alignItems": "center",
-                      "backgroundColor": "#FFFFFF",
-                      "borderColor": "rgba(20,24,27,0.08)",
-                      "borderRadius": 999,
-                      "borderWidth": 1,
                       "flex": 1,
-                      "justifyContent": "center",
-                      "minHeight": 48,
-                      "paddingHorizontal": 18,
-                      "paddingVertical": 16,
-                      "transform": [
-                        {
-                          "scale": 1,
-                        },
-                      ],
                     }
                   }
-                  testID="plan-regenerate"
                 >
-                  <Text
-                    style={
-                      [
-                        {
-                          "color": "#14181B",
-                          "fontFamily": "NotoNaskhArabic_600SemiBold",
-                          "fontSize": 14,
-                          "lineHeight": 22,
-                          "textAlign": "center",
-                          "writingDirection": "rtl",
-                        },
-                        undefined,
-                      ]
+                  <View
+                    accessibilityLabel="خطة جديدة"
+                    accessibilityRole="button"
+                    accessibilityState={
+                      {
+                        "busy": undefined,
+                        "checked": undefined,
+                        "disabled": false,
+                        "expanded": undefined,
+                        "selected": undefined,
+                      }
                     }
+                    accessibilityValue={
+                      {
+                        "max": undefined,
+                        "min": undefined,
+                        "now": undefined,
+                        "text": undefined,
+                      }
+                    }
+                    accessible={true}
+                    collapsable={false}
+                    focusable={true}
+                    onBlur={[Function]}
+                    onClick={[Function]}
+                    onFocus={[Function]}
+                    onResponderGrant={[Function]}
+                    onResponderMove={[Function]}
+                    onResponderRelease={[Function]}
+                    onResponderTerminate={[Function]}
+                    onResponderTerminationRequest={[Function]}
+                    onStartShouldSetResponder={[Function]}
+                    style={
+                      {
+                        "alignItems": "center",
+                        "backgroundColor": "#FFFFFF",
+                        "borderColor": "rgba(20,24,27,0.08)",
+                        "borderRadius": 999,
+                        "borderWidth": 1,
+                        "justifyContent": "center",
+                        "minHeight": 48,
+                        "paddingHorizontal": 18,
+                        "paddingVertical": 16,
+                        "transform": [
+                          {
+                            "scale": 1,
+                          },
+                        ],
+                      }
+                    }
+                    testID="plan-regenerate"
                   >
-                    خطة جديدة
-                  </Text>
+                    <Text
+                      style={
+                        [
+                          {
+                            "color": "#14181B",
+                            "fontFamily": "NotoNaskhArabic_600SemiBold",
+                            "fontSize": 14,
+                            "lineHeight": 22,
+                            "textAlign": "center",
+                            "writingDirection": "rtl",
+                          },
+                          undefined,
+                        ]
+                      }
+                    >
+                      خطة جديدة
+                    </Text>
+                  </View>
                 </View>
                 <View
-                  accessibilityLabel="مش اليوم"
-                  accessibilityRole="button"
-                  accessibilityState={
-                    {
-                      "busy": undefined,
-                      "checked": undefined,
-                      "disabled": false,
-                      "expanded": undefined,
-                      "selected": undefined,
-                    }
-                  }
-                  accessibilityValue={
-                    {
-                      "max": undefined,
-                      "min": undefined,
-                      "now": undefined,
-                      "text": undefined,
-                    }
-                  }
-                  accessible={true}
-                  collapsable={false}
-                  focusable={true}
-                  onBlur={[Function]}
-                  onClick={[Function]}
-                  onFocus={[Function]}
-                  onResponderGrant={[Function]}
-                  onResponderMove={[Function]}
-                  onResponderRelease={[Function]}
-                  onResponderTerminate={[Function]}
-                  onResponderTerminationRequest={[Function]}
-                  onStartShouldSetResponder={[Function]}
                   style={
                     {
-                      "alignItems": "center",
-                      "backgroundColor": "transparent",
-                      "borderColor": undefined,
-                      "borderRadius": 999,
-                      "borderWidth": 0,
                       "flex": 1,
-                      "justifyContent": "center",
-                      "minHeight": 48,
-                      "paddingHorizontal": 18,
-                      "paddingVertical": 16,
-                      "transform": [
-                        {
-                          "scale": 1,
-                        },
-                      ],
                     }
                   }
-                  testID="plan-dismiss"
                 >
-                  <Text
-                    style={
-                      [
-                        {
-                          "color": "#5F6B70",
-                          "fontFamily": "NotoNaskhArabic_600SemiBold",
-                          "fontSize": 14,
-                          "lineHeight": 22,
-                          "textAlign": "center",
-                          "writingDirection": "rtl",
-                        },
-                        undefined,
-                      ]
+                  <View
+                    accessibilityLabel="مش اليوم"
+                    accessibilityRole="button"
+                    accessibilityState={
+                      {
+                        "busy": undefined,
+                        "checked": undefined,
+                        "disabled": false,
+                        "expanded": undefined,
+                        "selected": undefined,
+                      }
                     }
+                    accessibilityValue={
+                      {
+                        "max": undefined,
+                        "min": undefined,
+                        "now": undefined,
+                        "text": undefined,
+                      }
+                    }
+                    accessible={true}
+                    collapsable={false}
+                    focusable={true}
+                    onBlur={[Function]}
+                    onClick={[Function]}
+                    onFocus={[Function]}
+                    onResponderGrant={[Function]}
+                    onResponderMove={[Function]}
+                    onResponderRelease={[Function]}
+                    onResponderTerminate={[Function]}
+                    onResponderTerminationRequest={[Function]}
+                    onStartShouldSetResponder={[Function]}
+                    style={
+                      {
+                        "alignItems": "center",
+                        "backgroundColor": "transparent",
+                        "borderColor": undefined,
+                        "borderRadius": 999,
+                        "borderWidth": 0,
+                        "justifyContent": "center",
+                        "minHeight": 48,
+                        "paddingHorizontal": 18,
+                        "paddingVertical": 16,
+                        "transform": [
+                          {
+                            "scale": 1,
+                          },
+                        ],
+                      }
+                    }
+                    testID="plan-dismiss"
                   >
-                    مش اليوم
-                  </Text>
+                    <Text
+                      style={
+                        [
+                          {
+                            "color": "#5F6B70",
+                            "fontFamily": "NotoNaskhArabic_600SemiBold",
+                            "fontSize": 14,
+                            "lineHeight": 22,
+                            "textAlign": "center",
+                            "writingDirection": "rtl",
+                          },
+                          undefined,
+                        ]
+                      }
+                    >
+                      مش اليوم
+                    </Text>
+                  </View>
                 </View>
               </View>
               <Text
@@ -1281,7 +1340,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                       "fontFamily": "NotoNaskhArabic_400Regular",
                       "fontSize": 13,
                       "lineHeight": 21,
-                      "textAlign": "right",
+                      "textAlign": "left",
                       "writingDirection": "rtl",
                     },
                     undefined,

@@ -54,7 +54,7 @@ const MAY_READ_TOP_INSET: Record<string, string> = {
   'features/language/LanguageStep.tsx': 'pre-sign-in, full bleed, no scroller to escape under the island',
   'features/onboarding/OnboardingChrome.tsx': 'pre-sign-in chrome, its own frame',
   'screens/SignInScreen.tsx': 'pre-sign-in, full bleed',
-  'screens/SavedScreen.tsx': 'a full-bleed confirmation with no scroller',
+  'screens/SavedScreen.tsx': 'a confirmation frame that owns the inset outside its receipt scroller',
 };
 
 describe('the safe-area top has exactly one owner', () => {

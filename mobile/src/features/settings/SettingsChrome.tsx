@@ -3,6 +3,8 @@ import { View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { Btn, Txt } from '../../ui/primitives';
 import { BackHeader } from '../../ui/chrome';
+import { ChevronIcon } from '../../ui/icons';
+import { useLayoutMode } from '../../theme/textScale';
 
 /**
  * A settings sub-screen's title and its way back — Round 2's one header
@@ -31,10 +33,12 @@ export function SettingsRow({
   tone?: 'default' | 'warn';
   first?: boolean | undefined;
 }) {
-  const { p } = useApp();
+  const { p, rtl } = useApp();
+  const stacked = useLayoutMode() !== 'normal';
   return (
     <Btn
       label={label}
+      hint={[sub, value].filter(Boolean).join('. ') || undefined}
       onPress={onPress}
       disabled={!onPress}
       scaleTo={onPress ? 0.98 : 1}
@@ -42,18 +46,19 @@ export function SettingsRow({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 12,
-        paddingVertical: 13,
+        paddingVertical: 16,
         minHeight: 56,
         borderTopWidth: first ? 0 : 1,
         borderTopColor: p.ln,
       }}
     >
-      <View style={{ flex: 1, gap: 1 }}>
-        <Txt size={15} color={tone === 'warn' ? p.wm : p.tx} {...(testID ? { testID } : {})}>{label}</Txt>
-        {sub ? <Txt size={12} color={p.mu}>{sub}</Txt> : null}
+      <View style={{ flex: 1, gap: 4 }}>
+        <Txt role="action" color={tone === 'warn' ? p.wm : p.tx} {...(testID ? { testID } : {})}>{label}</Txt>
+        {sub ? <Txt role="supporting" color={p.mu}>{sub}</Txt> : null}
+        {value && stacked ? <Txt role="supporting" color={p.mu}>{value}</Txt> : null}
       </View>
-      {value ? <Txt size={13} color={p.mu}>{value}</Txt> : null}
-      {onPress ? <Txt size={16} color={p.mu} latin style={{ transform: [{ scaleX: 1 }] }}>›</Txt> : null}
+      {value && !stacked ? <Txt role="label" weight={400} color={p.mu} style={{ flexShrink: 1, maxWidth: '45%' }}>{value}</Txt> : null}
+      {onPress ? <ChevronIcon color={p.mu} rtl={rtl} /> : null}
     </Btn>
   );
 }

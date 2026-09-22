@@ -285,7 +285,8 @@ describe('right-to-left', () => {
 
     const label = screen.getByText(ar.postponeCustomWhen);
     expect(styleOf(label).writingDirection).toBe('rtl');
-    expect(styleOf(label).textAlign).toBe('right');
+    // iOS Fabric swaps this logical edge under inherited RTL.
+    expect(styleOf(label).textAlign).toBe('left');
     // Arabic is `ar-u-nu-latn` (src/i18n/README.md), so the clock reads 18:00
     // and not ١٨:٠٠ — and it is wrapped in U+2066/U+2069 so it does not
     // reverse inside the Arabic line.

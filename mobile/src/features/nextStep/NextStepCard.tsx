@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { TextInput, View } from 'react-native';
+import { useLayoutMode } from '../../theme/textScale';
 import { useApp } from '../../state/AppContext';
 import { useNextStep, useNextStepDecision } from '../../api/queries';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
@@ -103,7 +104,7 @@ export function NextStepCard({ lookup }: {
         <View
           testID="next-step-card"
           style={{
-            backgroundColor: p.sf, borderRadius: 24, padding: 18, gap: 10,
+            backgroundColor: p.sf, borderRadius: 24, padding: 22, gap: 14,
             borderWidth: 1.5, borderColor: started ? p.acs : p.prop, borderStyle: started ? 'solid' : 'dashed',
           }}
         >
@@ -185,6 +186,7 @@ function Ready({
   onSend: (decision: NextStepDecisionKind, extra?: { editedTitle?: string; deferUntil?: string }) => void;
   busy: boolean;
 }) {
+  const stacked = useLayoutMode() !== 'normal';
   const { t, p, rtl, script, lang, actions } = useApp();
   const timezone = useTimeZone();
   const step = recommendation.primaryStep!;
@@ -207,7 +209,7 @@ function Ready({
   return (
     <>
       <Btn label={step.title} onPress={() => actions.openDetail(step.commitmentId)} scaleTo={0.99} testID="next-step-open" style={{ alignItems: 'flex-start', gap: 4 }}>
-        <Txt size={20} weight={600} lh={1.35} testID="next-step-title">{step.title}</Txt>
+        <Txt role="section" testID="next-step-title">{step.title}</Txt>
         {item ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <Txt size={14} color={p.mu} latin testID="next-step-when">{when ?? t.noTimeYet}</Txt>
@@ -303,21 +305,21 @@ function Ready({
       ) : started ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
           {offers('done') ? (
-            <Pill testID="next-step-done" label={ACTION_LABEL(strings).done} size={14} pad={12} disabled={busy} onPress={() => run('done')} style={{ flex: 1 }} />
+            <Pill testID="next-step-done" label={ACTION_LABEL(strings).done} size={14} pad={12} disabled={busy} onPress={() => run('done')} style={stacked ? undefined : { flex: 1 }} />
           ) : null}
           <Txt size={12} color={p.mu} lh={1.4} style={{ flex: 1 }} testID="next-step-started-note">{t.nextStepStartedNote}</Txt>
         </View>
       ) : (
         <View style={{ gap: 8 }}>
-          <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+          <View style={{ flexDirection: stacked ? 'column' : 'row', gap: 8, alignItems: 'stretch' }}>
             {offers('accept') ? (
-              <Pill testID="next-step-accept" label={ACTION_LABEL(strings).accept} kind="accent" size={14} pad={12} disabled={busy} onPress={() => run('accept')} style={{ flex: 1 }} />
+              <Pill testID="next-step-accept" label={ACTION_LABEL(strings).accept} kind="accent" size={14} pad={12} disabled={busy} onPress={() => run('accept')} style={stacked ? undefined : { flex: 1 }} />
             ) : null}
             {offers('defer') ? (
-              <Pill testID="next-step-defer" label={ACTION_LABEL(strings).defer} kind="soft" size={14} pad={12} disabled={busy} onPress={() => run('defer')} style={{ flex: 1 }} />
+              <Pill testID="next-step-defer" label={ACTION_LABEL(strings).defer} kind="soft" size={14} pad={12} disabled={busy} onPress={() => run('defer')} style={stacked ? undefined : { flex: 1 }} />
             ) : null}
             {folded.length > 0 ? (
-              <Btn testID="next-step-more" label={t.nextStepMore} onPress={onMore}
+              <Btn testID="next-step-more" accessibilityState={{ expanded: more }} label={t.nextStepMore} onPress={onMore}
                 style={{ width: 48, minHeight: 48, borderRadius: 999, backgroundColor: p.sf2, alignItems: 'center', justifyContent: 'center' }}>
                 <Txt size={18} weight={600} color={p.tx} latin>{more ? '×' : '…'}</Txt>
               </Btn>

@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Platform, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { useLayoutMode } from '../theme/textScale';
 import { useApp } from '../state/AppContext';
 import { Btn, Card, Pill, Txt } from '../ui/primitives';
-import { BackHeader, EmptyState, SectionLabel, Skeleton, Tag, TextLink } from '../ui/chrome';
+import { ActionRow, BackHeader, EmptyState, SectionLabel, Skeleton, Tag, TextLink } from '../ui/chrome';
 import { Screen, ScreenScroll } from '../ui/screen';
 import { ProcessingDots } from '../ui/motion';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
@@ -200,6 +201,7 @@ function PlanFrame({
 
 function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; readOnly: boolean }) {
   const { t, tr, p, lang } = useApp();
+  const stacked = useLayoutMode() !== 'normal';
   const accept = usePlanAction(date);
   const edit = usePlanEdit(date);
   const rebuild = useRegeneratePlan(date);
@@ -287,7 +289,7 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
 
   return (
     <View style={{ gap: 14 }}>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10, paddingHorizontal: 4 }}>
+      <View style={{ flexDirection: stacked ? 'column' : 'row', justifyContent: 'space-between', alignItems: stacked ? 'flex-start' : 'center', gap: 10, paddingHorizontal: 4 }}>
         <Txt size={15} color={p.mu} testID="plan-date">{heading}</Txt>
         {proposal ? <Tag kind="proposal" label={t.planStatusProposal} testID="plan-status-proposal" /> : null}
       </View>
@@ -405,7 +407,7 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
           appears only for `source: 'model'` — a templated sentence has no
           author to name. */}
       <Card pad={0} style={{ overflow: 'hidden' }} testID="plan-why">
-        <Btn label={t.planWhyTitle} onPress={() => setWhyOpen(!whyOpen)} testID="plan-why-toggle" scaleTo={0.99} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16, minHeight: 48 }}>
+        <Btn label={t.planWhyTitle} onPress={() => setWhyOpen(!whyOpen)} testID="plan-why-toggle" accessibilityState={{ expanded: whyOpen }} scaleTo={0.99} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16, minHeight: 48 }}>
           <Txt size={15} weight={600}>{t.planWhyTitle}</Txt>
           <Txt size={13} color={p.mu}>{whyOpen ? '−' : '+'}</Txt>
         </Btn>
@@ -441,12 +443,11 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
           disabled={readOnly || accept.isPending || plan.status === 'accepted'}
           onPress={() => send('accept')}
         />
-        <View style={{ flexDirection: 'row', gap: 10 }}>
+        <ActionRow>
           <Pill
             label={t.planRegenerate}
             kind="outline"
             size={14}
-            style={{ flex: 1 }}
             testID="plan-regenerate"
             disabled={readOnly || rebuild.isPending || capReached}
             onPress={() => {
@@ -461,12 +462,11 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
             label={t.planDismiss}
             kind="ghost"
             size={14}
-            style={{ flex: 1 }}
             testID="plan-dismiss"
             disabled={readOnly || accept.isPending || plan.status === 'dismissed'}
             onPress={() => send('dismiss')}
           />
-        </View>
+        </ActionRow>
         {capReached ? (
           <Txt size={13} color={p.mu} lh={1.5} testID="plan-regenerate-capped">{t.planRegenerateNoneLeft}</Txt>
         ) : (
@@ -495,6 +495,7 @@ function PlannedRow({
   onRemove: () => void;
 }) {
   const { t, p, lang, scheme } = useApp();
+  const stacked = useLayoutMode() !== 'normal';
   const [picking, setPicking] = useState(false);
   const [picked, setPicked] = useState<Date | null>(null);
 
@@ -527,18 +528,18 @@ function PlannedRow({
         onPress={readOnly ? undefined : onToggle}
         disabled={readOnly}
         scaleTo={readOnly ? 1 : 0.98}
-        style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 12, minHeight: 56 }}
+        style={{ flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'flex-start' : 'center', gap: 12, paddingHorizontal: 18, paddingVertical: 16, minHeight: 56 }}
       >
         {/* Round 2's row: the start time in its own column, a bar in the
             item's colour, then the title with its range and whether it moves. */}
-        <Txt size={13} weight={600} latin testID={`plan-item-time-${item.itemId}`} style={{ width: 48 }}>{formatTime(start, { locale: lang, timeZone: zone })}</Txt>
-        <View style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: readOnly ? p.lnStrong : p.ac, minHeight: 28 }} />
-        <View style={{ flex: 1, gap: 3 }}>
+        <Txt size={13} weight={600} latin testID={`plan-item-time-${item.itemId}`} style={stacked ? undefined : { minWidth: 48 }}>{formatTime(start, { locale: lang, timeZone: zone })}</Txt>
+        {!stacked ? <View style={{ width: 2, alignSelf: 'stretch', borderRadius: 2, backgroundColor: p.lnStrong, minHeight: 28 }} /> : null}
+        <View style={{ ...(stacked ? {} : { flex: 1 }), gap: 4 }}>
           <Txt size={15}>{item.title ? isolateAuto(item.title) : t.planRemovedItem}</Txt>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             <Txt size={12} color={p.mu} latin>{when}</Txt>
             <Txt size={12} color={p.mu}>·</Txt>
-            <Txt size={12} color={readOnly ? p.mu : p.acd}>{readOnly ? t.planItemFixed : t.planItemMovable}</Txt>
+            <Txt size={12} color={p.mu}>{readOnly ? t.planItemFixed : t.planItemMovable}</Txt>
           </View>
         </View>
       </Btn>

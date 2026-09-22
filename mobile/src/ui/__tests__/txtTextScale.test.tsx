@@ -1,14 +1,6 @@
-/**
- * `Txt` under an enlarged text size.
- *
- * React Native scales `fontSize` for you and leaves `lineHeight` alone. A
- * fixed line box therefore clips its own text the moment the reader enlarges
- * it, and it clips worst in Arabic, whose face asks for 1.6 and whose glyphs
- * are tall — the app's primary language.
- *
- * Claims: the line box tracks the rendered size at every scale, nothing caps
- * the platform, and 2.0× is 2.0×.
- */
+/** RN scales fontSize and lineHeight together. Base metrics must stay stable
+ * across Dynamic Type categories, with no cap or disabled platform scaling.
+ * Device evidence at AX5 verifies the native behavior these props request. */
 import React from 'react';
 import { StyleSheet } from 'react-native';
 import { describe, expect, it, jest, beforeEach } from '@jest/globals';
@@ -59,35 +51,16 @@ beforeEach(async () => {
   await AsyncStorage.clear();
 });
 
-describe('Txt keeps its line box around its text at every size', () => {
-  it('1.35× renders at 1.35×: the line box is the Arabic ratio of the rendered size', async () => {
-    const { fontSize, lineHeight } = await lineBoxAt(1.35);
-    expect(fontSize).toBe(20); // the platform multiplies this by 1.35
-    expect(lineHeight).toBe(Math.round(20 * 1.35 * LINE_HEIGHT.arabic));
-  });
-
-  it('2.0× is not reduced to 1.45×', async () => {
-    const two = await lineBoxAt(2.0);
-    const capped = Math.round(20 * 1.45 * LINE_HEIGHT.arabic);
-    expect(two.lineHeight).toBe(Math.round(20 * 2.0 * LINE_HEIGHT.arabic));
-    expect(two.lineHeight).toBeGreaterThan(capped);
-  });
-
-  it('never tells the platform to stop scaling', async () => {
-    const { max, allow } = await lineBoxAt(3.12);
-    expect(max).toBeUndefined();
-    expect(allow).not.toBe(false);
-  });
-
-  it('Arabic does not clip: the line box is at least 1.6× the rendered size at every scale', async () => {
-    for (const scale of [1, 1.24, 1.64, 2.35, 3.12]) {
-      const { lineHeight } = await lineBoxAt(scale);
-      expect(lineHeight).toBeGreaterThanOrEqual(Math.floor(20 * scale * 1.6));
-    }
-  });
-
-  it('a smaller-than-default reading shrinks the box too, so it never floats', async () => {
-    const { lineHeight } = await lineBoxAt(0.82);
-    expect(lineHeight).toBe(Math.round(20 * 0.82 * LINE_HEIGHT.arabic));
-  });
+describe('Txt delegates scaling once to the native renderer', () => {
+  it.each([0.82, 1, 1.24, 1.35, 1.64, 2, 2.35, 3.12])(
+    'keeps base Arabic metrics and uncapped native scaling at %sx', async scale => {
+      const { fontSize, lineHeight, max, allow } = await lineBoxAt(scale);
+      expect(fontSize).toBe(20);
+      expect(lineHeight).toBe(20 * LINE_HEIGHT.arabic);
+      expect(max).toBeUndefined();
+      expect(allow).not.toBe(false);
+      // RN 0.86 RCTAttributedTextUtils.mm applies the same multiplier to both.
+      expect((lineHeight * scale) / (fontSize * scale)).toBeCloseTo(1.6);
+    },
+  );
 });

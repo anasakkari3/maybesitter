@@ -44,7 +44,7 @@ export function SettingsScreen() {
 
   return (
     <Screen>
-      <ScreenScroll bottom={130} gap={18} topGap={8}>
+      <ScreenScroll bottom={130} gap={24} topGap={8}>
         <ScreenHeader title={t.settingsTitle} />
 
         <Group title={t.settingsGroupYou}>
@@ -74,7 +74,7 @@ export function SettingsScreen() {
           <SettingsRow first label={t.settingsKnows} sub={memoryCount === undefined ? undefined : tr('settingsKnowsSub', { n: memoryCount })} onPress={() => actions.go('knows')} testID="settings-knows" />
           <SettingsRow label={t.sTrust} onPress={() => actions.go('trust')} testID="settings-trust" />
           <SettingsRow label={t.activityTitle} onPress={() => actions.go('activity')} testID="settings-activity" />
-          {user ? <SettingsRow label={t.accountTitle} sub={user.email ? fill(t.settingsAccountSub, { email: user.email }) : t.authSignedInPrivateApple} onPress={() => actions.go('account')} testID="settings-account" /> : null}
+          {user ? <SettingsRow label={t.accountTitle} sub={user.email ? fill(t.settingsAccountSub, { email: ltr(user.email) }) : t.authSignedInPrivateApple} onPress={() => actions.go('account')} testID="settings-account" /> : null}
           <SettingsRow label={t.settingsAbout} onPress={() => actions.go('about')} testID="settings-about" />
         </Group>
 
@@ -82,7 +82,7 @@ export function SettingsScreen() {
             that leads nowhere is worse than none. */}
         {icsFeedsEnabled() ? null : null}
         <View style={{ paddingHorizontal: 12 }}>
-          {user?.email ? <Txt size={12} color={p.mu} align="center">{fill(t.authSignedInAs, { email: user.email })}</Txt> : null}
+          {user?.email ? <Txt size={12} color={p.mu} align="center">{fill(t.authSignedInAs, { email: ltr(user.email) })}</Txt> : null}
         </View>
       </ScreenScroll>
     </Screen>
@@ -91,7 +91,7 @@ export function SettingsScreen() {
 
 function Group({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <View style={{ gap: 6 }}>
+    <View style={{ gap: 8 }}>
       <SectionLabel>{title}</SectionLabel>
       <Card pad={0} style={{ paddingHorizontal: 16 }}>{children}</Card>
     </View>

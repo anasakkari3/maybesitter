@@ -8,8 +8,8 @@ import { EXAMPLE_KEYS, exampleText } from '../features/capture/examples';
 import { ClipboardImportSheet } from '../features/capture/ClipboardImportSheet';
 import { readClipboardText, type ClipboardImport } from '../features/capture/clipboardImport';
 import { fill } from '../i18n/strings';
-import { family } from '../theme/fonts';
-import { cardShadow } from '../theme/tokens';
+import { family, LINE_HEIGHT } from '../theme/fonts';
+import { useLayoutMode } from '../theme/textScale';
 import { VoiceButton } from '../features/capture/voice/VoiceButton';
 import { createSpeechCaptureService, SpeechEventBridge } from '../features/capture/voice/speechService';
 import { VoiceLanguageChip } from '../features/capture/voice/VoiceLanguageChip';
@@ -58,6 +58,7 @@ import { ProcessingDots, ScreenIn } from '../ui/motion';
 export function CaptureScreen() {
   const { t, p, rtl, script, lang, actions } = useApp();
   const flow = useCaptureFlow();
+  const stacked = useLayoutMode() !== 'normal';
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
   /**
    * What the last deliberate clipboard read found, while it is being reviewed.
@@ -178,7 +179,8 @@ export function CaptureScreen() {
               />
           ) : (
             <>
-              <View style={{ flex: 1, gap: 12 }}>
+              <View style={{ flex: 1, gap: 16 }}>
+                <Txt role="section" style={{ paddingHorizontal: 4 }}>{t.sayItLikeYouThink}</Txt>
                 <View>
                   <TextInput
                     testID="capture-input"
@@ -192,13 +194,12 @@ export function CaptureScreen() {
                     accessibilityLabel={t.sayItLikeYouThink}
                     style={[
                       {
-                        minHeight: 150, backgroundColor: p.sf, borderWidth: 1.5,
-                        borderColor: tooLong ? p.wm : 'transparent', borderRadius: 24,
+                        minHeight: 160, backgroundColor: p.sf, borderWidth: 1,
+                        borderColor: tooLong ? p.wm : p.lnStrong, borderRadius: 24,
                         paddingTop: 18, paddingHorizontal: 18, paddingBottom: 34,
-                        fontSize: 20, lineHeight: 30, color: p.tx, fontFamily: family(400, script),
+                        fontSize: 20, lineHeight: Math.round(20 * LINE_HEIGHT[script]), color: p.tx, fontFamily: family(400, script),
                         textAlign: rtl ? 'right' : 'left', writingDirection: rtl ? 'rtl' : 'ltr',
                       },
-                      cardShadow(p),
                     ]}
                   />
                   {/* Inside the field's bottom corner (Round 2), and only as
@@ -215,7 +216,7 @@ export function CaptureScreen() {
                     and which language the mic listens for. Each fills the
                     field and nothing more — the clipboard is read here and
                     only here, on that press. */}
-                <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
                   <VoiceButton
                     service={speech}
                     autoFocus={state.inputMode === 'voice'}
@@ -226,9 +227,9 @@ export function CaptureScreen() {
                     testID="capture-paste"
                     label={t.capturePaste}
                     onPress={() => { void pasteFromClipboard(); }}
-                    style={{ flex: 1, minHeight: 48, backgroundColor: p.sf, borderWidth: 1, borderColor: p.lnStrong, borderRadius: 999, paddingVertical: 10, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center' }}
+                    style={{ flexGrow: 1, minHeight: 48, backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln, borderRadius: 16, paddingVertical: 10, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center' }}
                   >
-                    <Txt size={14} weight={600} color={p.acd}>{t.capturePaste}</Txt>
+                    <Txt role="supporting" weight={600}>{t.capturePaste}</Txt>
                   </Btn>
                   <VoiceLanguageChip
                     value={speechLang}
@@ -237,7 +238,7 @@ export function CaptureScreen() {
                 </View>
                 <Txt size={12} color={p.mu} style={{ paddingHorizontal: 4 }}>{t.captureShareHint}</Txt>
 
-                <View style={{ gap: 8, marginTop: 'auto' }}>
+                {state.text.length === 0 ? <View style={{ gap: 8 }}>
                   <Txt size={12} color={p.mu} style={{ paddingHorizontal: 4 }}>{t.tryOne}</Txt>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                     {EXAMPLE_KEYS.map((key) => (
@@ -246,13 +247,13 @@ export function CaptureScreen() {
                         testID={`capture-example-${key}`}
                         label={exampleText(key, t)}
                         onPress={() => flow.setText(exampleText(key, t))}
-                        style={{ borderWidth: 1, borderStyle: 'dashed', borderColor: p.lnStrong, borderRadius: 999, paddingVertical: 8, paddingHorizontal: 12, minHeight: 36, justifyContent: 'center' }}
+                        style={{ borderWidth: 1, borderColor: p.ln, borderRadius: 12, paddingVertical: 10, paddingHorizontal: 12, minHeight: 44, justifyContent: 'center', ...(stacked ? { width: '100%' } : {}) }}
                       >
-                        <Txt size={12} color={p.mu} style={{ fontStyle: 'italic' }}>{exampleText(key, t)}</Txt>
+                        <Txt role="supporting" color={p.mu}>{exampleText(key, t)}</Txt>
                       </Btn>
                     ))}
                   </View>
-                </View>
+                </View> : null}
               </View>
 
               <Txt size={12} color={p.mu} align="center" lh={1.5}>{t.privacyText}</Txt>

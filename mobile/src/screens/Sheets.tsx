@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Animated, Platform, Pressable, Switch, TextInput, View } from 'react-native';
+import { Animated, Platform, Pressable, ScrollView, Switch, TextInput, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
@@ -18,6 +18,7 @@ import { cardShadow } from '../theme/tokens';
 import { Btn, Pill, Txt } from '../ui/primitives';
 import { Dialog } from '../ui/dialog';
 import { useSheetMotion } from '../ui/motion';
+import { useLayoutMode } from '../theme/textScale';
 
 /*
  * The design's ClarifySheet and ReadingsSheet were here.
@@ -82,6 +83,7 @@ import { useSheetMotion } from '../ui/motion';
  */
 function PostponeSheet() {
   const { s, t, p, lang, scheme, actions } = useApp();
+  const stacked = useLayoutMode() !== 'normal';
   const timezone = useTimeZone();
   const query = useCommitment(s.detailId);
   const act = useCommitmentAction();
@@ -153,7 +155,7 @@ function PostponeSheet() {
               label={PRESET_LABEL(t)[preset]}
               disabled={act.isPending}
               onPress={() => choose(preset)}
-              style={{ width: '48%', flexGrow: 1, backgroundColor: act.isPending ? p.dis : p.sf2, borderRadius: 18, padding: 14, gap: 3, minHeight: 72, alignItems: 'flex-start' }}
+              style={{ width: stacked ? '100%' : '48%', flexGrow: 1, backgroundColor: act.isPending ? p.dis : p.sf2, borderRadius: 18, padding: 14, gap: 3, minHeight: 72, alignItems: 'flex-start' }}
             >
               <Txt size={15} weight={600} color={act.isPending ? p.disTx : p.tx}>{PRESET_LABEL(t)[preset]}</Txt>
               <Txt size={12} color={act.isPending ? p.disTx : p.mu} testID={`postpone-when-${preset}`}>
@@ -528,7 +530,7 @@ function ConfirmDialog({ intent }: { intent: 'drop' | 'delete' }) {
 }
 
 export function SheetHost() {
-  const { s, p, actions } = useApp();
+  const { s, t, p, actions } = useApp();
   const insets = useSafeAreaInsets();
   const m = useSheetMotion();
   if (!s.sheet) return null;
@@ -539,17 +541,23 @@ export function SheetHost() {
   return (
     <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 30, justifyContent: 'flex-end' }}>
       <Animated.View style={[{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: p.scrim }, m.scrim]}>
-        <Pressable style={{ flex: 1 }} onPress={actions.closeSheet} accessibilityLabel="close" />
+        <Pressable style={{ flex: 1 }} onPress={actions.closeSheet} accessibilityLabel={t.close} />
       </Animated.View>
       <Animated.View
+        accessibilityViewIsModal
         style={[
-          { backgroundColor: p.sf, borderTopLeftRadius: 36, borderTopRightRadius: 36, paddingTop: 14, paddingHorizontal: 20, paddingBottom: insets.bottom + 24, gap: 14, shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 20, shadowOffset: { width: 0, height: -10 }, elevation: 12 },
+          { maxHeight: '88%', backgroundColor: p.sf, borderTopLeftRadius: 36, borderTopRightRadius: 36, paddingTop: 14, shadowColor: p.ink, shadowOpacity: 0.18, shadowRadius: 20, shadowOffset: { width: 0, height: -10 }, elevation: 12 },
           m.panel,
         ]}
       >
         <View style={{ width: 40, height: 5, borderRadius: 3, backgroundColor: p.ln, alignSelf: 'center', marginBottom: 4 }} />
-        {s.sheet === 'postpone' && <PostponeSheet />}
-        {s.sheet === 'edit' && <EditSheet />}
+        <View style={{ paddingHorizontal: 20, alignItems: 'flex-end' }}>
+          <Btn label={t.close} onPress={actions.closeSheet} testID="sheet-close" style={{ minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 }}><Txt role="action">{t.close}</Txt></Btn>
+        </View>
+        <ScrollView keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: insets.bottom + 24 }}>
+          {s.sheet === 'postpone' && <PostponeSheet />}
+          {s.sheet === 'edit' && <EditSheet />}
+        </ScrollView>
       </Animated.View>
     </View>
   );

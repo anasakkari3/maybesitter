@@ -1,5 +1,7 @@
 import React from 'react';
 import { View } from 'react-native';
+import { useLayoutMode } from '../../theme/textScale';
+import { CalendarIcon } from '../../ui/icons';
 import { useApp } from '../../state/AppContext';
 import { useTimeZone } from '../../i18n/timezone';
 import { dayKey } from '../../i18n/format';
@@ -38,6 +40,7 @@ import type { PlanRow as PlanRowModel } from '../today/composeToday';
 export function TodayPlanRow({ row }: { row: PlanRowModel }) {
   const { t, tr, p, actions } = useApp();
   const timezone = useTimeZone();
+  const stacked = useLayoutMode() !== 'normal';
   const date = dayKey(new Date(), timezone);
   const query = usePlan(date);
 
@@ -68,17 +71,17 @@ export function TodayPlanRow({ row }: { row: PlanRowModel }) {
       disabled={!onPress}
       scaleTo={0.98}
       style={{
-        flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 56,
+        flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'flex-start' : 'center', gap: 12, minHeight: 56,
         backgroundColor: p.sf, borderRadius: 20, paddingVertical: 12, paddingHorizontal: 14,
-        borderWidth: proposed ? 1.5 : 0, borderColor: p.prop, borderStyle: 'dashed',
+        borderWidth: 1, borderColor: proposed ? p.prop : p.ln, borderStyle: proposed ? 'dashed' : 'solid',
       }}
     >
       <View style={{ width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: accepted ? p.acs : p.sf2 }}>
-        <Txt size={16} weight={600} color={accepted ? p.acd : p.mu} latin>≡</Txt>
+        <CalendarIcon color={accepted ? p.acd : p.mu} />
       </View>
-      <View style={{ flex: 1, gap: 1 }}>
+      <View style={{ ...(stacked ? {} : { flex: 1 }), gap: 4 }}>
         <Txt size={15} weight={600} testID="today-plan-title">{title}</Txt>
-        <Txt size={12} color={row.kind === 'accepted' ? p.acd : p.mu} lh={1.4} testID="today-plan-summary">{sub}</Txt>
+        <Txt role="supporting" color={p.mu} testID="today-plan-summary">{sub}</Txt>
       </View>
       {cta ? <Txt size={13} weight={600} color={p.acd} testID="today-plan-open">{cta}</Txt> : null}
     </Btn>

@@ -3,20 +3,12 @@ import { useWindowDimensions } from 'react-native';
 /**
  * Text size and layout mode — two different things.
  *
- * Round 1 had no answer here at all: `Txt` set a fixed `fontSize`, left
- * React Native's `allowFontScaling` at its default of true, and computed a
- * fixed `lineHeight` from the unscaled size. So the OS enlarged every glyph
- * without any layout accommodating it, every string was drawn into a line box
- * sized for 1×, and the floating tab bar's labels grew until the pill broke.
+ * Native text and adaptive layout have separate ownership:
  *
- * Round 2 names three steps — default 1 · large 1.2 · xl 1.45 — and
- * multiplies its whole ramp by one of them, because a prototype's text size is
- * a picker. A phone's is not. So the app separates:
- *
- *   TEXT SCALE   the reader's actual font scale, continuous, never capped.
- *                Someone at 2.0× reads at 2.0×. `Txt` uses this only to size
- *                its line box, because React Native scales `fontSize` itself
- *                and leaves `lineHeight` alone.
+ *   TEXT SCALE   React Native applies the reader's actual scale to fontSize
+ *                AND lineHeight. Txt supplies base metrics; neither is capped.
+ *                useTextScale is for geometric controls that need to grow,
+ *                such as calendar day targets, never a second font multiplier.
  *
  *   LAYOUT MODE  which of the design's three structures the chrome renders
  *                in. It saturates at `xl`: past that, the text keeps growing

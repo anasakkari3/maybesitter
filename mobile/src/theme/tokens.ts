@@ -181,6 +181,19 @@ export const typeScaleR2 = {
   body2: 14, label: 13, caption: 12, meta: 11,
 } as const;
 
+/** Product roles use the Round-2 ramp; screens choose meaning, not a new size. */
+export const typography = {
+  page: { size: typeScaleR2.title, weight: 600 },
+  section: { size: typeScaleR2.h2, weight: 600 },
+  card: { size: typeScaleR2.card, weight: 600 },
+  body: { size: typeScaleR2.body, weight: 400 },
+  supporting: { size: typeScaleR2.body2, weight: 400 },
+  label: { size: typeScaleR2.label, weight: 600 },
+  metadata: { size: typeScaleR2.caption, weight: 400 },
+  action: { size: typeScaleR2.body, weight: 600 },
+} as const;
+export type TextRole = keyof typeof typography;
+
 export const lineHeight = { arabic: 1.6, latin: 1.4, tight: 1.15, heading: 1.3 } as const;
 
 /** Durations in ms, with the export's single easing curve. */

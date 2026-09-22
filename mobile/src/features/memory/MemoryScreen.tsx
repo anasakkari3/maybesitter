@@ -6,6 +6,8 @@ import { formatDate } from '../../i18n/format';
 import { useTimeZone } from '../../i18n/timezone';
 import { Btn, Card, Txt } from '../../ui/primitives';
 import { Screen, ScreenScroll } from '../../ui/screen';
+import { QueryBoundary } from '../../api/ui/QueryBoundary';
+import { NotFoundError } from '../../api/errors';
 import { userFacingMessage } from '../../api/ui/userFacingMessage';
 import {
   useDeleteAllMemory,
@@ -16,7 +18,7 @@ import {
 } from '../../api/queries';
 import type { MemoryAdaptive, MemoryItem, MemorySuggestion } from '../../api/schemas/profile';
 import { SettingsHeader } from '../settings/SettingsChrome';
-import { EmptyState, Notice, SectionLabel } from '../../ui/chrome';
+import { EmptyState, Notice } from '../../ui/chrome';
 import { memorySentence } from './memoryDisplay';
 import {
   ADAPTIVE_CLASS_STRING,
@@ -169,6 +171,7 @@ export function MemoryScreen({ onBack }: { onBack: () => void }) {
           <Notice testID="memory-undo-bar" actionTestID="memory-undo" text={t.memoryDeletedNotice} action={t.memoryUndo} onAction={undo} />
         ) : null}
 
+        <QueryBoundary isPending={memory.isPending} error={memory.error instanceof NotFoundError ? null : memory.error} onRetry={() => void memory.refetch()}>
         {/* Also what a 404 renders: `items` is empty either way, and the
             screen has nothing truer to say than that it holds nothing. */}
         {suggestions.length > 0 ? (
@@ -236,6 +239,7 @@ export function MemoryScreen({ onBack }: { onBack: () => void }) {
             )}
           </Card>
         ) : null}
+        </QueryBoundary>
       </ScreenScroll>
     </Screen>
   );
@@ -308,7 +312,7 @@ function SuggestionsCard({
               matching: String(suggestion.evidence.matchingCount),
             }))}
           </Txt>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 14 }}>
             <Action
               label={strings.memorySuggestionKeep ?? ''}
               testID={`memory-suggestion-keep-${suggestion.fingerprint}`}
@@ -417,7 +421,7 @@ function MemoryDetailRow({
 
   return (
     <View style={{ paddingHorizontal: 18, paddingVertical: 14, gap: 8, borderTopWidth: 1, borderTopColor: p.ln }}>
-      <Txt size={15} lh={1.5} testID={`memory-screen-item-${item.id}`}>
+      <Txt role="card" weight={500} testID={`memory-screen-item-${item.id}`}>
         {isolate(memorySentence({ content: item.content, strings }))}
       </Txt>
 
@@ -431,7 +435,7 @@ function MemoryDetailRow({
         />
       </View>
 
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 14 }}>
         <Action
           label={showWhy ? t.memoryWhyHide : t.memoryWhy}
           testID={`memory-why-${item.id}`}
@@ -462,7 +466,7 @@ function Chip({ label, testID }: { label: string; testID?: string }) {
   const { p } = useApp();
   if (label === '') return null;
   return (
-    <View style={{ backgroundColor: p.sf2, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 }}>
+    <View style={{ backgroundColor: p.sf2, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 }}>
       <Txt size={12} color={p.mu} {...(testID ? { testID } : {})}>{label}</Txt>
     </View>
   );
@@ -480,9 +484,9 @@ function Action({
       onPress={disabled ? undefined : onPress}
       scaleTo={0.97}
       hitSlop={8}
-      style={{ minHeight: 32, justifyContent: 'center' }}
+      style={{ minHeight: 44, justifyContent: 'center', paddingVertical: 6, flexShrink: 1 }}
     >
-      <Txt size={14} color={disabled ? p.mu : tone === 'warn' ? p.wm : p.ac}>{label}</Txt>
+      <Txt size={14} color={disabled ? p.mu : tone === 'warn' ? p.wm : p.acd}>{label}</Txt>
     </Btn>
   );
 }

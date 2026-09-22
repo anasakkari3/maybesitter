@@ -19,7 +19,7 @@ import { CheckIcon } from '../../ui/icons';
  * itself, never translated.
  */
 export function LangAppearanceScreen({ onBack }: { onBack: () => void }) {
-  const { t, p, langPref, themePref, actions } = useApp();
+  const { t, langPref, themePref, actions } = useApp();
   const themes: { value: ThemePref; label: string }[] = [
     { value: 'system', label: t.vSystem }, { value: 'light', label: t.vLight }, { value: 'dark', label: t.vDark },
   ];
@@ -50,11 +50,11 @@ export function LangAppearanceScreen({ onBack }: { onBack: () => void }) {
 function Radio({ label, selected, onPress, testID, first }: { label: string; selected: boolean; onPress: () => void; testID: string; first: boolean }) {
   const { p } = useApp();
   return (
-    <Btn label={label} onPress={onPress} accessibilityRole="radio" testID={testID} scaleTo={0.98}
+    <Btn label={label} onPress={onPress} accessibilityRole="radio" accessibilityState={{ checked: selected }} testID={testID} scaleTo={0.98}
       style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 13, minHeight: 52, borderTopWidth: first ? 0 : 1, borderTopColor: p.ln }}>
       <Txt size={15} weight={selected ? 600 : 400} style={{ flex: 1 }}>{label}</Txt>
-      <View style={{ width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: selected ? p.ac : 'transparent', borderWidth: selected ? 0 : 2, borderColor: p.lnStrong }}>
-        {selected ? <CheckIcon size={12} color={p.onAccent} /> : null}
+      <View style={{ width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: selected ? p.ink : 'transparent', borderWidth: selected ? 0 : 2, borderColor: p.lnStrong }}>
+        {selected ? <CheckIcon size={12} color={p.onInk} /> : null}
       </View>
     </Btn>
   );

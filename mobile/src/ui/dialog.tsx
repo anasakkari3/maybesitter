@@ -1,8 +1,9 @@
 import React from 'react';
-import { Animated, Pressable, View } from 'react-native';
+import { Animated, Pressable, ScrollView, View } from 'react-native';
 import { useApp } from '../state/AppContext';
 import { Pill, Txt } from './primitives';
 import { useSheetMotion } from './motion';
+import { ActionRow } from './chrome';
 
 /**
  * A confirmation, centred (Round 2).
@@ -41,16 +42,18 @@ export function Dialog({ title, body, confirmLabel, cancelLabel, onConfirm, onCa
         accessibilityViewIsModal
         testID={testID}
         style={[
-          { width: '100%', backgroundColor: p.sf, borderRadius: 28, paddingTop: 22, paddingHorizontal: 20, paddingBottom: 16, gap: 10, shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 30, shadowOffset: { width: 0, height: 20 }, elevation: 16 },
+          { width: '100%', maxHeight: '85%', backgroundColor: p.sf, borderRadius: 28, shadowColor: p.ink, shadowOpacity: 0.18, shadowRadius: 30, shadowOffset: { width: 0, height: 20 }, elevation: 16 },
           m.panel,
         ]}
       >
-        <Txt size={20} weight={600} lh={1.35}>{title}</Txt>
-        <Txt size={14} color={p.mu} lh={1.55}>{body}</Txt>
-        <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
-          <Pill testID={cancelTestID} label={cancelLabel} onPress={onCancel} kind="outline" size={15} pad={12} style={{ flex: 1 }} />
-          <Pill testID={confirmTestID} label={confirmLabel} onPress={onConfirm} disabled={busy} kind={tone === 'accent' ? 'accent' : tone === 'warm' ? 'warmSolid' : 'ink'} size={15} pad={12} style={{ flex: 1 }} />
-        </View>
+        <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
+          <Txt role="section">{title}</Txt>
+          <Txt role="supporting" color={p.mu}>{body}</Txt>
+          <ActionRow>
+            <Pill testID={cancelTestID} label={cancelLabel} onPress={onCancel} kind="outline" size={15} pad={12} />
+            <Pill testID={confirmTestID} label={confirmLabel} onPress={onConfirm} disabled={busy} kind={tone === 'accent' ? 'accent' : tone === 'warm' ? 'warmSolid' : 'ink'} size={15} pad={12} />
+          </ActionRow>
+        </ScrollView>
       </Animated.View>
     </View>
   );

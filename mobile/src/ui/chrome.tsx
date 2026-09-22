@@ -3,6 +3,25 @@ import { View, type StyleProp, type ViewStyle } from 'react-native';
 import { useApp } from '../state/AppContext';
 import { Shimmer } from './motion';
 import { Btn, Txt } from './primitives';
+import { useLayoutMode } from '../theme/textScale';
+import { ChevronIcon, TodayIcon } from './icons';
+
+/** Equal actions at ordinary sizes; full-width answers when text needs room. */
+export function ActionRow({ children, testID }: { children: React.ReactNode; testID?: string }) {
+  const stacked = useLayoutMode() !== 'normal';
+  return <View testID={testID} style={{ flexDirection: stacked ? 'column' : 'row', gap: 10 }}>
+    {React.Children.toArray(children).map((child, i) => <View key={i} style={stacked ? undefined : { flex: 1 }}>{child}</View>)}
+  </View>;
+}
+
+export function BackButton({ label, onPress }: { label: string; onPress: () => void }) {
+  const { p, rtl } = useApp();
+  return <Btn label={label} onPress={onPress} testID="header-back" scaleTo={0.97}
+    style={{ alignSelf: 'flex-start', minHeight: 44, paddingHorizontal: 4, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+    <ChevronIcon color={p.mu} rtl={rtl} back />
+    <Txt role="action" color={p.tx} style={{ flexShrink: 1 }}>{label}</Txt>
+  </Btn>;
+}
 
 /**
  * The screen grammar (Round 2, Phase A/C).
@@ -40,7 +59,7 @@ export function ScreenHeader({ eyebrow, title, end, eyebrowTestID }: {
             below it wraps freely: it is the content, and it may take the room
             the reader asked for. Found on device at AX5, Round 2 Phase M. */}
         {eyebrow ? <Txt size={13} color={p.mu} lines={1} testID={eyebrowTestID}>{eyebrow}</Txt> : null}
-        <Txt size={28} weight={600} lh={1.2}>{title}</Txt>
+        <Txt role="page">{title}</Txt>
       </View>
       {end ?? null}
     </View>
@@ -64,24 +83,22 @@ export function BackHeader({ title, onBack, end, backLabel }: {
   end?: React.ReactNode;
   backLabel?: string | undefined;
 }) {
-  const { t, p } = useApp();
+  const { t } = useApp();
   const label = backLabel ?? t.back;
   return (
     <View testID="back-header" style={{ gap: 10 }}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Btn label={label} onPress={onBack} scaleTo={0.97} testID="header-back" style={{ alignSelf: 'flex-start', paddingVertical: 6, paddingHorizontal: 2, minHeight: 44, justifyContent: 'center' }}>
-          <Txt size={14} weight={600} color={p.acd}>{label}</Txt>
-        </Btn>
+        <BackButton label={label} onPress={onBack} />
         {end ?? null}
       </View>
-      <Txt size={26} weight={600} lh={1.3}>{title}</Txt>
+      <View style={{ alignItems: 'flex-start' }}><Txt role="page">{title}</Txt></View>
     </View>
   );
 }
 
 export function SectionLabel({ children, testID }: { children: string; testID?: string | undefined }) {
   const { p } = useApp();
-  return <Txt size={13} weight={600} color={p.mu} testID={testID} style={{ paddingHorizontal: 4 }}>{children}</Txt>;
+  return <Txt role="label" color={p.mu} testID={testID} style={{ paddingHorizontal: 4, paddingTop: 6, paddingBottom: 2 }}>{children}</Txt>;
 }
 
 export type TagKind = 'proposal' | 'saved' | 'started' | 'fixed' | 'estimated' | 'must' | 'should' | 'muted';
@@ -106,7 +123,7 @@ export function Tag({ kind, label, testID }: { kind: TagKind; label: string; tes
   return (
     <View
       style={{
-        alignSelf: 'flex-start', borderRadius: 999, paddingVertical: 3, paddingHorizontal: 10,
+        alignSelf: 'flex-start', borderRadius: 8, paddingVertical: 3, paddingHorizontal: 8,
         backgroundColor: l.bg ?? 'transparent',
         borderWidth: l.border ? 1 : 0, borderColor: l.border, borderStyle: l.dashed ? 'dashed' : 'solid',
       }}
@@ -121,7 +138,7 @@ export function Tag({ kind, label, testID }: { kind: TagKind; label: string; tes
 export function TextLink({ label, onPress, testID, size = 14 }: { label: string; onPress: () => void; testID?: string | undefined; size?: number }) {
   const { p } = useApp();
   return (
-    <Btn label={label} onPress={onPress} scaleTo={0.97} testID={testID} accessibilityRole="link" style={{ alignSelf: 'flex-start', paddingVertical: 4, minHeight: 32, justifyContent: 'center' }}>
+    <Btn label={label} onPress={onPress} scaleTo={0.97} testID={testID} accessibilityRole="link" style={{ alignSelf: 'flex-start', paddingVertical: 6, minHeight: 44, justifyContent: 'center', flexShrink: 1 }}>
       <Txt size={size} weight={600} color={p.acd} style={{ textDecorationLine: 'underline', textDecorationColor: p.ul }}>{label}</Txt>
     </Btn>
   );
@@ -137,9 +154,9 @@ export function EmptyState({ title, body, testID, action, top = 70 }: {
   const { p } = useApp();
   return (
     <View testID={testID} style={{ marginTop: top, alignItems: 'center', gap: 12, paddingHorizontal: 24 }}>
-      <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: p.acs }} />
-      <Txt size={20} weight={600} align="center">{title}</Txt>
-      {body ? <Txt size={14} color={p.mu} align="center" lh={1.6} style={{ maxWidth: 320 }}>{body}</Txt> : null}
+      <View accessible={false} style={{ width: 56, height: 56, borderRadius: 20, backgroundColor: p.sf2, alignItems: 'center', justifyContent: 'center' }}><TodayIcon color={p.mu} /></View>
+      <Txt role="section" align="center">{title}</Txt>
+      {body ? <Txt role="supporting" color={p.mu} align="center" style={{ maxWidth: 320 }}>{body}</Txt> : null}
       {action ?? null}
     </View>
   );
@@ -166,9 +183,10 @@ export function Notice({ text, action, onAction, testID, actionTestID, style }: 
   style?: StyleProp<ViewStyle>;
 }) {
   const { p } = useApp();
+  const stacked = useLayoutMode() !== 'normal';
   return (
-    <View testID={testID} style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: p.sf2, borderRadius: 14, paddingVertical: 10, paddingHorizontal: 14 }, style]}>
-      <Txt size={13} color={p.mu} lh={1.45} style={{ flex: 1 }}>{text}</Txt>
+    <View testID={testID} style={[{ flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'stretch' : 'center', gap: 10, backgroundColor: p.sf2, borderRadius: 14, paddingVertical: 10, paddingHorizontal: 14 }, style]}>
+      <Txt role="supporting" color={p.mu} style={stacked ? undefined : { flex: 1 }}>{text}</Txt>
       {action && onAction ? <TextLink label={action} onPress={onAction} size={13} testID={actionTestID} /> : null}
     </View>
   );

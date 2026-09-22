@@ -1,6 +1,7 @@
 import React from 'react';
 import { View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useLayoutMode } from '../theme/textScale';
 import { useApp } from '../state/AppContext';
 import { useTimeZone } from '../i18n/timezone';
 import { formatRelativeDay, formatTime } from '../i18n/format';
@@ -17,7 +18,7 @@ import { BusyConflictChip } from '../features/calendar/BusyConflictChip';
 import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
 import { busyAt } from '../features/calendar/conflicts';
 import { Btn, Card, Pill, Txt } from '../ui/primitives';
-import { EmptyState, SectionLabel, Tag } from '../ui/chrome';
+import { ActionRow, BackButton, EmptyState, SectionLabel, Tag } from '../ui/chrome';
 import { Screen, ScreenScroll } from '../ui/screen';
 
 /**
@@ -56,6 +57,7 @@ import { Screen, ScreenScroll } from '../ui/screen';
 export function DetailsScreen() {
   const { s, t, p, lang, actions } = useApp();
   const insets = useSafeAreaInsets();
+  const stacked = useLayoutMode() !== 'normal';
   const timezone = useTimeZone();
   const query = useCommitment(s.detailId);
   const act = useCommitmentAction();
@@ -89,15 +91,30 @@ export function DetailsScreen() {
   const strings = t as unknown as Record<string, string>;
   const category = query.data?.category ?? null;
 
+  const controls = (view && !gone ? (
+        <View style={{ paddingTop: 12, paddingHorizontal: 16, paddingBottom: insets.bottom + 8, gap: 8, borderTopWidth: 1, borderTopColor: p.ln, backgroundColor: p.bg }}>
+          {open ? (
+            <>
+              <ActionRow>
+                <Pill testID="details-done" label={t.done} onPress={complete} disabled={act.isPending} radius={20} pad={14} size={15} />
+                <Pill testID="details-postpone" label={t.notNow} onPress={actions.openPostpone} disabled={act.isPending} kind="outline" radius={20} pad={14} size={15} />
+              </ActionRow>
+              <Pill testID="details-drop" label={t.dropIt} onPress={actions.openConfirmDrop} disabled={act.isPending} kind="warm" radius={20} pad={12} size={15} />
+              <Pill testID="details-delete" label={t.detailsDelete} onPress={actions.openConfirmDelete} kind="ghost" size={14} radius={20} pad={10} />
+            </>
+          ) : (
+            <Pill testID="details-delete" label={t.detailsDelete} onPress={actions.openConfirmDelete} kind="outline" radius={20} pad={14} size={15} />
+          )}
+        </View>
+      ) : null);
+
   return (
     <Screen
       pinned={(
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-          <Btn label={t.back} onPress={actions.back} testID="header-back" style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln, alignItems: 'center', justifyContent: 'center' }}>
-            <Txt size={16} weight={600} style={{ transform: [{ scaleX: -1 }] }} latin>›</Txt>
-          </Btn>
+          <BackButton label={t.back} onPress={actions.back} />
           {view && open && safeCommitmentPatchEnabled() ? (
-            <Btn testID="details-edit" label={t.detailsEdit} onPress={actions.openEdit} style={{ minHeight: 40, backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln, borderRadius: 999, paddingVertical: 8, paddingHorizontal: 16, justifyContent: 'center' }}>
+            <Btn testID="details-edit" label={t.detailsEdit} onPress={actions.openEdit} style={{ minHeight: 44, backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln, borderRadius: 999, paddingVertical: 8, paddingHorizontal: 16, justifyContent: 'center' }}>
               <Txt size={13} weight={600}>{t.detailsEdit}</Txt>
             </Btn>
           ) : null}
@@ -118,7 +135,7 @@ export function DetailsScreen() {
                   {category ? <Tag kind="should" label={strings[CATEGORY_LABEL[category]]!} /> : null}
                 </View>
 
-                <Txt size={28} weight={600} lh={1.3} testID="details-title" style={{ paddingHorizontal: 2 }}>{view.title}</Txt>
+                <View style={{ alignItems: 'flex-start' }}><Txt role="page" testID="details-title">{view.title}</Txt></View>
                 {query.data?.description ? (
                   <Txt size={15} color={p.mu} lh={1.5} testID="details-description">{query.data.description}</Txt>
                 ) : null}
@@ -151,7 +168,7 @@ export function DetailsScreen() {
                     <SectionLabel>{t.detailsHistory}</SectionLabel>
                     <Card pad={0} style={{ paddingVertical: 4, paddingHorizontal: 16 }} testID="details-history">
                       {history.map((item, index) => (
-                        <View key={item.id} style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 10, paddingVertical: 11, borderTopWidth: index === 0 ? 0 : 1, borderTopColor: p.ln }}>
+                        <View key={item.id} style={{ flexDirection: stacked ? 'column' : 'row', justifyContent: 'space-between', gap: 8, paddingVertical: 14, borderTopWidth: index === 0 ? 0 : 1, borderTopColor: p.ln }}>
                           <Txt size={14}>{item.label}</Txt>
                           <Txt size={13} color={p.mu} latin>{`${formatRelativeDay(item.at, { locale: lang, timeZone: timezone })} · ${ltr(formatTime(item.at, { locale: lang, timeZone: timezone }))}`}</Txt>
                         </View>
@@ -163,24 +180,10 @@ export function DetailsScreen() {
             ) : null}
           </QueryBoundary>
         )}
+        {stacked ? controls : null}
       </ScreenScroll>
 
-      {view && !gone ? (
-        <View style={{ paddingTop: 12, paddingHorizontal: 16, paddingBottom: insets.bottom + 8, gap: 8, borderTopWidth: 1, borderTopColor: p.ln, backgroundColor: p.bg }}>
-          {open ? (
-            <>
-              <View style={{ flexDirection: 'row', gap: 8 }}>
-                <Pill testID="details-done" label={t.done} onPress={complete} disabled={act.isPending} radius={20} pad={14} size={15} style={{ flex: 1 }} />
-                <Pill testID="details-postpone" label={t.notNow} onPress={actions.openPostpone} disabled={act.isPending} kind="outline" radius={20} pad={14} size={15} style={{ flex: 1 }} />
-              </View>
-              <Pill testID="details-drop" label={t.dropIt} onPress={actions.openConfirmDrop} disabled={act.isPending} kind="warm" radius={20} pad={12} size={15} />
-              <Pill testID="details-delete" label={t.detailsDelete} onPress={actions.openConfirmDelete} kind="ghost" size={14} radius={20} pad={10} />
-            </>
-          ) : (
-            <Pill testID="details-delete" label={t.detailsDelete} onPress={actions.openConfirmDelete} kind="outline" radius={20} pad={14} size={15} />
-          )}
-        </View>
-      ) : null}
+      {!stacked ? controls : null}
     </Screen>
   );
 }
@@ -215,7 +218,7 @@ function CategoryRow({ category, enabled, onPick, disabled, canEdit }: {
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <Txt size={15} color={p.mu}>{t.catDetailsLabel}</Txt>
         {canEdit ? (
-          <Btn testID="details-category-edit" label={t.catDetailsLabel} onPress={() => setOpen(current => !current)} disabled={disabled} scaleTo={0.97} style={{ paddingVertical: 2, paddingHorizontal: 2, minHeight: 28 }}>
+          <Btn testID="details-category-edit" label={t.catDetailsLabel} onPress={() => setOpen(current => !current)} disabled={disabled} scaleTo={0.97} style={{ paddingVertical: 6, paddingHorizontal: 2, minHeight: 44 }}>
             <Txt size={15} weight={600} color={p.acd} testID="details-category" style={{ textDecorationLine: 'underline', textDecorationColor: p.ul }}>{label}</Txt>
           </Btn>
         ) : (
@@ -240,8 +243,9 @@ const CATEGORY_LABEL: Record<CommitmentCategory, string> = {
 
 function Row({ label, children, testID, latin }: { label: string; children: React.ReactNode; testID: string; latin?: boolean }) {
   const { p } = useApp();
+  const stacked = useLayoutMode() !== 'normal';
   return (
-    <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12, paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: p.ln }}>
+    <View style={{ flexDirection: stacked ? 'column' : 'row', justifyContent: 'space-between', gap: 8, paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: p.ln }}>
       <Txt size={15} color={p.mu}>{label}</Txt>
       <Txt size={15} testID={testID} latin={latin}>{children}</Txt>
     </View>

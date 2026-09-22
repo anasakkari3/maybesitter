@@ -101,7 +101,7 @@ export function ReviewScreen() {
             the sentence and the shape say one thing. */}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 4 }}>
           <View style={{ width: 10, height: 10, borderRadius: 5, borderWidth: 1.5, borderStyle: 'dashed', borderColor: p.prop }} />
-          <Txt size={13} color={p.mu} testID="review-note">{t.suggestionNote}</Txt>
+          <Txt role="supporting" color={p.mu} style={{ flex: 1 }} testID="review-note">{t.suggestionNote}</Txt>
         </View>
 
         {asking ? (
@@ -227,6 +227,7 @@ function ItemCard({
       onPress={onToggle}
       scaleTo={0.99}
       accessibilityRole="checkbox"
+      accessibilityState={{ checked: selected }}
       label={`${title}, ${selected ? t.reviewSelected : t.reviewNotSelected}, ${when}`}
       style={{
         // Dashed all round in the proposal colour: nothing has been written.
@@ -236,30 +237,30 @@ function ItemCard({
         backgroundColor: p.sf, borderRadius: 24, paddingVertical: 16, paddingHorizontal: 18, gap: 10,
         alignItems: 'flex-start', overflow: 'hidden',
         borderWidth: 1.5, borderStyle: 'dashed', borderColor: p.prop,
-        opacity: selected ? 1 : 0.75,
+
       }}
     >
       <View
         pointerEvents="none"
-        style={{ position: 'absolute', top: 0, bottom: 0, start: 0, width: 4, backgroundColor: selected ? p.ac : p.ln }}
+        style={{ position: 'absolute', top: 0, bottom: 0, start: 0, width: 4, backgroundColor: selected ? p.ink : p.ln }}
       />
       <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12, alignSelf: 'stretch' }}>
         <View
           testID={`review-check-${item.itemId}`}
           style={{
             width: 28, height: 28, borderRadius: 9, alignItems: 'center', justifyContent: 'center', marginTop: 2,
-            backgroundColor: selected ? p.ac : 'transparent',
+            backgroundColor: selected ? p.ink : 'transparent',
             borderWidth: selected ? 0 : 2, borderColor: p.lnStrong,
           }}
         >
-          {selected ? <CheckIcon size={14} color={p.onAccent} /> : null}
+          {selected ? <CheckIcon size={14} color={p.onInk} /> : null}
         </View>
-        <Txt size={17} weight={600} lh={1.4} style={{ flex: 1, opacity: selected ? 1 : 0.7 }}>{title}</Txt>
+        <Txt role="card" style={{ flex: 1 }}>{title}</Txt>
         <TextLink testID={`review-edit-${item.itemId}`} label={t.reviewEdit} onPress={onEdit} size={13} />
       </View>
 
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-        <View style={{ backgroundColor: item.needsClarification ? p.wms : p.sf2, borderRadius: 999, paddingVertical: 5, paddingHorizontal: 10 }}>
+        <View style={{ backgroundColor: item.needsClarification ? p.wms : p.sf2, borderRadius: 8, paddingVertical: 5, paddingHorizontal: 10 }}>
           <Txt size={12} weight={item.needsClarification ? 600 : 400} color={item.needsClarification ? p.wm : p.tx} testID={`review-when-${item.itemId}`}>{when}</Txt>
         </View>
         {imp && impLabel && imp !== 'nice' ? <Tag kind={imp === 'must' ? 'must' : 'should'} label={impLabel} /> : null}

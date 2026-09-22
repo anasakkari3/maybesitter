@@ -213,7 +213,7 @@ describe('the row is always there, and says which of six things is true', () => 
     await waitFor(() => expect(screen.getByTestId('today-plan-title')).toHaveTextContent(en.planRowProposal));
     expect(screen.getByTestId('today-plan-summary')).toHaveTextContent(en.planRowProposalSub);
     const style = StyleSheet.flatten(screen.getByTestId('today-plan-card').props.style) as { borderStyle?: string; borderWidth?: number };
-    expect(style).toMatchObject({ borderStyle: 'dashed', borderWidth: 1.5 });
+    expect(style).toMatchObject({ borderStyle: 'dashed', borderWidth: 1 });
   });
 
   it('stays after somebody has accepted, counts what the planner placed, and is not dashed', async () => {
@@ -224,7 +224,8 @@ describe('the row is always there, and says which of six things is true', () => 
     await waitFor(() => expect(screen.getByTestId('today-plan-summary')).toHaveTextContent(placed));
     expect(screen.getByTestId('today-plan-title')).toHaveTextContent(en.planTitle);
     const style = StyleSheet.flatten(screen.getByTestId('today-plan-card').props.style) as { borderWidth?: number };
-    expect(style.borderWidth).toBe(0);
+    expect(style.borderWidth).toBe(1);
+    expect(StyleSheet.flatten(screen.getByTestId('today-plan-card').props.style).borderStyle).toBe('solid');
   });
 
   it('opens that day’s plan, and only on a press', async () => {

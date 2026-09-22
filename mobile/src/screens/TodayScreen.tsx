@@ -22,7 +22,7 @@ import type { DeviceBusyBlock } from '../features/calendar/busyBlocks';
 import { TodayPlanRow } from '../features/plan/TodayPlanRow';
 import { composeToday, type Primary } from '../features/today/composeToday';
 import { Btn, Card, Txt } from '../ui/primitives';
-import { EmptyState, ScreenHeader, SectionLabel, Tag, TextLink } from '../ui/chrome';
+import { ActionRow, EmptyState, ScreenHeader, SectionLabel, Tag, TextLink } from '../ui/chrome';
 import { CheckIcon, Glow } from '../ui/icons';
 import { Screen, ScreenScroll } from '../ui/screen';
 
@@ -263,7 +263,7 @@ function FallbackCard({ item, strings, timezone, lang, busy }: {
   const when = item.shownAt ? ltr(formatTime(new Date(item.shownAt), { locale: lang, timeZone: timezone })) : t.noTimeYet;
   const impLabel = item.importance === 'must' ? t.todayGroupMust : item.importance === 'should' ? t.todayGroupShould : t.todayGroupNice;
   return (
-    <Card pad={18} style={{ gap: 10 }} testID="today-primary">
+    <Card focus pad={22} style={{ gap: 16, borderStartWidth: 3, borderStartColor: item.importance === 'must' ? p.wm : p.lnStrong }} testID="today-primary">
       <Txt size={13} weight={600} color={p.mu}>{t.nextStepLabel}</Txt>
       <Btn
         testID={`today-item-${item.id}`}
@@ -272,9 +272,9 @@ function FallbackCard({ item, strings, timezone, lang, busy }: {
         scaleTo={0.99}
         style={{ alignItems: 'flex-start', gap: 4 }}
       >
-        <Txt size={20} weight={600} lh={1.35}>{item.title}</Txt>
+        <Txt role="section">{item.title}</Txt>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <Txt size={14} color={item.isPast ? p.ac : p.mu} latin testID={`today-time-${item.id}`}>{when}</Txt>
+          <Txt size={14} color={p.mu} latin testID={`today-time-${item.id}`}>{when}</Txt>
           <Txt size={14} color={p.mu}>·</Txt>
           <Tag kind={item.importance === 'must' ? 'must' : 'should'} label={impLabel} />
           {!item.importanceIsStated && item.importance === 'must' ? (
@@ -283,15 +283,15 @@ function FallbackCard({ item, strings, timezone, lang, busy }: {
         </View>
       </Btn>
       <BusyConflictChip blocks={item.shownAt ? busyAt(item.shownAt, busy) : []} testID={`today-busy-${item.id}`} />
-      {why ? <Txt size={13} color={p.ac} testID="today-why-first">{why}</Txt> : null}
-      <View style={{ flexDirection: 'row', gap: 8 }}>
-        <Btn testID={`today-primary-complete`} label={t.doneS} onPress={() => act.mutate({ id: item.id, action: 'complete' })} style={{ flex: 1, minHeight: 48, borderRadius: 999, backgroundColor: p.ac, alignItems: 'center', justifyContent: 'center' }}>
+      {why ? <Txt role="supporting" color={p.mu} testID="today-why-first">{why}</Txt> : null}
+      <ActionRow>
+        <Btn testID={`today-primary-complete`} label={t.doneS} onPress={() => act.mutate({ id: item.id, action: 'complete' })} style={{ minHeight: 48, paddingVertical: 12, paddingHorizontal: 12, borderRadius: 16, backgroundColor: p.ac, alignItems: 'center', justifyContent: 'center' }}>
           <Txt size={15} weight={600} color={p.onAccent}>{t.doneS}</Txt>
         </Btn>
-        <Btn testID={`today-primary-postpone`} label={t.nextStepDefer} onPress={() => act.mutate({ id: item.id, action: 'postpone', postponedUntil: postponeTo('oneHour', new Date(), timezone) })} style={{ flex: 1, minHeight: 48, borderRadius: 999, backgroundColor: p.sf2, alignItems: 'center', justifyContent: 'center' }}>
+        <Btn testID={`today-primary-postpone`} label={t.nextStepDefer} onPress={() => act.mutate({ id: item.id, action: 'postpone', postponedUntil: postponeTo('oneHour', new Date(), timezone) })} style={{ minHeight: 48, paddingVertical: 12, paddingHorizontal: 12, borderRadius: 16, backgroundColor: p.sf2, alignItems: 'center', justifyContent: 'center' }}>
           <Txt size={15} weight={500}>{t.nextStepDefer}</Txt>
         </Btn>
-      </View>
+      </ActionRow>
     </Card>
   );
 }
@@ -370,7 +370,7 @@ function Row({ item, first, timezone, lang, busy }: {
             {/* A deadline is a point in time, so it reads as one. There is no
                 "overdue": a time that has passed is shown in the accent, not in
                 a warning colour, because a missed thing is not a failure state. */}
-            <Txt size={12} color={item.isPast ? p.ac : p.mu} latin testID={`today-time-${item.id}`}>{when}</Txt>
+            <Txt size={12} color={p.mu} latin testID={`today-time-${item.id}`}>{when}</Txt>
             {/* The importance was read off their words, not stated by them (#169). */}
             {!item.importanceIsStated && item.importance === 'must' ? (
               <Txt size={12} color={p.mu} testID={`today-estimated-${item.id}`}>{`· ${t.todayEstimatedMark}`}</Txt>
@@ -398,7 +398,7 @@ function LaterRow({ item, first, timezone, lang }: { item: CommitmentView; first
       scaleTo={0.98}
       style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, paddingHorizontal: 18, minHeight: 56, borderTopWidth: first ? 0 : 1, borderTopColor: p.ln }}
     >
-      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: item.importance === 'must' ? p.wm : item.importance === 'should' ? p.ac : p.lnStrong }} />
+      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: item.importance === 'must' ? p.wm : p.lnStrong }} />
       <View style={{ flex: 1, gap: 2 }}>
         <Txt size={15}>{item.title}</Txt>
         <Txt size={12} color={p.mu}>{when}</Txt>
@@ -420,6 +420,7 @@ function FinishedGroup({ items }: { items: CommitmentView[] }) {
     <Card pad={0} style={{ overflow: 'hidden' }} testID="today-group-finished">
       <Btn
         testID="today-finished-toggle"
+        accessibilityState={{ expanded: open }}
         label={t.todayGroupFinished}
         onPress={() => setOpen(!open)}
         scaleTo={0.99}

@@ -61,7 +61,7 @@ export function ClarifySheet({
         ) : null}
       </View>
 
-      <Txt size={22} weight={600} lh={1.5} testID="clarify-question">{heading}</Txt>
+      <Txt role="section" testID="clarify-question">{heading}</Txt>
       <Txt size={14} color={p.mu}>{item.title}</Txt>
 
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
@@ -76,9 +76,9 @@ export function ClarifySheet({
               disabled={busy}
               accessibilityRole="radio"
               onPress={() => onAnswer({ optionId: option.optionId })}
-              style={{ backgroundColor: busy ? p.dis : p.acs, borderRadius: 999, paddingVertical: 12, paddingHorizontal: 18, minHeight: 48, justifyContent: 'center' }}
+              style={{ backgroundColor: busy ? p.dis : p.sf2, borderRadius: 16, paddingVertical: 12, paddingHorizontal: 18, minHeight: 48, justifyContent: 'center' }}
             >
-              <Txt size={15} weight={600} color={busy ? p.disTx : p.acd}>{label}</Txt>
+              <Txt size={15} weight={600} color={busy ? p.disTx : p.tx}>{label}</Txt>
             </Btn>
           );
         })}

@@ -3,6 +3,7 @@ import { View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { Card, Txt } from '../../ui/primitives';
 import { Screen, ScreenScroll } from '../../ui/screen';
+import { QueryBoundary } from '../../api/ui/QueryBoundary';
 import { useTrust } from '../../api/queries';
 import { SettingsHeader } from './SettingsChrome';
 import { MemorySection } from '../memory/MemorySection';
@@ -38,6 +39,7 @@ export function KnowsScreen({ onBack, onMemory }: { onBack: () => void; onMemory
   return (
     <Screen pinned={<SettingsHeader title={t.settingsKnows} onBack={onBack} />}>
       <ScreenScroll>
+        <QueryBoundary isPending={trust.isPending} error={trust.error} onRetry={() => void trust.refetch()}>
 
         {knows ? (
           <Card pad={18} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -58,7 +60,7 @@ export function KnowsScreen({ onBack, onMemory }: { onBack: () => void; onMemory
 
         {nevers.length > 0 ? (
           <Card pad={18} style={{ gap: 10 }} testID="knows-never">
-            <Txt size={13} weight={600} color={p.mu}>{t.knowsNeverHeading}</Txt>
+            <Txt role="card">{t.knowsNeverHeading}</Txt>
             {nevers.map(([key, line]) => (
               <View key={key} style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
                 <Txt size={14} color={p.mu}>·</Txt>
@@ -67,6 +69,7 @@ export function KnowsScreen({ onBack, onMemory }: { onBack: () => void; onMemory
             ))}
           </Card>
         ) : null}
+        </QueryBoundary>
       </ScreenScroll>
     </Screen>
   );

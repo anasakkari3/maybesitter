@@ -1,19 +1,29 @@
 import React, { useRef } from 'react';
 import {
-  Animated, Pressable, Text, View,
-  type GestureResponderEvent, type NativeSyntheticEvent, type StyleProp, type TextLayoutEventData, type TextStyle, type ViewStyle,
+  Animated, Platform, Pressable, Text, View,
+  type AccessibilityState, type GestureResponderEvent, type NativeSyntheticEvent, type StyleProp, type TextLayoutEventData, type TextStyle, type ViewStyle,
 } from 'react-native';
 import { useApp } from '../state/AppContext';
 import { family, LINE_HEIGHT, type Weight } from '../theme/fonts';
-import { useTextScale } from '../theme/textScale';
-import { cardShadow, type Palette } from '../theme/tokens';
+import { cardShadow, typography, type Palette, type TextRole } from '../theme/tokens';
+import { useReducedMotion } from './motion';
 
 type Align = 'start' | 'center' | 'end';
 
+// Fabric on iOS swaps left/right with the inherited Yoga direction in
+// RCTAttributedTextUtils.mm. Supplying a physical RTL alignment swaps twice.
+// Android expects the physical edge. Keep this platform detail in one place.
+export function textAlignment(align: Align, rtl: boolean, platform: string) {
+  if (align === 'center') return 'center';
+  const physicalRTL = platform === 'ios' ? false : rtl;
+  return (align === 'start') === physicalRTL ? 'right' : 'left';
+}
+
 export function Txt({
-  children, size = 15, weight = 400, color, align = 'start', style, lines, lh, latin, selectable, testID, onTextLayout,
+  children, role = 'body', size = typography[role].size, weight = typography[role].weight, color, align = 'start', style, lines, lh, latin, selectable, testID, onTextLayout,
 }: {
   children: React.ReactNode;
+  role?: TextRole;
   size?: number | undefined;
   weight?: Weight | undefined;
   color?: string | undefined;
@@ -30,31 +40,28 @@ export function Txt({
   onTextLayout?: ((e: NativeSyntheticEvent<TextLayoutEventData>) => void) | undefined;
 }) {
   const { rtl, script, p } = useApp();
-  const textScale = useTextScale();
   // `latin` is the AGENTS.md escape hatch: a digit or a Latin-only label in a
   // tight box, set in Outfit whatever the UI language is. Everything else is
   // set in the script of the language — which for Hebrew is a different face
   // from Arabic's, not a different direction.
   const runScript = latin ? 'latin' : script;
-  const textAlign = align === 'center' ? 'center' : (align === 'start') === rtl ? 'right' : 'left';
-  // React Native scales `fontSize` for us but leaves `lineHeight` alone, so a
-  // fixed line box clips its own text the moment the reader enlarges it —
-  // worst in Arabic, whose face asks for 1.6 and whose glyphs are tall. The
-  // line box is therefore computed at the size the text will actually render
-  // at. There is no ceiling: a reader at 2× reads at 2×, and it is the chrome
-  // around the text that adapts (src/theme/textScale.ts).
-  const rendered = size * textScale;
+  const textAlign = textAlignment(align, rtl, Platform.OS);
+  // RN 0.86 scales BOTH fontSize and lineHeight natively (iOS:
+  // RCTAttributedTextUtils; Android: TextAttributes.effectiveLineHeight).
+  // Supply the unscaled script ratio once. Multiplying by fontScale here
+  // produces a squared line box at accessibility sizes, wasting the viewport.
   return (
     <Text
       numberOfLines={lines}
       selectable={selectable}
       testID={testID}
       onTextLayout={onTextLayout}
+      accessibilityRole={role === 'page' || role === 'section' ? 'header' : undefined}
       style={[
         {
           fontFamily: family(weight, runScript),
           fontSize: size,
-          lineHeight: Math.round(rendered * (lh ?? LINE_HEIGHT[runScript])),
+          lineHeight: Math.round(size * (runScript === 'arabic' ? Math.max(lh ?? LINE_HEIGHT.arabic, LINE_HEIGHT.arabic) : (lh ?? LINE_HEIGHT[runScript]))),
           color: color ?? p.tx,
           textAlign,
           writingDirection: rtl ? 'rtl' : 'ltr',
@@ -75,8 +82,8 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
  * out like any other view.
  */
 export function Btn({
-  onPress, onPressIn, onPressOut, style, children, disabled, label, scaleTo = 0.95, hitSlop, testID,
-  accessibilityRole = 'button', accessibilityActions, onAccessibilityAction,
+  onPress, onPressIn, onPressOut, style, children, disabled, label, hint, scaleTo = 0.95, hitSlop, testID,
+  accessibilityRole = 'button', accessibilityState, accessibilityActions, onAccessibilityAction,
 }: {
   // `| undefined` is explicit because the app compiles with
   // exactOptionalPressableTypes: callers pass `onPress={disabled ? undefined : fn}`.
@@ -87,6 +94,7 @@ export function Btn({
   children: React.ReactNode;
   disabled?: boolean | undefined;
   label?: string | undefined;
+  hint?: string | undefined;
   scaleTo?: number | undefined;
   hitSlop?: number | undefined;
   /**
@@ -103,6 +111,7 @@ export function Btn({
    * reader announcing four buttons does not say that only one may be picked.
    */
   accessibilityRole?: 'button' | 'radio' | 'checkbox' | 'link';
+  accessibilityState?: AccessibilityState;
   /**
    * Actions a screen reader or switch control can perform on this row.
    *
@@ -114,21 +123,26 @@ export function Btn({
   onAccessibilityAction?: (event: { nativeEvent: { actionName: string } }) => void;
 }) {
   const v = useRef(new Animated.Value(1)).current;
-  const spring = (to: number) => Animated.spring(v, { toValue: to, useNativeDriver: true, speed: 40, bounciness: 0 }).start();
+  const reduced = useReducedMotion();
+  const spring = (to: number) => {
+    if (reduced) { v.setValue(1); return; }
+    Animated.spring(v, { toValue: to, useNativeDriver: true, speed: 40, bounciness: 0 }).start();
+  };
   return (
     <AnimatedPressable
       accessibilityRole={accessibilityRole}
       accessibilityLabel={label}
+      accessibilityHint={hint}
       {...(accessibilityActions ? { accessibilityActions: [...accessibilityActions] } : {})}
       {...(onAccessibilityAction ? { onAccessibilityAction } : {})}
       testID={testID}
-      accessibilityState={{ disabled }}
+      accessibilityState={{ ...accessibilityState, disabled }}
       disabled={disabled}
       hitSlop={hitSlop}
       onPress={onPress}
       onPressIn={e => { spring(scaleTo); onPressIn?.(e); }}
       onPressOut={e => { spring(1); onPressOut?.(e); }}
-      style={[style, { transform: [{ scale: v }] }]}
+      style={[style, { transform: [{ scale: reduced ? 1 : v }] }]}
     >
       {children}
     </AnimatedPressable>
@@ -187,9 +201,9 @@ export function Pill({
   );
 }
 
-export function Card({ children, style, pad = 18, testID }: { children: React.ReactNode; style?: StyleProp<ViewStyle>; pad?: number; testID?: string | undefined }) {
+export function Card({ children, style, pad = 18, testID, focus = false }: { children: React.ReactNode; style?: StyleProp<ViewStyle>; pad?: number; testID?: string | undefined; focus?: boolean }) {
   const { p } = useApp();
-  return <View testID={testID} style={[{ backgroundColor: p.sf, borderRadius: 24, padding: pad }, cardShadow(p), style]}>{children}</View>;
+  return <View testID={testID} style={[{ backgroundColor: p.sf, borderRadius: 24, padding: pad, borderWidth: 1, borderColor: p.ln }, focus ? cardShadow(p) : undefined, style]}>{children}</View>;
 }
 
 export function Divider({ p }: { p: Palette }) {

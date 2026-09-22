@@ -125,12 +125,15 @@ export function ProcessingDots({ color }: { color: string }) {
 
 /** Saved check pop (ms-pop). */
 export function Pop({ children }: { children: React.ReactNode }) {
+  const reduced = useReducedMotion();
   const v = useRef(new Animated.Value(0)).current;
   useEffect(() => {
-    Animated.timing(v, { toValue: 1, duration: 500, easing: ease, useNativeDriver: true }).start();
-  }, [v]);
+    const animation = Animated.timing(v, { toValue: 1, duration: reduced ? 0 : 500, easing: ease, useNativeDriver: true });
+    animation.start();
+    return () => animation.stop();
+  }, [v, reduced]);
   const scale = v.interpolate({ inputRange: [0, 0.6, 1], outputRange: [0.6, 1.15, 1] });
-  return <Animated.View style={{ transform: [{ scale }] }}>{children}</Animated.View>;
+  return <Animated.View style={{ transform: [{ scale: reduced ? 1 : scale }] }}>{children}</Animated.View>;
 }
 
 /** Loading skeleton pulse (ms-shimmer). */
@@ -142,15 +145,18 @@ export function Shimmer({ style }: { style: StyleProp<ViewStyle> }) {
 
 /** Bottom-sheet rise and scrim fade (ms-up / ms-fade). */
 export function useSheetMotion() {
+  const reduced = useReducedMotion();
   const v = useRef(new Animated.Value(0)).current;
   useEffect(() => {
-    Animated.timing(v, { toValue: 1, duration: 380, easing: ease, useNativeDriver: true }).start();
-  }, [v]);
+    const animation = Animated.timing(v, { toValue: 1, duration: reduced ? 0 : 380, easing: ease, useNativeDriver: true });
+    animation.start();
+    return () => animation.stop();
+  }, [v, reduced]);
   return {
     scrim: { opacity: v.interpolate({ inputRange: [0, 0.65, 1], outputRange: [0, 1, 1] }) },
     panel: {
       opacity: v,
-      transform: [{ translateY: v.interpolate({ inputRange: [0, 1], outputRange: [60, 0] }) }],
+      transform: [{ translateY: reduced ? 0 : v.interpolate({ inputRange: [0, 1], outputRange: [60, 0] }) }],
     },
   };
 }

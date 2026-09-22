@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View } from 'react-native';
+import { Platform, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { Btn, Card, Txt } from '../../ui/primitives';
 import { Screen, ScreenScroll } from '../../ui/screen';
@@ -16,8 +16,7 @@ import { openLegal, privacyPolicyUrl } from '../../config/legalLinks';
 import { ServerToggle } from './ServerToggle';
 import { SettingsHeader, SettingsRow } from './SettingsChrome';
 import { Dialog } from '../../ui/dialog';
-import { TextLink } from '../../ui/chrome';
-import { Platform } from 'react-native';
+import { SectionLabel, TextLink } from '../../ui/chrome';
 
 /**
  * The trust centre (UC-2.R4, #174).
@@ -110,6 +109,7 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
       <ScreenScroll>
         <Txt size={14} color={p.mu} lh={1.5}>{t.trustLede}</Txt>
 
+        <SectionLabel>{t.settingsGroupYou}</SectionLabel>
         <Card pad={0} style={{ overflow: 'hidden' }}>
           <ServerToggle
             testID="trust-ai-processing"
@@ -146,6 +146,10 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
               state: next ? 'granted' : 'declined', version: versions!.personalization!, ...context,
             }))}
           />
+        </Card>
+
+        <SectionLabel>{t.settingsGroupTrust}</SectionLabel>
+        <Card pad={0} style={{ overflow: 'hidden' }}>
           <ServerToggle
             testID="trust-analytics"
             title={t.obAnalyticsTitle}
@@ -162,6 +166,10 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
             disabled={state === undefined}
             onChange={next => record(trustAction.mutateAsync({ type: 'set_quiet_mode', enabled: next }))}
           />
+        </Card>
+
+        <SectionLabel>{t.settingsGroupConnections}</SectionLabel>
+        <Card pad={0} style={{ overflow: 'hidden' }}>
           <ServerToggle
             testID="trust-calendar"
             title={t.trustCalendar}
@@ -180,8 +188,8 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
           </View>
         </Card>
 
-        <Card pad={0} style={{ overflow: 'hidden' }}>
-          <SettingsRow label={t.trustKnows} onPress={onKnows} testID="trust-knows" />
+        <Card pad={0} style={{ paddingHorizontal: 18 }}>
+          <SettingsRow first label={t.trustKnows} onPress={onKnows} testID="trust-knows" />
           {policy ? (
             <SettingsRow
               label={t.legalPrivacyPolicy}

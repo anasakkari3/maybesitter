@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { RefreshControl, View } from 'react-native';
+import { RefreshControl, ScrollView, View } from 'react-native';
+import { useLayoutMode, useTextScale } from '../theme/textScale';
 import { useApp } from '../state/AppContext';
 import { useTimeZone } from '../i18n/timezone';
 import { CIVIL_ZONE, civilDate, dayKey, formatDate, formatRelativeDay, formatTime } from '../i18n/format';
@@ -7,7 +8,7 @@ import { ltr } from '../i18n/strings';
 import { useToday, useTrust, useUpcoming } from '../api/queries';
 import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
 import type { DeviceBusyBlock } from '../features/calendar/busyBlocks';
-import { ScreenHeader, Notice, EmptyState } from '../ui/chrome';
+import { ScreenHeader, Notice } from '../ui/chrome';
 import { Screen, ScreenScroll } from '../ui/screen';
 import { SettingsIcon } from '../ui/icons';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
@@ -50,6 +51,7 @@ import { cardShadow } from '../theme/tokens';
 export function CalendarScreen() {
   const { s, t, p, lang, actions } = useApp();
   const timezone = useTimeZone();
+  const stacked = useLayoutMode() !== 'normal';
   const today = useToday();
   const upcoming = useUpcoming();
   const trust = useTrust();
@@ -133,7 +135,7 @@ export function CalendarScreen() {
           onRetry={() => { void today.refetch(); void upcoming.refetch(); }}
         >
           <Card pad={0} style={{ paddingVertical: 14, paddingHorizontal: 10 }}>
-            <View style={{ flexDirection: 'row', gap: 4 }}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={stacked} contentContainerStyle={{ flexGrow: 1, gap: 4 }}>
               {keys.map((key, offset) => (
                 <DayCell
                   key={key}
@@ -145,10 +147,10 @@ export function CalendarScreen() {
                   onPress={() => actions.setSelDay(offset)}
                 />
               ))}
-            </View>
-            <View style={{ flexDirection: 'row', gap: 14, paddingTop: 12, paddingHorizontal: 8 }}>
+            </ScrollView>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 14, paddingTop: 12, paddingHorizontal: 8 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                <View style={{ width: 14, height: 4, borderRadius: 2, backgroundColor: p.ac }} />
+                <View style={{ width: 14, height: 4, borderRadius: 2, backgroundColor: p.mu }} />
                 <Txt size={11} color={p.mu}>{t.legendCommit}</Txt>
               </View>
               {calendarConnected ? (
@@ -186,10 +188,10 @@ export function CalendarScreen() {
                   : null)}
                 onPress={() => actions.openDetail(item.id)}
                 scaleTo={0.98}
-                style={[{ backgroundColor: p.sf, borderRadius: 18, paddingVertical: 14, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 12 }, cardShadow(p)]}
+                style={[{ backgroundColor: p.sf, borderRadius: 18, paddingVertical: 16, paddingHorizontal: 18, flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'flex-start' : 'center', gap: 12 }, cardShadow(p)]}
               >
-                <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: item.importance === 'must' ? p.wm : p.ac }} />
-                <Txt size={15} style={{ flex: 1 }}>{item.title}</Txt>
+                <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: item.importance === 'must' ? p.wm : p.lnStrong }} />
+                <Txt role="body" style={stacked ? undefined : { flex: 1 }}>{item.title}</Txt>
                 <Txt size={12} color={p.mu} latin testID={`calendar-time-${item.id}`}>
                   {item.shownAt
                     ? ltr(formatTime(new Date(item.shownAt), { locale: lang, timeZone: timezone }))
@@ -221,6 +223,8 @@ function DayCell({
   onPress: () => void;
 }) {
   const { p, lang } = useApp();
+  const scale = useTextScale();
+  const stacked = useLayoutMode() !== 'normal';
   const date = civilDate(key);
   const options = { locale: lang, timeZone: CIVIL_ZONE } as const;
 
@@ -229,13 +233,14 @@ function DayCell({
       testID={`calendar-day-${key}`}
       onPress={onPress}
       label={formatDate(date, 'weekday', options)}
+      accessibilityState={{ selected }}
       scaleTo={0.94}
-      style={{ flex: 1, alignItems: 'center', gap: 2, paddingTop: 8, paddingBottom: 10, paddingHorizontal: 4, borderRadius: 16, backgroundColor: selected ? p.sf2 : 'transparent', minHeight: 88 }}
+      style={{ ...(stacked ? { width: 62 * scale } : { flex: 1 }), alignItems: 'center', gap: 2, paddingTop: 8, paddingBottom: 10, paddingHorizontal: 4, borderRadius: 16, backgroundColor: selected ? p.sf2 : 'transparent', minHeight: 88 }}
     >
       <Txt size={11} color={p.mu} align="center" lines={1}>{formatDate(date, 'weekdayShort', options)}</Txt>
-      <View style={{ width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: isToday ? p.ac : 'transparent' }}>
+      <View style={{ minWidth: 36 * scale, minHeight: 36 * scale, borderRadius: 18 * scale, alignItems: 'center', justifyContent: 'center', backgroundColor: selected ? p.ink : 'transparent', borderWidth: isToday ? 1 : 0, borderColor: p.lnStrong }}>
         {/* `latin`: Noto Naskh's line box clips digits in a box this tight. */}
-        <Txt size={16} weight={600} align="center" color={isToday ? p.onAccent : p.tx} lh={1.25} latin>
+        <Txt size={16} weight={600} align="center" color={selected ? p.onInk : p.tx} lh={1.25} latin>
           {formatDate(date, 'dayNumber', options)}
         </Txt>
       </View>
@@ -246,7 +251,7 @@ function DayCell({
           <View
             key={item.id}
             testID={`calendar-bar-${key}`}
-            style={{ height: 4, borderRadius: 2, backgroundColor: item.importance === 'must' ? p.wm : p.ac, opacity: 0.9 }}
+            style={{ height: 4, borderRadius: 2, backgroundColor: item.importance === 'must' ? p.wm : p.lnStrong, opacity: 0.9 }}
           />
         ))}
         {busy > 0 ? <View testID={`calendar-busy-bar-${key}`} style={{ height: 4, borderRadius: 2, backgroundColor: p.hatch }} /> : null}
