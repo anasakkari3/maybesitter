@@ -65,6 +65,7 @@ import {
 } from '../storage/paths';
 import { listWatchersAcrossUsers, watcherStatusOf, type StoredWatcher } from './watcherStore';
 import { defaultWatcherSignalRegistry, type WatcherSignalRegistry } from './signals';
+import { isMonitoringPaused } from './monitoringSettings';
 
 /** The most watchers one sweep touches; the rest wait for the next tick. */
 export const WATCHER_SWEEP_BATCH = 200;
@@ -305,6 +306,11 @@ async function commitFiring(
       if (await tx.get<WatcherFireEvent>(eventPath)) return 'duplicate';
       const current = await tx.get<StoredWatcher>(watcherPath);
       if (!current) return 'gone';
+      if (!current.definition.enabled) return 'paused';
+      if (await isMonitoringPaused(definition.scopeId, storage, tx)) {
+        tx.set(watcherPath, absorbedRuntime(current, signal, now, false));
+        return 'paused';
+      }
       tx.create(eventPath, blocked);
       // Absorbed, not fired: a refusal must not advance `fireCount` or
       // `lastFiredAt`, or the history would claim an effect that never ran.
@@ -320,6 +326,10 @@ async function commitFiring(
     const current = await tx.get<StoredWatcher>(watcherPath);
     if (!current) return 'gone';
     if (!current.definition.enabled) return 'paused';
+    if (await isMonitoringPaused(definition.scopeId, storage, tx)) {
+      tx.set(watcherPath, absorbedRuntime(current, signal, now, false));
+      return 'paused';
+    }
     if (connectionPath) {
       const connection = await tx.get<IntegrationConnectionRecord>(connectionPath);
       if (!connection || connection.state !== 'connected') return 'blocked';

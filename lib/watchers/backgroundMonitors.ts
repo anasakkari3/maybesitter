@@ -43,6 +43,7 @@ import type { WatchCondition } from '../../src/contracts/v1/watcherContracts';
 import { getStorage, type StorageAdapter } from '../storage';
 import { userSubDoc, PROVIDER_CONNECTIONS } from '../storage/paths';
 import { createWatcherStore, type StoredWatcher } from './watcherStore';
+import { readMonitoringSettings } from './monitoringSettings';
 
 /**
  * How often the sweep runs, in minutes.
@@ -165,6 +166,7 @@ export async function listBackgroundActivity(
   deps: BackgroundActivityDeps = {},
 ): Promise<BackgroundActivityView> {
   const storage = deps.storage ?? getStorage();
+  const settings = await readMonitoringSettings(uid, { storage });
   const watchers = await createWatcherStore(uid, storage).list();
 
   const connectionIds = Array.from(new Set(
@@ -190,5 +192,5 @@ export async function listBackgroundActivity(
     ))
     .sort((left, right) => left.monitorId.localeCompare(right.monitorId));
 
-  return { schemaVersion: BACKGROUND_MONITOR_SCHEMA_VERSION, monitors };
+  return { schemaVersion: BACKGROUND_MONITOR_SCHEMA_VERSION, paused: settings.paused, monitors };
 }
