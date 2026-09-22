@@ -77,6 +77,10 @@ function args(overrides: Partial<Parameters<typeof buildDailyPlanInput>[0]> = {}
     commitments: [] as Commitment[],
     busyBlocks: [] as BusyBlock[],
     profile: PROFILE,
+    // Local 06:00, before the 09:00 window opens: the instant the morning job
+    // builds at, and the one every test below the #500 section assumes. A
+    // clock inside the day would bound the items and move their placements.
+    builtAt: '2026-09-15T03:00:00.000Z',
     ...overrides,
   };
 }
@@ -346,4 +350,182 @@ test('the same inputs give the same inputDigest on two runs, and different input
 
 test('the default busy-block reader answers empty rather than throwing', async () => {
   assert.deepEqual(await NO_BUSY_BLOCKS(UID, dayHorizon(DATE, TZ)), []);
+});
+
+/* ── A plan is not built into the past (#500) ────────────────────── */
+
+/*
+ * The RC UAT case, exactly: a plan built on demand at 13:44 local placed all
+ * three of today's items at 09:00–10:30 — the whole plan already over at the
+ * moment it appeared — because the mapping told the scheduler nothing about
+ * when "now" was and the scheduler filled the working window from its start.
+ *
+ * The clock is an argument, not a reading. This module is pure and the digest
+ * property above depends on it staying pure, so `builtAt` is supplied by the
+ * caller that already has a clock (`dailyPlanService`) and two builds with the
+ * same `builtAt` stay identical.
+ */
+
+/** 2026-09-15 in Jerusalem is UTC+3, so local 13:44 is 10:44Z. */
+const AFTERNOON = '2026-09-15T10:44:55.186Z';
+/** Local 06:00, before the 09:00 window opens — the morning job's instant. */
+const EARLY_MORNING = '2026-09-15T03:00:00.000Z';
+const MORNING_ARGS = { builtAt: EARLY_MORNING };
+
+function threeItems() {
+  return [
+    commitment({ id: 'c_pharmacy', title: 'Collect the prescription' }),
+    commitment({ id: 'c_plants', title: 'Water the plants' }),
+    commitment({ id: 'c_call', title: 'Call the pharmacy' }),
+  ];
+}
+
+test('a plan built in the afternoon places nothing in the past', () => {
+  const { constraints, config } = buildDailyPlanInput(args({
+    commitments: threeItems(),
+    builtAt: AFTERNOON,
+  }));
+  const plan = schedulePlan(constraints, config);
+
+  assert.equal(plan.scheduled.length, 3, 'the afternoon still has room for all three');
+  for (const placed of plan.scheduled) {
+    assert.ok(
+      toEpochMs(placed.interval.startsAt) >= toEpochMs(AFTERNOON),
+      `${placed.itemId} was placed at ${placed.interval.startsAt}, before the plan was built`,
+    );
+  }
+
+  // Not merely "not in the past" — on the grid, at the first slot that has not
+  // gone by. 13:44:55 rounds up to 13:45 local, which is 10:45Z.
+  const earliest = plan.scheduled
+    .map((placed) => placed.interval.startsAt)
+    .sort()[0];
+  assert.equal(earliest, '2026-09-15T10:45:00.000Z');
+});
+
+test('the morning job is unchanged: a plan built before the window opens still fills it', () => {
+  // The control. Without it the test above would also pass if the mapping
+  // simply refused to place anything early, which would break every plan the
+  // 06:00 job builds.
+  const { constraints, config } = buildDailyPlanInput(args({
+    commitments: threeItems(),
+    ...MORNING_ARGS,
+  }));
+  const plan = schedulePlan(constraints, config);
+
+  assert.equal(plan.scheduled.length, 3);
+  assert.equal(
+    plan.scheduled.map((placed) => placed.interval.startsAt).sort()[0],
+    '2026-09-15T06:00:00.000Z',
+    'the window opens at 09:00 local and the morning plan must still start there',
+  );
+  // The bound is still stated — 06:00 local is inside the day — it simply does
+  // not bite, because the window governs and it opens later. Asserting the
+  // placement rather than the absence of the field is the point: a bound that
+  // changes nothing is not a bug, a bound that moves the morning plan is.
+  assert.deepEqual(
+    constraints.items.map((item) => item.earliestStartAt),
+    [EARLY_MORNING, EARLY_MORNING, EARLY_MORNING],
+  );
+});
+
+test('an item due this afternoon is placed after now and still before it is due', () => {
+  // The issue\'s other half: "Collect the prescription" is a due_by at 16:20
+  // local and was placed at 09:00 — seven hours early and four hours into the
+  // past. Both bounds are asserted, because honouring only the deadline is how
+  // it got placed at 09:00 in the first place.
+  const dueAt = '2026-09-15T13:20:00.000Z'; // 16:20 local
+  const { constraints, config } = buildDailyPlanInput(args({
+    commitments: [commitment({
+      id: 'c_pharmacy',
+      title: 'Collect the prescription',
+      timeSpec: { kind: 'due_by', dueAt, endAt: null, remindAt: null, allDay: false, timezone: TZ },
+    })],
+    builtAt: AFTERNOON,
+  }));
+  const plan = schedulePlan(constraints, config);
+
+  const placed = plan.scheduled.find((entry) => entry.itemId === 'c_pharmacy');
+  assert.ok(placed, 'the item was not placed at all');
+  assert.ok(toEpochMs(placed.interval.startsAt) >= toEpochMs(AFTERNOON), 'placed before now');
+  assert.ok(toEpochMs(placed.interval.endsAt) <= toEpochMs(dueAt), 'placed so it finishes after it is due');
+});
+
+test('work that no longer fits before the window closes is reported, not placed in the past', () => {
+  // 16:20 local: forty minutes of window left and three half-hour items. The
+  // wrong answer — the one this issue is about — is three items at 09:00. The
+  // right answer is one placed and two reported with a reason the user can act
+  // on.
+  const lateAfternoon = '2026-09-15T13:20:00.000Z'; // 16:20 local, window ends 17:00
+  const { constraints, config } = buildDailyPlanInput(args({
+    commitments: threeItems(),
+    builtAt: lateAfternoon,
+  }));
+  const plan = schedulePlan(constraints, config);
+
+  assert.equal(plan.scheduled.length, 1, 'only one half-hour item fits before the window closes');
+  assert.equal(plan.unscheduled.length, 2);
+  for (const entry of plan.unscheduled) {
+    assert.notEqual(entry.reason.code, 'DEADLINE_BEYOND_HORIZON', 'the wrong reason: the day is not over');
+  }
+  for (const placed of plan.scheduled) {
+    assert.ok(toEpochMs(placed.interval.startsAt) >= toEpochMs(lateAfternoon));
+  }
+});
+
+test('tomorrow\'s plan, built this afternoon, is not clamped by today\'s clock', () => {
+  // #477 lets the user build today or tomorrow. A clock reading that sits
+  // before the day being planned constrains nothing, and treating it as a
+  // lower bound would be harmless here and wrong the moment the arithmetic is
+  // reused for a date further out.
+  const { constraints, config } = buildDailyPlanInput(args({
+    date: '2026-09-16',
+    commitments: threeItems(),
+    builtAt: AFTERNOON,
+  }));
+  assert.deepEqual(constraints.items.map((item) => item.earliestStartAt), [null, null, null]);
+  assert.equal(
+    schedulePlan(constraints, config).scheduled.map((placed) => placed.interval.startsAt).sort()[0],
+    '2026-09-16T06:00:00.000Z',
+  );
+});
+
+test('a day already over is not clamped either, so regenerating it still explains itself', () => {
+  // Reading the clock as a lower bound on a day that has ended would make every
+  // item unplaceable and turn a readback into an empty plan. The clamp applies
+  // inside the horizon and nowhere else.
+  const { constraints } = buildDailyPlanInput(args({
+    commitments: threeItems(),
+    builtAt: '2026-09-17T09:00:00.000Z',
+  }));
+  assert.deepEqual(constraints.items.map((item) => item.earliestStartAt), [null, null, null]);
+});
+
+test('the clock is part of the request, and two builds at the same instant agree', () => {
+  const commitments = threeItems();
+  const first = buildDailyPlanInput(args({ commitments, builtAt: AFTERNOON }));
+  const second = buildDailyPlanInput(args({ commitments, builtAt: AFTERNOON }));
+  assert.equal(
+    schedulePlan(first.constraints, first.config).inputDigest,
+    schedulePlan(second.constraints, second.config).inputDigest,
+    'the mapping is no longer pure: the same arguments produced two different requests',
+  );
+
+  const morning = buildDailyPlanInput(args({ commitments, ...MORNING_ARGS }));
+  assert.notEqual(
+    schedulePlan(morning.constraints, morning.config).inputDigest,
+    schedulePlan(first.constraints, first.config).inputDigest,
+    'the digest does not cover the clock, so a plan built at 06:00 and one built at 13:44 are indistinguishable',
+  );
+});
+
+test('two builds a few seconds apart in the same slot produce the same request', () => {
+  // The bound is quantised to the plan grid, so tapping "build" twice does not
+  // produce two different digests over a difference nobody can see.
+  const a = buildDailyPlanInput(args({ commitments: threeItems(), builtAt: '2026-09-15T10:44:00.000Z' }));
+  const b = buildDailyPlanInput(args({ commitments: threeItems(), builtAt: '2026-09-15T10:44:55.186Z' }));
+  assert.deepEqual(
+    a.constraints.items.map((item) => item.earliestStartAt),
+    b.constraints.items.map((item) => item.earliestStartAt),
+  );
 });
