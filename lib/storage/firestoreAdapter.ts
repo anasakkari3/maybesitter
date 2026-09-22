@@ -20,7 +20,9 @@ import {
 import { getAdminApp } from '../firebase/admin';
 import {
   MAX_TRANSACTION_ATTEMPTS,
+  StorageContentionError,
   StorageUsageError,
+  grpcStatusOf,
   type ListOptions,
   type StorageAdapter,
   type StorageTransaction,
@@ -34,6 +36,9 @@ export const DEFAULT_DATABASE = '(default)';
 
 /** Firestore's own rule for a named database id: 4-63 chars, lowercase, digits, hyphens. */
 const NAMED_DATABASE = /^[a-z][a-z0-9-]{2,61}[a-z0-9]$/;
+
+/** gRPC `ABORTED`: the transaction lost its race and the retry budget is spent. */
+const GRPC_ABORTED = 10;
 
 /**
  * Which Firestore database this process uses (UC-1.0a #140, UC-1.0d #143).
@@ -197,10 +202,35 @@ export class FirestoreStorageAdapter implements StorageAdapter {
 
   async runTransaction<R>(fn: (tx: StorageTransaction) => Promise<R>): Promise<R> {
     const db = this.db;
-    return db.runTransaction(
-      async (tx) => fn(new FirestoreTransaction(db, tx)),
-      { maxAttempts: MAX_TRANSACTION_ATTEMPTS },
-    );
+    try {
+      return await db.runTransaction(
+        async (tx) => fn(new FirestoreTransaction(db, tx)),
+        { maxAttempts: MAX_TRANSACTION_ATTEMPTS },
+      );
+    } catch (error) {
+      /*
+       * Contention says so, in the same words the memory adapter uses (#419).
+       *
+       * `StorageContentionError` has existed since the seam was written, and
+       * until now only `memoryAdapter` ever threw it: Firestore let its raw
+       * gRPC `ABORTED` escape instead. So the two adapters disagreed about
+       * what a lost race looks like, and every caller that meant to handle
+       * contention only handled it in tests — the #252 shape of bug, where the
+       * in-memory path accepts what the real one does not.
+       *
+       * `ABORTED` after the attempt budget is spent is exactly that: the
+       * transaction read documents another one committed first, five times
+       * over. It is the database working, not failing, and it is a different
+       * event from a write that was refused.
+       */
+      if (grpcStatusOf(error) === GRPC_ABORTED) {
+        throw new StorageContentionError(
+          `Firestore aborted the transaction after ${MAX_TRANSACTION_ATTEMPTS} attempts: ${(error as Error).message}`,
+          MAX_TRANSACTION_ATTEMPTS,
+        );
+      }
+      throw error;
+    }
   }
 }
 
