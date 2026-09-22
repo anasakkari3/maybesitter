@@ -1,27 +1,32 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../lib/auth/mobileAuth';
 import { mobileError } from '../../../../../lib/services/mobile/response';
+import { parseHabitDefinitionInput } from '../../../../../src/contracts/v1/habitContracts';
 import {
   HabitValidationError,
+  checkNewHabitBody,
   habitValidationResponse,
-  parseNewHabit,
   presentHabit,
-} from '../../../../../lib/habits/habitApi';
-import { getHabitStore, habitsEnabled } from '../../../../../lib/habits/habitStore';
+  presentOccurrence,
+  withVerifiedScope,
+} from '../../../../../lib/services/habits/habitApi';
+import {
+  createHabitServices,
+  createHabitWithOccurrences,
+  todayLocalDateFor,
+} from '../../../../../lib/services/habits/habitService';
 
 export const dynamic = 'force-dynamic';
 
 /**
  * The habits this account keeps (#520).
  *
- * The account is the token's: every store method is given the verified uid, so
- * there is no query parameter and no body field that could name a different
- * tree. Another account's habits are not filtered out of this answer — they
- * were never in the collection it reads.
+ * The account is the token's: `list(user.uid)` builds every path from the
+ * verified uid, so there is no query parameter and no body field that could
+ * name a different tree. Another account's habits are not filtered out of this
+ * answer — they were never in the collection it reads.
  *
- * `habitsEnabled` is checked after the guard and answers 503, because of what
- * backs this route today: see `lib/habits/habitStore.ts`. It is a build
- * saying "not yet", which is what 503 means, rather than a claim that this
- * account may not.
+ * Paused and archived habits are included. A list that hid them would leave the
+ * user no way to un-pause one, and `status` is on every row.
  */
 export async function GET(request: Request) {
   let user;
@@ -30,10 +35,9 @@ export async function GET(request: Request) {
   } catch (error) {
     return mobileAuthErrorResponse(error);
   }
-  if (!habitsEnabled()) return mobileError('habits are not enabled in this build', 503);
 
   try {
-    const habits = await getHabitStore().list(user.uid);
+    const habits = await createHabitServices().habits.list(user.uid);
     return Response.json({ success: true, items: habits.map(presentHabit) });
   } catch (error) {
     console.error('[habits] listing habits failed', error);
@@ -42,16 +46,30 @@ export async function GET(request: Request) {
 }
 
 /**
- * "I want to do this regularly."
+ * "I want to do this regularly", and the dates that implies.
  *
- * A habit is born `active` and `flexible` unless the body says otherwise. Both
- * defaults are in `parseNewHabit`: a habit the planner may move is the safe
- * one, and `protected_flexible` is a standing claim on an hour of somebody's
- * day that they should have to make deliberately.
+ * ── The body cannot choose the tree ──────────────────────────────
  *
- * Creating a habit materializes nothing. The occurrences this habit will have
- * are the domain lane's to produce, and a POST that also wrote a week of dated
- * work would put two authors on the same question.
+ * `scopeId` is spread *after* the body, so a client that sent one has it
+ * overwritten by the verified uid rather than honoured. This is the one line
+ * standing between a token and another account's habits, and it is ordered
+ * deliberately.
+ *
+ * ── Nothing here defaults the confirmation ───────────────────────
+ *
+ * `parseHabitDefinitionInput` refuses a body with no `confirmation`, and this
+ * route does not fill one in. That is #520's core invariant — goal or memory
+ * text never becomes a habit on its own — and a server that stamped its own
+ * clock onto a missing receipt would turn the evidence into a formality. Same
+ * for `flexibility`, `recoveryPolicy` and `source`: the domain requires them
+ * explicitly, and a route-level default would be this lane quietly re-deciding
+ * something the contract made the caller state.
+ *
+ * ── Creating a habit materializes its horizon ────────────────────
+ *
+ * Four weeks of dates, written at deterministic ids, so the response tells the
+ * client what it actually asked the week for rather than only that a rule was
+ * stored. Re-running it writes the same rows again; see `habitOccurrenceStore`.
  */
 export async function POST(request: Request) {
   let user;
@@ -60,7 +78,6 @@ export async function POST(request: Request) {
   } catch (error) {
     return mobileAuthErrorResponse(error);
   }
-  if (!habitsEnabled()) return mobileError('habits are not enabled in this build', 503);
 
   let body: unknown;
   try {
@@ -70,9 +87,20 @@ export async function POST(request: Request) {
   }
 
   try {
-    const input = parseNewHabit(body);
-    const created = await getHabitStore().create(user.uid, input, new Date().toISOString());
-    return Response.json({ success: true, habit: presentHabit(created) }, { status: 201 });
+    // The uid last. See the header.
+    const input = parseHabitDefinitionInput(withVerifiedScope(checkNewHabitBody(body), user.uid));
+    const now = new Date();
+    const { habit, materialization } = await createHabitWithOccurrences(
+      createHabitServices(),
+      input,
+      now.toISOString(),
+      todayLocalDateFor(now, new URL(request.url).searchParams.get('timezone') ?? undefined),
+    );
+    return Response.json({
+      success: true,
+      habit: presentHabit(habit),
+      occurrences: materialization.occurrences.map(presentOccurrence),
+    }, { status: 201 });
   } catch (error) {
     if (error instanceof HabitValidationError) return habitValidationResponse(error);
     console.error('[habits] creating a habit failed', error);
