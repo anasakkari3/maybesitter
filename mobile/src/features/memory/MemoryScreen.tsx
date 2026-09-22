@@ -17,6 +17,7 @@ import {
 } from '../../api/queries';
 import type { MemoryAdaptive, MemoryItem, MemorySuggestion } from '../../api/schemas/profile';
 import { SettingsHeader } from '../settings/SettingsChrome';
+import { EmptyState, Notice, SectionLabel } from '../../ui/chrome';
 import { memorySentence } from './memoryDisplay';
 import {
   ADAPTIVE_CLASS_STRING,
@@ -168,10 +169,7 @@ export function MemoryScreen({ onBack }: { onBack: () => void }) {
         ) : null}
 
         {undoable ? (
-          <Card pad={14} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }} testID="memory-undo-bar">
-            <Txt size={14} style={{ flex: 1 }}>{t.memoryDeletedNotice}</Txt>
-            <Action label={t.memoryUndo} testID="memory-undo" onPress={undo} />
-          </Card>
+          <Notice testID="memory-undo-bar" actionTestID="memory-undo" text={t.memoryDeletedNotice} action={t.memoryUndo} onAction={undo} />
         ) : null}
 
         {/* Also what a 404 renders: `items` is empty either way, and the
@@ -187,9 +185,7 @@ export function MemoryScreen({ onBack }: { onBack: () => void }) {
         ) : null}
 
         {groups.length === 0 && suggestions.length === 0 ? (
-          <Card pad={18}>
-            <Txt size={14} color={p.mu} testID="memory-screen-empty">{t.memoryScreenEmpty}</Txt>
-          </Card>
+          <EmptyState testID="memory-screen-empty" top={40} title={t.memoryScreenEmpty} />
         ) : null}
 
         {groups.map(([group, rows]) => (

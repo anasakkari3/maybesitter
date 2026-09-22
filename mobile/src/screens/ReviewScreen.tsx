@@ -229,15 +229,20 @@ function ItemCard({
       accessibilityRole="checkbox"
       label={`${title}, ${selected ? t.reviewSelected : t.reviewNotSelected}, ${when}`}
       style={{
-        // Dashed all round in the proposal colour — nothing has been written —
-        // and a solid accent edge at the start once it is chosen.
+        // Dashed all round in the proposal colour: nothing has been written.
+        // React Native refuses a dashed border whose sides differ in width, so
+        // the "chosen" accent edge is its own bar rather than a thicker side
+        // (the warning is logged on device, and the edge simply vanished).
         backgroundColor: p.sf, borderRadius: 24, paddingVertical: 16, paddingHorizontal: 18, gap: 10,
-        alignItems: 'flex-start',
+        alignItems: 'flex-start', overflow: 'hidden',
         borderWidth: 1.5, borderStyle: 'dashed', borderColor: p.prop,
-        borderStartWidth: 4, borderStartColor: selected ? p.ac : p.ln,
         opacity: selected ? 1 : 0.75,
       }}
     >
+      <View
+        pointerEvents="none"
+        style={{ position: 'absolute', top: 0, bottom: 0, start: 0, width: 4, backgroundColor: selected ? p.ac : p.ln }}
+      />
       <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12, alignSelf: 'stretch' }}>
         <View
           testID={`review-check-${item.itemId}`}

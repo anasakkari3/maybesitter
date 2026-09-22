@@ -30,9 +30,17 @@ export function ScreenHeader({ eyebrow, title, end, eyebrowTestID }: {
 }) {
   const { p } = useApp();
   return (
-    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, paddingHorizontal: 4 }}>
+    // `flex-start` rather than `flex-end`: at the accessibility text sizes the
+    // title block is taller than the screen's own header, and an end slot
+    // aligned to its bottom slid down into the tab bar (found on device, AX5).
+    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, paddingHorizontal: 4 }}>
       <View style={{ gap: 2, flexShrink: 1 }}>
-        {eyebrow ? <Txt size={13} color={p.mu} testID={eyebrowTestID}>{eyebrow}</Txt> : null}
+        {/* One line, always. The eyebrow is a date or a range — secondary by
+            definition — and at the accessibility text sizes a wrapping one
+            pushed the screen's own title off the top of the display. The title
+            below it wraps freely: it is the content, and it may take the room
+            the reader asked for. Found on device at AX5, Round 2 Phase M. */}
+        {eyebrow ? <Txt size={13} color={p.mu} lines={1} testID={eyebrowTestID}>{eyebrow}</Txt> : null}
         <Txt size={28} weight={600} lh={1.2}>{title}</Txt>
       </View>
       {end ?? null}
@@ -145,18 +153,19 @@ export function Skeleton({ heights, label, testID }: { heights: readonly number[
   );
 }
 
-export function Notice({ text, action, onAction, testID, style }: {
+export function Notice({ text, action, onAction, testID, actionTestID, style }: {
   text: string;
   action?: string | undefined;
   onAction?: (() => void) | undefined;
   testID?: string | undefined;
+  actionTestID?: string | undefined;
   style?: StyleProp<ViewStyle>;
 }) {
   const { p } = useApp();
   return (
     <View testID={testID} style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: p.sf2, borderRadius: 14, paddingVertical: 10, paddingHorizontal: 14 }, style]}>
       <Txt size={13} color={p.mu} lh={1.45} style={{ flex: 1 }}>{text}</Txt>
-      {action && onAction ? <TextLink label={action} onPress={onAction} size={13} /> : null}
+      {action && onAction ? <TextLink label={action} onPress={onAction} size={13} testID={actionTestID} /> : null}
     </View>
   );
 }
