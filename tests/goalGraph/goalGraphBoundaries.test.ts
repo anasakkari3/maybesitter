@@ -6,9 +6,15 @@
  *
  *  1. Generation has no writer in reach. The isolation test proves it does not
  *     write *today*; this proves it could not, by walking the import closure
- *     of `lib/goalGraph/**` and refusing anything that can persist canonical
- *     state. The convenience call that breaks the criterion is a one-line
- *     import, and it would be added in good faith.
+ *     of the generation modules and refusing anything that can persist
+ *     canonical state. The convenience call that breaks the criterion is a
+ *     one-line import, and it would be added in good faith.
+ *
+ *     Slice 2 makes the file list matter. `confirmGoalGraph.ts` *must* be able
+ *     to reach the commitment and habit boundaries — that is its whole job —
+ *     so the closure below is generation's own, not the directory's. A test
+ *     that widened to the directory when confirmation arrived would have had
+ *     to drop the check entirely, which is how a guard becomes a comment.
  *  2. A graph node never reaches `schedulePlan`. #526 says so in as many
  *     words; only materialized Commitments and Habit occurrences become
  *     planning demand.
@@ -37,11 +43,37 @@ const repoRoot = join(testDir, '..', '..');
 const graphDir = join(repoRoot, 'lib', 'goalGraph');
 const contractPath = join(repoRoot, 'src', 'contracts', 'v1', 'goalGraphContracts.ts');
 
+/** Everything under lib/goalGraph, plus the contract. */
 function ownFiles(): string[] {
   return [
     ...readdirSync(graphDir).filter((entry) => entry.endsWith('.ts')).sort()
       .map((entry) => join(graphDir, entry)),
     contractPath,
+  ];
+}
+
+/**
+ * The read-only half: what `generateGoalExecutionGraph` is built from.
+ *
+ * Named explicitly rather than derived by excluding the writers, so adding a
+ * module to generation is a deliberate edit here and a module that quietly
+ * joined the closure cannot slip in by not being on an exclusion list.
+ */
+function generationFiles(): string[] {
+  return [
+    join(graphDir, 'generateGoalGraph.ts'),
+    join(graphDir, 'ids.ts'),
+    join(graphDir, 'validateGoalGraph.ts'),
+    contractPath,
+  ];
+}
+
+/** The half that is allowed to write, and still not allowed to plan. */
+function confirmationFiles(): string[] {
+  return [
+    join(graphDir, 'confirmGoalGraph.ts'),
+    join(graphDir, 'deriveProgress.ts'),
+    join(graphDir, 'linkStore.ts'),
   ];
 }
 
@@ -76,9 +108,9 @@ function importSpecifiers(source: string): string[] {
  * `tests/feedback/feedbackBoundaries.test.ts`: the writer reached through one
  * innocent-looking intermediate is exactly what a direct check misses.
  */
-function importClosure(): string[] {
+function importClosure(roots: readonly string[] = ownFiles()): string[] {
   const seen = new Set<string>();
-  const queue = ownFiles();
+  const queue = [...roots];
   while (queue.length > 0) {
     const path = queue.pop() as string;
     if (seen.has(path)) continue;
@@ -113,9 +145,9 @@ test('nothing generation can reach is able to write canonical state', () => {
     'planning/scheduler',
     'domain/stateMachine',
   ];
-  const closure = importClosure();
+  const closure = importClosure(generationFiles());
   // The walk must actually have walked, or an empty closure passes everything.
-  assert.ok(closure.length >= ownFiles().length + 3, `closure looks truncated:\n${closure.join('\n')}`);
+  assert.ok(closure.length >= generationFiles().length + 3, `closure looks truncated:\n${closure.join('\n')}`);
   for (const path of closure) {
     for (const forbidden of FORBIDDEN) {
       assert.ok(
@@ -146,15 +178,28 @@ test('no node kind has anywhere to put a date', () => {
   // are exempt by name rather than by pattern so that adding a third has to be
   // a deliberate edit to this list.
   const FORBIDDEN = /\b(dueAt|deadlineAt|dueDate|deadline|startAt|startsAt|endsAt|scheduledFor|remindAt|targetDate|completeBy)\b/;
-  for (const path of ownFiles()) {
+  for (const path of generationFiles()) {
     const match = FORBIDDEN.exec(codeOnly(path));
     assert.equal(match, null, `${path.replace(repoRoot, '.')} names "${match?.[0]}" — #526 forbids invented deadlines`);
   }
-  // And nothing reads a clock: generatedAt is the caller's instant.
+  // Confirmation names the two fields, because the commitment mapper has them
+  // — and sets both to null. A node's `statedTiming` is the source's own
+  // unresolved words, and copying it into `dueAt` is the one move that would
+  // turn "by December" into a date the user is then held to.
+  const confirmationCode = codeOnly(join(graphDir, 'confirmGoalGraph.ts'));
+  assert.match(confirmationCode, /dueAt:\s*null/);
+  assert.match(confirmationCode, /remindAt:\s*null/);
+  assert.equal(/statedTiming/.test(confirmationCode), false, 'confirmation reads a stated timing');
+  // And nothing reads a clock: every instant is the caller's.
   for (const path of ownFiles()) {
     const code = codeOnly(path);
     assert.ok(!code.includes('Date.now'), `${path.replace(repoRoot, '.')} reads the clock`);
     assert.ok(!code.includes('new Date('), `${path.replace(repoRoot, '.')} builds a date`);
+  }
+  for (const path of confirmationFiles()) {
+    // Nor does the writing half: `confirmedAt` and `derivedAt` are passed in,
+    // so two runs of the same request are comparable and a test can pin them.
+    assert.ok(!codeOnly(path).includes('Date.now'), `${path.replace(repoRoot, '.')} reads the clock`);
   }
   assert.equal(GOAL_GRAPH_GENERATION_POLICY.resolvesTiming, false);
 });
@@ -213,4 +258,100 @@ test('the generation policy says what this slice does, as data', () => {
     resolvesTiming: false,
     reachesScheduler: false,
   });
+});
+
+test('confirmation may write, but still never reaches the planner', () => {
+  const closure = importClosure(confirmationFiles());
+  assert.ok(closure.length >= confirmationFiles().length + 3, `closure looks truncated:\n${closure.join('\n')}`);
+  for (const path of closure) {
+    assert.ok(
+      !path.includes('planning/scheduler'),
+      `confirmation reaches ${path.replace(repoRoot, '.')}`,
+    );
+  }
+  for (const path of confirmationFiles()) {
+    assert.ok(!codeOnly(path).includes('schedulePlan'), `${path.replace(repoRoot, '.')} names schedulePlan`);
+  }
+});
+
+test('confirmation creates entities through the existing boundaries, and no others', () => {
+  const code = codeOnly(join(graphDir, 'confirmGoalGraph.ts'));
+  // The two seams this repo already has. Naming them here means a third way to
+  // create a commitment — a direct `storage.set` into the collection, a new
+  // gateway — is a failing test rather than a review someone has to catch.
+  for (const required of ['applyParticipantCommands', 'ConfirmCommitment', 'parseHabitDefinitionInput', 'createHabitWithOccurrences']) {
+    assert.ok(code.includes(required), `confirmation no longer goes through ${required}`);
+  }
+  for (const forbidden of ['commitmentDocPath', 'writeDomainDiff', 'deterministicStateGateway', 'tx.set']) {
+    assert.ok(!code.includes(forbidden), `confirmation writes a commitment its own way, via ${forbidden}`);
+  }
+});
+
+test('unlinking cannot reach the canonical work it names', () => {
+  // The #526 criterion is that removing a node does not delete a Commitment or
+  // a Habit. `linkStore` is the module that removes links, and the guarantee
+  // is that it has no import path to either — not that its delete happens to
+  // address one document today.
+  const closure = importClosure([join(graphDir, 'linkStore.ts')]);
+  for (const path of closure) {
+    for (const forbidden of ['participantState', 'habits/habitStore', 'commandService', 'domain/stateMachine']) {
+      assert.ok(
+        !path.includes(forbidden),
+        `linkStore reaches ${path.replace(repoRoot, '.')}, so an unlink could cascade`,
+      );
+    }
+  }
+});
+
+test('progress has no field a number could be written into', () => {
+  const code = codeOnly(contractPath);
+  // #526: "do not let the model set 73% complete". The structural half of that
+  // is that there is nowhere to put 73.
+  // Word-bounded, because `GOAL_GRAPH_GENERATION_POLICY` contains "ratio" and
+  // a substring check would fail on a constant that is not a progress figure.
+  for (const forbidden of [/\bpercent/i, /\bratio\b/i, /\bscore\b/i, /\bprogressValue\b/i, /\bcompletion\b/i]) {
+    const match = forbidden.exec(code);
+    assert.equal(match, null, `the contract names "${match?.[0]}" — progress is counted, never set`);
+  }
+  // And `deriveProgress` reads only: no store method that writes is in reach.
+  const derive = codeOnly(join(graphDir, 'deriveProgress.ts'));
+  for (const forbidden of ['.set(', '.create(', 'claim(', 'settle(', 'runTransaction']) {
+    assert.equal(derive.includes(forbidden), false, `deriveProgress calls ${forbidden}`);
+  }
+});
+
+test('a node id round-trips to a key that drops the generation and nothing else', async () => {
+  const { checkpointNodeIdFor, goalNodeKeyOf, milestoneNodeIdFor, nodeIdFor, stepNodeIdFor } =
+    await import('../../lib/goalGraph/ids.ts');
+
+  // Every id this feature mints must give back the same key at every
+  // generation. That is what carries a confirmed link across a regenerate and
+  // what stops the same step being confirmed twice into two commitments.
+  for (const [atOne, atTwo] of [
+    [checkpointNodeIdFor(1), checkpointNodeIdFor(2)],
+    [stepNodeIdFor(1, 's1'), stepNodeIdFor(2, 's1')],
+    [milestoneNodeIdFor(1, 'm1'), milestoneNodeIdFor(2, 'm1')],
+    [nodeIdFor(1, 'step.s9'), nodeIdFor(999, 'step.s9')],
+  ]) {
+    assert.notEqual(atOne, atTwo, 'two generations minted the same node id');
+    assert.equal(goalNodeKeyOf(atOne), goalNodeKeyOf(atTwo));
+  }
+  assert.equal(goalNodeKeyOf(stepNodeIdFor(7, 's2')), 'step.s2');
+  // Different steps stay different, or one link would answer for two nodes.
+  assert.notEqual(goalNodeKeyOf(stepNodeIdFor(1, 's1')), goalNodeKeyOf(stepNodeIdFor(1, 's2')));
+  // An id from somewhere else has no prefix to strip and is its own key,
+  // rather than being truncated into one that could collide with a real node.
+  assert.equal(goalNodeKeyOf('step.s1'), 'step.s1');
+  assert.equal(goalNodeKeyOf('something-else'), 'something-else');
+});
+
+test('the link store keys on the node key, whichever form the caller holds', async () => {
+  const { goalNodeLinkIdFor } = await import('../../lib/goalGraph/linkStore.ts');
+  const { stepNodeIdFor } = await import('../../lib/goalGraph/ids.ts');
+
+  const atOne = goalNodeLinkIdFor('goal-1', stepNodeIdFor(1, 's1'));
+  assert.equal(goalNodeLinkIdFor('goal-1', stepNodeIdFor(2, 's1')), atOne);
+  assert.equal(goalNodeLinkIdFor('goal-1', 'step.s1'), atOne);
+  // Still scoped to the goal: two goals' first steps are two different links.
+  assert.notEqual(goalNodeLinkIdFor('goal-2', 'step.s1'), atOne);
 });
