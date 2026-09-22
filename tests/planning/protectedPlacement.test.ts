@@ -180,15 +180,31 @@ test('a Must task is not protected merely by being a Must', () => {
 /* ── 2. Feasible protection is kept; a hard constraint still moves it ── */
 
 test('protected time stays exactly where it is when it is still feasible', () => {
+  // The protected hour is deliberately *not* the first free hour of the day.
+  // A protected item is offered the day before unprotected work (tier 4's
+  // ordering half), so a block preferred at 09:00 would land on 09:00 whether
+  // retention exists or not, and this test — the issue's headline acceptance
+  // criterion — would pass with the retention line deleted. Measured: with
+  // `placeAt(retainMs)` removed, a 09:00 preference still yields 09:00.
+  // 14:00 is a start only retention can produce.
   const request = constraints({
-    items: [item('gym', { protection: protection() }), item('a'), item('b')],
+    items: [
+      item('gym', { protection: protection({ preferredInterval: interval(14, 15) }) }),
+      item('a'),
+      item('b'),
+    ],
   });
   const plan = schedulePlan(request, config());
-  assert.equal(startOf(plan, 'gym'), at(9));
+  assert.equal(startOf(plan, 'gym'), at(14), 'the protected block was re-packed to the front of the day');
+
+  // The unprotected work is not punished for it: it takes the hours the
+  // protected block left alone, rather than queueing behind it.
+  assert.equal(startOf(plan, 'a'), at(9));
+  assert.equal(startOf(plan, 'b'), at(10));
 
   // Feasible means feasible *this* run. Re-planning the identical request keeps
   // it, which is the property a regeneration depends on.
-  assert.equal(startOf(schedulePlan(request, config()), 'gym'), at(9));
+  assert.equal(startOf(schedulePlan(request, config()), 'gym'), at(14));
 });
 
 test('a newly added meeting beats protected gym time, and the gym block moves', () => {
