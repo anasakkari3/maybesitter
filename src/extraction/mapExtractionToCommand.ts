@@ -57,7 +57,10 @@ export function mapExtractionToCommand(
       kind: result.dueAt ? 'due_by' as const : 'unscheduled' as const,
       dueAt: result.dueAt,
       remindAt: result.remindAt,
-      timezone: 'UTC',
+      // The zone the extractor resolved the instant in (#501). When there was
+      // no time to resolve there is no zone to record either, and 'UTC' is the
+      // only honest label for a commitment that names no instant.
+      timezone: result.localTimeSpec?.timezone || 'UTC',
     },
   };
 
