@@ -8,6 +8,8 @@ import {
 } from '../../src/extraction/extractionService';
 import type { ExtractionContext, ExtractionDisposition, ExtractionResult } from '../../src/extraction/extractionTypes';
 import { mapExtractionToCommand } from '../../src/extraction/mapExtractionToCommand';
+import { CAPTURE_INPUT_MAX_CHARACTERS } from '../../src/contracts/v1/captureContracts';
+import { CaptureInputTooLargeError } from './captureBoundary/captureBoundaryService';
 import {
   createDefaultClarificationStore,
   scopeClarification,
@@ -360,6 +362,18 @@ export async function captureText(
   options: CaptureServiceOptions = {}
 ): Promise<CaptureServiceResult> {
   const text = normalizeInput(rawText);
+  /*
+   * The legacy path's copy of the #508 boundary (#511).
+   *
+   * The mobile route's captures are refused by `proposeCapture`; this service
+   * is the lowest point the legacy `/api/capture` route shares, and it must
+   * refuse the same way: a route-level check would be one more thing the next
+   * caller of this function has to remember. First statement after
+   * normalising, before the clarification store reads storage and before
+   * `splitMultiCommitmentInput` walks the text with its regexes — the same
+   * quadratic shapes #508 was measured against.
+   */
+  if (text.length > CAPTURE_INPUT_MAX_CHARACTERS) throw new CaptureInputTooLargeError();
   const now = options.now || new Date();
   const store = options.clarificationStore || createDefaultClarificationStore();
   const providedScopeId = scopeClarification(options);
