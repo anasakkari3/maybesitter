@@ -18,6 +18,7 @@ import {
   confirmPayload,
   confirmableItems,
   hasUnsavedText,
+  wantsDiscardConfirmation,
   initialCaptureState,
   MAX_CAPTURE_LENGTH,
   MAX_TITLE_LENGTH,
@@ -404,6 +405,32 @@ describe('discard confirmation', () => {
     // Once saved there is nothing to discard.
     const saved = captureReducer(captureReducer(analyzed(), { type: 'confirmStarted' }), { type: 'confirmSucceeded', confirmation: confirmation() });
     expect(hasUnsavedText(saved)).toBe(false);
+
+    // Composer states via wantsDiscardConfirmation:
+    expect(wantsDiscardConfirmation(initialCaptureState())).toBe(false);
+    expect(wantsDiscardConfirmation(captureReducer(initialCaptureState(), { type: 'textChanged', text: '   ' }))).toBe(false);
+    expect(wantsDiscardConfirmation(captureReducer(initialCaptureState(), { type: 'textChanged', text: 'buy milk' }))).toBe(true);
+    expect(wantsDiscardConfirmation(saved)).toBe(false);
+
+    // Review states: fresh proposal with untouched default selections needs no confirmation
+    const fresh = analyzed();
+    expect(wantsDiscardConfirmation(fresh)).toBe(false);
+
+    // Deselecting an item is worth losing
+    const deselected = captureReducer(fresh, { type: 'toggleItem', itemId: 'b' });
+    expect(wantsDiscardConfirmation(deselected)).toBe(true);
+
+    // Reselecting restores default selections, so no confirmation is needed
+    const reselected = captureReducer(deselected, { type: 'toggleItem', itemId: 'b' });
+    expect(wantsDiscardConfirmation(reselected)).toBe(false);
+
+    // Hand-editing an item is worth losing
+    const edited = captureReducer(fresh, { type: 'editItem', itemId: 'a', edit: { title: 'Call the clinic urgently' } });
+    expect(wantsDiscardConfirmation(edited)).toBe(true);
+
+    // Clearing the edit restores default state
+    const cleared = captureReducer(edited, { type: 'clearEdit', itemId: 'a' });
+    expect(wantsDiscardConfirmation(cleared)).toBe(false);
   });
 });
 

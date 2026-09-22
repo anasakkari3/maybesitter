@@ -78,7 +78,11 @@ import type { UserLocale } from '../../storage/userDocument';
 import { loadDomainState } from '../mobile/participantState';
 import { readRoutineProfile } from '../mobile/routineProfileService';
 import { keptFocusWindow } from '../../memoryGrowth/suggestionService';
-import { reconcileScheduleBlocks, schedulePlan } from '../../planning/scheduler';
+import {
+  projectBlockProtectionIntoPlanningConstraints,
+  reconcileScheduleBlocks,
+  schedulePlan,
+} from '../../planning/scheduler';
 import { projectReadinessIntoPlanningConstraints } from '../../planning/scheduler/readiness';
 import { toEpochMs } from '../../planning/shared/time';
 import type { ScheduleBlock } from '../../../src/contracts/v1/scheduleBlockContracts';
@@ -389,7 +393,24 @@ export async function composeDailyPlan(
         : [];
     }),
   }, { storage, userDocument: user });
-  const constraints = projectReadinessIntoPlanningConstraints(baseConstraints, userState.projection.readiness);
+  /* Two projections, in this order, and both before the scheduler sees
+   * anything. Readiness widens an item's after-buffer; protection (#522) states
+   * whose decision an item's position is. They commute — neither reads what the
+   * other writes — but the order is written down rather than left to whichever
+   * line someone adds next, because the result is what `inputDigest` is taken
+   * over and a reordering that changed a buffer would change every digest.
+   *
+   * The protections come from the *previous generation's blocks*: a protection
+   * is declared on a block, which is the plan layer's own state, and this is
+   * the one place it re-enters the solver's input. Without it a regeneration
+   * would rebuild every item from commitments that have never heard of it, and
+   * a protected hour would survive exactly until the user asked for a new plan.
+   * The first build of a day has no previous blocks and therefore no
+   * protections, which is correct: nothing has been placed to protect yet. */
+  const constraints = projectBlockProtectionIntoPlanningConstraints(
+    projectReadinessIntoPlanningConstraints(baseConstraints, userState.projection.readiness),
+    ancestry?.previousBlocks ?? null,
+  );
   const plan = schedulePlan(constraints, config);
   // One block per occurrence the planner was asked about, placements applied
   // back. Throws `ScheduleBlockIntegrityError` — and the build fails — if the

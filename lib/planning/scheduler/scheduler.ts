@@ -80,6 +80,15 @@ import { planningInputDigest } from './digest';
 // be checked against. Materialising a window is arithmetic and may cross that
 // line; validating constraints is a judgement and may not.
 import { mergeIntervals, normalizeWorkingWindows } from '../constraints/normalize';
+// #522's protection policy. It is a leaf like `shared/time`: it reads a
+// `PlanningItem` and answers arithmetic about one, and it decides nothing about
+// feasibility. Placement stays the only thing in this repository that decides
+// where work goes.
+import {
+  compareProtectionRetention,
+  protectedStartBoundsMs,
+  retainedStartMs,
+} from './protection';
 
 const MS_PER_MINUTE = 60_000;
 
@@ -718,7 +727,21 @@ export function schedulePlan(constraints: PlanningConstraints, config: PlanningC
       resolveUnscheduled(item.itemId, finding.code, finding.detail);
     }
   }
-  pending.sort((left, right) => comparePlanOrder(orderFields(left, null), orderFields(right, null)));
+  /* Tier 4 of #522's decision hierarchy, then tier 5. A protected item with a
+   * placement to keep is considered before ordinary flexible work, so that in a
+   * greedy placement it is offered its own hour first and everything else fills
+   * in around it — "the planner moves ordinary flexible work before moving a
+   * feasible protected block", expressed as an order rather than as a search
+   * over alternative plans.
+   *
+   * `comparePlanOrder` is untouched and still decides every pair this does not,
+   * which is every pair that is not exactly one protected candidate against one
+   * unprotected one. `PLAN_ORDERING_KEYS` therefore still describes the plan's
+   * own order, and #31's oracle still sorts the way this module does: the tier
+   * lives in candidate *selection*, which the contract does not freeze, and not
+   * in the ordering it does. */
+  pending.sort((left, right) => compareProtectionRetention(left, right)
+    || comparePlanOrder(orderFields(left, null), orderFields(right, null)));
 
   /**
    * Why the whole chain, not just the nearest link: `BLOCKED_BY_DEPENDENCY` is
@@ -811,33 +834,93 @@ export function schedulePlan(constraints: PlanningConstraints, config: PlanningC
       continue;
     }
 
+    /* Tier 2 of #522's hierarchy: an explicit max-shift bound, narrowing the
+     * legal start window before a single run is looked at.
+     *
+     * This is the line that makes "maxShiftMinutes is never silently exceeded"
+     * true of the *output* rather than of an intention. Everything below places
+     * inside `effective`, so there is no path on which a start outside the
+     * bound is constructed and then checked — the check and the placement are
+     * the same arithmetic. Widening it back to `bounds` anywhere here produces a
+     * plan that looks perfectly valid and quietly moves an appointment past the
+     * distance its owner said was the point of it.
+     *
+     * Applied *after* the horizon and deadline checks above, so an item that
+     * could not have been placed under any protection is reported for the
+     * reason that was true without one — one defect earns one code, and the
+     * code names the thing the user can act on. */
+    const protectedBounds = protectedStartBoundsMs(item);
+    const effective = protectedBounds === null ? bounds : {
+      earliestMs: Math.max(bounds.earliestMs, protectedBounds.earliestMs),
+      latestMs: Math.min(bounds.latestMs, protectedBounds.latestMs),
+    };
+    if (effective.earliestMs > effective.latestMs) {
+      resolveUnscheduled(
+        item.itemId,
+        'PROTECTED_SHIFT_EXCEEDED',
+        'no legal start lies within the protected placement\'s maximum shift',
+      );
+      continue;
+    }
+
     const runs = freeRunsAfter(baseRuns, scheduled.map((entry) => entry.reservedInterval));
-    let placement: PlannedItem | null = null;
-    for (const run of runs) {
-      const runStartMs = toEpochMs(run.startsAt);
-      const runEndMs = toEpochMs(run.endsAt);
-      // Grid-aligned on the *effort* start, which is the instant a user sees.
-      // Within one run the first legal start is also the best one: moving later
-      // only pushes the reservation end further past a fixed upper bound.
-      const startMs = alignUp(Math.max(bounds.earliestMs, runStartMs + bufferBeforeMs), horizonStartMs, slotMs);
+
+    /** One candidate start, accepted only if the whole reservation fits a run. */
+    const placeAt = (startMs: number): PlannedItem | null => {
+      if (startMs < effective.earliestMs || startMs > effective.latestMs) return null;
       const reservedStartMs = startMs - bufferBeforeMs;
       const reservedEndMs = startMs + effortMs + bufferAfterMs;
       // The run bounds the whole reservation — runs are already clipped to the
       // horizon, so this is also what keeps buffers inside it. The deadline
-      // bounds only the effort, via `bounds.latestMs`.
-      if (reservedStartMs < runStartMs) continue;
-      if (reservedEndMs > runEndMs) continue;
-      if (startMs > bounds.latestMs) continue;
-      placement = {
+      // bounds only the effort, via `effective.latestMs`.
+      const fits = runs.some((run) => reservedStartMs >= toEpochMs(run.startsAt)
+        && reservedEndMs <= toEpochMs(run.endsAt));
+      if (!fits) return null;
+      return {
         itemId: item.itemId,
         interval: { startsAt: toInstant(startMs), endsAt: toInstant(startMs + effortMs) },
         reservedInterval: { startsAt: toInstant(reservedStartMs), endsAt: toInstant(reservedEndMs) },
       };
-      break;
+    };
+
+    /* Tier 4, the other half: a protected item is offered the placement it is
+     * protecting before it is offered the earliest one available. "Protected
+     * time stays unchanged when still feasible" is this line, and only this
+     * line — candidate order alone would merely place it *early*, which is not
+     * the same as placing it *where it was*.
+     *
+     * Deliberately not grid-aligned. The slot grid is how the planner *chooses*
+     * a start; retention is not a choice, it is keeping a start somebody already
+     * made. Rounding a user's 07:10 gym block up to 07:15 on every regeneration
+     * would be churn produced by the very mechanism meant to prevent it. */
+    const retainMs = retainedStartMs(item);
+    let placement: PlannedItem | null = retainMs === null ? null : placeAt(retainMs);
+
+    for (const run of runs) {
+      if (placement !== null) break;
+      const runStartMs = toEpochMs(run.startsAt);
+      // Grid-aligned on the *effort* start, which is the instant a user sees.
+      // Within one run the first legal start is also the best one: moving later
+      // only pushes the reservation end further past a fixed upper bound.
+      placement = placeAt(alignUp(Math.max(effective.earliestMs, runStartMs + bufferBeforeMs), horizonStartMs, slotMs));
     }
 
     if (placement === null) {
-      resolveUnscheduled(item.itemId, 'NO_FEASIBLE_SLOT', 'no free run long enough');
+      /* A bounded protected item that found no run inside its bound is told so.
+       * Reporting `NO_FEASIBLE_SLOT` here would be true of the narrowed window
+       * and useless: the user would be told their day is full when what is full
+       * is the hour either side of one block they asked to keep, and the action
+       * available to them — widen the shift, or release the protection — is
+       * invisible in that sentence. The issue's "infeasible max-shift produces
+       * explicit unscheduled reasoning, not a silent drop". */
+      const bounded = protectedBounds !== null;
+      resolveUnscheduled(
+        item.itemId,
+        bounded ? 'PROTECTED_SHIFT_EXCEEDED' : 'NO_FEASIBLE_SLOT',
+        bounded
+          ? 'no free run long enough within the protected placement\'s maximum shift'
+          : 'no free run long enough',
+      );
     } else {
       resolveScheduled(placement);
     }

@@ -228,6 +228,84 @@ export interface PlanningDependency {
   readonly kind: PlanningDependencyKind;
 }
 
+/* ── Placement protection (#522) ──────────────────────────── */
+
+/**
+ * Who owns an item's position in time.
+ *
+ * Three states, and the middle one is the whole point of this vocabulary:
+ *
+ *  - `fixed` — the source pinned the instant. The solver is not asked where it
+ *    goes; it enters the constraints as a blocking `FixedEvent` and is observed.
+ *  - `flexible` — the solver chooses, freely, every run.
+ *  - `protected_flexible` — the solver may choose, but where the block already
+ *    sits is a planning *objective*. It moves when something harder demands it
+ *    and stays when nothing does.
+ *
+ * **Protection is not priority, and the distinction is load-bearing.**
+ * `PlanningItem.priority` answers "what matters most"; ownership answers "whose
+ * decision is this position". A `Must` task the user has never placed by hand
+ * is ordinary `flexible` work and the planner will move it without hesitation;
+ * a `Nice` gym block the user dragged to 07:00 is `protected_flexible` and the
+ * planner will move three `Must` tasks before it touches that hour. Deriving
+ * one from the other — "high priority implies protected" — is the failure this
+ * type exists to make unrepresentable: it would silently pin every important
+ * task to wherever the first plan happened to put it, and nothing in a plan
+ * would ever move again.
+ *
+ * **Buffers are a different thing again.** `bufferBeforeMinutes` /
+ * `bufferAfterMinutes` protect the time *around* an item — recovery, travel —
+ * and travel with it wherever it goes. Protection is about the position
+ * itself. An item can have both, neither, or either, and neither reads the
+ * other.
+ */
+export type TimeOwnership = 'fixed' | 'flexible' | 'protected_flexible';
+
+/**
+ * Where a protection came from, which is what decides who may relax it.
+ *
+ * `user` is a person's own decision — a manual move, or an explicit "keep this
+ * here". `habit_policy` and `goal_policy` are a module's standing rule about
+ * its own occurrences: #520's `HabitDefinition.flexibility` projects into a
+ * protection with this origin, and a goal's cadence will do the same. Named in
+ * the contract before those modules exist, for the reason
+ * `ScheduleSourceKind` names their source kinds: an origin that means two
+ * things is an origin that means nothing, and the adapter that arrives later
+ * must not have to widen a union to say where its protection came from.
+ */
+export type ProtectionOrigin = 'user' | 'habit_policy' | 'goal_policy';
+
+/**
+ * An item's claim on its own position.
+ *
+ * `preferredInterval` is the placement being retained — usually where the
+ * block sits now. It is null for a protection declared before the thing has
+ * ever been placed (a habit policy that says "protected" on an occurrence the
+ * planner has not yet scheduled): such an item is protected in principle and
+ * has nothing to retain yet, so it neither retains nor releases until it has a
+ * first placement to keep.
+ *
+ * `maxShiftMinutes` is a **hard bound**, not a preference, and it is the one
+ * field here the solver may never trade away. It says "this may move, by up to
+ * this much, and no further" — an appointment that is pointless if it slips
+ * past an hour is not served by a planner that slips it by ninety minutes and
+ * reports success. So an item whose bound admits no legal placement is
+ * reported `PROTECTED_SHIFT_EXCEEDED` and left unscheduled rather than placed
+ * outside it. Null means "no explicit bound": the placement is still an
+ * objective, but there is no distance at which moving it becomes a refusal.
+ *
+ * The bound is measured on the **effort start** — `|start - preferredStart|`,
+ * in either direction — because that is the instant a user sees and the one
+ * they think of as "where it is". Measuring it on the reserved span would make
+ * an unrelated buffer edit read as a shift.
+ */
+export interface PlacementProtection {
+  readonly ownership: TimeOwnership;
+  readonly origin: ProtectionOrigin;
+  readonly preferredInterval: TimeInterval | null;
+  readonly maxShiftMinutes: number | null;
+}
+
 /**
  * One thing the planner is asked to place.
  *
@@ -264,6 +342,13 @@ export interface PlanningItem {
   readonly dependsOn: readonly PlanningDependency[];
   readonly bufferBeforeMinutes: number;
   readonly bufferAfterMinutes: number;
+  /**
+   * Whose decision this item's position is (#522). Absent and null both mean
+   * ordinary `flexible` work, which is what every item was before this field
+   * existed — so an adapter that knows nothing about protection keeps
+   * producing exactly the requests it produced before.
+   */
+  readonly protection?: PlacementProtection | null;
 }
 
 /**
@@ -481,6 +566,28 @@ export interface PlanningConfig {
  *                               they all finish leaves no room before this
  *                               item's deadline.
  * - `HORIZON_EXHAUSTED`       — the horizon ended before this item's turn came.
+ * - `PROTECTED_SHIFT_EXCEEDED` — the item carries a `PlacementProtection` with a
+ *                               `maxShiftMinutes` bound, and no placement
+ *                               exists within that distance of its
+ *                               `preferredInterval`. The item is reported, not
+ *                               placed further away: the bound is the user's
+ *                               statement that a larger move is worse than no
+ *                               placement, and a planner that quietly exceeded
+ *                               it would answer a question nobody asked.
+ *
+ *                               **An attempt code, deliberately.** It is only
+ *                               true once placement has been tried — the window
+ *                               the bound leaves is legal in itself, and what
+ *                               closes it is the rest of the day: a meeting
+ *                               that arrived, work already placed, the edges of
+ *                               the working window. #29's validator and #31's
+ *                               oracle decide the static vocabulary from the
+ *                               constraints alone and neither reads a
+ *                               protection, so classifying this one statically
+ *                               would put a code in
+ *                               `STATIC_INFEASIBILITY_CODES` that only one of
+ *                               the three readers could ever emit — the exact
+ *                               shape rule 3 exists to prevent.
  */
 export type PlanningReasonCode =
   // static
@@ -501,7 +608,8 @@ export type PlanningReasonCode =
   | 'NO_FEASIBLE_SLOT'
   | 'BLOCKED_BY_DEPENDENCY'
   | 'DEPENDENCY_TOO_LATE'
-  | 'HORIZON_EXHAUSTED';
+  | 'HORIZON_EXHAUSTED'
+  | 'PROTECTED_SHIFT_EXCEEDED';
 
 /**
  * The static half of `PlanningReasonCode`, as a value.
@@ -533,6 +641,7 @@ export const ATTEMPT_INFEASIBILITY_CODES = Object.freeze([
   'BLOCKED_BY_DEPENDENCY',
   'DEPENDENCY_TOO_LATE',
   'HORIZON_EXHAUSTED',
+  'PROTECTED_SHIFT_EXCEEDED',
 ] as const) satisfies readonly PlanningReasonCode[];
 
 export type StaticInfeasibilityCode = (typeof STATIC_INFEASIBILITY_CODES)[number];
@@ -764,6 +873,40 @@ export interface PlanQualityMetrics {
   readonly unscheduledByReason: Readonly<Partial<Record<PlanningReasonCode, number>>>;
   /** Working minutes used over working minutes available; 0 when none. */
   readonly utilization: number;
+  /**
+   * Items carrying `ownership: 'protected_flexible'` in the request this plan
+   * answers. The denominator of the two counts below, and independent of
+   * priority: a `Nice` protected block counts here and a `Must` unprotected one
+   * does not.
+   */
+  readonly protectedCount: number;
+  /**
+   * Protected items the plan placed at exactly their `preferredInterval` start.
+   *
+   * A protected item with no `preferredInterval` has nothing to keep and is
+   * counted in neither this nor `protectedReleasedCount`, so the two are a
+   * partition of the protected items that *had* a placement to retain, not of
+   * `protectedCount`.
+   */
+  readonly protectedRetainedCount: number;
+  /**
+   * Protected items whose preferred placement the plan did not keep — moved,
+   * or left unscheduled. Both are a release: the user no longer finds the block
+   * where they put it.
+   */
+  readonly protectedReleasedCount: number;
+  /**
+   * Sum of `|start - preferredStart|` over protected items the plan placed
+   * away from their preference.
+   *
+   * The churn this track exists to minimise, and deliberately *not* folded into
+   * `churnMinutes`: that figure measures movement against the previous plan,
+   * over every item, and a planner tuned to reduce it would reduce it just as
+   * happily by holding an ordinary task still. An unscheduled protected item
+   * contributes nothing here — it did not move a distance, it vanished, and
+   * `protectedReleasedCount` is where that shows.
+   */
+  readonly protectedShiftMinutes: number;
 }
 
 /* ── Policy ──────────────────────────────────────────────────────── */

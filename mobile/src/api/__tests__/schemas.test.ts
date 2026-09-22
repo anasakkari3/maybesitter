@@ -143,6 +143,10 @@ const CASES: Array<[string, z.ZodType]> = [
   ['plan.today', planResponseSchema],
   ['plan.accepted', planResponseSchema],
   ['plan.regenerated', planResponseSchema],
+  // The one plan fixture that actually carries a protection (#522). Every
+  // other one answers `protections: []`, so without this the five-field
+  // protection schema is never parsed against anything a handler produced.
+  ['plan.protected', planResponseSchema],
   ['plan.built', planResponseSchema],
   ['plan.notFound', errorBodySchema],
   ['plan.editRejected', planEditRejectedSchema],
@@ -227,6 +231,30 @@ describe('every response the client parses', () => {
       .map(name => name.replace(/\.json$/, ''))
       .sort();
     expect(onDisk).toEqual(CASES.map(([name]) => name).sort());
+  });
+});
+
+describe('a protected block, as the plan screen reads it (#522)', () => {
+  it('carries the block the protect action names, and the bound it was given', () => {
+    const plan = planResponseSchema.parse(fixture('plan.protected')).plan;
+    expect(plan.protections).toHaveLength(1);
+    const protection = plan.protections[0]!;
+    expect(protection.ownership).toBe('protected_flexible');
+    expect(protection.maxShiftMinutes).toBe(30);
+    expect(protection.preferredInterval).not.toBeNull();
+
+    // The row and the protection name the same block. This is what makes the
+    // mutation reachable: a screen protects the row it is looking at, and
+    // without `blockId` on the row it would have nothing to send.
+    const row = plan.scheduled.find(item => item.itemId === protection.itemId);
+    expect(row?.blockId).toBe(protection.blockId);
+  });
+
+  it('gives every ordinary row a blockId too, so a first protection can be made', () => {
+    const plan = planResponseSchema.parse(fixture('plan.today')).plan;
+    expect(plan.protections).toEqual([]);
+    expect(plan.scheduled.length).toBeGreaterThan(0);
+    for (const row of plan.scheduled) expect(typeof row.blockId).toBe('string');
   });
 });
 

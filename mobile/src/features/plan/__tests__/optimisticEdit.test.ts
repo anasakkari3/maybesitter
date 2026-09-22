@@ -22,11 +22,16 @@ function plan(over: Partial<DailyPlan> = {}): DailyPlan {
     acceptedAt: null,
     explanation: { text: 'x', locale: 'en', source: 'template' },
     scheduled: [
-      { itemId: 'a', title: 'A', startsAt: '2026-08-09T06:00:00.000Z', endsAt: '2026-08-09T06:30:00.000Z' },
-      { itemId: 'b', title: 'B', startsAt: '2026-08-09T08:00:00.000Z', endsAt: '2026-08-09T09:00:00.000Z' },
+      // `blockId` since #521/#522: every row names the block it is, so the
+      // plan screen can protect the row it is looking at.
+      { itemId: 'a', title: 'A', startsAt: '2026-08-09T06:00:00.000Z', endsAt: '2026-08-09T06:30:00.000Z', blockId: 'block:commitment:a' },
+      { itemId: 'b', title: 'B', startsAt: '2026-08-09T08:00:00.000Z', endsAt: '2026-08-09T09:00:00.000Z', blockId: 'block:commitment:b' },
     ],
     unscheduled: [],
     edited: false,
+    // Nothing protected here: this file is about the optimistic edit, and a
+    // protection changes no placement (#522).
+    protections: [],
     ...over,
   };
 }

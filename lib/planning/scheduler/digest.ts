@@ -45,6 +45,7 @@ import { compareByCodePoint } from '../shared/compare';
 
 import type {
   Effort,
+  PlacementProtection,
   FixedEvent,
   PlanningConfig,
   PlanningConstraints,
@@ -136,7 +137,37 @@ function encodeDependency(dependency: PlanningDependency): string {
   ]);
 }
 
+function encodeProtection(protection: PlacementProtection): string {
+  return record([
+    ['ownership', scalar(protection.ownership)],
+    ['origin', scalar(protection.origin)],
+    ['preferredInterval', protection.preferredInterval === null
+      ? scalar(null)
+      : encodeInterval(protection.preferredInterval)],
+    ['maxShiftMinutes', scalar(protection.maxShiftMinutes)],
+  ]);
+}
+
+/**
+ * `protection` is omitted when the item states none, rather than encoded as
+ * `null`.
+ *
+ * Two requests that differ in a protection still differ here — the key is
+ * present in one encoding and absent from the other — so the digest keeps the
+ * property it exists for. What omission additionally buys is that every plan
+ * stored before #522 goes on hashing to the digest it was stored with: the
+ * `inputDigest` on a plan document is compared against a replay of that
+ * document's own constraints (`replayStoredPlan`, `sameInputDigest`), and a
+ * field added unconditionally would have made every one of those comparisons
+ * read false for ever, silently, while every test that builds both sides fresh
+ * went on passing.
+ *
+ * `PLAN_INPUT_DIGEST_VERSION` is therefore *not* bumped: the encoding of an
+ * unprotected request is byte-for-byte what it was, so there is no pair of
+ * differently-ruled inputs that could collide.
+ */
 function encodeItem(item: PlanningItem): string {
+  const protection = item.protection ?? null;
   return record([
     ['itemId', scalar(item.itemId)],
     ['titleHash', opaqueText(item.title)],
@@ -147,6 +178,9 @@ function encodeItem(item: PlanningItem): string {
     ['dependsOn', sortedList(item.dependsOn.map(encodeDependency))],
     ['bufferBeforeMinutes', scalar(item.bufferBeforeMinutes)],
     ['bufferAfterMinutes', scalar(item.bufferAfterMinutes)],
+    ...(protection === null
+      ? []
+      : [['protection', encodeProtection(protection)] as const]),
   ]);
 }
 

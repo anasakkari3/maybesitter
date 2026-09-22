@@ -36,6 +36,11 @@ export const PLAN_EVENTS_NOT_USER_FACING: Readonly<Record<string, string>> = Obj
   // "Not today" is a legitimate answer, and listing it in a record of what
   // somebody did reads as a tally of plans they turned down.
   plan_dismissed: 'setting a plan aside must not become a count of refusals',
+  // Protecting an hour is a statement about how the *planner* should behave
+  // from now on (#522), not something the person finished. It belongs in the
+  // ledger — a placement the planner stops moving needs a record of who asked —
+  // and not in a history of what somebody did.
+  plan_protected: 'declaring a block protected tunes the planner; it is not an outcome',
 });
 
 /**

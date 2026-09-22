@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, TextInput, View } from 'react-native';
 import { useApp } from '../state/AppContext';
 import { useCaptureFlow } from '../features/capture/CaptureProvider';
-import { MAX_CAPTURE_LENGTH, hasUnsavedText } from '../features/capture/captureMachine';
+import { MAX_CAPTURE_LENGTH, wantsDiscardConfirmation } from '../features/capture/captureMachine';
 import { noCommitmentLine } from '../features/capture/noCommitment';
 import { EXAMPLE_KEYS, exampleText } from '../features/capture/examples';
 import { ClipboardImportSheet } from '../features/capture/ClipboardImportSheet';
@@ -101,7 +101,7 @@ export function CaptureScreen() {
   };
 
   const requestClose = () => {
-    if (hasUnsavedText(state)) setConfirmingDiscard(true);
+    if (wantsDiscardConfirmation(state)) setConfirmingDiscard(true);
     else leave();
   };
 
