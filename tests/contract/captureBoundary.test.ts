@@ -154,6 +154,44 @@ test('multi-item ordering and confirmation ordering are preserved', async () => 
   assert.deepEqual(confirmation.persistedItemIds, proposal.items.map((item) => item.itemId));
 });
 
+test('captured commitment persists the timezone the request sent (#501)', async () => {
+  const dependencies = harness();
+  const proposal = await proposeCapture('Call the doctor at noon', { now, timezone: 'Asia/Jerusalem', scopeId: 'a' }, {
+    ...dependencies,
+    extractor: async () => ({
+      result: extracted({ localTimeSpec: { date: '2026-08-17', time: '12:00', timezone: 'Asia/Jerusalem' } }),
+      engine: 'ollama' as const,
+      fallbackReason: null,
+    }),
+  });
+  assert.equal(proposal.status, 'proposed');
+  const confirmation = await confirmCapture(
+    { proposalId: proposal.proposalId, scopeId: 'a', selectedItemIds: [proposal.items[0].itemId], idempotencyKey: 'tz-1', now },
+    dependencies,
+  );
+  assert.equal(confirmation.success, true);
+  const state = await dependencies.persistence.snapshot();
+  const commitment = Object.values(state.commitments)[0];
+  assert.equal(commitment.timeSpec.timezone, 'Asia/Jerusalem');
+});
+
+test('captured commitment still persists UTC for a plain UTC request (#501)', async () => {
+  const dependencies = harness();
+  const proposal = await proposeCapture('Call the doctor at noon', { now, timezone: 'UTC', scopeId: 'a' }, {
+    ...dependencies,
+    extractor: async () => ({ result: extracted(), engine: 'ollama', fallbackReason: null }),
+  });
+  assert.equal(proposal.status, 'proposed');
+  const confirmation = await confirmCapture(
+    { proposalId: proposal.proposalId, scopeId: 'a', selectedItemIds: [proposal.items[0].itemId], idempotencyKey: 'tz-2', now },
+    dependencies,
+  );
+  assert.equal(confirmation.success, true);
+  const state = await dependencies.persistence.snapshot();
+  const commitment = Object.values(state.commitments)[0];
+  assert.equal(commitment.timeSpec.timezone, 'UTC');
+});
+
 test('split segments drop the punctuation and conjunction they were cut on (#502)', async () => {
   let index = 0;
   const dependencies = harness();
