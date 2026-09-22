@@ -3,15 +3,18 @@ import { mobileError } from '../../../../../../../lib/services/mobile/response';
 import { isPlanDate } from '../../../../../../../lib/services/dailyPlan/planSettings';
 import {
   PlanEditRejected,
+  PlanProposalRejected,
   PlanProtectionRejected,
   acceptPlan,
+  acceptPlanProposal,
   dismissPlan,
   editPlan,
   parseEdit,
   parseProtection,
+  rejectPlanProposal,
   setBlockProtection,
 } from '../../../../../../../lib/services/dailyPlan/planActions';
-import { planToDto } from '../../../../../../../lib/services/dailyPlan/planDto';
+import { pendingProposalToDto, planToDto } from '../../../../../../../lib/services/dailyPlan/planDto';
 import { titlesOf } from '../../../../../../../lib/services/dailyPlan/dailyPlanService';
 import { loadDomainState } from '../../../../../../../lib/services/mobile/participantState';
 import { getStorage } from '../../../../../../../lib/storage';
@@ -34,6 +37,15 @@ export const dynamic = 'force-dynamic';
  * moves nothing, and the plan in the response is the same plan. A refusal is
  * 422 for the same reason as an edit's, carrying `blockId` where an edit
  * carries `itemId`.
+ *
+ * `accept_proposal` and `reject_proposal` (#523) are the sixth and seventh,
+ * and arrive here for the same reason: they are things a person does to the
+ * plan document this route already owns, and a route of its own would have
+ * bought a second auth surface and a second entry in the route-guard census
+ * for two verbs. Both are 422 on refusal, carrying `reason` — `no_proposal`
+ * when there is nothing to act on, `stale_proposal` when the patch describes
+ * a plan state that has moved on. Neither carries an `itemId` or a `blockId`:
+ * the refusal is about the offer, not about a row in it.
  */
 export async function POST(request: Request, { params }: { params: Promise<{ date: string }> }) {
   let user;
@@ -61,11 +73,19 @@ export async function POST(request: Request, { params }: { params: Promise<{ dat
     else if (body.action === 'protect') {
       const outcome = await setBlockProtection(user.uid, date, parseProtection(body));
       stored = outcome?.stored ?? null;
-    } else return mobileError(`Unknown plan action: ${String(body.action)}`);
+    } else if (body.action === 'accept_proposal') stored = await acceptPlanProposal(user.uid, date);
+    else if (body.action === 'reject_proposal') stored = await rejectPlanProposal(user.uid, date);
+    else return mobileError(`Unknown plan action: ${String(body.action)}`);
   } catch (error) {
     if (error instanceof PlanEditRejected) {
       return Response.json(
         { success: false, error: error.message, reason: error.reason, itemId: error.itemId },
+        { status: 422 },
+      );
+    }
+    if (error instanceof PlanProposalRejected) {
+      return Response.json(
+        { success: false, error: error.message, reason: error.reason },
         { status: 422 },
       );
     }
@@ -80,5 +100,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ dat
 
   if (!stored) return mobileError('no plan for that date', 404);
   const state = await loadDomainState(getStorage(), user.uid);
-  return Response.json({ success: true, plan: planToDto(stored, titlesOf(Object.values(state.commitments))) });
+  const titles = titlesOf(Object.values(state.commitments));
+  return Response.json({
+    success: true,
+    plan: planToDto(stored, titles),
+    // The same key GET answers with, on every action: a client that has just
+    // accepted or rejected a patch learns from its own response that the offer
+    // is gone, instead of re-fetching to find out.
+    proposal: pendingProposalToDto(stored, titles),
+  });
 }
