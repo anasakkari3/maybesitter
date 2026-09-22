@@ -129,3 +129,112 @@ export function isBackgroundMonitorPurpose(value: unknown): value is BackgroundM
   return typeof value === 'string'
     && (BACKGROUND_MONITOR_PURPOSES as readonly string[]).includes(value);
 }
+
+/* ── Attribution (#527's Rule) ────────────────────────────────────── */
+
+/**
+ * The issue's rule, as a type: *every user-affecting background action must be
+ * attributable to* `monitor/watcher → condition → policy → resulting action`,
+ * and *no orphan autonomous work*.
+ *
+ * `BackgroundMonitorView` above answers "what is watching me, right now".
+ * This answers the other half — "this thing happened; who decided it, on what
+ * evidence, and under whose permission" — and it is a different question with
+ * a different lifetime: a monitor is current state, an attribution is a fact
+ * about the past that stays true after the monitor is paused or deleted.
+ *
+ * ── Nothing here is a new record ──────────────────────────────────
+ *
+ * This is a projection of `WatcherFireEvent`, which has carried all four links
+ * since #525: `watcherId` is the monitor, `reason` is the condition,
+ * `policyDecision` is the policy, and `effect` + `effectRef` are the resulting
+ * action and the artifact it produced. The chain was always recorded; what was
+ * missing was a way to *ask* it. So there is no attribution store, no new
+ * write on the firing path, and nothing for the engine to keep in step — which
+ * is also why an attribution cannot drift from the firing it describes.
+ *
+ * ── A blocked firing is attributable too ──────────────────────────
+ *
+ * `policy_blocked` produces no artifact, and it is still recorded and still
+ * projected. "The policy refused this" is exactly the kind of thing the rule
+ * exists to make visible: an audit that listed only the actions that happened
+ * would be unable to show that the guard ever did anything.
+ *
+ * ── The same content rule as above ────────────────────────────────
+ *
+ * No provider payloads, no tokens, no provider-authored text. `label` is the
+ * same `<provider>:<signalKind>` code `BackgroundMonitorView` carries, and the
+ * refs are identifiers this system minted. `provenanceRef` is deliberately
+ * **not** here: it points into provider data, and a Trust surface that handed
+ * the client a pointer to the payload would have re-opened the hole the rest
+ * of this file closes.
+ */
+
+/** What the effect actually produced. `none` is a firing the policy refused. */
+export type BackgroundActionArtifactKind =
+  | 'notification'
+  | 'proposal'
+  | 'state_change'
+  | 'context_update'
+  | 'none';
+
+export interface BackgroundActionArtifact {
+  readonly kind: BackgroundActionArtifactKind;
+  /**
+   * The artifact's own id, or null when nothing was produced.
+   *
+   * For `state_change` this is the `PlanningStateChange.changeId` — which is
+   * the id an `IncrementalPlanPatch` carries in `causeChangeIds`. That
+   * correspondence is what lets a replan answer which monitor caused it:
+   * the patch names the change, and `attributionsForArtifacts` turns the
+   * change back into a monitor. See `lib/watchers/backgroundAttribution.ts`.
+   */
+  readonly ref: string | null;
+}
+
+/**
+ * One background action, with the whole chain that authorized it.
+ *
+ * `actionId` is the firing's own event id, derived from `(watcherId,
+ * signalId)` — so it is stable, and asking twice about one action gives one
+ * answer rather than two rows for one event.
+ */
+export interface BackgroundActionAttribution {
+  readonly actionId: string;
+  /** The monitor, as `BackgroundMonitorView.monitorId` spells it. */
+  readonly monitorId: string;
+  readonly watcherId: string;
+  /** `<provider>:<signalKind>`, the same code the monitor view carries. */
+  readonly label: string;
+  /** When the signal was observed, and when the firing was recorded. */
+  readonly observedAt: string;
+  readonly occurredAt: string;
+  /** The condition that fired, or the policy's reason when it refused. */
+  readonly condition: string;
+  /** The Action Policy capability this effect needed. */
+  readonly capability: string;
+  readonly policyDecision: string;
+  /** The effect the watcher is configured for. */
+  readonly effect: string;
+  readonly artifact: BackgroundActionArtifact;
+}
+
+export interface BackgroundAttributionView {
+  readonly schemaVersion: typeof BACKGROUND_MONITOR_SCHEMA_VERSION;
+  /** Newest first, bounded. */
+  readonly actions: readonly BackgroundActionAttribution[];
+  /**
+   * Artifacts this account holds that no firing claims — the rule's "no orphan
+   * autonomous work", as a number a test and a screen can both read.
+   *
+   * Zero is the only healthy value. It is reported rather than thrown because
+   * a Trust surface that refused to render when something was wrong would hide
+   * exactly the thing it exists to show.
+   */
+  readonly orphanCount: number;
+}
+
+export function isBackgroundActionArtifactKind(value: unknown): value is BackgroundActionArtifactKind {
+  return typeof value === 'string'
+    && ['notification', 'proposal', 'state_change', 'context_update', 'none'].includes(value);
+}
