@@ -308,10 +308,35 @@ export function confirmPayload(state: CaptureState): {
   return { proposalId: state.proposal?.proposalId ?? '', itemIds, edits };
 }
 
+function sameIds(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  const setB = new Set(b);
+  return a.every((id) => setB.has(id));
+}
+
 /** True when the user has something worth a discard confirmation. */
 export function hasUnsavedText(state: CaptureState): boolean {
   return state.text.trim().length > 0 && state.status !== 'saved';
 }
+
+/**
+ * True when the user has something worth a discard confirmation (#504).
+ *
+ * In the composer: unanalyzed text that would be lost.
+ * In review: hand edits or selections modified from the default.
+ * Untouched proposals with default selections return false so "Cancel all" closes immediately.
+ */
+export function wantsDiscardConfirmation(state: CaptureState): boolean {
+  if (state.status === 'saved') return false;
+  if (state.proposal) {
+    if (Object.keys(state.edits).length > 0) return true;
+    const base = state.original ?? state.proposal;
+    const defaultSelected = confirmableItems(base);
+    return !sameIds(state.selected, defaultSelected);
+  }
+  return state.text.trim().length > 0;
+}
+
 
 function statusForProposal(proposal: CaptureProposal): CaptureStatus {
   switch (proposal.status) {
