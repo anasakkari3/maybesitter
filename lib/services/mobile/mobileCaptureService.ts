@@ -417,6 +417,13 @@ export async function confirmMobileCapture(input: MobileConfirmInput, context: M
   /** Why the boundary refused, so the route can answer 404 rather than 400 (#252). */
   failureCode?: CaptureConfirmationResultContract['failureCode'];
   /**
+   * Which kind of write failure `persistence_failed` was (#419). Carried for
+   * the same reason as `failureCode` above: dropping it here is what left the
+   * emulator idempotency test unable to say whether it had found a durability
+   * bug or a busy database.
+   */
+  failureCause?: CaptureConfirmationResultContract['failureCause'];
+  /**
    * What just got persisted lands on top of, if anything (#football-fixtures
    * task 10). Always present, always empty on a failed confirm -- a field
    * that only sometimes exists is a field every client has to guard, and an
@@ -452,6 +459,7 @@ export async function confirmMobileCapture(input: MobileConfirmInput, context: M
       // that is gone versus 400 for a request it refuses (#252). `failed[]`
       // still names each item, which is what a client shows the user.
       failureCode: result.failureCode,
+      ...(result.failureCause === undefined ? {} : { failureCause: result.failureCause }),
       replayed: result.replayed,
       persisted: [],
       failed: selectedItemIds.map((itemId) => ({

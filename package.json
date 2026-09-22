@@ -12,7 +12,7 @@
     "test:perf": "node --no-warnings --loader ./scripts/ts-resolver.mjs --import ./tests/support/isolateProcess.mjs --test tests/perf/safetyGateBound.perf.test.ts tests/perf/decompositionValidatorBounds.perf.test.ts tests/perf/evidenceGraphBounds.perf.test.ts tests/perf/captureSplitBounds.perf.test.ts",
     "check:test-registration": "node scripts/check-test-registration.mjs",
     "test:emulator": "firebase emulators:exec --only firestore,auth --project demo-maybesitter \"npm run test:emulator:attach\"",
-    "test:emulator:attach": "node --no-warnings --loader ./scripts/ts-resolver.mjs --test tests/**/*.emulator.test.ts",
+    "test:emulator:attach": "node --no-warnings --loader ./scripts/ts-resolver.mjs --test-concurrency=4 --test tests/**/*.emulator.test.ts",
     "test:contracts": "node --no-warnings --loader ./scripts/ts-resolver.mjs --import ./tests/support/isolateProcess.mjs --test tests/contract/intelligenceModuleBoundaries.test.ts tests/contract/runtimeControls.test.ts tests/contract/captureBoundary.test.ts tests/contract/nextStepProduct.test.ts tests/contract/nextStepBaseline.test.ts tests/contract/nextStepOrderingLocale.test.ts tests/contract/personalizationContracts.test.ts tests/contract/shadowPipelineContracts.test.ts",
     "test:registry": "node --no-warnings --loader ./scripts/ts-resolver.mjs --import ./tests/support/isolateProcess.mjs --test tests/evaluation/datasetRegistry.test.ts tests/evaluation/lockedTestPolicy.test.ts tests/evaluation/evaluationReport.test.ts tests/evaluation/gemmaArtifactCoverage.test.ts",
     "test:v02-analytics": "node --no-warnings --loader ./scripts/ts-resolver.mjs --import ./tests/support/isolateProcess.mjs --test tests/evaluation/v02Analytics.test.ts tests/analytics/loopAnalytics.test.ts",
