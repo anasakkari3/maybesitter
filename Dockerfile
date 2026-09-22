@@ -3,7 +3,7 @@
 # Pinned to the multi-arch image index digest, not a tag and not a
 # single-platform digest: CI and Cloud Run are amd64 while development
 # machines here are arm64, and the index covers both.
-ARG NODE_IMAGE=node:22-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5
+ARG NODE_IMAGE=node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
 
 # --- deps -------------------------------------------------------------------
 FROM ${NODE_IMAGE} AS deps
