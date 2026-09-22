@@ -13,6 +13,7 @@ import { APP_ENVS, releaseConfigProblems, type AppEnv } from './releaseGuard';
 type Extra = {
   appEnv?: string;
   apiBaseUrl?: string | null;
+  firebaseAuthEmulatorHost?: string | null;
   googleWebClientId?: string | null;
   apiMode?: string | null;
 };
@@ -24,6 +25,11 @@ function extra(): Extra {
 export function appEnv(): AppEnv {
   const value = process.env.EXPO_PUBLIC_APP_ENV ?? extra().appEnv ?? 'development';
   return (APP_ENVS as readonly string[]).includes(value) ? (value as AppEnv) : 'development';
+}
+
+/** `EXPO_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST` — see `auth/authEmulator.ts`. */
+export function firebaseAuthEmulatorHost(): string | null {
+  return process.env.EXPO_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST ?? extra().firebaseAuthEmulatorHost ?? null;
 }
 
 export function apiBaseUrl(): string | null {
@@ -47,6 +53,7 @@ export function configProblems(): string[] {
     appEnv: process.env.EXPO_PUBLIC_APP_ENV ?? extra().appEnv,
     apiBaseUrl: apiBaseUrl() ?? undefined,
     devBearerToken: process.env.EXPO_PUBLIC_DEV_BEARER_TOKEN,
+    firebaseAuthEmulatorHost: process.env.EXPO_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST,
     apiMode: process.env.EXPO_PUBLIC_API_MODE ?? extra().apiMode ?? undefined,
     googleCalendarDemo: process.env.EXPO_PUBLIC_ENABLE_GOOGLE_CALENDAR_DEMO,
     testCrash: process.env.EXPO_PUBLIC_ENABLE_TEST_CRASH,
