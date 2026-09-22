@@ -118,6 +118,30 @@ upsert_job "hard-reminders-tick-${SUFFIX}" "* * * * *" "/api/internal/jobs/hard-
 upsert_job "watcher-sweep-${SUFFIX}" "* * * * *" "/api/internal/jobs/watchers" "Etc/UTC" \
   "Evaluate MaybeSitter watchers (${TARGET})"
 
+# Continuous replanning (#523). Every five minutes, not every minute like the
+# ticks above, and the reason is the pipeline's own burst window rather than
+# cost alone: `REPLAN_BURST_WINDOW_MS` coalesces a provider refresh's fan-out
+# over 60 seconds, so a per-minute sweep would keep arriving inside a window
+# that has not closed and replan on the first notification of a burst, then
+# again on the rest -- undoing the coalescing with its own cadence.
+#
+# Cost is the second reason. Unlike `daily-plan-tick`, a run has no indexed
+# "who is due" query to make an idle minute free: it scans `users` and reads
+# each account's `planningStateChanges`, so its cost is the size of the user
+# base. Nothing it produces is time-critical -- a patch offered for review, or
+# a shift of minutes inside a churn budget -- so latency buys nothing here that
+# a reminder's cadence buys.
+#
+# `CONTINUOUS_REPLAN_SWEEP_INTERVAL_MINUTES` in
+# lib/services/dailyPlan/continuousReplanService.ts must change with this;
+# tests/dailyPlan/continuousReplanControl.test.ts fails when the two disagree.
+# Its own job, like every tick above: a 5xx here must retry this sweep and
+# nothing else. Re-running is safe -- an auto-applied generation is a
+# compare-and-set on the generation it replaces, and a proposal is refused
+# when its base generation has moved.
+upsert_job "replan-tick-${SUFFIX}" "*/5 * * * *" "/api/internal/jobs/replan" "Etc/UTC" \
+  "Replan MaybeSitter days affected by state changes (${TARGET})"
+
 # External calendar feeds (UC-3.4, #188). Every 30 minutes; each feed is
 # refreshed every six hours (backing off to 48 after failures), so a run only
 # fetches the feeds whose `nextFetchAt` has arrived, at most 100. A separate job

@@ -125,6 +125,7 @@ test('continuous replan: auth guard refuses unauthenticated request and runs no 
     stale: 0,
     noEffect: 0,
     failed: 0,
+    skipped: 0,
   };
   const response = await quiet(() => handleContinuousReplanRequest(bearer(null), {
     env: ENV,
@@ -145,6 +146,7 @@ test('continuous replan: auth guard refuses unauthenticated request and runs no 
     stale: 0,
     noEffect: 0,
     failed: 0,
+    skipped: 0,
   };
   const okResponse = await handleContinuousReplanRequest(bearer('Bearer scheduler-token'), {
     env: ENV,

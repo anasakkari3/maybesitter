@@ -39,6 +39,20 @@ import { isValidTimezone } from '../../../src/contracts/v1/routineContracts';
 /** Until the user opts in through UC-3.10b (#195), nothing is built for them. */
 export const DEFAULT_PLAN_ENABLED = false;
 export const DEFAULT_DELIVERY_LOCAL_TIME = '07:30';
+
+/**
+ * Whether continuous replanning may act on an account that has never chosen
+ * (#523, AC 9).
+ *
+ * True, and the opposite of `DEFAULT_PLAN_ENABLED` on purpose. The morning
+ * delivery defaults off because it *pushes* — it wakes a phone for a plan
+ * nobody asked for. Continuous replanning under the default control mode
+ * (`automatic_time_only`) does not: it proposes a patch, or shifts a block by
+ * minutes inside a churn budget, on a plan the user already has. Defaulting it
+ * off would also have silently disabled everything #523 slices 1-3 shipped,
+ * for every existing account, on the deploy that added the switch.
+ */
+export const DEFAULT_CONTINUOUS_REPLAN_ENABLED = true;
 /**
  * How many plan documents one account may have for one day.
  *
@@ -69,6 +83,34 @@ export interface PlanSettings {
   nextRunAt?: Instant;
   /** The local date the last claim was made for. Diagnostic, never a gate. */
   lastDeliveredDate?: string;
+  /**
+   * Whether continuous replanning (#523) may act on this account.
+   *
+   * Optional on the record and never optional in practice: every read goes
+   * through `planSettingsOf`, which is the single place the default is
+   * applied, so a document written before this field existed reads as
+   * `DEFAULT_CONTINUOUS_REPLAN_ENABLED` rather than as `undefined`.
+   *
+   * ── Why this field and not the monitoring pause ──────────────────
+   *
+   * #567's `monitoringSettings.paused` is a different switch in both
+   * directions. It is coarser — it silences every watcher effect, proposals
+   * and notifications included — and it is narrower, because nothing on the
+   * replan path reads it (`isMonitoringPaused` is consulted only inside
+   * `watcherEngine`). This field turns off exactly one thing: the pipeline
+   * that rewrites or patches a plan.
+   *
+   * ── Why it cannot touch provider sync ────────────────────────────
+   *
+   * Whether a provider syncs is `IntegrationConnectionRecord.state`, which
+   * lives in `providerConnections` and is read by the connection layer. This
+   * field is on the user document and is read by exactly one caller,
+   * `processStateChangesForUser`. The independence the issue asks for is
+   * therefore structural, not a rule anyone has to remember: a connected
+   * calendar keeps syncing and keeps writing `PlanningStateChange` rows while
+   * this is false.
+   */
+  continuousReplanEnabled?: boolean;
 }
 
 /** The user document, as this module reads and writes it. */
@@ -124,22 +166,50 @@ export function parseDeliveryLocalTime(value: unknown): { hour: number; minute: 
  */
 export function planSettingsOf(user: PlanSettingsBearingUser | null, accountTimezone: string): PlanSettings {
   const stored = user?.planSettings;
-  if (
+  const base: PlanSettings = (
     !stored
     || typeof stored.enabled !== 'boolean'
     || !HHMM.test(String(stored.deliveryLocalTime))
     || !isValidTimezone(stored.timezone)
-  ) {
-    return {
+  )
+    ? {
       enabled: DEFAULT_PLAN_ENABLED,
       deliveryLocalTime: DEFAULT_DELIVERY_LOCAL_TIME,
       timezone: accountTimezone,
-    };
-  }
-  if (isValidTimezone(accountTimezone) && accountTimezone !== stored.timezone) {
-    return { ...stored, timezone: accountTimezone };
-  }
-  return stored;
+    }
+    : (isValidTimezone(accountTimezone) && accountTimezone !== stored.timezone)
+      ? { ...stored, timezone: accountTimezone }
+      : stored;
+
+  /**
+   * The one place `continuousReplanEnabled` acquires a value (#523, AC 9).
+   *
+   * A single line rather than a default repeated at each of the three
+   * branches above and again at the gate in `processStateChangesForUser`: a
+   * default written twice is a default a mutation can flip in one copy and
+   * have the other copy hide, which is how a test stops being able to fail.
+   *
+   * ── Read off `stored`, never off `base` ──────────────────────────
+   *
+   * This is the correction, and it is not cosmetic. `base` collapses the
+   * *whole* record to the hard defaults when any one of `enabled`,
+   * `deliveryLocalTime` or `timezone` fails to validate — a tzdata update
+   * that withdraws a zone `Intl` used to know is enough. Reading the switch
+   * off `base` therefore threw away an explicit `false` and refilled it with
+   * `DEFAULT_CONTINUOUS_REPLAN_ENABLED`, silently turning replanning back
+   * *on* for a user who had turned it off.
+   *
+   * The header three paragraphs up says an unreadable record reads as the
+   * defaults "which means delivery is *off* — that is the safe direction".
+   * This is the one field whose default-on-malformed direction is the unsafe
+   * one, so it is the one field that must survive a malformed sibling. The
+   * user's own answer outlives a neighbouring field it has nothing to do
+   * with; only the absence of an answer reaches the default.
+   */
+  const chosen = typeof stored?.continuousReplanEnabled === 'boolean'
+    ? stored.continuousReplanEnabled
+    : DEFAULT_CONTINUOUS_REPLAN_ENABLED;
+  return { ...base, continuousReplanEnabled: chosen };
 }
 
 /**

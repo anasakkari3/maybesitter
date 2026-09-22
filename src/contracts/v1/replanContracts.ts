@@ -99,6 +99,17 @@ export const PLAN_IMPACT_REASONS = Object.freeze([
   'overlaps_scheduled_block',
   /** A planner input moved and no rule above could clear it. */
   'planner_input_changed',
+  /**
+   * The account turned continuous replanning off (#523, AC 9).
+   *
+   * Not produced by `evaluateStateChangeImpact`, which is pure and reads no
+   * settings: it is the reason the *service* records when it short-circuits
+   * before the pipeline. It lives in this vocabulary rather than reusing
+   * `digests_unchanged` because the pair `(changeId, reason)` is an audit
+   * record, and "the digests matched" would be a false statement about a
+   * change nobody looked at.
+   */
+  'continuous_replan_disabled',
 ] as const);
 
 export type PlanImpactReason = (typeof PLAN_IMPACT_REASONS)[number];

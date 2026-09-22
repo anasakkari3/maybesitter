@@ -104,10 +104,12 @@ import {
   type StoredDailyPlan,
 } from './planStore';
 import {
+  DEFAULT_CONTINUOUS_REPLAN_ENABLED,
   localDateOf,
   nextDeliveryAt,
   parseDeliveryLocalTime,
   planSettingsOf,
+  PlanSettingsValidationError,
   type PlanSettings,
   type PlanSettingsBearingUser,
 } from './planSettings';
@@ -685,6 +687,15 @@ export async function runDailyPlanTick(options: DailyPlanTickOptions = {}): Prom
 export interface PlanSettingsInput {
   readonly enabled: boolean;
   readonly deliveryLocalTime?: string;
+  /**
+   * Whether continuous replanning may act on this account (#523, AC 9).
+   *
+   * Omitted leaves whatever the account already chose, exactly as an omitted
+   * `deliveryLocalTime` does. It is a separate field from `enabled` because it
+   * is a separate promise: an account can want a morning plan and not want it
+   * rewritten during the day, or the reverse.
+   */
+  readonly continuousReplanEnabled?: boolean;
 }
 
 /** The settings this account has, with the defaults filled in. */
@@ -722,9 +733,22 @@ export async function savePlanSettings(
     // Throws `PlanSettingsValidationError` on anything that is not HH:mm, which
     // the route turns into a 400 before anything is written.
     parseDeliveryLocalTime(deliveryLocalTime);
+    // Validated here rather than only at the route, for the reason
+    // `deliveryLocalTime` is: the route is one caller of this transaction, and
+    // a value that reached storage unchecked would read back as a gate nobody
+    // can reason about.
+    if (input.continuousReplanEnabled !== undefined && typeof input.continuousReplanEnabled !== 'boolean') {
+      throw new PlanSettingsValidationError(
+        'continuousReplanEnabled must be a boolean',
+        'invalid_continuous_replan_enabled',
+      );
+    }
+    const continuousReplanEnabled = input.continuousReplanEnabled
+      ?? current.continuousReplanEnabled
+      ?? DEFAULT_CONTINUOUS_REPLAN_ENABLED;
     const timezone = user?.timezone ?? current.timezone;
 
-    const base = { enabled: input.enabled === true, deliveryLocalTime, timezone };
+    const base = { enabled: input.enabled === true, deliveryLocalTime, timezone, continuousReplanEnabled };
     const next: PlanSettings = base.enabled
       ? {
         ...base,
