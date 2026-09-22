@@ -885,3 +885,55 @@ describe('a saved item that lands on something already there (football fixtures,
     expect(screen.queryByTestId('saved-collisions')).toBeNull();
   });
 });
+
+describe('review discard confirmation (#504)', () => {
+  it('Cancel all closes immediately without confirmation when proposal is untouched', async () => {
+    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+    await openApp();
+    await enterCapture();
+    await typeAndAnalyze();
+
+    await fireEvent.press(screen.getByTestId('review-cancel'));
+    await waitFor(() => expect(screen.queryByTestId('review-cancel')).toBeNull());
+    expect(screen.queryByTestId('capture-discard')).toBeNull();
+  });
+
+  it('Cancel all asks for confirmation when an item is deselected', async () => {
+    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+    await openApp();
+    await enterCapture();
+    await typeAndAnalyze();
+
+    await fireEvent.press(screen.getByTestId('review-item-i-2'));
+    await fireEvent.press(screen.getByTestId('review-cancel'));
+
+    await waitFor(() => expect(screen.queryByTestId('capture-discard')).not.toBeNull());
+
+    // Keep editing returns to review
+    await fireEvent.press(screen.getByTestId('capture-discard-keep'));
+    await waitFor(() => expect(screen.queryByTestId('capture-discard')).toBeNull());
+    expect(screen.queryByTestId('review-cancel')).not.toBeNull();
+
+    // Confirm discard closes review
+    await fireEvent.press(screen.getByTestId('review-cancel'));
+    await waitFor(() => expect(screen.queryByTestId('capture-discard')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('capture-discard-confirm'));
+    await waitFor(() => expect(screen.queryByTestId('review-cancel')).toBeNull());
+  });
+
+  it('Cancel all asks for confirmation when an edit is made', async () => {
+    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+    await openApp();
+    await enterCapture();
+    await typeAndAnalyze();
+
+    await fireEvent.press(screen.getByTestId('review-edit-i-1'));
+    await waitFor(() => expect(screen.queryByTestId('edit-item-save')).not.toBeNull());
+    await fireEvent.changeText(screen.getByTestId('edit-item-title'), 'Hand in updated report');
+    await fireEvent.press(screen.getByTestId('edit-item-save'));
+
+    await fireEvent.press(screen.getByTestId('review-cancel'));
+    await waitFor(() => expect(screen.queryByTestId('capture-discard')).not.toBeNull());
+  });
+});
+
