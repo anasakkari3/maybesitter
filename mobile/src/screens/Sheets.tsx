@@ -14,8 +14,9 @@ import { instantForLocalDateTime, localDateTimeFor } from '../features/capture/l
 import type { CommitmentPatch } from '../api/endpoints/commitments';
 import type { Strings } from '../i18n/strings';
 import { family } from '../theme/fonts';
+import { cardShadow } from '../theme/tokens';
 import { Btn, Pill, Txt } from '../ui/primitives';
-import { CheckIcon } from '../ui/icons';
+import { Dialog } from '../ui/dialog';
 import { useSheetMotion } from '../ui/motion';
 
 /*
@@ -114,7 +115,9 @@ function PostponeSheet() {
     const id = query.data?.id;
     if (!id) return;
     act.mutate({ id, action: 'postpone', postponedUntil: until }, {
-      onSuccess: () => actions.toast(t.toastPostponed),
+      // The sheet closes, the details screen pops, and the line at the
+      // bottom of the list says it moved (Round 2).
+      onSuccess: () => { actions.closeSheet(); actions.back(); actions.toast(t.toastPostponed); },
     });
   };
 
@@ -138,8 +141,8 @@ function PostponeSheet() {
 
   return (
     <View style={{ gap: 14 }}>
-      <Txt size={22} weight={600} lh={1.5}>{t.postponeTitle}</Txt>
-      <Txt size={15} color={p.mu}>{t.postponeBody}</Txt>
+      <Txt size={20} weight={600} lh={1.35}>{t.postponeTitle}</Txt>
+      <Txt size={14} color={p.mu} lh={1.5}>{t.postponeBody}</Txt>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
         {POSTPONE_PRESETS.map(preset => {
           const until = new Date(postponeTo(preset, now, timezone));
@@ -150,10 +153,10 @@ function PostponeSheet() {
               label={PRESET_LABEL(t)[preset]}
               disabled={act.isPending}
               onPress={() => choose(preset)}
-              style={{ width: '48%', flexGrow: 1, backgroundColor: p.sf2, borderRadius: 20, padding: 16, gap: 4, minHeight: 92, alignItems: 'flex-start', opacity: act.isPending ? 0.4 : 1 }}
+              style={{ width: '48%', flexGrow: 1, backgroundColor: act.isPending ? p.dis : p.sf2, borderRadius: 18, padding: 14, gap: 3, minHeight: 72, alignItems: 'flex-start' }}
             >
-              <Txt size={16} weight={600}>{PRESET_LABEL(t)[preset]}</Txt>
-              <Txt size={12} color={p.mu} testID={`postpone-when-${preset}`}>
+              <Txt size={15} weight={600} color={act.isPending ? p.disTx : p.tx}>{PRESET_LABEL(t)[preset]}</Txt>
+              <Txt size={12} color={act.isPending ? p.disTx : p.mu} testID={`postpone-when-${preset}`}>
                 {`${formatRelativeDay(until, { locale: lang, timeZone: timezone, now })} · ${ltr(formatTime(until, { locale: lang, timeZone: timezone }))}`}
               </Txt>
             </Btn>
@@ -241,9 +244,9 @@ function PostponeSheet() {
             setLocal(localDateTimeFor(new Date(Date.now() + 3600_000), timezone));
             setPastTime(false);
           }}
-          style={{ backgroundColor: p.sf2, borderRadius: 20, padding: 16, minHeight: 56, alignItems: 'flex-start', justifyContent: 'center', opacity: act.isPending ? 0.4 : 1 }}
+          style={{ borderWidth: 1, borderColor: p.ln, borderRadius: 999, paddingVertical: 12, paddingHorizontal: 16, minHeight: 48, alignItems: 'center', justifyContent: 'center' }}
         >
-          <Txt size={16} weight={600}>{t.postponeCustom}</Txt>
+          <Txt size={14} color={act.isPending ? p.disTx : p.tx}>{t.postponeCustom}</Txt>
         </Btn>
       )}
     </View>
@@ -363,7 +366,7 @@ function EditSheet() {
 
   return (
     <View style={{ gap: 14 }}>
-      <Txt size={22} weight={600} lh={1.5}>{t.editSheetTitle}</Txt>
+      <Txt size={20} weight={600} lh={1.35}>{t.editSheetTitle}</Txt>
 
       <Txt size={13} color={p.mu}>{t.editFieldTitle}</Txt>
       <TextInput
@@ -375,16 +378,18 @@ function EditSheet() {
       />
 
       <Txt size={13} color={p.mu}>{t.editFieldPriority}</Txt>
-      <View style={{ flexDirection: 'row', gap: 8 }}>
+      {/* One track, three answers: the chosen one lifts out of it (Round 2). */}
+      <View accessibilityRole="radiogroup" style={{ flexDirection: 'row', gap: 4, backgroundColor: p.sf2, borderRadius: 999, padding: 4 }}>
         {LEVELS.map(option => (
           <Btn
             key={option}
             testID={`edit-priority-${option}`}
             label={LEVEL_LABEL(t)[option]}
+            accessibilityRole="radio"
             onPress={() => setLevel(option)}
-            style={{ flex: 1, backgroundColor: option === level ? p.acs : p.sf2, borderRadius: 999, paddingVertical: 12, alignItems: 'center', minHeight: 48, justifyContent: 'center' }}
+            style={[{ flex: 1, backgroundColor: option === level ? p.sf : 'transparent', borderRadius: 999, paddingVertical: 10, alignItems: 'center', minHeight: 40, justifyContent: 'center' }, option === level ? cardShadow(p) : null]}
           >
-            <Txt size={14} weight={600} color={option === level ? p.ac : p.tx}>{LEVEL_LABEL(t)[option]}</Txt>
+            <Txt size={14} weight={option === level ? 600 : 400} color={option === level ? p.tx : p.mu}>{LEVEL_LABEL(t)[option]}</Txt>
           </Btn>
         ))}
       </View>
@@ -457,9 +462,9 @@ function EditSheet() {
 
       {problem ? <Txt size={13} color={p.wm} testID="edit-problem">{problem}</Txt> : null}
 
-      <View style={{ flexDirection: 'row', gap: 10 }}>
-        <Pill testID="edit-save" label={t.editSave} onPress={save} disabled={!changed || trimmed.length === 0 || patch.isPending} style={{ flex: 1 }} />
-        <Pill testID="edit-close" label={t.editClose} onPress={actions.closeSheet} kind="outline" style={{ flex: 1 }} />
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <Pill testID="edit-close" label={t.editItemCancel} onPress={actions.closeSheet} kind="soft" size={15} weight={500} pad={12} style={{ flex: 1 }} />
+        <Pill testID="edit-save" label={t.editItemSave} onPress={save} disabled={!changed || trimmed.length === 0 || patch.isPending} size={15} pad={12} style={{ flex: 1 }} />
       </View>
     </View>
   );
@@ -474,60 +479,51 @@ const LEVEL_LABEL = (t: Strings): Record<PriorityLevel, string> => ({
 });
 
 /**
- * The two destructive answers, each asked before it happens.
+ * The two destructive answers, each asked before it happens (Round 2: as a
+ * centred dialog, the one shape for "are you sure").
  *
  * Dropping on purpose and deleting are deliberately not the same button and
  * not the same sentence: one keeps the commitment in the user's history and
  * the other does not, and that difference is the whole reason «أسقطه بوعي»
- * exists in this product.
+ * exists in this product. The drop is drawn warm; the deletion in ink.
+ *
+ * On success the details screen pops and the line at the bottom of the list
+ * says what happened. Neither can be undone from here — the actions route has
+ * no reopen and no undelete — so the line says only what happened.
  */
-function ConfirmSheet({ intent }: { intent: 'drop' | 'delete' }) {
-  const { s, t, p, actions } = useApp();
+function ConfirmDialog({ intent }: { intent: 'drop' | 'delete' }) {
+  const { s, t, actions } = useApp();
   const query = useCommitment(s.detailId);
   const act = useCommitmentAction();
   const remove = useDeleteCommitment();
   const id = query.data?.id;
   const pending = act.isPending || remove.isPending;
 
+  const after = (message: string) => { actions.closeSheet(); actions.back(); actions.toast(message); };
   const confirm = () => {
     if (!id) return;
-    if (intent === 'drop') {
-      act.mutate({ id, action: 'cancel' }, { onSuccess: () => actions.toast(t.toastDrop) });
-    } else {
-      remove.mutate(id, { onSuccess: () => actions.toast(t.toastDeleted) });
-    }
+    if (intent === 'drop') act.mutate({ id, action: 'cancel' }, { onSuccess: () => after(t.toastDrop) });
+    else remove.mutate(id, { onSuccess: () => after(t.toastDeleted) });
   };
 
+  // Declared as literal test ids, so the Maestro guard can see what a flow
+  // may select on.
+  const confirmId = intent === 'drop' ? { testID: 'confirm-drop' } : { testID: 'confirm-delete' };
+  const keepId = { testID: 'confirm-keep' };
   return (
-    <View style={{ gap: 14 }}>
-      <Txt size={22} weight={600} lh={1.5}>{intent === 'drop' ? t.confirmDropTitle : t.confirmDeleteTitle}</Txt>
-      <Txt size={15} color={p.mu} lh={1.5}>{intent === 'drop' ? t.confirmDropBody : t.confirmDeleteBody}</Txt>
-      <View style={{ gap: 10 }}>
-        <Pill
-          testID={`confirm-${intent}`}
-          label={intent === 'drop' ? t.dropIt : t.detailsDelete}
-          onPress={confirm}
-          disabled={pending}
-          kind="warm"
-          radius={20}
-          pad={16}
-        />
-        <Pill testID="confirm-keep" label={t.confirmKeep} onPress={actions.closeSheet} kind="outline" radius={20} pad={16} />
-      </View>
-    </View>
-  );
-}
-
-function ToastSheet() {
-  const { s, t, p, actions } = useApp();
-  return (
-    <View style={{ gap: 14, alignItems: 'center', paddingVertical: 10 }}>
-      <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: p.acs, alignItems: 'center', justifyContent: 'center' }}>
-        <CheckIcon size={22} color={p.ac} weight={1.25} />
-      </View>
-      <Txt size={20} weight={600} align="center">{s.toast}</Txt>
-      <Pill label={t.ok} onPress={actions.closeSheetHome} size={15} style={{ paddingHorizontal: 30 }} />
-    </View>
+    <Dialog
+      testID={`confirm-${intent}-dialog`}
+      title={intent === 'drop' ? t.confirmDropTitle : t.confirmDeleteTitle}
+      body={intent === 'drop' ? t.confirmDropBody : t.confirmDeleteBody}
+      confirmLabel={intent === 'drop' ? t.dropIt : t.detailsDelete}
+      cancelLabel={t.confirmKeep}
+      tone={intent === 'drop' ? 'warm' : 'ink'}
+      busy={pending}
+      onConfirm={confirm}
+      onCancel={actions.closeSheet}
+      confirmTestID={confirmId.testID}
+      cancelTestID={keepId.testID}
+    />
   );
 }
 
@@ -536,6 +532,10 @@ export function SheetHost() {
   const insets = useSafeAreaInsets();
   const m = useSheetMotion();
   if (!s.sheet) return null;
+  // The two confirmations are dialogs, not sheets: a question in the middle
+  // of the screen, over the thing it is about.
+  if (s.sheet === 'confirmDrop') return <ConfirmDialog intent="drop" />;
+  if (s.sheet === 'confirmDelete') return <ConfirmDialog intent="delete" />;
   return (
     <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 30, justifyContent: 'flex-end' }}>
       <Animated.View style={[{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: p.scrim }, m.scrim]}>
@@ -550,9 +550,6 @@ export function SheetHost() {
         <View style={{ width: 40, height: 5, borderRadius: 3, backgroundColor: p.ln, alignSelf: 'center', marginBottom: 4 }} />
         {s.sheet === 'postpone' && <PostponeSheet />}
         {s.sheet === 'edit' && <EditSheet />}
-        {s.sheet === 'confirmDrop' && <ConfirmSheet intent="drop" />}
-        {s.sheet === 'confirmDelete' && <ConfirmSheet intent="delete" />}
-        {s.sheet === 'toast' && <ToastSheet />}
       </Animated.View>
     </View>
   );

@@ -916,5 +916,15 @@
   "captureShareHint": "Or share text, a link or a file from any app",
   "reviewConfirmedTag": "Saved",
   "reviewSourceShare": "From what you shared",
-  "reviewUntrusted": "Outside content"
+  "reviewUntrusted": "Outside content",
+  "detailsHistory": "Its history",
+  "detailsClosedNote": "This one is finished. It stays in your history.",
+  "planStatusProposal": "Suggestion — not saved yet",
+  "planWhatHappens": "When you accept: the times land on your day, and reminders follow your settings.",
+  "planGeneratingTitle": "Arranging your day…",
+  "planGeneratingSub": "Around your appointments, within your hours",
+  "planWhyFallback": "Arranged around your appointments and within your hours.",
+  "planItemFixed": "Fixed",
+  "planItemMovable": "Can move",
+  "toastClose": "Close"
 }

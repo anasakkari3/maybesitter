@@ -916,5 +916,15 @@
   "captureShareHint": "أو شارك نص أو رابط أو ملف من أي تطبيق",
   "reviewConfirmedTag": "محفوظ",
   "reviewSourceShare": "من اللي شاركته",
-  "reviewUntrusted": "محتوى من برّا"
+  "reviewUntrusted": "محتوى من برّا",
+  "detailsHistory": "تاريخها",
+  "detailsClosedNote": "هاي خلصت. بتضل بتاريخك.",
+  "planStatusProposal": "اقتراح — ما انحفظت بعد",
+  "planWhatHappens": "لما تقبلها: بتنزل الأوقات على يومك، وبنذكّرك حسب إعداداتك.",
+  "planGeneratingTitle": "عم نرتّب يومك…",
+  "planGeneratingSub": "حوالين مواعيدك، وضمن ساعاتك",
+  "planWhyFallback": "رتّبناها حوالين مواعيدك وضمن ساعاتك.",
+  "planItemFixed": "ثابت",
+  "planItemMovable": "بتتحرّك",
+  "toastClose": "إغلاق"
 }

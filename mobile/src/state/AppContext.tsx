@@ -11,7 +11,7 @@ import { googleCalendarDemoEnabled } from '../config/env';
 import { loadThemePref, saveThemePref } from '../lib/deviceSettings/theme';
 import { palettes, type Palette, type Scheme } from '../theme/tokens';
 import { seedCommitments, TODAY } from './seed';
-import type { Commitment, Screen, Sheet, Status, ThemePref } from './types';
+import type { Commitment, Screen, Sheet, Status, ThemePref, Toast } from './types';
 import * as nav from './navigation';
 import type { CaptureInputMode, CaptureSource } from '../features/capture/captureMachine';
 
@@ -39,7 +39,7 @@ export type AppState = {
   captureSource: CaptureSource;
   captureInput: CaptureInputMode;
   sheet: Sheet;
-  toast: string;
+  toast: Toast | null;
   nextDismissed: boolean;
   /**
    * Which day of the week strip is open, as an offset from today (0 = today).
@@ -65,7 +65,7 @@ function withNav(st: AppState, next: nav.Nav): AppState {
 const initial: AppState = {
   nav: nav.initialNav, screen: 'today', showTabs: true,
   captureSource: 'tab', captureInput: 'text',
-  sheet: null, toast: '',
+  sheet: null, toast: null,
   nextDismissed: false, selDay: 0, detailId: null, planDate: null,
   commitments: seedCommitments,
 };
@@ -197,12 +197,17 @@ function useAppModel() {
     openEdit: () => set({ sheet: 'edit' }),
     openConfirmDrop: () => set({ sheet: 'confirmDrop' }),
     openConfirmDelete: () => set({ sheet: 'confirmDelete' }),
-    /** Sheet-as-toast, the design's confirmation for a write that succeeded. */
-    toast: (message: string) => set({ sheet: 'toast', toast: message }),
+    /**
+     * The calm confirmation of a write that worked (Round 2): a line at the
+     * bottom that fades on its own, carrying undo when the write can be
+     * taken back. It replaces Round 1's blocking OK sheet.
+     */
+    toast: (message: string, undo?: () => void) => set({ toast: { id: Date.now(), text: message, undo } }),
+    dismissToast: (id: number) => set(st => (st.toast?.id === id ? { toast: null } : null)),
 
     // details
     setStatus: (id: string, status: Status, toast: string) =>
-      set(st => ({ commitments: st.commitments.map(c => (c.id === id ? { ...c, status } : c)), sheet: 'toast', toast })),
+      set(st => ({ commitments: st.commitments.map(c => (c.id === id ? { ...c, status } : c)), toast: { id: Date.now(), text: toast } })),
 
     // preferences
     // The language picker: System → English → العربية → עברית → System.

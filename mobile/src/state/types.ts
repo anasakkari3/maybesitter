@@ -122,8 +122,14 @@ export type Sheet =
   | 'postpone'
   | 'edit'
   | 'confirmDrop'
-  | 'confirmDelete'
-  | 'toast';
+  | 'confirmDelete';
+
+/**
+ * A write that worked, said once at the bottom of the screen (Round 2). It
+ * fades on its own; `undo`, when the write can be taken back within the
+ * window, is the one action it carries.
+ */
+export type Toast = { id: number; text: string; undo?: (() => void) | undefined };
 
 export type ExampleKey = 'doctor' | 'report' | 'sami' | 'study' | 'hi';
 

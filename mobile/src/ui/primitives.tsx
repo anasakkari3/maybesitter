@@ -138,20 +138,20 @@ export function Btn({
   );
 }
 
-type PillKind = 'accent' | 'soft' | 'outline' | 'warm' | 'ink' | 'ghost';
+type PillKind = 'accent' | 'soft' | 'outline' | 'warm' | 'warmSolid' | 'ink' | 'ghost';
 
 export function Pill({
   label, onPress, kind = 'accent', style, size = 16, weight = 600, disabled, pad = 16, radius = 999, testID,
 }: {
   label: string;
-  onPress?: () => void;
-  kind?: PillKind;
-  style?: StyleProp<ViewStyle>;
-  size?: number;
-  weight?: Weight;
-  disabled?: boolean;
-  pad?: number;
-  radius?: number;
+  onPress?: (() => void) | undefined;
+  kind?: PillKind | undefined;
+  style?: StyleProp<ViewStyle> | undefined;
+  size?: number | undefined;
+  weight?: Weight | undefined;
+  disabled?: boolean | undefined;
+  pad?: number | undefined;
+  radius?: number | undefined;
   /** See `Btn`. Two pills legitimately read the same on the details screen. */
   testID?: string | undefined;
 }) {
@@ -161,7 +161,8 @@ export function Pill({
     soft: { bg: p.sf2, fg: p.tx },
     outline: { bg: p.sf, fg: p.tx, border: p.ln },
     warm: { bg: p.wms, fg: p.wm },
-    ink: { bg: p.tx, fg: p.bg },
+    warmSolid: { bg: p.wm, fg: p.onAccent },
+    ink: { bg: p.ink, fg: p.onInk },
     ghost: { bg: 'transparent', fg: p.mu },
   };
   // A control that cannot be pressed yet is drawn in the disabled roles —

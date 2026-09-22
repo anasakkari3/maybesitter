@@ -93,14 +93,14 @@ export function Tag({ kind, label, testID }: { kind: TagKind; label: string; tes
   const l = look[kind];
   return (
     <View
-      testID={testID}
       style={{
         alignSelf: 'flex-start', borderRadius: 999, paddingVertical: 3, paddingHorizontal: 10,
         backgroundColor: l.bg ?? 'transparent',
         borderWidth: l.border ? 1 : 0, borderColor: l.border, borderStyle: l.dashed ? 'dashed' : 'solid',
       }}
     >
-      <Txt size={12} weight={l.weight} color={l.fg}>{label}</Txt>
+      {/* The testID sits on the text, so a test reads the word, not a box. */}
+      <Txt size={12} weight={l.weight} color={l.fg} testID={testID}>{label}</Txt>
     </View>
   );
 }

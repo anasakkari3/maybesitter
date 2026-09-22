@@ -257,3 +257,11 @@ function ActivityRow({ item, timeZone }: { item: ActivityItem; timeZone: string 
     </Card>
   );
 }
+
+
+/** The user-facing line for an activity kind, or null for one this build has no words for. */
+export function activityKindLabel(kind: string, t: Strings): string | null {
+  const key = (KIND_KEY as Record<string, keyof Strings | undefined>)[kind];
+  const value = key ? t[key] : null;
+  return typeof value === 'string' ? value : null;
+}

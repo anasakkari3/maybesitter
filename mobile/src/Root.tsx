@@ -16,6 +16,7 @@ import { CaptureProvider } from './features/capture/CaptureProvider';
 import { ShareProvider } from './features/share/ShareProvider';
 import { ShareScreen } from './screens/ShareScreen';
 import { SheetHost } from './screens/Sheets';
+import { ToastHost } from './ui/toast';
 import { TabBar } from './screens/TabBar';
 import { CalendarDemoScreen } from './screens/CalendarDemoScreen';
 import { DeleteAccountScreen } from './screens/DeleteAccountScreen';
@@ -209,6 +210,7 @@ export function Root() {
             <CalendarDemoScreen key="calendarDemo" onBack={() => latest.current.back()} />
           )}
           {s.showTabs && <TabBar />}
+          <ToastHost />
           <SheetHost key={s.sheet ?? 'none'} />
         </View>
       </ShareProvider>

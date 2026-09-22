@@ -919,5 +919,15 @@
   "captureShareHint": "או שתפו טקסט, קישור או קובץ מכל אפליקציה",
   "reviewConfirmedTag": "נשמר",
   "reviewSourceShare": "ממה ששיתפתם",
-  "reviewUntrusted": "תוכן מבחוץ"
+  "reviewUntrusted": "תוכן מבחוץ",
+  "detailsHistory": "ההיסטוריה שלה",
+  "detailsClosedNote": "זו הסתיימה. היא נשארת בהיסטוריה שלך.",
+  "planStatusProposal": "הצעה — עוד לא נשמרה",
+  "planWhatHappens": "כשתאשרו: השעות ינחתו על היום שלכם, והתזכורות יעקבו אחרי ההגדרות.",
+  "planGeneratingTitle": "מסדר את היום שלך…",
+  "planGeneratingSub": "סביב הפגישות שלך, בתוך השעות שלך",
+  "planWhyFallback": "סודר סביב הפגישות שלך ובתוך השעות שלך.",
+  "planItemFixed": "קבוע",
+  "planItemMovable": "אפשר להזיז",
+  "toastClose": "סגירה"
 }
