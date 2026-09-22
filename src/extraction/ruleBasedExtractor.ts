@@ -7,6 +7,7 @@ import {
   localTimeSpecFor,
   normalizeArabicDigits,
   normalizeSpokenArabicHours,
+  normalizeSpokenHebrewHours,
   timeOfDayEvidence,
   type TimeEvidence,
 } from './timeLexicon';
@@ -57,6 +58,18 @@ const AR_WEEKDAYS: Record<string, number> = {
 };
 
 const AR_WEEKDAY_RE = /(الأحد|الاحد|الاثنين|الإثنين|الأثنين|الثلاثاء|الثلثاء|الأربعاء|الاربعاء|الخميس|الجمعة|السبت)/;
+
+const HE_WEEKDAYS: Record<string, number> = {
+  'ראשון': 0,
+  'שני': 1,
+  'שלישי': 2,
+  'רביעי': 3,
+  'חמישי': 4,
+  'שישי': 5,
+  'שבת': 6,
+};
+
+const HE_WEEKDAY_RE = /(?:(?:ביום|יום)\s+|ב)?(ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת)(?=$|[\s,.،])/;
 
 const INFORMATIONAL_RE =
   /\b(waiting on|for your information|fyi|just so you know|asked me about|told me about)\b|(سألتني|سألني|تسألني|مستني|مستنية|بانتظار|ينتظر|تنتظر|قالت لي|قال لي)|(מחכה|מחכים|שאל אותי|שאלה אותי|ביקש ממני)|(i|we) had a (nice|great|good|bad|tiring|long|busy|rough) (day|week|morning|afternoon|evening|night)\b/i;
@@ -137,18 +150,18 @@ function resolveTimezone(context: ExtractionContext): string {
 }
 
 function parseClock(raw: string): { hour: number; minute: number } | null {
-  const normalized = normalizeSpokenArabicHours(normalizeArabicDigits(raw)).toLowerCase();
+  const normalized = normalizeSpokenHebrewHours(normalizeSpokenArabicHours(normalizeArabicDigits(raw))).toLowerCase();
   const explicit =
-    normalized.match(/(?:\b(?:at|by|around)\b|الساعة|الساعه|عند|على)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm|صباحا|صباحاً|الصبح|ص|مساء|مساءً|المسا|المساء|بالليل|م)?(?=$|[\s,.،])/) ||
+    normalized.match(/(?:\b(?:at|by|around)\b|الساعة|الساعه|عند|على|בשעה|שעה|בסביבות(?:\s+ה?שעה)?|סביב(?:\s+ה?שעה)?|לקראת(?:\s+ה?שעה)?|עד(?:\s+ה?שעה)?|[בס]-?)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm|صباحا|صباحاً|الصبح|ص|مساء|مساءً|المسا|المساء|بالليل|م|בבוקר|בוקר|בצהריים|צהריים|אחרי הצהריים|אחה"צ|בערב|ערב|בלילה|לילה)?(?=$|[\s,.،])/) ||
     normalized.match(/\b(\d{1,2}):(\d{2})(?=$|[\s,.،])/) ||
-    normalized.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm|صباحا|صباحاً|الصبح|ص|مساء|مساءً|المسا|المساء|بالليل|م)(?=$|[\s,.،])/);
+    normalized.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm|صباحا|صباحاً|الصبح|ص|مساء|مساءً|المسا|المساء|بالليل|م|בבוקר|בוקר|בצהריים|צהריים|אחרי הצהריים|אחה"צ|בערב|ערב|בלילה|לילה)(?=$|[\s,.،])/);
   if (!explicit) return null;
   let hour = Number(explicit[1]);
   const minute = explicit[2] ? Number(explicit[2]) : 0;
   const period = explicit[3] || '';
   if (hour < 1 || hour > 23 || minute < 0 || minute > 59) return null;
-  if (/(pm|مساء|المسا|المساء|بالليل|م)/.test(period) && hour < 12) hour += 12;
-  if (/(am|صباح|الصبح|ص)/.test(period) && hour === 12) hour = 0;
+  if (/(pm|مساء|المسا|المساء|بالليل|م|בערב|ערב|בלילה|לילה|אחרי הצהריים|אחה"צ|בצהריים|צהריים)/.test(period) && hour < 12) hour += 12;
+  if (/(am|صباح|الصبح|ص|בבוקר|בוקר|בלילה|לילה)/.test(period) && hour === 12) hour = 0;
   return { hour, minute };
 }
 
@@ -169,22 +182,38 @@ function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
   let targetDate: Date | null = null;
   let timeConfidence = 0;
 
-  if (/\btoday\b/.test(lower) || /\btonight\b/.test(lower) || /(اليوم|النهارده|اليومه|الليلة|الليله)/.test(lower)) {
+  if (
+    /\btoday\b/.test(lower) ||
+    /\btonight\b/.test(lower) ||
+    /(اليوم|النهارده|اليومه|الليلة|الليله)/.test(lower) ||
+    /(?:^|[\s,.،])(היום|הערב|הלילה)(?=$|[\s,.،])/.test(lower)
+  ) {
     targetDate = new Date(now);
     timeConfidence = 0.85;
   }
-  if (/\b(?:tomorrow|tmrw|tmr|tomorow)\b/.test(lower) || /(بكرا|بكرة|بكره|باچر|باكر|غدا|غداً)/.test(lower)) {
+  if (
+    /\b(?:tomorrow|tmrw|tmr|tomorow)\b/.test(lower) ||
+    /(بكرا|بكرة|بكره|باچر|باكر|غدا|غداً)/.test(lower) ||
+    /(?:^|[\s,.،])מחר(?=$|[\s,.،])/.test(lower)
+  ) {
     targetDate = addDaysTz(now, 1, tz);
     timeConfidence = 0.9;
   }
-  if (/\b(?:after tomorrow|day after tomorrow|after tmrw)\b/.test(lower) || /(بعد بكرا|بعد بكرة|بعد بكره|بعد غد|بعد غداً)/.test(lower)) {
+  if (
+    /\b(?:after tomorrow|day after tomorrow|after tmrw)\b/.test(lower) ||
+    /(بعد بكرا|بعد بكرة|بعد بكره|بعد غد|بعد غداً)/.test(lower) ||
+    /(?:^|[\s,.،])מחרתיים(?=$|[\s,.،])/.test(lower)
+  ) {
     targetDate = addDaysTz(now, 2, tz);
     timeConfidence = 0.9;
   }
 
-  const weekday = lower.match(/\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/) || lower.match(AR_WEEKDAY_RE);
+  const weekday =
+    lower.match(/\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/) ||
+    lower.match(AR_WEEKDAY_RE) ||
+    lower.match(HE_WEEKDAY_RE);
   if (weekday) {
-    const day = WEEKDAYS[weekday[1]] ?? AR_WEEKDAYS[weekday[1]];
+    const day = WEEKDAYS[weekday[1]] ?? AR_WEEKDAYS[weekday[1]] ?? HE_WEEKDAYS[weekday[1]];
     if (day !== undefined) {
       targetDate = nextWeekdayTz(now, day, tz);
       timeConfidence = 0.88;
@@ -258,11 +287,13 @@ function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
 }
 
 function stripTiming(text: string): string {
-  // Rewrite «الساعة تسعة» to «الساعة 9» first, so the clock patterns below
-  // strip a spoken hour out of the title exactly as they strip a typed one.
-  let stripped = normalizeSpokenArabicHours(text)
+  // Rewrite «الساعة تسعة» to «الساعة 9» and «בשעה תשע» to «בשעה 9» first, so
+  // the clock patterns below strip a spoken hour out of the title exactly as
+  // they strip a typed one.
+  let stripped = normalizeSpokenHebrewHours(normalizeSpokenArabicHours(text))
     .replace(/\b(after tomorrow|day after tomorrow|after tmrw|today|tomorrow|tmrw|tmr|tomorow|tonight|morning|afternoon|evening|night)\b/gi, ' ')
     .replace(/(بعد بكرا|بعد بكرة|بعد بكره|بعد غداً|بعد غد|اليوم|النهارده|اليومه|الليلة|الليله|بكرا|بكرة|بكره|باچر|باكر|غداً|غدا|الصبح|صباحاً|صباحا|صباح|بعد الظهر|بعد الضهر|العصر|المساء|المسا|مساءً|مساءا|مساء|بالليل|الليل)/gi, ' ')
+    .replace(/(?:^|[\s,.،])(?:מחרתיים|מחר|היום|הערב|הלילה|בבוקר|בוקר|אחרי הצהריים|אחה"צ|בצהריים|צהריים|בערב|ערב|בלילה|לילה|חצות)(?=$|[\s,.،])/gi, ' ')
     .replace(/\b(?:on|this|next)\s+(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/gi, ' ')
     .replace(/\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/gi, ' ')
     // Arabic embeds the day inside the sentence — «يوم الأحد الجاي» — where
@@ -270,6 +301,10 @@ function stripTiming(text: string): string {
     // leaves «يوم ... الجاي» and the user sees their sentence with a hole in it.
     .replace(
       /(?:يوم\s+)?(?:الأحد|الاحد|الاثنين|الإثنين|الأثنين|الثلاثاء|الثلثاء|الأربعاء|الاربعاء|الخميس|الجمعة|السبت)(?:\s+(?:الجاي|الجاية|الجايه|الجاي|القادم|القادمة|الماضي|الماضية))?/gi,
+      ' '
+    )
+    .replace(
+      /(?:(?:ביום|יום)\s+|ב)?(?:ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת)(?:\s+(?:הבא|הבאה|הקרוב|הקרובה))?/gi,
       ' '
     );
   // Ranges before the clocks inside them: taking "2pm" first would leave
@@ -288,6 +323,9 @@ function cleanAction(raw: string): string {
     .replace(/^\s*(ذكرني اني|ذكرني|ذكريني|بدي|لازم|محتاج|احتاج|علي|عليّ)\s+/i, '')
     .replace(/^\s*(ضروري|مستعجل|مهم|لازم|يمكن|عادي|مش ضروري)[:\s-]+/i, '')
     .replace(/\s+(ضروري|مستعجل|مهم|لازم|يمكن|عادي|مش ضروري)\s*$/i, '')
+    .replace(/^\s*(?:בבקשה\s+)?(תזכיר לי ש|תזכירי לי ש|להזכיר לי ש|תזכיר לי|תזכירי לי|להזכיר לי|אני צריך|אני צריכה|צריך|צריכה|אני חייב|אני חייבת|חייב|חייבת|אני רוצה|רוצה)\s+/i, '')
+    .replace(/^\s*(דחוף|חשוב|קריטי|חובה|אולי|לא דחוף|אפשר)[:\s-]+/i, '')
+    .replace(/\s+(דחוף|חשוב|קריטי|חובה|אולי|לא דחוף|אפשר)\s*$/i, '')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -295,10 +333,10 @@ function cleanAction(raw: string): string {
 function inferPriority(raw: string): ExtractionResult['priority'] {
   const lower = raw.toLowerCase();
   const pressureImplied = /\b(push me|bug me|don't let me|dont let me|do not let me)\b/.test(lower);
-  if (/\b(maybe|probably|sometime|optional)\b/.test(lower) || /(مش ضروري|يمكن|عادي)/.test(lower)) {
+  if (/\b(maybe|probably|sometime|optional)\b/.test(lower) || /(مش ضروري|يمكن|عادي)/.test(lower) || /(?:^|[\s,.،])(אולי|לא דחוף)(?=$|[\s,.،])/.test(lower)) {
     return { level: 'low', source: 'inferred', pressureAllowed: false, pressureImplied: false };
   }
-  if (/\b(urgent|asap|critical|important|must)\b/.test(lower) || /(ضروري|مستعجل|مهم|لازم)/.test(lower) || pressureImplied) {
+  if (/\b(urgent|asap|critical|important|must)\b/.test(lower) || /(ضروري|مستعجل|مهم|لازم)/.test(lower) || /(?:^|[\s,.،])(דחוף|חשוב|קריטי|חובה)(?=$|[\s,.،])/.test(lower) || pressureImplied) {
     return { level: 'high', source: pressureImplied ? 'inferred' : 'user_explicit', pressureAllowed: false, pressureImplied };
   }
   return { level: 'normal', source: 'default', pressureAllowed: false, pressureImplied: false };
@@ -368,8 +406,15 @@ export function extract(rawText: string, context: ExtractionContext): Extraction
   if (createsNothing(kind)) return nothingResult(raw, kind);
 
   const lower = raw.toLowerCase();
-  const negatedReminderRequest = /\b(don't|dont|do not|not)\s+(remind|remember|bug)\b/.test(lower) || /\b(remind me|remember to|bug me)\s+not\b/.test(lower);
-  const explicitReminderRequest = !negatedReminderRequest && (/\b(remind me|remember to|bug me)\b/.test(lower) || /(ذكرني|ذكريني)/.test(lower));
+  const negatedReminderRequest =
+    /\b(don't|dont|do not|not)\s+(remind|remember|bug)\b/.test(lower) ||
+    /\b(remind me|remember to|bug me)\s+not\b/.test(lower) ||
+    /(?:^|[\s,.،])אל\s+(?:תזכיר|תזכירי|תזכירו)(?=$|[\s,.،])/.test(lower);
+  const explicitReminderRequest =
+    !negatedReminderRequest &&
+    (/\b(remind me|remember to|bug me)\b/.test(lower) ||
+      /(ذكرني|ذكريني)/.test(lower) ||
+      /(?:^|[\s,.،])(?:בבקשה\s+)?(?:תזכיר לי|תזכירי לי|להזכיר לי)(?=$|[\s,.،])/.test(lower));
   const explicitPressureRequest = /\b(push me|bug me|don't let me|dont let me|do not let me)\b/.test(lower);
   const missingFields: ExtractionResult['missingFields'] = [];
   const ambiguityFlags: ExtractionResult['ambiguityFlags'] = [];
@@ -435,7 +480,10 @@ export function extract(rawText: string, context: ExtractionContext): Extraction
   }
 
   const action = cleanAction(raw);
-  const weak = /\b(maybe|probably|sometime|should probably)\b/.test(lower) || /(يمكن|عادي|مش ضروري)/.test(lower);
+  const weak =
+    /\b(maybe|probably|sometime|should probably)\b/.test(lower) ||
+    /(يمكن|عادي|مش ضروري)/.test(lower) ||
+    /(?:^|[\s,.،])(אולי|לא דחוף)(?=$|[\s,.،])/.test(lower);
   if (!action || action.length < 3) {
     missingFields.push('action');
     ambiguityFlags.push('vague_action');
@@ -492,8 +540,8 @@ export function extract(rawText: string, context: ExtractionContext): Extraction
  */
 export function countTimeExpressions(raw: string): number {
   if (typeof raw !== 'string' || !raw.trim()) return 0;
-  // Count what the parser reads: «الساعة تسعة» and «الساعة ٩» are both 9.
-  const text = normalizeSpokenArabicHours(normalizeArabicDigits(raw));
+  // Count what the parser reads: «الساعة تسعة» and «בשעה תשע» both become 9.
+  const text = normalizeSpokenHebrewHours(normalizeSpokenArabicHours(normalizeArabicDigits(raw)));
 
   // Count positions, not matches: two patterns can describe the same mention
   // ("at 9am" matches both the am-suffixed and the bare-hour shape), and
