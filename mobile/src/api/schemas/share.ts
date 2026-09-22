@@ -62,6 +62,27 @@ export const shareProposalSchema = captureProposalSchema.extend({
       /** Index into the files that were shared, or null for the shared text. */
       sourceIndex: z.number().int().nonnegative().nullable(),
       excerpt: z.string().max(140),
+      /**
+       * What a document channel knows about this item (UC-3.7, #191).
+       *
+       * Absent for every share that is not a document, which is why it is
+       * `.optional()` and not nullable: an envelope for a screenshot has no key
+       * named for a syllabus at all.
+       *
+       * `kind` is `z.string()` for the reason `channel` above is: a build will
+       * meet a server whose vocabulary has grown, and the grouped review's
+       * fallback for a word it does not know is "Other", not a `ContractError`
+       * on a screen somebody is looking at.
+       */
+      document: z
+        .object({
+          kind: z.string(),
+          page: z.number().int().positive(),
+          confidence: z.number().min(0).max(1),
+          dueAt: z.string().nullable(),
+          needsClarification: z.boolean(),
+        })
+        .optional(),
     })),
     /**
      * True when the channel offered evidence the server could not tie to items
@@ -87,7 +108,38 @@ export const shareProposalSchema = captureProposalSchema.extend({
         itemId: z.string(),
       })
       .nullable(),
+    /**
+     * What the document itself said (UC-3.7, #191).
+     *
+     * Null for every share that is not a document. The two names are shared
+     * content — the same class as `evidence[].excerpt` — and exist so the
+     * review header can read "Intro to Psychology — 12 dates found". They are
+     * never stored and never logged, here or on the server.
+     *
+     * `recurringSessions` is the offer, not a decision: lecture times become
+     * busy blocks only if the user accepts, and never commitments.
+     */
+    document: z
+      .object({
+        documentTitle: z.string().nullable(),
+        courseName: z.string().nullable(),
+        recurringSessions: z.array(z.object({
+          weekday: z.number().int().min(0).max(6),
+          start: z.string(),
+          end: z.string(),
+          label: z.string().nullable(),
+        })),
+      })
+      .nullable()
+      .optional(),
   }),
 });
+
+/** One item's document facts, for the grouped review (UC-3.7, #191). */
+export type ShareDocumentFacts = NonNullable<ShareProposal['share']['evidence'][number]['document']>;
+/** What the document as a whole said. */
+export type ShareDocumentSummary = NonNullable<ShareProposal['share']['document']>;
+/** One weekly slot the document named. */
+export type ShareRecurringSession = ShareDocumentSummary['recurringSessions'][number];
 
 export type ShareProposal = z.infer<typeof shareProposalSchema>;

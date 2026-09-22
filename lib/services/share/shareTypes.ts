@@ -223,6 +223,13 @@ export interface SharePreprocessResult {
    * still reach the trace, which is why the type forbids one.
    */
   readonly metrics?: Readonly<Record<string, number>>;
+  /**
+   * What the channel read about the document as a whole (UC-3.7, #191).
+   *
+   * Absent for every channel that is not reading one. The service copies it
+   * onto the envelope unchanged; nothing else in the pipeline reads it.
+   */
+  readonly document?: ShareDocumentSummary;
 }
 
 /** The most of a source a piece of evidence may quote. #183 step 7f. */
@@ -249,6 +256,82 @@ export interface ShareEvidence {
    * the phone. It goes in the response and never in a log, a trace or storage.
    */
   readonly excerpt: string;
+  /**
+   * What a document channel knows about this item that the capture contract has
+   * no field for (UC-3.7, #191 step 6).
+   *
+   * ── Why it rides here rather than on the item ────────────────
+   *
+   * `CaptureProposalItemContract` is `{ itemId, title, resolvedTime, … }` and
+   * nothing in it says "assignment", "page 3" or "0.82". A syllabus produces
+   * twelve items that have to be grouped by kind, sorted by date, chipped with
+   * a page and ticked by confidence, and none of those four is derivable from a
+   * title. Widening the capture contract for one channel would make every
+   * capture carry a syllabus's vocabulary; this is already the per-item,
+   * positional side-channel the service maps to item ids, so it is where a
+   * per-item fact belongs.
+   *
+   * Absent for every channel that is not reading a document.
+   */
+  readonly document?: ShareDocumentFacts;
+}
+
+/**
+ * Four facts about one item out of a document. Three numbers and one word from
+ * a closed vocabulary — nothing here is free text out of the page.
+ *
+ * `dueAt` is the date the *rules* placed (`pdfShare.ts:inferItemDate`), not the
+ * one the extractor resolved from the segment text. They are usually the same
+ * and the review screen shows the item's own. This one exists so the grouped
+ * list can be **ordered** by the date the document actually named, which is the
+ * acceptance criterion "renders in RTL with correct date order" — an order that
+ * must not depend on whether the downstream extractor happened to parse a
+ * calendar date out of a sentence.
+ */
+export interface ShareDocumentFacts {
+  /** `assignment | exam | quiz | presentation | deadline | other`. */
+  readonly kind: string;
+  /** The 1-based page it was read from. 1 for a file that has no pages. */
+  readonly page: number;
+  /** 0.0 to 1.0. At or above 0.7 the review screen ticks it by default. */
+  readonly confidence: number;
+  /** The instant the year-inference rules placed, or null. */
+  readonly dueAt: string | null;
+  /** True when the date is placeable but too far off to propose (#191 step 4). */
+  readonly needsClarification: boolean;
+}
+
+/**
+ * One weekly slot a document named — "Tuesdays 10:00–12:00, Lecture".
+ *
+ * **Never a commitment.** #191 step 7 and UC-3.4 (#188) agree: a recurring
+ * lecture is time somebody is occupied, not thirty-two things to do, and it
+ * becomes busy time only after the user says yes. Nothing on this path writes
+ * anything; the offer is rendered from these values and the accept goes to the
+ * ordinary busy-blocks route.
+ */
+export interface ShareRecurringSession {
+  /** 0 Sunday through 6 Saturday. */
+  readonly weekday: number;
+  /** 24-hour `HH:MM`, in the share's timezone. */
+  readonly start: string;
+  readonly end: string;
+  /** The document's own word for it, or null. Screened like every other. */
+  readonly label: string | null;
+}
+
+/**
+ * What a document channel found about the document as a whole (UC-3.7, #191).
+ *
+ * The two names are shared content, in the same class as `ShareEvidence.excerpt`
+ * and under the same rule: they travel to the phone that shared the file so the
+ * review header can read "Intro to Psychology — 12 dates found", and they reach
+ * no log, no trace and no storage. Both have been through the injection screen.
+ */
+export interface ShareDocumentSummary {
+  readonly documentTitle: string | null;
+  readonly courseName: string | null;
+  readonly recurringSessions: readonly ShareRecurringSession[];
 }
 
 /** One thing a channel found, and where it found it. */
@@ -383,7 +466,15 @@ export const SHARE_SYSTEM_PREAMBLE = [
  */
 export class ShareInputError extends Error {
   constructor(
-    readonly status: 400 | 413 | 415,
+    /**
+     * `422` is UC-3.7's (#191) addition: a document whose *bytes were fine and
+     * whose content could not be read* — an encrypted or corrupt PDF. It is
+     * deliberately not 415: 415 says "this product does not read that kind of
+     * file", which is false and would have the user convert a PDF that is
+     * already the right kind, where 422 says "this file, specifically". The
+     * route passes `status` straight through, so nothing there changed.
+     */
+    readonly status: 400 | 413 | 415 | 422,
     /** A fixed code the client switches on. Never content. */
     readonly reason: string,
     message?: string,
