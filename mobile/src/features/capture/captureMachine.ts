@@ -405,23 +405,49 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
     case 'editItem': {
       if (!state.proposal?.items.some((item) => item.itemId === event.itemId)) return state;
       const title = event.edit.title?.slice(0, MAX_TITLE_LENGTH);
+      const edits = {
+        ...state.edits,
+        [event.itemId]: {
+          ...state.edits[event.itemId],
+          ...event.edit,
+          ...(title !== undefined ? { title } : {}),
+        },
+      };
+      const before = confirmableItems(state.proposal, state.edits);
+      const after = confirmableItems(state.proposal, edits);
+      // An item completed by hand joins the selection as soon as it is
+      // confirmable (#503), the same way every confirmable item starts
+      // selected and the way `clarified` behaves.
+      const selected = [
+        ...state.selected.filter((id) => after.includes(id)),
+        ...after.filter((id) => !before.includes(id) && !state.selected.includes(id)),
+      ];
+      const status =
+        state.status === 'needsClarification' && after.length > 0
+          ? 'needsConfirmation'
+          : state.status;
       return {
         ...state,
-        edits: {
-          ...state.edits,
-          [event.itemId]: {
-            ...state.edits[event.itemId],
-            ...event.edit,
-            ...(title !== undefined ? { title } : {}),
-          },
-        },
+        status,
+        edits,
+        selected,
       };
     }
 
     case 'clearEdit': {
       const edits = { ...state.edits };
       delete edits[event.itemId];
-      return { ...state, edits };
+      const after = confirmableItems(state.proposal, edits);
+      const status =
+        state.status === 'needsConfirmation' && after.length === 0 && (state.proposal?.items.length ?? 0) > 0
+          ? 'needsClarification'
+          : state.status;
+      return {
+        ...state,
+        status,
+        edits,
+        selected: state.selected.filter((id) => after.includes(id)),
+      };
     }
 
     case 'confirmStarted':

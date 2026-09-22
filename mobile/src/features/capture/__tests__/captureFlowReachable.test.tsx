@@ -630,6 +630,32 @@ describe('the one question (#165)', () => {
     expect(screen.queryByText('ask_something_new')).toBeNull();
     expect(screen.queryByTestId('review-needs-question-i-1')).not.toBeNull();
   });
+
+  it('hides the chip, skips the question in clarify queue, and auto-selects the item when completed by hand (#503)', async () => {
+    await reachTheQuestion();
+    expect(screen.queryByTestId('clarify-sheet')).not.toBeNull();
+    expect(screen.queryByTestId('review-needs-question-i-1')).not.toBeNull();
+    expect(screen.getByTestId('review-confirm').props.accessibilityState.disabled).toBe(true);
+
+    // Open the edit sheet for the flagged item
+    await fireEvent.press(screen.getByTestId('review-edit-i-1'));
+    await waitFor(() => expect(screen.queryByTestId('edit-item-sheet')).not.toBeNull());
+
+    // Give it a time (uncheck "No time" toggle)
+    await fireEvent(screen.getByTestId('edit-item-no-time'), 'valueChange', false);
+    await fireEvent.press(screen.getByTestId('edit-item-save'));
+
+    await waitFor(() => expect(screen.queryByTestId('edit-item-sheet')).toBeNull());
+
+    // Bug 2: The "Needs one question" chip must hide once the item is completed by hand
+    expect(screen.queryByTestId('review-needs-question-i-1')).toBeNull();
+
+    // Bug 2: The item must be skipped in the clarify queue (no other questions, so sheet hides)
+    expect(screen.queryByTestId('clarify-sheet')).toBeNull();
+
+    // Bug 1: The item should become auto-selected once confirmable
+    expect(screen.getByTestId('review-confirm').props.accessibilityState.disabled).toBe(false);
+  });
 });
 
 describe('editing before anything is saved (#164)', () => {

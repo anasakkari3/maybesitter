@@ -93,14 +93,18 @@ describe('a flagged item completed with only a time (#498)', () => {
       { type: 'analyzeStarted' },
       { type: 'analyzeSucceeded', proposal },
       { type: 'editItem', itemId: 'p', edit: sent },
-      { type: 'toggleItem', itemId: 'p' },
     ];
     const state = events.reduce(captureReducer, initialCaptureState());
 
     expect(confirmableItems(state.proposal, state.edits)).toEqual(['p']);
+    // Completed by hand auto-selects (#503)
     expect(state.selected).toContain('p');
     expect(confirmPayload(state).itemIds).toEqual(['p']);
     expect(confirmPayload(state).edits.p).toMatchObject({ title: 'Call the pharmacy' });
+
+    // And it can still be toggled off manually
+    const unselected = captureReducer(state, { type: 'toggleItem', itemId: 'p' });
+    expect(unselected.selected).not.toContain('p');
   });
 });
 
