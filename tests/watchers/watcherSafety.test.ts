@@ -216,6 +216,12 @@ test('no watcher module can reach the planner, the domain state machine or a com
     '../../src/contracts/v1/watcherContracts',
     '../../src/contracts/v1/actionPolicyContracts',
     '../../src/contracts/v1/integrationConnectionContracts',
+    // #527's read projection. A contracts module like the four around it:
+    // closed vocabularies, interfaces and two type guards, importing nothing
+    // but `moduleContracts`. It is on this list because the list is the fact
+    // rather than the promise — a projection that later reached for a planner
+    // type would have to come back here to do it.
+    '../../src/contracts/v1/backgroundMonitorContracts',
     '../../src/contracts/v1/fixtureContracts',
     '../storage',
     '../storage/paths',

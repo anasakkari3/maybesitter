@@ -110,7 +110,12 @@ test('every mobile route file exists and is enumerated', () => {
   // A seed is a sentence somebody wrote about something they have not decided
   // to do, and the promote route is a door from one of those onto a real
   // commitment in somebody's account; all three must know whose account.
-  assert.equal(files.length, 58, `found:\n${files.join('\n')}`);
+  // Fifty-nine after #527: `GET /api/mobile/trust/background-activity`. It is
+  // a read of everything this app is watching for one person — which
+  // providers, on what subjects, when it last looked — which is a profile of
+  // somebody's life assembled in one response, and the most valuable thing on
+  // this list to reach without a token.
+  assert.equal(files.length, 59, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {
