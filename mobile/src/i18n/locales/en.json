@@ -912,5 +912,9 @@
   "planRowMake": "Make one",
   "fromRoutine": "From your routine",
   "todayErrorTitle": "Something on our side didn’t answer.",
-  "todayErrorBody": "Nothing you confirmed was lost. Try when you’re ready."
+  "todayErrorBody": "Nothing you confirmed was lost. Try when you’re ready.",
+  "captureShareHint": "Or share text, a link or a file from any app",
+  "reviewConfirmedTag": "Saved",
+  "reviewSourceShare": "From what you shared",
+  "reviewUntrusted": "Outside content"
 }

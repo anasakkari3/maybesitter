@@ -8,6 +8,8 @@ import { formatRelativeDay, formatTime } from '../i18n/format';
 import { fill, ltr } from '../i18n/strings';
 import { accentGlow, cardShadow } from '../theme/tokens';
 import { Btn, Pill, Txt } from '../ui/primitives';
+import { Tag } from '../ui/chrome';
+import { dayKey } from '../i18n/format';
 import { CheckIcon, UndoRing } from '../ui/icons';
 import { Pop, ScreenIn } from '../ui/motion';
 import { UNDO_WINDOW_MS } from '../features/capture/captureMachine';
@@ -60,6 +62,11 @@ export function SavedScreen() {
   };
 
   const finish = () => { flow.close(); actions.go('today'); };
+  // «شوف اليوم» when everything landed today, «شوف الأسبوع» otherwise: the
+  // day the things went to is where the person goes next.
+  const today = dayKey(new Date(), timezone);
+  const allToday = state.persisted.length > 0 && state.persisted.every((item) => item.resolvedTime && dayKey(new Date(item.resolvedTime), timezone) === today);
+  const viewDay = () => { flow.close(); actions.go(allToday ? 'today' : 'calendar'); };
 
   const whenOf = (resolvedTime: string | null) => (resolvedTime
     ? `${formatRelativeDay(new Date(resolvedTime), { locale: lang, timeZone: timezone })} · ${ltr(formatTime(new Date(resolvedTime), { locale: lang, timeZone: timezone }))}`
@@ -103,10 +110,13 @@ export function SavedScreen() {
             <View
               key={item.commitmentId}
               testID={`saved-item-${item.itemId}`}
-              style={[{ backgroundColor: p.sf, borderRadius: 18, paddingVertical: 14, paddingHorizontal: 16, flexDirection: 'row', justifyContent: 'space-between', gap: 10 }, cardShadow(p)]}
+              style={[{ backgroundColor: p.sf, borderRadius: 18, paddingVertical: 14, paddingHorizontal: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10 }, cardShadow(p)]}
             >
               <Txt size={15} style={{ flexShrink: 1 }}>{item.title}</Txt>
-              <Txt size={12} color={p.mu}>{whenOf(item.resolvedTime)}</Txt>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Tag kind="saved" label={t.reviewConfirmedTag} />
+                <Txt size={12} color={p.mu}>{whenOf(item.resolvedTime)}</Txt>
+              </View>
             </View>
           ))}
         </View>
@@ -156,7 +166,10 @@ export function SavedScreen() {
         ) : null}
       </View>
 
-      <Pill testID="saved-done" label={t.ok} onPress={finish} size={15} />
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        <Pill testID="saved-view-day" label={allToday ? t.tabToday : t.todayLaterSeeAll} onPress={viewDay} kind="outline" size={15} weight={500} style={{ flex: 1 }} />
+        <Pill testID="saved-done" label={t.ok} onPress={finish} size={15} style={{ flex: 1 }} />
+      </View>
     </ScreenIn>
   );
 }

@@ -10,7 +10,9 @@ import { useTimeZone } from '../i18n/timezone';
 import { formatRelativeDay, formatTime } from '../i18n/format';
 import { ltr, type Lang } from '../i18n/strings';
 import { cardShadow } from '../theme/tokens';
-import { Btn, FlowHeader, ImpBadge, Pill, Txt } from '../ui/primitives';
+import { Btn, Pill, Txt } from '../ui/primitives';
+import { TaskHeader } from '../ui/taskHeader';
+import { Tag, TextLink } from '../ui/chrome';
 import { CheckIcon } from '../ui/icons';
 import { ScreenIn } from '../ui/motion';
 import { instantForLocalDateTime } from '../features/capture/localInstant';
@@ -83,12 +85,24 @@ export function ReviewScreen() {
 
   return (
     <ScreenIn style={{ backgroundColor: p.bg }}>
-      <FlowHeader pill={t.back} onPill={() => flow.backToComposer()} title={t.reviewTitle} />
+      <TaskHeader pill={t.back} onPill={() => flow.backToComposer()} title={t.reviewTitle} pillTestID="review-back" />
       <ScrollView
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ paddingTop: 18, paddingHorizontal: 20, paddingBottom: 20, gap: 14 }}
+        contentContainerStyle={{ paddingTop: 16, paddingHorizontal: 16, paddingBottom: 20, gap: 12 }}
       >
-        <Txt size={12} color={p.mu} style={{ paddingHorizontal: 4 }} testID="review-note">{t.suggestionNote}</Txt>
+        {state.source === 'share' ? (
+          <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: p.sf, borderRadius: 16, paddingVertical: 10, paddingHorizontal: 14 }, cardShadow(p)]} testID="review-source">
+            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: p.wm }} />
+            <Txt size={13} color={p.mu} style={{ flex: 1 }}>{t.reviewSourceShare}</Txt>
+            <Txt size={12} color={p.wm}>{t.reviewUntrusted}</Txt>
+          </View>
+        ) : null}
+        {/* The dashed dot is the proposal mark, the same one the cards carry:
+            the sentence and the shape say one thing. */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 4 }}>
+          <View style={{ width: 10, height: 10, borderRadius: 5, borderWidth: 1.5, borderStyle: 'dashed', borderColor: p.prop }} />
+          <Txt size={13} color={p.mu} testID="review-note">{t.suggestionNote}</Txt>
+        </View>
 
         {asking ? (
           <View style={{ backgroundColor: p.sf, borderRadius: 24, padding: 18 }}>
@@ -152,7 +166,7 @@ export function ReviewScreen() {
         ) : null}
       </ScrollView>
 
-      <View style={{ paddingTop: 12, paddingHorizontal: 20, paddingBottom: insets.bottom + 16, gap: 8, backgroundColor: p.bg, borderTopWidth: 1, borderTopColor: p.ln }}>
+      <View style={{ paddingTop: 12, paddingHorizontal: 16, paddingBottom: insets.bottom + 8, gap: 4, backgroundColor: p.bg, borderTopWidth: 1, borderTopColor: p.ln }}>
         {selectedCount === 0 ? (
           <Txt size={12} color={p.mu} align="center" testID="review-none-selected">{t.reviewNothingSelected}</Txt>
         ) : null}
@@ -161,6 +175,8 @@ export function ReviewScreen() {
           label={tr('confirmN', { n: selectedCount })}
           onPress={() => void flow.confirm()}
           disabled={selectedCount === 0 || busy}
+          size={17}
+          pad={14}
         />
         <Pill
           testID="review-cancel"
@@ -203,59 +219,55 @@ function ItemCard({
     : t.noTimeYet;
   const priority = edit?.priority ?? item.priority;
 
+  const imp = priority ? PRIORITY_IMP[priority] : null;
+  const impLabel = imp === 'must' ? t.todayGroupMust : imp === 'should' ? t.todayGroupShould : imp === 'nice' ? t.todayGroupNice : null;
   return (
     <Btn
       testID={`review-item-${item.itemId}`}
       onPress={onToggle}
       scaleTo={0.99}
+      accessibilityRole="checkbox"
       label={`${title}, ${selected ? t.reviewSelected : t.reviewNotSelected}, ${when}`}
-      style={[
-        {
-          backgroundColor: p.sf, borderRadius: 24, paddingVertical: 16, paddingHorizontal: 18, gap: 12,
-          alignItems: 'flex-start',
-          borderStartWidth: 4, borderStartColor: selected ? p.ac : p.ln,
-          opacity: selected ? 1 : 0.55,
-        },
-        cardShadow(p),
-      ]}
+      style={{
+        // Dashed all round in the proposal colour — nothing has been written —
+        // and a solid accent edge at the start once it is chosen.
+        backgroundColor: p.sf, borderRadius: 24, paddingVertical: 16, paddingHorizontal: 18, gap: 10,
+        alignItems: 'flex-start',
+        borderWidth: 1.5, borderStyle: 'dashed', borderColor: p.prop,
+        borderStartWidth: 4, borderStartColor: selected ? p.ac : p.ln,
+        opacity: selected ? 1 : 0.75,
+      }}
     >
       <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12, alignSelf: 'stretch' }}>
         <View
           testID={`review-check-${item.itemId}`}
           style={{
-            width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+            width: 28, height: 28, borderRadius: 9, alignItems: 'center', justifyContent: 'center', marginTop: 2,
             backgroundColor: selected ? p.ac : 'transparent',
-            borderWidth: selected ? 0 : 2, borderColor: p.ln,
+            borderWidth: selected ? 0 : 2, borderColor: p.lnStrong,
           }}
         >
           {selected ? <CheckIcon size={14} color={p.onAccent} /> : null}
         </View>
-        <Txt size={18} weight={600} style={{ flex: 1 }}>{title}</Txt>
-        <Btn
-          testID={`review-edit-${item.itemId}`}
-          label={t.reviewEdit}
-          onPress={onEdit}
-          style={{ backgroundColor: p.sf2, borderRadius: 999, paddingVertical: 6, paddingHorizontal: 12 }}
-        >
-          <Txt size={12} weight={600} color={p.ac}>{t.reviewEdit}</Txt>
-        </Btn>
+        <Txt size={17} weight={600} lh={1.4} style={{ flex: 1, opacity: selected ? 1 : 0.7 }}>{title}</Txt>
+        <TextLink testID={`review-edit-${item.itemId}`} label={t.reviewEdit} onPress={onEdit} size={13} />
       </View>
 
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-        <View style={{ backgroundColor: p.sf2, borderRadius: 999, paddingVertical: 8, paddingHorizontal: 12 }}>
-          <Txt size={13} testID={`review-when-${item.itemId}`}>{when}</Txt>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+        <View style={{ backgroundColor: item.needsClarification ? p.wms : p.sf2, borderRadius: 999, paddingVertical: 5, paddingHorizontal: 10 }}>
+          <Txt size={12} weight={item.needsClarification ? 600 : 400} color={item.needsClarification ? p.wm : p.tx} testID={`review-when-${item.itemId}`}>{when}</Txt>
         </View>
-        {priority ? <ImpBadge imp={PRIORITY_IMP[priority]} /> : null}
+        {imp && impLabel && imp !== 'nice' ? <Tag kind={imp === 'must' ? 'must' : 'should'} label={impLabel} /> : null}
         {/* A guess named as one — and no longer a guess once the user has set
             it themselves. A level presented as a fact they stated is how a
             product loses the right to guess at all (#164). */}
         {item.priorityEstimated && edit?.priority === undefined ? (
-          <Txt size={12} color={p.mu} testID={`review-estimated-${item.itemId}`}>{t.reviewEstimated}</Txt>
+          <View style={{ borderWidth: 1, borderStyle: 'dashed', borderColor: p.lnStrong, borderRadius: 999, paddingVertical: 3, paddingHorizontal: 8 }}>
+            <Txt size={11} color={p.mu} testID={`review-estimated-${item.itemId}`}>{t.reviewEstimated}</Txt>
+          </View>
         ) : null}
         {item.needsClarification ? (
-          <View style={{ backgroundColor: p.wms, borderRadius: 999, paddingVertical: 6, paddingHorizontal: 10 }}>
-            <Txt size={12} color={p.wm} testID={`review-needs-question-${item.itemId}`}>{t.reviewNeedsQuestion}</Txt>
-          </View>
+          <Txt size={12} color={p.wm} testID={`review-needs-question-${item.itemId}`}>{t.reviewNeedsQuestion}</Txt>
         ) : null}
         {/* Checked against the time the card *shows*, which is the edited one
             when there is an edit: a chip about the time the server proposed

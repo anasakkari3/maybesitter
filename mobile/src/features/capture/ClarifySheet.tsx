@@ -76,9 +76,9 @@ export function ClarifySheet({
               disabled={busy}
               accessibilityRole="radio"
               onPress={() => onAnswer({ optionId: option.optionId })}
-              style={{ backgroundColor: p.acs, borderRadius: 999, paddingVertical: 12, paddingHorizontal: 18, minHeight: 48, justifyContent: 'center', opacity: busy ? 0.4 : 1 }}
+              style={{ backgroundColor: busy ? p.dis : p.acs, borderRadius: 999, paddingVertical: 12, paddingHorizontal: 18, minHeight: 48, justifyContent: 'center' }}
             >
-              <Txt size={15} weight={600} color={p.ac}>{label}</Txt>
+              <Txt size={15} weight={600} color={busy ? p.disTx : p.acd}>{label}</Txt>
             </Btn>
           );
         })}

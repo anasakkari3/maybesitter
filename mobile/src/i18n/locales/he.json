@@ -915,5 +915,9 @@
   "planRowMake": "ליצור",
   "fromRoutine": "מהשגרה שלך",
   "todayErrorTitle": "משהו אצלנו לא ענה.",
-  "todayErrorBody": "שום דבר שאישרתם לא אבד. נסו כשתהיו מוכנים."
+  "todayErrorBody": "שום דבר שאישרתם לא אבד. נסו כשתהיו מוכנים.",
+  "captureShareHint": "או שתפו טקסט, קישור או קובץ מכל אפליקציה",
+  "reviewConfirmedTag": "נשמר",
+  "reviewSourceShare": "ממה ששיתפתם",
+  "reviewUntrusted": "תוכן מבחוץ"
 }
