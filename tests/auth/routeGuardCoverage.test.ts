@@ -126,7 +126,13 @@ test('every mobile route file exists and is enumerated', () => {
   // able to mark another person's habits done — which is both a write to their
   // record and, from the 404-vs-200 difference alone, a read of which habit and
   // occurrence ids are real.
-  assert.equal(files.length, 64, `found:\n${files.join('\n')}`);
+  // Sixty-five after #526: `POST /api/mobile/goals/{goalId}/execution/generate`.
+  // It writes nothing, which is what makes the guard the whole of its
+  // protection: the goal id is a memory id, and an unauthenticated caller who
+  // could reach this would learn from the 404-vs-200 difference whether a
+  // given id names a real goal — and, on a 200, read that goal's own sentence
+  // back out of the graph's titles.
+  assert.equal(files.length, 65, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {

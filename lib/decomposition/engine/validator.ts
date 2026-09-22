@@ -150,6 +150,29 @@ function mergedSpanText(sourceText: string, spans: readonly SourceSpan[]): strin
  */
 export type TitleAdmissionProblem = 'EMPTY_STEP' | 'CONJUNCTION_ONLY';
 
+/**
+ * Whether a claimed-verbatim value really is verbatim.
+ *
+ * `null` is how a step says it makes no claim, and is always admissible. An
+ * empty or blank string is a claim about nothing, and it needs its own branch
+ * because `sourceText.includes('')` is always true — a plain verbatim check
+ * waves it through.
+ *
+ * Exported because #526's goal execution graph carries the same two fields on
+ * its proposal nodes and its "no invented deadlines" criterion is this exact
+ * rule. A second spelling of it there would be two definitions of "invented",
+ * and the day one of them was tightened the other would quietly keep letting
+ * the old shape through.
+ */
+export function statedValueAdmission(
+  sourceText: string,
+  value: string | null,
+): 'BLANK' | 'NOT_VERBATIM' | null {
+  if (value === null) return null;
+  if (value.trim().length === 0) return 'BLANK';
+  return sourceText.includes(value) ? null : 'NOT_VERBATIM';
+}
+
 export function titleAdmission(title: string): TitleAdmissionProblem | null {
   // An empty title is also, trivially, "only a connective". Reporting the
   // emptier fact is the actionable one.
@@ -408,15 +431,10 @@ export function validateDecomposition(
       }
     }
 
-    // `null` is how a step says it makes no claim. An empty or blank string is
-    // a claim about nothing, and `sourceText.includes('')` is always true, so a
-    // plain verbatim check waves it through.
-    if (step.statedTiming !== null
-      && (step.statedTiming.trim().length === 0 || !sourceText.includes(step.statedTiming))) {
+    if (statedValueAdmission(sourceText, step.statedTiming) !== null) {
       add('INVENTED_TIMING', step.stepId, 'statedTiming is blank or does not occur verbatim in the source text');
     }
-    if (step.statedOwner !== null
-      && (step.statedOwner.trim().length === 0 || !sourceText.includes(step.statedOwner))) {
+    if (statedValueAdmission(sourceText, step.statedOwner) !== null) {
       add('INVENTED_OWNER', step.stepId, 'statedOwner is blank or does not occur verbatim in the source text');
     }
 
