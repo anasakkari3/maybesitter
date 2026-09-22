@@ -235,6 +235,13 @@ const KEPT_BECAUSE: Record<string, string> = {
     'the entry of the common state-change pipeline: a source, an entity id, two digests and an instant. '
     + 'It says something changed that a plan may care about, never what the product concluded about the '
     + 'person, and it is consumed and aged out by the replanning lane rather than by this button.',
+  packInstallations:
+    'which vertical packs the account has switched on (#528) \u2014 a pack id, a state, a reason code and '
+    + 'the ids of the watchers that pack\u2019s templates produced. It is the record of a switch a person '
+    + 'flipped, not a belief the product formed about them: nothing here is derived, there is no score and '
+    + 'no confidence. Purging it would silently orphan the watchers it names, leaving a pack running that '
+    + 'nothing can turn off; the way to remove one is to disable the pack, and account deletion takes the '
+    + 'whole tree.',
   externalTaskRefs:
     'a pointer beside a commitment, same as deviceCalendarLinks: which external fixture a commitment came '
     + 'from and whether the user dismissed it. Commitments survive this purge, so the ref that keeps a '

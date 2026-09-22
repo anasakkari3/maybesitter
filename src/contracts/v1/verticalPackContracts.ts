@@ -223,3 +223,64 @@ export function validateVerticalPackDefinition(definition: VerticalPackDefinitio
 
   return Object.freeze(problems);
 }
+
+/* ── The installation record (#528, slice 2) ─────────────────────── */
+
+export const PACK_INSTALLATION_SCHEMA_VERSION = 'pack-installation-v1' as const;
+
+/**
+ * Why a pack is in the state it is in.
+ *
+ * `entitlement_lost` is deliberately distinct from `user_disabled`: the two
+ * look identical on disk otherwise, and only this field lets the entitlement
+ * sweep tell "the subscription lapsed, resume if it comes back" from "the
+ * person switched this off, leave it off".
+ */
+export type PackInstallationReason =
+  | 'user_enabled'
+  | 'user_disabled'
+  | 'entitlement_lost'
+  | 'entitlement_restored';
+
+/**
+ * One account's relationship with one pack: enabled or not, and the watchers
+ * that pack's templates produced.
+ *
+ * ── Why `watcherIds` is here and not `packId` on the watcher ───────
+ *
+ * A `WatcherDefinition` records `createdBy: 'pack_template'` and nothing
+ * more, so the store can say *that* a watcher came from some pack but not
+ * *which* one — and "disabling football must not silence athlete" is a
+ * statement about which. The link has to live somewhere; it lives on this
+ * record, because the record is the thing the lifecycle already has to read
+ * and write on every enable and disable, and because putting a `packId` on
+ * the watcher would push a pack concept into a contract three other lanes
+ * are editing. The cost is stated plainly: a watcher instantiated outside
+ * `enablePack` is not attributable to its pack, so `enablePack` is the only
+ * supported way a pack's watcher is born.
+ *
+ * Nothing here is derived. It is the record of a switch a person flipped, so
+ * it goes with account deletion and survives "forget what you inferred".
+ */
+export interface PackInstallationRecord {
+  readonly version: typeof VERTICAL_PACK_CONTRACT_VERSION;
+  readonly schemaVersion: typeof PACK_INSTALLATION_SCHEMA_VERSION;
+  readonly packId: string;
+  readonly scopeId: string;
+  readonly state: 'enabled' | 'disabled';
+  readonly reason: PackInstallationReason;
+  /** The watchers this pack's templates produced, in instantiation order. */
+  readonly watcherIds: readonly string[];
+  /**
+   * Which template produced each entry of `watcherIds`, index for index.
+   *
+   * It exists so a re-enable can tell a template it has already installed from
+   * one the manifest gained since: without it, a pack that grew a template
+   * would be permanently missing it for every account that enabled the pack
+   * before the change, silently and with nothing to notice it.
+   */
+  readonly templateIds: readonly string[];
+  /** When the pack was first enabled for this account; never reset by a disable. */
+  readonly enabledAt: string;
+  readonly updatedAt: string;
+}

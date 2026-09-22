@@ -8,6 +8,10 @@ import {
   watcherValidationResponse,
 } from '../../../../../../../lib/watchers/watcherApi';
 import { createWatcherStore } from '../../../../../../../lib/watchers/watcherStore';
+import {
+  assertPackWatcherMayBeEnabled,
+  PackWatcherLockedError,
+} from '../../../../../../../lib/packs/packWatcherGuard';
 
 export const dynamic = 'force-dynamic';
 
@@ -58,13 +62,22 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   try {
     const watcherId = parseWatcherId(id);
     const now = new Date().toISOString();
-    const updated = await createWatcherStore(user.uid).update(
+    const store = createWatcherStore(user.uid);
+    if (!paused) {
+      // Resuming a pack's watcher is the pack's decision, not this route's —
+      // the same rule the PATCH route applies, and for the same reason (#528).
+      const current = await store.get(watcherId);
+      if (!current) return mobileError('no such watcher', 404);
+      await assertPackWatcherMayBeEnabled(user.uid, current);
+    }
+    const updated = await store.update(
       watcherId,
       (current) => applyWatcherPatch(current, { enabled: !paused }, now),
     );
     if (!updated) return mobileError('no such watcher', 404);
     return Response.json({ success: true, watcher: presentWatcher(updated) });
   } catch (error) {
+    if (error instanceof PackWatcherLockedError) return mobileError(error.message, 409);
     if (error instanceof WatcherValidationError) return watcherValidationResponse(error);
     console.error('[watchers] pausing a watcher failed', error);
     return mobileError('could not pause the watcher', 500);

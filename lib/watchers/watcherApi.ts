@@ -16,6 +16,10 @@
  * provider writes" a property of the shapes rather than of a check somebody
  * has to remember.
  *
+ * A body may not claim `createdBy: 'pack_template'` either: that attribution
+ * is the server's, made when a pack is enabled, and a client-minted one would
+ * be a pack watcher belonging to no pack — see `parseNewWatcher`.
+ *
  * ── Unknown keys are refused ──────────────────────────────────────
  *
  * A body carrying a key this module does not know is a 400, not a silent
@@ -136,15 +140,25 @@ export function parseNewWatcher(body: unknown): NewWatcherInput {
   if (body.enabled !== undefined && typeof body.enabled !== 'boolean') {
     throw new WatcherValidationError('enabled must be a boolean', 'invalid_enabled');
   }
-  if (body.createdBy !== undefined && body.createdBy !== 'user' && body.createdBy !== 'pack_template') {
-    throw new WatcherValidationError('createdBy must be "user" or "pack_template"', 'invalid_created_by');
+  // `pack_template` is refused here, not merely validated (#528). The value is
+  // an attribution the *server* makes when `enablePack` installs a pack's
+  // template, and it is load-bearing: a pack watcher is expected to appear on
+  // exactly one installation record, which is the only thing that can ever
+  // switch it off again. A client that could mint one would create a live
+  // watcher nothing in the product can stop, so the only value a body may
+  // carry is the one it would have defaulted to.
+  if (body.createdBy !== undefined && body.createdBy !== 'user') {
+    throw new WatcherValidationError(
+      'createdBy must be "user"; a pack\'s watchers are installed by enabling the pack',
+      'invalid_created_by',
+    );
   }
   return {
     enabled: body.enabled ?? true,
     source: parseSource(body.source),
     condition: parseCondition(body.condition),
     effect: parseEffect(body.effect),
-    createdBy: (body.createdBy as 'user' | 'pack_template' | undefined) ?? 'user',
+    createdBy: 'user',
   };
 }
 
