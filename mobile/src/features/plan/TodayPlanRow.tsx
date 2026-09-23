@@ -83,8 +83,8 @@ export function TodayPlanRow({ row, preview = [] }: { row: PlanRowModel; preview
       }}
     >
       <View style={{ flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'flex-start' : 'center', gap: 12 }}>
-        <View style={{ width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: accepted ? p.acs : p.sf2 }}>
-          <CalendarIcon color={accepted ? p.acd : p.mu} />
+        <View style={{ width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: accepted ? p.successSoft : p.sf2 }}>
+          <CalendarIcon color={accepted ? p.success : p.mu} />
         </View>
         <View style={{ ...(stacked ? {} : { flex: 1 }), gap: 4 }}>
           <Txt size={15} weight={600} testID="today-plan-title">{title}</Txt>
@@ -97,12 +97,12 @@ export function TodayPlanRow({ row, preview = [] }: { row: PlanRowModel; preview
           {preview.map(item => (
             <View key={item.id} testID={`today-plan-preview-${item.id}`} style={{ paddingVertical: 10, borderTopWidth: 1, borderTopColor: p.ln, gap: 4, alignItems: 'flex-start' }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                {item.state === 'done' ? <CheckIcon size={16} color={p.acd} /> : null}
+                {item.state === 'done' ? <CheckIcon size={16} color={p.success} /> : null}
                 <Txt role="body" style={{ flex: 1 }} color={item.state === 'done' ? p.mu : p.tx}>{item.title}</Txt>
               </View>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
                 <Txt role="supporting" color={p.mu}>{timeOf(item)}</Txt>
-                <Txt role="supporting" color={item.state === 'done' ? p.acd : p.mu}>{stateLabels[item.state]}</Txt>
+                <Txt role="supporting" color={item.state === 'done' ? p.success : p.mu}>{stateLabels[item.state]}</Txt>
               </View>
             </View>
           ))}

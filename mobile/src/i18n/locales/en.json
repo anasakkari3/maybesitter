@@ -1128,5 +1128,7 @@
   "xExplore": "More ways to use MaybeSitter",
   "xPreviewDetails": "Explore preview",
   "xEditLearningBody": "Save your wording as a preference you stated. The original suggestion stays available to keep or dismiss.",
-  "xPreferenceSaved": "Your preference was saved."
+  "xPreferenceSaved": "Your preference was saved.",
+  "xSortEarliest": "Earliest first",
+  "xSortLatest": "Latest first"
 }

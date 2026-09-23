@@ -1,17 +1,19 @@
 # Design system
 
-One source, one set of values, no invented ones.
+The current visual authority is the user-approved coral continuation (2026-09-23).
 
 ## Where the values come from
 
-`design/` at the repository root is the Claude Design export — **Round 2**
-(`R2App.dc.html`). Unlike Round 1, it declares its tokens: `renderVals()` emits
-one custom-property string per scheme, a nine-step type ramp and per-platform
-safe areas. `mobile/scripts/extract-design-tokens.mjs` reads them out, and
-`tokens.source.json` here records them and pins the export's manifest by
-sha256. `__tests__/tokens.test.ts` compares every colour role in
-`src/theme/tokens.ts` against the export in both schemes, so a token cannot
-drift from the design silently, and it holds every text pair to WCAG AA.
+The 15 supplied reference screens supersede the historical R2 teal palette.
+`coral.source.json` records their SHA-256 hashes and the complete new color
+roles. `tokens.source.json` and the R2 export remain intact as historical
+provenance for navigation, typography, layout, and motion.
+
+The tests pin both the old export's integrity and the approved continuation's
+roles. Contrast checks cover primary/muted text, actions, links, confirmed
+states, and disabled labels in both schemes. White on bright coral from the
+references is deliberately replaced by dark ink. Light mode uses a deeper
+coral. See `docs/design/coral-continuation.md` for coverage and decisions.
 
 ## The layers
 

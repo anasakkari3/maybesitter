@@ -2,6 +2,7 @@ import React from 'react';
 import { View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { Btn, Txt } from '../../ui/primitives';
+import { ProductIcon, type ProductIconName } from '../../ui/product';
 import { BackHeader } from '../../ui/chrome';
 import { ChevronIcon } from '../../ui/icons';
 import { useLayoutMode } from '../../theme/textScale';
@@ -23,9 +24,10 @@ export function SettingsHeader({ title, onBack, end }: { title: string; onBack: 
  * the row is a flex row, and the root view's `direction` mirrors it.
  */
 export function SettingsRow({
-  label, sub, value, onPress, testID, tone, first,
+  label, sub, value, onPress, testID, tone, first, icon,
 }: {
   label: string;
+  icon?: ProductIconName;
   sub?: string | undefined;
   value?: string | undefined;
   onPress?: (() => void) | undefined;
@@ -52,6 +54,7 @@ export function SettingsRow({
         borderTopColor: p.ln,
       }}
     >
+      {icon && !stacked ? <ProductIcon name={icon} quiet /> : null}
       <View style={{ flex: 1, gap: 4 }}>
         <Txt role="action" color={tone === 'warn' ? p.wm : p.tx} {...(testID ? { testID } : {})}>{label}</Txt>
         {sub ? <Txt role="supporting" color={p.mu}>{sub}</Txt> : null}

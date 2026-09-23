@@ -203,7 +203,7 @@ export function Pill({
 
 export function Card({ children, style, pad = 18, testID, focus = false }: { children: React.ReactNode; style?: StyleProp<ViewStyle>; pad?: number; testID?: string | undefined; focus?: boolean }) {
   const { p } = useApp();
-  return <View testID={testID} style={[{ backgroundColor: p.sf, borderRadius: 24, padding: pad, borderWidth: 1, borderColor: p.ln }, focus ? cardShadow(p) : undefined, style]}>{children}</View>;
+  return <View testID={testID} style={[{ backgroundColor: p.glass, borderRadius: 24, padding: pad, borderWidth: 1, borderColor: p.ln }, focus ? cardShadow(p) : undefined, style]}>{children}</View>;
 }
 
 export function Divider({ p }: { p: Palette }) {

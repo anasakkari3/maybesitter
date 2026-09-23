@@ -105,7 +105,7 @@ export function CommitmentsScreen() {
         <Txt role="label" color={filter === key ? p.ac : p.tx}>{key === 'all' ? t.xAll : key === 'active' ? t.xOpen : t.xDone}</Txt>
       </Btn>)}
     </View>
-    <Pill label={t.xSort} kind="outline" testID="commitments-sort" onPress={() => setReverse(value => !value)} />
+    <Pill label={reverse ? t.xSortLatest : t.xSortEarliest} kind="outline" testID="commitments-sort" onPress={() => setReverse(value => !value)} />
     <QueryBoundary isPending={today.isPending || upcoming.isPending} error={today.error ?? upcoming.error} onRetry={() => { void today.refetch(); void upcoming.refetch(); }}>
       {views.length === 0 ? <ProductSection title={t.xNoResults} icon="check" /> : null}
       {views.map(item => <ProductRow key={item.id} id={`commitments-item-${item.id}`} title={isolate(item.title)} icon={item.status === 'done' ? 'check' : 'calendar'}

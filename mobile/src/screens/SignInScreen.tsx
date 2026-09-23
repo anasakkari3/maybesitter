@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { useAuth } from '../auth/AuthProvider';
 import { openLegal, privacyPolicyUrl, termsUrl } from '../config/legalLinks';
+import { BrandMark } from '../ui/brand';
 import { Btn, Card, Pill, Txt } from '../ui/primitives';
 
 /**
@@ -53,6 +54,7 @@ export function SignInScreen({
         justifyContent: 'center',
       }}
     >
+      <View style={{ alignItems: 'center', marginBottom: 24 }}><BrandMark size={76} /></View>
       <Txt size={26} weight={600} align="center">{t.authTitle}</Txt>
       <Txt size={15} color={p.mu} align="center" style={{ marginTop: 10 }}>{t.authSubtitle}</Txt>
 

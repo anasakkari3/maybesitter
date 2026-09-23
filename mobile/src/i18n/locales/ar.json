@@ -1128,5 +1128,7 @@
   "xExplore": "طرق أكثر مع مايبي سيتر",
   "xPreviewDetails": "شوف المعاينة",
   "xEditLearningBody": "احفظ كلامك كتفضيل إنت حكيته. الاقتراح الأصلي بضلّ متاح لتحتفظ فيه أو تستبعده.",
-  "xPreferenceSaved": "انحفظ تفضيلك."
+  "xPreferenceSaved": "انحفظ تفضيلك.",
+  "xSortEarliest": "الأقرب أولًا",
+  "xSortLatest": "الأبعد أولًا"
 }

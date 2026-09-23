@@ -27,7 +27,7 @@ export function BackgroundActivityScreen() {
       {items.length === 0 ? <ProductSection title={t.xNoWatches} icon="watch" /> : null}
       {items.map(watch => <ProductSection key={watch.watcherId} title={isolate(watch.source.provider)} icon="watch">
         <Txt role="card">{watch.source.signalKind === 'readiness' ? t.xReadiness : watch.source.signalKind === 'fixture' ? t.xFootball : isolate(watch.source.signalKind)}</Txt>
-        {watch.status === 'blocked' ? <AvailabilityBadge status={watch.blockedReason === 'provider_needs_reauth' ? 'NEEDS_REAUTH' : 'BLOCKED'} /> : <Txt role="label" color={p.ac}>{watch.enabled ? t.xActive : t.xPaused}</Txt>}
+        {watch.status === 'blocked' ? <AvailabilityBadge status={watch.blockedReason === 'provider_needs_reauth' ? 'NEEDS_REAUTH' : 'BLOCKED'} /> : <Txt role="label" color={watch.enabled ? p.success : p.wm}>{watch.enabled ? t.xActive : t.xPaused}</Txt>}
         <Txt role="supporting" color={p.mu}>{t[effectKeys[watch.effect]]} · {t.xBeta}</Txt>
         <Txt role="supporting">{t.xLastObserved}</Txt>
         <Txt role="supporting" color={p.mu}>{watch.lastObservedAt ? `${formatDate(new Date(watch.lastObservedAt), 'short', { locale: lang, timeZone: zone })} · ${formatTime(new Date(watch.lastObservedAt), { locale: lang, timeZone: zone })}` : t.xNotObserved}</Txt>

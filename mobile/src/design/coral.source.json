@@ -1,0 +1,135 @@
+{
+  "name": "MaybeSitter coral continuation",
+  "approved": "2026-09-23",
+  "authority": "Explicit user request: extend the 15 reference screens. Supersedes the R2 teal palette; preserves its navigation, typography, RTL and review contracts.",
+  "references": [
+    {
+      "file": "01-today-reference.png",
+      "sha256": "05b5472c7a4b48c1123768e2f51bb10ce8a53aceda2df87eb67196cc2c23c7d2"
+    },
+    {
+      "file": "02-my-reference.png",
+      "sha256": "fc5455ed7a970f4d7f8cef94744a1029a90a271a25405fca5419589416dfb951"
+    },
+    {
+      "file": "03-commitments-reference.png",
+      "sha256": "940d67fe1a3820258d7d4d8534816d4d3fcc7f46de3258267e4bb8ad00273a68"
+    },
+    {
+      "file": "04-integrations-reference.png",
+      "sha256": "24849c0f5eddc3830c918eb2aff43652f498a6d14d0ef07324e8e4ff78c79e9f"
+    },
+    {
+      "file": "05-assistant-reference.png",
+      "sha256": "06eb67b72d14055c292fbdffb9a5a05d061ea0a5eec920cda85a30602d745277"
+    },
+    {
+      "file": "06-modes-reference.png",
+      "sha256": "bbee90fb540bffc38a3c9a9fc33bd2598d3aa25adb2799b678173e4641848cfa"
+    },
+    {
+      "file": "07-add-reference.png",
+      "sha256": "ddecdbc53881e7f2a15e6d7db7c47767fa673bc3f4a6c68a3527e46d9b80bf47"
+    },
+    {
+      "file": "08-goals-reference.png",
+      "sha256": "1d10b1d21fb605493916b3ea4cff4be089f8cea274b1e707cf0afa528e247256"
+    },
+    {
+      "file": "09-personalization-reference.png",
+      "sha256": "18e92bcc5cb1b086a98316d58d7a17443a369df247bbab584f9a97201143fcf3"
+    },
+    {
+      "file": "10-patch-reference.png",
+      "sha256": "da1d270772f863301826686e4ae691901db06dfa371a19fe969207a3b65df859"
+    },
+    {
+      "file": "11-google-reference.png",
+      "sha256": "d91f6b2c5e46d769e59fa1e3a46c39d74f01d242e361b0715cef1e577b34df6f"
+    },
+    {
+      "file": "12-background-reference.png",
+      "sha256": "9adde4a7f3499ebf0cbd933addeed78a6a3e478c7099e82180914bb611e65df1"
+    },
+    {
+      "file": "13-pdf-reference.png",
+      "sha256": "ed6ca082dfef49555562e6a33ec97b403af4eefcc3aef6d6ae7c99aa8b6cd244"
+    },
+    {
+      "file": "14-habit-reference.png",
+      "sha256": "de5c35f467bd2df421b5ad4349f5336a1efda01d7d12112df730a0213ed33114"
+    },
+    {
+      "file": "15-watch-reference.png",
+      "sha256": "3eb23bb9ad2521635378e8edb5669e3361e1841ec6ac318911af8aad2b7023d9"
+    }
+  ],
+  "colors": {
+    "light": {
+      "background": "#F8F6F6",
+      "glass": "#FFFFFF",
+      "success": "#176B4D",
+      "successContainer": "#E1F3E9",
+      "onSuccess": "#FFFFFF",
+      "surface": "#FFFFFF",
+      "surfaceAlt": "#F0EAEC",
+      "surfaceBar": "rgba(255,255,255,0.88)",
+      "surfaceBarSolid": "#FFFFFF",
+      "textPrimary": "#202122",
+      "textMuted": "#626268",
+      "border": "rgba(20,24,27,0.08)",
+      "borderStrong": "rgba(20,24,27,0.22)",
+      "brand": "#B82F49",
+      "brandContainer": "#FCE4E9",
+      "brandPressed": "#9F233E",
+      "onBrand": "#FFFFFF",
+      "brandOnInk": "#FF8093",
+      "underline": "rgba(184,47,73,0.45)",
+      "must": "#8A6A2E",
+      "mustContainer": "#F3ECDD",
+      "disabled": "#E4E8EA",
+      "onDisabled": "#4F5A5F",
+      "proposal": "rgba(138,106,46,0.60)",
+      "ink": "#14181B",
+      "onInk": "#F5F7F8",
+      "hatch": "rgba(20,24,27,0.10)",
+      "overlay": "rgba(10,14,16,0.45)"
+    },
+    "dark": {
+      "background": "#1C1D1E",
+      "glass": "rgba(255,255,255,0.055)",
+      "success": "#70DEB0",
+      "successContainer": "#253D34",
+      "onSuccess": "#17251F",
+      "surface": "#292A2C",
+      "surfaceAlt": "#343538",
+      "surfaceBar": "rgba(30,31,33,0.90)",
+      "surfaceBarSolid": "#252628",
+      "textPrimary": "#F7F5F5",
+      "textMuted": "#B5B3BA",
+      "border": "rgba(236,239,241,0.10)",
+      "borderStrong": "rgba(236,239,241,0.28)",
+      "brand": "#FF667D",
+      "brandContainer": "#442D34",
+      "brandPressed": "#FF8FA0",
+      "onBrand": "#23181C",
+      "brandOnInk": "#B82F49",
+      "underline": "rgba(255,143,160,0.50)",
+      "must": "#D9B06B",
+      "mustContainer": "rgba(217,176,107,0.16)",
+      "disabled": "#36373A",
+      "onDisabled": "#BEBCC3",
+      "proposal": "rgba(217,176,107,0.65)",
+      "ink": "#F7F5F5",
+      "onInk": "#1C1D1E",
+      "hatch": "rgba(255,255,255,0.08)",
+      "overlay": "rgba(0,0,0,0.55)"
+    }
+  },
+  "notes": [
+    "Reference white-on-bright-coral labels are replaced by dark ink for accessible contrast.",
+    "Light mode uses a deeper coral so links and buttons stay legible.",
+    "Green identifies confirmed states; amber identifies attention. Color is always accompanied by words.",
+    "Glass cards use a quiet white tint over charcoal, with solid modal and reduced-transparency surfaces."
+  ]
+}

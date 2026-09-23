@@ -248,8 +248,8 @@ function PrimaryCard({ primary, lookup, strings, timezone, lang, busy }: {
     case 'allDone':
       return (
         <Card pad={22} style={{ alignItems: 'center', gap: 10 }} testID="today-all-done">
-          <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: p.ac, alignItems: 'center', justifyContent: 'center' }}>
-            <CheckIcon size={22} color={p.onAccent} />
+          <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: p.success, alignItems: 'center', justifyContent: 'center' }}>
+            <CheckIcon size={22} color={p.onSuccess} />
           </View>
           <Txt size={20} weight={600} align="center">{t.todayAllDoneTitle}</Txt>
           <Txt size={14} color={p.mu} align="center">{t.todayAllDoneBody}</Txt>
@@ -459,10 +459,10 @@ function FinishedGroup({ items }: { items: CommitmentView[] }) {
         >
           <View style={{
             width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center',
-            backgroundColor: item.status === 'done' ? p.ac : 'transparent',
+            backgroundColor: item.status === 'done' ? p.success : 'transparent',
             borderWidth: item.status === 'done' ? 0 : 2, borderColor: p.lnStrong,
           }}>
-            {item.status === 'done' ? <CheckIcon color={p.onAccent} /> : null}
+            {item.status === 'done' ? <CheckIcon color={p.onSuccess} /> : null}
           </View>
           <Txt size={15} color={p.mu} style={{ flex: 1, textDecorationLine: 'line-through' }}>{item.title}</Txt>
           <Txt size={12} color={p.mu}>{item.status === 'done' ? t.doneS : t.dropped}</Txt>

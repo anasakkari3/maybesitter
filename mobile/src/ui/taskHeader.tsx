@@ -3,6 +3,7 @@ import { View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { useLayoutMode, type LayoutMode } from '../theme/textScale';
+import { BrandMark } from './brand';
 import { Btn, Txt } from './primitives';
 
 /**
@@ -53,12 +54,12 @@ export function TaskHeader({ pill, onPill, title, end, pillTestID }: {
         gap: 10,
       }}
     >
-      <Btn label={pill} onPress={onPill} testID={pillTestID} style={{ minHeight: 40, backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln, borderRadius: 999, paddingVertical: 8, paddingHorizontal: 16, justifyContent: 'center' }}>
+      <Btn label={pill} onPress={onPill} testID={pillTestID} style={{ minHeight: 44, backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln, borderRadius: 999, paddingVertical: 8, paddingHorizontal: 16, justifyContent: 'center' }}>
         <Txt size={13} weight={600}>{pill}</Txt>
       </Btn>
       {/* Stacked, the name is on its own line: nothing may shrink it. In a
           row it is the only child that can give width back. */}
-      <Txt size={13} color={p.mu} style={stacked ? undefined : { flexShrink: 1 }}>{title}</Txt>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, ...(stacked ? {} : { flexShrink: 1 }) }}>{!stacked ? <BrandMark size={24} /> : null}<Txt size={13} color={p.mu} style={stacked ? undefined : { flexShrink: 1 }}>{title}</Txt></View>
       {stacked
         // No reserve: an absent status must not hold a line open, and the
         // title is no longer being centred between two ends.

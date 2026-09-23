@@ -2,6 +2,7 @@ import React from 'react';
 import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../../state/AppContext';
+import { BrandLockup } from '../../ui/brand';
 import { Btn, Txt } from '../../ui/primitives';
 import { ScreenIn } from '../../ui/motion';
 import { ONBOARDING_STEPS, type OnboardingStep } from '../../lib/deviceSettings/onboardingProgress';
@@ -85,6 +86,7 @@ export function OnboardingChrome({
           contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 24, gap: 16 }}
           keyboardShouldPersistTaps="handled"
         >
+          <BrandLockup compact />
           {/* Tight only for Latin. Arabic and Hebrew keep their script's own line
               height: a 1.3 box clipped the shadda and the hamza off Arabic
               headings on device. */}
@@ -100,7 +102,7 @@ export function OnboardingChrome({
             onPress={primary.disabled ? undefined : primary.onPress}
             style={{
               backgroundColor: primary.disabled ? p.dis : p.ac,
-              borderRadius: 16,
+              borderRadius: 999,
               minHeight: 52,
               alignItems: 'center',
               justifyContent: 'center',

@@ -1,29 +1,16 @@
-// Design tokens, extracted from the Claude Design export (design/) and pinned
-// to its manifest by src/design/tokens.source.json. See src/design/README.md.
-//
-// Two layers, one set of values:
-//   - `color.light` / `color.dark` name the ROLE (background, textPrimary,
-//     brand…). New code uses these.
-//   - `palettes` keeps the short keys the nine shipped screens already use
-//     (bg, sf, tx, ac…) as aliases of the same strings, so the verified design
-//     implementation did not have to be rewritten to gain semantic names.
-//
-// Identity, unchanged from Round 1 to Round 2: neutral greys, one deep-teal
-// accent for actions and "done", one warm sand for "must". Nothing is red
-// anywhere — there is no danger role, because the product has no failure state
-// to paint.
-//
-// Round 2 declares these as CSS custom properties rather than inline literals,
-// and every colour below survived that round byte for byte. What it adds and
-// this file does not carry yet: lnStrong, acd, ul, acOnInk, dis/disTx, prop,
-// ink/onInk, the two shadow roles, a nine-step type ramp and a --ts text-size
-// multiplier. Those land with the screens that use them — see
-// docs/design/round-1-to-round-2.md.
+// Coral continuation, explicitly requested 2026-09-23 from the 15 supplied
+// reference screens. Layout/type/motion retain the verified R2 foundation.
+// See src/design/coral.source.json for the approved palette and provenance.
+// Coral means action; green means confirmed; amber means attention/proposal.
 
 export type Scheme = 'light' | 'dark';
 
 export interface ColorRoles {
   background: string;
+  glass: string;
+  success: string;
+  successContainer: string;
+  onSuccess: string;
   surface: string;
   surfaceAlt: string;
   surfaceBar: string;
@@ -59,58 +46,63 @@ export interface ColorRoles {
 
 export const color: Record<Scheme, ColorRoles> = {
   light: {
-    background: '#F5F7F8',
+    background: '#F8F6F6',
+    glass: '#FFFFFF',
+    success: '#176B4D',
+    successContainer: '#E1F3E9',
+    onSuccess: '#FFFFFF',
     surface: '#FFFFFF',
-    surfaceAlt: '#EDF0F2',
+    surfaceAlt: '#F0EAEC',
     surfaceBar: 'rgba(255,255,255,0.88)',
     surfaceBarSolid: '#FFFFFF',
-    textPrimary: '#14181B',
-    textMuted: '#5F6B70',
+    textPrimary: '#202122',
+    textMuted: '#626268',
     border: 'rgba(20,24,27,0.08)',
     borderStrong: 'rgba(20,24,27,0.22)',
-    brand: '#1F7A8C',
-    brandContainer: '#DFEFF3',
-    brandPressed: '#14586A',
+    brand: '#B82F49',
+    brandContainer: '#FCE4E9',
+    brandPressed: '#9F233E',
     onBrand: '#FFFFFF',
-    brandOnInk: '#9EDCE9',
-    underline: 'rgba(31,122,140,0.40)',
+    brandOnInk: '#FF8093',
+    underline: 'rgba(184,47,73,0.45)',
     must: '#8A6A2E',
     mustContainer: '#F3ECDD',
     disabled: '#E4E8EA',
     onDisabled: '#4F5A5F',
-    proposal: 'rgba(31,122,140,0.50)',
+    proposal: 'rgba(138,106,46,0.60)',
     ink: '#14181B',
     onInk: '#F5F7F8',
     hatch: 'rgba(20,24,27,0.10)',
     overlay: 'rgba(10,14,16,0.45)',
   },
   dark: {
-    background: '#101416',
-    surface: '#1A2023',
-    surfaceAlt: '#242B2F',
-    surfaceBar: 'rgba(26,32,35,0.90)',
-    surfaceBarSolid: '#1A2023',
-    textPrimary: '#ECEFF1',
-    textMuted: '#9AA6AB',
+    background: '#1C1D1E',
+    glass: 'rgba(255,255,255,0.055)',
+    success: '#70DEB0',
+    successContainer: '#253D34',
+    onSuccess: '#17251F',
+    surface: '#292A2C',
+    surfaceAlt: '#343538',
+    surfaceBar: 'rgba(30,31,33,0.90)',
+    surfaceBarSolid: '#252628',
+    textPrimary: '#F7F5F5',
+    textMuted: '#B5B3BA',
     border: 'rgba(236,239,241,0.10)',
     borderStrong: 'rgba(236,239,241,0.28)',
-    brand: '#6FC3D6',
-    brandContainer: 'rgba(111,195,214,0.16)',
-    brandPressed: '#8ED3E3',
-    // Round 1 put white here. White on #6FC3D6 measures 2.01:1, far below the
-    // 4.5:1 minimum; dark ink on the same accent measures 9.22:1, so the app
-    // deviated. Round 2 specifies this value itself (`--onac:#101416`), so the
-    // deviation is closed — see "deviationsResolved" in tokens.source.json.
-    onBrand: '#101416',
-    brandOnInk: '#6FC3D6',
-    underline: 'rgba(142,211,227,0.45)',
+    brand: '#FF667D',
+    brandContainer: '#442D34',
+    brandPressed: '#FF8FA0',
+    // Ink on bright coral keeps normal-size button labels above 4.5:1.
+    onBrand: '#23181C',
+    brandOnInk: '#B82F49',
+    underline: 'rgba(255,143,160,0.50)',
     must: '#D9B06B',
     mustContainer: 'rgba(217,176,107,0.16)',
-    disabled: '#2A3236',
-    onDisabled: '#B4BEC3',
-    proposal: 'rgba(111,195,214,0.55)',
-    ink: '#ECEFF1',
-    onInk: '#101416',
+    disabled: '#36373A',
+    onDisabled: '#BEBCC3',
+    proposal: 'rgba(217,176,107,0.65)',
+    ink: '#F7F5F5',
+    onInk: '#1C1D1E',
     hatch: 'rgba(255,255,255,0.08)',
     // Round 2 deepens the dark scrim and takes the blue out of it:
     // rgba(10,14,16,.45) became rgba(0,0,0,.55).
@@ -120,6 +112,7 @@ export const color: Record<Scheme, ColorRoles> = {
 
 export type Palette = {
   bg: string; sf: string; sf2: string; sfBar: string;
+  glass: string; success: string; successSoft: string; onSuccess: string;
   tx: string; mu: string; ln: string;
   ac: string; acs: string; wm: string; wms: string;
   hatch: string; scrim: string; onAccent: string;
@@ -136,6 +129,7 @@ function paletteFor(scheme: Scheme, shadow: boolean): Palette {
   const c = color[scheme];
   return {
     bg: c.background, sf: c.surface, sf2: c.surfaceAlt, sfBar: c.surfaceBar,
+    glass: c.glass, success: c.success, successSoft: c.successContainer, onSuccess: c.onSuccess,
     tx: c.textPrimary, mu: c.textMuted, ln: c.border,
     ac: c.brand, acs: c.brandContainer, wm: c.must, wms: c.mustContainer,
     hatch: c.hatch, scrim: c.overlay, onAccent: c.onBrand,

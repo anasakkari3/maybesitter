@@ -1131,5 +1131,7 @@
   "xExplore": "אפשרויות נוספות ב-MaybeSitter",
   "xPreviewDetails": "פתיחת תצוגה מקדימה",
   "xEditLearningBody": "שמירת הניסוח שלך כהעדפה שציינת. ההצעה המקורית תישאר זמינה לשמירה או לדחייה.",
-  "xPreferenceSaved": "ההעדפה שלך נשמרה."
+  "xPreferenceSaved": "ההעדפה שלך נשמרה.",
+  "xSortEarliest": "מהמוקדם למאוחר",
+  "xSortLatest": "מהמאוחר למוקדם"
 }

@@ -32,7 +32,7 @@ import { CalendarIcon, MicIcon, SettingsIcon, TodayIcon } from '../ui/icons';
  * painted under the icon.
  */
 export function TabBar() {
-  const { s, t, p, scheme, actions } = useApp();
+  const { s, t, p, scheme, reduceTransparency, actions } = useApp();
   const insets = useSafeAreaInsets();
   const mode = useLayoutMode();
   const scale = useTextScale();
@@ -50,7 +50,7 @@ export function TabBar() {
 
   const Tab = ({ screen, label, testID, icon }: { screen: Screen; label: string; testID: string; icon: (c: string) => React.ReactNode }) => {
     const on = s.screen === screen;
-    const color = on ? p.ac : p.mu;
+    const color = on ? p.ac : p.tx;
     const [slot, setSlot] = useState(0);
     return (
       <Btn
@@ -58,7 +58,8 @@ export function TabBar() {
         label={label}
         testID={testID}
         scaleTo={0.92}
-        style={{ flex: 1, alignItems: 'center', gap: 3, paddingVertical: 6, minHeight: 48 }}
+        accessibilityState={{ selected: on }}
+        style={{ flex: 1, borderRadius: 999, backgroundColor: on ? p.sf2 : 'transparent', alignItems: 'center', gap: 3, paddingVertical: 6, minHeight: 48 }}
       >
         <View onLayout={(e: LayoutChangeEvent) => setSlot(e.nativeEvent.layout.width)} style={{ alignItems: 'center', gap: 3, alignSelf: 'stretch' }}>
           {icon(color)}
@@ -83,7 +84,7 @@ export function TabBar() {
         barShadow(p),
       ]}
     >
-      {Platform.OS === 'ios' ? (
+      {Platform.OS === 'ios' && !reduceTransparency ? (
         <BlurView intensity={40} tint={scheme === 'dark' ? 'dark' : 'light'} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />
       ) : null}
       <View style={{ backgroundColor: p.sfBar, padding: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>

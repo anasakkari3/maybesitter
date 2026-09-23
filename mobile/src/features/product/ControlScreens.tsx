@@ -9,15 +9,16 @@ import { LANGUAGE_ENDONYM } from '../../i18n/language';
 import { isolate } from '../../i18n/bidi';
 import { dayKey } from '../../i18n/format';
 import { useTimeZone } from '../../i18n/timezone';
+import { BrandMark } from '../../ui/brand';
 import { Pill, Txt } from '../../ui/primitives';
-import { ProductPage, ProductSection, ProductRow, ProductIcon, PreviewNotice, PreviewAction } from '../../ui/product';
+import { ProductPage, ProductSection, ProductRow, PreviewNotice, PreviewAction } from '../../ui/product';
 import { capabilities as cap } from './capabilities';
 
 export function MyMaybeSitterScreen() {
   const { t, actions, lang } = useApp();
   const { user } = useAuth();
   return <ProductPage id="my" title={t.xMy} subtitle={t.xMyBody}>
-    <View style={{ alignItems: 'center', gap: 10, paddingVertical: 12 }}><ProductIcon name="person" /></View>
+    <View style={{ alignItems: 'center', gap: 10, paddingVertical: 12 }}><BrandMark size={76} /></View>
     <ProductSection title={t.accountTitle} icon="person">
       <ProductRow title={t.xName} body={user?.displayName ? isolate(user.displayName) : t.xNotSet} icon="person" />
       <ProductRow title={t.accountTitle} body={user?.email ? isolate(user.email) : t.authSignedInPrivateApple} icon="shield" onPress={() => actions.go('account')} />

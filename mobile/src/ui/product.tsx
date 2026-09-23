@@ -4,6 +4,7 @@ import Svg, { Path } from 'react-native-svg';
 import { useApp } from '../state/AppContext';
 import { Btn, Card, Pill, Txt } from './primitives';
 import { Screen, ScreenScroll } from './screen';
+import { BrandLockup } from './brand';
 import { BackButton } from './chrome';
 import { useLayoutMode } from '../theme/textScale';
 import { ChevronIcon } from './icons';
@@ -34,14 +35,21 @@ export function ProductIcon({ name = 'spark', quiet = false }: { name?: ProductI
 export function AvailabilityBadge({ status }: { status: Availability }) {
   const { t, p } = useApp();
   const future = status === 'COMING_SOON';
-  return <View style={{ alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: future ? p.sf2 : p.wms }}>
-    <Txt role="metadata" color={future ? p.mu : p.wm}>{t[availabilityKey[status]]}</Txt>
+  const available = status === 'LIVE' || status === 'AVAILABLE';
+  return <View style={{ alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: future ? p.sf2 : available ? p.successSoft : p.wms }}>
+    <Txt role="metadata" color={future ? p.mu : available ? p.success : p.wm}>{t[availabilityKey[status]]}</Txt>
   </View>;
 }
 export function ProductPage({ title, subtitle, children, id, overlay }: { title: string; subtitle?: string; children: React.ReactNode; id: string; overlay?: React.ReactNode }) {
   const { actions, p, t } = useApp();
   const stacked = useLayoutMode() !== 'normal';
-  return <Screen overlay={overlay} testID={`product-${id}`} pinned={<View style={{ flexDirection: stacked ? 'column' : 'row', gap: 12, alignItems: stacked ? 'flex-start' : 'center', paddingBottom: 6 }}><BackButton label={t.back} onPress={() => actions.back()} />{!stacked ? <View style={{ flexShrink: 1 }}><Txt role="section">{title}</Txt></View> : null}</View>}>
+  return <Screen overlay={overlay} testID={`product-${id}`} pinned={<View style={{ gap: 12, paddingBottom: 6 }}>
+    {!stacked ? <BrandLockup compact /> : null}
+    <View style={{ flexDirection: stacked ? 'column' : 'row', gap: 12, alignItems: stacked ? 'flex-start' : 'center' }}>
+      <BackButton label={t.back} onPress={() => actions.back()} />
+      {!stacked ? <View style={{ flexShrink: 1 }}><Txt role="section">{title}</Txt></View> : null}
+    </View>
+  </View>}>
     <ScreenScroll testID={`product-scroll-${id}`} gap={16} keyboardShouldPersistTaps="handled">
       {stacked ? <Txt role="section">{title}</Txt> : null}
       {subtitle ? <Txt role="supporting" color={p.mu}>{subtitle}</Txt> : null}
@@ -77,7 +85,7 @@ export function ProductRow({ title, body, icon = 'spark', onPress, status, id }:
     </View>
     {onPress && !stacked ? <ChevronIcon color={p.mu} rtl={rtl} /> : null}
   </>;
-  const style = { padding: grouped ? 4 : 16, paddingVertical: grouped ? 12 : 16, gap: 12, borderRadius: grouped ? 0 : 22, borderWidth: grouped ? 0 : 1, borderBottomWidth: 1, borderColor: p.ln, backgroundColor: p.sf, flexDirection: stacked ? 'column' as const : 'row' as const, alignItems: 'flex-start' as const, minHeight: 72 };
+  const style = { padding: grouped ? 4 : 16, paddingVertical: grouped ? 12 : 16, gap: 12, borderRadius: grouped ? 0 : 22, borderWidth: grouped ? 0 : 1, borderBottomWidth: 1, borderColor: p.ln, backgroundColor: grouped ? 'transparent' : p.glass, flexDirection: stacked ? 'column' as const : 'row' as const, alignItems: 'flex-start' as const, minHeight: 72 };
   return onPress ? <Btn testID={id} label={[title, body].filter(Boolean).join('. ')} onPress={onPress} style={style}>{content}</Btn> : <View testID={id} style={style}>{content}</View>;
 }
 export function PreviewNotice() {

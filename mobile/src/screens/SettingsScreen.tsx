@@ -51,37 +51,37 @@ export function SettingsScreen() {
         <ProductRow id="settings-my" title={t.xMy} body={t.xMyBody} icon="person" onPress={() => actions.go('myMaybeSitter')} />
 
         <Group title={t.settingsGroupYou}>
-          <SettingsRow first label={t.settingsRoutine} sub={t.settingsRoutineSub} onPress={() => actions.go('routineSettings')} testID="settings-routine" />
-          <SettingsRow label={t.settingsEnergy} sub={t.settingsEnergySub} onPress={() => actions.go('readinessSettings')} testID="settings-readiness" />
-          <SettingsRow label={t.settingsParts} sub={t.settingsPartsSub} onPress={() => actions.go('categorySettings')} testID="settings-categories" />
-          <SettingsRow label={t.settingsLangAppearance} value={`${languageValue} · ${themeValue}`} onPress={() => actions.go('langAppearance')} testID="settings-language" />
+          <SettingsRow first label={t.settingsRoutine} sub={t.settingsRoutineSub} onPress={() => actions.go('routineSettings')} icon="calendar" testID="settings-routine" />
+          <SettingsRow label={t.settingsEnergy} sub={t.settingsEnergySub} onPress={() => actions.go('readinessSettings')} icon="habit" testID="settings-readiness" />
+          <SettingsRow label={t.settingsParts} sub={t.settingsPartsSub} onPress={() => actions.go('categorySettings')} icon="goal" testID="settings-categories" />
+          <SettingsRow label={t.settingsLangAppearance} value={`${languageValue} · ${themeValue}`} onPress={() => actions.go('langAppearance')} icon="spark" testID="settings-language" />
         </Group>
 
         <Group title={t.settingsGroupConnections}>
-          <SettingsRow first label={t.xIntegrations} onPress={() => actions.go('integrations')} testID="settings-integrations" />
-          <SettingsRow label={t.xBackground} onPress={() => actions.go('backgroundActivity')} testID="settings-background" />
-          <SettingsRow first label={t.calendarWriteTitle} sub={calendarOn ? t.settingsCalendarSubOn : t.settingsCalendarSubOff} onPress={() => actions.go('calendarSettings')} testID="settings-calendar" />
-          <SettingsRow label={t.settingsSources} sub={t.settingsSourcesSub} onPress={() => actions.go('sources')} testID="settings-sources" />
+          <SettingsRow first label={t.xIntegrations} onPress={() => actions.go('integrations')} icon="link" testID="settings-integrations" />
+          <SettingsRow label={t.xBackground} onPress={() => actions.go('backgroundActivity')} icon="watch" testID="settings-background" />
+          <SettingsRow first label={t.calendarWriteTitle} sub={calendarOn ? t.settingsCalendarSubOn : t.settingsCalendarSubOff} onPress={() => actions.go('calendarSettings')} icon="calendar" testID="settings-calendar" />
+          <SettingsRow label={t.settingsSources} sub={t.settingsSourcesSub} onPress={() => actions.go('sources')} icon="link" testID="settings-sources" />
         </Group>
 
         <Group title={t.settingsGroupReminders}>
-          <SettingsRow first label={t.notifTitle} sub={t.settingsRemindersSub} onPress={() => actions.go('notificationsSettings')} testID="settings-notifications" />
+          <SettingsRow first label={t.notifTitle} sub={t.settingsRemindersSub} onPress={() => actions.go('notificationsSettings')} icon="watch" testID="settings-notifications" />
           <SettingsRow
             label={t.settingsMorning}
             sub={morning ? (morning.enabled ? fill(t.settingsMorningSub, { t: ltr(morning.deliveryLocalTime) }) : t.settingsMorningOff) : undefined}
             onPress={() => actions.go('notificationsSettings')}
-            testID="settings-morning"
+            icon="calendar" testID="settings-morning"
           />
-          <SettingsRow label={t.settingsWidget} sub={t.settingsWidgetSub} onPress={() => actions.go('widgetSettings')} testID="settings-widget" />
+          <SettingsRow label={t.settingsWidget} sub={t.settingsWidgetSub} onPress={() => actions.go('widgetSettings')} icon="calendar" testID="settings-widget" />
         </Group>
 
         <Group title={t.settingsGroupTrust}>
-          <SettingsRow first label={t.xPersonalization} onPress={() => actions.go('personalization')} testID="settings-personalization" />
-          <SettingsRow first label={t.settingsKnows} sub={memoryCount === undefined ? undefined : tr('settingsKnowsSub', { n: memoryCount })} onPress={() => actions.go('knows')} testID="settings-knows" />
-          <SettingsRow label={t.sTrust} onPress={() => actions.go('trust')} testID="settings-trust" />
-          <SettingsRow label={t.activityTitle} onPress={() => actions.go('activity')} testID="settings-activity" />
-          {user ? <SettingsRow label={t.accountTitle} sub={user.email ? fill(t.settingsAccountSub, { email: ltr(user.email) }) : t.authSignedInPrivateApple} onPress={() => actions.go('account')} testID="settings-account" /> : null}
-          <SettingsRow label={t.settingsAbout} onPress={() => actions.go('about')} testID="settings-about" />
+          <SettingsRow first label={t.xPersonalization} onPress={() => actions.go('personalization')} icon="person" testID="settings-personalization" />
+          <SettingsRow first label={t.settingsKnows} sub={memoryCount === undefined ? undefined : tr('settingsKnowsSub', { n: memoryCount })} onPress={() => actions.go('knows')} icon="habit" testID="settings-knows" />
+          <SettingsRow label={t.sTrust} onPress={() => actions.go('trust')} icon="shield" testID="settings-trust" />
+          <SettingsRow label={t.activityTitle} onPress={() => actions.go('activity')} icon="file" testID="settings-activity" />
+          {user ? <SettingsRow label={t.accountTitle} sub={user.email ? fill(t.settingsAccountSub, { email: ltr(user.email) }) : t.authSignedInPrivateApple} onPress={() => actions.go('account')} icon="person" testID="settings-account" /> : null}
+          <SettingsRow label={t.settingsAbout} onPress={() => actions.go('about')} icon="spark" testID="settings-about" />
         </Group>
 
         {/* Only when the feature is compiled in and a feed hub exists: a row

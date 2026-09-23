@@ -9,6 +9,7 @@ import {
 } from '../i18n/language';
 import { googleCalendarDemoEnabled } from '../config/env';
 import { loadThemePref, saveThemePref } from '../lib/deviceSettings/theme';
+import { useReducedTransparency } from '../theme/useReducedTransparency';
 import { palettes, type Palette, type Scheme } from '../theme/tokens';
 import type { Screen, Sheet, ThemePref, Toast } from './types';
 import * as nav from './navigation';
@@ -85,7 +86,10 @@ function useAppModel() {
   // ICU-aware, key-checked `t` for the three count messages `fill` cannot
   // inflect (confirmN, lockedTitle, progressWords). See src/i18n/README.md.
   const tr = useMemo(() => tFor(lang), [lang]);
-  const p: Palette = palettes[scheme];
+  const reduceTransparency = useReducedTransparency();
+  const p: Palette = useMemo(() => reduceTransparency
+    ? { ...palettes[scheme], glass: palettes[scheme].sf, sfBar: palettes[scheme].sfBarSolid }
+    : palettes[scheme], [scheme, reduceTransparency]);
 
   // Read the persisted preference once, then keep i18next on whatever language
   // the app is actually rendering, so `tr` and the screens never disagree.
@@ -231,7 +235,7 @@ function useAppModel() {
   };
 
   return {
-    s, t, tr, p, lang, langPref, scheme, themePref, actions,
+    s, t, tr, p, lang, langPref, scheme, themePref, reduceTransparency, actions,
     /**
      * Which way the UI reads. Arabic and Hebrew both go right to left; `Root`
      * is the single place that acts on it (`direction` on the root view).

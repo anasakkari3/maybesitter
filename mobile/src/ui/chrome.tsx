@@ -4,6 +4,7 @@ import { useApp } from '../state/AppContext';
 import { Shimmer } from './motion';
 import { Btn, Txt } from './primitives';
 import { useLayoutMode } from '../theme/textScale';
+import { BrandLockup, BrandMark } from './brand';
 import { ChevronIcon, TodayIcon } from './icons';
 
 /** Equal actions at ordinary sizes; full-width answers when text needs room. */
@@ -17,7 +18,7 @@ export function ActionRow({ children, testID }: { children: React.ReactNode; tes
 export function BackButton({ label, onPress }: { label: string; onPress: () => void }) {
   const { p, rtl } = useApp();
   return <Btn label={label} onPress={onPress} testID="header-back" scaleTo={0.97}
-    style={{ alignSelf: 'flex-start', minHeight: 44, paddingHorizontal: 4, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+    style={{ alignSelf: 'flex-start', minHeight: 44, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1, borderColor: p.ln, backgroundColor: p.glass, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
     <ChevronIcon color={p.mu} rtl={rtl} back />
     <Txt role="action" color={p.tx} style={{ flexShrink: 1 }}>{label}</Txt>
   </Btn>;
@@ -47,10 +48,12 @@ export function ScreenHeader({ eyebrow, title, end, eyebrowTestID }: {
   eyebrowTestID?: string | undefined;
 }) {
   const { p } = useApp();
+  const compact = useLayoutMode() !== 'normal';
   return (
-    // `flex-start` rather than `flex-end`: at the accessibility text sizes the
-    // title block is taller than the screen's own header, and an end slot
-    // aligned to its bottom slid down into the tab bar (found on device, AX5).
+    <View style={{ gap: 16 }}>
+      {!compact ? <BrandLockup /> : null}
+    {/* `flex-start` rather than `flex-end`: at the accessibility text sizes the
+    title block stays start-aligned at accessibility sizes. */}
     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, paddingHorizontal: 4 }}>
       <View style={{ gap: 2, flexShrink: 1 }}>
         {/* One line, always. The eyebrow is a date or a range — secondary by
@@ -62,6 +65,7 @@ export function ScreenHeader({ eyebrow, title, end, eyebrowTestID }: {
         <Txt role="page">{title}</Txt>
       </View>
       {end ?? null}
+    </View>
     </View>
   );
 }
@@ -89,7 +93,7 @@ export function BackHeader({ title, onBack, end, backLabel }: {
     <View testID="back-header" style={{ gap: 10 }}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <BackButton label={label} onPress={onBack} />
-        {end ?? null}
+        {end ?? <BrandMark size={28} />}
       </View>
       <View style={{ alignItems: 'flex-start' }}><Txt role="page">{title}</Txt></View>
     </View>
@@ -111,7 +115,7 @@ export function Tag({ kind, label, testID }: { kind: TagKind; label: string; tes
   const { p } = useApp();
   const look: Record<TagKind, { bg?: string; fg: string; border?: string; dashed?: boolean; weight: 400 | 600 }> = {
     proposal: { fg: p.mu, border: p.prop, dashed: true, weight: 400 },
-    saved: { bg: p.acs, fg: p.acd, weight: 600 },
+    saved: { bg: p.successSoft, fg: p.success, weight: 600 },
     started: { bg: p.acs, fg: p.acd, weight: 600 },
     fixed: { bg: p.sf2, fg: p.mu, weight: 400 },
     estimated: { bg: p.sf2, fg: p.mu, weight: 400 },
@@ -123,7 +127,7 @@ export function Tag({ kind, label, testID }: { kind: TagKind; label: string; tes
   return (
     <View
       style={{
-        alignSelf: 'flex-start', borderRadius: 8, paddingVertical: 3, paddingHorizontal: 8,
+        alignSelf: 'flex-start', borderRadius: 999, paddingVertical: 4, paddingHorizontal: 10,
         backgroundColor: l.bg ?? 'transparent',
         borderWidth: l.border ? 1 : 0, borderColor: l.border, borderStyle: l.dashed ? 'dashed' : 'solid',
       }}
