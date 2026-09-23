@@ -10,10 +10,12 @@
  * comes back as null rather than as an empty string, so the client can say "this
  * is no longer on your list" instead of rendering a blank row.
  */
-import type { PlanItemChange, TimeInterval, UnscheduledItem } from '../../../src/contracts/v1/planningContracts';
+import type { PlanItemChange, PlanningItem, TimeInterval, UnscheduledItem } from '../../../src/contracts/v1/planningContracts';
 import { ownershipOf } from '../../../src/contracts/v1/scheduleBlockContracts';
+import { withinMaxShift } from '../../planning/scheduler';
+import { toEpochMs } from '../../planning/shared/time';
 import { effectiveSchedule } from './planActions';
-import { pendingProposalOf, type StoredDailyPlan } from './planStore';
+import { pendingProposalOf, type StoredDailyPlan, type StoredPlanProposal } from './planStore';
 
 export interface PlanItemDto {
   readonly itemId: string;
@@ -182,6 +184,39 @@ export interface PlanProposalChangeDto {
  * a client can render the proposed day beside the current one without
  * replaying the diff itself. `changes` is what moved between them.
  */
+/**
+ * What the patch would do to one block the user protected (#522, #523).
+ *
+ * Without this the review surface is physically unable to say "this moves an
+ * hour you protected": `planToDto.protections` describes the plan *in force*,
+ * and a proposal is a different placement of the same blocks. A person asked
+ * to approve a patch that overrides their own declaration, on a screen that
+ * cannot show them it does, has not consented to it.
+ *
+ * `overridden` is decided by the scheduler's own `withinMaxShift`, given the
+ * real `PlanningItem` from the stored request with the block's *current*
+ * protection substituted — never by a second copy of that arithmetic here, and
+ * never by the client. The protection lives on the block (the protect mutation
+ * writes there), while the bound's semantics live in the solver; this joins the
+ * two rather than restating either.
+ *
+ * A protected block the patch leaves unscheduled is `overridden` with a null
+ * `proposedInterval`: taking the placement away entirely is the strongest
+ * override there is, not the absence of one.
+ */
+export interface ProposedProtectionDto {
+  readonly blockId: string;
+  readonly itemId: string;
+  readonly title: string | null;
+  readonly origin: string;
+  /** What the user declared they wanted kept. */
+  readonly preferredInterval: TimeInterval | null;
+  readonly maxShiftMinutes: number | null;
+  /** Where the patch would put it; null when the patch leaves it unplaced. */
+  readonly proposedInterval: TimeInterval | null;
+  readonly overridden: boolean;
+}
+
 export interface PendingPlanProposalDto {
   readonly proposalId: string;
   readonly proposedAt: string;
@@ -195,6 +230,11 @@ export interface PendingPlanProposalDto {
   readonly scheduled: readonly PlanItemDto[];
   readonly unscheduled: readonly UnplacedItemDto[];
   readonly changes: readonly PlanProposalChangeDto[];
+  /**
+   * Every protected block, and what the patch would do to it. Unprotected
+   * blocks are absent, on the same terms as `DailyPlanDto.protections`.
+   */
+  readonly protections: readonly ProposedProtectionDto[];
 }
 
 function proposalChangeDto(change: PlanItemChange, titles: ReadonlyMap<string, string>): PlanProposalChangeDto {
@@ -264,5 +304,38 @@ export function pendingProposalToDto(
       blockId: blockByItemId.get(item.itemId) ?? null,
     })),
     changes: proposal.diff.changes.map((change) => proposalChangeDto(change, titles)),
+    protections: proposedProtections(stored, proposal.plan, titles),
   };
+}
+
+function proposedProtections(
+  stored: StoredDailyPlan,
+  plan: StoredPlanProposal['plan'],
+  titles: ReadonlyMap<string, string>,
+): ProposedProtectionDto[] {
+  const placed = new Map(plan.scheduled.map((item) => [item.itemId, item.interval] as const));
+  // The solver's own view of each item, as the stored request holds it. The
+  // protection is taken from the block instead, because the protect mutation
+  // writes there and the request may be a generation behind it.
+  const itemById = new Map(stored.constraints.items.map((item) => [item.itemId, item] as const));
+
+  return (stored.blocks ?? []).flatMap((block) => {
+    const protection = block.protection ?? null;
+    if (protection === null || ownershipOf(block) !== 'protected_flexible') return [];
+    const proposedInterval = placed.get(block.source.id) ?? null;
+    const item = itemById.get(block.source.id);
+    const overridden = proposedInterval === null
+      || item === undefined
+      || !withinMaxShift({ ...item, protection } satisfies PlanningItem, toEpochMs(proposedInterval.startsAt));
+    return [{
+      blockId: block.blockId,
+      itemId: block.source.id,
+      title: titles.get(block.source.id) ?? null,
+      origin: protection.origin,
+      preferredInterval: protection.preferredInterval,
+      maxShiftMinutes: protection.maxShiftMinutes,
+      proposedInterval,
+      overridden,
+    }];
+  });
 }

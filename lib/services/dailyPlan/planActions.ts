@@ -52,7 +52,7 @@ import { ownershipOf, type ScheduleBlock } from '../../../src/contracts/v1/sched
 import { getStorage, type StorageAdapter } from '../../storage';
 import { readActivityStats, recordActivityEvents } from '../activity/activityStats';
 import { earliestLedgerAcceptance, planEventAsRecord } from '../activity/planActivity';
-import { applyEditsToBlocks, protectionOf, schedulePlan } from '../../planning/scheduler';
+import { applyEditsToBlocks, protectionAfterMove, protectionOf, schedulePlan } from '../../planning/scheduler';
 import {
   appendPlanEvent,
   mutateStoredPlan,
@@ -60,12 +60,12 @@ import {
   preparePlanEvent,
   readStoredPlan,
   replaceStoredPlan,
-  replaceStoredPlanIfBaseMatches,
   type DailyPlanStatus,
   type PlanEdits,
   type PlanEvent,
   type PlanMove,
   type StoredDailyPlan,
+  type StoredPlanProposal,
 } from './planStore';
 import { MAX_PLAN_GENERATIONS_PER_DAY } from './planSettings';
 import { composeDailyPlan, type DailyPlanDeps } from './dailyPlanService';
@@ -599,7 +599,22 @@ function blocksForAcceptedProposal(
     if (block.mobility !== 'flexible') return [block];
     const interval = placed.get(block.source.id) ?? null;
     if (interval !== null) {
-      return [{ ...block, currentInterval: interval, lastPlacedBy: 'planner' as const, lastPlanGeneration: generation }];
+      return [{
+        ...block,
+        currentInterval: interval,
+        lastPlacedBy: 'planner' as const,
+        lastPlanGeneration: generation,
+        // Explicitly re-anchored, not carried through. #522's rule is that a
+        // successful user move becomes the new preferred placement
+        // (`applyEditsToBlocks` calls this for a drag), and accepting a patch
+        // is a deliberate user act with the same standing — the person was
+        // shown the move and said yes. Carrying the old preference through
+        // would leave the block asserting it prefers an hour it no longer
+        // occupies, a state `withinMaxShift` rejects, and
+        // `projectBlockProtectionIntoPlanningConstraints` would then pull the
+        // item back on the next regeneration and silently undo the approval.
+        protection: protectionAfterMove(block.protection, interval),
+      }];
     }
     if (unplaced.has(block.source.id)) return [{ ...block, currentInterval: null }];
     return [];
@@ -616,14 +631,27 @@ function blocksForAcceptedProposal(
  *
  * ── The guard is the stronger one, and it is the write's own ─────
  *
- * `replaceStoredPlanIfBaseMatches`, not `replaceStoredPlan`: a patch is a
- * claim about a particular plan state, and a document carrying the expected
- * generation with a different `inputDigest` is not that state. The
- * `pendingProposalOf` check below decides whether to *offer* the accept; it
- * decides nothing about whether the write may land, because between that read
- * and the write a concurrent regeneration can move the document. Both numbers
- * are therefore re-compared inside the transaction, and a refusal writes
- * nothing at all.
+ * The whole acceptance happens inside `mutateStoredPlan`'s transaction: the
+ * proposal is re-checked there, and **the replacement document is built from
+ * the transaction's own `current`**, never from a read taken before it.
+ *
+ * A compare-and-set over a document assembled outside the transaction is not
+ * enough here, and the reason is the premise this file's header states: none
+ * of `acceptPlan`, `dismissPlan`, `editPlan` or `setBlockProtection` moves
+ * `generation` or `inputDigest`. So an edit landing between an outside read
+ * and the write passes *any* `(generation, inputDigest)` guard untouched and
+ * is then overwritten with pre-read values — the user's removal destroyed,
+ * their `status` reverted, and the patch installed on a plan that had just
+ * been edited under it, which is precisely the orphan this slice exists to
+ * make impossible. A guard that only sees the two numbers nothing moves is a
+ * guard that cannot see the dangerous case.
+ *
+ * Re-running `pendingProposalOf` inside the transaction subsumes that CAS
+ * rather than weakening it: it compares the patch's base against the document
+ * the transaction actually read — generation *and* `inputDigest`, the
+ * stronger pair — and it additionally catches the mutators, because every one
+ * of them clears `proposal` and a cleared field is `no_proposal`. A refusal
+ * writes nothing at all: `mutateStoredPlan`'s mutator returns null.
  *
  * ── What the accepted document says ──────────────────────────────
  *
@@ -660,50 +688,58 @@ export async function acceptPlanProposal(
   options: PlanActionOptions = {},
 ): Promise<StoredDailyPlan | null> {
   const at = clockOf(options).toISOString();
-  const current = await readStoredPlan(uid, date, options.storage);
-  if (!current) return null;
+  let rejection: PlanProposalRejected | null = null;
+  let accepted: StoredPlanProposal | null = null;
 
-  const proposal = pendingProposalOf(current);
-  if (!proposal) {
-    throw new PlanProposalRejected(
-      current.proposal ? 'stale_proposal' : 'no_proposal',
-      current.proposal
-        ? 'the proposed change describes a plan that has since moved on'
-        : 'there is no proposed change to accept for this plan',
-    );
-  }
+  const outcome = await mutateStoredPlan<null>(uid, date, (current) => {
+    // Re-read inside the transaction, and everything below is derived from
+    // *this* `current`. See the header: a document assembled from an earlier
+    // read clobbers whatever landed in between.
+    const proposal = pendingProposalOf(current);
+    if (!proposal) {
+      // Recorded rather than thrown, for the reason `editPlan` records its
+      // refusal: throwing out of a transaction body is retried by the adapter,
+      // and a deterministic refusal does not become true on the second go.
+      rejection = new PlanProposalRejected(
+        current.proposal ? 'stale_proposal' : 'no_proposal',
+        current.proposal
+          ? 'the proposed change describes a plan that has since moved on'
+          : 'there is no proposed change to accept for this plan',
+      );
+      return null;
+    }
+    accepted = proposal;
 
-  const generation = current.generation + 1;
-  // The moves go, the removals stay. See the header above.
-  const edits: PlanEdits = { moves: [], removals: current.edits.removals };
-  const status: DailyPlanStatus = current.status === 'edited' && edits.removals.length === 0
-    ? (current.acceptedAt === null ? 'proposed' : 'accepted')
-    : current.status;
-  const document: StoredDailyPlan = {
-    ...current,
-    generation,
-    replaces: { generation: current.generation, inputDigest: current.inputDigest },
-    plan: proposal.plan,
-    blocks: blocksForAcceptedProposal(current.blocks ?? [], proposal.plan, generation),
-    edits,
-    status,
-    updatedAt: at,
-    causeChangeIds: proposal.causeChangeIds,
-    proposal: null,
-  };
+    const generation = current.generation + 1;
+    // The moves go, the removals stay. See the header above.
+    const edits: PlanEdits = { moves: [], removals: current.edits.removals };
+    const status: DailyPlanStatus = current.status === 'edited' && edits.removals.length === 0
+      ? (current.acceptedAt === null ? 'proposed' : 'accepted')
+      : current.status;
+    return {
+      next: {
+        ...current,
+        generation,
+        replaces: { generation: current.generation, inputDigest: current.inputDigest },
+        plan: proposal.plan,
+        blocks: blocksForAcceptedProposal(current.blocks ?? [], proposal.plan, generation),
+        edits,
+        status,
+        updatedAt: at,
+        causeChangeIds: proposal.causeChangeIds,
+        proposal: null,
+      },
+      result: null,
+    };
+  }, options.storage);
 
-  const stored = await replaceStoredPlanIfBaseMatches(
-    uid,
-    document,
-    { generation: proposal.baseGeneration, inputDigest: proposal.baseInputDigest },
-    options.storage,
-  );
-  if (!stored) {
-    throw new PlanProposalRejected(
-      'stale_proposal',
-      'the plan changed while the proposed change was being accepted',
-    );
-  }
+  if (rejection) throw rejection;
+  // Not a refusal — the mutator only returns null with `rejection` set — so
+  // this is the date having no plan at all, which is the 404 every other
+  // action here answers.
+  if (!outcome) return null;
+  const stored = outcome.stored;
+  const causeChangeIds = accepted!.causeChangeIds;
 
   // `plan_regenerated` and not a sixth ledger type: the fact recorded is that
   // the plan in force was replaced by a new generation, which is what
@@ -716,7 +752,7 @@ export async function acceptPlanProposal(
     at,
     generation: stored.generation,
     inputDigest: stored.inputDigest,
-    ...(proposal.causeChangeIds.length > 0 ? { causeChangeIds: proposal.causeChangeIds } : {}),
+    ...(causeChangeIds.length > 0 ? { causeChangeIds } : {}),
   }, options.storage);
   return stored;
 }

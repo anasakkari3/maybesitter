@@ -223,6 +223,15 @@ interface ProposalBody {
     causeChangeIds: string[];
     scheduled: Array<{ itemId: string; title: string | null; startsAt: string; blockId: string | null }>;
     unscheduled: unknown[];
+    protections: Array<{
+      blockId: string;
+      itemId: string;
+      title: string | null;
+      preferredInterval: TimeInterval | null;
+      maxShiftMinutes: number | null;
+      proposedInterval: TimeInterval | null;
+      overridden: boolean;
+    }>;
     changes: Array<{
       kind: string;
       itemId: string;
@@ -501,6 +510,14 @@ test('a protected block the patch re-places keeps its protection', async () => {
     assert.ok(moved?.protection, 'a reschedule is not a release: #522\'s declaration must survive');
     assert.equal(moved.protection.ownership, 'protected_flexible');
     assert.equal(moved.protection.maxShiftMinutes, 45);
+    // Re-anchored, exactly as a user's own drag re-anchors it. A preference
+    // still naming the old hour is a state `withinMaxShift` rejects, and the
+    // next regeneration would pull the item back and undo the approval.
+    assert.deepEqual(
+      moved.protection.preferredInterval,
+      proposal.plan.scheduled.find((item) => item.itemId === kept)!.interval,
+      'accepting a move must become the new preferred placement',
+    );
     assert.deepEqual(
       moved.currentInterval,
       proposal.plan.scheduled.find((item) => item.itemId === kept)!.interval,
@@ -817,6 +834,133 @@ test('a repeated protection that changes nothing keeps the offer it did not inva
     })).status, 200);
 
     assert.ok((await get()).body.proposal, 'a no-op protection must not throw away a live offer');
+  });
+});
+
+/* ── The lost update accept's own transaction must not allow ─────── */
+
+/**
+ * The race the `(generation, inputDigest)` guard is blind to.
+ *
+ * The existing race case lands a writer that changes the digest, which is the
+ * one thing such a guard can see. The dangerous writer is the ordinary one:
+ * `editPlan` moves neither number, so a document assembled before it landed
+ * passes every compare-and-set and then overwrites the edit with pre-read
+ * values — the removal destroyed, the status reverted, and the patch installed
+ * on a plan that had just been edited under it.
+ *
+ * Nothing here is exotic: it is one phone editing while another taps Accept.
+ */
+test('an edit that lands between the read and the write is not clobbered by the acceptance', async () => {
+  await withHarness(async ({ storage }) => {
+    const { stored } = await offerProposal(storage);
+    const removed = stored.plan.scheduled[1]!.itemId;
+    const { acceptPlanProposal, PlanProposalRejected, editPlan } =
+      await import('../../lib/services/dailyPlan/planActions.ts');
+
+    const raced = racedStorage(storage, async () => {
+      // A real edit through the real mutator, on the real storage.
+      await editPlan(USER, DATE, { moves: [], removals: [removed] }, { storage });
+    });
+
+    // The outcome is captured rather than asserted first, so that the state of
+    // the user's data is what fails when it is wrong. A lost update that also
+    // reported success would otherwise be diagnosed as "no rejection thrown",
+    // which names the symptom furthest from the damage.
+    const failure: unknown = await acceptPlanProposal(USER, DATE, { storage: raced, now: () => new Date(PROPOSED_AT) })
+      .then(() => null, (error: unknown) => error);
+
+    const after = await readStoredPlan(USER, DATE, storage);
+    assert.ok(after);
+    assert.deepEqual([...after.edits.removals], [removed], 'the concurrent removal must survive');
+    assert.equal(after.status, 'edited', 'the concurrent status change must survive');
+    assert.equal(after.generation, stored.generation, 'the patch must not have been installed');
+    assert.deepEqual(after.plan.scheduled, stored.plan.scheduled);
+    assert.equal(after.proposal ?? null, null);
+    assert.ok(
+      failure instanceof PlanProposalRejected && failure.reason === 'no_proposal',
+      'the edit orphaned the patch, so there is nothing left to accept',
+    );
+
+    // And the user still sees their edit, not the pre-read plan.
+    const body = (await get()).body;
+    assert.ok(!body.plan!.scheduled.some((item) => item.itemId === removed));
+    assert.equal(body.proposal, null);
+  });
+});
+
+/* ── What the patch would do to a protected hour ─────────────────── */
+
+test('the proposal discloses the protections it would override', async () => {
+  await withHarness(async ({ storage }) => {
+    const before = await readStoredPlan(USER, DATE, storage);
+    const item = before!.plan.scheduled[0]!;
+    const block = before!.blocks.find((candidate) => candidate.source.id === item.itemId)!;
+    assert.equal((await act('protect', USER, {
+      blockId: block.blockId, ownership: 'protected_flexible', maxShiftMinutes: 45,
+    })).status, 200);
+
+    // The default patch shifts everything by an hour — past a 45-minute bound.
+    const { proposal } = await offerProposal(storage);
+    const rows = (await get()).body.proposal!.protections;
+    assert.equal(rows.length, 1, 'only protected blocks appear, as in the plan DTO');
+    const row = rows[0]!;
+    assert.equal(row.blockId, block.blockId);
+    assert.equal(row.itemId, item.itemId);
+    assert.equal(typeof row.title, 'string', 'a consent surface needs to name the thing being moved');
+    assert.deepEqual(row.preferredInterval, item.interval, 'what the user asked to keep');
+    assert.equal(row.maxShiftMinutes, 45);
+    assert.deepEqual(
+      row.proposedInterval,
+      proposal.plan.scheduled.find((entry) => entry.itemId === item.itemId)!.interval,
+      'and where the patch would put it instead',
+    );
+    assert.equal(row.overridden, true, 'a 60-minute move past a 45-minute bound is an override');
+  });
+});
+
+test('a proposed move inside the declared bound is disclosed and not called an override', async () => {
+  await withHarness(async ({ storage }) => {
+    const before = await readStoredPlan(USER, DATE, storage);
+    const item = before!.plan.scheduled[0]!;
+    const block = before!.blocks.find((candidate) => candidate.source.id === item.itemId)!;
+    assert.equal((await act('protect', USER, {
+      blockId: block.blockId, ownership: 'protected_flexible', maxShiftMinutes: 45,
+    })).status, 200);
+
+    await offerProposal(storage, USER, (stored) => {
+      const plan = patchPlan(stored.plan, { minutes: 30 });
+      return { plan, diff: diffPlans(stored.plan, plan) };
+    });
+
+    const row = (await get()).body.proposal!.protections[0]!;
+    assert.equal(row.maxShiftMinutes, 45);
+    assert.equal(row.overridden, false, '30 minutes is inside a 45-minute bound');
+    assert.notDeepEqual(row.proposedInterval, row.preferredInterval, 'it still moved, and is still disclosed');
+  });
+});
+
+test('a protected block the patch would leave unplaced is the strongest override', async () => {
+  await withHarness(async ({ storage }) => {
+    const before = await readStoredPlan(USER, DATE, storage);
+    const item = before!.plan.scheduled[0]!;
+    const block = before!.blocks.find((candidate) => candidate.source.id === item.itemId)!;
+    assert.equal((await act('protect', USER, {
+      blockId: block.blockId, ownership: 'protected_flexible', maxShiftMinutes: null,
+    })).status, 200);
+
+    await offerProposal(storage, USER, (stored) => {
+      const plan = patchPlan(stored.plan, { unschedule: [item.itemId] });
+      return { plan, diff: diffPlans(stored.plan, plan) };
+    });
+
+    const row = (await get()).body.proposal!.protections[0]!;
+    assert.equal(row.proposedInterval, null);
+    assert.equal(
+      row.overridden,
+      true,
+      'an unbounded protection would satisfy withinMaxShift; taking the placement away entirely must not read as "kept"',
+    );
   });
 });
 
