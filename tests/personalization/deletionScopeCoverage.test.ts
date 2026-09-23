@@ -21,6 +21,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import {
+  AI_CONTEXT_IMPORTS,
   BEHAVIOR_FEEDBACK,
   docIdForKey,
   FEEDBACK_BASELINES,
@@ -50,6 +51,7 @@ const PURGED: ReadonlySet<string> = new Set([
   MEMORY,
   BEHAVIOR_FEEDBACK,
   PROFILE_PROPOSALS,
+  AI_CONTEXT_IMPORTS,
   MEMORY_DISMISSALS,
   FOOTBALL_FOLLOWS,
 ]);

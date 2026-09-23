@@ -52,6 +52,13 @@
  * them made "delete everything" reversible from the outside. The thirty-minute
  * TTL bounds the window; it does not make the promise true inside it.
  *
+ * `aiContextImports` is the same argument one step further out. A staged import
+ * proposal holds short claims about a person written by *another company's*
+ * model, and a surviving one can be confirmed after the deletion into fresh
+ * memory records — with the relations still attached, so a confirm arriving
+ * after a purge could even supersede a record the user re-entered by hand. It
+ * purges here for the reason `profileProposals` does, and more urgently.
+ *
  * ── The third store this purge gained (football fixtures MVP, Task 7) ────
  *
  * `footballFollows` — which clubs a user follows — purges here too now,
@@ -138,7 +145,14 @@ import type { FeedbackEventStore } from '../../src/contracts/v1/feedbackContract
 import type { RuntimeMemoryStore } from '../../src/contracts/v1/memoryContracts';
 import { getStorage } from '../storage';
 import { releaseUnfollowedFixtures } from '../football/projectFixtures';
-import { BEHAVIOR_FEEDBACK, FOOTBALL_FOLLOWS, MEMORY_DISMISSALS, PROFILE_PROPOSALS, userCol } from '../storage/paths';
+import {
+  AI_CONTEXT_IMPORTS,
+  BEHAVIOR_FEEDBACK,
+  FOOTBALL_FOLLOWS,
+  MEMORY_DISMISSALS,
+  PROFILE_PROPOSALS,
+  userCol,
+} from '../storage/paths';
 import type { StorageAdapter } from '../storage/storageAdapter';
 
 export interface PersonalizationDeletionInput {
@@ -217,6 +231,7 @@ export async function deletePersonalizationScope(
   await input.feedbackEvents.deleteScope(input.scopeId);
   await clearUserCollection(storage, input.scopeId, BEHAVIOR_FEEDBACK);
   await clearUserCollection(storage, input.scopeId, PROFILE_PROPOSALS);
+  await clearUserCollection(storage, input.scopeId, AI_CONTEXT_IMPORTS);
   await clearUserCollection(storage, input.scopeId, MEMORY_DISMISSALS);
   await clearUserCollection(storage, input.scopeId, FOOTBALL_FOLLOWS);
   // With the follows gone, the matches they projected stop holding time: an
@@ -235,6 +250,7 @@ export async function deletePersonalizationScope(
     remainingRuntimeMemoryRecordCount: (await input.runtimeMemory.listAll(input.scopeId)).length,
     remainingBehaviorFeedbackCount: (await storage.list(userCol(input.scopeId, BEHAVIOR_FEEDBACK))).length,
     remainingProfileProposalCount: (await storage.list(userCol(input.scopeId, PROFILE_PROPOSALS))).length,
+    remainingAiContextImportCount: (await storage.list(userCol(input.scopeId, AI_CONTEXT_IMPORTS))).length,
     remainingMemoryDismissalCount: (await storage.list(userCol(input.scopeId, MEMORY_DISMISSALS))).length,
     remainingFootballFollowsCount: (await storage.list(userCol(input.scopeId, FOOTBALL_FOLLOWS))).length,
     // Structurally zero: nothing persists a profile. See the header.

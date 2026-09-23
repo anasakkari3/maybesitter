@@ -165,7 +165,13 @@ test('every mobile route file exists and is enumerated', () => {
   // actually happen. None of them takes a uid from anywhere but the verified
   // token, which is what makes another account's figures not filtered out of
   // these answers but absent from the collections they read.
-  assert.equal(files.length, 73, `found:\n${files.join('\n')}`);
+  // Seventy-five after the AI context import: `POST /profile/import` and `POST
+  // /profile/import/confirm`. The first is the route somebody's whole life
+  // summary travels over, written by another company's model and pasted whole.
+  // The second writes memory records under a proposal id that arrives in the
+  // *body* — so an unguarded confirm would let a caller who guessed an id write
+  // facts into an account that is not theirs.
+  assert.equal(files.length, 75, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {

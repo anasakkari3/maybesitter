@@ -161,6 +161,7 @@ function validReceipt(): PersonalizationDeletionReceipt {
     remainingRuntimeMemoryRecordCount: 0,
     remainingBehaviorFeedbackCount: 0,
     remainingProfileProposalCount: 0,
+    remainingAiContextImportCount: 0,
     remainingMemoryDismissalCount: 0,
     remainingFootballFollowsCount: 0,
     remainingPersistedProfileCount: 0,
