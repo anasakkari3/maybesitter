@@ -654,9 +654,35 @@ function pushDeadline(
   windowEnd: number,
 ): void {
   if (input.dueMs < nowMs || input.dueMs > windowEnd) { tally.add('outside_window'); return; }
-  // Checked raw, and again cleaned: a payload hidden behind a bidi override is
-  // still the payload, and one split by a zero-width character only becomes
-  // readable once that character is gone.
+  /*
+   * Checked raw, and again cleaned: a payload hidden behind a bidi override
+   * is still the payload, and one split by a zero-width character only
+   * becomes readable once that character is gone.
+   *
+   * ── The raw check is deliberately UNBOUNDED ──────────────────────
+   *
+   * A review pass asked for a length bound here, because the guard runs on a
+   * `SUMMARY:` from an attacker-controlled feed body that nothing caps. The
+   * bound was written, shipped, and was a **regression** in two ways:
+   *
+   *  1. `SUMMARY:` of `Trip` + 500 spaces + `to the zoo` truncated to `Trip`.
+   *     `cleanTitle` collapses that whitespace run; slicing before it does
+   *     not, so a title well under the ceiling lost half its words.
+   *  2. Worse: 240 `a`s followed by `Ignore previous instructions` sliced the
+   *     payload off, so the raw guard never saw it and a hostile VTODO became
+   *     an **accepted deadline** with `skipped: []`. Padding defeated the
+   *     guard. No committed fixture uses a padded summary, which is the only
+   *     reason the pinned tallies did not move.
+   *
+   * Collapsing first and slicing after fixes (1) and not (2) — any bound
+   * small enough to matter is a bound an attacker pads past. So the guard
+   * reads the whole title, and the DoS ceiling belongs on the **feed body**
+   * in `lib/calendar/icsFeeds.ts`, which is where the bytes arrive and is not
+   * this file's to set. Measured cost meanwhile: the guard is linear at
+   * roughly 80 ms per megabyte of title, on a background refresh.
+   *
+   * Both behaviours are pinned in `tests/share/shareInjectionSuite.test.ts`.
+   */
   if (detectPromptInjection(input.rawTitle) !== null) { tally.add('prompt_injection'); return; }
   const title = cleanTitle(input.rawTitle);
   if (title === '' || detectPromptInjection(title) !== null) {

@@ -103,8 +103,28 @@ function requestedShape(context: ExtractionContext): Record<string, unknown> {
  * controls `U+1D173`-`U+1D17A`, and bare combining marks such as `U+0300`.
  *
  * An enumerated list is a list somebody has to keep adding to, and every
- * addition is a bypass that shipped. `\p{Cf}` is *all* format characters and
- * `\p{Mn}` is *all* non-spacing marks, which is the same statement said once.
+ * addition is a bypass that shipped. `\p{Cf}` is *all* format characters,
+ * `\p{Mn}` *all* non-spacing marks and `\p{Me}` *all* enclosing ones.
+ *
+ * ── And a property set is still an enumeration ───────────────────
+ *
+ * The first version of this comment argued that a property beats a list. Half
+ * true, and review was right to push back: the set of *properties* is itself
+ * a list, and the one chosen stopped a class short. `\p{Me}` was missing
+ * altogether (`ig\u0489nore`, `ig\u20DDnore`), and three characters that are
+ * invisible without being marks or format characters were not covered by any
+ * property at all:
+ *
+ *   U+115F, U+1160  Hangul fillers. `Lo` — *letters* — that render blank.
+ *                   U+3164 and U+FFA0 are the famous ones (the blank
+ *                   username), and both NFKD onto U+1160, so folding the
+ *                   filler covers all four.
+ *   U+2065          unassigned, and passed through by every normaliser.
+ *   U+2800          BRAILLE PATTERN BLANK. `So`, and a space to every eye.
+ *
+ * So the four explicit codepoints below are not an oversight in a
+ * property-based design; they are the part of the problem properties do not
+ * describe, and they are listed rather than hidden behind a claim.
  *
  * ── `\p{Mn}` is also the diacritics fix ──────────────────────────
  *
@@ -125,7 +145,7 @@ const INVISIBLE_OR_COMBINING = new RegExp(
   // Built from a string rather than written as a literal: the root
   // `tsconfig.json` targets ES5, which refuses the `u` flag on a literal. The
   // runtime is Node 24 and supports it.
-  '[\\p{Cf}\\p{Mn}\\u{E0100}-\\u{E01EF}]',
+  '[\\p{Cf}\\p{Mn}\\p{Me}\\u{115F}\\u{1160}\\u{2065}\\u{2800}\\u{E0100}-\\u{E01EF}]',
   'gu',
 );
 
@@ -150,16 +170,47 @@ const TATWEEL = /ـ/g;
  * there is no text this can corrupt, and it only ever changes what the
  * patterns see, never what anybody is shown.
  *
- * Not exhaustive, and deliberately not: the full Unicode confusables table is
- * thousands of pairs and belongs in a library. This is the set that is one
- * keystroke away on a Cyrillic or Greek keyboard.
+ * ── ONE UNMAPPED SUBSTITUTION DEFEATS THE WHOLE FAMILY ──────────
+ *
+ * Say it plainly rather than letting the map imply coverage it does not have.
+ * This is a hand-kept table, the real one is UTS-39's confusables data with
+ * thousands of entries, and an attacker needs **one** character this map does
+ * not know to walk past every pattern below: `de\u04CFete a\u04CF\u04CF
+ * tasks` was null until `\u04CF` was added, and the next unmapped letter will
+ * do the same.
+ *
+ * It is kept because it costs nothing and closes the substitutions that are
+ * one keystroke away on a Cyrillic or Greek keyboard, which is what a casual
+ * attempt actually uses. It is **not** a control, and nothing in the threat
+ * model rests on it — the response type, the action allowlist and the confirm
+ * boundary do not care what script the text was in. Replacing it with a real
+ * UTS-39 skeleton is the right fix and is named in the threat model's known
+ * limitations.
  */
 const CONFUSABLES: ReadonlyMap<string, string> = new Map(Object.entries({
   а: 'a', в: 'b', с: 'c', е: 'e', н: 'h', і: 'i', ј: 'j', к: 'k', м: 'm',
   о: 'o', р: 'p', ѕ: 's', т: 't', у: 'y', х: 'x', ԁ: 'd', ɡ: 'g',
   А: 'A', В: 'B', С: 'C', Е: 'E', Н: 'H', І: 'I', Ј: 'J', К: 'K', М: 'M',
   О: 'O', Р: 'P', Ѕ: 'S', Т: 'T', У: 'Y', Х: 'X',
+  ӏ: 'l', ԛ: 'q', ԝ: 'w', һ: 'h', ҭ: 't', ӕ: 'ae', ә: 'e', ӡ: 'z',
   α: 'a', ο: 'o', ρ: 'p', τ: 't', υ: 'u', ν: 'v', κ: 'k', ι: 'i',
+  ϲ: 'c', ϳ: 'j', ո: 'n', օ: 'o', ց: 'g', ս: 's', ɑ: 'a',
+  /*
+   * The Latin small-capital block, U+1D00-U+1D2B and U+A730-U+A736, complete.
+   *
+   * Half a block was worse than none: `ᴅ ᴏ ᴄ ʀ ɢ ʜ ʟ ɪ` were mapped and
+   * `ᴇ ᴋ ᴛ ꜱ ᴍ ɴ ᴘ ᴜ` were not, so `dᴇlete all tasks`, `delete all tasᴋs` and
+   * `delete all taꜱks` all walked past a map that looked like it covered
+   * small caps. A block is either in or out.
+   */
+  'ᴀ': 'a', 'ʙ': 'b', 'ᴄ': 'c', 'ᴅ': 'd', 'ᴇ': 'e', 'ꜰ': 'f', 'ɢ': 'g', 'ʜ': 'h',
+  'ɪ': 'i', 'ᴊ': 'j', 'ᴋ': 'k', 'ʟ': 'l', 'ᴍ': 'm', 'ɴ': 'n', 'ᴏ': 'o', 'ᴘ': 'p',
+  'ꞯ': 'q', 'ʀ': 'r', 'ꜱ': 's', 'ᴛ': 't', 'ᴜ': 'u', 'ᴠ': 'v', 'ᴡ': 'w', 'ʏ': 'y',
+  'ᴢ': 'z',
+  // Three more single letters review found outside every block above,
+  // plus their neighbours in the same Cyrillic rows.
+  'ҽ': 'e', 'ĸ': 'k', 'ⱥ': 'a', 'ѵ': 'v', 'ӻ': 'f', 'ҍ': 'b', 'ғ': 'g', 'Ӌ': 'ch',
+  ς: 's', ϱ: 'p', ϑ: 'o', ϒ: 'Y', Ϲ: 'C', Ϸ: 'P',
   Α: 'A', Β: 'B', Ε: 'E', Ζ: 'Z', Η: 'H', Ι: 'I', Κ: 'K', Μ: 'M',
   Ν: 'N', Ο: 'O', Ρ: 'P', Τ: 'T', Υ: 'Y', Χ: 'X',
 }));
@@ -251,9 +302,38 @@ function unspaceLetters(text: string): string {
  * confusable fold touches only Cyrillic and Greek, and no pattern here
  * contains either.
  */
-function folded(pattern: RegExp): RegExp {
-  return new RegExp(normalizeForInjectionScan(pattern.source), pattern.flags);
+export function foldInjectionPattern(pattern: RegExp): RegExp {
+  const source = normalizeForInjectionScan(pattern.source);
+  /*
+   * ── A FOLD THAT EMPTIES AN ALTERNATIVE MATCHES EVERYTHING ───────
+   *
+   * The whole design bet here is that patterns and input agree by
+   * construction. The failure mode of that bet is silent and total: an
+   * alternative whose only content is a combining mark folds to nothing, so
+   * `/foo|\u0651/` becomes `/foo|/`, which matches the empty string and
+   * therefore every input. The attack half of the suite would go *greener*
+   * and only the benign half might notice — and the benign half is the half
+   * this repository has twice shipped with a hole in it.
+   *
+   * So the construction refuses the degenerate result at module load, where
+   * it is a crash on startup rather than a guard that says yes to everything.
+   */
+  if (source === '' || /(^|\|)(\||$)/.test(source)) {
+    throw new Error(`an injection pattern folded to an empty alternative: ${pattern.source}`);
+  }
+  return new RegExp(source, pattern.flags);
 }
+
+/**
+ * Exported for `tests/share/shareInjectionSuite.test.ts` only.
+ *
+ * A private helper would be the tidier choice, and it would leave the one
+ * thing this function exists for — refusing a fold that empties an
+ * alternative — with no test at all. Mutating the refusal away left the suite
+ * at 19/19 green, which is exactly the shape of defect this repository keeps
+ * shipping.
+ */
+const folded = foldInjectionPattern;
 
 /**
  * The families, compiled once at module load.
@@ -262,10 +342,10 @@ function folded(pattern: RegExp): RegExp {
  * regexes, and rebuilding the array per call would pay for that on every
  * capture, every ICS title and every share segment.
  */
-const INJECTION_PATTERNS: Array<[string, RegExp]> = [
-  ['system_prompt_exfiltration', folded(/\b(system prompt|developer message|hidden instructions)\b|ה-?system prompt|הפרומפט|تعليمات النظام|التعليمات المخفية|أرسل.{0,20}(البرومبت|التعليمات)/i)],
-  ['instruction_override', folded(/\b(ignore|disregard|override|forget)\b.{0,50}\b(previous|prior|above|instructions?|schema|system|rules?)\b|\bignore\b.{0,50}(التعليمات|הוראות)|(تجاهل|انس|تجاوز).{0,50}(التعليمات|التوجيهات|schema)|اعتبر.{0,50}تعليمات نظام|(התעלם|שכח|עקוף).{0,50}(הוראות|מערכת|הקודמות)/i)],
-  ['format_override', folded(/\b(return|respond|answer|reply)\b.{0,40}\b(plain text|poem|markdown|yaml|xml)\b|لا ترجع JSON|(بدل|بدلا? من).{0,20}JSON|جواب.{0,20}عادي|טקסט רגיל|במקום JSON|תחזיר.{0,20}(markdown|yaml|xml)/i)],
+export const INJECTION_PATTERNS: Array<[string, RegExp]> = [
+  ['system_prompt_exfiltration', folded(/\b(system prompt|developer message|hidden instructions)\b|ה-?system prompt|פרומפט המערכת|הפרומפט של המערכת|تعليمات النظام|التعليمات المخفية|أرسل.{0,20}البرومبت/i)],
+  ['instruction_override', folded(/\b(?:ignore|disregard|override|(?<!\bdo not )(?<!\bdon't )(?<!\bdont )(?<!\bnever )forget)\b.{0,50}\b(instructions?|schema|prompt|system)\b|\bignore\b.{0,50}(التعليمات|הוראות)|(تجاهل|انس|تجاوز).{0,50}(التعليمات|التوجيهات|schema)|اعتبر.{0,50}تعليمات نظام|(התעלם|(?<!אל ת)(?<!לא ת)שכח|עקוף).{0,50}(הוראות|מערכת)/i)],
+  ['format_override', folded(/\b(return|respond|answer)\b.{0,40}\b(plain text|poem|markdown|yaml|xml)\b|لا ترجع JSON|(بدل|بدلا? من).{0,20}JSON|جواب.{0,20}عادي|טקסט רגיל|במקום JSON|תחזיר.{0,20}(markdown|yaml|xml)/i)],
   ['unknown_field_attack', folded(/\b(add|include|create)\b.{0,30}\b(field|property)\b.{0,30}\b(secret|token|password)\b|(?:ضيف|أضف).{0,30}حقل.{0,30}(?:secret|token|password)|הוסף.{0,30}שדה.{0,30}(?:secret|token|password)/i)],
   ['fake_role', folded(/["']?role["']?\s*:\s*["']?(system|developer)|\[SYSTEM(?:_MESSAGE)?\]|<system>|<\/system>/i)],
   ['markup_payload', folded(/```(?:markdown|yaml|xml)?|^---\s*$|<!DOCTYPE|<\?xml/im)],
@@ -294,7 +374,7 @@ const INJECTION_PATTERNS: Array<[string, RegExp]> = [
      * for the swimming course". A role noun is required, and it is the
      * short list of roles somebody would try to claim.
      */
-    folded(/\b(you are now|from now on,? you (are|will be)|act as|behave as|pretend (?:that )?you (?:are|were)|you must act like)\b[^.!?\n]{0,30}\b(system|admin|administrator|developer|assistant|operator|root|superuser|unrestricted|jailbroken|dan)\b|(أنت الآن|من الآن فصاعدا|تصرف كأنك|اعتبر نفسك)[^.!?\n]{0,30}(النظام|مدير|مطور|مساعد|المشرف)|(אתה עכשיו|מעכשיו אתה|התנהג כאילו אתה|תתנהג כמו)[^.!?\n]{0,30}(מערכת|המערכת|מנהל|מפתח|עוזר|אדמין)/i),
+    folded(/\b(you are now|from now on,? you (are|will be)|act as|behave as|pretend (?:that )?you (?:are|were)|you must act like)\b[^.!?\n]{0,30}\b(system|root|superuser|unrestricted|jailbroken|dan|system admin(?:istrator)?|system developer)\b|(أنت الآن|من الآن فصاعدا|تصرف كأنك|اعتبر نفسك)[^.!?\n]{0,30}(مدير النظام|مسؤول النظام)|(אתה עכשיו|מעכשיו אתה|התנהג כאילו אתה|תתנהג כמו)[^.!?\n]{0,30}(מנהל\s+ה?מערכת|אדמין של המערכת)/i),
   ],
   [
     'assistant_command',
@@ -328,38 +408,46 @@ const INJECTION_PATTERNS: Array<[string, RegExp]> = [
      * speech without one, and the guard is a filter in front of the controls
      * that hold the invariant, not the wall.
      */
-    folded(/\b(delete|remove|clear|wipe|drop|erase)\b[^.!?\n]{0,30}\b(all|every|each|entire|whole|other|everything|all of (?:it|them))\b[^.!?\n]{0,30}\b(tasks?|commitments?|items?|reminders?|events?|data)\b|\bauto[- ]?confirm\b|\b(confirm|save|accept|approve)\b[^.!?\n]{0,30}\b(automatically|without (asking|confirmation|approval|permission))\b|(احذف|امسح|الغ[ِيی]?|أزل)[^.!?\n]{0,30}(كل|جميع|كافة)[^.!?\n]{0,30}(مهام|الالتزامات|العناصر|التذكيرات|المواعيد|البيانات)|علم[^.!?\n]{0,25}(كل|جميع)[^.!?\n]{0,25}(منجز|مكتمل)|(أكد|احفظ|اقبل)[^.!?\n]{0,35}(تلقائيا|تلقائيًا|تلقائياً|بدون (سؤال|تأكيد|موافقة|إذن))|(מחק|תמחק|הסר|נקה|תנקה)[^.!?\n]{0,30}(את )?(כל|כול)[^.!?\n]{0,30}(המשימות|המטלות|ההתחייבויות|הפריטים|התזכורות|האירועים|הנתונים)|(אשר|שמור|קבל)[^.!?\n]{0,35}(אוטומטית|בלי (לשאול|אישור|רשות))/i),
+    folded(/\b(delete|remove|clear|wipe|drop|erase)\b[^.!?\n]{0,30}\b(all|every|each|other)\s+(?:(?:my|your|our)\s+)?(?:tasks?|commitments?)\b|\b(delete|remove|clear|wipe|drop|erase)\b[^.!?\n]{0,30}\b(all|every|each|entire|whole)\s+(?:of\s+)?(?:my|your|our)\s+(?:tasks?|commitments?|reminders?|to-?dos?|appointments?)\b|\b(delete|remove|clear|wipe|drop|erase)\b[^.!?\n]{0,20}\b(everything|all of (?:it|them))\b[^.!?\n]{0,20}\b(?:my|your|our)\s+(?:tasks?|commitments?|to-?dos?|list)\b|\bauto[- ]?confirm\b|\b(confirm|save|accept|approve)\b[^.!?\n]{0,20}\b(all|every|everything)\b[^.!?\n]{0,30}\b(automatically|without (asking|confirmation|approval|permission))\b|(احذف|امسح|الغ[ِيی]?|أزل)[^.!?\n]{0,30}(كل|جميع|كافة)[^.!?\n]{0,30}(مهام|الالتزامات)|(أكد|احفظ|اقبل)[^.!?\n]{0,20}(كل|جميع)[^.!?\n]{0,35}(تلقائيا|تلقائيًا|تلقائياً|بدون (سؤال|تأكيد|موافقة|إذن))|(מחק|תמחק|הסר|נקה|תנקה)[^.!?\n]{0,30}(את )?(כל|כול)[^.!?\n]{0,30}(המשימות|המטלות|ההתחייבויות)|(אשר|שמור|קבל)[^.!?\n]{0,20}(כל|כול)[^.!?\n]{0,35}(אוטומטית|בלי (לשאול|אישור|רשות))/i),
   ],
   [
     'calendar_subscribe',
     /*
-     * ══ A REAL ADDRESS, IN EVERY BRANCH ═════════════════════════
+     * ══ A SCHOOL NOTICE AND AN ATTACK ARE THE SAME SENTENCE ═════
      *
-     * "Subscribe to the school calendar — parents evening Monday" is a
-     * notice, not an instruction, and the first draft flagged it. The second
-     * draft said so in this very comment and then failed to do it: a third
-     * branch accepted the *word* `url`/`link`/`address` as a stand-in for an
-     * address, so
+     * This family has been wrong twice, and the second time was worse than
+     * the first.
      *
-     *   "Add the school calendar link to your phone"
+     * Draft two required a real address instead of the *word* `link`. Review
+     * pointed out that this does not save the sentence it was written for:
      *
-     * — verb, calendar, link, and no address anywhere — was flagged. A parent
-     * telling another parent to add the school calendar then lost every item
-     * in their message, because one hit makes `extractWithFallback` reject
-     * the whole input. It was English-only: the Arabic and Hebrew branches
-     * always required an address, which is why «أضف رابط التقويم» and «הוסף
-     * את הקישור ליומן» were clean the whole time.
+     *   "Subscribe to the school calendar: https://school.example.test/cal.ics"
      *
-     * That branch is **deleted** rather than tightened. Requiring an address
-     * in it would have made it `verb … calendar … link … address`, which the
-     * first branch already matches with one requirement fewer — a strictly
-     * narrower duplicate is dead code that reads like a control.
+     * is a real notice from a real school, it carries its own URL, and verb +
+     * calendar + URL matches it exactly. There is no lexical difference
+     * between that and "subscribe to this calendar: <hostile url>", because
+     * **there is no difference**. A message carrying a calendar URL is not an
+     * attack.
      *
-     * What remains: a bare `webcal:`, or verb + calendar/feed + a real
-     * address, in either order — because "here is the link, subscribe to it"
-     * is as natural as the other way round.
+     * That also means three lines in this repository's own corpus were
+     * mislabelled: they were school notices with the hostname changed. They
+     * have been rewritten, and the family now requires what the other two
+     * require and this one never did — **the assistant as the addressee**.
+     * An instruction to subscribe *on the user's behalf, without asking* is
+     * an attack; a link in a newsletter is not.
+     *
+     * Line-scoped lookaheads rather than a chain of `.{0,N}` bridges, because
+     * the four tokens arrive in any order and a bridge would need every
+     * permutation.
+     *
+     * What is deliberately *not* caught, and is in the threat model: a bare
+     * "subscribe to this calendar <url>". The invariant it would protect is
+     * held structurally instead — no field in the share response can express
+     * a subscription, creating a feed needs `POST /api/mobile/ics-feeds` and
+     * an explicit user action, and `titleDropReason` drops any proposed item
+     * whose title carries a URL at all.
      */
-    folded(/webcal:|\b(subscribe|sign up|add|import|sync)\b[^.!?\n]{0,60}\b(calendar|feed|ics)\b[^.!?\n]{0,60}(https?:\/\/|www\.)|(https?:\/\/|www\.)[^\s]{0,80}[^.!?\n]{0,40}\b(subscribe|sign up|add|import|sync)\b[^.!?\n]{0,40}\b(calendar|feed|ics)\b|(اشترك|سجل|أضف|ضيف)[^.!?\n]{0,60}(التقويم|الرزنامة|التغذية)[^.!?\n]{0,60}(https?:\/\/|www\.)|(הירשם|הרשם|הצטרף|הוסף|תוסיף)[^.!?\n]{0,60}(ליומן|יומן|הזנה)[^.!?\n]{0,60}(https?:\/\/|www\.)/i),
+    folded(/^(?=[^\n]*\b(subscribe|sign up|add|import|sync)\b)(?=[^\n]*\b(calendar|feed|ics)\b)(?=[^\n]*(https?:\/\/|www\.|webcal:))(?=[^\n]*\b(automatically|without asking|without confirmation|on my behalf)\b)|^(?=[^\n]*(اشترك|سجل|أضف|ضيف))(?=[^\n]*(التقويم|الرزنامة|التغذية))(?=[^\n]*(https?:\/\/|www\.|webcal:))(?=[^\n]*(تلقائيا|تلقائيًا|تلقائياً|بدون سؤال|بدون إذن))|^(?=[^\n]*(הירשם|הרשם|הצטרף|הוסף|תוסיף))(?=[^\n]*(ליומן|יומן|הזנה))(?=[^\n]*(https?:\/\/|www\.|webcal:))(?=[^\n]*(אוטומטית|בלי לשאול|בלי אישור))/im),
   ],
 ];
 

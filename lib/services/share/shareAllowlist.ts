@@ -118,7 +118,18 @@ export type ShareDropReason =
   /** An `itemId` that was absent, oversized, or a link. */
   | 'unusable_id'
   /** A seed whose shape or whose rendered summary this will not pass on. */
-  | 'unreadable_seed';
+  | 'unreadable_seed'
+  /**
+   * A field the contract declares, carrying a value it does not allow.
+   *
+   * Its own reason, because the item itself survives. Review's finding: a
+   * hostile `clarification.params`, a `resolvedTime` that is an object and a
+   * free-text `priority` were all stripped correctly and **silently** — the
+   * item came back with `drops: []`, so `ignoredSegments` was 0 and the
+   * review screen told the person nothing had been ignored. `rebuildSeeds`
+   * already reported its drops; these did not.
+   */
+  | 'unusable_value';
 
 export interface ShareAllowlistDrop {
   /** The item's index in the input, or null for a proposal-level refusal. */
@@ -154,8 +165,20 @@ function isObject(value: unknown): value is Record<string, unknown> {
  * second vocabulary that drifts from the first (Sprint 06's lesson, stated at
  * the top of `postValidator.ts`).
  */
+/**
+ * The most characters one proposed title may carry.
+ *
+ * `MAX_TITLE_LENGTH` in `lib/calendar/icsImport.ts`, deliberately the same
+ * number: both are "a title a person reads on a review screen", and two
+ * ceilings for one idea drift. A model talked into returning a paragraph as a
+ * title is not caught by any check above this — the paragraph contains no URL
+ * and no instruction — it just makes the review screen unreadable.
+ */
+export const MAX_TITLE_CHARACTERS = 120;
+
 export function titleDropReason(title: unknown): ShareDropReason | null {
   if (typeof title !== 'string' || title.trim() === '') return 'unusable_title';
+  if (Array.from(title).length > MAX_TITLE_CHARACTERS) return 'unusable_title';
   return freeTextDropReason(title);
 }
 
@@ -215,12 +238,18 @@ const NO_COMMITMENT_REASONS: readonly string[] = [
  * not the type the contract declares is dropped rather than coerced.
  * Coercing would be this file inventing data.
  */
-function rebuildClarification(raw: unknown): unknown {
+function rebuildClarification(
+  raw: unknown,
+  report: (field: string) => void,
+): unknown {
   if (raw === null || raw === undefined) return raw;
-  if (!isObject(raw)) return null;
-  if (!isSafeId(raw.questionId) || typeof raw.questionKey !== 'string') return null;
-  if (freeTextDropReason(raw.questionKey) !== null) return null;
-  if (typeof raw.field !== 'string' || !CLARIFICATION_FIELDS.includes(raw.field)) return null;
+  if (!isObject(raw)) { report('clarification'); return null; }
+  if (!isSafeId(raw.questionId) || typeof raw.questionKey !== 'string') { report('clarification'); return null; }
+  if (freeTextDropReason(raw.questionKey) !== null) { report('clarification.questionKey'); return null; }
+  if (typeof raw.field !== 'string' || !CLARIFICATION_FIELDS.includes(raw.field)) {
+    report('clarification.field');
+    return null;
+  }
   const params: Record<string, string> = {};
   if (isObject(raw.params)) {
     for (const key of Object.keys(raw.params)) {
@@ -228,6 +257,7 @@ function rebuildClarification(raw: unknown): unknown {
       // Rendered into the sentence the phone shows. Screened exactly as a
       // title is, because it reaches the same eyes.
       if (typeof value === 'string' && freeTextDropReason(value) === null) params[key] = value;
+      else report('clarification.params');
     }
   }
   const options: unknown[] = [];
@@ -241,6 +271,7 @@ function rebuildClarification(raw: unknown): unknown {
         for (const key of Object.keys(option.labelParams)) {
           const value = option.labelParams[key];
           if (typeof value === 'string' && freeTextDropReason(value) === null) labelParams[key] = value;
+          else report('clarification.options[].labelParams');
         }
       }
       const value: Record<string, string> = {};
@@ -370,18 +401,37 @@ export function applyShareActionAllowlist<T>(raw: unknown): ShareAllowlistResult
      * is what the unknown-field check above reads — saw nothing to refuse.
      * The two loops disagreed about what the object contained.
      */
+    /*
+     * Every value this strips is *reported*, not only removed.
+     *
+     * A drop the envelope does not count is a drop the person is not told
+     * about: `ignoredSegments` is what the review screen renders as "some
+     * parts were ignored", and an item whose clarification was a payload
+     * came back looking untouched.
+     */
+    const report = (field: string) => { drops.push({ index, reason: 'unusable_value', field }); };
     const item: Record<string, unknown> = { itemId: candidate.itemId, title: candidate.title };
-    item.resolvedTime = candidate.resolvedTime === null || candidate.resolvedTime === undefined
-      ? null
-      : isIsoLike(candidate.resolvedTime) ? candidate.resolvedTime : null;
+    if (candidate.resolvedTime === null || candidate.resolvedTime === undefined) {
+      item.resolvedTime = null;
+    } else if (isIsoLike(candidate.resolvedTime)) {
+      item.resolvedTime = candidate.resolvedTime;
+    } else {
+      // An object here is a crash on the phone, not a refusal: the client's
+      // schema is `.strict()` and expects `string | null`.
+      report('resolvedTime');
+      item.resolvedTime = null;
+    }
     item.needsClarification = candidate.needsClarification === true;
-    if (owns(candidate, 'priority') && typeof candidate.priority === 'string'
-      && PRIORITY_LEVELS.includes(candidate.priority)) {
-      item.priority = candidate.priority;
+    if (owns(candidate, 'priority')) {
+      if (typeof candidate.priority === 'string' && PRIORITY_LEVELS.includes(candidate.priority)) {
+        item.priority = candidate.priority;
+      } else {
+        report('priority');
+      }
     }
     if (owns(candidate, 'priorityEstimated')) item.priorityEstimated = candidate.priorityEstimated === true;
     if (owns(candidate, 'clarification')) {
-      const clarification = rebuildClarification(candidate.clarification);
+      const clarification = rebuildClarification(candidate.clarification, report);
       if (clarification !== undefined) item.clarification = clarification;
     }
     items.push(item);
